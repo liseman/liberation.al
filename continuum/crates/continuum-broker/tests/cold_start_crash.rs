@@ -18,11 +18,22 @@ use continuum_core::{
 use proptest::prelude::*;
 
 fn uid(tag: u8, n: u32) -> Uuid {
+    // Realistic UUIDv7 layout: 48-bit monotonic timestamp prefix advancing with `(n, tag)` plus deterministic
+    // SplitMix64 low bits so key bisection sees realistic time-ordered UUIDv7 prefixes rather than four byte-0 tags.
+    let ts_ms = 0x0193_0000_0000_u64 + (u64::from(n) << 8) + u64::from(tag);
+    let mut z = ts_ms.wrapping_add(0x9e37_79b9_7f4a_7c15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    let rand = z ^ (z >> 31);
+    let rand_bytes = rand.to_be_bytes();
+
     let mut b = [0u8; 16];
-    b[0] = tag;
-    b[6] = 0x70;
-    b[8] = 0x80;
-    b[12..].copy_from_slice(&n.to_be_bytes());
+    b[0..6].copy_from_slice(&ts_ms.to_be_bytes()[2..8]);
+    b[6] = 0x70 | (rand_bytes[0] & 0x0f);
+    b[7] = rand_bytes[1];
+    b[8] = 0x80 | (rand_bytes[2] & 0x3f);
+    b[9..15].copy_from_slice(&rand_bytes[2..8]);
+    b[15] = tag;
     Uuid(b)
 }
 
@@ -84,8 +95,10 @@ fn assert_same_names(a: &AvailabilityIndex, b: &AvailabilityIndex) {
 
 /// Copies a crashed catalog file (closed uncleanly by dropping its handle) and compares:
 /// 1. Fast snapshot-backed `index::load` + `clear_stale_tier0`,
-/// 2. Full broker startup recovery (`startup_recover`, testing checkpoint restore or fallback), and
-/// 3. Full paged reference rebuild (`index::load_paged` + `clear_stale_tier0`).
+/// 2. Lower-threshold sharded scan (`min_parallel_payloads = 1`) and parallel apply (`min_parallel_copies = 1`),
+///    each individually and together,
+/// 3. Full broker startup recovery (`startup_recover`, testing checkpoint restore or fallback), and
+/// 4. Full paged reference rebuild (`index::load_paged` + `clear_stale_tier0`).
 fn assert_crash_parity(crashed_path: &Path, page: usize) {
     let dir = tempfile::tempdir().unwrap();
     let full_path = dir.path().join("full.redb");
@@ -97,14 +110,37 @@ fn assert_crash_parity(crashed_path: &Path, page: usize) {
 
     let full_cat = RedbCatalog::open(&full_path).unwrap();
     let (full_idx, full_stats): (AvailabilityIndex, LoadStats) = index::load_paged(&full_cat, page).unwrap();
+    let full_snap = full_idx.snapshot();
     let full_cleared = clear_stale_tier0(&full_cat, &full_stats.stale_tier0).unwrap();
 
     let fast_cat = RedbCatalog::open(&fast_path).unwrap();
-    assert!(fast_cat.availability_snapshot().unwrap().is_some(), "RedbCatalog must supply availability_snapshot");
+
+    // Exercise the sharded parallel scan on small random histories, compared against the paged reference path.
+    let (sharded_snap, _) = fast_cat.availability_snapshot_for_test(1).unwrap();
+    let (sharded_idx, sharded_stats) = index::load_from_snapshot_for_test(sharded_snap, usize::MAX);
+    assert_eq!(sharded_idx.snapshot(), full_snap, "sharded scan diverged from full paged rebuild");
+    assert_eq!(sharded_stats, full_stats, "sharded scan LoadStats diverged from full paged rebuild");
+    assert_same_names(&sharded_idx, &full_idx);
+
+    // Exercise the parallel per-stream apply on small random histories, compared against the paged reference path.
+    let default_snap =
+        fast_cat.availability_snapshot().unwrap().expect("RedbCatalog must supply availability_snapshot");
+    let (par_apply_idx, par_apply_stats) = index::load_from_snapshot_for_test(default_snap, 1);
+    assert_eq!(par_apply_idx.snapshot(), full_snap, "parallel apply diverged from full paged rebuild");
+    assert_eq!(par_apply_stats, full_stats, "parallel apply LoadStats diverged from full paged rebuild");
+    assert_same_names(&par_apply_idx, &full_idx);
+
+    // Exercise both lowered thresholds together before running production `index::load` + `clear_stale_tier0`.
+    let (both_snap, _) = fast_cat.availability_snapshot_for_test(1).unwrap();
+    let (both_idx, both_stats) = index::load_from_snapshot_for_test(both_snap, 1);
+    assert_eq!(both_idx.snapshot(), full_snap, "combined sharded scan + parallel apply diverged from paged rebuild");
+    assert_eq!(both_stats, full_stats, "combined sharded scan + parallel apply LoadStats diverged");
+    assert_same_names(&both_idx, &full_idx);
+
     let (fast_idx, fast_stats) = index::load(&fast_cat, page).unwrap();
     let fast_cleared = clear_stale_tier0(&fast_cat, &fast_stats.stale_tier0).unwrap();
 
-    assert_eq!(fast_idx.snapshot(), full_idx.snapshot(), "fast scan snapshot diverged from full paged rebuild");
+    assert_eq!(fast_idx.snapshot(), full_snap, "fast scan snapshot diverged from full paged rebuild");
     assert_eq!(fast_stats, full_stats, "fast scan LoadStats diverged from full paged rebuild");
     assert_eq!(fast_cleared, full_cleared, "fast scan cleared Tier 0 count diverged from full paged rebuild");
     assert_same_names(&fast_idx, &full_idx);
@@ -589,16 +625,10 @@ impl Harness {
     }
 }
 
-#[test]
-fn parallel_sharded_crash_recovery_with_cuts_extend_chunk_and_mid_purge_matches_full_rebuild() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("parallel_crash.redb");
-    let catalog = RedbCatalog::open(&path).unwrap();
-    let mut h = Harness::new(&catalog);
-
-    // Seed over 5,000 payloads across sensor and derived streams so both the 64-shard parallel RedbCatalog scan
-    // (`PARALLEL_MIN_PAYLOADS = 4096`) and parallel per-stream `CopySet` construction run.
-    for batch_idx in 0..110u32 {
+/// Seeds 7,000 payloads (>4,096 payloads and >4,300 durable Tier 1/Tier 2 copies) across sensor and derived streams
+/// so production `index::load` exceeds both `PARALLEL_MIN_PAYLOADS` and `PARALLEL_APPLY_MIN_COPIES`.
+fn seed_bulk_catalog(catalog: &RedbCatalog, h: &mut Harness) {
+    for batch_idx in 0..140u32 {
         let mut batch = Vec::with_capacity(50);
         for k in 0..50u32 {
             let (n, id) = h.alloc_id(u8::try_from((batch_idx + k) % 4).unwrap());
@@ -613,12 +643,13 @@ fn parallel_sharded_crash_recovery_with_cuts_extend_chunk_and_mid_purge_matches_
             if k % 11 == 0 {
                 spec.subjects = vec![uid(0xee, 900)];
             }
-            let location = match (batch_idx + k) % 6 {
+            let pick = (batch_idx + k) % 8;
+            let location = match pick {
                 0 => Some(shm(n)),
                 1 => Some(ring_loc(u64::from(n))),
-                2 => None,
-                3 => Some(StorageLocator::Inline { bytes: vec![0x55; 48] }),
-                4 => Some(chunk_loc(StorageTier::Tier1Warm, "warm-bulk", u64::from(n))),
+                2 if (batch_idx + k).is_multiple_of(16) => None,
+                2 => Some(StorageLocator::Inline { bytes: vec![0x55; 48] }),
+                3..=5 => Some(chunk_loc(StorageTier::Tier1Warm, "warm-bulk", u64::from(n))),
                 _ => Some(chunk_loc(StorageTier::Tier2Cold, "cold-bulk", u64::from(n))),
             };
             let coverage = (k % 9 == 0).then(|| CoverageMark {
@@ -630,11 +661,65 @@ fn parallel_sharded_crash_recovery_with_cuts_extend_chunk_and_mid_purge_matches_
             h.all_ids.push(id);
             if stream == h.cam_rated {
                 h.rated_raw.push(RawFrame { id, start_ns: start, end_ns: end, seq: 0 });
+            } else if stream == h.cam_plain {
+                h.plain_raw.push(RawFrame { id, start_ns: start, end_ns: end, seq: 0 });
             }
         }
         catalog.insert(batch).unwrap();
     }
-    h.rated_time = 600_000;
+    h.rated_time = 800_000;
+    h.plain_time = 800_000;
+}
+
+#[test]
+fn parallel_sharded_fast_path_without_collision_matches_full_rebuild() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("parallel_no_collision.redb");
+    let catalog = RedbCatalog::open(&path).unwrap();
+    let mut h = Harness::new(&catalog);
+    seed_bulk_catalog(&catalog, &mut h);
+
+    // Commit, extend, and rewrite chunks WITHOUT colliding on the first frame's `(stream, start_ns, seq)` key so
+    // `TIME_INDEX.len() == PAYLOADS.len()` (`present_ids == None`) runs across the 64-shard parallel scan and
+    // parallel per-stream `CopySet` apply.
+    h.apply(
+        &catalog,
+        Op::CommitChunk { rated: true, take: 4, cut_mask: 0b0010, collide_first_key: false, cold: false },
+    );
+    h.apply(&catalog, Op::ExtendChunk { chunk_pick: 0, take: 3, cut_mask: 0b0100, cold: true });
+    h.apply(
+        &catalog,
+        Op::CommitChunk { rated: false, take: 4, cut_mask: 0b0000, collide_first_key: false, cold: false },
+    );
+    h.apply(&catalog, Op::RewriteChunk { chunk_pick: 1, cold: true });
+
+    // Invalidate a checkpoint and leave range and entity purges mid-step with active `DOOMED` and `CHUNKS` cuts.
+    h.apply(&catalog, Op::Checkpoint(CheckpointMode::Valid));
+    h.apply(&catalog, Op::StartPurge(PurgeKind::Entity(false)));
+    h.apply(&catalog, Op::StepPurge { purge_pick: 0, budget: 3, finish: false });
+    h.apply(&catalog, Op::StartPurge(PurgeKind::Range { start: 100, len: 2_500, all_streams: false }));
+    h.apply(&catalog, Op::StepPurge { purge_pick: 1, budget: 4, finish: false });
+
+    drop(catalog);
+
+    let check_cat = RedbCatalog::open(&path).unwrap();
+    let (snap, used_fallback) = check_cat.availability_snapshot_for_test(4_096).unwrap();
+    assert!(!used_fallback, "non-colliding large history must take the present_ids == None fast path");
+    assert!(snap.payloads > 6_000, "expected >6,000 live payloads, got {}", snap.payloads);
+    drop(check_cat);
+
+    for page in [1, 17, 1024] {
+        assert_crash_parity(&path, page);
+    }
+}
+
+#[test]
+fn parallel_sharded_crash_recovery_with_cuts_extend_chunk_and_mid_purge_matches_full_rebuild() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("parallel_crash.redb");
+    let catalog = RedbCatalog::open(&path).unwrap();
+    let mut h = Harness::new(&catalog);
+    seed_bulk_catalog(&catalog, &mut h);
 
     // Commit a chunk whose first frame is worker-cut AND shares `(stream, start_ns, seq)` with the chunk,
     // exercising `TIME_INDEX.len() < PAYLOADS.len()`, then extend it with `extend_chunk`.
@@ -651,6 +736,12 @@ fn parallel_sharded_crash_recovery_with_cuts_extend_chunk_and_mid_purge_matches_
 
     // Simulate an unplanned crash by dropping `RedbCatalog` without `close()`.
     drop(catalog);
+
+    let check_cat = RedbCatalog::open(&path).unwrap();
+    let (snap, used_fallback) = check_cat.availability_snapshot_for_test(4_096).unwrap();
+    assert!(used_fallback, "colliding worker-cut first frame must take the present_ids fallback");
+    assert!(snap.payloads > 6_000, "expected >6,000 live payloads, got {}", snap.payloads);
+    drop(check_cat);
 
     for page in [1, 17, 1024] {
         assert_crash_parity(&path, page);

@@ -249,6 +249,7 @@ fn collect_shards(
 #[derive(Default)]
 struct ShardOut {
     payloads: usize,
+    matched_present_ids: usize,
     stream_copies: Vec<Vec<AvailabilityCopy>>,
     cut_chunks: Vec<AvailabilityCutChunk>,
     stale_tier0: Vec<Uuid>,
@@ -267,6 +268,7 @@ struct ScanTables<'a> {
 fn scan_shard(tables: &ScanTables<'_>, lo: [u8; 16], hi: [u8; 16]) -> Result<ShardOut> {
     let mut out = ShardOut {
         payloads: 0,
+        matched_present_ids: 0,
         stream_copies: vec![Vec::new(); tables.stream_count],
         cut_chunks: Vec::new(),
         stale_tier0: Vec::new(),
@@ -291,6 +293,17 @@ fn scan_shard(tables: &ScanTables<'_>, lo: [u8; 16], hi: [u8; 16]) -> Result<Sha
         let (pk, pv) = row?;
         let raw_key: [u8; 16] = pk.value().try_into().map_err(|_| corrupt("payload key"))?;
 
+        if let Some(present) = tables.present_ids {
+            while present_pos < present.len() && present[present_pos] < raw_key {
+                present_pos += 1;
+            }
+            if present.get(present_pos) != Some(&raw_key) {
+                continue;
+            }
+            present_pos += 1;
+            out.matched_present_ids += 1;
+        }
+
         if let Some(dc) = &mut doomed_cursor {
             let mut is_doomed = false;
             while let Some(dk) = dc.key() {
@@ -310,16 +323,6 @@ fn scan_shard(tables: &ScanTables<'_>, lo: [u8; 16], hi: [u8; 16]) -> Result<Sha
             if is_doomed {
                 continue;
             }
-        }
-
-        if let Some(present) = tables.present_ids {
-            while present_pos < present.len() && present[present_pos] < raw_key {
-                present_pos += 1;
-            }
-            if present.get(present_pos) != Some(&raw_key) {
-                continue;
-            }
-            present_pos += 1;
         }
 
         let (hdr_id, stream, span, seq) = fast_header_fields(pv.value())?;
@@ -388,8 +391,8 @@ fn scan_shard(tables: &ScanTables<'_>, lo: [u8; 16], hi: [u8; 16]) -> Result<Sha
     Ok(out)
 }
 
-/// Collects every payload id present in `TIME_INDEX`, sorted by UUID. Only called in the rare case where a
-/// worker-cut frame's `(stream, start_ns, seq)` key was taken by a chunk (`TIME_INDEX.len() < PAYLOADS.len()`).
+/// Collects every payload id present in `TIME_INDEX`, sorted by UUID. Called whenever `TIME_INDEX.len() != PAYLOADS.len()`,
+/// which occurs when a chunk overwrites a worker-cut first frame's `(stream, start_ns, seq)` key.
 fn collect_time_indexed_ids(ti: &ReadTable) -> Result<Vec<[u8; 16]>> {
     let cap = usize::try_from(ti.len()?).unwrap_or(0);
     let mut ids = Vec::with_capacity(cap);
@@ -402,10 +405,18 @@ fn collect_time_indexed_ids(ti: &ReadTable) -> Result<Vec<[u8; 16]>> {
         ids.push(id);
     }
     ids.sort_unstable();
+    debug_assert!(
+        ids.windows(2).all(|w| w[0] < w[1]),
+        "TIME_INDEX invariant violated: duplicate payload id referenced by multiple time keys",
+    );
     Ok(ids)
 }
 
 pub(crate) fn snapshot(r: &R) -> Result<AvailabilitySnapshot> {
+    snapshot_with_min_parallel(r, PARALLEL_MIN_PAYLOADS).map(|(snap, _)| snap)
+}
+
+pub(crate) fn snapshot_with_min_parallel(r: &R, min_parallel_payloads: u64) -> Result<(AvailabilitySnapshot, bool)> {
     let stream_start = Instant::now();
     let streams_table = r.txn.open_table(STREAMS)?;
     let mut streams = Vec::new();
@@ -431,10 +442,22 @@ pub(crate) fn snapshot(r: &R) -> Result<AvailabilitySnapshot> {
     let has_doomed = doom.len()? > 0;
     let has_chunks = chk.len()? > 0;
 
+    // Invariant: every `TIME_INDEX` row maps to a distinct live `PAYLOADS` row, because inserts write at most one
+    // `TIME_INDEX` key per payload (`redb_catalog.rs` `put`) and purges delete a `TIME_INDEX` key whenever it still
+    // names the deleted payload (`redb_catalog.rs` `remove_one`). Therefore `TIME_INDEX` values form an injective
+    // subset of `PAYLOADS` keys (`ti_len <= pay_len`), so `ti_len == pay_len` proves every `PAYLOADS` row is
+    // time-indexed. When a chunk overwrote a worker-cut first frame's `(stream, start_ns, seq)` key,
+    // `ti_len < pay_len` and the fallback asserts that every `TIME_INDEX` id matched a `PAYLOADS` row.
+    debug_assert!(
+        ti_len <= pay_len,
+        "TIME_INDEX invariant violated: TIME_INDEX has more rows ({ti_len}) than PAYLOADS ({pay_len})",
+    );
+
     let mut total_payloads = 0usize;
     let mut stream_copies = vec![Vec::new(); streams.len()];
     let mut cut_chunks = Vec::new();
     let mut stale_tier0 = Vec::new();
+    let mut used_fallback = false;
 
     if let (Some(first_row), Some(last_row)) = (pay.first()?, pay.last()?) {
         let first_id = key_u128(first_row.0.value(), "payload key")?;
@@ -442,6 +465,7 @@ pub(crate) fn snapshot(r: &R) -> Result<AvailabilitySnapshot> {
         drop((first_row, last_row));
 
         let present_ids = if ti_len == pay_len { None } else { Some(collect_time_indexed_ids(&ti)?) };
+        used_fallback = present_ids.is_some();
         let scan_tables = ScanTables {
             pay: &pay,
             loc: &loc,
@@ -452,9 +476,11 @@ pub(crate) fn snapshot(r: &R) -> Result<AvailabilitySnapshot> {
             stream_count: streams.len(),
         };
 
-        if pay_len < PARALLEL_MIN_PAYLOADS {
+        let mut matched_present_ids = 0usize;
+        if pay_len < min_parallel_payloads {
             let single = scan_shard(&scan_tables, first_id.to_be_bytes(), last_id.to_be_bytes())?;
             total_payloads = single.payloads;
+            matched_present_ids = single.matched_present_ids;
             stream_copies = single.stream_copies;
             cut_chunks = single.cut_chunks;
             stale_tier0 = single.stale_tier0;
@@ -523,6 +549,7 @@ pub(crate) fn snapshot(r: &R) -> Result<AvailabilitySnapshot> {
             for slot in &results {
                 if let Some(s) = slot.get() {
                     total_payloads += s.payloads;
+                    matched_present_ids += s.matched_present_ids;
                     cut_cap += s.cut_chunks.len();
                     hot_cap += s.stale_tier0.len();
                     for (cap, v) in per_stream_caps.iter_mut().zip(&s.stream_copies) {
@@ -543,6 +570,13 @@ pub(crate) fn snapshot(r: &R) -> Result<AvailabilitySnapshot> {
                     dst.append(&mut src);
                 }
             }
+        }
+        if present_ids.is_some() {
+            debug_assert_eq!(
+                u64::try_from(matched_present_ids).unwrap_or(u64::MAX),
+                ti_len,
+                "TIME_INDEX invariant violated: matched {matched_present_ids} PAYLOADS rows for {ti_len} TIME_INDEX entries",
+            );
         }
     }
     let payload_reads = payload_start.elapsed();
@@ -570,17 +604,20 @@ pub(crate) fn snapshot(r: &R) -> Result<AvailabilitySnapshot> {
     }
     let coverage_reads = coverage_start.elapsed();
 
-    Ok(AvailabilitySnapshot {
-        streams,
-        payloads: total_payloads,
-        stream_copies,
-        cut_chunks,
-        stale_tier0,
-        coverage,
-        stream_reads,
-        payload_reads,
-        coverage_reads,
-    })
+    Ok((
+        AvailabilitySnapshot {
+            streams,
+            payloads: total_payloads,
+            stream_copies,
+            cut_chunks,
+            stale_tier0,
+            coverage,
+            stream_reads,
+            payload_reads,
+            coverage_reads,
+        },
+        used_fallback,
+    ))
 }
 
 #[cfg(test)]
@@ -652,6 +689,102 @@ mod tests {
             }
         }
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn snapshot_rejects_payload_on_unregistered_stream() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("unregistered_stream.redb");
+        drop(crate::RedbCatalog::open(&path).unwrap());
+
+        let db = Database::open(&path).unwrap();
+        let id = Uuid([0x22; 16]);
+        let hdr = HeaderBuf::build(&HeaderSpec::raw(id, StreamId(99), 10, 20)).unwrap();
+        let mut ti_key = [0u8; 16];
+        ti_key[0..4].copy_from_slice(&99u32.to_be_bytes());
+        ti_key[4..12].copy_from_slice(&10u64.to_be_bytes());
+        let w = db.begin_write().unwrap();
+        {
+            let mut pay = w.open_table(PAYLOADS).unwrap();
+            let mut ti = w.open_table(TIME_INDEX).unwrap();
+            pay.insert(id.0.as_slice(), hdr.as_bytes()).unwrap();
+            ti.insert(ti_key.as_slice(), id.0.as_slice()).unwrap();
+        }
+        w.commit().unwrap();
+        drop(db);
+
+        let cat = crate::RedbCatalog::open(&path).unwrap();
+        let err = crate::Catalog::availability_snapshot(&cat).unwrap_err();
+        assert!(err.to_string().contains("unregistered stream"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn snapshot_fallback_matches_across_single_and_sharded_thresholds() {
+        use crate::{Catalog, ChunkFrame, NewChunk, NewPayload, RedbCatalog, StreamKind};
+        use continuum_core::{DomainLayer, PayloadFormat, StorageLocator};
+
+        let dir = tempfile::tempdir().unwrap();
+        let cat = RedbCatalog::open(dir.path().join("fallback_sharded.redb")).unwrap();
+        let s = cat
+            .register_stream(StreamInfo {
+                name: "cam".into(),
+                kind: StreamKind::Sensor,
+                layer: DomainLayer::Layer1Raw,
+                format: PayloadFormat::RawBytes,
+                shape_name: "raw".into(),
+                shape_version: 1,
+                rate_hz: None,
+                anchor: None,
+            })
+            .unwrap();
+        for i in 1..=12u32 {
+            let mut raw = [0u8; 16];
+            raw[0] = u8::try_from(i).unwrap();
+            raw[15] = u8::try_from(i).unwrap();
+            let spec = HeaderSpec::raw(Uuid(raw), s, u64::from(i) * 10, u64::from(i) * 10 + 5);
+            cat.insert(vec![NewPayload {
+                header: HeaderBuf::build(&spec).unwrap(),
+                location: Some(StorageLocator::Chunk {
+                    tier: StorageTier::Tier1Warm,
+                    uri: "warm".into(),
+                    offset: u64::from(i) * 64,
+                    length: 64,
+                }),
+                coverage: None,
+            }])
+            .unwrap();
+        }
+        // Overwrite the first frame's `(stream, start_ns = 10, seq = 0)` TIME_INDEX key with a worker-cut chunk.
+        let mut first_id = [0u8; 16];
+        first_id[0] = 1;
+        first_id[15] = 1;
+        let chunk_id = Uuid([0x80; 16]);
+        let chunk_spec = HeaderSpec::raw(chunk_id, s, 10, 25);
+        cat.commit_chunk(
+            NewChunk {
+                payload: NewPayload {
+                    header: HeaderBuf::build(&chunk_spec).unwrap(),
+                    location: Some(StorageLocator::Chunk {
+                        tier: StorageTier::Tier2Cold,
+                        uri: "cold".into(),
+                        offset: 0,
+                        length: 64,
+                    }),
+                    coverage: None,
+                },
+                frames: vec![ChunkFrame { start_ns: 10, offset: 0, length: 0, cut: true }],
+            },
+            &[Uuid(first_id)],
+        )
+        .unwrap();
+
+        let (single, single_fallback) = cat.availability_snapshot_for_test(u64::MAX).unwrap();
+        let (sharded, sharded_fallback) = cat.availability_snapshot_for_test(1).unwrap();
+        assert!(single_fallback && sharded_fallback);
+        assert_eq!(single.payloads, 12);
+        assert_eq!(sharded.payloads, 12);
+        assert_eq!(single.stream_copies, sharded.stream_copies);
+        assert_eq!(single.cut_chunks, sharded.cut_chunks);
     }
 
     proptest! {

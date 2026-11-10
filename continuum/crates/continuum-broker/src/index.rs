@@ -580,7 +580,7 @@ pub fn load_profiled(
 ) -> Result<(AvailabilityIndex, LoadStats, LoadTimings), CatalogError> {
     let load_started = Instant::now();
     match catalog.availability_snapshot()? {
-        Some(snap) => Ok(load_from_snapshot(snap, load_started)),
+        Some(snap) => Ok(load_from_snapshot(snap, load_started, PARALLEL_APPLY_MIN_COPIES)),
         None => load_paged_profiled_from(catalog, page, load_started),
     }
 }
@@ -726,9 +726,21 @@ fn build_stream_copies(
     set
 }
 
+/// Applies an [`AvailabilitySnapshot`] with a caller-chosen parallel apply threshold, for parity tests.
+#[doc(hidden)]
+#[must_use]
+pub fn load_from_snapshot_for_test(
+    snap: AvailabilitySnapshot,
+    min_parallel_copies: usize,
+) -> (AvailabilityIndex, LoadStats) {
+    let (index, stats, _) = load_from_snapshot(snap, Instant::now(), min_parallel_copies);
+    (index, stats)
+}
+
 fn load_from_snapshot(
     snap: AvailabilitySnapshot,
     load_started: Instant,
+    min_parallel_copies: usize,
 ) -> (AvailabilityIndex, LoadStats, LoadTimings) {
     let mut timings = LoadTimings {
         stream_reads: snap.stream_reads,
@@ -765,7 +777,7 @@ fn load_from_snapshot(
 
     let total_copies: usize =
         snap.stream_copies.iter().zip(&per_stream_cuts).map(|(copies, cuts)| copies.len() + cuts.len()).sum();
-    if total_copies < PARALLEL_APPLY_MIN_COPIES || metas.len() <= 1 {
+    if total_copies < min_parallel_copies || metas.len() <= 1 {
         for (((stream, meta), copies), cuts) in metas.iter().zip(snap.stream_copies).zip(per_stream_cuts) {
             if !copies.is_empty() || !cuts.is_empty() {
                 let set = build_stream_copies(meta, copies, cuts);

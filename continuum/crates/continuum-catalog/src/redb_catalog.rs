@@ -1770,6 +1770,16 @@ impl RedbCatalog {
         &self.recording_held
     }
 
+    /// Reads an [`AvailabilitySnapshot`] and whether it used the `TIME_INDEX` fallback, with a caller-chosen parallel
+    /// payload threshold for parity tests.
+    ///
+    /// # Errors
+    /// Catalog storage or record-integrity failure.
+    #[doc(hidden)]
+    pub fn availability_snapshot_for_test(&self, min_parallel_payloads: u64) -> Result<(AvailabilitySnapshot, bool)> {
+        self.read(|r| crate::availability::snapshot_with_min_parallel(r, min_parallel_payloads))
+    }
+
     fn purge_work(
         &self,
         purge_id: Uuid,
