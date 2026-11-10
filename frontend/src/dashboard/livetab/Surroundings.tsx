@@ -11,8 +11,8 @@ import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tansta
 import { useState } from 'react';
 import { messageOf, request } from '../../shared/http';
 import { Toast } from '../lib/Toast';
-import { linkClick } from '../router';
 import { viewName } from '../review/views';
+import { linkClick } from '../router';
 
 export interface SurroundingsCamera {
   name: string;

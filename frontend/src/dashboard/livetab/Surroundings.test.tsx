@@ -7,9 +7,9 @@ import { server } from '../../test/server';
 import {
   applied,
   LearnSurroundings,
-  surroundingsHint,
   type SurroundingsChange,
   type SurroundingsView,
+  surroundingsHint,
   toggled,
 } from './Surroundings';
 
