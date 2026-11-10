@@ -9,8 +9,10 @@ from pathlib import Path
 import pytest
 
 from liberational import segment_log
+from liberational.memory import reports
 from liberational.see import zones
 from liberational.see import zones_worker as Z
+from test_dashboard_reports import request
 from test_tracked_frames import ActionsRows, S, T
 
 POLYGON = ((0.1, 0.6), (0.3, 0.6), (0.3, 0.9), (0.1, 0.9))
@@ -38,6 +40,16 @@ class Clock:
 def state(tmp_path: Path) -> Path:
     pytest.importorskip("continuum_py").SegmentFollowers  # noqa: B018 (the native store must be built)
     return tmp_path
+
+
+@pytest.fixture
+def pacific(monkeypatch: pytest.MonkeyPatch):
+    """Local days the chart reads are Pacific, so a visit's hour does not follow the machine's zone."""
+    monkeypatch.setenv("TZ", "America/Los_Angeles")
+    time.tzset()
+    yield
+    monkeypatch.undo()
+    time.tzset()
 
 
 def worker(state: Path, clock: Clock, sets: dict[str, zones.Definition]) -> Z.ZoneWorker:
@@ -167,6 +179,37 @@ def test_an_animal_in_a_zone_is_a_visit_in_its_species_under_its_track(state):
     assert visit["entry_seen"] is True
     assert written(state, segment_log.PRESENCE_SPANS) == []  # an animal in view is not someone present
     rows.close()
+
+
+@pytest.mark.usefixtures("pacific")
+def test_an_animal_that_stays_is_its_species_on_the_pet_activity_chart(state, serve_dashboard, monkeypatch):
+    clock, sets = Clock(), {"cam0": definition()}
+    w = worker(state, clock, sets)
+    rows = AnimalRows(segment_log.root(state))
+    # Inside from 1 s to 12.5 s: 11.5 s, past the 10 s a pet-activity count keeps. Then outside, so the visit ends.
+    walk_animals(rows, T, [OUT, OUT, *[IN] * 24, *[OUT] * 6], "run1:cat:3", "cat")
+    run(w, clock)
+    w.checkpoint()
+    rows.close()
+    # T is 2027-01-15 08:00 UTC, midnight in the zone this test pins, so the visit is that day's first hour.
+    view = reports.Reports(
+        reports.Store(state / "reports.sqlite3"),
+        reports.LiveSources(state),
+        now=lambda: T / 1e9 + 12 * 3600,
+        background=False,
+    )
+    # The suite stands in a fake for segment_log.at, so a test cannot read the broker. This one reads the temp
+    # segment store the worker just wrote: that is the read the chart's sources make.
+    monkeypatch.setattr(segment_log, "at", lambda state=None: segment_log.Log(segment_log.root(state)))
+    monkeypatch.setattr(reports, "at", lambda _state: view)
+    base = serve_dashboard()
+    status, _cold = request(base, "GET", "/reports/api/report?kind=activity")
+    assert status == 200
+    view.drain()
+    status, body = request(base, "GET", "/reports/api/report?kind=activity")
+    assert status == 200 and body["pending"] == []
+    (pet,) = body["pets"]
+    assert (pet["name"], pet["key"], pet["total"], pet["by_hour"][0]["n"]) == ("cat", "pet:cat", 1, 1)
 
 
 def test_a_covered_stretch_with_no_animal_is_animal_coverage_and_no_visit(state):
