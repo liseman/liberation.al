@@ -479,7 +479,7 @@ mod tests {
     #[test]
     fn scans_go_newest_first_then_take_newly_eligible_time_before_more_backlog() {
         if !crate::probe::av1_encoder_available() {
-            eprintln!("this FFmpeg has no SVT-AV1 (the wheels' private build); skipped");
+            eprintln!("this FFmpeg has no SVT-AV1; skipped");
             return;
         }
         let mut a = Archive::start(settings(Some(30))).unwrap();
@@ -495,7 +495,7 @@ mod tests {
     #[test]
     fn the_backlog_stops_two_days_before_the_window_ends() {
         if !crate::probe::av1_encoder_available() {
-            eprintln!("this FFmpeg has no SVT-AV1 (the wheels' private build); skipped");
+            eprintln!("this FFmpeg has no SVT-AV1; skipped");
             return;
         }
         let mut a = Archive::start(settings(Some(4))).unwrap();

@@ -2109,8 +2109,9 @@ that release's FFmpeg. The private build won because:
   supported release would need its own daemons and its own SDK wheel, and a wheel has no tag for a distribution
   release: `manylinux` only names a glibc.
 - The code calls little of FFmpeg, so the private build is small: the H.264 decoder and parser, the RTSP demuxer over
-  TCP and UDP, the MP4 muxer, libswscale, and the hardware encoders and decoder (NVENC and NVDEC on Linux, which load
-  the NVIDIA driver's own libraries when they run, and VideoToolbox on macOS). libavdevice, libavfilter, and
+  TCP and UDP, the MP4 muxer, libswscale, the hardware encoders and decoder (NVENC and NVDEC on Linux, which load
+  the NVIDIA driver's own libraries when they run, and VideoToolbox on macOS), and AV1 for the opt-in archive pass
+  (`video_archive.av1`): SVT-AV1 to encode and dav1d to decode, both BSD. libavdevice, libavfilter, and
   libswresample aren't called at all, and the crates no longer link them anywhere.
 - One FFmpeg version everywhere means one set of codec behavior to test, on every distribution and on macOS.
 
@@ -2120,11 +2121,12 @@ What the choice costs:
   (BSD), which `continuum_tier::h264` tries after libx264: a checkout's build against a distribution's FFmpeg still
   uses libx264. OpenH264 has no Main profile, so its streams are High profile, and it encodes pictures up to
   about 4K. It's the fallback for a machine with no hardware encoder; NVENC and VideoToolbox are unchanged.
-- **No AV1.** The opt-in archive pass (`video_archive.av1`) needs SVT-AV1 and an AV1 decoder, which the private build
-  leaves out; with the wheels it reports that this FFmpeg has no such encoder. A checkout's build has it.
 - **No TLS**, so a wheel install reads `rtsp://` cameras only, not `rtsps://`.
-- **Static linking and the LGPL.** Each wheel carries FFmpeg's and OpenH264's licenses, the notice from NVIDIA's codec
-  headers, and FFmpeg's configure line under its `.dist-info/licenses/`. The recipe is `continuum/packaging/ffmpeg.sh`,
+- **Size.** AV1 is most of the private build: SVT-AV1 and dav1d add about 9 MB to each program that links
+  FFmpeg (the SDK, the tier worker, the capture worker, and export), whether or not the archive pass is on.
+- **Static linking and the LGPL.** Each wheel carries the licenses of FFmpeg, OpenH264, SVT-AV1 (with its patent
+  license), and dav1d, the notice from NVIDIA's codec headers, and FFmpeg's configure line under its
+  `.dist-info/licenses/`. The recipe is `continuum/packaging/ffmpeg.sh`,
   with every source pinned by version and SHA-256, so anyone can rebuild the same libraries or relink with their own.
 
 PipeWire stays a system library, since the capture supervisor talks to the session's own PipeWire daemon:

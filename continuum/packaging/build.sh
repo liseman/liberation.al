@@ -5,10 +5,11 @@
 #   continuum_daemons-<version>-py3-none-<platform>.whl    the daemons, installed onto the environment's PATH
 #
 # On Linux it runs inside packaging/Dockerfile's image (packaging/wheels.sh starts it), whose glibc is the oldest the
-# wheels support. On macOS it runs as is, and needs rustup, uv, pkg-config, and protoc.
+# wheels support. On macOS it runs as is, and needs rustup, uv, pkg-config, protoc, cmake, meson, and ninja.
 #
-# It needs python3.14 (uv's), maturin, cargo, and what packaging/ffmpeg.sh needs (a C and C++ compiler, make, nasm on
-# x86-64, curl). Wheels go to continuum/dist/; everything else it makes stays under continuum/target/wheels/.
+# It needs python3.14 (uv's), maturin, cargo, and what packaging/ffmpeg.sh needs (a C and C++ compiler, make, cmake,
+# meson, ninja, nasm on x86-64, curl). Wheels go to continuum/dist/; everything else it makes stays under
+# continuum/target/wheels/.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -39,12 +40,14 @@ case "$(uname -s)" in
     ;;
 esac
 
-# The private FFmpeg, rebuilt only when its recipe changes.
+# The private FFmpeg, rebuilt only when its recipe changes. Cargo can't see that its libraries changed (the path
+# pkg-config gives it is the same), so the crate that links them is cleaned, and everything that uses it relinks.
 prefix="$work/ffmpeg-$arch"
 recipe=$(cksum < packaging/ffmpeg.sh)
 if [ "$(cat "$prefix/.recipe" 2>/dev/null)" != "$recipe" ]; then
   rm -rf "$prefix"
   packaging/ffmpeg.sh "$prefix" "$work/ffmpeg-src"
+  cargo clean --release --target-dir "$work/target" -p ffmpeg-sys-next
   printf '%s\n' "$recipe" > "$prefix/.recipe"
 fi
 

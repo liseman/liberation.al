@@ -6,7 +6,7 @@ FROM debian:12
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         binutils build-essential ca-certificates clang cmake curl libclang-dev libpipewire-0.3-dev libprotobuf-dev \
-        nasm pkg-config protobuf-compiler xz-utils \
+        meson nasm ninja-build pkg-config protobuf-compiler xz-utils \
     && rm -rf /var/lib/apt/lists/*
 
 ENV RUSTUP_HOME=/opt/rustup \

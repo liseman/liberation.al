@@ -58,8 +58,8 @@ fn probe_ffmpeg() -> Option<Ffmpeg> {
     None
 }
 
-/// Whether this FFmpeg can encode the AV1 archive (SVT-AV1). The wheels' private FFmpeg leaves it out
-/// (docs/CONTINUUM.md, "Wheels"); a distribution's FFmpeg has it.
+/// Whether this FFmpeg can encode the AV1 archive (SVT-AV1). The wheels' private FFmpeg has it
+/// (docs/CONTINUUM.md, "Wheels"), and so does a distribution's.
 #[must_use]
 pub fn av1_encoder_available() -> bool {
     #[cfg(feature = "ffmpeg")]

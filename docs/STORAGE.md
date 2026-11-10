@@ -166,8 +166,8 @@ rather than slowing anything, and the oldest backlog is the part left as H.264.
   now a minute (docs/CONTINUUM.md, "Video chunks"), and an archived one has a keyframe every 10 seconds.
 - CPU: on the same chunks, about 0.042 core-seconds a frame, H.264 decode included. Across six cameras (about 140
   frames a second in all) that is about 140 core-hours a day, or 5.8 cores all day: more than the table's 82, which
-  used SVT-AV1 4.2 on 12-second clips; the tier worker links the system's SVT-AV1 (2.3 on the Linux machine) and opens
-  one encoder per chunk. Preset 10 took 0.017 core-seconds a frame (about 2.4 cores) and left 35% of the bytes, but a
+  used SVT-AV1 4.2 on 12-second clips; a checkout's tier worker links the system's SVT-AV1 (2.3 on the Linux machine;
+  the wheels carry 4.3) and opens one encoder per chunk. Preset 10 took 0.017 core-seconds a frame (about 2.4 cores) and left 35% of the bytes, but a
   faster preset at the same CRF is a softer picture: compare stills before choosing it.
 - Logs: a summary line every 10 minutes (`[continuum-tier-worker] INFO AV1 archive: ...`): chunks converted, bytes before and after,
   chunks kept as H.264 by reason, and whether the backlog is done.
