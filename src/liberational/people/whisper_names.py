@@ -36,10 +36,6 @@ DEBOUNCE_S = float(os.environ.get("PACK_WHISPER_DEBOUNCE", "1800"))  # one line 
 LOG = logs.get("whisper-names")
 
 
-def log(*a: object, level: int = logs.INFO) -> None:
-    LOG.log(level, " ".join(str(x) for x in a))
-
-
 def load_state() -> dict[str, Any]:
     try:
         return json.loads(OUT.read_text())
@@ -178,7 +174,7 @@ def step(
         line = build_line(ev, state, now)
         if use_llm:
             line = polish(line)
-        log(f"{ev['key']} -> {line!r}")
+        LOG.info(f"{ev['key']} -> {line!r}")
         state["announced"][ev["key"]] = now
         state["seen"].setdefault(ev["key"], []).append(now)
         state["seen"][ev["key"]] = state["seen"][ev["key"]][-50:]
@@ -213,7 +209,7 @@ def main() -> None:
         t0 = time.time()
         voice_clone.load()
         voice_clone.say("Ready.", out=None)
-        log(f"voice ready in {time.time() - t0:.1f}s")
+        LOG.info(f"voice ready in {time.time() - t0:.1f}s")
         speak = lambda text: voice_clone.say(text, play=True)
     if a.test:
         ev = {"key": "voice:" + norm(a.test), "name": a.test, "ts": now}
@@ -223,12 +219,12 @@ def main() -> None:
         speak and speak(line)
         return
     tail = TranscriptTail()
-    log(f"following the speech log; debounce {DEBOUNCE_S:.0f}s")
+    LOG.info(f"following the speech log; debounce {DEBOUNCE_S:.0f}s")
     while True:
         try:
             step(tail, state, time.time(), speak, a.llm, a.dry_run)
         except Exception as ex:
-            log(f"{ex}", level=logs.ERROR)
+            LOG.error(f"{ex}")
         if a.once:
             break
         time.sleep(a.interval)

@@ -14,9 +14,8 @@ from types import ModuleType
 from typing import Any
 
 from liberational import config as cfg
-from liberational import logs
 from liberational.dashboard import call_log, context, known_voices, photo_files, transcript_lines, voice_clones
-from liberational.dashboard.context import log
+from liberational.dashboard.context import LOG
 from liberational.people import card_prefs, contacts, face_shots, profiles, registry, transcript_view
 from liberational.vision import views
 
@@ -290,7 +289,7 @@ def _live_faces(window: float, now: float | None = None) -> list[dict[str, Any]]
     try:
         found = sightings.faces(now - window, now + 1, state=context.STATE)
     except Exception as e:
-        log("faces: the vision log couldn't be read:", e, level=logs.WARN)
+        LOG.warning("faces: the vision log couldn't be read: %s", e)
         return []
     return [{**f, "label": f["name"] or f["cluster"] or "unknown"} for f in found]
 
@@ -377,7 +376,7 @@ def _run_began(key: str, cam: str, start: float) -> float:
                 return start
             hi -= RUN_STEP_S
     except Exception as e:
-        log("here: the vision log couldn't be read:", e, level=logs.WARN)
+        LOG.warning("here: the vision log couldn't be read: %s", e)
     return start
 
 

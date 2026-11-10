@@ -135,10 +135,6 @@ class BadReply(ValueError):
         self.reason = reason
 
 
-def log(*a: object, level: int = logs.INFO) -> None:
-    LOG.log(level, " ".join(str(x) for x in a))
-
-
 def enabled() -> bool:
     return bool(cfg.get("journal.enabled")) and bool(cfg.get("journal.facts"))
 
@@ -218,7 +214,7 @@ def extract(hour: Mapping[str, Any], people: Mapping[str, str], state: pathlib.P
         except BadReply as e:
             if attempt + 1 == EXTRACT_TRIES:
                 raise
-            log(f"hour {hour.get('id')}: unreadable reply ({e}), asking again", level=logs.WARN)
+            LOG.warning(f"hour {hour.get('id')}: unreadable reply ({e}), asking again")
     out, seen = [], set()
     for f in (reply or {}).get("facts") or []:
         pid, kind = refs.get(str(f.get("person"))), f.get("kind")
@@ -324,7 +320,7 @@ def consolidate(
                 CONSOLIDATE_SYSTEM, json.dumps(dict(held=listed, new=fresh), ensure_ascii=False), CONSOLIDATE_SCHEMA
             )
         except Exception as e:  # without a judgment every new fact is added; duplicates cost little and merge later
-            log(f"consolidating failed ({type(e).__name__}); adding the new facts as they are", level=logs.WARN)
+            LOG.warning(f"consolidating failed ({type(e).__name__}); adding the new facts as they are")
             reply = {}
         for d in (reply or {}).get("decisions") or []:
             if d.get("existing") in existing and d.get("action") in ("same", "replace"):
@@ -395,10 +391,10 @@ def facts_pass(
         except BadReply as e:
             # One reply the model keeps breaking must not hold the pass on this hour: skip it, acknowledged.
             start = time.strftime("%Y-%m-%d %H:%M", time.localtime(float(record.get("ts_start") or 0)))
-            log(
+            LOG.error(
+                "%s %s",
                 f"skipping hour {record.get('id')} (starting {start}, journal position {record.get('position')}):",
                 f"its reply was unreadable {EXTRACT_TRIES} times ({e}), so no facts are read from it",
-                level=logs.ERROR,
             )
             out.setdefault("unreadable", []).append(str(record.get("id")))
             return True
@@ -416,7 +412,7 @@ def facts_pass(
         mlog.drain(memory_log.JOURNAL, DURABLE, handle, limit=per_pass, idle_s=IDLE_S)
     except Exception as e:  # a fact never breaks the journal
         out["error"] = f"{type(e).__name__}: {e}"
-        log("pass failed:", out["error"], level=logs.ERROR)
+        LOG.error("pass failed: %s", out["error"])
     return out
 
 

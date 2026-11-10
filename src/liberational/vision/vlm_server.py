@@ -31,10 +31,6 @@ from liberational.see import vlm as vl
 LOG = logs.get("vlm")
 
 
-def log(msg: str, level: int = logs.INFO) -> None:
-    LOG.log(level, msg)
-
-
 class Handler(BaseHTTPRequestHandler):
     vlm: ClassVar[vl.MlxVLM]  # set by main() before serving
     n = 0
@@ -77,10 +73,10 @@ class Handler(BaseHTTPRequestHandler):
             ms = round(1000 * (time.perf_counter() - t0))
             Handler.n += 1
             if Handler.n % 50 == 1:
-                log(f"caption #{Handler.n} {ms} ms {img.shape[1]}x{img.shape[0]} {cap[:60]!r}")
+                LOG.info(f"caption #{Handler.n} {ms} ms {img.shape[1]}x{img.shape[0]} {cap[:60]!r}")
             self._json(200, {"caption": cap, "ms": ms})
         except Exception as e:
-            log(f"{e}", level=logs.ERROR)
+            LOG.error(f"{e}")
             self._json(500, {"error": str(e)})
 
 
@@ -98,7 +94,7 @@ def main() -> None:
     Handler.vlm = vl.MlxVLM(a.model, a.px, background=False)
     t0 = time.perf_counter()
     Handler.vlm.warm()
-    log(f"warm {1000 * (time.perf_counter() - t0):.0f} ms; serving http://{a.host}:{a.port}")
+    LOG.info(f"warm {1000 * (time.perf_counter() - t0):.0f} ms; serving http://{a.host}:{a.port}")
     HTTPServer((a.host, a.port), Handler).serve_forever()
 
 

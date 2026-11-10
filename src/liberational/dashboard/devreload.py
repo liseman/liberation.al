@@ -37,7 +37,7 @@ def _imports() -> tuple[bool, list[str]]:
     return r.returncode == 0, r.stderr.strip().splitlines()[-1:] or [""]
 
 
-def watch(log: Callable[..., None]) -> None:
+def watch(log: Callable[[str], None]) -> None:
     """Re-exec the dashboard when Python or config changes (in a daemon thread)."""
 
     def loop() -> None:
@@ -50,7 +50,7 @@ def watch(log: Callable[..., None]) -> None:
             seen = now
             ok, err = _imports()
             if not ok:
-                log("dev: change doesn't import, keeping the old code:", err[0])
+                log(f"dev: change doesn't import, keeping the old code: {err[0]}")
                 continue
             log("dev: code changed, restarting")
             sys.stdout.flush()

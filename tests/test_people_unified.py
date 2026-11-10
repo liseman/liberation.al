@@ -401,7 +401,7 @@ def restarted(monkeypatch):
     monkeypatch.setattr(
         settings,
         "restart",  # restart(log, names, dashboard, before): what a save restarts
-        lambda log=print, names=(), dashboard=True, before=None: restarted.set(),
+        lambda names=(), dashboard=True, before=None: restarted.set(),
     )
     return restarted
 

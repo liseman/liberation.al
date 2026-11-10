@@ -29,7 +29,7 @@ from liberational.dashboard import (
     transcript_lines,
     unnamed_groups,
 )
-from liberational.dashboard.context import LOG, Reply, log
+from liberational.dashboard.context import LOG, Reply
 from liberational.domain.identity import Basis, SubjectRef
 from liberational.domain.kernel import PersonId
 from liberational.people import registry, transcript_view
@@ -198,7 +198,7 @@ def _teach_voice(lines: list[dict[str, Any]], name: str) -> list[str]:
     try:
         voices.teach(context.STATE, lines, name)
     except Exception as e:
-        log(f"teaching {name}'s voice from {len(lines)} line(s) failed:", repr(e), level=logs.ERROR)
+        LOG.error("%s %s", f"teaching {name}'s voice from {len(lines)} line(s) failed:", repr(e))
         return []
     return [registry.key_of(e) for e in lines]
 
@@ -288,7 +288,7 @@ def label_speaker(sid: object, name: str, control: bool = False) -> Reply:
             return 400, {"ok": False, "error": "Names start with a letter and use letters, spaces, . ' or -"}
         name = person
     ok, out = known_voices._speaker_cmds([["label", str(sid), name]])
-    log(f"label {sid} -> {name!r}: {'ok' if ok else 'FAILED'} {out[-120:]}", level=logs.INFO if ok else logs.ERROR)
+    LOG.log(logs.INFO if ok else logs.ERROR, f"label {sid} -> {name!r}: {'ok' if ok else 'FAILED'} {out[-120:]}")
     return (200 if ok else 500), {"ok": ok, "out": out, "speakers": speakers_public()}
 
 
@@ -531,7 +531,7 @@ def _deny_voice(line: dict[str, Any], was: PersonId | None, name: str) -> str | 
     try:
         return str(was) if voices.deny(context.STATE, [line], str(was)) else None
     except Exception as e:
-        log("keeping a voice line as not its person failed:", repr(e), level=logs.ERROR)
+        LOG.error("keeping a voice line as not its person failed: %s", repr(e))
         return None
 
 
@@ -604,7 +604,7 @@ def speakers_refine_undo(body: dict[str, Any]) -> Reply:
         days.add(transcript_view.day_of(hit["ts_start"]))
     if days:
         transcript_view.rebuild_quietly(context.STATE, sorted(days))
-    log(f"refine undo: {len(undone)} line(s) restored")
+    LOG.info(f"refine undo: {len(undone)} line(s) restored")
     return 200, {"ok": not errors, "undone": undone, "errors": errors}
 
 

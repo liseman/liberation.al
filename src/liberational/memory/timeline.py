@@ -47,7 +47,7 @@ from collections.abc import Iterable, Mapping
 from typing import Any
 
 from liberational import config as cfg
-from liberational import logs, speech_log
+from liberational import speech_log
 from liberational.domain.kernel import PersonId
 from liberational.domain.memory import Encounter, Modality
 from liberational.intervals import interval_groups
@@ -336,7 +336,7 @@ class TodayStores:
         except FileNotFoundError:
             return []
         except (OSError, ValueError, TypeError, KeyError) as e:
-            registry.log(f"timeline: playback windows unreadable, so no line counts as heard: {e!r}", level=logs.WARN)
+            registry.LOG.warning(f"timeline: playback windows unreadable, so no line counts as heard: {e!r}")
             return None
 
 
@@ -388,7 +388,7 @@ def load(state: str | pathlib.Path | None = None) -> Timeline | None:
             if read is not None:
                 built = Timeline(project(read[0], stamp[2]), read[1])
         except Exception as e:
-            registry.log(f"timeline: not built, so answers take their old path: {e!r}", level=logs.WARN)
+            registry.LOG.warning(f"timeline: not built, so answers take their old path: {e!r}")
             _stores.pop(str(state), None)  # start over next time
             return None
         # Cached under the files as they were before reading, so a change made meanwhile is read next time.
@@ -404,7 +404,7 @@ def person(name: str, state: str | pathlib.Path | None = None) -> PersonId | Non
     try:
         return registry.at(state).known_as(name)
     except Exception as e:
-        registry.log(f"timeline: {name!r} not looked up: {e!r}", level=logs.WARN)
+        registry.LOG.warning(f"timeline: {name!r} not looked up: {e!r}")
         return None
 
 

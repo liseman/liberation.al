@@ -21,10 +21,10 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from liberational import config as cfg
-from liberational import logs, speech_log, vision_log
+from liberational import speech_log, vision_log
 from liberational.audio import loudness
 from liberational.dashboard import context, routes
-from liberational.dashboard.context import log
+from liberational.dashboard.context import LOG
 from liberational.people import registry, transcript_view
 
 try:
@@ -156,7 +156,7 @@ def recorded_days(state: pathlib.Path) -> list[dict[str, Any]]:
                 if log_of.has_video(midnight, time.time() + 1):
                     _DAYS.video.add(today)
         except vision_log.continuum_py.ContinuumError as e:  # no broker: the days with speech still show
-            log("review days: no video days from the broker:", repr(e), level=logs.WARN)
+            LOG.warning("review days: no video days from the broker: %s", repr(e))
         days = sorted(set(_DAYS.speech) | _DAYS.video)
         return [
             {

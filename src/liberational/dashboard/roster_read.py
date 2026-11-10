@@ -26,7 +26,7 @@ from liberational.dashboard import (
     transcript_lines,
     unnamed_groups,
 )
-from liberational.dashboard.context import log
+from liberational.dashboard.context import LOG
 from liberational.people import face_shots, registry, transcript_view
 
 try:
@@ -214,7 +214,7 @@ def _people_view_worked_out() -> dict[str, Any]:
         for process in list((getattr(executor, "_processes", None) or {}).values()):
             process.terminate()  # one still running past the timeout
         executor.shutdown(wait=False, cancel_futures=True)
-        log("people: the people list worker stopped:", repr(error), level=logs.WARN)
+        LOG.warning("people: the people list worker stopped: %s", repr(error))
         raise RuntimeError("The people list could not be read.") from error
 
 
@@ -265,7 +265,7 @@ def _people_view() -> dict[str, Any]:
 
         face_photos.refresh_async()  # photos for unnamed faces cut from camera frames, in the background
     except Exception as ex:
-        log("face photos: not refreshed:", logs.reason(ex), level=logs.WARN)
+        LOG.warning("face photos: not refreshed: %s", logs.reason(ex))
     for f in faces:
         f["photo"] = _photo_url(photo_files._unknown_photo(f["id"]), f"/faces/unknown/{f['id']}.jpg")
     clips, total = unnamed_groups.voice_clips(voices, raw=raw, view=view)
@@ -311,7 +311,7 @@ def _crop(cam: str, ts: float, bbox_norm: Sequence[float], dest: pathlib.Path, s
         evidence = vision_log.at(context.STATE).frame_evidence(cam, ts)
         frame = evidence.image if evidence is not None else None
     except Exception as e:
-        log("faces: the frame couldn't be read:", e, level=logs.WARN)
+        LOG.warning("faces: the frame couldn't be read: %s", e)
         return False
     if evidence is None or frame is None:
         return False
@@ -367,4 +367,4 @@ def _photos_from_scene() -> None:
                 if _living_name(view, n):
                     _crop(cam, f["ts"], bbox, photo_files._photo_dir(n) / f"{int(now * 1000)}.jpg")
         except OSError as ex:
-            log("people: photo crop failed:", ex, level=logs.ERROR)
+            LOG.error("people: photo crop failed: %s", ex)

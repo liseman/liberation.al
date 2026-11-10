@@ -261,15 +261,16 @@ def test_self_speech_and_replay(conv, monkeypatch):
     camera.assert_called_once()
 
 
-def test_no_password_in_notes_or_logs(tmp_path, monkeypatch):
-    log = stub(monkeypatch, "log")
+def test_no_password_in_notes_or_logs(tmp_path, monkeypatch, caplog):
+    caplog.set_level("DEBUG")
     gateway = stub(monkeypatch, "owner_answer", return_value="done")
     say("Hey Bob, reset my private computer", GUEST)
     say("dummy secret", GUEST)
     say("yes confirm", GUEST)
     gateway.assert_called_once()
     assert "dummy secret" not in b.owner_notes()
-    assert "dummy secret" not in repr(log.call_args_list) + repr(gateway.call_args_list)
+    assert caplog.messages, "the turn logged nothing, so this checks nothing"
+    assert "dummy secret" not in caplog.text + repr(gateway.call_args_list)
 
 
 def test_the_owners_notes_leave_out_what_they_asked_to_forget(tmp_path, monkeypatch):
@@ -426,10 +427,9 @@ def test_the_owner_still_passes_voice_verification_end_to_end_after_175(conv, mo
     ],
     ids=["unexpected-failure", "dispatch-permission-failure", "not-authorized"],
 )
-def test_a_failed_request_logs_what_failed_and_says_so_honestly(conv, monkeypatch, failure, error, spoken):
+def test_a_failed_request_logs_what_failed_and_says_so_honestly(conv, monkeypatch, caplog, failure, error, spoken):
     stub(monkeypatch, "owner_answer", side_effect=failure)
-    logged = []
-    monkeypatch.setattr(b, "log", lambda *a, **k: logged.append(" ".join(str(x) for x in a)))
+    caplog.set_level("INFO")
     assert spoken in say("Hey Bob, explain gravity").lower()
-    assert any(str(failure) in line for line in logged)
-    assert any("error=" + error in line for line in logged)
+    assert any(str(failure) in line for line in caplog.messages)
+    assert any("error=" + error in line for line in caplog.messages)

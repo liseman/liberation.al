@@ -18,12 +18,12 @@ from __future__ import annotations
 
 import json
 import urllib.parse
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 from liberational import config as cfg
 from liberational.dashboard import report_health, routes
-from liberational.dashboard.context import log
+from liberational.dashboard.context import LOG
 from liberational.memory import reports
 
 if TYPE_CHECKING:
@@ -280,7 +280,7 @@ def _read_json(handler: H) -> Any:
     return json.loads(handler.rfile.read(n) or b"{}") if n else {}
 
 
-def handle(handler: H, log: Callable[..., None] = print, view: reports.Reports | None = None) -> bool:
+def handle(handler: H, view: reports.Reports | None = None) -> bool:
     """Serve /reports/api/*; False for any other path."""
     path = handler.path.split("?")[0]
     if not path.startswith(PREFIX):
@@ -313,7 +313,7 @@ def handle(handler: H, log: Callable[..., None] = print, view: reports.Reports |
         chosen = save_layout(view.store, body.get("reports") if isinstance(body, dict) else None)
     except ValueError as e:
         return _reply(handler, 400, {"error": str(e)})
-    log(f"reports: layout saved ({len(chosen)} reports)")
+    LOG.info(f"reports: layout saved ({len(chosen)} reports)")
     return _reply(handler, 200, {"reports": chosen, "kinds": kinds(), "built_in": list(BUILT_IN)})
 
 
@@ -328,4 +328,4 @@ def _reply(handler: H, code: int, body: dict[str, Any]) -> bool:
 @routes.get_when(PREFIX + "...", lambda p: p.startswith(PREFIX))
 @routes.post_raw_when(PREFIX + "...", lambda p: p.startswith(PREFIX))
 def _route(h: H) -> None:
-    handle(h, log)
+    handle(h)

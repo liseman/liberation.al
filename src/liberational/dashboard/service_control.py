@@ -13,7 +13,7 @@ from liberational import config as cfg
 from liberational import service_cascade, services
 from liberational.config import ROOT
 from liberational.dashboard import context, routes
-from liberational.dashboard.context import LOG, PY, Reply, log
+from liberational.dashboard.context import LOG, PY, Reply
 
 if TYPE_CHECKING:
     from liberational.dashboard.server import H
@@ -55,7 +55,7 @@ def _logged(action: str, what: str, why: str, ok: bool | None, out: str) -> None
     lines = out.strip().splitlines()
     bad = next((line for line in lines if "FAILED" in line), lines[-1] if lines else "?")  # the error, not a note after
     result = "done" if ok else "timed out" if ok is None else f"failed: {bad}"
-    log(f"services: {action} {what} ({why}): {result}")
+    LOG.info(f"services: {action} {what} ({why}): {result}")
 
 
 # Held around each POST /services action: Enable and Disable read and rewrite pack.toml in a pack-services process, and

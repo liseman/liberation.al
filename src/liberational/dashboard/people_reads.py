@@ -19,7 +19,7 @@ import urllib.request
 from collections.abc import Callable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
-from liberational import logs, speech_log, voice_turn
+from liberational import speech_log, voice_turn
 from liberational.dashboard import (
     context,
     devreload,
@@ -35,7 +35,7 @@ from liberational.dashboard import (
     unnamed_groups,
     voice_clones,
 )
-from liberational.dashboard.context import SSE_CLIENTS, log
+from liberational.dashboard.context import LOG, SSE_CLIENTS
 from liberational.people import face_shots, registry
 from liberational.see.faces import VISIT_GAP_S
 from liberational.vision import views
@@ -167,13 +167,13 @@ def people_unnamed() -> dict[str, Any]:
     try:
         rows = sightings.faces(now - sightings.SHOT_DAYS * 86400, now + 1, state=context.STATE)
     except Exception as ex:
-        log("people: unnamed face history failed:", repr(ex), level=logs.WARN)
+        LOG.warning("people: unnamed face history failed: %s", repr(ex))
         rows = []
         incomplete = "Could not load face photos and video clips."
     try:
         recent = face_photos.recent_by_group(state=context.STATE, rows=rows)
     except Exception as ex:
-        log("people: unnamed face shots failed:", repr(ex), level=logs.WARN)
+        LOG.warning("people: unnamed face shots failed: %s", repr(ex))
         recent = {}
     faces, named, shots_pending, shots_unavailable, saved_shots = (
         [],
@@ -229,7 +229,7 @@ def people_unnamed() -> dict[str, Any]:
     try:
         clips = sightings.unnamed_clips(VISIT_GAP_S, UNNAMED_VIDEOS, context.STATE, rows=rows)
     except Exception as ex:
-        log("people: unnamed clips failed:", repr(ex), level=logs.WARN)
+        LOG.warning("people: unnamed clips failed: %s", repr(ex))
         clips = []
     videos = [
         {
@@ -403,6 +403,6 @@ def _warm_people() -> None:
     _set_people_warm("incomplete" if errors else "done", None, elapsed_s=round(elapsed, 3), errors=errors)
     _PEOPLE_WARMED.set()
     if errors:
-        log("people: warm-up incomplete:", "; ".join(errors), level=logs.WARN)
+        LOG.warning("people: warm-up incomplete: %s", "; ".join(errors))
     else:
-        log(f"people: warmed in {elapsed:.1f} s", level=logs.INFO)
+        LOG.info(f"people: warmed in {elapsed:.1f} s")

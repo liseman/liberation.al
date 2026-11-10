@@ -104,10 +104,6 @@ NOT_PEOPLE = {"", "unknown", "multiple speakers"}
 LOG = logs.get("registry")
 
 
-def log(*a: object, level: int = logs.INFO) -> None:
-    LOG.log(level, " ".join(str(x) for x in a))
-
-
 def norm(name: object) -> str:
     """The key a name is matched by: spaces collapsed, case folded (the stores compare names without case)."""
     return " ".join(str(name or "").split()).casefold()
@@ -1183,7 +1179,7 @@ class Registry:
                 # Them and everyone merged into them, in one purge with one record.
                 removed = self.log.purge(Selector(subjects=frozenset(group)), reason="PersonForgotten")
             except RuntimeError as e:
-                log(f"forget: {e}")
+                LOG.info(f"forget: {e}")
             for claims in self._claims.values():
                 claims[:] = [c for c in claims if c.person not in group]
             return removed
@@ -1481,7 +1477,7 @@ def safely(what: str) -> Generator[None]:
     try:
         yield
     except Exception as e:
-        log(f"{what}: the event log couldn't be read: {e!r}", level=logs.ERROR)
+        LOG.error(f"{what}: the event log couldn't be read: {e!r}")
 
 
 class WriteFailed(RuntimeError):
@@ -1497,7 +1493,7 @@ def recorded(what: str) -> Generator[None]:
     except WriteFailed:
         raise
     except Exception as e:
-        log(f"{what}: not recorded in the event log: {e!r}", level=logs.ERROR)
+        LOG.error(f"{what}: not recorded in the event log: {e!r}")
         raise WriteFailed(f"The person registry couldn't record this ({what}), so it wasn't saved; try again.") from e
 
 

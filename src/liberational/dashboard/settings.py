@@ -32,7 +32,7 @@ from typing import TYPE_CHECKING, Any
 from liberational import config as cfg
 from liberational import service_cascade, services
 from liberational.dashboard import routes
-from liberational.dashboard.context import log
+from liberational.dashboard.context import LOG
 
 if TYPE_CHECKING:
     from liberational.dashboard.server import H
@@ -216,7 +216,7 @@ def here_changed(before: set[str] | None) -> bool:
         return False
 
 
-def apply_run_here(before: set[str] | None, log: Callable[..., None]) -> list[str]:
+def apply_run_here(before: set[str] | None) -> list[str]:
     """Carry out a saved Also run or Don't run: uninstall what may no longer run here, logging one line each,
     and say which newly allowed services to install with the restart. None before: nothing is known to have changed."""
     if before is None:
@@ -225,12 +225,13 @@ def apply_run_here(before: set[str] | None, log: Callable[..., None]) -> list[st
     if dropped:
         code, out = _pack_services("uninstall", dropped)
         for n in dropped:
-            log(f"services: off {n} (no longer runs here after a Settings save; uninstalled): {_outcome(n, code, out)}")
+            LOG.info(
+                f"services: off {n} (no longer runs here after a Settings save; uninstalled): {_outcome(n, code, out)}"
+            )
     return added
 
 
 def restart(
-    log: Callable[..., None] = print,
     names: Sequence[str] = (),
     dashboard: bool = True,
     before: set[str] | None = None,
@@ -243,22 +244,22 @@ def restart(
         time.sleep(0.5)  # let the browser get the reply before this process goes away
         cfg.load.cache_clear()
         try:
-            added = apply_run_here(before, log)
+            added = apply_run_here(before)
             state = services.states() if names else {}
             todo = list(dict.fromkeys([*(n for n in names if state.get(n) not in STOPPED), *added]))
             if todo:
                 code, out = _pack_services("install", todo)
                 for n in added:
                     done = _outcome(n, code, out)
-                    log(f"services: on {n} (runs here after a Settings save; installed and started): {done}")
-                log("settings: restarted", ", ".join(todo), out[-300:])
+                    LOG.info(f"services: on {n} (runs here after a Settings save; installed and started): {done}")
+                LOG.info("settings: restarted %s %s", ", ".join(todo), out[-300:])
         except SystemExit as ex:  # the new pack.toml names an unknown service
-            log("settings: not restarting services:", ex)
+            LOG.info("settings: not restarting services: %s", ex)
         except Exception as ex:  # a timeout, say: the dashboard must still come back on the new settings
-            log(f"settings: services not restarted: {ex!r}")
+            LOG.info(f"settings: services not restarted: {ex!r}")
         if not dashboard:
             return
-        log("settings: saved, restarting the dashboard")
+        LOG.info("settings: saved, restarting the dashboard")
         sys.stdout.flush()
         os.execv(sys.executable, [sys.executable, *sys.argv])
 
@@ -270,7 +271,7 @@ def restart(
 REF_MIN_S, REF_MAX_S, REF_MAX_BYTES = 8, 60, 16 << 20
 
 
-def voice_ref(handler: H, log: Callable[..., None] = print) -> None:
+def voice_ref(handler: H) -> None:
     """GET and POST /config/voice_ref (see the module docstring)."""
     import io
 
@@ -318,7 +319,7 @@ def voice_ref(handler: H, log: Callable[..., None] = print) -> None:
     tmp.write_bytes(raw)
     os.replace(tmp, path)
     path.with_suffix(".txt").write_text(PROMPT)  # the voice clone needs the clip's transcript
-    log(f"settings: recorded a {dur:.1f} s voice reference at {path}")
+    LOG.info(f"settings: recorded a {dur:.1f} s voice reference at {path}")
     enrolled, note = False, "Set the owner's name to have Liberational learn this voice as the owner."
     owner = cfg.owner_label()
     if owner:  # the owner's name, as the owner check reads it
@@ -358,14 +359,13 @@ def _put_back(path: pathlib.Path, text: str | None) -> None:
 
 def handle(
     handler: H,
-    log: Callable[..., None] = print,
     carry_owner: Callable[[str, str], tuple[int, dict[str, Any]]] | None = None,
 ) -> bool:
     """Serve /config and /config/voice_ref; False for any other path. `carry_owner(old, new)` renames the owner in
     People when a save changes owner.name (server.rename_owner)."""
     route = handler.path.split("?")[0]
     if route == "/config/voice_ref" and handler.command in ("GET", "HEAD", "POST"):
-        voice_ref(handler, log)
+        voice_ref(handler)
         return True
     if route == "/config/voices" and handler.command in ("GET", "HEAD"):
         handler._json({"ok": True, "clone": can_clone(), "kokoro": kokoro_voices()})
@@ -419,11 +419,11 @@ def handle(
             code, body = 500, {"error": f"renaming the owner in People failed: {ex}"}
         if code != 200:
             _put_back(path, before)
-            log(f"settings: owner.name not changed: {body.get('error')}")
+            LOG.info(f"settings: owner.name not changed: {body.get('error')}")
             handler._json({"ok": False, "error": body.get("error"), "field": "owner.name"}, code)
             return True
-        log(f"settings: renamed the owner {owner!r} -> {cfg.owner_name()!r} in People")
-    log(f"settings: wrote {', '.join(written) or 'no changes'} to {cfg.local_config()}")
+        LOG.info(f"settings: renamed the owner {owner!r} -> {cfg.owner_name()!r} in People")
+    LOG.info(f"settings: wrote {', '.join(written) or 'no changes'} to {cfg.local_config()}")
     # Bound before the reply goes out: a test's stand-in for restart() must still be the one called even if the test
     # stops patching the instant it reads the reply (that race once reinstalled real services from a worktree).
     go = restart
@@ -439,9 +439,9 @@ def handle(
         }
     )
     if names or dashboard or here_changed(selected_before):
-        go(log, names, dashboard, selected_before)
+        go(names, dashboard, selected_before)
     else:
-        log("settings: saved live settings, nothing to restart")
+        LOG.info("settings: saved live settings, nothing to restart")
     return True
 
 
@@ -459,4 +459,4 @@ def _carry_owner(old: str, new: str) -> tuple[int, dict[str, Any]]:
 @routes.get("/config", "/config/voice_ref", "/config/voices")
 @routes.post_raw("/config", "/config/voice_ref")
 def _route(h: H) -> None:
-    handle(h, log, carry_owner=_carry_owner)
+    handle(h, carry_owner=_carry_owner)

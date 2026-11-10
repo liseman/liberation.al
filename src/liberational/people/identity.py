@@ -92,10 +92,6 @@ FACE_GROUP = re.compile(r"Face (\d+)")
 LOG = logs.get("identity")
 
 
-def log(*a: object, level: int = logs.INFO) -> None:
-    LOG.log(level, " ".join(str(x) for x in a))
-
-
 def auto_label(label: str | None) -> bool:
     """A label no one gave: an automatic "Speaker 4", "unknown", or none, in any capitals."""
     return bool(re.fullmatch(r"Speaker \d+", label or "", re.IGNORECASE)) or (label or "").casefold() in ("", "unknown")
@@ -489,7 +485,7 @@ def llm_confirm(
     except ollama_health.Unavailable:
         return None  # logged once by ollama_health
     except Exception as e:
-        log(f"llm confirm failed: {e}", level=logs.WARN)
+        LOG.warning(f"llm confirm failed: {e}")
         return None
 
 
@@ -658,7 +654,7 @@ class Identity:
         if llm is None:
             conf, kind_f, name_f = 0.4, kind, name  # Ollama down: regex only -> pending
         elif llm["intro"] == "none" or not llm["name"]:
-            log(f"intro candidate rejected by LLM: {text!r} ({llm['raw']!r})")
+            LOG.info(f"intro candidate rejected by LLM: {text!r} ({llm['raw']!r})")
             return None
         else:
             kind_f, name_f, conf = llm["intro"], llm["name"], 0.6
@@ -718,11 +714,11 @@ class Identity:
                 and r.get("name", "").lower() == name_f.lower()
                 and self.clock() - r.get("ts", 0) <= DUP_S
             ):
-                log(f"intro {name_f!r} duplicate of {r['id']} ({r['kind']}), skipping")
+                LOG.info(f"intro {name_f!r} duplicate of {r['id']} ({r['kind']}), skipping")
                 return None
         deadline = (e.get("ts_end") or self.clock()) + WINDOW_S
         self.pending_intros.append((deadline, rec))
-        log(f"intro candidate: {kind_f} {name_f!r} conf {conf:.2f}, waiting for scene until +{WINDOW_S:.0f}s")
+        LOG.info(f"intro candidate: {kind_f} {name_f!r} conf {conf:.2f}, waiting for scene until +{WINDOW_S:.0f}s")
         return rec
 
     def resolve_intros(self) -> list[dict[str, Any]]:
@@ -751,7 +747,7 @@ class Identity:
                 rec["status"] = "pending"
             append_record(self.p, rec)
             out.append(rec)
-            log(
+            LOG.info(
                 f"{rec['kind']} {rec['name']!r}: {len(inwin)} sightings / {len(clusters)} unknown people, conf {rec['confidence']:.2f} -> {rec['status']}"
                 + (f" {rec['applied']['notes']}" if rec.get("applied") else "")
             )
@@ -766,7 +762,7 @@ class Identity:
         """The worker: follows the speech stream from its saved place (every line handled moves it) and the face
         matches live, and ticks every POLL_S. The brain runs on one thread (the LLM calls take seconds); the
         followers only pump records to it."""
-        log(f"worker on {self.p.state} (faces db {self.p.faces_db or 'default'}), LLM {LLM}")
+        LOG.info(f"worker on {self.p.state} (faces db {self.p.faces_db or 'default'}), LLM {LLM}")
         asyncio.run(self._run(duration))
 
     async def _run(self, duration: float | None) -> None:
@@ -851,7 +847,7 @@ class Identity:
         except Exception as e:
             import traceback
 
-            log("step error:", e, level=logs.ERROR)
+            LOG.error("step error: %s", e)
             traceback.print_exc()
             return None
 
@@ -887,7 +883,7 @@ class Identity:
             except asyncio.CancelledError:
                 raise
             except Exception as e:
-                log(f"following {speech_log.UTTERANCES} stopped: {e}; again in {POLL_S:.0f} s", level=logs.WARN)
+                LOG.warning(f"following {speech_log.UTTERANCES} stopped: {e}; again in {POLL_S:.0f} s")
                 await asyncio.sleep(POLL_S)
 
     async def _follow_faces(self, work: queue.Queue[tuple[str, Any] | None], stop: asyncio.Event) -> None:
@@ -904,7 +900,7 @@ class Identity:
             except asyncio.CancelledError:
                 raise
             except Exception as e:
-                log(f"following {segment_log.FACE_MATCHES} stopped: {e}; again in {POLL_S:.0f} s", level=logs.WARN)
+                LOG.warning(f"following {segment_log.FACE_MATCHES} stopped: {e}; again in {POLL_S:.0f} s")
                 await asyncio.sleep(POLL_S)
 
 

@@ -35,7 +35,7 @@ def on_continuum(monkeypatch: pytest.MonkeyPatch) -> FakeLog:
     log = FakeLog()
     monkeypatch.setattr(voice, "CONTINUUM", log)
     monkeypatch.setattr(voice, "_TURN", "Idle")
-    monkeypatch.setattr(voice, "log", lambda *a, **k: None)
+    monkeypatch.setattr(voice, "status", lambda *a, **k: None)
     monkeypatch.setattr(voice, "canonical_entry", lambda e: dict(e))
     monkeypatch.setattr(voice, "owner_entry", lambda e: False)
     return log

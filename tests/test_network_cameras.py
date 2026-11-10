@@ -46,7 +46,7 @@ def proposal():
 def test_add_preserves_usb_manifest_and_stores_private_url_with_owner_only_permissions(manifest, monkeypatch):
     restart = create_autospec(cameras.settings.restart)
     monkeypatch.setattr(cameras.settings, "restart", restart)
-    code, result = cameras.add(proposal(), lambda *a, **k: None)
+    code, result = cameras.add(proposal())
     assert code == 200 and result == {"ok": True}
     rows = tomllib.loads(manifest.read_text())["device"]
     assert rows[0] == dict(name="desk", kind="camera", match={"name": "USB"})
@@ -61,15 +61,15 @@ def test_network_camera_off_and_on_preserve_private_row_and_identity(manifest, m
     restart = create_autospec(cameras.settings.restart)
     monkeypatch.setattr(cameras.settings, "restart", restart)
     monkeypatch.setattr(cameras, "controls_ready", lambda: True)
-    cameras.add(proposal(), lambda *a, **kw: None)
+    cameras.add(proposal())
     original = tomllib.loads(manifest.read_text())["device"]
-    code, reply = cameras.use({"id": "entryway", "enabled": False}, lambda *a, **kw: None)
+    code, reply = cameras.use({"id": "entryway", "enabled": False})
     assert code == 200 and reply["ok"] and reply["restarted"] == ["continuum-capture"]
     disabled = tomllib.loads(manifest.read_text())["device"]
     assert disabled == [original[0], {**original[1], "enabled": False}]
     assert cameras.view()["cameras"][0]["enabled"] is False
     assert "private-token" not in json.dumps(reply)
-    code, _ = cameras.use({"id": "entryway", "enabled": True}, lambda *a, **kw: None)
+    code, _ = cameras.use({"id": "entryway", "enabled": True})
     assert code == 200
     assert tomllib.loads(manifest.read_text())["device"] == [original[0], {**original[1], "enabled": True}]
     assert os.stat(manifest).st_mode & 0o777 == 0o600
@@ -79,14 +79,14 @@ def test_network_camera_off_and_on_preserve_private_row_and_identity(manifest, m
 def test_camera_use_refuses_invalid_toggle_without_writing(manifest, monkeypatch, body):
     monkeypatch.setattr(cameras, "controls_ready", lambda: True)
     before = manifest.read_bytes()
-    code, _ = cameras.use(body, lambda *a, **kw: None)
+    code, _ = cameras.use(body)
     assert code in (400, 404) and manifest.read_bytes() == before
 
 
 def test_camera_use_requires_native_enabled_support_before_writing(manifest, monkeypatch):
     monkeypatch.setattr(cameras, "controls_ready", lambda: False)
     before = manifest.read_bytes()
-    code, _ = cameras.use({"id": "entryway", "enabled": False}, lambda *a, **kw: None)
+    code, _ = cameras.use({"id": "entryway", "enabled": False})
     assert code == 409 and manifest.read_bytes() == before
 
 
@@ -108,20 +108,20 @@ def test_camera_use_capability_requires_both_native_enabled_and_rtsp_support(mon
 
 def test_camera_use_restart_failure_reports_saved_state_without_claiming_a_rollback(manifest, monkeypatch):
     monkeypatch.setattr(cameras.settings, "restart", lambda *a, **kw: None)
-    cameras.add(proposal(), lambda *a, **kw: None)
+    cameras.add(proposal())
 
     def refused(*args, **kwargs):
         raise RuntimeError("synthetic restart refusal")
 
     monkeypatch.setattr(cameras.settings, "restart", refused)
-    code, body = cameras.use({"id": "entryway", "enabled": False}, lambda *a, **kw: None)
+    code, body = cameras.use({"id": "entryway", "enabled": False})
     assert code == 500 and "was saved" in body["error"]
     assert tomllib.loads(manifest.read_text())["device"][1]["enabled"] is False
 
 
 def test_camera_use_write_failure_never_restarts_or_changes_private_configuration(manifest, monkeypatch):
     monkeypatch.setattr(cameras.settings, "restart", lambda *a, **kw: None)
-    cameras.add(proposal(), lambda *a, **kw: None)
+    cameras.add(proposal())
     before = manifest.read_bytes()
     restart = create_autospec(cameras.settings.restart)
     monkeypatch.setattr(cameras.settings, "restart", restart)
@@ -130,7 +130,7 @@ def test_camera_use_write_failure_never_restarts_or_changes_private_configuratio
         raise OSError("synthetic write failure")
 
     monkeypatch.setattr(cameras.cameras, "_write_manifest", unwritable)
-    code, body = cameras.use({"id": "entryway", "enabled": False}, lambda *a, **kw: None)
+    code, body = cameras.use({"id": "entryway", "enabled": False})
     assert code == 500 and "error" in body
     assert manifest.read_bytes() == before
     restart.assert_not_called()
@@ -139,7 +139,7 @@ def test_camera_use_write_failure_never_restarts_or_changes_private_configuratio
 def test_camera_use_corrupt_manifest_is_actionable_without_secret_excerpt(manifest):
     manifest.write_text('[[device]]\nrtsp = {url="private-token"\n')
     before = manifest.read_bytes()
-    code, body = cameras.use({"id": "entryway", "enabled": False}, lambda *a, **kw: None)
+    code, body = cameras.use({"id": "entryway", "enabled": False})
     assert code == 500 and "error" in body
     assert manifest.read_bytes() == before
     assert "private-token" not in json.dumps(body)
@@ -147,7 +147,7 @@ def test_camera_use_corrupt_manifest_is_actionable_without_secret_excerpt(manife
 
 def test_network_camera_name_is_a_display_alias_without_changing_id(manifest, monkeypatch):
     monkeypatch.setattr(cameras.settings, "restart", lambda *a, **kw: None)
-    cameras.add(proposal(), lambda *a, **kw: None)
+    cameras.add(proposal())
     before = manifest.read_bytes()
     with cameras.cfg.override({"vision": {"camera_names": ["entryway: Front door"]}}):
         row = cameras.view()["cameras"][0]
@@ -158,7 +158,7 @@ def test_network_camera_name_is_a_display_alias_without_changing_id(manifest, mo
 def test_unsupported_capture_cannot_write_unknown_device_kind(manifest, monkeypatch):
     before = manifest.read_bytes()
     monkeypatch.setattr(cameras, "capture_ready", lambda: False)
-    code, _ = cameras.add(proposal(), lambda *a, **k: None)
+    code, _ = cameras.add(proposal())
     assert code == 409 and manifest.read_bytes() == before
 
 
@@ -166,14 +166,14 @@ def test_unsupported_capture_cannot_write_unknown_device_kind(manifest, monkeypa
 def test_invalid_add_does_not_modify_manifest(manifest, key, value):
     before = manifest.read_bytes()
     body = {**proposal(), key: value}
-    code, _ = cameras.add(body, lambda *a, **k: None)
+    code, _ = cameras.add(body)
     assert code in (400, 409) and manifest.read_bytes() == before
 
 
 def test_expired_proposal_is_not_an_arbitrary_url_write_capability(manifest):
     body = proposal()
     cameras._proposals[("pass", "camera", "stream")] = (0, URL)
-    code, _ = cameras.add(body, lambda *a, **k: None)
+    code, _ = cameras.add(body)
     assert code == 409
     assert len(tomllib.loads(manifest.read_text())["device"]) == 1
 
@@ -248,7 +248,7 @@ def test_discovery_rejects_remote_or_cross_origin_mutations_before_network(
         _json=lambda body, code: replies.append((body, code)),
     )
     # The fake has no request body or socket: reaching discovery would fail instead of touching the LAN.
-    assert cameras.handle(cast("H", handler), lambda *a, **k: None)
+    assert cameras.handle(cast("H", handler))
     assert replies[0][1] == 403
 
 
@@ -258,7 +258,7 @@ def test_corrupt_manifest_get_is_an_http_error_for_the_settings_ui(manifest):
     handler = SimpleNamespace(
         path="/network-cameras", command="GET", _json=lambda body, code: replies.append((body, code))
     )
-    assert cameras.handle(cast("H", handler), lambda *a, **k: None)
+    assert cameras.handle(cast("H", handler))
     assert replies[0][1] == 503
     assert "repair" in replies[0][0]["error"]
     assert "private-token" not in json.dumps(replies)

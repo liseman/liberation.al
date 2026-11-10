@@ -13,10 +13,10 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from liberational import config as cfg
-from liberational import logs, services, speech_log, vision_log
+from liberational import services, speech_log, vision_log
 from liberational.audio import gain
 from liberational.dashboard import context, routes
-from liberational.dashboard.context import log
+from liberational.dashboard.context import LOG
 
 if TYPE_CHECKING:
     from liberational.dashboard.server import H
@@ -49,7 +49,7 @@ def scene_entries() -> list[dict[str, Any]]:
         try:
             value = source.scene(time.time())
         except Exception as e:
-            log("scene: the vision log couldn't be read:", e, level=logs.WARN)
+            LOG.warning("scene: the vision log couldn't be read: %s", e)
             return []
         _scene_cache.update(at=time.monotonic(), value=value, log=source)
         return value
@@ -136,7 +136,7 @@ def mic_status() -> dict[str, Any]:
     try:
         fresh = speech_log.shared().mic_freshness()
     except Exception as e:
-        log("mic status:", repr(e), level=logs.WARN)
+        LOG.warning("mic status: %s", repr(e))
         fresh = {}
     listening, now_ns = _listening(), time.time_ns()
     gains = {g.get("name"): g for g in gain.read_status(cfg.path("paths.state") / gain.STATUS).values()}

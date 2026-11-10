@@ -152,7 +152,7 @@ def restarted(monkeypatch):
     """The services Settings would restart, recorded instead."""
     asked: list[list[str]] = []
 
-    def restart(log, names=(), dashboard=True, before=None):
+    def restart(names=(), dashboard=True, before=None):
         asked.append(list(names))
 
     monkeypatch.setattr(settings, "restart", restart)

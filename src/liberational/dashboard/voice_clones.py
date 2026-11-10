@@ -18,10 +18,9 @@ import urllib.parse
 import urllib.request
 from typing import TYPE_CHECKING, Any
 
-from liberational import logs
 from liberational.config import ROOT
 from liberational.dashboard import context, known_voices, routes
-from liberational.dashboard.context import PY, Reply, log
+from liberational.dashboard.context import LOG, PY, Reply
 from liberational.domain.identity import Basis
 from liberational.people import registry, transcript_view
 
@@ -86,7 +85,7 @@ def clone_pick(sid: object, keys: object) -> Reply:
     except ValueError as ex:
         return 409, {"ok": False, "error": str(ex)}
     except Exception as ex:
-        log("clones: pick failed:", repr(ex), level=logs.ERROR)
+        LOG.error("clones: pick failed: %s", repr(ex))
         return 500, {"ok": False, "error": "Making the reference failed: " + str(ex)}
     finally:
         CLONE_LOCK.release()
@@ -172,7 +171,7 @@ def clone_record(raw_bytes: bytes, name: str) -> Reply:
             return 500, {"ok": False, "error": " ".join(err) or "could not prepare the voice"}
     finally:
         tmp.unlink(missing_ok=True)
-    log(f"recorded clone {name!r} as speaker {s['id']} ({o.get('seconds')} s: {str(o.get('ref_text'))[:60]!r})")
+    LOG.info(f"recorded clone {name!r} as speaker {s['id']} ({o.get('seconds')} s: {str(o.get('ref_text'))[:60]!r})")
     return 200, {
         "ok": True,
         "id": s["id"],
@@ -249,7 +248,7 @@ def _get_clones_x_lines(h: H, m: re.Match[str]) -> None:
     try:
         return h._json({"lines": clone_say.pickable(int(m.group(1)))})
     except Exception as ex:
-        log("clones: lines unreadable:", repr(ex), level=logs.ERROR)
+        LOG.error("clones: lines unreadable: %s", repr(ex))
         return h._json({"error": "Could not read their lines."}, 500)
 
 

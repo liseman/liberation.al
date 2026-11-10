@@ -126,7 +126,7 @@ has the full list. The short version:
 - Don't exclude files from ty or Ruff's `ANN` rules in `pyproject.toml` to get past the checker. Nothing is excluded now; keep it that way.
 
 **Log with levels.**
-- A service logs through `liberational.logs` (`LOG = logs.get("<tag>")`, or a module's `log(..., level=logs.WARN)` helper), never bare `print`: each line is `<stamp> [tag] LEVEL message` (the stamp ISO local date and time with offset, `2026-11-03T02:20:15-08:00`), and the Debug tab filters by level. CLI output for a person to read stays `print`.
+- A service logs through `liberational.logs` (`LOG = logs.get("<tag>")`, then `LOG.info(...)`, `LOG.warning(...)`, and so on), never bare `print` and never a `log()` wrapper of its own: each line is `<stamp> [tag] LEVEL message` (the stamp ISO local date and time with offset, `2026-11-03T02:20:15-08:00`), and the Debug tab filters by level. CLI output for a person to read stays `print`.
 - ERROR: something failed and needs attention (a crash, a model that won't load, a write that failed). WARN: degraded, retrying, or falling back (a service it needs is down, a retry, a camera reconnecting). INFO: normal progress (started, a pass done, counts). DEBUG: per-item detail, off unless `logging.level` or `logging.per_service` turns it on.
 - A client that hangs up, or a retry that will likely succeed, is not an error. A traceback goes with its line (`LOG.exception`), not on its own.
 - A Rust daemon calls `continuum_log::init("<service>")` first thing and logs with `tracing`'s macros, never `eprintln!`; its level is `RUST_LOG`, which `pack-services install` sets from the same `logging` settings.

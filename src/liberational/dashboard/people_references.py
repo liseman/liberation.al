@@ -17,10 +17,9 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
 from liberational import config as cfg
-from liberational import logs
 from liberational.config import ROOT
 from liberational.dashboard import context, people_list, roster_read, routes
-from liberational.dashboard.context import PY, log
+from liberational.dashboard.context import LOG, PY
 
 if TYPE_CHECKING:
     from liberational.dashboard.server import H
@@ -133,7 +132,7 @@ def _teach_reference(token: str, data: dict[str, Any]) -> dict[str, Any]:
     except ValueError:
         face = None
     if not isinstance(face, dict):
-        log(f"reference photo for {data['person']}: its face couldn't be read:", out[-200:], level=logs.WARN)
+        LOG.warning("%s %s", f"reference photo for {data['person']}: its face couldn't be read:", out[-200:])
         return data
     return references.note_face(context.STATE, token, face)
 
