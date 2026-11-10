@@ -18,6 +18,7 @@ it does. A document that still mixes kinds is listed under the one it mostly is.
 | [Releases](RELEASES.md) | Install a release with apt or uv, with no checkout; make a release; make the apt signing key |
 | [Running](RUNNING.md) | Open and quit the application, see what runs, restart one service or everything, and read logs |
 | [Upgrading](../MIGRATING.md) | Update an existing install, follow the steps a change needs, and reset state |
+| [Cameras](CAMERAS.md) | Add a camera, name its view, pause it, and calibrate a wide or fisheye lens |
 | [Naming](NAMING.md) | Name people and pets, answer the naming cards, and remove a wrong training image |
 | [Places](PLACES.md) | Have the cameras learn a place's map and see people on its plan |
 | [Ingest](INGEST.md) | Import photos, video, and audio from elsewhere |
