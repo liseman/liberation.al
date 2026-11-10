@@ -50,6 +50,14 @@ changed, which is a new hour or a row written late into an old one, and starts o
 Re-reading everything took about half a second per label, under the evidence lock, so quick labels queued behind
 each other. The kept rows cost about 7 MB of vectors (4,590 embeddings of 384 float32s).
 
+**Answers are kept**: the dashboard polls the listing (`view`), and nearly all of its work has the same
+inputs from one poll to the next. Three things are kept in this process, each under what it was made from, so none
+can outlive a change: the `pet.reference` rows (`_current_references`, under the knowledge store's reference
+generation), each species' check (`_checks`, under the label and reference generation and its labeled sightings),
+and the whole answer (`view`, under the generation, the embedding files, and the pets, for at most `VIEW_TTL_S`).
+On the Linux machine with 1,885 labeled sightings an answer took 1.6 s of CPU; a poll with nothing new is now a
+stat of the store's files and one small query, and one after a new sighting about a quarter of what it was.
+
 **One embedding space**: every reader (listing, labeling, photos, Review's boxes) takes only rows in the
 current space (`embedding_model`: the configured model and its crop), as references are. A row of another space (an
 earlier square crop) doesn't compare with the rest, so it's no sighting, and a label can only keep an example of
@@ -68,6 +76,7 @@ named pet. Anything less stays unknown.
 
 import calendar
 import functools
+import json
 import math
 import threading
 import time
@@ -111,6 +120,7 @@ LABELS = "pet.sighting"  # owner labels, in the knowledge store
 NOTS = "pet.not"  # the owner's "this sighting is not that pet", in the knowledge store
 REFERENCES = "pet.reference"  # labeled tracks' embeddings from before the reset
 GALLERY_TTL_S = 300.0  # the longest a cached reference gallery is used before it's read again
+VIEW_TTL_S = 60.0  # the longest a kept /pets/sightings answer is given again: its label_days cutoff moves with time
 
 
 @dataclass
@@ -560,9 +570,47 @@ def _teach(
     return names, named, ignored, labeled, only
 
 
-def _check(labeled: Sequence[tuple[Sighting, str]], species: str, only: Mapping[str, str | None]) -> dict[str, Any]:
-    """A species' check: the one-pet gallery when it has exactly one named pet, else the held-out check."""
-    return gallery(labeled, species, pet) if (pet := only.get(species)) is not None else held_out(labeled, species)
+_checks_kept: dict[tuple[Path, str], tuple[tuple[Any, ...], dict[str, Any]]] = {}
+_reference_rows: dict[Path, tuple[tuple[Any, ...], list[dict[str, Any]]]] = {}
+_views: dict[Path, tuple[tuple[Any, ...], float, dict[str, Any]]] = {}
+_answers_lock = threading.Lock()  # guards the three above
+
+
+def _generation(state: Any, collections: Iterable[str]) -> tuple[str, int, int] | None:
+    """The knowledge store's generation for these collections (it moves on every write and deletion), or None, without
+    creating the store, when it doesn't exist yet."""
+    from liberational.people import registry
+
+    return _store(state).generation(collections) if registry.knowledge_path(state).exists() else None
+
+
+def _checks(
+    state: Any, labeled: Sequence[tuple[Sighting, str]], species: Iterable[str], only: Mapping[str, str | None]
+) -> dict[str, dict[str, Any]]:
+    """Each of these species' check: the one-pet gallery when it has exactly one named pet, else the held-out check.
+
+    A check compares every labeled sighting of its species with every other, and its inputs change only when the
+    owner labels something or a labeled track's embeddings do, so each species' last one is kept under what it was
+    worked out from: the knowledge store's label and reference generation, the embedding space, the species' one
+    named pet, and each labeled sighting's track, class, start, and embedding count. A read with none of those
+    changed is a lookup. The checks are shared: callers must not change them."""
+    from liberational.people import registry
+
+    path = registry.knowledge_path(state)
+    stamp = (_generation(state, (LABELS, REFERENCES)), embedding_model())
+    out: dict[str, dict[str, Any]] = {}
+    for sp in sorted(set(species)):
+        mine = [(s, label) for s, label in labeled if s.species == sp]
+        pet = only.get(sp)
+        key = (*stamp, pet, tuple((s.track_id, label, s.start, len(s.vectors)) for s, label in mine))
+        with _answers_lock:
+            kept = _checks_kept.get((path, sp))
+        if kept is None or kept[0] != key:
+            kept = (key, gallery(mine, sp, pet) if pet is not None else held_out(mine, sp))
+            with _answers_lock:
+                _checks_kept[(path, sp)] = kept
+        out[sp] = kept[1]
+    return out
 
 
 def _judge(
@@ -623,12 +671,41 @@ def group_guess(rows: Sequence[Mapping[str, Any]], names: Mapping[str, str]) -> 
 def view(state: Any, pets: Sequence[Mapping[str, Any]], now: float | None = None) -> dict[str, Any]:
     """Pets' sightings for the dashboard: the sightings still waiting for a label, in groups, each with what recognition
     says (a match when it is on for the species, else a suggestion), and each species' held-out check. A labeled
-    sighting leaves the groups and serves as recognition's reference."""
-    now = time.time() if now is None else now
+    sighting leaves the groups and serves as recognition's reference.
+
+    Without `now` (the dashboard's poll) the last answer is given again while nothing it was made from has changed:
+    the owner's labels, references, and "not" marks (the knowledge store's generation), the segment store's
+    embedding files (`_files`), the pets, `pets.label_days`, and the embedding space. Only the time moves under it,
+    which takes a sighting off the list `pets.label_days` after it was seen, so an answer is used for at most
+    VIEW_TTL_S. With `now` it is always worked out. The answer is shared: callers must not change it."""
+    if now is not None:
+        return _view(state, pets, now)
+    base = segment_log.root(state)
+    key = (
+        _generation(state, (LABELS, REFERENCES, NOTS)),
+        _files(base),
+        json.dumps(pets, sort_keys=True, default=str),
+        label_days(),
+        embedding_model(),
+    )
+    with _answers_lock:
+        kept = _views.get(base)
+    if kept is not None and kept[0] == key and time.monotonic() - kept[1] < VIEW_TTL_S:
+        return kept[2]
+    # Keyed by what was seen before reading: a write during the read makes the next poll work it out again.
+    made = time.monotonic()
+    answer = _view(state, pets, time.time())
+    with _answers_lock:
+        _views[base] = (key, made, answer)
+    return answer
+
+
+def _view(state: Any, pets: Sequence[Mapping[str, Any]], now: float) -> dict[str, Any]:
+    """`view`'s answer as of `now`, worked out."""
     active, denied = labels(state), nots(state)
     found = _recorded(state, now, active)
     names, named, ignored, labeled, only = _teach(found, active, pets)
-    checks = {sp: _check(labeled, sp, only) for sp in sorted({s.species for s in found})}
+    checks = _checks(state, labeled, {s.species for s in found}, only)
     refs = References(labeled)
 
     def item(s: Sighting) -> dict[str, Any]:
@@ -649,8 +726,9 @@ def view(state: Any, pets: Sequence[Mapping[str, Any]], now: float | None = None
 
     # Each named pet's newest sightings, labeled or recognized, for its card and its row's "last seen".
     seen: dict[str, list[dict[str, Any]]] = {pid: [] for pid in names}
+    items = {s.track_id: item(s) for s in found}  # once each: recognition is most of an answer's time
     for s in found:
-        row = item(s)
+        row = items[s.track_id]
         if s.track_id in ignored:
             continue
         how = "labeled" if row["label"] else "recognized" if "recognized" in row else None
@@ -662,7 +740,7 @@ def view(state: Any, pets: Sequence[Mapping[str, Any]], now: float | None = None
         del rows[SEEN_MAX:]
     listed = []
     for members in groups([s for s in found if s.track_id not in named and s.track_id not in ignored]):
-        rows = [item(s) for s in members]
+        rows = [items[s.track_id] for s in members]
         listed.append(
             {
                 "id": f"{members[0].species}:{members[0].track_id}",
@@ -734,9 +812,34 @@ def embedding_model() -> str:
 
 def _current_references(state: Any) -> list[dict[str, Any]]:
     """The `pet.reference` records in the current embedding space, as rows. One of another space (another model, or
-    an earlier square crop) doesn't compare, so it's no example, and its label is stranded until restored."""
+    an earlier square crop) doesn't compare, so it's no example, and its label is stranded until restored.
+
+    Kept under the knowledge store's reference generation and the embedding space: every listing, label, and gallery
+    reads them, and decoding 1,885 records' vectors was about half of a /pets/sightings answer. The rows are
+    shared: callers must not change them."""
+    from liberational.people import registry
+
+    path = registry.knowledge_path(state)
     space = embedding_model()
-    return [r.value for r in _query(state, REFERENCES) if r.value.get("model") == space]
+    key = (_generation(state, (REFERENCES,)), space)
+    with _answers_lock:
+        kept = _reference_rows.get(path)
+    if kept is not None and kept[0] == key:
+        return kept[1]
+    rows = [_reference_row(r.value) for r in _query(state, REFERENCES) if r.value.get("model") == space]
+    with _answers_lock:
+        # Keyed by the generation read before the records: a write between the two is read again next time.
+        _reference_rows[path] = (key, rows)
+    return rows
+
+
+def _reference_row(value: Mapping[str, Any]) -> dict[str, Any]:
+    """A reference record as a kept row: its vector as an array, as `_hour_rows` keeps the segment store's."""
+    vector = value.get("vector")
+    try:
+        return {**value, "vector": np.asarray(vector, dtype=np.float32)} if isinstance(vector, list) else dict(value)
+    except TypeError, ValueError:
+        return dict(value)  # malformed: `sightings` skips or refuses it as it always did
 
 
 def reference(vector: np.ndarray, owner_label: Mapping[str, Any], at: int) -> knowledge.Record:
@@ -892,7 +995,7 @@ def _reference_gallery(state: Any, pets: Sequence[Mapping[str, Any]]) -> _Galler
     names, named, _, _, only = _teach([], active, pets)
     found = _references(state, named)
     _, _, _, labeled, _ = _teach(found, active, pets)
-    checks = {sp: _check(labeled, sp, only) for sp in sorted({s.species for s, _ in labeled})}
+    checks = _checks(state, labeled, {s.species for s, _ in labeled}, only)
     fresh = _Gallery(key, built, active, names, set(offered(pets)), labeled, checks, nots(state))
     with _galleries_lock:
         _galleries[path] = fresh
