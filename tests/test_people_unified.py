@@ -22,7 +22,19 @@ from PIL import Image
 
 from liberational import config as cfg
 from liberational import segment_log, vision_log
-from liberational.dashboard import call_log, context, server
+from liberational.dashboard import (
+    call_log,
+    context,
+    inbox_state,
+    known_voices,
+    people_list,
+    people_reads,
+    people_writes,
+    photo_files,
+    server,
+    speaker_lines,
+    voice_clones,
+)
 from liberational.domain.identity import Basis
 from liberational.people import registry, voice_edits
 from liberational.see import face_boxes
@@ -88,7 +100,7 @@ def in_process_voice_edits(monkeypatch):
             outs.append(out.getvalue().strip())
         return True, "\n".join(outs)
 
-    monkeypatch.setattr(server, "_speaker_cmds", speaker_cmds)
+    monkeypatch.setattr(known_voices, "_speaker_cmds", speaker_cmds)
     return ran
 
 
@@ -101,7 +113,7 @@ def ran(monkeypatch):
 @pytest.fixture
 def faces(monkeypatch):
     faces = FakeFaces()
-    monkeypatch.setattr(server, "_faces_mod", lambda: faces)
+    monkeypatch.setattr(people_list, "_faces_mod", lambda: faces)
     return faces
 
 
@@ -121,17 +133,16 @@ def state(tmp_path, monkeypatch, pack, faces, ran):
     """The dashboard pointed at an empty state dir of its own."""
     state = tmp_path / "state"
     state.mkdir()
-    files = {
-        "CONTACTS_FILE": "contacts.json",
-        "PEOPLE_ADDED": "people_added.json",
-        "INBOX_SKIPS": "inbox_skips.json",
-        "_clones_dir": "clones",
-    }
+    files = {}
     for name, path in files.items():
         monkeypatch.setattr(server, name, state / path)
+    monkeypatch.setattr(people_list, "PEOPLE_ADDED", state / "people_added.json")
+    monkeypatch.setattr(inbox_state, "INBOX_SKIPS", state / "inbox_skips.json")
+    monkeypatch.setattr(people_list, "CONTACTS_FILE", state / "contacts.json")
+    monkeypatch.setattr(voice_clones, "_clones_dir", state / "clones")
     monkeypatch.setattr(call_log, "CALLS_DIR", state / "calls")
     monkeypatch.setattr(context, "STATE", state)
-    monkeypatch.setattr(server, "_face_last_seen_at", lambda: {"alice": (300.0, "cam0")})
+    monkeypatch.setattr(people_list, "_face_last_seen_at", lambda: {"alice": (300.0, "cam0")})
     with cfg.override({"paths": {"state": str(state), "faces": str(tmp_path / "faces")}}):
         yield state
 
@@ -159,7 +170,7 @@ def people(state):
 
 def label(sid):
     """What the dashboard calls voice `sid` now (GET /speakers)."""
-    return {s["id"]: s["label"] for s in server.speakers_public()["speakers"]}[sid]
+    return {s["id"]: s["label"] for s in speaker_lines.speakers_public()["speakers"]}[sid]
 
 
 def add_clone(state, sid, name):
@@ -171,7 +182,7 @@ def add_clone(state, sid, name):
 
 
 def test_roster_joins_voices_faces_phone_added_names_and_lines(people):
-    view = server.people_view()
+    view = people_reads.people_view()
     assert [p["name"] for p in view["people"]] == PEOPLE
     alice, dana, bob, _ = view["people"]
     assert (alice["voices"], alice["faces"], alice["owner"], alice["enrolled"], alice["last_seen"]) == (
@@ -191,7 +202,7 @@ def test_unnamed_voices_with_no_audio_left_are_not_listed(people):
     # 2 has a line with audio; 7 only a line without audio.
     write_voices(people, {7: None})
     write_lines(people, {"ts_start": 3, "speaker_id": 7})
-    assert [v["id"] for v in server.people_view()["unknown"]["voices"]] == [2]
+    assert [v["id"] for v in people_reads.people_view()["unknown"]["voices"]] == [2]
 
 
 def test_speakers_counts_each_voices_lines_and_names_it_by_its_person_newest_first(state):
@@ -205,7 +216,7 @@ def test_speakers_counts_each_voices_lines_and_names_it_by_its_person_newest_fir
         {"ts_start": 61.0, "speaker_id": 2},
         {"ts_start": 65.0, "speaker_id": None},
     )
-    out = server.speakers_public()
+    out = speaker_lines.speakers_public()
     assert [(s["id"], s["label"], s["n"], s["first_seen"], s["last_seen"]) for s in out["speakers"]] == [
         (3, "Dana Cole", 2, 50.0, 70.0),
         (2, "Speaker 2", 1, 61.0, 61.0),
@@ -217,11 +228,11 @@ def test_speakers_counts_each_voices_lines_and_names_it_by_its_person_newest_fir
 def test_speakers_marks_only_a_voice_learned_from_a_recording_as_enrolled(state):
     write_voices(state, {1: "Alice"}, source=voice_edits.ENROLL_SOURCE)
     write_voices(state, {3: "Dana Cole"})
-    assert {s["id"]: s["enrolled"] for s in server.speakers_public()["speakers"]} == {1: True, 3: False}
+    assert {s["id"]: s["enrolled"] for s in speaker_lines.speakers_public()["speakers"]} == {1: True, 3: False}
 
 
 def test_rename_relabels_voices_faces_phone_without_a_restart(people, faces, ran):
-    code, body = server.rename_person("Dana Cole", "Dana Cole-Smith", control=True)
+    code, body = people_writes.rename_person("Dana Cole", "Dana Cole-Smith", control=True)
     assert (code, body["merged"]) == (200, False)
     assert ran == []  # her voice is named by her person: no voice command
     assert label(3) == "Dana Cole-Smith"
@@ -232,7 +243,7 @@ def test_rename_relabels_voices_faces_phone_without_a_restart(people, faces, ran
 def test_renaming_into_someone_gives_them_both_voices(people, ran):
     # The people merge in the event log carries her voice along: no voice command.
     registry.at(people).claim(registry.voiceprint(2), "Erin", Basis.OWNER_TAG, "test")
-    code, body = server.rename_person("Dana Cole", "erin", control=True)
+    code, body = people_writes.rename_person("Dana Cole", "erin", control=True)
     assert (code, body["name"], body["merged"]) == (200, "Erin", True)
     assert (ran, label(2), label(3)) == ([], "Erin", "Erin")
 
@@ -250,12 +261,12 @@ def test_renaming_into_someone_gives_them_both_voices(people, ran):
     ],
 )
 def test_a_refused_rename_changes_nothing(people, faces, ran, old, new, code):
-    assert server.rename_person(old, new, control=True)[0] == code
+    assert people_writes.rename_person(old, new, control=True)[0] == code
     assert (ran, faces.renamed, label(1)) == ([], [], "Alice")
 
 
 def test_the_owner_can_change_only_the_capitals_of_their_name_here(people):
-    code, body = server.rename_person("alice", "ALICE", control=True)
+    code, body = people_writes.rename_person("alice", "ALICE", control=True)
     assert (code, body["name"]) == (200, "ALICE")
 
 
@@ -267,40 +278,40 @@ def test_the_owner_can_change_only_the_capitals_of_their_name_here(people):
 def test_a_reserved_or_malformed_label_is_never_a_persons_name(people, ran, name):
     # Finding 10: Live's rename took "unknown" and the assistant's name, so the voice left People and its lines read as
     # nobody's, and "Speaker 9" gave two voices one automatic label.
-    assert server.rename_person("Dana Cole", name, control=True)[0] == 400
-    assert server.claim_identity("voice", 2, name, control=True)[0] == 400
-    assert server.claim_identity("face", 5, name, control=True)[0] == 400
-    assert server.request_voice_tags([60.0], name)[0] == 400
-    assert server.label_speaker(3, name)[0] == 400
+    assert people_writes.rename_person("Dana Cole", name, control=True)[0] == 400
+    assert people_writes.claim_identity("voice", 2, name, control=True)[0] == 400
+    assert people_writes.claim_identity("face", 5, name, control=True)[0] == 400
+    assert speaker_lines.request_voice_tags([60.0], name)[0] == 400
+    assert speaker_lines.label_speaker(3, name)[0] == 400
     assert ran == []  # no voice was named
-    assert [p["name"] for p in server.people_roster()] == PEOPLE
+    assert [p["name"] for p in people_list.people_roster()] == PEOPLE
 
 
 def test_the_live_voice_rename_takes_its_own_automatic_label_and_tidies_the_name(people):
-    assert server.label_speaker(3, "Speaker 3")[0] == 200
+    assert speaker_lines.label_speaker(3, "Speaker 3")[0] == 200
     assert label(3) == "Speaker 3"
-    assert server.label_speaker(3, " Dana  Cole-Smith ")[0] == 200
+    assert speaker_lines.label_speaker(3, " Dana  Cole-Smith ")[0] == 200
     assert label(3) == "Dana Cole-Smith"
 
 
 def test_claiming_a_voice_for_someone_who_has_one_names_it_for_them_from_any_machine(people, ran):
     # Naming replaces merging: a person may have several voices.
-    assert server.claim_identity("voice", 2, "Dana Cole", control=False)[0] == 200
+    assert people_writes.claim_identity("voice", 2, "Dana Cole", control=False)[0] == 200
     assert ran == [["label", "2", "Dana Cole"]]
     assert (label(2), label(3)) == ("Dana Cole", "Dana Cole")
 
 
 def test_claims_name_or_merge_unknown_voices_and_faces(people, faces):
-    assert server.claim_identity("voice", 2, "Zoe", control=False)[0] == 200
+    assert people_writes.claim_identity("voice", 2, "Zoe", control=False)[0] == 200
     assert label(2) == "Zoe"
-    assert server.claim_identity("face", 5, "dana cole", control=False)[0] == 200
+    assert people_writes.claim_identity("face", 5, "dana cole", control=False)[0] == 200
     assert faces.named == [(5, "Dana Cole")]  # joins the existing person's spelling
-    assert server.claim_identity("face", 9, "Zoe", control=False)[0] == 404
-    assert server.claim_identity("hand", 2, "Zoe", control=True)[0] == 400
+    assert people_writes.claim_identity("face", 9, "Zoe", control=False)[0] == 404
+    assert people_writes.claim_identity("hand", 2, "Zoe", control=True)[0] == 400
 
 
 def test_claiming_a_voice_as_the_owner_names_it_beside_theirs(people):
-    code, body = server.claim_identity("voice", 2, "Alice", control=True)
+    code, body = people_writes.claim_identity("voice", 2, "Alice", control=True)
     assert (code, body["ok"]) == (200, True)
     assert (label(1), label(2)) == ("Alice", "Alice")
 
@@ -308,22 +319,22 @@ def test_claiming_a_voice_as_the_owner_names_it_beside_theirs(people):
 def test_a_voice_that_names_someone_is_never_claimed_for_someone_else(people, ran):
     # A turn of the owner's that Live matched to Dana's voice: typing the owner's name claimed the voice, which merged
     # all of Dana's voice into the owner's, for good. Two people become one through Same person as on People.
-    assert server.claim_identity("voice", 3, "alice", control=True)[0] == 409
-    assert server.claim_identity("voice", 3, "Zoe", control=True)[0] == 409
-    assert server.confirm_owner_voice(3)[0] == 409
+    assert people_writes.claim_identity("voice", 3, "alice", control=True)[0] == 409
+    assert people_writes.claim_identity("voice", 3, "Zoe", control=True)[0] == 409
+    assert people_writes.confirm_owner_voice(3)[0] == 409
     assert ran == []
-    assert server.claim_identity("voice", 3, "dana cole", control=True)[0] == 200  # her own name is fine
+    assert people_writes.claim_identity("voice", 3, "dana cole", control=True)[0] == 200  # her own name is fine
 
 
 def test_the_owners_voice_is_never_claimed_for_someone_else(people, ran):
     # Review 4, finding 6: Live's Turn rename sends /people/claim when the typed name exists, so typing Dana Cole on
     # one of the owner's own turns merged the owner's voice into Dana's, which can't be undone.
-    assert server.claim_identity("voice", 1, "Dana Cole", control=True)[0] == 403
-    assert server.claim_identity("voice", 1, "Zoe", control=True)[0] == 403
+    assert people_writes.claim_identity("voice", 1, "Dana Cole", control=True)[0] == 403
+    assert people_writes.claim_identity("voice", 1, "Zoe", control=True)[0] == 403
     assert ran == []
-    assert server.claim_identity("voice", 1, "alice", control=True)[0] == 200  # the owner's own voice is theirs
+    assert people_writes.claim_identity("voice", 1, "alice", control=True)[0] == 200  # the owner's own voice is theirs
     add_clone(people, 1, "Alice")  # a clone of the owner's voice is not the owner's voice
-    assert server.claim_identity("voice", 1, "Zoe", control=True)[0] == 200
+    assert people_writes.claim_identity("voice", 1, "Zoe", control=True)[0] == 200
     assert label(1) == "Zoe"
 
 
@@ -331,9 +342,12 @@ def test_the_owners_voice_is_never_claimed_for_someone_else(people, ran):
     ("take", "sid", "cmds"),
     [
         pytest.param(
-            lambda: server.claim_identity("voice", 2, "Gus", control=False), 2, [["label", "2", "Gus"]], id="claim"
+            lambda: people_writes.claim_identity("voice", 2, "Gus", control=False),
+            2,
+            [["label", "2", "Gus"]],
+            id="claim",
         ),
-        pytest.param(lambda: server.rename_person("Dana Cole", "Gus", control=True), 3, [], id="rename"),
+        pytest.param(lambda: people_writes.rename_person("Dana Cole", "Gus", control=True), 3, [], id="rename"),
     ],
 )
 def test_taking_a_clones_name_leaves_the_clone_a_clone(people, ran, take, sid, cmds):
@@ -341,15 +355,15 @@ def test_taking_a_clones_name_leaves_the_clone_a_clone(people, ran, take, sid, c
     add_clone(people, 7, "Gus")
     code, _ = take()
     assert (code, ran) == (200, cmds)
-    assert (label(sid), server._clone_only_ids()) == ("Gus", {7})
+    assert (label(sid), voice_clones._clone_only_ids()) == ("Gus", {7})
 
 
 def test_a_clone_sharing_a_name_never_hides_the_person(people, faces):
     # Review 2, finding 10: Bob, known by face, left People once a clone was recorded as Bob.
     add_clone(people, 7, "Bob")
-    bob = next(p for p in server.people_view()["people"] if p["name"] == "Bob")
+    bob = next(p for p in people_reads.people_view()["people"] if p["name"] == "Bob")
     assert (bob["faces"], bob["voices"]) == (1, [])  # the clone is not his voice
-    assert server.rename_person("Bob", "Robert", control=True)[0] == 200
+    assert people_writes.rename_person("Bob", "Robert", control=True)[0] == 200
     assert faces.renamed == [("Bob", "Robert")]
 
 
@@ -357,15 +371,15 @@ def test_a_name_only_a_clone_carries_stays_out_of_people(people):
     # A clone is listed under Voice clones, and a room line once filed under it does not make it a person.
     add_clone(people, 7, "Gus")
     write_lines(people, {"ts_start": 70.0, "text": "Hi.", "speaker_id": 7})
-    assert [p["name"] for p in server.people_view()["people"]] == PEOPLE
+    assert [p["name"] for p in people_reads.people_view()["people"]] == PEOPLE
 
 
 def test_claiming_a_voice_as_the_owner_skips_a_clone_of_the_owner(people):
     # Finding 10, the owner's branch of a claim: the only voice with the owner's name is a clone.
     add_clone(people, 1, "Alice")
-    code, body = server.claim_identity("voice", 2, "Alice", control=True)
+    code, body = people_writes.claim_identity("voice", 2, "Alice", control=True)
     assert (code, body["ok"]) == (200, True)
-    assert (label(2), server._clone_only_ids()) == ("Alice", {1})
+    assert (label(2), voice_clones._clone_only_ids()) == ("Alice", {1})
 
 
 def test_voice_commands_run_in_order_in_a_child_and_stop_at_a_failure(monkeypatch):
@@ -375,9 +389,9 @@ def test_voice_commands_run_in_order_in_a_child_and_stop_at_a_failure(monkeypatc
         ran.append(cmd)
         return subprocess.CompletedProcess(cmd, int(cmd[-1] == "bad"), "", "")
 
-    monkeypatch.setattr(server, "subprocess", SimpleNamespace(run=run))
-    ok, _ = server._speaker_cmds([["label", 2, "bad"], ["label", 3, "Dana"]])
-    voices = [server.PY, "-m", "liberational.people.voice_edits", "--state-dir", str(context.STATE)]
+    monkeypatch.setattr(known_voices, "subprocess", SimpleNamespace(run=run))
+    ok, _ = known_voices._speaker_cmds([["label", 2, "bad"], ["label", 3, "Dana"]])
+    voices = [context.PY, "-m", "liberational.people.voice_edits", "--state-dir", str(context.STATE)]
     assert ok is False
     assert ran == [[*voices, "label", "2", "bad"]]
 
@@ -438,12 +452,12 @@ def test_a_settings_rename_that_raises_still_answers_and_keeps_one_owner(people,
     # anything moved puts pack.toml back; one after the voice moved keeps the new name, since putting it back would
     # split the owner again.
     alice, before = registry.at(people).person_id("Alice"), pack.read_text()
-    with patch.object(server, "people_roster", autospec=True, side_effect=OSError(13, "Permission denied")):
+    with patch.object(people_list, "people_roster", autospec=True, side_effect=OSError(13, "Permission denied")):
         code, body = save_owner("Alicia")
     assert (code, body["field"]) == (500, "owner.name")
     assert (pack.read_text(), restarted.is_set(), ran) == (before, False, [])
 
-    with patch.object(server.contacts.Book, "follow", autospec=True, side_effect=OSError(13, "Permission denied")):
+    with patch.object(people_list.contacts.Book, "follow", autospec=True, side_effect=OSError(13, "Permission denied")):
         code, body = save_owner("Alicia")
     assert code == 200, body
     assert (label(1), registry.at(people).person_id("Alicia")) == ("Alicia", alice)
@@ -461,17 +475,17 @@ def dana_recorded(state, monkeypatch):
         (state / "clones" / f"{sid}.json").write_text(json.dumps({"label": name, "source": "recorded"}))
         return 0, {"seconds": 12.0, "ref_text": "hello"}, []
 
-    monkeypatch.setattr(server, "_clone_run", clone_run)
+    monkeypatch.setattr(voice_clones, "_clone_run", clone_run)
     monkeypatch.setattr(clone_say, "voiced_seconds", lambda *a, **k: 12.0)
     monkeypatch.setattr(clone_say, "STATE", state)
     monkeypatch.setattr(clone_say, "OUT", state / "clones")
 
 
 def test_a_clone_under_an_existing_name_is_a_voice_of_its_own(state, dana_recorded):
-    code, body = server.clone_record(b"RIFF", "Dana")
+    code, body = voice_clones.clone_record(b"RIFF", "Dana")
     assert code == 200, body
     assert body["id"] != 3
-    assert server._clone_only_ids() == {body["id"]}
+    assert voice_clones._clone_only_ids() == {body["id"]}
     assert (label(3), label(body["id"])) == ("Dana", "Dana")
 
 
@@ -479,52 +493,52 @@ def test_same_person_as_leaves_a_clone_a_clone(state, dana_recorded, ran):
     # Review 2, findings 13 and 18: merging Dana into Eve folded Dana's clone into Eve's voice too. The people merge
     # in the event log carries every voice of Dana's along, and runs no voice command.
     write_voices(state, {7: "Eve"})
-    clone = server.clone_record(b"RIFF", "Dana")[1]["id"]
-    code, body = server.rename_person("Dana", "Eve", control=True)
+    clone = voice_clones.clone_record(b"RIFF", "Dana")[1]["id"]
+    code, body = people_writes.rename_person("Dana", "Eve", control=True)
     assert code == 200, body
     assert [c[:2] for c in ran] == [["enroll-clone", "Dana"]]  # the recording, and nothing since
     assert (label(3), label(7), label(clone)) == ("Eve", "Eve", "Eve")
-    assert server._clone_only_ids() == {clone}
+    assert voice_clones._clone_only_ids() == {clone}
 
 
 def test_a_renamed_persons_clone_stays_a_clone_when_spoken(state, dana_recorded):
     # Review 2, finding 18: after a rename, Say it moved the clone's mark aside, so it was matched in the room.
-    clone = server.clone_record(b"RIFF", "Dana")[1]["id"]
+    clone = voice_clones.clone_record(b"RIFF", "Dana")[1]["id"]
     ref = state / "clones" / f"{clone}.wav"
     ref.write_bytes(b"RIFF")
     (state / "clones" / f"{clone}.txt").write_text("hello")
-    assert server.rename_person("Dana", "Danielle", control=True)[0] == 200
+    assert people_writes.rename_person("Dana", "Danielle", control=True)[0] == 200
     assert (label(3), label(clone)) == ("Danielle", "Danielle")
     assert clone_say.ref_for(clone, make=False) == ref  # still listed under Voice clones
     with patch.object(clone_say, "build", side_effect=AssertionError("a clone is never rebuilt from the room")):
         assert clone_say.ref_for(clone) == ref
     meta = json.loads((state / "clones" / f"{clone}.json").read_text())
     assert (meta["label"], meta["source"]) == ("Danielle", "recorded")
-    assert server._clone_only_ids() == {clone}
+    assert voice_clones._clone_only_ids() == {clone}
 
 
 def test_removing_a_recorded_clone_keeps_it_out_of_the_room(state, dana_recorded):
     # Review 2, finding 19: Remove clone deleted clones/<id>.json, the only mark that keeps a clone unmatched.
-    clone = server.clone_record(b"RIFF", "Gus")[1]["id"]
+    clone = voice_clones.clone_record(b"RIFF", "Gus")[1]["id"]
     for ext in ("wav", "txt"):
         (state / "clones" / f"{clone}.{ext}").write_bytes(b"x")
-    code, body = server.clone_remove(clone)
+    code, body = voice_clones.clone_remove(clone)
     assert code == 200, body
     assert sorted(body["removed"]) == [f"{clone}.txt", f"{clone}.wav"]
-    assert server._clone_only_ids() == {clone}
+    assert voice_clones._clone_only_ids() == {clone}
     assert clone_say.ref_for(clone, make=False) is None  # gone from Voice clones until recorded again
-    assert server.clone_record(b"RIFF", "Gus")[1]["id"] == clone  # recording it again reuses the voice
+    assert voice_clones.clone_record(b"RIFF", "Gus")[1]["id"] == clone  # recording it again reuses the voice
 
 
 def test_speaking_a_clone_whose_clip_is_gone_keeps_its_mark(state, dana_recorded):
     # Review 2, finding 19: with its clip missing, ref_for moved a clone's note aside, so it lost its mark.
-    clone = server.clone_record(b"RIFF", "Gus")[1]["id"]
+    clone = voice_clones.clone_record(b"RIFF", "Gus")[1]["id"]
     with (
         patch.object(clone_say, "build", side_effect=SystemExit("only 0.0s of audio verified")),
         pytest.raises(SystemExit, match="record it again"),
     ):
         clone_say.ref_for(clone)
-    assert server._clone_only_ids() == {clone}
+    assert voice_clones._clone_only_ids() == {clone}
 
 
 @pytest.fixture
@@ -563,7 +577,7 @@ def see(state, monkeypatch, vision):
     vision.frames[("cam0", float(SCENE_TS))] = np.full((500, 1000, 3), (150, 120, 90), np.uint8)
     clock = itertools.count(SCENE_TS * 1000)
     monkeypatch.setattr(time, "time", lambda: next(clock) / 1000)
-    monkeypatch.setitem(server._scene_photos, "t", 0.0)
+    monkeypatch.setitem(people_reads._scene_photos, "t", 0.0)
 
     def see(*faces):
         # Only these faces now, as see-actions matched them in that frame.
@@ -580,18 +594,20 @@ BOX = [0.1, 0.1, 0.2, 0.3]  # 100 by 100 px of the 1000 by 500 frame
 
 def test_tagging_saves_a_square_crop_and_keeps_the_newest_eight(see):
     see(("Face 7", BOX))
-    for _ in range(server.PHOTOS_PER_PERSON + 2):
-        assert server.save_person_photo("Dana Cole", "Face 7", 7)
-    photos = server._photos("Dana Cole")
-    assert len(photos) == server.PHOTOS_PER_PERSON
+    for _ in range(people_writes.PHOTOS_PER_PERSON + 2):
+        assert people_writes.save_person_photo("Dana Cole", "Face 7", 7)
+    photos = photo_files._photos("Dana Cole")
+    assert len(photos) == people_writes.PHOTOS_PER_PERSON
     assert photos[0].parent.name == "dana-cole"
     assert Image.open(photos[0]).size == (192, 192)
     assert Image.open(photos[0]).getpixel((96, 96)) == pytest.approx((90, 120, 150), abs=2)  # BGR frame, RGB photo
 
 
 def test_tiny_faces_and_gone_frames_are_not_photos(see, tmp_path):
-    assert not server._crop("cam0", float(SCENE_TS), [0.01, 0.01, 0.03, 0.05], tmp_path / "x.jpg")  # 20 px: on a wall
-    assert not server._crop("cam1", float(SCENE_TS), BOX, tmp_path / "x.jpg")  # no frame kept
+    assert not people_reads._crop(
+        "cam0", float(SCENE_TS), [0.01, 0.01, 0.03, 0.05], tmp_path / "x.jpg"
+    )  # 20 px: on a wall
+    assert not people_reads._crop("cam1", float(SCENE_TS), BOX, tmp_path / "x.jpg")  # no frame kept
     assert not (tmp_path / "x.jpg").exists()
 
 
@@ -604,8 +620,8 @@ def test_a_stale_scene_never_crops_a_photo_under_a_name_nobody_has_now(state, se
     reg.forget("Dana Cole", "test")
     reg.rename("Dee", "Dana", "test")
     see(*[(n, BOX) for n in ("Dana Cole", "Dee", "Eve", "Zed")])
-    server._photos_from_scene()
-    got = {n: len(server._photos(n)) for n in ("Dana Cole", "Dee", "Dana", "Eve", "Zed")}
+    people_reads._photos_from_scene()
+    got = {n: len(photo_files._photos(n)) for n in ("Dana Cole", "Dee", "Dana", "Eve", "Zed")}
     # A face still matched as Dee is the person renamed Dana (the face worker hasn't read the rename yet), so the photo
     # is Dana's; none goes under the old name, which someone new could take. Zed is a name the registry never had: it
     # gets a photo as before.
@@ -614,12 +630,12 @@ def test_a_stale_scene_never_crops_a_photo_under_a_name_nobody_has_now(state, se
 
 def test_faces_in_view_get_pictures_served_read_only_and_kept_on_rename(state, see, serve, monkeypatch):
     see(("Face 3", BOX))
-    server._photos_from_scene()
-    assert server._unknown_photo(3).exists()
+    people_reads._photos_from_scene()
+    assert photo_files._unknown_photo(3).exists()
     see(("Dana Cole", BOX))
-    monkeypatch.setitem(server._scene_photos, "t", 0.0)
-    server._photos_from_scene()  # a named person with no photo yet gets one
-    assert len(server._photos("Dana Cole")) == 1
+    monkeypatch.setitem(people_reads._scene_photos, "t", 0.0)
+    people_reads._photos_from_scene()  # a named person with no photo yet gets one
+    assert len(photo_files._photos("Dana Cole")) == 1
 
     monkeypatch.setattr(server, "DASH_PASSWORD", "")
     host = serve(server.H).removeprefix("http://")
@@ -632,7 +648,7 @@ def test_faces_in_view_get_pictures_served_read_only_and_kept_on_rename(state, s
         c.close()
         return out
 
-    (photo,) = server._photos("Dana Cole")
+    (photo,) = photo_files._photos("Dana Cole")
     assert get(f"/people/Dana%20Cole/photos/{photo.name}")[:2] == (200, "image/jpeg")  # the card's photo URL
     assert get("/faces/unknown/3.jpg")[:2] == (200, "image/jpeg")
     assert get("/faces/unknown/4.jpg")[0] == 404
@@ -640,8 +656,8 @@ def test_faces_in_view_get_pictures_served_read_only_and_kept_on_rename(state, s
     assert get("/faces/unknown/..%2Fx.jpg")[0] == 404
 
     (state / "people_added.json").write_text(json.dumps(["Dana Cole"]))
-    assert server.rename_person("Dana Cole", "Dana", control=True)[0] == 200
-    assert (len(server._photos("Dana")), server._photos("Dana Cole")) == (1, [])
+    assert people_writes.rename_person("Dana Cole", "Dana", control=True)[0] == 200
+    assert (len(photo_files._photos("Dana")), photo_files._photos("Dana Cole")) == (1, [])
 
 
 @pytest.mark.parametrize("changed", ["missing", "camera", "track", "cluster", "named"])
@@ -662,7 +678,7 @@ def test_live_face_claim_rejects_missing_or_changed_source_before_enrolling(peop
             range=lambda stream, *args: rows if stream == segment_log.FACE_MATCHES else []
         ),
     )
-    code, _body = server.claim_identity("face", 5, "Dana Cole", True, source)
+    code, _body = people_writes.claim_identity("face", 5, "Dana Cole", True, source)
     assert code == 409
     assert faces.named == []
 
@@ -678,7 +694,7 @@ def test_live_face_claim_uses_selected_source_time_and_group(people, faces, monk
 
     monkeypatch.setattr(face_boxes, "near", near)
     monkeypatch.setattr(vision_log, "at", lambda state: SimpleNamespace(range=lambda *a: []))
-    code, _body = server.claim_identity(
+    code, _body = people_writes.claim_identity(
         "face",
         5,
         "Dana Cole",
@@ -689,9 +705,9 @@ def test_live_face_claim_uses_selected_source_time_and_group(people, faces, monk
     assert code == 200
     assert reads[0] == (100_499_000_000, 100_501_000_000), "the selected frame's own time"
     assert faces.named == [(5, "Dana Cole")]
-    saved = server._photos("Dana Cole")
+    saved = photo_files._photos("Dana Cole")
     assert len(saved) == 1
-    photo = server.main_photo("Dana Cole")
+    photo = people_list.main_photo("Dana Cole")
     assert photo is not None
     photo_url = photo["url"]
     assert photo_url is not None and photo_url.startswith("/people/Dana%20Cole/photos/")
@@ -725,7 +741,7 @@ def test_live_face_claim_uses_selected_source_time_and_group(people, faces, monk
 def test_selected_face_claim_creates_new_person_and_enrolls_the_group(
     people, face_rows, monkeypatch, selected_face_jpeg, vision, live_face_boxes, stream, record
 ):
-    monkeypatch.setattr(server, "_faces_mod", lambda: face_db)
+    monkeypatch.setattr(people_list, "_faces_mod", lambda: face_db)
     face_db.save_db([], np.empty((0, 512), np.float32))
     face_db._unk_save([5], np.eye(1, 512, dtype=np.float32), [4], 6)
     if stream is None:  # the live frame, from the face.boxes ring
@@ -734,9 +750,9 @@ def test_selected_face_claim_creates_new_person_and_enrolls_the_group(
         vision.add(stream, **record)
     reg = registry.at(people)
     assert reg.person_id("Taylor Vale") is None
-    assert not any(person["name"] == "Taylor Vale" for person in server.people_roster())
+    assert not any(person["name"] == "Taylor Vale" for person in people_list.people_roster())
 
-    code, body = server.claim_identity(
+    code, body = people_writes.claim_identity(
         "face",
         5,
         "Taylor Vale",
@@ -753,7 +769,7 @@ def test_selected_face_claim_creates_new_person_and_enrolls_the_group(
     assert face_db.unknown_groups() == []
     person = next(person for person in body["people"] if person["name"] == "Taylor Vale")
     assert person["faces"] == 1
-    saved = server._photos("Taylor Vale")
+    saved = photo_files._photos("Taylor Vale")
     assert len(saved) == 1
     assert reg.person_of(registry.photo(saved[0].stem)).person == pid
     with Image.open(saved[0]) as photo:
@@ -775,7 +791,7 @@ def test_live_face_claim_resolves_prior_recorded_match_when_overlay_has_expired(
             range=lambda stream, *args: rows if stream == segment_log.FACE_MATCHES else []
         ),
     )
-    code, _ = server.claim_identity(
+    code, _ = people_writes.claim_identity(
         "face",
         5,
         "Dana Cole",
@@ -801,7 +817,7 @@ def test_selected_face_removed_from_gallery_does_not_create_person_or_photo(
     live_face_boxes.append(
         {"cam": "cam0", "start_ns": 100_500_000_000, "faces": [{"track_id": "selected-track", "cluster": "Face 5"}]}
     )
-    code, _ = server.claim_identity(
+    code, _ = people_writes.claim_identity(
         "face",
         5,
         "Taylor",
@@ -811,14 +827,14 @@ def test_selected_face_removed_from_gallery_does_not_create_person_or_photo(
     )
     assert code == 409
     assert faces.named == []
-    assert server._photos("Taylor") == []
-    assert not any(p["name"] == "Taylor" for p in server.people_roster())
+    assert photo_files._photos("Taylor") == []
+    assert not any(p["name"] == "Taylor" for p in people_list.people_roster())
 
 
 def test_selected_photo_registry_failure_preserves_unknown_group_for_retry(
     people, faces, monkeypatch, selected_face_jpeg, live_face_boxes
 ):
-    record = server._record_person_photo
+    record = people_writes._record_person_photo
     calls = 0
 
     def fail_once(name, dest, *, prune=True):
@@ -829,27 +845,27 @@ def test_selected_photo_registry_failure_preserves_unknown_group_for_retry(
             raise registry.WriteFailed("photo registry unavailable")
         record(name, dest, prune=prune)
 
-    monkeypatch.setattr(server, "_record_person_photo", fail_once)
+    monkeypatch.setattr(people_writes, "_record_person_photo", fail_once)
     live_face_boxes.append(
         {"cam": "cam0", "start_ns": 100_500_000_000, "faces": [{"track_id": "selected-track", "cluster": "Face 5"}]}
     )
     source = {"camera": "cam0", "track": "selected-track", "at": 100.5, "group": 5}
     with pytest.raises(registry.WriteFailed, match="photo registry unavailable"):
-        server.claim_identity("face", 5, "Taylor", True, source, selected_face_jpeg)
+        people_writes.claim_identity("face", 5, "Taylor", True, source, selected_face_jpeg)
     assert faces.named == []
     assert faces.groups == [{"id": 5, "count": 4}, {"id": 6, "count": 1}]
-    assert server._photos("Taylor") == []
-    code, _ = server.claim_identity("face", 5, "Taylor", True, source, selected_face_jpeg)
+    assert photo_files._photos("Taylor") == []
+    code, _ = people_writes.claim_identity("face", 5, "Taylor", True, source, selected_face_jpeg)
     assert code == 200
     assert faces.named == [(5, "Taylor")]
-    saved = server._photos("Taylor")
+    saved = photo_files._photos("Taylor")
     assert len(saved) == 1
     with Image.open(saved[0]) as image:
         assert image.size == (32, 48)
 
 
 def test_selected_face_claim_failure_withdraws_only_its_new_photo(people, faces, monkeypatch, selected_face_jpeg):
-    folder = server._photo_dir("Dana Cole")
+    folder = photo_files._photo_dir("Dana Cole")
     folder.mkdir(parents=True, exist_ok=True)
     old = {f"{1000000000000 + i}.jpg": f"existing {i}".encode() for i in range(8)}
     for name, data in old.items():
@@ -858,7 +874,7 @@ def test_selected_face_claim_failure_withdraws_only_its_new_photo(people, faces,
     registry.at(context.STATE).claim(old_ref, "Dana Cole", Basis.OWNER_TAG, "dashboard")
     old_person = registry.at(context.STATE).person_of(old_ref).person
     recorded = []
-    record = server._record_person_photo
+    record = people_writes._record_person_photo
 
     def capture(name, dest, *, prune=True):
         record(name, dest, prune=prune)
@@ -867,9 +883,9 @@ def test_selected_face_claim_failure_withdraws_only_its_new_photo(people, faces,
     def fail_claim(*args):
         raise ValueError("face claim failed")
 
-    monkeypatch.setattr(server, "_record_person_photo", capture)
+    monkeypatch.setattr(people_writes, "_record_person_photo", capture)
     monkeypatch.setattr(faces, "name_cluster", fail_claim)
-    code, _ = server._claim("face", 5, "Dana Cole", True, server._selected_face_image(selected_face_jpeg))
+    code, _ = people_writes._claim("face", 5, "Dana Cole", True, people_writes._selected_face_image(selected_face_jpeg))
     assert code == 404
     assert {p.name: p.read_bytes() for p in folder.glob("*.jpg")} == old
     assert len(recorded) == 1
@@ -885,16 +901,16 @@ def test_this_is_me_requires_current_voice_confirmation_before_owner_authority(p
     assert owner is not None
     source = reg.person_id("Dana Cole")
     before = reg.mark()
-    code, body = server.merge_into_owner("Dana Cole", None, control=True)
+    code, body = people_writes.merge_into_owner("Dana Cole", None, control=True)
     assert code == 409
     assert body["voices"] == [3]
     assert reg.mark() == before
     assert label(3) == "Dana Cole"
     assert not registry.owner_voice(people, 3)
     write_voices(people, {4: "Dana Cole"})
-    assert server.merge_into_owner("Dana Cole", [3], control=True)[0] == 409
+    assert people_writes.merge_into_owner("Dana Cole", [3], control=True)[0] == 409
     assert label(3) == "Dana Cole"
-    code, body = server.merge_into_owner("Dana Cole", [3, 4], control=True)
+    code, body = people_writes.merge_into_owner("Dana Cole", [3, 4], control=True)
     assert (code, body["name"], body["merged"]) == (200, "Alice", True)
     assert reg.person_id("Alice") == owner
     person = reg.person(owner)
@@ -913,14 +929,14 @@ def test_this_is_me_requires_current_voice_confirmation_before_owner_authority(p
 
 def test_this_is_me_without_voices_needs_no_extra_confirmation(people, faces):
     registry.at(people).ensure("Bob", "test")
-    code, body = server.merge_into_owner("Bob", None, control=True)
+    code, body = people_writes.merge_into_owner("Bob", None, control=True)
     assert (code, body["name"]) == (200, "Alice")
     assert faces.renamed == [("Bob", "Alice")]
 
 
 @pytest.mark.parametrize("confirmation", [None, [3]])
 def test_this_is_me_requires_local_control(people, faces, confirmation):
-    assert server.merge_into_owner("Dana Cole", confirmation, control=False)[0] == 403
+    assert people_writes.merge_into_owner("Dana Cole", confirmation, control=False)[0] == 403
     assert label(3) == "Dana Cole"
     assert faces.renamed == []
 
@@ -939,12 +955,12 @@ def test_this_is_me_failed_single_commit_changes_neither_voice_nor_person(people
         raise OSError("synthetic failed commit")
 
     monkeypatch.setattr(reg.log, "append", failed_commit)
-    assert server.merge_into_owner("Dana Cole", [3], control=True)[0] == 500
+    assert people_writes.merge_into_owner("Dana Cole", [3], control=True)[0] == 500
     assert reg.mark() == before
     assert label(3) == "Dana Cole"
     assert not registry.owner_voice(people, 3)
     monkeypatch.setattr(reg.log, "append", append)
-    assert server.merge_into_owner("Dana Cole", [3], control=True)[0] == 200
+    assert people_writes.merge_into_owner("Dana Cole", [3], control=True)[0] == 200
     fresh = registry.Registry(reg.log)
     owner = fresh.owner()
     assert fresh.resolve(source) == owner
@@ -1050,15 +1066,15 @@ def test_known_rename_follows_remote_teaching_like_inbox_skip(
 
 
 def test_a_refused_rename_answers_like_a_refused_inbox_skip(people):
-    code, body = server.rename_person("Dana Cole", "Dana Gray", control=False)
-    skip_code, skip_body = server.inbox_skip("face", 3, control=False)
+    code, body = people_writes.rename_person("Dana Cole", "Dana Gray", control=False)
+    skip_code, skip_body = inbox_state.inbox_skip("face", 3, control=False)
     assert (code, body.keys(), body["ok"]) == (skip_code, skip_body.keys(), False)
     assert "from this machine" in body["error"]
     assert label(3) == "Dana Cole"
 
 
 def test_owner_target_rename_refusal_points_to_person_merge_not_voice_action(people):
-    code, body = server.rename_person("Bob", "Alice", control=True)
+    code, body = people_writes.rename_person("Bob", "Alice", control=True)
     assert code == 403
     assert "This is me" in body["error"]
     assert "That voice is mine" not in body["error"]
@@ -1069,7 +1085,7 @@ def test_this_is_me_after_reset_without_voices_uses_existing_person(state, faces
     source = reg.ensure("Dana", "test", role="Gardener")
     faces.rows = {"Dana": 1}
     assert reg.owner() is None
-    code, body = server.merge_into_owner("Dana", None, control=True)
+    code, body = people_writes.merge_into_owner("Dana", None, control=True)
     assert (code, body["name"]) == (200, "Alice")
     assert reg.owner() == source
     person = reg.person(source)
@@ -1086,14 +1102,14 @@ def test_this_is_me_after_reset_confirms_current_voices_before_atomic_owner_rena
     reg = registry.at(state)
     source = reg.person_id("Dana")
     before = reg.mark()
-    code, body = server.merge_into_owner("Dana", None, control=True)
+    code, body = people_writes.merge_into_owner("Dana", None, control=True)
     assert (code, body["voices"]) == (409, [3])
     assert reg.mark() == before
     assert reg.owner() is None
     write_voices(state, {4: "Dana"})
-    assert server.merge_into_owner("Dana", [3], control=True)[0] == 409
+    assert people_writes.merge_into_owner("Dana", [3], control=True)[0] == 409
     assert reg.owner() is None
-    code, body = server.merge_into_owner("Dana", [3, 4], control=True)
+    code, body = people_writes.merge_into_owner("Dana", [3, 4], control=True)
     assert (code, body["name"]) == (200, "Alice")
     assert reg.owner() == source
     fresh = registry.Registry(reg.log)
@@ -1118,13 +1134,13 @@ def test_this_is_me_after_reset_failed_commit_leaves_no_owner_or_authority(state
         raise OSError("synthetic failed commit")
 
     monkeypatch.setattr(reg.log, "append", fail)
-    assert server.merge_into_owner("Dana", [3], control=True)[0] == 500
+    assert people_writes.merge_into_owner("Dana", [3], control=True)[0] == 500
     assert reg.mark() == before
     assert reg.owner() is None
     assert not registry.owner_voice(state, 3)
     assert faces.renamed == []
     monkeypatch.setattr(reg.log, "append", append)
-    assert server.merge_into_owner("Dana", [3], control=True)[0] == 200
+    assert people_writes.merge_into_owner("Dana", [3], control=True)[0] == 200
     assert registry.Registry(reg.log).owner() == source
     assert registry.owner_voice(state, 3)
 
@@ -1134,7 +1150,7 @@ def test_this_is_me_without_configured_owner_name_does_not_write(state, faces):
     reg.ensure("Dana", "test")
     before = reg.mark()
     with cfg.override({"owner": {"name": "", "speaker_label": ""}}):
-        code, body = server.merge_into_owner("Dana", None, control=True)
+        code, body = people_writes.merge_into_owner("Dana", None, control=True)
     assert code == 400
     assert "Settings" in body["error"]
     assert reg.mark() == before
@@ -1149,7 +1165,7 @@ def test_this_is_me_with_conflicting_owner_names_does_not_write(state, faces):
     before = reg.mark()
     with cfg.override({"owner": {"name": "Alice", "speaker_label": "Eli"}}):
         assert reg.owner() is None
-        code, body = server.merge_into_owner("Dana", None, control=True)
+        code, body = people_writes.merge_into_owner("Dana", None, control=True)
     assert code == 409
     assert "different people" in body["error"]
     assert reg.mark() == before
@@ -1158,8 +1174,8 @@ def test_this_is_me_with_conflicting_owner_names_does_not_write(state, faces):
 
 def settle():
     """Wait out the people reads running in the background."""
-    with server._PEOPLE_READS.lock:
-        pending = list(server._PEOPLE_READS.pending.values())
+    with people_reads._PEOPLE_READS.lock:
+        pending = list(people_reads._PEOPLE_READS.pending.values())
     for future in pending:
         future.exception(timeout=60)
 
@@ -1167,15 +1183,15 @@ def settle():
 def settled_people():
     """people_view after a refresh started now (not one already running) has finished."""
     settle()
-    server.people_view()
+    people_reads.people_view()
     settle()
-    return server.people_view()
+    return people_reads.people_view()
 
 
 def test_people_shares_one_speech_read_and_refreshes_after_new_lines(people):
     log = fake()
     with patch.object(log, "all_lines", autospec=True, side_effect=log.all_lines) as reads:
-        first = server.people_view()
+        first = people_reads.people_view()
         second = settled_people()
         assert reads.call_count == 1
         assert first == second
@@ -1189,15 +1205,15 @@ def test_people_shares_one_speech_read_and_refreshes_after_new_lines(people):
 def test_people_speech_cache_keeps_identity_edits_and_purges(people):
     log = fake()
     next(line for line in log.lines["speech.utterance"] if line.get("speaker_id") == 2)["device"] = "ingest-upload"
-    server.people_view()
+    people_reads.people_view()
     registry.at(people).rename("Dana Cole", "Dee", "test")
-    renamed = server.people_view()
+    renamed = people_reads.people_view()
     assert "Dana Cole" not in [p["name"] for p in renamed["people"]]
     assert next(p for p in renamed["people"] if p["name"] == "Dee")["room"] == 1
     before = log.mark()
     assert log.purge("speech.utterance", lambda e: e.get("speaker_id") == 2) == 1
     assert log.mark()[0] == before[0], "purging imported speech must invalidate without a new commit"
     assert log.mark()[1] != before[1]
-    after = server.people_view()
+    after = people_reads.people_view()
     assert after["unknown"]["voices"] == []
     assert next(p for p in after["people"] if p["name"] == "Dee")["room"] == 1

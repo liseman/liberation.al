@@ -18,7 +18,7 @@ it.each([
   ['still loading', undefined],
   ['with none waiting', 0],
   ['with a count', 7],
-])('keeps a tab its count line %s, so the tab row never moves when the count arrives (#3243)', (_, n) => {
+])('keeps a tab its count line %s, so the tab row never moves when the count arrives', (_, n) => {
   renderPage(
     <div data-testid="tab">
       <Waiting n={n} what="to check" />

@@ -156,7 +156,7 @@ it('keeps the report when Delete is answered Keep it', async () => {
   expect(screen.getByRole('article', { name: 'Research report' })).toBeInTheDocument();
 });
 
-it("links the answer's citation to its moment in Review, as the evidence list does (#2661)", async () => {
+it("links the answer's citation to its moment in Review, as the evidence list does", async () => {
   renderPage(<InboxTab />);
   await userEvent.click(await screen.findByRole('button', { name: /garden/ }));
   const cite = await screen.findByRole('link', { name: 'T1' });
@@ -232,7 +232,7 @@ function asDesktop() {
 }
 afterEach(() => vi.restoreAllMocks());
 
-it('opens the newest unread report on arrival on a wide screen, and stays closed once closed (#2674)', async () => {
+it('opens the newest unread report on arrival on a wide screen, and stays closed once closed', async () => {
   asDesktop();
   renderPage(<InboxTab />);
   // The waiting job is newer, but the unread finished one is what there is to read
@@ -250,7 +250,7 @@ it('leaves a phone on the list, with nothing to choose into beside it', async ()
   expect(screen.queryByText('Choose a report to read it.')).toBeNull();
 });
 
-it('marks a partial report on the list, and says when in 24-hour words (#2674)', async () => {
+it('marks a partial report on the list, and says when in 24-hour words', async () => {
   server.use(
     http.get('/research/jobs', () =>
       HttpResponse.json({ jobs: [{ ...done, answer_status: 'partial' }], available: true, reason: null, unread: 1 }),
@@ -263,7 +263,7 @@ it('marks a partial report on the list, and says when in 24-hour words (#2674)',
   expect(row).toHaveAccessibleName(/, \d\d:\d\d unread$/);
 });
 
-it("starts research from Review's Ask (#2674)", async () => {
+it("starts research from Review's Ask", async () => {
   renderPage(<InboxTab />);
   await userEvent.click(await screen.findByRole('button', { name: 'Research a question' }));
   expect(location.pathname).toBe('/review');
@@ -273,7 +273,7 @@ it("starts research from Review's Ask (#2674)", async () => {
   history.replaceState(null, '', '/inbox');
 });
 
-it('shows the moments the answer cites as a timeline, each opening Review (#2674)', async () => {
+it('shows the moments the answer cites as a timeline, each opening Review', async () => {
   server.use(
     http.get(`/research/jobs/${done.id}`, () =>
       HttpResponse.json({
@@ -312,7 +312,7 @@ it('shows the moments the answer cites as a timeline, each opening Review (#2674
   expect(rows[1]).not.toHaveTextContent('Video no longer kept');
 });
 
-it('asks the same question again, and opens the new report (#2674)', async () => {
+it('asks the same question again, and opens the new report', async () => {
   const fresh: Job = { ...waiting, id: 'c'.repeat(32), question: done.question, day: done.day, status: 'queued' };
   const sent: unknown[] = [];
   server.use(
@@ -333,7 +333,7 @@ it('asks the same question again, and opens the new report (#2674)', async () =>
   expect(await screen.findByText('Waiting for the research before it to finish.')).toBeInTheDocument();
 });
 
-it('opens Ask on the report for a follow-up (#2674, openAsk from #2680)', async () => {
+it('opens Ask on the report for a follow-up', async () => {
   const { useAskOpener } = await import('../ask/openAsk');
   renderPage(<InboxTab />);
   await userEvent.click(await screen.findByRole('button', { name: /garden/ }));

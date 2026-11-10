@@ -9,7 +9,7 @@ import requests
 from liberational import config as cfg
 from liberational.assistant import ask_friends, voice
 from liberational.assistant.voice_auth import Grant
-from liberational.dashboard import server
+from liberational.dashboard import people_writes
 from liberational.memory import ask, history_qa
 from liberational.people import identity
 from liberational.phone import bridge
@@ -32,7 +32,7 @@ def requests_made(monkeypatch):
 
 
 def test_dashboard_lookup_reports_missing_agent():
-    assert server.public_lookup("Dana") == {"error": "No agent is configured (see [agent] in settings)."}
+    assert people_writes.public_lookup("Dana") == {"error": "No agent is configured (see [agent] in settings)."}
 
 
 def test_ask_friends_says_it_needs_an_agent(monkeypatch):
@@ -66,7 +66,7 @@ def test_introducing_someone_needs_no_agent():
         patch.object(voice.CONVERSATION, "accept", autospec=True, return_value=owner_grant("that's Katie.")),
         patch.object(identity, "collar_intro", autospec=True, return_value=intro) as collar_intro,
     ):
-        assert voice.handle("Hey Bob, that's Katie.", None, {"speaker": "joe"}) == "Got it, Katie."
+        assert voice.handle("Hey Bob, that's Katie.", None, {"speaker": "sam"}) == "Got it, Katie."
     collar_intro.assert_called_once_with("Katie")
 
 
@@ -99,5 +99,5 @@ def test_a_failed_answer_is_spoken_only_to_a_line_that_called_the_assistant(monk
         patch.object(voice.CONVERSATION, "accept", autospec=True, return_value=grant),
         patch.object(voice.CONVERSATION, "spoken_reply", autospec=True),
     ):
-        assert voice.handle(request, speaker, {"speaker": "joe"}) == spoken
+        assert voice.handle(request, speaker, {"speaker": "sam"}) == spoken
     assert speaker.speak.call_count == (1 if spoken else 0)

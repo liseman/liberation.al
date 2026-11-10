@@ -11,7 +11,7 @@ const ev = (id: string, ts: number, extra: Record<string, unknown> = {}) => ({
   ...extra,
 });
 
-describe('citedMoments (#2674)', () => {
+describe('citedMoments', () => {
   it('takes the cited items once each, oldest first, bare or bracketed', () => {
     const evidence = [ev('C6', 30), ev('J3', 20, { source: 'journal', camera: undefined }), ev('C9', 10)];
     const got = citedMoments('C6 (13:10) shows two; J3 notes sleep; [C6] again', evidence);

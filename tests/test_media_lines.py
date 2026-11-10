@@ -6,7 +6,7 @@ from typing import Any, cast
 
 import pytest
 
-from liberational.dashboard import context, server
+from liberational.dashboard import context, people_list, server, speaker_lines, transcript_lines, unnamed_groups
 from liberational.listen import revisions
 from liberational.people import registry
 
@@ -92,7 +92,7 @@ def test_only_the_owner_or_the_tagger_marks_a_line(tmp_path):
 
 
 def test_a_tvs_line_counts_for_nobody():
-    rows = server._room_lines(
+    rows = people_list._room_lines(
         named_lines=[
             {**line(T, "Tonight on the news"), "speaker": "Alice", "media": True},
             {**line(T + 5, "Dinner's ready"), "speaker": "Alice"},
@@ -104,29 +104,29 @@ def test_a_tvs_line_counts_for_nobody():
 def test_a_voice_heard_only_from_the_tv_is_nobody_to_name():
     view = SimpleNamespace(individual_lines=lambda items: list(items))
     raw = [line(T, "news", 9, media=True), line(T + 5, "more news", 9, media=True), line(T + 10, "hi", 4)]
-    assert server.speakers_with_audio(raw, cast(Any, view)) == {4}
+    assert unnamed_groups.speakers_with_audio(raw, cast(Any, view)) == {4}
 
 
 @pytest.fixture
 def heard(tmp_path, monkeypatch):
     rows = [line(T, "Tonight on the news", 9), line(T + 5, "and the weather", 9), line(T + 10, "Hi", 4)]
     monkeypatch.setattr(context, "STATE", tmp_path)
-    monkeypatch.setattr(server, "heard_lines", lambda *a, **k: revisions.filter_lines(tmp_path, rows))
+    monkeypatch.setattr(transcript_lines, "heard_lines", lambda *a, **k: revisions.filter_lines(tmp_path, rows))
     monkeypatch.setattr(server.speech_log, "retained", lambda: rows)
     monkeypatch.setattr(
-        server, "_view", lambda: SimpleNamespace(lines=lambda raw: revisions.filter_lines(tmp_path, raw))
+        transcript_lines, "_view", lambda: SimpleNamespace(lines=lambda raw: revisions.filter_lines(tmp_path, raw))
     )
     return rows
 
 
 def test_this_is_tv_on_transcript_lines_marks_them_and_undo_takes_it_back(heard):
     keys = [registry.key_of(heard[0])]
-    code, reply = server.media_transcript({"lines": keys})
+    code, reply = speaker_lines.media_transcript({"lines": keys})
     assert code == 200 and reply["lines"] == keys
-    assert server.media_transcript({"lines": keys}) == (200, reply), "a retry gets the same Undo"
-    assert [r.get("media") for r in server.heard_lines()] == [True, None, None]
-    assert server.undo_transcript({"undo": reply["undo"]}) == (200, {"ok": True, "lines": keys})
-    assert [r.get("media") for r in server.heard_lines()] == [None, None, None]
+    assert speaker_lines.media_transcript({"lines": keys}) == (200, reply), "a retry gets the same Undo"
+    assert [r.get("media") for r in transcript_lines.heard_lines()] == [True, None, None]
+    assert speaker_lines.undo_transcript({"undo": reply["undo"]}) == (200, {"ok": True, "lines": keys})
+    assert [r.get("media") for r in transcript_lines.heard_lines()] == [None, None, None]
 
 
 @pytest.mark.parametrize(
@@ -138,22 +138,22 @@ def test_this_is_tv_on_transcript_lines_marks_them_and_undo_takes_it_back(heard)
     ],
 )
 def test_this_is_tv_needs_lines_that_were_heard(heard, body, status):
-    assert server.media_transcript(body)[0] == status
+    assert speaker_lines.media_transcript(body)[0] == status
 
 
 def test_this_is_tv_on_an_unnamed_voice_marks_every_line_it_has(heard, monkeypatch):
     monkeypatch.setattr(server.registry, "voice_names", lambda state, sids: dict.fromkeys(sids))
-    code, reply = server.media_voice({"group": 9})
+    code, reply = speaker_lines.media_voice({"group": 9})
     assert code == 200
     assert reply["lines"] == [registry.key_of(heard[0]), registry.key_of(heard[1])]
-    assert [r.get("media") for r in server.heard_lines()] == [True, True, None]
-    assert server.media_voice({"group": 9})[0] == 404, "nothing left to mark"
+    assert [r.get("media") for r in transcript_lines.heard_lines()] == [True, True, None]
+    assert speaker_lines.media_voice({"group": 9})[0] == 404, "nothing left to mark"
 
 
 def test_this_is_tv_is_refused_for_a_named_voice(heard, monkeypatch):
     monkeypatch.setattr(server.registry, "voice_names", lambda state, sids: dict.fromkeys(sids, "Alice"))
-    assert server.media_voice({"group": 9})[0] == 409
-    assert server.media_voice({"group": "9"})[0] == 400
+    assert speaker_lines.media_voice({"group": 9})[0] == 409
+    assert speaker_lines.media_voice({"group": "9"})[0] == 400
 
 
 def test_a_marked_line_says_who_marked_it(tmp_path):

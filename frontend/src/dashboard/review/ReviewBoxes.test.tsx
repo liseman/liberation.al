@@ -255,7 +255,7 @@ it('fetches the boxes of the minute a scrub settles on, not of every minute it c
   expect(asked).toEqual([0, 1200]);
 });
 
-describe('"Not <name>" on a matched box (#2607)', () => {
+describe('"Not <name>" on a matched box', () => {
   const show = (boxes: object[]) => {
     server.use(http.get('/review/boxes', () => HttpResponse.json({ boxes })));
     const canvas = frameAt(59.9);

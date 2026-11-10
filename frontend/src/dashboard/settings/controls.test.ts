@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { recordedLine, voiceName, zoneLabel, zones } from './controls';
 
-describe('the You and the assistant controls (#383)', () => {
+describe('the You and the assistant controls', () => {
   it('names a Kokoro voice in words', () => {
     expect([voiceName('af_heart'), voiceName('bm_george'), voiceName('zf_xiao_bei'), voiceName('odd')]).toEqual([
       'Heart (American English, female)',

@@ -73,7 +73,7 @@ it('draws a new zone, names it, and saves the whole set from the version it open
   expect(await screen.findByText('Saved.')).toBeInTheDocument();
 });
 
-it('draws the TV as a screen zone named TV, for tagging TV by ear (#2669)', async () => {
+it('draws the TV as a screen zone named TV, for tagging TV by ear', async () => {
   renderPage(<ZoneEditor cam="cam0" label="Kitchen" onClose={() => {}} />);
   await screen.findByDisplayValue('Food bowl');
   await userEvent.click(screen.getByRole('button', { name: 'Draw the TV' }));
@@ -136,7 +136,7 @@ it('removes a zone and saves the camera with none', async () => {
   await waitFor(() => expect(posts).toEqual([{ cam: 'cam0', base: 'v1', zones: [] }]));
 });
 
-it('marks a zone as a screen and saves its kind (#2468)', async () => {
+it('marks a zone as a screen and saves its kind', async () => {
   renderPage(<ZoneEditor cam="cam0" label="Kitchen" onClose={() => {}} />);
   await screen.findByDisplayValue('Food bowl');
   const box = screen.getByRole('checkbox', { name: /A screen/ });

@@ -2113,7 +2113,7 @@ mod tests {
         service.shutdown().unwrap();
         assert!(
             crate::copies::recover(&chunk_dir).unwrap().is_empty(),
-            "acknowledged copies are not reopened and committed again at the next start (#3131)"
+            "acknowledged copies are not reopened and committed again at the next start"
         );
         #[cfg(unix)]
         if alias_reopen {

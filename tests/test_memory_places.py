@@ -482,6 +482,19 @@ def test_a_revisions_splat_is_written_once_and_only_the_newest_two_are_kept(tmp_
     assert places.splat_path(tmp_path, revs[2], "gs.ply").read_bytes() == b"ply2"
 
 
+def test_a_splat_says_what_it_was_trained_from_when_told(tmp_path):
+    told = places.revise(tmp_path, None, producer="p", now=T)
+    untold = places.revise(tmp_path, told.place, producer="p", now=T + 1)
+    bare = places.revise(tmp_path, told.place, producer="p", now=T + 2)
+    places.write_splat(tmp_path, told, master=b"ply", web=b"spz", source="walk")
+    places.write_splat(tmp_path, untold, master=b"ply", web=b"spz")
+    assert places.splat_source(tmp_path, told) == "walk"
+    assert places.splat_source(tmp_path, untold) is None and places.splat_source(tmp_path, bare) is None
+    assert len(places.revisions(tmp_path, told.place)) == 3, "the note isn't read as a revision"
+    places.write_splat(tmp_path, bare, master=b"ply", web=b"spz", source="cameras")
+    assert not places.splat_path(tmp_path, told, "gs.from").exists(), "pruned with its splat"
+
+
 def test_a_retired_place_is_listed_nowhere_and_reads_as_the_place_it_was_merged_into(tmp_path):
     cam = places.CameraPose(tuple(float(x) for x in range(16)), 300.0, 640, 360, T)
     home = first(tmp_path, map_bytes=b"home", map_format="ply", cameras={"hall": cam})

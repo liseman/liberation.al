@@ -142,7 +142,7 @@ function show(first: TranscriptEntry[]) {
   };
 }
 
-it('holds its place when new lines land while scrolled away, and says how many (#2286)', async () => {
+it('holds its place when new lines land while scrolled away, and says how many', async () => {
   const { list, update, scrollTo } = show(lines(20));
   await settle();
   expect(attached).toEqual([true]); // shown: the playhead's line is centred once
@@ -191,7 +191,7 @@ it("scrolls to the playhead's line only when it moves to another line, or after 
   expect(list.scrollTop).toBe(TURN + HEAD_PX - CENTRED);
 });
 
-it('mounts only the turns in view and a few either side, and the rest as they scroll near (#2382)', async () => {
+it('mounts only the turns in view and a few either side, and the rest as they scroll near', async () => {
   const { scrollTo } = show(lines(500));
   await settle();
   const most = Math.ceil(VIEW / TURN) + 1 + 2 * OVERSCAN;
@@ -213,7 +213,7 @@ it("marks and centres the playhead's line when a jump lands on one scrolled far 
   expect(list.scrollTop).toBe(300 * TURN + HEAD_PX - CENTRED);
 });
 
-it('keeps a hidden dense day bounded until its turns have layout (#3290)', async () => {
+it('keeps a hidden dense day bounded until its turns have layout', async () => {
   // Review's inactive Mantine panel is display:none: connected nodes measure zero.
   vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(0);
   const observed = new Map<Element, ResizeObserverCallback>();

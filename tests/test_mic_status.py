@@ -7,13 +7,13 @@ import urllib.request
 
 import pytest
 
-from liberational.dashboard import mic_levels, server
+from liberational.dashboard import live_status, mic_levels, server
 from speech_fake import fake
 
 
 @pytest.fixture(autouse=True)
 def fresh_cache(monkeypatch):
-    monkeypatch.setitem(server._mic_cache, "value", None)
+    monkeypatch.setitem(live_status._mic_cache, "value", None)
 
 
 @pytest.mark.parametrize(
@@ -26,9 +26,9 @@ def fresh_cache(monkeypatch):
     ],
 )
 def test_a_microphone_is_heard_while_listen_runs_and_its_audio_is_fresh(monkeypatch, listening, age_s, healthy):
-    monkeypatch.setattr(server, "_listening", lambda: listening)
+    monkeypatch.setattr(live_status, "_listening", lambda: listening)
     fake().mics = {"wave3.audio": None if age_s is None else time.time_ns() - int(age_s * 1e9)}
-    status = server.mic_status()
+    status = live_status.mic_status()
     assert status["devices"] == {"wave3": {"name": "wave3", "healthy": healthy}}
     assert ("ts" in status) is healthy  # the Live tab reads "listening" from a fresh ts
 
@@ -37,17 +37,17 @@ def test_a_microphones_auto_gain_is_shown_with_it(monkeypatch, tmp_path):
     from liberational.audio import gain
 
     monkeypatch.setenv("PACK_PATHS_STATE", str(tmp_path))
-    monkeypatch.setattr(server, "_listening", lambda: True)
+    monkeypatch.setattr(live_status, "_listening", lambda: True)
     fake().mics = {"wave3.audio": time.time_ns()}
     mics = {"alsa_input.usb-Acme_Mic-00.mono-fallback": {"name": "wave3", "auto": True, "kind": "hardware", "db": 30.0}}
     (tmp_path / gain.STATUS).write_text(json.dumps({"ts": time.time(), "mics": mics}))
-    status = server.mic_status()
+    status = live_status.mic_status()
     assert status["devices"]["wave3"]["gain"] == {"auto": True, "kind": "hardware", "db": 30.0}
 
 
 def test_the_route_serves_the_status(serve, monkeypatch):
     monkeypatch.setattr(server, "DASH_PASSWORD", "")
-    monkeypatch.setattr(server, "_listening", lambda: True)
+    monkeypatch.setattr(live_status, "_listening", lambda: True)
     fake().mics = {"wave3.audio": time.time_ns()}
     with urllib.request.urlopen(serve(server.H) + "/ambient", timeout=5) as r:
         body = json.loads(r.read())

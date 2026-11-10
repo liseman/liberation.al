@@ -132,7 +132,7 @@ describe('the list', () => {
     expect(roster().getByRole('heading', { name: 'People' }).nextElementSibling).toHaveTextContent('2');
   });
 
-  it('leaves the voice clones list to Settings: People is the roster and the detail beside it (#2455)', async () => {
+  it('leaves the voice clones list to Settings: People is the roster and the detail beside it', async () => {
     serve();
     renderPage(<PeopleTab />);
     await roster().findByRole('button', { name: /^Dana/ });
@@ -557,7 +557,7 @@ describe('New person', () => {
   });
 });
 
-describe('loading and errors (#250)', () => {
+describe('loading and errors', () => {
   it('shows placeholder rows, then a loader once the wait runs long, then the list', async () => {
     let answer: () => void = () => {};
     const ready = new Promise<void>(r => {
@@ -648,7 +648,7 @@ describe('loading and errors (#250)', () => {
   });
 });
 
-describe("Who's this before the roster view exists (#1230)", () => {
+describe("Who's this before the roster view exists", () => {
   it('keeps a #whos-this link on the roster loader until people arrive, then opens it', async () => {
     let answer: () => void = () => {};
     const ready = new Promise<void>(resolve => {
@@ -803,7 +803,7 @@ function asPhone() {
   );
 }
 
-describe('on a phone (#2584)', () => {
+describe('on a phone', () => {
   afterEach(() => vi.restoreAllMocks());
   const picked = () => document.querySelector(`.${classes.picked}`);
 
@@ -825,7 +825,7 @@ describe('on a phone (#2584)', () => {
     expect(await screen.findByRole('article', { name: 'Profile of Dana' })).toBeInTheDocument();
   });
 
-  it("opens a person's card on one tap (#3145)", async () => {
+  it("opens a person's card on one tap", async () => {
     asPhone();
     serve();
     renderPage(<PeopleTab />);

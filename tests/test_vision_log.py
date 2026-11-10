@@ -14,8 +14,8 @@ CAPTION = {
     "ts_start": 1_800_000_000.5,
     "cam": "cam0",
     "yaw_deg": 0.0,
-    "caption": "Joe at the desk, typing",
-    "faces": [{"name": "Joe", "sim": 0.71, "bearing_deg": -4.0, "bbox": [120, 80, 180, 150]}],
+    "caption": "Sam at the desk, typing",
+    "faces": [{"name": "Sam", "sim": 0.71, "bearing_deg": -4.0, "bbox": [120, 80, 180, 150]}],
     "objects": [{"label": "laptop", "bbox_norm": [0.4, 0.5, 0.7, 0.8]}],
     "source": "mlx-server",
     "observation": {"version": 1, "status": "fresh", "camera": "cam0"},
@@ -144,7 +144,7 @@ def test_the_log_reads_a_streams_records_in_time_order_and_the_scene(
     )
     # Captions are the caption worker's segment rows: the scene reads them from the log's state.
     writers = segment_log.Writers(segment_log.root(tmp_path))
-    for ts, cam, text in [(100.0, "cam0", "empty room"), (101.0, "cam1", "a cat"), (99.0, "cam0", "Joe leaves")]:
+    for ts, cam, text in [(100.0, "cam0", "empty room"), (101.0, "cam1", "a cat"), (99.0, "cam0", "Sam leaves")]:
         writers.append(segment_log.CAPTIONS, cam, [{"id": segment_log.new_id(), "ts_start": ts, "caption": text}])
     writers.append(segment_log.CAPTIONS, "cam0", [{"id": segment_log.new_id(), "ts_start": 900.0, "caption": "later"}])
     writers.close()
@@ -156,7 +156,7 @@ def test_the_log_reads_a_streams_records_in_time_order_and_the_scene(
         latest = log.latest(now=150.0)
     finally:
         log.close()
-    assert [r["caption"] for r in captions] == ["Joe leaves", "empty room", "a cat"]
+    assert [r["caption"] for r in captions] == ["Sam leaves", "empty room", "a cat"]
     assert [(r["cam"], r["source"]) for r in grounded] == [("cam0", "fake")]
     assert [e["caption"] for e in scene] == ["empty room", "a cat"]
     assert {cam: r["caption"] for cam, r in latest.items()} == {"cam0": "empty room", "cam1": "a cat"}
@@ -555,7 +555,7 @@ def test_decoding_is_counted_for_whoever_asked_and_summarized_each_minute(monkey
     clock = [10.0]
     monkeypatch.setattr(vision_log.time, "monotonic", lambda: clock[0])
     caplog.set_level("INFO", logger="liberational.vision-log")
-    token = continuum_link.CALLER.set("people-read dashboard.server._people_view")
+    token = continuum_link.CALLER.set("people-read dashboard.people_reads._people_view")
     try:
         vision_log._decode_records(rows)  # 10 s since the last summary: counted, not logged
         clock[0] = 70.0
@@ -563,7 +563,7 @@ def test_decoding_is_counted_for_whoever_asked_and_summarized_each_minute(monkey
     finally:
         continuum_link.CALLER.reset(token)
     [line] = [r.getMessage() for r in caplog.records if "vision log decoded" in r.getMessage()]
-    assert line == "vision log decoded 4 records in 70 s: people-read dashboard.server._people_view 4"
+    assert line == "vision log decoded 4 records in 70 s: people-read dashboard.people_reads._people_view 4"
 
 
 def test_the_inline_fast_path_is_counted_too(monkeypatch):

@@ -444,13 +444,13 @@ FIXED = {
         "frame_id": "0190a5b8-0000-7000-8000-000000000003",
         "bbox": [0.25, 0.125, 0.375, 0.3125],
         "det": 0.875,
-        "name": "Joe",
+        "name": "Sam",
         "sim": 0.625,
         "cluster": None,
         "quality": 0.5,
     },
     S.FACE_VISITS: {
-        "name": "Joe",
+        "name": "Sam",
         "best_sim": 0.625,
         "samples": 12,
         "shots": [

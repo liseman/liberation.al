@@ -229,7 +229,7 @@ describe('frames and boxes', () => {
     const off = gw.watchBoxes('cam0', d => got.push(d));
     await flush();
     net.ready('cam0', 7).overlay(2_500_000, [
-      { xyxy: [0.1, 0.1, 0.2, 0.2], label: 'Joe', kind: 'face', id: 'r:cam0:1' },
+      { xyxy: [0.1, 0.1, 0.2, 0.2], label: 'Sam', kind: 'face', id: 'r:cam0:1' },
       { xyxy: [0.3, 0.1, 0.4, 0.2], label: '', kind: 'face', id: 'r:cam0:2' },
       { xyxy: [0.5, 0.5, 0.6, 0.6], label: 'mug', kind: 'object' },
       { xyxy: [0, 0, 1, 1], kind: 'body' },
@@ -239,7 +239,7 @@ describe('frames and boxes', () => {
     expect(d?.cam).toBe('cam0');
     expect(d?.ts).toBe(2.5);
     expect(d?.faces?.map(f => [f.track, f.name])).toEqual([
-      ['r:cam0:1', 'Joe'],
+      ['r:cam0:1', 'Sam'],
       ['r:cam0:2', 'unknown'],
     ]);
     expect(d?.objects?.map(o => o.label)).toEqual(['mug']);
@@ -255,9 +255,9 @@ describe('frames and boxes', () => {
     const c = net.ready('cam0', 7);
     c.overlay(1_000_000, [], [{ box: [0.2, 0.1, 0.6, 0.9, 0.8], joints: person(0.4) }]);
     wall += 0.4;
-    c.overlay(1_500_000, [{ xyxy: [0.1, 0.1, 0.2, 0.2], label: 'Joe', kind: 'face', id: 't' }]);
+    c.overlay(1_500_000, [{ xyxy: [0.1, 0.1, 0.2, 0.2], label: 'Sam', kind: 'face', id: 't' }]);
     wall += 0.2; // 0.6 s after the skeletons came
-    c.overlay(1_600_000, [{ xyxy: [0.1, 0.1, 0.2, 0.2], label: 'Joe', kind: 'face', id: 't' }]);
+    c.overlay(1_600_000, [{ xyxy: [0.1, 0.1, 0.2, 0.2], label: 'Sam', kind: 'face', id: 't' }]);
     expect(got.map(d => d.pose_ts)).toEqual([1, 1, undefined]);
     expect(got[1]?.poses?.[0]?.keypoints[5]?.map(v => Math.round(v * 10))).toEqual([4, 3, 9]);
     expect(got[1]?.poses?.[0]?.box.map(v => Math.round(v * 10))).toEqual([2, 1, 6, 9, 8]);
@@ -271,11 +271,11 @@ describe('frames and boxes', () => {
     await flush();
     const c = net.ready('cam0', 7);
     c.overlay(2_000_000, [{ xyxy: [0.5, 0.5, 0.6, 0.6], label: 'mug', kind: 'object' }]);
-    c.overlay(2_100_000, [{ xyxy: [0.1, 0.1, 0.2, 0.2], label: 'Joe', kind: 'face', id: 't' }]);
+    c.overlay(2_100_000, [{ xyxy: [0.1, 0.1, 0.2, 0.2], label: 'Sam', kind: 'face', id: 't' }]);
     c.jpeg(2_200_000, new Uint8Array([0xff, 0xd8, 0xff, 0xd9]));
     const last = got.at(-1);
     expect(got).toHaveLength(3);
-    expect(last?.faces?.map(f => f.name)).toEqual(['Joe']);
+    expect(last?.faces?.map(f => f.name)).toEqual(['Sam']);
     expect(last?.objects?.map(o => o.label)).toEqual(['mug']);
     expect(last?.ts).toBe(2.1); // the newest record's capture time, not the frame's
     off();
@@ -288,7 +288,7 @@ describe('frames and boxes', () => {
     const c = net.ready('cam0', 7);
     c.overlay(2_000_000, [
       { xyxy: [0.5, 0.5, 0.6, 0.6], label: 'mug', kind: 'object' },
-      { xyxy: [0.1, 0.1, 0.2, 0.2], label: 'Joe', kind: 'face', id: 't' },
+      { xyxy: [0.1, 0.1, 0.2, 0.2], label: 'Sam', kind: 'face', id: 't' },
     ]);
     wall += 0.6;
     c.jpeg(2_700_000, new Uint8Array([0xff, 0xd8, 0xff, 0xd9]));

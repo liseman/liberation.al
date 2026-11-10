@@ -18,7 +18,7 @@ import pytest
 from liberational import config as cfg
 from liberational import logs, ollama_health, phone
 from liberational.assistant import voice
-from liberational.dashboard import server
+from liberational.dashboard import live_status, server
 from liberational.people import registry
 
 
@@ -230,7 +230,7 @@ def test_a_failing_route_is_one_error_line_naming_it(captured, serve, monkeypatc
     def broken(*a: Any) -> dict:
         raise ValueError("boom")
 
-    monkeypatch.setattr(server, "camera_status", broken)
+    monkeypatch.setattr(live_status, "camera_status", broken)
     url = serve(server.H).removeprefix("http://")
     c = http.client.HTTPConnection(url, timeout=5)
     c.request("GET", "/vision?who=Dana")  # a route whose own work raises

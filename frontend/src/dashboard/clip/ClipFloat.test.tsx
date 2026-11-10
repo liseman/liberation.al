@@ -35,7 +35,7 @@ const makeVideo: MakeVideo = () => {
   return Object.assign(element, { close: vi.fn() });
 };
 
-it('keeps what the full player opens (its help popover) above the window, not behind it (#2507)', async () => {
+it('keeps what the full player opens (its help popover) above the window, not behind it', async () => {
   server.use(
     http.get('/ambient', () => HttpResponse.json({ devices: {} })),
     http.get('/review/boxes', () => HttpResponse.json({ boxes: [] })),

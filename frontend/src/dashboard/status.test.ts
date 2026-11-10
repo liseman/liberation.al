@@ -169,7 +169,7 @@ describe('tooltips', () => {
   });
 });
 
-describe('camTrouble (#324)', () => {
+describe('camTrouble', () => {
   const now = 1000;
   it('is retrying while any camera is being reopened, and starting before a first frame', () => {
     const cameras = { cam0: { state: 'on' as const }, cam1: { state: 'retrying' as const } };

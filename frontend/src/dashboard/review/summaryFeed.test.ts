@@ -60,7 +60,7 @@ describe('spanWords', () => {
   });
 });
 
-describe('foldRuns (#2454 follow-up)', () => {
+describe('foldRuns', () => {
   const a = (id: string, name: string, promoted = false) => ({ id, name, promoted });
   const name = (x: { name: string }) => x.name;
   it('folds 3 or more unconfirmed of a kind where the kind first appears, and keeps the rest in order', () => {
@@ -77,7 +77,7 @@ describe('foldRuns (#2454 follow-up)', () => {
   });
 });
 
-describe('activityWords (#2577 follow-up)', () => {
+describe('activityWords', () => {
   const item = (more: Partial<DetectedActivity>): DetectedActivity => ({
     id: 'a',
     camera: 'cam0',
@@ -91,7 +91,7 @@ describe('activityWords (#2577 follow-up)', () => {
     ...more,
   });
   it.each([
-    ['who walked past', { person_name: 'Joe' }, 'Joe walked past'],
+    ['who walked past', { person_name: 'Sam' }, 'Sam walked past'],
     ['nobody known', { person_name: null }, 'Walked past'],
     ['a blank name', { person_name: '  ' }, 'Walked past'],
     ['an owner-named activity', { name: 'Squats', person_name: 'Dana' }, 'Dana squats'],

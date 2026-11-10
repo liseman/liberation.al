@@ -248,13 +248,13 @@ describe('an embedded recording', () => {
     engine.stop();
   });
 
-  it('rests just inside the last segment, and never before a segment shorter than the hold (#2550)', () => {
+  it('rests just inside the last segment, and never before a segment shorter than the hold', () => {
     expect(endHold(110, { start: 100, end: 110 })).toBeCloseTo(109.95);
     expect(endHold(105, { start: 100, end: 110 })).toBe(105);
     expect(endHold(100.02, { start: 100, end: 100.02 })).toBe(100);
   });
 
-  it('places a video bound after the clip was opened and sought, so a player mounted late plays (#2423)', () => {
+  it('places a video bound after the clip was opened and sought, so a player mounted late plays', () => {
     const engine = new ReviewEngine({ embedded: true, cams: ['cam0'], fetchNotes: async () => ({ cams: {} }) });
     engine.start();
     engine.openClip(D0 + 36010, data().segments);
@@ -355,7 +355,7 @@ describe('opening a day', () => {
     engine.stop();
   });
 
-  it('writes the clock only when the time it shows changes, not every frame (#486)', () => {
+  it('writes the clock only when the time it shows changes, not every frame', () => {
     const engine = new ReviewEngine({ cams: ['cam0'], fetchNotes: async () => ({ cams: {} }) });
     history.replaceState(null, '', `/review#day=${DAY}&t=${D0 + 36010}`);
     engine.start();
@@ -380,7 +380,7 @@ describe('opening a day', () => {
     engine.stop();
   });
 
-  it('comes back where it was when Review shows again after another tab (#330)', () => {
+  it('comes back where it was when Review shows again after another tab', () => {
     const engine = new ReviewEngine({
       cams: ['cam0'],
       fetchNotes: async () => ({ cams: {} }),
@@ -756,7 +756,7 @@ describe('video', () => {
     expect(v[0].loads).toBe(1);
   });
 
-  it('grows the stretch still being recorded, tells the player showing it, and adds new ones (#806)', () => {
+  it('grows the stretch still being recorded, tells the player showing it, and adds new ones', () => {
     const { engine, v } = setup();
     engine.seek(D0 + 39800); // in the newest stretch, 39600 to 39900
     const gen = engine.ui.getState().gen;
@@ -799,7 +799,7 @@ describe('video', () => {
     expect(engine.ui.getState()).toMatchObject({ avail: [], gap: 'cut' });
   });
 
-  it('says the video expired where it aged out past the history window, and never plays it (#1748)', () => {
+  it('says the video expired where it aged out past the history window, and never plays it', () => {
     const gone = { cam: 'cam0', url: url('cam0', D0 + 30000, D0 + 36000), start: D0 + 30000, end: D0 + 36000 };
     const { engine, v } = setup(undefined, { more: { segments: [{ ...gone, expired: true }, ...data().segments] } });
     engine.seek(D0 + 33000);
@@ -864,14 +864,14 @@ describe('playback', () => {
     expect(fetched).toEqual([`/audio/range?start=${D0 + 36000}&end=${D0 + 36300}`]);
   });
 
-  it('fetches the room audio of a long segment a window at a time (#917)', () => {
+  it('fetches the room audio of a long segment a window at a time', () => {
     const { engine, fetched } = setup(undefined, { windowS: 120 });
     const at = Math.ceil((D0 + 36000) / 120) * 120 + 10; // 10 s into the segment's second window
     engine.seekPlay(at);
     expect(fetched).toEqual([`/audio/range?start=${at - 10}&end=${at + 110}`]);
   });
 
-  describe('room audio ready before it is needed (#344)', () => {
+  describe('room audio ready before it is needed', () => {
     const range = (a: number, b: number) => `/audio/range?start=${D0 + a}&end=${D0 + b}`;
 
     it('has a paused spot’s room audio in the player before Play, so Play fetches nothing and starts it at once', async () => {
@@ -931,7 +931,7 @@ describe('playback', () => {
       expect(audio.plays).toBe(before + 1); // played (and paused) inside the click
     });
 
-    it('asks once for a stretch whose audio failed, not every frame (#344)', async () => {
+    it('asks once for a stretch whose audio failed, not every frame', async () => {
       const { engine, v, audio, fetched } = setup(undefined, {
         blob: url =>
           url.includes(`start=${D0 + 36300}`) ? Promise.reject(new Error('404')) : Promise.resolve(new Blob(['a'])),
@@ -1117,7 +1117,7 @@ describe('playback', () => {
     expect(v[1].seeks).toEqual([100]);
   });
 
-  it('with Skip the rest on, starts a line’s clip at the chip’s time instead of fetching it every frame (#182)', async () => {
+  it('with Skip the rest on, starts a line’s clip at the chip’s time instead of fetching it every frame', async () => {
     const { engine, audio, fetched } = setup();
     const clips = () => fetched.filter(u => u.startsWith('/clip'));
     // A chip whose time starts 1.5 s into the first line, where there's no video.
@@ -1144,7 +1144,7 @@ describe('playback', () => {
     expect(audio.currentTime).toBeCloseTo(1.5 + 0.4); // the clip starts 0.4 s before its line
   });
 
-  it('plays the room audio once a line ends where video has begun (#183)', async () => {
+  it('plays the room audio once a line ends where video has begun', async () => {
     const late = { cam: 'cam0', url: url('cam0', D0 + 38005, D0 + 38305), start: D0 + 38005, end: D0 + 38305 };
     const { engine, audio, fetched } = setup(undefined, { more: { segments: [...data().segments, late] } });
     engine.seekPlay(D0 + 38000); // no video yet: the line plays
@@ -1156,7 +1156,7 @@ describe('playback', () => {
     expect(fetched.at(-1)).toBe(`/audio/range?start=${D0 + 38005}&end=${D0 + 38305}`);
   });
 
-  it('starts the room audio when the video starts playing, not before, at the video’s moment (#244)', async () => {
+  it('starts the room audio when the video starts playing, not before, at the video’s moment', async () => {
     const { engine, v, audio } = setup();
     engine.seekPlay(D0 + 36100);
     await settle();
@@ -1233,7 +1233,7 @@ describe('playback', () => {
     expect(audio.paused).toBe(false);
   });
 
-  it('seeks each camera once per Play, not again on the next frame (#299)', async () => {
+  it('seeks each camera once per Play, not again on the next frame', async () => {
     const { engine, v } = setup();
     const before = v[0].seeks.length + v[1].seeks.length;
     engine.seekPlay(D0 + 36100);
@@ -1250,7 +1250,7 @@ describe('playback', () => {
     expect(v[0].seeks.length + v[1].seeks.length - before).toBe(1);
   });
 
-  it('plays every camera and the room audio at the chosen speed, easing around it (#327)', async () => {
+  it('plays every camera and the room audio at the chosen speed, easing around it', async () => {
     const { engine, v, audio } = setup();
     engine.setSpeed(2);
     expect([v[0].playbackRate, v[1].playbackRate, audio.playbackRate]).toEqual([2, 2, 2]);
@@ -1271,7 +1271,7 @@ describe('playback', () => {
     expect(audio.playbackRate).toBeLessThan(2.2);
   });
 
-  it('eases the room audio back in step by its rate, and snaps only a large offset (#244)', async () => {
+  it('eases the room audio back in step by its rate, and snaps only a large offset', async () => {
     const { engine, v, audio } = setup();
     engine.seekPlay(D0 + 36100);
     await settle();
@@ -1301,7 +1301,7 @@ describe('playback', () => {
     expect(audio.currentTime).toBe(100);
   });
 
-  it('keeps the room audio it has when playback resumes in the same segment (#184)', async () => {
+  it('keeps the room audio it has when playback resumes in the same segment', async () => {
     const { engine, v, audio, fetched } = setup();
     engine.seekPlay(D0 + 36100);
     await settle();
@@ -1336,7 +1336,7 @@ describe('playback', () => {
     expect(audio.plays).toBe(0);
   });
 
-  it('drops an audio fetch the playhead has moved on from (#184)', () => {
+  it('drops an audio fetch the playhead has moved on from', () => {
     const signals: (AbortSignal | undefined)[] = [];
     const { engine } = setup(undefined, {
       blob: (_url, signal) => {
@@ -1349,7 +1349,7 @@ describe('playback', () => {
     expect(signals.map(s => s?.aborted)).toEqual([true, false]);
   });
 
-  it('says the browser blocked the sound, and logs why, when it refuses to play it (#213)', async () => {
+  it('says the browser blocked the sound, and logs why, when it refuses to play it', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const { engine, audio } = setup();
     audio.refuse = new DOMException(
@@ -1437,7 +1437,7 @@ describe('playback', () => {
     expect(debug).toHaveBeenCalledWith(expect.any(String), 'AbortError', expect.any(String));
   });
 
-  it('unlocks the <audio> inside the click, before the room audio has arrived (#213)', () => {
+  it('unlocks the <audio> inside the click, before the room audio has arrived', () => {
     const { engine, audio } = setup(undefined, { blob: () => new Promise(() => {}) }); // still downloading
     engine.seekPlay(D0 + 36100);
     expect(audio.unlocks).toBe(1);
@@ -1452,7 +1452,7 @@ describe('playback', () => {
     expect(engine.playing).toBe(true);
   });
 
-  it('plays on with the kept room audio after the video ends, where nobody spoke (#196)', () => {
+  it('plays on with the kept room audio after the video ends, where nobody spoke', () => {
     const kept = { more: { spans: [{ start: D0 + 36600, end: D0 + 36900 }] } }; // 5 min of room audio, no video
     const { engine, v, fetched } = setup(undefined, kept);
     engine.seekPlay(D0 + 36590); // the end of the second segment
@@ -1466,7 +1466,7 @@ describe('playback', () => {
     expect(engine.ui.getState().roomOnly).toBe(true);
   });
 
-  it('moves the playhead with that audio, and goes on to what plays next when it ends (#196)', async () => {
+  it('moves the playhead with that audio, and goes on to what plays next when it ends', async () => {
     const kept = { more: { spans: [{ start: D0 + 36600, end: D0 + 36900 }] } };
     const { engine, audio } = setup(undefined, kept);
     engine.seekPlay(D0 + 36700); // no video here, no lines: the room audio
@@ -1489,7 +1489,7 @@ describe('playback', () => {
     expect(fetched).toEqual([`/clip?ts_start=${D0 + 38000}`]);
   });
 
-  it('still skips to the selected chips’ time through room audio (#196)', () => {
+  it('still skips to the selected chips’ time through room audio', () => {
     const kept = { more: { spans: [{ start: D0 + 36600, end: D0 + 36900 }] } };
     const { engine } = setup(undefined, kept);
     engine.setChips(DAY, engine.ui.getState().gen, [
@@ -1502,7 +1502,7 @@ describe('playback', () => {
     expect(engine.t).toBe(D0 + 36800);
   });
 
-  it('falls back to the lines when the kept audio won’t load (#196)', async () => {
+  it('falls back to the lines when the kept audio won’t load', async () => {
     const kept = {
       more: { spans: [{ start: D0 + 37900, end: D0 + 38200 }] },
       blob: (url: string) =>
@@ -1515,7 +1515,7 @@ describe('playback', () => {
     expect(engine.ui.getState().roomOnly).toBe(false);
   });
 
-  it('goes from a line into kept audio that follows it (#196)', async () => {
+  it('goes from a line into kept audio that follows it', async () => {
     const kept = { more: { spans: [{ start: D0 + 38005, end: D0 + 38300 }] } }; // after the first line, before the second
     const { engine, fetched } = setup(undefined, kept);
     engine.seekPlay(D0 + 38000); // the first line, no kept audio there
@@ -1525,7 +1525,7 @@ describe('playback', () => {
     expect(fetched.at(-1)).toBe(`/audio/range?start=${D0 + 38005}&end=${D0 + 38300}`);
   });
 
-  it('pauses the room audio while a camera that starts mid-stretch loads, so nothing is heard twice (#196)', async () => {
+  it('pauses the room audio while a camera that starts mid-stretch loads, so nothing is heard twice', async () => {
     const late = { cam: 'cam0', url: url('cam0', D0 + 36700, D0 + 37000), start: D0 + 36700, end: D0 + 37000 };
     const kept = { more: { segments: [...data().segments, late], spans: [{ start: D0 + 36600, end: D0 + 36900 }] } };
     const { engine, audio } = setup(undefined, kept);
@@ -1539,7 +1539,7 @@ describe('playback', () => {
     expect(audio.paused).toBe(true);
   });
 
-  it('plays on into the next kept stretch when it starts a moment after this one ends (#196)', async () => {
+  it('plays on into the next kept stretch when it starts a moment after this one ends', async () => {
     const kept = {
       more: {
         spans: [
@@ -1556,7 +1556,7 @@ describe('playback', () => {
     expect(fetched.at(-1)).toBe(`/audio/range?start=${D0 + 36900.004}&end=${D0 + 37200}`);
   });
 
-  it('tries the room audio again when the browser refused it, once allowed (#196)', async () => {
+  it('tries the room audio again when the browser refused it, once allowed', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const kept = { more: { spans: [{ start: D0 + 36600, end: D0 + 36900 }] } };
     const { engine, audio } = setup(undefined, kept);
@@ -1572,7 +1572,7 @@ describe('playback', () => {
     expect(audio.paused).toBe(false);
   });
 
-  it('rolls over a short gap between videos without stopping for the room audio (#196)', () => {
+  it('rolls over a short gap between videos without stopping for the room audio', () => {
     const near = { cam: 'cam0', url: url('cam0', D0 + 36602, D0 + 36900), start: D0 + 36602, end: D0 + 36900 };
     const kept = { more: { segments: [...data().segments, near], spans: [{ start: D0 + 36600, end: D0 + 36900 }] } };
     const { engine, v } = setup(undefined, kept);
@@ -1742,7 +1742,7 @@ describe('keys', () => {
     engine.stop();
   });
 
-  it('halves or doubles where a glide is headed when + or - comes during it (#2597)', () => {
+  it('halves or doubles where a glide is headed when + or - comes during it', () => {
     const { engine } = setup();
     engine.start();
     engine.seek(D0 + 38005);
@@ -1756,7 +1756,7 @@ describe('keys', () => {
     engine.stop();
   });
 
-  describe('Space across Review (#1048)', () => {
+  describe('Space across Review', () => {
     const engines: ReviewEngine[] = [];
     const nodes: HTMLElement[] = [];
     const opened = () => {
@@ -1913,7 +1913,7 @@ describe('keys', () => {
   });
 });
 
-describe('event mark keys (#1050)', () => {
+describe('event mark keys', () => {
   let engine: ReviewEngine;
   const key = (value: string, target: EventTarget = document.body, more: KeyboardEventInit = {}) =>
     target.dispatchEvent(new KeyboardEvent('keydown', { key: value, bubbles: true, cancelable: true, ...more }));
@@ -2057,7 +2057,7 @@ describe('the link', () => {
   });
 });
 
-describe('the visible range, for the Summary column (#414)', () => {
+describe('the visible range, for the Summary column', () => {
   it('is null until the day loads, then publishes once the view holds still', () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
     const engine = new ReviewEngine({ cams: ['cam0'], fetchNotes: async () => ({ cams: {} }) });
@@ -2121,7 +2121,7 @@ describe('the visible range, for the Summary column (#414)', () => {
     expect(engine.ui.getState().range).toEqual(engine.view);
   });
 
-  it('glides Day, 1 h, and 10 min to their span over a few frames, landing exactly (#2577)', () => {
+  it('glides Day, 1 h, and 10 min to their span over a few frames, landing exactly', () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
     const engine = new ReviewEngine({ cams: ['cam0'], fetchNotes: async () => ({ cams: {} }) });
     engine.pickDay(DAY);
@@ -2199,7 +2199,7 @@ describe('the visible range, for the Summary column (#414)', () => {
   });
 });
 
-describe("the day's lines read again (#300)", () => {
+describe("the day's lines read again", () => {
   it('takes the open day’s renamed lines, and nothing from another day or an earlier opening', () => {
     const { engine } = setup();
     const gen = engine.ui.getState().gen;
@@ -2224,7 +2224,7 @@ describe("the day's lines read again (#300)", () => {
   });
 });
 
-describe('roomWindow (#917)', () => {
+describe('roomWindow', () => {
   it.each([
     ['the start of a segment that starts mid-window', 1000, [1000, 1080]],
     ['a whole window inside the segment', 1100, [1080, 1200]],
@@ -2255,7 +2255,7 @@ it('seeks an activity source camera with fresh intent after a manual camera choi
   expect(engine.ui.getState().playing).toBe(false);
 });
 
-it('plays a clicked activity from its start every time: the same one again, after a pause, and another (#2259)', () => {
+it('plays a clicked activity from its start every time: the same one again, after a pause, and another', () => {
   const engine = new ReviewEngine({ cams: ['cam0'], fetchNotes: async () => ({ cams: {} }) });
   engine.pickDay(DAY);
   engine.setDayData(DAY, engine.ui.getState().gen, { entries: [], segments: [], spans: [] });
