@@ -253,6 +253,12 @@ def test_chunk_reads_keep_explicit_audio_format_while_legacy_reads_stay_unknown(
     client.query.assert_not_called()
 
 
+def copy_files(chunks: Path) -> list[Path]:
+    """The derived copies under the chunk directory. The tier worker files each one in its stream's hour directory
+    (`streams/<stream>/<hour>/`), so the search is recursive."""
+    return list(chunks.rglob("*-copy-*.cnk"))
+
+
 class PurgeArgs(TypedDict, total=False):
     ids: list[str]
     entity: str
@@ -339,9 +345,13 @@ def test_derived_copies_survive_restart_and_purge(tmp_path: Path, purge_args: Pu
                 page = await client.query("notes", 0, 10_000, all=True, max_items=1)
                 # Queries prefer still-readable hot slots. File publication plus orderly Tier shutdown
                 # lets the in-flight attachment finish; warm query/read assertions follow broker restart.
-                if len(page["items"]) == 4 and len(list(chunks.glob("*-copy-*.cnk"))) == 4:
+                copies = copy_files(chunks)
+                if len(page["items"]) == 4 and len(copies) == 4:
                     break
-                assert time.monotonic() < deadline, "derived slot payloads never acquired durable copies"
+                assert time.monotonic() < deadline, (
+                    f"derived slot payloads never acquired durable copies: {len(page['items'])} of 4 items, "
+                    f"copies {sorted(path.name for path in copies)}"
+                )
                 assert worker.poll() is None, "Tier exited while archiving derived payloads"
                 await asyncio.sleep(0.02)
             positions = await client.query_by_seq("notes", max_items=1)
@@ -366,11 +376,13 @@ def test_derived_copies_survive_restart_and_purge(tmp_path: Path, purge_args: Pu
             deadline = time.monotonic() + 8
             while True:
                 left = await client.query("notes", 0, 10_000, all=True)
-                files = list(chunks.glob("*-copy-*.cnk"))
-                if [decode_header(item["header"])["id"] for item in left["items"]] == [uuid_of(4)] and len(files) == 1:
+                files = copy_files(chunks)
+                ids = [decode_header(item["header"])["id"] for item in left["items"]]
+                if ids == [uuid_of(4)] and len(files) == 1:
                     break
                 assert time.monotonic() < deadline, (
-                    "purge must remove doomed sidecars and preserve the unrelated same-time sibling"
+                    "purge must remove doomed sidecars and preserve the unrelated same-time sibling: "
+                    f"items {ids}, copies {sorted(path.name for path in files)}"
                 )
                 assert worker.poll() is None, "Tier exited before removing its purged copies"
                 await asyncio.sleep(0.02)
