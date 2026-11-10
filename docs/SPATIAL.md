@@ -52,6 +52,7 @@ Each defaults to a dry run that prints what would change. Their docstrings have 
 | `tools/import_owner_plan.py` | Registers an owner-supplied floorplan into a place's map and saves it as the owner plan |
 | `tools/fit_intrinsics.py` | Fits each fixed camera's focal and lens once and holds them (`camera.intrinsics`) |
 | `tools/rebuild_place.py` | Rebuilds a place's map from its walks and fresh camera snapshots |
+| `tools/restore_owner_plan.py` | Repairs a place whose fused map drifted off the frame the owner plan was drawn in |
 | `tools/place_positions.py` | Runs the placer by hand; `--reset` places every place again |
 | `tools/calibrate_lens.py`, `tools/calibrate_fisheye.py` | Calibrate a camera's lens |
 

@@ -987,6 +987,89 @@ def test_a_rebuild_is_written_in_the_owner_plans_frame_and_the_plan_moves_onto_i
     assert held.revision.cameras["hall"].pose[3] == pytest.approx(1.2)
 
 
+def tilt(deg):
+    turn = np.eye(4)
+    c, s = math.cos(math.radians(deg)), math.sin(math.radians(deg))
+    turn[1:3, 1:3] = [[c, -s], [s, c]]
+    return turn
+
+
+def drifted_floor(fused, cams, place=""):
+    """`fuse.relevel` for a map whose floor has drifted a degree off level: the map and its cameras turned level."""
+    return replace(fused, points=fuse.apply(tilt(1.0), fused.points)), fuse._moved(cams, tilt(1.0))
+
+
+MACHINE = cameras.Layout('plan "Place"\nroom r1 "Room 1" other rect 0,0 4x3\n', fuse.LEVEL_PLAN, fuse.LEVEL_FLOOR)
+
+
+def test_a_nightly_seat_never_takes_the_map_off_the_owners_plan(tmp_path, monkeypatch):
+    # #215: a drifted floor turned level, or a rescale to people's heights, starts a frame of the map's own
+    home = owner_place(tmp_path, monkeypatch)
+    before = places.get(tmp_path, home.place)
+    snapshot = fuse._cloud(tmp_path, home)
+    assert snapshot is not None and before is not None
+    monkeypatch.setattr(cameras, "layout", lambda *a, **k: MACHINE)
+    monkeypatch.setattr(fuse, "relevel", drifted_floor)
+    grown = np.diag([1.1, 1.1, 1.1, 1.0])  # what the fused map's people would rescale it by
+    monkeypatch.setattr(fuse, "metric", lambda cams, what, *a, **k: grown if "fused map" in what else np.eye(4))
+    rev = fuse.seat(tmp_path, home.place, snapshot[0], None, fuse.LEVEL_FLOOR, dict(home.cameras), now=T + 30)
+    assert rev is not None
+    assert rev.frame == home.frame and rev.plan is None and places.same_plan_frame(home, rev)
+    held = places.get(tmp_path, home.place)
+    assert held is not None
+    assert (held.plan, held.view, held.plan_revision, held.machine_newer) == (before.plan, before.view, home.id, False)
+    assert rev.cameras["hall"].pose == pytest.approx(home.cameras["hall"].pose, abs=0.03), "the camera stays put"
+
+
+def off_the_owners_plan(tmp_path, monkeypatch, home, turn):
+    """The break #215 left behind: `home`'s map and cameras moved by `turn` into a frame of their own, where a machine
+    plan was derived."""
+    old = fuse._cloud(tmp_path, home)
+    assert old is not None
+    monkeypatch.setattr(cameras, "layout", lambda *a, **k: MACHINE)
+    moved = replace(fuse._fused(old), points=fuse.apply(turn, old[0]))
+    broken = fuse._revise(tmp_path, home.place, moved, fuse._moved(home.cameras, turn), [home.id], None, T + 20, T + 20)
+    assert broken.plan is not None and not places.same_plan_frame(home, broken)
+    return broken
+
+
+def test_the_owners_plan_is_put_back_on_a_map_that_was_turned_off_it(tmp_path, monkeypatch):
+    home = owner_place(tmp_path, monkeypatch)
+    before = places.get(tmp_path, home.place)
+    broken = off_the_owners_plan(tmp_path, monkeypatch, home, tilt(0.5))
+    assert before is not None
+    looked, found = fuse.onto_owner_plan(tmp_path, home.place, now=T + 30, write=False)
+    assert looked is None and "would be written" in found
+    assert places.latest(tmp_path, home.place) == broken, "a dry run writes nothing"
+    rev, found = fuse.onto_owner_plan(tmp_path, home.place, now=T + 30)
+    assert rev is not None and rev.id in found
+    assert rev.frame == home.frame and rev.plan is None and places.same_plan_frame(home, rev)
+    assert places.read_map(tmp_path, rev) == places.read_map(tmp_path, broken), "the newest map, with all it has"
+    assert rev.cameras == broken.cameras and rev.signals == broken.signals
+    held = places.get(tmp_path, home.place)
+    assert held is not None
+    assert (held.plan, held.view, held.plan_revision, held.plan_source) == (before.plan, before.view, home.id, "owner")
+    assert not held.machine_newer
+    assert fuse.onto_owner_plan(tmp_path, home.place, now=T + 40) == (
+        None,
+        "the owner's plan is already drawn on the newest map: nothing to do",
+    )
+
+
+def test_a_map_that_moved_too_far_isnt_relabelled_as_the_owners_frame(tmp_path, monkeypatch):
+    home = owner_place(tmp_path, monkeypatch)
+    broken = off_the_owners_plan(tmp_path, monkeypatch, home, similarity(40, [3.0, 0.0, 0.0]))
+    rev, found = fuse.onto_owner_plan(tmp_path, home.place, now=T + 30)
+    assert rev is None and "not restored" in found
+    assert places.latest(tmp_path, home.place) == broken
+
+
+def test_a_place_with_no_owner_plan_has_nothing_to_put_back(tmp_path, monkeypatch):
+    no_machine_plan(monkeypatch)
+    home = fused_place(tmp_path, room(0), T, {"hall": looking(1.0, 1.0, 1.6, 0.0)})
+    assert fuse.onto_owner_plan(tmp_path, home.place) == (None, "the place has no owner plan to restore")
+
+
 def test_a_nightly_seat_writes_tonights_pose_and_records_it_as_a_seat_observation(tmp_path, monkeypatch):
     home = owner_place(tmp_path, monkeypatch, spot=(1.2, 1.0, 1.6))  # off where the map has it
     snapshot = fuse._cloud(tmp_path, home)

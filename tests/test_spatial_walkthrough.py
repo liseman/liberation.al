@@ -7,6 +7,7 @@ import math
 import os
 import sys
 import textwrap
+from dataclasses import replace
 from types import SimpleNamespace
 
 import cv2
@@ -1032,6 +1033,42 @@ def test_a_lidar_walk_into_a_place_with_an_owner_plan_is_placed_by_the_plan(tmp_
     assert (walk[:, :2] > [19.9, 4.9]).all() and (walk[:, :2] < [24.1, 8.1]).all(), "where the plan has the room"
     assert np.ptp(walk[:, 0]) > 3.5, "it spans the room's long side"
     assert int((counts["walked"] > 0).sum()) == len(walk), "its voxels, and only its, count as walked"
+
+
+def drifted_floor(fused, cams, place=""):
+    """`fuse.relevel` for a map whose floor has drifted a degree off level: the map and its cameras turned level."""
+    turn = np.eye(4)
+    c, s = math.cos(math.radians(1.0)), math.sin(math.radians(1.0))
+    turn[1:3, 1:3] = [[c, -s], [s, c]]
+    return replace(fused, points=fuse.apply(turn, fused.points)), fuse._moved(cams, turn)
+
+
+MACHINE_PLAN = 'plan "Place" walls 0.2/0.1\nroom r1 "Room 1" other rect 0,0 4x3\n'
+
+
+@pytest.mark.parametrize("named", [True, False], ids=["into-the-place", "matched-to-it"])
+def test_a_walk_into_a_place_leaves_the_owners_plan_and_its_frame_as_they_were(tmp_path, monkeypatch, named):
+    # The live break (#215): the walk's fusion found the floor half a degree off and turned the map level, so the new
+    # revision stood in a frame of its own with a machine plan of numbered rooms, and the owner's plan fell behind.
+    layout = W.fuse.cameras.Layout
+    monkeypatch.setattr(W.fuse.cameras, "layout", lambda *a, **k: layout(None, None, fuse.LEVEL_FLOOR))
+    old = unrelated_place(tmp_path, {"s2": POSE})
+    plan = 'plan "Home" walls 0.02/0.02\nroom r1 "Box" other poly 20,5 24,5 24,8 20,8\n'
+    places.correct_plan(tmp_path, old.place, plan, now=T + 2, base=old.id)
+    # From here a derived plan would be the machine's, and the floor reads as drifted
+    monkeypatch.setattr(
+        W.fuse.cameras, "layout", lambda *a, **k: layout(MACHINE_PLAN, fuse.LEVEL_PLAN, fuse.LEVEL_FLOOR)
+    )
+    monkeypatch.setattr(fuse, "relevel", drifted_floor)
+    folder = stray_fake.write(tmp_path / "71de12f9", [stray_fake.upright_pose(0.5 + 0.1 * k) for k in range(30)])
+    did = W.run(tmp_path, folder, place=old.place) if named else W.run(tmp_path, folder, match=True)
+    assert did["place"] == old.place and did["registered"] == "plan"
+    held, rev = places.get(tmp_path, old.place), places.latest(tmp_path, old.place)
+    assert held is not None and rev is not None and rev.id == did["revision"]
+    assert (held.plan, held.plan_source, held.plan_revision) == (plan, "owner", old.id), "the owner's plan, as drawn"
+    assert not held.machine_newer and rev.plan is None, "no machine plan is made over it"
+    assert rev.frame == old.frame and places.same_plan_frame(old, rev), "and the new map is still on its frame"
+    assert rev.cameras["s2"] == POSE, "so the cameras the plan was drawn around haven't moved"
 
 
 WORLD_UP = np.array([0.0, -1.0, 0.0])  # these tests' world is y-down
