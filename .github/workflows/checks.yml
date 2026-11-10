@@ -1,13 +1,32 @@
-# The checks a change gets on GitHub-hosted runners (CONTRIBUTING.md, "Checks before merging"): Ruff and ty over the
-# changed Python, the Python tests that cover the changed files (the same selection as mise run test-changed, on the
-# CPU), the frontend's lint, production build, and related Vitest tests when frontend/ changed, and the Continuum
-# workspace's cargo check and tests when Rust changed. Anything that needs a GPU, models, or Ollama stays local.
+# Hosted checks, a backstop that never blocks a merge (CONTRIBUTING.md, "Checks before merging"). They check only
+# what a change touches, against the pull request's base or, for a push to main, the previous commit: Ruff and ty on
+# the changed Python and the tests that cover it (tools/test_changed.py, the mapping mise run test-changed uses), the
+# frontend build and the Vitest tests related to the changed files, and cargo test for the Continuum crates touched.
+# A change to nothing but docs runs none of it. Anything that needs a GPU, models, or Ollama stays local.
 name: checks
 
 on:
   push:
     branches: [main]
+    paths:
+      - "src/**"
+      - "tools/**"
+      - "tests/**"
+      - "frontend/**"
+      - "continuum/**"
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - ".github/workflows/checks.yml"
   pull_request:
+    paths:
+      - "src/**"
+      - "tools/**"
+      - "tests/**"
+      - "frontend/**"
+      - "continuum/**"
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - ".github/workflows/checks.yml"
 
 permissions:
   contents: read
@@ -23,9 +42,9 @@ jobs:
     outputs:
       base: ${{ steps.diff.outputs.base }}
       python: ${{ steps.diff.outputs.python }}
-      python_config: ${{ steps.diff.outputs.python_config }}
       frontend: ${{ steps.diff.outputs.frontend }}
-      rust: ${{ steps.diff.outputs.rust }}
+      crates: ${{ steps.diff.outputs.crates }}
+      cargo_workspace: ${{ steps.diff.outputs.cargo_workspace }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -43,20 +62,24 @@ jobs:
           git diff --name-only --diff-filter=d "$(git merge-base "$BASE" HEAD)" HEAD > "$RUNNER_TEMP/changed.txt"
           cat "$RUNNER_TEMP/changed.txt"
           has() { grep -qE "$1" "$RUNNER_TEMP/changed.txt" && echo true || echo false; }
+          # The Continuum crates a change touches, by directory (each crate's directory is its package name).
+          crates=$(sed -nE 's|^continuum/crates/([^/]+)/.*|\1|p' "$RUNNER_TEMP/changed.txt" | sort -u | tr '\n' ' ')
+          # Workspace files outside any crate (the root Cargo.toml and Cargo.lock, schemas) with no crate touched.
+          workspace=false
+          if [ -z "$crates" ] && grep -qE '^continuum/' "$RUNNER_TEMP/changed.txt"; then workspace=true; fi
           {
             echo "base=$BASE"
-            echo "python=$(has '\.py$')"
-            echo "python_config=$(has '^(pyproject\.toml|uv\.lock)$')"
+            echo "python=$(has '^(src|tools|tests)/')"
             echo "frontend=$(has '^frontend/')"
-            echo "rust=$(has '^continuum/|(^|/)Cargo\.(toml|lock)$')"
+            echo "crates=$crates"
+            echo "cargo_workspace=$workspace"
           } >> "$GITHUB_OUTPUT"
-          printf 'frontend=true\nrust=true\n' >> "$GITHUB_OUTPUT" # PROBE
 
   python:
     needs: changes
-    if: needs.changes.outputs.python == 'true' || needs.changes.outputs.python_config == 'true'
+    if: needs.changes.outputs.python == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 30
     env:
       BASE: ${{ needs.changes.outputs.base }}
       UV_FROZEN: "1"
@@ -81,8 +104,14 @@ jobs:
             continuum/crates/**/*.rs
             continuum/python/**
 
-      - name: Install the Python dependencies (no extras)
-        run: uv sync
+      # The vision modules import torch, which only the extras bring; the CPU build from PyTorch's own index is a
+      # fraction of the CUDA one. UV_NO_SYNC keeps uv run from syncing it away again.
+      - name: Install the Python dependencies (no extras, CPU torch)
+        run: |
+          set -euo pipefail
+          uv sync
+          uv pip install torch --index-url https://download.pytorch.org/whl/cpu
+          echo "UV_NO_SYNC=1" >> "$GITHUB_ENV"
 
       - name: List the changed Python
         run: |
@@ -92,28 +121,22 @@ jobs:
           grep -E '^(src|tests|tools)/' "$RUNNER_TEMP/py.txt" > "$RUNNER_TEMP/ty.txt" || true
           cat "$RUNNER_TEMP/py.txt"
 
-      # A change to pyproject.toml or uv.lock can change what Ruff and ty report anywhere, so it checks the whole tree.
       - name: Ruff
-        env:
-          WHOLE: ${{ needs.changes.outputs.python_config }}
         run: |
           set -euo pipefail
-          if [ "$WHOLE" = true ]; then uv run ruff check && uv run ruff format --check; exit; fi
           [ -s "$RUNNER_TEMP/py.txt" ] || { echo "no changed Python"; exit 0; }
           xargs -a "$RUNNER_TEMP/py.txt" uv run ruff check --force-exclude
           xargs -a "$RUNNER_TEMP/py.txt" uv run ruff format --check --force-exclude
 
       - name: ty
-        env:
-          WHOLE: ${{ needs.changes.outputs.python_config }}
         run: |
           set -euo pipefail
-          if [ "$WHOLE" = true ]; then uv run ty check; exit; fi
           [ -s "$RUNNER_TEMP/ty.txt" ] || { echo "no changed Python under src/, tests/, or tools/"; exit 0; }
           xargs -a "$RUNNER_TEMP/ty.txt" uv run ty check
 
+      # test_changed.py runs nothing when no test covers the change; it never falls back to the full suite.
       - name: Tests that cover the change
-        run: uv run pytest -q -rs -p no:randomly --durations=20 # PROBE
+        run: uv run tools/test_changed.py --base "$BASE" --only python
 
   frontend:
     needs: changes
@@ -138,23 +161,21 @@ jobs:
         working-directory: frontend
         run: npm ci
 
-      - name: Biome and tsc
-        working-directory: frontend
-        run: npm run lint && npx --no-install biome format
-
       - name: Production build
         working-directory: frontend
         run: npm run build
 
+      # vitest related on the changed files under frontend/src/ (nothing, and it says so, when there are none).
       - name: Tests related to the change
-        working-directory: frontend
-        run: npx --no-install vitest run # PROBE
+        run: python3 tools/test_changed.py --base "$BASE" --only frontend
 
   rust:
     needs: changes
-    if: needs.changes.outputs.rust == 'true'
+    if: needs.changes.outputs.crates != '' || needs.changes.outputs.cargo_workspace == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    env:
+      CRATES: ${{ needs.changes.outputs.crates }}
     defaults:
       run:
         working-directory: continuum
@@ -163,9 +184,11 @@ jobs:
         with:
           persist-credentials: false
 
-      # protoc for LanceDB's build (continuum-vector).
+      # protoc for LanceDB's build (continuum-vector); PipeWire's headers and libclang for continuum-capture.
       - name: Install system packages
-        run: sudo apt-get update -q && sudo apt-get install -yq --no-install-recommends protobuf-compiler
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq --no-install-recommends protobuf-compiler libpipewire-0.3-dev libclang-dev pkg-config
 
       # continuum-py's PyO3 build needs a Python to build against.
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -180,15 +203,26 @@ jobs:
         with:
           workspaces: continuum
 
-      - name: rustfmt
-        run: cargo fmt --all --check
+      - name: rustfmt on the touched crates
+        if: env.CRATES != ''
+        run: |
+          set -euo pipefail
+          args=(); for c in $CRATES; do args+=(-p "$c"); done
+          cargo fmt "${args[@]}" --check
 
-      - name: cargo check
+      - name: cargo test on the touched crates
+        if: env.CRATES != ''
+        env:
+          PYO3_PYTHON: ${{ steps.python.outputs.python-path }}
+        run: |
+          set -euo pipefail
+          args=(); for c in $CRATES; do args+=(-p "$c"); done
+          cargo test "${args[@]}"
+
+      # A change to the workspace's own files (the root Cargo.toml, Cargo.lock, or the schemas) touches no one crate,
+      # so it gets a check of the whole workspace instead, without the tests.
+      - name: cargo check on the workspace
+        if: env.CRATES == ''
         env:
           PYO3_PYTHON: ${{ steps.python.outputs.python-path }}
         run: cargo check --workspace --all-targets
-
-      - name: cargo test
-        env:
-          PYO3_PYTHON: ${{ steps.python.outputs.python-path }}
-        run: cargo test --workspace
