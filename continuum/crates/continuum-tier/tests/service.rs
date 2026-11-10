@@ -755,7 +755,7 @@ fn derived_copy_case(late_after_purge: bool, register_after_start: bool) {
 #[test]
 fn the_av1_archive_pass_converts_a_committed_chunk_and_the_catalog_follows() {
     if !continuum_tier::probe::av1_encoder_available() {
-        eprintln!("this FFmpeg has no SVT-AV1 (the wheels' private build); skipped");
+        eprintln!("this FFmpeg has no SVT-AV1; skipped");
         return;
     }
     use continuum_tier::archive::ArchiveSettings;
