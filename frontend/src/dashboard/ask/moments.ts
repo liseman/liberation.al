@@ -19,7 +19,7 @@ export function citedMoments(result: unknown): Cited[] {
   for (const e of [...citedEvidence(result)].sort((a, b) => a.ts - b.ts)) {
     const cam = plain(e.camera).trim();
     const said = plain(e.speaker).trim();
-    const who = said && shownName(said); // never a placeholder like "Speaker 261" (#2580)
+    const who = said && shownName(said); // never a placeholder like "Speaker 261"
     const label = [hm(e.ts), cam ? viewName(cam).toLowerCase() : who].filter(Boolean).join(' ');
     if (seen.has(label)) continue;
     seen.add(label);

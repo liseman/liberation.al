@@ -1,5 +1,5 @@
-// The naming inbox's card keys (#3241): the arrows move the selection to the card beside, above, or below on screen,
-// whatever the list order, and Space runs the card's own Space answer. And the card itself, to Joe's mockup (#3263):
+// The naming inbox's card keys: the arrows move the selection to the card beside, above, or below on screen,
+// whatever the list order, and Space runs the card's own Space answer. And the card itself:
 // Yes beside the guess, and the answers as captioned buttons with their keys and a popover each.
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';

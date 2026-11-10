@@ -607,6 +607,7 @@ fn continuum_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(segments::forget_segments_where, m)?)?;
     m.add_function(wrap_pyfunction!(segments::segment_deletions, m)?)?;
     m.add_function(wrap_pyfunction!(segments::segment_revision, m)?)?;
+    m.add_function(wrap_pyfunction!(segments::compact_segments, m)?)?;
     m.add_function(wrap_pyfunction!(segments::segment_tail, m)?)?;
     m.add("LeaseDenied", py.get_type::<worker::LeaseDenied>())?;
     m.add_function(wrap_pyfunction!(worker::decode_event, m)?)?;

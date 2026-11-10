@@ -56,7 +56,7 @@ class BrokerRegistrar:
 
     def purge_item(self, item: Item) -> str | None:
         """Purge this item's registered chunks and their descendants through the broker's existing cascade. What the
-        vision workers made of them is segment rows (#1755), which the broker's purge doesn't reach."""
+        vision workers made of them is segment rows, which the broker's purge doesn't reach."""
 
         ids = {str(o["chunk_id"]) for o in item.outputs}
         if not ids:

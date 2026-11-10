@@ -39,7 +39,7 @@ import {
 import type { AudioSpan, Chip, ChunkStatus, DayData, EventSpan, MomentNotes, RawSegment, Segment, Span } from './types';
 import { DAY_RE, readHash, reviewHash } from './url';
 
-const AHEAD_S = 30; // this long before a stretch of room audio ends, the next one is fetched (#344)
+const AHEAD_S = 30; // this long before a stretch of room audio ends, the next one is fetched
 const AHEAD_KEEP = 3; // windows of room audio kept fetched (about 11 MB each at 48 kHz)
 const PRELOAD_MS = 300; // paused this long at a spot before its room audio is fetched, so clicking around fetches once
 type Span2 = { start: number; end: number };
@@ -47,7 +47,7 @@ type Ahead = { p: Promise<Blob>; ctl: AbortController; done: boolean };
 const roomKey = (r: Span2) => `${r.start}-${r.end}`;
 /** Room audio comes in windows of this long, on whole multiples of it, cut to the segment it plays under: a gateway
  *  segment runs for as long as the camera recorded (often most of an hour), while the server sends at most 330 s and
- *  a window of it is about 11 MB at the microphone's 48 kHz, so a whole segment's was cut short and slow (#917). */
+ *  a window of it is about 11 MB at the microphone's 48 kHz, so a whole segment's was cut short and slow. */
 const ROOM_WINDOW_S = 120;
 /** The room audio window of `seg` holding `ts`. */
 export function roomWindow(seg: Span2, ts: number, len = ROOM_WINDOW_S): Span2 {
@@ -55,9 +55,9 @@ export function roomWindow(seg: Span2, ts: number, len = ROOM_WINDOW_S): Span2 {
   return { start: Math.max(seg.start, at), end: Math.min(seg.end, at + len) };
 }
 const roomUrl = (r: Span2) => `/audio/range?start=${r.start}&end=${r.end}`;
-const SEEK_MS = 33; // at most one seek per camera this often while scrubbing (a scrub seek is one frame, #835)
+const SEEK_MS = 33; // at most one seek per camera this often while scrubbing (a scrub seek is one frame)
 const UI_MS = 100; // how often the moment and transcript line follow the playhead
-/** The link follows a seek or playback at most this often (#2391). A field so tests can turn the wait off. */
+/** The link follows a seek or playback at most this often. A field so tests can turn the wait off. */
 export const hashTiming = { everyMs: 1500 };
 /** A Review hash without its time, to tell a seek from a change of place. */
 const withoutTime = (hash: string) => hash.replace(/(^#|&)t=[^&]*/, '');
@@ -82,7 +82,7 @@ const SAFETY_MS = 1200; // a seek that never reports back is given up on after t
 const SYNC_MS = 500; // how often the other cameras and the room audio are nudged back in step with the lead camera
 const DRIFT_S = 0.35; // how far out of step they may get first; the room audio is snapped back past this
 // Smaller offsets of the room audio are eased away by its playback rate instead, so there is no audible jump: the rate
-// moves by NUDGE_GAIN per second of offset, at most NUDGE_MAX, and goes back to 1 within NUDGE_MIN_S (#244).
+// moves by NUDGE_GAIN per second of offset, at most NUDGE_MAX, and goes back to 1 within NUDGE_MIN_S.
 const NUDGE_MIN_S = 0.03;
 const NUDGE_GAIN = 0.5;
 const NUDGE_MAX = 0.05;
@@ -90,17 +90,17 @@ const FOLLOW_MS = 4000; // after a hand moves the timeline, it isn't pulled back
 const END_HOLD_S = 0.05; // where an embedded clip rests when it has played to its end, before that end
 
 /** Where a clip that played to its end rests: just before its last segment's end, which segments exclude, and never
- *  before that segment's start (one shorter than the hold, #2550). */
+ *  before that segment's start (one shorter than the hold). */
 export const endHold = (t: number, seg: { start: number; end: number }): number =>
   Math.max(seg.start, Math.min(t, seg.end - END_HOLD_S));
 const CLIP_LEAD_S = 0.4; // a line's clip starts this long before the line
-const ROOM_GAP_S = 5; // a gap between videos at least this long is filled with the kept room audio (#196)
+const ROOM_GAP_S = 5; // a gap between videos at least this long is filled with the kept room audio
 const ROOM_JOIN_S = 1; // kept stretches this close together play as one (chunk starts can be a hair apart)
 export const BLOCKED = 'The browser blocked the sound; click Play again.';
 const namedPerson = (name: string): boolean =>
   !!name.trim() && !/^(?:(?:speaker|face)\s+\d+|unknown(?: faces)?|multiple speakers)$/i.test(name.trim());
 // A moment of silence, played inside the click that starts playback: a browser that only lets sound start in a user
-// gesture (Safari, and Chrome once the gesture has expired) then allows the room audio that arrives later (#213).
+// gesture (Safari, and Chrome once the gesture has expired) then allows the room audio that arrives later.
 const SILENCE = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
 
 /** What React shows. Everything else the engine keeps to itself. */
@@ -116,7 +116,7 @@ export interface ReviewUi {
   avail: string[]; // cameras with video at the playhead
   gap: 'recording' | 'cut' | 'expired' | null; // why no camera can show the playhead, when a segment covers it
   unplayable: string[]; // cameras whose video at the playhead is in a codec this browser can't decode (HEVC, AV1)
-  unplayableCodecs: Record<string, string>; // which codec, by camera, when the player could tell (`av1`, #1479)
+  unplayableCodecs: Record<string, string>; // which codec, by camera, when the player could tell (`av1`)
   notes: MomentNotes | null; // what the cameras saw at the playhead
   sel: ReadonlySet<string>; // the selected chips
   filterStatus: 'unknown' | 'empty' | null;
@@ -127,10 +127,10 @@ export interface ReviewUi {
   eventSpan: EventSpan | null; // the form stays open after Save, while its timeline marks clear
   markingTool: boolean; // the bar's Mark is on: the next drag on the timeline picks a span instead of scrubbing
   notice: string | null; // a message for the status line, until the next day loads
-  roomOnly: boolean; // playing the room's kept audio where there's no video (and no line playing) (#196)
-  speed: number; // how fast playback goes: 1, 1.5, or 2 (#327)
-  muted: boolean; // the room's sound is muted; the video plays on (#2041)
-  /** The timeline's visible range, once zoom or pan settles (#414): null until the day's first load. */
+  roomOnly: boolean; // playing the room's kept audio where there's no video (and no line playing)
+  speed: number; // how fast playback goes: 1, 1.5, or 2
+  muted: boolean; // the room's sound is muted; the video plays on
+  /** The timeline's visible range, once zoom or pan settles: null until the day's first load. */
   range: View | null;
   chunkStatus: Record<string, ChunkStatus>;
   dataVersion: number;
@@ -203,9 +203,9 @@ export interface EngineDeps {
   fetchNotes: (bucket: number) => Promise<MomentNotes>;
   now?: () => number; // wall clock, Unix seconds
   /** Fetch a clip or a stretch of room audio whole. Streamed responses left Chromium's <audio> stalled at readyState
-   *  0 (2026-10-25), so the engine plays a blob instead. */
+   *  0, so the engine plays a blob instead. */
   fetchBlob?: (url: string, signal?: AbortSignal) => Promise<Blob>;
-  /** A day opened afresh by a link shown again (#330): its cached data is out of date, so load it again. */
+  /** A day opened afresh by a link shown again: its cached data is out of date, so load it again. */
   reload?: (day: string) => void;
   /** Seconds of room audio fetched at a time (ROOM_WINDOW_S). */
   roomWindowS?: number;
@@ -297,9 +297,9 @@ export class ReviewEngine {
   private audioEntry: number | null = null; // the line playing where there's no video
   private room: { start: number; end: number } | null = null; // the room audio playing (or loading) under the video
   private loadedRoom: { start: number; end: number } | null = null; // the room audio the <audio> holds, kept across pauses
-  private ahead = new Map<string, Ahead>(); // room audio fetched or fetching, by stretch (#344)
+  private ahead = new Map<string, Ahead>(); // room audio fetched or fetching, by stretch
   private aheadFailed = new Set<string>(); // stretches whose room audio failed today: not asked for again
-  private unlocked = false; // the <audio> has played inside a click (#213, #344)
+  private unlocked = false; // the <audio> has played inside a click
   private preloadTimer: ReturnType<typeof setTimeout> | undefined;
   private audioFetch: AbortController | null = null; // the clip or room audio on its way
   private audioToken = 0;
@@ -323,7 +323,7 @@ export class ReviewEngine {
   private noteTimer: ReturnType<typeof setTimeout> | undefined;
   private notesForbidden = false;
   private started = false;
-  private begun = false; // started once: a later start resumes where it was (the tab was hidden, #330)
+  private begun = false; // started once: a later start resumes where it was (the tab was hidden)
   private wrote = ''; // the hash writeHash last wrote, so a start can tell a new link from its own
   private playOnLoad = false;
   private embeddedStart: number | null = null;
@@ -452,7 +452,7 @@ export class ReviewEngine {
     if (!r || r.t0 !== this.view.t0 || r.t1 !== this.view.t1 || this.S.rangeIntent !== this.viewIntent)
       this.set({ range: { ...this.view }, rangeIntent: this.viewIntent });
   }
-  /** Glide the timeline to [t0, t1], as a hand on it would (#414): a range narrower than the closest zoom is
+  /** Glide the timeline to [t0, t1], as a hand on it would: a range narrower than the closest zoom is
    *  centred at that zoom. */
   zoomTo(t0: number, t1: number): void {
     const v = clampView(Math.min(t0, t1), Math.max(t0, t1), this.deps.embedded ? this.dayStart : undefined);
@@ -485,7 +485,7 @@ export class ReviewEngine {
     return this.anim?.b ?? this.view;
   }
   /** Bring t into view at the same span, centred on it, unless it's already where the view is headed. During a glide
-   *  the glide is pointed there instead, or its next frame would pull the view back (#2597). */
+   *  the glide is pointed there instead, or its next frame would pull the view back. */
   private keepInView(t: number): void {
     const { t0, t1 } = this.targetView();
     if (t >= t0 && t <= t1) return;
@@ -497,7 +497,7 @@ export class ReviewEngine {
     const v = clampView(t - half, t + half, this.deps.embedded ? this.dayStart : undefined);
     this.glideTo(v.t0, v.t1);
   }
-  /** Zoom to span seconds across, centred on the playhead (or the middle of the day), with a glide (#2577). */
+  /** Zoom to span seconds across, centred on the playhead (or the middle of the day), with a glide. */
   zoomSpan(span: number): void {
     const c = this.t ?? this.dayStart + DAY_S / 2;
     const v = clampView(c - span / 2, c + span / 2, this.deps.embedded ? this.dayStart : undefined);
@@ -738,7 +738,7 @@ export class ReviewEngine {
     if (selected.size) this.setSel(new Set([...selected, ...this.S.sel]), false);
     this.set({ dataVersion: this.S.dataVersion + 1 });
   }
-  /** The open day's lines, read again after a naming or a correction (#300): the same lines, under new names. The
+  /** The open day's lines, read again after a naming or a correction: the same lines, under new names. The
    *  timeline redraws with them; nothing seeks or reloads. */
   relabel(day: string, gen: number, entries: TranscriptEntry[]): void {
     if (day !== this.S.day || gen !== this.S.gen || this.loaded !== gen || entries === this.entries) return;
@@ -936,7 +936,7 @@ export class ReviewEngine {
         this.tl?.redraw();
       }
     };
-    // The room audio starts when the lead camera's picture does, not when its own download finishes (#244).
+    // The room audio starts when the lead camera's picture does, not when its own download finishes.
     const onPlaying = () => {
       p.playing[i] = true;
       if (c === this.lead && i === p.act && this.room) this.startRoom(this.room, true);
@@ -949,7 +949,7 @@ export class ReviewEngine {
     el.addEventListener('playing', onPlaying);
     for (const type of ['pause', 'waiting', 'emptied']) el.addEventListener(type, onStopped);
     // A player mounted after the engine was already told where to be (a popup's, drawn in a portal after its effects
-    // ran, #2423) gets that moment now: a seek before a camera had a video placed nothing, so it would stay blank.
+    // ran) gets that moment now: a seek before a camera had a video placed nothing, so it would stay blank.
     // place() needs both of the camera's videos, so this runs on the bind that completes the pair.
     if (p.v[0] && p.v[1] && !p.seg[0] && !p.seg[1] && this.t != null && segAt(this.segs[c] ?? [], this.t)) {
       this.place(c, this.t, true);
@@ -1026,7 +1026,7 @@ export class ReviewEngine {
     const go = () => {
       if (p.epoch !== epoch) return;
       // Seek first, play once the seek lands: play() issued while a seek is pending is aborted by the browser
-      // (AbortError), which left playback on with every video paused, so the next Space paused nothing (2026-10-24).
+      // (AbortError), which left playback on with every video paused, so the next Space paused nothing.
       const after = () => {
         if (p.epoch !== epoch) return;
         done();
@@ -1052,7 +1052,7 @@ export class ReviewEngine {
     if (nx && !nx.broken && nx.start - seg.end < 5 && p.seg[other(p.act)] !== nx) this.hold(c, other(p.act), nx);
   }
   // A camera with no picture at this moment lets go of its media: a paused <video> keeps its connection (and
-  // buffer), and the browser allows about six per host, so leftover ones starved other requests (2026-10-25).
+  // buffer), and the browser allows about six per host, so leftover ones starved other requests.
   private release(c: string): void {
     const p = this.P[c];
     if (!p) return;
@@ -1123,7 +1123,7 @@ export class ReviewEngine {
       this.playAudio(audio, true);
       return;
     }
-    // It already holds sound (room audio preloaded while paused, #344): play and pause it inside the click, so a
+    // It already holds sound (room audio preloaded while paused): play and pause it inside the click, so a
     // browser that lets an element start only from a gesture (Safari) allows it later, when the picture moves.
     if (audio.paused) {
       audio.play().catch(() => {}); // the pause just below interrupts it
@@ -1157,7 +1157,7 @@ export class ReviewEngine {
     const audio = this.audio;
     if (!e || !audio) return;
     // Starting inside the line keeps the playhead where it was sent: putting it back at the line's start made
-    // Skip the rest send it forward again every frame, fetching the clip each time (#182).
+    // Skip the rest send it forward again every frame, fetching the clip each time.
     const offset = Math.max(0, Math.min((from ?? e.ts_start) - e.ts_start, lineEnd(e) - e.ts_start));
     this.audioEntry = i;
     this.room = null;
@@ -1197,12 +1197,12 @@ export class ReviewEngine {
     if (this.personPlayback.audioEnded()) return;
     const next = this.audioEntry == null ? null : this.audioEntry + 1;
     if (this.avail.length) {
-      // Video began while a line played: the room's audio takes over under it (#183).
+      // Video began while a line played: the room's audio takes over under it.
       this.audioEntry = null;
       if (this.playing && this.t != null && !this.room) this.roomAt(this.t);
     } else if (this.room && this.audioEntry == null) this.afterRoom();
     else if (this.playing && next != null) {
-      // On to the next line, or into kept room audio that comes first (#196), or the next video.
+      // On to the next line, or into kept room audio that comes first, or the next video.
       const done = this.entries[next - 1];
       const end = done ? lineEnd(done) : (this.t ?? 0);
       const nt = this.keptAt(end) ? end : nextMedia(this.allSegs(), this.entries, end, this.kept());
@@ -1239,7 +1239,7 @@ export class ReviewEngine {
     if (this.personAudioError) this.audio?.removeEventListener?.('error', this.personAudioError);
     this.personAudioError = null;
     // pause() on an element that is mid-load but not playing wedged Chromium's media loader (the room audio under
-    // video never reached loadedmetadata, 2026-10-24), so only pause one that is playing.
+    // video never reached loadedmetadata), so only pause one that is playing.
     try {
       if (this.audio && !this.audio.paused) this.audio.pause();
     } catch {
@@ -1260,7 +1260,7 @@ export class ReviewEngine {
     const audio = this.audio;
     if (!audio) return;
     // Under video, the room audio follows the lead camera's segments; where there's none, the kept audio's own
-    // stretches (#196).
+    // stretches.
     const found = segAt(this.lead ? (this.segs[this.lead] ?? []) : this.spans, ts);
     if (!found) return;
     const seg = roomWindow(found, ts, this.deps.roomWindowS);
@@ -1271,7 +1271,7 @@ export class ReviewEngine {
     }
     this.audioEntry = null;
     // The <audio> still holds this segment's room audio from before a pause or a seek: play it again, rather than
-    // fetching the whole stretch each time (#184).
+    // fetching the whole stretch each time.
     if (same(this.loadedRoom)) {
       const room = this.loadedRoom as { start: number; end: number };
       this.room = room;
@@ -1287,7 +1287,7 @@ export class ReviewEngine {
     this.audioFetch = null;
     const token = ++this.audioToken;
     this.dropAhead(room); // what's still downloading for a stretch the playhead left
-    // Usually already here: fetched while paused at this spot, or ahead of the stretch before it (#344).
+    // Usually already here: fetched while paused at this spot, or ahead of the stretch before it.
     this.roomBlob(room).then(
       blob => {
         if (token !== this.audioToken || this.room !== room) return;
@@ -1300,7 +1300,7 @@ export class ReviewEngine {
         if (token !== this.audioToken || this.room !== room) return;
         this.room = null; // no room audio here: under video, the picture plays on alone
         if (this.lead) return;
-        // With no picture, this stretch's lines play one by one instead, and it isn't tried again today (#196).
+        // With no picture, this stretch's lines play one by one instead, and it isn't tried again today.
         this.roomFailed.add(room.start);
         if (this.S.roomOnly) this.set({ roomOnly: false });
         if (this.playing && this.t != null) this.playAudioAt(this.t);
@@ -1308,7 +1308,7 @@ export class ReviewEngine {
     );
   }
   /** The room audio for stretch r, fetched once and kept for a few stretches, so Play and the next stretch start with
-   *  their picture rather than a second after it (#344). */
+   *  their picture rather than a second after it. */
   private roomBlob(r: Span2): Promise<Blob> {
     const key = roomKey(r);
     if (this.aheadFailed.has(key)) return Promise.reject(new Error('no room audio there'));
@@ -1342,7 +1342,7 @@ export class ReviewEngine {
     }
     return got.p;
   }
-  /** Drop the downloads still running for stretches other than r and the one after it: the playhead moved on (#184). */
+  /** Drop the downloads still running for stretches other than r and the one after it: the playhead moved on. */
   private dropAhead(r: Span2): void {
     const keep = new Set([roomKey(r)]);
     const next = this.roomSegAt(r.end + 0.5);
@@ -1353,13 +1353,13 @@ export class ReviewEngine {
         this.ahead.delete(k);
       }
   }
-  /** The stretch of room audio at ts: the lead camera's segment under video, else the kept audio's own (#196). */
+  /** The stretch of room audio at ts: the lead camera's segment under video, else the kept audio's own. */
   private roomSegAt(ts: number): Span2 | null {
     const lead = this.availAt(ts)[0];
     const seg = segAt(lead ? (this.segs[lead] ?? []) : this.spans, ts);
     return seg ? roomWindow(seg, ts, this.deps.roomWindowS) : null;
   }
-  /** Paused at ts: have its room audio in the <audio> already, so Play starts it with the picture (#344). It waits
+  /** Paused at ts: have its room audio in the <audio> already, so Play starts it with the picture. It waits
    *  PRELOAD_MS, so clicking from line to line while paused fetches only where it stops. */
   private preloadRoom(ts: number): void {
     clearTimeout(this.preloadTimer);
@@ -1400,7 +1400,7 @@ export class ReviewEngine {
   private syncRoom(): void {
     const audio = this.audio;
     if (!audio || !this.room || !this.playing || this.t == null) return;
-    // Near the end of this stretch, fetch the next one, so it starts with its picture (#344).
+    // Near the end of this stretch, fetch the next one, so it starts with its picture.
     if (this.room.end - this.t < AHEAD_S) {
       const next = this.roomSegAt(this.room.end + 0.5);
       if (next) void this.roomBlob(next).catch(() => {});
@@ -1421,7 +1421,7 @@ export class ReviewEngine {
       audio.currentTime = at;
       audio.playbackRate = this.S.speed;
     } else if (Math.abs(drift) < NUDGE_MIN_S) audio.playbackRate = this.S.speed;
-    // Eased toward the picture around the chosen speed (#244, #327).
+    // Eased toward the picture around the chosen speed.
     else audio.playbackRate = this.S.speed * (1 - Math.max(-NUDGE_MAX, Math.min(NUDGE_MAX, drift * NUDGE_GAIN)));
     if (audio.paused) this.playAudio(audio);
   }
@@ -1505,13 +1505,13 @@ export class ReviewEngine {
       if (avail.includes(c)) this.place(c, this.t, true);
       else this.release(c);
     }
-    // These cameras are placed for this moment: the next frame mustn't place them again (#299).
+    // These cameras are placed for this moment: the next frame mustn't place them again.
     this.seen.avail = avail.join(',');
     if (!sameSet(avail, this.S.avail)) this.set({ avail });
     const roomOnly = play && !avail.length && this.keptAt(this.t) != null;
     if (this.S.roomOnly !== roomOnly) this.set({ roomOnly });
     if (play && !avail.length) {
-      // No picture: the room's kept audio when there is some here, else the lines one by one (#196).
+      // No picture: the room's kept audio when there is some here, else the lines one by one.
       if (roomOnly) this.roomAt(this.t);
       else this.playAudioAt(this.t);
     } else if (play) this.roomAt(this.t);
@@ -1718,7 +1718,7 @@ export class ReviewEngine {
     if (this.audio) this.audio.muted = muted;
   }
 
-  /** Play at this speed (1, 1.5, or 2): every camera's video, and the room audio or line under it (#327). */
+  /** Play at this speed (1, 1.5, or 2): every camera's video, and the room audio or line under it. */
   setSpeed(speed: number): void {
     this.set({ speed });
     for (const p of Object.values(this.P))
@@ -1768,7 +1768,7 @@ export class ReviewEngine {
     if (this.t != null && this.playing && !this.scrubbing) this.advance(now);
     this.tl?.frame();
     // Setting textContent replaces the text even when it's the same, which costs a layout and a paint every frame,
-    // playing or not (#486): write only a new time.
+    // playing or not: write only a new time.
     const clock = this.t != null ? hms(this.t) : '';
     if (this.clock && this.clock.textContent !== clock) this.clock.textContent = clock;
     if (now - this.lastUi >= UI_MS) {
@@ -1878,7 +1878,7 @@ export class ReviewEngine {
           return;
         }
         let nt = nextMedia(this.allSegs(), this.entries, seg.end - 0.1);
-        // The video ended, but the room's audio was kept past it: play on with that (#196).
+        // The video ended, but the room's audio was kept past it: play on with that.
         if (this.keptAt(seg.end) && (nt == null || nt > seg.end + ROOM_GAP_S)) nt = seg.end;
         if (this.pendingAfter(seg.end, nt ?? undefined)) {
           this.waitForMore(seg.end);
@@ -1888,7 +1888,7 @@ export class ReviewEngine {
           if (this.waitForMore(seg.end)) return;
           this.embeddedEnded = this.embeddedStart != null;
           // A clip that played to its end keeps showing its last frame: segments end exclusive, so a playhead left
-          // on the end itself reads as no video there ("No video at 01:03:19", #2547).
+          // on the end itself reads as no video there ("No video at 01:03:19").
           if (this.embeddedEnded) this.t = endHold(this.t, seg);
           this.setPlaying(false);
         } else this.seek(nt, { play: true, centre: false });
@@ -1912,7 +1912,7 @@ export class ReviewEngine {
       this.skipPersonMoment('This camera recording is unavailable.');
       return;
     } else if (this.room && this.audioEntry == null && !this.avail.length) {
-      // The room's kept audio, with no picture: the playhead follows the sound (#196).
+      // The room's kept audio, with no picture: the playhead follows the sound.
       const audio = this.audio;
       if (audio && this.loadedRoom === this.room && !audio.paused && audio.readyState >= 2) {
         this.t = this.room.start + audio.currentTime;
@@ -1954,7 +1954,7 @@ export class ReviewEngine {
     if (key !== this.seen.avail) {
       this.seen.avail = key;
       // A camera's video begins in a stretch of room audio alone: hold the sound until its picture moves, when
-      // startRoom lines it up again, so the seconds it takes to load aren't heard twice (#196).
+      // startRoom lines it up again, so the seconds it takes to load aren't heard twice.
       if (this.playing && !this.avail.length && avail.length && this.room && this.audio && !this.audio.paused) {
         this.audio.pause();
       }
@@ -1963,7 +1963,7 @@ export class ReviewEngine {
       if (!sameSet(avail, this.S.avail)) this.set({ avail });
       for (const c of this.cams) if (!avail.includes(c)) for (const v of this.P[c]?.v ?? []) v?.pause();
       // Only a camera whose video begins here: the others are already playing in step, and placing them again would
-      // seek them for nothing (#299).
+      // seek them for nothing.
       if (this.videoMayPlay()) for (const c of avail) if (!had.includes(c)) this.place(c, this.t, true);
     }
     this.lead = this.personCamera(avail);
@@ -2058,7 +2058,7 @@ export class ReviewEngine {
   }
 
   /** A detected activity names its source camera; a fresh intent overrides a previous manual tile choice. With play,
-   *  it plays from its start every time, as soon as its day's data is in when that has to load first (#2259). */
+   *  it plays from its start every time, as soon as its day's data is in when that has to load first. */
   seekActivity(start: number, camera: string, { play = false }: { play?: boolean } = {}): void {
     if (this.cams.includes(camera)) this.set({ camera, cameraIntent: (this.S.cameraIntent ?? 0) + 1 });
     this.playOnLoad = play;
@@ -2121,13 +2121,13 @@ export class ReviewEngine {
 
   // ---- keys ----
   // Capture Space before the shared player's listener and the focused control's native activation: a button, chip,
-  // switch, or checkbox never takes it, only a text field (#2352). Its keyup is cancelled too, for a browser that
+  // switch, or checkbox never takes it, only a text field. Its keyup is cancelled too, for a browser that
   // activates on keyup. Other shortcuts keep their bubbling order, so controls can consume them first. The shared
   // player respects preventDefault.
   private spaceDown = false;
   // A key flips the browser into :focus-visible, so a control focused by a click (a chip, a button) would light its
   // focus ring the moment a playback key is pressed. When the engine handles one, a control a pointer focused lets go
-  // of focus; one reached with Tab keeps it, and its ring, for keyboard navigation (#2427).
+  // of focus; one reached with Tab keeps it, and its ring, for keyboard navigation.
   private pressing = false;
   private pointerFocus: Element | null = null;
   private onPointerDown = (): void => {
@@ -2185,7 +2185,7 @@ export class ReviewEngine {
     }
     if (target?.closest('button') && !target.closest('[data-review-keys]')) return;
     const t = this.t;
-    // Where the view is headed, so + and - pressed during a glide halve or double where it lands (#2597).
+    // Where the view is headed, so + and - pressed during a glide halve or double where it lands.
     const headed = this.targetView();
     const span = headed.t1 - headed.t0;
     const nudge = e.shiftKey ? span / 8 : Math.max(1, Math.min(30, span / 150));
@@ -2213,7 +2213,7 @@ export class ReviewEngine {
   };
 
   // ---- the URL ----
-  /** Keep the link on the page's place (#2391). A camera or day the link doesn't name yet is pushed, so Back steps
+  /** Keep the link on the page's place. A camera or day the link doesn't name yet is pushed, so Back steps
    *  through them; anything else replaces the entry. A change of the time alone (a seek or playback) is written at
    *  most once every hashTiming.everyMs, the latest one last, with t rounded to a second. The write dispatches nothing, so
    *  it never seeks. */
@@ -2254,7 +2254,7 @@ export class ReviewEngine {
     setHash(hash, { push });
     this.wrote = location.hash;
   }
-  /** A camera picked to show large: the link names it, and Back returns to the one before (#2391). */
+  /** A camera picked to show large: the link names it, and Back returns to the one before. */
   pickCamera(camera: string): void {
     if (!this.cams.includes(camera) || camera === this.S.camera) return;
     this.set({ camera });
@@ -2402,7 +2402,7 @@ export class ReviewEngine {
       clearTimeout(p?.safety);
       if (p) p.busy = false;
       // Let go of the media: a hidden tab keeps its <video>s in the page, and each one holding a source keeps one of
-      // the browser's few connections to this host (#330).
+      // the browser's few connections to this host.
       this.release(c);
     }
     this.playing = false;

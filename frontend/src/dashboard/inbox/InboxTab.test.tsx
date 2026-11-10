@@ -113,7 +113,7 @@ it('leads with the question and its actions, and says how sure it is in plain wo
     'href',
     expect.stringContaining('2026-10-22'),
   );
-  // One verdict line for this report's own caveat; the ones that hold for every report fold under it (#2674)
+  // One verdict line for this report's own caveat; the ones that hold for every report fold under it
   const sure = within(article).getByRole('region', { name: 'How sure is this?' });
   expect(sure).toHaveTextContent("Partly sure. 468 snapshots couldn't be read, so some of it is missing.");
   await userEvent.click(within(sure).getByText('2 more caveats'));
@@ -132,7 +132,7 @@ it('marks a report unread again, and deletes one', async () => {
   await userEvent.click(await screen.findByRole('button', { name: /garden/ }));
   await userEvent.click(await screen.findByRole('button', { name: 'Mark unread' }));
   await userEvent.click(screen.getByRole('button', { name: 'Delete' }));
-  // It asks first (#2661), with Cancel ("Keep it") focused, so Enter keeps the report
+  // It asks first, with Cancel ("Keep it") focused, so Enter keeps the report
   const ask = await screen.findByRole('dialog', { name: 'Delete this report?' });
   expect(within(ask).getByRole('button', { name: 'Keep it' })).toHaveFocus();
   await userEvent.click(within(ask).getByRole('button', { name: 'Delete' }));
@@ -207,7 +207,7 @@ it("Review's Research button is off, with the reason, where research can't run",
   await userEvent.type(screen.getByLabelText('What would you like to know?'), 'Who came by?');
   const button = screen.getByRole('button', { name: 'Research' });
   await waitFor(() => expect(button).toBeDisabled());
-  // A disabled button can't take focus, so the reason is on the page and describes the button (#2271).
+  // A disabled button can't take focus, so the reason is on the page and describes the button.
   expect(screen.getByText('Needs its own Ollama.')).toBeVisible();
   expect(button).toHaveAccessibleDescription('Needs its own Ollama.');
   await userEvent.hover(button.parentElement as HTMLElement);
@@ -307,7 +307,7 @@ it('shows the moments the answer cites as a timeline, each opening Review (#2674
   ]);
   expect(within(rows[0] as HTMLElement).getByRole('link')).toHaveAttribute('href', '/review#t=1');
   expect(rows[1]).toHaveTextContent('Said · Dana');
-  // The camera moment's still is a 404 (its video was dropped): its box says so, not just "Camera note" (#3165)
+  // The camera moment's still is a 404 (its video was dropped): its box says so, not just "Camera note"
   expect(await within(rows[0] as HTMLElement).findByText('Video no longer kept')).toBeInTheDocument();
   expect(rows[1]).not.toHaveTextContent('Video no longer kept');
 });

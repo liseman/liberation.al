@@ -1,6 +1,6 @@
 /* One transcript for Live and Review: each turn is an avatar in the speaker's colour with their initials, their name
    and the time, quiet actions, then what they said in the speech face. Only the turns in view are mounted, each at its
-   measured offset (#2382). Live's display choices (word balloons, compact, timestamps always) are data attributes
+   measured offset. Live's display choices (word balloons, compact, timestamps always) are data attributes
    on the list. */
 .box {
   position: relative; /* the turns' offsetTop is measured from here */
@@ -20,10 +20,10 @@
   top: 0;
   left: 0;
   width: 100%;
-  contain: layout style; /* a turn mounting lays out itself, not the list around it (#2412) */
+  contain: layout style; /* a turn mounting lays out itself, not the list around it */
 }
 
-/* IconButton: Mantine's subtle gray ActionIcon at size sm, as a plain button (#2412). First, so the rules below that
+/* IconButton: Mantine's subtle gray ActionIcon at size sm, as a plain button. First, so the rules below that
    hide and show it win over its all: unset. */
 .iconBtn {
   all: unset;
@@ -57,10 +57,10 @@
   padding: 6px 4px;
 }
 .turn[data-other] {
-  opacity: 0.45; /* someone else's, beside the person Review is for (#2057) */
+  opacity: 0.45; /* someone else's, beside the person Review is for */
 }
 .turn[data-missed] {
-  opacity: 0.35; /* nothing in it matches the search: kept in place, so the list doesn't move (#2580) */
+  opacity: 0.35; /* nothing in it matches the search: kept in place, so the list doesn't move */
 }
 .avatar {
   flex: none;
@@ -113,7 +113,7 @@
   cursor: default;
 }
 .turn[data-unmatched] .speaker {
-  color: var(--mantine-color-dimmed); /* no person matched this voice (#2580) */
+  color: var(--mantine-color-dimmed); /* no person matched this voice */
 }
 .speaker:hover:not(:disabled) {
   text-decoration: underline;
@@ -338,7 +338,7 @@
   max-width: 100%;
 }
 
-/* "N new lines" below a list scrolled away from its live end (#2286). */
+/* "N new lines" below a list scrolled away from its live end. */
 .newLines {
   position: sticky;
   bottom: 8px;
@@ -356,7 +356,7 @@
   }
 }
 
-/* A line heard from a TV or radio (#2468): in the dimmed text colour (which keeps its contrast, as opacity didn't),
+/* A line heard from a TV or radio: in the dimmed text colour (which keeps its contrast, as opacity didn't),
    with the TV tag as the cue, and nobody's. */
 .line[data-media] {
   color: var(--mantine-color-dimmed);
@@ -371,7 +371,7 @@
   font-weight: 600;
   vertical-align: 0.1em;
 }
-/* A line's TV tag is its Not TV (#2643): at the start of the line, its own button, outside the line's play button. */
+/* A line's TV tag is its Not TV: at the start of the line, its own button, outside the line's play button. */
 .tvTag[data-action] {
   all: unset;
   flex: none;

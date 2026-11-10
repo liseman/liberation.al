@@ -589,7 +589,7 @@ pub struct CatalogStorage {
     pub last_scrub: Option<LastScrub>,
     /// The last scrub that swapped with at least [`LastScrub::DENSITY_MIN_LIVE`] live bytes: the one whose fresh file
     /// says how densely a copy packs. A smaller scrub's file is mostly fixed overhead, so its density overstates a
-    /// large catalog's and hides its waste (#1563).
+    /// large catalog's and hides its waste.
     pub density_scrub: Option<LastScrub>,
 }
 
@@ -664,7 +664,7 @@ pub struct StorageStats {
     pub tables: Vec<TableStorage>,
 }
 
-/// A derived payload's dependency on a stretch of a stream (#1535): what it was made from, named by source time instead
+/// A derived payload's dependency on a stretch of a stream: what it was made from, named by source time instead
 /// of one parent edge per frame. A purge that removes anything on `stream` overlapping `span` (a payload, or frames cut
 /// from a chunk) takes the dependent too, and everything derived from it; an age-out doesn't. Conservative by design:
 /// same-time payloads it didn't use take it as well.

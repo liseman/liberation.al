@@ -72,7 +72,7 @@ def test_relative_paths_resolve_under_repo(setting, want):
 def test_runtime_data_defaults_live_under_data():
     # The repo root holds only code and config. Runtime state stays in data/;
     # see-decode's frame ring is empty by default, meaning /dev/shm (or the temp
-    # directory): memory, never disk (#1955).
+    # directory): memory, never disk.
     d = tomllib.loads(cfg.DEFAULTS.read_text())
     paths = {f"paths.{k}": v for k, v in d["paths"].items()}
     paths["owner.voice_ref"] = d["owner"]["voice_ref"]

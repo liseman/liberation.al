@@ -1,5 +1,5 @@
 """The journal worker (memory/journal.py) on a real broker: entries, rollups, quiet markers, reconcile, forgetting,
-and embeddings on the memory log (#777 B2)."""
+and embeddings on the memory log."""
 
 import hashlib
 import json
@@ -79,7 +79,7 @@ def env(tmp_path, monkeypatch):
     memory = memory_log.MemoryLog(socket, state=state, client_name="test-memory")
     monkeypatch.setattr(speech_log, "shared", lambda: speech)
     monkeypatch.setattr(vision_log, "at", lambda state=None: vision)
-    # Captions are read from the real segment store under the test's state (#1791), not the suite's fake.
+    # Captions are read from the real segment store under the test's state, not the suite's fake.
     monkeypatch.setattr(segment_log, "at", lambda state=None: segment_log.Log(segment_log.root(state)))
     monkeypatch.setattr(memory_log, "at", lambda state=None: memory)
     write_voices(state, {1: "Alice", 3: "Dana", 5: None})
@@ -145,7 +145,7 @@ def bob(env, ts, text):
 
 
 def seen(env, ts, cam, caption, objects=(), status="fresh", unchanged=None):
-    """A caption in the test's segment store, as the caption worker writes one (#1791): no faces, which the face
+    """A caption in the test's segment store, as the caption worker writes one: no faces, which the face
     worker's records hold."""
     record = {
         "id": segment_log.new_id(),
@@ -163,7 +163,7 @@ def seen(env, ts, cam, caption, objects=(), status="fresh", unchanged=None):
 
 
 def face(env, ts, cam, name, cluster=None):
-    """A face see-actions matched on a tracked head, in the test's segment store (`face.match`, #1811)."""
+    """A face see-actions matched on a tracked head, in the test's segment store (`face.match`)."""
     record = {
         "id": segment_log.new_id(),
         "ts_start": ts,
@@ -343,7 +343,7 @@ def test_playback_and_bot_lines_never_reach_the_model(env):
 
 
 def test_lines_that_mention_passwords_or_codes_reach_the_model(env):
-    """#92, by Joe's decision: the journal hides nothing for what a line says."""
+    """The journal hides nothing based on what a line says."""
     say(env, T0 + 1, "My password is hunter2.", sid=3)
     seen(env, T0 + 31, "cam0", "A screen shows the passcode 9911.")
     bob(env, T0 + 62, "Your api key is set.")
@@ -585,7 +585,7 @@ def test_a_failing_window_is_retried_then_skipped(env):
 
 
 def test_a_rollup_rebuild_that_keeps_failing_is_left_until_its_inputs_change(env):
-    # #2891: a failed rebuild leaves the old entry standing, so its window stayed stale and was opened again, and
+    # A failed rebuild leaves the old entry standing, so its window stayed stale and was opened again, and
     # failed again, every few passes, forever.
     say(env, T0 + 1, "Coffee?", sid=3)
     say(env, T0 + 31, "Tea.", sid=1)
@@ -616,7 +616,7 @@ def test_a_rollup_rebuild_that_keeps_failing_is_left_until_its_inputs_change(env
 
 
 def test_a_finest_window_left_after_failing_wakes_when_its_lines_are_relabeled_again(env):
-    # The review of #2892: a 30 s window's own relabel changes neither the entry it supersedes nor the review.
+    # A 30 s window's own relabel changes neither the entry it supersedes nor the review.
     say(env, T0 + 1, "Coffee?", sid=3)
     journal.run_pass(env.state, now=NOW)
     registry.at(env.state).claim(registry.utterance(T0 + 1, "mic"), "Eve", Basis.OWNER_TAG, "dashboard")
@@ -674,7 +674,7 @@ def test_bad_speaker_correction_reply_keeps_and_sanitizes_the_first_answer(env):
 
 
 def test_yesterdays_last_windows_are_finished_after_midnight(env):
-    """Codex on #861: the fill started at today's start, so a day's last two minutes (inside the lag at midnight)
+    """The fill started at today's start, so a day's last two minutes (inside the lag at midnight)
     and its final rollups were never written."""
     midnight = journal.day_bounds(DAY)[1]
     say(env, midnight - 25, "Good night.", sid=3)
@@ -820,8 +820,8 @@ def test_entries_are_embedded_once_as_payloads_for_the_vector_worker(env, monkey
 
 
 def test_a_model_repulled_during_an_embedding_pass_stores_nothing_under_its_old_digest(env, monkeypatch):
-    # #2204's guard: vectors are kept only when the digest read after the call still matches. Since #3105 /api/tags
-    # is cached, so the read after a batch must be fresh, or new weights' vectors land in the old digest's stream.
+    # Vectors are kept only when the digest read after the call still matches. Because /api/tags
+    # is cached, the read after a batch must be fresh, or new weights' vectors land in the old digest's stream.
     from liberational import ollama_health
     from liberational.memory import embedding
 
@@ -858,7 +858,7 @@ def test_a_model_repulled_during_an_embedding_pass_stores_nothing_under_its_old_
 
 def test_ollama_is_down_as_soon_as_it_stops_answering_whatever_the_tags_cache_holds(monkeypatch):
     # A failed call while Ollama is gone costs no retry (`ollama_up`), so it can't answer from the tags cached while
-    # Ollama was still there (#3105's cache keeps them 5 minutes).
+    # Ollama was still there (the tags cache keeps them 5 minutes).
     import requests
 
     from liberational import ollama_health
@@ -1212,7 +1212,7 @@ def test_oversized_transcript_is_split_without_discarding_text(env):
 
 
 def test_a_runaway_summary_is_cut_to_its_limit_so_a_split_window_still_finishes(env):
-    # Live 11-06 13:00 (#2891): Ollama let a summary run to 4,329 characters past its 2,400 maxLength, longer than
+    # Live 11-06 13:00: Ollama let a summary run to 4,329 characters past its 2,400 maxLength, longer than
     # what it summed up, so splitting never shrank anything and gave up after eight levels.
     payload = context_payload()
     payload["items"][0]["text"] = "A complete transcript. " * 1000
@@ -1258,7 +1258,7 @@ def test_other_model_errors_are_not_retried_as_context_overflows(env):
 
 
 def test_a_long_phase_says_where_it_is_about_once_a_minute(monkeypatch, capsys):
-    # A pass logs its counts only at its end, so a reconcile over a day of corrected transcript looked hung (#2880).
+    # A pass logs its counts only at its end, so a reconcile over a day of corrected transcript looked hung.
     import datetime as dt
 
     from liberational.memory import history_qa

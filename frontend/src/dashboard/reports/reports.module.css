@@ -42,7 +42,7 @@
   background: var(--lib-card);
 }
 
-/* Findings are the app's words, not speech, so they take the UI face; the serif is for what people said (#2450). */
+/* Findings are the app's words, not speech, so they take the UI face; the serif is for what people said. */
 .findings {
   font-size: var(--mantine-font-size-lg);
   line-height: 1.35;
@@ -242,7 +242,7 @@ a.cell {
   stroke-width: 1px;
 }
 
-/* Jump chips (#2457): one per report, sticky under the top bar so any report is a click away on a long page. */
+/* Jump chips: one per report, sticky under the top bar so any report is a click away on a long page. */
 .jump {
   position: sticky;
   top: var(--top-h, 56px); /* under the app bar, which is sticky at the top too */
@@ -281,7 +281,7 @@ a.cell {
   }
 }
 
-/* While a report loads, its card keeps about the height it will have (measured on the live corpus, 2026-11-06), so
+/* While a report loads, its card keeps about the height it will have (measured on the live corpus), so
    the reports below don't jump down as each one's data lands. Data changes the real height a little; this only has
    to be close. */
 .card:has([data-report-loading]) {
@@ -300,7 +300,7 @@ a.cell {
   min-height: 570px;
 }
 .card[data-kind="health"]:has([data-report-loading]) {
-  min-height: 582px; /* its measures as small lines (#2621 board, idea 7) */
+  min-height: 582px; /* its measures as small lines */
 }
 .card[data-kind="person_activity"]:has([data-report-loading]) {
   min-height: 430px;
@@ -332,7 +332,7 @@ a.cell {
   }
 }
 
-/* System health (#2457 board, proposal 5): problems first, then storage as a meter, then one aligned list of
+/* System health: problems first, then storage as a meter, then one aligned list of
    services with plain names, the healthy majority folded. */
 .healthOk {
   font-weight: 600;
@@ -383,13 +383,13 @@ a.cell {
   font-size: 14px;
 }
 
-/* Who's around's pinned people: on a phone a long row scrolls inside itself instead of widening the card (#2591). */
+/* Who's around's pinned people: on a phone a long row scrolls inside itself instead of widening the card. */
 .pins {
   max-width: 100%;
   overflow-x: auto;
 }
 
-/* A chart showing the last figures while the next person's load (#2591). */
+/* A chart showing the last figures while the next person's load. */
 .stale[data-stale] {
   opacity: 0.55;
   transition: opacity 150ms;
@@ -415,7 +415,7 @@ a.cell {
   }
 }
 
-/* System health's measures as small lines (#2621 board, idea 7): the value now, its range, and its shape. */
+/* System health's measures as small lines: the value now, its range, and its shape. */
 .spark {
   min-width: 0;
 }

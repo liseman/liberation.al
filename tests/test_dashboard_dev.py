@@ -53,6 +53,14 @@ def test_shell_roundtrips_script_like_names_without_ending_its_script():
     assert names(page)["owner"] == owner
 
 
+def test_shell_says_first_run_setup_is_needed_until_the_local_config_exists(tmp_path, monkeypatch):
+    local = tmp_path / "pack.toml"
+    monkeypatch.setattr(cfg, "local_config", lambda: local)
+    assert names(server.fill(INDEX))["needsSetup"] is True
+    local.write_text("")
+    assert names(server.fill(INDEX))["needsSetup"] is False
+
+
 def test_shell_uses_exact_native_camera_names(tmp_path, monkeypatch):
     (tmp_path / "config").mkdir()
     (tmp_path / "config" / "devices.toml").write_text(
@@ -176,7 +184,7 @@ def dashboard(serve, monkeypatch):
 
 
 def test_the_page_says_whether_hotkeys_are_on(tree):
-    # Issue #64: dashboard.hotkeys, off by default, reaches the page as NAMES.hotkeys.
+    # dashboard.hotkeys, off by default, reaches the page as NAMES.hotkeys.
     tree.build()
     assert names(server.app_page()[1].decode())["hotkeys"] is False
     with cfg.override({"dashboard": {"hotkeys": True}}):
@@ -221,7 +229,7 @@ def test_calls_tab_serves_html_navigation_and_preserves_the_json_api(tree, dashb
 
 @pytest.mark.parametrize("accept", ["application/json", "*/*"])
 def test_devices_tab_reloads_as_the_app_and_keeps_the_json_api(tree, dashboard, monkeypatch, accept):
-    # #2816: devices.handle answered GET /devices before the page check, so reloading the Devices tab got JSON.
+    # devices.handle answered GET /devices before the page check, so reloading the Devices tab got JSON.
     tree.build()
     seen = {"control": False, "mics": [], "cameras": []}
     monkeypatch.setattr(devices, "view", create_autospec(devices.view, return_value=seen))  # it reads the hardware
@@ -320,7 +328,7 @@ def test_in_dev_without_vite_the_page_is_the_last_build(tree, dashboard, monkeyp
 
 
 def test_objects_is_the_built_page_from_the_dashboard_or_says_how_to_build_it(tree, dashboard):
-    # The Objects page is the dashboard's own since object memory moved to Continuum (#778), and it is a tab of the
+    # The Objects page is the dashboard's own since object memory moved to Continuum, and it is a tab of the
     # one app page, so it needs the app built like every other tab.
     status, _, body = get(dashboard, "/objects")
     assert status == 503

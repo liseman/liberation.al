@@ -1,4 +1,4 @@
-//! How many bytes an hour a raw camera costs in Tier 1 (#900): synthetic 1280x720 UYVY at 30 fps (a slowly panning
+//! How many bytes an hour a raw camera costs in Tier 1: synthetic 1280x720 UYVY at 30 fps (a slowly panning
 //! scene with sensor-like noise, which is what defeats LZ4) through LZ4, and through each H.264 encoder named on the
 //! command line with the raw camera settings (`continuum_tier::raw::RawEncoder`: 1 s GOP, low delay, limited range).
 //!

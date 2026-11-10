@@ -1,5 +1,5 @@
 """FLAC files registered in place through continuum_py, against a real broker process, and the purge and
-FLAC helpers the speech importer uses (#548).
+FLAC helpers the speech importer uses.
 
 Run with `mise run continuum-test`, which builds the broker first. `fixtures/tone.flac` is half a second of a
 440 Hz tone, 16 bit mono at 48 kHz (made with ffmpeg's sine source).

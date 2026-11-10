@@ -69,7 +69,7 @@ pub(crate) fn to_nv12(f: &ff::frame::Video) -> Result<Vec<u8>, TierError> {
 }
 
 /// The decoder for a video chunk's units: H.264 for [`crate::ChunkFormat::H264Au`], AV1 for the archive pass's
-/// [`crate::ChunkFormat::Av1Au`] (#1479), `None` for any other format.
+/// [`crate::ChunkFormat::Av1Au`], `None` for any other format.
 #[must_use]
 pub fn codec_of(format: crate::chunk::ChunkFormat) -> Option<ff::codec::Id> {
     match format {
@@ -325,7 +325,7 @@ impl CudaTags {
 //
 // Every decoder on a GPU retains that GPU's primary CUDA context (FFmpeg's `primary_ctx`) instead of creating a
 // context of its own. Each CUDA context runs a driver event thread that wakes about 300 to 450 times a second even
-// when idle, so see-decode's six cameras had six of them, more than half its wakeups (#3235); one shared context has
+// when idle, so see-decode's six cameras had six of them, more than half its wakeups; one shared context has
 // one. The primary context is the one the CUDA runtime (torch, ONNX Runtime) uses, and FFmpeg refuses it when it is
 // already active with scheduling flags other than its blocking sync, so a decoder then gets a private context as
 // before.
@@ -427,7 +427,7 @@ pub struct H264StreamDecoder {
     cuda_tags: CudaTags,
     decoder: ff::decoder::Video,
     waiting_for_keyframe: bool,
-    /// AV1 temporal units (the archive pass's chunks, #1479) rather than H.264: software only.
+    /// AV1 temporal units (the archive pass's chunks) rather than H.264: software only.
     av1: bool,
     /// Tags of inputs pushed with `keep` false: their pictures decode (they are references) but are never downloaded
     /// or copied. Bounded by `SKIPPED_HELD`, oldest tags first, since a picture the codec drops never returns.
@@ -447,7 +447,7 @@ impl H264StreamDecoder {
 
     /// Opens the selected backend explicitly, with one codec thread and a 16-million-pixel limit.
     /// CUDA uses FFmpeg's native H.264 parser and an NVDEC hardware context, then downloads host NV12.
-    /// Unlike the CUVID parser, this does not hold 19 pictures on streams with incomplete VUI (#2080).
+    /// Unlike the CUVID parser, this does not hold 19 pictures on streams with incomplete VUI.
     /// Normal H.264 presentation reordering stays enabled; no LOW_DELAY flag or bitstream rewrite is used.
     /// No decoder/driver/device failure silently selects another backend.
     /// # Errors
@@ -456,7 +456,7 @@ impl H264StreamDecoder {
         Self::open(backend, false)
     }
 
-    /// As [`H264StreamDecoder::new`], for the AV1 temporal units of an archived chunk (#1479): one unit per
+    /// As [`H264StreamDecoder::new`], for the AV1 temporal units of an archived chunk: one unit per
     /// [`push`](Self::push), starting at one that carries a sequence header ([`crate::gop::av1_key`]).
     /// # Errors
     /// Decoder initialization or opening errors, including an FFmpeg without an AV1 decoder.
@@ -561,7 +561,7 @@ impl H264StreamDecoder {
     /// Decode once, returning actual color metadata and optionally signaled-color BGR.
     /// Unsupported or unspecified colorimetry returns no BGR; NV12 remains available.
     /// With `keep` false the unit still decodes (later pictures may reference it), but its picture is never
-    /// downloaded from the GPU or copied: it returns with its tag, empty `nv12`, and no BGR (#3218).
+    /// downloaded from the GPU or copied: it returns with its tag, empty `nv12`, and no BGR.
     /// # Errors
     /// The same input/identity errors as push, plus supported-color conversion failure.
     pub fn push_outputs(

@@ -16,7 +16,7 @@ import { cssVariablesResolver, theme } from './theme';
 
 // Data a tab read in the last 30 s is shown again without asking the server (a tab switch, a dialog opened twice).
 // Queries that must be fresher poll (refetchInterval) or are invalidated by what changes them; the live feed sets its
-// own data. Data nobody shows is kept 10 minutes, so a tab hidden that long still opens on what it had (#330).
+// own data. Data nobody shows is kept 10 minutes, so a tab hidden that long still opens on what it had.
 export const STALE_MS = 30_000;
 export const KEEP_MS = 10 * 60_000;
 
@@ -50,7 +50,7 @@ export function Providers({
     >
       <QueryClientProvider client={queryClient}>
         <ModalsProvider>{children}</ModalsProvider>
-        {/* Every page's toasts (lib/Toast, #2596): bottom-centre, over the page and the Ask window (150), under
+        {/* Every page's toasts (lib/Toast): bottom-centre, over the page and the Ask window (150), under
             Mantine's modals (200) */}
         <Notifications
           position="bottom-center"

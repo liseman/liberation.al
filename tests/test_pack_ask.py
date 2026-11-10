@@ -84,7 +84,7 @@ def jobs(monkeypatch):
     manager = p.JobManager(runner(return_value={"status": "ok", "answer": "synthetic"}))
     monkeypatch.setattr(p, "JOBS", manager)
     yield manager
-    # A queued question's worker writes its answer to history; finish before the test's stores close (#3161).
+    # A queued question's worker writes its answer to history; finish before the test's stores close.
     manager.queue.join()
 
 
@@ -611,9 +611,9 @@ def test_local_answer_posts_one_bounded_chat_request(ollama):
         "truncate": False,
         "think": False,
     }
-    # Ollama 0.40.10 never answers a request with shift false: it hung every Ask (#917).
+    # Ollama 0.40.10 never answers a request with shift false: it hung every Ask.
     assert "shift" not in payload
-    # The small fallback model at the context its other users keep it loaded with, so it isn't loaded twice (#917).
+    # The small fallback model at the context its other users keep it loaded with, so it isn't loaded twice.
     assert (payload["options"]["num_ctx"], payload["options"]["num_predict"]) == (4096, 1024)
 
 
@@ -631,7 +631,7 @@ def prompt(ollama):
 
 
 def test_history_prompt_gives_the_searched_window_beside_now(ollama, pacific):
-    # 2026-11-04 13:07:05.4 to 13:37:05.4 PST, asked at 13:37:05.4 (#2225)
+    # 2026-11-04 13:07:05.4 to 13:37:05.4 PST, asked at 13:37:05.4
     query = {"question": "What was said in the last 30 minutes?", "start": 1793826425.4, "end": 1793828225.4}
     found = {"is_history": True, "answer": None, "evidence": EVIDENCE, "coverage": {}, "warnings": [], "query": query}
     with cfg.override({"recall": {"enabled": False}}), patch.object(h, "collect", autospec=True, return_value=found):
@@ -1021,7 +1021,7 @@ def test_voice_says_partial_when_evidence_was_cut(result):
     "warning", ["Coverage is incomplete.", "Captions were truncated upstream.", "A partial transcript exists."]
 )
 def test_voice_never_says_partial_from_a_warning_alone(warning):
-    """#99: the dashboard flags partial only when evidence was cut (#88), so voice does too."""
+    """The dashboard flags partial only when evidence was cut, so voice does too."""
     result = {"answer": "Sam wanted to paint.", "warnings": [warning], "coverage": {"partial": False}}
     assert p.spoken(result) == "Sam wanted to paint."
 
@@ -1344,7 +1344,7 @@ def test_unsaved_evidence_answer_is_hidden_when_deletion_checkpoint_is_unavailab
     assert polled["result"] is None
 
 
-# Streaming the instant answer (#1336)
+# Streaming the instant answer
 
 
 @pytest.mark.parametrize(

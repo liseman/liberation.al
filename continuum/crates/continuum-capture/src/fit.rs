@@ -93,7 +93,7 @@ impl LinearFit {
     }
 
     /// The point (absolute `x`, host) whose host time is least after its `x` (host minus `x` smallest): for a remote
-    /// clock against arrival times, the least-delayed one, which a re-anchor starts from (#2904).
+    /// clock against arrival times, the least-delayed one, which a re-anchor starts from.
     #[must_use]
     pub fn least_lag(&self) -> Option<(f64, f64)> {
         let (ox, oy) = self.origin?;

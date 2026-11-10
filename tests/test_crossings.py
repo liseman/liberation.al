@@ -243,7 +243,7 @@ def _crossed(tracker, frames):
 
 
 def _faint_until_past_the_line():
-    """Someone walking left to right who scores under `high` until they're past the midpoint (#1676)."""
+    """Someone walking left to right who scores under `high` until they're past the midpoint."""
     frames = walker(0.2, 0.8, frames=20)
     return [(ts, [(*d[:4], 0.45 if (d[0] + d[2]) / 2 < 0.55 else 0.8) for d in dets]) for ts, dets in frames]
 

@@ -15,7 +15,7 @@ export interface MicRow {
   sensitivity?: number | null;
   /** Whether this mic has its own sensitivity, rather than audio.sensitivity. */
   sensitivity_custom?: boolean;
-  /** Auto gain is on for this mic ([audio.mic_auto_gain], #410). */
+  /** Auto gain is on for this mic ([audio.mic_auto_gain]). */
   auto_gain?: boolean;
   /** Its gain as the microphone service last said, or null while it isn't running the mic. */
   gain?: MicGain | null;
@@ -160,7 +160,7 @@ export interface Stats {
   ollama?: {
     models?: LoadedModel[];
     error?: string | null;
-    /** Whether Ollama answers, the configured models it lacks, and what to tell the owner (#221). */
+    /** Whether Ollama answers, the configured models it lacks, and what to tell the owner. */
     up?: boolean;
     missing?: string[];
     message?: string | null;
@@ -186,7 +186,7 @@ export const getDevices = ({ signal }: { signal?: AbortSignal } = {}) =>
 export const saveSensitivity = (mic: string, sensitivity: number | null) =>
   request<Devices>('/devices/sensitivity', { mic, sensitivity });
 
-/** Auto gain on or off for one mic: live, nothing restarts (#410). */
+/** Auto gain on or off for one mic: live, nothing restarts. */
 export const saveAutoGain = (mic: string, on: boolean) => request<Devices>('/devices/auto_gain', { mic, on });
 
 /** Listen with one microphone or stop: edits capture's manifest and restarts capture. */
@@ -200,7 +200,7 @@ export const saveDefaultSensitivity = (value: number) => request<Devices>('/devi
 
 export const getStats = ({ signal }: { signal?: AbortSignal } = {}) => request<Stats>('/stats', undefined, signal);
 
-/** One sample of what each service used (#2245): processor as % of the machine, memory and GPU memory in bytes, each
+/** One sample of what each service used: processor as % of the machine, memory and GPU memory in bytes, each
  *  with "other" as the rest of the machine. */
 export interface UsageSample {
   ts: number;

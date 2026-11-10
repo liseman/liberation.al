@@ -133,7 +133,7 @@ pub(crate) fn select_h264_gops(
     for entry in entries {
         let entry = entry?;
         let hit = entry.start_ns < end_ns && entry.end_ns.max(entry.start_ns.saturating_add(1)) > start_ns;
-        // Seq 0 on both sides is no sequence at all (a raw Mac camera's Tier 1 before 2026-11-05 wrote 0 on every
+        // Seq 0 on both sides is no sequence at all (an earlier raw Mac camera's Tier 1 wrote 0 on every
         // record): the units are in decode order, so they aren't a gap. Without this, Review played only keyframes.
         let gap = previous.is_some_and(|seq: u64| {
             !(seq == 0 && entry.seq == 0)
@@ -192,25 +192,25 @@ struct FileSummary {
 }
 
 /// Per-file summaries by path, with the size and modification time they were read at, and the last full listing.
-/// A listing used to open every chunk file on every `streams` request: with 173k files (a Mac, 2026-11-02) that
+/// A listing used to open every chunk file on every `streams` request: with 173k files on the Mac that
 /// took minutes, the Live tab's request never got an answer, and no camera showed.
 #[derive(Debug, Default)]
 struct Summaries {
     /// Each chunk's size and modification time when read, its summary, and, for a chunk still being written (no
     /// footer yet), the offset its next records start at: a live chunk grows on every listing, and re-reading it from
-    /// the start took about 1.8 s with six cameras (#2772), so only its new tail is read.
+    /// the start took about 1.8 s with six cameras, so only its new tail is read.
     files: Files,
     last: Option<(std::time::Instant, Vec<StreamSummary>)>,
 }
 
 /// Each chunk's cache entry (see [`Summaries`]). Summaries are shared, so carrying ~300k of them from one listing to
-/// the next copies pointers, not strings (#2772).
+/// the next copies pointers, not strings.
 type Files = std::collections::HashMap<PathBuf, (u64, std::time::SystemTime, Option<Arc<FileSummary>>, Option<u64>)>;
 
 /// How long one listing answers again before the directory is looked at anew.
 const LISTING_REUSE: std::time::Duration = std::time::Duration::from_secs(5);
 
-/// What one chunk directory held when last read (#2908): its modification time then, when it was read, and its
+/// What one chunk directory held when last read: its modification time then, when it was read, and its
 /// chunk files by stream id.
 #[derive(Debug)]
 struct Listed {
@@ -229,12 +229,12 @@ pub struct ChunkSource {
     dir: PathBuf,
     summaries: Arc<std::sync::Mutex<Summaries>>,
     /// Each chunk directory's files as last read (see `continuum_tier::layout`): one whose modification time hasn't
-    /// moved since isn't read again, so a listing reads only the hours still being written (#2908).
+    /// moved since isn't read again, so a listing reads only the hours still being written.
     listed: Arc<std::sync::Mutex<std::collections::HashMap<PathBuf, Listed>>>,
     /// A full listing has been made. Outside the lock, which a listing holds while it runs (the first one, minutes
     /// over a large directory): asking must never wait on it.
     ready: Arc<std::sync::atomic::AtomicBool>,
-    /// Tests: how long a listing takes, to show a slow one holds nothing else back (#2772).
+    /// Tests: how long a listing takes, to show a slow one holds nothing else back.
     #[cfg(test)]
     listing_delay: Option<std::time::Duration>,
 }
@@ -483,7 +483,7 @@ impl ChunkSource {
             let entry = match known.remove(&path) {
                 // A finished chunk (a summary, and no footer-less tail to follow) doesn't change: a purge keeps its
                 // records' places and times. So it isn't stat'ed again: the directory holds ~300k chunks, and
-                // stat'ing each on every listing took about 2 s (#2772). Only new and still-growing chunks are.
+                // stat'ing each on every listing took about 2 s. Only new and still-growing chunks are.
                 Some(finished @ (_, _, Some(_), None)) => finished,
                 cached => {
                     let Ok(meta) = fs::metadata(&path) else { continue };
@@ -647,7 +647,7 @@ impl ChunkSource {
     /// The frames of `stream` whose start is in `[start_ns, end_ns)`, in time order, at most `max` of them and
     /// about `max_bytes` of payload. A cut never splits records that share a start microsecond, so `next_us` is
     /// always past everything sent and a client continuing from it makes progress. A raw camera's Tier 1 video
-    /// (H264Au, #900) keeps one access unit per record, served in decode order (each with its own time and keyframe
+    /// (H264Au) keeps one access unit per record, served in decode order (each with its own time and keyframe
     /// flag), since a unit decodes only after the ones before it: a page is cut only before a GOP cursor; any overlapping GOP retains its reference prefix and tail in decode order.
     /// Missing/corrupt references suppress subsequent deltas until the next IDR and increment skipped. Opus
     /// records are skipped (no audio path yet). A chunk that vanishes between the listing and the open (a purge) is
@@ -877,7 +877,7 @@ fn resumes(broken: &mut bool, frames: &[Frame]) -> bool {
 
 /// Whether a raw camera's unit record starts with a keyframe (a record that doesn't decode counts as no).
 /// A chunk of one access unit per record ([`gop`]): a raw camera's H.264, or the same chunk after the archive pass
-/// made it AV1 (#1479). Both keep each unit's keyframe flag and decode order the same way.
+/// made it AV1. Both keep each unit's keyframe flag and decode order the same way.
 fn is_au(format: ChunkFormat) -> bool {
     matches!(format, ChunkFormat::H264Au | ChunkFormat::Av1Au)
 }
@@ -898,8 +898,8 @@ pub fn record_frames(
     codec: &mut Option<&'static str>,
     flip: bool,
 ) -> Option<Vec<Frame>> {
-    // A raw camera's Tier 1 access unit (H264Au, #900) is a one-unit record ([`gop`]), and H.264 ("avc", the name
-    // the sniff uses); after the opt-in archive pass (Av1Au, #1479) the same record holds an AV1 temporal unit.
+    // A raw camera's Tier 1 access unit (H264Au) is a one-unit record ([`gop`]), and H.264 ("avc", the name
+    // the sniff uses); after the opt-in archive pass (Av1Au) the same record holds an AV1 temporal unit.
     if is_au(format) {
         let name = if format == ChunkFormat::Av1Au { "av1" } else { "avc" };
         let units = gop::decode(&bytes).ok()?;
@@ -1362,7 +1362,7 @@ pub(crate) mod tests {
 
     #[test]
     fn an_archived_av1_chunk_follows_its_h264_one_in_a_range() {
-        // Before the archive pass (#1479) the first chunk was H.264 too; now an H.264 chunk is followed by an AV1 one.
+        // Before the archive pass the first chunk was H.264 too; now an H.264 chunk is followed by an AV1 one.
         let dir = tempfile::tempdir().expect("tempdir");
         let unit = |t: u64, key: bool, bytes: Vec<u8>| {
             (t, gop::encode(&[gop::Unit { start_ns: t, end_ns: t, key, bytes }]).expect("encode"))
@@ -1435,7 +1435,7 @@ pub(crate) mod tests {
         hour.join(format!("{stream}-{t}-{n}.cnk"))
     }
 
-    /// #2908: each stream's hour directories are listed, and nothing else.
+    /// Each stream's hour directories are listed, and nothing else.
     #[test]
     fn the_hour_directories_chunks_are_listed() {
         let dir = tempfile::tempdir().unwrap();
@@ -1445,7 +1445,7 @@ pub(crate) mod tests {
         assert_eq!(listed_ids(&ChunkSource::new(dir.path())), vec![(5, 1), (6, 1)]);
     }
 
-    /// #2908: a chunk directory whose modification time hasn't moved isn't read again (a finished hour's), and one
+    /// A chunk directory whose modification time hasn't moved isn't read again (a finished hour's), and one
     /// whose time moved is.
     #[test]
     fn an_unchanged_chunk_directory_is_not_read_again() {
@@ -1474,7 +1474,7 @@ pub(crate) mod tests {
         assert!(src.summaries_ready(), "a full listing marks it ready, so sessions use it");
     }
 
-    /// #2772: a live chunk grows between listings. Only its new records are read, and the listing matches one made
+    /// A live chunk grows between listings. Only its new records are read, and the listing matches one made
     /// by reading it whole.
     #[test]
     fn a_growing_chunk_is_listed_from_its_new_records_alone() {
@@ -1508,7 +1508,7 @@ pub(crate) mod tests {
         assert_eq!(resume(&src), None, "finished: nothing more to follow, so it isn't looked at again");
     }
 
-    /// #2772: ~300k finished chunks were stat'ed on every listing (about 2 s). A finished one is trusted as read; a new
+    /// ~300k finished chunks were stat'ed on every listing (about 2 s). A finished one is trusted as read; a new
     /// one is still found, and a deleted one still goes.
     #[test]
     fn finished_chunks_are_listed_without_a_stat_and_new_and_deleted_ones_still_count() {

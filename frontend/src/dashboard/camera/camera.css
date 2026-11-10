@@ -44,7 +44,7 @@
   overflow: hidden;
   border-radius: 3px;
 }
-/* Body skeletons (#520, #519): bones and joints in the layer's own 0 to 1 space, stroked in screen pixels so they
+/* Body skeletons: bones and joints in the layer's own 0 to 1 space, stroked in screen pixels so they
    read the same at any size. Under the boxes, and never in the way of a click. */
 .bx-skeletons {
   position: absolute;

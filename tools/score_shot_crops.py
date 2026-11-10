@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Score the saved photos of people's older shots by how much they read as a face (#2355), for the card's photo picker.
+"""Score the saved photos of people's older shots by how much they read as a face, for the card's photo picker.
 
 Shots from before see-actions wrote a face.signal for each look have nothing that tells a face from the back of a
 head: the landmarks call both straight on. This runs SCRFD and AdaFace (vision.faces.app(), the live models) on each
@@ -8,7 +8,7 @@ such shot's saved crop and records AdaFace's raw norm, 0 when no face is found o
 signal, and shots already scored, are skipped, so it can be run again.
 
 The crop is padded onto a canvas three times its size first: it's cut tight around the face, and SCRFD finds few
-faces that fill the whole image. Measured on one household member's 231 card shots (2026-11-05): padded, the crop's norm follows the
+faces that fill the whole image. Measured on one household member's 231 card shots: padded, the crop's norm follows the
 live one (correlation 0.84; clear faces 18 to 22 both ways), and no face is found on the backs of their head and on
 steep top-down profiles, while unpadded no face was found on 93% of them.
 
@@ -25,6 +25,7 @@ import cv2
 import numpy as np
 
 from liberational import config as cfg
+from liberational.people import face_shots
 from liberational.vision import faces as face_identity
 from liberational.vision import sightings
 
@@ -60,7 +61,7 @@ def main() -> None:
             sid = str(r["id"])
             if sid in live:  # a signal's own norm, or scored already
                 continue
-            files = sorted((state / "shots").glob(f"{sid}-*.jpg"))
+            files = sorted(face_shots.directory(state, sid).glob(f"{sid}-*.jpg"))
             image = cv2.imread(str(files[0])) if files else None
             if image is None:
                 continue

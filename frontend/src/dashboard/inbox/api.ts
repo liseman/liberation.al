@@ -1,7 +1,8 @@
-// Research jobs and their reports, for the Inbox (#1336, memory/research.py): Ask's questions taken slowly in the
-// background. The list polls while a job is waiting or running.
+// Research jobs and their reports, for the Inbox (memory/research.py): Ask's questions taken slowly in the
+// background. The list arrives on the live feed, so a job's progress shows without polling.
 import { type QueryClient, queryOptions } from '@tanstack/react-query';
 import { request } from '../../shared/http';
+import { STATUS, statusQuery } from '../live/feed';
 
 export type JobStatus = 'queued' | 'running' | 'done' | 'failed';
 
@@ -32,7 +33,7 @@ export interface Job {
   error?: string;
   read: boolean;
   result?: Report;
-  answer_status?: string | null; // how a finished report's answer came out ("ok", "partial"), for the list (#2674)
+  answer_status?: string | null; // how a finished report's answer came out ("ok", "partial"), for the list
 }
 
 export interface Jobs {
@@ -42,15 +43,10 @@ export interface Jobs {
   unread: number;
 }
 
-export const JOBS_KEY = ['research'] as const;
-const waiting = (data: Jobs | undefined) => !!data?.jobs.some(j => j.status === 'queued' || j.status === 'running');
+export const JOBS_KEY = STATUS.research.key;
 
-export const researchQuery = () =>
-  queryOptions({
-    queryKey: JOBS_KEY,
-    queryFn: ({ signal }) => request<Jobs>('/research/jobs', undefined, signal, 'background'),
-    refetchInterval: q => (waiting(q.state.data) ? 5000 : 30_000),
-  });
+/** The jobs list, from the live feed (the server sends it when a job or its read mark changes). */
+export const researchQuery = () => statusQuery<Jobs>('research');
 
 export const jobQuery = (id: string) =>
   queryOptions({

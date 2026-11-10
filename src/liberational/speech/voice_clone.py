@@ -31,7 +31,7 @@ from liberational import logs, model_runtime
 
 DEFAULT_REF = cfg.path("owner.voice_ref")
 ENGINES = {
-    # engine: (repo, needs_ref_text). Benched 2026-10-07 on M5 Pro, warm, 3.8 s of speech:
+    # engine: (repo, needs_ref_text). Benched on an M5 Pro Mac, warm, 3.8 s of speech:
     "qwen3": (cfg.hf_repo("tts_clone"), True),  # ~150 ms to first audio
     "chatterbox": ("mlx-community/chatterbox-turbo-fp16", False),  # ~600 ms to first audio
 }

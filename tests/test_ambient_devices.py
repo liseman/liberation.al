@@ -82,7 +82,7 @@ def test_select_input_devices(devs, platform, expected):
 
 
 def test_two_devices_whose_names_share_a_slug_open_only_the_first():
-    # They would share a folder under state/audio and their lines' keys (#247).
+    # They would share a folder under state/audio and their lines' keys.
     devs = [(2, "Acme Mic", 1, 48000.0, "Core Audio"), (3, "Acme-Mic", 1, 48000.0, "Core Audio")]
     assert ambient.select_input_devices(devs, "darwin") == [(2, "Acme Mic", 1, 48000.0)]
 

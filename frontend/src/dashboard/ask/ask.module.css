@@ -340,7 +340,7 @@
   margin-top: 6px;
 }
 
-/* Live (#2452): the question box first, its label for screen readers only, then the scope choice and Ask on one row. */
+/* Live: the question box first, its label for screen readers only, then the scope choice and Ask on one row. */
 .quietLabel {
   position: absolute;
   width: 1px;
@@ -366,7 +366,7 @@
   margin-left: auto;
 }
 
-/* The answer as the model writes it (#1336): plain text until the finished result, with its citations, replaces it. */
+/* The answer as the model writes it: plain text until the finished result, with its citations, replaces it. */
 .partial {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -415,7 +415,7 @@
   background: var(--mantine-color-body);
 }
 
-/* Links in an answer (its citations, #2661) in the app's link colour, not the browser's default blue; underlined, as a
+/* Links in an answer (its citations) in the app's link colour, not the browser's default blue; underlined, as a
    colour alone doesn't set a link apart from the words around it (axe link-in-text-block) */
 .prose a {
   color: var(--mantine-color-anchor);
@@ -423,7 +423,7 @@
   text-underline-offset: 2px;
 }
 
-/* Pipe tables in prose (a journal page's Counts, #2811): compact, ruled rows, numbers aligned as the table says. */
+/* Pipe tables in prose (a journal page's Counts): compact, ruled rows, numbers aligned as the table says. */
 .prose table {
   border-collapse: collapse;
   margin: 0.5em 0 0.9em;

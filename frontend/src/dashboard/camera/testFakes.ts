@@ -134,7 +134,7 @@ function gatewayMessage(payloadType: number, captureUs: number, payload: Uint8Ar
   return out.buffer;
 }
 
-/** A message of the connection's watch set (#2387): stream `streamId`, with the watch and live bits, and a media
+/** A message of the connection's watch set: stream `streamId`, with the watch and live bits, and a media
  *  context id when given. */
 export function watchedMessage(
   streamId: number,

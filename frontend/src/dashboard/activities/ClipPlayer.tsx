@@ -1,5 +1,5 @@
-// One activity clip's own small player (#2283): a poster until it's asked to play, then Review's player in an embedded
-// engine of its own, bounded to the clip (clip/clip.ts, shared with People's videos, #2476). Only a clip someone
+// One activity clip's own small player: a poster until it's asked to play, then Review's player in an embedded
+// engine of its own, bounded to the clip (clip/clip.ts, shared with People's videos). Only a clip someone
 // plays loads any video; before that the poster shows the clip's start frame, a prepared still (clipThumb.ts), with
 // a skeleton while it's being cut. The expand button (or a click on the playing video) opens the clip bigger in the
 // shared floating window (clip/ClipFloat.tsx), an engine of its own over the same segments, started where the card
@@ -81,7 +81,7 @@ function Embedded({
       className={classes.clipFrame}
       style={shape(ratio)}
       onClick={(e: MouseEvent) => {
-        // React bubbles the popup's clicks through its portal to here: only the card's own video expands (#2302).
+        // React bubbles the popup's clicks through its portal to here: only the card's own video expands.
         if (!popup && e.target instanceof HTMLCanvasElement && e.currentTarget.contains(e.target)) expand();
       }}
     >

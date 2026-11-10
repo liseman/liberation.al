@@ -1,4 +1,4 @@
-"""What the owner chose on a person's contact card (#309), and the undo log for People's corrections.
+"""What the owner chose on a person's contact card, and the undo log for People's corrections.
 
 <paths.state>/card_prefs.json holds, per person (keyed by registry.norm of their name):
 
@@ -69,7 +69,7 @@ def set_main(state: pathlib.Path, name: str, sid: str | None) -> str | None:
         if sid is None:
             e.pop("main", None)
         else:
-            e["main"] = str(sid)  # a detection's payload id (#549)
+            e["main"] = str(sid)  # a detection's payload id
         _write(state / PREFS, d)
     return before
 

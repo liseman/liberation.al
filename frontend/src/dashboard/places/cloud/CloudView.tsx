@@ -1,8 +1,8 @@
-// A place's map in 3D (#2876): the point cloud the house built of it, with the floor, the fixed cameras' views, and
+// A place's map in 3D: the point cloud the house built of it, with the floor, the fixed cameras' views, and
 // the plan's outline on the floor, in an orbit view. three.js (MIT) draws it; this chunk loads only when the 3D view
 // opens (PlacesTab lazy-loads it), since three.js is most of its weight. Drawing is on demand: a frame is rendered
 // when the camera moves or a setting changes, never in a loop, so an open view costs nothing while it's still.
-// A revision with a splat (#2877) can be drawn as the splat instead of the points: Spark draws it in the same scene,
+// A revision with a splat can be drawn as the splat instead of the points: Spark draws it in the same scene,
 // and asks for a frame (onDirty) when its sort or decode finishes. A splat of a few fixed cameras looks right only
 // from where they stand, so each camera has a button that puts the view there, filled with that camera's frame.
 import { Button, Checkbox, Group, SegmentedControl, Slider, Text } from '@mantine/core';
@@ -14,7 +14,7 @@ import { messageOf } from '../../../shared/http';
 import { type Scene, sceneQuery } from '../api';
 import classes from '../places.module.css';
 import { coverFov, frustum, heightColour, heightOf, planOutline, robustRange, type V3 } from './geometry';
-import { canDraw, canDrawSplat, type LoadedSplat, loadSplat, parseCloud } from './load';
+import { canDraw, canDrawSplat, type LoadedSplat, loadSplat, openingCamera, parseCloud } from './load';
 
 type Colour = 'rgb' | 'height';
 type Draw = 'points' | 'splat';
@@ -267,6 +267,7 @@ export default function CloudView({ place }: { place: string }) {
   const [splatFailed, setSplatFailed] = useState<string | null>(null);
   const wantSplat = (chosen ?? (hasSplat ? 'splat' : 'points')) === 'splat';
   const splatBytes = useSplatBytes(data, wantSplat);
+  const splatFrom = data?.splat_from;
   // A splat that can't be read or drawn leaves the points: the map still shows, with a note.
   const splatError = splatFailed ?? (splatBytes.isError ? messageOf(splatBytes.error) : null);
   const draw: Draw = wantSplat && !splatError ? 'splat' : 'points';
@@ -337,9 +338,9 @@ export default function CloudView({ place }: { place: string }) {
         b.scene.add(loaded.spark, loaded.mesh);
         b.splat = loaded;
         setSplatReady(true);
-        // A splat of a few fixed cameras looks right from where they stand, and like floaters from above: it opens
-        // from the first camera's view ("Back to the start" goes to the overview).
-        const first = b.cameraNames[0];
+        // A splat looks right from where its frames were taken, and like floaters from above: it opens from the
+        // first of the views it trained on, a walk's or a fixed camera's ("Back to the start" goes to the overview).
+        const first = openingCamera(b.cameraNames, splatFrom);
         if (first) b.lookFrom(first);
       },
       e => {
@@ -352,7 +353,7 @@ export default function CloudView({ place }: { place: string }) {
       dropSplat(b);
       setSplatReady(false);
     };
-  }, [splatBytes.data, bytes.data, data]);
+  }, [splatBytes.data, bytes.data, data, splatFrom]);
 
   // Settings change what's drawn, then one frame is drawn.
   useEffect(() => {

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Give back the owner's pet labels their examples (#3018): a `pet.reference` for each labeled track with none in the
+"""Give back the owner's pet labels their examples: a `pet.reference` for each labeled track with none in the
 current embedding space, embedded from the track's saved photo (`state/pet_shots`, kept 30 days).
 
-A label is stranded when a reset dropped its track's embeddings, or when the embedding space changed (the tight crop,
-#3024) and its reference no longer compares (people/pet_recognition.py's `stranded`). A saved photo is the track's
+A label is stranded when a reset dropped its track's embeddings, or when the embedding space changed (the tight crop)
+and its reference no longer compares (people/pet_recognition.py's `stranded`). A saved photo is the track's
 largest box cut square with context (`animal_verifier.square`), so the animal sits in its middle. The tool finds it
 again with see-actions' detector (RF-DETR Small, on the CPU), cuts the photo tight to that box as the embedder now
 does, and embeds it. A label without a photo, or whose photo the detector finds no animal in, is left as it is: no
@@ -41,7 +41,7 @@ def photo(state: Path, track: str) -> Path | None:
     pattern = re.compile(rf"{re.escape(track)}-{re.escape(face_shots.VERSION)}-r(\d+)\.jpg")
     found = [
         (int(m.group(1)), p)
-        for p in face_shots.folder(state, pet_shots.KIND).glob(f"{track}-{face_shots.VERSION}-r*.jpg")
+        for p in face_shots.directory(state, track, pet_shots.KIND).glob(f"{track}-{face_shots.VERSION}-r*.jpg")
         if (m := pattern.fullmatch(p.name))
     ]
     return max(found)[1] if found else None

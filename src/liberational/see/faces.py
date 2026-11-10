@@ -1,10 +1,10 @@
-"""The face models and rules see-actions' head faces use (#1738, `see/head_faces.py`).
+"""The face models and rules see-actions' head faces use (`see/head_faces.py`).
 
 - `Detector`: finds the faces in a BGR image, each with its box, confidence, five landmarks, and unit embedding.
   `InsightFaceDetector` is v1's SCRFD detection and AdaFace recognition, run on a head crop.
 - `Matcher`: names an embedding. `GalleryMatcher` reads `faces/db.npz` and the unknown clusters (`vision/faces.py`): the
   nearest enrolled face over 0.45 is a match, and an unnamed face joins or starts an unknown cluster ("Face N").
-- `readable`: whether a look reads as a face well enough to learn from, name, or show as a photo (#2355).
+- `readable`: whether a look reads as a face well enough to learn from, name, or show as a photo.
 - `VisitBuilder` is v1's visit rule (`sightings.visits`): one person's matches on one camera, closed once 10 s pass
   with no match.
 
@@ -22,8 +22,8 @@ VISIT_GAP_S = 10.0  # a visit ends when its person isn't matched on its camera f
 
 NS = 1_000_000_000
 
-# A look that hardly reads as a face is set aside (#2355): a head turned away (rear three-quarter) or a blur, which
-# the detector can still box. On the development install (2026-11-05, 6,116 looks with signals), AdaFace's raw
+# A look that hardly reads as a face is set aside: a head turned away (rear three-quarter) or a blur, which
+# the detector can still box. On the development install (6,116 looks with signals), AdaFace's raw
 # feature norm put one household member turned away at 6.5 to 8.6 and clear faces at 19 to 21; under 10 set aside
 # 0.7% of the owner's looks at the desk, 6% of that member's (a camera that sees them almost only in profile, which
 # stays), and 35% of the unnamed ones, the turned-away looks that started new face groups. The pose's nose
@@ -98,7 +98,7 @@ class GalleryMatcher:
         return f"Face {faces.group_unknown(emb)}"
 
     def learn(self, looks: Sequence[np.ndarray], names: Sequence[str | None], source: str) -> int:
-        """Teach the named gallery from a track that ended (`faces.learn_from_track`, #3013). Rows added."""
+        """Teach the named gallery from a track that ended (`faces.learn_from_track`). Rows added."""
         from liberational.vision import faces
 
         return faces.learn_from_track(looks, names, source)

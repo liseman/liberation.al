@@ -1,4 +1,4 @@
-"""Known › Places' reads (#2848, #2831): the places the house knows, and where people and pets were in one.
+"""Known › Places' reads: the places the house knows, and where people and pets were in one.
 
     GET /places                        {places: [{id, name, named, plan, plan_source, machine_newer, revision,
                                        last_visit, last_activity, walks, unwalked_rooms}]}: every place
@@ -11,51 +11,52 @@
                                        load with text/html gets the app instead)
     POST /places/plan {place, plan, base}
                                        the owner's corrected plan (DSL), saved as taught state over the machine's
-                                       (memory/places.py `correct_plan`, #2859): it holds until withdrawn, and the
+                                       (memory/places.py `correct_plan`): it holds until withdrawn, and the
                                        machine's plan is never edited. `base` is the revision whose frame the edited
                                        text is in (the plan's plan_revision when the editor opened it). An empty plan
                                        withdraws the correction. An edit of a plan drawn on its own page (an
-                                       imported one, #3276) is on that page, and is moved into the plan frame.
+                                       imported one) is on that page, and is moved into the plan frame.
     GET /places/plan/history?place=    {place, versions: [{id, at, rooms, source, withdrawn}], previous}: the owner's
                                        plans, oldest first, and the one Revert plan puts back (`plan_versions`)
     POST /places/plan/restore {place, record}
                                        make that earlier owner plan hold again, written as the newest record, so the
                                        one it replaces stays in the history (memory/places.py `restore_plan`)
-    GET /places/scene?place=           the 3D view's scene (#2876): the newest revision with a map, its map's URL and
+    GET /places/scene?place=           the 3D view's scene: the newest revision with a map, its map's URL and
                                        size, its splat's when it has one (its own, else the newest made in the same
-                                       map frame; one from another frame is only named, `splat_stale`), its floor
-                                       plane, plan transform, registered cameras, and the plan in its frame;
+                                       map frame; one from another frame is only named, `splat_stale`) and what
+                                       it was trained from (`splat_from`: "walk" or "cameras"), its floor plane, plan transform, registered cameras, and the plan in its frame;
                                        {revision: null} while the place has no map
     GET /places/map?place=&revision=   that revision's map file (a point cloud, PLY), with byte ranges, an ETag, and
                                        caching for good: a revision's files never change once written
-    GET /places/splat?place=&revision= that revision's 3D Gaussian splat (SPZ, #2877), served the same way; the
+    GET /places/splat?place=&revision= that revision's 3D Gaussian splat (SPZ), served the same way; the
                                        scene names it (`splat`, null while the revision has none)
     GET /places/positions?place=&start=&end=[&entity=]
                                        {place, start, end, entities, tracks, rooms}: where each entity was on the
                                        place's plan over [start, end), from the position layer's stored records
                                        (spatial/positions.py); the read stops if the client hangs up
 
-The GETs only read state. The POSTs are teaching, so they follow dashboard.remote_teaching like the rest (#2788).
+The GETs only read state. The POSTs are teaching, so they follow dashboard.remote_teaching like the rest.
 
 Positions are grouped by entity: a known one by its id ("person:<id>", "pet:<id>", "rig", named from faces and pet
 labels when read, spatial/positions.py's `identify`), someone not known yet by their camera track. Each path
 (`tracks[].track`) is a camera track, or tracks on several cameras that the reader fused into one (positions.py's
-`joined`, #2981: one entity's, or one unnamed person's seen by two cameras at once; their "+"-joined ids, one point a
+`joined`: one entity's, or one unnamed person's seen by two cameras at once; their "+"-joined ids, one point a
 second where both cameras saw them), keyed by its entity, else its path; tracks the reader didn't join stay separate
 paths, since joining them would zig-zag between where each camera put them. A point the reader marks uncertain (a foot
-on an occluding edge no other camera settled, #3070) is left off its path: it can be metres off. A point with neither
+on an occluding edge no other camera settled) is left off its path: it can be metres off. A point with neither
 an entity nor a track can't be joined to anyone's path (joining them zig-zags between people), so it's left out; a
 room-only span with neither still says someone was in the room. A sample with plan coordinates is a point on its
 track's path; a zone visit (room only, no x and y) is a span in `rooms`, with the plan's room id when it has one and
 the zone's name either way. A long window is thinned so a week stays drawable, by distance and time (`moved`): a path
-keeps each point that moved MOVED_M from the last one kept, so a walk keeps its shape (#3296), and otherwise one point
+keeps each point that moved MOVED_M from the last one kept, so a walk keeps its shape, and otherwise one point
 every span / MAX_POINTS seconds, with its last; the reader first thins to FINE_SHARE times finer than that (its
 `every`) as it scans the stored records, for it to choose from. What's left is capped at MAX_POINTS per path, evenly, keeping its first and last point.
 
 Points come back in the frame of the plan the tab draws (the place's `plan_revision`: records are placed in it when
 written, and the reader moves one placed in an earlier frame onto it), turned onto the owner's page when the plan is drawn on one (an imported plan, upright and with
-the page's handedness, #3276: `GET /places` gives that page's DSL as `plan`; the 3D scene keeps the plan frame). A point that can't be put in that frame (`in_frame` false: a camera that revision doesn't
-register) would land off the drawn plan, so it's left out; a room-only span is kept either way.
+the page's handedness: `GET /places` gives that page's DSL as `plan`; the 3D scene keeps the plan frame). A point that
+can't be put in that frame (`in_frame` false: a camera that revision doesn't register) would land off the drawn plan, so
+it's left out; a room-only span is kept either way.
 """
 
 import math
@@ -82,7 +83,7 @@ MAX_SPAN_S = 31 * 86400  # the longest window a query may ask for
 _LATEST = 4102444800.0  # 2100-01-01: well past any recording, far inside what a float time can hold
 LAST_VISIT_LOOKBACK_S = 365 * 86400  # how far back "last visit" looks
 #: How far back "last activity" looks, in widening steps: a place seen in the last hour costs an hour's read, and one
-#: not seen all week costs a week's, never more (#2905).
+#: not seen all week costs a week's, never more.
 ACTIVITY_LOOKBACKS_S = (3600, 86400, 7 * 86400)
 
 
@@ -217,6 +218,19 @@ def splat_file(state: Path, place: str, revision: str) -> Path | None:
     return places.splat_path(state, rev, "spz") if rev and places.has_splat(state, rev) else None
 
 
+WALK_PREFIX = "walk-"  # a walk's look-from views (spatial/splats.py LOOK_PREFIX), not fixed cameras
+
+
+def _walk_splat(chain: Sequence[places.Revision], splatted: places.Revision) -> bool:
+    """Whether `splatted`'s splat was trained from a walk's frames rather than the fixed cameras' (#44): a walk's
+    splat is made for the revision its import wrote (spatial/splats.py `splat_walk`), the first to hold the walk's
+    look-from cameras, while the daily fixed-camera splat lands on a later revision, which inherits them. So it's a
+    walk's when `splatted` has walk cameras that the revision before it in `chain` lacks."""
+    at = next((i for i, r in enumerate(chain) if r.id == splatted.id), None)
+    before = set(chain[at - 1].cameras) if at else set()
+    return any(cam.startswith(WALK_PREFIX) and cam not in before for cam in splatted.cameras)
+
+
 def scene(state: Path, place: str) -> Reply:
     """GET /places/scene: what the 3D view draws for a place, all in its map's frame (metres). The plan is the one in
     that revision's frame: the owner's correction when it's drawn in this revision's frame (its plan_revision uses the
@@ -234,8 +248,8 @@ def scene(state: Path, place: str) -> Reply:
         size = (places.root(state) / place / rev.map).stat().st_size
     except FileNotFoundError:  # pruned since it was found
         return 200, {"place": place, "revision": None}
-    # The revision's own splat, else the newest one made in the same map frame (a later fusion that kept the frame,
-    # #2877); a splat of another frame (or an unknown one) would sit out of place, so it's only named as stale.
+    # The revision's own splat, else the newest one made in the same map frame (a later fusion that kept the
+    # frame); a splat of another frame (or an unknown one) would sit out of place, so it's only named as stale.
     chain = places.revisions(state, place)
     with_splat = [r for r in chain if places.has_splat(state, r)]
     fits = [r for r in with_splat if r.id == rev.id or (rev.frame is not None and r.frame == rev.frame)]
@@ -245,7 +259,8 @@ def scene(state: Path, place: str) -> Reply:
     except FileNotFoundError:  # pruned since it was found
         shown, splat_size = None, None
     stale = with_splat[-1] if shown is None and with_splat else None
-    # an owner plan drawn in a revision with no plan file is in its floor's frame (#3276)
+    walk_splat = shown is not None and _walk_splat(chain, shown)
+    # an owner plan drawn in a revision with no plan file is in its floor's frame
     transform = places.plan_frame(rev) if owner else rev.plan_transform
     return 200, {
         "place": place,
@@ -259,6 +274,7 @@ def scene(state: Path, place: str) -> Reply:
         "splat_bytes": splat_size,
         "splat_revision": None if shown is None else shown.id,
         "splat_stale": None if stale is None else {"revision": stale.id, "at": stale.at},
+        "splat_from": None if shown is None else ("walk" if walk_splat else "cameras"),
         "floor": list(rev.floor) if rev.floor else None,
         "plan_transform": list(transform) if transform else None,
         "cameras": {cam: pose.as_dict() for cam, pose in rev.cameras.items()},
@@ -398,7 +414,7 @@ def _from_page(text: str, view: places.PageView) -> str:
 
 def _kind(entity: str) -> str:
     head = entity.split(":", 1)[0]
-    if head == "face":  # an unnamed face group (#2981): one person, drawn and listed as one
+    if head == "face":  # an unnamed face group: one person, drawn and listed as one
         return "person"
     return head if head in ("person", "pet", "rig") else "unknown"
 

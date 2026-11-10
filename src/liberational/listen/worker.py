@@ -1,10 +1,10 @@
-"""The P1 audio worker on Continuum (#548): each microphone's PCM ring followed live, gated, transcribed, and written
-as utterances on `speech.utterance` in the segment store (#1788).
+"""The P1 audio worker on Continuum: each microphone's PCM ring followed live, gated, transcribed, and written
+as utterances on `speech.utterance` in the segment store.
 
 Per microphone, a `MicPipeline` takes ring records as they land through a continuity check, a resample to 16 kHz, and
 v1's energy VAD, and puts out candidate utterances with their UTC span. The reader drains whatever has landed, then
-sleeps `READ_PACE_S` (`ring_batches`), so the loop wakes about 20 times a second instead of once per 10 ms block
-(#3178); caught up, it waits on the ring's sequence word, never a poll. Each record keeps its own stamp, so the gate's
+sleeps `READ_PACE_S` (`ring_batches`), so the loop wakes about 20 times a second instead of once per 10 ms block;
+caught up, it waits on the ring's sequence word, never a poll. Each record keeps its own stamp, so the gate's
 timing doesn't move; a candidate only reaches ASR up to `READ_PACE_S` later. A `Transcriber` on one dedicated thread (MLX models are thread-affine) runs each
 candidate through v1's Silero speech gate, ASR, and a ReDimNet2 B3 embedding, and a `Matcher` names the speaker. The
 utterance is then written through a `speech_log.Writer` under the mic's device name, which also gets the energy
@@ -16,14 +16,15 @@ Capture can register its stream and ring after this service starts, especially a
 waits for that ring before reading. A failed reader or batch subscription ends the worker, so the service manager
 restarts it instead of reporting a running service with no transcription.
 
-Each microphone's auto gain (audio/gain.py's `MicGain`, #798) rides along in its `MicPipeline`: it learns from
+Each microphone's auto gain (audio/gain.py's `MicGain`) rides along in its `MicPipeline`: it learns from
 confirmed transcriptions, moves the mic's own capture volume between utterances (or scales the samples before the
 VAD, for a mic without one), and `Worker` writes where each gain is to `listen.gain.json` for Settings.
 
 Around the transcription, `Checks` keeps v1's rules: a candidate overlapping playback is dropped before ASR (echo and
 barge-in over the assistant's own voice), a sound-effect caption is not speech, another microphone's copy of a line
 just committed is dropped, and a line that is the voice password is written "[password]" with `password: true`.
-`StateChecks` does that through state files: the playback windows and the password window. The service's `Matcher` is `voices.VoiceMatcher`: each line's
+`StateChecks` does that through state files: the playback windows and the password window. The service's `Matcher` is
+`voices.VoiceMatcher`: each line's
 voiceprint from the vector worker's search, and its embedding filed on `voice.embedding` (listen/voices.py, which
 also handles the dashboard's voice tags).
 """
@@ -59,7 +60,7 @@ NS = 1_000_000_000
 CAPTURE_RETRY_S = 1.0  # capture may register its stream and ring after listen starts
 ACTIVITY_INTERVAL_NS = NS  # operational gate state heartbeat; transitions are sent at once
 GAIN_STATUS_S = 5.0  # how often each mic's gain is written for Settings (it calls a status stale after 30 s)
-# How long the ring reader sleeps after draining what had landed (#3178): five 10 ms blocks a wake instead of one,
+# How long the ring reader sleeps after draining what had landed: five 10 ms blocks a wake instead of one,
 # well inside the ring's ten seconds and the Live meters' quarter second.
 READ_PACE_S = 0.05
 
@@ -278,7 +279,7 @@ def dbfs(audio: np.ndarray) -> float:
 def level(audio: np.ndarray) -> np.ndarray:
     """`audio` brought to TARGET_DBFS, raised by at most MAX_GAIN_DB and kept under PEAK. Auto gain (MicGain) raises
     a quiet mic itself now, as v1 did, but slowly: until it has (and for a mic it is off for), Silero's gate found
-    no speech in such quiet audio (2026-10-30: a Wave 3 at 0 dB, a second of speech at -59 dBFS read as 0 s raw,
+    no speech in such quiet audio (on a Wave 3 at 0 dB, a second of speech at -59 dBFS read as 0 s raw,
     1.0 s levelled), so nothing was transcribed. With the gain right, this moves a candidate a few dB at most."""
     gain_db = min(MAX_GAIN_DB, TARGET_DBFS - dbfs(audio))
     out = audio.astype(np.float32) * np.float32(10 ** (gain_db / 20))
@@ -414,7 +415,7 @@ class StateChecks:
         )
         pending = {"ts_start": start_s, "ts_end": end_s, "device": device}
         maybe_password = voice_auth.may_be_password(self.verifier, pending, spoken)
-        # Never drop a line that may be the password as a twin: a worse copy written first would fail it (#285).
+        # Never drop a line that may be the password as a twin: a worse copy written first would fail it.
         if not maybe_password and (written := self.recent.twin_of(h, window, alike, primary)) is not None:
             return Twin(written.device, written.start)
         password = maybe_password and voice_auth.said_password(self.verifier, spoken)
@@ -489,7 +490,7 @@ class Worker:
         while True:
             try:
                 # Pinned: a notice carries its ring batch's locator (first_seq, count) only then, and speech coverage
-                # needs it to know which records a batch holds (#1513). A ring batch is never actually pinned (capture
+                # needs it to know which records a batch holds. A ring batch is never actually pinned (capture
                 # never waits); a notice the ring has already lapped is left out, and its batch couldn't be read.
                 sub = await self.client.subscribe([mic.stream], pinned=True)
             except continuum_py.BrokerError as ex:

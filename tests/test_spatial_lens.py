@@ -1,4 +1,4 @@
-"""Wide-lens fixed cameras (#2998): the division model undone in frames and in pixels alike, the overlays painted over
+"""Wide-lens fixed cameras: the division model undone in frames and in pixels alike, the overlays painted over
 and left out, and a registered pose's foot points undistorted before they're cast onto the floor."""
 
 import json
@@ -51,7 +51,7 @@ PORTRAIT = lens.Lens(288, 512, (144.0, 144.0, 143.5, 255.5), -0.1)  # a living-r
 
 @pytest.mark.parametrize("found", [BARREL, PORTRAIT], ids=["landscape", "portrait"])
 def test_the_undistorted_frame_keeps_the_whole_frame_on_both_axes(found):
-    # #2998: at the old scale a landscape frame lost its corners (the kitchen's floor strip) and a portrait one most of
+    # At the old scale a landscape frame lost its corners (the kitchen's floor strip) and a portrait one most of
     # its top and bottom, its long axis. Every pixel on the frame's edges must land in the undistorted frame...
     u, v = lens.undistort_points(found, *border(found.width, found.height))
     assert u.min() >= -1e-9 and u.max() <= 1 + 1e-9 and v.min() >= -1e-9 and v.max() <= 1 + 1e-9
@@ -62,7 +62,7 @@ def test_the_undistorted_frame_keeps_the_whole_frame_on_both_axes(found):
 
 
 def test_a_floor_strip_along_the_frames_bottom_survives_undistortion():
-    # The kitchen camera sits 0.91 m up and sees the floor only along the bottom of its frame, corner to corner (#2998):
+    # The kitchen camera sits 0.91 m up and sees the floor only along the bottom of its frame, corner to corner:
     # every pixel of the bottom tenth must land in the undistorted frame, on a pixel that isn't left out.
     rows, cols = np.mgrid[int(H * 0.9) : H, 0:W]
     u, v = lens.undistort_points(BARREL, (cols + 0.5) / W, (rows + 0.5) / H)
@@ -73,7 +73,7 @@ def test_a_floor_strip_along_the_frames_bottom_survives_undistortion():
 
 
 def test_a_calibration_that_undoes_its_corners_past_the_models_pole_is_refused():
-    # Living-room's plumb-line fit on devbox (#2960): division -0.43 at a focal of 360 on a 720 x 1280 frame put its
+    # Living-room's plumb-line fit on the Linux machine: division -0.43 at a focal of 360 on a 720 x 1280 frame put its
     # top and bottom past 1 + lambda r^2 = 0, where the model has no undistorted point.
     entry = {"name": "living-room", "lens": {"width": 720, "height": 1280, "k": [360.0, 360.0, 359.5, 639.5]}}
     with pytest.raises(ValueError, match="living-room: lens division -0.43"):
@@ -180,7 +180,7 @@ def test_a_foot_point_is_undistorted_before_its_ray_is_cast():
 
 
 def test_many_foot_points_of_one_camera_work_out_its_lens_frame_once(monkeypatch):
-    # A positions read undistorts every foot point of a day (#3293); the undistorted frame's scale is the lens's own,
+    # A positions read undistorts every foot point of a day; the undistorted frame's scale is the lens's own,
     # so it's worked out once, not per point. A lens no other test uses, so nothing has worked it out yet.
     cam = places.CameraPose(DOWN.pose, DOWN.focal, DOWN.width, DOWN.height, 0.0, (*BARREL.as_tuple()[:4], -0.27))
     boundary = lens._boundary

@@ -20,7 +20,7 @@ export interface RawSegment {
   end: number;
   /** What GatewayVideo plays (`gateway:<stream>:<start_us>:<end_us>`). */
   url: string;
-  /** Video that aged out past the history window (#1748): shown on the timeline, never played. */
+  /** Video that aged out past the history window: shown on the timeline, never played. */
   expired?: true;
 }
 
@@ -52,7 +52,7 @@ export interface Chip {
   notes?: string[];
   activities?: DetectedActivity[];
   camera?: string; // per-camera presence and movement event chips
-  /** A person chip's spans on each camera view that saw them (#328). */
+  /** A person chip's spans on each camera view that saw them. */
   cams?: Record<string, Span[]>;
   /** A named person's camera-less speech spans, kept independently of face visits when filtering cameras. */
   speech?: Span[];

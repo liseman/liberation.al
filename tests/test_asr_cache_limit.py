@@ -1,4 +1,4 @@
-"""The Parakeet ASR caps MLX's buffer cache, which otherwise grows with every new utterance length (2026-10-31)."""
+"""The Parakeet ASR caps MLX's buffer cache, which otherwise grows with every new utterance length."""
 
 import sys
 import types

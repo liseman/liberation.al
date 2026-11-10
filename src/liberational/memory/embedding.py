@@ -1,6 +1,6 @@
 """Embeddings from a local model: the call the journal and recall make to Ollama's /api/embed with
 `models.ollama.embedding` (Qwen3-Embedding 0.6B by default), switched by `semantic.enabled` (step 9 of
-docs/DOMAIN-MODEL.md, on Continuum since #777).
+docs/DOMAIN-MODEL.md, on Continuum).
 
 The vectors themselves live with the vector worker: the journal commits each entry's embedding as a
 `journal.embedding.<digest>` payload (memory/journal.py, `journal.embed`), the worker files it, and recall asks the
@@ -10,8 +10,8 @@ when they can't be trusted:
 - Vectors from two versions of a model can't be compared, and Ollama serves a re-pulled tag's new weights at once. So
   each embedding call checks the digest from /api/tags. A background batch, whose vectors are kept, reads it fresh
   after the call, and is dropped (ending the journal's pass) unless it matches the digest from before: weights that
-  changed before or during the call show up as a new digest (#2204). A question reads both through ollama_health's
-  shared cache (#3105: /api/tags takes about a second on devbox), so a question embedded in the minutes after a
+  changed before or during the call show up as a new digest. A question reads both through ollama_health's
+  shared cache (/api/tags takes about a second on the Linux machine), so a question embedded in the minutes after a
   re-pull can be searched against the old weights' vectors once; a question whose model can't be identified is
   dropped (words alone).
 - Vectors are kept at `semantic.dimensions`. Qwen3-Embedding is trained so a vector cut short still works

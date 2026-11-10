@@ -1,4 +1,4 @@
-"""`face.boxes`: the face worker's live face boxes, in a Tier 0 ring that never reaches the catalog (#1762).
+"""`face.boxes`: the face worker's live face boxes, in a Tier 0 ring that never reaches the catalog.
 
 Every analyzed frame with a face gets one record: the camera, the frame's id, sequence and start, and each face's box
 with who it is. Only live readers use it (the gateway's Live overlay, capture's exposure steering, the body worker's

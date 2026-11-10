@@ -23,7 +23,7 @@ def call(base, method, path, body=None, raw=None, **headers):
     if body is not None or raw is not None:
         headers.setdefault("Content-Type", "application/json")
     # A guard against a hung server, not a speed check: the first GET /config scans the services' code (readers.py,
-    # about 2 s idle), and on a loaded machine at test priority that ran past a 5 s timeout (#2967).
+    # about 2 s idle), and on a loaded machine at test priority that ran past a 5 s timeout.
     c = http.client.HTTPConnection(base.removeprefix("http://"), timeout=60)
     c.request(method, path, raw if raw is not None else json.dumps(body) if body is not None else None, headers)
     r = c.getresponse()
@@ -302,7 +302,7 @@ def test_the_restart_uninstalls_then_installs_then_restarts_the_dashboard_even_a
     monkeypatch.setattr(settings, "_pack_services", lambda verb, names: steps.append([verb, *names]) or (0, ""))
     said = []
     settings.restart(said.append, ["listen", "voice", "phone"], True, {"listen", "notes"}).join(5)
-    # notes uninstalled; voice, stopped with Stop now, stays stopped (#423); phone installed once; then the dashboard
+    # notes uninstalled; voice, stopped with Stop now, stays stopped; phone installed once; then the dashboard
     assert steps == [["uninstall", "notes"], ["install", "listen", "phone"], "exec"]
     assert "services: on phone (runs here after a Settings save; installed and started): done" in said
 
@@ -498,7 +498,7 @@ def test_a_machine_with_mlx_speaks_in_the_cloned_voice_once_there_is_a_reference
     with cfg.override({"owner": {"voice_ref": str(ref)}}):
         assert not settings.can_clone()  # nothing to clone yet: it speaks Kokoro
         ref.write_bytes(b"RIFF")
-        assert not settings.can_clone()  # not audio the voice could clone from (#301)
+        assert not settings.can_clone()  # not audio the voice could clone from
         sf.write(str(ref), np.zeros(1600, np.float32), 16000)
         assert settings.can_clone()
         monkeypatch.setattr(cfg, "has_mlx", lambda: False)
@@ -575,7 +575,7 @@ def test_a_setting_carries_the_group_labels_toml_gives_it(tmp_path, monkeypatch)
 
 
 def test_settings_still_open_in_a_process_that_predates_a_new_setting(tmp_path, monkeypatch, caplog):
-    # #498: a merge added [pose] to defaults.toml while the dashboard ran; its config was read before that.
+    # A merge added [pose] to defaults.toml while the dashboard ran; its config was read before that.
     monkeypatch.setattr(cfg, "DEFAULTS", tmp_path / "defaults.toml")
     cfg.DEFAULTS.write_text(DEFAULTS)
     cfg.load.cache_clear()

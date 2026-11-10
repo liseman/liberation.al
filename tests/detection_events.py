@@ -1,5 +1,5 @@
 """Detection log events as v1's backfill wrote them (its _face_events and _empty_run_event, kept here for the tests
-of the detection log's readers after the backfill was removed in #549's switch)."""
+of the detection log's readers after the backfill was removed)."""
 
 import json
 import math
@@ -22,7 +22,7 @@ def make_event(
     event_id: str | None = None,
 ) -> Event:
     """One event in v1's detector-journal shape, which the presence projection (memory/presence.py) reads: the
-    journal (memory/detection_log.py) is deleted (#549), so tests build its events here."""
+    journal (memory/detection_log.py) is deleted, so tests build its events here."""
     return {
         "event_id": event_id if event_id is not None else str(uuid.uuid4()),
         "type": event_type,

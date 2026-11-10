@@ -103,12 +103,12 @@ function open(hash = '', view: ConfigView = VIEW, reply: Record<string, unknown>
     http.get('/config', () => HttpResponse.json(view)),
     http.get('/health', () => HttpResponse.json({ boot: 'b1' })),
     http.get('/config/voice_ref', () => HttpResponse.json({ exists: false })),
-    // Cameras and microphones (#384): its menu badge reads vision's and the microphones' live status
+    // Cameras and microphones: its menu badge reads vision's and the microphones' live status
     http.get('/vision', () => HttpResponse.json({})),
     http.get('/ambient', () => HttpResponse.json({})),
     http.get('/devices', () => HttpResponse.json({ ok: true, control: true, notes: {}, mics: [], cameras: [] })),
-    http.get('/services', () => HttpResponse.json({ ok: true, control: true, services: [] })), // the menu badge (#386)
-    // Network cameras and Imported media (#1331) read the ingest sources
+    http.get('/services', () => HttpResponse.json({ ok: true, control: true, services: [] })), // the menu badge
+    // Network cameras and Imported media read the ingest sources
     http.get('/ingest/api/items', () =>
       HttpResponse.json({ items: [], jobs: [], control: true, sources: [], wyze: { cameras: [], rtsp_url: '' } }),
     ),
@@ -121,14 +121,14 @@ function open(hash = '', view: ConfigView = VIEW, reply: Record<string, unknown>
 }
 const nav = () => screen.getByRole('navigation', { name: 'Settings sections' });
 const bar = () => screen.queryByRole('region', { name: 'Unsaved changes' });
-/** Opens Advanced's sections by their titles: each folds to its heading and count (#2728). */
+/** Opens Advanced's sections by their titles: each folds to its heading and count. */
 const showAdvanced = async (...titles: string[]) => {
   for (const t of titles) await userEvent.click(await screen.findByRole('button', { name: `Show ${t}` }));
 };
 
 beforeEach(() => {
   posts = [];
-  // A named camera, so the Devices badge doesn't ask for one (#2585; devices/issues.test.tsx covers that)
+  // A named camera, so the Devices badge doesn't ask for one (devices/issues.test.tsx covers that)
   vi.stubGlobal('NAMES', { views: { cam0: 'front camera' } });
 });
 afterEach(() => {
@@ -238,7 +238,7 @@ describe('after the review of #382', () => {
     const journal = await screen.findByRole('switch', { name: 'The journal' });
     expect(screen.getByText('Writes a diary of the day.')).toBeInTheDocument();
     expect(screen.queryByText(/by default/)).toBeNull();
-    // Switched from how it comes, it says so (#2728)
+    // Switched from how it comes, it says so
     await userEvent.click(journal);
     expect(screen.getByText('Changed: off by default')).toBeInTheDocument();
     await userEvent.click(journal);
@@ -630,7 +630,7 @@ describe('Advanced (#387)', () => {
     open('#advanced', RAW);
     const presence = await screen.findByRole('region', { name: 'Presence' });
     expect(within(presence).getByText('How visits are counted.')).toBeInTheDocument();
-    expect(within(presence).getByText('2 settings')).toBeInTheDocument(); // folded to its count (#2728)
+    expect(within(presence).getByText('2 settings')).toBeInTheDocument(); // folded to its count
     await showAdvanced('Presence');
     expect(within(presence).getByText('Changed')).toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'Timeline' })).toBeInTheDocument();

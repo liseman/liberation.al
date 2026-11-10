@@ -1,4 +1,4 @@
-"""Microphone sensitivity (#315): one 0 to 100 setting per mic, applied to the energy VAD and the speech gate live."""
+"""Microphone sensitivity: one 0 to 100 setting per mic, applied to the energy VAD and the speech gate live."""
 
 import tomllib
 

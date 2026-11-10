@@ -7,7 +7,7 @@
 //!
 //! Once the broker acknowledges a copy, [`mark_committed`] sets the file's modification time to the Unix epoch, and
 //! recovery skips marked files after a stat. Before, every start reopened, synced, and committed every copy again,
-//! one catalog write each, so starts slowed as copies piled up, the shape of #2965's stalls (#3131). The mark is set
+//! one catalog write each, so starts slowed as copies piled up. The mark is set
 //! without a sync, so a crash can lose it, and then that copy is just committed again; it is only set after the
 //! acknowledgement, so a marked copy is never one the broker lacks. It doesn't depend on the clock, as a "committed
 //! up to this time" watermark would: a clock stepped back could make that skip an uncommitted copy.
@@ -82,7 +82,7 @@ fn open(path: &Path) -> Result<Copy, TierError> {
 }
 
 pub(crate) fn write(dir: &Path, header: &HeaderBuf, bytes: &[u8]) -> Result<Copy, TierError> {
-    // In the hour directory of the payload's own start (#2908), so a retry finds the same file.
+    // In the hour directory of the payload's own start, so a retry finds the same file.
     let hour = crate::layout::hour_dir(dir, header.stream(), header.start_ns());
     crate::layout::make_hour_dir(dir, &hour)?;
     let path = hour.join(format!("{}-copy-{}.cnk", header.stream().0, header.id()));

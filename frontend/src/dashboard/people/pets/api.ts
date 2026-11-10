@@ -1,4 +1,4 @@
-// The Pets tab's data (#1332, #2019): named pets come from /pets (../petLinks), their sightings, the groups still
+// The Pets tab's data: named pets come from /pets (../petLinks), their sightings, the groups still
 // waiting for a name, and each species' recognition check from /pets/sightings (people/pet_recognition.py).
 
 import { queryOptions } from '@tanstack/react-query';
@@ -9,14 +9,14 @@ import type { Pet, PetsView } from '../petLinks';
 export type { Pet, PetsView };
 
 export const OTHER = 'other'; // the label for an animal that is none of the named pets
-export const IGNORED = 'ignored'; // put aside: off the list, and never an example for recognition (#2035)
+export const IGNORED = 'ignored'; // put aside: off the list, and never an example for recognition
 
 export interface Guess {
   label: string;
   similarity: number;
-  clear?: boolean; // a suggestion that is a clear match, while recognition is off for its species (#2291)
+  clear?: boolean; // a suggestion that is a clear match, while recognition is off for its species
 }
-/** The guess every naming list shares (faces', voices', and pets', #2366): `id` is the label to send back. */
+/** The guess every naming list shares (faces', voices', and pets'): `id` is the label to send back. */
 export interface NamingGuess {
   id: string;
   name: string;
@@ -36,7 +36,7 @@ export interface Sighting {
   thumb_ready?: boolean;
   recognized?: Guess;
   suggestion?: Guess;
-  not?: string[]; // the pets the owner said it isn't (#2364): never guessed as them again
+  not?: string[]; // the pets the owner said it isn't: never guessed as them again
   guess?: NamingGuess | null;
 }
 /** A named pet's sighting: one the owner labeled, or one recognition named. */
@@ -64,7 +64,7 @@ export interface SightingGroup {
   id: string;
   species: string;
   sightings: Sighting[];
-  guess?: NamingGuess | null; // what its sightings name most (#2366)
+  guess?: NamingGuess | null; // what its sightings name most
   not?: string[]; // the pets every sighting in it was said not to be
   photos_pending?: number;
   photos_unavailable?: number;
@@ -136,7 +136,7 @@ export const waitingGroups = (view: SightingsView | undefined): number | undefin
 export const SIGHTINGS_KEY = ['pets', 'sightings'] as const;
 export const getSightings = (signal?: AbortSignal) => request<SightingsView>('/pets/sightings', undefined, signal);
 /** The sightings waiting for a name, read again every 2 s while their pictures are still being made. Pets lists them
- *  and Known's Pets badge counts them (#2451). */
+ *  and Known's Pets badge counts them. */
 export const sightingsQuery = () =>
   queryOptions({
     queryKey: SIGHTINGS_KEY,
@@ -151,14 +151,14 @@ export const labelSightings = (tracks: string[], label: string | null) =>
 export const savePet = (pet: { id: string | null; name: string; species: string; sex: string | null }) =>
   request<{ pets: Pet[] }>('/pets/save', pet);
 export const removePet = (id: string) => request<{ pets: Pet[] }>('/pets/remove', { id });
-/** These sightings are not this pet, or (`not` false) take that back (#2364). One labeled as the pet loses the label. */
+/** These sightings are not this pet, or (`not` false) take that back. One labeled as the pet loses the label. */
 export const markNot = (tracks: string[], pet: string, not = true) =>
   request<{ marked: number }>('/pets/sightings/not', { track_ids: tracks, pet, not });
-/** A pet card's photo choices (#2363): use a sighting as its photo, go back to its newest, or hide or show one. */
+/** A pet card's photo choices: use a sighting as its photo, go back to its newest, or hide or show one. */
 export const choosePhoto = (id: string, action: 'main' | 'newest' | 'hide' | 'show', track?: string) =>
   request<{ pets: Pet[] }>('/pets/photo', { id, action, track: track ?? null });
 
-/** The sighting a pet's photo shows (#2363): the one chosen on its card, else its newest whose picture is ready and
+/** The sighting a pet's photo shows: the one chosen on its card, else its newest whose picture is ready and
  *  that isn't hidden from the card; undefined while there's none. `large`: the card's full-size photo, which needs the
  *  saved crop, where an avatar needs only its thumbnail. */
 export function petPhoto(pet: Pet, seen: Seen[] | undefined, large = false): string | undefined {

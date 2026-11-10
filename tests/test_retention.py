@@ -1,4 +1,4 @@
-"""Retention past the window (#2809): what's condensed, what's dropped, what's kept, and the day-page gate."""
+"""Retention past the window: what's condensed, what's dropped, what's kept, and the day-page gate."""
 
 import asyncio
 from typing import Any, cast

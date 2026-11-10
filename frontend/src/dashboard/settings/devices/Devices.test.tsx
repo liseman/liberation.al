@@ -125,7 +125,7 @@ it('renames a network camera through the display-name draft without replacing it
 
 function renderDevices(control = true) {
   const view = config(control);
-  // The Network cameras card between Cameras and Microphones reads the ingest sources (#1331).
+  // The Network cameras card between Cameras and Microphones reads the ingest sources.
   server.use(http.get('/ingest/api/items', () => HttpResponse.json(INGEST)));
   const page = renderPage(
     <DraftProvider view={view}>

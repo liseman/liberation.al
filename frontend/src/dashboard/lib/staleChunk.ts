@@ -1,6 +1,6 @@
 import { reportError } from '../../shared/telemetry';
 
-// A tab left open across a redeploy (#2005): `vite build` empties its output, so the old hashed chunks the tab still
+// A tab left open across a redeploy: `vite build` empties its output, so the old hashed chunks the tab still
 // asks for are gone, and the first visit to a page it hasn't loaded yet fails its dynamic import (a 404). The page
 // itself is served no-store, so one reload fetches the new build. Reload once, never in a loop: a chunk that fails
 // again within RELOAD_GAP_MS of the last reload is a real failure, and its page says so.
@@ -11,7 +11,7 @@ const KEY = 'liberational:chunk-reload-at';
 
 // A reload this page already started. Vite's preload handler claims it first, and handling its event makes Vite
 // resolve the import with nothing, so the page's lazy wrapper then fails with "Cannot read properties of undefined
-// (reading 'default')", which is no chunk error (#2054). While the page is on its way out, any boundary error is
+// (reading 'default')", which is no chunk error. While the page is on its way out, any boundary error is
 // part of it: show the loader, not a failure.
 let reloading = false;
 
@@ -65,7 +65,7 @@ export function followPreloadErrors(target: Window = window, reload: () => void 
         reload();
       }
     } else {
-      // No reload this time, so the import fails for real: that goes into the page's log (#2007). A preload error
+      // No reload this time, so the import fails for real: that goes into the page's log. A preload error
       // that reloads isn't logged, since the reload is its recovery.
       reportError('chunk', payload ?? 'preload failed');
       if (payload instanceof Error) console.error(payload);

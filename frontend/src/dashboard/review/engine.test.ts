@@ -205,7 +205,7 @@ it.each(['__proto__', 'constructor', 'toString'])('binds and reads retained segm
 });
 
 beforeEach(() => {
-  hashTiming.everyMs = 0; // each link write lands at once here; the throttle's own test turns it on (#2391)
+  hashTiming.everyMs = 0; // each link write lands at once here; the throttle's own test turns it on
   history.replaceState(null, '', '/review');
   Object.assign(URL, { createObjectURL: () => 'blob:clip', revokeObjectURL: () => {} });
 });
@@ -229,7 +229,7 @@ describe('an embedded recording', () => {
     v[0].reach(10);
     engine.frame(performance.now() + 1000);
     expect(engine.playing).toBe(false);
-    // It rests on its last frame, inside the clip, so the player still has video to show there (#2547).
+    // It rests on its last frame, inside the clip, so the player still has video to show there.
     expect(engine.t).toBeLessThan(start + 10);
     expect(engine.t).toBeGreaterThan(start + 9.9);
     engine.togglePlay();

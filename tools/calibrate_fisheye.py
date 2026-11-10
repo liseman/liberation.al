@@ -1,4 +1,4 @@
-"""Calibrate a fisheye camera's lens from checkerboard views, for see-actions' per-person rectification (#1891).
+"""Calibrate a fisheye camera's lens from checkerboard views, for see-actions' per-person rectification.
 
 You need a printed checkerboard on something flat and stiff (a board taped to a clipboard or foam board). The
 default is 9 x 6 inner corners, the corners where four squares meet, so a board of 10 x 7 squares. Squares of 25 to

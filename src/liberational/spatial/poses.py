@@ -1,4 +1,4 @@
-"""Each fixed camera's pose over time (#3289, part of the spatial memory goal #2794).
+"""Each fixed camera's pose over time (part of spatial memory).
 
 A camera's intrinsics are its own and held (spatial/lens.py `Held`); its pose is a time series. The rig will be
 mobile, and even a fixed camera gets nudged, so nothing here pins a pose to the house: every source of evidence about

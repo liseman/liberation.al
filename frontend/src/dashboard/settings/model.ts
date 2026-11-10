@@ -16,7 +16,7 @@ export interface Setting {
   order?: number; // its place in labels.toml: how its section lists it
   group?: string; // the titled card it shares in its section (labels.toml); "" for none (the Other card)
   live?: boolean; // its services follow it without a restart (labels.toml "live")
-  restarts?: string[]; // what saving it restarts (#400): the services that read it, [] for a live one
+  restarts?: string[]; // what saving it restarts: the services that read it, [] for a live one
 }
 export interface Section {
   name: string;
@@ -42,7 +42,7 @@ export interface ConfigReply {
 }
 
 /** What saving these settings restarts, in the order the view lists every candidate: each row's own list, or every
- * candidate for a row from a server that doesn't say (#400). null when the server can't say what restarts. */
+ * candidate for a row from a server that doesn't say. null when the server can't say what restarts. */
 export function restartsFor(view: ConfigView, keys: string[]): string[] | null {
   const rows = new Map(view.sections.flatMap(s => s.settings).map(r => [r.key, r]));
   if (!view.restarts?.length && keys.some(k => !rows.get(k)?.restarts)) return null;
@@ -105,7 +105,7 @@ export function initialValues(view: ConfigView): Values {
   );
 }
 /** Where to go after a save that restarts the dashboard (maybe on another port): the same page there, Settings
- *  included, on the section it was on (#382). */
+ *  included, on the section it was on. */
 export function restartDestination(replyUrl: string | undefined, currentHref: string = location.href): string {
   const current = new URL(currentHref);
   const target = new URL(replyUrl ?? currentHref, currentHref);
@@ -122,7 +122,7 @@ export const labelOf = (row: Setting): string =>
 /** The line under a setting's label: its help, else its comment in defaults.toml, and for a new feature whether it
  *  is on by default. */
 export function helpOf(row: Setting): string {
-  // A feature's default isn't said on every line any more (#2728): the row marks one that differs from it (SettingRow)
+  // A feature's default isn't said on every line any more: the row marks one that differs from it (SettingRow)
   return row.help || row.description;
 }
 

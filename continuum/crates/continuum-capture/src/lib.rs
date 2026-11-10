@@ -8,7 +8,7 @@
 //! recorded or synthetic input; no test opens a live device.
 
 /// Every line this crate writes to stderr, stamped with the local date, time, and UTC offset when its service turned
-/// stamping on (`log::stamp_lines`), as the broker's log lines are (#1696). Shadows the standard macro crate-wide.
+/// stamping on (`log::stamp_lines`), as the broker's log lines are. Shadows the standard macro crate-wide.
 #[macro_export]
 macro_rules! eprintln {
     ($($arg:tt)*) => {
@@ -16,7 +16,7 @@ macro_rules! eprintln {
     };
 }
 
-/// Stderr line stamps (#1696).
+/// Stderr line stamps.
 pub mod log {
     use std::sync::atomic::{AtomicBool, Ordering};
 

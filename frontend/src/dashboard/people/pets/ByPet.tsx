@@ -1,13 +1,13 @@
-// Pets' "By pet" (#2297): the naming inbox's bulk view (../../naming/Bulk) over every waiting sighting recognition or
-// a suggestion names as a pet. The checked ones are labeled as the pet; the unchecked ones are marked not that pet
-// (#2364), so they stop being guessed as it and keep waiting.
+// Pets' "By pet": the naming inbox's bulk view (../../naming/Bulk) over every waiting sighting recognition or
+// a suggestion names as a pet. The checked ones are labeled as the pet; the unchecked ones are marked not that pet,
+// so they stop being guessed as it and keep waiting.
 import { Bulk, type BulkTarget } from '../../naming/Bulk';
 import { cameraName } from '../profile/role';
 import { type Pet, photoUrl, type Sighting, type SightingGroup, span } from './api';
 
 export const LABEL_MAX = 500; // the most sightings /pets/sightings/label takes in one call
 
-/** The pet a sighting's guess names, with how alike it looks (0 to 1): the server's shared guess (#2366), else a
+/** The pet a sighting's guess names, with how alike it looks (0 to 1): the server's shared guess, else a
  *  recognition match, else a suggestion. */
 function guessed(s: Sighting): { label: string; similarity: number } | undefined {
   if (s.guess !== undefined)

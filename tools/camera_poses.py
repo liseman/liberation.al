@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""A place's fixed cameras' pose series (#3289; spatial/poses.py): backfill them from the place's revisions, and
+"""A place's fixed cameras' pose series (spatial/poses.py): backfill them from the place's revisions, and
 measure what reading positions through them changes.
 
 Dry run (the default): the `seat` observations the place's tier 1 revisions in its current map frame already hold

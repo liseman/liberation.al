@@ -16,7 +16,7 @@ const HEADER: usize = 28;
 pub use continuum_catalog::MAX_RESTART_PROJECTION_BYTES;
 const MAX_STREAMS: usize = 65_536;
 const MAX_NAME: usize = 4096;
-// devbox had 8.1M segments on 2026-11-03 and grows about 6.5M a day; 8M refused every stop (#1818).
+// The Linux machine had 8.1M segments and grows about 6.5M a day; 8M refused every stop.
 const MAX_ROWS: usize = 64_000_000;
 
 /// A restart cache is unusable. Callers must rebuild from the catalog, never substitute an empty index.

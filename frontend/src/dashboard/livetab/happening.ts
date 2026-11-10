@@ -1,5 +1,5 @@
-// "What's happening" (#354, #356): a plain-language log of the room, newest at the bottom. The server writes it; Live
-// polls for what is new since the last reply while it shows (a hidden tab polls nothing, #330).
+// "What's happening": a plain-language log of the room, newest at the bottom. The server writes it; Live
+// polls for what is new since the last reply while it shows (a hidden tab polls nothing).
 import { type QueryClient, useQuery, useQueryClient } from '@tanstack/react-query';
 import { request } from '../../shared/http';
 

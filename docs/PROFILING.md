@@ -1,6 +1,6 @@
 # Service CPU profiling
 
-`PACK_PROFILE` opts a Python pack console service into a finite in-process CPU profile (#1743). It is off by
+`PACK_PROFILE` opts a Python pack console service into a finite in-process CPU profile. It is off by
 default. The package's startup hook checks the environment; the off path imports no profiler or configuration,
 starts no thread, and writes nothing. The service retains its existing command, PID, arguments, and signal handling.
 
@@ -80,9 +80,9 @@ captures are actionable errors.
 ## Where short wakeups wait
 
 Services that wake many times a second and sleep again before the next sample (listen, see-captions, and
-see-zones in the #3162 captures) leave most of their CPU in `nonrunning_unattributed_ticks`, so the function table
-cannot say where that polling or per-message overhead lives. A separate wait-site table answers it (#3180,
-`wait_method: "voluntary-switch-delta-at-nonrunning-endpoint-v1"`). Each sample also reads every thread's
+see-zones in the baseline captures) leave most of their CPU in `nonrunning_unattributed_ticks`, so the function table
+cannot say where that polling or per-message overhead lives. A separate wait-site table answers it
+(`wait_method: "voluntary-switch-delta-at-nonrunning-endpoint-v1"`). Each sample also reads every thread's
 `voluntary_ctxt_switches` from `/proc/self/task/<tid>/status`. A thread blocks once per voluntary switch, so the
 delta since its previous sample counts its wakeups. When a Python thread's endpoint is not running, those wakeups
 and its non-running CPU ticks go to that endpoint's stack in `wait_sites`; the leaf frame carries the current line,
@@ -98,9 +98,9 @@ Waiting for the GIL is also a voluntary switch, so contended threads add some wa
 polling with a 10 ms sleep shows at its sleep line with about 100 wakeups per second. Read it as "this site wakes N
 times a second and costs M non-running cores", then look for a longer timeout, a blocking wait, or batching.
 `tools/profile_services.py --profiles` prints the top ten sites by wakeups per second, innermost frame first, and
-the top ten threads by wakeups per second. Captures from before #3180 report the table as unavailable.
+the top ten threads by wakeups per second. Earlier captures without `wait_method` report the table as unavailable.
 
-The sampler's own CPU is `excluded_sampler_ticks`. The #3162 captures measured about 0.055 cores per profiled
+The sampler's own CPU is `excluded_sampler_ticks`. Baseline captures measured about 0.055 cores per profiled
 service at the default 0.05 s interval, before wait sampling added a second procfs read per thread per sample; check
 that field when a capture's budget matters, and raise `PACK_PROFILE_INTERVAL_SECONDS` to lower it.
 

@@ -1,5 +1,5 @@
 // The Ingest tab: bring photos, video, and audio in from files and links, and see what was brought in. Sources
-// (network cameras and photo libraries) are set up in Settings (settings/sources/, #1331). Everything goes through the same
+// (network cameras and photo libraries) are set up in Settings (settings/sources/). Everything goes through the same
 // pipeline (src/liberational/ingest/): kept by content hash, converted, and registered on Continuum.
 import {
   ActionIcon,
@@ -49,7 +49,7 @@ const STATUS: Record<IngestItem['status'], string> = {
   done: 'Added',
   failed: 'Failed',
 };
-// Which time a row shows (#2713): when it was taken or recorded, from the media itself or its source, else when it
+// Which time a row shows: when it was taken or recorded, from the media itself or its source, else when it
 // was added here.
 const TIME_WORD: Record<string, string> = {
   exif: 'taken',
@@ -147,7 +147,7 @@ function showItem(id: number) {
 
 const MATCHED_SHOWN = 5;
 
-/** The files an upload found already here, each with the item it matched (#2720): "copy.jpg was already here as
+/** The files an upload found already here, each with the item it matched: "copy.jpg was already here as
  *  beach.jpg", so the owner can see it's the same thing. The first MATCHED_SHOWN, then how many more. */
 function Matched({ matched }: { matched: { name: string; item: IngestItem }[] }) {
   return (
@@ -170,7 +170,7 @@ function Matched({ matched }: { matched: { name: string; item: IngestItem }[] })
 }
 
 // One file of an upload. A batch is uploaded one file at a time; past one file it shows as a queue, so file 4 of 9 is
-// visible and the rest aren't silent (#2721). Files dropped while it runs join the end.
+// visible and the rest aren't silent. Files dropped while it runs join the end.
 type Queued = {
   key: number;
   file: File;
@@ -231,7 +231,7 @@ const hasFiles = (e: globalThis.DragEvent) => !!e.dataTransfer && Array.from(e.d
 function Upload() {
   const refresh = useRefresh();
   const [msg, setMsg] = useState<Message>(null);
-  const [sent, setSent] = useState<number | null>(null); // the share of the file being uploaded that's sent (#2718)
+  const [sent, setSent] = useState<number | null>(null); // the share of the file being uploaded that's sent
   const [over, setOver] = useState(false);
   const [, rerender] = useReducer((n: number) => n + 1, 0);
   const queue = useRef<Queued[]>([]);
@@ -272,7 +272,7 @@ function Upload() {
   };
   const sendRef = useRef(send);
   sendRef.current = send;
-  // A drop anywhere on the page adds the files, with the whole page outlined while dragging (#2721).
+  // A drop anywhere on the page adds the files, with the whole page outlined while dragging.
   useEffect(() => {
     let depth = 0; // dragenter and dragleave fire for every element crossed
     const enter = (e: globalThis.DragEvent) => {

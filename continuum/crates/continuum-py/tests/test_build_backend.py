@@ -1,5 +1,5 @@
 """continuum-py's build backend turns the ffmpeg feature on where FFmpeg's libraries are, and never fails a build over
-it unless asked to (#1626)."""
+it unless asked to."""
 
 import os
 import sys

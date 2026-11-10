@@ -1,8 +1,8 @@
-// The Resource monitor (#2258, #2263): the usage chart (UsageChart, #2245) in a panel opened from the header's activity
+// The Resource monitor: the usage chart (UsageChart) in a panel opened from the header's activity
 // button. It's mounted by the app shell, not a page, so it stays open on every page until it's closed. On a wide screen
 // it floats: dragged by its title bar and resized from its corner. On a phone it docks as a bottom sheet. Open or
 // closed, where it sits, and its size are kept per viewer (liberational.prefs). The dashboard samples usage all the
-// time (machine_usage.Sampler, #2277), so opening the panel shows the whole last half hour; the chart polls only while
+// time (machine_usage.Sampler), so opening the panel shows the whole last half hour; the chart polls only while
 // it's open.
 import { CloseButton, Paper, Text, Title } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
@@ -37,7 +37,7 @@ export function placed(pref: UsagePanelPref, w: number, view: { width: number; h
   };
 }
 
-/** Whether the panel is open, for the top bar's menu (#2453). */
+/** Whether the panel is open, for the top bar's menu. */
 export const useUsagePanelOpen = (): boolean => usePrefs(s => s.usagePanel?.open === true);
 
 /** Open or close the panel. */

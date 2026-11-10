@@ -26,7 +26,7 @@
 //! nil id. Version 1 files (no id in the record or the footer entry) are still read, with the nil id for every
 //! record; the writer writes version 2.
 //!
-//! A frame's capture provenance (#1402) goes in a provenance record just before the frame's own record: the same
+//! A frame's capture provenance goes in a provenance record just before the frame's own record: the same
 //! head with tag "P", the frame's payload id, zero times and sequence, and 14 bytes (`layout u8` (1) |
 //! `device_seq u64` | `epoch u32` | `flags u8`). It is not a frame: the footer never lists it and frame indexes
 //! don't count it, so readers that go by the footer never see it. Only crash recovery reads it
@@ -128,11 +128,11 @@ pub enum ChunkFormat {
     /// An ordinary MP4 registered in place ([`crate::inplace_video`]): never written by the tier worker,
     /// and its frames are GOPs, read through [`crate::inplace_video`], not [`ChunkReader`].
     Mp4 = 8,
-    /// Tier 1 video of a raw camera (#900): one H.264 access unit per record (one record per Tier 0 frame), as a
+    /// Tier 1 video of a raw camera: one H.264 access unit per record (one record per Tier 0 frame), as a
     /// one-unit [`crate::gop`] record carrying the unit's times and keyframe flag. The GOP is a second; a chunk starts
     /// on a keyframe, so it decodes on its own, and a frame decodes from the keyframe before it in its chunk.
     H264Au = 10,
-    /// [`ChunkFormat::H264Au`] re-encoded to AV1 by the opt-in archive pass ([`crate::av1`], #1479): the same records
+    /// [`ChunkFormat::H264Au`] re-encoded to AV1 by the opt-in archive pass ([`crate::av1`]): the same records
     /// (payload ids, times, sequence numbers, tombstones) with one AV1 temporal unit each, in the same one-unit
     /// [`crate::gop`] record. The first unit is a keyframe carrying the sequence header, so the chunk decodes on its
     /// own; units are in presentation order (AV1 has no reordered output units).
@@ -708,7 +708,7 @@ fn scan_records(file: &mut File, len: u64, layout: Layout) -> Result<(Vec<Record
 
 /// The records of a chunk being written, from file offset `from` on, for a reader that follows a growing chunk without
 /// rescanning it whole each time (the gateway's stream listing re-read every live chunk from the start, about 1.8 s
-/// every few seconds, #2772). `from` is the offset the previous call returned, or 0 for the start. Returns the records
+/// every few seconds). `from` is the offset the previous call returned, or 0 for the start. Returns the records
 /// found (frames only, in file order, as [`ChunkReader::open`]'s scan keeps them) and the offset to continue from:
 /// just past the last whole record, so one half-written at the end is read whole next time. Once the chunk has its
 /// footer it's finished: the footer's records from `from` on come back with no offset, as there's nothing more to
@@ -827,7 +827,7 @@ pub fn remove(path: &Path) -> Result<(), ChunkError> {
         Err(e) if e.kind() == io::ErrorKind::NotFound => {}
         Err(e) => return Err(e.into()),
     }
-    crate::layout::prune_hour_dir(path); // an hour aged out whole leaves no directory behind (#2908)
+    crate::layout::prune_hour_dir(path); // an hour aged out whole leaves no directory behind
     Ok(())
 }
 
@@ -1224,7 +1224,7 @@ mod tests {
         let got = read_provenance(&path).expect("provenance");
         assert_eq!(got, BTreeMap::from([(id(0), attested(0)), (id(2), attested(2))]), "the orphan went with the tail");
 
-        // A chunk written without provenance records (every file before #1402's follow-up) reads as before.
+        // A chunk written without provenance records reads as before.
         let old = dir.path().join("old.cnk");
         let recs = write_chunk(&old, &frames(3));
         assert!(read_provenance(&old).expect("provenance").is_empty());

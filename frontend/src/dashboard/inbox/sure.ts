@@ -1,9 +1,9 @@
-// A research report's caveats and sources in plain words, for the Inbox reader (#2457). The server writes its
+// A research report's caveats and sources in plain words, for the Inbox reader. The server writes its
 // warnings for the model that answers (and for whoever built the pipeline); these say the same thing to the person
 // who asked. A warning this doesn't know is shown as the server wrote it.
 
 // Each known warning, in plain words, and whether it holds for every report (how the sources work) or says something
-// about this one. Only this report's own caveats can make it "Partly sure"; the rest fold away (#2674).
+// about this one. Only this report's own caveats can make it "Partly sure"; the rest fold away.
 const PLAIN: [RegExp, (m: RegExpMatchArray) => string, 'always' | 'this'][] = [
   [
     /sparse VLM observations/i,
@@ -60,7 +60,7 @@ export interface Verdict {
   rest: string[]; // the other caveats, folded
 }
 
-/** "How sure is this?" in one line (#2674): "Partly sure" when the answer came out partial or this report has a caveat of
+/** "How sure is this?" in one line: "Partly sure" when the answer came out partial or this report has a caveat of
  *  its own (snapshots it couldn't read), with the main one beside it; else "Fairly sure". The caveats that hold for
  *  every report (snapshots every few minutes, transcripts can be wrong) go in the fold, so they don't read as news. */
 export function verdict(status: unknown, warnings: readonly unknown[]): Verdict {

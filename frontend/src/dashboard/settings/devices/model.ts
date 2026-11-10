@@ -1,4 +1,4 @@
-// Settings' Devices section (#384): the pure parts. Settings' draft holds list settings as text joined with
+// Settings' Devices section: the pure parts. Settings' draft holds list settings as text joined with
 // ", " (vision.camera_names "cam0: front camera, cam1: rear camera"),
 // or as JSON when an item holds a comma (model.ts listText).
 import { listItems, listText } from '../model';

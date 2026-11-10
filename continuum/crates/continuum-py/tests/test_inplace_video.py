@@ -1,5 +1,5 @@
 """MP4 files registered in place through continuum_py, against a real broker process, and read back by GOP
-for the vision port (#549).
+for the vision port.
 
 Run with `mise run continuum-test`, which builds the broker first. `fixtures/bframes.mp4` is 2 seconds at 10 fps,
 64x48, H.264 with B-frames and a keyframe every 10 frames (made with ffmpeg's testsrc and libx264 -bf 2 -g 10).

@@ -227,7 +227,7 @@ pub struct StreamMeta {
 
 /// What a copy over `span` holds of its stream's time. A camera frame is an instant (capture stamps it with one
 /// time), yet it stands for its stream until the next frame: an instant on a stream with a nominal rate covers one
-/// period, so a range of frames reads as captured and a decode over it can be planned (#896). Anything with a
+/// period, so a range of frames reads as captured and a decode over it can be planned. Anything with a
 /// duration, or a stream with no rate, covers its own span.
 fn frame_span(meta: &StreamMeta, span: Interval) -> Interval {
     if span.len_ns() > 1 || !(meta.rate_hz > 0.0 && meta.rate_hz.is_finite()) {

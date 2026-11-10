@@ -1,4 +1,4 @@
-"""Clone speech from the voice service's warm model, for the dashboard (issue #333).
+"""Clone speech from the voice service's warm model, for the dashboard.
 
 The voice service already holds the clone model (Qwen3-TTS on CUDA or MLX), loaded and warmed at start. This module
 lets the dashboard use it instead of starting a process that loads the model again for every line (about 20 s):

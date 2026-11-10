@@ -1,7 +1,7 @@
-/* The live conversation's header: the title beside the microphones' meter (#2456). The turns are the shared
+/* The live conversation's header: the title beside the microphones' meter. The turns are the shared
    transcript's (transcript/transcript.module.css). */
 .transcript .transcript-head h2 {
-  font: 600 18px / 1.45 var(--mantine-font-family); /* a section heading, as theme.ts h2 (#2594) */
+  font: 600 18px / 1.45 var(--mantine-font-family); /* a section heading, as theme.ts h2 */
   margin: 0;
 }
 .conv-title {
