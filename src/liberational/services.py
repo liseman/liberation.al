@@ -154,6 +154,7 @@ SESSION = frozenset(
         "WAYLAND_DISPLAY",
         "DISPLAY",
         "XAUTHORITY",
+        "XDG_SESSION_TYPE",
         "PIPEWIRE_REMOTE",
         "PIPEWIRE_RUNTIME_DIR",
         "PULSE_SERVER",

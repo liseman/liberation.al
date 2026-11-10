@@ -1274,6 +1274,8 @@ LAUNCHER = {
     "DBUS_SESSION_BUS_ADDRESS": "unix:path=/run/user/4242/bus",
     "WAYLAND_DISPLAY": "wayland-0",
     "DISPLAY": ":0",
+    "XDG_SESSION_TYPE": "wayland",
+    "LOGNAME": "alice",
     "USER": "alice",
     "LANG": "en_US.UTF-8",
     "LC_TIME": "en_GB.UTF-8",
@@ -1283,7 +1285,8 @@ LAUNCHER = {
 def test_a_supervised_service_gets_the_session_and_nothing_else_from_the_launcher(monkeypatch):
     monkeypatch.setattr(s, "DARWIN", False)
     env = s.environment({}, "listen", launcher=LAUNCHER)
-    session = ("XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS", "WAYLAND_DISPLAY", "DISPLAY", "USER", "LANG", "LC_TIME")
+    session = ("XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS", "WAYLAND_DISPLAY", "DISPLAY", "XDG_SESSION_TYPE")
+    session += ("USER", "LOGNAME", "LANG", "LC_TIME")
     assert {k: env[k] for k in session} == {k: LAUNCHER[k] for k in session}
     own = {"PATH", "HOME", "RUST_LOG", "HF_HUB_DISABLE_PROGRESS_BARS", "TQDM_DISABLE", "TRANSFORMERS_VERBOSITY"}
     assert set(env) == set(session) | own | {"OPENCV_FFMPEG_LOGLEVEL", "OPENCV_LOG_LEVEL"}
