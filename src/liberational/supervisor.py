@@ -207,6 +207,9 @@ class Supervisor:
     missing_devices: Callable[[], Sequence[Mapping[str, str]]] | None = None
     unregistered: list[dict[str, str]] = field(default_factory=list)
     devices_checked: float | None = None
+    # Restarts someone asked for (restart(): Settings, a deploy, or `pack-supervisor restart`) still in progress. While
+    # one runs, a service being down is planned, and the window says "Restarting" rather than "not recording".
+    restarting: int = 0
     workers: dict[str, Worker] = field(default_factory=dict)
     lock: threading.RLock = field(default_factory=threading.RLock)
     started_at: float = 0.0
@@ -428,6 +431,17 @@ class Supervisor:
         unknown = [name for name in chosen if name not in self.workers]
         if unknown:
             raise KeyError(f"not a selected service: {', '.join(unknown)}")
+        with self.lock:
+            self.restarting += 1
+            self._publish()
+        try:
+            return self._restart(chosen)
+        finally:
+            with self.lock:
+                self.restarting -= 1
+                self._publish()
+
+    def _restart(self, chosen: tuple[str, ...]) -> str:
         if not {BROKER, CAPTURE} & set(chosen):
             self.stop(chosen)
             self.start(chosen)
@@ -487,6 +501,7 @@ class Supervisor:
                 "pid": os.getpid(),
                 "started_at": self.started_at,
                 "unregistered": list(self.unregistered),
+                "restarting": self.restarting > 0,
                 "services": {
                     name: {
                         "state": worker.state,
