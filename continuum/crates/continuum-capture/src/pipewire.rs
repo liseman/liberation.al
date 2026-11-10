@@ -172,7 +172,7 @@ fn run(
             let time = stream.time().ok();
             // Every buffer queued since the last call, oldest first: this callback runs on the main loop, and one
             // wakeup can stand for several buffers. Taking one per call left the rest queued until PipeWire dropped
-            // them (the Wave 3 lost 30 to 60 ms every 20 to 60 s, 2026-10-30).
+            // them (the Wave 3 lost 30 to 60 ms every 20 to 60 s).
             let frame_bytes = usize::from(format.channels) * 4;
             let mut taken: Vec<Vec<u8>> = Vec::new();
             while let Some(mut buffer) = stream.dequeue_buffer() {

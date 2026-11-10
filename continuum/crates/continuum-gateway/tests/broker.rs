@@ -200,7 +200,7 @@ async fn streams_and_ranges_come_from_the_broker_when_it_is_in_the_loop() {
     ws_client.send(Message::Text(spans.into())).await.expect("send");
     let Message::Text(reply) = ws_client.next().await.expect("spans").expect("ok") else { panic!("text") };
     assert!(matches!(serde_json::from_str::<Reply>(&reply), Ok(Reply::Spans { .. })), "{reply}");
-    // Video past the history window ages out (#1748): its stretch is no longer playable, and the spans reply says it
+    // Video past the history window ages out: its stretch is no longer playable, and the spans reply says it
     // expired, so a reader doesn't call it unrecorded.
     // The commit clock moves with the writer's clock sample.
     core.upkeep_now().await.expect("upkeep");
@@ -409,7 +409,7 @@ fn grounding(w: &mut continuum_segments::Writer, at: u64, label: &str) {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_live_session_shows_the_objects_standing_in_view_then_follows_new_groundings() {
-    // camera.objects is in the segment store (#1791). A page that starts following shows the objects in view now,
+    // camera.objects is in the segment store. A page that starts following shows the objects in view now,
     // from the camera's newest grounding in the last minute, then each grounding written after it opened.
     let dir = tempfile::tempdir().expect("tempdir");
     let socket = dir.path().join("broker.sock");
@@ -479,7 +479,7 @@ fn now_ns() -> u64 {
         .expect("ns")
 }
 
-/// #2380: one connection watches two cameras, one at every frame and one at 1 fps, beside a request with a `req`.
+/// One connection watches two cameras, one at every frame and one at 1 fps, beside a request with a `req`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_watch_follows_many_cameras_on_one_connection_each_at_its_own_rate() {
     use continuum_gateway::header::FLAG_WATCH;

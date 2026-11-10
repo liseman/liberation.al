@@ -28,7 +28,7 @@ _busy = threading.Lock()
 _last = {"t": 0.0}
 # {face group: its count when its photo couldn't be cut} (its frame gone, or its box too small). Tried again only once
 # the group has been seen again: each pass with one left read SHOT_DAYS of sightings, about 54,000 records every two
-# minutes, for groups it could never cut (#1516).
+# minutes, for groups it could never cut.
 _failed: dict[int, int] = {}
 
 
@@ -106,7 +106,7 @@ def page_of(gid: int, offset: int, limit: int, state: State = None) -> tuple[lis
     return [{"id": f["id"], "ts": float(f["ts"])} for f in page], len(found)
 
 
-KEPT_VECTORS = 256  # a group's embedding is rebuilt from at most this many of its newest kept shots (#2008)
+KEPT_VECTORS = 256  # a group's embedding is rebuilt from at most this many of its newest kept shots
 
 
 def kept_embeddings(gid: int, limit: int = KEPT_VECTORS, state: State = None) -> np.ndarray:

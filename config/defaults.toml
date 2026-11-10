@@ -62,7 +62,7 @@ models = "data/models"
 # Media added in the dashboard's Ingest tab and by pack-ingest (ingest/): the originals, what they were converted
 # to for Continuum, Wyze recordings waiting to be ingested, and the Google Photos browser profile.
 ingest = "data/ingest"
-# see-decode's socket and its shared frame ring (#1955): rewritten at full frame rate and never needed after a restart,
+# see-decode's socket and its shared frame ring: rewritten at full frame rate and never needed after a restart,
 # so they belong in memory, not on disk. Empty picks a per-user directory under /dev/shm (a tmpfs on Linux), or under
 # the system temp directory where there's no /dev/shm (macOS).
 decoded = ""
@@ -159,8 +159,8 @@ model = ""
 # pack-journal --day rebuild never opens one. When it isn't pulled (tools/fetch_models.py, `mise run models`),
 # won't fit even then, or fails to load, the pages are written with the entries' model (journal.model, else
 # models.ollama.llm), and that is logged once. Entries and today so far always use the entries' model. Empty: every
-# page is written with the entries' model, on every pass. On devbox qwen3.8:27b (17 GB) writes the best pages and
-# fits on one 24 GB GPU only in the window; qwen3:14b (10.5 GB at 8192) fits beside the rest (#2930).
+# page is written with the entries' model, on every pass. On the Linux machine qwen3.8:27b (17 GB) writes the best
+# pages and fits on one 24 GB GPU only in the window; qwen3:14b (10.5 GB at 8192) fits beside the rest.
 page_model = "qwen3.8:27b"
 # Context in tokens for page_model (memory/journal_pages.py). 0, or empty, uses the entries' context
 # (summarize.NUM_CTX, 4096).
@@ -229,14 +229,14 @@ model = ""
 # Evidence grows with the context, then stops at a cap: 16000 characters while ask.model is empty and this is 0
 # (4416 at 4096, after the reply and prompt reserve), and 192000 once ask.model is set or this is above 0.
 # Don't set this while ask.model is empty on a machine whose voice loop shares models.ollama.llm: Ollama reloads
-# a model whose context changes, so Ask and the voice loop would keep reloading it (#917).
+# a model whose context changes, so Ask and the voice loop would keep reloading it.
 num_ctx = 0
 # Let a thinking model (qwen3:14b, a -thinking build) reason before it answers. Slower, and its reasoning takes a
 # third of the context, which the evidence gives up; a model that can't think fails the answer. The search loop's own
 # calls never think.
 think = false
 
-# Research (memory/research.py, the pack-research service, #1336): an Ask question taken slowly in the background,
+# Research (memory/research.py, the pack-research service): an Ask question taken slowly in the background,
 # with more search rounds, a longer answer, and no deadline, one at a time at idle priority; each finished one is a
 # report in the dashboard's Inbox. It runs only on a server of Ask's own (ask.ollama_url, or ollama_url here), never the
 # voice loop's.
@@ -292,7 +292,7 @@ enabled = true
 # Seconds between one person's visits or lines that still count as one encounter.
 gap_s = 120.0
 
-# Camera video is kept for a fixed window, like an NVR (#1748); only video goes.
+# Camera video is kept for a fixed window, like an NVR; only video goes.
 [video_archive]
 # Off by default. On re-encodes camera video to AV1 (SVT-AV1) once it's after_hours old, in the tier worker, at the
 # lowest CPU priority: about half the disk of the cameras' H.264, for up to about 6 CPU cores all day with six
@@ -321,7 +321,7 @@ free_floor_percent = 15
 batch = 1000
 
 [spatial]
-# Fixed-camera places (pack-spatial-cameras, daily at midday, #2825): the fixed cameras that see the same space become a
+# Fixed-camera places (pack-spatial-cameras, daily at midday): the fixed cameras that see the same space become a
 # place, with a point cloud, a floorplan, and each camera's pose. Needs CUDA, MASt3R's runtime (`mise run mast3r`),
 # and its checkpoint ([models.hf.mast3r], `mise run models`); without them the job logs why and does nothing.
 cameras_enabled = true
@@ -329,32 +329,26 @@ cameras_enabled = true
 runtime = "data/mast3r"
 # Where `mise run geocalib` puts GeoCalib's own venv. pack-spatial-cameras runs spatial/geocalib_runner.py there on
 # each fixed camera's frame, and its gravity and focal replace MASt3R's for a camera when its pitch is within 3
-# degrees (#2960). Without the runtime or its checkpoint ([models.files.geocalib]) cameras keep MASt3R's.
+# degrees. Without the runtime or its checkpoint ([models.files.geocalib]) cameras keep MASt3R's.
 geocalib_runtime = "data/geocalib"
 # Where `mise run cut3r` puts CUT3R's pinned code (src/) and its own venv (.venv/). spatial/walkthrough.py
-# (pack-walkthrough, #2931) runs spatial/cut3r_runner.py there for the walk's camera poses. A missing runtime or
+# (pack-walkthrough) runs spatial/cut3r_runner.py there for the walk's camera poses. A missing runtime or
 # checkpoint ([models.files.cut3r]) fails that walk and says to run `mise run cut3r` or `mise run models`. The
 # runner needs CUDA.
 cut3r_runtime = "data/cut3r"
 # GPU index for MASt3R, CUT3R, and the splat trainer; -1 picks the one with the most free memory when the job starts.
 gpu = -1
-# Whether spatial/cameras.py trains a 3D Gaussian splat after the daily fixed-camera run (spatial/splats.py,
-# #2877), from the place's map, its cameras' poses, and a day of their recorded frames, for the Places 3D view.
+# Whether spatial/cameras.py trains a 3D Gaussian splat after the daily fixed-camera run (spatial/splats.py),
+# from the place's map, its cameras' poses, and a day of their recorded frames, for the Places 3D view.
 # Off skips that step and logs nothing. pack-spatial-splat ignores this and makes them by hand. The trainer needs
 # CUDA; the hand command logs and skips on macOS.
 splats_enabled = true
 # Where `mise run gsplat` puts gsplat's own venv (.venv/). spatial/splats.py reads it. With no python at
 # .venv/bin/python, it logs why once and makes nothing.
 splat_runtime = "data/gsplat"
-# Each fixed camera's height from the floor to its lens, in metres, keyed by its name in config/devices.toml
-# ({ cam0 = 1.5 }). spatial/fuse.py scales a place's map so those cameras stand this high: MASt3R's maps aren't
-# metric (#2960). Empty, a camera left out, or a height of 0 or below is unknown, and a map with no known camera
-# keeps its scale.
-camera_heights_m = {}
-# Fixed cameras that look outdoors, by their names in config/devices.toml (["patio", "driveway"]).
-# spatial/cameras.py (pack-spatial-cameras) leaves them out: no indoor place can include them, and alone each
-# would become a place of its own (#3000). Empty leaves every fixed camera in.
-outdoor_cameras = []
+# A fixed camera's measured height and whether it looks outdoors are on its own entry in config/devices.toml, as
+# `mount = { height_m = 1.5, outdoor = false }`, and a camera on a moving rig gives its pose on the rig there instead
+# (spatial/rig.py, #5; config/devices.example.toml shows both).
 
 [faces]
 # Days an unnamed face group stays listed and counted on People's "to name" (dashboard/server.py,
@@ -363,10 +357,10 @@ outdoor_cameras = []
 # neither time is left off the list. Older groups stay in the store and come back when one of those times
 # is inside the window again.
 unnamed_days = 7
-# The named faces learn the household (#3013): a track your named faces alone confidently name someone, with no look
+# The named faces learn the household: a track your named faces alone confidently name someone, with no look
 # of it matching anyone else, adds a couple of its views of them (at most 16 learned views a person, apart from the
-# ones you named; list or remove them with `pack-faces learned` and `pack-faces unlearn`). Off for now: on
-# 2026-11-08's faces it also named a few tracks of a person since deleted as their lookalike. Off: only the faces you
+# ones you named; list or remove them with `pack-faces learned` and `pack-faces unlearn`). Off for now: in testing
+# it also named a few tracks of a person since deleted as their lookalike. Off: only the faces you
 # name teach it.
 learn = false
 
@@ -375,7 +369,7 @@ learn = false
 # references with no cutoff.
 label_days = 14
 
-# Times someone came into view of a camera (#1825): episodes from see-actions' tracked people, which see-zones writes
+# Times someone came into view of a camera: episodes from see-actions' tracked people, which see-zones writes
 # as presence.span rows, over see-actions' coverage. Counts are times, never people, and never who.
 [presence]
 # On: count answers, speech, Review's came-into-view chips, and the day summary's section use the episodes.
@@ -444,11 +438,11 @@ speech_gate_min_s = 0.25
 # without restarting the microphone service.
 sensitivity = 70
 
-# Auto gain (#410, #798): where the listen worker steers a mic's speech peaks (the 95th percentile of 20 ms RMS), in
+# Auto gain: where the listen worker steers a mic's speech peaks (the 95th percentile of 20 ms RMS), in
 # dBFS, for each mic it is on for (see [audio.mic_auto_gain]). It moves the mic's own capture volume when the OS can
 # set it, else a software gain. Changes apply within about a second, without a restart.
 auto_gain_target_dbfs = -20
-# Two microphones hearing the same speech (audio/twins.py, #285): a line from one mic that overlaps in time with a
+# Two microphones hearing the same speech (audio/twins.py): a line from one mic that overlaps in time with a
 # line just written from another, starts within dedup_window_s of it, and has words at least dedup_similarity alike
 # (0 to 1, as difflib compares them), is the same thing said, and isn't written again. A line that may be the voice
 # password is always written. dedup_window_s = 0 turns it off.
@@ -472,7 +466,7 @@ primary_devices = ["reSpeaker"]
 [audio.mic_channel]
 
 [vision]
-# Shared decoding for caption and object readers (see-decode, #1738). "*" selects H.264 cameras; explicit names
+# Shared decoding for caption and object readers (see-decode). "*" selects H.264 cameras; explicit names
 # select those cameras; [] leaves these readers on their own decoders. see-actions always reads every selected
 # camera through see-decode, independently of this setting.
 shared_decode_cameras = ["*"]
@@ -482,9 +476,10 @@ shared_decode_gpu = 0
 # Legacy OS camera indexes for missing-manifest fallback and --from-v1 manifest import. Current capture
 # selects cameras through config/devices.toml.
 cams = [0]
-# Display names used in People and Review: one "camera ID: display name" per camera. A camera with no name
-# shows its native ID.
-places = []
+# Display names used in People and Review: one "camera ID: name" per camera, naming the view ("cam0: front camera"),
+# never a room: a camera is an angle on what holds it, and where it looks comes from its mount and pose (#5). A
+# camera with no name shows its native ID.
+camera_names = []
 # auto picks mlx-server on Apple Silicon and ollama elsewhere.
 backend = "auto"
 # Legacy capture size and frame rate for --from-v1 manifest import. Current per-camera capture settings
@@ -503,12 +498,12 @@ objects = true
 # "auto" takes the last CUDA GPU, else Apple's GPU, else the CPU; or name one ("cuda:0", "cpu"). Caption-grounded
 # animal embeddings use this default. see-actions uses its selected vision backend's device.
 animal_models_device = "auto"
-# How long a network camera waits between captions, seconds (#1641): a change in view within this long of its last
+# How long a network camera waits between captions, seconds: a change in view within this long of its last
 # caption is captioned once the time passes, and its records meanwhile repeat the last caption, marked deferred.
 # Object grounding keeps its own cadence. USB cameras don't wait. 0 is no wait.
 network_caption_every_s = 60.0
 
-# see-actions (#1745) analyzes every manifest camera at this many frames a second: people, skeletons, tracks,
+# see-actions analyzes every manifest camera at this many frames a second: people, skeletons, tracks,
 # actions, movement, walk-bys, faces, and animals. [vision.actions_camera_fps] sets one camera's rate by name.
 actions_fps = 10.0
 # Optional per-camera CUDA device indexes for see-actions, keyed by manifest camera name. Empty uses the highest
@@ -574,7 +569,7 @@ command_attributes = false
 
 [events]
 # New feature: Counts of named events
-# "How many times did I open the fridge today" is answered from detected events (memory/event_counts.py, #290) when
+# "How many times did I open the fridge today" is answered from detected events (memory/event_counts.py) when
 # the question names an event the detector or the owner has named: the count per span, the recordings analyzed, and a
 # Review link for each, or that nothing covers the window. Never from captions. Off: such questions go the way other
 # history questions do.
@@ -644,7 +639,7 @@ detector = "scrfd/det_10g.onnx"
 [models.adaface]
 recognition = "adaface/adaface_ir50_webface4m_rgb.onnx"
 
-# EfficientAT mn10_as (MIT, AudioSet), the audio tagger that marks lines heard from a TV while one is on (#2468).
+# EfficientAT mn10_as (MIT, AudioSet), the audio tagger that marks lines heard from a TV while one is on.
 # Not fetched: built on each machine with tools/export_audio_tagger.py, from a pinned commit and checksummed
 # checkpoint. Optional: without these files nothing is tagged by ear, and "This is TV" still marks lines by hand.
 [models.audio_tagger]
@@ -679,8 +674,8 @@ needs = "cuda"
 # EdgeTAM prompted/automatic image masks (Meta code/weights Apache-2.0), Transformers conversion by its contributor.
 # Fixed checkpoint revision and local directory keep on-demand requests entirely offline.
 [models.hf.mast3r]
-# Fixed-camera places (#2825): MASt3R ViT-L 512, metric (naver; code and weights CC BY-NC-SA 4.0, the weights also
-# under their training datasets' non-commercial terms; accepted for now, 2026-11-07). Only its safetensors and config.
+# Fixed-camera places: MASt3R ViT-L 512, metric (naver; code and weights CC BY-NC-SA 4.0, the weights also
+# under their training datasets' non-commercial terms; accepted for now). Only its safetensors and config.
 repo = "naver/MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric"
 revision = "06e7259f34c3060f322df5cb0c7b9094f57e41fc"
 path = "data/models/mast3r"
@@ -693,13 +688,13 @@ revision = "c266ce53b3fc00f0f495b583f6a116c4e57f53bb"
 path = "data/models/edgetam"
 allow_patterns = ["*.json", "*.safetensors", "*.txt"]
 
-# see-actions' animal check (#2192): Google's SigLIP 2 Base B/16 (Apache-2.0), about 1.5 GB on disk,
+# see-actions' animal check: Google's SigLIP 2 Base B/16 (Apache-2.0), about 1.5 GB on disk,
 # fetched into the standard Hugging Face cache. The processor supplies its image normalization and tokenizer.
 [models.hf.animal_verifier]
 repo = "google/siglip2-base-patch16-224"
 allow_patterns = ["config.json", "preprocessor_config.json", "tokenizer.json", "tokenizer.model", "tokenizer_config.json", "special_tokens_map.json", "model.safetensors"]
 
-# Pet embeddings for see-actions and caption-grounded sightings (#2193): DINOv3 ViT-S/16.
+# Pet embeddings for see-actions and caption-grounded sightings: DINOv3 ViT-S/16.
 # Gated weights require operator license acceptance and HF access approval before fetching. DINOv2 and
 # DINOv3 are both 384-dimensional, but their vectors are incompatible; discard old pet vectors at cutover.
 [models.hf.animal_embedding]
@@ -719,15 +714,15 @@ member = "det_10g.onnx"
 sha256 = "80ffe37d8a5940d59a7384c201a2a38d4741f2f3c51eef46ebb28218a7b0ca2f"
 
 [models.files.geocalib]
-# Fixed cameras' gravity and focal from one frame (spatial/geocalib_runner.py, #2960): GeoCalib's pinhole weights
+# Fixed cameras' gravity and focal from one frame (spatial/geocalib_runner.py): GeoCalib's pinhole weights
 # (cvg/GeoCalib v1.0 release), about 116 MB. It's a PyTorch checkpoint: the runner loads it as weights, never as code.
 url = "https://github.com/cvg/GeoCalib/releases/download/v1.0/geocalib-pinhole.tar"
 path = "data/models/geocalib/geocalib-pinhole.tar"
 sha256 = "86d6aeacd8bbd974c59ce39f61854e00d36911c732ad89be471476fd708722ac"
 
 [models.files.cut3r]
-# Walkthrough camera poses (spatial/walkthrough.py reads this path; pack-walkthrough, #2931): CUT3R 512 DPT
-# (CUT3R/CUT3R; code and weights CC BY-NC-SA 4.0, accepted 2026-11-08), about 3.2 GB. The authors publish it on
+# Walkthrough camera poses (spatial/walkthrough.py reads this path; pack-walkthrough): CUT3R 512 DPT
+# (CUT3R/CUT3R; code and weights CC BY-NC-SA 4.0, accepted for now), about 3.2 GB. The authors publish it on
 # Google Drive; this mirror is byte for byte the same file (sha256). It's a pickle: spatial/cut3r_runner.py loads
 # it weights-only, never as code. A missing file fails the walk.
 url = "https://huggingface.co/blanchon/CUT3R/resolve/bdd24091fb5120b609e178aee1f71bd972aa7986/cut3r_512_dpt_4_64.pth"
@@ -736,7 +731,7 @@ sha256 = "45f7e98a0a64dbeb54901ae2b878cd8cd125f20a4497316483f0bd6f109f8103"
 needs = "cuda"
 
 [models.files.megaloc]
-# Walkthrough revisit proposals (spatial/retrieval.py reads this path; pack-walkthrough, #2931): MegaLoc
+# Walkthrough revisit proposals (spatial/retrieval.py reads this path; pack-walkthrough): MegaLoc
 # (gberton/MegaLoc, MIT), the authors' ONNX export, about 460 MB, run on the CPU through onnxruntime. A walk long
 # enough to have revisits fails without it (a Stray Scanner walk closes none instead).
 url = "https://huggingface.co/gberton/MegaLoc/resolve/a0f34722c4297ff787e022433799250180860af7/megaloc.onnx"
@@ -806,14 +801,14 @@ member = "20230831/rtmpose_onnx/rtmpose-m_simcc-body7_pt-body7-halpe26_700e-256x
 path = "data/models/rtmpose-m_halpe26_256x192.onnx"
 sha256 = "55b81170e236040b59fc792ad0a8315301ac4c079a3bdb1095d838aad3088d18"
 
-# Action model for see-actions (#1745): ST-GCN++ (PYSKL, Apache-2.0), the joint stream trained on NTU RGB+D 120
+# Action model for see-actions: ST-GCN++ (PYSKL, Apache-2.0), the joint stream trained on NTU RGB+D 120
 # HRNet 2D keypoints, cross-subject. A 5.9 MB PyTorch checkpoint, read with weights_only (no code runs from it).
 [models.files.action_stgcnpp]
 url = "https://download.openmmlab.com/mmaction/pyskl/ckpt/stgcnpp/stgcnpp_ntu120_xsub_hrnet/j.pth"
 path = "data/models/stgcnpp_ntu120_xsub_hrnet_j.pth"
 sha256 = "c6e074210fa30c01081460665ce9c1c221ba4a60d7eeb10456cde6e8ac40486e"
 
-# Clip action model for see-actions (#1951): MoViNet-A2 base, trained on Kinetics-600. The authors' TensorFlow weights
+# Clip action model for see-actions: MoViNet-A2 base, trained on Kinetics-600. The authors' TensorFlow weights
 # (Apache-2.0) as a PyTorch state_dict by Atze00/MoViNet-pytorch (MIT), 21 MB, read with weights_only into
 # see/movinet.py's port (no code runs from it).
 [models.files.action_movinet]
@@ -827,7 +822,7 @@ sha256 = "4c1cbef685413caffecd7dcdc656a8e009836868a0e5de47ce42a8486cc91659"
 url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin"
 path = "data/models/ggml-large-v3-turbo-q5_0.bin"
 
-# Device makers for Known › Devices (proximity/vendors.py, #3267): the IEEE registry of address blocks, MA-S (36-bit),
+# Device makers for Known › Devices (proximity/vendors.py): the IEEE registry of address blocks, MA-S (36-bit),
 # MA-M (28-bit), and MA-L (24-bit), about 4.5 MB in all. No checksum: the IEEE updates them every week, and a copy is
 # kept until it's deleted (delete them and re-run `mise run models` to refresh). Where they're missing, Debian and
 # Ubuntu's ieee-data package (/usr/share/ieee-data) stands in. Read only at a lookup, never fetched at runtime.
@@ -864,7 +859,7 @@ sha256 = "401d8e0962d2586dc2526e9ecedef40803c6e09b689767a526e86caa783c3166"
 
 # Linked-device history from Bluetooth sightings and router inventories.
 [devices]
-# Who is home and where my things are (#1329).
+# Who is home and where my things are.
 # Devices linked to people or named as things (pack-devices link), from Bluetooth sightings and the router's client
 # list. Nothing alerts.
 # Sightings of one device no more than this many seconds apart are one stay; longer quiet is "left".

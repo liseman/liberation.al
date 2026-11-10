@@ -2,12 +2,10 @@
 
 Continuum Broker is the data layer: one Rust daemon that every process uses to record, find, and forget data,
 whether it is a live camera frame, a compressed clip from last week, or a search over face embeddings. Code lives in
-`continuum/` in this repo; the goal is #528.
+`continuum/` in this repo.
 
-This document is the broker's design reference. It started from Joe's architecture conversation and handoff
-proposal (a Gemini chat, saved as a
-[Google Doc](https://docs.google.com/document/d/18_6iz9eBy9GotzOo4L3rXcZJGYiZkMIz751XvnWJZDU/edit)); where the two
-disagree, this document wins.
+This document is the design reference for `continuum/`: the broker, shared memory, catalog, storage tiers, vector and
+text search, browser gateway, capture workers, and SDKs.
 
 ## What lives where
 
@@ -37,21 +35,19 @@ everything derived from it stays.
 
 ## Decisions
 
-The handoff was written in a chat and contradicts itself in places. Each decision below settles one of those, or a
-gap it left open, and says why.
+Each decision below states a core boundary of the data layer and its reason.
 
 ### 1. Capture runs outside the broker
 
 Cameras, microphones, and the IMU are owned by dedicated capture worker processes that write into the broker's shared
-memory and send it an ingest notice. The broker binary has no capture code. The handoff's file tree puts an `ingest/`
-module inside `continuum-broker`; that is dropped.
+memory and send it an ingest notice. The broker binary has no capture code.
 
-Why: Joe chose this in the chat, and it keeps a hardware or driver fault from taking the broker down with it. A camera
+Why: it keeps a hardware or driver fault from taking the broker down with it. A camera
 that hangs, a USB reset, or a crash inside a capture library kills one capture worker, which restarts, while the
 catalog, the scheduler, and every other stream keep going. Capture is a P0 producer like any other (see "Scheduler").
 
 The same reasoning puts video encoding and the audio's Opus encoding (Tier 0 to Tier 1) in a separate tier
-worker process rather than in the broker's flusher threads, as the chat had it. The broker moves bytes and keeps the
+worker process rather than in the broker. The broker moves bytes and keeps the
 catalog; anything that links FFmpeg (decision 13) or a device API runs in a worker, so the broker builds and runs
 with no media libraries at all.
 
@@ -63,17 +59,15 @@ with no media libraries at all.
 | 1 | Warm | NVMe | Short independently decodable recording chunks, including native H.264 and closed audio chunks encoded as Opus |
 | 2 | Cold | NVMe (or a slower disk) | Older chunk files retained by existing catalog locators |
 
-The chat uses Tier 0, 1, and 2; the handoff's diagram and schema use Tier 1, 2, and 3 for the same things. This
-numbering is the one to use everywhere: code, schema, logs, and docs. The schema's `StorageTier` enum is `Tier0Hot`,
+This numbering is used everywhere: code, schema, logs, and docs. The schema's `StorageTier` enum is `Tier0Hot`,
 `Tier1Warm`, and `Tier2Cold`, and nothing else.
 
-Why: hot memory is tier 0 in the chat, in the goal issue, and in how people talk about it ("tier zero is RAM"), so the
-handoff's numbering is the odd one out.
+Why: hot memory is tier 0 ("tier zero is RAM"), matching the "T0" in the arena and slab names.
 
 ### 3. Both request flows, plus registration, dispatch, and ingest
 
-The chat describes a consumer flow: a consumer asks for data, gets a quote if the data has to be computed or hasn't
-been captured yet, and commits or cancels. The handoff's schema describes only a worker lease flow: a worker asks for
+In the consumer flow, a consumer asks for data, gets a quote if the data has to be computed or hasn't
+been captured yet, and commits or cancels. In the worker lease flow, a worker asks for
 an output buffer and a compute slot, and commits its result. Both are needed, and they meet in the middle: committing a
 consumer's promise is what makes the broker dispatch jobs to workers. The full message set is in "Request flows".
 
@@ -87,9 +81,9 @@ broker's own catalog holds only time and provenance (redb). A vector search is a
 vector worker like any other derived stream, and the vector worker's rows point back to the broker payload or
 segment row each came from.
 
-Why: the chat recommended it, and it keeps LanceDB's heavy dependency tree, its compaction work, and its memory use
-out of the process every other process depends on. It also lets the vector worker restart or rebuild its index
-without touching the catalog. The handoff's diagram drew LanceDB inside the broker; that is dropped.
+Why: it keeps LanceDB's heavy dependency tree, its compaction work, and its memory use
+out of the process every other process depends on, and lets the vector worker restart or rebuild its index
+without touching the catalog.
 
 ### 5. Forgetting is a cascading purge now, cryptographic shredding later
 
@@ -99,20 +93,18 @@ purged data goes too, across the catalog, Tier 0 slabs, Tier 1 and Tier 2 files,
 details are in "Forgetting". The segment store forgets its own rows (see "What lives where").
 
 Why: v1 already promises complete forgetting (the event log's purges, People: Delete), so Continuum can't ship without it,
-and a cascade over the provenance graph is the straightforward way to make it complete. The handoff calls this
-"cryptographic forgetting" but describes only a cascade. Encrypting each entity's or day's data with its own key and
+and a cascade over the provenance graph is the straightforward way to make it complete. Encrypting each entity's or day's data with its own key and
 destroying the key (crypto shredding) is a real improvement for backups and for files that are hard to rewrite, but it
-is separate work, filed as its own issue.
+is separate work.
 
 ### 6. Use current dependency versions
 
-The handoff's `Cargo.toml` pins versions from late 2024 (redb 2.2, lancedb 0.13, arrow 53, pyo3 0.23, flatbuffers
-24.3, tokio-tungstenite 0.24). Use the current releases and pin only when something breaks, the same rule as the rest
-of the repo. "Stack" lists what was current when this was written.
+Use current stable crate releases and pin only when something breaks, the same rule as the rest
+of the repo.
 
 ### 7. Tasks run through mise, not a justfile
 
-Continuum's tasks (schema code generation, build, lint, test, the Python SDK build, and a dev broker) are mise tasks in
+Continuum's tasks (schema code generation, build, release, lint, test, the Python SDK build, and the status check) are mise tasks in
 the repo's `mise.toml`, named `continuum-*`, and the Rust toolchain comes from mise as well. There is no `justfile`.
 
 Why: the repo already runs everything through mise (`mise run lint`, `mise run test`, `mise run frontend`), and one
@@ -120,9 +112,7 @@ task runner means one place to look.
 
 ### 8. Payload ids are UUIDv7
 
-Every payload has a 128-bit UUIDv7 id. The handoff uses two different ids for the same thing: a ULID `artifact_id` in
-the chat's envelope, and a composite `PayloadId { source_id, seq_id, timestamp_ns }` in its schema. Both are replaced
-by one UUIDv7, stored as 16 bytes. The time-range key used for scans is separate (see "Catalog").
+Every payload has a 128-bit UUIDv7 id, stored as 16 bytes. The time-range key used for scans is separate (see "Catalog").
 
 These are the same ids v1 makes. `domain/kernel.py` keeps them as strings (`str(uuid.uuid7())`); Continuum keeps them
 in their 16 byte binary form on the wire and in the catalog. The ported kernel types convert at the boundary (the
@@ -145,8 +135,7 @@ the monotonic clock's order and spacing. The broker also records a monotonic to 
 monotonic stamp stays in each sensor payload's capture fields.
 
 Why: v1's rule is "UTC instants, convert other clocks at the edge" (`domain/kernel.py`, `instant()`), and keeping it
-means v1 data ports by multiplying seconds by 1e9. The chat's `clock_domain: MONOTONIC_PTP` per range adds a second
-timeline every reader would have to convert. Converting once, at capture, from a clock that never steps gives readers
+means v1 data ports by multiplying seconds by 1e9. Converting once, at capture, from a clock that never steps gives readers
 one timeline and still keeps NTP adjustments from corrupting the catalog.
 
 Ranges are half-open, `[start_ns, end_ns)`, and never empty. A payload header's `end_ns` equals its `start_ns` for an
@@ -158,8 +147,7 @@ instant (a single frame, a point reading), and an instant covers `[t, t + 1)`: r
 Every payload names its layer, and the layers are the ones in [DOMAIN-MODEL.md](DOMAIN-MODEL.md) ("Data layers and
 schema strategy"): layer 1 raw priors (what was sensed, immutable), layer 2 decisions and projections (typed and
 rebuildable: people, identity assertions, the timeline, forgetting), and layer 3 interpretations (anything derived
-for a question or a job, with its sources, producer, and shape). The handoff's schema has the same three names in a
-different order (L2 as derived ML claims and L3 as projections and summaries); that order is dropped.
+for a question or a job, with its sources, producer, and shape).
 
 Why: v1's rules depend on this order. Layer 2 never reads an unpromoted interpretation, and owner checks use only
 layers 1 and 2. Porting the domain model with the layers swapped would break those rules silently. Note that under
@@ -170,7 +158,7 @@ a summary, a re-caption, or an embedding made for a question is layer 3.
 
 The broker keeps a small set of system states, the voice turn first (`Idle`, `Listening`, `Thinking`, `Speaking`).
 The voice worker sets it, the broker broadcasts each change to subscribers, and the scheduler acts on it (see
-"Scheduler"). The handoff puts `voice_state` on every `ControlEnvelope`; that is dropped.
+"Scheduler").
 
 Why: a state change has one writer and many readers, which is a broadcast, and copying it onto every message means a
 message carries a stale value as soon as the turn changes. It also replaces v1's guess from file mtimes
@@ -179,20 +167,19 @@ message carries a stale value as soon as the turn changes. It also replaces v1's
 ### 12. The browser gateway is its own process
 
 The WebSockets and WebTransport server is `continuum-gateway`, a broker client like any other, not part of the
-daemon. The handoff puts it inside `continuum-broker` (`gateway.rs`, Axum in the daemon).
+daemon.
 
 Why: the same isolation as capture and transcoding. An HTTP stack, TLS, and browsers that connect and vanish stay out
 of the process every worker depends on, and the gateway can restart without dropping live capture.
 
 ### 13. FFmpeg for codecs, native APIs for devices
 
-Joe decided this on 2026-10-29, from the capture audit
-(#531): FFmpeg through `ffmpeg-next` does all codec and container
+FFmpeg through `ffmpeg-next` does all codec and container
 work (in the tier worker and wherever a capture worker must encode), and devices open through the platform's own APIs:
 V4L2 on Linux (the `v4l` crate), AVFoundation on macOS (`objc2`), and `cpal` or `pipewire-rs` for audio. GStreamer is
 not used. Local MJPEG capture normally encodes to H.264 before publication, using hardware encode when available;
 native H.264 cameras retain their encoded
-stream. The optional AV1 archive is described in [STORAGE.md](STORAGE.md#av1-archive-1479).
+stream. The optional AV1 archive is described in [STORAGE.md](STORAGE.md).
 
 Why: the broker already owns what GStreamer is for (buffers, scheduling, threads, and the clock), so its pipeline
 graph would duplicate or fight the broker's. Tier work is batch work on chunks, a plain loop over libavcodec and
@@ -265,12 +252,12 @@ So no client, and no slow piece of work, may hold up anything else. The broker i
   reads or writes the catalog, so it never waits on disk. The scheduler's `CatalogView` is answered from the index.
 - **One writer thread writes the catalog,** in short transactions. It has an urgent queue (stream registration and
   ingest) and a background queue (purges, scrubs, and other long jobs). Each write transaction is atomic, but only
-  one a second fsyncs (`DURABLE_EVERY`, #1958): the commits between skip it (redb `Durability::None`) and are made
+  one a second fsyncs (`DURABLE_EVERY`): the commits between skip it (redb `Durability::None`) and are made
   durable by the next fsynced commit, by the writer after a second with nothing to do, or by a clean close. A crash
   (a broker crash or a power loss) can therefore lose up to about the last second of commits, including ones already
   acknowledged: a tier worker's chunk commit lost that way leaves its chunk file on disk with no catalog row naming
   it, and the tier worker's own saved positions roll back with it, so frames still in Tier 0
-  are absorbed again. An hour after it starts, the tier worker deletes such files: the raw chunks the previous run made in the 10 minutes before this start that no catalog locator names (#1957, `continuum-tier/src/sweep.rs`; `CONTINUUM_TIER_SWEEP_DRY_RUN` only counts them). Fsyncing every tick was about 170 fsyncs a second on devbox, most of the disk's busy time. Each
+  are absorbed again. An hour after it starts, the tier worker deletes such files: the raw chunks the previous run made in the 10 minutes before this start that no catalog locator names (`continuum-tier/src/sweep.rs`; `CONTINUUM_TIER_SWEEP_DRY_RUN` only counts them). Fsyncing every tick caused hundreds of fsyncs per second. Each
   writer tick takes everything urgent that is waiting, up to 4096 jobs, and commits all of its ingest notices in one
   insert: one transaction for the tick's ingests, never one per notice (a registration in the tick is its own transaction, and a sync commits the
   ingests ahead of it first). Under load a tick carries more rather than the fsyncs adding up. Each bounded urgent
@@ -284,9 +271,7 @@ So no client, and no slow piece of work, may hold up anything else. The broker i
   deadline between chunks of at most 64 phase operations within one transaction, with an overall operation cap.
   This avoids shrinking to one row per commit when commit/fsync alone exceeds the time target. At least one
   chunk runs per step; commit/fsync, final reports, and existing per-row descendant/frame fanout are outside the
-  cooperative bound. Explicit `purge_step` row budgets remain available for offline callers. A deterministic
-  128-row trim at the scheduler's one-row floor required 386 catalog calls before batching; the regression
-  requires at most 16 afterward, checking the removed rows and retained recent tail rather than wall time.
+  cooperative bound. Explicit `purge_step` row budgets remain available for offline callers.
   Broker health logs every 60 seconds include channel plus writer-local background backlog, the running-step
   flag, per-process step counts for up to 16 oldest unfinished purges, unknown-age and stalled-job counts, the
   oldest known age, and the three streams whose unfinished purge is oldest (name and age in seconds). Resumed ages
@@ -306,32 +291,21 @@ So no client, and no slow piece of work, may hold up anything else. The broker i
   rebuilds the complete availability index with these pages before listening; it never rescans the preceding
   window on each page. The catalog's counted-row regression checks linear visits at N and 2N rows. The opt-in
   `continuum-broker` example `index_rebuild` measures fresh synthetic 1M/2M catalogs and checks a 30-second,
-  2.6x-doubling budget (`../tools/build-slot.sh cargo run --release -p continuum-broker --example index_rebuild -- --guard`
-  from `continuum/`). Fixture creation is measured separately and no live catalog is read.
-  One release measurement with gapped frames on a single stream took 55.447s/200.794s at 1M/2M payloads before
-  the cursor seek and 9.343s/19.314s after it (2.067x doubling). These are warm rebuild times, excluding catalog
-  creation and cold disk-open time; the deterministic visited-row guard checks the algorithm independently of load.
+  2.6x-doubling budget (`tools/build-slot.sh cargo run --manifest-path continuum/Cargo.toml --release -p continuum-broker --example index_rebuild -- --guard`).
+  Fixture creation is measured separately and no live catalog is read.
   Startup also logs separate catalog-open phases (scrub recovery, redb open/recovery, schema checks, and recording
   repair), availability payload reads versus in-memory copy application, stale Tier 0 clearing, purge/keeper reads,
   arena creation, and total startup. Timing is process-local metadata, not new catalog state.
   Ordered disjoint copies append directly to the normalized copy set, merging only touching spans with identical
   counts across every tier. Overlapping updates and removals retain the general path.
 
-  To profile those phases without opening any existing catalog, use the existing example's phase mode:
-  `../tools/build-slot.sh cargo run --release -p continuum-broker --example index_rebuild -- --startup-phases --scratch ../scratch/startup-profile --payloads 6500000 --streams 100 --inline-bytes 512 --batch-size 65536`.
+  To profile those phases without opening any existing catalog, use the example's phase mode:
+  `tools/build-slot.sh cargo run --manifest-path continuum/Cargo.toml --release -p continuum-broker --example index_rebuild -- --startup-phases --scratch scratch/startup-profile --payloads 6500000 --streams 100 --inline-bytes 512 --batch-size 65536`.
   Create the scratch parent first. The command generates a fresh synthetic catalog in a new temporary subtree,
   seeds and cleanly closes it outside startup timing, then measures reopen, index, stale clearing, and a small
   synthetic arena. It removes its catalog and arena afterward. It cannot accept an existing catalog path, and this
-  mode is separate from the original doubling guard. Use the build slot at standard priority; never profile the
+  mode is separate from the doubling guard. Use the build slot at standard priority; never profile the
   live catalog or copy it for this benchmark.
-  On a shared Linux host, 6.5M sparse instant payloads across 100 streams (512-byte Inline copies, every eighth
-  header-only except every 512th stale shared-memory copy) took 62.413s before and 62.080s after the ordered-copy
-  fast path. Copy application fell from 6.426s to 2.722s; catalog reconstruction varied from 53.147s to 56.388s,
-  so the total difference is within run-to-run variation. Catalog open was below 0.03s and stale clearing took
-  1.2-1.7s. These clean synthetic catalogs have no recording repair, chunk frame cuts, stage coverage, or keepers;
-  the 229,376-byte synthetic arena does not measure production arena setup. The remaining dominant cost is
-  catalog reconstruction, not ordered copy insertion. Full-scale checks matter: a header-reuse candidate improved
-  a 100K-row case but regressed the 6.5M case to 210.466s and was excluded. Catalog range reads are unchanged.
 
 Planned broker restarts can restore the complete availability projection without reconstructing every payload.
 The catalog owns the opaque `restart_projection` table and an exact `hot_ids` secondary index over Tier 0 locators.
@@ -348,7 +322,7 @@ Unfinished reads, purges, failed cursor writes, hidden-on-landing records, or ch
 metadata refuse checkpointing. The fence flushes cursor positions acknowledged since the drain ahead of itself and
 accepts their saves. It drops a running `FRAMES` sweep instead of waiting for it: the sweep is restartable, never
 changes availability, and on a large catalog runs for longer than its ten-minute cadence, so waiting for it refused
-every stop (#1789). Each refusal is logged with its reason ("skipped the restart projection"), as is each start that
+every stop. Each refusal is logged with its reason ("skipped the restart projection"), as is each start that
 rebuilds because no stored projection was usable ("no usable restart projection"). The scheduler moves its settled index out for encoding off its own thread. Publication
 checks the expected stamp and stores the checkpoint atomically; there is no separately copied sidecar. The codec
 preserves names/rates, exact per-tier multiplicities, normalized coverage, and cuts, but strips all Tier 0 counts.
@@ -369,28 +343,7 @@ encoding/publication/clean-close cost, valid reopen/read/decode, and a coverage-
 full reconstruction. The same fresh fixture is used throughout; canonical roundtrip and expected counts are
 checked outside measured restore time. This flag requires the explicit synthetic phase mode and scratch parent.
 
-The final 6.5M-row fixture retained 5,687,500 durable segments and restored all 12,696 synthetic hot locators for
-cleanup, without adding payload rows. Its 136,503,330-byte projection passed canonical parity and revision-mismatch
-fallback checks. Measurements on the shared Linux host:
-
-| Operation | Seconds |
-|---|---:|
-| Full index reconstruction | 86.763 |
-| Valid reopen, projection read/decode, and exact hot-ID cleanup | 11.247 |
-| Of that restore: hot cleanup and auxiliary metadata reads | 10.094 |
-| Checkpoint encoding through catalog close, including index destruction | 2.059 |
-| First normal write invalidating the stored projection | 0.149 |
-| One-time tracking initialization | 91.323 |
-| Full reconstruction after a coverage-only stamp mismatch | 215.558 |
-
-This reduced the measured valid restore path by about 7.7 times. The first activation still has no checkpoint: it
-performs the full rebuild and one-time locator-index initialization (7.041s in an earlier run, 91.323s here).
-Fallback remains slow; an earlier same-size fallback took 61.852s. These timings are observations, not startup
-budgets. Synthetic hot-copy preparation and validation-only resealing are excluded from the measured production
-paths; the small synthetic arena does not measure the deployed arena or the full service cascade. A checkpoint
-becomes useful only after an eligible clean stop. Crash-fast recovery and historical rate-change semantics remain
-Ideas #1728 and
-#1729.
+A checkpoint becomes useful only after an eligible clean stop; the first start before any clean stop performs the full rebuild and one-time locator-index initialization.
 
 - **The voice turn goes before everything.** `SetSystemState` has a channel of its own, polled ahead even of the
   writer's results (which arrive in chunks of 256), so a preemption never waits behind a large tick's commits.
@@ -406,7 +359,7 @@ Ideas #1728 and
 
 ## Stack
 
-| Part | Choice | Newest stable release, current as of 2026-10-29 |
+| Part | Choice | Crates and tools |
 |---|---|---|
 | Language and runtime | Rust, tokio | Rust stable from mise; tokio 1.54 |
 | Data plane | Custom 16 KB aligned POSIX shared memory slab and ring allocator over `shm_open` and `mmap` (no iceoryx2, no zenoh) | nix 0.31 or rustix 1.1; memmap2 0.9 |
@@ -427,9 +380,8 @@ back with CUDA pinned or Metal memory), Cap'n Proto (weak browser support), Prot
 (Rust only), WebRTC (drops and rescales frames, which desyncs overlays), GStreamer (decision 13), OpenCV for capture,
 a justfile, Bazel, and Nix.
 
-The rule (Joe, 2026-10-29): use the newest stable release, and pin only on breakage, with the reason in the commit. The
-versions above are a snapshot for orientation, not requirements; whatever is newest when you add the dependency wins,
-over this table and over anything in the handoff.
+The rule: use the newest stable release, and pin only on breakage, with the reason in `Cargo.toml`. The
+versions above are a snapshot for orientation; `Cargo.toml` is the source of truth.
 
 ## Data plane: the Tier 0 shared memory arena
 
@@ -444,13 +396,13 @@ wrap any slab with `makeBuffer(bytesNoCopy:length:)`, and a CUDA worker can `cud
 and DMA from any slab. `align_up_16k(size)` rounds up, `is_aligned_16k(offset)` checks, and both have unit tests
 (`align_up_16k(1) == 16384`, `align_up_16k(4096) == 16384`, `is_aligned_16k(4096) == false`). Never write 4096.
 
-Both GPU paths have conditions the chat left out. Metal needs the pointer page aligned and the length a multiple of
+Both GPU paths have specific alignment and residency rules. Metal needs the pointer page aligned and the length a multiple of
 the page size, so a worker wraps the whole slab (its class size, always a 16 KB multiple), never the payload's `len`,
 and asks for `storageModeShared`. `cudaHostRegister` has no alignment rule, but it pins at page granularity and faults
 in every page it covers, so the first CUDA worker to register makes the whole arena resident (10 GB at the Linux
 defaults; a few seconds, once at start). `cudaHostRegisterDefault` is the flag to use: on a 64 bit Linux host every
-CUDA context has unified addressing, which makes the registration mapped and portable across both 3090s, so the
-chat's `cudaHostRegisterMapped` adds nothing. Each process registers its own mapping; pinning is per process.
+CUDA context has unified addressing, which makes the registration mapped and portable across all GPUs, so
+`cudaHostRegisterMapped` adds nothing. Each process registers its own mapping; pinning is per process.
 
 ### Arena layout
 
@@ -466,9 +418,8 @@ The broker creates each arena at start with `shm_open` and `ftruncate`, and maps
 | Rings | per stream, set at registration | Fixed-stride continuous streams: PCM audio, IMU |
 
 The counts are the defaults for the Linux profile and are settings, not constants; the Mac profile is smaller (see
-"Hardware and platforms"). The chat put the directory inside a 64 KB superblock, which doesn't fit even at these
-defaults (5,632 slots at 64 bytes is 352 KB), so the directory is its own region and the superblock says where it is.
-The size classes add up to 10.25 GB, not the chat's 16 GB; the rest of an arena is the capture rings.
+"Hardware and platforms"). 5,632 slots at 64 bytes is 352 KB, so the directory is its own region and the superblock says where it is.
+The size classes add up to 10.25 GB; the rest of an arena is the capture rings.
 
 `SlotMeta` holds (64 bytes, one cache line):
 
@@ -788,7 +739,7 @@ descriptors.
 | Message | From | Purpose |
 |---|---|---|
 | `Hello` | client | Client name, process id, SDK and schema versions |
-| `Welcome` | broker | Session id, the arenas (name, size, size classes) with their file descriptors passed alongside, and the broker's schema version. A client with another major version is refused here. The major is 1 since #1948, which removed the copy-group and `RetireCopy` messages |
+| `Welcome` | broker | Session id, the arenas (name, size, size classes) with their file descriptors passed alongside, and the broker's schema version. A client with another major version is refused here. The major is 1 |
 | `Heartbeat` | both | Liveness, and from a worker its telemetry: queue depth, models resident, RAM and VRAM in use |
 | `Goodbye` | client | Clean disconnect; the broker drops the session's pins and leases |
 | `Error` | broker | A request failed: code and message. A reply the broker built over the 16 MiB frame limit is replaced by an `Internal` error for its request (naming its size) and the session stays open |
@@ -1032,7 +983,7 @@ whose copy can't be pinned is left out of the events.
 ### Recent native video
 
 Any model can read the last few minutes (5 by default) of a camera's full-rate native H.264 with
-`continuum_tier::recent::H264Window` (#1741). It opens at any time inside the window and yields every access unit
+`continuum_tier::recent::H264Window`. It opens at any time inside the window and yields every access unit
 from the last IDR with in-band SPS and PPS at or before it, in decode order, then follows the live edge. Tier 0 is
 not lengthened for this: the same bytes are in Tier 1 chunks (one access unit per `H264Au` record) within a chunk's
 length, and a slot is released only once its chunk commits, so the window reads committed chunks straight from their
@@ -1057,7 +1008,7 @@ index. Only a session that registered a worker may send these.
 | `RewriteChunk` | tier worker | A chunk rewritten after a purge cut frames from it (or recompressed): its new frame index and location, the same frames in the same places |
 | `ChunkRewritten` | broker | Done |
 | `GetChunk` | any client | A chunk's frame index, every copy, and its commit sequence. Answered with `ChunkInfo`, which since minor 27 also carries the chunk's frame provenance from the same snapshot (empty and version 0 when unknown) |
-| `ResolveFrames` | any client | At most 256 payload ids: where each is now (minor 26). Answered with `FramesResolved`, one `ResolvedFrame` per id in the asked order: `Absorbed` with its chunk, frame index, and start; `Payload` for one with its own header; or `Unknown`. An analysis receipt names the chunks its inputs resolved to (#1394) |
+| `ResolveFrames` | any client | At most 256 payload ids: where each is now (minor 26). Answered with `FramesResolved`, one `ResolvedFrame` per id in the asked order: `Absorbed` with its chunk, frame index, and start; `Payload` for one with its own header; or `Unknown`. An analysis receipt names the chunks its inputs resolved to |
 
 ## Scheduler
 
@@ -1148,7 +1099,7 @@ bytes live in the tiers. Scanned keys are fixed-width tuples so range scans
 need no parsing. Every table maps bytes to bytes, with keys written big-endian, so byte order is key order. A time scan
 over the half-open window `[t1, t2)` is `TIME_INDEX.range((stream, t1 - longest, 0)..(stream, t2, 0))`, where
 `longest` (from `STREAM_LONGEST`) reaches back to payloads that began before the window and run into it. redb is a
-single-process store (one writer at a time, MVCC readers, no mmap since 2023), opened by the broker alone, which is
+single-process store (one writer at a time, MVCC readers, no mmap), opened by the broker alone, which is
 fine because every reader goes through the broker; an offline tool opens it read-only while the broker is stopped.
 
 Each read transaction lazily retains successful read-only table handles for its own immutable snapshot, bounded
@@ -1164,7 +1115,7 @@ Append-only commits remain tracked by their commit sequence. Redb keeps revision
 preserved across restart and scrub. An unsupported implementation or an exhausted counter advertises no revision,
 never a reusable saturated value.
 
-An age-out isn't a forget, so each stream also has a forget revision (minor 33, #1587): the invalidation revision as its
+An age-out isn't a forget, so each stream also has a forget revision (minor 33): the invalidation revision as its
 last forget left it, where a forget is every change but an age-out's (`AgeOut` purges). It's
 `Catalog::forget_revision` and the `StreamList` field `forget_revision`; redb keeps it in `META` beside the
 revision, and a stream without one (none of its changes since this was built were age-outs) reads the current
@@ -1226,7 +1177,7 @@ scheduler waiting, and Python projection, and makes no fixed-second live guarant
 | `AGED_OUT` | `(stream_id, start_ns)` | `end_ns` | Spans an age-out removed, merged, so a reader can say "footage expired" rather than "never recorded" |
 | `WORKER_STATE`, `WORKER_STATE_INPUTS` | `(owner, contract)`; `(input stream, worker key)` | the checkpoint; nothing | A durable worker's state, and the workers a purge of an input stream invalidates (below) |
 | `DEPS`, `DEPS_OF`, `DEPS_LONGEST` | `(stream_id, start_ns, dependent id)`; by dependent; by stream | `end_ns`; nothing; the longest span | A derived payload's dependencies on stretches of streams (below) |
-| `CHUNK_PROVENANCE` | chunk payload id | version, then per frame `device_seq`, `epoch`, and flags | What capture attested about each frame, kept after the frames' headers are compacted (#1402) |
+| `CHUNK_PROVENANCE` | chunk payload id | version, then per frame `device_seq`, `epoch`, and flags | What capture attested about each frame, kept after the frames' headers are compacted |
 
 `COVERAGE` is an interval set per (source stream, stage): a commit's interval is merged with its neighbors on insert,
 so the table stays small, and a gap query is a scan over the window. A worker asks for the gaps and leases them; it
@@ -1235,24 +1186,21 @@ doesn't keep its own record of what it did. (Segment-store stages keep their own
 `FORGOTTEN` sits outside the provenance graph on purpose. Forgetting a person purges
 everything about them, and the purge must not remove the record that they were forgotten. The caller hashes
 the name and sends the hash with `RememberForgotten`; `IsForgotten` answers whether a hash is there, so a name that
-comes back is recognized without the catalog ever holding it. `ListForgotten` pages through the hashes (minor 34). The #1755 taught-state
-export used it to carry them to the precious-record store; that export is gone (#1926), and nothing in Python calls it now.
-The live check is `people/forgotten.py`: a keyed one-way hash, HMAC-SHA256 of the normalized name under a fixed
+comes back is recognized without the catalog ever holding it. `ListForgotten` pages through the hashes (minor 34). The live check is `people/forgotten.py`: a keyed one-way hash, HMAC-SHA256 of the normalized name under a fixed
 key. A per-install salt is a follow-up.
 
 Raw frame headers don't stay in the catalog forever. Four cameras at 30 fps would add about 10 million frame headers
-a day, which the chat's one-header-per-artifact design never faced. A raw frame's header exists while the frame is in
+a day. A raw frame's header exists while the frame is in
 Tier 0. When the tier worker commits the chunk that absorbed it, the chunk is the payload the catalog keeps (one
 header per 1 to 5 seconds, with the frame index in `CHUNKS`), the frame's rows in `PAYLOADS`, `TIME_INDEX`, and
 `LOCATIONS` go, and the frame keeps a small `FRAMES` row (its chunk, its index, its subjects), so every parent id
 still resolves, for a child committed after the absorption too (ASR and a VLM take seconds, and the tier worker
 absorbs within about two). A `FRAMES` row is a few dozen bytes
 against a header's hundreds, but one per frame is about 10 million rows a day on four cameras, so the broker sweeps
-them (#851): every ten minutes, and at startup, a background job drops the row of each frame whose chunk ended over an
+them: every ten minutes, and at startup, a background job drops the row of each frame whose chunk ended over an
 hour ago and that has no children, no subjects, and no running purge on it (`Catalog::prune_frames_until`). Like a
 purge, each of its writer steps fills a cooperative work window (up to the writer's `max_budget` frames, stopping
-once `step_target` has passed) rather than the writer's adaptive row budget, which counts the commit's fsync and
-fell to one row a commit on a large catalog, so a sweep never finished (#1803). Past that hour, a
+once `step_target` has passed) rather than the writer's adaptive row budget, which includes the commit's fsync. Past that hour, a
 child naming such a frame is refused as an unknown parent; the frame is still found by time through its chunk's frame
 index (a range purge, a hydrate, whose copy names the chunk), and a frame with children or subjects keeps its row, so
 lineage and purges by entity are unchanged. The chunk's own header
@@ -1267,15 +1215,14 @@ stays a chain. Ring streams are indexed per batch from the start (see "Rings").
 
 ### Dependencies and worker state
 
-A derived payload can name stretches of streams it was made from instead of one parent edge per frame (minor 31,
-#1535): `IngestNotice.dependencies` (`Client::ingest_dependent`, continuum_py `ingest_acked(...,
+A derived payload can name stretches of streams it was made from instead of one parent edge per frame (minor 31): `IngestNotice.dependencies` (`Client::ingest_dependent`, continuum_py `ingest_acked(...,
 dependencies=[(stream_id, start_ns, end_ns, revision)])`), stored in the same commit as the payload (`DEPS`,
 `DEPS_OF`), one row each. A purge (by id, range, or entity) that removes anything on such a stream overlapping a
 stretch, a payload or frames cut from a chunk, takes the dependent and what derives from it, found by the stretch,
 not the dependent's own time. That's conservative: same-time payloads it didn't use take it too. An age-out doesn't
 cascade through them. Each dependency carries the stream's invalidation revision the producer read before checking
 what it used, and the broker refuses the notice (Conflict) if something on that stream was forgotten since (an
-age-out may have moved it: minor 33, #1587), so a purge in between is never missed. Only
+age-out may have moved it: minor 33), so a purge in between is never missed. Only
 an acknowledged notice may carry them, and the client refuses to send them to a broker below minor 31. A repeat must
 name the same dependencies: different or missing ones are a Conflict, never an acknowledgment with weaker purge
 coverage. Dependencies live in their own tables, not the header, so a query doesn't return them. A dependent is
@@ -1285,7 +1232,7 @@ it as a parent; after that the id no longer resolves and removes nothing, so pur
 or the whole chunk, found through the (chunk, frame index) a producer recorded. A chunk never absorbs a payload with
 dependencies, as it never absorbs one with parents.
 
-A durable worker's checkpoint is one keyed catalog row (minor 32, #1547: `WORKER_STATE`, keyed by owner and
+A durable worker's checkpoint is one keyed catalog row (minor 32: `WORKER_STATE`, keyed by owner and
 contract), overwritten in place: `SaveWorkerState`, `LoadWorkerState`, and `ForgetWorkerState`
 (`Catalog::save_worker_state` and its two siblings, `Client::save_worker_state`, and `continuum_py`'s
 `save_worker_state`). A save names each input stream's revision as the worker read it; the write that stores the
@@ -1311,7 +1258,7 @@ duration, and RTP doesn't either (libavformat fills an RTSP packet's duration fr
 source evidence), so USB on Linux and RTSP frames stay instants. A frame whose source gives no duration is never
 stretched to the next frame or rebuilt from the nominal or encoder rate.
 
-Continuity is a separate fact (#1402 part 2): each chunk keeps its frames' device sequence and capture epoch in
+Continuity is a separate fact: each chunk keeps its frames' device sequence and capture epoch in
 `CHUNK_PROVENANCE`, through Tier 1. Two frames are continuous only within one
 nonzero epoch with consecutive `device_seq`; a reconnect, reopen, or wake starts a new epoch, and an unknown epoch
 proves nothing. This supplements recorded durations and never replaces them.
@@ -1319,13 +1266,13 @@ proves nothing. This supplements recorded durations and never replaces them.
 `GetChunk` reads its frame index, copies, and frame provenance from one catalog snapshot, so a concurrent rewrite
 can't pair an old file with new metadata.
 
-The catalog file is format 7 (#1948). The broker creates a new file at format 7 with every table it uses and its
+The catalog file is format 7. The broker creates a new file at format 7 with every table it uses and its
 starting values in `META`: the format, the recording era's first commit sequence (1), and the restart tracking
 stamp with its empty, ready hot index. It refuses any other file: one stamped with another format, or one with no
 stamp that already holds streams. The error says to create it again with `pack-reset-catalog`. A format 7 file
 missing a table or one of those values is corrupt, never upgraded. There are no upgrades.
 
-A chunk committed with frame provenance keeps it in `CHUNK_PROVENANCE` (#1402). A rewrite keeps every frame in its
+A chunk committed with frame provenance keeps it in `CHUNK_PROVENANCE`. A rewrite keeps every frame in its
 place, so the row never changes after the commit; forgetting the chunk removes it. A chunk committed without
 provenance reads as unknown, never as continuous.
 
@@ -1342,11 +1289,11 @@ keeps a childless frame's row after its chunk ends; an id it can't resolve stays
 
 ### Scrubbing the catalog file
 
-redb reuses freed pages but never gives them back to the disk: after about 45 hours of recording devbox's file was
-8 GiB for about 4 GiB of rows (#1291), and the raw frame rows that come and go at 30 fps keep freeing and refilling
+redb reuses freed pages but never gives them back to the disk: after about 45 hours of recording on the Linux machine, the file was
+8 GiB for about 4 GiB of rows, and the raw frame rows that come and go at 30 fps keep freeing and refilling
 pages. A scrub (`Catalog::scrub_step`) copies the live rows into a fresh file
 `catalog.redb.scrub` and swaps it in, which shrinks the file to its live rows and leaves no purged bytes on disk. The
-broker's scrubber (`continuum-broker/src/scrub.rs`, #1297) schedules it.
+broker's scrubber (`continuum-broker/src/scrub.rs`) schedules it.
 
 **Steps.** The scrubber runs on a thread of its own, never on the writer thread. A copy step reads a snapshot of the
 live file and writes up to a row budget to the fresh one, sized to a 50 ms target (halved after a slower step, doubled
@@ -1370,17 +1317,17 @@ every acknowledged write, and every purge is as it was. A broker stopped mid-scr
 
 **Stopping and opening.** A clean stop (SIGTERM) first closes the sessions and has the writer commit every notice
 they handed over (a writer sync, bounded by the same 10 s), so the last frames a producer sent before the stop land in
-the catalog (#1451). Then it closes the catalog file before the
+the catalog. Then it closes the catalog file before the
 process exits (`Catalog::close`): the scrubber's thread stops and is joined (a scrub in progress deletes its fresh file), the close
 waits up to 10 s for the reads in flight (writes hold the catalog shared, so none is mid-commit once it has it alone),
 and redb's close records its allocator state and clears the header's recovery flag. The next open then loads that
-state instead of repairing the file, which is a checksum walk of the whole file (about 30 s for devbox's 6.7 GB
-catalog, minutes under load). Calls after the close
+state instead of repairing the file, which is a checksum walk of the whole file (about 30 s for a 6.7 GB
+catalog on the Linux machine, minutes under load). Calls after the close
 fail, in the moments before exit. A close that gives up (a read holding on past the wait) is logged as a warning, and
 the next start repairs the file as before.
 
-**Crash repair at size.** A real crash still goes through redb's repair, the path that refused the file in #1383.
-`continuum-catalog/tests/crash_repair.rs` (#1423) checks it at a realistic size: it builds a synthetic catalog of a
+**Crash repair at size.** A real crash still goes through redb's repair.
+`continuum-catalog/tests/crash_repair.rs` checks it at a realistic size: it builds a synthetic catalog of a
 few GB (once, then reused), runs a writer committing batches, kills it with SIGKILL mid-commit, reopens through the
 repair, checks that every acknowledged batch is there and nothing after it is torn, and closes cleanly. It is ignored
 by default, since it writes GBs and takes minutes. Run it by hand, one round per run so each is gated on its exit
@@ -1392,15 +1339,12 @@ code, in a directory on a real disk (not tmpfs, and never the live data director
         -- --ignored --nocapture || break
     done
 
-`CONTINUUM_CRASH_GB` (3) sizes the catalog. A failed reopen stops the test and leaves the file in place: keep it, and
-report it the way #1383 was.
+`CONTINUUM_CRASH_GB` (3) sizes the catalog. A failed reopen stops the test and leaves the file in place for debugging.
 
 An open that redb refuses as corrupt writes the marker `catalog.redb.open-failed`, saying why, and while the marker is
 there every open refuses at once without touching the file. Each repair attempt rewrites the file's header, and a
-supervisor restarting a failed broker every few seconds would otherwise keep doing so (on 2026-11-01 devbox's broker
-did it 16 times in 4 minutes). Keep a copy of the file, then remove the marker to try again: the repair is worth a
-second attempt, since devbox's file, refused 16 times that evening, opened cleanly from a copy afterward with the
-same code.
+supervisor restarting a failed broker every few seconds would otherwise keep doing so. Keep a copy of the file, then
+remove the marker to try again.
 
 **When.** Checked 5 minutes after startup and then every 10 minutes:
 - the file's live bytes are uncounted (no scrub has copied it yet) and the file is at least 256 MiB;
@@ -1471,20 +1415,19 @@ for `CommitPayloadCopy`; older clients can continue using existing query and CNK
 |---|---|---|---|
 | Where | Shared memory arena | NVMe chunk files | NVMe or a slower disk |
 | Retention | Capture rings 10 seconds by default; slabs until their class needs them (about 20 GB in all on the Mac) | Video 30 days ("Video window"); audio and everything else until purged | Until purged |
-| Video | The camera's native payload: MJPEG frames as JPEG bytes, raw frames (UYVY, NV12) as captured, or H.264 access units from a camera with `encoding` on (cam0) or an RTSP camera | MJPEG frames as they are (MJPEG is already all-intra); raw frames (#900) as short-GOP H.264 (a keyframe a second, low delay, one access unit per record: `H264Au`) from the hardware encoder (NVENC, VideoToolbox) or libx264, about 1 GB an hour at 720p30 against LZ4's 120, or LZ4 where no encoder opens. With the opt-in AV1 archive on, an `H264Au` chunk becomes `Av1Au` in place a day after recording (docs/STORAGE.md, "AV1 archive") | None: video stays in Tier 1 |
-| Audio | PCM at the device's native rate and format, all channels, in a ring | Ring batches as they're written, one chunk record each (`PcmBatch`: the records' stamps, then the samples): FLAC at the mic's native depth (24 bits for the Wave 3, 16 for the XVF3800) when every f32 sample round-trips exactly, which it does when PipeWire only converts the format (no stream volume, no resampling); LZ4 of the f32 batch otherwise, logged. Measured on the Wave 3 (mono, 48 kHz): about 231 MB an hour (5.5 GB a day) as FLAC at 24 bits, against 352 MB an hour (8.5 GB a day) as LZ4 f32; v1's 16 bit archive came to 50 to 109 MB an hour. That is only while the chunk is open: as it closes, it becomes Opus (libopus, `Opus` chunks), before it is committed | None: nothing writes Tier 2 now |
+| Video | The camera's native payload: MJPEG frames as JPEG bytes, raw frames (UYVY, NV12) as captured, or H.264 access units from a camera with `encoding` on (cam0) or an RTSP camera | MJPEG frames as they are (MJPEG is already all-intra); raw frames as short-GOP H.264 (a keyframe a second, low delay, one access unit per record: `H264Au`) from the hardware encoder (NVENC, VideoToolbox) or libx264, about 1 GB an hour at 720p30 against LZ4's 120, or LZ4 where no encoder opens. With the opt-in AV1 archive on, an `H264Au` chunk becomes `Av1Au` in place a day after recording (docs/STORAGE.md, "AV1 archive") | None: video stays in Tier 1 |
+| Audio | PCM at the device's native rate and format, all channels, in a ring | Ring batches as they're written, one chunk record each (`PcmBatch`: the records' stamps, then the samples): FLAC at the mic's native depth (24-bit or 16-bit) when every f32 sample round-trips exactly, which it does when PipeWire only converts the format (no stream volume, no resampling); LZ4 of the f32 batch otherwise, logged. At 48 kHz mono 24-bit, FLAC takes about 231 MB an hour (5.5 GB a day), against 352 MB an hour (8.5 GB a day) as LZ4 f32. That is only while the chunk is open: as it closes, it becomes Opus (libopus, `Opus` chunks), before it is committed | None: nothing writes Tier 2 now |
 | Tables, tensors, IMU | Arrow and DLPack in slabs | Arrow IPC (Feather v2), LZ4 or zstd level 1 | None: they stay in Tier 1 |
 | Read latency | Under 0.5 ms | 2 to 15 ms, plus a decode of the needed Opus record for audio | As Tier 1 |
 
 Nothing is recompressed after it is committed, unless the opt-in AV1 archive (below) is on. A microphone's chunk
-becomes Opus as it closes (#1942). In the tier
-worker's log after the 2026-11-03 catalog reset, PCM to Opus took 154 MB to 13 MB (91%), while a lossless remux of
-the cameras' H.264 into long GOPs saved only 4% (1,362 MB to 1,308 MB). So camera video stays in Tier 1 as H.264
+becomes Opus as it closes. Encoding PCM to Opus reduces size by about 91%, while a lossless remux of
+the cameras' H.264 into long GOPs saves only about 4%. So camera video stays in Tier 1 as H.264
 access units until the video window ages it out, and other chunk formats stay as they were written. Tier 2
 (`state/continuum/tier2/`) holds only the Opus chunks an earlier background sweep wrote there. Their catalog
 locators still name them, so they are read and purged like any other chunk.
 
-The opt-in AV1 archive (#1479, `video_archive.av1`, off by default; `continuum-tier`'s `archive` and `av1` modules)
+The opt-in AV1 archive (`video_archive.av1`, off by default; `continuum-tier`'s `archive` and `av1` modules)
 re-encodes a camera's `H264Au` chunk with SVT-AV1 once it is `after_hours` old (24 by default): one AV1 temporal unit
 per record, in the same one-unit records, so every record keeps its index, payload id, times, and sequence number,
 and the chunk opens on its only keyframe, which carries the sequence header. The tier worker swaps the new file in by
@@ -1498,7 +1441,7 @@ readers only see H.264, since a chunk waits at least an hour.
 
 An archived microphone batch is self-contained: a header gives its true sample rate, channels, ring stride,
 record count, and encoder lookahead; original block stamps follow losslessly, then the 20 ms Opus packets. `COP2`
-(written since #1437) stores the first stamp whole and each later one as two small varints against the expected
+stores the first stamp whole and each later one as two small varints against the expected
 10 ms cadence and sample count, then one varint length per packet, about 2 bytes a record and 1 to 2 a packet.
 `COP1` (still read, never rewritten) stored every 16-byte stamp and a 25-byte GOP table row per packet, which at
 24 kbit/s was as large as the audio. Decode trims lookahead and final padding, returning the original number of f32 ring records with their
@@ -1515,7 +1458,7 @@ The lifecycle:
 2. The tier worker drains Tier 0 into Tier 1 continuously (P1): it follows each stream by subscription, appends each
    payload to the stream's open chunk file as it lands, syncs the open chunks every 100 to 250 ms and sets `flushed`
    on the slots that sync covered (one fsync per chunk per cadence, never one per frame; a slot is `flushed` only
-   once its record is on disk), and closes the chunk every 1 to 5 seconds (a microphone's every 15, #1974),
+   once its record is on disk), and closes the chunk every 1 to 5 seconds (a microphone's every 15),
    recording it and its frame index in `CHUNKS` through the broker (`CommitChunk`; the worker never holds the
    catalog). The worker program
    (`continuum-tier-worker`) marks slots `flushed` once their chunk is committed, rather than at each sync, and each
@@ -1613,7 +1556,7 @@ parents.
   nothing derived from them, skipping any committed after `committed_before_ns` by the commit clock and any id that
   isn't a payload. A whole chunk takes its absorbed frames' rows with it, and what was derived from those frames
   stays. The catalog's parent index (`PROV_PARENTS`, what `Catalog::parents` reads) drops an aged-out id, as no
-  purge can follow an id that no longer resolves (#1576). Coverage is unchanged (the data was processed), the
+  purge can follow an id that no longer resolves. Coverage is unchanged (the data was processed), the
   removed spans go into `AGED_OUT`, keepers get the usual `PurgeNotice` (so tier files and vector rows go), and the
   purge record's kind is `AgeOut`. A payload derived later from one being aged out isn't hidden with it.
 - **Spans.** `ListAgedOut` lists a stream's aged-out spans in a window (`Catalog::aged_out`).
@@ -1689,7 +1632,7 @@ the start, so a purge cut short by a restart is listed by `pending_purges` and s
    `PurgeAck`; the broker retries until it does, and the purge record says when every copy was gone. The tier worker
    queues a notice sent again for a purge it's still working on only once, and a purge arriving before the last
    queued pass over its files has begun joins that pass, so a stream of purges costs at most two passes at a time
-   (#1289).
+  .
 
    A worker that keeps copies says so with `RegisterWorker.keeps_copies`. When a purge's last step has run, the broker
    sends every such worker a `PurgeNotice` with the removed payload ids and the time spans the steps removed per stream
@@ -1730,7 +1673,7 @@ leaving them for later compaction, and dealing with redb's freed pages: redb has
 `Database::compact()` shrinks the file without promising that freed pages are overwritten. The catalog holds headers,
 not media, but a header names people (`subjects`), so a scrub settles it: `scrub_step(budget)` copies
 the live rows into a fresh file in small steps, carries over the writes made meanwhile, and then swaps the files. The
-broker runs it as scheduled background work (#1297; see "Scrubbing the catalog file" under Catalog): when a purge has
+broker runs it as scheduled background work (see "Scrubbing the catalog file" under Catalog): when a purge has
 left `scrub_due` set and the last swap was over a day ago, or when reclaimable space is large, on its own thread at a
 bounded duty cycle, so the file both forgets purged pages and gives freed space back. The swap is the one brief moment
 that excludes every other call: the catalog keeps its database behind a lock held only while the fresh file replaces
@@ -1821,7 +1764,7 @@ Every binary message starts with a 16 byte header:
 | 6 to 7 | reserved | Zero |
 | 8 to 15 | `capture_us: u64` | Capture time in microseconds, UTC (the payload's `start_ns` divided by 1000) |
 
-The handoff lists the four fields as a 16 byte header but they add up to 14; the two reserved bytes keep `capture_us`
+The two reserved bytes at offsets 6 and 7 pad the header to 16 bytes and keep `capture_us`
 8 byte aligned. Integers are little-endian. The browser reads `capture_us` with `DataView.getBigUint64`; as a UTC
 microsecond count it fits a JavaScript number exactly until the year 2255. The `VideoDecoder` is configured with
 `avc: { format: "annexb" }` (or `hevc: { format: "annexb" }`), since the gateway sends Annex B access units, and the
@@ -1887,7 +1830,7 @@ little-endian length then the JSON, both ways) and every binary message arrives 
 the browser reads each as one `ArrayBuffer`, and hands them to the decoder in the order the gateway opened them (QUIC
 completes streams in any order; a long-GOP access unit must follow its keyframe). Clients can use `watch` for multiple cameras and request-tagged `range` windows for Review, as described below.
 
-One connection can carry everything a page shows (#2380; `hello` lists `features`, `watch` and `req`, so a page can fall
+One connection can carry everything a page shows (`hello` lists `features`, `watch` and `req`, so a page can fall
 back on an older gateway). `watch` follows many streams beside any `live`: a stream at a rate gets its newest frame that
 decodes alone (a JPEG frame, or a video keyframe) at most that many times a second, newest only, and a stream at 0 gets
 every frame, whole GOPs, with its overlays; each stream's newest frame from the last 15 s goes out at once, and its
@@ -1904,7 +1847,7 @@ bytes come from where its locator says (a Tier 0 slot in the broker's arena, cop
 gateway's own; inline bytes; or the records of a chunk file in the range, read from its footer), sorted by time with an
 H.264 chunk's access units kept in decode order, and cut as below. When no broker answers at startup the gateway runs
 from the chunk directory alone (`--chunks-dir`, by default `<state>/continuum/tier`): it finds a stream's chunks by
-name under `streams/<stream>/<hour>/` only (`continuum-tier`'s `layout`, #2908, #2939; each hour directory is read again only when its
+name under `streams/<stream>/<hour>/` only (`continuum-tier`'s `layout`; each hour directory is read again only when its
 modification time moves) and sniffs each record (a JPEG, an Annex B access unit, an Arrow table). A `range` is the records whose start lies in it, in
 time order; a request is cut at 600 frames or about 64 MiB, never between records that share a start microsecond,
 and `done` carries `next_us` to continue from. Sequential playback also sends optional `after_us`, the maximum
@@ -1916,7 +1859,7 @@ carry `next_us`; the player follows that cursor. The filter reduces transmitted 
 source reads can still inspect the overlapping GOP. For an Annex B unit the codec comes from its parameter sets (an H.264
 SPS or an HEVC SPS, which can't be confused), a unit without them takes the stream's codec so far, and a keyframe is
 an IDR or IRAP picture or any unit carrying parameter sets; a raw camera's Tier 1 is H.264 with parameter sets on
-every keyframe, a keyframe a second, and every chunk starting on one (#900). `live` (with the
+every keyframe, a keyframe a second, and every chunk starting on one. `live` (with the
 broker) opens one pinned `Subscribe` from now over the camera stream and the overlay streams named with it: each Tier 0
 payload is copied under a short lease and sent as a frame with its capture time, each overlay payload of the `overlay`
 shape (the `Overlay` FlatBuffer) passes through as `0x02` with the same time, and
@@ -1934,7 +1877,7 @@ The vision workers' records ([VISION-STREAMS.md](VISION-STREAMS.md): one stream 
 record's time its frame's capture time) reach the page as overlay groups, which `hello` lists: `faces` (see-actions'
 `face.boxes` ring, one record a frame with its faces named, followed live only), `bodies` and `poses` (see-actions' `pose.track` boxes and halpe26 skeletons;
 a posed person is drawn as the skeleton, not a box too), and `objects` (`camera.objects`). Streams in the segment
-store are read from it under `--state-dir` (`segment_overlays`, #1791), and the live follow, the range read, and
+store are read from it under `--state-dir` (`segment_overlays`), and the live follow, the range read, and
 what stands in view at open are shared. A `live` or a `range` names groups in `overlays` beside or instead of
 overlay-shape streams. The gateway (`continuum-gateway`'s `vision`) merges a camera's records per frame time into
 one `Overlay`, since the page keeps one per capture time: live, each record that changes a frame's overlay sends it
@@ -1966,58 +1909,43 @@ a dashboard opened by a name the gateway doesn't know gets no player until that 
 no `Origin` (a worker, a test) is
 always accepted; no token is required yet, like the rest of the dashboard. Live video comes from each camera's encoded stream. Recorded video can also be an AV1 archive chunk;
 playback requires browser codec support, and exports convert archived video to H.264. See
-[STORAGE.md](STORAGE.md#av1-archive-1479) for the archive policy. AVC
+[STORAGE.md](STORAGE.md) for the archive policy. AVC
 playback configures its decoder
 from the stream's SPS profile, compatibility, and level, and reconfigures when parameter sets change.
 
 ## Capture
 
-From the capture audit (#531, 2026-10-29) and Joe's
-decision on it (decision 13). Raspberry Pi parts are left out.
-
 ### Devices
 
-| Device | Where | Interface | Formats and rates |
-|---|---|---|---|
-| Elgato Facecam | Linux dev box (probed) | USB 3 UVC | UYVY 4:2:2 raw and MJPEG, each at 1920x1080, 1280x720, and 960x540. Runs MJPEG by default |
-| Arducam IMX291 160 degree fisheye, three of them | Mac mini (from docs) | USB 2 UVC and UAC composite, all three on one hub | Sensor 1080p30; v1 forces MJPEG at 1280x720, falling back to 960x540 then 640x480; about 10 fps each when three share the hub |
-| Elgato Wave 3 | Linux dev box (probed) | USB audio (PipeWire source) | 1 or 2 channels, S24_3LE, 48 or 96 kHz |
-| ReSpeaker XVF3800 four mic array | Mac (driver ready, not wired) | UAC2 audio and USB vendor control transfers (libusb) | 16 kHz 2 channels by default (processed beam and ASR beam); 6 channel firmware adds the 4 raw mics; a 48 kHz variant. DOA, beam azimuths, and speech energy polled at 10 Hz |
-| Throat mic through a Rode Wireless GO III | Mac (planned) | USB audio | Typically 48 kHz |
-| Powerbeats Pro | Mac (seen in notes) | Bluetooth | 24 kHz |
-| OAK-D | For projection touch (ROADMAP) | USB 3, DepthAI | RGB 1280x800 at 30 fps (spec), stereo depth 640x400 at 30, an onboard IMU; a demo saw 640x360 RGB at about 10 fps |
-| Teensy 4.1 with the 9 axis IMU, BME680 or DHT22, TSL2561, and haptics | Planned | USB serial, with I2C sensors behind it | IMU at 100 Hz; environment and light are slow |
-
-A Microdia `0c45:8006` "Dual Mode Camera" on the Linux box enumerates but has no V4L2 node, so it isn't usable now.
+| Device class | Interface | Formats and rates |
+|---|---|---|
+| USB UVC cameras (standard and wide-angle/fisheye) | USB 2 or USB 3 UVC (and composite UAC where present) | MJPEG or raw (UYVY 4:2:2, NV12), typically 1280x720 or 1920x1080 at up to 30 fps (lower when several USB 2 cameras share one hub) |
+| Network cameras | RTSP / RTSPS (UniFi Protect, ONVIF, or manual URL) | Native H.264 access units demuxed into variable-size slots without recompression |
+| USB and built-in microphones | PipeWire / ALSA on Linux, CoreAudio on macOS | 1 or 2 channels, 16-bit or 24-bit PCM, 16 to 96 kHz |
+| ReSpeaker XVF3800 four-mic array | UAC2 audio and USB vendor control transfers (libusb) | 16 kHz or 48 kHz (2-channel beamformed or 6-channel with raw mics); DOA, beam azimuths, and speech energy polled at 10 Hz |
+| OAK-D stereo depth camera | USB 3, DepthAI | RGB, stereo depth, and onboard IMU |
+| Serial sensor boards | USB serial with I2C sensors | IMU at 100 Hz; environment and light sensors |
 
 ### Hardware codecs
 
-Tier keeps the first NVENC session alive until every later session that overlaps it has closed (#1114).
+Tier keeps the first NVENC session alive until every later session that overlaps it has closed.
 Closing it first can crash the process, even when each camera owns its own encoder. A camera that finishes early
 releases its caller state normally; at most one retired native context and NVENC session allocation remain until
 the overlap ends. Replacement opens share this lifetime. Frame processing stays parallel, and software and
-VideoToolbox encoders keep their usual lifetime. Deploying this change requires rebuilding and restarting Tier
-and rebuilding the standalone `continuum-export` command; capture itself does not contain this wrapper.
+VideoToolbox encoders keep their usual lifetime.
 
-Linux dev box (two RTX 3090s, Ampere, driver 610.57; probed with `ffmpeg -encoders` and `-decoders`):
+On Linux with NVIDIA GPUs:
 
-- NVENC encodes H.264 and HEVC. There is no AV1 encode: Ampere has none in hardware, even though ffmpeg lists
-  `av1_nvenc` because it is compiled in.
-- NVDEC decodes H.264, HEVC, AV1, VP9, and MJPEG (`*_cuvid`, and nvjpeg).
+- NVENC encodes H.264 and HEVC (AV1 hardware encode depends on the GPU generation; `ffmpeg -encoders` may list `av1_nvenc` even when the GPU lacks it).
+- NVDEC decodes H.264, HEVC, AV1, VP9, and MJPEG (`*_cuvid` and nvjpeg).
 - Software: SVT-AV1, libaom, x264, x265, libopus, and FLAC.
-- Installed: the FFmpeg 9.0.2 command line from mise (static, no shared libraries) and the system libavcodec62
-  (FFmpeg 8.0). The Rust side links the shared system libraries, not the mise binary.
+- The Rust crates link the system shared FFmpeg libraries (`libavcodec`, `libavformat`, `libavutil`), not a static FFmpeg binary from `mise`.
 
-Mac mini M5 Pro (from Apple's media engine specs, not yet probed on the Mac):
+On macOS (Apple Silicon):
 
 - VideoToolbox encodes H.264, HEVC, and ProRes, and decodes those and AV1 (M3 and later).
-- AV1 hardware encode on the M5 is unverified; assume none.
 
-Recordings are H.264, for browser compatibility; nothing is stored as HEVC. The Mac
-verification issue #720 was closed after an operator
-reported working playback. It does not record a per-codec hardware and browser verification matrix.
-Operator-approved hardware, browser, preemption, and representative storage measurements remain in
-#1489.
+Recordings are H.264 (or AV1 after the optional archive pass), for browser compatibility; nothing is stored as HEVC.
 
 ### Why FFmpeg, and its costs
 
@@ -2061,7 +1989,7 @@ back while its old worker is still stopping (a USB re-enumeration) is started ag
 manifest entry gets one worker at a time, whatever hotplug lists for it (a UVC camera's metadata node, a second
 alias).
 
-A stopping worker releases its device before anything else, and logs each step with its time (#1388): `teardown
+A stopping worker releases its device before anything else, and logs each step with its time: `teardown
 begins`, then for example `teardown session stopRunning took 40 ms` (AVFoundation) or `teardown stop audio unit took
 3 ms` (CoreAudio), and `teardown done in N ms`. A step still running after a second logs `teardown still in STEP
 after N ms` every second, so if the supervisor's `ignored the stop: killing it` follows, the last of those lines names
@@ -2076,9 +2004,9 @@ app's audio stops for a moment). Restart capture after either one.
 
 `tools/capture_restart_check.py` runs one stop and start and reads these lines for you: per device, each teardown
 step's time, the step a hung teardown was still in and whether it was killed, and whether the device opened again. A
-device that tore down cleanly but didn't come back is the OS keeping it wedged; a hung step is the bug (#1388).
+device that tore down cleanly but didn't come back is the OS keeping it wedged; a hung step is the bug.
 
-A device can be paused for privacy (#2260): `paused = true` on its manifest entry, which the dashboard's header icons
+A device can be paused for privacy: `paused = true` on its manifest entry, which the dashboard's header icons
 write. The supervisor rereads the manifest about once a second; a newly paused device's worker is stopped like any
 other (an opening one keeps the token until it exits), and while paused the device waits without a worker, so it is
 never opened and nothing from it reaches the broker. Resuming makes it due at once. A manifest that can't be read or
@@ -2230,17 +2158,17 @@ jump.
 
 Tier 0 holds the device's native payload: an MJPEG camera's slots hold JPEG bytes, decoded only when a consumer asks
 (see "Storage tiers"). The exception is a camera with `encoding = { enabled = true }` under its `video` in the
-manifest (cam0, #1833): its capture worker decodes each JPEG and encodes it as H.264 (NVENC on GPU 0, else
+manifest (cam0): its capture worker decodes each JPEG and encodes it as H.264 (NVENC on GPU 0, else
 libx264; `continuum-capture`'s `encoding` module), one access unit per frame with the frame's own capture stamp, and
 publishes `<name>.video` as `H264AnnexB`. Raw UYVY (the Facecam on USB 3, if it is switched to raw)
-goes to Tier 1 as short-GOP H.264 through NVENC, VideoToolbox, or libx264, or as LZ4 (#900). Audio stays PCM at the native rate and
+goes to Tier 1 as short-GOP H.264 through NVENC, VideoToolbox, or libx264, or as LZ4. Audio stays PCM at the native rate and
 format with every channel in Tier 0, and FLAC in Tier 1 until its chunk closes and becomes Opus.
 
 ## Hardware and platforms
 
 | | Deployment (field rig) | Development (lab rig) |
 |---|---|---|
-| Machine | Mac mini, Apple Silicon, 64 GB unified memory | Linux workstation, 128 GB RAM, two RTX 3090s (24 GB each) |
+| Machine | Apple Silicon Mac (64 GB unified memory) | Linux machine (128 GB RAM, two 24 GB NVIDIA GPUs) |
 | Pages | 16 KB | 4 KB |
 | Media | VideoToolbox encode and decode | NVENC and NVDEC |
 | Compute | Metal (MPS), Neural Engine (Core ML) | CUDA |
@@ -2251,8 +2179,8 @@ and depth camera, microphones (the throat mic, an XVF3800 array), a 9 axis IMU, 
 humidity, light), and later GPS, a barometer, and power and thermal telemetry, as listed in
 [hardware/BOM.md](hardware/BOM.md). Ignore the BOM's Raspberry Pi nodes; there are no networked sensor nodes.
 
-The trap is building on two 3090s something that runs out of memory or overheats the Mac. Two things guard against
-it: the arena and lease budgets come from the profile, so running with `mac_mini_64gb` on the Linux rig enforces the
+The trap is building on a dual-GPU Linux machine something that runs out of memory or overheats the Mac. Two things guard against
+it: the arena and lease budgets come from the profile, so running with `mac_mini_64gb` on the Linux machine enforces the
 Mac's limits there; and every worker selects its device (`cuda`, `mps`, or `cpu`) at start, so the same worker code
 runs on both machines.
 
@@ -2267,7 +2195,7 @@ older SDK, so code and SDK updates can roll out in either order.
 
 Mandatory broker-client services use the portable `continuum_ready` pre-exec wrapper declared in `services/services.toml`. A connected socket alone is insufficient: a successful SDK handshake and catalog request must complete within 60 seconds before the daemon starts. Transient startup/transport failures retry with bounded backoff; permanent failures and the overall deadline remain visible errors. Dashboard diagnostics and gateway offline playback remain ungated. Device stream/ring readiness is checked per consumer, separately from broker availability.
 
-For a coordinated restart, use `pack-services restart --cascade`. It snapshots the selected installed services, stops readers before capture and the broker, proves those process identities have exited, and starts the broker, capture, then readers. Core-targeted `install` and `restart` requests use the same path automatically. Automatic requests keep intentionally stopped services stopped; explicit `--cascade`, full install, and dashboard Repair start the selected set and report services brought back from stopped. A required stopped core outside an automatic request produces an actionable error before any restart. Leaf-only requests remain selective. A failure after the first stop still starts every service the cascade stopped, except the broker and capture after a failed stop, and exits nonzero with each start failure named (#1387).
+For a coordinated restart, use `pack-services restart --cascade`. It snapshots the selected installed services, stops readers before capture and the broker, proves those process identities have exited, and starts the broker, capture, then readers. Core-targeted `install` and `restart` requests use the same path automatically. Automatic requests keep intentionally stopped services stopped; explicit `--cascade`, full install, and dashboard Repair start the selected set and report services brought back from stopped. A required stopped core outside an automatic request produces an actionable error before any restart. Leaf-only requests remain selective. A failure after the first stop still starts every service the cascade stopped, except the broker and capture after a failed stop, and exits nonzero with each start failure named.
 
 The broker gate requires a compatible handshake, catalog request, and a new arena generation after a broker restart. Capture requires fresh frames and PCM from every current manifest camera and microphone, including an actual readable PCM ring; registered stream names alone do not pass. Missing devices fail with their names, without a bypass. Zero devices skip only that gate. Final health checks preserve the process and restart-count baseline, include capture workers, and accept armed scheduled jobs without daemon PIDs. Full vision selection runs `python -m liberational.continuum_status --port vision --settle 60`; partial selection checks only the active expected vision services, and audio-only selections do not require vision.
 
@@ -2306,7 +2234,7 @@ Tier and vector intake use dedicated Backpressure readers, with their worker reg
 continuum/
   Cargo.toml              # workspace: shared dependencies, release profile (LTO thin; panics unwind, since the PyO3 crate turns them into Python exceptions)
   pyproject.toml          # maturin build for continuum_py, in the repo's uv setup
-  schemas/                # FlatBuffers: the control plane and stored metadata (file split decided in #530)
+  schemas/                # FlatBuffers: the control plane and stored metadata
   crates/
     continuum-core/       # PAGE_ALIGN, ids, time, domain kernel types, generated schema code
     continuum-wire/       # the socket wire format: length-prefixed ControlEnvelope frames, arena fds over SCM_RIGHTS
@@ -2332,26 +2260,31 @@ Tasks in `mise.toml`, added with the code that needs them:
 
 | Task | Runs |
 |---|---|
+| `continuum-venv` | Creates `continuum/.venv` for `continuum-py` lint and type checks |
 | `continuum-codegen` | `flatc` for Rust from `continuum/schemas/`, and the overlay schema for TypeScript |
-| `continuum-check` | `tools/continuum-check.sh`: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings` (then `continuum-tier` with the `ffmpeg` feature), ruff and ty on the Python bindings, and the generated-code check |
-| `continuum-test` | `tools/continuum-test.sh`: `continuum-tier`'s tests with the `ffmpeg` feature when libavcodec is present, `cargo test --workspace`, the Python bindings' tests against a real broker, the C++ example, and `tests/test_eventlog.py`, `tests/test_continuum_status.py`, `tests/test_registry.py`, and `tests/test_forgotten_store.py` |
-| `continuum-release` | `cargo build --release --bins`, for the services (`continuum/target/release/`) |
-| `continuum-py` | `maturin develop --release` into the repo's venv |
-| `continuum-dev` | The broker in development mode (`RUST_LOG=info,continuum_broker=debug`) |
+| `continuum-ffi-header` | Generates the C header (`continuum_ffi.h`) with `cbindgen` |
+| `continuum-ffi-example` | Builds `continuum-ffi` and compiles and runs the C++ worker example |
+| `continuum-build` | `tools/build-slot.sh cargo build --manifest-path continuum/Cargo.toml --workspace` |
+| `continuum-release` | `tools/build-slot.sh cargo build --manifest-path continuum/Cargo.toml --release --bins`, for the services |
+| `continuum-check` | `tools/continuum-check.sh`: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings` (then `continuum-tier` and `continuum-capture` with the `ffmpeg` feature when present), ruff and ty on the Python bindings, and the generated-code check |
+| `continuum-test` | `tools/continuum-test.sh`: `continuum-tier` and `continuum-capture` tests with the `ffmpeg` feature when libavcodec is present, `cargo test --workspace`, the Python bindings' tests against a real broker, the C++ example, and the Python Continuum integration tests |
+| `continuum-py` | `tools/build-slot.sh uv run --no-sync maturin develop --manifest-path continuum/pyproject.toml --release` into the repo's venv |
+| `continuum-py-ffmpeg` | Builds `continuum_py` with the `ffmpeg` feature into the repo's venv |
+| `continuum-status` | `.venv/bin/python -m liberational.continuum_status`: checks the running Continuum services, streams, Tier 0 classes, and flush lag |
 
 `continuum-check` and `continuum-test` run under `tools/gated.sh`: one full gate at a time on a machine, shared by every
 worktree through a lock in the repository's common git directory (it says so while it waits), building into one shared
-target directory there (#611, #625). Every other Rust build, test, or clippy run goes through `tools/build-slot.sh`
+target directory there. Every other Rust build, test, or clippy run goes through `tools/build-slot.sh`
 (`tools/build-slot.sh cargo test -p <crate>`), which permits one Rust command at a time across all worktrees on the machine, with
-`CARGO_BUILD_JOBS` defaulting to 8 (overridable); a full gate holds the same lock too (#1097). Rust commands and
+`CARGO_BUILD_JOBS` defaulting to 8 (overridable); a full gate holds the same lock too. Rust commands and
 maturin builds keep standard priority. Python and other non-Rust checks stay niced. Both flock and the macOS
 Python/fcntl fallback use `continuum-build.lock` in the common git directory and pass it to child processes.
 Run Cargo validation only when Rust source, manifests/locks, or Rust build inputs changed against origin/main;
 explicit deployment builds still run on a clean main checkout.
 
 Builds outside the gates go through sccache, which `mise install` installs and `mise.toml` sets as `RUSTC_WRAPPER`, so
-a worktree's first build reuses the dependencies another worktree already compiled (#617). Measured on devbox with
-`continuum-gateway` (197 crates): a cold build took 59 s, and the same build in a second worktree took 27 s, with 202
+a worktree's first build reuses the dependencies another worktree already compiled. On the Linux machine, building
+`continuum-gateway` (197 crates) took 59 s cold and 27 s in a second worktree, with 202
 of its 220 cacheable compiles served from the cache. The rest, and the workspace's own crates (incremental), proc
 macros, and build scripts, compile as before. The cache is per user (`~/.cache/sccache` on Linux,
 `~/Library/Caches/Mozilla.sccache` on macOS, or `SCCACHE_DIR`), capped at 40 GB (`SCCACHE_CACHE_SIZE`). `sccache
@@ -2386,7 +2319,7 @@ services and devices.
 word. Unplug and replug a microphone or a camera: capture reopens it, and its stream is live again within a few
 seconds. The dashboard's Live tab plays from the gateway, and Review plays recorded video.
 
-**The catalog reset** (#1755, `pack-reset-catalog --keep-taught`, then again with `--yes`) is a fresh start for
+**The catalog reset** (`pack-reset-catalog --keep-taught`, then again with `--yes`) is a fresh start for
 the catalog: it deletes the catalog, the recorded video and audio (`tier`, `tier2`), the vector index, the shared
 decode's ring, the segment store, and the worker state derived from them, and starts everything again. The taught
 state in `state/knowledge.sqlite3` is never touched (`--fresh` deletes it too). The module docstring
@@ -2403,37 +2336,4 @@ state in `state/knowledge.sqlite3` is never touched (`--fresh` deletes it too). 
 - Nothing in the broker that can crash with a device or a library: no capture, no codecs, no models, no HTTP.
 - Every payload carries its provenance. A worker that can't say what its output came from doesn't commit it.
 - Record a change to a decision here, with its reason, in the same PR as the code that needs it.
-- The Google Doc is history. Where it and this document differ, this document wins, and "Corrections to the source
-  chat" says why. Don't reintroduce something from memory of the chat without checking it there first.
 
-## Corrections to the source chat
-
-Checked on 2026-10-29 against current documentation, crate releases, and the repo. Each is already applied above;
-this list exists so nobody puts one back from memory of the chat.
-
-| The chat said | What is true | Where |
-|---|---|---|
-| `dlpack = "0.4"` | No such release: the `dlpack` crate stops at 0.2.0 (2017). DLPack goes through dlpark (or pyo3-dlpack) | Stack, SDKs |
-| `lancedb_row_ids` on the header for cascading deletes | LanceDB's `_rowid` changes when a table is compacted. Vector rows are keyed by payload id and deleted by predicate; the header holds no row ids | Envelope, Forgetting |
-| A 16 byte browser frame header of `u32`, `u8`, `u8`, `u64` | That is 14 bytes. Two reserved bytes at 6 to 7 make 16 and keep the timestamp aligned | Browser gateway |
-| Metal wraps any 16 KB aligned slab with `makeBuffer(bytesNoCopy:)` | The length must also be a page multiple: wrap the whole slab, with `storageModeShared` | Data plane |
-| `cudaHostRegister(..., cudaHostRegisterMapped)` once per worker | `cudaHostRegisterDefault` is mapped and portable on UVA hosts; registering faults in every page, so the arena becomes resident | Data plane |
-| `/dev/shm/continuum_arena_0` | macOS has no `/dev/shm`, limits names to 31 characters, and allows `ftruncate` once per object | Data plane |
-| redb is "zero-copy B-tree ... using mmap under the hood" | redb dropped mmap in 0.14 (2023) for read calls and its own cache. It is also single-process, and its file format changed at 3.0 and 4.0 | Catalog |
-| A 64 KB superblock holding the slot directory; a 16 GB arena of size classes | 5,632 slots at 64 bytes is 352 KB, so the directory is its own region; the classes add up to 10.25 GB | Data plane |
-| 16 MB slabs for "4K raw NV12/RGB frames" | 4K NV12 is 12.4 MB and fits; 4K RGB24 is 24.9 MB and doesn't. the cross-process test uses NV12 | Data plane |
-| Tier 0 keeps 30 to 120 seconds; capture rings hold 2 to 3 seconds (the capture audit) | One rule: the ring length is a per-stream setting, 10 seconds by default, and it only has to cover flush lag because the tier worker drains continuously | Data plane, Storage tiers, Capture |
-| One header per artifact, forever | At 30 fps per camera that is millions of rows a day. Frame headers are compacted into their chunk on flush; `FRAMES` keeps the ones with children | Catalog |
-| A `cudaIpcMemHandle_t` "wrapped in DLPack" | DLPack carries an in-process pointer, not an IPC handle. GPU to GPU sharing would use CUDA IPC handles and is later work anyway | Data plane (Platforms) |
-| Deterministic preemption "within 5 ms" | The broker revokes the lease in 5 ms; it cannot stop a kernel already running in another process. Workers stop at a batch boundary | Scheduler |
-| Versions pinned from late 2024 | Use the newest stable release; pin only on breakage, with the reason | Stack, decision 6 |
-| Tiers 1, 2, 3 in the handoff | 0, 1, 2 | Decision 2 |
-| A ULID `artifact_id` and a composite `PayloadId` | One UUIDv7 | Decision 8 |
-| `clock_domain: MONOTONIC_PTP` per range | One UTC timeline, converted at capture; the raw stamps stay in `CaptureInfo` | Decision 9 |
-| `L2_DerivedClaim`, `L3_Projection` | The domain model's order: layer 2 is decisions and projections, layer 3 is interpretations | Decision 10 |
-| `voice_state` on every `ControlEnvelope` | Broker system state, broadcast on change | Decision 11 |
-| `ingest/`, `tier.rs`, and `gateway.rs` inside the broker crate | Separate processes | Decisions 1 and 12 |
-| "Cryptographic forgetting" | A cascading purge; crypto shredding is later work | Decision 5 |
-| Content-addressed hashes and a Merkle-style DAG | Not used. Ids are UUIDv7, and the producer's `version_hash` covers model drift | Envelope |
-| A `justfile` | mise tasks | Decision 7 |
-| GStreamer leaning | FFmpeg for codecs, native APIs for devices (Joe, #531) | Decision 13 |

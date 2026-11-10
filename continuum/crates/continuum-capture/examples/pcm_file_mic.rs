@@ -1,7 +1,7 @@
 //! A microphone made from a file, for tests: plays raw interleaved S16LE PCM through capture's real microphone path
 //! (the stream registration, the broker-carved ring, the per-block stamps, and the per-batch `IngestNotice`s), in real
 //! time, as a device would. Readers can't tell it from a microphone, which is the point: the audio worker's tests
-//! (#548) read it live.
+//! read it live.
 //!
 //! ```bash
 //! pcm_file_mic --socket data/state/continuum/broker.sock --name testmic --rate 16000 --channels 1 speech.s16

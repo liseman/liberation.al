@@ -1,4 +1,4 @@
-"""Shots the owner took out of their unnamed face group ("Not this person" on Who's this?, #2008).
+"""Shots the owner took out of their unnamed face group ("Not this person" on Who's this?).
 
 A shot is one `face.match` sighting, by its id. A rejected one keeps its row in the segment store but belongs to no
 group: readers that join sightings to groups (vision/sightings.py, people/identity.py) treat its cluster as none, so it

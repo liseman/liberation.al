@@ -10,7 +10,6 @@ from hypothesis import example, given, settings
 from hypothesis import strategies as st
 from hypothesis.extra import numpy as hnp
 
-from liberational import config as cfg
 from liberational import segment_log
 from liberational.memory import places
 from liberational.spatial import cameras, floorplan, footprints, fuse, ply, poses
@@ -387,12 +386,12 @@ def test_a_fused_map_keeps_its_levelled_floor_when_furniture_tops_outnumber_it(t
 # Calibration from the owner's camera heights and from people seen by two cameras at once (#2960).
 
 
-def test_measured_camera_heights_put_the_map_at_metric_scale(tmp_path):
+def test_measured_camera_heights_put_the_map_at_metric_scale(tmp_path, mounts):
     # MASt3R made the room at 0.6 of its size, and the camera 2 m up at 1.2; the owner measured 2 m
     small = room(0) * 0.6
     first = raw_revision(tmp_path, None, small, T, cameras={"s2": pose_at(0.6, -1.2, 0.6), "s3": pose_at(1, -1, 1)})
-    with cfg.override({"spatial": {"camera_heights_m": {"s2": 2.0}}}):
-        fused = fuse.refine(tmp_path, first.place, now=T + 1)
+    mounts({"s2": {"height_m": 2.0}})
+    fused = fuse.refine(tmp_path, first.place, now=T + 1)
     assert fused is not None
     pts, _, _ = ply.read(places.root(tmp_path) / fused.place / str(fused.map))
     hi = np.percentile(pts, 99.5, axis=0)
@@ -407,7 +406,7 @@ def test_without_measured_heights_the_map_keeps_its_scale(tmp_path):
     assert fused is not None and fused.cameras["s2"].pose[11] == pytest.approx(1.2)
 
 
-def test_a_map_fused_before_heights_were_known_is_rescaled_and_still_registers(tmp_path):
+def test_a_map_fused_before_heights_were_known_is_rescaled_and_still_registers(tmp_path, mounts):
     cams = {"s2": pose_at(0.6, -1.2, 0.6)}
     first = raw_revision(tmp_path, None, room(0) * 0.6, T, cameras=cams)
     fused = fuse.refine(tmp_path, first.place, now=T + 1)  # fused at MASt3R's scale
@@ -415,8 +414,8 @@ def test_a_map_fused_before_heights_were_known_is_rescaled_and_still_registers(t
     part = room(1)
     part = part[part[:, 0] < 4.5] * 0.6
     raw_revision(tmp_path, first.place, part, T + 2, cameras={"s2": pose_at(0.6, -1.2, 0.6)})
-    with cfg.override({"spatial": {"camera_heights_m": {"s2": 2.0}}}):
-        again = fuse.refine(tmp_path, first.place, now=T + 3)
+    mounts({"s2": {"height_m": 2.0}})
+    again = fuse.refine(tmp_path, first.place, now=T + 3)
     assert again is not None
     assert again.sources[-1] == fused.id, "the new map registered onto the rescaled one"
     assert again.frame == again.id != fused.frame, "a rescaled map is a new frame: an old splat wouldn't fit it"
@@ -495,22 +494,22 @@ def test_people_too_few_to_measure_give_no_height():
     assert fuse.people(walk({"a": TRUE["a"]}, spots), {"a": TRUE["a"]}) is None
 
 
-def test_a_new_map_its_cameras_would_scale_far_from_one_isnt_fused(tmp_path):
+def test_a_new_map_its_cameras_would_scale_far_from_one_isnt_fused(tmp_path, mounts):
     # A wrong floor puts a camera at a tenth of its height: scaling the map eight times over is refused (#2960)
     first = raw_revision(tmp_path, None, room(0), T, cameras={"s2": pose_at(1.0, -2.0, 1.0)})
-    with cfg.override({"spatial": {"camera_heights_m": {"s2": 16.0}}}):
-        assert fuse.refine(tmp_path, first.place, now=T + 1) is None
+    mounts({"s2": {"height_m": 16.0}})
+    assert fuse.refine(tmp_path, first.place, now=T + 1) is None
     assert [r.id for r in places.revisions(tmp_path, first.place)] == [first.id]
 
 
-def test_a_cameras_background_rides_through_fusion_and_still_reads_in_metres(tmp_path):
+def test_a_cameras_background_rides_through_fusion_and_still_reads_in_metres(tmp_path, mounts):
     # #3070: positions read the fused revision. MASt3R made the room at 0.6 of its size; the background is a fraction of
     # the camera's height, so the couch cell (0.45 of the camera's 2 m) still reads 0.9 m up at metric scale.
     bg = places.Background(2, 1, (0.0, 0.45))
     cam = replace(pose_at(0.6, -1.2, 0.6), background=bg)
     first = raw_revision(tmp_path, None, room(0) * 0.6, T, cameras={"s2": cam})
-    with cfg.override({"spatial": {"camera_heights_m": {"s2": 2.0}}}):
-        fused = fuse.refine(tmp_path, first.place, now=T + 1)
+    mounts({"s2": {"height_m": 2.0}})
+    fused = fuse.refine(tmp_path, first.place, now=T + 1)
     assert fused is not None and fused.cameras["s2"].background == bg
     # The camera looks level along the room; at v = 0.9 its ray drops 0.48 m a metre: the couch hides 1.73 m of floor
     assert footprints.at_edge(fused.cameras["s2"], fused.floor, 0.75, 0.9) is True

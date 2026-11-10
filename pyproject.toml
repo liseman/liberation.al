@@ -37,7 +37,7 @@ dependencies = [
     "onnxruntime>=1.31.0 ; sys_platform != 'linux' or platform_machine != 'x86_64'",
     "orjson>=3.13.0",
     # Continuum's Python SDK (continuum/), built from source by maturin on uv sync, so uv sync needs the Rust
-    # toolchain (rustup). The ported speech path talks to the broker through it (#548).
+    # toolchain (rustup). The ported speech path talks to the broker through it.
     "continuum-py[numpy]",
     "pyserial>=3.5",
 ]
@@ -100,6 +100,7 @@ dev = [
 # Daemons
 pack-vlm = "liberational.vision.vlm_server:main"
 pack-dashboard = "liberational.dashboard.server:main"
+pack-demo = "liberational.demo.cli:main"
 pack-voice = "liberational.assistant.voice:main"
 pack-listen = "liberational.listen.worker:main"
 pack-knowledge = "liberational.knowledge_cli:main"
@@ -204,33 +205,33 @@ ignore = [
 "tests/**" = ["ANN"]
 # Continuum's own Python is where continuum_py is built and used.
 "continuum/**" = ["TID253"]
-# The ported speech path imports continuum_py at runtime (#548); the rest of v1 still may only for types.
+# The ported speech path imports continuum_py at runtime; the rest of v1 still may only for types.
 "src/liberational/speech_log.py" = ["TID253"]
 "src/liberational/room_audio.py" = ["TID253"]  # imported only when audio is read (speech_log.SpeechLog.audio)
 "tests/test_speech_log.py" = ["ANN", "TID253"]
 "tests/test_voice_continuum.py" = ["ANN", "TID253"]
-# The ported vision path (#549), and the broker connection the ported readers share.
+# The ported vision path, and the broker connection the ported readers share.
 "src/liberational/vision_log.py" = ["TID253"]
-"src/liberational/proximity/network_worker.py" = ["TID253"]  # Native Continuum network inventory producer (#1328).
-"src/liberational/proximity/worker.py" = ["TID253"]  # New Continuum BLE sensor producer (#1327).
+"src/liberational/proximity/network_worker.py" = ["TID253"]  # Native Continuum network inventory producer.
+"src/liberational/proximity/worker.py" = ["TID253"]  # New Continuum BLE sensor producer.
 "src/liberational/people/pets.py" = ["TID253"]  # native pet.profile assertions, with no v1 disk store
 "src/liberational/dashboard/pets.py" = ["TID253"]  # native broker failure handling for pet routes
 "tests/test_pets.py" = ["ANN", "TID253"]
 "src/liberational/continuum_link.py" = ["TID253"]
 "tests/test_continuum_link.py" = ["ANN", "TID253"]
-"src/liberational/proximity/devices.py" = ["TID253"]  # device links as native owner assertions (#1329)
+"src/liberational/proximity/devices.py" = ["TID253"]  # device links as native owner assertions
 "tests/test_devices.py" = ["ANN", "TID253"]
-"src/liberational/video_window.py" = ["TID253"]  # the nightly video window (#1748), a broker client
+"src/liberational/video_window.py" = ["TID253"]  # the nightly video window, a broker client
 "tests/test_video_window.py" = ["ANN", "TID253"]
 "tests/test_vision_log.py" = ["ANN", "TID253"]
-# The ported memory path (#777): the journal streams.
+# The ported memory path: the journal streams.
 "src/liberational/memory_log.py" = ["TID253"]
 "tests/test_memory_log.py" = ["ANN", "TID253"]
 "tests/test_journal.py" = ["ANN", "TID253"]
-"src/liberational/see/face_boxes.py" = ["TID253"]  # the face.boxes ring (#1762), a broker client
+"src/liberational/see/face_boxes.py" = ["TID253"]  # the face.boxes ring, a broker client
 "src/liberational/see/frames.py" = ["TID253"]
-"src/liberational/see/decoded_worker.py" = ["TID253"]  # native shared camera decode owner (#1738)
-"src/liberational/see/shared_frames.py" = ["TID253"]  # native source header types for decoded frames (#1738)
+"src/liberational/see/decoded_worker.py" = ["TID253"]  # native shared camera decode owner
+"src/liberational/see/shared_frames.py" = ["TID253"]  # native source header types for decoded frames
 "src/liberational/see/caption_worker.py" = ["TID253"]
 "src/liberational/see/zones_worker.py" = ["TID253"]
 "tests/test_see_zones_worker.py" = ["ANN", "TID253"]
@@ -249,7 +250,7 @@ ignore = [
 
 [tool.ruff.lint.flake8-tidy-imports]
 # v1 code imports continuum_py only for types (inside `if TYPE_CHECKING:`), so a v1 module never needs the broker.
-# The modules ported onto Continuum are exempt (per-file-ignores above); uv sync installs continuum_py (#548).
+# The modules ported onto Continuum are exempt (per-file-ignores above); uv sync installs continuum_py.
 banned-module-level-imports = ["continuum_py"]
 
 [tool.ruff.lint.isort]

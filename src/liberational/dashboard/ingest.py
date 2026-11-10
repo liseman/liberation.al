@@ -168,9 +168,9 @@ def _analyzed() -> dict[str, Any]:
 
 
 def analysis(item: Any, rows: dict[str, Any]) -> dict[str, Any] | None:
-    """What reading an item found, for its row's "what came of it" (#2719): None while it's still being brought in;
+    """What reading an item found, for its row's "what came of it": None while it's still being brought in;
     {"state": "waiting"} before its pass; "retrying"; "failed" with the last error; or "done" with how many frames
-    were read, captions written, and lines heard. Faces in brought-in media aren't read yet (#1738)."""
+    were read, captions written, and lines heard. Faces in brought-in media aren't read yet."""
     if item.status != "done" or not item.outputs:
         return None
     row = rows.get(str(item.id))

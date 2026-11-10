@@ -2,7 +2,7 @@
 
 Each awaitable's result is handed to Python from a tokio thread. A process that exited with some pending used to
 segfault now and then: the interpreter finalized, tearing down the pending futures, and the bridge then attached a
-tokio thread to the dead interpreter (6 of 20 runs of this script on devbox, 2026-10-29). The script below exits that
+tokio thread to the dead interpreter (6 of 20 runs of this script on the Linux machine). The script below exits that
 way; it's run 20 times because the crash was a race (about 1 run in 4 before the fix).
 """
 

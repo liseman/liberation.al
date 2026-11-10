@@ -1,11 +1,11 @@
-"""How sensitive each microphone is (#315): one 0 to 100 setting that tunes the energy VAD and the speech gate.
+"""How sensitive each microphone is: one 0 to 100 setting that tunes the energy VAD and the speech gate.
 
 Ambient drops speech at two gates before ASR: the energy VAD opens on a frame louder than
 max(floor + margin_db, min_dbfs), and the Silero speech gate then drops an utterance with too little speech at its
 threshold. One sensitivity moves all three together, linearly: 0 is strict (12 dB over the room floor, never below
 -40 dBFS, Silero threshold 0.6) and 100 is loose (4 dB, -90 dBFS, 0.25).
 
-The default, 70 (6.4 dB, -75 dBFS, 0.355), comes from 2.6 hours of devbox's Elgato Wave 3 on 2026-10-28, scored
+The default, 70 (6.4 dB, -75 dBFS, 0.355), comes from 2.6 hours of the Linux machine's Elgato Wave 3, scored
 against Silero run over the whole stream (468 speech stretches of at least 0.25 s, 24 minutes). The old fixed
 values (9 dB, -45 dBFS, 0.5) caught 5 of them end to end, because this mic's speech peaks near -55 dBFS. At
 6 dB, -75 dBFS, and 0.35 they caught 429, with 49 kept utterances holding no Silero speech (as many as at 0.4).

@@ -5,6 +5,35 @@ This guide covers the current Continuum installation. Fresh setup is in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). The old genericize and v1 import
 procedures are retired. Do not run an old catch-up script against current data.
 
+## Segment parts close as one batch
+
+A segment part used to keep one record batch for every append for good, so a stream appended a row at a time (the
+coverage streams) cost about 770 bytes a row on disk and seconds to read a day of. Writers now rewrite a part as one
+batch when it closes, and its name ends `-v1`. This needs the Rust binaries and the Python SDK rebuilt
+(`mise run continuum-release` and `mise run continuum-py`, the latter with the FFmpeg decoder where the install has
+it) and every service restarted, since each one reads or writes the segment store.
+
+Parts closed before the upgrade keep the old layout and still read correctly, only slower. To rewrite them once, after
+the restart, from the live checkout (safe while the services run; it touches closed parts only, deletes nothing, and
+prints how many it rewrote):
+
+```sh
+.venv/bin/python -c "import continuum_py; from liberational import segment_log; print(continuum_py.compact_segments(segment_log.root()))"
+```
+
+## Positions are placed when written
+
+The Places page reads where people and pets were from the position layer (`position.placed`), which the nightly
+`pack-spatial-cameras` run fills from the raw footprints. After this upgrade the layer is empty, so the page shows no
+paths until that run, whose first pass places the last 30 days (about 20 s for each day of a busy place). To fill it
+at once, from the live checkout:
+
+```sh
+.venv/bin/python tools/place_positions.py
+```
+
+Restart the dashboard after the pull. Nothing is deleted: the raw footprints stay where they were.
+
 ## Remote dashboard cameras
 
 A dashboard opened over HTTPS cannot open the gateway's plain WebSocket on port 8766. The page uses `wss` on port
@@ -28,9 +57,29 @@ Then `uv run --no-sync pack-services install continuum-gateway`, so the unit's `
 The process does not read `pack.toml` itself. Cameras then show for a dashboard opened on the tailnet. From outside
 the tailnet they stay unavailable.
 
-## Pet embeddings are cut tight (2026-11-08)
+## Cameras are views: mounts and rigs in devices.toml
 
-Animal embeddings now crop the detector's box itself instead of a square with context (#3024), a new embedding space
+A camera is an angle on whatever holds it, not a room (#5). Its fixed-mount settings moved from `pack.toml` onto its
+own entry in `config/devices.toml`, as `mount`, and a camera on a moving rig now says where it sits on the rig
+instead (spatial/rig.py; `config/devices.example.toml` shows both). The old settings are removed, so `pack-config
+--check` names them and a service that reads them fails until they're moved:
+
+- `[spatial] camera_heights_m = { cam0 = 1.5 }` becomes `mount = { height_m = 1.5 }` on `cam0`'s `[[device]]`.
+- `[spatial] outdoor_cameras = ["patio"]` becomes `mount = { outdoor = true }` on `patio`'s `[[device]]` (one table
+  with both keys when a camera has both).
+- `[vision] places = ["cam0: front camera"]` is renamed `[vision] camera_names`, same format. Name the view ("front
+  camera"), not the room it looks at.
+- A camera on a wearable or moving rig: declare the rig once (`[[rig]]` with a `name`) and give each of its cameras
+  `mount = { rig = "<name>", at = [x, y, z], turn = [yaw, pitch, roll], hfov_deg = <field of view> }`. A rig camera
+  is never one of the fixed-camera places (`pack-spatial-cameras`), with or without a `fisheye` calibration.
+
+Delete the old keys from `pack.toml` after moving them. Capture refuses a `mount` key it doesn't know and a
+`mount.rig` with no `[[rig]]`, so restart `continuum-capture` once the manifest is edited, and then every
+config-reading service, dashboard included (the renamed `vision.camera_names` key). No machine-made data changes.
+
+## Pet embeddings are cut tight
+
+Animal embeddings now crop the detector's box itself instead of a square with context, a new embedding space
 (`<repo>:tight` in each row's and `pet.reference`'s `model`). References of the old space are ignored, so pet
 recognition is off until the owner's labels get new ones. After pulling, restart `see-actions`, `see-captions`, and the
 dashboard, then run once:
@@ -44,7 +93,7 @@ It finds each labeled track's animal in its saved photo (`state/pet_shots`, kept
 reference; a photo with no animal found leaves its label without one. Square-crop embeddings of unlabeled sightings
 age out with `pets.label_days`.
 
-## The shared Ollama is a pack service (2026-11-08)
+## The shared Ollama is a pack service
 
 The Ollama at `ollama.url` now runs as the `ollama` pack service, which waits for the NVIDIA driver before it starts.
 On Linux, stop and disable the system one so the two don't fight over port 11434, keep its model store, and install:

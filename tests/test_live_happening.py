@@ -33,7 +33,11 @@ def state(tmp_path, monkeypatch):
     monkeypatch.setattr(happening, "_built", {})
     monkeypatch.setattr(happening, "_settled", {})
     monkeypatch.setattr(happening, "_rows", {})
-    cfgs = {"owner": {"name": "Olive"}, "paths": {"state": str(tmp_path)}, "vision": {"places": ["cam0=living room"]}}
+    cfgs = {
+        "owner": {"name": "Olive"},
+        "paths": {"state": str(tmp_path)},
+        "vision": {"camera_names": ["cam0=front camera"]},
+    }
     with cfg.override(cfgs):
         yield tmp_path
 
@@ -78,9 +82,9 @@ def test_people_come_and_go_on_the_camera_views(state, rewrites, vision):
     visits(vision, ("Kara", "cam0", NOW - 3000, NOW - 2400), ("Luca", "cam1", NOW - 100, NOW - 10))
     _, rw = rewrites({})
     out = read(state, rw)
-    assert [(r["kind"], r["text"], r["cam"], r["place"]) for r in out["items"]] == [
-        ("arrival", "Kara came in", "cam0", "living room"),
-        ("departure", "Kara left", "cam0", "living room"),
+    assert [(r["kind"], r["text"], r["cam"], r["camera_name"]) for r in out["items"]] == [
+        ("arrival", "Kara came in", "cam0", "front camera"),
+        ("departure", "Kara left", "cam0", "front camera"),
         ("arrival", "Luca came in", "cam1", None),  # seen under LEAVE_S ago: still here
     ]
     assert out["items"][0]["people"] == ["Kara"]
@@ -263,7 +267,15 @@ def settle(state):
 
 
 def row(rid, text):
-    return {"id": rid, "ts": NOW - 20, "kind": "arrival", "text": text, "people": [], "cam": "cam0", "place": None}
+    return {
+        "id": rid,
+        "ts": NOW - 20,
+        "kind": "arrival",
+        "text": text,
+        "people": [],
+        "cam": "cam0",
+        "camera_name": None,
+    }
 
 
 def test_a_poll_past_build_s_answers_from_the_last_build_while_the_next_one_runs(state, rewrites, monkeypatch):
@@ -417,7 +429,7 @@ def test_obsolete_anonymous_episode_is_retracted_for_incremental_clients(state, 
         "text": "Someone not yet named came in",
         "people": [],
         "cam": "cam0",
-        "place": None,
+        "camera_name": None,
     }
     row["id"] = f"a:{happening.presence.UNKNOWN_FACES}:123"
     _, rw = rewrites({})
@@ -433,7 +445,7 @@ def test_obsolete_anonymous_episode_is_retracted_for_incremental_clients(state, 
             "text": None,
             "people": None,
             "cam": None,
-            "place": None,
+            "camera_name": None,
             "removed": True,
         }
     ]

@@ -164,8 +164,8 @@ def _scan(gids: list[int], state: Path | None, face_batch: FaceBatch | None = No
             {
                 "shots": [{"id": f["id"], "ts": float(f["ts"])} for f in mine[:THUMBS]],
                 "all_shots": [{"id": f["id"], "ts": float(f["ts"])} for f in mine],
-                "shot_count": len(mine),  # every recent shot it has, for Who's this? "Show all (N)" (#2008)
-                "times": [float(f["ts"]) for f in mine],  # when each was seen, for who was heard then (#225)
+                "shot_count": len(mine),  # every recent shot it has, for Who's this? "Show all (N)"
+                "times": [float(f["ts"]) for f in mine],  # when each was seen, for who was heard then
                 "last": float(mine[0]["ts"]) if mine else None,
                 "det": statistics.median(float(f["det"]) for f in mine) if mine else None,
                 "height": statistics.median(heights) if heights else None,
@@ -186,15 +186,15 @@ def groups(
     """Live's "Who's this?" rows for the face groups waiting for a name ([{"id", "count"}], as /people lists them),
     best guess first: the probable ones by score, then the maybes, then the rest by when they were last seen. times,
     when given, gets when each group's recent sightings were (people/together.py reads who was heard then). `nots`:
-    each group's people (by name) the owner said it isn't (people/face_nots.py, #2368), never its guess, and listed
-    as the row's `not`. A guess's `id` is the name to send back, as pets' and voices' guesses have (#2366)."""
+    each group's people (by name) the owner said it isn't (people/face_nots.py), never its guess, and listed
+    as the row's `not`. A guess's `id` is the name to send back, as pets' and voices' guesses have."""
     from liberational.vision import faces as fid
 
     ids, vecs, _, _ = fid._unk_load()
     index = {int(g): i for i, g in enumerate(ids)}
     waiting = [g for g in waiting if int(g["id"]) in index]
     mine = _unit(np.stack([vecs[index[int(g["id"])]] for g in waiting])) if waiting else np.zeros((0, 512), np.float32)
-    names, embs = fid.gallery()  # the owner's rows and the learned ones (#3013)
+    names, embs = fid.gallery()  # the owner's rows and the learned ones
     photos = cfg.path("paths.faces") / "_unknown"
     out: list[dict[str, Any]] = []
     for g, vec, sc in zip(waiting, mine, _scan([int(g["id"]) for g in waiting], state, face_batch)):

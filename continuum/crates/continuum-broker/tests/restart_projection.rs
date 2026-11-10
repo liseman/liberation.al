@@ -252,7 +252,8 @@ async fn failed_ring_allocation_keeps_committed_stream_metadata_in_the_checkpoin
 }
 
 /// Seeds `chunks` chunks of 4000 absorbed frames each on `synthetic.history`: enough `CHUNK_FRAMES` rows that a sweep
-/// at a budget of one row per step is still running when the broker stops (devbox's sweep never finishes, #1789).
+/// at a budget of one row per step is still running when the broker stops (a large catalog's sweep may not finish
+/// before stop).
 fn seed_absorbed_frames(path: &Path, chunks: u32) {
     const FRAMES: u32 = 4_000;
     let catalog = RedbCatalog::open(path).unwrap();
@@ -300,7 +301,7 @@ async fn a_frame_sweep_running_at_stop_is_dropped_and_the_projection_still_publi
     seed(&path);
     seed_absorbed_frames(&path, 5);
     let mut config = config(&socket, &path);
-    // One frame row per writer step, as devbox's sweep runs: it can't finish before this test stops the broker.
+    // One frame row per writer step, as a slow sweep runs: it can't finish before this test stops the broker.
     config.writer.initial_budget = 1;
     config.writer.max_budget = 1;
     let server = Server::bind(config.clone()).await.unwrap();
@@ -348,7 +349,7 @@ async fn a_frame_sweep_running_at_stop_is_dropped_and_the_projection_still_publi
     stop(shutdown, running).await;
 }
 
-/// The 13:06 stop on 2026-11-03 skipped the projection with "reads were outstanding": a read for a client that
+/// A stop can skip the projection with "reads were outstanding" when a read for a client that
 /// had already gone was still running on the reader pool. The fence waits for it within its budget.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_read_still_running_at_stop_is_waited_for_and_the_projection_publishes() {

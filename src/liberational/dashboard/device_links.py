@@ -1,9 +1,9 @@
-"""Settings' phones, watches, and tags (#1363): the devices seen, and linking one to a person or naming it as a thing.
+"""Settings' phones, watches, and tags: the devices seen, and linking one to a person or naming it as a thing.
 
-The routes read and write proximity/devices.py (#1329), the same links `pack-devices` makes. A link is an owner
+The routes read and write proximity/devices.py, the same links `pack-devices` makes. A link is an owner
 assertion, so only this machine changes one.
 GET /device-presence is a separate read-only, bounded linked-person evidence snapshot for Live, and
-GET /device-whereabouts where each linked thing and person was last seen, for Known › Devices (#1326).
+GET /device-whereabouts where each linked thing and person was last seen, for Known › Devices.
 """
 
 import datetime as dt
@@ -96,7 +96,7 @@ def _forget() -> None:
 
 
 def whereabouts(now: float | None = None) -> tuple[int, dict[str, Any]]:
-    """GET /device-whereabouts: where each linked thing and person was last seen (#1326, "where my things are"), as
+    """GET /device-whereabouts: where each linked thing and person was last seen ("where my things are"), as
     Known › Devices shows it, looking back devices.thing_lookback_days."""
     end = time.time() if now is None else now
     days = int(config.get("devices.thing_lookback_days"))
@@ -114,7 +114,7 @@ def whereabouts(now: float | None = None) -> tuple[int, dict[str, Any]]:
 
 
 def comings(now: float | None = None) -> tuple[int, dict[str, Any]]:
-    """GET /device-comings: every device on the home Wi-Fi today (#1326, "what's on the Wi-Fi and when each comes
+    """GET /device-comings: every device on the home Wi-Fi today ("what's on the Wi-Fi and when each comes
     and goes"): when it arrived and left, a stay at a time, newest first, as Known › Devices shows it."""
     end = time.time() if now is None else now
     local = dt.datetime.fromtimestamp(end).astimezone()
@@ -175,7 +175,7 @@ def save(body: object, control: bool) -> tuple[int, dict[str, Any]]:
 
 def name_access_point(body: object, control: bool) -> tuple[int, dict[str, Any]]:
     """POST /device-access-point {mac, name}: name a Wi-Fi access point the router reports by MAC alone, for Known ›
-    Devices (devices.access_points in pack.toml, as camera names are in vision.places); an empty name clears it."""
+    Devices (devices.access_points in pack.toml, as camera names are in vision.camera_names); an empty name clears it."""
     if not control:
         return 403, {"ok": False, "error": "access points can only be named on this machine"}
     if not isinstance(body, dict):
@@ -219,7 +219,7 @@ def remove(body: object, control: bool) -> tuple[int, dict[str, Any]]:
 
 def locate(body: object, control: bool, state: Path | None = None) -> tuple[int, dict[str, Any]]:
     """POST /device-locations {kind, value, place, room}: say a device lives in a place, or a room of its plan ("" for
-    the whole place), or move it (#3274)."""
+    the whole place), or move it."""
     if not control:
         return 403, {"ok": False, "error": "device locations can only be set on this machine"}
     if not isinstance(body, dict):

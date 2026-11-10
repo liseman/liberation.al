@@ -77,7 +77,7 @@ from liberational.domain import kernel
 PARTS = ("identification", "retrieval", "events")
 MODALITIES = ("face", "voice")
 SOURCES = ("transcript", "camera", "call", "journal")
-# Segment streams an expected evidence item can name as its source (#1909): Ask's evidence items say which stream
+# Segment streams an expected evidence item can name as its source: Ask's evidence items say which stream
 # they came from (`stream`), so a label can expect a walk-by, a zone visit, a model action, or movement.
 STREAM_SOURCES = ("walkby.span", "zone.visit", "action.span", "action.window", "movement.track", "movement.coverage")
 NOBODY = "nobody"
@@ -859,7 +859,7 @@ def _tally(
     }
 
 
-# Today's thresholds (#291): voice names a line at speaker_sim >= 0.55 (audio/ambient.py THRESHOLD), a face at
+# Today's thresholds: voice names a line at speaker_sim >= 0.55 (audio/ambient.py THRESHOLD), a face at
 # sim > 0.45 (vision/faces.py THRESH, vision/sightings.py FACE_THRESH). Copied here so this reads no model code.
 TODAY = {"voice": 0.55, "face": 0.45}
 SWEEP_TOP, SWEEP_STEP = 0.90, 0.05
@@ -877,7 +877,7 @@ def sweep_identification(
     clips: Sequence[Clip], state: str | pathlib.Path, top: float = SWEEP_TOP, step: float = SWEEP_STEP
 ) -> dict[str, Any]:
     """Precision and recall per modality at thresholds from today's up to top, from the similarities stored on each
-    transcript line and sighting (#291). Read-only, and it changes no default.
+    transcript line and sighting. Read-only, and it changes no default.
 
     Only today's threshold and stricter ones can be swept: a record today left unnamed keeps no candidate name, so
     what a lower threshold would have named isn't stored."""

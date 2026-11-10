@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Remove the unnamed face groups and learned face rows made from the side or back of a head (#3155), once.
+"""Remove the unnamed face groups and learned face rows made from the side or back of a head, once.
 
-Since #3155, see-actions never starts or joins an unnamed group ("Face N") with a look that doesn't show the face
+see-actions never starts or joins an unnamed group ("Face N") with a look that doesn't show the face
 (`see/head_faces.py:shows_face`), and never learns from one. This clears what was made before:
 
 - A group is removed when it has looks in the window, every one has its `face.signal`, and none shows the face. A

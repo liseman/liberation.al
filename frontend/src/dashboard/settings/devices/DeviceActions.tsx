@@ -3,6 +3,8 @@
 // laid out like the Who's this? cards' answers (#3266): an icon over its caption and key, with a popover saying what
 // it does on hover and on keyboard focus; L on a focused card opens the picker. A location is a place, or a room of
 // its plan (memory/places.py): a device that never moves (a TV, a plug, a speaker) then tells where the Pack is.
+// Whose it is comes from the people Liberational knows (the shared person name box, lib/PersonNameInput.tsx): the
+// link stores the name as typed and never makes a person, so a name nobody has would link the device to no one.
 import {
   Button,
   CloseButton,
@@ -18,9 +20,11 @@ import {
   UnstyledButton,
 } from '@mantine/core';
 import { IconLink, IconMapPin, IconTag, IconUser } from '@tabler/icons-react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { type FormEvent, type KeyboardEvent, type MouseEvent, type ReactNode, useId, useState } from 'react';
 import { messageOf } from '../../../shared/http';
+import { LazyPersonNameInput } from '../../lib/LazyPersonNameInput';
+import { knownPeopleQuery } from '../../livetab/people';
 import cards from './deviceCards.module.css';
 import {
   DEVICE_LINKS_KEY,
@@ -76,6 +80,10 @@ export function LinkForm({
   const id = useId();
   const [target, setTarget] = useState<LinkTarget>(first);
   const [name, setName] = useState('');
+  const people = useQuery({ ...knownPeopleQuery(), enabled: target === 'person' });
+  const known = people.data ?? [];
+  // A person is one Liberational knows, picked from the list or typed in full (any case): the name sent is theirs.
+  const person = known.find(k => k.toLocaleLowerCase() === name.trim().toLocaleLowerCase()) ?? null;
   const options = whereOptions(places);
   const [where, setWhere] = useState(options[0]?.value ?? '');
   const [by, setBy] = useState(0);
@@ -83,7 +91,11 @@ export function LinkForm({
     mutationFn: async (): Promise<unknown> => {
       const selector = device.selectors[by];
       if (!selector) throw new Error('this device has no address to link it by');
-      if (target !== 'place') return saveDeviceLink(selector, target, name);
+      if (target === 'person') {
+        if (!person) throw new Error('pick someone from the people list');
+        return saveDeviceLink(selector, target, person);
+      }
+      if (target === 'thing') return saveDeviceLink(selector, target, name);
       const [place = '', room = ''] = where.split('\n');
       return saveDeviceLocation(selector, place, room);
     },
@@ -92,7 +104,7 @@ export function LinkForm({
       onDone();
     },
   });
-  const ready = target === 'place' ? Boolean(where) : Boolean(name.trim());
+  const ready = target === 'place' ? Boolean(where) : target === 'person' ? Boolean(person) : Boolean(name.trim());
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (ready) save.mutate();
@@ -125,12 +137,38 @@ export function LinkForm({
               No places yet. Walk the house with the Pack, and its rooms show here (Known › Places).
             </Text>
           )
+        ) : target === 'person' ? (
+          <>
+            <LazyPersonNameInput
+              known={known}
+              value={name}
+              onChange={setName}
+              onPick={picked => setName(picked)}
+              allowNew={false}
+              label="Whose is it?"
+              placeholder="Pick someone"
+              emptyText={
+                people.isPending ? 'Loading people…' : known.length ? 'Nobody by that name' : 'Nobody known yet'
+              }
+              modalFocus
+            />
+            {people.isSuccess && !known.length && (
+              <Text size="xs" c="dimmed">
+                Nobody is known by name yet. Name someone in People first, then link their devices here.
+              </Text>
+            )}
+            {people.isError && (
+              <Text size="xs" c="red" role="alert">
+                Couldn't load the people list: {messageOf(people.error)}
+              </Text>
+            )}
+          </>
         ) : (
           <TextInput
             id={`${id}-name`}
             size="xs"
-            label={target === 'person' ? 'Whose is it?' : 'What is it?'}
-            placeholder={target === 'person' ? 'Person’s name' : 'Device name'}
+            label="What is it?"
+            placeholder="Device name"
             value={name}
             maxLength={80}
             onChange={e => setName(e.currentTarget.value)}

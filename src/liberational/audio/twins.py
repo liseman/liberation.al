@@ -1,10 +1,11 @@
-"""The same speech heard on two microphones (#285, #284): one rule for when two lines are one thing said.
+"""The same speech heard on two microphones: one rule for when two lines are one thing said.
 
 Two mics in one room both hear a sentence, so the transcriber gets it twice, once per device, a moment apart and
 transcribed almost alike. Two lines are the same speech when they come from different devices, overlap in time (an
 echo of one sentence does; two people saying "yes" a second apart don't), start within audio.dedup_window_s of each
-other, and their text is at least audio.dedup_similarity alike (difflib's ratio, 0 to 1, on lowercased words). The transcriber uses this to write only the first copy (#285); a reader can use it to link the
-pairs written before that, or left when the rule was off (#284), with pairs().
+other, and their text is at least audio.dedup_similarity alike (difflib's ratio, 0 to 1, on lowercased words). The
+transcriber uses this to write only the first copy; a reader can use it to link the pairs written before that, or left
+when the rule was off, with pairs().
 """
 
 import collections
@@ -45,7 +46,7 @@ def similarity(a: str, b: str) -> float:
 @functools.lru_cache(maxsize=65536)  # readers ask about the same pairs request after request
 def alike(a: str, b: str, min_similarity: float) -> bool:
     """Whether similarity(a, b) >= min_similarity: the same words at once, else difflib's cheap upper bounds before
-    its ratio (a two-mic transcript read whole compares about one pair per line, #284 review)."""
+    its ratio (a two-mic transcript read whole compares about one pair per line)."""
     wa, wb = words(a), words(b)
     if not wa or not wb:
         return False
@@ -74,7 +75,7 @@ def is_primary(device: str, primary: list[str]) -> bool:
 
 
 class Recent:
-    """The lines written in the last window, to tell a second mic's copy from new speech (#285)."""
+    """The lines written in the last window, to tell a second mic's copy from new speech."""
 
     def __init__(self, keep: int = 64) -> None:
         self.lines: collections.deque[Heard] = collections.deque(maxlen=keep)
@@ -96,7 +97,7 @@ class Recent:
 
 
 def pairs(lines: list[Heard], window_s: float, min_similarity: float, primary: list[str]) -> dict[int, int]:
-    """Lines written as copies of the same speech (#284): {index of a copy: index of the line shown for it}. Each
+    """Lines written as copies of the same speech: {index of a copy: index of the line shown for it}. Each
     group of one thing said shows one line, its primary mic's when it has one (as the transcriber would have kept),
     else its earliest; the others point at it. Lines that repeat nothing aren't in the result."""
     if window_s <= 0 or min_similarity <= 0:

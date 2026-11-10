@@ -1,8 +1,9 @@
-"""Run the tests that cover what changed, and only those (#270; AGENTS.md, "Run only the tests you need").
+"""Run the tests that cover what changed, and only those (AGENTS.md, "Run only the tests you need").
 
     mise run test-changed                 # against origin/main: committed, staged, and unstaged changes
     mise run test-changed -- --base main  # against another ref
     mise run test-changed -- --dry-run    # say what would run, run nothing
+    tools/test_changed.py --only python   # one side only (the hosted checks run each in its own job)
 
 Python: a changed test file runs as it is; a changed module under src/liberational/, or a script under tools/, runs
 the test files named for it (tests/test_<module>*.py) and those that import or load it. Frontend: the changed files under frontend/src/ go to
@@ -107,10 +108,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--base", default="origin/main", help="what to compare with (default origin/main)")
     ap.add_argument("--dry-run", action="store_true", help="say what would run, run nothing")
+    ap.add_argument("--only", choices=("python", "frontend"), help="run only the Python or only the frontend tests")
     args = ap.parse_args(argv)
     paths = changed(args.base)
-    py = python_tests(paths, sorted((ROOT / "tests").glob("test_*.py")))
-    front = frontend_files(paths)
+    py = python_tests(paths, sorted((ROOT / "tests").glob("test_*.py"))) if args.only != "frontend" else []
+    front = frontend_files(paths) if args.only != "python" else []
     runs: list[tuple[list[str], pathlib.Path]] = []
     if py:
         runs.append((["uv", "run", "pytest", "-q", *py], ROOT))

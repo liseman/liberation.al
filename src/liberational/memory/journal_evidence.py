@@ -1,4 +1,4 @@
-"""Journal evidence that degrades in steps instead of breaking (#2808, goal #2805).
+"""Journal evidence that degrades in steps instead of breaking.
 
 A day page (memory/journal_pages.py) cites hour entries (`[h3](#t=...)`, `h3` being the page's third parent), and
 each hour entry lists the records behind it (`evidence.sources`, memory/journal.py). A source with a camera is a
@@ -9,7 +9,7 @@ moment of video; one without (speech, the assistant's replies) is audio. What a 
    (CLIP_WIDTH px, CLIP_FPS frames a second, H.264), with a still and the caption as the fallback when no clip
    could be made. Only the moments a day page cites are promoted, at most PER_HOUR per cited hour (detected spans
    before plain captions), which keeps it to a few MB a day (docs/STORAGE.md).
-3. A speech source plays its audio for as long as any microphone kept audio there. Since retention (#2833) ages out
+3. A speech source plays its audio for as long as any microphone kept audio there. Since retention ages out
    audio no speech touches past the window, a cited source that isn't an utterance (an assistant reply, say) can
    lose its audio then, and says "audio expired".
 4. Once the source is gone with nothing promoted, the citation says so ("footage expired", from the broker's record

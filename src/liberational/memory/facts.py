@@ -1,6 +1,6 @@
 """Facts about people: relationships, roles, habits, and preferences, distilled from the journal's hourly entries.
-Step 6 of the WorldMM porting plan (docs/research/worldmm-long-video-memory.md, issue #25), after WorldMM's semantic
-memory, on Continuum (#550 part B, #777). Each hour's say on a fact is one `person.fact` payload on the memory log
+Step 6 of the WorldMM porting plan (docs/research/worldmm-long-video-memory.md), after WorldMM's semantic
+memory, on Continuum. Each hour's say on a fact is one `person.fact` payload on the memory log
 (liberational/memory_log.py): its parent is that 1 hour journal entry, its subject the person. Body:
     fact      one sentence that names the person ("Dana manages the Acme account")
     kind      relationship, role, habit, or preference
@@ -9,7 +9,7 @@ memory, on Continuum (#550 part B, #777). Each hour's say on a fact is one `pers
     supersedes  the fact (its first record) this one replaces, which readers then drop with every hour behind it
 A fact is read by folding its records (held): the first record's id names it, `same` gathers the hours that restate
 it, `support` is how many hours those are, counted when read, and `parents` are all of them. So an hour that is
-rebuilt or purged takes only its own record, and the fact stands on the other hours as long as any remains (#878).
+rebuilt or purged takes only its own record, and the fact stands on the other hours as long as any remains.
 A fact keeps the id it was stored under, and is read through the registry: after a merge, the merged person's facts
 are the survivor's, and the next record consolidated from one is stored under the survivor's id.
 How a fact is made, by the journal service after each pass (journal.facts, `journal.facts` in config):
@@ -247,7 +247,7 @@ def held(mlog: Any, pid: str, reg: Registry, *, state: pathlib.Path | None = Non
     person = reg.person(PersonId(pid))
     ids = sorted(reg.group(person.display_name)) if person is not None else [pid]
     found: dict[str, dict[str, Any]] = {}
-    review = revisions.review_snapshot(state or cfg.path("paths.state"))  # one read for every record (#3174)
+    review = revisions.review_snapshot(state or cfg.path("paths.state"))  # one read for every record
     for one in ids or [pid]:
         for r in mlog.range(SHAPE, 0.0, time.time() + 1.0, subjects=[str(one)]):
             if memory_log.transcript_current(r, review=review):
@@ -405,7 +405,7 @@ def facts_pass(
         try:
             new = extract(record, people, state) if people else []
         except BadReply as e:
-            # One reply the model keeps breaking must not hold the pass on this hour (#1271): skip it, acknowledged.
+            # One reply the model keeps breaking must not hold the pass on this hour: skip it, acknowledged.
             start = time.strftime("%Y-%m-%d %H:%M", time.localtime(float(record.get("ts_start") or 0)))
             log(
                 f"skipping hour {record.get('id')} (starting {start}, journal position {record.get('position')}):",

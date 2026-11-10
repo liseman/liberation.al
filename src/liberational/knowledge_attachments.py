@@ -2,8 +2,8 @@
 
 Collection is a small file allowlist plus numeric clone files and confirmed person-reference entries. It never
 walks raw recordings, unknown face clusters, pending previews, generated profiles, models, or environment files. Of
-the face gallery it takes the owner's rows (`db.npz`, which reference photos also teach, #3255) and the owner's
-negatives (`nots.npz`, #3251), not the rows the matcher learned from confident tracks (`learned.npz`), which are
+the face gallery it takes the owner's rows (`db.npz`, which reference photos also teach) and the owner's
+negatives (`nots.npz`), not the rows the matcher learned from confident tracks (`learned.npz`), which are
 machine-made and grow back.
 Managed import stores only content hashes on disk; logical names never become filesystem extraction paths. Putting
 taught files back (`restore_files`) maps each allowlisted logical name to its one home under the given state, faces,

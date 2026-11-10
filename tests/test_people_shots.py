@@ -59,7 +59,6 @@ def dashboard(tmp_path, monkeypatch, serve, vision):
     """The dashboard over a state dir with one 160 by 120 frame whose only "face" is a white square, a sighting of
     Alice in it, and one whose frame is gone."""
     monkeypatch.setattr(server, "STATE", tmp_path)
-    monkeypatch.setattr(server, "SHOTS", tmp_path / "shots")
     monkeypatch.setattr(server, "_crop_jobs", face_shots.Pending(server._crop_process))
     frame = np.zeros((120, 160, 3), np.uint8)
     frame[30:70, 40:80] = 255
@@ -163,7 +162,7 @@ def test_a_crop_from_before_a_forget_is_checked_once_and_kept(dashboard, tmp_pat
     monkeypatch.setattr(server, "_shot_revision", lambda state=None: "9")  # a forget elsewhere moved the revision
     monkeypatch.setattr(server.vision_log, "at", lambda state: looked_up())  # kept, not cut again
     assert get(base, url)[2] == pixels
-    assert [p.name.rsplit("-r", 1)[1] for p in (tmp_path / "shots").glob("*.jpg")] == ["9.jpg"]
+    assert [p.name.rsplit("-r", 1)[1] for p in (tmp_path / "shots").rglob("*.jpg")] == ["9.jpg"]
     monkeypatch.setattr(sightings, "shot", looked_up)  # checked under this revision: no lookup after
     assert get(base, url)[2] == pixels
 
@@ -181,7 +180,7 @@ def test_purged_crop_returns_404_and_removes_cached_file_even_with_old_etag(dash
         server, "_shot_revision", lambda state=None: "1"
     )  # the forget that removed it moved the revision
     assert get(base, f"/faces/shot/{ids.kept}.jpg", {"If-None-Match": headers["ETag"]})[0] == 404
-    assert not list((tmp_path / "shots").glob("*.jpg"))
+    assert not list((tmp_path / "shots").rglob("*.jpg"))
 
 
 def test_live_cached_crop_revalidates_with_revision_etag_without_reading_jpeg(dashboard, tmp_path, monkeypatch):
@@ -270,8 +269,9 @@ def test_video_scene_thumbnail_is_served_for_a_recorded_frame(dashboard, tmp_pat
 
 def test_old_geometry_cache_is_not_reused_after_pixel_mapping_changes(dashboard, tmp_path):
     base, ids = dashboard
-    server.SHOTS.mkdir(parents=True, exist_ok=True)
-    old = server.SHOTS / f"{ids.kept}.jpg"
+    folder = face_shots.directory(server.STATE, ids.kept)
+    folder.mkdir(parents=True, exist_ok=True)
+    old = folder / f"{ids.kept}.jpg"
     old.write_bytes(b"old incorrect geometry")
     code, _, body = get(base, f"/faces/shot/{ids.kept}.jpg")
     assert code == 200 and body != old.read_bytes()

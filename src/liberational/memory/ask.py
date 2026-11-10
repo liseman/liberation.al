@@ -38,7 +38,7 @@ from typing import Any, NoReturn, Protocol
 from liberational import config as cfg
 from liberational import logs, ollama_health
 from liberational.config import ROOT
-from liberational.vision import places
+from liberational.vision import views
 
 LOG = logs.get("ask")
 STATE = cfg.path("paths.state")
@@ -177,7 +177,7 @@ def _default_settings(config_path: str | Path | None = None) -> tuple[str, int]:
     params.update((defaults.get("models", {}).get(selected) or {}).get("params") or {})
     # Without OpenClaw this is the small voice-loop model, kept loaded at SHARED_NUM_CTX by everything else that uses it
     # (journal, voice, facts, summaries). Any other context needs a second load, which Ollama queues until the shared
-    # one is idle; with the journal and voice calling it every few seconds that never came, and Ask timed out (#917).
+    # one is idle; with the journal and voice calling it every few seconds that never came, and Ask timed out.
     return model, int(params.get("num_ctx") or spec.get("contextWindow") or (SHARED_NUM_CTX if fallback else 65536))
 
 
@@ -342,7 +342,7 @@ def local_answer(
         if not isinstance(evidence, dict | list):
             evidence = context
         # The question's searched window, so the model reads "the last 30 minutes" from its bounds rather than
-        # working it out from now (#2225).
+        # working it out from now.
         bounds = (
             {
                 "window": {
@@ -553,7 +553,7 @@ QUOTED = re.compile(r"(?<!\w)'[^']*'(?!\w)|\"[^\"]*\"|“[^”]*”|‘[^’]*�
 
 def _unquote(text: str) -> str:
     """text with each quoted span (a transcribed line such as 'Yeah.') collapsed to one word, so punctuation inside
-    the quote doesn't read as the end of a sentence (#2217). A quote that ends in . ! or ? followed by a capitalized
+    the quote doesn't read as the end of a sentence. A quote that ends in . ! or ? followed by a capitalized
     word keeps its full stop: 'Yeah.' Then Dana left. is still two sentences."""
 
     def collapse(m: re.Match[str]) -> str:
@@ -660,7 +660,7 @@ def evidence_context(history: Mapping[str, Any], budget: int) -> tuple[str, bool
         compact["recorded_answer"] = str(compact["recorded_answer"] or "")[: budget // 4]
     selected = 0
     evidence = history.get("evidence") or []
-    camera_names = places.names() if any(item.get("camera") for item in evidence) else {}
+    camera_names = views.names() if any(item.get("camera") for item in evidence) else {}
     for item in evidence:
         row = {
             k: item[k]
@@ -1158,7 +1158,7 @@ def spoken(result: Mapping[str, Any], maximum: int = 1800) -> str:
     answer = re.sub(r"[*#]", "", answer).replace(chr(96), "")
     answer = re.sub(r"\s+([.,;:!?])", r"\1", " ".join(answer.split()))  # no gap where a citation was
     coverage = result.get("coverage") or {}
-    # The dashboard's rule (#88): partial only when evidence was cut, never because a warning mentions it (#99).
+    # The dashboard's rule: partial only when evidence was cut, never because a warning mentions it.
     partial = result.get("status") == "partial" or coverage.get("partial") or coverage.get("truncated")
     # Prefix caveats before clipping: a late disclaimer must not disappear in speech.
     if partial and not re.search(r"\bpartial\b", answer[:120], re.I):

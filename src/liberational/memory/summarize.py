@@ -132,7 +132,7 @@ def llm(
                             "think": False,
                             "keep_alive": keep_alive,
                             # num_ctx is required: without it the 4B loads at the 262k default (24 GB), Ollama
-                            # evicts the 30B agent brain, and the two models ping-pong (seen 2026-10-22 10:08).
+                            # evicts the 30B agent brain, and the two models ping-pong.
                             "options": {"num_predict": num_predict, "temperature": temperature, "num_ctx": num_ctx},
                             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
                             **({"format": response_format} if response_format is not None else {}),

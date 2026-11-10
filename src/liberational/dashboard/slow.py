@@ -1,4 +1,4 @@
-"""A watchdog for slow dashboard requests (#433): what a request is waiting on, said while it waits.
+"""A watchdog for slow dashboard requests: what a request is waiting on, said while it waits.
 
 The log already says when a request took long (SLOW_REQUEST_S in server.py), but not why: after a start the
 dashboard served /services and /people in 6 to 25 s while using little CPU, so the requests were waiting on
@@ -10,7 +10,7 @@ holds up every poll costs a few lines a minute, not a flood. A stream (an event 
 on purpose and never reported.
 
 Each request's own CPU time (its thread's, from begin to end) is added to its route's tally, and every TALLY_S the
-watchdog logs one INFO line with the routes that used the most (#2418). A thread's CPU tells request work apart from
+watchdog logs one INFO line with the routes that used the most. A thread's CPU tells request work apart from
 the background threads' in a /proc sample, but not which route spent it: a browser's keep-alive connection serves
 every poll on one thread. A request still running when a tally is taken (an event stream a tab keeps open for hours)
 has its CPU so far counted in that window, read from its thread's CPU clock, and the rest when it ends; where a

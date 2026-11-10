@@ -1,4 +1,4 @@
-//! The open's repair of a stream's current-era recording history (#1669), and bounding instant audio originals.
+//! The open's repair of a stream's current-era recording history, and bounding instant audio originals.
 use continuum_catalog::*;
 use continuum_core::{
     DomainLayer, HeaderBuf, HeaderSpec, Interval, PayloadFormat, StorageLocator, StorageTier, StreamId, Uuid,
