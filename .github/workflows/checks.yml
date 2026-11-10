@@ -54,11 +54,19 @@ jobs:
       - name: List what changed
         id: diff
         env:
-          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
         run: |
           set -euo pipefail
-          # A push with no usable "before" (a new branch, or a force push) compares with the parent commit.
-          if ! git cat-file -e "${BASE}^{commit}" 2>/dev/null; then BASE=$(git rev-parse HEAD^); fi
+          # A pull request is checked out as GitHub's merge of it into its base, so the merge's first parent is the
+          # base it was built on (pull_request.base.sha can be older, after main moves). A push to main compares with
+          # what main was before it, or with the parent commit when that's unusable (a force push).
+          if [ "$EVENT" = pull_request ]; then
+            BASE=$(git rev-parse HEAD^1)
+          else
+            BASE=$BEFORE
+            if ! git cat-file -e "${BASE}^{commit}" 2>/dev/null; then BASE=$(git rev-parse HEAD^); fi
+          fi
           git diff --name-only --diff-filter=d "$(git merge-base "$BASE" HEAD)" HEAD > "$RUNNER_TEMP/changed.txt"
           cat "$RUNNER_TEMP/changed.txt"
           has() { grep -qE "$1" "$RUNNER_TEMP/changed.txt" && echo true || echo false; }
