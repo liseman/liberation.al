@@ -18,6 +18,7 @@ mise run models   # fetches data/models/depth-anything-3-metric (1.3 GB)
 `[models.hf.depth_anything]` is a new key in `config/defaults.toml`, so restart every config-reading service after
 the pull. Until both commands have run, splats train as before, without the depth, and the log says which is
 missing. Nothing is dropped.
+
 ## One application instead of a service per daemon
 
 The system now runs as one application: `pack-app` (the window) or `pack-supervisor run` (no window) starts every

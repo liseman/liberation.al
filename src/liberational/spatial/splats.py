@@ -256,7 +256,7 @@ DEPTH_UNIT = 0.001  # a depth image's count, in the map's units
 
 def depth_checkpoint() -> Path:
     """Where `mise run models` puts Depth Anything 3's metric weights ([models.hf.depth_anything])."""
-    return cfg.ROOT / str(cfg.load()["models"]["hf"]["depth_anything"]["path"]) / "model.safetensors"
+    return cfg.owner_file(str(cfg.load()["models"]["hf"]["depth_anything"]["path"])) / "model.safetensors"
 
 
 def map_scale(depth: np.ndarray, points: np.ndarray, cam: places.CameraPose) -> float | None:
