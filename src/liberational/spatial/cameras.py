@@ -43,7 +43,7 @@ from liberational import logs
 from liberational.memory import places
 from liberational.spatial import floorplan, lens, rig, tiling
 
-LOG = logs.get("spatial-cameras")
+LOG = logs.get("spatial")
 
 
 MIN_MATCHES = 1000

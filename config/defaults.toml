@@ -356,6 +356,11 @@ splat_runtime = "data/gsplat"
 # A fixed camera's measured height and whether it looks outdoors are on its own entry in config/devices.toml, as
 # `mount = { height_m = 1.5, outdoor = false }`, and a camera on a moving rig gives its pose on the rig there instead
 # (spatial/rig.py, #5; config/devices.example.toml shows both).
+# Learn surroundings (spatial/surroundings.py, the Live tab's button): on, frames are sampled from the cameras below
+# and the ones likely to improve a place's map are kept for it. Followed live: a change needs no restart.
+learn_surroundings = false
+# The cameras to sample, by their names in config/devices.toml. Empty: the first camera in that file.
+learn_cameras = []
 
 [faces]
 # Days an unnamed face group stays listed and counted on People's "to name" (dashboard/server.py,

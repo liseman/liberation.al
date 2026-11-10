@@ -17,7 +17,8 @@ import {
   robustRange,
   type V3,
 } from './geometry';
-import { canDraw, canDrawSplat, openingCamera, parseCloud } from './load';
+import { canDraw, canDrawSplat, openingCamera, parseCloud, readBytes, splatFault } from './load';
+import { loadingText, splatNote } from './status';
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -190,7 +191,10 @@ it("falls back to the points, saying why, when the splat can't be read", async (
     http.get('/places/splat', () => HttpResponse.json({ error: 'no such splat' }, { status: 404 })),
   );
   renderPage(<CloudView place="p3" />);
-  expect(await screen.findByText(/Couldn't show the splat, so the points are drawn/)).toBeTruthy();
+  expect(
+    await screen.findByText("Couldn't show the splat: the server answered 404. The points are drawn instead."),
+  ).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy();
   expect(screen.getByText('Point size')).toBeTruthy();
   expect(screen.queryByText('Splat')).toBeNull();
 });
@@ -205,14 +209,102 @@ it('names a splat from another map frame as out of date instead of drawing it', 
         map: '/places/map?place=p4&revision=r4',
         map_format: 'ply',
         splat: null,
+        splat_state: 'stale',
         splat_stale: { revision: 'r1', at: 1_800_000_000 },
+        splat_wait: { reason: 'pass', tried: null, pass_at: '01:00' },
       }),
     ),
     http.get('/places/map', () => new Promise<never>(() => {})),
   );
   renderPage(<CloudView place="p4" />);
-  expect(await screen.findByText(/is out of date: the map has moved since/)).toBeTruthy();
+  expect(await screen.findByText(/doesn't line up with this one, so it isn't shown/)).toBeTruthy();
   expect(screen.queryByText('Splat')).toBeNull();
+});
+
+/** The smallest bytes that pass for a zip: a local file header's signature, then an empty directory's end record. */
+const zipLike = () => new Uint8Array([0x50, 0x4b, 3, 4, 0, 0, 0x50, 0x4b, 5, 6, ...new Array<number>(18).fill(0)]);
+
+it("tells a splat's bytes from ones the viewer would choke on, with the reason", () => {
+  expect(splatFault(zipLike().buffer)).toBeNull();
+  expect(splatFault(new ArrayBuffer(0))).toBe('the file is empty');
+  // a zip whose end is missing: the download stopped part way
+  expect(splatFault(zipLike().slice(0, 6).buffer)).toBe('the file is cut short');
+  // gzip's magic, as an SPZ copy kept by the browser from before the view moved to SOG starts
+  expect(splatFault(new Uint8Array([0x1f, 0x8b, 8, 0, 0, 0, 0, 0]).buffer)).toMatch(/isn't a splat this view can draw/);
+});
+
+it("reads a response's bytes whole, saying how much has come", async () => {
+  const body = new ReadableStream<Uint8Array>({
+    start(c) {
+      c.enqueue(new Uint8Array([1, 2, 3]));
+      c.enqueue(new Uint8Array([4, 5]));
+      c.close();
+    },
+  });
+  const seen: [number, number][] = [];
+  const bytes = await readBytes(new Response(body), 5, (received, total) => seen.push([received, total]));
+  expect(Array.from(new Uint8Array(bytes))).toEqual([1, 2, 3, 4, 5]);
+  // no length on the response, so the scene's size is the total
+  expect(seen).toEqual([
+    [0, 5],
+    [3, 5],
+    [5, 5],
+  ]);
+});
+
+it('says how much of a splat has loaded, then that it is being drawn', () => {
+  expect(loadingText(0, 0, false)).toBe('Loading the splat…');
+  expect(loadingText(6_771_297, 13_542_594, false)).toBe('Loading the splat: 50% of 13.5 MB');
+  expect(loadingText(2_000_000, 0, false)).toBe('Loading the splat: 2.0 MB…');
+  expect(loadingText(13_542_594, 13_542_594, true)).toBe('Drawing the splat…');
+});
+
+it("says nothing about a splat that is the map's own, and why there is none otherwise", () => {
+  const scene = { place: 'p1', revision: 'r2' };
+  const wait = { tried: null, pass_at: '01:00' };
+  expect(splatNote({ ...scene, splat: '/s', splat_state: 'current' })).toBeNull();
+  expect(splatNote({ ...scene, splat: '/s', splat_state: 'improving' })).toMatch(/^This splat is still improving/);
+  expect(splatNote({ ...scene, splat_state: 'none', splat_wait: { ...wait, reason: 'pass' } })).toBe(
+    "No splat of this place yet. It's made from the fixed cameras' daytime frames, by a pass that runs at 01:00.",
+  );
+  const dark = splatNote({
+    ...scene,
+    splat_state: 'none',
+    splat_wait: { ...wait, reason: 'few_frames', tried: 1.8e9 },
+  });
+  expect(dark).toMatch(/^No splat of this place yet\. It's waiting for daylight: .* too few when it was last tried \(/);
+  expect(dark).toMatch(/It tries again at 01:00\.$/);
+  expect(splatNote({ ...scene, splat_state: 'none', splat_wait: { ...wait, reason: 'no_cameras' } })).toMatch(
+    /no cameras registered yet to make one from/,
+  );
+  expect(splatNote({ ...scene, splat_state: 'none', splat_wait: { ...wait, reason: 'no_runtime' } })).toMatch(
+    /trainer isn't installed/,
+  );
+  expect(splatNote({ ...scene, splat_state: 'none', splat_wait: { ...wait, reason: 'failed' } })).toMatch(
+    /Making it failed when it was last tried\. It tries again at 01:00\./,
+  );
+  // with no pass scheduled, it says so and promises no next try
+  expect(splatNote({ ...scene, splat_state: 'none', splat_wait: { reason: 'pass', tried: null, pass_at: null } })).toBe(
+    'No splat of this place yet. None has been made for this map, and nothing makes splats on a schedule yet.',
+  );
+  expect(
+    splatNote({ ...scene, splat_state: 'none', splat_wait: { reason: 'failed', tried: null, pass_at: null } }),
+  ).toBe('No splat of this place yet. Making it failed when it was last tried.');
+});
+
+it("labels an earlier map's splat as one, and names one that no longer lines up without offering it", () => {
+  const scene = { place: 'p1', revision: 'r2', splat_wait: { reason: 'pass' as const, tried: null, pass_at: '01:00' } };
+  const earlier = splatNote({ ...scene, splat: '/s', splat_state: 'earlier', splat_at: 1.8e9 });
+  expect(earlier).toMatch(
+    /^This splat was made for an earlier map of this place \(.+\); it lines up with the current one\./,
+  );
+  expect(earlier).toMatch(
+    /A splat of the current map isn't made yet\. It's made from the fixed cameras' daytime frames/,
+  );
+  const stale = splatNote({ ...scene, splat_state: 'stale', splat_stale: { revision: 'r1', at: 1.8e9 } });
+  expect(stale).toMatch(
+    /doesn't line up with this one, so it isn't shown\. A new one isn't made yet\. It's made from the fixed cameras/,
+  );
 });
 
 it("says so when the browser can't draw 3D", async () => {

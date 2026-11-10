@@ -55,6 +55,30 @@ def test_people_pet_and_place_are_seeded(seeded):
     assert (place.plan_source, str(place.plan).count("\nroom ")) == ("machine", 5)
 
 
+def test_the_pet_has_a_training_set_with_one_example_unlike_the_rest(seeded):
+    from liberational.people import pet_recognition
+
+    listing = pets.at(seeded).listing()
+    rows = pet_recognition.examples(seeded, listing[0]["id"], listing)
+    assert len(rows) == dataset.EXAMPLES and {r["picture"] for r in rows} == {"kept"}
+    assert rows[0]["track_id"] == f"demo:dog:{dataset.EXAMPLES}", "the odd one out comes first"
+    assert rows[0]["similarity"] < 0.3 < rows[1]["similarity"]
+
+
+def test_face_rows_are_seeded_only_into_the_gallery_this_process_writes(tmp_path, monkeypatch):
+    from liberational.vision import faces
+
+    monkeypatch.setattr(faces, "DB", tmp_path / "faces" / "db.npz")
+    monkeypatch.setattr(faces, "LEARNED_DB", tmp_path / "faces" / "learned.npz")
+    assert dataset.seed_faces(tmp_path / "elsewhere", NOW) == 0
+    assert not (tmp_path / "faces").exists() and not (tmp_path / "elsewhere").exists()
+    assert dataset.seed_faces(tmp_path / "faces", NOW) == 3 * dataset.EXAMPLES
+    rows = faces.examples("Dana")
+    assert len(rows) == dataset.EXAMPLES and all(r["picture"] for r in rows)
+    assert rows[0]["similarity"] < 0.3 < rows[1]["similarity"]
+    assert dataset.seed_faces(tmp_path / "faces", NOW) == 0, "a gallery that is there is left as it is"
+
+
 def test_the_transcript_is_said_by_the_demo_people(tmp_path, memory, speech):
     dataset.seed(tmp_path, memory, today=TODAY, say=speech.say)
     lines = speech.range(0, 2e9)

@@ -53,7 +53,7 @@ class FakeFaces:
     def __init__(self):
         self.rows = {"Alice": 2, "Bob": 1}
         self.groups = [{"id": 5, "count": 4}, {"id": 6, "count": 1}]
-        self.renamed, self.named = [], []
+        self.renamed, self.named, self.pictures = [], [], []
 
     def counts(self):
         return dict(self.rows)
@@ -65,10 +65,11 @@ class FakeFaces:
         self.renamed.append((old, new))
         return 0
 
-    def name_cluster(self, cid, name, enrolled=None):
+    def name_cluster(self, cid, name, enrolled=None, *, picture=None):
         if cid not in {g["id"] for g in self.groups}:
             raise ValueError(f"no face group {cid}")
         self.named.append((cid, name))
+        self.pictures.append(picture)
         if enrolled is not None:
             enrolled.update(vec=np.eye(1, 512, cid, dtype=np.float32)[0].tolist(), count=4, dropped=None)
         return name
@@ -704,6 +705,7 @@ def test_live_face_claim_uses_selected_source_time_and_group(people, faces, monk
     assert faces.named == [(5, "Dana Cole")]
     saved = photo_files._photos("Dana Cole")
     assert len(saved) == 1
+    assert faces.pictures == [saved[0].read_bytes()], "the face row keeps the picture the owner selected"
     photo = people_list.main_photo("Dana Cole")
     assert photo is not None
     photo_url = photo["url"]
@@ -877,7 +879,7 @@ def test_selected_face_claim_failure_withdraws_only_its_new_photo(people, faces,
         record(name, dest, prune=prune)
         recorded.append(dest.stem)
 
-    def fail_claim(*args):
+    def fail_claim(*args, picture=None):
         raise ValueError("face claim failed")
 
     monkeypatch.setattr(people_corrections, "_record_person_photo", capture)

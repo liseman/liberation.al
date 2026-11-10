@@ -7,6 +7,10 @@
 
 DB: <paths.faces>/db.npz  (names + embeddings). Threshold: cosine > 0.45 = match (tune).
 
+Each row added from now on keeps its picture and where it came from beside the gallery (vision/face_examples.py),
+so People's Training images can show a person's rows (`examples`) and the owner can remove a wrong one
+(`remove_examples`). The matcher rereads a gallery file that changed, so a removal needs no restart.
+
 Naming a face group and enrolling a face also append an identity assertion to the event log (people/registry.py).
 Renaming and forgetting rows by name do not: the dashboard records those for the person as a whole.
 """
@@ -36,6 +40,8 @@ from liberational.domain import kernel
 from liberational.domain.identity import MODEL_BASES, Basis, SubjectRef
 from liberational.domain.kernel import EvidenceRef, Producer
 from liberational.people import registry
+from liberational.vision import face_examples
+from liberational.vision.face_examples import Example
 from liberational.vision.onnx_runtime import preload_gpu_libraries
 
 
@@ -511,21 +517,25 @@ CORRECTION_ROWS = 3  # the most of an owner correction's faces that become the p
 
 
 @_edits_db
-def add_correction_rows(name: str, vecs: Sequence[np.ndarray]) -> list[dict[str, Any]]:
+def add_correction_rows(
+    name: str, vecs: Sequence[np.ndarray], examples: Sequence[Example | None] = ()
+) -> list[dict[str, Any]]:
     """The owner said these faces are `name` (a correction): the ones new to them (under LEARN_NOVEL against
     their rows, owner's and learned), at most CORRECTION_ROWS, become owner rows (`add_row`). [{"vec", "dropped"}]
-    for each, what `remove_row` needs to undo it."""
+    for each, what `remove_row` needs to undo it. `examples`, one a face in the same order, are where each came from
+    and its picture (Training images shows them)."""
     g_names, g_embs = gallery()
     mine = [g_embs[k] for k, n in enumerate(g_names) if str(n).lower() == name.lower()]
     out: list[dict[str, Any]] = []
-    for v in vecs:
+    for k, v in enumerate(vecs):
         if len(out) >= CORRECTION_ROWS:
             break
         v = np.asarray(v, np.float32)
         v = v / (np.linalg.norm(v) + 1e-9)
         if mine and float((np.stack(mine) @ v).max()) >= LEARN_NOVEL:
             continue
-        out.append({"vec": v.astype(float).tolist(), "dropped": add_row(name, v)})
+        example = (examples[k] if k < len(examples) else None) or Example(face_examples.CORRECTION)
+        out.append({"vec": v.astype(float).tolist(), "dropped": add_row(name, v, example)})
         mine.append(v)
     return out
 
@@ -707,6 +717,7 @@ def _store_enrolled(name: str, vecs: Sequence[np.ndarray]) -> int:
         names.append(name)
         embs = np.vstack([embs, v[None]])
     save_db(names, embs)
+    face_examples.record(DB.parent, embs[names.index(name)], Example(face_examples.ENROLLED))
     return len(names)
 
 
@@ -750,7 +761,8 @@ def enroll_reference(name: str, path: str | os.PathLike[str]) -> dict[str, Any]:
     mine = [k for k, n in enumerate(names) if str(n).lower() == name.lower()]
     if mine and float((embs[mine] @ v).max()) >= REFERENCE_SAME:
         return {"faces": 1, "result": "same"}
-    return {"faces": 1, "result": "added", "vec": v.astype(float).tolist(), "dropped": add_row(name, v)}
+    example = Example(face_examples.REFERENCE, jpg=face_examples.encode(img, found[0][0]))
+    return {"faces": 1, "result": "added", "vec": v.astype(float).tolist(), "dropped": add_row(name, v, example)}
 
 
 UNK_DB = cfg.path("paths.faces") / "unknown_clusters.npz"
@@ -1105,8 +1117,10 @@ def name_cluster(
     evidence: Sequence[EvidenceRef] = (),
     producer: Producer | None = None,
     enroll: bool = True,
+    picture: bytes | None = None,
 ) -> str:
     """Tag a 'Face N' group once: enroll its face under NAME, and remove the group. Future sightings match by name.
+    The row keeps a picture for Training images: `picture` (a JPEG) when given, else the group's saved photo.
     With `enroll` False (an automatic name), the group is named and removed but its face never joins the
     gallery, so a wrong automatic name can't teach the matcher; `enrolled` then says "enrolled": False.
     With `enrolled`, fills it in with what an undo needs: the row's vector as enrolled ("vec"), the group's count
@@ -1118,8 +1132,13 @@ def name_cluster(
     subject = registry.face_group(cid)
     if not _asserted(subject, name, basis, source, confidence, evidence, producer) and basis in MODEL_BASES:
         raise ValueError(f"nobody is called {name}")
+    how = face_examples.GROUP if basis == Basis.OWNER_TAG else face_examples.INTRODUCED
+    if picture is None:
+        with contextlib.suppress(OSError):
+            picture = (DB.parent / "_unknown" / f"{int(cid)}.jpg").read_bytes()
+    example = Example(how, ref=f"group:{int(cid)}", jpg=picture)
     try:
-        _name_cluster_files(cid, name, enrolled, enroll)
+        _name_cluster_files(cid, name, enrolled, enroll, example)
     except BaseException:
         with registry.safely(f"face group {cid} withdrawn"):
             registry.at().retract(subject, source)
@@ -1128,7 +1147,9 @@ def name_cluster(
 
 
 @_edits_both
-def _name_cluster_files(cid: int | str, name: str, enrolled: dict[str, Any] | None, enroll: bool = True) -> None:
+def _name_cluster_files(
+    cid: int | str, name: str, enrolled: dict[str, Any] | None, enroll: bool = True, example: Example | None = None
+) -> None:
     ids, vecs, counts, nxt, sums = _unk_load_sums()
     if int(cid) not in [int(x) for x in ids]:
         raise ValueError(f"no face group {cid}")
@@ -1163,13 +1184,15 @@ def _name_cluster_files(cid: int | str, name: str, enrolled: dict[str, Any] | No
             model=recognition_model(),
         )
     save_db(names, embs)
+    face_examples.record(DB.parent, embs[-1], example)
     _unk_save([ids[k] for k in keep], vecs[keep], [counts[k] for k in keep], nxt, sums[keep])
 
 
 @_edits_db
-def add_row(name: str, vec: np.ndarray) -> list[float] | None:
+def add_row(name: str, vec: np.ndarray, example: Example | None = None) -> list[float] | None:
     """Add one face row for `name` (another angle, as name_cluster adds), dropping its most redundant view past
-    MAX_PER_NAME. Returns the dropped row's vector, so an undo can put it back, or None."""
+    MAX_PER_NAME. Returns the dropped row's vector, so an undo can put it back, or None. `example` is where the row
+    came from and its picture, kept beside the gallery (vision/face_examples.py)."""
     vec = np.asarray(vec, np.float32)
     vec = vec / (np.linalg.norm(vec) + 1e-9)
     names, embs = load_db()
@@ -1182,7 +1205,9 @@ def add_row(name: str, vec: np.ndarray) -> list[float] | None:
         names.pop(redundant)
         embs = np.delete(embs, redundant, axis=0)
     names.append(name)
-    save_db(names, np.vstack([embs, vec[None]]).astype(np.float32))
+    embs = np.vstack([embs, vec[None]]).astype(np.float32)
+    save_db(names, embs)
+    face_examples.record(DB.parent, embs[-1], example)
     return dropped
 
 
@@ -1197,6 +1222,7 @@ def remove_row(name: str, vec: Sequence[float] | np.ndarray, restore: Sequence[f
     hit = next((k for k, n in enumerate(names) if n.lower() == name.lower() and float(embs[k] @ v) >= 0.9999), None)
     if hit is None:
         return False
+    face_examples.forget(DB.parent, [face_examples.key(embs[hit])])
     names.pop(hit)
     embs = np.delete(embs, hit, axis=0)
     if restore is not None:
@@ -1301,8 +1327,100 @@ def forget(name: str) -> int:
     keep = [k for k, n in enumerate(names) if n.lower() != name.lower()]
     gone = len(names) - len(keep)
     if gone:
+        face_examples.forget(DB.parent, [face_examples.key(embs[k]) for k in set(range(len(names))) - set(keep)])
         save_db([names[k] for k in keep], embs[keep])
     return gone
+
+
+def _alike(vecs: np.ndarray) -> list[float | None]:
+    """How like the rest of its set each unit row is: its cosine to the mean of the others. None for a set of one,
+    which has nothing to be compared with."""
+    rows = np.asarray(vecs, np.float32).reshape(len(vecs), -1)
+    if len(rows) < 2:
+        return [None] * len(rows)
+    rest = rows.sum(axis=0)[None] - rows
+    rest /= np.linalg.norm(rest, axis=1, keepdims=True) + 1e-9
+    return [round(float(x), 4) for x in np.einsum("ij,ij->i", rows, rest)]
+
+
+def examples(name: str) -> list[dict[str, Any]]:
+    """Every face row naming is matched against for `name` (any case), the owner's and the learned ones, for
+    People's Training images: [{"key", "kind" ("owner" or "learned"), "source", "at", "cam", "ref", "picture",
+    "similarity"}], the least like the rest of the set first, since a wrong picture is an outlier. "source" is how
+    the row came to be (face_examples' words), "at" when, and "picture" whether one is kept; a row from before
+    pictures were kept has only its kind."""
+    names, embs = load_db()
+    learned = load_learned()
+    wanted = name.lower()
+    rows: list[dict[str, Any]] = []
+    vecs: list[np.ndarray] = []
+    for k, n in enumerate(names):
+        if str(n).lower() != wanted:
+            continue
+        key = face_examples.key(embs[k])
+        kept = face_examples.read(DB.parent, key) or {}
+        rows.append(
+            {
+                "key": key,
+                "kind": "owner",
+                "source": kept.get("source") or face_examples.OWNER,
+                "at": kept.get("at"),
+                "cam": kept.get("cam"),
+                "ref": kept.get("ref"),
+                "picture": face_examples.picture(DB.parent, key) is not None,
+            }
+        )
+        vecs.append(np.asarray(embs[k], np.float32))
+    for k, n in enumerate(learned["names"]):
+        if n.lower() != wanted:
+            continue
+        key = face_examples.key(learned["embs"][k])
+        source = str(learned["sources"][k])
+        rows.append(
+            {
+                "key": key,
+                "kind": "learned",
+                "source": face_examples.LEARNED,
+                "at": float(learned["ts"][k]),
+                "cam": source.split(":", 1)[0] if ":" in source else None,
+                "ref": source,
+                "picture": face_examples.picture(DB.parent, key) is not None,
+            }
+        )
+        vecs.append(np.asarray(learned["embs"][k], np.float32))
+    for row, alike in zip(rows, _alike(np.stack(vecs)) if vecs else []):
+        row["similarity"] = alike
+    rows.sort(key=lambda r: (r["similarity"] is None, r["similarity"] or 0.0, r["key"]))
+    return rows
+
+
+@_edits_db
+def remove_examples(name: str, keys: Collection[str]) -> int:
+    """The owner took these rows (`examples`' keys) out of `name`'s training set: each leaves the gallery file it is
+    in (the owner's or the learned one) with what is kept beside it, so the matcher, which rereads a file that
+    changed, stops using it on its next look. Rows removed; a key that is no row of theirs is passed over."""
+    wanted, keys = name.lower(), set(keys)
+    names, embs = load_db()
+    names = [str(n) for n in names]
+    drop = [k for k, n in enumerate(names) if n.lower() == wanted and face_examples.key(embs[k]) in keys]
+    learned = load_learned()
+    learned_drop = [
+        k
+        for k, n in enumerate(learned["names"])
+        if n.lower() == wanted and face_examples.key(learned["embs"][k]) in keys
+    ]
+    gone = [face_examples.key(embs[k]) for k in drop] + [face_examples.key(learned["embs"][k]) for k in learned_drop]
+    if drop:
+        keep = [k for k in range(len(names)) if k not in set(drop)]
+        save_db([names[k] for k in keep], embs[keep])
+    if learned_drop:
+        _save_learned(_keep_learned(learned, [k for k in range(len(learned["names"])) if k not in set(learned_drop)]))
+    face_examples.forget(DB.parent, gone)
+    if gone:
+        LOG.info(
+            "the owner removed %d face row%s from a person's training set", len(gone), "" if len(gone) == 1 else "s"
+        )
+    return len(gone)
 
 
 def _plan_merges(

@@ -64,6 +64,7 @@ import { Recorder } from '../clones/Recorder';
 import { build, cloneOf, remove, useClones } from '../clones/store';
 import { MainPhoto, PhotoGrid } from '../entity';
 import { References } from '../References';
+import { personTraining, TrainingSet } from '../TrainingSet';
 import { WhoIsThis } from '../WhoIsThis';
 import { WhyName } from '../WhyName';
 import { PlayIcon, StopIcon } from './icons';
@@ -1085,6 +1086,7 @@ function Body({ name, person, people, onChanged, onDeleted, onBack, isNew = fals
       )}
       {!picking && (
         <>
+          <TrainingSet key={d.name} name={d.name} source={personTraining(d.name)} onRemoved={() => onChanged()} />
           <About d={d} />
           <VoiceClone name={d.name} voices={voices} owner={!!d.owner} />
         </>

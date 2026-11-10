@@ -24,7 +24,8 @@ Two layers, following docs/DOMAIN-MODEL.md:
   from (the fixed cameras' frames are "cameras"). It's written once, after its revision, and isn't a
   revision of its own (a revision is a reconstruction; a splat is a rendering of one). The newest `SPLATS_KEPT`
   revisions' splats stay and older ones are pruned. A splat fits every revision of its map's `frame` (`Revision.frame`), so the 3D view can show
-  an earlier revision's splat while the frame holds.
+  an earlier revision's splat while the frame holds. A pass that made no splat for a revision leaves why in the
+  place's `splat.note` (`write_splat_note`), for the 3D view to say.
 - **What the owner taught is in the knowledge store** (`knowledge.sqlite3`), and supersedes the machine view
   without deleting it, the way zone sets and identity corrections do. `place.named` holds the owner's name for a
   place (newest per place wins; an empty name goes back to the placeholder). `place.plan` holds the owner's
@@ -706,6 +707,33 @@ def write_splat(state: Path, rev: Revision, master: bytes, web: bytes, source: s
         _write(splat_path(state, rev, "gs.from"), source.encode())
     _write(splat_path(state, rev, "sog"), web)
     _prune_splats(state, rev.place)
+
+
+#: Why the splat pass made no splat for a revision (`write_splat_note`): too few lit daytime frames, no fixed cameras
+#: to take frames from, the trainer isn't installed, or training failed.
+SPLAT_NOTE_REASONS = ("few_frames", "no_cameras", "no_runtime", "failed")
+
+
+def write_splat_note(state: Path, rev: Revision, reason: str, at: float | None = None) -> None:
+    """Note that the splat pass tried `rev` at `at` (now, by default) and made no splat, and why (one of
+    SPLAT_NOTE_REASONS). One note a place: the newest pass's, for the revision it tried."""
+    if reason not in SPLAT_NOTE_REASONS:
+        raise ValueError(f"a splat note's reason is one of {', '.join(SPLAT_NOTE_REASONS)}")
+    note = {"revision": rev.id, "reason": reason, "at": time.time() if at is None else at}
+    _write(root(state) / rev.place / "splat.note", json.dumps(note).encode())
+
+
+def splat_note(state: Path, rev: Revision) -> dict[str, Any] | None:
+    """The splat pass's note about `rev` (`reason` and `at`), or None: it hasn't tried this revision, or it made its
+    splat."""
+    try:
+        note = json.loads((root(state) / rev.place / "splat.note").read_text())
+    except OSError, ValueError:
+        return None
+    if not isinstance(note, dict) or note.get("revision") != rev.id or note.get("reason") not in SPLAT_NOTE_REASONS:
+        return None
+    at = note.get("at")
+    return {"reason": note["reason"], "at": float(at) if isinstance(at, int | float) else None}
 
 
 def write_splat_copy(state: Path, rev: Revision, web: bytes) -> None:

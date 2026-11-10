@@ -6,6 +6,11 @@
 // views), gives it the floor and the plan's walls to walk on and be stopped by (collision.ts), and names each
 // camera to look from as one of the viewer's annotations, which is how the viewer flies to a view.
 //
+// The viewer reports a splat it can't load only to the console, and counts itself created before the load ends, so
+// `splatLoaded` is how the page learns: it settles when the splat has drawn, or with why it couldn't (the engine's
+// asset error, or a lost graphics device). The viewer is asked for WebGPU only where the browser has an adapter:
+// asked without one, the engine logs an error before it falls back.
+//
 // A place with no splat still gets the viewer: its content is then a thin, see-through copy of the map's points,
 // there only so the viewer knows the place's size, and the points themselves are drawn by our overlay.
 //
@@ -46,6 +51,9 @@ export interface Built {
   lookFrom: (name: string) => void;
   /** What's shown: the splat in place of the points, the points' size and colouring, and the overlays. */
   show: (s: { splat: boolean; size: number; colour: Colour; floor: boolean; cameras: boolean; plan: boolean }) => void;
+  /** Settles once the splat has drawn its first frame, or rejects with why it couldn't be drawn; settled at once
+   *  when the place was built without a splat. */
+  splatLoaded: Promise<void>;
   /** The cameras drawn, by name. */
   cameraNames: string[];
   /** Free everything and take the viewer out of the page. */
@@ -257,6 +265,20 @@ function viewerFov(cam: { width: number; height: number; focal: number }, aspect
 /** The viewer's own bounds on a field of view (its CAMERA_FOV_RANGE). */
 const clampFov = (fov: number) => Math.max(10, Math.min(120, fov));
 
+/** Whether the browser can give the viewer a WebGPU device; without one it's asked for WebGL2 outright. */
+async function hasWebGPU(): Promise<boolean> {
+  try {
+    const gpu = (navigator as { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
+    return !!(await gpu?.requestAdapter());
+  } catch {
+    return false;
+  }
+}
+
+/** An engine error as a reason to show: its message, without the stack. */
+const reasonOf = (err: unknown): string =>
+  (err instanceof Error ? err.message : String(err ?? '')).split('\n')[0]?.trim() || 'the viewer gave no reason';
+
 export async function build(
   host: HTMLDivElement,
   data: Scene,
@@ -359,14 +381,20 @@ export async function build(
   const first = opening ? poseOf(opening) : null;
   settings.cameras = first ? [{ initial: first }] : [];
 
-  // With its length, so the viewer's loading bar knows when it's done.
+  // With its length, so the viewer's loading bar knows when it's done. The viewer gets the file only once we're
+  // listening for its load to fail (`hand`), so a failure can't come before anyone hears it.
   const file = splat ?? standIn(cloud);
+  let hand = () => {};
+  const listening = new Promise<void>(resolve => {
+    hand = resolve;
+  });
   const viewer = await createViewer({
     container: host,
     settings,
+    renderer: (await hasWebGPU()) ? 'webgpu' : 'webgl',
     contentUrl: splat ? 'splat.sog' : 'points.ply',
     contentFilename: splat ? 'splat.sog' : 'points.ply',
-    contents: Promise.resolve(new Response(file, { headers: { 'content-length': String(file.byteLength) } })),
+    contents: listening.then(() => new Response(file, { headers: { 'content-length': String(file.byteLength) } })),
     collisionUrl,
     // The viewer always has a camera tour of its own making; it waits for its play button.
     noanim: true,
@@ -377,6 +405,19 @@ export async function build(
   const draw = () => {
     if (!gone) app.renderNextFrame = true;
   };
+
+  // Whether the content loads: the viewer says when it has drawn, the engine when the file can't be read, and
+  // the device when it's lost.
+  const splatLoaded = new Promise<void>((resolve, reject) => {
+    if (viewer.state.loaded) resolve();
+    else viewer.events.once('loaded:changed', () => resolve());
+    app.assets.on('error', (err: unknown, asset?: { type?: string }) => {
+      if (asset?.type === 'gsplat') reject(new Error(reasonOf(err)));
+    });
+    device.on('devicelost', () => reject(new Error('the graphics device was lost')));
+  });
+  splatLoaded.catch(() => {}); // the page listens too; a place nobody is looking at any more isn't an error
+  hand();
 
   // The viewer turns its content half a turn about z, as a 3DGS file wants; ours is in the map's frame, so its
   // entity gets the map's rotation the moment it joins the scene, before the viewer measures it.
@@ -523,6 +564,7 @@ export async function build(
       plan.enabled = s.plan;
       draw();
     },
+    splatLoaded: splat ? splatLoaded : Promise.resolve(),
     cameraNames: names,
     dispose: () => {
       gone = true;

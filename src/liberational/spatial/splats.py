@@ -446,7 +446,8 @@ def splat_place(
     state: Path, place: str, now: float, read: Reader, runtime: Path, gpu: str | None
 ) -> dict[str, Any] | None:
     """Train and keep a splat for `place`'s `target` revision; what it did, or None (said why in the log) when
-    there's nothing to do: no such revision, it has a splat already, or no camera has a lit frame."""
+    there's nothing to do: no such revision, it has a splat already, or no camera has a lit frame. A revision it
+    tried and made no splat for gets a note of why (`places.write_splat_note`), which the 3D view shows."""
     rev = target(state, place)
     if rev is None:
         LOG.info("%s: no map with registered cameras to splat", place)
@@ -467,6 +468,7 @@ def splat_place(
             have,
             MIN_FRAMES_PER_CAMERA,
         )
+        places.write_splat_note(state, rev, "few_frames", now)
         return None
     if len(frames) < len(found):
         LOG.info(
@@ -479,6 +481,7 @@ def splat_place(
     start = start_points(points, colors, {c: rev.cameras[c] for c in frames})
     if not len(start[0]):
         LOG.warning("%s: no map point is in any camera's view; is the map in the cameras' frame?", place)
+        places.write_splat_note(state, rev, "failed", now)
         return None
     with tempfile.TemporaryDirectory(prefix="spatial-splat-") as tmp:
         job = write_job(Path(tmp), rev, frames, start)
@@ -531,6 +534,13 @@ def recode(state: Path, place: str) -> int:
     return done
 
 
+def _note(state: Path, place: str, reason: str, now: float) -> None:
+    """Note why `place`'s `target` revision got no splat this run, when it has one and it lacks a splat."""
+    rev = target(state, place)
+    if rev is not None and not places.has_splat(state, rev):
+        places.write_splat_note(state, rev, reason, now)
+
+
 def splat_all(
     state: Path, now: float | None = None, only: str | None = None, read: Reader = cameras.recorded
 ) -> list[dict[str, Any]]:
@@ -539,10 +549,12 @@ def splat_all(
     for place in [only] if only else places.place_ids(state):
         recode(state, place)  # needs no trainer
     runtime = cfg.path("spatial.splat_runtime")
+    now = time.time() if now is None else now
     if not (runtime / ".venv" / "bin" / "python").exists():
         LOG.info("no splats: gsplat's runtime isn't installed in %s (`mise run gsplat`)", runtime)
+        for place in [only] if only else places.place_ids(state):
+            _note(state, place, "no_runtime", now)
         return []
-    now = time.time() if now is None else now
     gpu = cameras.pick_gpu(int(cfg.get("spatial.gpu")), nvml.gpus())
     done = []
     for place in [only] if only else places.place_ids(state):
@@ -550,6 +562,7 @@ def splat_all(
             did = splat_place(state, place, now, read, runtime, gpu)
         except (RuntimeError, subprocess.TimeoutExpired, OSError, ValueError) as e:
             LOG.error("%s: no splat: %s", place, e)
+            _note(state, place, "failed", now)
             continue
         if did is not None:
             LOG.info("splat: %s", json.dumps(did))

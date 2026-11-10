@@ -22,12 +22,18 @@
     GET /places/scene?place=           the 3D view's scene: the newest revision with a map, its map's URL and
                                        size, its splat's when it has one (its own, else the newest made in the same
                                        map frame; one from another frame is only named, `splat_stale`) and what
-                                       it was trained from (`splat_from`, as its trainer named it), its floor plane, plan transform, registered cameras, and the plan in its frame;
+                                       it was trained from (`splat_from`, as its trainer named it), which state the
+                                       splat is in (`splat_state`: "current", "earlier", "stale", or "none") and,
+                                       while the map has no splat of its own, why (`splat_wait`), its floor plane,
+                                       plan transform, registered cameras, and the plan in its frame;
                                        {revision: null} while the place has no map
     GET /places/map?place=&revision=   that revision's map file (a point cloud, PLY), with byte ranges, an ETag, and
                                        caching for good: a revision's files never change once written
-    GET /places/splat?place=&revision= that revision's 3D Gaussian splat (SOG), served the same way; the
-                                       scene names it (`splat`, null while the revision has none)
+    GET /places/splat?place=&revision=&format=sog
+                                       that revision's 3D Gaussian splat (SOG), served the same way; the scene
+                                       names it (`splat`, null while the revision has none). The URL and the ETag
+                                       name the format, so bytes a browser kept in an earlier encoding can't
+                                       answer for it
     GET /places/positions?place=&start=&end=[&entity=]
                                        {place, start, end, entities, tracks, rooms, cameras}: where each entity was
                                        on the place's plan over [start, end), from the position layer's stored
@@ -155,7 +161,26 @@ def splat_file(state: Path, place: str, revision: str) -> Path | None:
     if places.get(state, place) is None:
         return None
     rev = next((r for r in places.revisions(state, place) if r.id == revision), None)
-    return places.splat_path(state, rev, "sog") if rev and places.has_splat(state, rev) else None
+    return places.splat_path(state, rev, SPLAT_FORMAT) if rev and places.has_splat(state, rev) else None
+
+
+SPLAT_FORMAT = "sog"  # what GET /places/splat serves, and what its URL and ETag name
+
+
+def _splat_wait(state: Path, rev: places.Revision) -> dict[str, Any]:
+    """Why `rev` has no splat of its own: `reason` is the splat pass's own note when it has tried this revision
+    ("few_frames", "no_cameras", "no_runtime", or "failed", with `tried`, when), else "no_cameras" for a map with no
+    cameras registered (there is nothing to make one from), else "pass": no pass has tried this map. `pass_at` is
+    the time of day a scheduled pass runs; None, since nothing makes splats on a schedule at present
+    (`pack-spatial-splat` does by hand)."""
+    note = places.splat_note(state, rev)
+    if note is not None:
+        reason, tried = note["reason"], note["at"]
+    elif not rev.cameras:
+        reason, tried = "no_cameras", None
+    else:
+        reason, tried = "pass", None
+    return {"reason": reason, "tried": tried, "pass_at": None}
 
 
 def scene(state: Path, place: str) -> Reply:
@@ -182,10 +207,17 @@ def scene(state: Path, place: str) -> Reply:
     fits = [r for r in with_splat if r.id == rev.id or (rev.frame is not None and r.frame == rev.frame)]
     shown = next((r for r in reversed(fits) if r.id == rev.id), fits[-1] if fits else None)
     try:
-        splat_size = places.splat_path(state, shown, "sog").stat().st_size if shown else None
+        splat_size = places.splat_path(state, shown, SPLAT_FORMAT).stat().st_size if shown else None
     except FileNotFoundError:  # pruned since it was found
         shown, splat_size = None, None
     stale = with_splat[-1] if shown is None and with_splat else None
+    # Which of the four the view is in, so the page doesn't guess: this map's own splat, an earlier map's that
+    # still lines up (same frame), one that doesn't (named, not offered), or none.
+    if shown is not None:
+        splat_state = "current" if shown.id == rev.id else "earlier"
+    else:
+        splat_state = "stale" if stale is not None else "none"
+    splat_query = {"place": place, "revision": shown.id if shown else "", "format": SPLAT_FORMAT}
     # an owner plan drawn in a revision with no plan file is in its floor's frame
     transform = places.plan_frame(rev) if owner else rev.plan_transform
     return 200, {
@@ -195,12 +227,15 @@ def scene(state: Path, place: str) -> Reply:
         "map": "/places/map?" + urlencode({"place": place, "revision": rev.id}),
         "map_format": rev.map_format,
         "map_bytes": size,
-        "splat": None if shown is None else "/places/splat?" + urlencode({"place": place, "revision": shown.id}),
-        "splat_format": None if shown is None else "sog",
+        "splat": None if shown is None else "/places/splat?" + urlencode(splat_query),
+        "splat_format": None if shown is None else SPLAT_FORMAT,
         "splat_bytes": splat_size,
         "splat_revision": None if shown is None else shown.id,
         "splat_stale": None if stale is None else {"revision": stale.id, "at": stale.at},
         "splat_from": None if shown is None else places.splat_source(state, shown),
+        "splat_state": splat_state,
+        "splat_at": None if shown is None else shown.at,
+        "splat_wait": None if splat_state == "current" else _splat_wait(state, rev),
         "floor": list(rev.floor) if rev.floor else None,
         "plan_transform": list(transform) if transform else None,
         "cameras": {cam: pose.as_dict() for cam, pose in rev.cameras.items()},
@@ -476,10 +511,13 @@ def _get_places_map(h: H) -> None:
     q = h._query()
     files = map_file if p == "/places/map" else splat_file
     found = files(h.state, q.get("place", ""), q.get("revision", ""))
-    if found is None:
+    # A splat is asked for by format: a URL without one is an earlier page's, whose bytes were another encoding.
+    splat = p == "/places/splat"
+    if found is None or (splat and q.get("format", SPLAT_FORMAT) != SPLAT_FORMAT):
         return h._json({"error": f"no such {p.rsplit('/', 1)[1]}"}, 404)
-    # A revision's map and splat never change once written: its id is their ETag, and they can be kept for good.
-    tag = f'"{q.get("revision", "")}"'
+    # A revision's map and splat never change once written: its id (and the splat's format) is their ETag, and they
+    # can be kept for good.
+    tag = f'"{q.get("revision", "")}.{SPLAT_FORMAT}"' if splat else f'"{q.get("revision", "")}"'
     if h.headers.get("If-None-Match") == tag:
         h.send_response(304)
         h.send_header("ETag", tag)
