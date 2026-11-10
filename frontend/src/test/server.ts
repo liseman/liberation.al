@@ -22,7 +22,8 @@ export const server = setupServer(
   // The header's privacy pauses: read only, nothing paused, unless a test serves its own.
   http.get('/devices/privacy', () => HttpResponse.json({ ok: true, control: false, ready: false, devices: [] })),
   // Settings' Phones, watches, and tags: nothing seen and nothing linked, unless a test serves its own.
-  // Known › Devices' whereabouts and Wi-Fi today: nothing linked and nothing on the Wi-Fi, unless a test serves its own.
+  // Known › Devices' whereabouts and Wi-Fi today: nothing linked and nothing on the Wi-Fi, unless a test serves its
+  // own.
   http.get('/device-presence', () => HttpResponse.json({ at: 0, start: 0, gap_seconds: 600, people: [], caveat: '' })),
   http.get('/device-whereabouts', () => HttpResponse.json({ at: 0, days: 30, caveat: '', links: [] })),
   http.get('/device-comings', () => HttpResponse.json({ at: 0, start: 0, gap_seconds: 600, rows: 0, devices: [] })),

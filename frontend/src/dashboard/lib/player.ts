@@ -13,7 +13,7 @@ export interface PlayerState {
   ts: number | null;
   paused: boolean;
   status: string;
-  position: number; // seconds into what's playing, for a player that shows where it is (Calls board)
+  position: number; // seconds into what's playing, for a player that shows where it is (Calls)
   duration: number | null; // its length in seconds, once known
 }
 

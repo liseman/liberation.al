@@ -42,8 +42,8 @@ export function spanWords(start: number, end: number): string {
 /** A run of chips as Summary shows it: one chip, or 3 or more unconfirmed ones of a kind folded together. */
 export type ChipRun<T> = { kind: 'one'; item: T } | { kind: 'fold'; name: string; items: T[] };
 
-/** What an activity chip says happened: who did it, when the activity knows (its person, or the faces on its track,
- *  in the sentence), then the activity in lower case ("Dana walked past"); else the activity alone ("Walked past"). */
+/** What an activity chip says happened: who did it, when the activity knows (its person, or the faces on its track),
+ *  then the activity in lower case ("Dana walked past"); else the activity alone ("Walked past"). */
 export function activityWords(item: DetectedActivity): string {
   const what = item.name ?? activityKind(item);
   const who = item.person_name?.trim();

@@ -1,5 +1,5 @@
-// "Who's this?" data: the unnamed face groups (vision/face_guess.py) and unnamed voices (
-// people/voice_guess.py) waiting for a name, each with a best guess, and putting one aside. Live and People share
+// "Who's this?" data: the unnamed face groups (vision/face_guess.py) and unnamed voices
+// (people/voice_guess.py) waiting for a name, each with a best guess, and putting one aside. Live and People share
 // these queries and their cache.
 import { type QueryClient, queryOptions } from '@tanstack/react-query';
 import { HttpError, messageOf, request } from '../../shared/http';

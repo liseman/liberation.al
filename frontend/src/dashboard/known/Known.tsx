@@ -1,4 +1,4 @@
-// Known: who and what the house knows by name, one page with a tab each for People, Pets, Objects, Activities
+// Known: who and what the house knows by name, one page with a tab each for People, Pets, Objects, Activities,
 // Devices (phones, watches, and tags), and Places (floorplans). Each tab is its own path
 // (/people, /pets, /objects, /activities, /devices, /places), so a link or a reload opens
 // the right one and Back steps through them. A tab's content is the page it was before, as is. Like the app's own pages, each mounts on its first visit

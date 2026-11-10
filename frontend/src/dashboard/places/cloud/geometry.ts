@@ -101,7 +101,7 @@ export function planOutline(planText: string, transform: readonly number[], lift
 
 /** The vertical field of view (degrees) that fills a view of `aspect` (width over height) with a fixed camera's own
  *  frame (`width` x `height` pixels at `focal`): its frame covers the view, cropped to the view's shape, so the view
- *  is filled and shows nothing past the frame's edges, nothing the camera never saw. A view wider than
+ *  is filled and shows nothing past the frame's edges, nothing the camera never saw (#42). A view wider than
  *  the frame keeps its full width, a taller one its full height. */
 export function coverFov(width: number, height: number, focal: number, aspect: number): number {
   const halfTan = Math.min(height, width / aspect) / 2 / focal;

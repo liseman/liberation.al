@@ -1,4 +1,4 @@
-// Settings' Services data (once the top bar's Services drawer drew it as cards), and the rules for what
+// Settings' Services data (once the top bar's Services drawer, now drawn as cards), and the rules for what
 // each row says.
 
 export const SERVICES_KEY = ['services'] as const;

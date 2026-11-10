@@ -44,7 +44,8 @@ export function guessOf(sightings: Sighting[]): { label: string; sure: boolean; 
 }
 
 /** A group's guess as the inbox shows it: the server's for the whole group, else worked out here from the
- *  sightings left in it (after "Not this pet", or when the response omits a group guess). Only a named pet is a guess. */
+ *  sightings left in it (after "Not this pet", or when the response omits a group guess). Only a named pet is a
+ *  guess. */
 export function groupGuess(
   group: SightingGroup,
   sightings: Sighting[],

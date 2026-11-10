@@ -1,8 +1,8 @@
 // Known › Devices: the phones, watches, and tags the Bluetooth sensors heard and the router saw,
 // each linked to a person or named as a thing. It's the card Settings › Devices had (settings/devices/DeviceLinks.tsx),
 // moved here as it was, since linking a device is naming what the house knows, like People and Pets. Above it, who's
-// home by their devices, where each linked thing was last seen, and what's on the Wi-Fi today (
-// DeviceSections.tsx). Until a person has a linked phone, the Wi-Fi card leads as the starter ("Whose phones are
+// home by their devices, where each linked thing was last seen, and what's on the Wi-Fi today
+// (DeviceSections.tsx). Until a person has a linked phone, the Wi-Fi card leads as the starter ("Whose phones are
 // these?") in place of the two that would be empty. Whether changes are allowed (only from the machine Liberational runs on) comes from GET /config, as Settings reads it.
 import { Text } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';

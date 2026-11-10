@@ -1,10 +1,10 @@
 // The Review player (R2): one camera large with what it noticed as a caption, the others as tiles beside it
 // (click one to swap it in), each named like "Front camera", and "No video now" on a camera with no video at the
 // playhead; then one control bar (play/pause, the time, the speed, the sound, the timeline's tools, and "?")
-// over the timeline. Each camera has two <video>s that the engine drives directly (one shows, the other holds the next segment). They mount once and never move: which camera is
-// large is only where the grid puts it.
-// A noninteractive hint for the engine's [ and ] moment keys floats at the large video's bottom center; captions
-// sit above it. The hint stays visible without hover or focus on every screen size.
+// over the timeline. Each camera has two <video>s that the engine drives directly (one shows, the other holds the next
+// segment). They mount once and never move: which camera is large is only where the grid puts it. A noninteractive hint
+// for the engine's [ and ] moment keys floats at the large video's bottom center; captions sit above it. The hint stays
+// visible without hover or focus on every screen size.
 import { ActionIcon, Button, Checkbox, Chip, Group, Kbd, Skeleton, Text, Tooltip, UnstyledButton } from '@mantine/core';
 import { IconEqual, IconPlayerPauseFilled, IconPlayerPlayFilled, IconVolume, IconVolumeOff } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';

@@ -85,7 +85,8 @@ export function PeopleTab() {
     setCursor(s);
     setSel(s);
   };
-  // Follow links in (Live's "Here now", and its Who's this? link) on any in-app hashchange: People stays mounted between tabs.
+  // Follow links in (Live's "Here now", and its Who's this? link) on any in-app hashchange: People stays mounted
+  // between tabs.
   useEffect(() => {
     const follow = () => {
       if (knownTabOf(location.pathname) !== 'people') return;

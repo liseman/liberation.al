@@ -86,7 +86,8 @@ describe('while a reload is under way', () => {
   });
 });
 
-// Without filtering, the frontend log fills with "Failed to fetch dynamically imported module" from tabs that then reload fine.
+// Without filtering, the frontend log fills with "Failed to fetch dynamically imported module" from tabs that then
+// reload fine.
 describe('what a preload error logs', () => {
   beforeEach(() => {
     sessionStorage.clear();

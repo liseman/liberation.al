@@ -2,8 +2,8 @@
 // People's face groups next), with an explicit "Not <name>" action and Y/N/I keys.
 // The shell owns what every kind shares: the heading with how many wait, the "By <kind>" bulk view, the sort (a
 // Certainty toggle, highest first by default so the one-click rows come first) and the picture size, both
-// remembered per kind in this browser, the list itself, and where focus goes when a row leaves. Each kind renders its rows with
-// NamingRow and supplies its own name picker, pictures, and bulk view.
+// remembered per kind in this browser, the list itself, and where focus goes when a row leaves. Each kind renders its
+// rows with NamingRow and supplies its own name picker, pictures, and bulk view.
 //
 // The guess bands are each kind's own: pets' "probable" is a clear recognition match and "maybe" a suggestion
 // (people/pet_recognition.py); faces' are vision/face_guess.py's score floors (probable at 75 points, maybe at 50).

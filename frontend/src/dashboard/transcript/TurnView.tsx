@@ -200,7 +200,8 @@ export const TurnView = memo(
       const match = typed ? known.find(k => k.toLowerCase() === typed.toLowerCase()) : undefined;
       if (typed && unnamed && !added && !match && typed !== name) {
         setAdding(typed);
-        // The shared confirm: Add is focused (the new person is easily removed); Cancel (or closing) gives the name box back with what was typed.
+        // The shared confirm: Add is focused (the new person is easily removed); Cancel (or closing) gives the name box
+        // back with what was typed.
         void confirm({
           title: 'New person',
           body: `Add ${typed} as a new person?`,

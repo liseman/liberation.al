@@ -1,5 +1,6 @@
 // Live's microphones: one chip per microphone the microphone service is listening to, with its level moving
-// live, a mark where speech has to reach (its sensitivity's threshold), and whether the listen worker detects a sound candidate now.
+// live, a mark where speech has to reach (its sensitivity's threshold), and whether the listen worker detects a sound
+// candidate now.
 import { VisuallyHidden } from '@mantine/core';
 import { IconMicrophoneFilled, IconMicrophoneOff } from '@tabler/icons-react';
 import { useQueryClient } from '@tanstack/react-query';
