@@ -46,7 +46,7 @@ class ASR:
 
             self.mx, self.get_logmel = mx, get_logmel
             # MLX keeps freed GPU buffers for reuse, and every utterance length makes new ones, so with no limit the
-            # cache only grows: 17 GB in the listen service after 1.5 h (2026-10-31; 19 GB after 200 test clips).
+            # cache only grows: 17 GB in the listen service after 1.5 h (19 GB after 200 test clips on the Mac).
             # A cap keeps it to MLX_CACHE_LIMIT with no slowdown (133-140 ms a clip, capped or not).
             mx.set_cache_limit(MLX_CACHE_LIMIT)
             self.m = from_pretrained(cfg.hf_repo("asr_parakeet"))

@@ -236,7 +236,7 @@ function Cameras({ view, off }: { view: DeviceView; off: boolean }) {
     onError: e => setNote(`Couldn't restart all capture: ${messageOf(e)}`),
   });
   const pending = save.isPending || restartAll.isPending;
-  const places = parsePlaces(d.value('vision.places'), shell().cams);
+  const places = parsePlaces(d.value('vision.camera_names'), shell().cams);
   // One camera at least: the last used one that is plugged in can't be left out (capture would have none)
   const watching = view.cameras.filter(c => c.present && c.selected);
   if (!view.cameras.length)
@@ -320,7 +320,9 @@ function Cameras({ view, off }: { view: DeviceView; off: boolean }) {
               device={deviceName(c.name) || cam}
               saved={places[cam] ?? ''}
               off={off}
-              onChange={name => d.set('vision.places', withPlace(d.value('vision.places'), cam, name, shell().cams))}
+              onChange={name =>
+                d.set('vision.camera_names', withPlace(d.value('vision.camera_names'), cam, name, shell().cams))
+              }
             />
             <CameraSettings
               camera={c}
@@ -607,7 +609,11 @@ export function Devices() {
       </SettingsSection>
       {/* Cameras recorded over the network: Wyze now, UniFi Protect and Reolink (#1317) next (settings/sources/). */}
       <NetworkCameras
-        names={{ value: d.value('vision.places'), set: value => d.set('vision.places', value), disabled: off }}
+        names={{
+          value: d.value('vision.camera_names'),
+          set: value => d.set('vision.camera_names', value),
+          disabled: off,
+        }}
       />
       <SettingsSection title="Microphones" id={DEVICE_CARD.microphones} tabIndex={-1}>
         {sensitivityRow && (

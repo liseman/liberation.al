@@ -38,7 +38,7 @@ from typing import Any, NoReturn, Protocol
 from liberational import config as cfg
 from liberational import logs, ollama_health
 from liberational.config import ROOT
-from liberational.vision import places
+from liberational.vision import views
 
 LOG = logs.get("ask")
 STATE = cfg.path("paths.state")
@@ -660,7 +660,7 @@ def evidence_context(history: Mapping[str, Any], budget: int) -> tuple[str, bool
         compact["recorded_answer"] = str(compact["recorded_answer"] or "")[: budget // 4]
     selected = 0
     evidence = history.get("evidence") or []
-    camera_names = places.names() if any(item.get("camera") for item in evidence) else {}
+    camera_names = views.names() if any(item.get("camera") for item in evidence) else {}
     for item in evidence:
         row = {
             k: item[k]

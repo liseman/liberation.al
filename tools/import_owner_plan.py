@@ -35,7 +35,7 @@ import numpy as np
 
 from liberational import config as cfg
 from liberational.memory import places
-from liberational.spatial import floorplan, ply
+from liberational.spatial import floorplan, ply, rig
 from liberational.spatial import plan_import as pi
 
 LOOK_PREFIX = "walk-"  # a walk's look-from views (spatial/splats.py LOOK_PREFIX), not fixed cameras
@@ -109,7 +109,7 @@ def _report(fit: pi.Fit, plan: pi.Parsed, spots: Mapping[str, tuple[float, ...]]
     print(f"  scale a free fit would take: {fit.scale:.4f} (1 is metric agreement; not applied)")
     names = {r.id: r.name for r in plan.rooms}
     measured = {c.id: c for c in plan.cameras}
-    configured = cfg.get("spatial.camera_heights_m") or {}
+    configured = rig.load().heights()
     for c in fit.cameras:
         room = names.get(c.room or "", "outside every room")
         line = f"  camera {c.camera}: at {c.at[0]:.2f},{c.at[1]:.2f} on the plan, in {room}"
@@ -138,7 +138,7 @@ def _counts(
 ) -> collections.Counter[str]:
     from liberational.spatial import positions
 
-    rows = positions.positions(state, start, end, place=place.id, frame_revision=frame)
+    rows = positions.derive(state, start, end, place=place.id, frame_revision=frame)
     out: collections.Counter[str] = collections.Counter()
     for r in rows:
         if r.x is None or r.y is None:

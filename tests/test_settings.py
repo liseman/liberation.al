@@ -352,48 +352,48 @@ def test_a_port_on_the_command_line_must_be_a_real_port(argv, port):
 
 
 def test_camera_places_are_saved_one_per_camera_in_one_form(pack_toml):
-    cfg.save({"vision.places": "cam0: Living  room, 2=kitchen"})  # as Settings sends its tags
-    assert tomllib.loads(pack_toml.read_text())["vision"]["places"] == ["cam0: Living room", "cam2: kitchen"]
+    cfg.save({"vision.camera_names": "cam0: Living  room, 2=kitchen"})  # as Settings sends its tags
+    assert tomllib.loads(pack_toml.read_text())["vision"]["camera_names"] == ["cam0: Living room", "cam2: kitchen"]
 
 
 @pytest.mark.parametrize(
     "raw,match",
     [
-        pytest.param("living room", "is not a camera and a place", id="no-camera"),
-        pytest.param("cam0:", "is not a camera and a place", id="no-place"),
+        pytest.param("living room", "is not a camera and its name", id="no-camera"),
+        pytest.param("cam0:", "is not a camera and its name", id="no-place"),
         pytest.param("cam0: living room, upstairs", "'upstairs' is not a camera", id="comma-in-a-place"),
         pytest.param("cam0: den, 0: kitchen", "cam0 is named twice", id="twice"),
     ],
 )
 def test_a_camera_place_that_is_not_a_camera_and_a_name_is_refused(pack_toml, raw, match):
     with pytest.raises(cfg.SettingError, match=match):
-        cfg.save({"vision.places": raw})
+        cfg.save({"vision.camera_names": raw})
     assert not pack_toml.exists()
 
 
 def test_a_camera_goes_by_its_place_name_or_else_its_id():
-    from liberational.vision import places
+    from liberational.vision import views
 
-    with cfg.override({"vision": {"places": ["cam1: kitchen"]}}):
-        assert (places.place("cam1"), places.place("cam0")) == ("kitchen", "cam0")
-    with cfg.override({"vision": {"places": ["kitchen"]}}):  # set by hand, wrongly: no camera gets a name
-        assert places.place("cam1") == "cam1"
+    with cfg.override({"vision": {"camera_names": ["cam1: kitchen"]}}):
+        assert (views.name("cam1"), views.name("cam0")) == ("kitchen", "cam0")
+    with cfg.override({"vision": {"camera_names": ["kitchen"]}}):  # set by hand, wrongly: no camera gets a name
+        assert views.name("cam1") == "cam1"
 
 
 @pytest.mark.parametrize(
     "hand", [pytest.param("kitchen", id="malformed"), pytest.param("cam0: living room, upstairs", id="comma")]
 )
 def test_camera_places_set_by_hand_never_block_saving_something_else(pack_toml, hand):
-    pack_toml.write_text(f'[vision]\nplaces = ["{hand}"]\n')
+    pack_toml.write_text(f'[vision]\ncamera_names = ["{hand}"]\n')
     cfg.load.cache_clear()
-    cfg.save({"vision.fps": "10", "vision.places": hand})  # the form sends every field, as it shows them
-    assert tomllib.loads(pack_toml.read_text())["vision"] == {"places": [hand], "fps": 10}
+    cfg.save({"vision.fps": "10", "vision.camera_names": hand})  # the form sends every field, as it shows them
+    assert tomllib.loads(pack_toml.read_text())["vision"] == {"camera_names": [hand], "fps": 10}
 
 
 def test_a_line_break_in_a_camera_place_is_a_space():
-    from liberational.vision import places
+    from liberational.vision import views
 
-    assert places.parse(["cam0: living\nroom"]) == {"cam0": "living room"}
+    assert views.parse(["cam0: living\nroom"]) == {"cam0": "living room"}
 
 
 def test_every_plain_label_names_a_real_setting_and_a_real_section():
