@@ -340,7 +340,7 @@ def test_health_is_written_when_it_changes_and_reads_as_the_service_managers_did
     assert runs["listen"] == {"restarts": 0, "up_s": 30.0, "run_id": f"{world.procs['listen'].pid}-{int(world.wall)}"}
     assert "video-window" not in runs  # a job's runs are by design, as with the timers
     events = [json.loads(line) for line in (tmp_path / "events.jsonl").read_text().splitlines()]
-    assert [(e["name"], e["event"]) for e in events] == [("listen", "start")]
+    assert [(e["name"], e["event"]) for e in events] == [("", "open"), ("listen", "start")]
 
 
 def test_a_status_whose_supervisor_is_gone_is_no_status(tmp_path):
@@ -447,3 +447,87 @@ def test_real_processes_are_started_restarted_and_all_stopped(tmp_path):
     assert sup.status()["services"]["napper"]["pid"] is None
     with pytest.raises(ProcessLookupError):
         os.kill(second["pid"], 0)
+
+
+def test_history_reads_runs_stops_crashes_and_a_killed_supervisors_gap_from_its_own_record(tmp_path):
+    lines = [
+        {"ts": 100, "name": "", "event": "open"},
+        {"ts": 110, "name": "listen", "event": "start", "restarts": 0, "pid": 5},
+        {"ts": 200, "name": "listen", "event": "exit", "restarts": 0, "pid": 5, "code": 1, "wanted": True},
+        {"ts": 210, "name": "listen", "event": "start", "restarts": 1, "pid": 6},
+        {"ts": 300, "name": "listen", "event": "exit", "restarts": 1, "pid": 6, "code": -15, "wanted": False},
+        {"ts": 400, "name": "listen", "event": "start", "restarts": 1, "pid": 7},
+        # the supervisor was killed here: no exit was written
+        {"ts": 600, "name": "", "event": "open"},
+        {"ts": 610, "name": "listen", "event": "start", "restarts": 0, "pid": 8},
+    ]
+    (tmp_path / "events.jsonl").write_text("".join(json.dumps(line) + "\n" for line in lines) + "not json\n")
+    view = supervisor.history(tmp_path, ["listen", "journal"], 50, 700)
+    listen = next(s for s in view["services"] if s["name"] == "listen")
+    assert [(s["start"], s["end"], s["state"]) for s in listen["spans"]] == [
+        (50, 110, "unknown"),
+        (110, 200, "up"),
+        (200, 210, "stopped"),
+        (210, 300, "up"),
+        (300, 400, "stopped"),
+        (400, 610, "unknown"),  # up when last heard of, but nobody saw it end, until the next supervisor started it
+        (610, 700, "up"),
+    ]
+    assert [(e["at"], e["kind"], e["reason"]) for e in listen["events"]] == [
+        (110, "started", None),
+        (200, "crashed", "exit 1"),
+        (210, "restart", None),
+        (300, "stopped", None),
+        (400, "started", None),
+        (610, "started", None),
+    ]
+    journal = next(s for s in view["services"] if s["name"] == "journal")
+    assert journal == {"name": "journal", "spans": [{"start": 50, "end": 700, "state": "unknown"}], "events": []}
+    assert (view["available"], view["truncated"]) == (True, False)
+
+
+def test_an_exit_says_whether_the_supervisor_meant_it(sup, world, tmp_path):
+    sup.start(["listen", "journal"])
+    world.procs["listen"].code = 1
+    sup.tick()
+    sup.stop(["journal"])
+    exits = [json.loads(line) for line in (tmp_path / "events.jsonl").read_text().splitlines()]
+    assert {e["name"]: e["wanted"] for e in exits if e["event"] == "exit"} == {"listen": True, "journal": False}
+    assert exits[0]["event"] == "open"  # written when the supervisor began
+
+
+def test_pack_services_verbs_talk_to_the_supervisor_while_one_runs(monkeypatch, capsys):
+    asked = []
+    status = {"pid": os.getpid(), "services": {"listen": {"state": "running", "restarts": 0, "since": 5.0, "pid": 9}}}
+    monkeypatch.setattr(supervisor, "read_status", lambda: status)
+    monkeypatch.setattr(supervisor, "request", lambda message, timeout=0: asked.append(message) or {"ok": True})
+    monkeypatch.setattr(services, "_run", lambda *a, **k: pytest.fail("asked the service manager"))
+    assert services.installed() == ["listen"] and services.states() == {"listen": "running"}
+    services.stop(["listen"])
+    services.start(["listen"])
+    services.restart(["listen"])
+    services.restart([], cascade=True)
+    services.install(["listen"])
+    services.uninstall(["listen"])
+    assert asked == [
+        {"op": "stop", "names": ["listen"]},
+        {"op": "start", "names": ["listen"]},
+        {"op": "restart", "names": ["listen"]},
+        {"op": "restart", "names": []},  # everything, through the staged cascade
+        {"op": "reload", "names": []},
+        {"op": "restart", "names": ["listen"]},
+        {"op": "stop", "names": ["listen"]},
+    ]
+    assert "pack-listen: stopped" in capsys.readouterr().out
+    with pytest.raises(SystemExit, match="quit it to stop everything"):
+        services.uninstall([])
+
+
+def test_a_refusal_from_the_supervisor_fails_the_verb_and_says_why(monkeypatch, capsys):
+    monkeypatch.setattr(supervisor, "read_status", lambda: {"pid": os.getpid(), "services": {}})
+    monkeypatch.setattr(
+        supervisor, "request", lambda message, timeout=0: {"ok": False, "error": "not a selected service: nope"}
+    )
+    with pytest.raises(SystemExit):
+        services.start(["nope"])
+    assert "pack-nope: FAILED not a selected service: nope" in capsys.readouterr().out
