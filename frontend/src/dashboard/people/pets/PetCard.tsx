@@ -1,6 +1,7 @@
 // A named pet's card, in the contact card's form (../profile/Profile.tsx): its photo, name, species, and where
 // it was last seen, Edit and Remove, then its recent sightings and whether its species is recognized yet. Each sighting
-// has People's ⋯ menu: Use as main photo, Not <name>, and Hide from the card.
+// has People's ⋯ menu: Use as main photo, Not <name>, and Hide from the card. Training images (../TrainingSet.tsx)
+// lists every sighting labeled as it, to find and remove a wrong one.
 
 import { ActionIcon, Button, Group, Menu, Text, Title } from '@mantine/core';
 import { IconDots, IconUserMinus } from '@tabler/icons-react';
@@ -11,6 +12,7 @@ import { Empty, ItemActions, type MenuAction, Section } from '../profile/parts';
 import classes from '../profile/profile.module.css';
 import { cameraName, whereabouts } from '../profile/role';
 import { VideoTile } from '../profile/VideoTile';
+import { petTraining, TrainingSet } from '../TrainingSet';
 import {
   type Check,
   type Pet,
@@ -47,6 +49,7 @@ export function PetCard({
   onRemove,
   onPhoto,
   onNot,
+  onChanged,
 }: {
   pet: Pet;
   seen: Seen[];
@@ -58,6 +61,7 @@ export function PetCard({
   onRemove: () => void;
   onPhoto?: (action: 'main' | 'newest' | 'hide', track: string) => void; // the card's photo choices
   onNot?: (track: string) => void; // a sighting that isn't this pet
+  onChanged?: () => void; // its training set changed: read its sightings again
 }) {
   const newest = seen[0];
   const hidden = new Set(pet.hidden ?? []);
@@ -148,6 +152,7 @@ export function PetCard({
         )}
         <ProcessingImages count={pending} unavailable={unavailable} />
       </Section>
+      <TrainingSet name={pet.name} source={petTraining(pet.id)} onRemoved={onChanged} />
       {check && (
         <Section title="Recognition">
           <CheckLine check={check} />

@@ -994,3 +994,87 @@ def test_a_label_keeps_its_sightings_saved_photo_with_the_taught_state(log):
     assert R.photos(log.state) == {"m0": b"photo of m0"}  # m1 had no saved photo: a label without one
     R.label(log.state, ["m0"], POPPY, PETS, now=T + 30001)  # relabeled: its example and photo are already kept
     assert len(knowledge.Store(log.state / "knowledge.sqlite3").query(R.PHOTOS)) == 1
+
+
+def mia_with_a_wrong_sighting(state, now):
+    """Mia's four sightings and one of Poppy's (p0) labeled as Mia by mistake; m0 and p0 had a saved photo."""
+    from liberational.people import face_shots, pet_shots
+
+    face_shots.write(state, "m0", "3", b"photo of m0", pet_shots.KIND)
+    face_shots.write(state, "p0", "3", b"photo of p0", pet_shots.KIND)
+    R.label(state, ["m0", "m1", "m2", "m3", "p0"], MIA, PETS, now=now)
+
+
+def test_a_pets_training_set_lists_every_labeled_sighting_with_the_odd_one_out_first(log):
+    mia_with_a_wrong_sighting(log.state, T + 30000)
+    R.label(log.state, ["p1"], POPPY, PETS, now=T + 30001)  # another pet's example is not Mia's
+    rows = R.examples(log.state, MIA, PETS)
+    assert rows[0]["track_id"] == "p0", "nothing like the other four"
+    assert sorted(r["track_id"] for r in rows) == ["m0", "m1", "m2", "m3", "p0"]
+    by_track = {r["track_id"]: r for r in rows}
+    assert by_track["p0"]["similarity"] == pytest.approx(0.0, abs=0.01)
+    assert by_track["m1"]["similarity"] == pytest.approx(0.87, abs=0.02)  # 0.9 alike to each of three, less to p0
+    assert (by_track["m0"]["picture"], by_track["m1"]["picture"]) == ("kept", "recorded")
+    assert (by_track["m1"]["cam"], by_track["m1"]["start"], by_track["m1"]["source"]) == ("cam0", T + 3600, "owner")
+    assert R.kept_photo(log.state, "p0") == b"photo of p0"
+
+
+def test_removing_a_training_image_takes_its_label_vector_and_photo_out_and_recognition_follows(log):
+    now = T + 30000
+    mia_with_a_wrong_sighting(log.state, now)
+    R.label(log.state, ["p1", "p2", "p3"], POPPY, PETS, now=now + 1)
+    R.view(log.state, PETS, now=now + 1)  # reads the kept references the removal must outdate
+    assert R.remove_examples(log.state, ["p0", "p1", "nobody"], MIA, PETS, now=now + 2) == 1, "only Mia's own"
+    store = knowledge.Store(log.state / "knowledge.sqlite3")
+    assert "p0" not in R.labels(log.state) and R.labels(log.state)["p1"]["label"] == POPPY
+    assert R.nots(log.state) == {"p0": {MIA}}
+    assert [r.record.key for c in (R.REFERENCES, R.PHOTOS) for r in store.query(c, key="p0")] == []
+    assert len(store.query(R.REFERENCES, key="m0")) == 1 and R.kept_photo(log.state, "m0") == b"photo of m0"
+    assert R.kept_photo(log.state, "p0") is None
+    assert [r["track_id"] for r in R.examples(log.state, MIA, PETS)] == ["m0", "m1", "m2", "m3"]
+    waiting = {s["track_id"]: s for g in R.view(log.state, PETS, now=now + 3)["groups"] for s in g["sightings"]}
+    assert waiting["p0"]["label"] is None and waiting["p0"]["not"] == [MIA]
+    assert waiting["p0"].get("recognized", {}).get("label") != MIA
+
+
+def test_an_example_that_is_only_a_vector_is_listed_without_a_picture_and_can_be_removed(log):
+    now = T + 30000
+    at = int(now * 1e9)
+    body = {
+        "cam": "cam0",
+        "track_id": "old",
+        "species": "cat",
+        "label": MIA,
+        "active": True,
+        "source": "owner",
+        "carried_from": "an-earlier-model",
+        "sighting_start": T - 90 * 86400,
+        "sighting_end": T - 90 * 86400 + 5,
+    }
+    knowledge.Store(log.state / "knowledge.sqlite3").put(
+        [
+            knowledge.Record("019c0000-0000-7000-8000-00000000aaaa", R.LABELS, "old", at, at, at, body, (MIA,)),
+            R.reference(np.asarray(look(0, 30)), body, at),
+        ]
+    )
+    (row,) = R.examples(log.state, MIA, PETS)
+    assert (row["track_id"], row["picture"], row["example"], row["source"]) == ("old", None, True, "carried")
+    assert (row["start"], row["similarity"]) == (T - 90 * 86400, None)
+    assert R.remove_examples(log.state, ["old"], MIA, PETS, now=now + 1) == 1
+    assert R.examples(log.state, MIA, PETS) == []
+    assert knowledge.Store(log.state / "knowledge.sqlite3").query(R.REFERENCES) == []
+
+
+@pytest.mark.parametrize(
+    ("tracks", "pet", "error"),
+    [
+        pytest.param(["m0"], BESS, LookupError, id="no-such-pet"),
+        pytest.param([], MIA, ValueError, id="no-sightings"),
+        pytest.param([7], MIA, ValueError, id="an-id-is-text"),
+    ],
+)
+def test_a_training_image_removal_that_cannot_be_meant_changes_nothing(log, tracks, pet, error):
+    R.label(log.state, ["m0"], MIA, PETS, now=T + 30000)
+    with pytest.raises(error):
+        R.remove_examples(log.state, tracks, pet, PETS)
+    assert R.labels(log.state)["m0"]["label"] == MIA

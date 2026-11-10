@@ -18,8 +18,6 @@ import classes from './places.module.css';
 import { parsePlaceDsl } from './plan/dsl';
 import type { Extensions } from './plan/ext';
 import { drawPlace, looks, type PlaceDrawing } from './plan/render';
-import { WalkImport } from './WalkImport';
-import { WalkBadge, WalkNote } from './walks';
 
 // The 3D view is its own chunk: the viewer and its engine load only when someone opens it.
 const CloudView = lazy(() => import('./cloud/CloudView'));
@@ -43,8 +41,6 @@ export function fromServer(p: PlaceSummary): Place {
     name: p.name,
     lastVisit: p.last_visit,
     lastActivity: p.last_activity ?? null,
-    walks: p.walks ?? 0,
-    unwalkedRooms: p.unwalked_rooms ?? null,
     plan: null,
     example: false,
   };
@@ -155,7 +151,6 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
       return null;
     }
   }, [place, showing, scheme]);
-  const names = useMemo(() => new Map(real.map(p => [p.id, p.name])), [real]);
   const drawing = place ? drawn.get(place.id) : null;
   const result = drawing?.result;
   return (
@@ -180,14 +175,6 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
               mapped.
             </Text>
           )}
-          <WalkImport
-            names={names}
-            onOpen={id => {
-              setPicked(id);
-              setEditing(null);
-              setShowing('mine');
-            }}
-          />
           <div className={classes.layout}>
             <nav aria-label="Places">
               <ul className={classes.list}>
@@ -213,7 +200,6 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
                                 Example
                               </Badge>
                             )}
-                            <WalkBadge place={p} />
                           </span>
                         }
                         description={`${r ? `${planSummary(r)} · ` : p.plan ? '' : 'No plan yet · '}${lastVisit(p)}`}
@@ -249,7 +235,6 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
                     />
                   )}
                 </div>
-                {editing !== place.id && <WalkNote place={place} />}
                 {!place.example && view === '3d' && editing !== place.id ? (
                   <Suspense
                     fallback={

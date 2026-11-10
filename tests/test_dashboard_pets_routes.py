@@ -102,6 +102,22 @@ def test_labeling_a_sighting_refuses_another_origin_or_a_remote_viewer(dashboard
     assert labels == []
 
 
+def test_removing_training_images_refuses_another_origin_or_a_remote_viewer(dashboard_server, pet_api, monkeypatch):
+    from liberational.people import pet_recognition
+
+    calls = []
+    monkeypatch.setattr(
+        pet_recognition, "remove_examples", lambda state, tracks, pet, pets: calls.append((tracks, pet)) or 1
+    )
+    request, _ = pet_api
+    body = {"track_ids": ["t1"], "pet": "pet-id"}
+    assert request("POST", "/pets/examples/remove", body, "http://other.invalid")[0] == 403
+    assert request("POST", "/pets/examples/remove", body) == (200, {"ok": True, "removed": 1})
+    monkeypatch.setattr(dashboard_server.H, "_can_control", lambda self: False)
+    assert request("POST", "/pets/examples/remove", body)[0] == 403
+    assert calls == [(["t1"], "pet-id")]
+
+
 def test_blocking_and_listing_hidden_sightings_go_through_from_this_machine_only(
     dashboard_server, pet_api, monkeypatch
 ):

@@ -299,6 +299,14 @@ def save_person_photo(name: str, label: str | None = None, gid: int | None = Non
     return ok
 
 
+def group_picture(gid: int) -> bytes | None:
+    """Unnamed face group gid's saved picture, or None: what its face row keeps for Training images."""
+    try:
+        return photo_files._unknown_photo(gid).read_bytes()
+    except OSError:
+        return None
+
+
 def _record_person_photo(name: str, dest: pathlib.Path, *, prune: bool = True) -> None:
     """Make a saved crop removable through the existing photo evidence controls."""
     try:

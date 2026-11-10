@@ -316,6 +316,7 @@ export function Pets() {
                 onRemove={() => void remove(pet)}
                 onPhoto={(action, track) => void photo(pet, action, track)}
                 onNot={track => void notPet(pet, track)}
+                onChanged={refresh}
               />
             ) : (
               <PetInbox

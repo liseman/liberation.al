@@ -114,3 +114,8 @@ draws a box, or asks to find objects in a frozen frame. The child stays warm for
 `people/pet_recognition.py` names a new sighting by appearance only for a species whose labels pass a held-out
 check. Unlabeled sightings are offered for labeling for `pets.label_days` (14). A label keeps its photo, so
 `tools/restore_pet_references.py` can embed references again after a model change.
+
+A pet's card has **Training images**: every sighting labeled as it, the least like the rest first, with the photo
+each label kept (an older example with none is listed without one). Removing some clears their labels, marks them
+not that pet, and erases their `pet.reference` and `pet.photo` records in one write. Every reader keys its kept
+answers by the knowledge store's generation, so recognition follows on the next read with no restart.

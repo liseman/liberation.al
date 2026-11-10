@@ -91,6 +91,14 @@ see-actions names tracks from the gallery (`vision/faces.py`, `see/faces.py`, `s
 - Attaching a photo with exactly one face to a person adds that face as an owner row. Group photos, audio, and video
   are reference only.
 
+A person's card has **Training images**: every face row naming matches them against (the owner's and the learned
+ones), the least like the rest of the set first, since a wrong picture is an outlier. Any can be selected and
+removed, after a confirmation; the row leaves its gallery file and see-actions' matcher, which rereads a file that
+changed, stops using it on its next look, with no restart. Each owner row keeps its picture and where it came from
+(a named group, a corrected sighting, a reference photo) in `faces/examples/` (`vision/face_examples.py`), keyed by
+a hash of its vector, and `pack-knowledge export` carries them with the rows. A row from before pictures were kept
+is listed without one and can still be removed. A learned row has its camera and time but no picture.
+
 Face and pet crops are saved by see-actions when it writes the row (`state/shots/`, `state/pet_shots/`), in a folder
 per UTC hour, keyed by the segment store's deletion revision. They are kept 30 days under a size cap and are safe to
 delete.

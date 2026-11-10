@@ -5,6 +5,10 @@ Everyone here is invented, per docs/CONVENTIONS.md: Alice (the owner), Dana, and
 an invented two-bedroom-sized house with an invented floor plan, and the journal is one ordinary invented day. The day
 is yesterday, so the Journal tab opens near it, and its page is already written (no model runs in demo mode).
 
+The pet has a small training set (labeled sightings with drawn tiles for photos, one of them unlike the rest), so a
+pet card's Training images has something to show; `seed_faces` does the same for the people's face rows, and is run
+only by pack-demo, which knows the demo's own faces directory.
+
 `seed(state, mlog, say=...)` writes it all into the state directory `state` (people and pets into its knowledge store,
 the place under `places/`), the journal into `mlog`, the memory log on the demo's own broker, and the transcript
 through `say`, which writes one utterance (pack-demo's is a speech log writer on that broker). `tools/measure.py --demo`
@@ -191,6 +195,86 @@ def seed_people(state: Path) -> dict[str, str]:
     return ids
 
 
+EXAMPLES = 6  # training images seeded for the pet and for each person, the last of them unlike the rest
+
+
+def _tile(letter: str, k: int, odd: bool) -> bytes:
+    """A drawn stand-in for a photo: a flat tile with an initial and a number (grey with a question mark for the one
+    that doesn't belong). No picture of anyone."""
+    import cv2
+    import numpy as np
+
+    shade = (120, 120, 120) if odd else (60 + 25 * k, 110, 170 - 15 * k)
+    image = np.full((160, 160, 3), shade, np.uint8)
+    cv2.putText(image, "?" if odd else f"{letter}{k + 1}", (36, 100), cv2.FONT_HERSHEY_SIMPLEX, 1.8, (255, 255, 255), 4)
+    ok, jpg = cv2.imencode(".jpg", image)
+    return jpg.tobytes() if ok else b""
+
+
+def _looks(axis: int, dims: int) -> list[Any]:
+    """EXAMPLES made-up unit vectors: all but the last near one direction (`axis`), the last somewhere else."""
+    import numpy as np
+
+    out = []
+    for k in range(EXAMPLES):
+        v = np.zeros(dims, np.float32)
+        odd = k == EXAMPLES - 1
+        v[(axis + 50) % dims if odd else axis] = 0.9
+        v[(axis + 1 + k) % dims] = 0.44
+        out.append(v / np.linalg.norm(v))
+    return out
+
+
+def seed_pet_examples(state: Path, now: float) -> int:
+    """Labels EXAMPLES made-up sightings as the demo pet, each with its example vector and photo in the knowledge
+    store, as labeling on People's Pets writes them. Returns how many."""
+    import uuid
+
+    from liberational import knowledge
+    from liberational.people import pet_recognition
+
+    pet = next(str(p["id"]) for p in pets.at(state).listing() if p["name"] == PET)
+    records = []
+    for k, vector in enumerate(_looks(0, 384)):
+        track = f"demo:{PET_SPECIES}:{k + 1}"
+        seen = now - 3600 * (EXAMPLES - k)
+        at = int((now + k * 1e-6) * 1e9)
+        body = {
+            "cam": "demo-cam",
+            "track_id": track,
+            "species": PET_SPECIES,
+            "label": pet,
+            "active": True,
+            "source": "owner",
+            "sighting_start": seen,
+            "sighting_end": seen + 20,
+        }
+        records.append(knowledge.Record(str(uuid.uuid7()), pet_recognition.LABELS, track, at, at, at, body, (pet,)))
+        records.append(pet_recognition.reference(vector, body, at))
+        records.append(pet_recognition.photo(track, _tile(PET[0], k, k == EXAMPLES - 1), at))
+    knowledge.at(registry.knowledge_path(state)).put(records)
+    return EXAMPLES
+
+
+def seed_faces(folder: Path, now: float) -> int:
+    """Gives each demo person EXAMPLES made-up face rows with drawn tiles for pictures, in the face gallery under
+    `folder`. Only when that is the gallery this process writes (pack-demo's seeding runs in the demo's environment):
+    anywhere else it writes nothing, so seeding can never reach a real gallery. Returns the rows added."""
+    from liberational.vision import faces
+    from liberational.vision.face_examples import GROUP, Example
+
+    if faces.DB.parent.resolve() != folder.resolve() or faces.DB.exists():
+        return 0
+    added = 0
+    for n, name in enumerate(PEOPLE):
+        for k, vector in enumerate(_looks(100 * n, 512)):
+            seen = now - 3600 * (EXAMPLES - k)
+            example = Example(GROUP, cam="demo-cam", at=seen, jpg=_tile(name[0], k, k == EXAMPLES - 1))
+            faces.add_row(name, vector, example)
+            added += 1
+    return added
+
+
 def seed_place(state: Path, now: float) -> str:
     """Writes the demo place (a machine revision with the plan) and names it; returns its id."""
     rev = places.revise(state, None, producer=SOURCE, plan=PLAN, now=now)
@@ -271,6 +355,7 @@ def seed(
     seed_transcript); returns the demo day."""
     day = demo_day(today)
     ids = seed_people(state)
+    seed_pet_examples(state, _local(day, 20))
     seed_place(state, _local(day, 6))
     seed_journal(mlog, day, ids)
     if say is not None:
