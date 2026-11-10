@@ -53,6 +53,7 @@ from __future__ import annotations
 
 import dataclasses
 import itertools
+import json
 import math
 import re
 from collections.abc import Mapping, Sequence
@@ -60,7 +61,7 @@ from collections.abc import Mapping, Sequence
 import numpy as np
 from scipy import signal
 
-from liberational.spatial import floorplan
+from liberational.spatial import floorplan, plan_scene
 
 BAND = (1.0, 1.9)  # wall slice, metres above the floor (floorplan.Settings.band)
 COARSE_CELL = 0.1  # metres per cell of the coarse search's grids
@@ -164,8 +165,10 @@ def _options(words: Sequence[str], line: int, keys: Sequence[str]) -> dict[str, 
 
 
 def parse(text: str) -> Parsed:
-    """The plan in `text` (floorplan DSL). Raises PlanError for a statement it knows but can't read, or a plan with no
-    rooms."""
+    """The plan in `text`: a Pascal scene (spatial/plan_scene.py) or floorplan DSL. Raises PlanError for a statement
+    it knows but can't read, a scene that isn't one, or a plan with no rooms."""
+    if plan_scene.is_scene(text):
+        return _parse_scene(text)
     title, walls = "", (0.2, 0.1)
     rooms: list[Room] = []
     openings: list[Opening] = []
@@ -238,7 +241,13 @@ def parse(text: str) -> Parsed:
 def spots(text: str) -> tuple[Camera, ...]:
     """The owner-measured camera spots (`x-camera`) in a plan's DSL, whatever else it holds: a reader that wants only
     the spots takes them from a plan `parse` would refuse (one with no rooms yet). A spot line it can't read is left
-    out; the later of two lines for one camera wins."""
+    out; the later of two lines for one camera wins. A scene's spots come from its own records; a scene that doesn't
+    read has none."""
+    if plan_scene.is_scene(text):
+        try:
+            return tuple(Camera(*spot) for spot in plan_scene.spots(plan_scene.load(text)))
+        except plan_scene.SceneError:
+            return ()
     found: dict[str, Camera] = {}
     for n, raw in enumerate(text.splitlines(), start=1):
         words = _TOKEN.findall(raw)
@@ -252,6 +261,35 @@ def spots(text: str) -> tuple[Camera, ...]:
         except KeyError, ValueError:  # PlanError is a ValueError
             continue
     return tuple(found.values())
+
+
+def _parse_scene(text: str) -> Parsed:
+    """A scene as the shapes a DSL plan parses to. Rooms are its zones, and the plan's two wall thicknesses its
+    walls' medians (`plan_scene.thicknesses`), so `walls` cuts the same centrelines from the rooms as it does for
+    DSL. An opening is `between` the rooms either side of its wall, the outside first."""
+    try:
+        scene = plan_scene.load(text)
+    except plan_scene.SceneError as e:
+        raise PlanError(str(e)) from e
+    found = plan_scene.rooms(scene)
+    if not found:
+        raise PlanError("the plan has no rooms")
+    spans = {wall_id: (a, b, thickness) for wall_id, a, b, thickness in plan_scene.walls(scene)}
+    openings = []
+    for kind, wall_id, at, width in plan_scene.openings(scene):
+        a, b, thickness = spans[wall_id]
+        pair = plan_scene.sides(found, a, b, at, thickness / 2 + 0.05)
+        between = sorted((room or "exterior" for room in pair), key=lambda room: room != "exterior")
+        openings.append(Opening(kind, ">".join(between), at, width, ()))
+    return Parsed(
+        plan_scene.title(scene),
+        plan_scene.thicknesses(scene),
+        tuple(Room(*room) for room in found),
+        tuple(openings),
+        (),
+        tuple(Camera(*spot) for spot in plan_scene.spots(scene)),
+        0,
+    )
 
 
 # Walls: each room's polygon edges, a wall shared by two rooms counted once.
@@ -712,6 +750,142 @@ def to_dsl(plan: Parsed, move: Move, title: str, cameras: Sequence[Camera] = ())
             words += ["fov", _n(c.fov)]
         lines.append(" ".join(words))
     return "\n".join(lines) + "\n"
+
+
+def moved(text: str, move: Move) -> str:
+    """A stored plan moved into another frame, in the format it is in: a scene stays a scene (every outline and
+    camera spot moved), and DSL is written again by `to_dsl`. Raises PlanError for a plan it can't read."""
+    if not plan_scene.is_scene(text):
+        parsed = parse(text)
+        return to_dsl(parsed, move, parsed.title)
+    try:
+        return plan_scene.moved(text, move.point, move.yaw)
+    except plan_scene.SceneError as e:
+        raise PlanError(str(e)) from e
+
+
+# From DSL to a scene: what the conversion command runs on each stored plan.
+
+_CARRIED = ("plan", "level", "room", *_OPENINGS, "fixture", "x-camera", "x-object", "x-unexplored")
+
+
+@dataclasses.dataclass(frozen=True)
+class Converted:
+    scene: str  # the plan as a scene, as it is stored
+    left: tuple[str, ...]  # the DSL's statements the scene doesn't carry, as written
+
+
+def _name(word: str) -> str:
+    """A DSL name or label as its writer meant it: the editor writes one as a JSON string (`"Sofa \\"big\\""`),
+    and a hand-written one may be plain quotes around anything."""
+    if len(word) >= 2 and word[0] == word[-1] == '"':
+        try:
+            decoded = json.loads(word)
+        except json.JSONDecodeError:
+            return word[1:-1]
+        return decoded if isinstance(decoded, str) else word[1:-1]
+    return word
+
+
+def _x_object(words: Sequence[str], n: int) -> tuple[str, dict[str, object]]:
+    """`x-object <id> "<label>" at x,y [size WxD] [yaw deg] [machine|owner] [confidence]`."""
+    if len(words) < 3:
+        raise PlanError(f'line {n}: x-object <id> "<label>" at x,y ...')
+    rest = list(words[3:])
+    o = _options([w for w in rest if w not in ("machine", "owner")], n, ("at", "size", "yaw"))
+    if "at" not in o:
+        raise PlanError(f"line {n}: x-object {words[1]} has no at x,y")
+    out: dict[str, object] = {"label": _name(words[2]), "at": list(_pair(o["at"], n))}
+    if (size := _SIZE.match(o.get("size", ""))) is not None:
+        out["size"] = [float(size.group(1)), float(size.group(2))]
+    if "yaw" in o:
+        out["yaw"] = float(o["yaw"])
+    if (source := next((w for w in rest if w in ("machine", "owner")), None)) is not None:
+        out["source"] = source
+    keyed = {o.get(k) for k in ("at", "size", "yaw")}
+    if (number := next((w for w in rest if re.fullmatch(_NUM, w) and w not in keyed), None)) is not None:
+        out["confidence"] = float(number)
+    return words[1], out
+
+
+def _x_unexplored(words: Sequence[str], n: int) -> tuple[str, dict[str, object]]:
+    """`x-unexplored <id> ["<name>"] rect x,y WxH` or `... poly x,y x,y x,y ...`."""
+    out: dict[str, object] = {}
+    rest = list(words[2:])
+    if rest and rest[0].startswith('"'):
+        out["name"] = _name(rest.pop(0))
+    if len(rest) >= 3 and rest[0] == "rect" and (size := _SIZE.match(rest[2])) is not None:
+        x, y = _pair(rest[1], n)
+        out["rect"] = [x, y, float(size.group(1)), float(size.group(2))]
+    elif rest and rest[0] == "poly" and len(points := [_pair(w, n) for w in rest[1:] if _PAIR.match(w)]) >= 3:
+        out["poly"] = [list(p) for p in points]
+    else:
+        raise PlanError(f"line {n}: x-unexplored <id> rect x,y WxH or poly x,y ...")
+    return words[1], out
+
+
+def to_scene(text: str) -> Converted:
+    """A DSL plan as a Pascal scene (spatial/plan_scene.py), in the same frame. Rooms become named zones with their
+    kind; every stretch of a room's edge becomes a wall on its centreline, as thick as the plan's exterior or
+    partition walls (`walls`); a door, a window, or a cased opening goes on the wall its point is on; and the camera
+    spots, objects, unexplored areas, fixtures, and the title go in the scene's own records. What the scene has no
+    place for (provenance, the anchor, revision history, and statements this reader doesn't know) comes back in
+    `left`. Raises PlanError for a plan `parse` refuses, or an opening that is on no wall."""
+    parsed = parse(text)
+    cut = walls(parsed)
+    spans = [
+        ((float(a[0]), float(a[1])), (float(b[0]), float(b[1])), round(2 * float(half), 6))
+        for a, b, half in zip(cut.a, cut.b, cut.half, strict=True)
+    ]
+    records: dict[str, object] = {}
+    if parsed.title:
+        records["title"] = parsed.title
+    if parsed.cameras:
+        records["cameras"] = {
+            c.id: {
+                "at": list(c.at),
+                **{k: v for k, v in (("height", c.height), ("yaw", c.yaw), ("fov", c.fov)) if v is not None},
+            }
+            for c in parsed.cameras
+        }
+    if parsed.fixtures:
+        records["fixtures"] = [
+            {"kind": f.kind, "room": f.room, "poly": [list(p) for p in f.corners], "words": list(f.rest)}
+            for f in parsed.fixtures
+        ]
+    objects: dict[str, object] = {}
+    unexplored: dict[str, object] = {}
+    names: dict[str, str] = {}  # each room's name read as a JSON string, which `parse` leaves escaped
+    left: list[str] = []
+    for n, raw in enumerate(text.splitlines(), start=1):
+        words = _TOKEN.findall(raw)
+        words = words[: next((i for i, w in enumerate(words) if w.startswith("#")), len(words))]
+        if not words:
+            continue
+        if raw[:1].isspace() or words[0] not in _CARRIED:
+            left.append(raw.rstrip())
+        elif words[0] == "room" and len(words) > 2:
+            names[words[1]] = _name(words[2])
+        elif words[0] == "x-object":
+            key, value = _x_object(words, n)
+            objects[key] = value
+        elif words[0] == "x-unexplored" and len(words) >= 2:
+            key, value = _x_unexplored(words, n)
+            unexplored[key] = value
+    if objects:
+        records["objects"] = objects
+    if unexplored:
+        records["unexplored"] = unexplored
+    try:
+        scene = plan_scene.build(
+            walls=spans,
+            openings=[(o.kind, o.at, o.width) for o in parsed.openings],
+            rooms=[(r.id, names.get(r.id, r.name), r.kind, r.polygon) for r in parsed.rooms],
+            records=records,
+        )
+    except plan_scene.SceneError as e:
+        raise PlanError(str(e)) from e
+    return Converted(plan_scene.dump(scene), tuple(left))
 
 
 # The map side: its wall band and its cameras, in a revision's plan frame.
