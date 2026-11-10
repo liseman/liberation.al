@@ -50,7 +50,6 @@ export function Pets() {
     const follow = () => {
       if (knownTabOf(location.pathname) !== 'pets') return;
       if (location.hash === SIGHTINGS_HASH) {
-        setCursor('?');
         setSel('?');
         history.replaceState(history.state, '', location.pathname + location.search);
         return;
@@ -58,7 +57,6 @@ export function Pets() {
       const link = petInHash(location.hash);
       setFocus(link);
       if (link.pet || link.species) {
-        setCursor(null);
         setSel(null);
       }
     };
@@ -71,15 +69,8 @@ export function Pets() {
   // A pet's id, '?' for the sightings waiting for a name, or null (that list, on wide windows).
   // On a phone, the sightings waiting for a name come first, unless a link asked for one pet or species.
   const [sel, setSel] = useState<string | null>(() => (oneColumn() && !petInHash(location.hash).pet ? '?' : null));
-  // The selected roster card (single-click). Enter, I, or a double-click opens it.
-  const [cursor, setCursor] = useState<string | null>(() =>
-    oneColumn() && !petInHash(location.hash).pet ? '?' : null,
-  );
   const linked = focus.pet ? pets.find(p => p.name.toLowerCase() === focus.pet?.toLowerCase()) : undefined;
   const shown = sel ?? linked?.id ?? null;
-  useEffect(() => {
-    if (sel == null && linked?.id) setCursor(linked.id);
-  }, [linked?.id, sel]);
   const pet = shown && shown !== '?' ? pets.find(p => p.id === shown) : undefined;
   const [editing, setEditing] = useState<Editing>(null);
   const [said, setSaid] = useState<Said>(null);
@@ -273,13 +264,8 @@ export function Pets() {
               history.replaceState(history.state, '', location.pathname + location.search);
               setFocus({});
             }}
-            cursor={cursor}
             sel={shown}
-            onPick={id => setCursor(id)}
-            onOpen={id => {
-              setCursor(id);
-              setSel(id);
-            }}
+            onOpen={setSel}
             onNew={() => setEditing({ pet: null })}
           />
           <div className={classes.detail}>
@@ -329,7 +315,6 @@ export function Pets() {
             if (editing.then) editing.then(p);
             else setSaid({ text: editing.pet ? `Saved ${p.name}.` : `Added ${p.name}.` });
             if (!editing.pet && !editing.then) {
-              setCursor(p.id);
               setSel(p.id);
             }
           }}

@@ -5,6 +5,42 @@ This guide covers the current Continuum installation. Fresh setup is in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). The old genericize and v1 import
 procedures are retired. Do not run an old catch-up script against current data.
 
+## One application instead of a service per daemon
+
+The system now runs as one application: `pack-app` (the window) or `pack-supervisor run` (no window) starts every
+selected service as its own child process, and quitting it drains and stops them. Earlier installs ran each service
+as a systemd user unit or a launchd agent. The application refuses to start while those run, so remove them once:
+
+```sh
+.venv/bin/python -m liberational.services migrate --dry-run   # prints every command and file; changes nothing
+.venv/bin/python -m liberational.services migrate             # stop the units in order, and remove them
+.venv/bin/pack-app                                            # open the application
+```
+
+What the migration does: stops the readers, then capture, waits up to 20 s for the tier worker to flush what capture
+left, stops it, the broker, and last the dashboard and the gateway; disables the units, deletes their files (and any
+`pack-<name>.service.d` override directories), and reloads the service manager. It knows the units by file name, so
+it works on any later checkout, and running it again does nothing.
+
+What it leaves alone: `pack.toml`, `config/devices.toml`, and everything under `data/`. The application runs from
+the same checkout and reads the same files; nothing has to move. `PACK_ROOT` still points a command at a checkout
+from anywhere.
+
+What changes for you:
+
+- **It runs while the application is open.** Nothing starts at boot or at login unless you turn on "Start at
+  login" in Settings (off by default). Recording, the scheduled jobs, and the dashboard stop when you quit or log
+  out. A machine that should record all day keeps the application open in a session that stays logged in.
+- **Linger.** The dry run says whether linger is on for your user (`loginctl enable-linger` made the units start at
+  boot). The application doesn't need it. `migrate --disable-linger` turns it off; leave it if other user services
+  of yours want it.
+- **`pack-services` talks to the application.** While it runs, `pack-services status`, `start`, `stop`, and
+  `restart` (and `restart --cascade`, the staged restart of everything) are requests to it, and so are Settings'
+  Services buttons. With the application closed they have nothing to act on.
+
+To go back: check out the commit you were on before the pull and run `pack-services install` there, which writes the
+units again.
+
 ## `pack-setup` sets up an installed package; a checkout is unchanged
 
 `pack-setup` is new: the setup command for a package installed with no checkout (docs/ARCHITECTURE.md, "A checkout
