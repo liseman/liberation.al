@@ -8,9 +8,8 @@ it does. A document that still mixes kinds is listed under the one it mostly is.
 
 | Document | You end up with |
 |---|---|
+| [A first look at the pack](TUTORIAL.md) | A read of one day on a made-up household, with none of your data: the Journal, a card, a correction, and a floorplan |
 | [README](../README.md), from "Install" to "Name people" | A running pack that knows you, from a clone |
-
-`mise run demo` opens the dashboard on a made-up household first, with none of your data.
 
 ## How-to guides: get a task done
 
@@ -18,6 +17,7 @@ it does. A document that still mixes kinds is listed under the one it mostly is.
 |---|---|
 | [Releases](RELEASES.md) | Install a release with apt or uv, with no checkout; make a release; make the apt signing key |
 | [Upgrading](../MIGRATING.md) | Update an existing install, follow the steps a change needs, and reset state |
+| [Naming](NAMING.md) | Name people and pets, answer the naming cards, and remove a wrong training image |
 | [Places](PLACES.md) | Have the cameras learn a place's map and see people on its plan |
 | [Ingest](INGEST.md) | Import photos, video, and audio from elsewhere |
 | [Bluetooth](BLUETOOTH.md) | Set up advertisement sensors and link devices to people |

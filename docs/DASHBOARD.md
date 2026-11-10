@@ -1,7 +1,8 @@
 # Dashboard
 
 The web app the owner uses: `pack-dashboard` (`src/liberational/dashboard/`, port 8765) and the frontend in
-`frontend/`. Python paths are relative to `src/liberational/`.
+`frontend/`. This document explains how the server and the frontend are put together. To use the naming pages, see
+[NAMING.md](NAMING.md). Python paths are relative to `src/liberational/`.
 
 ## Server
 
@@ -15,7 +16,9 @@ The web app the owner uses: `pack-dashboard` (`src/liberational/dashboard/`, por
 - **State.** A module reads the state directory as `dashboard/context.py`'s `STATE`. Tests move it with the
   `move_dashboard_state` fixture.
 - **Authorization.** A request that is not direct loopback needs the dashboard password. Writes that change the
-  machine (services, settings, devices, and teaching) are accepted only from the machine itself, same origin.
+  machine (services, settings, and devices) are accepted only from the machine itself, same origin. Teaching writes
+  (names, faces, voices, pets, zones, and transcript fixes) are too, unless `dashboard.remote_teaching` is on: then a
+  same-origin request that passed the password may teach. Changing who the owner is always needs the machine itself.
 - **Slow reads run elsewhere.** Face groups, voice groups, the People list, Reports' days, and Review's day history
   are computed in long-lived child processes at low priority. A request returns `pending` and the page polls. Crops
   and thumbnails are cut by a background worker; a GET for one that is not ready returns 202.
@@ -34,8 +37,10 @@ gitignored.
 | Path under `frontend/src/` | Contents |
 |---|---|
 | `dashboard/App.tsx` | The shell: top bar, command palette, status pill, and gear menu |
-| `dashboard/live/`, `review/`, `journal/`, `known/`, `calls/`, `inbox/`, `reports/`, `ingest/` | One folder per tab |
-| `dashboard/people/`, `activities/`, `places/`, `zones/`, `whosthis/` | Known's tabs, the zone editor, and the naming inbox |
+| `dashboard/livetab/`, `review/`, `journal/`, `known/`, `calls/`, `inbox/`, `reports/`, `ingest/`, `debug/` | One folder per tab |
+| `dashboard/live/` | The live feed: the event stream, its reducer, and its hooks |
+| `dashboard/people/`, `activities/`, `places/`, `zones/` | Known's tabs and the zone editor |
+| `dashboard/naming/`, `whosthis/` | The naming inbox every kind shares, and "Who's this?" built on it |
 | `dashboard/settings/` | The Settings drawer and its sections |
 | `dashboard/camera/`, `dashboard/player/` | The camera mux, overlays, and the WebCodecs player |
 | `dashboard/ask/` | The Ask panel |
@@ -58,7 +63,7 @@ gitignored.
 
 | Tab | Shows |
 |---|---|
-| Live | Camera feeds with face, pose, and object overlays; the recent conversation; Ask |
+| Live | Camera feeds with face, pose, and object overlays; the recent conversation; "Who's this?"; the "Learn surroundings" switch; Ask |
 | Review | A day's timeline, transcript, summary, and recorded video, with filters by person, thing, event, and camera |
 | Journal | Month, week, day, and hour entries with their evidence |
 | Known | People, Pets, Objects, Activities, Devices, and Places: everything the owner names and corrects |
@@ -68,22 +73,20 @@ gitignored.
 | Ingest | Imported media and its sources |
 | Debug | Service logs, filtered by level |
 
-"Who's this?" in People lists unnamed faces and voices with guesses, and "Sightings to name" in Pets lists unnamed
-animal sightings. Choosing a name claims the group and returns an undo token. Naming never happens by typing alone.
+Known's tabs are paths of their own (`/people`, `/pets`, `/objects`, `/activities`, `/devices`, and `/places`), so a
+link or a reload lands on the right one (`dashboard/router.ts`).
 
-A card of pictures (a face group, or a pet's sightings) has two buttons, chosen by its guess:
+### Naming pages
 
-- With a guess: "<Name>" names the selected pictures as that person or pet, and "Not <Name>" records that they
-  aren't, so the guess is never offered for them again, and leaves them waiting for another name.
-- With no guess: the name picker, "Ignore" (these pictures, from now on), and "Block" (pictures very like them are
-  no longer listed).
+"Who's this?" in People (unnamed faces and voices) and "Sightings to name" in Pets (unnamed animal sightings) are one
+component, `dashboard/naming/`: it owns the list, the sort, the picture size, the bulk view, the keys, and where
+focus goes when a card leaves. Each kind supplies its rows, its name picker, and its answers, so a face group and a
+pet's sightings answer the same way. The guesses and their reasons come from the server (`vision/face_guess.py`,
+`people/voice_guess.py`, and `people/pet_recognition.py`); the page only sorts them.
 
-A card with several pictures shows no buttons until it is selected (a click, or focus from the arrow keys), which
-opens every picture, all selected. Clicking a picture deselects it, and that leaves it out of the answer: it stays
-unnamed and is grouped again (a face's deselected pictures become a group of their own; pet sightings are grouped on
-every read). With a card focused, Y and N, or I and B, press its buttons. "Show ignored and blocked", off by default,
-lists what was hidden, each with a way back. A voice's card keeps its own answers (Yes, Not, Multi, Noise, TV, and
-Ignore).
+Both lists are slow reads: the server answers from its last result while a new one is worked out, and patches the
+list in place as the owner answers. [NAMING.md](NAMING.md) has the steps for the owner, and
+[PEOPLE.md](PEOPLE.md#what-the-naming-answers-store) what each answer stores.
 
 ## Settings
 
@@ -115,7 +118,7 @@ Then name the host the gateway should accept in `pack.toml` and restart the gate
 
 ```toml
 [dashboard]
-gateway_allow_host = "<machine>.<tailnet>.ts.net"
+gateway_allow_host = "machine.example-tailnet.ts.net"
 ```
 
 Keep that proxy on the tailnet. The gateway asks for no password, so a public Funnel would publish the cameras.
