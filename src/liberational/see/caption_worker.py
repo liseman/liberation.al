@@ -172,7 +172,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     from liberational.vision import animal_embedder
 
     parser = argparse.ArgumentParser(prog="pack-see-captions", description=main.__doc__)
-    parser.add_argument("--manifest", type=Path, default=Path("config/devices.toml"), help="capture's device manifest")
+    parser.add_argument("--manifest", type=Path, default=cfg.devices_file(), help="capture's device manifest")
     parser.add_argument("--socket", type=Path, default=None, help="the broker's socket (default: under paths.state)")
     parser.add_argument(
         "--backend",

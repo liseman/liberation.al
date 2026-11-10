@@ -74,8 +74,9 @@ def walk_frames(folder: Path, out: Path, looks: Mapping[str, places.CameraPose])
     import cv2
 
     video = folder / "rgb.mp4"
-    rows = stray.read_odometry(folder)
-    scored = [s for s in W.score(video) if s.index in rows]
+    scored = W.score(video)
+    rows = stray.by_video_frame(stray.read_odometry(folder), [(s.index, s.t) for s in scored])
+    scored = [s for s in scored if s.index in rows]
     picked = sorted(W.pick(scored))
     turn, code = stray.upright(np.stack([rows[i].c2w for i in picked]))
     c2w = [stray.turned(rows[i].c2w, turn) for i in picked]

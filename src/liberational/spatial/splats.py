@@ -21,15 +21,14 @@ it registers fixed cameras:
    frames alone, and the log says so.
 4. **Train.** spatial/splat_runner.py in gsplat's own runtime (`mise run gsplat`, under `spatial.splat_runtime`),
    niced, on the GPU with the most free memory (`cameras.pick_gpu`): `STEPS` steps, at most `MAX_GAUSSIANS`.
-5. **Keep.** The trained 3DGS PLY and its SPZ copy (`spz`) are written beside the revision (memory/places.py
-   `write_splat`), and served by the dashboard's `GET /places/splat`. The PLY is in the map's frame, as is; the
-   SPZ is a standard one, in SPZ's right-up-back frame (y and z negated, as Niantic's converter makes it from a PLY).
-   Spark (the 3D view's renderer) reads an SPZ as it is, so the view turns the splat 180 degrees about x, which
-   undoes that negation exactly (positions, rotations, and SH), to put it back on the map.
+5. **Keep.** The trained 3DGS PLY and its SOG copy (spatial/sog.py) are written beside the revision (memory/places.py
+   `write_splat`), and served by the dashboard's `GET /places/splat`. Both are in the map's frame, as is: the 3D view
+   (PlayCanvas, #76) draws the SOG without turning it. A splat kept from before the SOG copy (a PLY with an SPZ
+   beside it) gets its SOG from its PLY on the next run (`recode`).
 
 Measured with these settings (Place 1: two fixed cameras, 10 daytime frames each, 21k start points, one RTX
 3090 shared with the live services): about 2 to 2.5 minutes and 0.2 GiB of GPU memory a place, 244k Gaussians, a 24 MB
-PLY and a 4.4 MB SPZ, and 27.1 dB PSNR on a frame per camera held out from the same day. Two cameras with little overlap give no new views: the splat looks right from where the cameras
+PLY, and 27.1 dB PSNR on a frame per camera held out from the same day. Two cameras with little overlap give no new views: the splat looks right from where the cameras
 stand, not from between them (6.6 dB from one camera's view trained on the other's). Nothing fills what no camera
 sees.
 
@@ -66,9 +65,7 @@ gsplat (nerfstudio-project/gsplat) is Apache-2.0; the trainer adds no model weig
 from __future__ import annotations
 
 import argparse
-import gzip
 import json
-import math
 import os
 import subprocess
 import sys
@@ -84,7 +81,7 @@ import numpy as np
 from liberational import config as cfg
 from liberational import logs, nvml
 from liberational.memory import places
-from liberational.spatial import cameras, lens, ply
+from liberational.spatial import cameras, lens, ply, sog
 
 LOG = logs.get("spatial-splat")
 
@@ -356,76 +353,6 @@ def run_runner(runtime: Path, job: Path, gpu: str | None, timeout_s: float = RUN
     return json.loads((job.parent / "result.json").read_text())
 
 
-# SPZ (nianticlabs/spz, MIT): version 3, the gzip layout every SPZ reader takes (version 4 moved to zstd streams).
-SPZ_MAGIC = 0x5053474E  # "NGSP"
-SPZ_VERSION = 3
-SPZ_FRACTIONAL_BITS = 12  # positions to 1/4096 m
-SPZ_COLOR_SCALE = 0.15
-SPZ_SH1_BUCKET = 8  # SH band 1 kept to 5 bits, the rest to 4: the library's defaults
-SPZ_SH_REST_BUCKET = 16
-#: SPZ stores right-up-back (three.js's frame); a PLY is right-down-front. Niantic's converter negates y and z, so
-#: the rotation's x, y, z by (y*z, x*z, x*y), and each SH coefficient by the sign these give (its `flipSh`, with
-#: x = 1, y = z = -1), bands 1 to 3 in order.
-SPZ_FLIP_P = np.array([1.0, -1.0, -1.0])
-SPZ_FLIP_Q = np.array([1.0, -1.0, -1.0])
-SPZ_FLIP_SH = np.array([-1, -1, 1, -1, 1, 1, -1, 1, -1, 1, -1, -1, 1, -1, 1], dtype=np.float64)
-
-
-def _u8(x: np.ndarray) -> np.ndarray:
-    return np.clip(np.round(x), 0, 255).astype(np.uint8)
-
-
-def _smallest_three(q: np.ndarray) -> np.ndarray:
-    """Unit quaternions (N x 4, x y z w) as SPZ 3's 4 bytes each: the largest component's index in the top 2 bits,
-    then each other component, in order, as a sign bit and 9 bits of its magnitude over 1/sqrt(2), the largest made
-    positive (q and -q are the same rotation)."""
-    largest = np.argmax(np.abs(q), axis=1)
-    negate = q[np.arange(len(q)), largest] < 0
-    comp = largest.astype(np.uint32)
-    for i in range(4):
-        keep = largest != i
-        neg = ((q[:, i] < 0) ^ negate).astype(np.uint32)
-        mag = np.clip(np.floor(511.0 * np.abs(q[:, i]) / math.sqrt(0.5) + 0.5), 0, 511).astype(np.uint32)
-        comp = np.where(keep, (comp << 10) | (neg << 9) | mag, comp)
-    return comp.astype("<u4").view(np.uint8).reshape(-1, 4)
-
-
-def spz(rows: np.ndarray) -> bytes:
-    """A 3DGS PLY's vertices (`ply.vertices`: x, y, z, f_dc_*, f_rest_* channel by channel, opacity as a logit, log
-    scale_*, and rot_0..3 as w, x, y, z) as an SPZ file, converted from the PLY's frame to SPZ's (`SPZ_FLIP_*`)."""
-    names = rows.dtype.names or ()
-    n = len(rows)
-    rest = sorted((k for k in names if k.startswith("f_rest_")), key=lambda k: int(k.rsplit("_", 1)[1]))
-    coeffs = len(rest) // 3  # SH coefficients past band 0, per channel
-    degree = round(math.sqrt(coeffs + 1)) - 1
-    if (degree + 1) ** 2 - 1 != coeffs or degree > 3:
-        raise ValueError(f"{len(rest)} f_rest properties isn't SH degree 0 to 3")
-
-    def col(*keys: str) -> np.ndarray:
-        return np.stack([np.asarray(rows[k], np.float64) for k in keys], axis=1)
-
-    fixed = np.round(col("x", "y", "z") * SPZ_FLIP_P * (1 << SPZ_FRACTIONAL_BITS))
-    fixed = np.clip(fixed, -(1 << 23), (1 << 23) - 1).astype("<i4")
-    positions = fixed.view(np.uint8).reshape(n, 3, 4)[:, :, :3]
-    alphas = _u8(255.0 / (1.0 + np.exp(-np.asarray(rows["opacity"], np.float64))))
-    colors = _u8(col("f_dc_0", "f_dc_1", "f_dc_2") * (SPZ_COLOR_SCALE * 255.0) + 127.5)
-    scales = _u8((col("scale_0", "scale_1", "scale_2") + 10.0) * 16.0)
-    wxyz = col("rot_0", "rot_1", "rot_2", "rot_3")
-    xyzw = np.concatenate([wxyz[:, 1:] * SPZ_FLIP_Q, wxyz[:, :1]], axis=1)
-    xyzw /= np.maximum(np.linalg.norm(xyzw, axis=1, keepdims=True), 1e-12)
-    rotations = _smallest_three(xyzw)
-    # The PLY has each channel's coefficients together; SPZ has each coefficient's channels together.
-    flat = col(*rest) if rest else np.zeros((n, 0))
-    sh = flat.reshape(n, 3, coeffs).transpose(0, 2, 1) * SPZ_FLIP_SH[:coeffs, None]
-    bucket = np.where(np.arange(coeffs) < 3, SPZ_SH1_BUCKET, SPZ_SH_REST_BUCKET)[None, :, None]
-    q = np.clip(np.round(sh * 128.0) + 128.0, 0, 255).astype(np.int32)
-    sh_bytes = np.clip((q + bucket // 2) // bucket * bucket, 0, 255).astype(np.uint8)
-    header = np.array([SPZ_MAGIC, SPZ_VERSION, n], "<u4").tobytes()
-    header += bytes([degree, SPZ_FRACTIONAL_BITS, 0, 0])
-    body = b"".join(a.tobytes() for a in (positions, alphas, colors, scales, rotations, sh_bytes))
-    return gzip.compress(header + body, compresslevel=9, mtime=0)
-
-
 #: A walkthrough's splat (`splat_walk`): more views than a few fixed cameras, so more steps, a larger cap, and no
 #: opacity or scale regularizers (on a walk they let the Gaussians fade until the splat goes transparent).
 #: 15,000 steps is what walks were measured with (about 6 minutes for 125 frames at 288 x 512); a phone's frames are
@@ -605,7 +532,7 @@ def splat_walk(
         rows = ply.vertices(master)
         if rows is None:
             raise RuntimeError("the splat trainer wrote a PLY this reader can't take")
-        web = spz(rows)
+        web = sog.encode(rows)
         places.write_splat(state, rev, master, web, source="walk")
     except (RuntimeError, subprocess.TimeoutExpired, OSError, ValueError) as e:
         LOG.error("no splat of the walk: %s", e)
@@ -622,7 +549,7 @@ def splat_walk(
         "pose_turn_deg": result.get("pose_turn_deg"),
         "seconds": result.get("seconds"),
         "peak_vram_gib": result.get("peak_vram_gib"),
-        "spz_mb": round(len(web) / 2**20, 1),
+        "sog_mb": round(len(web) / 2**20, 1),
     }
     LOG.info("splat of the walk: %s", json.dumps(did))
     return did
@@ -681,7 +608,7 @@ def splat_place(
     rows = ply.vertices(master)
     if rows is None:
         raise RuntimeError("the splat trainer wrote a PLY this reader can't take")
-    web = spz(rows)
+    web = sog.encode(rows)
     places.write_splat(state, rev, master, web, source="cameras")
     return {
         "place": place,
@@ -694,8 +621,30 @@ def splat_place(
         "seconds": result.get("seconds"),
         "peak_vram_gib": result.get("peak_vram_gib"),
         "ply_mb": round(len(master) / 2**20, 1),
-        "spz_mb": round(len(web) / 2**20, 1),
+        "sog_mb": round(len(web) / 2**20, 1),
     }
+
+
+def recode(state: Path, place: str) -> int:
+    """Give `place`'s kept splats that have a PLY but no SOG their SOG, from the PLY, and remove the SPZ copy they
+    had before the 3D view moved to SOG (#76); how many it did. A PLY that doesn't read is logged and left."""
+    done = 0
+    for rev in places.revisions(state, place):
+        master = places.splat_path(state, rev, "gs.ply")
+        if places.has_splat(state, rev) or not master.is_file():
+            continue
+        try:
+            rows = ply.vertices(master.read_bytes())
+        except ply.PlyError:
+            rows = None
+        if rows is None:
+            LOG.warning("%s: revision %s's splat PLY doesn't read; left without a SOG", place, rev.id)
+            continue
+        places.write_splat_copy(state, rev, sog.encode(rows))
+        master.with_name(f"{rev.id}.spz").unlink(missing_ok=True)
+        LOG.info("%s: revision %s's splat has its SOG copy", place, rev.id)
+        done += 1
+    return done
 
 
 def splat_all(
@@ -703,6 +652,8 @@ def splat_all(
 ) -> list[dict[str, Any]]:
     """`splat_place` for every place (or `only` that one); what each did. A place whose training fails is logged and
     skipped. Nothing runs without gsplat's runtime: that's said once, not per place."""
+    for place in [only] if only else places.place_ids(state):
+        recode(state, place)  # needs no trainer
     runtime = cfg.path("spatial.splat_runtime")
     if not (runtime / ".venv" / "bin" / "python").exists():
         LOG.info("no splats: gsplat's runtime isn't installed in %s (`mise run gsplat`)", runtime)

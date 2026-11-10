@@ -1,4 +1,4 @@
-// The 3D view's geometry, apart from three.js so it's tested without WebGL. Everything is drawn in the
+// The 3D view's geometry, apart from the engine so it's tested without WebGL. Everything is drawn in the
 // place map's frame (metres), where the cloud is: the plan comes in through the inverse of the revision's plan
 // transform, the cameras through their poses, and height is measured from the floor plane.
 import { floorplan, parseDsl } from '../../../vendor/floorplan/index.js';

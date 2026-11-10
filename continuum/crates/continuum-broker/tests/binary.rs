@@ -28,6 +28,20 @@ fn printing_a_capture_plan_creates_no_state_or_shared_arena() {
 }
 
 #[test]
+fn a_plan_with_no_manifest_lists_every_profile_class_and_how_far_the_headroom_was_halved() {
+    let out = Command::new(env!("CARGO_BIN_EXE_continuum-broker")).arg("--print-tier0-plan").output().unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(text.contains("tier0 source=profile (no --manifest)"), "{text}");
+    assert!(text.lines().any(|line| line.starts_with("profile_headroom_halvings=")), "{text}");
+    // Whatever this machine's shared memory holds, the classes keep the profile's sizes in the profile's order.
+    let sizes: Vec<&str> = text.lines().filter_map(|line| line.strip_prefix("class=")).collect();
+    assert_eq!(sizes.len(), 3, "{text}");
+    assert!(sizes[0].starts_with("0 configured_slot_bytes=65536 "), "{text}");
+    assert!(sizes[2].starts_with("2 configured_slot_bytes=16777216 "), "{text}");
+}
+
+#[test]
 fn printing_explicit_classes_ignores_even_a_corrupt_manifest() {
     let dir = tempfile::tempdir().unwrap();
     let manifest = dir.path().join("devices.toml");

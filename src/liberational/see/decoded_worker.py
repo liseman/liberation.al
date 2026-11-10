@@ -870,7 +870,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     import argparse
 
     parser = argparse.ArgumentParser(description=main.__doc__)
-    parser.add_argument("--manifest", type=Path, default=Path("config/devices.toml"))
+    parser.add_argument("--manifest", type=Path, default=cfg.devices_file())
     args = parser.parse_args(argv)
     configured = cfg.get("vision.shared_decode_cameras")
     discovered = frames.cameras_from_manifest(args.manifest)
