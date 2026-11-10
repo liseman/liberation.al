@@ -63,6 +63,11 @@ function serve() {
       writes.push({ url: '/pets/sightings/not', body });
       return HttpResponse.json({ ok: true, marked: body.track_ids.length });
     }),
+    http.post('/pets/sightings/block', async ({ request }) => {
+      const body = (await request.json()) as { track_ids: string[]; block?: boolean };
+      writes.push({ url: '/pets/sightings/block', body });
+      return HttpResponse.json({ ok: true, blocked: body.track_ids.length });
+    }),
     http.post('/pets/save', async ({ request }) => {
       const body = (await request.json()) as Pet & { id: string | null };
       writes.push({ url: '/pets/save', body });
@@ -107,6 +112,24 @@ beforeEach(() => {
 
 const inbox = () => screen.findByRole('list', { name: 'Sightings to name' });
 const labels = () => writes.filter(w => w.url === '/pets/sightings/label').map(w => w.body);
+const blocks = () => writes.filter(w => w.url === '/pets/sightings/block').map(w => w.body);
+type User = ReturnType<typeof userEvent.setup>;
+/** One of a card's two buttons, by its exact words: the card is selected first, which opens one with several
+ *  pictures (a folded card has no buttons). */
+async function answer(user: User, row: HTMLElement, name: string) {
+  await user.click(row);
+  await user.click(within(row).getByRole('button', { name }));
+}
+/** The buttons a card shows, by their words (not its pictures, which are buttons too). */
+const answers = (row: HTMLElement) =>
+  within(row)
+    .queryAllByRole('button')
+    .filter(b => !b.hasAttribute('data-tile'))
+    .map(b => b.textContent?.replace(/[A-Z]$/, ''));
+/** The default group with nobody guessed for it: three cat sightings. */
+const unguessed = () => {
+  view.groups = [{ id: 'cat:a', species: 'cat', sightings: [sighting('a'), sighting('b'), sighting('c')] }];
+};
 
 it('polls pending pet videos while photo status stays independent and stops on ready or unavailable', async () => {
   view.seen = {
@@ -374,11 +397,7 @@ describe('Sightings to name', () => {
     renderPage(<Pets />);
     const row = await within(await inbox()).findByRole('listitem', { name: /^3 cat sightings: Probably Mia/ });
     expect(screen.getByRole('button', { name: /1 animal needs a name/ })).toBeVisible();
-    const select = within(row).getByRole('textbox', { name: /Which pet is this\?/ });
-    expect(select).toHaveAttribute('placeholder', "Who's this?");
-    await user.click(select);
-    await user.click(await screen.findByRole('option', { name: 'Cat (detected)' }));
-    await user.click(await screen.findByRole('option', { name: 'Mia (guess, 90%)' }));
+    await answer(user, row, 'Mia');
     expect(screen.queryByRole('listitem', { name: /cat sightings/ })).toBeNull();
     expect(await screen.findByText('Labeled 3 sightings as Mia.')).toBeVisible();
     expect(labels()).toEqual([{ track_ids: ['a', 'b', 'c'], label: MIA }]);
@@ -391,22 +410,40 @@ describe('Sightings to name', () => {
     expect(labels()[1]).toEqual({ track_ids: ['a', 'b', 'c'], label: null });
   });
 
-  it('names a recognized group in one click with Yes', async () => {
+  it('gives a guessed card exactly two buttons, the name and Not the name, once it is selected', async () => {
     serve();
     const user = userEvent.setup();
     renderPage(<Pets />);
     const row = await within(await inbox()).findByRole('listitem', { name: /^3 cat sightings: Probably Mia/ });
-    // The one-click actions stay visible as icon buttons.
-    expect(within(row).getByRole('button', { name: 'Ignore' })).toBeVisible();
-    expect(within(row).queryByRole('button', { name: /^More answers for 3 cat sightings/ })).toBeNull();
-    expect(picker(row)).toBeVisible();
-    await user.click(within(row).getByRole('button', { name: 'Yes, Mia' }));
+    // Three pictures: folded, with no buttons and no name picker, until it is selected.
+    expect(answers(row)).toEqual([]);
+    expect(within(row).queryByRole('textbox', { name: /Which pet is this\?/ })).toBeNull();
+    await user.click(row);
+    expect(answers(row)).toEqual(['Mia', 'Not Mia']);
+    expect(within(row).queryByRole('textbox', { name: /Which pet is this\?/ })).toBeNull();
+    expect(within(row).getByRole('button', { name: 'Mia' })).toHaveAttribute('aria-keyshortcuts', 'Y');
+    expect(within(row).getByRole('button', { name: 'Not Mia' })).toHaveAttribute('aria-keyshortcuts', 'N');
+    await user.click(within(row).getByRole('button', { name: 'Mia' }));
     expect(screen.queryByRole('listitem', { name: /cat sightings/ })).toBeNull();
     expect(await screen.findByText('Labeled 3 sightings as Mia.')).toBeVisible();
     expect(labels()).toEqual([{ track_ids: ['a', 'b', 'c'], label: MIA }]);
   });
 
-  it('offers Yes for a clear match while recognition is still off, and shows its match score', async () => {
+  it('gives a card with no guess the name picker, Ignore, and Block', async () => {
+    view.groups = [{ id: 'cat:z', species: 'cat', sightings: [sighting('z')] }];
+    serve();
+    renderPage(<Pets />);
+    const row = await within(await inbox()).findByRole('listitem', { name: /^1 cat sighting: No guess yet/ });
+    expect(answers(row)).toEqual(['Ignore', 'Block']); // one picture: nothing to open, so they show at once
+    expect(within(row).getByRole('textbox', { name: /Which pet is this\?/ })).toHaveAttribute(
+      'placeholder',
+      "Who's this?",
+    );
+    expect(within(row).getByRole('button', { name: 'Ignore' })).toHaveAttribute('aria-keyshortcuts', 'I');
+    expect(within(row).getByRole('button', { name: 'Block' })).toHaveAttribute('aria-keyshortcuts', 'B');
+  });
+
+  it('offers the name for a clear match while recognition is still off, and shows its match score', async () => {
     view.recognition = [{ species: 'cat', labeled: 8, right: 2, wrong: 0, unknown: 6, on: false, reason: null }];
     view.groups = [
       {
@@ -420,7 +457,7 @@ describe('Sightings to name', () => {
     renderPage(<Pets />);
     const row = await within(await inbox()).findByRole('listitem', { name: /^1 cat sighting: Probably Mia/ });
     expect(within(row).getByRole('progressbar', { name: 'Match score 86%' })).toBeInTheDocument();
-    await user.click(within(row).getByRole('button', { name: 'Yes, Mia' }));
+    await user.click(within(row).getByRole('button', { name: 'Mia' }));
     expect(labels()).toEqual([{ track_ids: ['z'], label: MIA }]);
   });
 
@@ -441,18 +478,17 @@ describe('Sightings to name', () => {
   it.each([
     ['an unclear suggestion', { suggestion: { label: MIA, similarity: 0.7, clear: false } }],
     ['a suggestion from before clear was sent', { suggestion: { label: MIA, similarity: 0.7 } }],
-  ])('offers a quieter Yes for a Maybe: a group with %s', async (_, extra) => {
+  ])('offers the same two buttons for a Maybe: a group with %s', async (_, extra) => {
     view.groups = [{ id: 'cat:z', species: 'cat', sightings: [sighting('z', extra)] }];
     serve();
     const user = userEvent.setup();
     renderPage(<Pets />);
     const row = await within(await inbox()).findByRole('listitem', { name: /^1 cat sighting: Maybe Mia/ });
-    const yes = within(row).getByRole('button', { name: 'Yes, Mia' });
-    expect(yes).toHaveAttribute('data-variant', 'subtle'); // a Probably's is a Default button, so it stands out
-    await user.click(yes);
+    expect(answers(row)).toEqual(['Mia', 'Not Mia']);
+    await user.click(within(row).getByRole('button', { name: 'Mia' }));
     expect(await screen.findByText('Labeled 1 sighting as Mia.')).toBeVisible();
     expect(labels()).toEqual([{ track_ids: ['z'], label: MIA }]);
-    expect(screen.getByRole('button', { name: 'Undo' })).toBeVisible(); // the same toast as a Probably's Yes
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeVisible(); // the same toast as a Probably's
   });
 
   describe('sort and picture size', () => {
@@ -580,8 +616,9 @@ describe('Sightings to name', () => {
       const user = userEvent.setup();
       renderPage(<Pets />);
       const row = await within(await inbox()).findByRole('listitem', { name: /^3 cat sightings: Probably Mia/ });
-      await user.click(within(row).getByRole('button', { name: /^Not Mia$/ }));
+      await answer(user, row, 'Not Mia');
       expect(await screen.findByText('Marked 3 sightings as not Mia.')).toBeVisible();
+      expect(screen.getByRole('listitem', { name: /^3 cat sightings/ })).toBeVisible(); // back in the unmatched pool
       expect(nots()).toEqual([{ track_ids: ['a', 'b', 'c'], pet: MIA, not: true }]);
       expect(labels()).toEqual([]);
       await user.click(screen.getByRole('button', { name: 'Undo' }));
@@ -618,49 +655,26 @@ describe('Sightings to name', () => {
       await waitFor(() => expect(labels()).toEqual([{ track_ids: ['a'], label: MIA }]));
     });
 
-    it('ignores with I on the focused row, but a name box takes the letter as typing', async () => {
-      two();
+    it('ignores with I and blocks with B on the focused row, but a name box takes a letter as typing', async () => {
+      view.groups = [
+        { id: 'cat:a', species: 'cat', sightings: [sighting('a')] },
+        { id: 'cat:b', species: 'cat', sightings: [sighting('b', { start: T - 7200, end: T - 7100 })] },
+      ];
       serve();
       const user = userEvent.setup();
       renderPage(<Pets />);
       const rows = await within(await inbox()).findAllByRole('listitem');
       const [first, second] = rows as [HTMLElement, HTMLElement];
       await user.click(picker(second));
-      await user.keyboard('i');
-      expect(labels()).toEqual([]);
+      await user.keyboard('ib');
+      expect(writes).toEqual([]);
       first.focus();
       await user.keyboard('i');
       await waitFor(() => expect(labels()).toEqual([{ track_ids: ['a'], label: 'ignored' }]));
-    });
-
-    it('runs the icon hotkeys for this picture actions on the focused row', async () => {
-      serve();
-      const user = userEvent.setup();
-      renderPage(<Pets />);
-      const row = await within(await inbox()).findByRole('listitem', { name: /^3 cat sightings/ });
-      // No Show all photos button of its own: the Show all link, A, and Space open them
-      expect(within(row).queryByRole('button', { name: /^Show all photos/ })).toBeNull();
-      expect(within(row).getByRole('button', { name: /^Show all \(/ })).toHaveAttribute('aria-keyshortcuts', 'A');
-      row.focus();
-      await user.keyboard('a');
-      expect(within(row).getByRole('region', { name: /^Every picture of/ })).toBeVisible();
-      await user.keyboard('p');
-      await waitFor(() => expect(nots()).toEqual([{ track_ids: ['a'], pet: MIA, not: true }]));
-      await user.keyboard('g');
-      await waitFor(() => expect(labels()).toEqual([{ track_ids: ['a'], label: 'ignored' }]));
-    });
-
-    it('shows every picture with Space on the focused row, but a name box takes it as typing', async () => {
-      serve();
-      const user = userEvent.setup();
-      renderPage(<Pets />);
-      const row = await within(await inbox()).findByRole('listitem', { name: /^3 cat sightings/ });
-      await user.click(picker(row));
-      await user.keyboard(' ');
-      expect(within(row).queryByRole('region', { name: /^Every picture of/ })).toBeNull();
-      row.focus();
-      await user.keyboard(' ');
-      expect(within(row).getByRole('region', { name: /^Every picture of/ })).toBeVisible();
+      const left = await within(await inbox()).findByRole('listitem');
+      left.focus();
+      await user.keyboard('b');
+      await waitFor(() => expect(blocks()).toEqual([{ track_ids: ['b'], block: true }]));
     });
 
     it("shows the server's guess for the group over one worked out from its sightings", async () => {
@@ -676,18 +690,7 @@ describe('Sightings to name', () => {
       renderPage(<Pets />);
       const row = await within(await inbox()).findByRole('listitem', { name: /^1 cat sighting: Probably Mia/ });
       expect(within(row).getByRole('progressbar', { name: 'Match score 91%' })).toBeInTheDocument();
-      expect(within(row).getByRole('button', { name: 'Yes, Mia' })).toHaveAttribute('data-variant', 'default');
-    });
-
-    it("ignores only the lead picture from its icon actions, and says it isn't the guess from there too", async () => {
-      serve();
-      const user = userEvent.setup();
-      renderPage(<Pets />);
-      const row = await within(await inbox()).findByRole('listitem', { name: /^3 cat sightings/ });
-      await user.click(within(row).getByRole('button', { name: 'Not Mia: just this picture' }));
-      await waitFor(() => expect(nots()).toEqual([{ track_ids: ['a'], pet: MIA, not: true }]));
-      await user.click(within(row).getByRole('button', { name: 'Ignore this picture' }));
-      await waitFor(() => expect(labels()).toEqual([{ track_ids: ['a'], label: 'ignored' }]));
+      expect(answers(row)).toEqual(['Mia', 'Not Mia']);
     });
   });
 
@@ -699,40 +702,72 @@ describe('Sightings to name', () => {
     expect(screen.queryByText(/recognized by appearance|not recognized yet|Checked so far/)).toBeNull();
   });
 
-  it('offers no Yes for a group with no guess', async () => {
+  it('offers no name button for a group with no guess', async () => {
     view.groups = [{ id: 'cat:z', species: 'cat', sightings: [sighting('z')] }];
     serve();
     renderPage(<Pets />);
     const row = await within(await inbox()).findByRole('listitem', { name: /^1 cat sighting: No guess yet/ });
     expect(picker(row)).toBeVisible();
-    expect(within(row).queryByRole('button', { name: /^Yes/ })).toBeNull();
+    expect(within(row).queryByRole('button', { name: /Mia|Rex|^Yes/ })).toBeNull();
   });
 
-  it('shows every picture, and names only the ones left after Not this pet', async () => {
+  it('opens every picture of a selected card, all selected, and names only the ones still selected', async () => {
     serve();
     const user = userEvent.setup();
     renderPage(<Pets />);
     const row = await within(await inbox()).findByRole('listitem', { name: /^3 cat sightings/ });
-    await user.click(within(row).getByRole('button', { name: 'Show all (3)' }));
+    expect(within(row).queryByRole('region')).toBeNull();
+    await user.click(row);
     const grid = within(row).getByRole('region', { name: /^Every picture of/ });
     const picks = within(grid).getAllByRole('button', { name: /^cat on cam0/ });
+    expect(picks.map(p => p.getAttribute('aria-pressed'))).toEqual(['true', 'true', 'true']);
+    expect(within(grid).getByRole('status')).toHaveTextContent('3 of 3 pictures selected. Click one to leave it out.');
+    // No separate button leaves pictures out: deselecting one is the whole gesture.
+    expect(within(row).queryByRole('button', { name: /Not this pet|Ignore these|Show all|Hide/ })).toBeNull();
     await user.click(picks[2] as HTMLElement);
-    expect(picks[2]).toHaveAttribute('aria-pressed', 'true');
-    await user.click(within(grid).getByRole('button', { name: 'Not this pet' }));
-    const left = await screen.findByRole('listitem', { name: /^2 cat sightings: Probably Mia/ });
-    await user.click(picker(left));
-    await user.click(await screen.findByRole('option', { name: 'Cat (detected)' }));
-    await user.click(await screen.findByRole('option', { name: 'Mia (guess, 90%)' }));
+    expect(picks[2]).toHaveAttribute('aria-pressed', 'false');
+    expect(within(grid).getByRole('status')).toHaveTextContent('2 of 3 pictures selected. The rest stay unnamed.');
+    await user.click(within(row).getByRole('button', { name: 'Mia' }));
     await waitFor(() => expect(labels()).toEqual([{ track_ids: ['a', 'b'], label: MIA }]));
+    // The one left out stays unnamed, waiting on its own.
+    expect(await screen.findByRole('listitem', { name: /^1 cat sighting: No guess yet/ })).toBeVisible();
+  });
+
+  it('says only the selected sightings are not the guess', async () => {
+    serve();
+    const user = userEvent.setup();
+    renderPage(<Pets />);
+    const row = await within(await inbox()).findByRole('listitem', { name: /^3 cat sightings/ });
+    await user.click(row);
+    await user.click(within(row).getAllByRole('button', { name: /^cat on cam0/ })[0] as HTMLElement);
+    await user.click(within(row).getByRole('button', { name: 'Not Mia' }));
+    await waitFor(() =>
+      expect(writes).toEqual([{ url: '/pets/sightings/not', body: { track_ids: ['b', 'c'], pet: MIA, not: true } }]),
+    );
+  });
+
+  it('turns both buttons off when every picture is deselected', async () => {
+    serve();
+    const user = userEvent.setup();
+    renderPage(<Pets />);
+    const row = await within(await inbox()).findByRole('listitem', { name: /^3 cat sightings/ });
+    await user.click(row);
+    for (const tile of within(row).getAllByRole('button', { name: /^cat on cam0/ })) await user.click(tile);
+    expect(within(row).getByRole('button', { name: 'Mia' })).toBeDisabled();
+    expect(within(row).getByRole('button', { name: 'Not Mia' })).toBeDisabled();
+    await user.keyboard('y');
+    expect(writes).toEqual([]);
   });
 
   const picker = (row: HTMLElement) => within(row).getByRole('textbox', { name: /Which pet is this\?/ });
 
   it('names a group as a pet of another species when the detector got it wrong', async () => {
+    unguessed();
     serve();
     const user = userEvent.setup();
     renderPage(<Pets />);
     const row = await within(await inbox()).findByRole('listitem', { name: /^3 cat sightings/ });
+    await user.click(row);
     await user.click(picker(row));
     const species = await within(await screen.findByRole('listbox')).findAllByRole('option');
     expect(species.map(o => o.textContent)).toEqual(['Cat (detected)', 'Dog', 'Bird']); // the detected one first
@@ -741,25 +776,6 @@ describe('Sightings to name', () => {
     expect(screen.queryByRole('option', { name: 'Mia' })).toBeNull(); // a dog's pets, not a cat's
     await user.click(screen.getByRole('option', { name: 'Rex' }));
     await waitFor(() => expect(labels()).toEqual([{ track_ids: ['a', 'b', 'c'], label: REX }]));
-  });
-
-  it('puts the guess first for keyboard naming, ahead of other pets of its species', async () => {
-    pets.unshift({ id: '019c0000-0000-7000-8000-000000000003', name: 'Cleo', species: 'cat' });
-    serve();
-    const user = userEvent.setup();
-    renderPage(<Pets />);
-    const row = await within(await inbox()).findByRole('listitem', { name: /^3 cat sightings/ });
-    picker(row).focus();
-    await user.keyboard('{ArrowDown}{ArrowRight}');
-    expect(await screen.findByRole('option', { name: 'Mia (guess, 90%)' })).toBeVisible();
-    expect(
-      screen
-        .getAllByRole('option')
-        .slice(-3)
-        .map(option => option.textContent),
-    ).toEqual(['Mia (guess, 90%)', 'Cleo', 'Other…']);
-    await user.keyboard('{ArrowLeft}{ArrowRight}{Enter}');
-    await waitFor(() => expect(labels()).toEqual([{ track_ids: ['a', 'b', 'c'], label: MIA }]));
   });
 
   it('names a group as a new pet with Other…, its species filled in from the column', async () => {
@@ -781,11 +797,12 @@ describe('Sightings to name', () => {
   });
 
   it('ignores a group: it leaves the list, with Undo', async () => {
+    unguessed();
     serve();
     const user = userEvent.setup();
     renderPage(<Pets />);
     const row = await within(await inbox()).findByRole('listitem', { name: /^3 cat sightings/ });
-    await user.click(within(row).getByRole('button', { name: /^Ignore$/ }));
+    await answer(user, row, 'Ignore');
     expect(screen.queryByRole('listitem', { name: /cat sightings/ })).toBeNull();
     expect(await screen.findByText("Ignored 3 sightings. They won't be asked about again.")).toBeVisible();
     expect(labels()).toEqual([{ track_ids: ['a', 'b', 'c'], label: 'ignored' }]);
@@ -798,17 +815,90 @@ describe('Sightings to name', () => {
     expect(labels()[1]).toEqual({ track_ids: ['a', 'b', 'c'], label: null });
   });
 
-  it('ignores only the selected pictures with Ignore these', async () => {
+  it('ignores only the selected pictures, and the one left out still waits', async () => {
+    unguessed();
     serve();
     const user = userEvent.setup();
     renderPage(<Pets />);
     const row = await within(await inbox()).findByRole('listitem', { name: /^3 cat sightings/ });
-    await user.click(within(row).getByRole('button', { name: 'Show all (3)' }));
-    const grid = within(row).getByRole('region', { name: /^Every picture of/ });
-    await user.click(within(grid).getAllByRole('button', { name: /^cat on cam0/ })[2] as HTMLElement);
-    await user.click(within(grid).getByRole('button', { name: 'Ignore these' }));
-    expect(await screen.findByRole('listitem', { name: /^2 cat sightings/ })).toBeVisible();
-    expect(labels()).toEqual([{ track_ids: ['c'], label: 'ignored' }]);
+    await user.click(row);
+    await user.click(within(row).getAllByRole('button', { name: /^cat on cam0/ })[2] as HTMLElement);
+    await user.click(within(row).getByRole('button', { name: 'Ignore' }));
+    expect(await screen.findByRole('listitem', { name: /^1 cat sighting/ })).toBeVisible();
+    expect(labels()).toEqual([{ track_ids: ['a', 'b'], label: 'ignored' }]);
+  });
+
+  it('blocks a group: it leaves the list, and Undo unblocks it', async () => {
+    unguessed();
+    serve();
+    const user = userEvent.setup();
+    renderPage(<Pets />);
+    const row = await within(await inbox()).findByRole('listitem', { name: /^3 cat sightings/ });
+    await answer(user, row, 'Block');
+    expect(screen.queryByRole('listitem', { name: /cat sightings/ })).toBeNull();
+    expect(await screen.findByText("Blocked 3 sightings. Ones very like them won't be listed.")).toBeVisible();
+    expect(blocks()).toEqual([{ track_ids: ['a', 'b', 'c'], block: true }]);
+    await user.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(() => expect(blocks().at(-1)).toEqual({ track_ids: ['a', 'b', 'c'], block: false }));
+    expect(await screen.findByRole('listitem', { name: /^3 cat sightings/ })).toBeVisible();
+  });
+
+  describe('Show ignored and blocked', () => {
+    let reads: number;
+    beforeEach(() => {
+      reads = 0;
+      server.use(
+        http.get('/pets/sightings/hidden', () => {
+          reads++;
+          return HttpResponse.json({
+            ignored: [{ track_id: 'i1', species: 'cat', cam: 'cam0', start: T, end: T + 30, at: T + 60 }],
+            ignored_count: 1,
+            blocked: [{ track_id: 'b1', species: 'dog', cam: 'cam1', start: T, end: T + 30, at: T + 90 }],
+            blocked_count: 1,
+          });
+        }),
+      );
+    });
+    const toggle = () => screen.findByRole('switch', { name: 'Show ignored and blocked' });
+
+    it('is off by default, and reads nothing until it is turned on', async () => {
+      serve();
+      renderPage(<Pets />);
+      expect(await toggle()).not.toBeChecked();
+      expect(screen.queryByRole('region', { name: 'Ignored' })).toBeNull();
+      expect(reads).toBe(0);
+    });
+
+    it('lists the ignored and the blocked sightings, and un-ignores or unblocks each', async () => {
+      serve();
+      const user = userEvent.setup();
+      renderPage(<Pets />);
+      await user.click(await toggle());
+      const ignored = await screen.findByRole('region', { name: 'Ignored' });
+      const blocked = screen.getByRole('region', { name: 'Blocked' });
+      expect(within(ignored).getAllByRole('listitem')).toHaveLength(1);
+      expect(within(blocked).getByRole('listitem', { name: /^Dog on / })).toBeVisible();
+      await user.click(within(ignored).getByRole('button', { name: /^Un-ignore Cat on / }));
+      await waitFor(() => expect(labels()).toEqual([{ track_ids: ['i1'], label: null }]));
+      await user.click(within(blocked).getByRole('button', { name: /^Unblock Dog on / }));
+      await waitFor(() => expect(blocks()).toEqual([{ track_ids: ['b1'], block: false }]));
+      expect(await screen.findByText('Unblocked. It waits for a name again.')).toBeVisible();
+    });
+
+    it('says why when one cannot be brought back', async () => {
+      serve();
+      server.use(
+        http.post('/pets/sightings/label', () =>
+          HttpResponse.json({ ok: false, error: '1 sightings are no longer recorded' }, { status: 404 }),
+        ),
+      );
+      const user = userEvent.setup();
+      renderPage(<Pets />);
+      await user.click(await toggle());
+      const ignored = await screen.findByRole('region', { name: 'Ignored' });
+      await user.click(within(ignored).getByRole('button', { name: /^Un-ignore/ }));
+      expect(await screen.findByRole('alert')).toHaveTextContent('no longer recorded');
+    });
   });
 
   it('offers the household species for a sighting the detector called something else', async () => {
@@ -832,9 +922,7 @@ describe('Sightings to name', () => {
     const user = userEvent.setup();
     renderPage(<Pets />);
     const row = await within(await inbox()).findByRole('listitem', { name: /^3 cat sightings/ });
-    await user.click(picker(row));
-    await user.click(await screen.findByRole('option', { name: 'Cat (detected)' }));
-    await user.click(await screen.findByRole('option', { name: 'Mia (guess, 90%)' }));
+    await answer(user, row, 'Mia');
     expect(
       await screen.findByText(/Could not label those sightings: 3 sightings are no longer recorded/),
     ).toBeVisible();
@@ -998,14 +1086,14 @@ describe('the waiting count', () => {
     return open;
   }
 
-  it('drops as soon as Yes is pressed, before the label is saved', async () => {
+  it('drops as soon as the name is pressed, before the label is saved', async () => {
     serve();
     const open = holdLabels();
     const user = userEvent.setup();
     renderPage(<Pets />);
     const row = await within(await inbox()).findByRole('listitem', { name: /^3 cat sightings/ });
     expect(screen.getByRole('button', { name: /3 animals need a name/ })).toBeVisible();
-    await user.click(within(row).getByRole('button', { name: 'Yes, Mia' }));
+    await answer(user, row, 'Mia');
     await waitFor(() => expect(labels()).toHaveLength(1));
     expect(screen.getByRole('button', { name: /2 animals need a name/ })).toBeVisible();
     open();

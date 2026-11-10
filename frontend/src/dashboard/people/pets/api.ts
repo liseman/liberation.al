@@ -154,6 +154,29 @@ export const removePet = (id: string) => request<{ pets: Pet[] }>('/pets/remove'
 /** These sightings are not this pet, or (`not` false) take that back. One labeled as the pet loses the label. */
 export const markNot = (tracks: string[], pet: string, not = true) =>
   request<{ marked: number }>('/pets/sightings/not', { track_ids: tracks, pet, not });
+/** Block these sightings, so ones very like them stop being listed for a name, or (`block` false) take that back. */
+export const blockSightings = (tracks: string[], block = true) =>
+  request<{ blocked: number }>('/pets/sightings/block', { track_ids: tracks, block });
+
+/** A sighting the owner ignored or blocked. */
+export interface HiddenSighting {
+  track_id: string;
+  species: string;
+  cam: string;
+  start: number | null;
+  end: number | null;
+  at: number;
+}
+export interface HiddenSightings {
+  ignored: HiddenSighting[];
+  ignored_count: number;
+  blocked: HiddenSighting[];
+  blocked_count: number;
+}
+export const HIDDEN_SIGHTINGS_KEY = ['pets', 'sightings', 'hidden'] as const;
+export const hiddenSightings = (signal?: AbortSignal) =>
+  request<HiddenSightings>('/pets/sightings/hidden', undefined, signal);
+
 /** A pet card's photo choices: use a sighting as its photo, go back to its newest, or hide or show one. */
 export const choosePhoto = (id: string, action: 'main' | 'newest' | 'hide' | 'show', track?: string) =>
   request<{ pets: Pet[] }>('/pets/photo', { id, action, track: track ?? null });
