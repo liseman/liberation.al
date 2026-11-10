@@ -481,6 +481,7 @@
   width: 100%;
   margin-inline-start: -2px;
   padding: 6px 10px;
+  cursor: pointer;
   border-inline-start: 2px solid transparent;
   border-radius: 0 var(--mantine-radius-md) var(--mantine-radius-md) 0;
 
@@ -505,4 +506,19 @@
   gap: 6px;
   font-size: var(--mantine-font-size-sm);
   font-weight: 500;
+}
+
+/* On a phone the editor takes the screen: its frame fills the height left under the page's bars, and Versions,
+   Discard, and Save stack at full width above it. */
+@media (max-width: 720px) {
+  .planFrame {
+    height: calc(100dvh - 9rem);
+    min-height: 20rem;
+  }
+
+  .editorActions {
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+  }
 }

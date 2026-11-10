@@ -10,6 +10,7 @@ import { centre, drawScene, spots } from './draw';
 import { EXAMPLE_SCENE } from './example';
 import { PlaceEditor } from './PlaceEditor';
 import { PlanFrame } from './PlanFrame';
+import { age } from './Versions';
 
 const of = (scene: Scene, type: string) => Object.values(scene.nodes).filter(n => n.type === type);
 
@@ -409,6 +410,25 @@ it("lists the plan's versions newest first, with what changed and which is curre
   expect((rows[1] as HTMLButtonElement).disabled).toBe(true); // a withdrawal has no plan to look at
 });
 
+it("gives a version's age in the dashboard's words, with whole hours whole, and names each row for what it opens", async () => {
+  const now = 1762600000;
+  expect([age(now - 3600, now), age(now - 9000, now), age(now - 3 * 86400, now), age(now - 120, now)]).toEqual([
+    '1 h ago',
+    '2.5 h ago',
+    '3 d ago',
+    '2 min ago',
+  ]);
+  serveScene({}, VERSIONS);
+  renderPage(<PlaceEditor place={HOME} view="2d" scheme="light" />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Versions' }));
+  const rows = [...(await screen.findByRole('list')).querySelectorAll('button')];
+  expect(rows.map(r => r.getAttribute('aria-label'))).toEqual([
+    expect.stringMatching(/^Look at the current plan, saved \d+ d ago$/),
+    expect.stringMatching(/^The plan was withdrawn \d+ d ago$/),
+    expect.stringMatching(/^Look at the version from \d+ d ago$/),
+  ]);
+});
+
 it('says there is no version yet for a plan never saved, and shows none for an example', async () => {
   serveScene();
   const first = renderPage(<PlaceEditor place={HOME} view="2d" scheme="light" />);
@@ -443,7 +463,7 @@ it('opens an earlier version to look at without changing anything, and restores 
   const current = (await screen.findByTitle('Plan editor')) as HTMLIFrameElement;
   expect(current.getAttribute('src')).not.toContain('look=1');
   fireEvent.click(screen.getByRole('button', { name: 'Versions' }));
-  fireEvent.click(await screen.findByRole('button', { name: /1 room/ }));
+  fireEvent.click(await screen.findByRole('button', { name: /^Look at the version from/ }));
   expect(await screen.findByText(/Looking at it changes nothing/)).toBeTruthy();
   await waitFor(() => expect(asked).toEqual([null, 'v1']));
   await waitFor(() => expect(screen.getByTitle('Plan editor')).not.toBe(current)); // the editor opened on that version
@@ -452,7 +472,9 @@ it('opens an earlier version to look at without changing anything, and restores 
   // the editor opens it to look at only: nothing in it changes the scene
   expect(screen.getByTitle('Plan editor').getAttribute('src')).toContain('look=1');
   fireEvent.click(screen.getByRole('button', { name: 'Versions' }));
-  expect((await screen.findByRole('button', { name: /1 room/ })).getAttribute('aria-current')).toBe('true');
+  expect((await screen.findByRole('button', { name: /^Look at the version from/ })).getAttribute('aria-current')).toBe(
+    'true',
+  );
   fireEvent.click(screen.getByRole('button', { name: 'Versions' }));
   // an edit made while looking is not a change to the plan
   fromFrame(screen.getByTitle('Plan editor') as HTMLIFrameElement, {
@@ -471,13 +493,13 @@ it('goes back to the current plan from an earlier version, and asks before dropp
   const frame = (await screen.findByTitle('Plan editor')) as HTMLIFrameElement;
   fromFrame(frame, { type: 'plan-editor:changed', scene: EXAMPLE_SCENE });
   fireEvent.click(screen.getByRole('button', { name: 'Versions' }));
-  fireEvent.click(await screen.findByRole('button', { name: /1 room/ }));
+  fireEvent.click(await screen.findByRole('button', { name: /^Look at the version from/ }));
   const dialog = await screen.findByRole('dialog', { name: 'Discard your unsaved changes?' });
   fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   expect(screen.getByText('Unsaved changes')).toBeTruthy(); // still on the plan, with the changes
   fireEvent.click(screen.getByRole('button', { name: 'Versions' }));
-  fireEvent.click(await screen.findByRole('button', { name: /1 room/ }));
+  fireEvent.click(await screen.findByRole('button', { name: /^Look at the version from/ }));
   fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Discard changes' }));
   expect(await screen.findByText(/Looking at it changes nothing/)).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Back to the current plan' }));

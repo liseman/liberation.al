@@ -3,10 +3,33 @@
 @import "tailwindcss" source(none);
 @import "tw-animate-css";
 @import "./pascal.css";
+@import "../shared/fonts.css";
 @source "../../node_modules/@pascal-app/editor/src";
 @source "../../node_modules/@pascal-app/nodes/dist";
 @source "../../node_modules/@pascal-app/viewer/dist";
 @source "./";
+
+/* The dashboard's own look where the editor's page meets it: its font (bundled, so nothing is fetched), its 4 px
+   corners, its accent on focus rings, and its dim text for hints (fonts.css is imported above). The values are
+   theme.ts's; this page is a document of its own, so the dashboard's variables don't reach it. */
+:root {
+  --font-barlow: "Figtree", system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+  --radius: 0.25rem;
+  --ring: #3454d1;
+  --muted-foreground: #5f6b67;
+  --lib-accent: #3454d1;
+}
+
+.dark {
+  --ring: #7f9cf5;
+  --muted-foreground: #95a39f;
+}
+
+/* The editor's own plugin directory has nothing for a home's plan: its rail entry, and the rule above it, are not
+   shown. */
+button:has(img[src$="/icons/plugins.webp"]) {
+  display: none;
+}
 
 html,
 body,

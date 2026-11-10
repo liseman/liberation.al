@@ -4,11 +4,14 @@
 import { Badge, Text, UnstyledButton } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
 import { messageOf } from '../../../shared/http';
-import { ago, dateTime } from '../../lib/format';
+import { ago, momentWords } from '../../lib/format';
 import { RowsSkeleton } from '../../lib/loading';
 import { LoadError } from '../../lib/page';
 import { type PlanVersion, planHistoryQuery } from '../api';
 import classes from '../places.module.css';
+
+/** A version's age in the dashboard's words, with whole hours whole: "1 h ago", "2.5 h ago", "3 d ago". */
+export const age = (at: number, now?: number): string => ago(at, now).replace('.0 h', ' h');
 
 export function Versions({
   place,
@@ -52,10 +55,17 @@ export function Versions({
                   aria-current={shown ? 'true' : undefined}
                   disabled={version.withdrawn}
                   onClick={() => onView(version.current ? null : version)}
-                  title={dateTime(version.at)}
+                  aria-label={
+                    version.withdrawn
+                      ? `The plan was withdrawn ${age(version.at)}`
+                      : version.current
+                        ? `Look at the current plan, saved ${age(version.at)}`
+                        : `Look at the version from ${age(version.at)}`
+                  }
+                  title={momentWords(version.at)}
                 >
                   <span className={classes.versionWhen}>
-                    {ago(version.at)}
+                    {age(version.at)}
                     {version.current && (
                       <Badge size="xs" variant="light" color="teal" tt="none" fw={500}>
                         Current
