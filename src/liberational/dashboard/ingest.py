@@ -36,7 +36,6 @@ from typing import TYPE_CHECKING, Any
 from liberational import config as cfg
 from liberational import logs
 from liberational.dashboard import routes
-from liberational.dashboard.context import log
 from liberational.ingest import pipeline as ingest_pipeline
 from liberational.ingest import runner
 from liberational.ingest import sources as src
@@ -296,7 +295,7 @@ def _read_json(handler: H) -> Any:
     return json.loads(handler.rfile.read(n) or b"{}") if n else {}
 
 
-def handle(handler: H, log: Callable[..., None] = print) -> bool:
+def handle(handler: H) -> bool:
     """Serve /ingest/api/*; False for any other path."""
     path = handler.path.split("?")[0]
     if not path.startswith(PREFIX):
@@ -382,7 +381,7 @@ def handle(handler: H, log: Callable[..., None] = print) -> bool:
             if not handler._can_control():
                 return _reply(handler, 403, {"error": "the sign-in window opens only from this machine"})
             GooglePhotosSource.from_config().login()
-            log("ingest: opened the Google Photos sign-in window")
+            LOG.info("ingest: opened the Google Photos sign-in window")
             return _reply(handler, 202, {"ok": True})
         if route == "google_photos/import":
             items = remote_items(body.get("items"))
@@ -406,4 +405,4 @@ def _reply(handler: H, code: int, body: dict[str, Any]) -> bool:
 @routes.get_when(PREFIX + "...", lambda p: p.startswith(PREFIX))
 @routes.post_raw_when(PREFIX + "...", lambda p: p.startswith(PREFIX))
 def _route(h: H) -> None:
-    handle(h, log)
+    handle(h)

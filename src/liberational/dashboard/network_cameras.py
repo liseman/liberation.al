@@ -19,7 +19,6 @@ import threading
 import time
 import tomllib
 import uuid
-from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote, urlsplit, urlunsplit
 
@@ -27,7 +26,6 @@ import tomlkit
 
 from liberational import config as cfg
 from liberational.dashboard import cameras, routes, settings
-from liberational.dashboard.context import log
 from liberational.proximity.network import ip_address
 from liberational.proximity.unifi_network import UniFiNetwork
 from liberational.unifi import UniFiError, configured_session, local_origin, protect_section, setting
@@ -133,7 +131,7 @@ def view() -> dict[str, Any]:
     return {"cameras": rows, "capture_ready": capture_ready(), "controls_ready": controls_ready()}
 
 
-def use(body: dict[str, Any], log: Callable[..., None]) -> tuple[int, dict[str, Any]]:
+def use(body: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     """Toggle an exact manifest ID without changing its private URL, display alias, or other settings."""
     name, enabled = body.get("id"), body.get("enabled")
     if set(body) != {"id", "enabled"} or not isinstance(name, str) or not isinstance(enabled, bool):
@@ -166,7 +164,7 @@ def use(body: dict[str, Any], log: Callable[..., None]) -> tuple[int, dict[str, 
         except OSError, ValueError:
             return 500, {"error": "Could not update capture manifest; camera use was not changed."}
     try:
-        settings.restart(log, names=["continuum-capture"], dashboard=False)
+        settings.restart(names=["continuum-capture"], dashboard=False)
     except Exception:
         return 500, {"error": "Camera use was saved, but capture could not be restarted. Restart capture to apply it."}
     return 200, {
@@ -294,7 +292,7 @@ def discover(body: dict[str, Any]) -> tuple[int, dict[str, Any]]:
         _DISCOVERY.release()
 
 
-def add(body: dict[str, Any], log: Callable[..., None]) -> tuple[int, dict[str, Any]]:
+def add(body: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     if not capture_ready():
         return 409, {"error": "Install RTSP-enabled capture and the H.264 vision decoder before adding cameras."}
     key = (body.get("discovery_id"), body.get("camera_id"), body.get("stream_id"))
@@ -354,13 +352,13 @@ def add(body: dict[str, Any], log: Callable[..., None]) -> tuple[int, dict[str, 
             cameras._write_manifest(path, tomlkit.dumps(doc))
         except OSError, ValueError:
             return 500, {"error": "Could not update capture manifest; no camera was started."}
-    settings.restart(log, names=["continuum-capture"], dashboard=False)
+    settings.restart(names=["continuum-capture"], dashboard=False)
     with _CACHE_LOCK:
         _proposals.pop(key, None)
     return 200, {"ok": True}
 
 
-def handle(handler: H, log: Callable[..., None]) -> bool:
+def handle(handler: H) -> bool:
     path = handler.path.split("?")[0]
     if path not in ("/network-cameras", "/network-cameras/discover", "/network-cameras/add", "/network-cameras/use"):
         return False
@@ -388,9 +386,7 @@ def handle(handler: H, log: Callable[..., None]) -> bool:
     except ValueError:
         handler._json({"error": "Send a JSON object."}, 400)
         return True
-    code, result = (
-        discover(body) if path.endswith("/discover") else use(body, log) if path.endswith("/use") else add(body, log)
-    )
+    code, result = discover(body) if path.endswith("/discover") else use(body) if path.endswith("/use") else add(body)
     handler._json(result, code)
     return True
 
@@ -401,4 +397,4 @@ def handle(handler: H, log: Callable[..., None]) -> bool:
 @routes.get("/network-cameras")
 @routes.post_raw("/network-cameras/discover", "/network-cameras/add", "/network-cameras/use")
 def _route(h: H) -> None:
-    handle(h, log)
+    handle(h)

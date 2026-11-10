@@ -32,7 +32,6 @@ import subprocess
 import sys
 import threading
 import time
-from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs, urlsplit
@@ -42,7 +41,6 @@ from liberational import logs
 from liberational.audio import gain, sensitivity
 from liberational.dashboard import camera_controls, camera_modes, capture_control, privacy, routes
 from liberational.dashboard import cameras as camera_manifest
-from liberational.dashboard.context import log
 
 if TYPE_CHECKING:
     from liberational.dashboard.server import H
@@ -205,7 +203,7 @@ def _mic_key(mic: str) -> str | None:
     return None if row is None else row["stream"] or row["id"]
 
 
-def use_mic(body: dict[str, Any], log: Callable[..., None] = print) -> tuple[int, dict[str, Any]]:
+def use_mic(body: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     """POST /devices/mic {"id", "on"}: listens with one of the microphones /devices lists, or stops, by editing
     capture's manifest, then restarts capture to open what it names now."""
     mic, on = body.get("id"), body.get("on")
@@ -220,7 +218,7 @@ def use_mic(body: dict[str, Any], log: Callable[..., None] = print) -> tuple[int
     camera_manifest.use(row["name"], None, on, stream=None if on else row["stream"], kind="microphone")
     from liberational.dashboard import settings
 
-    settings.restart(log, names=["continuum-capture"], dashboard=False)
+    settings.restart(names=["continuum-capture"], dashboard=False)
     return 200, {**view(True), "restarted": ["continuum-capture"]}
 
 
@@ -238,7 +236,7 @@ def _auto_gain(device: str, live: dict[str, Any] | None) -> dict[str, Any]:
     return {"auto_gain": on, "gain": live}
 
 
-def save_auto_gain(body: dict[str, Any], log: Callable[..., None] = print) -> tuple[int, dict[str, Any]]:
+def save_auto_gain(body: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     """(code, reply) for POST /devices/auto_gain {"mic": device name, "on": bool}: live, nothing restarted."""
     mic, on = body.get("mic"), body.get("on")
     if not isinstance(mic, str) or not mic:
@@ -251,7 +249,7 @@ def save_auto_gain(body: dict[str, Any], log: Callable[..., None] = print) -> tu
         gain.save(key, on)
     except OSError as ex:
         return 500, {"ok": False, "error": f"couldn't write {cfg.local_config()}: {ex.strerror}"}
-    log(f"devices: {mic} auto gain {'on' if on else 'off'}")
+    LOG.info(f"devices: {mic} auto gain {'on' if on else 'off'}")
     return 200, view(True)
 
 
@@ -268,10 +266,10 @@ def _custom() -> set[str]:
     return set(table) if isinstance(table, dict) else set()
 
 
-def save_sensitivity(body: dict[str, Any], log: Callable[..., None] = print) -> tuple[int, dict[str, Any]]:
+def save_sensitivity(body: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     """(code, reply) for POST /devices/sensitivity."""
     if "default" in body:
-        return _save_default(body["default"], log)
+        return _save_default(body["default"])
     mic, value = body.get("mic"), body.get("sensitivity")
     if not isinstance(mic, str) or not mic:
         return 400, {"ok": False, "error": "mic must be a device name"}
@@ -283,11 +281,11 @@ def save_sensitivity(body: dict[str, Any], log: Callable[..., None] = print) -> 
         sensitivity.save(key, value)
     except OSError as ex:
         return 500, {"ok": False, "error": f"couldn't write {cfg.local_config()}: {ex.strerror}"}
-    log(f"devices: {mic} sensitivity {'default' if value is None else value}")
+    LOG.info(f"devices: {mic} sensitivity {'default' if value is None else value}")
     return 200, view(True)
 
 
-def _save_default(value: object, log: Callable[..., None]) -> tuple[int, dict[str, Any]]:
+def _save_default(value: object) -> tuple[int, dict[str, Any]]:
     """(code, reply) for {"default": N}: audio.sensitivity in pack.toml, nothing restarted."""
     if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 100:
         return 400, {"ok": False, "error": "default must be a whole number from 0 to 100"}
@@ -297,7 +295,7 @@ def _save_default(value: object, log: Callable[..., None]) -> tuple[int, dict[st
         return 400, {"ok": False, "error": str(ex)}
     except OSError as ex:
         return 500, {"ok": False, "error": f"couldn't write {cfg.local_config()}: {ex.strerror}"}
-    log(f"devices: default sensitivity {value}")
+    LOG.info(f"devices: default sensitivity {value}")
     note = "PACK_AUDIO_SENSITIVITY is set in the environment and overrides this." if overridden else ""
     return 200, {**view(True), "default_sensitivity": sensitivity.default(), "note": note}
 
@@ -485,11 +483,11 @@ def _link() -> Any:
     return _links[0]
 
 
-def use_camera(body: dict[str, Any], log: Callable[..., None] = print) -> tuple[int, dict[str, Any]]:
+def use_camera(body: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     """POST /devices/camera {"index", "on"}: uses one of the cameras /devices lists, or stops using it, by editing
     capture's manifest, then restarts capture to open what it names now."""
     if any(k in body for k in ("flip", "auto_exposure", "exposure_target", "width", "height", "fps")):
-        return save_camera_video(body, log)
+        return save_camera_video(body)
     index, on = body.get("index"), body.get("on")
     if not isinstance(index, int) or isinstance(index, bool) or not isinstance(on, bool):
         return 400, {"ok": False, "error": "index (a number) and on (true or false) are needed"}
@@ -509,11 +507,11 @@ def use_camera(body: dict[str, Any], log: Callable[..., None] = print) -> tuple[
     )
     from liberational.dashboard import settings
 
-    settings.restart(log, names=["continuum-capture"], dashboard=False)
+    settings.restart(names=["continuum-capture"], dashboard=False)
     return 200, {**view(True), "restarted": ["continuum-capture"]}
 
 
-def save_camera_video(body: dict[str, Any], log: Callable[..., None]) -> tuple[int, dict[str, Any]]:
+def save_camera_video(body: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     """Save one video preference group, then request only that camera's worker to restart."""
     index = body.get("index")
     fields = set(body) - {"index"}
@@ -548,7 +546,7 @@ def save_camera_video(body: dict[str, Any], log: Callable[..., None]) -> tuple[i
     except (OSError, ValueError) as error:
         return 400, {"ok": False, "error": str(error)}
     result = capture_control.restart_camera(row["stream"])
-    log(f"camera settings: {row['stream']}: {result.status}: {result.message}")
+    LOG.info(f"camera settings: {row['stream']}: {result.status}: {result.message}")
     return 200, {
         **view(True),
         "restart": {"status": result.status, "device": row["stream"], "message": result.message},
@@ -556,14 +554,14 @@ def save_camera_video(body: dict[str, Any], log: Callable[..., None]) -> tuple[i
     }
 
 
-def restart_capture(body: dict[str, Any], log: Callable[..., None]) -> tuple[int, dict[str, Any]]:
+def restart_capture(body: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     """Explicitly restart all capture, after the person chooses the fallback action."""
     if body:
         return 400, {"ok": False, "error": "send an empty object to restart all capture"}
     from liberational.dashboard import settings
 
     try:
-        settings.restart(log, names=["continuum-capture"], dashboard=False)
+        settings.restart(names=["continuum-capture"], dashboard=False)
         status, message = "restarting", "All capture restart requested"
     except (OSError, ValueError) as error:
         status, message = "failed", str(error)
@@ -591,7 +589,7 @@ def view(control: bool) -> dict[str, Any]:
     }
 
 
-def handle(handler: H, log: Callable[..., None] = print) -> bool:
+def handle(handler: H) -> bool:
     """Serve /devices and its POST routes (sensitivity, auto_gain, camera, mic); False for any other path."""
     path = handler.path.split("?")[0]
     if path not in (
@@ -651,15 +649,15 @@ def handle(handler: H, log: Callable[..., None] = print) -> bool:
     elif path == "/devices/camera-controls":
         code, reply = camera_controls.save(body)
     elif path == "/devices/capture/restart":
-        code, reply = restart_capture(body, log)
+        code, reply = restart_capture(body)
     elif path == "/devices/camera":
-        code, reply = use_camera(body, log)
+        code, reply = use_camera(body)
     elif path == "/devices/mic":
-        code, reply = use_mic(body, log)
+        code, reply = use_mic(body)
     elif path == "/devices/auto_gain":
-        code, reply = save_auto_gain(body, log)
+        code, reply = save_auto_gain(body)
     else:
-        code, reply = save_sensitivity(body, log)
+        code, reply = save_sensitivity(body)
     handler._json(reply, code)
     return True
 
@@ -678,4 +676,4 @@ def handle(handler: H, log: Callable[..., None] = print) -> bool:
     "/devices/privacy",
 )
 def _route(h: H) -> None:
-    handle(h, log)
+    handle(h)

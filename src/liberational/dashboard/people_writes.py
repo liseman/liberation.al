@@ -36,7 +36,7 @@ from liberational.dashboard import (
     transcript_lines,
     voice_clones,
 )
-from liberational.dashboard.context import Reply, log
+from liberational.dashboard.context import LOG, Reply
 from liberational.people import card_prefs, contacts, face_shots, profiles, registry, tags
 
 if TYPE_CHECKING:
@@ -73,7 +73,7 @@ def describe_person(name: object, role: object = None, organization: object = No
     try:  # the log is where these live, so a failure is the answer, not a log line
         registry.at(context.STATE).describe(me["name"], "dashboard", fields)
     except Exception as e:
-        log("people: describe failed:", repr(e), level=logs.ERROR)
+        LOG.error("people: describe failed: %s", repr(e))
         return 500, {"ok": False, "error": "Saving failed: " + str(e)}
     return 200, {"ok": True, "name": me["name"], **people_list._attributes().get(people_list._norm(me["name"]), {})}
 
@@ -178,7 +178,7 @@ def rename_owner(old: str, new: str) -> Reply:
         reg = registry.at(context.STATE)
         taken = taken or reg.person_id(name) not in (None, reg.person_id(old))
     except Exception as e:
-        log("owner rename lookup failed, so the name counts as taken:", repr(e), level=logs.WARN)
+        LOG.warning("owner rename lookup failed, so the name counts as taken: %s", repr(e))
         taken = True  # the owner's name is a security setting: unsure means no
     if people_list._norm(old) not in roster and not taken:
         return 200, {"ok": True, "name": new}
@@ -275,16 +275,16 @@ def _rename_locked(old: str, new: str, *, owner_voices: list[int] | None = None)
             registry.at(context.STATE).rename(old, new, "dashboard")
     except Exception as e:
         action = "Merging" if joining or owner_voices is not None else "Renaming"
-        log(f"people: {action.lower()} failed:", repr(e), level=logs.ERROR)
+        LOG.error("%s %s", f"people: {action.lower()} failed:", repr(e))
         return 500, {"ok": False, "error": action + " failed: " + str(e)}
     try:
         people_list._faces_mod().rename(old, new)
     except Exception as e:
-        log("people: face rename failed:", e, level=logs.ERROR)
+        LOG.error("people: face rename failed: %s", e)
     try:  # their card choices go with them; corrections are claims on their person, so they follow already
         card_prefs.rename(context.STATE, old, new)
     except Exception as e:
-        log("people: card prefs rename failed:", e, level=logs.ERROR)
+        LOG.error("people: card prefs rename failed: %s", e)
     # The voices and the registry have moved, so a later failure is logged, never raised: the rename stands.
     try:
         if photo_files._photo_dir(old) != photo_files._photo_dir(new):
@@ -297,7 +297,7 @@ def _rename_locked(old: str, new: str, *, owner_voices: list[int] | None = None)
             except OSError:
                 pass
     except OSError as e:
-        log("people: photo rename failed:", e, level=logs.ERROR)
+        LOG.error("people: photo rename failed: %s", e)
     try:
         folder = context.STATE / "people"
         if not joining:  # a profile already under the new name is left over from whoever had that name before
@@ -306,17 +306,17 @@ def _rename_locked(old: str, new: str, *, owner_voices: list[int] | None = None)
                     _park(f, "people")
         profiles.rename(folder, old, new)
     except Exception as e:
-        log("people: profile rename failed:", e, level=logs.ERROR)
+        LOG.error("people: profile rename failed: %s", e)
     try:
         people_list._book().follow(old, new)
     except OSError as e:
-        log("people: contacts rename failed:", e, level=logs.ERROR)
+        LOG.error("people: contacts rename failed: %s", e)
     from liberational.people import references
 
     references.rename(context.STATE, old, new)
     for n in notes:
-        log("people:", n)
-    log(f"people: {old!r} -> {new!r}{' (merged)' if joining else ''}")
+        LOG.info("people: %s", n)
+    LOG.info(f"people: {old!r} -> {new!r}{' (merged)' if joining else ''}")
     return 200, {
         "ok": True,
         "name": new,
@@ -416,14 +416,14 @@ def _delete_person_locked(name: object, control: bool) -> Reply:
         voice_ids = (journal.speaker_ids(name, context.STATE) - {str(i) for i in clones}) | {str(i) for i in ids}
     except Exception as e:
         voice_ids = {str(i) for i in ids}
-        log("people: journal speaker lookup failed:", e, level=logs.ERROR)
+        LOG.error("people: journal speaker lookup failed: %s", e)
     # Their Continuum subjects (their person ids and the prints that are theirs), read now, before the voice forget
     # below retracts their voiceprints and they stop resolving to them. Purged near the end.
     subjects: set[str] = set()
     try:
         subjects = registry.at(context.STATE).forget_subjects(name)
     except Exception as e:
-        log("people: reading their Continuum subjects failed:", e, level=logs.ERROR)
+        LOG.error("people: reading their Continuum subjects failed: %s", e)
         notes.append("Their Continuum history couldn't be looked up, so it wasn't purged.")
     # On the broker: every payload whose subject is them. Before anything else of theirs is cleared, so if it fails
     # they're all still here (the voiceprints still theirs, say), and deleting them again finds everything.
@@ -461,7 +461,7 @@ def _delete_person_locked(name: object, control: bool) -> Reply:
         logged = {k for k in reg.utterances_of(name) if registry.split_key(k)[0] is not None or k not in keyed}
         lines = sorted(mine | logged)
     except Exception as e:
-        log(f"people: finding {name!r}'s lines failed:", repr(e), level=logs.ERROR)
+        LOG.error("%s %s", f"people: finding {name!r}'s lines failed:", repr(e))
         return 500, {
             "ok": False,
             "error": f"{name}'s lines couldn't be looked up, so nothing else of theirs was deleted yet; delete them "
@@ -476,7 +476,7 @@ def _delete_person_locked(name: object, control: bool) -> Reply:
         # Entries written from her lines go when the speech log purges the lines (the broker's purge cascade).
         removed["journal"] = journal.forget(name, voice_ids, context.STATE)
     except Exception as e:
-        log("people: journal forget failed:", e, level=logs.ERROR)
+        LOG.error("people: journal forget failed: %s", e)
         return 500, {
             "ok": False,
             "error": f"The journal couldn't forget {name}, so nothing was deleted. Try again; if it keeps failing, "
@@ -507,19 +507,19 @@ def _delete_person_locked(name: object, control: bool) -> Reply:
                 clone_say._park(i)
                 removed["clones"] += before
         except Exception as e:
-            log("people: parking the clone clip failed:", e, level=logs.ERROR)
+            LOG.error("people: parking the clone clip failed: %s", e)
     # Their face crops, by sighting, found before the face forget below un-names them.
     try:
         from liberational.vision import sightings
 
         their_shots: set[str] | None = {str(f["id"]) for f in sightings._named(name, context.STATE)}
     except Exception as e:
-        log("people: finding their face crops failed, so every crop is cleared:", repr(e), level=logs.WARN)
+        LOG.warning("people: finding their face crops failed, so every crop is cleared: %s", repr(e))
         their_shots = None
     try:
         removed["faces"] = people_list._faces_mod().forget(name)
     except Exception as e:
-        log("people: face forget failed:", e, level=logs.ERROR)
+        LOG.error("people: face forget failed: %s", e)
     removed["photos"] = len(photo_files._photos(name))
     _park(photo_files._photo_dir(name), "people")
     names = [name]  # their name and the names they had, unless someone else has that name now
@@ -531,7 +531,7 @@ def _delete_person_locked(name: object, control: bool) -> Reply:
         names += [a for a in (me.aliases if me else ()) if reg.person_id(a) in (None, pid)]
         had |= reg.names(name)
     except Exception as e:
-        log(f"people: reading {name!r}'s other names failed:", repr(e), level=logs.ERROR)
+        LOG.error("%s %s", f"people: reading {name!r}'s other names failed:", repr(e))
         return 500, {
             "ok": False,
             "error": f"{name}'s other names couldn't be read, so they're only partly deleted; delete them again to "
@@ -543,7 +543,7 @@ def _delete_person_locked(name: object, control: bool) -> Reply:
         for n in sorted(had):
             card_prefs.forget(context.STATE, n)
     except Exception as e:
-        log("people: card prefs forget failed:", e, level=logs.ERROR)
+        LOG.error("people: card prefs forget failed: %s", e)
     for n in names:
         people_list._book().forget(n)
     try:  # fixed-key HMAC of every name they had (per-install salt is a follow-up), before the registry forgets them
@@ -551,7 +551,7 @@ def _delete_person_locked(name: object, control: bool) -> Reply:
 
         forgotten.remember({name, *registry.at(context.STATE).names(name)}, context.STATE)
     except Exception as e:
-        log("people: keeping the forgotten name's hash failed:", e, level=logs.ERROR)
+        LOG.error("people: keeping the forgotten name's hash failed: %s", e)
     # A face crop of the current revision is served without a lookup, so a deleted person's own crops go now. Everyone
     # else's stay: clearing them all made the dashboard cut every face again from video, thousands of jobs that kept
     # the pets' photos waiting for hours.
@@ -561,13 +561,13 @@ def _delete_person_locked(name: object, control: bool) -> Reply:
     try:
         registry.at(context.STATE).forget(name, "dashboard")
     except Exception as e:
-        log(f"people: forgetting {name!r} in the registry failed:", repr(e), level=logs.ERROR)
+        LOG.error("%s %s", f"people: forgetting {name!r} in the registry failed:", repr(e))
         return 500, {
             "ok": False,
             "error": f"{name} is still in the person registry: forgetting them there failed. Everything else of "
             "theirs was deleted; delete them again to finish. The dashboard log says why.",
         }
-    log(f"people: deleted {name!r}: " + ", ".join(f"{v} {k}" for k, v in removed.items() if v))
+    LOG.info(f"people: deleted {name!r}: " + ", ".join(f"{v} {k}" for k, v in removed.items() if v))
     return 200, {"ok": True, "name": name, "removed": removed, "notes": notes, **roster_read.people_view()}
 
 
@@ -585,7 +585,7 @@ def _forget_voice_embeddings(subjects: set[str]) -> int:
             for column in ("person", "voiceprint"):
                 forget_segments_where(segment_log.root(context.STATE), column, s, streams=[voices.EMBEDDINGS])
         except Exception as e:
-            log("people: forgetting voice embeddings failed:", e, level=logs.ERROR)
+            LOG.error("people: forgetting voice embeddings failed: %s", e)
             failed += 1
     return failed
 
@@ -606,7 +606,7 @@ def _purge_continuum(subjects: set[str]) -> tuple[int, int]:
                 # The detail is kept for good, so it never names the person.
                 result = link.call(lambda c, s=s: c.purge(entity=s, reason="PersonForgotten"))
             except Exception as e:
-                log("people: a Continuum purge failed:", e, level=logs.ERROR)
+                LOG.error("people: a Continuum purge failed: %s", e)
                 failed += 1
                 continue
             removed += sum(n for _, _, n in result.get("removed", []))
@@ -843,7 +843,7 @@ def confirm_owner_voice(sid: Any) -> Reply:
         ["label", str(sid), cfg.owner_name() or owner],
     ]
     ok, out = known_voices._speaker_cmds(cmds)
-    log(f"owner voice <- {sid}: {'ok' if ok else 'FAILED'} {out[-120:]}", level=logs.INFO if ok else logs.ERROR)
+    LOG.log(logs.INFO if ok else logs.ERROR, f"owner voice <- {sid}: {'ok' if ok else 'FAILED'} {out[-120:]}")
     note = "Got it. Lines from that voice are yours now, and it will be recognized as you."
     return (200 if ok else 500), {
         "ok": ok,

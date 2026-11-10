@@ -35,10 +35,6 @@ LOG = logs.get("tts")
 Stamp = tuple[int, int, int, int]
 
 
-def log(*a: object, level: int = logs.INFO) -> None:
-    LOG.log(level, " ".join(str(x) for x in a))
-
-
 class TTS:
     """Kokoro (fast, fixed voice) or Qwen3-TTS zero-shot clone. generate() yields (audio_f32, sr).
     Without MLX, cloning runs on CUDA (speech/qwen3_cuda.py) when available, and Kokoro runs on kokoro-onnx.
@@ -66,7 +62,7 @@ class TTS:
 
             ok, why = qwen3_cuda.available()
             if not ok:
-                log(f"no voice cloning ({why}); using Kokoro", level=logs.WARN)
+                LOG.warning(f"no voice cloning ({why}); using Kokoro")
                 self.want_clone = False
         if not self._refresh():
             self._kokoro_model()  # load it now, not on the first reply
@@ -92,7 +88,7 @@ class TTS:
         """One warning for each state (the reference missing, a version of it unreadable, or the clone failing)."""
         if self._warned != state:
             self._warned = state
-            log(msg, level=logs.WARN)
+            LOG.warning(msg)
 
     def _refresh(self) -> bool:
         """Check the reference before a reply: load it when it's new or changed. True when this reply is cloned."""
@@ -125,7 +121,7 @@ class TTS:
                     self._warn("model", f"the voice clone model failed to load ({ex!r}); speaking with Kokoro")
                     return False
             if self._lost:
-                log(f"voice reference {REF_WAV} is back; cloning again")
+                LOG.info(f"voice reference {REF_WAV} is back; cloning again")
             self._lost, self._down, self._warned, self._ref_stamp = False, None, None, stamp
             self._set_clone(True)
             return True
@@ -170,7 +166,7 @@ class TTS:
             from liberational.speech.voice_clone import PROMPT
 
             self.ref_text = PROMPT
-            log(f"{REF_TXT.name} missing; assuming the reference clip reads voice_clone.PROMPT", level=logs.WARN)
+            LOG.warning(f"{REF_TXT.name} missing; assuming the reference clip reads voice_clone.PROMPT")
 
     # ---- the models ----
 

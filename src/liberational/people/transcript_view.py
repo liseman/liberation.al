@@ -50,7 +50,7 @@ from collections.abc import Iterable
 from typing import Any
 
 from liberational import config as cfg
-from liberational import locking, logs
+from liberational import locking
 from liberational.domain.identity import Decision, Person, SubjectRef, Tier, tier
 from liberational.domain.kernel import PersonId
 from liberational.people import registry
@@ -174,7 +174,7 @@ class View:
                     self.names[sid] = p.display_name
             self.reg = reg
         except Exception as e:
-            registry.log(f"transcript view: lines read as stored, the log is unreadable: {e!r}", level=logs.WARN)
+            registry.LOG.warning(f"transcript view: lines read as stored, the log is unreadable: {e!r}")
 
     def canonical(self, sid: object) -> int | None:
         """A line's voice id as an int (None for none). Voices are never merged any more, so it's the id."""
@@ -268,7 +268,7 @@ class View:
                 ]
                 said = dict(zip(heard, self.reg.said(asked, refresh=False)))
             except Exception as e:
-                registry.log(f"transcript view: lines read as stored: {e!r}", level=logs.WARN)
+                registry.LOG.warning(f"transcript view: lines read as stored: {e!r}")
                 if not borrow_copies and len(heard) > 1:
                     # A failed batch must not discard another line's decision: recover the old per-line fallback.
                     return [self._read([item])[0] if i in heard else (item, None) for i, item in enumerate(items)]
@@ -595,4 +595,4 @@ def rebuild_quietly(
     try:
         rebuild_markdown(state, days, voices)
     except Exception as e:
-        registry.log(f"transcript/<day>.md not rebuilt: {e!r}", level=logs.ERROR)
+        registry.LOG.error(f"transcript/<day>.md not rebuilt: {e!r}")

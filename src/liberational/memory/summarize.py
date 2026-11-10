@@ -82,10 +82,6 @@ def _context_limit(error: urllib.error.HTTPError) -> ContextLimit | None:
 LOG = logs.get("summarize")
 
 
-def log(*a: object, level: int = logs.INFO) -> None:
-    LOG.log(level, " ".join(str(x) for x in a))
-
-
 # ------------------------------------------------------------------- LLM ----
 def llm(
     system: str,
@@ -128,7 +124,7 @@ def llm(
                     raise limit from e
                 raise
             if data.get("done_reason") == "length":
-                log(f"{m} reply reached its {num_predict}-token limit", level=logs.WARN)
+                LOG.warning(f"{m} reply reached its {num_predict}-token limit")
             observe_prompt_tokens(m, system, user, data.get("prompt_eval_count"))
             return ollama.text(data), m
         except ContextLimit:
@@ -137,7 +133,7 @@ def llm(
             err = e  # logged once by ollama_health; its message says how to fix it
         except Exception as e:
             err = e
-            log(f"{m} failed ({e}); trying fallback", level=logs.WARN)
+            LOG.warning(f"{m} failed ({e}); trying fallback")
     if isinstance(err, ollama_health.Unavailable):
         raise err
     raise RuntimeError(f"all models failed: {err}")

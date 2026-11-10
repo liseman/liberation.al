@@ -22,7 +22,6 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
-from liberational import logs
 from liberational.domain.identity import Decision, Tier, tier
 from liberational.people import registry, transcript_view
 from liberational.vision.face_guess import MATCH as FACE_MATCH  # vision/faces.py THRESH, without loading cv2
@@ -91,7 +90,7 @@ def for_shot(row: dict[str, Any], reg: registry.Registry | None) -> dict[str, An
         try:
             own = reg.person_of(registry.detection(row["id"]))
         except Exception as ex:  # an unreadable log: explain from the match
-            registry.log(f"why this name: the log is unreadable: {ex!r}", level=logs.WARN)
+            registry.LOG.warning(f"why this name: the log is unreadable: {ex!r}")
     if own is not None and own.person is not None:
         person = reg.person(own.person) if reg is not None else None
         name = person.display_name if person is not None else row["name"]

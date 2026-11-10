@@ -24,10 +24,6 @@ PA_LOCK = threading.RLock()
 LOG = logs.get("ambient")
 
 
-def log(*a: object, level: int = logs.INFO) -> None:
-    LOG.log(level, " ".join(str(x) for x in a))
-
-
 EXCLUDE_SUBSTR = [x.strip().lower() for x in cfg.get("audio.exclude_devices") if x.strip()]
 
 
@@ -74,7 +70,7 @@ def select_input_devices(
         slug = registry.slugify(name)
         if slug in seen:
             if seen[slug] != name:
-                log(f"{name!r} not opened: its slug {slug!r} is {seen[slug]!r}'s", level=logs.WARN)
+                LOG.warning(f"{name!r} not opened: its slug {slug!r} is {seen[slug]!r}'s")
             continue
         seen[slug] = name
         out.append((i, name, ch, sr))

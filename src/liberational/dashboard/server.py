@@ -228,7 +228,6 @@ from liberational import config as cfg
 from liberational import (
     continuum_link,
     knowledge,
-    logs,
     memtrim,
     model_runtime,
     readers,
@@ -256,7 +255,7 @@ from liberational.dashboard import (
     transcript_lines,
     unnamed_groups,
 )
-from liberational.dashboard.context import LOG, SSE_CLIENTS, SSE_LOCK, log
+from liberational.dashboard.context import LOG, SSE_CLIENTS, SSE_LOCK
 from liberational.people import (
     registry,
     transcript_view,
@@ -353,7 +352,7 @@ def autoname_faces_once() -> list[dict[str, Any]]:
     match gate, are named as an embedding match, each with its own undo. Put-aside groups are left alone."""
     named = people_list._faces_mod().autoname(inbox_state.inbox_skips()["face"], state=context.STATE)
     if named:
-        log("faces: named automatically:", ", ".join(f"Face {r['gid']} as {r['name']}" for r in named))
+        LOG.info("faces: named automatically: %s", ", ".join(f"Face {r['gid']} as {r['name']}" for r in named))
     return named
 
 
@@ -385,11 +384,18 @@ def check_faces_once(last: dict[str, Any] | None = None) -> dict[str, Any]:
     check = _run_check()
     seen = (check["status"], [s["gid"] for s in check["suspects"]])
     if last is None or seen != (last.get("status"), [s["gid"] for s in last.get("suspects", [])]):
-        log(
-            f"faces: held-out check {check['status']} ({check['right']} right, {check['wrong']} wrong, "
-            f"{check['unknown']} unknown of {check['groups']} tagged groups)"
-            + (f": {check['reason']}" if check["reason"] else ""),
-            *(f"Face {s['gid']} is tagged {s['tagged']} but looks like {s['looks_like']}" for s in check["suspects"]),
+        suspects = [
+            f"Face {s['gid']} is tagged {s['tagged']} but looks like {s['looks_like']}" for s in check["suspects"]
+        ]
+        LOG.info(
+            "faces: held-out check %s (%s right, %s wrong, %s unknown of %s tagged groups)%s%s",
+            check["status"],
+            check["right"],
+            check["wrong"],
+            check["unknown"],
+            check["groups"],
+            f": {check['reason']}" if check["reason"] else "",
+            "".join(" " + s for s in suspects),
         )
     return check
 
@@ -406,12 +412,12 @@ def _autoname_faces_forever() -> None:
             try:
                 check = check_faces_once(check)
             except Exception as ex:
-                log("faces: held-out check failed:", repr(ex), level=logs.WARN)
+                LOG.warning("faces: held-out check failed: %s", repr(ex))
             checked = time.monotonic()
         try:
             autoname_faces_once()
         except Exception as ex:
-            log("faces: automatic naming failed:", repr(ex), level=logs.WARN)
+            LOG.warning("faces: automatic naming failed: %s", repr(ex))
         time.sleep(AUTONAME_EVERY_S)
 
 
@@ -424,7 +430,7 @@ def _warm_faces() -> threading.Thread:
         try:
             people_list._faces_mod()
         except Exception as ex:
-            log("faces helpers not preloaded:", ex, level=logs.WARN)
+            LOG.warning("faces helpers not preloaded: %s", ex)
 
     t = threading.Thread(target=run, daemon=True, name="faces-import")
     t.start()
@@ -498,7 +504,7 @@ def app_page(name: str = APP_PAGE) -> tuple[int, bytes]:
     if DEV and (got := vite("/static/app/" + name)) is not None:
         return 200, fill(got[0].decode()).encode()
     if DEV:
-        log(
+        LOG.info(
             f"dev: Vite isn't answering on port {cfg.get('ports.vite')} (ports.vite), so the page is the last build"
             " (run `mise run dev`, which starts it)"
         )
@@ -555,11 +561,11 @@ class DashboardServer(http.server.ThreadingHTTPServer):
             try:
                 photo_files._crop_jobs.start(lambda: context.low_priority(19))
             except Exception as error:
-                log("thumbnail worker could not start:", repr(error), level=logs.ERROR)
+                LOG.error("thumbnail worker could not start: %s", repr(error))
             try:
                 threading.Thread(target=people_reads._warm_people, daemon=True, name="warm-people").start()
             except Exception as error:
-                log("people: warm-up could not start:", repr(error), level=logs.WARN)
+                LOG.warning("people: warm-up could not start: %s", repr(error))
 
     def handle_error(self, request: Any, client_address: Any) -> None:
         """An error outside any one request (H handles those): one log line, not socketserver's traceback dump."""
@@ -855,7 +861,7 @@ class H(http.server.BaseHTTPRequestHandler):
             # The catalog names a chunk file that isn't on disk (logged once per file where it's read).
             return self._json({"ok": False, "error": f"the audio's chunk file is missing: {e.filename}"}, 404)
         except Exception as e:
-            log("clip error:", repr(e), level=logs.ERROR)
+            LOG.error("clip error: %s", repr(e))
             return self._json({"ok": False, "error": repr(e)[:200]}, 500)
         if info:
             return self._json(dict(meta, entry=entry, wav_bytes=len(data)))
@@ -997,7 +1003,7 @@ class H(http.server.BaseHTTPRequestHandler):
             with contextlib.suppress(OSError):
                 send({"error": "The broker isn't running, so there are no live levels."})
         except Exception as e:
-            log("levels:", repr(e), level=logs.WARN)
+            LOG.warning("levels: %s", repr(e))
 
     def _hung_up(self) -> bool:
         """Whether the client has closed its end of the connection. A stream's client sends nothing after its request,
@@ -1250,7 +1256,7 @@ def _warm_devices() -> None:
 
         device_links.listing("", state=context.STATE)
     except Exception as error:  # the tab reads it itself, and says so if it can't
-        log("devices: warm-up failed:", repr(error), level=logs.WARN)
+        LOG.warning("devices: warm-up failed: %s", repr(error))
 
 
 def _after_people_warm(name: str, start: Callable[[], Any]) -> threading.Thread:
@@ -1263,7 +1269,7 @@ def _after_people_warm(name: str, start: Callable[[], Any]) -> threading.Thread:
         try:
             start()
         except Exception as error:
-            log(f"{name} could not start:", repr(error), level=logs.WARN)
+            LOG.warning("%s %s", f"{name} could not start:", repr(error))
 
     thread = threading.Thread(target=run, daemon=True, name=f"after-warm-{name}")
     thread.start()
@@ -1300,15 +1306,15 @@ def main() -> None:
     PORT = settings.port_arg() or PORT
     DEV = "--dev" in sys.argv[1:]
     if DEV:
-        devreload.watch(log)
+        devreload.watch(LOG.info)
     srv = DashboardServer(("0.0.0.0", PORT), H)
     if not cfg.local_config().exists():
-        log(f"no pack.toml yet: open http://localhost:{PORT}/ to set up the pack")
+        LOG.info(f"no pack.toml yet: open http://localhost:{PORT}/ to set up the pack")
     if assets.stale():
-        log(
+        LOG.info(
             "the frontend build in static/app/ is older than frontend/: run `mise run frontend` (the page shows a banner)"
         )
-    log(
+    LOG.info(
         f"pack dashboard on http://localhost:{PORT}/{'  (dev: auto-reload on)' if DEV else ''}  (psutil {'ok' if psutil else 'MISSING'}, soundfile {'ok' if sf else 'MISSING'})"
     )
     from liberational.dashboard import presence as review_presence

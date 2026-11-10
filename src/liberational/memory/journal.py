@@ -152,10 +152,6 @@ PROGRESS_BIG = 100  # windows in a phase big enough to say so as it starts, befo
 LOG = logs.get("journal")
 
 
-def log(*a: object, level: int = logs.INFO) -> None:
-    LOG.log(level, " ".join(str(x) for x in a))
-
-
 def speakers(state: pathlib.Path | None = None) -> transcript_view.View:
     """Who each speaker id and transcript line is now: the voice list and the event log, read through person_of
     (people/transcript_view.py). Make one per pass or request: it does not see labels given after it was made."""
@@ -769,7 +765,7 @@ class Progress:
         self.done = 0
         self.began = self.said = clock()
         if total > PROGRESS_BIG:
-            log(f"{phase}: {total:,} windows to write")
+            LOG.info(f"{phase}: {total:,} windows to write")
 
     def tick(self, window: float) -> None:
         """One more window done (written, or put off to a later pass), the one starting at `window`."""
@@ -780,7 +776,9 @@ class Progress:
         self.said = now
         left = (now - self.began) / self.done * (self.total - self.done)
         when = dt.datetime.fromtimestamp(window, history_qa.TZ).strftime("%Y-%m-%d %H:%M")
-        log(f"{self.phase}: {self.done} of {self.total} windows done, through {when}, about {left / 60:.0f} min left")
+        LOG.info(
+            f"{self.phase}: {self.done} of {self.total} windows done, through {when}, about {left / 60:.0f} min left"
+        )
 
 
 class Pass:
@@ -914,7 +912,7 @@ class Pass:
             # The estimate learns the actual prompt count in summarize.llm. Also leave additional headroom
             # on this one retry, including when Ollama returned no usable token counts.
             limit = min(summarize.NUM_CTX, error.available or summarize.NUM_CTX) * 4 // 5
-            log("context limit; retrying journal window with less evidence", level=logs.WARN)
+            LOG.warning("context limit; retrying journal window with less evidence")
             return self._write_chunks(level, payload, allowed, complete, limit)
 
     def _prompt_fits(self, system: str, payload: dict[str, Any], budget: int, limit: int) -> bool:
@@ -1041,7 +1039,7 @@ class Pass:
                 raise EmptyReply(f"invalid structured reply for {where}: expected an object with text")
             text = _clean(parsed["text"])
             if len(text) > max_chars:
-                log(f"a reply for {where} ran to {len(text)} characters past its {max_chars}: cut", level=logs.WARN)
+                LOG.warning(f"a reply for {where} ran to {len(text)} characters past its {max_chars}: cut")
             return _cap(text, max_chars), parsed.get("source_ids")
 
         out, selected = ask(user)
@@ -1361,7 +1359,7 @@ class Pass:
                 self.failed += 1
                 if supersedes is not None:
                     self.superseded += 1
-                log(f"skipped the {level} s rebuild window at {_clock(start)}: {e}", level=logs.WARN)
+                LOG.warning(f"skipped the {level} s rebuild window at {_clock(start)}: {e}")
                 return True
             failures = _TRIES.get(key, 0) + 1
             if failures <= MAX_RETRIES:
@@ -1369,7 +1367,7 @@ class Pass:
                 self.error = f"{_clock(start)} at {level} s, failure {failures}: {e}"
                 return False
             _TRIES.pop(key, None)
-            log(f"skipped the {level} s window at {_clock(start)} after {failures} failures: {e}", level=logs.WARN)
+            LOG.warning(f"skipped the {level} s window at {_clock(start)} after {failures} failures: {e}")
             if supersedes is not None:
                 _GAVE_UP[key] = self._inputs(level, start, supersedes)
             else:
@@ -1450,7 +1448,7 @@ class Pass:
         if self.failed:
             out["failed"] = self.failed
         if self.error:
-            log("pass stopped:", self.error, level=logs.ERROR)
+            LOG.error("pass stopped: %s", self.error)
             out["error"] = self.error
         return out
 
@@ -1597,7 +1595,7 @@ def summaries(state: str | pathlib.Path | None = None) -> dict[str, Any]:
     try:
         return review_summary.precompute(state)
     except Exception as ex:
-        log("summary lines failed:", repr(ex), level=logs.ERROR)
+        LOG.error("summary lines failed: %s", repr(ex))
         return dict(error=repr(ex))
 
 
@@ -1613,7 +1611,7 @@ def pages(state: str | pathlib.Path | None = None, now: float | None = None) -> 
         with writer_lock(state):
             return journal_pages.pages_pass(state, time.time() if now is None else now)
     except Exception as ex:
-        log("pages failed:", repr(ex), level=logs.ERROR)
+        LOG.error("pages failed: %s", repr(ex))
         return dict(error=repr(ex))
 
 
@@ -1689,7 +1687,7 @@ class _Forgetting:
             self.names |= reg.names(name, others=True)
             self.reg = reg
         except Exception as e:
-            log(f"forget: only the name {name!r} counts, the event log is unreadable: {e!r}", level=logs.WARN)
+            LOG.warning(f"forget: only the name {name!r} counts, the event log is unreadable: {e!r}")
 
     def named(self, label: str, at: float) -> bool:
         """Whether `label`, written at `at`, named this person."""
@@ -1780,25 +1778,25 @@ def daemon(state: str | pathlib.Path | None = None) -> NoReturn:
     state = pathlib.Path(state or cfg.path("paths.state"))
     every = float(cfg.get("journal.every_s", 60))
     if not cfg.get("journal.enabled"):
-        log("journal.enabled is false; writing nothing")
+        LOG.info("journal.enabled is false; writing nothing")
         while True:  # stay up quietly: exiting would only make the service manager restart it every throttle
             _sleep(3600)
-    log(f"writing the journal every {every:.0f} s with {model_name()}")
+    LOG.info(f"writing the journal every {every:.0f} s with {model_name()}")
     while True:
         try:
             r = run_pass(state)
             if r.get("built") or r.get("superseded") or r.get("error"):
-                log(", ".join(f"{k} {v}" for k, v in r.items()))
+                LOG.info(", ".join(f"{k} {v}" for k, v in r.items()))
             if r.get("skipped") != "voice" and (e := embed(state)).get("embedded"):
-                log(f"embedded {e['embedded']} entries for the vector worker")
+                LOG.info(f"embedded {e['embedded']} entries for the vector worker")
             if r.get("skipped") != "voice" and (f := facts(state)).get("hours"):
-                log(f"read {f['hours']} hours for facts about people, {f['facts']} written")
+                LOG.info(f"read {f['hours']} hours for facts about people, {f['facts']} written")
             if r.get("skipped") != "voice" and ((w := summaries(state)).get("written") or w.get("backfilled")):
-                log(f"wrote {w['written']} summary lines ahead, {w['backfilled']} for older days")
+                LOG.info(f"wrote {w['written']} summary lines ahead, {w['backfilled']} for older days")
             if r.get("skipped") != "voice" and ((g := pages(state)).get("written") or g.get("rewritten")):
-                log(f"wrote {g['written']} journal pages, rewrote {g['rewritten']}")
+                LOG.info(f"wrote {g['written']} journal pages, rewrote {g['rewritten']}")
         except Exception as e:
-            log("pass failed:", e, level=logs.ERROR)
+            LOG.error("pass failed: %s", e)
         _sleep(every)
 
 

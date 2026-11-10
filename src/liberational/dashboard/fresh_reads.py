@@ -7,9 +7,9 @@ from collections.abc import Callable
 from concurrent.futures import Future
 from typing import Any
 
-from liberational import logs, voice_turn
+from liberational import voice_turn
 from liberational.dashboard import context
-from liberational.dashboard.context import Reply, log
+from liberational.dashboard.context import LOG, Reply
 
 
 class _Fresh:
@@ -146,7 +146,7 @@ class _Fresh:
         try:
             self._work(keys)
         except Exception as e:
-            log(f"{self.name}: not refreshed:", repr(e), level=logs.WARN)
+            LOG.warning("%s %s", f"{self.name}: not refreshed:", repr(e))
         finally:
             with self.lock:
                 self.busy = False

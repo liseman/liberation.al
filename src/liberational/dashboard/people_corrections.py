@@ -11,7 +11,6 @@ import time
 from collections.abc import Callable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
-from liberational import logs
 from liberational.dashboard import (
     context,
     inbox_state,
@@ -26,7 +25,7 @@ from liberational.dashboard import (
     unnamed_groups,
     voice_clones,
 )
-from liberational.dashboard.context import Reply, log
+from liberational.dashboard.context import LOG, Reply
 from liberational.domain.identity import Basis
 from liberational.people import card_prefs, registry, transcript_view
 from liberational.see.faces import VISIT_GAP_S
@@ -236,7 +235,7 @@ def _voice_teaching(sid: int) -> list[dict[str, Any]]:
         clips, _ = unnamed_groups.voice_clips([{"id": sid, "label": f"Speaker {sid}"}], per_voice=1, raw=raw, view=view)
         return [dict(e) for e in voices.teaching_lines(mine, clips[0]["line"] if clips else None)]
     except Exception as e:
-        log(f"voice {sid}: its lines to teach couldn't be read:", repr(e), level=logs.WARN)
+        LOG.warning("%s %s", f"voice {sid}: its lines to teach couldn't be read:", repr(e))
         return []
 
 
@@ -355,7 +354,7 @@ def _undo_op(op: Mapping[str, Any]) -> str | None:
         else:
             return f"unknown op {kind!r}"
     except Exception as ex:
-        log("people: undo failed:", repr(ex), level=logs.ERROR)
+        LOG.error("people: undo failed: %s", repr(ex))
         return str(ex)
     return None
 
@@ -383,7 +382,7 @@ def _rolled_back(ops: list[dict[str, Any]]) -> None:
     """Put back what one half-done item changed (newest first), so a failure leaves nothing behind."""
     for op in reversed(ops):
         if err := _undo_op(op):
-            log("people: rollback left:", err, level=logs.WARN)
+            LOG.warning("people: rollback left: %s", err)
 
 
 _ASSIGN_KINDS = ("faces", "voices", "videos")
@@ -644,7 +643,7 @@ def correct_card(body: Mapping[str, Any]) -> Reply:
                     raise ValueError(out.get("error") or "labeling the line failed")
                 ops.append({"op": "line", "line": key})
     except Exception as ex:
-        log("people: correction failed:", repr(ex), level=logs.ERROR)
+        LOG.error("people: correction failed: %s", repr(ex))
         _rolled_back(ops)  # what went through goes back, so nothing is half done
         return 500, {"ok": False, "error": "That didn't work: " + str(ex)}
     token = card_prefs.record(context.STATE, "correct", name, ops) if ops else None
