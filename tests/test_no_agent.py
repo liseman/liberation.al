@@ -66,7 +66,7 @@ def test_introducing_someone_needs_no_agent():
         patch.object(voice.CONVERSATION, "accept", autospec=True, return_value=owner_grant("that's Katie.")),
         patch.object(identity, "collar_intro", autospec=True, return_value=intro) as collar_intro,
     ):
-        assert voice.handle("Hey Bob, that's Katie.", None, {"speaker": "joe"}) == "Got it, Katie."
+        assert voice.handle("Hey Bob, that's Katie.", None, {"speaker": "sam"}) == "Got it, Katie."
     collar_intro.assert_called_once_with("Katie")
 
 
@@ -89,7 +89,7 @@ def test_friends_mode_falls_back_to_local():
     ],
 )
 def test_a_failed_answer_is_spoken_only_to_a_line_that_called_the_assistant(monkeypatch, addressed, spoken):
-    """#480: with no agent, every question the owner asked someone else in the room got "I can't do that without an
+    """With no agent, every question the owner asked someone else in the room got "I can't do that without an
     agent" spoken over them."""
     request = "How many times has that happened?"
     grant = Grant(request, "gateway", False, False, False, False, owner=True, addressed=addressed)
@@ -99,5 +99,5 @@ def test_a_failed_answer_is_spoken_only_to_a_line_that_called_the_assistant(monk
         patch.object(voice.CONVERSATION, "accept", autospec=True, return_value=grant),
         patch.object(voice.CONVERSATION, "spoken_reply", autospec=True),
     ):
-        assert voice.handle(request, speaker, {"speaker": "joe"}) == spoken
+        assert voice.handle(request, speaker, {"speaker": "sam"}) == spoken
     assert speaker.speak.call_count == (1 if spoken else 0)

@@ -1,4 +1,4 @@
-"""A face's filmstrip on People (issue #60): people/face_photos.sightings_of and its dashboard route, and the photo a
+"""A face's filmstrip on People: people/face_photos.sightings_of and its dashboard route, and the photo a
 face group gets, cut from a camera frame."""
 
 import json
@@ -11,7 +11,7 @@ import pytest
 
 from liberational import config as cfg
 from liberational import segment_log
-from liberational.dashboard import server
+from liberational.dashboard import context, server
 from liberational.people import face_photos, face_shots
 from liberational.vision import faces as fid
 
@@ -58,7 +58,7 @@ def test_a_groups_strip_is_its_unnamed_sightings_newest_first(state, gid, kwargs
 
 
 def test_the_strip_reaches_past_newer_sightings_of_other_faces(state, vision):
-    # Codex on PR #71: a face seen before a busy stretch of other faces must still get its strip.
+    # A face seen before a busy stretch of other faces must still get its strip.
     for k in range(50):
         vision.face(T + 1000 + k, cluster="Face 6")
     assert [s["id"] for s in face_photos.sightings_of(5)] == [state["b"], state["a"]]
@@ -100,7 +100,7 @@ def test_a_group_whose_photo_couldnt_be_cut_waits_for_new_sightings(state, visio
 def strip(state, serve, monkeypatch, tmp_path):
     """GET a group's strip from a served dashboard: (its reply, the crop jobs it queued). No crop is cut here."""
     monkeypatch.setattr(server, "DASH_PASSWORD", "")
-    monkeypatch.setattr(server, "STATE", tmp_path / "state")
+    monkeypatch.setattr(context, "STATE", tmp_path / "state")
     jobs = face_shots.Pending(lambda key: None)
     monkeypatch.setattr(server, "_crop_jobs", jobs)
     base = serve(server.H)
@@ -117,7 +117,7 @@ def test_the_dashboard_serves_the_strip_as_saved_shot_urls(state, strip, tmp_pat
     for key in ("a", "b"):
         face_shots.write(tmp_path / "state", state[key], "0", b"jpeg")
     body, _ = strip(5)
-    # Each picture is the sighting's saved shot, newest first (Codex on PR #71).
+    # Each picture is the sighting's saved shot, newest first.
     assert [x["url"] for x in body["sightings"]] == [f"/faces/shot/{state['b']}.jpg", f"/faces/shot/{state['a']}.jpg"]
     assert (body["total"], body["shots_pending"]) == (2, 0)
 

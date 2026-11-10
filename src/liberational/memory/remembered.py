@@ -2,7 +2,7 @@
 `{"ts", "op": "remember" | "forget", "text"}`, appended by the phone bridge ("remember that ...", "forget ...").
 
 `items` is the one reader, for the phone bridge, the in-person voice path, and the dashboard's person card: they used
-to read the log three ways, and a "forget everything" said on the phone still reached the voice agent (#3123).
+to read the log three ways, and a "forget everything" said on the phone still reached the voice agent.
 Forgetting "everything", "all", "all of it", or nothing clears what came before; any other forget drops the notes
 that contain its words or that its words contain, ignoring case.
 """

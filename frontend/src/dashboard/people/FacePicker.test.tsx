@@ -142,7 +142,7 @@ it('copies the selected source when making a clean displayed-face crop', async (
   vi.restoreAllMocks();
 });
 
-// #2330: naming a live face takes its group off the waiting list and the count at once, wherever it was named.
+// Naming a live face takes its group off the waiting list and the count at once, wherever it was named.
 const WAITING = {
   groups: [
     { id: 5, label: 'Face 5' },

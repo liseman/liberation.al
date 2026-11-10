@@ -3,8 +3,8 @@
 //!
 //! It runs a broker in-process (on a socket in a temporary directory), registers `cam0.video` (MJPEG) and the vision
 //! streams `face.detection`, `face.match`, and `pose.body`, and publishes 10 frames a second of a moving square with
-//! a face box over it, matched to "Joe", and a two-joint skeleton, each record at its frame's capture time, as the
-//! vision workers would (docs/VISION-STREAMS.md). The gateway serves WebSockets on 127.0.0.1:`port` (8766 by
+//! a face box over it, matched to a known person, and a two-joint skeleton, each record at its frame's capture time, as
+//! the vision workers would (docs/VISION-STREAMS.md). The gateway serves WebSockets on 127.0.0.1:`port` (8766 by
 //! default, where the page looks). Stop it with Ctrl-C.
 
 use std::sync::Arc;
@@ -119,7 +119,7 @@ async fn main() {
         publish(&p, det, t, i, face.into_bytes()).await;
         // Every third frame is posed and matched, as a sampling worker would.
         if i % 3 == 0 {
-            publish(&p, mat, t, i, br#"{"cam":"cam0","track_id":"fake:cam0:1","name":"Joe","sim":0.7}"#.to_vec()).await;
+            publish(&p, mat, t, i, br#"{"cam":"cam0","track_id":"fake:cam0:1","name":"Sam","sim":0.7}"#.to_vec()).await;
             let mut joints = vec!["[-1,-1,0]".to_owned(); 26];
             joints[5] = format!("[{x1},{y1},0.9]");
             joints[7] = format!("[{x2},{y2},0.9]");

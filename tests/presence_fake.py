@@ -1,4 +1,4 @@
-"""Presence test data as see-actions and see-zones would write it (#1825): frames run through the real episode rules
+"""Presence test data as see-actions and see-zones would write it: frames run through the real episode rules
 (memory/presence_episodes.py), their `presence.span` rows and the frames' `action.coverage` added to the suite's fake
 segment log, which presence_counts reads."""
 

@@ -142,7 +142,7 @@ it("draws each person's and pet's path, and lights up the room of one known only
 });
 
 it('draws the paths of a place with no plan yet on plain floor fitted to them', async () => {
-  // A lone camera's people have x and y on its floor without a plan (#3157)
+  // A lone camera's people have x and y on its floor without a plan
   serve([{ ...HOME, name: 'Place 3', named: false, plan: null, plan_source: null }], q => {
     const end = Number(q.get('end'));
     return {
@@ -356,7 +356,7 @@ it('offers no 3D view of an example plan', async () => {
 });
 
 it("says when a place was last in use: the owner's visit, or anyone its cameras saw since", () => {
-  // #2905: a place only fixed cameras watch has no visits, and read "No visits yet" with hundreds of tracks.
+  // A place only fixed cameras watch has no visits, and read "No visits yet" with hundreds of tracks.
   const now = Date.now() / 1000;
   const at = (visit: number | null, activity: number | null) =>
     lastVisit({ id: 'p', name: 'P', plan: null, example: false, lastVisit: visit, lastActivity: activity });
@@ -364,4 +364,28 @@ it("says when a place was last in use: the owner's visit, or anyone its cameras 
   expect(at(now - 3 * 86400, now - 120)).toBe('Activity 2 min ago');
   expect(at(now - 120, now - 3 * 86400)).toBe('Visited 2 min ago');
   expect(at(null, null)).toBe('Nothing seen yet');
+});
+
+it('marks a place never walked, names the rooms a walked one is missing, and links to the walk steps', async () => {
+  serve([HOME, { ...OFFICE, walks: 2, unwalked_rooms: [{ id: 'den', name: 'Den' }] }]);
+  renderPage(<PlacesTab />);
+  await screen.findByRole('button', { name: /^Home/ });
+  expect(within(row(/^Home/)).getByText('Not walked')).toBeTruthy();
+  expect(within(row(/^Office/)).getByText('1 room not walked')).toBeTruthy();
+  const note = screen.getByRole('note', { name: 'Walkthrough' });
+  expect(note.textContent).toContain('never been walked');
+  expect(note.textContent).toContain('--place p1');
+  expect(within(note).getByRole('link', { name: 'How to record and import a walk' }).getAttribute('href')).toMatch(
+    /docs\/WALKTHROUGH\.md$/,
+  );
+  fireEvent.click(row(/^Office/));
+  expect(screen.getByRole('note', { name: 'Walkthrough' }).textContent).toContain('Not walked yet: Den.');
+});
+
+it('marks nothing on a place whose walks covered every room, or the examples', async () => {
+  serve([{ ...HOME, walks: 1, unwalked_rooms: [] }]);
+  renderPage(<PlacesTab />);
+  await screen.findByRole('button', { name: /^Home/ });
+  expect(screen.queryByText(/not walked/i)).toBeNull();
+  expect(screen.queryByRole('note', { name: 'Walkthrough' })).toBeNull();
 });

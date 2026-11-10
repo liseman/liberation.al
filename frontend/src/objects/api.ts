@@ -1,4 +1,4 @@
-// The Objects page's API (dashboard/objects.py), served by the dashboard under /objects on Continuum (#778).
+// The Objects page's API (dashboard/objects.py), served by the dashboard under /objects on Continuum.
 
 import type { FrameMetadata } from '../dashboard/camera/geometry';
 import { request } from '../shared/http';
@@ -27,7 +27,7 @@ export interface MemoryObject {
 
 export interface CameraStatus {
   camera: string;
-  /** Its place name from Settings (vision.places), or its id when it has none. */
+  /** Its name from Settings (vision.camera_names), or its id when it has none. */
   name?: string;
   available: boolean;
   stale?: boolean;
@@ -109,7 +109,7 @@ export const segment = (
   job: string,
   signal?: AbortSignal,
 ) => request<Segmentation>(`${base}/api/segment`, { snapshot, ...prompt, job }, signal);
-/** EdgeTAM's automatic masks over `crop` (frame pixels: the region in view), or the whole snapshot (#2020). */
+/** EdgeTAM's automatic masks over `crop` (frame pixels: the region in view), or the whole snapshot. */
 export const findObjects = (snapshot: string, crop: Box | null, job: string, signal?: AbortSignal) =>
   request<{ snapshot: string; objects: FoundObject[]; ms: number }>(
     `${base}/api/find`,

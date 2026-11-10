@@ -1,4 +1,4 @@
-"""People's corrections and "pick what's theirs" (#309): GET /inbox/unnamed, POST /people/assign, /people/correct,
+"""People's corrections and "pick what's theirs": GET /inbox/unnamed, POST /people/assign, /people/correct,
 and /people/undo, with the sighting corrections they rest on (vision/sightings.py: the owner's claims in the people
 registry on the face worker's detections), the card's choices (people/card_prefs.py), and the face rows they add and
 take back (vision/faces.py). A temp state dir, the voice CLI run in process, made-up names, and synthetic faces on the
@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 
 from liberational import config as cfg
-from liberational.dashboard import server
+from liberational.dashboard import call_log, context, known_voices, server, transcript_lines
 from liberational.domain.identity import Basis
 from liberational.people import card_prefs, face_shots, registry, video_thumbs
 from liberational.vision import faces as face_db
@@ -42,15 +42,15 @@ def state(tmp_path, monkeypatch, pack, ran, vision):  # noqa: F811
     s = tmp_path / "state"
     s.mkdir()
     for name, path in {
-        "STATE": ".",
         "CONTACTS_FILE": "contacts.json",
         "PEOPLE_ADDED": "people_added.json",
         "INBOX_SKIPS": "inbox_skips.json",
-        "CALLS_DIR": "calls",
         "REFINE_LOG": "refine_log.jsonl",
         "VOICE_TAGS": "voice_tags.jsonl",
     }.items():
         monkeypatch.setattr(server, name, s / path)
+    monkeypatch.setattr(call_log, "CALLS_DIR", s / "calls")
+    monkeypatch.setattr(context, "STATE", s)
     monkeypatch.setattr(face_db, "DB", tmp_path / "faces" / "db.npz")
     monkeypatch.setattr(face_db, "UNK_DB", tmp_path / "faces" / "unknown.npz")
     monkeypatch.setattr(server, "_face_last_seen_at", dict)
@@ -134,7 +134,7 @@ def test_the_unnamed_list_has_faces_voices_and_clips(state):
             "count": 2,
             "last_seen": DAY + 1000,
             "cam": "cam1",
-            "place": "cam1",
+            "camera_name": "cam1",
         }
     ]
     assert [(v["id"], v["label"], v["sample"]["text"]) for v in out["voices"]] == [
@@ -150,14 +150,14 @@ def test_assigning_picks_names_them_all_and_one_undo_puts_them_back(state):
     assert "Sam" in [p["name"] for p in out["people"]]
     assert face_db.unknown_groups() == []
     assert [str(n) for n in face_db.load_db()[0]].count("Sam") == 1  # group 7's face
-    assert server._speakers()["speakers"][1]["label"] == "Sam"
+    assert known_voices._speakers()["speakers"][1]["label"] == "Sam"
     assert names_of(state, 6, 7) == ["Sam", "Sam"]
 
     code, back = server.undo_people({"undo": out["undo"]})
     assert code == 200 and back["ok"], back
     assert face_db.unknown_groups() == [{"id": 7, "count": 2}]
     assert [str(n) for n in face_db.load_db()[0]] == ["Kara", "Bob"]
-    assert server._speakers()["speakers"][1]["label"] == "Speaker 2"
+    assert known_voices._speakers()["speakers"][1]["label"] == "Speaker 2"
     assert names_of(state, 6, 7) == [None, None]
     assert server.undo_people({"undo": out["undo"]})[0] == 409
 
@@ -179,11 +179,11 @@ def test_claim_undo_preserves_an_existing_persons_other_voice(state):
     before = registry.at(state).person_of(registry.voiceprint(1)).person
     code, out = server.claim_identity("voice", 2, "Kara", control=True)
     assert code == 200, out
-    assert [voice["label"] for voice in server._speakers()["speakers"]] == ["Kara", "Kara"]
+    assert [voice["label"] for voice in known_voices._speakers()["speakers"]] == ["Kara", "Kara"]
 
     code, back = server.undo_people({"undo": out["undo"]})
     assert code == 200 and back["ok"], back
-    assert [voice["label"] for voice in server._speakers()["speakers"]] == ["Kara", "Speaker 2"]
+    assert [voice["label"] for voice in known_voices._speakers()["speakers"]] == ["Kara", "Speaker 2"]
     assert registry.at(state).person_of(registry.voiceprint(1)).person == before
 
 
@@ -259,7 +259,7 @@ def test_repeating_a_voice_claim_does_not_offer_to_undo_earlier_teaching(state):
     code, out = server.claim_identity("voice", 1, "Kara", control=True)
     assert code == 200, out
     assert not out.get("undo")
-    assert server._speakers()["speakers"][0]["label"] == "Kara"
+    assert known_voices._speakers()["speakers"][0]["label"] == "Kara"
 
 
 def test_what_cannot_be_assigned_is_listed_and_the_rest_stands(state):
@@ -284,12 +284,12 @@ def test_assigning_to_several_people_at_once_is_one_undo(state):
     assert out["failed"] == []
     assert {"Sam", "Dana"} <= {p["name"] for p in out["people"]}
     assert face_db.unknown_groups() == []
-    assert server._speakers()["speakers"][1]["label"] == "Dana"
+    assert known_voices._speakers()["speakers"][1]["label"] == "Dana"
 
     code, back = server.undo_people({"undo": out["undo"]})
     assert code == 200 and back["ok"], back
     assert face_db.unknown_groups() == [{"id": 7, "count": 2}]
-    assert server._speakers()["speakers"][1]["label"] == "Speaker 2"
+    assert known_voices._speakers()["speakers"][1]["label"] == "Speaker 2"
     assert server.undo_people({"undo": out["undo"]})[0] == 409
 
 
@@ -421,7 +421,7 @@ def test_not_kara_on_a_voice_line_keeps_it_as_her_negative_until_the_undo(state,
 def _speaker_of(key: str) -> str | None:
     line = server._line_by_key(key)
     assert line is not None, key
-    return server._view().line(line).get("speaker")
+    return transcript_lines._view().line(line).get("speaker")
 
 
 @pytest.mark.parametrize(
@@ -594,12 +594,12 @@ def test_the_unnamed_list_is_not_a_person_named_unnamed(state):
 
 # ---- from the local review ----
 def test_a_voice_for_someone_who_has_one_joins_it_and_its_undo_leaves_their_voice_named(state):
-    code, out = server.assign_to({"name": "Kara", "voices": [2]})  # from any machine: nothing restarts (#349)
+    code, out = server.assign_to({"name": "Kara", "voices": [2]})  # from any machine: nothing restarts
     assert code == 200, out
     code, back = server.undo_people({"undo": out["undo"]})
     assert (code, back["ok"]) == (200, False)
     assert "can't be undone" in back["errors"][0]
-    assert "Kara" in [s["label"] for s in server._speakers()["speakers"]]  # Kara keeps her voice
+    assert "Kara" in [s["label"] for s in known_voices._speakers()["speakers"]]  # Kara keeps her voice
 
 
 def test_undoing_a_video_move_puts_the_event_log_back(state):
@@ -739,7 +739,7 @@ def test_warm_unnamed_picks_follow_group_claims_corrections_new_matches_and_purg
 
 
 def test_naming_a_voice_teaches_listen_its_line_and_the_undo_takes_it_back(state):
-    # #3247: the claim confirms the voice's lines (here its one line) as the person's, as /speakers/tag would
+    # The claim confirms the voice's lines (here its one line) as the person's, as /speakers/tag would
     from liberational.listen import voices
 
     with patch.object(voices, "confirm_lines", autospec=True, return_value=1) as confirm:

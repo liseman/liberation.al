@@ -47,9 +47,9 @@ def poses(walk: Path, work: Path) -> Path:
 
 def frames(
     walk: Path, saved: Path, folder: Path
-) -> tuple[list[Path], np.ndarray, list[tuple[np.ndarray, tuple[int, int]]], list[float]]:
+) -> tuple[list[Path], np.ndarray, list[tuple[np.ndarray, tuple[int, int]]], list[float], list[Path | None]]:
     """The walk's saved frames in `folder`, their poses, intrinsics and sizes, and times, as `run` (or `run_stray`)
-    had them."""
+    had them, and a Stray export's depth maps (none for a video)."""
     import cv2
 
     folder.mkdir(parents=True, exist_ok=True)
@@ -66,11 +66,13 @@ def frames(
         cap.release()
         paths = [images[n] for n in sorted(images)]
         intr = [stray.saved_intrinsics(rows[i].k, size, walkthrough.FRAME_SIDE, code, turn) for i in picked]
+        depths = walkthrough.stray_depths(walk, picked, code, folder)
     else:
         images = walkthrough.save_frames(walk, picked, folder)
         paths = [images[n] for n in sorted(images)]
         intr = walkthrough.cut3r_intrinsics(got["focal"], got["size"], paths)
-    return paths, got["c2w"], intr, [float(t) for t in got["t"]]
+        depths = []
+    return paths, got["c2w"], intr, [float(t) for t in got["t"]], depths
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -83,7 +85,7 @@ def main(argv: list[str] | None = None) -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
     args.work.mkdir(parents=True, exist_ok=True)
     saved = poses(args.walk, args.work)
-    paths, c2w, intr, times = frames(args.walk, saved, args.work / "frames")
+    paths, c2w, intr, times, depths = frames(args.walk, saved, args.work / "frames")
     state = args.work / "state"
     (place,) = places.place_ids(state)
     rev = places.latest(state, place)
@@ -91,11 +93,13 @@ def main(argv: list[str] | None = None) -> None:
     moved = splats.carried(looks, rev.cameras) if rev is not None else None
     if rev is None or rev.map is None or moved is None:
         raise SystemExit("the scratch place has no map or none of the walk's cameras")
-    views = splats.walk_views(paths, c2w, intr, moved)
+    views = splats.walk_views(paths, c2w, intr, moved, depths)
     points, colors, _ = ply.read(places.root(state) / rev.place / str(rev.map))
     holdout = list(range(FIRST, len(views), EVERY))
     for refine in {"on": [True], "off": [False], "both": [False, True]}[args.refine]:
-        result, _ = splats.train_walk(views, points, colors, refine=refine, holdout=holdout, steps=args.steps)
+        result, _ = splats.train_walk(
+            views, points, colors, scale=moved[2], refine=refine, holdout=holdout, steps=args.steps
+        )
         print(json.dumps({"walk": args.walk.name, "views": len(views), "held_out": len(holdout), **result}))
 
 

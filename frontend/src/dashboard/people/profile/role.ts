@@ -75,21 +75,21 @@ export function shortWhen(ts: number, now = new Date()): string {
  * yesterday at 20:12 by cam1". The cameras are views of one rig, not rooms, so the camera is named, never a place.
  * '' when there is nothing to say. */
 export function whereabouts(p: {
-  here_now?: { cam: string | null; place?: string | null } | null;
+  here_now?: { cam: string | null; camera_name?: string | null } | null;
   last_seen?: number | null;
   last_seen_cam?: string | null;
-  last_seen_place?: string | null;
+  last_seen_camera_name?: string | null;
 }): string {
   if (p.here_now) {
-    const by = cameraName(p.here_now.cam, p.here_now.place);
+    const by = cameraName(p.here_now.cam, p.here_now.camera_name);
     return by ? `Here now, seen by ${by}` : 'Here now';
   }
   if (!p.last_seen) return '';
-  const by = cameraName(p.last_seen_cam, p.last_seen_place);
+  const by = cameraName(p.last_seen_cam, p.last_seen_camera_name);
   return `Last seen ${dayTime(p.last_seen)}${by ? ` by ${by}` : ''}`;
 }
 
-/** A camera as people read it: its name from Settings (vision.places, #313) with a capital, "Front camera", else its
+/** A camera as people read it: its name from Settings (vision.camera_names) with a capital, "Front camera", else its
  *  id, "cam0". The server sends the id as the name when there is none. '' with no camera. */
 export function cameraName(cam: string | null | undefined, name?: string | null): string {
   const n = name?.trim();

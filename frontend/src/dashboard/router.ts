@@ -1,4 +1,4 @@
-// Tabs are real paths, so links and reloads land on the right tab. /settings is a route without a tab. Known (#1970)
+// Tabs are real paths, so links and reloads land on the right tab. /settings is a route without a tab. Known
 // is one page whose own tabs (People, Pets, Objects) are paths too, so their links, reloads, and Back work the same.
 import type { MouseEvent } from 'react';
 import { create } from 'zustand';
@@ -45,7 +45,7 @@ export function knownTabOf(pathname: string): KnownTab | null {
   return KNOWN_TABS.find(t => t.path === rest)?.id ?? null;
 }
 
-// /skeletons is a test page (#1987) with no tab in the nav.
+// /skeletons is a test page with no tab in the nav.
 const ALIASES: Record<string, TabId> = { '/settings': 'settings', '/skeletons': 'skeletons' };
 
 /** The URL of an in-app path. Every in-app link goes through here, so a prefix (like the /next the app was served
@@ -111,7 +111,7 @@ export function redirect(url: string): void {
   window.dispatchEvent(new HashChangeEvent('hashchange'));
 }
 
-/** Write the current page's hash, for a page that keeps its place in the URL (Review, #2391). A push adds a Back
+/** Write the current page's hash, for a page that keeps its place in the URL (Review). A push adds a Back
  *  step; otherwise the entry is replaced. No hashchange is dispatched (and the browser fires none for history writes),
  *  so the page never hears its own write as a link to follow. An unchanged URL writes nothing. */
 export function setHash(hash: string, { push = false }: { push?: boolean } = {}): void {

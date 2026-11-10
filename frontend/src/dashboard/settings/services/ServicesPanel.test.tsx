@@ -105,7 +105,7 @@ beforeEach(() => {
       }),
     ),
     http.get('/health', () => HttpResponse.json({ boot: 'b1' })),
-    http.get('/vision', () => HttpResponse.json({})), // Cameras and microphones' menu badge (#384)
+    http.get('/vision', () => HttpResponse.json({})), // Cameras and microphones' menu badge
     http.get('/ambient', () => HttpResponse.json({})),
     http.get('/stats', () =>
       HttpResponse.json({ cpu: 12, cpu_count: 8, load: [1, 1, 1], mem_used: 2e9, mem_total: 8e9 }),
@@ -154,7 +154,7 @@ async function openSection(hash = '#services') {
   return { ...page, section };
 }
 
-/** Every group of services open: a quiet one starts folded (#2728); these tests read its rows. */
+/** Every group of services open: a quiet one starts folded; these tests read its rows. */
 async function showAll() {
   const toggles = await screen.findAllByRole('button', { name: /^(Show|Hide) / }).catch(() => []);
   for (const t of toggles) if (t.getAttribute('aria-expanded') === 'false') await userEvent.click(t);
@@ -344,7 +344,7 @@ describe('issue acknowledgement safety', () => {
   });
 });
 
-describe('a crash loop (#297)', () => {
+describe('a crash loop', () => {
   it('flags a loop and opens a box with what happened and the error, and keeps older errors quiet', async () => {
     serve(
       view({
@@ -429,7 +429,7 @@ describe('a crash loop (#297)', () => {
   });
 });
 
-describe('which services run here (#386)', () => {
+describe('which services run here', () => {
   /** Settings, searching for the two lists, which Services leaves to search and Advanced. */
   async function searchRun() {
     await openSection();
@@ -454,7 +454,7 @@ describe('which services run here (#386)', () => {
   });
 
   it('opens a link to one of the lists in Advanced, where its field is', async () => {
-    // Codex on #815: Services no longer draws them, so a link that opened Services found nothing to focus.
+    // Services no longer draws them, so a link that opened Services found nothing to focus.
     serve();
     for (const key of ['services.enable', 'services.disable']) {
       history.replaceState(null, '', `/settings#set-${key}`);
@@ -542,7 +542,7 @@ describe('the services', () => {
     expect(within(row('vision')).getByText('Stopped after an error.')).toBeInTheDocument();
     expect(within(row('notes')).getByText('off')).toBeInTheDocument();
 
-    // One switch per service: on while it runs, and it says which way it goes (#423).
+    // One switch per service: on while it runs, and it says which way it goes.
     const voice = screen.getByRole('switch', { name: 'Run voice' });
     expect(voice).toBeChecked();
     await expectTooltip(voice, 'Stops it now. It starts again when the computer restarts, or on Repair.');
@@ -595,7 +595,7 @@ describe('the services', () => {
     ['switch', 'Run notes', true],
     ['button', 'Enable notes', false],
   ] as const)(
-    'says on the row why a service started by hand has no working %s, for keyboards too (#2271)',
+    'says on the row why a service started by hand has no working %s, for keyboards too',
     async (role, name, selected) => {
       serve(view({ services: [svc({ name: 'notes', selected, installed: false, pids: [42] })] }));
       await openSection();
@@ -627,7 +627,7 @@ describe('the services', () => {
   });
 });
 
-describe("a service's switch and Disable (#423)", () => {
+describe("a service's switch and Disable", () => {
   it('posts the switch, shows it starting, then shows the fresh state', async () => {
     serve();
     const reply = gate();
@@ -871,7 +871,7 @@ describe('Repair and Turn all off', () => {
   });
 });
 
-describe('groups that need nothing fold away (#2728)', () => {
+describe('groups that need nothing fold away', () => {
   const settle = () => {
     history.replaceState(null, '', '/settings#services');
     return renderPage(<SettingsPage />);

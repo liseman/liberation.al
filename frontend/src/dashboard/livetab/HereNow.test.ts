@@ -13,8 +13,8 @@ const line = (speaker: string, ago: number) => ({ ts_start: NOW - ago, speaker, 
 describe('who is here now', () => {
   it('lists who the cameras see, the earliest arrival first, with where and since when', () => {
     const people: Person[] = [
-      person({ name: 'Kara', here_now: { cam: 'cam0', place: 'front camera', since: NOW - 60 } }),
-      person({ name: 'Luca', here_now: { cam: 'cam1', place: null, since: NOW - 600 } }),
+      person({ name: 'Kara', here_now: { cam: 'cam0', camera_name: 'front camera', since: NOW - 60 } }),
+      person({ name: 'Luca', here_now: { cam: 'cam1', camera_name: null, since: NOW - 600 } }),
     ];
     expect(hereNow(people, [], NOW).map(h => [h.name, h.where])).toEqual([
       ['Luca', `Cam1, since ${clock(NOW - 600)}`],
@@ -35,7 +35,7 @@ describe('who is here now', () => {
     ]);
   });
 
-  it('puts the named pets a camera sees after the people, with a photo of them and a link to their card (#2606)', () => {
+  it('puts the named pets a camera sees after the people, with a photo of them and a link to their card', () => {
     const people: Person[] = [
       person({ name: 'Kara', here_now: { cam: 'cam0', since: NOW - 30 } }),
       person({ name: 'Luca' }),
@@ -48,8 +48,8 @@ describe('who is here now', () => {
         { id: 'p3', name: 'Pip', species: 'cat' },
       ],
       here: {
-        p2: { cam: 'cam1', place: 'desk', since: NOW - 300, track: 'run:cat:7' },
-        p1: { cam: 'cam0', place: '', since: NOW - 20, track: 'run:dog:2' },
+        p2: { cam: 'cam1', camera_name: 'desk', since: NOW - 300, track: 'run:cat:7' },
+        p1: { cam: 'cam0', camera_name: '', since: NOW - 20, track: 'run:dog:2' },
       },
     };
     const here = hereNow(people, [line('Luca', 1)], NOW, pets);

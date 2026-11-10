@@ -1,11 +1,11 @@
-"""The owner's "this face group is not <person>" (people/face_nots.py, #2368) and its routes."""
+"""The owner's "this face group is not <person>" (people/face_nots.py) and its routes."""
 
 from unittest.mock import create_autospec
 
 import numpy as np
 import pytest
 
-from liberational.dashboard import server
+from liberational.dashboard import context, server
 from liberational.people import face_nots, registry
 from liberational.vision import faces
 
@@ -15,7 +15,7 @@ def people(tmp_path, monkeypatch):
     reg = registry.at(tmp_path)
     reg.ensure("Kara", "test")
     reg.ensure("Sam", "test")
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     yield tmp_path
     registry.close_all()
 
@@ -97,7 +97,7 @@ def test_the_people_photo_alias_takes_the_pets_verbs(people, monkeypatch):
 
 
 def test_a_group_marked_not_kara_holds_the_matcher_off_its_next_look_until_taken_back(people, monkeypatch):
-    # #3246: the mark teaches the face matcher too, not only the guesses
+    # The mark teaches the face matcher too, not only the guesses
     monkeypatch.setattr(faces, "DB", people / "db.npz")
     monkeypatch.setattr(faces, "LEARNED_DB", people / "learned.npz")
     monkeypatch.setattr(faces, "NOTS_DB", people / "nots.npz")

@@ -21,7 +21,7 @@ export function useCameraStates() {
  *  page shell's. Reads the cache only; the badge never fetches. */
 function useSavedViews(): Readonly<Record<string, string>> {
   const { data } = useQuery<ConfigView>({ queryKey: CONFIG_KEY, enabled: false });
-  const row = data?.sections.flatMap(s => s.settings).find(r => r.key === 'vision.places');
+  const row = data?.sections.flatMap(s => s.settings).find(r => r.key === 'vision.camera_names');
   if (!row) return shell().views;
   return parsePlaces(Array.isArray(row.value) ? listText(row.value) : String(row.value ?? ''), shell().cams);
 }
@@ -35,7 +35,7 @@ export function useDeviceIssues(): SectionBadge | null {
     Object.values(cams ?? {}).filter(c => c.state === 'retrying').length +
     Object.values((ambient?.devices ?? {}) as Record<string, AmbientDevice>).filter(d => d.healthy === false).length;
   if (n) return { text: n === 1 ? '1 issue' : `${n} issues`, tone: 'warn' };
-  // A camera with no name goes by its id on every page (#2585)
+  // A camera with no name goes by its id on every page
   const missing = unnamed(shell().activeCams, views).length;
   return missing ? { text: missing === 1 ? 'Name 1 camera' : `Name ${missing} cameras`, tone: 'dim' } : null;
 }

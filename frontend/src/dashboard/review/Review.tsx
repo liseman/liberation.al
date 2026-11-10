@@ -52,7 +52,7 @@ const NOTHING = 'nothing';
 /** How long the truncated-markers note must hold before it shows (the landing passes through the day before). */
 const NOTE_HOLD_MS = 1500;
 
-/** About a usual day's Show only height, held while the chips load on a first visit (#2485). */
+/** About a usual day's Show only height, held while the chips load on a first visit. */
 const TIMELINE_FIRST_H = 'clamp(180px, 30vh, 270px)';
 
 export function Review() {
@@ -65,7 +65,7 @@ export function Review() {
         reload: d => void client.invalidateQueries({ queryKey: reviewKey.day(d) }),
       }),
   );
-  // A layout effect: hidden behind another tab (#330), its cleanup runs before React lets go of the <video>s and the
+  // A layout effect: hidden behind another tab, its cleanup runs before React lets go of the <video>s and the
   // <audio>, so stop() can still pause them and release their sources.
   useLayoutEffect(() => {
     engine.start();
@@ -87,12 +87,12 @@ export function Review() {
   // The window hook owns polling; these observers supply only the playhead day's detail panels.
   const transcript = useQuery({ ...transcriptQuery(key), ...on });
   const summary = useQuery({ ...dayBlocksQuery(day ?? isoDay()), ...on });
-  const [query, setQuery] = useState(''); // Review's search: its results above, the transcript dimmed to it (#2593)
+  const [query, setQuery] = useState(''); // Review's search: its results above, the transcript dimmed to it
   const searching = !!query;
   const segments = useQuery({ ...segmentsQuery(key), ...on });
   const spans = useQuery({ ...spansQuery(key), ...on });
   const sources = [transcript, segments, spans];
-  // Today's video is listed again every few seconds (#806): only its first listing holds the day back.
+  // Today's video is listed again every few seconds: only its first listing holds the day back.
   const settled = !!day && sources.every(s => !s.isPending && (!s.isFetching || s.data !== undefined));
   const chips = useQuery({ ...chipsQuery(key, false), refetchInterval: false, enabled: !!day });
   const activities = useQuery({ ...activitiesQuery(key), enabled: !!day });
@@ -105,7 +105,7 @@ export function Review() {
       );
   }, [engine, days.data]);
 
-  // While the server works a day out again (#435), the chips Review had for it stay: they were right a moment ago.
+  // While the server works a day out again, the chips Review had for it stay: they were right a moment ago.
   const working = dayWorking(chips.error);
   const notice = useStore(engine.ui, s => s.notice);
   // Chunk updates preserve neighboring chips and filters while the playhead crosses a date marker.
@@ -113,7 +113,7 @@ export function Review() {
   // Review opened for one person (#person=Dana, from their card's "See all in Review"): a removable filter, and a word
   // when this day has nothing of them.
   const person = useStore(engine.ui, s => s.person);
-  // Opened for a person, the details open on their day (#2057); without one, on the transcript.
+  // Opened for a person, the details open on their day; without one, on the transcript.
   const [tabPick, setTab] = useState<string | null>(null);
   const tab = tabPick === 'person' && !person ? 'transcript' : (tabPick ?? (person ? 'person' : 'transcript'));
   // biome-ignore lint/correctness/useExhaustiveDependencies: a newly picked person opens on their tab
@@ -125,9 +125,9 @@ export function Review() {
   const coveredBySettings = useRoute(s => s.tab === 'settings');
   const askOpen = useReviewAsk(s => s.open);
   const setAskOpen = useReviewAsk(s => s.setOpen);
-  // A span picked on the timeline to mark as an event (#287, #518), while its form is open.
+  // A span picked on the timeline to mark as an event, while its form is open.
   const marking = useStore(engine.ui, s => s.eventSpan);
-  // A span whose entries and exits are being labeled (#1472), in a drawer that leaves the player usable.
+  // A span whose entries and exits are being labeled, in a drawer that leaves the player usable.
   const [entryWindow, setEntryWindow] = useState<EventSpan | null>(null);
   // The moments the newest answer cites, marked on the timeline.
   const [marks, setMarks] = useState<readonly number[]>([]);
@@ -172,11 +172,11 @@ export function Review() {
     if (day) retryCore(day);
   };
   const allFailed = settled && failed.length === sources.length;
-  // One line says the day is loading, under the skeletons; it says more only once the wait runs long (#2450).
+  // One line says the day is loading, under the skeletons; it says more only once the wait runs long.
   let status = slowDay ? 'Still loading the day. This can take a minute after a restart.' : 'Loading the day…';
   if (allFailed)
     status = ''; // the alert below says it
-  // A loaded day says nothing here (#2577): the video and the transcript show what it holds.
+  // A loaded day says nothing here: the video and the transcript show what it holds.
   else if (settled) status = failed.length ? `Could not load the ${failed.join(' or ')}.` : '';
 
   // "Working through Oct 28" shows in the chips' place; here only when chips from before stand in for them
@@ -184,7 +184,7 @@ export function Review() {
   if (absent && settled) status = `${status} Nothing of ${person} on ${day}.`.trim();
 
   // What stands under the player: Show only, its skeleton, or its load error. The video's boxes and Skip quiet time
-  // live in Show only, so until it shows (or when the chips fail) they sit in a row of their own there (#2486).
+  // live in Show only, so until it shows (or when the chips fail) they sit in a row of their own there.
   const chipsView: 'showOnly' | 'loading' | 'error' =
     chips.data && !isDetectorStorage(chips.error) && !(working && !chips.data.length)
       ? 'showOnly'
@@ -212,7 +212,7 @@ export function Review() {
         <VisuallyHidden component="h1">Review</VisuallyHidden>
         <div className={classes.cols}>
           <div className={classes.left}>
-            {/* The day header sits over the video, so the reading panel runs up to the app's header (#2577). */}
+            {/* The day header sits over the video, so the reading panel runs up to the app's header. */}
             <header className={classes.head}>
               <DayPicker day={day} days={days.data?.days} onPick={pick} />
               <Button variant="subtle" size="compact-sm" onClick={() => pick(isoDay())}>
@@ -230,7 +230,7 @@ export function Review() {
                   {person}
                 </Button>
               )}
-              {/* One line whatever it holds (#2485): the passing notes join the status sentence instead of wrapping
+              {/* One line whatever it holds: the passing notes join the status sentence instead of wrapping
                   in beside it, which pushed the whole page down a line and back. */}
               {/* Its title holds the whole line where it's cut short; phones give it two lines. */}
               <span className={classes.status} role="status" title={statusLine || undefined}>
@@ -321,7 +321,7 @@ export function Review() {
               className={classes.timeline}
               ref={timelineRef}
               // While the day's chips load, their place is held at the height they had last time here, or about a
-              // usual day's the first time (#2485).
+              // usual day's the first time.
               style={
                 chipsView === 'loading'
                   ? { minHeight: rememberedHeight('review-timeline') ?? TIMELINE_FIRST_H }
@@ -341,7 +341,7 @@ export function Review() {
               )}
               {chipsView !== 'showOnly' && (
                 // Show only holds these once it's there; until then (or when the chips fail) they wait here, under
-                // the player, rather than on its bar, so the player keeps one height while the chips load (#2486).
+                // the player, rather than on its bar, so the player keeps one height while the chips load.
                 <div className={classes.videoTools}>
                   <SkipQuiet />
                   <VideoMarkers />

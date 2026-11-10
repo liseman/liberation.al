@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fit each fixed camera's own intrinsics (focal and lens) once, to hold them (#3289; spatial/lens.py `Held`).
+"""Fit each fixed camera's own intrinsics (focal and lens) once, to hold them (spatial/lens.py `Held`).
 
 A camera's focal and lens are its own, true wherever it stands, so every registration after this keeps them and fits
 only the camera's pose. They're fitted here against a Stray Scanner (LiDAR) walk: each camera's frame is paired by
@@ -40,7 +40,7 @@ import numpy as np
 
 from liberational import config as cfg
 from liberational.memory import places
-from liberational.spatial import cameras, dryrun, footprints, lens, registration, splats, stray
+from liberational.spatial import cameras, dryrun, footprints, lens, registration, rig, splats, stray
 from liberational.spatial import walkthrough as W
 
 LOOK_PREFIX = splats.LOOK_PREFIX
@@ -330,7 +330,7 @@ def main() -> None:
             if got is not None:
                 chosen[cam] = got
                 print(f"    to hold: focal {got.focal:.4f}, lens {got.division:+.4f} ({got.source})")
-        indoor = cameras.indoor_cameras(sorted(fixed), cfg.get("spatial.outdoor_cameras") or [])
+        indoor = cameras.indoor_cameras(sorted(fixed), rig.load())
         capture = cameras.capture(state, indoor, out / "capture", time.time())
         if capture is None:
             print("no camera had a frame for tonight's pass; nothing measured")

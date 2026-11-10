@@ -1,11 +1,11 @@
-/* Known › Activities (#2283): the kinds on the left and the clips to check beside them, as Pets lays out its roster
+/* Known › Activities: the kinds on the left and the clips to check beside them, as Pets lays out its roster
    and sightings; one column on narrow windows, the kinds above the clips. */
 .page {
   display: grid;
   grid-template-columns: minmax(0, 320px) minmax(0, 1fr);
   gap: 36px;
   align-items: start;
-  /* Known's page frame sets the edges (#2469). */
+  /* Known's page frame sets the edges. */
 }
 .roster {
   position: sticky;
@@ -42,7 +42,7 @@
   padding: 0;
   list-style: none;
 }
-/* A kind's row: its filter button, and the owner's activity's bin beside it (#3244). */
+/* A kind's row: its filter button, and the owner's activity's bin beside it. */
 .kindRow {
   display: flex;
   align-items: center;
@@ -53,7 +53,7 @@
 }
 .delete:hover,
 .delete:focus-visible {
-  color: var(--lib-bad); /* turns red only when meant, as Ingest's (#2715) */
+  color: var(--lib-bad); /* turns red only when meant, as Ingest's */
 }
 .addForm {
   display: flex;
@@ -63,7 +63,7 @@
 .phoneAdd {
   margin-left: auto;
 }
-/* Each kind is a button that filters the clips (#2294); the one shown is tinted like a selected nav row. */
+/* Each kind is a button that filters the clips; the one shown is tinted like a selected nav row. */
 .kind {
   display: flex;
   align-items: center;
@@ -97,10 +97,10 @@
 }
 .mainTitle {
   margin: 0;
-  font: 600 18px / 1.45 var(--mantine-font-family); /* a section heading, as theme.ts h2 (#2594) */
+  font: 600 18px / 1.45 var(--mantine-font-family); /* a section heading, as theme.ts h2 */
   scroll-margin-top: calc(var(--top-h, 56px) + var(--known-h, 49px) + 12px);
 }
-/* Clips in a grid of small cards (#2473), the clip above its question, so a screen holds several at once. */
+/* Clips in a grid of small cards, the clip above its question, so a screen holds several at once. */
 .cards {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
@@ -138,7 +138,7 @@
   align-self: flex-start;
 }
 /* A clip takes its camera's own shape (--clip-ratio, width over height, set by ClipPlayer; 16:9 until known), so a
-   portrait camera fills a tall box instead of a strip between gray bars (#2299). Tall ones stop at 70% of the
+   portrait camera fills a tall box instead of a strip between gray bars. Tall ones stop at 70% of the
    window's height, centred. The poster and the playing video share the size, so nothing jumps on play. */
 .clipBox,
 .clipFrame {

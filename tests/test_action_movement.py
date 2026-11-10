@@ -27,7 +27,7 @@ class Shifting(Script):
 
 def walker(x: float) -> People:
     box = np.array([[x, 0.2, x + 0.1, 0.9, 0.9]], np.float32)
-    return People(box, np.full((1, actions.JOINTS, 3), 0.9, np.float32))  # a confident pose: a person (#1959)
+    return People(box, np.full((1, actions.JOINTS, 3), 0.9, np.float32))  # a confident pose: a person
 
 
 def walk_past(step: float = 0.0) -> dict[str, list[dict[str, Any]]]:

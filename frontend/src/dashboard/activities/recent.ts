@@ -1,4 +1,4 @@
-// Known › Activities (#2283): the detected activities of the last RECENT_DAYS days, read a day at a time through
+// Known › Activities: the detected activities of the last RECENT_DAYS days, read a day at a time through
 // Review's own /activities query (so a rating or a name made here or in Review updates both), and the kinds they
 // teach. A kind is counted in Ask once enough of its clips are answered right; the server's promotion rows say how
 // far each kind has to go.
@@ -87,10 +87,10 @@ export interface KindRow {
   waiting: number; // clips of this kind with no answer yet
   promotion: ActivityPromotion | undefined;
   counted: boolean;
-  defined?: ActivityKind; // the owner's activity (#3244), which can be deleted
+  defined?: ActivityKind; // the owner's activity, which can be deleted
 }
 
-/** One row per activity the owner defined (#3244), and per other kind seen lately or rated before: the counted ones
+/** One row per activity the owner defined, and per other kind seen lately or rated before: the counted ones
  *  first, then those with the most clips waiting. A defined activity is listed by its own name, and before any clip
  *  of it has been seen. */
 export function kindRows(
@@ -107,7 +107,7 @@ export function kindRows(
     const base = promotion.find(p => p.kind === kind && p.camera === null) ?? owned?.promotion ?? undefined;
     const made: KindRow = {
       kind,
-      // Sentence case, as every other name in the app (#2473): "Watch TV", not "watch tv".
+      // Sentence case, as every other name in the app: "Watch TV", not "watch tv".
       label: owned ? sentence(owned.name) : kind ? sentence(activityName(kind)) : 'Unclassified activity',
       waiting: 0,
       promotion: base,
@@ -141,8 +141,7 @@ export function spotChecked(id: string): boolean {
 }
 
 /** The clips Clips to check lists among all activities: every one still unanswered, but only the spot-check sample
- *  of a kind counted in Ask (#2441). Known's Activities badge and the list's own count are both this, so they agree
- *  (#2451). */
+ *  of a kind counted in Ask. Known's Activities badge and the list's own count are both this, so they agree. */
 export function toCheck<T extends { item: DetectedActivity }>(
   rows: readonly T[],
   promotion: readonly ActivityPromotion[],

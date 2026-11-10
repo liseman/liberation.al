@@ -1,4 +1,4 @@
-// Example plans for the Places tab (#2796) until spatial memory (#2794) makes real ones. Each is a plan document in
+// Example plans for the Places tab until spatial memory makes real ones. Each is a plan document in
 // the vendored floorplan library's JSON form (src/vendor/floorplan/README.md): metres on wall centrelines, rooms that
 // tile the footprint, openings on the walls between them. The flat also carries one of each of spatial memory's
 // extensions (plan/ext.ts) to show how they draw. Both lint clean (plan/lint.ts).
@@ -9,7 +9,7 @@ export interface Place {
   name: string;
   /** Epoch seconds of the last visit, or null when nobody has been there yet. */
   lastVisit: number | null;
-  /** When anyone was last seen there by its fixed cameras, apart from visits (#2905). */
+  /** When anyone was last seen there by its fixed cameras, apart from visits. */
   lastActivity?: number | null;
   /** The plan document, as floorplan() takes it, with spatial memory's extensions (plan/ext.ts); null before the
    *  place has a plan. */
@@ -24,6 +24,9 @@ export interface Place {
   machinePlanText?: string | null;
   /** Whose plan it is: the machine's (with when its revision was made) or the owner's correction. */
   origin?: { source: 'owner' | 'machine'; at: number | null; machineNewer: boolean };
+  /** How many walkthroughs went into it, and its plan's rooms no LiDAR walk covered (null: can't tell), #3. */
+  walks?: number;
+  unwalkedRooms?: { id: string; name: string }[] | null;
   /** Shown as an example, not something the house mapped. */
   example: boolean;
 }

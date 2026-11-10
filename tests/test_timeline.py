@@ -134,7 +134,7 @@ def test_lines_nobody_said_the_assistant_and_playback_are_not_presence(home):
             line(T, "Speaker 7", 7),  # an unnamed voice
             line(T + 10, "unknown", None),
             line(T + 20, "Alice", 1, playback=True),
-            line(T + 25, "Alice", 1, media=True),  # heard from the TV (#2468)
+            line(T + 25, "Alice", 1, media=True),  # heard from the TV
             line(T + 30, "Alice", 1, assistant=True),
             line(T + 40, "Alice", 1),  # inside a window when the pack was speaking
         ]
@@ -493,12 +493,12 @@ def test_a_time_phrase_after_the_name_is_refused_as_with_the_switch_off(history,
     ("phrase", "window"),
     [
         pytest.param("this morning", "the morning of 2026-10-23", id="this-morning"),
-        pytest.param("during the morning", "the morning of 2026-10-23", id="during-the"),  # Codex on #219
+        pytest.param("during the morning", "the morning of 2026-10-23", id="during-the"),
         pytest.param("the afternoon", "the afternoon of 2026-10-23", id="the-afternoon"),
     ],
 )
 def test_a_part_of_the_day_after_the_name_is_a_window_not_part_of_the_name(history, phrase, window):
-    """#195: a part of the day is a time now, read as its hours, and never part of the name."""
+    """A part of the day is a time now, read as its hours, and never part of the name."""
     q = history.ask(f"when did I last see Dana {phrase}")["query"]
     assert (q["person"], q["window"]) == ("Dana", window)
 
@@ -510,7 +510,7 @@ def test_another_phrase_after_the_name_leaves_the_name_alone(history):
 
 
 def test_a_line_mentioning_a_password_is_quoted_like_any_other(history):
-    """#92, by Joe's decision: nothing is hidden for what a line says."""
+    """Nothing is hidden based on what a line says."""
     history.lines([line(T + 310, "Dana", 2, text="the wifi password is hunter2")], append=True)
     r = history.ask("when was Dana last seen")
     assert "hunter2" in json.dumps(r)
@@ -650,7 +650,7 @@ def test_relative_instant_is_not_swallowed_into_a_last_seen_name(history, enable
     assert result["query"]["end"] == NOW - 10800 + 300
 
 
-# ---- "is X home" with no linked device (#1596) ---------------------------------------------------------------------
+# ---- "is X home" with no linked device ---------------------------------------------------------------------
 
 
 @pytest.fixture(autouse=False)
@@ -669,6 +669,12 @@ def test_is_someone_home_says_when_they_were_last_seen_and_how_much_was_watched_
         cam="cam0",
         supported=[[T + 120, T + 1920]],
         camera_motion="stable",
+        version="movement-1",
+        frames=18000,
+        gaps=[],
+        tracking="complete",
+        finished=True,
+        closure="open",
     )
     r = history.ask("Is Alice home?")
     assert r["answer"].startswith(

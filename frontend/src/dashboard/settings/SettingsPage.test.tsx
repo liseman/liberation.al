@@ -35,7 +35,7 @@ const VIEW: ConfigView = {
       settings: [
         row({
           key: 'owner.name',
-          value: 'Joe',
+          value: 'Sam',
           label: 'Your name',
           help: 'What the assistant calls you',
           section: 'you',
@@ -103,12 +103,12 @@ function open(hash = '', view: ConfigView = VIEW, reply: Record<string, unknown>
     http.get('/config', () => HttpResponse.json(view)),
     http.get('/health', () => HttpResponse.json({ boot: 'b1' })),
     http.get('/config/voice_ref', () => HttpResponse.json({ exists: false })),
-    // Cameras and microphones (#384): its menu badge reads vision's and the microphones' live status
+    // Cameras and microphones: its menu badge reads vision's and the microphones' live status
     http.get('/vision', () => HttpResponse.json({})),
     http.get('/ambient', () => HttpResponse.json({})),
     http.get('/devices', () => HttpResponse.json({ ok: true, control: true, notes: {}, mics: [], cameras: [] })),
-    http.get('/services', () => HttpResponse.json({ ok: true, control: true, services: [] })), // the menu badge (#386)
-    // Network cameras and Imported media (#1331) read the ingest sources
+    http.get('/services', () => HttpResponse.json({ ok: true, control: true, services: [] })), // the menu badge
+    // Network cameras and Imported media read the ingest sources
     http.get('/ingest/api/items', () =>
       HttpResponse.json({ items: [], jobs: [], control: true, sources: [], wyze: { cameras: [], rtsp_url: '' } }),
     ),
@@ -121,14 +121,14 @@ function open(hash = '', view: ConfigView = VIEW, reply: Record<string, unknown>
 }
 const nav = () => screen.getByRole('navigation', { name: 'Settings sections' });
 const bar = () => screen.queryByRole('region', { name: 'Unsaved changes' });
-/** Opens Advanced's sections by their titles: each folds to its heading and count (#2728). */
+/** Opens Advanced's sections by their titles: each folds to its heading and count. */
 const showAdvanced = async (...titles: string[]) => {
   for (const t of titles) await userEvent.click(await screen.findByRole('button', { name: `Show ${t}` }));
 };
 
 beforeEach(() => {
   posts = [];
-  // A named camera, so the Devices badge doesn't ask for one (#2585; devices/issues.test.tsx covers that)
+  // A named camera, so the Devices badge doesn't ask for one (devices/issues.test.tsx covers that)
   vi.stubGlobal('NAMES', { views: { cam0: 'front camera' } });
 });
 afterEach(() => {
@@ -136,7 +136,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('the Settings page (#382)', () => {
+describe('the Settings page', () => {
   it('lists the sections, and shows a setting by its plain label and help', async () => {
     open();
     const items = within(await screen.findByRole('navigation', { name: 'Settings sections' })).getAllByRole('link');
@@ -152,7 +152,7 @@ describe('the Settings page (#382)', () => {
       'This machine',
       'Advanced',
     ]);
-    expect(screen.getByRole('textbox', { name: 'Your name' })).toHaveValue('Joe');
+    expect(screen.getByRole('textbox', { name: 'Your name' })).toHaveValue('Sam');
     expect(screen.getByText('What the assistant calls you')).toBeInTheDocument();
     expect(bar()).toBeNull(); // nothing changed yet
   });
@@ -177,7 +177,7 @@ describe('the Settings page (#382)', () => {
     expect(bar()).toHaveTextContent('1 unsaved change. Saving restarts: voice, dashboard');
     expect(within(nav()).getByRole('link', { name: /You and the assistant/ })).toHaveTextContent('1 unsaved');
     await userEvent.click(screen.getByRole('button', { name: 'Reset Your name' }));
-    expect(name).toHaveValue('Joe');
+    expect(name).toHaveValue('Sam');
     expect(bar()).toBeNull();
   });
 
@@ -232,13 +232,13 @@ describe('the Settings page (#382)', () => {
   });
 });
 
-describe('after the review of #382', () => {
+describe('review cases', () => {
   it('names a new feature by its name, says what it does (not its default), and finds it by name', async () => {
     open('#features');
     const journal = await screen.findByRole('switch', { name: 'The journal' });
     expect(screen.getByText('Writes a diary of the day.')).toBeInTheDocument();
     expect(screen.queryByText(/by default/)).toBeNull();
-    // Switched from how it comes, it says so (#2728)
+    // Switched from how it comes, it says so
     await userEvent.click(journal);
     expect(screen.getByText('Changed: off by default')).toBeInTheDocument();
     await userEvent.click(journal);
@@ -293,7 +293,7 @@ describe('after the review of #382', () => {
   });
 });
 
-describe('You and the assistant (#383)', () => {
+describe('You and the assistant', () => {
   const YOU: ConfigView = {
     ...VIEW,
     sections: [
@@ -340,7 +340,7 @@ describe('You and the assistant (#383)', () => {
     expect(labels.slice(0, 2)).toEqual(['set-time.timezone-label', 'set-owner.name-label']);
   });
 
-  it('offers the fallback voice where it can clone one, saying it speaks in the clone (#2728)', async () => {
+  it('offers the fallback voice where it can clone one, saying it speaks in the clone', async () => {
     voices(true);
     open('', YOU);
     const pick = await screen.findByRole('combobox', { name: 'Fallback voice' });
@@ -434,7 +434,7 @@ describe('You and the assistant (#383)', () => {
   });
 });
 
-describe('restarting only what a change affects (#400)', () => {
+describe('restarting only what a change affects', () => {
   const TARGETED: ConfigView = structuredClone(VIEW);
   for (const sec of TARGETED.sections)
     for (const r of sec.settings) r.restarts = r.key === 'assistant.name' ? [] : ['voice', 'dashboard'];
@@ -509,7 +509,7 @@ describe('restarting only what a change affects (#400)', () => {
   });
 });
 
-describe('Features, People and privacy, and Phone (#385)', () => {
+describe('Features, People and privacy, and Phone', () => {
   const GROUPED: ConfigView = {
     ...VIEW,
     sections: [
@@ -591,7 +591,7 @@ describe('Features, People and privacy, and Phone (#385)', () => {
   });
 });
 
-describe('Advanced (#387)', () => {
+describe('Advanced', () => {
   const RAW: ConfigView = {
     ...VIEW,
     sections: [
@@ -630,13 +630,13 @@ describe('Advanced (#387)', () => {
     open('#advanced', RAW);
     const presence = await screen.findByRole('region', { name: 'Presence' });
     expect(within(presence).getByText('How visits are counted.')).toBeInTheDocument();
-    expect(within(presence).getByText('2 settings')).toBeInTheDocument(); // folded to its count (#2728)
+    expect(within(presence).getByText('2 settings')).toBeInTheDocument(); // folded to its count
     await showAdvanced('Presence');
     expect(within(presence).getByText('Changed')).toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'Timeline' })).toBeInTheDocument();
   });
 
-  it('folds each section until it is opened, a filter is on, or a link names a setting in it (#2728)', async () => {
+  it('folds each section until it is opened, a filter is on, or a link names a setting in it', async () => {
     open('#advanced', RAW);
     const toggle = await screen.findByRole('button', { name: 'Show Presence' });
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
@@ -696,7 +696,7 @@ describe('Advanced (#387)', () => {
   });
 });
 
-describe("Settings' sources (#1331)", () => {
+describe("Settings' sources", () => {
   it('opens Imported media from a link to its card, and focuses the card', async () => {
     open('#imported-media');
     expect(await screen.findByRole('heading', { name: 'Imported media', level: 2 })).toBeInTheDocument();
@@ -710,7 +710,7 @@ describe("Settings' sources (#1331)", () => {
     await waitFor(() => expect(screen.getByRole('region', { name: 'Network cameras' })).toHaveFocus());
   });
 
-  it('sends an old link to the phones, watches, and tags card (/settings#device-links, #1979) to Known › Devices', async () => {
+  it('sends an old link to the phones, watches, and tags card (/settings#device-links) to Known › Devices', async () => {
     open('#device-links');
     await waitFor(() => expect(location.pathname).toBe('/devices'));
     expect(location.hash).toBe('');

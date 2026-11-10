@@ -1,5 +1,5 @@
 // Known › Places' reads: the places the house has (GET /places, memory/places.py) and where people and pets were in
-// one of them over a window of time (GET /places/positions, #2831; the stream is spatial/positions.py).
+// one of them over a window of time (GET /places/positions; the position layer is spatial/positions.py).
 import { queryOptions } from '@tanstack/react-query';
 import { request } from '../../shared/http';
 
@@ -22,8 +22,13 @@ export interface PlaceSummary {
   machine_plan: string | null;
   /** When the house was last there (epoch seconds), or null. */
   last_visit: number | null;
-  /** When anyone was last seen there by its fixed cameras (#2905), apart from the owner's visits. */
+  /** When anyone was last seen there by its fixed cameras, apart from the owner's visits. */
   last_activity?: number | null;
+  /** How many walkthroughs went into the place (#3). */
+  walks?: number;
+  /** The plan's rooms no LiDAR walk covered, in plan order (every room while it has never been walked); null when it
+   *  can't tell (no plan, or no fused map in the plan's frame). */
+  unwalked_rooms?: { id: string; name: string }[] | null;
 }
 
 export const placesQuery = () =>
@@ -84,14 +89,14 @@ export const positionsQuery = (place: string, start: number, end: number) =>
         signal,
       ),
     staleTime: 30_000,
-    // Seconds of server work for a day of a busy place, and the server finishes a read the page gave up on: a re-read
-    // on every return to the window stacked them past the read deadline, and the plan drew no paths (#3293). While the
-    // window follows now, PlacePaths moves it (a new read) every FOLLOW_NOW_MS anyway.
+    // A read of a busy place is about a second of server work, and the server stops one the page gave up on. A re-read
+    // on every return to the window is still work for nothing: while the window follows now, PlacePaths moves it (a
+    // new read) every FOLLOW_NOW_MS anyway.
     refetchOnWindowFocus: false,
   });
 
-/** Save the owner's corrected plan for a place (taught state over the machine's), or go back to the machine's with ""
- *  (#2859). `base` is the revision whose frame the edited text is in: the plan's plan_revision when the editor
+/** Save the owner's corrected plan for a place (taught state over the machine's), or go back to the machine's with "".
+ *  `base` is the revision whose frame the edited text is in: the plan's plan_revision when the editor
  *  opened it. */
 export const savePlan = (place: string, plan: string, base?: string | null) =>
   request<{ ok: true; plan: string | null; plan_source: 'owner' | 'machine' | null }>('/places/plan', {
@@ -133,7 +138,7 @@ export const restorePlan = (place: string, record: string) =>
     record,
   });
 
-/** What the 3D view draws for a place (GET /places/scene, #2876), all in its map's frame, or `revision: null` while it
+/** What the 3D view draws for a place (GET /places/scene), all in its map's frame, or `revision: null` while it
  *  has no map. */
 export interface Scene {
   place: string;
@@ -143,7 +148,7 @@ export interface Scene {
   map?: string;
   map_format?: string | null;
   map_bytes?: number;
-  /** The revision's 3D Gaussian splat (#2877): its URL (cached for good like the map), format, and size; null while
+  /** The revision's 3D Gaussian splat: its URL (cached for good like the map), format, and size; null while
    *  it has none. */
   splat?: string | null;
   splat_format?: string | null;
@@ -152,6 +157,8 @@ export interface Scene {
   splat_revision?: string | null;
   /** The newest splat when it was made in another map frame, so it would sit out of place: named, not drawn. */
   splat_stale?: { revision: string; at: number } | null;
+  /** What the splat was trained from (#44): a walk's own frames, or the fixed cameras'. */
+  splat_from?: 'walk' | 'cameras' | null;
   /** The floor plane: a unit normal and its offset (a, b, c, d), in the map's frame. */
   floor?: number[] | null;
   /** Map to plan, 3x4 row by row. */

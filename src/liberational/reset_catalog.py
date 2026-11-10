@@ -1,4 +1,4 @@
-"""The catalog reset (#1755) as one command: `pack-reset-catalog`.
+"""The catalog reset as one command: `pack-reset-catalog`.
 
   pack-reset-catalog --keep-taught                # print the plan, change nothing
   pack-reset-catalog --keep-taught --yes          # a catalog-only reset: the taught stores stay
@@ -14,9 +14,9 @@ In order:
    it's still up after `STOP_WAIT_S`.
 3. Delete the catalog, the recorded video and audio it indexes (`tier` and `tier2`), the worker state derived from
    it (see `targets`), and the segment store.
-4. Turn on H.264 for the camera (`encoding = { enabled = true }` under its `video`, #1833), before the broker
+4. Turn on H.264 for the camera (`encoding = { enabled = true }` under its `video`), before the broker
    first starts on the fresh catalog. Capture encodes only a camera's MJPEG, so a camera set to capture anything
-   else (a Mac's USB cameras deliver UYVY) is left as it is, and the reset says why (#2339).
+   else (a Mac's USB cameras deliver UYVY) is left as it is, and the reset says why.
 5. Start the broker and the other core services that were running, wait for the broker's socket, then start the
    other services that were running. The broker always starts, even if it was stopped or crash-looping when the
    reset began: the reset leaves a fresh catalog it can open, and nothing else runs without it.
@@ -140,10 +140,10 @@ def targets(plan: Plan) -> list[Path]:
         continuum / "vector",  # the vector worker's index, rebuilt from what it follows
         continuum / "decoded",  # where the shared decode kept its frame ring before it moved to paths.decoded
         plan.state / "segments",  # the segment store
-        plan.state / "places",  # place revisions, maps, and plans (#2799): machine-made like the segment store
+        plan.state / "places",  # place revisions, maps, and plans: machine-made like the segment store
         plan.state / "identity.speech.cursor",  # identity's place in the speech stream
         plan.state / "see-zones.json",  # the zones worker's checkpoint of its input positions
-        plan.state / "cache",  # caches of what the segment store held, such as the device tallies (#2875)
+        plan.state / "cache",  # caches of what the segment store held, such as the device tallies
         continuum / "movement-worker.lock",  # left by deleted workers
         continuum / "zone-worker.lock",
     ]
@@ -356,7 +356,7 @@ def run(
             host.start([n for n in installed if n in running])
             raise Refused(f"still running: {', '.join(still) or 'the broker socket'}; nothing was deleted")
         # A crash-looping broker binds its socket again between restarts, and launchd's bootout returns before the
-        # job is gone (#2201): stop what's still up again rather than refusing on the first look.
+        # job is gone: stop what's still up again rather than refusing on the first look.
         time.sleep(STOP_RETRY_S)
         host.stop(list(dict.fromkeys([*still, BROKER])))
 

@@ -1,6 +1,6 @@
-// Known › Places (#2796): the indoor places the house knows (GET /places, memory/places.py), or the example plans
+// Known › Places: the indoor places the house knows (GET /places, memory/places.py), or the example plans
 // while it knows none, and one place's plan, drawn by the vendored floorplan library (src/vendor/floorplan), with where people and pets
-// went on it over time (paths/, #2831). A link can open a place at a moment: /places?place=<id>&t=<epoch>. Places is
+// went on it over time (paths/). A link can open a place at a moment: /places?place=<id>&t=<epoch>. Places is
 // places and plans only: what happened where belongs to the journal.
 import { Badge, NavLink, Paper, SegmentedControl, Text, useComputedColorScheme } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
@@ -18,8 +18,9 @@ import classes from './places.module.css';
 import { parsePlaceDsl } from './plan/dsl';
 import type { Extensions } from './plan/ext';
 import { drawPlace, looks, type PlaceDrawing } from './plan/render';
+import { WalkBadge, WalkNote } from './walks';
 
-// The 3D view (#2876) is its own chunk: three.js loads only when someone opens it.
+// The 3D view is its own chunk: three.js loads only when someone opens it.
 const CloudView = lazy(() => import('./cloud/CloudView'));
 
 /** How a plan is drawn on the page: the app's own light or dark, on the card it sits in (--lib-card), with the app's
@@ -41,6 +42,8 @@ export function fromServer(p: PlaceSummary): Place {
     name: p.name,
     lastVisit: p.last_visit,
     lastActivity: p.last_activity ?? null,
+    walks: p.walks ?? 0,
+    unwalkedRooms: p.unwalked_rooms ?? null,
     plan: null,
     example: false,
   };
@@ -102,7 +105,7 @@ export function planSummary(result: FloorplanResult): string {
 
 /** When a place was last visited, for its list row. */
 /** When the place was last in use: the owner's visit (the rig was there), or, when newer, anyone its fixed cameras saw
- *  (#2905: a place only cameras watch has no visits, and read "No visits yet" with hundreds of tracks on its plan). */
+ *  (a place only cameras watch has no visits, and read "No visits yet" with hundreds of tracks on its plan). */
 export const lastVisit = (place: Place): string => {
   const visit = place.lastVisit ?? null;
   const activity = place.lastActivity ?? null;
@@ -200,6 +203,7 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
                                 Example
                               </Badge>
                             )}
+                            <WalkBadge place={p} />
                           </span>
                         }
                         description={`${r ? `${planSummary(r)} · ` : p.plan ? '' : 'No plan yet · '}${lastVisit(p)}`}
@@ -235,6 +239,7 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
                     />
                   )}
                 </div>
+                {editing !== place.id && <WalkNote place={place} />}
                 {!place.example && view === '3d' && editing !== place.id ? (
                   <Suspense
                     fallback={
@@ -308,7 +313,7 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
                               : 'No floorplan yet. It appears once the place has been mapped. Until then, paths are drawn on plain floor.'}
                         </Text>
                         {!place.plan && !place.example && (
-                          // A lone camera's people are placed on its floor without a plan (#3157, #3169)
+                          // A lone camera's people are placed on its floor without a plan
                           <PlacePaths
                             key={`${place.id}-${linked.t ?? ''}`}
                             place={place.id}

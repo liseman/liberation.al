@@ -1,4 +1,4 @@
-/* Settings' This machine (#386, drawn as cards in #787): a verdict, what needs installing, three tiles, the models in
+/* Settings' This machine: a verdict, what needs installing, three tiles, the models in
    memory, and what's using the machine (usageChart.module.css). Phone width (600px and under) drops the Models tile
    and stacks each model process header and its rows. */
 .stack {
@@ -285,7 +285,7 @@
   }
 }
 
-/* A process's models, folded to one line (#2728) */
+/* A process's models, folded to one line */
 .modelGroupToggle {
   display: flex;
   align-items: center;

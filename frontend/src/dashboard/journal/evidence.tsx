@@ -1,7 +1,7 @@
-// What one cited source can show now, as memory/journal_evidence.py resolves it (#2808): the recording's still while
+// What one cited source can show now, as memory/journal_evidence.py resolves it: the recording's still while
 // its video is kept ("video"), a promoted clip or still, the room's audio for speech, or why there's nothing left
 // ("footage expired", "no footage was kept", "audio expired"). Shared by everything that shows journal evidence: the
-// Journal tab's preview (#2811, from GET /journal?entry=) and a day page's citations (GET /journal/evidence?day=).
+// Journal tab's preview (from GET /journal?entry=) and a day page's citations (GET /journal/evidence?day=).
 import { useClipThumb } from '../activities/clipThumb';
 import classes from './journal.module.css';
 

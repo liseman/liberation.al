@@ -1,5 +1,5 @@
 // "Pick what's theirs": after New person (or from a card's More menu), the faces, video, and voices nobody has named
-// yet, to pick from and give to this person in one go (POST /people/assign, #309).
+// yet, to pick from and give to this person in one go (POST /people/assign).
 import { Button, Group, Switch, Text } from '@mantine/core';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { type ReactNode, useState } from 'react';
@@ -64,7 +64,7 @@ function faceTile(f: UnnamedFace, n: number, of: number): GridTile {
 
 /** A video to pick: its poster, what happens in it, and when and where. */
 function videoTile(v: UnnamedVideo): GridTile {
-  const when = `${shortWhen(v.start)}, ${cameraName(v.cam, v.place)}`;
+  const when = `${shortWhen(v.start)}, ${cameraName(v.cam, v.camera_name)}`;
   return {
     key: `video:${v.id}`,
     label: `Video: ${v.what ? `${v.what}, ` : ''}${when}, ${clipLength(v.duration_s)}`,

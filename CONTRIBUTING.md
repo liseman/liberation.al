@@ -54,14 +54,41 @@ Issue numbers in comments and docs written before this repository was published 
 
 ## Checks before merging
 
-One check runs on GitHub: `privacy`, the same `tools/privacy_check.py` the hooks
-run, on every push and pull request (the whole tree, the pushed commits and
-their messages, and a pull request's title and description). It must pass
-before a merge. It can only report: by the time it runs, the push is already
-public, so when it fails, follow "If something private gets out" in
+Two workflows run on GitHub-hosted runners (`ubuntu-latest`).
+
+`privacy` runs `tools/privacy_check.py`, the same check the hooks run, on every
+push and pull request (the whole tree, the pushed commits and their messages,
+and a pull request's title and description). It must pass before a merge. It
+can only report: by the time it runs, the push is already public, so when it
+fails, follow "If something private gets out" in
 [docs/CONVENTIONS.md](docs/CONVENTIONS.md) before anything else.
 
-Nothing else is hosted, and there is no waiting for a GitHub-side review: every
+`checks` is a backstop, not a gate: it is informational, not a required check,
+so nobody waits for it before merging, and a run that turns red after a merge
+gets fixed forward. A merge gates on the local checks below and on `privacy`.
+It runs on pull requests and pushes to `main` that touch code (`src/`,
+`tools/`, `tests/`, `frontend/`, `continuum/`, or a Cargo file); a change to
+nothing but docs runs only `privacy`. It checks only what the change touches,
+against the pull request's base or, for a push to `main`, the previous commit:
+
+| Job | Runs when | What it does |
+|---|---|---|
+| `python` | anything under `src/`, `tools/`, or `tests/` changed | `uv sync` (no extras, plus CPU-only torch), Ruff and `ruff format --check` on the changed Python, `ty check` on the changed files under `src/`, `tests/`, and `tools/`, then `tools/test_changed.py --only python`: the test files `mise run test-changed` picks for the changed modules, and nothing (never the full suite) when no test covers the change |
+| `frontend` | anything under `frontend/` changed | `npm ci`, the production build (`npm run build`), and `vitest related` on the changed files under `frontend/src/` |
+| `rust` | anything under `continuum/`, or a `Cargo.toml` or `Cargo.lock`, changed | `cargo fmt --check` and `cargo test -p` for each crate under `continuum/crates/` the change touches; a change to only the workspace's own files (the root `Cargo.toml`, `Cargo.lock`, or the schemas) gets `cargo check --workspace --all-targets` instead. The build is cached between runs |
+
+The hosted runner has no GPU, no models, no Ollama, and none of the optional
+extras (`faces`, `segmentation`, `deep-asr`, `voice-clone`, and the rest; it
+installs only the CPU build of torch, which the vision modules import). Tests
+that need one skip themselves there (`pytest.importorskip`, or a `skipif` on the
+model files or the device), so a skip in the hosted log is expected, and those
+tests still run locally. What stays local: anything that needs a GPU, a model,
+or Ollama, the full lint (`mise run lint`: Biome, tsc, and Ruff and ty over the
+whole tree), clippy and the FFmpeg build of Continuum (`continuum-check`),
+`ty check` with the MLX dependencies on an Apple Silicon Mac, and checks on real
+hardware.
+
+There is no waiting for a GitHub-side review: every
 change is reviewed and checked locally before it merges. Review the diff
 locally (a review agent, a local `codex review`, or a careful read), validate what it finds with a
 failing test, and fix the real problems. Then merge `main` in and run

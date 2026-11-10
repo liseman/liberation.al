@@ -47,6 +47,39 @@ pub struct Manifest {
     /// The devices, in order.
     #[serde(default, rename = "device")]
     pub devices: Vec<Device>,
+    /// The rigs that carry cameras together (#5): a camera's `mount.rig` names one. Capture doesn't use them; the
+    /// spatial readers do (spatial/rig.py).
+    #[serde(default, rename = "rig")]
+    pub rigs: Vec<Rig>,
+}
+
+/// Cameras that move together, such as a backpack's. Its pose in a place comes from its pose track, not from here.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct Rig {
+    /// Unique among rigs: letters, digits, `-`, and `_`.
+    pub name: String,
+}
+
+/// How a camera is mounted (#5), read by spatial/rig.py; capture doesn't use it. A camera on a rig gives where it
+/// sits on the rig and which way it looks; a fixed camera gives its height and whether it looks outdoors. Which of
+/// the fields go together is spatial/rig.py's to check.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct Mount {
+    /// The rig it's on, by its `[[rig]]` name; none for a fixed camera.
+    pub rig: Option<String>,
+    /// Where it sits in the rig's frame, metres: x right, y down, z forward.
+    pub at: Option<[f64; 3]>,
+    /// Which way it looks on the rig, degrees: yaw to the right, pitch up, roll clockwise.
+    pub turn: Option<[f64; 3]>,
+    /// A rig camera's horizontal field of view, degrees.
+    pub hfov_deg: Option<f64>,
+    /// A fixed camera's height from the floor to its lens, metres.
+    pub height_m: Option<f64>,
+    /// A fixed camera that looks outdoors.
+    #[serde(default)]
+    pub outdoor: bool,
 }
 
 /// How the supervisor paces opens and restarts.
@@ -63,7 +96,7 @@ pub struct SupervisorSettings {
     /// A worker that recorded this long (from opening its device) before exiting is restarted after
     /// `backoff_initial_ms` again. 15 s: a network camera on a flapping link recorded 30 to 60 s at a time, each exit
     /// an RTSP timing check, and at 60 s every run counted as quick, so each restart waited the full 60 s cap and
-    /// driveway and patio recorded 10 to 35 percent of 11-07's afternoon and evening (#2904). A run this long opened
+    /// driveway and patio recorded 10 to 35 percent of 11-07's afternoon and evening. A run this long opened
     /// its device and recorded, so restarting it again soon costs nothing; a failed open or an instant death still
     /// doubles the wait.
     pub healthy_after_ms: u64,
@@ -71,7 +104,7 @@ pub struct SupervisorSettings {
     pub open_timeout_ms: u64,
     /// A worker asked to stop that hasn't exited this long after is killed; one that outlives the kill by as long
     /// again is given up on. Long enough for macOS to stop a UVC session and an audio unit: a kill mid-teardown
-    /// can wedge the device until it is power-cycled (#1388).
+    /// can wedge the device until it is power-cycled.
     pub stop_grace_ms: u64,
     /// macOS only: the aggregate raw camera estimate allowed before workers start. Unknown USB topology pools all
     /// configured cameras as one bus, even for requested MJPEG. Native modes cost at least two bytes/pixel,
@@ -186,7 +219,7 @@ pub struct VideoSettings {
     pub ring_seconds: f32,
     /// No frame for this long means the camera stalled: the worker exits and the supervisor restarts it.
     pub stall_ms: u64,
-    /// Steer exposure toward `exposure_target` (#535); false restores advertised native auto/default controls.
+    /// Steer exposure toward `exposure_target`; false restores advertised native auto/default controls.
     pub auto_exposure: bool,
     /// The mean luma (0 to 255) auto exposure steers toward: the faces' when some are in view, else the frame's.
     pub exposure_target: f32,
@@ -199,7 +232,7 @@ pub struct VideoSettings {
 
 impl VideoSettings {
     /// The encoding a device of `kind` uses: its own settings when set, else on with the defaults for a local
-    /// MJPEG camera, so MJPEG never reaches Tier 1 (#1928). A build without the `ffmpeg` feature can't encode, so
+    /// MJPEG camera, so MJPEG never reaches Tier 1. A build without the `ffmpeg` feature can't encode, so
     /// there the default is MJPEG as captured.
     #[must_use]
     pub fn encoding_for(&self, kind: DeviceKind) -> Option<VideoEncodingSettings> {
@@ -395,7 +428,7 @@ pub struct Device {
     /// Retain the private configuration and stream identity while deliberately excluding capture.
     #[serde(default = "enabled_by_default")]
     pub enabled: bool,
-    /// Paused for privacy from the dashboard's header (#2260): the supervisor keeps no worker on it, so the device
+    /// Paused for privacy from the dashboard's header: the supervisor keeps no worker on it, so the device
     /// is not opened and nothing from it is captured, until `paused` is false again. Followed live, about once a
     /// second, without restarting other devices.
     #[serde(default)]
@@ -418,20 +451,23 @@ pub struct Device {
     /// stamps, by stream suffix (`video`, `audio`).
     #[serde(default)]
     pub residual_offset_ns: std::collections::BTreeMap<String, i64>,
-    /// A fisheye camera's lens calibration (#1891, #2975). Capture doesn't use it; the Python readers do (see-actions
+    /// A fisheye camera's lens calibration. Capture doesn't use it; the Python readers do (see-actions
     /// rectifies each person through it, see/fisheye.py, and spatial/cameras.py leaves fisheye cameras out of
     /// fixed-camera places). It's declared here because a device's unknown keys are refused, so that a mistyped
     /// setting (`pasued = true`) stops capture rather than being ignored.
     #[serde(default)]
     pub fisheye: Option<FisheyeCalibration>,
-    /// A wide (not fisheye) lens's radial distortion (#2998), which spatial/lens.py undoes before MASt3R, the
+    /// A wide (not fisheye) lens's radial distortion, which spatial/lens.py undoes before MASt3R, the
     /// footprints, and the splats use the camera's frames. Capture doesn't use it.
     #[serde(default)]
     pub lens: Option<LensCalibration>,
     /// Overlays the camera burns into its frames (a timestamp, its name, a logo), as rectangles `[x1, y1, x2, y2]` in
-    /// fractions of the frame (#2998): spatial/lens.py paints them over and leaves them out. Capture doesn't use them.
+    /// fractions of the frame: spatial/lens.py paints them over and leaves them out. Capture doesn't use them.
     #[serde(default)]
     pub masks: Vec<[f64; 4]>,
+    /// How the camera is mounted: on a rig, or fixed (#5). Capture doesn't use it.
+    #[serde(default)]
+    pub mount: Option<Mount>,
 }
 
 /// A wide lens's calibration, as `tools/calibrate_lens.py` writes it:
@@ -565,8 +601,22 @@ impl Manifest {
                 .check(DeviceKind::Camera, &video.format)
                 .map_err(|why| ManifestError::Invalid("[video]".into(), why.into()))?;
         }
+        let mut rigs = BTreeSet::new();
+        for r in &self.rigs {
+            if r.name.is_empty() || !r.name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+                return Err(ManifestError::Invalid(r.name.clone(), "a rig's name is letters, digits, - and _".into()));
+            }
+            if !rigs.insert(r.name.as_str()) {
+                return Err(ManifestError::Invalid(r.name.clone(), "a rig is named twice".into()));
+            }
+        }
         let mut names = BTreeSet::new();
         for d in &self.devices {
+            if let Some(rig) = d.mount.as_ref().and_then(|m| m.rig.as_deref())
+                && !rigs.contains(rig)
+            {
+                return Err(ManifestError::Invalid(d.name.clone(), format!("mount.rig {rig:?} is no [[rig]]")));
+            }
             if d.name.is_empty() || !d.name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
                 return Err(ManifestError::Invalid(d.name.clone(), "a name is letters, digits, - and _".into()));
             }
@@ -934,7 +984,7 @@ mod tests {
 
     #[test]
     fn a_camera_carries_its_fisheye_calibration() {
-        // The line tools/calibrate_fisheye.py writes, as config/devices.example.toml documents it (#2975).
+        // The line tools/calibrate_fisheye.py writes, as config/devices.example.toml documents it.
         let manifest = "[[device]]\nname = \"rig\"\nkind = \"camera\"\nmatch = { name = \"x\" }\n\
             fisheye = { width = 1920, height = 1080, k = [690.0, 690.0, 959.5, 539.5], d = [0.05, -0.01, 0.002, 0.0], \
             rms = 0.4 }\n";
@@ -955,6 +1005,25 @@ mod tests {
         ] {
             assert!(matches!(Manifest::parse(&format!("{camera}{bad}\n")), Err(ManifestError::Parse(_))), "{bad}");
         }
+    }
+
+    #[test]
+    fn a_rig_camera_carries_its_mount_and_names_a_declared_rig() {
+        let text = "[[rig]]\nname='pack'\n\n[[device]]\nname='front'\nkind='camera'\nmatch={name='Synthetic'}\n\
+            mount={rig='pack', at=[0.0, -0.1, 0.05], turn=[30.0, -10.0, 0.0], hfov_deg=110.0}\n";
+        let parsed = Manifest::parse(text).unwrap();
+        assert_eq!(parsed.rigs, vec![Rig { name: "pack".into() }]);
+        let mount = parsed.devices[0].mount.clone().unwrap();
+        assert_eq!(mount.rig.as_deref(), Some("pack"));
+        assert_eq!(mount.turn, Some([30.0, -10.0, 0.0]));
+        let fixed =
+            "[[device]]\nname='hall'\nkind='camera'\nmatch={name='Synthetic'}\nmount={height_m=2.1, outdoor=true}\n";
+        let fixed = Manifest::parse(fixed).unwrap().devices[0].mount.clone().unwrap();
+        assert_eq!((fixed.height_m, fixed.outdoor), (Some(2.1), true));
+        let typo = text.replace("rig='pack'", "rig='pak'");
+        assert!(Manifest::parse(&typo).is_err(), "a mount on a rig that isn't declared stops capture");
+        let unknown = text.replace("hfov_deg", "hfov");
+        assert!(Manifest::parse(&unknown).is_err(), "a mistyped mount key stops capture");
     }
 
     #[test]

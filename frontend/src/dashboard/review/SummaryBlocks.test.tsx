@@ -17,7 +17,7 @@ const D0 = new Date(2026, 9, 27).getTime() / 1000;
 const at = (h: number, m = 0) => D0 + h * 3600 + m * 60;
 
 const BLOCKS: Block[] = [
-  // as #404 writes them: no time, no full stop, and person: and topic: tags
+  // as written by the server: no time, no full stop, and person: and topic: tags
   {
     start: at(8),
     end: at(11),
@@ -164,7 +164,7 @@ describe('the summary by time', () => {
     const lunch = await findStretch(/Lunch with Dana in the kitchen/);
     const list = screen.getByRole('list');
     await userEvent.click(lunch);
-    expect(engine.seekPlay).toHaveBeenCalledWith(at(12)); // plays from there (#2259)
+    expect(engine.seekPlay).toHaveBeenCalledWith(at(12)); // plays from there
     expect(engine.zoomTo).not.toHaveBeenCalled();
     expect(lunch).toHaveAttribute('aria-pressed', 'true');
     act(() => engine.ui.setState({ t: at(15, 5) }));
@@ -175,7 +175,7 @@ describe('the summary by time', () => {
     expect(asked).toEqual([{ start: at(0), end: at(24) }]);
   });
 
-  it('plays a stretch on every click, the same one twice and two in turn, without refetching the list (#2259)', async () => {
+  it('plays a stretch on every click, the same one twice and two in turn, without refetching the list', async () => {
     const engine = show();
     const lunch = await findStretch(/Lunch with Dana in the kitchen/);
     const list = screen.getByRole('list');
@@ -368,7 +368,7 @@ describe('summary attribution facets', () => {
   });
 });
 
-describe('zooming and playing (#443)', () => {
+describe('zooming and playing', () => {
   it('keeps the stretches showing, marked Refining…, until finer ones come, then swaps them in', async () => {
     const engine = show();
     await findSummaryText('Lunch with Dana in the kitchen');
@@ -411,7 +411,7 @@ describe('nextAsk', () => {
   it('asks nothing before the day loads', () => expect(nextAsk(v(1, 2), null, shown)).toBeNull());
 });
 
-describe("a day's parts and its sentence (#2276)", () => {
+describe("a day's parts and its sentence", () => {
   const rolled = (parts: DayRollup['parts'], text: string | null = 'A work day at home'): DayRollup => ({
     day: DAY,
     start: at(0),

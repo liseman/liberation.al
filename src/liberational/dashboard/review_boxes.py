@@ -1,9 +1,9 @@
-"""Boxes for Review's large camera (#374): the people and things one camera saw during a short stretch, for drawing over
+"""Boxes for Review's large camera: the people and things one camera saw during a short stretch, for drawing over
 the recorded video at the playhead (GET /review/boxes?cam=&start=&end=).
 
 - Faces: the face worker's sightings with a box (vision/sightings.py, on the vision log), named by who they are now
   (the event log), else unknown.
-- People's bodies (#2257): see-actions' `pose.track` boxes, which it stores for every tracked person on every analyzed
+- People's bodies: see-actions' `pose.track` boxes, which it stores for every tracked person on every analyzed
   frame (cam0 at 30 fps, the others at 10), read at most one a track every BODY_STRIDE_S so a minute of a busy
   camera stays a small response. A body is named by the majority of the window's known face matches on its pose
   track (see/head_faces.py writes each look's `track_id` as the pose track), else unknown. Faces still come back as
@@ -11,7 +11,7 @@ the recorded video at the playhead (GET /review/boxes?cam=&start=&end=).
   crops the face of its track's latest look.
 - Pets: see-actions' `animal.detection` source-frame boxes, keyed by their original animal track. Exact owner
   `pet.sighting` labels supply the current pet profile's name/species. A track without one is named only when
-  appearance recognition (people/pet_recognition.py `resolve`, #2175) recognizes it as a pet from this window's own
+  appearance recognition (people/pet_recognition.py `resolve`) recognizes it as a pet from this window's own
   embeddings, with the Pets page's check and threshold; it never reads history. Other tracks keep the detected
   species.
 - Things: object memory sightings (the owner's crops and the object worker's matches, memory/objects.py), by name.
@@ -39,11 +39,15 @@ import pathlib
 import re
 from collections import Counter
 from collections.abc import Iterator
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from liberational import logs
+from liberational.dashboard import routes
 from liberational.people import registry, transcript_view
-from liberational.vision import places, sightings
+from liberational.vision import sightings, views
+
+if TYPE_CHECKING:
+    from liberational.dashboard.server import H
 
 WINDOW_MAX_S = 120.0  # the longest stretch one request reads
 LIMIT = 5000  # rows a source, at most
@@ -155,7 +159,7 @@ def _group(cluster: object) -> dict[str, int]:
 
 
 def _objects(state: pathlib.Path, cam: str, start: float, end: float) -> Iterator[dict[str, Any]]:
-    """The camera's object memory sightings in the window (#778, memory/objects.py), by the object's name."""
+    """The camera's object memory sightings in the window (memory/objects.py), by the object's name."""
     from liberational.memory import objects
 
     try:
@@ -310,7 +314,7 @@ def _track(items: list[dict[str, Any]]) -> None:
 def boxes(cam: str, start: float, end: float, state: str | pathlib.Path) -> dict[str, Any]:
     """{"cam", "start", "end", "boxes": [...]} for camera cam between start and end (at most WINDOW_MAX_S), in time
     order. Raises ValueError for a bad camera or times."""
-    if not isinstance(cam, str) or not places.valid_camera_id(cam):
+    if not isinstance(cam, str) or not views.valid_camera_id(cam):
         raise ValueError("cam must contain only ASCII letters, digits, _ or -")
     start, end = float(start), float(end)
     if not end > start:
@@ -324,3 +328,16 @@ def boxes(cam: str, start: float, end: float, state: str | pathlib.Path) -> dict
     out.sort(key=lambda b: (b["ts"], b["kind"], b["id"]))
     _track(out)
     return {"cam": cam, "start": start, "end": end, "boxes": out}
+
+
+# ---- routes (dashboard/routes.py): what the server answers for this area ----
+
+
+@routes.get("/review/boxes")
+def _get_review_boxes(h: H) -> None:
+    q = h._query()
+    try:
+        start, end = float(q.get("start") or ""), float(q.get("end") or "")
+        return h._json(boxes(q.get("cam", ""), start, end, h.state))
+    except (TypeError, ValueError) as ex:
+        return h._json({"error": str(ex)}, 400)

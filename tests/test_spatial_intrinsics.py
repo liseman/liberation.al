@@ -1,4 +1,4 @@
-"""A camera's own intrinsics, held (#3289): stored per camera, and put on a registration in place of tonight's."""
+"""A camera's own intrinsics, held: stored per camera, and put on a registration in place of tonight's."""
 
 import numpy as np
 import pytest

@@ -1,4 +1,4 @@
-// The 3D view's geometry (#2876), apart from three.js so it's tested without WebGL. Everything is drawn in the
+// The 3D view's geometry, apart from three.js so it's tested without WebGL. Everything is drawn in the
 // place map's frame (metres), where the cloud is: the plan comes in through the inverse of the revision's plan
 // transform, the cameras through their poses, and height is measured from the floor plane.
 import { floorplan, parseDsl } from '../../../vendor/floorplan/index.js';
@@ -99,15 +99,11 @@ export function planOutline(planText: string, transform: readonly number[], lift
   return floorplan(doc).model.rooms.map(r => (r.room.poly as [number, number][]).map(([x, y]) => toMap([x, y, lift])));
 }
 
-/** The largest rectangle of `aspect` (width over height) centred in a `width` x `height` view: where a fixed camera's
- *  own frame is drawn when the view looks from it (#2877), with bars beside or above it, so nothing the camera never
- *  saw is drawn. */
-export function letterbox(
-  width: number,
-  height: number,
-  aspect: number,
-): { x: number; y: number; w: number; h: number } {
-  const w = Math.min(width, height * aspect);
-  const h = w / aspect;
-  return { x: (width - w) / 2, y: (height - h) / 2, w, h };
+/** The vertical field of view (degrees) that fills a view of `aspect` (width over height) with a fixed camera's own
+ *  frame (`width` x `height` pixels at `focal`): its frame covers the view, cropped to the view's shape, so the view
+ *  is filled and shows nothing past the frame's edges, nothing the camera never saw (#42). A view wider than
+ *  the frame keeps its full width, a taller one its full height. */
+export function coverFov(width: number, height: number, focal: number, aspect: number): number {
+  const halfTan = Math.min(height, width / aspect) / 2 / focal;
+  return (2 * Math.atan(halfTan) * 180) / Math.PI;
 }

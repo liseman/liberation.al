@@ -1,4 +1,4 @@
-"""Recent-video thumbnails for the person and pet cards, kept as files (#2058), the way face crops are (face_shots.py).
+"""Recent-video thumbnails for the person and pet cards, kept as files, the way face crops are (face_shots.py).
 
 A thumbnail is one recorded frame of a visit, the full scene at most WIDTH x HEIGHT. Card listing queues a background
 decode from the camera's video; only prepared files are listed and served by /people/video-thumb.jpg. It is saved as

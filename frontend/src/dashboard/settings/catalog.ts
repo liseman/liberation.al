@@ -1,9 +1,9 @@
-// Settings' menu (#382): the sections in order, each with its title, and optionally its own panel and a badge. A
+// Settings' menu: the sections in order, each with its title, and optionally its own panel and a badge. A
 // setting belongs to a section by labels.toml ("section" on each row); every setting also shows in Advanced. A
 // section can draw a panel of its own (Body) above its rows: Devices (S3), Services, and This machine
-// (S5, split in #787), and Voice clones (#2455) plug in here, and read and change the draft through useDraft (draft.tsx). Cameras and
+// (S5), and Voice clones plug in here, and read and change the draft through useDraft (draft.tsx). Cameras and
 // microphones also holds the network camera sources, and Imported media the photo libraries and recorders, both
-// moved from the Ingest tab (#1331).
+// moved from the Ingest tab.
 import { type ComponentType, lazy } from 'react';
 import { DEVICE_CARD } from './devices/cards';
 import { useDeviceIssues } from './devices/issues';
@@ -14,7 +14,7 @@ const Devices = lazy(() => import('./devices/Devices').then(m => ({ default: m.D
 const Machine = lazy(() => import('./services/Machine').then(m => ({ default: m.Machine })));
 const Services = lazy(() => import('./services/ServicesPanel').then(m => ({ default: m.Services })));
 const Clones = lazy(() => import('../people/clones/Clones').then(m => ({ default: m.Clones })));
-// What reaches outside this machine (#2728): Phone's status line and People and privacy's list
+// What reaches outside this machine: Phone's status line and People and privacy's list
 const PhoneStatus = lazy(() => import('./outside').then(m => ({ default: m.PhoneStatus })));
 const WhatLeaves = lazy(() => import('./outside').then(m => ({ default: m.WhatLeaves })));
 const ImportedMedia = lazy(() => import('./sources/Sources').then(m => ({ default: m.ImportedMedia })));
@@ -55,7 +55,7 @@ export const SECTIONS: SectionDef[] = [
     blurb: 'Cameras and microphones. Phones, watches, and tags are in Known › Devices.',
     Body: Devices,
     useBadge: useDeviceIssues,
-    drawn: ['vision.places', 'vision.cams', 'audio.sensitivity', 'audio.auto_gain_target_dbfs'],
+    drawn: ['vision.camera_names', 'vision.cams', 'audio.sensitivity', 'audio.auto_gain_target_dbfs'],
     anchors: [CARD_ID.camera, DEVICE_CARD.cameras, DEVICE_CARD.microphones, DEVICE_CARD.bluetooth],
   },
   {
@@ -73,7 +73,7 @@ export const SECTIONS: SectionDef[] = [
     Body: WhatLeaves,
   },
   {
-    // Every voice heard, named or not, and a new one recorded (#2455): a person's own clone is on their card.
+    // Every voice heard, named or not, and a new one recorded: a person's own clone is on their card.
     id: 'voices',
     title: 'Voice clones',
     blurb:

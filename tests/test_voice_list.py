@@ -1,4 +1,4 @@
-"""The voice list on Continuum (people/voice_list.py, #772): each voiceprint with how often and when it was heard,
+"""The voice list on Continuum (people/voice_list.py): each voiceprint with how often and when it was heard,
 counted from the speech log's lines."""
 
 import pytest

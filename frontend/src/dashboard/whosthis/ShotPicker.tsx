@@ -1,5 +1,5 @@
 // Every picture of an unnamed face group, a page at a time, to pick the ones that aren't this person and take them out
-// of it (#2008). Clicking a picture selects it (a ring and a check); "Not this person" removes the selected ones from
+// of it. Clicking a picture selects it (a ring and a check); "Not this person" removes the selected ones from
 // the group for good, so naming it later learns only from what's left.
 import { Button, Group, Loader, Text } from '@mantine/core';
 import { IconUserMinus } from '@tabler/icons-react';

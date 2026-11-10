@@ -8,7 +8,7 @@ for recipients other than the verified, preconsented owner.
 The mission (what the assistant says) is stored by destination number; the bridge's voice webhook picks it up. The
 voice service, the dashboard, and the bridge all change the missions file, each as one step under its lock
 (locking.py), and a write goes to a temporary file that replaces it, so no change is lost and no reader sees half a
-file (#3125). A file that can't be read is moved aside, kept and logged, before anything writes a new one (#3144).
+file. A file that can't be read is moved aside, kept and logged, before anything writes a new one.
 
 Also holds the phone settings shared by phone/bridge.py and phone/call.py.
 """
@@ -115,7 +115,7 @@ def parse(text: str | None) -> tuple[str, str] | None:
 def _read_missions() -> dict[str, Any]:
     """The missions on file, none without the file. Called under the file's lock. A file that can't be read, or isn't
     a JSON object, is moved aside to `<name>.unreadable-<unix time>` and logged as an error, and reads as none: the
-    call still goes out, and the write that follows doesn't replace the missions it may hold (#3144). Raises
+    call still goes out, and the write that follows doesn't replace the missions it may hold. Raises
     MissionsUnreadable when it can't even be moved aside."""
     try:
         raw = MISSIONS.read_text()

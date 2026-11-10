@@ -1,14 +1,14 @@
 """continuum-py's PEP 517 backend: maturin, with the optional `ffmpeg` feature (H.264 decoding for network-camera
 vision) turned on whenever this machine has FFmpeg's development libraries.
 
-Without this, every `uv sync` or `uv pip install` built the default features and silently dropped the decoder (#1626).
+Without this, every `uv sync` or `uv pip install` built the default features and silently dropped the decoder.
 The probe is pkg-config, as `mise run continuum-check` does. A machine without the headers still builds, without the
 decoder; if the ffmpeg build itself fails (headers but no libclang, say), it says so and builds again without it.
 CONTINUUM_PY_FFMPEG=0 turns the feature off, and =1 makes a failed ffmpeg build an error.
 
 The build also needs protoc: continuum-search pulls in LanceDB, which runs it. mise installs it (mise.toml), but a
 `uv sync` outside `mise run` (a launchd or systemd job's PATH, say) doesn't see mise's tools, so when PROTOC isn't set
-and protoc isn't on the PATH, the backend asks `mise which protoc` and sets PROTOC to the answer (#2339).
+and protoc isn't on the PATH, the backend asks `mise which protoc` and sets PROTOC to the answer.
 """
 
 from __future__ import annotations

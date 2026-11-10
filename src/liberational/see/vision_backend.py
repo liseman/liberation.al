@@ -1,6 +1,6 @@
-"""The seam between see-actions and the hardware it runs on (#1745).
+"""The seam between see-actions and the hardware it runs on.
 
-see-actions runs on devbox's RTX 3090s while it's developed on cam0, and on the rig's Mac mini in the end. So
+see-actions runs on the Linux machine's RTX 3090s while it's developed on cam0, and on the rig's Mac mini in the end. So
 everything that depends on the accelerator sits behind `Backend`, and only NumPy arrays and plain values cross it:
 
 - `upload` takes a decoded frame (host NV12 with its signaled color range and matrix, and its capture header) and
@@ -12,16 +12,16 @@ everything that depends on the accelerator sits behind `Backend`, and only NumPy
   frame, or None on the first call.
 - `providers` says where each model runs (its ONNX Runtime provider), so a model Core ML declined shows.
 
-With a fisheye lens's calibration (see/fisheye.py, #1891), a backend rectifies each person into a virtual pinhole
+With a fisheye lens's calibration (see/fisheye.py), a backend rectifies each person into a virtual pinhole
 view before pose, and `People.view_joints` holds the joints in that view's coordinates.
 
 Animals ride the same detector pass (see/action_animals.py): `People.animals` holds the frame's COCO animal boxes,
 `embed_animals` gives each box's appearance embedding, and `verify_animals` says whether each box's crop shows its
 species and not part of a person.
 
-Backends (`load` picks one): `gpu_pose.CudaBackend` (ONNX Runtime CUDA graphs and torch on CUDA, devbox),
-`gpu_pose.AppleBackend` (the same ONNX models on ONNX Runtime's Core ML provider, and torch on MPS for the rest: the
-rig's Mac mini, #1879), and `gpu_pose.CpuBackend` (everything on the CPU, only when asked for by name).
+Backends (`load` picks one): `gpu_pose.CudaBackend` (ONNX Runtime CUDA graphs and torch on CUDA, the Linux machine),
+`gpu_pose.AppleBackend` (the same ONNX models on ONNX Runtime's Core ML provider, and torch on MPS for the rest:
+the rig's Mac mini), and `gpu_pose.CpuBackend` (everything on the CPU, only when asked for by name).
 """
 
 from collections.abc import Mapping
@@ -66,12 +66,12 @@ class People:
     joints: NDArray[np.float32]
     # N x 6: x1, y1, x2, y2 normalized to the frame, the score, and the COCO class id (vision/crossings.COCO_ANIMALS)
     animals: NDArray[np.float32] = field(default_factory=lambda: np.zeros((0, 6), np.float32))
-    # On a fisheye camera (#1891): N x K x 3, each person's joints in their own virtual pinhole view (x, y in the
+    # On a fisheye camera: N x K x 3, each person's joints in their own virtual pinhole view (x, y in the
     # view's pixels, the pose input's size, and confidence; -1, -1, 0 where not placed), as perspective as the action
     # model's training skeletons were. None on a plain camera, whose `joints` already are.
     view_joints: NDArray[np.float32] | None = None
     view_size: tuple[int, int] | None = None  # the views' size in pixels, width by height, with `view_joints`
-    # N x 6: the screens seen in the same inference (#2468), x1, y1, x2, y2 normalized to the frame, the score, and the
+    # N x 6: the screens seen in the same inference, x1, y1, x2, y2 normalized to the frame, the score, and the
     # COCO class id (vision/crossings.COCO_SCREENS)
     screens: NDArray[np.float32] = field(default_factory=lambda: np.zeros((0, 6), np.float32))
 
@@ -111,10 +111,10 @@ def load(models: Any, device: int | None = None, backend: str = "auto", lens: An
 
     `backend` "auto" picks CUDA when torch sees a CUDA device (`device`, else the last one), then Apple when it sees
     MPS (an Apple Silicon Mac: Core ML for the models, MPS for the rest). "cuda" and "apple" insist on theirs. "cpu"
-    runs everything on the CPU and is only ever chosen by name: at 30 fps it would take the machine (#1879).
+    runs everything on the CPU and is only ever chosen by name: at 30 fps it would take the machine.
 
     `lens` is the camera's fisheye calibration (see/fisheye.py), or None for a plain camera: with one, each person is
-    resampled into a virtual pinhole view before pose (#1891)."""
+    resampled into a virtual pinhole view before pose."""
     import pathlib
 
     import torch

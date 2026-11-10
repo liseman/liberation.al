@@ -85,7 +85,7 @@ describe('Show only', () => {
   it('picks and unpicks with a click, and Show all clears every pick', async () => {
     const { engine } = setup();
     const dana = showOnly().getByRole('button', { name: /^Dana/ });
-    const mug = showOnly().getByRole('checkbox', { name: /^Mug/ }); // things and events are pills (#2287)
+    const mug = showOnly().getByRole('checkbox', { name: /^Mug/ }); // things and events are pills
     await userEvent.click(dana);
     await userEvent.click(mug);
     expect(dana).toHaveAttribute('aria-pressed', 'true');
@@ -318,13 +318,13 @@ it('offers camera display names, filters timeline lanes, and clears cameras with
   }
 });
 
-describe('co-occurring filter alternatives (#2106)', () => {
+describe('co-occurring filter alternatives', () => {
   const timed = (kind: string, label: string, spans: [number, number][], more: Partial<Chip> = {}): Chip => ({
     ...chip(kind, label),
     spans: spans.map(([a, b]) => [D0 + a, D0 + b]),
     ...more,
   });
-  // People are toggle buttons; things and events are pill checkboxes (#2287).
+  // People are toggle buttons; things and events are pill checkboxes.
   const option = (name: string) =>
     showOnly().queryByRole('checkbox', { name: new RegExp(`^${name}\\d`) }) ??
     showOnly().getByRole('button', { name: new RegExp(`^${name}\\d`) });
@@ -451,7 +451,7 @@ it('keeps moment navigation buttons out of Show only', () => {
   expect(showOnly().queryByRole('button', { name: 'Next' })).not.toBeInTheDocument();
 });
 
-describe('a long group (#2454)', () => {
+describe('a long group', () => {
   // 13 things, counted 1 to 13: the 10 most common are Thing 4 to Thing 13. A chip's name is its label, then its
   // count ("Thing 33" is Thing 3, seen 3 times).
   const things = Array.from({ length: 13 }, (_, i) => ({ ...chip('object', `Thing ${i + 1}`), count: i + 1 }));

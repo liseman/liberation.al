@@ -1,4 +1,4 @@
-"""The frontend's own log (dashboard/frontend_log.py, #2007): what a page reports is kept only as known fields, with
+"""The frontend's own log (dashboard/frontend_log.py): what a page reports is kept only as known fields, with
 no query or hash on a path, capped per minute and in size, and appended as JSON lines."""
 
 import io

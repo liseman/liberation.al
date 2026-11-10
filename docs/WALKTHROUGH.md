@@ -1,0 +1,82 @@
+# Recording and importing a walkthrough
+
+A place made only from fixed cameras has a sparse point cloud and a rough plan. A LiDAR walkthrough gives it metric
+scale and full walls. This page says which places need one, how to record it, and how to import it.
+
+## Which places need a walk
+
+Known › Places marks each place that has never been walked ("Not walked") and each place with rooms no LiDAR walk
+has covered yet ("2 rooms not walked"). Open the place to see which rooms, and the command that imports a walk into
+it with its id filled in.
+
+A room counts as walked when a LiDAR walk saw at least 30% of its floor (`plan_import.room_coverage`, read from the
+fused map's per-voxel walk counts). A plain video walk (below) gives no LiDAR depth, so it doesn't mark rooms walked.
+
+## Record
+
+Record with the free Stray Scanner app on an iPhone Pro or iPad Pro that has LiDAR. Portrait and landscape both
+work. Hold the phone at chest height, roughly level (slightly down is fine), with the LiDAR window uncovered.
+
+Start in a well-lit, textured room and go room by room. Come back through a hallway or the living room at least
+once partway through, and end where the walk started. Those returns are the loop closures. Walk slowly, about
+0.5 m/s, and turn slowly. Pause 1 to 2 seconds at each doorway. In each room, stay about 1 m from the walls and face
+them, so the LiDAR, which reaches about 5 m, sees every wall and corner. Look along hallways.
+
+Avoid mirrors and big windows, dark rooms, and people or pets walking through. Avoid a long stretch pointed at a
+blank wall up close, or only at the floor or the ceiling. Keep one recording to one storey, and to about 5 minutes.
+
+To fill in rooms a place is missing, start the walk in a room it already has (so the walk registers against the
+place's map), walk through the missing rooms, and come back.
+
+## Import
+
+AirDrop or copy the export folder to this machine, somewhere outside the repo. Use the folder that contains
+`rgb.mp4` and `odometry.csv` (and its depth frames), not the video on its own. From the repo:
+
+```
+uv run pack-walkthrough <folder>
+```
+
+That starts a new place. To add the walk to a place that is already there, pass its id (the Places page shows the
+command with it filled in):
+
+```
+uv run pack-walkthrough <folder> --place <id>
+```
+
+An id that is not a place is refused. A walk that doesn't register against the place's map, or by the fixed cameras
+both see, is stored as a place of its own, and the run says so.
+
+A plain phone video also works, as `uv run pack-walkthrough <video>`. That path uses CUT3R, needs CUDA, and drifts
+on a long walk. A Stray Scanner export gives metric, gravity-aligned poses. It needs CUDA only when a revisit is
+closed, and on a Mac it is the path that runs (`--keyframes-only` also runs there; a video does not).
+
+## A plain video, or a recording with tracked poses
+
+A plain video has no tracked poses. CUT3R's heading drifts about half a degree a frame, and the walk's revisits
+pull it back. Record it so they can: cross your own path every half minute or so, end where you started, and walk on
+a few seconds past the start, facing the way you set out. Such a walk closes within 0.75 m and 10 degrees of heading
+at its start. The "Long walks" part of the `walkthrough.py` docstring has the measurements,
+`tools/walkthrough_closure.py` reproduces them on simulated walks of 2 to 10 minutes, and the run prints `closed`,
+and logs a walk that didn't close.
+
+Between revisits the walls hold the walk's heading: a house's walls stand square to each other, so the walls a frame
+sees say which way it faces. A walk that sees its start again only at the end is bent in its middle by no more than
+1% of its length (under a metre on a two minute walk, and about 1.5 m on a six minute one, where it could be tens of
+metres), measured on simulated walks; the run prints `walls_held`, the frames whose walls it used. Face a wall
+squarely now and then as you go. A place with few square walls (round rooms, or mostly slanted ones) gets no such
+hold, and the run logs it: cross your own path there.
+
+Closing the walk has limits. No closure sharpens CUT3R's soft depth, which is what doubles a wall, and a walk's
+length along a long straight stretch is only as good as its steps.
+
+Prefer the Stray Scanner export whenever the device is to hand, and always for:
+
+- a walk longer than about two minutes;
+- a walk that can't cross its own path;
+- a place that fixed cameras or an owner plan must register against; and
+- rooms with plain walls and little texture.
+
+A plain video is for a first look at a place when only a phone without LiDAR is there.
+
+What the import does, step by step, is in the docstring of `src/liberational/spatial/walkthrough.py`.

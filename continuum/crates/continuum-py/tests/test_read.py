@@ -139,7 +139,7 @@ def test_flushed_payloads_read_back_from_their_chunk_even_through_a_stale_slot_l
             # A query made before the flush handed out note 1's slot; say the slot has since been reused.
             assert slot_item["locator"] is not None
             stale: Locator = {**slot_item["locator"], "slot_generation": slot_item["locator"]["slot_generation"] + 1}
-            # A chunk recorded at a relative path (a tier worker given a relative directory, #828) is read from the
+            # A chunk recorded at a relative path (a tier worker given a relative directory) is read from the
             # working directory.
             assert chunk["locator"] is not None
             monkeypatch.chdir(tmp_path)

@@ -486,13 +486,13 @@ describe('recent video', () => {
     expect(hash.get('person')).toBe('Dana');
     expect(hash.get('cam')).toBe('cam0');
     expect(hash.get('play')).toBe('1');
-    expect(hash.get('t')).toBe(String(today(18, 41))); // a whole second, written without decimals (#2391)
+    expect(hash.get('t')).toBe(String(today(18, 41))); // a whole second, written without decimals
     expect(hash.get('day')).toBe(isoDay(new Date(today(18, 41) * 1000)));
     expect(within(first).getByText('0:55')).toBeInTheDocument();
     expect(within(box).getByText('Making coffee 1')).toBeInTheDocument();
     expect(within(box).getByText('today at 18:41, cam0')).toBeInTheDocument();
     const all = within(box).getByRole('link', { name: 'See all in Review' }) as HTMLAnchorElement;
-    expect(new URL(all.href).hash).toBe(`#person=Dana&day=${isoDay(new Date(today(18, 41) * 1000))}`); // the newest video's day (#392)
+    expect(new URL(all.href).hash).toBe(`#person=Dana&day=${isoDay(new Date(today(18, 41) * 1000))}`); // the newest video's day
   });
 
   it('omits null-thumbnail tiles and shows pending and unavailable video counts instead of an empty claim', async () => {
@@ -550,7 +550,7 @@ describe('recent video', () => {
   });
 
   it('names the camera that saw it, by its name when it has one', async () => {
-    serve({ card: { ...EMPTY, videos: [video(1, { what: null, place: 'front camera' })] } });
+    serve({ card: { ...EMPTY, videos: [video(1, { what: null, camera_name: 'front camera' })] } });
     show();
     const box = await region('Recent video');
     expect(within(box).getByText('Seen by Front camera')).toBeInTheDocument();
@@ -684,7 +684,7 @@ describe('voice clone', () => {
     ).toBeInTheDocument();
   });
 
-  it('says how much was heard, how much is usable, and why it falls short (#388)', async () => {
+  it('says how much was heard, how much is usable, and why it falls short', async () => {
     const clone = {
       id: 3,
       label: 'Dana',
@@ -734,7 +734,7 @@ describe('voice clone', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Not enough clean speech after all.');
   });
 
-  it('removes a built clone after asking, and offers no Remove before one is built (#2455)', async () => {
+  it('removes a built clone after asking, and offers no Remove before one is built', async () => {
     serve({ clones: [{ id: 3, label: 'Dana', ready: true, built: true }] });
     const sent = posts('/clones/remove', { ok: true, removed: ['a.wav'] });
     show();

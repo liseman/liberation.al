@@ -10,10 +10,10 @@
 //! the gateway reads them. A microphone's chunk becomes Opus as it closes, before it is committed.
 //!
 //! A run lost to the broker (a cascade restarts it, and capture carves its rings after this worker subscribed) is
-//! followed by a new run in the same process (`service::rides_through`, #3097), after a short wait that grows while
+//! followed by a new run in the same process (`service::rides_through`), after a short wait that grows while
 //! the broker stays away (`service::Backoff`). Only a chunk file problem, or a stop, ends the program.
 //!
-//! The opt-in AV1 archive pass (`continuum_tier::archive`, #1479) is configured by environment, so an older binary
+//! The opt-in AV1 archive pass (`continuum_tier::archive`) is configured by environment, so an older binary
 //! simply ignores it: `CONTINUUM_AV1_ARCHIVE=True` turns it on (services/services.toml sets it from
 //! `video_archive.av1`).
 

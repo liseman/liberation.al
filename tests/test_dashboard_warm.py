@@ -1,4 +1,4 @@
-"""The dashboard does its slow imports at start, not inside the first request that needs them (#433)."""
+"""The dashboard does its slow imports at start, not inside the first request that needs them."""
 
 import http.client
 import http.server
@@ -15,11 +15,11 @@ import pytest
 
 import liberational.vision
 from liberational import config, knowledge, voice_turn
-from liberational.dashboard import server
+from liberational.dashboard import context, live_status, server, voice_clones
 
 
 def test_the_faces_helpers_are_imported_before_the_first_people_request(monkeypatch):
-    # #433: the first GET /people imported vision/faces.py and cv2 itself and waited 17 s after a start
+    # The first GET /people imported vision/faces.py and cv2 itself and waited 17 s after a start
     monkeypatch.delitem(sys.modules, "liberational.vision.faces", raising=False)
     monkeypatch.delattr(liberational.vision, "faces", raising=False)
     server._warm_faces().join(60)
@@ -70,17 +70,17 @@ def warm_sources(monkeypatch):
     monkeypatch.setattr(
         voice_turn, "wait_quiet", create_autospec(voice_turn.wait_quiet, side_effect=lambda: calls.append("gate"))
     )
-    for attr, name, reply in (
-        ("mic_status", "microphones", {"devices": {}}),
-        ("scene_entries", "scene", []),
-        ("camera_status", "cameras", {"cameras": {}}),
-        ("people_view", "roster", {"people": []}),
-        ("clones_list", "clones", {"clones": [], "error": None}),
+    for module, attr, name, reply in (
+        (live_status, "mic_status", "microphones", {"devices": {}}),
+        (live_status, "scene_entries", "scene", []),
+        (live_status, "camera_status", "cameras", {"cameras": {}}),
+        (server, "people_view", "roster", {"people": []}),
+        (voice_clones, "clones_list", "clones", {"clones": [], "error": None}),
     ):
-        fn = getattr(server, attr)
+        fn = getattr(module, attr)
         originals[attr] = fn
         monkeypatch.setattr(
-            server,
+            module,
             attr,
             create_autospec(fn, side_effect=lambda *_, name=name, reply=reply, **__: calls.append(name) or reply),
         )
@@ -576,7 +576,7 @@ def test_a_people_read_that_times_out_itself_is_not_hidden_as_stale():
 
 
 def test_a_cold_people_request_says_starting_without_waiting_on_a_busy_registry(monkeypatch):
-    # After a start the warm-ups keep the registry busy, and working out /people's key reads it (#2022).
+    # After a start the warm-ups keep the registry busy, and working out /people's key reads it.
     busy = threading.Event()
     monkeypatch.setattr(server, "_PEOPLE_READS", server._PeopleReads())
     monkeypatch.setattr(server, "PEOPLE_WAIT_S", 0.05)
@@ -611,7 +611,7 @@ def test_later_warm_ups_start_after_the_people_warm_up(monkeypatch, warmed):
 
 
 def test_a_change_made_during_a_cold_start_answers_with_its_own_read(roster, monkeypatch):
-    # A name given while the first roster read is still out: its answer must not be that older read (#2022).
+    # A name given while the first roster read is still out: its answer must not be that older read.
     state, held, _, _ = roster
     monkeypatch.setattr(server, "PEOPLE_WAIT_S", 2.0)  # as served (the suite waits reads out)
     held.clear()
@@ -631,8 +631,8 @@ def test_a_change_made_during_a_cold_start_answers_with_its_own_read(roster, mon
 
 
 def test_the_faces_check_runs_in_a_child_process_and_saves_its_result(tmp_path, monkeypatch):
-    # In the dashboard's own process it held every request up for seconds every 10 minutes (#2325).
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    # In the dashboard's own process it held every request up for seconds every 10 minutes.
+    monkeypatch.setattr(context, "STATE", tmp_path)
     imported_before = "liberational.vision.faces" in sys.modules
     check = server._run_check()
     assert (check["groups"], check["status"]) == (0, "unchecked")  # an install with no tags yet
@@ -642,7 +642,7 @@ def test_the_faces_check_runs_in_a_child_process_and_saves_its_result(tmp_path, 
 
 
 def test_a_faces_check_child_that_fails_says_why(tmp_path, monkeypatch):
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     monkeypatch.setattr(
         server.subprocess,
         "run",
@@ -655,7 +655,7 @@ def test_a_faces_check_child_that_fails_says_why(tmp_path, monkeypatch):
         server._run_check()
 
 
-# #2332: an owner change a patch can apply is served at once, patched, while the full answer is worked out behind it.
+# An owner change a patch can apply is served at once, patched, while the full answer is worked out behind it.
 def _slow_kept(patch):
     """A _Fresh whose first answer is published at once and whose later computes wait for `release`."""
     owner = {"key": "a"}
@@ -780,7 +780,7 @@ def test_face_patch_refuses_what_it_cannot_apply(face_skips, now):
 
 
 def test_face_patch_applies_a_not_mark_to_the_rows_at_once(face_skips, monkeypatch):
-    """#2368: "Not Kara" on Face 5 takes Kara off its guess in the patched answer, without the 33 s recompute."""
+    """ "Not Kara" on Face 5 takes Kara off its guess in the patched answer, without the 33 s recompute."""
     from liberational.people import face_nots
 
     monkeypatch.setattr(face_nots, "names", lambda state: {5: {"Kara"}})
@@ -849,7 +849,7 @@ def voice_state(monkeypatch, tmp_path):
     from liberational.people import registry
 
     skips = {"face": [], "voice": [9.0], "line": []}
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     monkeypatch.setattr(server, "inbox_skips", lambda: skips)
     yield registry.at(tmp_path), skips
     registry.close_all()
@@ -981,7 +981,7 @@ def test_voice_patch_refuses_an_answer_that_failed(voice_state):
     ],
 )
 def test_voice_patch_drops_a_clip_answered_nobody(voice_state, aside, clips):
-    """Codex on #2358: "Nobody" on a clip puts its line aside; the patched answer must not play it again."""
+    """ "Nobody" on a clip puts its line aside; the patched answer must not play it again."""
     _, skips = voice_state
     skips["line"] = aside
     patched = server._patch_voice_groups(VOICE_ANSWER, _voice_key(), _voice_key(skips=2))
@@ -992,7 +992,7 @@ def test_voice_patch_drops_a_clip_answered_nobody(voice_state, aside, clips):
 
 
 def test_voice_patch_drops_a_clip_marked_multiple_speakers_or_given_to_someone(voice_state):
-    """Joe: "Multiple speakers" on a clip cleared it only once the list was worked out again."""
+    """Marking "Multiple speakers" on a clip clears it immediately rather than waiting until the list is rebuilt."""
     from liberational.people import registry
 
     reg, _ = voice_state
@@ -1074,7 +1074,7 @@ def test_an_answer_the_patch_brings_up_to_date_counts_as_ready():
 
 
 def test_a_request_waits_for_a_knowledge_lock_only_briefly(monkeypatch):
-    # Request threads piling up behind a knowledge lock were the 11-07 overload (#2898): they fail fast instead.
+    # Request threads piling up behind a knowledge lock were the 11-07 overload: they fail fast instead.
     seen = []
     monkeypatch.setattr(
         http.server.BaseHTTPRequestHandler,

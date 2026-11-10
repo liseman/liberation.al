@@ -1,4 +1,4 @@
-//! Continuum's segment store (#1755): machine time series (detections, poses, motion, face rows, embeddings,
+//! Continuum's segment store: machine time series (detections, poses, motion, face rows, embeddings,
 //! captions, coverage) as columnar files, one stream, one camera, and one UTC hour per file, outside the broker's
 //! catalog.
 //!
@@ -14,7 +14,8 @@
 //! ```
 //!
 //! A part is an Arrow IPC stream: the schema, then one record batch per [`Writer::append`], so a reader can read an
-//! open part while it grows and stops cleanly at a torn tail. Every row carries `ts_ns` (its time, UTC ns, which
+//! open part while it grows and stops cleanly at a torn tail. When a part closes it is rewritten as one batch (its
+//! first rewrite, so a closed part normally ends `-v1`), and a read joins an open part's batches before it filters. Every row carries `ts_ns` (its time, UTC ns, which
 //! decides its hour) and `row_seq` (per stream and camera, strictly increasing across hours and parts), which is what
 //! a durable reader resumes from ([`Cursor`]). Rows for an hour whose part already closed (a late or imported row) go
 //! to a new part of that hour, closed at once.
@@ -232,6 +233,71 @@ fn replace_part(path: &Path, old: &Path, schema: &arrow_schema::SchemaRef, batch
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(e) => Err(Error::Io(old.to_path_buf(), e)),
     }
+}
+
+/// Every row of `batches` as one batch, in their order; `None` when there are none.
+fn joined(batches: &[RecordBatch]) -> Result<Option<RecordBatch>> {
+    match batches {
+        [] => Ok(None),
+        [one] => Ok(Some(one.clone())),
+        [first, ..] => Ok(Some(arrow_select::concat::concat_batches(&first.schema(), batches)?)),
+    }
+}
+
+/// Rewrites the closed part at `path` as one record batch, as its next version, and returns where it is now. A part
+/// is written a batch an append, so a reader can follow it while it's open; a stream appended a row at a time (a
+/// coverage span a second) left an hour as thousands of one-row batches, each with its own framing, and reading a
+/// day of it meant decoding hundreds of thousands of them. A part already in one batch, or empty, stays as it is.
+fn compact_closed(path: &Path) -> Result<PathBuf> {
+    let dir = path.parent().unwrap_or_else(|| Path::new("."));
+    let Some(p) = path.file_name().and_then(|f| f.to_str()).and_then(|f| Part::parse(dir, f)) else {
+        return Ok(path.to_path_buf());
+    };
+    let Some(end) = p.end else { return Ok(path.to_path_buf()) };
+    let batches = reader::decode_file(path)?;
+    if batches.len() < 2 {
+        return Ok(path.to_path_buf());
+    }
+    let Some(one) = joined(&batches)? else { return Ok(path.to_path_buf()) };
+    let next = dir.join(Part::versioned_name(p.hour, p.part, p.first, end, p.version + 1));
+    replace_part(&next, path, &one.schema(), &[one])?;
+    Ok(next)
+}
+
+/// Rewrites every closed part under `root` that holds more than one batch as one ([`Writer`] does this as it closes
+/// a part; this is for parts closed before it did, or left by a crash between a close and its rewrite), without the
+/// rows a forget names. Returns how many parts it rewrote. Safe beside running writers and readers: it touches closed
+/// parts only, the way a forget does.
+///
+/// # Errors
+///
+/// An I/O or Arrow error.
+pub fn compact(root: &Path) -> Result<u64> {
+    let mut rewritten = 0;
+    for stream in deletions::streams_of(root)? {
+        for cam in cameras(root, &stream)? {
+            let dir = root.join(&stream).join(&cam);
+            let ranges = deletions::covering(root, &stream, &cam)?;
+            for p in parts(&dir)? {
+                let Some(end) = p.end else { continue };
+                let batches = match reader::decode_file(&p.path) {
+                    Ok(batches) => batches,
+                    // Rewritten or removed since the listing: whoever did has it.
+                    Err(Error::Io(_, e)) if e.kind() == std::io::ErrorKind::NotFound => continue,
+                    Err(e) => return Err(e),
+                };
+                if batches.len() < 2 {
+                    continue;
+                }
+                let Some(one) = joined(&batches)? else { continue };
+                let one = deletions::without(one, &ranges)?;
+                let next = dir.join(Part::versioned_name(p.hour, p.part, p.first, end, p.version + 1));
+                replace_part(&next, &p.path, &one.schema(), &[one])?;
+                rewritten += 1;
+            }
+        }
+    }
+    Ok(rewritten)
 }
 
 /// The cameras a stream has parts for.

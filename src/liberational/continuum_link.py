@@ -1,10 +1,10 @@
-"""A broker connection for v1's synchronous code: one Continuum client on a background event loop, shared by every
+"""A broker connection for synchronous code: one Continuum client on a background event loop, shared by every
 call, made on first use and made again after the broker restarts.
 
 The ported readers (`vision_log`, and `speech_log` in time) wrap their async reads in it, so the dashboard and the
 journal, which are threaded, call the broker the way they used to read a file.
 
-It also says when the broker is away (#1355, #1357): a restart is expected, so every service reports it the same way,
+It also says when the broker is away: a restart is expected, so every service reports it the same way,
 one WARN when the broker goes (`OUTAGE.lost`) and one INFO when it's back (`OUTAGE.back`), instead of a traceback per
 failed call. `broker_outage` tells those errors from others, `failed` logs a caught error (its traceback only when it
 is not an outage), and `run_service` runs a service's main coroutine so an outage that ends it is one line and an exit
@@ -147,7 +147,7 @@ async def close_quietly(client: Client) -> None:
 
 @contextlib.asynccontextmanager
 async def connected(socket: Path | None = None, *, client_name: str) -> AsyncGenerator[Client]:
-    """A service's broker client for the length of the block, closed after it (#2941).
+    """A service's broker client for the length of the block, closed after it.
 
     A block that ends on its own (stopped) closes the client with `close_quietly`. A block that raised (a stream
     reader that ended, say) closes it plainly: if the close fails because the broker is gone, that outage is raised
@@ -231,7 +231,7 @@ async def until_streams_ready[T](call: Callable[[], Awaitable[T]], wait_s: float
 
 
 # Who asked, inside the link's loop: the loop runs every caller's work on its own thread, so a cost found there (a
-# decode, say) would otherwise not say whose it is (#1516).
+# decode, say) would otherwise not say whose it is.
 CALLER: contextvars.ContextVar[str] = contextvars.ContextVar("continuum_link_caller", default="?")
 _PLUMBING = ("continuum_link", "vision_log", "speech_log", "memory_log", "read", "asyncio", "concurrent")
 

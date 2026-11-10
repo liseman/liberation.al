@@ -2,8 +2,8 @@
 
 After WorldMM (docs/research/worldmm-long-video-memory.md, porting steps 4, 5, and the frames part of 7).
 
-search() reads the journal on the memory log (`memory_log`, `journal.entry`; #550, #778): the vector worker's
-full-text index of the entries (#874) gives the ones whose words match, within the question's window, and with the
+search() reads the journal on the memory log (`memory_log`, `journal.entry`): the vector worker's
+full-text index of the entries gives the ones whose words match, within the question's window, and with the
 semantic index on (semantic.enabled, memory/embedding.py) its nearest by meaning in the journal's embedding space (the
 question embedded with the model and digest `journal.embed` uses). The two lists are merged by reciprocal rank fusion
 (fused()), which needs only each entry's place in each list, since BM25 scores and cosine distances aren't on one
@@ -26,6 +26,8 @@ what Ask already reads: journal (search() above), transcript and camera (history
 (history_qa's recorded visits), encounters (memory/timeline.py), and frames (video_evidence.collect). ask.execute then answers from what the loop
 gathered with the usual local answer path. Choices on top of WorldMM:
 
+- The loop is told how the question was read (the query's reading: its source, measure, and people), so the planner
+  and the query agree on what is asked instead of each reading the question for itself (#60).
 - The loop starts from what history_qa.collect already found, so the model can stop at once, and a loop whose
   rounds find nothing still answers from exactly the single pass's evidence.
 - A failed round (bad JSON, an unknown tool, bad arguments, a repeated search, or a tool error) still uses up its
@@ -67,7 +69,7 @@ from liberational import ollama_health
 from liberational.domain.memory import Modality
 from liberational.memory import ask, embedding, history_qa, journal, summarize, timeline
 from liberational.people import transcript_view
-from liberational.vision import places
+from liberational.vision import views
 
 if TYPE_CHECKING:
     from continuum_py.search import Hit
@@ -203,10 +205,15 @@ def _planner_input(system: str, user: Any, model: str, num_ctx: int, num_predict
         prompt["snippets_compacted"] = True
 
 
-def _chat(system: str, user: Any, schema: Mapping[str, Any], num_predict: int) -> Any:
-    """The model's JSON reply to one structured-output call. Raises ValueError when it isn't JSON."""
+def _chat(
+    system: str, user: Any, schema: Mapping[str, Any], num_predict: int, shots: Sequence[tuple[str, str]] = ()
+) -> Any:
+    """The model's JSON reply to one structured-output call. `shots` are worked examples (a user turn and the reply
+    to it), sent as chat turns before `user`. Raises ValueError when the reply isn't JSON."""
     model, num_ctx = settings()
-    content = _planner_input(system, user, model, num_ctx or ask.OWN_NUM_CTX, num_predict)
+    examples = [(json.dumps(asked, ensure_ascii=False), reply) for asked, reply in shots]
+    framing = system + "".join(asked + reply for asked, reply in examples)  # what the prompt estimate counts
+    content = _planner_input(framing, user, model, num_ctx or ask.OWN_NUM_CTX, num_predict)
     data = _post(
         {
             "model": model,
@@ -218,13 +225,35 @@ def _chat(system: str, user: Any, schema: Mapping[str, Any], num_predict: int) -
             "options": {"num_ctx": num_ctx, "num_predict": num_predict, "temperature": 0},
             "messages": [
                 {"role": "system", "content": system},
+                *(
+                    {"role": role, "content": text}
+                    for asked, reply in examples
+                    for role, text in (("user", asked), ("assistant", reply))
+                ),
                 {"role": "user", "content": content},
             ],
         }
     )
-    summarize.observe_prompt_tokens(model, system, content, data.get("prompt_eval_count"))
+    if not examples:  # the estimator is calibrated on two-turn prompts; each example adds its own chat framing
+        summarize.observe_prompt_tokens(model, system, content, data.get("prompt_eval_count"))
     content = str((data.get("message") or {}).get("content") or "")
     return json.loads(re.sub(r"<think>.*?</think>\s*", "", content, flags=re.S))
+
+
+def chat_within(
+    system: str,
+    user: Any,
+    schema: Mapping[str, Any],
+    num_predict: int,
+    seconds: float,
+    shots: Sequence[tuple[str, str]] = (),
+) -> Any:
+    """_chat for a caller outside the loop (memory/question.py's reading), with its own deadline."""
+    token = _deadline.set(time.monotonic() + seconds)
+    try:
+        return _chat(system, user, schema, num_predict, shots)
+    finally:
+        _deadline.reset(token)
 
 
 def _local(ts: float) -> str:
@@ -245,10 +274,10 @@ def _people_named(text: str, state: pathlib.Path | None) -> tuple[set[str], set[
     """(name words to keep though they are stop words, every word of every name the people named in text have had).
 
     A journal entry's search text has the names its speakers had when it was written, so a search for someone's
-    name looks for their former names and the names of anyone merged into them too (#2198). A name is any person's
+    name looks for their former names and the names of anyone merged into them too. A name is any person's
     current name or alias, read as the person called it now, else the one who last had it (`known_as`); forgotten
     people are nobody. A name made only of stop words ("Will") counts only as written with its capitals, so "what
-    will Dana do" doesn't search for Will (#2200)."""
+    will Dana do" doesn't search for Will."""
     from liberational.people import registry
 
     if not text or not registry.log_exists(state):
@@ -411,7 +440,7 @@ def _hits(
     strict: bool = False,
 ) -> tuple[list[Hit], list[Hit]]:
     """(the words' hits, the meaning's hits), each best first, from the vector worker's indexes of the journal's
-    entries (#874), within [lo, hi) and about any of `subjects` when given. Normally returns ([], []) when it
+    entries, within [lo, hi) and about any of `subjects` when given. Normally returns ([], []) when it
     cannot answer; strict mode raises SemanticUnavailableError so interactive search can offer Retry."""
     from continuum_py import Client
     from continuum_py.search import MAX_K, Searcher
@@ -622,6 +651,8 @@ DECIDE_SYSTEM = (
     "You plan the searches for {name}, who answers questions about the owner's recorded history. Each round, either "
     'stop because the evidence so far is enough to answer ({{"decision": "answer"}}), or pick exactly one read-only '
     'tool and its arguments ({{"decision": "search", "tool": ..., "args": {{...}}}}). Tools:\n{tools}\n'
+    "read_as, when given, is how the question was already read: where its answer is (speech, cameras, both, people, "
+    "lights, or journal), its measure, and the people it names. Search for that reading, not another one. "
     "Evidence is sufficient only if it supports the exact requested entity or relationship, not a nearby topic. "
     "If snippets do not identify the requested category, search alternative phrasings or concrete instances "
     "of that category before concluding it was not found. "
@@ -688,7 +719,7 @@ def _camera_id(text: object) -> str:
     if not isinstance(text, str):
         raise ValueError("camera id must be a string")
     s = text.strip()
-    if places.valid_camera_id(s):
+    if views.valid_camera_id(s):
         return s
     m = history_qa.CAM.fullmatch(s)
     if not m:
@@ -901,6 +932,9 @@ def loop(
     offered = tools()
     journal_only = query.get("kind") == "journal"
     requested_cameras = tuple(dict.fromkeys(query.get("cameras") or []))
+    # How the question was read (memory/question.py), so the planner searches for that reading, not one of its own.
+    reading = query.get("reading") or {}
+    read_as = {key: reading[key] for key in ("source", "measure", "people") if reading.get(key)}
     if journal_only:
         offered = [tool for tool in offered if tool == "journal"]
     if requested_cameras:
@@ -925,6 +959,8 @@ def loop(
             prompt: dict[str, Any] = {}
             if requested_cameras:
                 prompt["cameras"] = list(requested_cameras)
+            if read_as:
+                prompt["read_as"] = read_as
             prompt.update(
                 window=dict(start=_local(window[0]) if window[0] else "the earliest records", end=_local(window[1])),
                 evidence_so_far=dict(first=[_brief(r) for r in start[:SHOW_ITEMS]], count=len(start) + len(found)),

@@ -89,12 +89,25 @@ apt = "git"
 brew = "git"
 services = []
 
+[pkg-config]
+why = "Finds system C libraries and headers (PipeWire and FFmpeg) when building Continuum and checking header packages."
+command = "pkg-config"
+apt = "pkg-config"
+brew = "pkgconf"
+services = []
+
+[python3]
+why = "Runs the repository's Git hooks (tools/privacy_check.py) before commits and pushes."
+command = "python3"
+apt = "python3"
+services = []
+
 [libusb]
 why = "Controls an XVF3800 microphone array's settings (only with that microphone)."
 library = "usb-1.0"
 apt = "libusb-1.0-0"
 brew = "libusb"
-services = []  # v1's microphone service drove the array's controls; nothing does on Continuum yet (#548)
+services = []  # no service drives the array's controls yet
 optional = true
 
 [pw-dump]
@@ -125,68 +138,60 @@ apt = "bluez"
 services = ["bluetooth"]
 optional = true
 
-# FFmpeg's development headers: Continuum's RTSP capture, optional Python H.264 decoder, and tier worker link libavcodec and
-# friends through ffmpeg-next when built with its `ffmpeg` feature, for all-intra HEVC, fragmented MP4, and the
-# hardware decoders. The runtime libraries alone (what ffmpeg itself needs) are not enough to build it, which is why
-# these are checked with pkg-config rather than by loading the library. Homebrew's
-# ffmpeg formula brings the headers with it on macOS. Optional: only a machine that builds these workers or the Python decoder with
-# that feature needs them, and `mise run continuum-check` skips the feature when pkg-config can't find libavcodec.
+# FFmpeg's development headers: Continuum's RTSP capture, Python H.264 decoder, and tier worker link libavcodec and
+# friends through ffmpeg-next when built with its `ffmpeg` feature (`mise run continuum-release` and `uv sync`), for
+# all-intra HEVC, fragmented MP4, and the hardware decoders. The runtime libraries alone (what ffmpeg itself needs) are
+# not enough to build it, which is why these are checked with pkg-config rather than by loading the library. Homebrew's
+# ffmpeg formula brings the headers with it on macOS.
 
 [libavcodec-dev]
-why = "FFmpeg's avcodec headers, to build Continuum RTSP capture, optional H.264 Python decoding, and Tier video codecs with the ffmpeg feature."
+why = "FFmpeg's avcodec headers, to build Continuum RTSP capture, H.264 Python decoding, and Tier video codecs with the ffmpeg feature."
 pkgconfig = "libavcodec"
 apt = "libavcodec-dev"
 brew = "ffmpeg"
 services = []
-optional = true
 
 [libavformat-dev]
-why = "FFmpeg's avformat headers, to build Continuum RTSP capture, optional H.264 Python decoding, and Tier video codecs with the ffmpeg feature."
+why = "FFmpeg's avformat headers, to build Continuum RTSP capture, H.264 Python decoding, and Tier video codecs with the ffmpeg feature."
 pkgconfig = "libavformat"
 apt = "libavformat-dev"
 brew = "ffmpeg"
 services = []
-optional = true
 
 [libavutil-dev]
-why = "FFmpeg's avutil headers, to build Continuum RTSP capture, optional H.264 Python decoding, and Tier video codecs with the ffmpeg feature."
+why = "FFmpeg's avutil headers, to build Continuum RTSP capture, H.264 Python decoding, and Tier video codecs with the ffmpeg feature."
 pkgconfig = "libavutil"
 apt = "libavutil-dev"
 brew = "ffmpeg"
 services = []
-optional = true
 
 [libswscale-dev]
-why = "FFmpeg's swscale headers, to build Continuum RTSP capture, optional H.264 Python decoding, and Tier video codecs with the ffmpeg feature."
+why = "FFmpeg's swscale headers, to build Continuum RTSP capture, H.264 Python decoding, and Tier video codecs with the ffmpeg feature."
 pkgconfig = "libswscale"
 apt = "libswscale-dev"
 brew = "ffmpeg"
 services = []
-optional = true
 
 [libavfilter-dev]
-why = "FFmpeg's avfilter headers, to build Continuum RTSP capture, optional H.264 Python decoding, and Tier video codecs with the ffmpeg feature."
+why = "FFmpeg's avfilter headers, to build Continuum RTSP capture, H.264 Python decoding, and Tier video codecs with the ffmpeg feature."
 pkgconfig = "libavfilter"
 apt = "libavfilter-dev"
 brew = "ffmpeg"
 services = []
-optional = true
 
 [libswresample-dev]
-why = "FFmpeg's swresample headers, to build Continuum RTSP capture, optional H.264 Python decoding, and Tier video codecs with the ffmpeg feature."
+why = "FFmpeg's swresample headers, to build Continuum RTSP capture, H.264 Python decoding, and Tier video codecs with the ffmpeg feature."
 pkgconfig = "libswresample"
 apt = "libswresample-dev"
 brew = "ffmpeg"
 services = []
-optional = true
 
 [libavdevice-dev]
-why = "FFmpeg's avdevice headers, to build Continuum RTSP capture, optional H.264 Python decoding, and Tier video codecs with the ffmpeg feature."
+why = "FFmpeg's avdevice headers, to build Continuum RTSP capture, H.264 Python decoding, and Tier video codecs with the ffmpeg feature."
 pkgconfig = "libavdevice"
 apt = "libavdevice-dev"
 brew = "ffmpeg"
 services = []
-optional = true
 
 [libpipewire]
 # Checked by the headers' pkg-config module (the runtime library is there without them). libclang, which generates

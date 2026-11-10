@@ -1,4 +1,4 @@
-"""Ask's answers from linked devices (#1329): "is Joe home", "when did Sam get here", "where did I last have my
+"""Ask's answers from linked devices: "is Alice home", "when did Sam get here", "where did I last have my
 AirPods".
 
 A question is answered here only when an owner link names the person or thing it asks about (proximity/devices.py);
@@ -58,7 +58,7 @@ def asked(question: str, state: Path) -> tuple[str, str] | None:
 
 def unlinked_home(question: str, state: Path) -> str | None:
     """The name in "is X home" when no owner link names X, for Ask to answer from camera and voice presence instead
-    (memory/history_qa.py, #1596); None for any other question, or one a link answers."""
+    (memory/history_qa.py); None for any other question, or one a link answers."""
     m = HOME.search(question)
     if m is None or asked(question, state) is not None:
         return None
@@ -155,7 +155,7 @@ def answer(
             source="device",
             link=_review(s.start, stamp),
             quote=f"{name}'s device: {s.sightings} sightings by {', '.join(s.places)}",
-            method="presence.device_span-style stay of a linked device (#1329), unconfirmed",
+            method="presence.device_span-style stay of a linked device, unconfirmed",
             event=s.first_id,
         )
         for s in (seen.stays if seen else ())
@@ -232,7 +232,7 @@ def _thing(
     reg: devices.Devices, name: str, now: float, tz: dt.tzinfo | None, stamp: Callable[[float], str]
 ) -> dict[str, Any]:
     """The newest sighting of a thing, a day at a time back to devices.thing_lookback_days, after where it lives when
-    the owner said so (a device's location, #3274)."""
+    the owner said so (a device's location)."""
     days = int(config.get("devices.thing_lookback_days"))
     lives = _lives(reg, name)
     end = now

@@ -132,7 +132,7 @@ describe('the list', () => {
     expect(roster().getByRole('heading', { name: 'People' }).nextElementSibling).toHaveTextContent('2');
   });
 
-  it('leaves the voice clones list to Settings: People is the roster and the detail beside it (#2455)', async () => {
+  it('leaves the voice clones list to Settings: People is the roster and the detail beside it', async () => {
     serve();
     renderPage(<PeopleTab />);
     await roster().findByRole('button', { name: /^Dana/ });
@@ -244,7 +244,7 @@ describe('the list', () => {
 
 describe("what waits in Who's this?", () => {
   // The lists are read once; later reads wait until the test opens the gate, as the server's face groups can take
-  // half a minute after a name (#2330). The roster's count must drop on the server's OK alone. The fake server drops
+  // half a minute after a name. The roster's count must drop on the server's OK alone. The fake server drops
   // what was named or put aside, as the real one does.
   const waiting = (id: number, label: string) => ({
     id,
@@ -399,7 +399,7 @@ describe("what waits in Who's this?", () => {
     renderPage(<PeopleTab />);
     await userEvent.dblClick(await roster().findByRole('button', { name: /^Dana/ }));
     await screen.findByRole('article', { name: 'Profile of Dana' });
-    navigate('/people#whos-this'); // People stays mounted between tabs (#330)
+    navigate('/people#whos-this'); // People stays mounted between tabs
     expect(await screen.findByRole('heading', { name: "Who's this?" })).toBeInTheDocument();
     expect(screen.queryByRole('article')).not.toBeInTheDocument();
     expect(location.hash).toBe('');
@@ -557,7 +557,7 @@ describe('New person', () => {
   });
 });
 
-describe('loading and errors (#250)', () => {
+describe('loading and errors', () => {
   it('shows placeholder rows, then a loader once the wait runs long, then the list', async () => {
     let answer: () => void = () => {};
     const ready = new Promise<void>(r => {
@@ -573,7 +573,7 @@ describe('loading and errors (#250)', () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     renderPage(<PeopleTab />);
     expect(roster().getByLabelText('Loading people')).toHaveAttribute('aria-busy', 'true');
-    expect(roster().getByRole('status')).toBeEmptyDOMElement(); // a quick load says nothing (#2469)
+    expect(roster().getByRole('status')).toBeEmptyDOMElement(); // a quick load says nothing
     await act(async () => {
       await vi.advanceTimersByTimeAsync(PAGE_SLOW_MS);
     });
@@ -648,7 +648,7 @@ describe('loading and errors (#250)', () => {
   });
 });
 
-describe("Who's this before the roster view exists (#1230)", () => {
+describe("Who's this before the roster view exists", () => {
   it('keeps a #whos-this link on the roster loader until people arrive, then opens it', async () => {
     let answer: () => void = () => {};
     const ready = new Promise<void>(resolve => {
@@ -803,7 +803,7 @@ function asPhone() {
   );
 }
 
-describe('on a phone (#2584)', () => {
+describe('on a phone', () => {
   afterEach(() => vi.restoreAllMocks());
   const picked = () => document.querySelector(`.${classes.picked}`);
 
@@ -825,7 +825,7 @@ describe('on a phone (#2584)', () => {
     expect(await screen.findByRole('article', { name: 'Profile of Dana' })).toBeInTheDocument();
   });
 
-  it("opens a person's card on one tap (#3145)", async () => {
+  it("opens a person's card on one tap", async () => {
     asPhone();
     serve();
     renderPage(<PeopleTab />);

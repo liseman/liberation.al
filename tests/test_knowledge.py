@@ -200,6 +200,46 @@ def test_subject_key_collection_and_position_filters_compose_without_duplicates(
     assert store.collections(prefix="fac") == ["facts"]
 
 
+@pytest.fixture
+def statements(monkeypatch):
+    seen = []
+    connect = sqlite3.connect
+
+    def traced(*args, **kwargs):
+        db = connect(*args, **kwargs)
+        db.set_trace_callback(seen.append)
+        return db
+
+    monkeypatch.setattr(sqlite3, "connect", traced)
+    return seen
+
+
+def test_a_thousand_row_query_reads_subjects_in_a_constant_number_of_statements(statements, tmp_path):
+    store = Store(tmp_path / "knowledge.sqlite3")  # opened after the trace is installed
+    store.put(
+        [record("lone", subjects=())]
+        + [record(f"r{i:04}", subjects=("zed", f"pet{i % 3}", "alice")) for i in range(1000)]
+    )
+    store.query("notes", limit=1)
+    statements.clear()
+    one = store.query("notes", limit=1)
+    small = len(statements)
+    statements.clear()
+    rows = store.query("notes")
+    assert 0 < len(statements) == small
+    assert one[0].record.subjects == ()
+    assert len(rows) == 1001
+    assert rows[1].record.subjects == ("alice", "pet0", "zed")
+    assert rows[1000].record == record("r0999", subjects=("alice", "pet0", "zed"))
+
+
+def test_get_snapshot_and_a_subject_filter_return_every_subject_of_each_record(store):
+    store.put([record("one", subjects=("dana", "alice")), record("two", subjects=())])
+    assert store.get("one").record.subjects == ("alice", "dana")
+    assert [s.record.subjects for s in store.snapshot().records] == [("alice", "dana"), ()]
+    assert [s.record.subjects for s in store.query("notes", subjects=("dana",))] == [("alice", "dana")]
+
+
 def test_erasure_changes_survive_reopen_and_ids_cannot_resurrect(store):
     (position,) = store.put([record()])
     assert store.remove(["one"]) == 1
@@ -494,7 +534,7 @@ def test_lookup_shapes_have_real_indexes(store, sql, args, index):
     assert index in json.dumps(plan)
 
 
-# A lock another process holds is waited out, not raised (#2898). The backoff's pause releases the lock, so each
+# A lock another process holds is waited out, not raised. The backoff's pause releases the lock, so each
 # test knows the store met it and retried.
 
 
@@ -634,7 +674,7 @@ def test_a_commit_wait_is_a_hard_bound_even_with_a_long_busy_timeout(tmp_path, m
 
 
 def test_at_reuses_a_store_no_caller_holds(tmp_path, tracked_connections):
-    # Callers like see/zones._store() keep no reference; each call must not open and validate the file again (#2940)
+    # Callers like see/zones._store() keep no reference; each call must not open and validate the file again
     path = tmp_path / "knowledge.sqlite3"
     knowledge.at(path).put([record()])
     gc.collect()
@@ -657,8 +697,8 @@ def test_at_rebuilds_a_store_whose_file_was_removed(tmp_path):
 
 
 def test_rebuilding_a_removed_store_never_holds_up_other_stores_while_it_waits_for_a_transaction(tmp_path):
-    # #3176: at() closed the removed file's store under the lock every at() takes, and close waits for transactions
-    # in progress (#3170): until the transaction ended no other store could be opened, a deadlock when the
+    # at() closed the removed file's store under the lock every at() takes, and close waits for transactions
+    # in progress: until the transaction ended no other store could be opened, a deadlock when the
     # transaction itself opened one
     path, other = tmp_path / "a" / "knowledge.sqlite3", tmp_path / "b" / "knowledge.sqlite3"
     knowledge.at(path).put([record()])
@@ -702,7 +742,7 @@ def test_a_file_s_journaling_is_logged_once_a_process_however_often_it_is_opened
     monkeypatch.setattr(knowledge, "_announced", set())
     with caplog.at_level("INFO", logger="liberational.knowledge"):
         Store(tmp_path / "a.sqlite3").close()
-        Store(tmp_path / "a.sqlite3").close()  # each Store opened said it again, 26 lines an hour (#3147)
+        Store(tmp_path / "a.sqlite3").close()  # each Store opened said it again, 26 lines an hour
         Store(tmp_path / "b.sqlite3").close()
     lines = [r.getMessage() for r in caplog.records if "journaling" in r.getMessage()]
     assert [line.split(":")[0] for line in lines] == [

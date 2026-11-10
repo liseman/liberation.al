@@ -1,4 +1,4 @@
-//! redb's crash repair at a realistic size (#1423, after #1383): a writer is killed with SIGKILL mid-commit on a
+//! redb's crash repair at a realistic size: a writer is killed with SIGKILL mid-commit on a
 //! catalog of a few GB, and the reopen, which runs redb's repair, must succeed with every acknowledged commit in it.
 //! Ignored by default (it writes GBs and takes minutes); run it by hand, as docs/CONTINUUM.md says:
 //!

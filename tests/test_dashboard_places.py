@@ -1,16 +1,20 @@
-"""Known › Places' reads (dashboard/places.py, #2848 and #2831): the places listing and one place's positions."""
+"""Known › Places' reads (dashboard/places.py): the places listing and one place's positions."""
 
 import http.client
 import json
+import socket
+import threading
+from dataclasses import replace
 from urllib.parse import urlsplit
 
+import numpy as np
 import pytest
 
 from liberational import segment_log as S
+from liberational.dashboard import context, server
 from liberational.dashboard import places as view
-from liberational.dashboard import server
 from liberational.memory import places
-from liberational.spatial import floorplan, positions
+from liberational.spatial import floorplan, ply, positions
 
 T = 1_762_500_000.0
 PLAN = 'plan "Home" walls 0.2/0.1\nroom den "Den" living rect 0,0 4x6\n'
@@ -33,51 +37,51 @@ def test_the_listing_gives_each_place_its_plan_revision_and_last_visit(tmp_path,
     assert rows[bare.place]["name"].startswith("Place ")  # a placeholder until the owner names it
 
 
-def seen(vision, at, *, camera=None, place=None, end=None):
-    """A position sample as spatial/positions.py writes it (#2905)."""
-    vision.add(
-        S.POSITIONS, ts_start=at, ts_end=at if end is None else end, cam=camera or "rig", camera=camera, place=place,
-        source="fixed-camera", confidence=0.8,
-    )  # fmt: skip
+def seen(state, at, place, end=None):
+    """A record in the position layer (spatial/positions.py), as the placer writes one for a place's camera."""
+    row = position(at, x=1.0, y=1.0, end=end)
+    positions.write(state, [replace(row, id=S.new_id(), place=place)])
 
 
-def test_a_place_only_its_cameras_watch_lists_when_anyone_was_last_seen_there(tmp_path, mapped, vision):
-    # #2905: a visit is the owner's (the rig was there), so a place only fixed cameras watch had none and read "No
-    # visits yet" with hundreds of tracks on its plan.
-    watched, _ = mapped  # registers cam0
-    tagged = places.revise(tmp_path, None, producer="cameras-v1", now=T + 10).place
-    seen(vision, T + 100, camera="cam0", end=T + 120)
-    seen(vision, T + 500, camera="cam9")  # a camera no place registered: nobody's activity
-    seen(vision, T + 300, place=tagged)
+def test_a_place_only_its_cameras_watch_lists_when_anyone_was_last_seen_there(tmp_path, mapped):
+    # A visit is the owner's (the rig was there), so a place only fixed cameras watch has none: its activity is
+    # listed apart from visits.
+    watched, _ = mapped
+    other = places.revise(tmp_path, None, producer="cameras-v1", now=T + 10).place
+    seen(tmp_path, T + 100, watched, end=T + 120)
+    seen(tmp_path, T + 300, other)
     rows = {r["id"]: r for r in view.listing(tmp_path, now=T + 3600)[1]["places"]}
     assert (rows[watched]["last_activity"], rows[watched]["last_visit"]) == (T + 120, None)
-    assert rows[tagged]["last_activity"] == T + 300
+    assert rows[other]["last_activity"] == T + 300
 
 
 @pytest.mark.parametrize(("ago", "found"), [(3 * 86400, True), (8 * 86400, False)], ids=["this-week", "older"])
-def test_last_activity_looks_back_a_week(tmp_path, mapped, vision, ago, found):
-    now = T + 30 * 86400  # mapped registered cam0
-    seen(vision, now - ago, camera="cam0")
+def test_last_activity_looks_back_a_week(tmp_path, mapped, ago, found):
+    watched, _ = mapped
+    now = T + 30 * 86400
+    seen(tmp_path, now - ago, watched)
     row = view.listing(tmp_path, now=now)[1]["places"][0]
     assert row["last_activity"] == (now - ago if found else None)
 
 
-def test_a_place_found_in_a_newer_pass_has_its_cameras_left_out_of_the_older_ones(
-    tmp_path, mapped, vision, monkeypatch
-):
-    # A busy place's cameras are read for the hour it was found in, not the week the other places still need.
-    watched, _ = mapped  # registers cam0
-    never = places.revise(tmp_path, None, producer="walkthrough-v1", now=T + 10).place  # no cameras: never found
+def test_a_place_found_in_a_newer_pass_isnt_read_again_in_the_older_ones(tmp_path, mapped, monkeypatch):
+    # A busy place is read for the hour it was found in, not the week a place nobody was seen in still needs.
+    watched, _ = mapped
+    never = places.revise(tmp_path, None, producer="walkthrough-v1", now=T + 10).place
     now = T + 30 * 86400
-    seen(vision, now - 60, camera="cam0")
+    seen(tmp_path, now - 60, watched)
     asked = []
-    read = positions.samples
+    scan = positions._scan
     monkeypatch.setattr(
-        positions, "samples", lambda *a, cameras=None: asked.append(cameras) or read(*a, cameras=cameras)
+        positions,
+        "_scan",
+        lambda state, lo, hi, slots, **k: asked.append((slots[0], now - lo)) or scan(state, lo, hi, slots, **k),
     )
     rows = {r["id"]: r for r in view.listing(tmp_path, now=now)[1]["places"]}
     assert (rows[watched]["last_activity"], rows[never]["last_activity"]) == (now - 60, None)
-    assert asked == [["cam0", positions.RIG], [positions.RIG], [positions.RIG]]
+    mine, theirs = (positions.layer_slot(p, positions.FIXED_CAMERA) for p in (watched, never))
+    assert [back for slot, back in asked if slot == mine] == [3600]
+    assert [back for slot, back in asked if slot == theirs] == [3600, 86400, 7 * 86400]
 
 
 def test_an_owner_corrected_plan_is_the_one_listed(tmp_path, vision):
@@ -120,8 +124,10 @@ class Reader:
         self.asked: list[tuple] = []
         self.refuse = ""  # a ValueError to raise, as the reader does for a frame it can't use
 
-    def __call__(self, state, start, end, place=None, entity=None, every=None, frame_revision=None):
+    def __call__(self, state, start, end, place=None, entity=None, every=None, frame_revision=None, cancelled=None):
         self.asked.append((start, end, place, entity, every, frame_revision))
+        if cancelled is not None and cancelled():
+            raise positions.Cancelled
         if self.refuse:
             raise ValueError(self.refuse)
         return self.rows
@@ -146,7 +152,7 @@ def window(place, span=3600.0):
 
 
 def test_an_unnamed_face_groups_tracks_are_one_person_in_the_list(tmp_path, reader, home):
-    # #2981: "face:3" is someone, if unnamed: its own entry, not folded in with the strangers
+    # "face:3" is someone, if unnamed: its own entry, not folded in with the strangers
     reader.rows = [
         position(T + 1, entity="face:3", name="Face 3", track="cam0:4", x=1.0, y=2.0, room="Den", room_id="den"),
         position(T + 2, entity="face:3", name="Face 3", track="porch:7", x=1.5, y=2.5, room="Den", room_id="den"),
@@ -159,7 +165,7 @@ def test_an_unnamed_face_groups_tracks_are_one_person_in_the_list(tmp_path, read
 
 
 def test_one_entitys_tracks_the_reader_fused_are_one_path(tmp_path, reader, home):
-    # #2981: cam0:4 alone, then a fused point (no track of its own), then porch:7 alone: one path, in time order (a
+    # cam0:4 alone, then a fused point (no track of its own), then porch:7 alone: one path, in time order (a
     # step of half a metre a second apart, so none is thinned away as standing still)
     joined = "cam0:4+porch:7"
     reader.rows = [
@@ -176,7 +182,7 @@ def test_one_entitys_tracks_the_reader_fused_are_one_path(tmp_path, reader, home
 
 
 def test_an_uncertain_point_is_left_off_its_path_and_an_unnamed_joined_path_is_its_own_entry(tmp_path, reader, home):
-    # #3070: a foot on an occluding edge no other camera settled can be metres off
+    # A foot on an occluding edge no other camera settled can be metres off
     joined = "cam0:4+porch:7"
     reader.rows = [
         position(T + 1, entity="person:dana", name="Dana", track="cam0:2", x=1.0, y=2.0),
@@ -230,7 +236,7 @@ def test_a_long_track_is_thinned_evenly_keeping_its_ends(tmp_path, reader, home)
 
 def test_a_days_path_keeps_a_walks_shape_but_one_point_every_43_s_standing_still(tmp_path, reader, home):
     # 100 s shuffling on the spot (5 cm of foot jitter), then a 20 s walk at half a metre a second: on a Day's plan the
-    # walk is every step, not a line between two points 43.2 s apart (#3296)
+    # walk is every step, not a line between two points 43.2 s apart
     still = [position(T + i, entity="person:dana", x=0.05 * (i % 2), y=0.0) for i in range(100)]
     walk = [position(T + 100 + j, entity="person:dana", x=0.5 * j, y=0.0) for j in range(1, 21)]
     reader.rows = still + walk
@@ -275,6 +281,50 @@ def test_the_listing_route_answers_json_and_a_page_load_gets_the_app(serve):
     assert (status, kind.split(";")[0]) == (200, "application/json")
     assert json.loads(body) == {"places": []}
     assert get("/places", "text/html")[1].startswith("text/html")
+
+
+def test_a_positions_read_stops_without_an_answer_when_the_client_hangs_up(tmp_path, reader, home, serve, monkeypatch):
+    monkeypatch.setattr(context, "STATE", tmp_path)
+    url = urlsplit(serve(server.H))
+    asked, hung_up, tick = threading.Event(), threading.Event(), threading.Event()
+
+    def read(state, start, end, *, cancelled, **kw):
+        asked.set()
+        for _ in range(3000):  # the read asks as it goes, for 30 s at most
+            if cancelled():
+                hung_up.set()
+                break
+            tick.wait(0.01)
+        raise positions.Cancelled
+
+    monkeypatch.setattr(positions, "positions", read)
+    conn = socket.create_connection((url.hostname, url.port), timeout=30)
+    query = f"place={home[0]}&start={T}&end={T + 3600}"
+    conn.sendall(f"GET /places/positions?{query} HTTP/1.1\r\nHost: x\r\nAccept: application/json\r\n\r\n".encode())
+    assert asked.wait(30)
+    assert not hung_up.is_set()
+    conn.close()
+    assert hung_up.wait(30)
+
+
+def test_a_client_still_waiting_isnt_taken_for_gone(tmp_path, reader, home, serve, monkeypatch):
+    monkeypatch.setattr(context, "STATE", tmp_path)
+    host = urlsplit(serve(server.H)).netloc
+    checks = []
+
+    def read(state, start, end, *, cancelled, **kw):
+        checks.append(cancelled())
+        return []
+
+    monkeypatch.setattr(positions, "positions", read)
+    conn = http.client.HTTPConnection(host, timeout=120)
+    conn.request(
+        "GET", f"/places/positions?place={home[0]}&start={T}&end={T + 3600}", headers={"Accept": "application/json"}
+    )
+    reply = conn.getresponse()
+    body = json.loads(reply.read())
+    conn.close()
+    assert (reply.status, body["tracks"], checks) == (200, [], [False])
 
 
 def test_points_with_no_entity_or_track_are_left_off_the_paths(tmp_path, reader, home):
@@ -508,7 +558,7 @@ def test_the_scene_gives_the_newest_maps_frame_cameras_and_plan(tmp_path, mapped
 
 
 def test_a_newer_map_in_the_same_frame_shows_the_last_splat_and_one_in_another_frame_names_it_stale(tmp_path, mapped):
-    # #2877: a nightly fusion with too few lit frames for a splat kept the map's frame, so the last splat still fits.
+    # A nightly fusion with too few lit frames for a splat kept the map's frame, so the last splat still fits.
     place, rev_id = mapped
     first = places.revisions(tmp_path, place)[-1]
     places.write_splat(tmp_path, first, master=b"ply", web=b"spz-bytes")
@@ -532,6 +582,32 @@ def test_the_scene_names_the_revisions_splat_once_it_has_one(tmp_path, mapped):
     assert (reply["splat_format"], reply["splat_bytes"]) == ("spz", len(b"spz-bytes"))
 
 
+def test_the_scene_says_whether_its_splat_was_trained_from_a_walk_or_the_fixed_cameras(tmp_path, mapped):
+    # #44: a walk's import writes the revision that first holds its look-from cameras and trains its splat there; a
+    # later revision inherits those cameras, and a splat made for it is the daily fixed-camera one.
+    place, _ = mapped
+    first = places.revisions(tmp_path, place)[-1]
+    places.write_splat(tmp_path, first, master=b"ply", web=b"spz-bytes")
+    assert view.scene(tmp_path, place)[1]["splat_from"] == "cameras"
+    walked = places.revise(
+        tmp_path, place, producer="tier1 fuse v1", cameras={"cam0": CAM, "walk-0m00s": CAM, "walk-0m10s": CAM},
+        frame=first.frame, now=T + 10,
+    )  # fmt: skip
+    places.write_splat(tmp_path, walked, master=b"ply", web=b"spz-bytes")
+    reply = view.scene(tmp_path, place)[1]
+    assert (reply["splat_revision"], reply["splat_from"]) == (walked.id, "walk")
+    daily = places.revise(tmp_path, place, producer="tier1 fuse v1", frame=first.frame, now=T + 20)
+    places.write_splat(tmp_path, daily, master=b"ply", web=b"spz-bytes")
+    reply = view.scene(tmp_path, place)[1]
+    assert (reply["splat_revision"], reply["splat_from"]) == (daily.id, "cameras")
+    assert "walk-0m00s" in reply["cameras"]  # the walk's views are still there to look from
+    # #43: a walk's splat retrained onto a later revision, which only inherits the walk's cameras, says so itself.
+    again = places.revise(tmp_path, place, producer="tier1 fuse v1", frame=first.frame, now=T + 30)
+    places.write_splat(tmp_path, again, master=b"ply", web=b"spz-bytes", source="walk")
+    reply = view.scene(tmp_path, place)[1]
+    assert (reply["splat_revision"], reply["splat_from"]) == (again.id, "walk")
+
+
 def test_the_scene_carries_the_owners_plan_only_in_the_frame_it_was_drawn_in(tmp_path, mapped):
     place, rev = mapped
     mine = PLAN.replace('"Den"', '"Living room"')
@@ -552,7 +628,7 @@ def test_the_scene_carries_the_owners_plan_only_in_the_frame_it_was_drawn_in(tmp
 
 
 def test_an_owner_plan_drawn_on_a_map_with_no_plan_of_its_own_is_outlined_in_the_floors_frame(tmp_path, mapped):
-    # #3276: an imported plan drawn in a fused map's floor frame (the map has no plan file, so no plan transform)
+    # An imported plan drawn in a fused map's floor frame (the map has no plan file, so no plan transform)
     place, _ = mapped
     bare = places.revise(tmp_path, place, producer="tier1 fuse v1", map_bytes=CLOUD, map_format="ply", now=T + 5)
     places.revise(tmp_path, place, producer="tier1 fuse v1", floor=(0.0, 0.0, 1.0, 0.0), now=T + 6)
@@ -573,7 +649,7 @@ def test_a_place_without_a_map_has_no_scene_and_an_unknown_one_is_a_404(tmp_path
 
 def test_the_map_is_served_in_ranges_cached_for_good_and_404_for_another_revision(tmp_path, mapped, serve, monkeypatch):
     place, rev = mapped
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     host = urlsplit(serve(server.H)).netloc
 
     def get(path, **headers):
@@ -613,7 +689,7 @@ def test_one_persons_tracks_on_two_cameras_stay_two_paths(tmp_path, reader, home
     ]
 
 
-# An owner plan drawn on its own page (#3276): the page's x and y become the plan frame's y + 10 and x, the page
+# An owner plan drawn on its own page: the page's x and y become the plan frame's y + 10 and x, the page
 # mirrored and given a quarter turn, as an imported plan's fit does.
 PAGE = 'plan "Home" walls 0.2/0.1\nroom den "Den" living rect 0,0 4x6\n'
 TURNED = {"turn": 1.5707963267948966, "shift": [10.0, 0.0], "mirror": True}
@@ -657,3 +733,50 @@ def test_a_view_that_isnt_one_is_refused(tmp_path, home):
     place, frame = home
     with pytest.raises(ValueError, match="view"):
         places.correct_plan(tmp_path, place, IN_FRAME, base=frame, view={"plan": PAGE, "turn": "a quarter"})
+
+
+def floor_points(x0, x1, y0, y1, step=0.05):
+    """A floor of map points over plan [x0, x1) x [y0, y1) under TRANSFORM (plan = map + (2, 3))."""
+    xs, ys = np.meshgrid(np.arange(x0, x1, step), np.arange(y0, y1, step))
+    return np.c_[xs.ravel() - 2.0, ys.ravel() - 3.0, np.zeros(xs.size)]
+
+
+def walked_place(tmp_path, walked_den, walked_hall, *, producer="tier1 fuse v1", signals=None):
+    den, hall = floor_points(0, 4, 0, 6), floor_points(4, 6, 0, 6)
+    walks = np.r_[np.full(len(den), int(walked_den)), np.full(len(hall), int(walked_hall))]
+    cloud = ply.dumps(np.r_[den, hall], counts={"seen": np.ones(len(walks), np.int64), "walked": walks})
+    rev = places.revise(
+        tmp_path, None, producer=producer, plan=TWO_ROOMS, map_bytes=cloud, map_format="ply", floor=FLOOR,
+        plan_transform=TRANSFORM, signals={"walkthrough": ["walk-a"]} if signals is None else signals, now=T,
+    )  # fmt: skip
+    return rev.place
+
+
+def listed(tmp_path, place):
+    return {r["id"]: r for r in view.listing(tmp_path, now=T + 60)[1]["places"]}[place]
+
+
+def test_a_place_never_walked_lists_no_walks_and_every_room_unwalked(tmp_path, vision):
+    row = listed(tmp_path, walked_place(tmp_path, False, False, signals={}))
+    assert row["walks"] == 0
+    assert row["unwalked_rooms"] == [{"id": "den", "name": "Den"}, {"id": "hall", "name": "Hall"}]
+
+
+def test_a_walked_place_lists_the_rooms_its_walks_didnt_cover(tmp_path, vision):
+    row = listed(tmp_path, walked_place(tmp_path, True, False))
+    assert row["walks"] == 1
+    assert row["unwalked_rooms"] == [{"id": "hall", "name": "Hall"}]
+
+
+def test_a_place_walked_everywhere_has_no_unwalked_rooms(tmp_path, vision):
+    assert listed(tmp_path, walked_place(tmp_path, True, True))["unwalked_rooms"] == []
+
+
+def test_a_walked_place_without_a_fused_map_cant_say_which_rooms(tmp_path, vision):
+    row = listed(tmp_path, walked_place(tmp_path, True, False, producer="cut3r walkthrough"))
+    assert row["walks"] == 1 and row["unwalked_rooms"] is None
+
+
+def test_a_place_without_a_plan_cant_say_which_rooms(tmp_path, vision):
+    rev = places.revise(tmp_path, None, producer="cameras-v1", now=T)
+    assert listed(tmp_path, rev.place)["unwalked_rooms"] is None

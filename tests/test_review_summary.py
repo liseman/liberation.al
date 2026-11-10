@@ -1,4 +1,4 @@
-"""Review's summary column (#404, memory/review_summary.py) and the plain lines it reads (memory/plain_text.py):
+"""Review's summary column (memory/review_summary.py) and the plain lines it reads (memory/plain_text.py):
 the journal's entries at the level that fits the stretch, each rewritten as a short neutral line, never first person,
 cached, with chip tags. Synthetic journal entries and a fake model in a temp state dir; never the real data/."""
 
@@ -65,7 +65,7 @@ class StandInRollups:
 
 @pytest.fixture(autouse=True)
 def rollups(monkeypatch):
-    """The part-of-day and day sentences (#2276), never the real model."""
+    """The part-of-day and day sentences, never the real model."""
     stand_in = StandInRollups()
     monkeypatch.setattr(review_summary, "rollups_at", stand_in)
     return stand_in
@@ -73,13 +73,13 @@ def rollups(monkeypatch):
 
 @pytest.fixture
 def route(state, monkeypatch, serve):
-    """The dashboard serving `state`, with a route cache of its own: `server.review_summary_kept` keeps each window's
+    """The dashboard serving `state`, with a route cache of its own: `review_reads.review_summary_kept` keeps each window's
     answer for a minute keyed by the window alone, so without this a test asking for the same window as an earlier
-    one, from another state, gets that test's answer (#2893)."""
-    from liberational.dashboard import server
+    one, from another state, gets that test's answer."""
+    from liberational.dashboard import context, review_reads, server
 
-    monkeypatch.setattr(server, "STATE", state)
-    monkeypatch.setattr(server, "_summaries", {})
+    monkeypatch.setattr(context, "STATE", state)
+    monkeypatch.setattr(review_reads, "_summaries", {})
     return urllib.parse.urlsplit(serve(server.H))
 
 
@@ -95,7 +95,7 @@ def run(state, start, end, replies, now=T0 + 10 * DAY):
     cache = review_summary.Lines(state, rewrite, background=False)
     first = review_summary.summary(start, end, state, now=now, rewrites=cache)
     cache.drain()
-    for _ in range(2):  # a day's view: its parts' sentences, then the day's (#2276), so the status can settle
+    for _ in range(2):  # a day's view: its parts' sentences, then the day's, so the status can settle
         review_summary.summary(start, end, state, now=now, rewrites=cache)
         review_summary.rollups_at(state).drain()
     return first, review_summary.summary(start, end, state, now=now, rewrites=cache), calls
@@ -416,7 +416,7 @@ def test_the_background_writer_waits_for_a_voice_turn_then_writes(state, monkeyp
     assert cache.many(["x"]) == {"x": ("ready", {"text": "Read a book", "topics": []})}
 
 
-# ---- written ahead (#444) ----
+# ---- written ahead ----
 NOW = T0 + 10 * DAY
 
 
@@ -786,7 +786,7 @@ def test_bound_unresolved_source_identity_does_not_reuse_a_current_display_name(
     assert block["evidence"]["sources"][0]["people"] == [{"id": source["people"][0]["id"], "name": ""}]
 
 
-# ---- Part-of-day and day sentences (#2276) ----
+# ---- Part-of-day and day sentences ----
 
 
 @pytest.fixture
@@ -985,7 +985,7 @@ def test_a_past_day_keeps_the_client_asking_until_its_sentences_are_written(stat
     assert statuses == ["partial", "partial", "ready", "ready"]  # the parts, then the day, then nothing more
 
 
-# ---- A gist, never the diarist's own name, plain words (#2313) ----
+# ---- A gist, never the diarist's own name, plain words ----
 
 
 @pytest.fixture

@@ -1,4 +1,4 @@
-"""Voice-group reads leave the dashboard process, while failed workers remain retryable (#2418)."""
+"""Voice-group reads leave the dashboard process, while failed workers remain retryable."""
 
 from concurrent.futures import Future
 from concurrent.futures.process import BrokenProcessPool
@@ -8,7 +8,7 @@ from unittest.mock import create_autospec
 import pytest
 
 from liberational import config
-from liberational.dashboard import report_health, server
+from liberational.dashboard import machine_stats, report_health, server
 from liberational.memory import reports
 
 
@@ -82,7 +82,7 @@ def test_dashboard_start_activates_voice_worker_before_serving(worker, monkeypat
     monkeypatch.setattr(server.assets, "stale", lambda: False)
     monkeypatch.setattr(server, "_after_people_warm", lambda *args: None)
     monkeypatch.setattr(report_health, "start", lambda state: None)
-    monkeypatch.setattr(server.SAMPLER, "start", lambda: None)
+    monkeypatch.setattr(machine_stats.SAMPLER, "start", lambda: None)
     monkeypatch.setattr(server.readers, "warm", lambda: None)
     monkeypatch.setattr(server, "_warm_faces", lambda: None)
     monkeypatch.setattr(server.slow, "watch", lambda *logs: None)

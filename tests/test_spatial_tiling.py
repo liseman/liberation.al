@@ -1,4 +1,4 @@
-"""Reconstruction output to a plan the floorplan library accepts (#2803): gaps, overlaps, skew, unseen parts, and
+"""Reconstruction output to a plan the floorplan library accepts: gaps, overlaps, skew, unseen parts, and
 openings on their walls. Each case is also checked with the vendored library's own linter (frontend/src/vendor/
 floorplan) through node, keeping the converter's rules: tiling, walls, and openings (the architect checks, such as a
 missing entrance, are noise for an observed place)."""

@@ -1,4 +1,4 @@
-"""Off-by-default BLE sensor service, writing bounded observations and coverage to the segment store (#1755).
+"""Off-by-default BLE sensor service, writing bounded observations and coverage to the segment store.
 
 USB sensors only receive BLE advertisements. Optional authorized host discovery may send scan requests; no address
 is connected, paired, queried through GATT, or mapped to a person by acquisition. Native identifiers stay separate.
@@ -43,7 +43,7 @@ class Sink(Protocol):
 
 
 class SegmentSink:
-    """Bluetooth's sightings and coverage in the segment store (#1755), under the camera name "ble"; each coverage
+    """Bluetooth's sightings and coverage in the segment store, under the camera name "ble"; each coverage
     record (one a second) syncs what came before it."""
 
     def __init__(self, root: Path) -> None:

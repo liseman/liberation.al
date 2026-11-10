@@ -1,4 +1,4 @@
-//! The acceptance tests from #541, plus the paths around them, against `FakeCatalog`.
+//! The scheduler acceptance tests, plus the paths around them, against `FakeCatalog`.
 
 use std::time::Instant;
 

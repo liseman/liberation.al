@@ -1,14 +1,14 @@
-// Settings' Devices section (#384): the pure parts. Settings' draft holds list settings as text joined with
-// ", " (vision.places "cam0: front camera, cam1: rear camera"; vision.cams "0, 2"),
+// Settings' Devices section: the pure parts. Settings' draft holds list settings as text joined with
+// ", " (vision.camera_names "cam0: front camera, cam1: rear camera"; vision.cams "0, 2"),
 // or as JSON when an item holds a comma (model.ts listText).
 import { listItems, listText } from '../model';
 
-// Exact manifest names win before legacy numbered aliases, as in vision/places.py.
+// Exact manifest names win before legacy numbered aliases, as in vision/views.py.
 const ENTRY = /^\s*(.*?)\s*[:=]\s*(.*?)\s*$/s;
 const LEGACY = /^(?:cam)?\s*(\d+)$/i;
 const CAMERA_ID = /^[A-Za-z0-9_-]+$/;
 
-/** vision.places keyed by exact configured ID, retaining compatibility with legacy numbered aliases. */
+/** vision.camera_names keyed by exact configured ID, retaining compatibility with legacy numbered aliases. */
 export function parsePlaces(
   text: string | boolean | undefined,
   cameraIds: Iterable<string> = [],
@@ -26,7 +26,7 @@ export function parsePlaces(
   return out;
 }
 
-/** vision.places text with camera cam named name (an empty name drops it). */
+/** vision.camera_names text with camera cam named name (an empty name drops it). */
 export function withPlace(
   text: string | boolean | undefined,
   cam: string,

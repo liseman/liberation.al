@@ -51,7 +51,7 @@ class Embed:
         ("cat tree", None),
         ("guitar", None),
         ("", None),
-        ("zebra", None),  # not a pet here (#2035): no sighting
+        ("zebra", None),  # not a pet here: no sighting
         ("a brown horse", None),
     ],
 )
@@ -188,7 +188,7 @@ def test_the_worker_writes_sightings_that_pet_recognition_reads() -> None:
     worker._handle("01a1a4cc-0000-7000-8000-000000000001", 100_000_000_000, out, None)
     assert {segment_log.ANIMAL_GROUNDINGS, segment_log.ANIMAL_GROUNDING_EMBEDDINGS} <= set(segments.rows)
     assert not {segment_log.ANIMAL_DETECTIONS, segment_log.ANIMAL_EMBEDDINGS} & set(segments.rows), (
-        "never see-actions' streams: one writer per stream and camera (#2062)"
+        "never see-actions' streams: one writer per stream and camera"
     )
     [detection] = segments.rows[segment_log.ANIMAL_GROUNDINGS]
     assert (detection["species"], detection["verified"], detection["model"]) == ("dog", True, "grounding:ollama")

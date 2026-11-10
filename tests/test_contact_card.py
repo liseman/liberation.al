@@ -1,4 +1,4 @@
-"""The contact card (#307): face shot quality (vision/face_quality.py), the best shots and the main photo
+"""The contact card: face shot quality (vision/face_quality.py), the best shots and the main photo
 (vision/sightings.py, over the face worker's faces on the vision log), and GET /people/<name>/card. Made-up names and
 synthetic faces; never the real data/."""
 
@@ -19,7 +19,7 @@ from hypothesis import strategies as hs
 import speech_fake
 from liberational import config as cfg
 from liberational import segment_log, speech_log, vision_log
-from liberational.dashboard import server
+from liberational.dashboard import call_log, context, server
 from liberational.memory import clip_labels
 from liberational.people import face_shots, registry, video_thumbs
 from liberational.vision import face_quality as fq
@@ -168,12 +168,12 @@ def card_state(tmp_path, monkeypatch, vision):
     tmp = tmp_path
     (tmp / "speakers.json").write_text(json.dumps({"speakers": []}))
     for name, path in {
-        "STATE": ".",
-        "CALLS_DIR": "calls",
         "CONTACTS_FILE": "contacts.json",
         "PEOPLE_ADDED": "people_added.json",
     }.items():
         monkeypatch.setattr(server, name, tmp / path)
+    monkeypatch.setattr(call_log, "CALLS_DIR", tmp / "calls")
+    monkeypatch.setattr(context, "STATE", tmp)
     monkeypatch.setattr(server, "_here_since", {})  # each test starts with no one in view
     monkeypatch.setattr(server, "_here_cam", {})
     monkeypatch.setattr(server, "_faces_mod", lambda: NO_FACES)
@@ -216,7 +216,7 @@ def test_the_card_has_the_best_shots_recent_video_and_voice(card_state):
         {
             "id": f"cam0@{DAY1:.2f}",  # for the card's menu (POST /people/correct)
             "cam": "cam0",
-            "place": "cam0",  # no vision.places: the id
+            "camera_name": "cam0",  # no vision.camera_names: the id
             "start": DAY1,
             "end": DAY1 + 50,
             "duration_s": 50.0,
@@ -229,8 +229,8 @@ def test_the_card_has_the_best_shots_recent_video_and_voice(card_state):
         {"line": registry.line_key(DAY1 + 30), "ts_start": DAY1 + 30, "text": "Coffee?", "mic": None},
         {"line": f"desk-mic@{DAY1 + 10:.3f}", "ts_start": DAY1 + 10, "text": "Morning!", "mic": "Desk Mic"},
     ]
-    assert card["last_seen"] == {"ts": DAY1 + 50, "cam": "cam0", "place": "cam0"}
-    assert card["here_now"] == {"cam": "cam1", "place": "cam1", "since": scene_ts(card_state)}
+    assert card["last_seen"] == {"ts": DAY1 + 50, "cam": "cam0", "camera_name": "cam0"}
+    assert card["here_now"] == {"cam": "cam1", "camera_name": "cam1", "since": scene_ts(card_state)}
 
 
 def test_card_hides_uncached_faces_and_reports_processing_without_decoding(card_state, monkeypatch):
@@ -269,7 +269,7 @@ def test_the_roster_shows_the_main_photo_and_where_they_are(card_state):
     assert (alice["last_seen"], alice["last_seen_cam"], alice["here_now"]) == (
         DAY1 + 50,
         "cam0",
-        {"cam": "cam1", "place": "cam1", "since": scene_ts(card_state)},
+        {"cam": "cam1", "camera_name": "cam1", "since": scene_ts(card_state)},
     )
 
 
@@ -386,16 +386,16 @@ def test_nobody_gets_an_empty_card_and_a_bad_name_none(card_state):
 
 
 def test_the_card_and_the_roster_say_where_each_camera_is(card_state):
-    with cfg.override({"vision": {"places": ["cam0: living room"]}}):  # cam1 has no place: its id
+    with cfg.override({"vision": {"camera_names": ["cam0: front camera"]}}):  # cam1 has no name: its id
         card = server.person_card("Alice")
         alice = next(p for p in server.people_roster() if p["name"] == "Alice")
     assert card is not None
-    assert [v["place"] for v in card["videos"]] == ["living room"]
-    assert card["last_seen"] == {"ts": DAY1 + 50, "cam": "cam0", "place": "living room"}
-    assert card["here_now"] == {"cam": "cam1", "place": "cam1", "since": scene_ts(card_state)}
-    assert (alice["last_seen_place"], alice["here_now"]) == (
-        "living room",
-        {"cam": "cam1", "place": "cam1", "since": scene_ts(card_state)},
+    assert [v["camera_name"] for v in card["videos"]] == ["front camera"]
+    assert card["last_seen"] == {"ts": DAY1 + 50, "cam": "cam0", "camera_name": "front camera"}
+    assert card["here_now"] == {"cam": "cam1", "camera_name": "cam1", "since": scene_ts(card_state)}
+    assert (alice["last_seen_camera_name"], alice["here_now"]) == (
+        "front camera",
+        {"cam": "cam1", "camera_name": "cam1", "since": scene_ts(card_state)},
     )
 
 

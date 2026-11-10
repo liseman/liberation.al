@@ -72,7 +72,7 @@ describe('lineHits', () => {
     ['ｃａｆｅ', ['1']], // full-width letters fold too
     ['dana', ['2']], // the name a line shows counts
     ['unmatched', ['1']], // an unmatched voice is searched by what it shows...
-    ['speaker 2', []], // ...never by its placeholder (#2580)
+    ['speaker 2', []], // ...never by its placeholder
     ['walked dog', ['2']], // words in any order, as Review's results list them
     ['garaje', ['2']], // and with a typo
     ['absent', []],
@@ -91,7 +91,7 @@ describe('lineHits', () => {
 });
 
 describe('turnKey', () => {
-  it('keeps two turns that start in the same millisecond on two microphones apart (#247)', () => {
+  it('keeps two turns that start in the same millisecond on two microphones apart', () => {
     const [a, b] = turnsOf(
       [line(0, { line: 'mic-a@0.000' }), line(0, { speaker_id: 2, line: 'mic-b@0.000' })],
       speakers,

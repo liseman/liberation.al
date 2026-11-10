@@ -1,4 +1,4 @@
-"""`pack-spatial-splat`: a 3D Gaussian splat of each fixed-camera place (#2877, part of the spatial memory goal #2794),
+"""`pack-spatial-splat`: a 3D Gaussian splat of each fixed-camera place (part of spatial memory),
 for the Places 3D view to draw beside, or instead of, the point cloud.
 
 Run by `pack-spatial-cameras` after its daily pass (spatial/cameras.py), or by hand (`pack-spatial-splat [--place
@@ -23,7 +23,7 @@ it registers fixed cameras:
    Spark (the 3D view's renderer) reads an SPZ as it is, so the view turns the splat 180 degrees about x, which
    undoes that negation exactly (positions, rotations, and SH), to put it back on the map.
 
-Measured on #2877 with these settings (Place 1: two fixed cameras, 10 daytime frames each, 21k start points, one RTX
+Measured with these settings (Place 1: two fixed cameras, 10 daytime frames each, 21k start points, one RTX
 3090 shared with the live services): about 2 to 2.5 minutes and 0.2 GiB of GPU memory a place, 244k Gaussians, a 24 MB
 PLY and a 4.4 MB SPZ, and 27.1 dB PSNR on a frame per camera held out from the same day. Two cameras with little overlap give no new views: the splat looks right from where the cameras
 stand, not from between them (6.6 dB from one camera's view trained on the other's). Nothing fills what no camera
@@ -32,10 +32,14 @@ sees.
 **A Stray Scanner walkthrough** (`splat_walk`) gets its splat when it's imported: `pack-walkthrough` calls it once the
 walk's revision is written and fused (spatial/walkthrough.py `run_stray`). Every saved frame trains, at its ARKit pose
 and the phone's own intrinsics, starting from the revision's map points: `WALK_STEPS` steps, at most `WALK_GAUSSIANS`,
-and no opacity or scale regularizers. The walk registers `LOOK_FROM` of its frames as cameras (`look_from`, named
-`walk-...`), for the 3D view to look from; tier 1 moves them with the walk's cloud into the fused map's frame, and the
-move they show (`carried`) brings every frame's pose along. The daily fixed-camera splat leaves those cameras out. A
-walk filmed with CUT3R's poses gets no splat: on #2877 its poses didn't agree across the walk well enough for one.
+and no opacity or scale regularizers. In their place (#43, spatial/splat_runner.py has the measurements) the Gaussians
+are held inside the map's box and under a size, each frame's LiDAR depth (`stray.depth_map`) is a loss beside its
+image, and each frame's pose is refined as the splat trains. The walk registers `LOOK_FROM` of its frames as cameras
+(`look_from`, named `walk-...`), for the 3D view to look from; tier 1 moves them with the walk's cloud into the fused
+map's frame, and the move they show (`carried`) brings every frame's pose along. The daily fixed-camera splat leaves
+those cameras out. A splat is kept with what it was trained from ("walk" or "cameras", `places.write_splat`), so the
+3D view opens it from the right kind of view. A plain video's walk (CUT3R's poses, corrected by the pose graph) is
+splatted the same way (#21), without the depth: the pose refinement is what makes its poses agree well enough.
 
 gsplat (nerfstudio-project/gsplat) is Apache-2.0; the trainer adds no model weights.
 """
@@ -176,7 +180,7 @@ def write_job(
     views = []
     for cam, shots in frames.items():
         pose = rev.cameras[cam]
-        # The lens the registration undid, and the camera's overlays, as MASt3R's frame had them (#2998).
+        # The lens the registration undid, and the camera's overlays, as MASt3R's frame had them.
         undo = lens.Lens.from_tuple(pose.lens) if pose.lens is not None else None
         _, masks = lens.for_camera(lens.manifest(), cam)
         for i, frame in enumerate(shots):
@@ -303,8 +307,8 @@ def spz(rows: np.ndarray) -> bytes:
 
 
 #: A walkthrough's splat (`splat_walk`): more views than a few fixed cameras, so more steps, a larger cap, and no
-#: opacity or scale regularizers (on a walk they let the Gaussians fade until the splat goes transparent, #2877).
-#: 15,000 steps is what #2877 measured walks with (about 6 minutes for 125 frames at 288 x 512); a phone's frames are
+#: opacity or scale regularizers (on a walk they let the Gaussians fade until the splat goes transparent).
+#: 15,000 steps is what walks were measured with (about 6 minutes for 125 frames at 288 x 512); a phone's frames are
 #: saved larger (1024 on the long side), so a real walk takes several times that, well inside WALK_TIMEOUT_S.
 WALK_STEPS = 15_000
 WALK_GAUSSIANS = 1_000_000
@@ -369,12 +373,15 @@ def walk_views(
     poses: np.ndarray,
     frames: Sequence[tuple[np.ndarray, tuple[int, int]]],
     moved: tuple[np.ndarray, np.ndarray, float] | None = None,
+    depths: Sequence[Path | None] = (),
 ) -> list[dict[str, Any]]:
     """The runner's views for a walk's saved frames (`images`) at their poses (`poses`, camera to world) and
-    intrinsics and sizes (`frames`), moved by the similarity `moved` (rotation, shift, scale) when given."""
+    intrinsics and sizes (`frames`), moved by the similarity `moved` (rotation, shift, scale) when given, each with
+    its depth map when `depths` has one (16-bit millimetres, `stray.depth_map`)."""
     rot, shift, scale = moved if moved is not None else (np.eye(3), np.zeros(3), 1.0)
     views = []
-    for image, pose, (k, (w, h)) in zip(images, poses, frames, strict=True):
+    measured = list(depths) or [None] * len(images)
+    for image, pose, (k, (w, h)), depth in zip(images, poses, frames, measured, strict=True):
         c2w = np.asarray(pose, dtype=np.float64).reshape(4, 4)
         m = np.eye(4)
         m[:3, :3] = rot @ c2w[:3, :3]
@@ -390,6 +397,7 @@ def walk_views(
                 "cy": float(k[1, 2]),
                 "width": int(w),
                 "height": int(h),
+                **({} if depth is None else {"depth": str(depth)}),
             }
         )
     return views
@@ -400,14 +408,17 @@ def train_walk(
     points: np.ndarray,
     colors: np.ndarray | None,
     *,
-    refine: bool,
+    scale: float = 1.0,
+    refine: bool = True,
     holdout: Sequence[int] = (),
     steps: int = WALK_STEPS,
 ) -> tuple[dict[str, Any], bytes]:
     """Train a walk's splat from `views` (`walk_views`), starting from `points` and `colors` (at most
-    WALK_START_POINTS of them, picked with a fixed seed), with each training view's pose refined while it trains when
-    `refine` (spatial/splat_runner.py's `pose_opt`) and the views at `holdout` scored, not trained on: the runner's
-    result and the trained PLY. Raises RuntimeError when gsplat's runtime is missing or training fails."""
+    WALK_START_POINTS of them, picked with a fixed seed), the Gaussians held inside the points' box, with each
+    training view's pose refined while it trains unless `refine` is off (spatial/splat_runner.py's `pose_opt`; off
+    is for measuring what it gains) and the views at `holdout` scored, not trained on. `scale` is the map's units to
+    a metre (`carried`'s), for the views' depth maps. Returns the runner's result and the trained PLY. Raises
+    RuntimeError when training fails."""
     runtime = cfg.path("spatial.splat_runtime")
     pts = np.asarray(points, dtype=np.float32).reshape(-1, 3)
     rgb = np.full((len(pts), 3), 128, np.uint8) if colors is None else np.asarray(colors, np.uint8)
@@ -429,7 +440,9 @@ def train_walk(
                     "sh_degree": SH_DEGREE,
                     "out": str(folder),
                     "reg": 0.0,
+                    "bound": True,
                     "pose_opt": refine,
+                    "depth_unit": 0.001 * scale,  # a depth map's millimetres in the map's units
                     "holdout": list(holdout),
                 }
             )
@@ -446,16 +459,16 @@ def splat_walk(
     poses: np.ndarray,
     frames: Sequence[tuple[np.ndarray, tuple[int, int]]],
     looks: Mapping[str, places.CameraPose],
-    *,
-    refine: bool,
+    depths: Sequence[Path | None] = (),
 ) -> dict[str, Any] | None:
     """Train and keep a splat for a walk's revision (`place`'s `revision`, what tier 1 made of it) from every saved
     frame (`images`) at its pose (`poses`, the walk's frame) and intrinsics and size (`frames`), moved into the
     revision's map frame by the similarity tier 1 moved the walk's `looks` by (`carried`), starting from the
-    revision's map points (at most WALK_START_POINTS); what it did. Every view trains, none held out. `refine` turns
-    on the trainer's pose refinement: on for a plain-video walk, whose CUT3R and pose-graph poses are a little off
-    here and there (#21), off for a Stray walk's tracked ARKit poses. None (the log says why) when splats are off,
-    gsplat's runtime isn't installed, the frame can't be carried, or training fails."""
+    revision's map points (at most WALK_START_POINTS); what it did. Every view trains, none held out, each against
+    its LiDAR depth map when `depths` has one (a Stray walk's; a plain video has none), with its pose refined as it
+    trains: that takes up the last few centimetres of a Stray walk's ARKit poses and the larger errors of a plain
+    video's CUT3R and pose-graph poses (#21). None (the log says why) when splats are off, gsplat's runtime isn't
+    installed, the frame can't be carried, or training fails."""
     runtime = cfg.path("spatial.splat_runtime")
     if not cfg.get("spatial.splats_enabled") or not (runtime / ".venv" / "bin" / "python").exists():
         LOG.info("no splat of the walk: splats are off or gsplat's runtime isn't installed (`mise run gsplat`)")
@@ -465,15 +478,15 @@ def splat_walk(
     if rev is None or moved is None:
         LOG.warning("no splat of the walk: revision %s of %s has no map or none of the walk's cameras", revision, place)
         return None
-    views = walk_views(images, poses, frames, moved)
+    views = walk_views(images, poses, frames, moved, depths)
     points, colors, _ = ply.read(places.root(state) / rev.place / str(rev.map))
     try:
-        result, master = train_walk(views, points, colors, refine=refine)
+        result, master = train_walk(views, points, colors, scale=moved[2])
         rows = ply.vertices(master)
         if rows is None:
             raise RuntimeError("the splat trainer wrote a PLY this reader can't take")
         web = spz(rows)
-        places.write_splat(state, rev, master, web)
+        places.write_splat(state, rev, master, web, source="walk")
     except (RuntimeError, subprocess.TimeoutExpired, OSError, ValueError) as e:
         LOG.error("no splat of the walk: %s", e)
         return None
@@ -482,8 +495,9 @@ def splat_walk(
         "views": len(views),
         "start_points": result.get("start_points"),
         "gaussians": result.get("gaussians"),
+        "dropped": result.get("dropped"),
+        "scale_p99": result.get("scale_p99"),
         "train_psnr": result.get("train_psnr"),
-        "pose_opt": refine,
         "pose_shift": result.get("pose_shift"),
         "pose_turn_deg": result.get("pose_turn_deg"),
         "seconds": result.get("seconds"),
@@ -543,7 +557,7 @@ def splat_place(
     if rows is None:
         raise RuntimeError("the splat trainer wrote a PLY this reader can't take")
     web = spz(rows)
-    places.write_splat(state, rev, master, web)
+    places.write_splat(state, rev, master, web, source="cameras")
     return {
         "place": place,
         "revision": rev.id,

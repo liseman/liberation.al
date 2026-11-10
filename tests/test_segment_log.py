@@ -1,7 +1,7 @@
 """The segment streams (src/liberational/segment_log.py): records survive the typed columns, and the store keeps them
 where a checkpoint said."""
 
-import json
+import dataclasses
 import math
 import threading
 import time
@@ -444,13 +444,13 @@ FIXED = {
         "frame_id": "0190a5b8-0000-7000-8000-000000000003",
         "bbox": [0.25, 0.125, 0.375, 0.3125],
         "det": 0.875,
-        "name": "Joe",
+        "name": "Sam",
         "sim": 0.625,
         "cluster": None,
         "quality": 0.5,
     },
     S.FACE_VISITS: {
-        "name": "Joe",
+        "name": "Sam",
         "best_sim": 0.625,
         "samples": 12,
         "shots": [
@@ -656,13 +656,6 @@ def test_a_tail_gives_what_is_appended_after_it_starts_and_nothing_before(store)
     writers.close()
 
 
-@pytest.fixture
-def kept_hours():
-    S.keep_hours()
-    yield
-    S.keep_hours(False)
-
-
 def write(store, records, stream=S.MOVEMENT_TRACKS):
     writers = S.Writers(store)
     writers.append(stream, "cam0", records)
@@ -670,50 +663,8 @@ def write(store, records, stream=S.MOVEMENT_TRACKS):
     writers.close()
 
 
-def as_rows(records):
-    return [json.dumps(r, sort_keys=True, default=str) for r in records]
-
-
-def test_a_window_still_going_reads_its_ended_hours_once_and_answers_as_a_plain_read(store, kept_hours, monkeypatch):
-    """#2398: Review rereads today's history every minute; its ended hours' records are kept."""
-    now = time.time()
-    hour = (now // 3600) * 3600
-    start = hour - 3 * 3600
-    rows = [one(S.MOVEMENT_TRACKS, ts_start=start + k * 1500, ts_end=start + k * 1500 + 2400) for k in range(7)]
-    rows.append({**rows[0], "ts_start": start + 10, "ts_end": start + 20})  # the same id twice: both are rows
-    write(store, rows)
-    log = S.Log(store)
-    plain = log._read(S.MOVEMENT_TRACKS, start, now + 3600, None)
-    reads = []
-    real = S.Log._read
-    monkeypatch.setattr(S.Log, "_read", lambda self, *a: reads.append(a[1:3]) or real(self, *a))
-    first = log.range(S.MOVEMENT_TRACKS, start, now + 3600)
-    assert as_rows(first) == as_rows(plain), "the same records, a span across hours once, duplicate ids kept"
-    reads.clear()
-    first[0]["ts_start"] = 0  # a reader changing its copy changes nothing kept
-    again = log.range(S.MOVEMENT_TRACKS, start, now + 3600)
-    assert as_rows(again) == as_rows(plain)
-    assert all(lo >= hour - S.HOUR_S for lo, _ in reads), f"only the newest hours read again: {reads}"
-
-
-def test_a_row_written_late_into_a_kept_hour_shows_on_the_next_read(store, kept_hours):
-    now = time.time()
-    start = (now // 3600) * 3600 - 3 * 3600
-    write(store, [one(S.MOVEMENT_TRACKS, ts_start=start + 60, ts_end=start + 70)])
-    log = S.Log(store)
-    assert len(log.range(S.MOVEMENT_TRACKS, start, now + 3600)) == 1
-    write(store, [one(S.MOVEMENT_TRACKS, ts_start=start + 120, ts_end=start + 130)])  # late, into the oldest hour
-    assert len(log.range(S.MOVEMENT_TRACKS, start, now + 3600)) == 2
-
-
-def test_an_ended_window_keeps_nothing(store, kept_hours):
-    write(store, [one(S.MOVEMENT_TRACKS, ts_start=T + 60, ts_end=T + 70)])
-    assert len(S.Log(store).range(S.MOVEMENT_TRACKS, T, T + 4 * 3600)) == 1
-    assert not S._HOURS, "an ended day's reader keeps its whole answer instead"
-
-
 def test_a_part_listed_then_renamed_before_open_is_retried(store, monkeypatch):
-    """#3100: a pass lists an open part, the writer seals it, the read's ENOENT is retried once."""
+    """A pass lists an open part, the writer seals it, the read's ENOENT is retried once."""
     continuum_py = pytest.importorskip("continuum_py")
     record = one(S.FACE_MATCHES, ts_start=T, ts_end=T)
     writers = S.Writers(store)
@@ -754,7 +705,7 @@ def test_a_part_still_missing_after_retry_raises(store, monkeypatch):
 
 
 def test_a_part_sealed_while_a_range_read_runs(store):
-    """#3100: sealing an open part under a concurrent range read still returns its rows."""
+    """Sealing an open part under a concurrent range read still returns its rows."""
     record = one(S.FACE_MATCHES, ts_start=T, ts_end=T)
     writers = S.Writers(store)
     writers.append(S.FACE_MATCHES, "living-room", [record])
@@ -783,7 +734,7 @@ def test_a_part_sealed_while_a_range_read_runs(store):
 
 @pytest.fixture
 def folded(tmp_path, monkeypatch):
-    """A group store where Face 5 was folded into Face 3 (vision/faces.py, #3181)."""
+    """A group store where Face 5 was folded into Face 3 (vision/faces.py)."""
     from liberational.vision import faces
 
     monkeypatch.setattr(faces, "UNK_DB", tmp_path / "unknown_clusters.npz")
@@ -826,3 +777,101 @@ def test_without_a_fold_sightings_read_as_recorded(store, tmp_path, monkeypatch)
     monkeypatch.setattr(faces, "UNK_DB", tmp_path / "unknown_clusters.npz")  # no group store at all
     write(store, [sighting(S.FACE_MATCHES, 5, T + 1)], S.FACE_MATCHES)
     assert [r["cluster"] for r in S.Log(store).range(S.FACE_MATCHES, T, T + 60)] == ["Face 5"]
+
+
+def watched(store, stream, cam, spans, frames=30):
+    """Coverage rows as see-actions writes them: one append a row."""
+    writers = S.Writers(store)
+    for a, b in spans:
+        row = {"id": S.new_id(), "ts_start": a, "ts_end": b, "frames": frames, "model": "test"}
+        writers.append(stream, cam, [row])
+    writers.close()
+
+
+def test_covered_joins_each_cameras_spans_and_cuts_them_to_the_window(store):
+    # T is on an hour boundary: the first two rows are the hour before, in a part that closed when the next began.
+    watched(store, S.ACTION_COVERAGE, "cam0", [(T - 2, T - 1), (T - 1, T + 1), (T + 1, T + 2), (T + 2.5, T + 3)])
+    watched(store, S.ACTION_COVERAGE, "cam1", [(T + 1, T + 4)])
+    watched(store, S.condensed(S.ACTION_COVERAGE), "cam0", [(T + 10, T + 11)], frames=7)
+    got = S.Log(store).covered(S.ACTION_COVERAGE, T - 1.5, T + 10.5)
+    assert got == {
+        "cam0": S.Covered([(T - 1.5, T + 2), (T + 2.5, T + 3), (T + 10, T + 10.5)], frames=127),
+        "cam1": S.Covered([(T + 1, T + 4)], frames=30),
+    }
+    assert got["cam0"].seconds == 4.5
+
+
+def test_covered_joins_spans_no_further_apart_than_join_s(store):
+    watched(store, S.ACTION_COVERAGE, "cam0", [(T, T + 1), (T + 2, T + 3), (T + 4.5, T + 5)])
+    log = S.Log(store)
+    assert log.covered(S.ACTION_COVERAGE, T, T + 10, join_s=1.0)["cam0"].spans == [(T, T + 3), (T + 4.5, T + 5)]
+    assert log.covered(S.ACTION_COVERAGE, T, T + 10, ["cam9"]) == {}
+    assert log.covered(S.ACTION_COVERAGE, T + 20, T + 30) == {}, "a camera with no row in the window isn't listed"
+
+
+def test_a_span_inside_an_earlier_longer_one_does_not_end_the_stretch_early(store):
+    watched(store, S.ACTION_COVERAGE, "cam0", [(T, T + 10), (T + 1, T + 2), (T + 9, T + 12)])
+    assert S.Log(store).covered(S.ACTION_COVERAGE, T, T + 20)["cam0"].spans == [(T, T + 12)]
+
+
+def test_table_gives_a_windows_columns_by_camera_without_building_a_record(store, monkeypatch):
+    rows = [
+        {"ts_start": T + n, "ts_end": T + n + 4, "track_id": n % 2, "classes": [n, 1, 2, 3, 4], "scores": [0.5] * 5}
+        for n in range(3)
+    ]
+    writers = S.Writers(store)
+    writers.append(S.ACTION_WINDOWS, "cam0", [{**r, "model": "stgcnpp"} for r in rows])
+    writers.append(S.ACTION_WINDOWS, "cam1", [{**rows[0], "model": "movinet"}])
+    writers.close()
+    monkeypatch.setattr(S, "records", None)  # a record built for a row would call it
+    got = S.Log(store).table(S.ACTION_WINDOWS, T + 1, T + 100, ("ts_ns", "track_id", "classes", "model"))
+    assert sorted(got) == ["cam0", "cam1"]
+    assert got["cam0"]["ts_ns"].tolist() == [S.ns(T), S.ns(T + 1), S.ns(T + 2)], "a span reaching into the window too"
+    assert got["cam0"]["track_id"].tolist() == [0, 1, 0]
+    assert got["cam0"]["classes"].tolist() == [[0, 1, 2, 3, 4], [1, 1, 2, 3, 4], [2, 1, 2, 3, 4]]
+    assert got["cam1"]["model"] == ["movinet"]
+    assert sorted(got["cam0"]) == ["classes", "model", "track_id", "ts_ns"], "only the columns asked for"
+
+
+def test_a_row_of_no_length_joins_nothing_unless_instants_are_kept(store):
+    watched(store, S.WALKBY_COVERAGE, "cam0", [(T, T + 1), (T + 1.8, T + 1.8), (T + 2.6, T + 3), (T + 9, T + 9)])
+    log = S.Log(store)
+    assert log.covered(S.WALKBY_COVERAGE, T, T + 20, join_s=1.0)["cam0"] == S.Covered(
+        [(T, T + 1), (T + 2.6, T + 3)], frames=120
+    )
+    assert log.covered(S.WALKBY_COVERAGE, T, T + 20, join_s=1.0, instants=True)["cam0"].spans == [
+        (T, T + 3),
+        (T + 9, T + 9),
+    ]
+
+
+def test_containing_builds_a_record_only_for_the_rows_whose_text_holds_a_value(store, monkeypatch):
+    spec = S.STREAMS[S.BLE_SIGHTINGS]
+    rows = [
+        {"id": S.new_id(), "start": T + n, "end": T + n + 5, "identifier": name, "local_name": 'a "quoted" name'}
+        for n, name in enumerate(["AA:01", "BB:02", "AA:01"])
+    ]
+    writers = S.Writers(store)
+    writers.append(S.BLE_SIGHTINGS, "ble", rows)
+    writers.close()
+    built = []
+    counting = dataclasses.replace(spec, to_record=lambda row, cam: built.append(row["id"]) or spec.to_record(row, cam))
+    monkeypatch.setitem(S.STREAMS, S.BLE_SIGHTINGS, counting)
+    log = S.Log(store)
+    got = log.containing(S.BLE_SIGHTINGS, T, T + 100, ["AA:01"])
+    assert [(r["start"], r["identifier"]) for r in got] == [(T, "AA:01"), (T + 2, "AA:01")]
+    assert built == [rows[0]["id"], rows[2]["id"]], "the other row was never parsed"
+    assert len(log.containing(S.BLE_SIGHTINGS, T, T + 100, [S.json_text('a "quoted" name')])) == 3
+    assert log.containing(S.BLE_SIGHTINGS, T, T + 100, ["CC:03"]) == []
+
+
+def test_covered_counts_only_the_rows_where_keeps(store):
+    writers = S.Writers(store)
+    for a, b, kind in ((T, T + 10, "person"), (T + 10, T + 20, "animal"), (T + 30, T + 40, "animal")):
+        row = {"id": S.new_id(), "ts_start": a, "ts_end": b, "subject_kind": kind, "definition": "d", "zones": ["z"]}
+        writers.append(S.ZONE_COVERAGE, "cam0", [{**row, "frames": 10}])
+    writers.append(S.ZONE_COVERAGE, "cam1", [{**row, "subject_kind": "person", "frames": 10}])
+    writers.close()
+    animals = (("subject_kind",), lambda c: np.array([k == "animal" for k in c["subject_kind"]]))
+    got = S.Log(store).covered(S.ZONE_COVERAGE, T, T + 100, where=animals)
+    assert got == {"cam0": S.Covered([(T + 10, T + 20), (T + 30, T + 40)], frames=20)}, "cam1 looked for no animal"

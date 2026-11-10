@@ -6,7 +6,7 @@ export const FLOOR = -90; // dBFS shown as an empty meter
 export const FALL_DB_S = 20; // how fast a held peak falls
 // Meters move at most this often: every other frame at 60 Hz, about the stream's 25 a second. Any change in a frame
 // makes the browser rebuild the page's compositing layers, so moving them every frame cost twice as much for nothing
-// new to show (#486).
+// new to show.
 export const METER_MS = 32;
 const NO_PEAK = -120;
 
@@ -80,7 +80,7 @@ export function subscribeLevels(listener: Listener): () => void {
  * key went) goes back to its status level.
  *
  * They move by transform, at most every METER_MS, written only when it changes: a width or left set every frame laid
- * out and repainted the whole page every frame, over half of Live's main-thread time (#486). The CSS for [data-live]
+ * out and repainted the whole page every frame, over half of Live's main-thread time. The CSS for [data-live]
  * makes both full width.
  */
 export function useLiveLevels(root: RefObject<HTMLElement | null>): void {

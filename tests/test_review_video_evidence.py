@@ -178,7 +178,7 @@ def test_ollama_backend_inspects_recorded_frames_when_local_mlx_server_is_unavai
 
 
 def test_an_ollama_that_isnt_running_leaves_the_frames_unknown(tmp_path, vision, monkeypatch):
-    # #3116 made Ollama the Linux backend; its refused connection comes back from ollama_health.call as Down (a
+    # With Ollama as the Linux backend, its refused connection comes back from ollama_health.call as Down (a
     # RuntimeError), which collect must report as unknown frames rather than raise into the question's answer.
     from liberational import ollama_health
 

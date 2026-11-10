@@ -1,4 +1,4 @@
-// Review's keyboard shortcuts, in one table (#2285): the engine dispatches on it (engine.ts onKey and onSpace), and
+// Review's keyboard shortcuts, in one table: the engine dispatches on it (engine.ts onKey and onSpace), and
 // the control bar's "?" lists it (ReviewHelp.tsx), so the two can't drift apart. A key added here needs a handler
 // for its id in the engine, or the type check fails; one removed here goes from both at once.
 // Shortcuts that belong to one focused control (a search box, the ratings group, the timeline's marking tool) stay
@@ -6,7 +6,7 @@
 
 export interface ReviewKey {
   id: 'play' | 'nudge' | 'ends' | 'lines' | 'mark' | 'clear' | 'moments' | 'skip' | 'zoom';
-  group: 'play' | 'move' | 'mark'; // its section in the "?" table (#2577)
+  group: 'play' | 'move' | 'mark'; // its section in the "?" table
   keys: readonly string[]; // KeyboardEvent.key values
   shown: readonly string[]; // as the "?" table prints them
   does: string; // what they do, beside the keys ("Play or pause")

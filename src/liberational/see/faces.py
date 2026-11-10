@@ -1,11 +1,11 @@
-"""The face models and rules see-actions' head faces use (#1738, `see/head_faces.py`).
+"""The face models and rules see-actions' head faces use (`see/head_faces.py`).
 
 - `Detector`: finds the faces in a BGR image, each with its box, confidence, five landmarks, and unit embedding.
-  `InsightFaceDetector` is v1's SCRFD detection and AdaFace recognition, run on a head crop.
+  `InsightFaceDetector` is SCRFD detection and AdaFace recognition, run on a head crop.
 - `Matcher`: names an embedding. `V1Matcher` reads v1's `faces/db.npz` and unknown clusters (`vision/faces.py`): the
   nearest enrolled face over 0.45 is a match, and an unnamed face joins or starts an unknown cluster ("Face N").
-- `readable`: whether a look reads as a face well enough to learn from, name, or show as a photo (#2355).
-- `VisitBuilder` is v1's visit rule (`sightings.visits`): one person's matches on one camera, closed once 10 s pass
+- `readable`: whether a look reads as a face well enough to learn from, name, or show as a photo.
+- `VisitBuilder` is the visit rule: one person's matches on one camera, closed once 10 s pass
   with no match.
 
 The whole-frame face worker and its IoU face tracker are gone: see-actions' pose tracks follow people now.
@@ -17,13 +17,13 @@ from typing import Any, Protocol
 
 import numpy as np
 
-UNKNOWN_EVERY_S = 3.0  # how often an unnamed track's cluster is looked up (v1's lookup writes a file)
-VISIT_GAP_S = 10.0  # a visit ends when its person isn't matched on its camera for this long (v1's backfill.visit_gap_s)
+UNKNOWN_EVERY_S = 3.0  # how often an unnamed track's cluster is looked up (a lookup writes a file)
+VISIT_GAP_S = 10.0  # a visit ends when its person isn't matched on its camera for this long
 
 NS = 1_000_000_000
 
-# A look that hardly reads as a face is set aside (#2355): a head turned away (rear three-quarter) or a blur, which
-# the detector can still box. On the development install (2026-11-05, 6,116 looks with signals), AdaFace's raw
+# A look that hardly reads as a face is set aside: a head turned away (rear three-quarter) or a blur, which
+# the detector can still box. On the development install (6,116 looks with signals), AdaFace's raw
 # feature norm put one household member turned away at 6.5 to 8.6 and clear faces at 19 to 21; under 10 set aside
 # 0.7% of the owner's looks at the desk, 6% of that member's (a camera that sees them almost only in profile, which
 # stays), and 35% of the unnamed ones, the turned-away looks that started new face groups. The pose's nose
@@ -67,7 +67,7 @@ class Matcher(Protocol):
 
 
 class InsightFaceDetector:
-    """v1's SCRFD detection and AdaFace recognition on ONNX Runtime, on CoreML, CUDA, or the CPU as v1 picks."""
+    """SCRFD detection and AdaFace recognition on ONNX Runtime, on CoreML, CUDA, or the CPU, whichever is there."""
 
     def detect(self, frame: np.ndarray) -> list[Face]:
         from liberational.vision import faces
@@ -98,7 +98,7 @@ class V1Matcher:
         return f"Face {faces.group_unknown(emb)}"
 
     def learn(self, looks: Sequence[np.ndarray], names: Sequence[str | None], source: str) -> int:
-        """Teach the named gallery from a track that ended (`faces.learn_from_track`, #3013). Rows added."""
+        """Teach the named gallery from a track that ended (`faces.learn_from_track`). Rows added."""
         from liberational.vision import faces
 
         return faces.learn_from_track(looks, names, source)
@@ -117,7 +117,7 @@ class _Open:
 
 
 class VisitBuilder:
-    """`face.visit` records from `face.match` records, as v1's `sightings.visits`: one named person's matches on one
+    """`face.visit` records from `face.match` records: one named person's matches on one
     camera, joined while each follows the last within `gap_s`. A visit is put out once it's closed: a later match comes
     after the gap, or `close_before` passes its end plus the gap. Its `shots` are the VISIT_SHOTS best-quality faces
     fed with one (recorded detections: {detection, ts, bbox, quality, sim}), best first: the photos People picks from."""

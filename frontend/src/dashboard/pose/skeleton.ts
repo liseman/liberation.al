@@ -1,4 +1,4 @@
-// Body skeletons (#520, and Review's #519): the halpe26 keypoint layout vision's pose models give (vision/pose_model.py,
+// Body skeletons: the halpe26 keypoint layout vision's pose models give (vision/pose_model.py,
 // see/actions.py, `JOINTS`), which joints a bone joins, and the rule for what's drawn: a joint, and a bone, only where the
 // model is sure enough. Shared by Live (over the live camera) and Review (over recorded video, from `pose.track`).
 /** The 26 joints, in the order the keypoints come. */
@@ -18,9 +18,9 @@ export const BONES: readonly (readonly [number, number])[] = [
   [16, 25],
 ];
 
-/** A joint is drawn at this confidence or above, and a bone only when both its joints are. On devbox's cameras the
+/** A joint is drawn at this confidence or above, and a bone only when both its joints are. On the Linux machine's cameras the
  *  head and shoulders come in around 0.7 to 0.9, and legs out of frame around 0.1 to 0.2. It is see-actions' sure
- *  joint (actions.JOINT_SURE), so what's drawn is what the tracker and the action models trust (#2024). */
+ *  joint (actions.JOINT_SURE), so what's drawn is what the tracker and the action models trust. */
 export const MIN_CONF = 0.5;
 
 /** One person's pose as vision sends it: box [x1, y1, x2, y2, score] and keypoints [[x, y, confidence], ...] in

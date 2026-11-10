@@ -20,7 +20,7 @@ export function useRefresh(): () => Promise<void> {
   return () => client.invalidateQueries({ queryKey: INGEST_KEY });
 }
 
-/** What a failure means, and what to do, for the messages the ingest pipeline and its sources give (#2712). The
+/** What a failure means, and what to do, for the messages the ingest pipeline and its sources give. The
  *  first that matches wins; a message none knows is shown as it is. */
 const PLAIN: { test: RegExp; what: string; fix: string | null }[] = [
   {

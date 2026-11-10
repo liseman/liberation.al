@@ -79,7 +79,7 @@ it('searches both sources instantly, preserves accent highlights, and keeps play
   }
 });
 
-it('labels a transcript hit with the name the transcript shows, never a placeholder (#2580)', () => {
+it('labels a transcript hit with the name the transcript shows, never a placeholder', () => {
   show({ entries: [{ ts_start: 100, speaker: 'Speaker 250', text: 'Broke it down into three' }] });
   change('three');
   expect(screen.getByRole('option')).toHaveTextContent('Unmatched: Broke it down into three');

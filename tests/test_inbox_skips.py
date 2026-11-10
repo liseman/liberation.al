@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from liberational.dashboard import server
+from liberational.dashboard import context, server
 from liberational.people import voice_edits
 from speech_fake import fake
 from voices import write_voices
@@ -55,7 +55,7 @@ def test_skipped_things_stay_out_of_the_inbox(state, monkeypatch):
     server.inbox_skip("line", 101.5, True)
     server.inbox_skip("voice", 3, True)
     server.inbox_skip("face", 8, True)
-    monkeypatch.setattr(server, "STATE", state)
+    monkeypatch.setattr(context, "STATE", state)
     monkeypatch.setattr(server, "_faces_mod", lambda: faces)  # the face model
     view = server.people_view()
     refine = server.speakers_refine_list()
@@ -70,7 +70,7 @@ def test_a_line_put_aside_by_key_leaves_the_other_microphones_line_and_a_time_re
     assert server.inbox_skip("line", "mic-a@2000.000", True)[0] == 200
     skipped = set(server.inbox_skips()["line"])
     assert (server.put_aside(a, skipped), server.put_aside(b, skipped)) == (True, False)
-    assert server.inbox_skip("line", 2000.0, True)[0] == 200  # as Inbox sent it before #247
+    assert server.inbox_skip("line", 2000.0, True)[0] == 200  # as Inbox sent it before per-device line keys
     skipped = set(server.inbox_skips()["line"])
     assert (server.put_aside(a, skipped), server.put_aside(b, skipped)) == (True, True)
 

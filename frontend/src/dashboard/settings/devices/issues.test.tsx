@@ -15,7 +15,7 @@ const config = (places: string[]): ConfigView =>
         description: '',
         settings: [
           {
-            key: 'vision.places',
+            key: 'vision.camera_names',
             value: places,
             default: [],
             type: 'list',
@@ -47,7 +47,7 @@ function render() {
   return { client, ...renderHook(() => useDeviceIssues(), { wrapper }) };
 }
 
-it('asks to name the cameras in use that have no name (#2585)', () => {
+it('asks to name the cameras in use that have no name', () => {
   const { result } = render();
   expect(result.current).toEqual({ text: 'Name 2 cameras', tone: 'dim' });
 });

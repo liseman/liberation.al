@@ -7,7 +7,7 @@
 //! What keeps a crash from losing anything:
 //! - A slot is marked `flushed` only once its chunk is committed, so a slot the broker may reclaim is always in a
 //!   chunk the catalog knows, or was dropped on purpose (an undecodable or quarantined payload, counted as such):
-//!   nothing will ever copy that one, so holding its slot would only leak Tier 0 (#2350).
+//!   nothing will ever copy that one, so holding its slot would only leak Tier 0.
 //! - A subscription's saved position stops before its oldest payload whose chunk isn't committed, so after a crash
 //!   the broker sends again everything that isn't safe yet.
 //! - At start, [`crate::recover`] finalizes the chunks the last run left open; each is committed when its stream's
@@ -338,7 +338,7 @@ pub enum ServiceError {
     Tier(#[from] crate::TierError),
 }
 
-/// Whether the program starts a new run in the same process after a run ended with `error` (#3097): a lost
+/// Whether the program starts a new run in the same process after a run ended with `error`: a lost
 /// subscription or connection, a broker that isn't answering yet, or one that described no arena. These are what a
 /// cascade does to the worker (the broker restarts, and capture carves its rings after the worker subscribed), and
 /// exiting for them left a failed unit and the restart delay with nothing draining Tier 0. A chunk file problem still
@@ -441,8 +441,8 @@ impl Drop for Service {
 
 /// Files a purge goes through in one step, so subscriptions keep draining while a large purge runs.
 pub const PURGE_FILES_PER_STEP: usize = 32;
-/// At most how long one step spends on a purge's files, so Tier 0's events keep being read beside a large purge
-/// (#1684): a frame not read before its slot is reused is lost.
+/// At most how long one step spends on a purge's files, so Tier 0's events keep being read beside a large purge:
+/// a frame not read before its slot is reused is lost.
 pub const PURGE_STEP_BUDGET: Duration = Duration::from_millis(20);
 /// At most how many queued events one step takes before it turns to purges.
 pub const EVENTS_PER_STEP: usize = 512;
@@ -531,7 +531,7 @@ impl Service {
     /// The broker's refusal, no arena, or a chunk directory problem.
     pub fn start(settings: Settings, rt: &tokio::runtime::Handle) -> Result<Self, ServiceError> {
         // Each phase's time, said when the start is slow: one start after a cascade took 168 s with nothing in the
-        // log while capture's Tier 0 filled (#3097).
+        // log while capture's Tier 0 filled.
         let mut phases = Phases::new();
         let client = Arc::new(rt.block_on(Client::connect(&settings.socket, ClientOptions::new(WORKER_NAME)))?);
         phases.done("connect");
@@ -557,7 +557,7 @@ impl Service {
         let found = crate::recover(&settings.chunk_dir)?;
         phases.done("recovery");
         if began.elapsed() >= Duration::from_secs(1) {
-            // Nothing is flushed until this is done, so the encoded cameras' Tier 0 rings fill meanwhile (#2965).
+            // Nothing is flushed until this is done, so the encoded cameras' Tier 0 rings fill meanwhile.
             eprintln!("tier worker: startup recovery took {:.1} s", began.elapsed().as_secs_f64());
         }
         if !found.is_empty() {
@@ -756,7 +756,7 @@ impl Service {
         match self.rt.block_on(out.client.commit_payload_copy(copy.record.id, &copy.location)) {
             Ok(()) => {
                 self.derived.insert(copy.stream);
-                // So the next start doesn't commit it again (#3131); a mark that fails only costs that.
+                // So the next start doesn't commit it again; a mark that fails only costs that.
                 if let Err(error) = crate::copies::mark_committed(&copy.path) {
                     eprintln!("tier worker: marking payload copy {} committed failed: {error}", copy.path.display());
                 }
@@ -936,7 +936,7 @@ impl Service {
         result
     }
 
-    /// Turns on the AV1 archive pass (`crate::archive`, #1479). A pass that can't start (no `ffmpeg` feature) is
+    /// Turns on the AV1 archive pass (`crate::archive`). A pass that can't start (no `ffmpeg` feature) is
     /// logged and left off: recording never depends on it.
     pub fn with_archive(&mut self, settings: crate::archive::ArchiveSettings) {
         match crate::archive::Archive::start(settings) {
@@ -1082,7 +1082,7 @@ impl Service {
     ///
     /// The broker sends a notice again every minute until it's acknowledged: a purge already queued isn't queued
     /// twice. A purge arriving while the last queued pass hasn't begun joins that pass, so purges that arrive faster
-    /// than one pass over every file finishes share passes instead of piling up (#1289).
+    /// than one pass over every file finishes share passes instead of piling up.
     ///
     /// # Errors
     ///
@@ -1106,7 +1106,7 @@ impl Service {
             by_stream.into_iter().map(|(s, w)| (s, merge_windows(w))).collect();
         let ids: BTreeSet<Uuid> = ids.into_iter().collect();
         // The broker names the spans it removed per stream beside the ids, so the files to look at are those
-        // streams' (#1684). Only ids without spans could be anywhere. Scanning every file for an inline-only
+        // streams'. Only ids without spans could be anywhere. Scanning every file for an inline-only
         // stream's age-out (a ten-minute retention stream) stalled Tier 0's reads long enough to lose video.
         let anywhere = windows.is_empty() && !ids.is_empty();
         let reaches = |s: &StreamId| anywhere || windows.contains_key(s);
@@ -1248,7 +1248,7 @@ impl Service {
         let began = Instant::now();
         let client = Arc::clone(&self.work.outputs_mut().client);
         // Every copy of each known chunk, with its frame index, before any file is touched: the time query names one
-        // locator per chunk, and a stored GOP file needs its chunk's original unit starts to purge exactly (#1532).
+        // locator per chunk, and a stored GOP file needs its chunk's original unit starts to purge exactly.
         for _ in 0..PURGE_FILES_PER_STEP {
             if began.elapsed() >= PURGE_STEP_BUDGET {
                 break;
@@ -1453,7 +1453,7 @@ impl Service {
             // Dropped for good (counted as undecodable or quarantined): its position is released and its slot marked,
             // so the broker and its producer can reuse it. Unmarked, it's never reclaimed while a reader's pin is left
             // on it (even an expired one) or the archive is owed it, and the P-frames dropped after each capture
-            // reconnect filled the RTSP cameras' class until a broker restart (#2350).
+            // reconnect filled the RTSP cameras' class until a broker restart.
             Ok(Appended::Quarantined | Appended::Undecodable) => {
                 let out = self.work.outputs_mut();
                 out.settle(p.id, true);
@@ -1924,7 +1924,7 @@ mod tests {
         assert!(manifest_streams("").unwrap().is_empty());
     }
 
-    /// #1289: the broker sends an unacknowledged notice again every minute, and each copy used to queue another
+    /// The broker sends an unacknowledged notice again every minute, and each copy used to queue another
     /// full pass over every chunk file; purges arriving while one waits now share its pass.
     #[test]
     fn a_resent_notice_is_not_queued_again_and_waiting_purges_share_one_pass() {
@@ -1984,7 +1984,7 @@ mod tests {
         rt.block_on(broker).unwrap();
     }
 
-    /// #1684: an age-out of an inline-only stream (one aged out every ten minutes) queued every chunk file, and the
+    /// An age-out of an inline-only stream (one aged out every ten minutes) queued every chunk file, and the
     /// pass stalled Tier 0's reads until frames were lost. Only the purged streams' files are looked at now; ids the
     /// broker names no spans for could be anywhere, so those still reach every file.
     #[test]
@@ -2118,7 +2118,7 @@ mod tests {
         service.shutdown().unwrap();
         assert!(
             crate::copies::recover(&chunk_dir).unwrap().is_empty(),
-            "acknowledged copies are not reopened and committed again at the next start (#3131)"
+            "acknowledged copies are not reopened and committed again at the next start"
         );
         #[cfg(unix)]
         if alias_reopen {

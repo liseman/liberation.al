@@ -12,9 +12,9 @@ export interface BoxLayerProps {
   onPick?: ((pick: BoxPick) => void) | null;
   /** The pointer came onto a box (with it) or left it (null), for a mouse; touch gets onPick alone. */
   onHover?: ((pick: BoxPick | null) => void) | null;
-  /** Pets can be clicked too (#2607). */
+  /** Pets can be clicked too. */
   pickPets?: boolean;
-  /** Which faces can be clicked: only unknown ones (the default), or every face (Review's, #374). */
+  /** Which faces can be clicked: only unknown ones (the default), or every face (Review's). */
   pickFaces?: 'unknown' | 'all';
   /** How long boxes stay with no update; Review keeps them while paused (Infinity). */
   staleS?: number;

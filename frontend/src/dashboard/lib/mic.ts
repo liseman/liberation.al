@@ -68,7 +68,7 @@ export function useMicRecorder(maxS: number): MicRecorder {
     mounted.current = true;
     return () => {
       mounted.current = false;
-      // Hidden mid-recording (its tab stays mounted, #330): the take is let go, so it shows as not recording
+      // Hidden mid-recording (its tab stays mounted): the take is let go, so it shows as not recording
       if (rec.current) {
         setPhase('idle');
         setSecs(0);
@@ -95,7 +95,7 @@ export function useMicRecorder(maxS: number): MicRecorder {
     setError(null);
     try {
       // Raw capture: this records a voice reference, and the browser's echo cancellation removes anything the
-      // computer is playing, so a voice played through the speakers was recorded as silence (2026-10-26).
+      // computer is playing, so a voice played through the speakers was recorded as silence.
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 },
       });

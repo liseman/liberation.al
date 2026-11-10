@@ -32,8 +32,8 @@ export interface Person {
   number?: string | null;
   last_heard?: number | null;
   last_seen_cam?: string | null; // the camera of last_seen
-  last_seen_place?: string | null; // that camera's place name (#313), when the server sends one
-  here_now?: { cam: string | null; place?: string | null; since?: number | null } | null; // their face in the live scene in the last 30 s, and since when
+  last_seen_camera_name?: string | null; // that camera's name, when the server sends one
+  here_now?: { cam: string | null; camera_name?: string | null; since?: number | null } | null; // their face in the live scene in the last 30 s, and since when
 }
 
 export interface UnknownFace {
@@ -101,7 +101,7 @@ export interface Profile {
 }
 
 /** A profile from their row of the people list, to show at once while GET /people/<name> adds what only it has
- *  (memory notes): the way a pet's page shows from the Pets list (#2397). */
+ *  (memory notes): the way a pet's page shows from the Pets list. */
 export function profileFromRow(p: Person): Profile {
   return {
     name: p.name,
@@ -125,7 +125,7 @@ export function profileFromRow(p: Person): Profile {
 
 /** After a change the server answered with its people view: show that list, and mark every other people query (the
  *  profiles and cards) out of date, since a rename, merge, or claim changes them too. A tab shown again reuses data
- *  under 30 s old (#330), so nothing else would read them again. */
+ *  under 30 s old, so nothing else would read them again. */
 export function tookView(client: QueryClient, reply: unknown): void {
   client.setQueryData(PEOPLE_KEY, shape(reply));
   void client.invalidateQueries({ queryKey: PEOPLE_KEY, predicate: q => q.queryKey.length > PEOPLE_KEY.length });
@@ -135,12 +135,12 @@ export const profileKey = (name: string) => ['people', 'profile', name] as const
 export const getProfile = (name: string, { signal }: Opts = {}) =>
   request<Profile>(`/people/${enc(name)}`, undefined, signal);
 
-// ---- GET /people/<name>/card (#307): the contact card's photos, recent video, and recent voice ----
+// ---- GET /people/<name>/card: the contact card's photos, recent video, and recent voice ----
 
 /** A face shot. id, cam, and score are null only for someone tagged live with no recorded sightings yet (their
  * newest saved crop stands in). score orders shots; it is never shown. */
 export interface CardShot {
-  id: string | null; // the detection's payload id (#549)
+  id: string | null; // the detection's payload id
   url: string;
   ts: number;
   cam: string | null;
@@ -148,9 +148,9 @@ export interface CardShot {
 }
 /** A recent stretch of video they're in. */
 export interface CardVideo {
-  id?: string; // "cam0@<start>", for corrections (#309)
+  id?: string; // "cam0@<start>", for corrections
   cam: string;
-  place?: string | null; // the camera's place name (#313), when the server sends one
+  camera_name?: string | null; // the camera's name, when the server sends one
   start: number;
   end: number;
   duration_s: number;
@@ -158,7 +158,7 @@ export interface CardVideo {
   what: string | null; // the journal entry for that time, else the camera caption
   review?: string;
 }
-/** A recent line they said. line is the transcript line's key (#306); treat it as opaque. */
+/** A recent line they said. line is the transcript line's key; treat it as opaque. */
 export interface CardVoice {
   line: string;
   ts_start: number;
@@ -175,15 +175,15 @@ export interface Card {
   videos_pending?: number;
   videos_unavailable?: number;
   voices: CardVoice[]; // up to 4, newest first
-  last_seen: { ts: number; cam: string | null; place?: string | null } | null; // the newest recorded sighting
-  here_now: { cam: string | null; place?: string | null; since?: number | null } | null; // their face in the live scene in the last 30 s, and since when
-  refreshing?: boolean; // an older card, answered as is while the server reads it again: ask again shortly (#2415)
+  last_seen: { ts: number; cam: string | null; camera_name?: string | null } | null; // the newest recorded sighting
+  here_now: { cam: string | null; camera_name?: string | null; since?: number | null } | null; // their face in the live scene in the last 30 s, and since when
+  refreshing?: boolean; // an older card, answered as is while the server reads it again: ask again shortly
 }
 export const cardKey = (name: string) => ['people', 'card', name] as const;
 export const getCard = (name: string, { signal }: Opts = {}) =>
   request<Card>(`/people/${enc(name)}/card`, undefined, signal);
 
-// ---- what nobody has named yet, and giving it to someone (#309) ----
+// ---- what nobody has named yet, and giving it to someone ----
 
 /** An unknown face group: up to 4 photos, best first, and how often and when it was seen. */
 export interface UnnamedFace {
@@ -194,7 +194,7 @@ export interface UnnamedFace {
   count: number;
   last_seen: number | null;
   cam: string | null;
-  place?: string | null; // that camera's place name (#313)
+  camera_name?: string | null; // that camera's name
 }
 /** An unnamed voice cluster, with one of its lines to play. */
 export interface UnnamedVoice {
@@ -208,7 +208,7 @@ export interface UnnamedVoice {
 export interface UnnamedVideo {
   id: string; // "cam0@<start>"
   cam: string;
-  place?: string | null; // the camera's place name (#313)
+  camera_name?: string | null; // the camera's name
   start: number;
   end: number;
   duration_s: number;
@@ -255,7 +255,7 @@ export const assignMany = (items: ({ name: string } & Picked)[]) =>
 /** Give what was picked to name (a new name makes the person). A 400 when nothing stuck. */
 export const assign = (name: string, picked: Picked) => request<AssignReply>('/people/assign', { name, ...picked });
 
-export type CorrectKind = 'shot' | 'video' | 'voice' | 'track'; // track: a person's box in Review, "<cam>:<track>@<ts>" (#2607)
+export type CorrectKind = 'shot' | 'video' | 'voice' | 'track'; // track: a person's box in Review, "<cam>:<track>@<ts>"
 export type Correction = { name: string; kind: CorrectKind; id: number | string } & (
   | { action: 'move'; to: string }
   | { action: 'remove' | 'main' | 'hide' }
@@ -330,7 +330,7 @@ export const tagLines = (lines: readonly LineRef[], name: string) =>
 export interface LoggedLabel {
   ts: number;
   ts_start: number;
-  line?: string; // the line's key (#247); missing on labels given before keys
+  line?: string; // the line's key; missing on labels given before keys
   text?: string;
   new?: { speaker?: string };
   old?: { speaker?: string };
@@ -370,7 +370,7 @@ export interface Call {
   durationSeconds?: number;
   turns?: number;
   speakers?: Record<string, unknown>;
-  // Saved per call by the bridge (#2684): which way it went ("unknown" for calls from before), who a placed call
+  // Saved per call by the bridge: which way it went ("unknown" for calls from before), who a placed call
   // was to (a person's name, or null for a typed number), the owner's instructions, and the assistant's last line on a
   // call that had them. `from` is the other party's number either way.
   direction?: 'in' | 'out' | 'unknown' | null;
@@ -387,7 +387,7 @@ export const callDetail = (c: Call, { signal }: Opts = {}) =>
     undefined,
     signal,
   );
-/** The call on now (GET /calls/live, #2697): which way, the other party's number, a name when the bridge knows one
+/** The call on now (GET /calls/live): which way, the other party's number, a name when the bridge knows one
  *  (the contact called, or the owner calling in), when it began, and its folder keys (as /calls and /calls/detail). */
 export interface LiveCall {
   direction: 'in' | 'out' | 'unknown';
@@ -431,9 +431,9 @@ export const sayClone = (id: number, text: string) =>
 export const removeClone = (id: number) => request<{ ok: boolean; removed?: string[] }>('/clones/remove', { id });
 export const cloneAudio = (id: number) => `/clones/audio?id=${id}&t=${Date.now()}`;
 
-/** One of a person's recent lines that could go into their clone's reference (#312). */
+/** One of a person's recent lines that could go into their clone's reference. */
 export interface PickableLine {
-  line: string; // the line's key (#247)
+  line: string; // the line's key
   ts_start: number;
   text: string;
   dur_s: number;
@@ -447,14 +447,14 @@ export const pickClips = (id: number, lines: string[]) =>
 
 // ---- clips ----
 
-/** A line's audio: by its key (#247), or by its ts_start as before keys. */
+/** A line's audio: by its key, or by its ts_start as before keys. */
 export const lineClip = (line: LineRef) =>
   typeof line === 'string' ? `/clip?line=${encodeURIComponent(line)}` : `/clip?ts_start=${line}`;
 export const voiceClip = (id: number) => `/speaker/${id}/latest-clip?t=${Date.now()}`;
 export const latestOf = (id: number, { signal }: Opts = {}) =>
   request<{ ts_start?: number }>(`/speaker/${id}/latest`, undefined, signal);
 
-// ---- Why this name (#288) ----
+// ---- Why this name ----
 
 /** Why a line or a recorded face has its name (GET /identity/why, dashboard/why_name.py). */
 export interface Why {
@@ -470,7 +470,7 @@ export interface Why {
   similarity: number | null; // how closely the voice or face matched when heard or seen (cosine)
   threshold: number; // what a match needs
   voice: { id: number; label: string | null } | null;
-  mark: Record<string, unknown>; // what POST /measurement/mark needs, less shown and right (#224)
+  mark: Record<string, unknown>; // what POST /measurement/mark needs, less shown and right
 }
 export type WhyTarget = { line: LineRef } | { shot: string };
 export const whyKey = (t: WhyTarget) => ['identity', 'why', 'line' in t ? String(t.line) : `shot:${t.shot}`] as const;
@@ -480,6 +480,6 @@ export const getWhy = (t: WhyTarget, { signal }: Opts = {}) =>
     undefined,
     signal,
   );
-/** Mark the name shown on a line or a face right or wrong, for the measurement set (#224). It changes no name. */
+/** Mark the name shown on a line or a face right or wrong, for the measurement set. It changes no name. */
 export const markName = (why: Why, right: boolean) =>
   request<{ ok: boolean; error?: string }>('/measurement/mark', { ...why.mark, shown: why.name, right });

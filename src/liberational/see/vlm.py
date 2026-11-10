@@ -1,4 +1,4 @@
-"""The VLM behind the caption worker (#549), moved here from v1's vision loop: the backends (Ollama, mlx-vlm in
+"""The VLM behind the caption worker: the backends (Ollama, mlx-vlm in
 process, and the mlx-vlm server, vision/vlm_server.py), the caption prompt, and the tile and JPEG helpers they use.
 
 `make_vlm` picks a backend with fallbacks; each backend has `caption(tile, memory)`, and Ollama's has `ground(frame)`
@@ -45,7 +45,7 @@ PROMPT_WITH_PREV = (
     "Skip what is absent. No preamble."
 )
 MAX_NEW_TOKENS = 144  # bounded independent observation, not an abbreviated change label
-VLM_NUM_CTX = ollama_health.VLM_NUM_CTX  # every call to the Ollama VLM, its warm-up included (#441)
+VLM_NUM_CTX = ollama_health.VLM_NUM_CTX  # every call to the Ollama VLM, its warm-up included
 
 
 def t() -> float:
@@ -121,7 +121,7 @@ class OllamaVLM:
                 r.raise_for_status()
             return _clean(r.json()["message"]["content"])
         except ollama_health.Unavailable:
-            return ""  # logged once by ollama_health, not on every frame (#221)
+            return ""  # logged once by ollama_health, not on every frame
         except Exception as e:
             log(f"  vlm error: {e}", level=logs.WARN)
             return ""

@@ -1,7 +1,9 @@
-"""Camera IDs and human place names shared by camera consumers.
+"""Camera IDs and the owner's names for them (`vision.camera_names`), shared by camera consumers.
 
-Native manifest names are exact ASCII tokens. Place settings also accept legacy numbered aliases unless the
-literal token names a configured camera, so existing settings retain their meaning.
+A camera is a view, an angle on whatever holds it, not a room (#5): its name says which camera it is ("front
+camera"), never where it is. Where a camera's pixel lands comes from its pose (spatial/rig.py, memory/places.py).
+Native manifest names are exact ASCII tokens. Name settings also accept legacy numbered aliases unless the literal
+token names a configured camera.
 """
 
 import re
@@ -65,10 +67,11 @@ def camera_ids(*, active_only: bool = False) -> list[str]:
 
 
 def configured_camera_mentions(text: str) -> tuple[list[str], str]:
-    """Configured native IDs or unambiguous place names in camera/locative context.
+    """Configured native IDs or unambiguous camera names where the question names a camera.
 
     Explicit, case-exact native IDs win over aliases. Spoken case and separators may vary, but ambiguous
-    aliases require an actual ID. Bare ordinary words, numeric times, and temporal dayparts remain text.
+    aliases require an actual ID. Bare ordinary words, numeric times, and temporal dayparts remain text, and so does
+    a bare "in the <name>": that is a place or a room, and only "in the <name> camera" names a camera (#34).
     The masked text retains its length for the history parser's positional time handling.
     """
     cameras = camera_ids()
@@ -106,48 +109,39 @@ def configured_camera_mentions(text: str) -> tuple[list[str], str]:
                     rf"(?:the\s+)?{token}\s+cam(?:era)?",
                     rf"(?:on|from)\s+(?:the\s+)?{token}(?:\s+cam(?:era)?)?",
                     rf"{token}(?=\s+(?:see|saw|show|showed|record|recorded|capture|captured)\b)",
+                    # "in the front camera" names the camera; a bare "in the kitchen" is a place or a room, never a
+                    # camera, since a camera is a view on what holds it, not a room (#34).
+                    rf"in\s+(?:the\s+)?{token}\s+cam(?:era)?",
                 ]
             )
-            if alias not in {"morning", "afternoon", "evening", "night", "dawn", "dusk"}:
-                contexts.append(rf"in\s+(?:the\s+)?{token}(?:\s+cam(?:era)?)?")
         pattern = rf"(?<![A-Za-z0-9_-])(?i:{'|'.join(contexts)})(?![A-Za-z0-9_-])"
-        for match in re.finditer(pattern, text):
-            # A room inside a speech topic describes the subject of speech, not its camera scope.
-            # Explicit camera prefixes/suffixes remain selectors even inside that same topic.
-            if re.fullmatch(rf"in\s+(?:the\s+)?{token}", match[0], re.I) and re.search(
-                r"\b(?:say|said|saying|tell|told|talk(?:ed|ing)?|speak|spoke|speaking|discuss(?:ed|ing)?)\b"
-                r"[^?.!;]*\babout\b[^?.!;]*$",
-                text[: match.start()],
-                re.I,
-            ):
-                continue
-            matches.append((match.start(), match.end(), alias, None))
-    # A longer camera/place name owns an overlapping mention, avoiding prefix-camera selections.
+        matches.extend((match.start(), match.end(), alias, None) for match in re.finditer(pattern, text))
+    # A longer camera name owns an overlapping mention, avoiding prefix-camera selections.
     for start, end, alias, exact in sorted(matches, key=lambda item: (-(item[1] - item[0]), item[3] is None, item[0])):
         if remaining[start:end] != text[start:end]:
             continue
         candidates = {exact} if exact is not None else aliases[alias]
         if len(candidates) != 1:
-            raise ValueError("Ambiguous camera/place name; specify an exact camera ID with 'camera <ID>'.")
+            raise ValueError("Ambiguous camera name; specify an exact camera ID with 'camera <ID>'.")
         found.update(candidates)
         mask(start, end)
     return sorted(found), remaining
 
 
 def parse(entries: Iterable[object], camera_ids: Iterable[str] = ()) -> dict[str, str]:
-    """Parse place entries, retaining configured exact IDs before interpreting legacy numbered aliases."""
+    """Parse camera name entries, retaining configured exact IDs before interpreting legacy numbered aliases."""
     known = set(camera_ids)
     out: dict[str, str] = {}
     for entry in entries:
         m = ENTRY.fullmatch(str(entry))
         if m is None or not m[2]:
-            raise ValueError(f"{entry!r} is not a camera and a place, like cam0: living room")
+            raise ValueError(f"{entry!r} is not a camera and its name, like cam0: front camera")
         cam = m[1]
         legacy = LEGACY.fullmatch(cam)
         if cam not in known and legacy is not None:
             cam = f"cam{int(legacy[1])}"
         if not valid_camera_id(cam):
-            raise ValueError(f"{entry!r} is not a camera and a place, like cam0: living room")
+            raise ValueError(f"{entry!r} is not a camera and its name, like cam0: front camera")
         if cam in out:
             raise ValueError(f"{cam} is named twice")
         out[cam] = " ".join(m[2].split())
@@ -155,14 +149,14 @@ def parse(entries: Iterable[object], camera_ids: Iterable[str] = ()) -> dict[str
 
 
 def names() -> dict[str, str]:
-    """Every camera's place name; malformed place settings name no camera."""
+    """Every named camera's name; a malformed setting names no camera."""
     known = manifest_camera_names() or []
     try:
-        return parse(cfg.get("vision.places") or [], known)
+        return parse(cfg.get("vision.camera_names") or [], known)
     except ValueError:
         return {}
 
 
-def place(cam: str) -> str:
-    """The camera's human place name, or its exact ID when it has none."""
+def name(cam: str) -> str:
+    """The camera's name, or its exact ID when it has none."""
     return names().get(cam, cam)

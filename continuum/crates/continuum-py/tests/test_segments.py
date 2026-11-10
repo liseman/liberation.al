@@ -1,4 +1,4 @@
-"""The segment store from Python (#1755): typed columns written with SegmentWriter read back exactly with
+"""The segment store from Python: typed columns written with SegmentWriter read back exactly with
 read_segments and SegmentFollower, NumPy in and out, with the part set a read saw."""
 
 from pathlib import Path
@@ -58,14 +58,14 @@ def test_lists_strings_and_nullable_strings_round_trip(tmp_path: Path) -> None:
             "ts_ns": [T0 + 5, T0 + 6],
             "boxes": [np.array([0.5, 0.5, 0.6, 0.9, 0.8], np.float32), []],
             "names": [[1, 2], [3]],
-            "who": ["Joe", None],
+            "who": ["Sam", None],
             "ok": [True, False],
         }
     )
     got = read_segments(tmp_path, "body.detection", schema, T0, T0 + H, cameras=["cam1"])
     assert [b.tolist() for b in got["boxes"]] == [pytest.approx([0.5, 0.5, 0.6, 0.9, 0.8]), []]
     assert [n.tolist() for n in got["names"]] == [[1, 2], [3]], "an empty frame is an empty list, not a missing row"
-    assert got["who"] == ["Joe", None]
+    assert got["who"] == ["Sam", None]
     assert got["ok"].tolist() == [True, False]
 
 
@@ -166,11 +166,11 @@ def test_forgetting_a_person_by_an_id_column_keeps_rows_that_name_nobody(tmp_pat
     from continuum_py import forget_segments_where, segment_deletions
 
     schema = [("ts_ns", "i64"), ("voiceprint", "id"), ("person", "id?")]
-    joe, dana = "0199a000-0000-7000-8000-00000000000a", "0199a000-0000-7000-8000-00000000000b"
+    sam, dana = "0199a000-0000-7000-8000-00000000000a", "0199a000-0000-7000-8000-00000000000b"
     w = SegmentWriter(tmp_path, "voice.embedding", "wave3", schema)
-    w.append({"ts_ns": [T0 + 1, T0 + 2, T0 + 3], "voiceprint": [FRAME] * 3, "person": [joe, dana, None]})
-    d = forget_segments_where(tmp_path, "person", joe, streams=["voice.embedding"])
-    assert (d["column"], d["value"]) == ("person", joe)
+    w.append({"ts_ns": [T0 + 1, T0 + 2, T0 + 3], "voiceprint": [FRAME] * 3, "person": [sam, dana, None]})
+    d = forget_segments_where(tmp_path, "person", sam, streams=["voice.embedding"])
+    assert (d["column"], d["value"]) == ("person", sam)
     left = read_segments(tmp_path, "voice.embedding", schema, 0, 2**63)
     assert left["person"] == [dana, None]
-    assert [x["value"] for x in segment_deletions(tmp_path)] == [joe]
+    assert [x["value"] for x in segment_deletions(tmp_path)] == [sam]

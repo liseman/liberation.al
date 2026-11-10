@@ -5,8 +5,8 @@
 set -uo pipefail
 old=$1 new=$2
 case "$old" in *[!0]*) ;; *) exit 0 ;; esac # a new clone or worktree: mise run setup builds it
-# Only the main checkout serves the dashboard. In a linked worktree (a worker's, under liberational-wt/) npm ci would
-# install there, and through a frontend/node_modules link to the main checkout it wipes that checkout's (#1486).
+# Only the main checkout serves the dashboard. In a linked worktree (a worker's, under .worktrees/) npm ci would
+# install there, and through a frontend/node_modules link to the main checkout it wipes that checkout's.
 [ "$(git rev-parse --path-format=absolute --git-dir)" = "$(git rev-parse --path-format=absolute --git-common-dir)" ] || exit 0
 git diff --quiet "$old" "$new" -- frontend/ 2>/dev/null && exit 0
 if ! command -v mise >/dev/null; then

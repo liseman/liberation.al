@@ -7,13 +7,13 @@ import json
 import pytest
 
 from liberational import speech_log
-from liberational.dashboard import server
+from liberational.dashboard import context, server, transcript_lines
 from liberational.people import registry, transcript_view
 from speech_fake import fake
 from voices import write_voices
 
 
-def _line(ts, text, speaker="Joe", sid=1, sim=0.4, **extra):
+def _line(ts, text, speaker="Sam", sid=1, sim=0.4, **extra):
     return {"ts_start": ts, "text": text, "speaker": speaker, "speaker_id": sid, "speaker_sim": sim, **extra}
 
 
@@ -36,7 +36,7 @@ class Transcript:
 
 @pytest.fixture
 def lines(tmp_path, monkeypatch):
-    write_voices(tmp_path, {1: {"label": "Joe", "enrolled": True, "refs": []}})
+    write_voices(tmp_path, {1: {"label": "Sam", "enrolled": True, "refs": []}})
     t = Transcript(tmp_path)
     t.write(
         [
@@ -45,7 +45,7 @@ def lines(tmp_path, monkeypatch):
             _line(1002.0, "third", speaker="multiple speakers", sid=None, sim=None, multi_speaker=True),
         ]
     )
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     monkeypatch.setattr(server, "REFINE_LOG", tmp_path / "refine_log.jsonl")
     return t
 
@@ -63,7 +63,7 @@ def test_a_label_is_logged_with_what_it_replaced(lines):
     assert (code, o["entry"]["speaker"], o["entry"]["speaker_id"]) == (200, "Carly", None)
     (entry,) = logged()
     assert entry["action"] == "assign"
-    assert entry["old"] == {"speaker": "Joe", "speaker_id": 1, "speaker_sim": 0.4}
+    assert entry["old"] == {"speaker": "Sam", "speaker_id": 1, "speaker_sim": 0.4}
     assert entry["new"] == {"speaker": "Carly", "speaker_id": None, "speaker_sim": None, "tagged": True}
     assert entry["was"] == "voice"
     assert server.refine_log_list()["labels"][0]["text"] == "first"
@@ -85,7 +85,7 @@ def test_undo_one_line_restores_it_exactly(lines):
 
 
 def test_undo_never_brings_a_deleted_person_back(lines):
-    reg = registry.at(server.STATE)
+    reg = registry.at(context.STATE)
     for ts in (1000.0, 1001.0):
         server.speakers_refine("assign", {"ts_start": ts, "name": "Dana"})
         server.speakers_refine("assign", {"ts_start": ts, "name": "Carly"})
@@ -102,7 +102,7 @@ def test_undo_never_brings_a_deleted_person_back(lines):
 
 
 def test_undo_follows_a_rename(lines):
-    reg = registry.at(server.STATE)
+    reg = registry.at(context.STATE)
     server.speakers_refine("assign", {"ts_start": 1000.0, "name": "Dana"})
     server.speakers_refine("assign", {"ts_start": 1000.0, "name": "Carly"})
     reg.rename("Dana", "Dana Cole", "dashboard")
@@ -139,8 +139,8 @@ def undo_old_label(lines, old, written):
 
 
 def test_undo_of_a_label_given_before_step_4(lines):
-    undone, line = undo_old_label(lines, {"speaker": "Joe", "speaker_id": 1, "speaker_sim": 0.4}, "Carly")
-    assert (undone["speaker"], line["speaker"]) == ("Joe", "Joe")
+    undone, line = undo_old_label(lines, {"speaker": "Sam", "speaker_id": 1, "speaker_sim": 0.4}, "Carly")
+    assert (undone["speaker"], line["speaker"]) == ("Sam", "Sam")
 
 
 def test_undo_before_step_4_of_a_label_over_an_automatic_name(tmp_path, lines):
@@ -158,7 +158,7 @@ def test_bad_requests(lines):
     assert (code, o["undone"]) == (200, [])
 
 
-# ------------------------------------------------------- two microphones (#247) ----
+# ------------------------------------------------------- two microphones ----
 A, B = "mic-a@2000.000", "mic-b@2000.000"
 
 
@@ -177,7 +177,7 @@ def twin(t, key):
 def test_a_label_by_line_key_labels_only_that_microphones_line(twins):
     code, o = server.speakers_refine("assign", {"line": B, "name": "Carly"})
     assert (code, o["entry"]["line"]) == (200, B)
-    assert (twin(twins, A)["speaker"], twin(twins, B)["speaker"]) == ("Joe", "Carly")
+    assert (twin(twins, A)["speaker"], twin(twins, B)["speaker"]) == ("Sam", "Carly")
     assert logged()[-1]["line"] == B
 
 
@@ -186,7 +186,7 @@ def test_a_time_two_microphones_share_is_refused_and_labels_nothing(twins):
         409,
         {"ok": False, "error": server.AMBIGUOUS},
     )
-    assert (twin(twins, A)["speaker"], twin(twins, B)["speaker"]) == ("Joe", "Joe")
+    assert (twin(twins, A)["speaker"], twin(twins, B)["speaker"]) == ("Sam", "Sam")
 
 
 def test_undo_by_line_key_puts_back_only_that_line(twins):
@@ -194,27 +194,27 @@ def test_undo_by_line_key_puts_back_only_that_line(twins):
     server.speakers_refine("assign", {"line": B, "name": "Carly"})
     code, o = server.speakers_refine_undo({"lines": [A]})
     assert (code, [u["line"] for u in o["undone"]]) == (200, [A])
-    assert (twin(twins, A)["speaker"], twin(twins, B)["speaker"]) == ("Joe", "Carly")
+    assert (twin(twins, A)["speaker"], twin(twins, B)["speaker"]) == ("Sam", "Carly")
 
 
 def test_undo_by_line_key_finds_a_label_logged_before_keys(lines):
     server.speakers_refine("assign", {"ts_start": 1000.0, "name": "Carly"})
     rows = logged()
-    del rows[-1]["line"]  # as written before #247
+    del rows[-1]["line"]  # legacy entry without a line key
     server.REFINE_LOG.write_text("".join(json.dumps(r) + "\n" for r in rows))
     code, o = server.speakers_refine_undo({"lines": ["1000.000"]})
     assert (code, [u["ts_start"] for u in o["undone"]]) == (200, [1000.0])
 
 
 def test_a_clip_by_line_key_is_that_microphones_line(twins):
-    text = {k: (e or {}).get("text") for k in (A, B, "mic-c@2000.000") for e in [server.find_line(k)]}
+    text = {k: (e or {}).get("text") for k in (A, B, "mic-c@2000.000") for e in [transcript_lines.find_line(k)]}
     assert text == {A: "from a", B: "from b", "mic-c@2000.000": None}
 
 
 def test_undo_takes_back_one_label_of_a_line_labeled_before_and_after_keys(lines):
     server.speakers_refine("assign", {"ts_start": 1000.0, "name": "Carly"})
     rows = logged()
-    del rows[-1]["line"]  # the first label, as written before #247
+    del rows[-1]["line"]  # the first label, written without a line key
     server.REFINE_LOG.write_text("".join(json.dumps(r) + "\n" for r in rows))
     server.speakers_refine("assign", {"ts_start": 1000.0, "name": "Dana"})  # labeled again since
     code, o = server.speakers_refine_undo({"ts_starts": [1000.0]})
@@ -249,7 +249,7 @@ def test_undo_takes_back_one_label_of_a_microphones_line_labeled_before_and_afte
     key = "mic-a@3000.000"
     server.speakers_refine("assign", {"line": key, "name": "Carly"})
     rows = logged()
-    del rows[-1]["line"]  # the first label, as written before #247
+    del rows[-1]["line"]  # the first label, written without a line key
     server.REFINE_LOG.write_text("".join(json.dumps(r) + "\n" for r in rows))
     server.speakers_refine("assign", {"line": key, "name": "Dana"})  # labeled again since, by its key
     code, o = server.speakers_refine_undo({"lines": [key]})

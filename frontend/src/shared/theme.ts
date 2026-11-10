@@ -48,9 +48,9 @@ const dark: MantineColorsTuple = [
 const ui = '"Figtree", system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif';
 const surface = { root: { backgroundColor: 'var(--lib-card)' } };
 // A dialog's content is a Paper (so --lib-card, above), but its header isn't: give the header the same surface, so
-// the title and the body read as one card instead of a strip on a block (#210).
+// the title and the body read as one card instead of a strip on a block.
 const dialog = { header: { backgroundColor: 'var(--lib-card)' }, content: { backgroundColor: 'var(--lib-card)' } };
-// Their close (x) button has only an icon, so it says what it does to a screen reader (#478).
+// Their close (x) button has only an icon, so it says what it does to a screen reader.
 const dialogComponent: MantineThemeComponent = {
   styles: dialog,
   defaultProps: { closeButtonProps: { 'aria-label': 'Close' } },
@@ -63,7 +63,7 @@ export const theme = createTheme({
   autoContrast: true,
   fontFamily: ui,
   fontFamilyMonospace: '"Cousine", ui-monospace, "SF Mono", Menlo, Consolas, monospace',
-  // One section size everywhere (#2594): page titles are 24 through PageHeader, a section heading (h2) is 18/600, and
+  // One section size everywhere: page titles are 24 through PageHeader, a section heading (h2) is 18/600, and
   // a heading inside a section (h3) is 16/600. h4 and below keep Mantine's sizes, which some titles still name.
   headings: {
     fontFamily: ui,

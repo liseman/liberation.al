@@ -1,4 +1,4 @@
-"""Pick clips (#312): the owner picks a voice clone's reference from the person's recent lines. The reference is
+"""Pick clips: the owner picks a voice clone's reference from the person's recent lines. The reference is
 built from exactly those lines, with their own words and no voice check, the old one is moved aside only once the
 new one is written, and each picked line becomes the owner's word that it is theirs. Synthetic audio and a temp
 state dir; never the real data/."""
@@ -10,7 +10,7 @@ import pytest
 
 import speech_fake
 from liberational import config as cfg
-from liberational.dashboard import server
+from liberational.dashboard import context, voice_clones
 from liberational.domain.identity import Basis
 from liberational.listen import revisions
 from liberational.people import registry
@@ -28,7 +28,7 @@ def state(tmp_path, monkeypatch):
         ("OUT", tmp_path / "clones"),
     ):
         monkeypatch.setattr(clone_say, name, path)
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     monkeypatch.setattr(clone_say, "cut", lambda e: np.full(int(clone_say.dur(e) * SR), 0.1, np.float32))
     write_voices(tmp_path, {3: {"label": "Carly", "centroid": [1.0, 0, 0, 0]}, 5: None})
     return tmp_path
@@ -124,15 +124,15 @@ def test_a_voice_made_from_a_recording_is_never_replaced_by_picks(state):
 
 def test_the_route_makes_the_reference_and_records_each_pick_as_hers(state):
     write(state, [line(100.0 + 10 * k) for k in range(4)])
-    code, out = server.clone_pick(3, [key(100.0 + 10 * k) for k in range(4)])
+    code, out = voice_clones.clone_pick(3, [key(100.0 + 10 * k) for k in range(4)])
     assert (code, out["ok"], out["clips"]) == (200, True, 3)
     reg = registry.at(state)
     said = reg.person_of(registry.utterance(100.0, "kitchen"))
     assert (said.person, said.winner.basis if said.winner else None) == (reg.person_id("Carly"), Basis.OWNER_TAG)
     assert reg.person_of(registry.utterance(130.0, "kitchen")).person is None  # not used, so not claimed
-    assert server.clone_pick(3, ["kitchen@1.000"])[0] == 409
-    assert server.clone_pick(3, [])[0] == 400
-    assert server.clone_pick(True, [key(100.0)])[0] == 400
+    assert voice_clones.clone_pick(3, ["kitchen@1.000"])[0] == 409
+    assert voice_clones.clone_pick(3, [])[0] == 400
+    assert voice_clones.clone_pick(True, [key(100.0)])[0] == 400
 
 
 # ---- from the local review ----
@@ -181,7 +181,7 @@ def test_a_rename_keeps_the_picked_reference(state):
 def test_picked_lines_still_count_as_the_voices_for_a_build(state):
     write(state, [line(100.0 + 10 * k) for k in range(3)])  # weak matches: not usable for a build before
     assert clone_say.utterances(3) == []
-    assert server.clone_pick(3, [key(100.0 + 10 * k) for k in range(3)])[0] == 200
+    assert voice_clones.clone_pick(3, [key(100.0 + 10 * k) for k in range(3)])[0] == 200
     assert len(clone_say.utterances(3)) == 3  # the owner's word, and still on the voice
 
 
@@ -202,13 +202,13 @@ def test_rejecting_picked_transcript_hides_reference_until_undo_without_deleting
 
 def test_a_pick_waits_its_turn_behind_a_build(state):
     write(state, [line(100.0 + 10 * k) for k in range(3)])
-    with server.CLONE_LOCK:
-        code, out = server.clone_pick(3, [key(100.0 + 10 * k) for k in range(3)])
+    with voice_clones.CLONE_LOCK:
+        code, out = voice_clones.clone_pick(3, [key(100.0 + 10 * k) for k in range(3)])
     assert (code, out["error"]) == (409, "A voice is being built right now; try again in a moment.")
     assert not (state / "clones" / "3.wav").exists()
 
 
 def test_an_unnamed_voice_is_picked_for_and_nobody_is_named(state):
     write(state, [line(100.0 + 10 * k, sid=5) for k in range(3)])
-    assert server.clone_pick(5, [key(100.0 + 10 * k) for k in range(3)])[0] == 200
+    assert voice_clones.clone_pick(5, [key(100.0 + 10 * k) for k in range(3)])[0] == 200
     assert registry.at(state).person_of(registry.utterance(100.0, "kitchen")).person is None

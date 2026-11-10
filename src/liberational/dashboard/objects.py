@@ -1,5 +1,4 @@
-"""The Objects page and its API (frontend/src/objects/), served by the dashboard on Continuum (#778): what v1's
-object memory server (port 8772) answered, from `memory.objects`.
+"""The Objects page and its API (frontend/src/objects/), served by the dashboard from `memory.objects`.
 
 GET  /objects                 the page
 GET  /objects/api/status      how many objects, which cameras have a fresh frame, and the worker's last sighting
@@ -11,8 +10,8 @@ POST /objects/api/capture     {camera, draft?, name?}: a snapshot of the camera'
 POST /objects/api/import      {camera, image, captured_at, kind?}: a Live crop or native Review full_frame JPEG
 POST /objects/api/segment     {snapshot, bbox|point, crop?, job?}: an EdgeTAM mask for the box or point the owner chose
 POST /objects/api/find        {snapshot, crop?, job?}: every object EdgeTAM finds in the crop (the view the owner is
-                              looking at), each a selection with its outline (#2020)
-                              (never an automatic pass over the frame, #1481) and a snapshot-bound selection token
+                              looking at), each a selection with its outline
+                              (never an automatic pass over the frame) and a snapshot-bound selection token
 POST /objects/api/cancel     {job}: stop only that owned EdgeTAM request before replacing the frozen view
 POST /objects/api/enroll      {name, camera, snapshot, selection?|full_crop?|direct_crop?, crop?, aliases, note}: remember explicitly
 """
@@ -72,10 +71,10 @@ def store() -> objects.Store:
 
 
 def _cameras(now: float) -> list[dict[str, Any]]:
-    """Each camera's id, its place name (vision.places; its id when it has none), and whether it has a fresh frame."""
-    from liberational.vision import places
+    """Each camera's id, its name (vision.camera_names; its id when it has none), and whether it has a fresh frame."""
+    from liberational.vision import views
 
-    named = places.names()
+    named = views.names()
     out = []
     for cam in objects.camera_names():
         row: dict[str, Any] = {"camera": cam, "name": named.get(cam, cam)}
@@ -101,7 +100,7 @@ def status() -> dict[str, Any]:
         "visual_objects": sum(o.get("mode") == "visual" for o in rows),
         "cameras": _cameras(now),
         # the object worker (pack-see-objects) commits sightings only: its newest one in the last hour stands in for
-        # the observer v1 ran in this server
+        # the time an observer pass last finished, which the page shows
         "observer": {"finished_at": max(r["ts_start"] for r in newest)} if newest else None,
         "observer_error": None,
         "recognition": "CPU SIFT + RANSAC; two distinct consistent frames; no person recognition",

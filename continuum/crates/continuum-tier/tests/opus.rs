@@ -144,7 +144,7 @@ fn header_u32(batch: &[u8], at: usize) -> usize {
 #[test]
 fn batches_in_the_original_format_still_decode_with_exact_stamps() {
     let legacy = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/data/cop1_16k_mono.opusbatch")).unwrap();
-    assert_eq!(&legacy[..4], b"COP1", "a batch written before #1437");
+    assert_eq!(&legacy[..4], b"COP1", "a batch in the first format");
     let (raw, layout) = signal(16_000, 1);
     let decoded = opus::decode_batch(&legacy).unwrap();
     assert_eq!(decoded.len(), raw.len());

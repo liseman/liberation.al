@@ -1,4 +1,4 @@
-"""Walkthrough video to place (#2787, #2931): frame choice, revisit proposals, loop closure, the CUT3R and MASt3R jobs,
+"""Walkthrough video to place: frame choice, revisit proposals, loop closure, the CUT3R and MASt3R jobs,
 and the place written. Neither model runs here: fake runtimes stand in for them at the subprocess boundary."""
 
 import itertools
@@ -9,6 +9,7 @@ import sys
 import textwrap
 from types import SimpleNamespace
 
+import cv2
 import numpy as np
 import pytest
 
@@ -190,6 +191,45 @@ def test_a_wrong_match_far_along_a_long_walk_is_refused_by_the_capped_gate():
     }
     closed = W.close_loops(true, measured(true, steps(n), 1.0) + [answer], loops, np.full(n, DEPTH), gravity=True)
     assert closed.loops == [] and closed.refused == {"# m and # degrees off the odometry": 1}
+
+
+def test_a_long_walk_drifted_past_the_gates_cap_closes_where_its_return_frames_agree():
+    true = rectangle(20.0, 15.0)  # 280 frames, 70 m round
+    walk = drifted(true, 0.6)  # 167 degrees off by the end: past the gate's cap
+    n = len(true)
+    loops = [(0, n - 1), (3, n - 4)]
+    closed = W.close_loops(walk, measured(true, loops + steps(n), 0.5), loops, np.full(n, DEPTH), gravity=True)
+    assert closed.loops == loops and closed.supported == 2 and closed.refused == {}
+    assert max(closed.drift_deg) == pytest.approx(0.6 * (n - 1), abs=3.0)
+    assert np.linalg.norm(walk[-1, :3, 3] - true[-1, :3, 3]) > 5.0
+    assert np.linalg.norm(closed.poses[-1, :3, 3] - true[-1, :3, 3]) < 0.1
+
+
+def test_two_revisits_past_the_gate_that_disagree_dont_support_each_other():
+    true = rectangle(20.0, 15.0)
+    walk = drifted(true, 0.6)
+    n = len(true)
+    loops = [(0, n - 1), (3, n - 4)]
+    answers = measured(true, loops + steps(n), 0.5)
+    wrong = pg.relative(true[3], true[n - 4]) @ upright(math.radians(90), 0.0, 0.0)
+    wrong[:3, 3] += [2.0, 0.0, 3.0]  # 0.5 scale: 4 m and 6 m from where frame n - 4 is
+    answers[1] = {**answers[1], "forward": wrong.ravel().tolist(), "backward": np.linalg.inv(wrong).ravel().tolist()}
+    closed = W.close_loops(walk, answers, loops, np.full(n, DEPTH), gravity=True)
+    assert closed.loops == [] and closed.supported == 0
+    assert closed.refused == {"# m and # degrees off the odometry": 2}
+
+
+def test_a_revisit_two_laps_on_passes_the_gate_once_the_nearer_ones_are_closed():
+    true = np.concatenate([rectangle()] * 3)  # three laps of 56 frames
+    walk = drifted(true, 0.6)  # a lap on is 34 degrees off, two laps on 67: past the cap
+    n = len(true)
+    near = [(5, 62), (20, 77), (40, 97), (60, 117), (80, 137)]  # a lap and a step on (a lap on is the same pose)
+    far = [(10, 123), (30, 143)]
+    loops = sorted(near + far)
+    closed = W.close_loops(walk, measured(true, loops + steps(n), 0.5), loops, np.full(n, DEPTH), gravity=True)
+    assert sorted(closed.loops) == loops and closed.supported == 0, "the far ones are too far apart for support"
+    assert np.abs(walk[:150, :3, 3] - true[:150, :3, 3]).max() > 2.0
+    assert np.abs(closed.poses[:150, :3, 3] - true[:150, :3, 3]).max() < 0.5
 
 
 def test_mast3r_isnt_used_when_the_two_models_disagree_on_the_scene():
@@ -677,11 +717,14 @@ def test_a_portrait_stray_export_saves_upright_frames(tmp_path):
 
 def fake_trainer(monkeypatch):
     """gsplat's runtime faked at its subprocess boundary (`splats.run_runner`): each job it's given is kept in the
-    list returned, and it answers with a two-Gaussian PLY."""
+    first list returned and its views' depth maps (read while the job's folder is there) in the second, and it
+    answers with a two-Gaussian PLY."""
     jobs = []
+    depths = []
 
     def trained(rt, job, gpu, timeout_s=0.0):
         jobs.append(json.loads(job.read_text()))
+        depths.extend(cv2.imread(v["depth"], cv2.IMREAD_UNCHANGED) for v in jobs[-1]["views"] if "depth" in v)
         n = 2
         names = ["x", "y", "z", "f_dc_0", "f_dc_1", "f_dc_2", *(f"f_rest_{i}" for i in range(9))]
         names += ["opacity", "scale_0", "scale_1", "scale_2", "rot_0", "rot_1", "rot_2", "rot_3"]
@@ -693,7 +736,7 @@ def fake_trainer(monkeypatch):
         return {"gaussians": n, "train_psnr": 20.0, "seconds": 1.0}
 
     monkeypatch.setattr(splats, "run_runner", trained)
-    return jobs
+    return jobs, depths
 
 
 def test_a_stray_walk_gets_a_splat_in_its_maps_frame_and_cameras_to_look_from(tmp_path, monkeypatch):
@@ -703,7 +746,7 @@ def test_a_stray_walk_gets_a_splat_in_its_maps_frame_and_cameras_to_look_from(tm
     runtime = tmp_path / "gsplat"
     (runtime / ".venv" / "bin").mkdir(parents=True)
     (runtime / ".venv" / "bin" / "python").write_text("")
-    jobs = fake_trainer(monkeypatch)
+    jobs, depths = fake_trainer(monkeypatch)
     with cfg.override({"spatial": {"splat_runtime": str(runtime), "splats_enabled": True}}):
         did = W.run(tmp_path, folder, poses_out=tmp_path / "poses.npz")
     rev = places.latest(tmp_path, did["place"])
@@ -714,7 +757,12 @@ def test_a_stray_walk_gets_a_splat_in_its_maps_frame_and_cameras_to_look_from(tm
     assert len(looks) == min(splats.LOOK_FROM, did["frames"])
     (job,) = jobs
     assert len(job["views"]) == did["frames"] and job["reg"] == 0.0
-    assert job["pose_opt"] is False, "ARKit's tracked poses train as they are"
+    assert job["bound"] is True, "held inside the map's box: no regularizers to keep it there (#43)"
+    assert job["pose_opt"] is True, "each frame's pose is refined as the splat trains (#43)"
+    # Every frame trains against its LiDAR depth, turned upright like the frame, in the map's units (tier 1 moved
+    # the walk rigidly, so a millimetre is still a millimetre).
+    assert len(depths) == did["frames"] and job["depth_unit"] == pytest.approx(0.001)
+    assert all(d.dtype == np.uint16 and d.shape == (64, 48) and d.any() for d in depths)
     view = job["views"][0]
     assert (view["width"], view["height"]) == (stray_fake.RGB[1], stray_fake.RGB[0]), "the upright frame's size"
     assert (view["cx"], view["cy"]) == pytest.approx((stray_fake.RGB[1] - 1 - stray_fake.K[1, 2], stray_fake.K[0, 2]))
@@ -726,17 +774,19 @@ def test_a_stray_walk_gets_a_splat_in_its_maps_frame_and_cameras_to_look_from(tm
     assert view["pose"] == pytest.approx(list(rev.cameras["walk-0m00s"].pose), abs=1e-6)
 
 
-def test_a_plain_video_walk_gets_a_splat_that_refines_its_poses(tmp_path, runtime, monkeypatch):
+def test_a_plain_video_walk_gets_a_splat_with_its_poses_refined_and_no_depth(tmp_path, runtime, monkeypatch):
     gsplat = tmp_path / "gsplat"
     (gsplat / ".venv" / "bin").mkdir(parents=True)
     (gsplat / ".venv" / "bin" / "python").write_text("")
-    jobs = fake_trainer(monkeypatch)
+    jobs, depths = fake_trainer(monkeypatch)
     with cfg.override({"spatial": {"splat_runtime": str(gsplat), "splats_enabled": True}}):
         did = W.run(tmp_path, pan_video(tmp_path / "walk.mp4"), poses_out=tmp_path / "poses.npz")
     rev = places.latest(tmp_path, did["place"])
     assert rev is not None and did["splat"] is not None and places.has_splat(tmp_path, rev)
+    assert places.splat_source(tmp_path, rev) == "walk"
     (job,) = jobs
-    assert job["pose_opt"] is True and len(job["views"]) == did["frames"] == 5
+    assert job["pose_opt"] is True and job["bound"] is True and len(job["views"]) == did["frames"] == 5
+    assert not depths, "a plain video has no LiDAR depth"
     view = job["views"][0]
     # The fake CUT3R's focal is 300 px at its 512 px long side; the saved 320 x 240 frame scales it by 320 / 512,
     # with the principal point at the frame's centre.
@@ -874,7 +924,7 @@ def test_the_walk_is_written_and_joined_under_the_places_lock(tmp_path, runtime,
 
 
 def test_a_lidar_walk_into_a_place_with_an_owner_plan_is_placed_by_the_plan(tmp_path, monkeypatch):
-    # #3286: the place's map has nothing like the walk's room, and no camera sees it, but the owner's plan has the room
+    # The place's map has nothing like the walk's room, and no camera sees it, but the owner's plan has the room
     monkeypatch.setattr(W.fuse.cameras, "layout", lambda *a, **k: W.fuse.cameras.Layout(None, None, fuse.LEVEL_FLOOR))
     old = unrelated_place(tmp_path, {"s2": POSE})
     assert old.plan is None
@@ -892,3 +942,89 @@ def test_a_lidar_walk_into_a_place_with_an_owner_plan_is_placed_by_the_plan(tmp_
     assert (walk[:, :2] > [19.9, 4.9]).all() and (walk[:, :2] < [24.1, 8.1]).all(), "where the plan has the room"
     assert np.ptp(walk[:, 0]) > 3.5, "it spans the room's long side"
     assert int((counts["walked"] > 0).sum()) == len(walk), "its voxels, and only its, count as walked"
+
+
+WORLD_UP = np.array([0.0, -1.0, 0.0])  # these tests' world is y-down
+
+
+def facing(poses, off_deg=0.0):
+    """Each frame's wall direction in its own camera frame: the world's x axis, turned `off_deg` about up (a number,
+    or one for each frame)."""
+    off = np.radians(np.broadcast_to(off_deg, len(poses)))
+    world = np.stack([np.cos(off), np.zeros(len(poses)), np.sin(off)], axis=1)
+    return np.einsum("nji,nj->ni", poses[:, :3, :3], world)
+
+
+def heading_error_deg(poses, true):
+    """Each frame's heading about up against the true walk's, in degrees."""
+    turned = np.einsum("nji,njk->nik", true[:, :3, :3], poses[:, :3, :3])
+    return np.degrees(np.arctan2(turned[:, 0, 2], turned[:, 2, 2]))
+
+
+@pytest.mark.parametrize("heading_deg", [0.0, 25.0, -40.0, 170.0])
+def test_a_frames_walls_give_its_heading_up_to_quarter_turns(heading_deg):
+    pose = upright(math.radians(heading_deg), 2.0, 1.5)
+    found = W.wall_direction(seen(pose[None])[0], pose[:3, :3].T @ WORLD_UP)
+    assert found is not None
+    world = pose[:3, :3] @ found
+    assert abs(world[1]) < 0.02, "level"
+    off = math.degrees(math.atan2(world[2], world[0]))
+    assert (off + 45.0) % 90.0 - 45.0 == pytest.approx(0.0, abs=1.0), "along one of the box's walls"
+
+
+def test_a_frame_that_sees_only_the_floor_has_no_wall_direction():
+    rng = np.random.default_rng(5)
+    floor = np.c_[rng.uniform(-2, 2, 3000), np.full(3000, 1.4), rng.uniform(0.5, 4, 3000)]
+    assert W.wall_direction(floor, np.array([0.0, -1.0, 0.0])) is None
+    assert W.wall_direction(np.zeros((0, 3)), np.array([0.0, -1.0, 0.0])) is None
+
+
+def test_walls_take_a_drift_past_a_quarter_turn_out_of_the_walk_and_slanted_ones_are_outvoted():
+    true = rectangle(12.0, 9.0)  # 168 frames
+    walk = drifted(true, 0.7)  # 117 degrees by the end: past the quarter turn the walls can't tell apart
+    assert abs(heading_error_deg(walk, true)[-1]) > 100.0
+    slanted = np.zeros(len(true), dtype=bool)
+    slanted[[6, 7, 20, 21, 22, 40]] = True  # runs of frames that see a wall 30 degrees off the others
+    walls = facing(true, np.where(slanted, 30.0, 0.0))
+    walls[[3, 30, 31]] = np.nan
+    straight, kept = W.squared(walk, walls, WORLD_UP)
+    assert np.abs(heading_error_deg(straight, true)).max() < 3.0
+    assert np.linalg.norm(straight[:, :3, 3] - true[:, :3, 3], axis=1).max() < 0.3
+    assert not kept[slanted].any() and not kept[[3, 30, 31]].any()
+    assert kept.sum() == len(true) - 9
+
+
+def test_walls_that_share_no_grid_leave_the_walk_as_it_was():
+    true = rectangle(12.0, 9.0)
+    walk = drifted(true, 0.7)
+    anywhere = np.random.default_rng(11).uniform(0.0, 360.0, len(true))
+    straight, kept = W.squared(walk, facing(true, anywhere), WORLD_UP)
+    assert np.array_equal(straight, walk) and not kept.any()
+    none, kept = W.squared(walk, np.full((len(true), 3), np.nan), WORLD_UP)
+    assert np.array_equal(none, walk) and not kept.any()
+
+
+def test_walls_hold_the_middle_of_a_walk_with_no_revisit():
+    true = rectangle()[:42]  # three sides: it never sees its start again
+    n = len(true)
+    walk = drifted(true, 2.0)
+    answers = measured(true, steps(n), 0.5)
+    loose = W.close_loops(walk, answers, [], np.full(n, DEPTH), gravity=True)
+    assert np.linalg.norm(loose.poses[:, :3, 3] - true[:, :3, 3], axis=1).max() > 2.0, "nothing else holds it"
+    held = W.close_loops(walk, answers, [], np.full(n, DEPTH), gravity=True, walls=facing(true))
+    assert held.walls == n
+    assert np.linalg.norm(held.poses[:, :3, 3] - true[:, :3, 3], axis=1).max() < 0.3
+
+
+def test_revisits_still_turn_back_a_half_turn_break_that_walls_cant_see():
+    true = rectangle()
+    n = len(true)
+    walk = np.array(true)
+    walk[50:] = walk[50] @ upright(math.pi, 0.0, 0.0) @ np.linalg.inv(walk[50]) @ walk[50:]  # the last frames, flipped
+    loops = [(1, n - 3), (2, n - 2), (3, n - 1)]
+    unbroken = [p for p in steps(n) if p != (49, 50)]  # nothing measured the step that broke, so it isn't repaired
+    answers = measured(true, loops + unbroken, 0.5)
+    closed = W.close_loops(walk, answers, loops, np.full(n, DEPTH), gravity=True, walls=facing(true))
+    assert closed.walls == n, "square to the walls either way round"
+    assert closed.loops == loops and closed.dropped == []
+    assert np.abs(heading_error_deg(closed.poses, true)[52:]).max() < 10.0

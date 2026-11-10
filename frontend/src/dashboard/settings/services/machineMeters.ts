@@ -1,4 +1,4 @@
-// This machine's numbers in words (#787): the platform line, the verdict at the top, the models' size and where they
+// This machine's numbers in words: the platform line, the verdict at the top, the models' size and where they
 // sit.
 import type { LoadedModel, Stats } from '../../sources/api';
 import { gb } from '../../sources/format';

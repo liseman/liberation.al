@@ -25,6 +25,33 @@ edges, and expect a reset of recorded history now and then (what you taught it i
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) describes the running system. The wearable hardware in
 [docs/history](docs/history/plan-2026-10.md) is the original idea, not a list of what's built.
 
+## Screenshots
+
+These come from demo mode: a made-up household (Alice, Dana, Sam, and Rex the dog), one made-up house, and one
+day of journal. Once the install below is done, `mise run demo` opens the same dashboard on
+<http://localhost:8766/>, with its own data in a temporary directory and nothing from `data/`.
+
+The Journal, a day's page:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/demo-journal-day-dark.png">
+  <img alt="The Journal tab with a day's page: in short, what happened, what was talked about, and what was eaten" src="docs/images/demo-journal-day-light.png">
+</picture>
+
+An hour of that day, and its events:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/demo-journal-dark.png">
+  <img alt="The Journal tab with the 18:00 hour selected, its four events, and the hour's entry" src="docs/images/demo-journal-light.png">
+</picture>
+
+Known, Places, with the house's floorplan:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/demo-places-dark.png">
+  <img alt="The Places tab with a five-room floorplan: kitchen, hall, bedroom, living room, and study" src="docs/images/demo-places-light.png">
+</picture>
+
 ## What you need
 
 | | |
@@ -41,15 +68,29 @@ A successful install is not a hardware validation: check the service status and 
 
 ## Install
 
-1. **Install [mise](https://mise.jdx.dev)**, which installs the project's tools (uv, Node, Ollama, ffmpeg, and
-   the rest of `mise.toml`):
+1. **Install the base OS compiler, `curl`, `git`, and [mise](https://mise.jdx.dev)**, which installs the project's
+   tools (`uv`, `node`, `ollama`, `ffmpeg`, and the rest of `mise.toml`). On Ubuntu or Debian, install `curl`, `git`,
+   and `build-essential` first (`node` needs `libatomic1`, and `cargo` needs a C linker); on macOS, install the Xcode
+   Command Line Tools (`xcode-select --install`) and [Homebrew](https://brew.sh):
 
    ```bash
+   # Ubuntu or Debian:
+   sudo apt-get update && sudo apt-get install -y curl git build-essential
+
    curl -fsSL https://mise.run | sh
+   export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$PATH"
    ```
 
-2. **Install a Rust toolchain** with [rustup](https://rustup.rs). The Python environment builds Continuum's SDK
-   from source.
+   Add `eval "$(~/.local/bin/mise activate bash)"` (or `zsh`) to your shell rc file so new terminals have `mise` and
+   its tools (`uv`, `node`, `ollama`, and `ffmpeg`) on `PATH`.
+
+2. **Install a Rust toolchain** with [rustup](https://rustup.rs) and add Cargo to `PATH` in this terminal (`mise install`
+   compiles `cbindgen`, and the Python environment builds Continuum's SDK from source):
+
+   ```bash
+   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+   . "$HOME/.cargo/env"
+   ```
 
 3. **Clone and install the tools:**
 
@@ -67,8 +108,13 @@ A successful install is not a hardware validation: check the service status and 
    ```
 
 5. **Run setup.** It lists the system packages this machine is missing and asks before installing them, installs
-   the Python dependencies, builds whisper-server and the dashboard, turns on the Git hooks, and fetches the models
+   the Python dependencies, builds `whisper-server` and the dashboard, turns on the Git hooks, and fetches the models
    for your platform. The first run downloads several GB; later runs skip what's already there.
+
+   The pet embedding model (`facebook/dinov3-vits16-pretrain-lvd1689m`) is gated on Hugging Face: accept its license on
+   its model page and set `HF_TOKEN` (or sign in with `uvx --from huggingface_hub hf auth login`) before running setup.
+   Without access, setup still fetches every other model, then lists the gated ones and exits with an error; pets
+   aren't told apart until you have access and run `mise run models` again.
 
    ```bash
    mise run setup
@@ -76,7 +122,18 @@ A successful install is not a hardware validation: check the service status and 
 
    To see what the model step will fetch before it does: `uv run tools/fetch_models.py --list`.
 
-6. **Build Continuum's services:**
+   After reviewing the AdaFace model card's dataset license (`config/defaults.toml` under `[models.adaface]`), export
+   the face recognition ONNX model from the downloaded source and checkpoint:
+
+   ```bash
+   uv run python tools/export_adaface.py \
+     --source data/models/adaface/model.py \
+     --checkpoint data/models/adaface/model.pt \
+     --output data/models/adaface/adaface_ir50_webface4m_rgb.onnx
+   ```
+
+6. **Build Continuum's services** (the first release build compiles LanceDB and DataFusion with LTO and takes several
+   minutes on a cold cache):
 
    ```bash
    mise run continuum-release
@@ -147,8 +204,9 @@ and `odometry.csv`) to this machine, outside the repository, then:
 uv run pack-walkthrough <folder>
 ```
 
-The place shows up under Known, in Places. [Recording a walkthrough](docs/ARCHITECTURE.md#recording-a-walkthrough)
-has the full advice, and the plain-video alternative.
+The place shows up under Known, in Places, which also marks the places and rooms no walk has covered yet.
+[Recording and importing a walkthrough](docs/WALKTHROUGH.md) has the full advice, adding a walk to a place that's
+already there, and the plain-video alternative.
 
 ## Name people
 

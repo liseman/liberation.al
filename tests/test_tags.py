@@ -14,7 +14,7 @@ import pytest
 from liberational import config as cfg
 from liberational.assistant import voice
 from liberational.assistant.voice_auth import Grant
-from liberational.dashboard import server
+from liberational.dashboard import context, known_voices, server
 from liberational.people import identity, registry, tags
 from speech_fake import fake
 from voices import write_voices
@@ -145,7 +145,7 @@ TYPED = {
     "Alice and Dana": None,
     "Dana O'Neil": None,
     "Bob the plumber": None,
-    "Joe the intern": None,
+    "Sam the intern": None,
     "Dana the Cook": None,
     "Dana, Bob's lawyer": None,
     "Dana, I work at Acme": None,
@@ -286,7 +286,7 @@ def test_a_spoken_tag_gives_the_person_attributes_only_with_the_flag_on(tmp_path
     monkeypatch.setattr(voice, "owner_answer", lambda *a, **k: "the agent's answer")
     monkeypatch.setattr(voice, "optional_module", lambda name: None)
     with cfg.override({"identity": {"command_attributes": on}}):
-        reply = voice.handle("Hey Bob, " + text, None, {"speaker": "joe"})
+        reply = voice.handle("Hey Bob, " + text, None, {"speaker": "sam"})
     assert (reply == "the agent's answer") is not on  # off by default: the agent answers, as before step 6
     alice = person(tmp_path, "Alice")
     assert ((alice.role, alice.organization) if alice else None) == want
@@ -297,11 +297,11 @@ def test_a_spoken_tag_gives_the_person_attributes_only_with_the_flag_on(tmp_path
 def dash(tmp_path, monkeypatch):
     """The dashboard's people reads and writes on a temp state dir."""
     for name, path in (
-        ("STATE", tmp_path),
         ("PEOPLE_ADDED", tmp_path / "people_added.json"),
         ("CONTACTS_FILE", tmp_path / "contacts.json"),
     ):
         monkeypatch.setattr(server, name, path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     return tmp_path
 
 
@@ -369,7 +369,7 @@ def test_a_failing_log_is_reported_when_describing(dash):
 def test_claiming_with_a_role_records_it_only_once_the_claim_stands(dash):
     write_voices(dash, {2: None})
     fake().say({"ts_start": 10.0, "text": "Hi.", "speaker_id": 2})  # heard, so on the voice list
-    with patch.object(server, "_speaker_cmds", autospec=True, return_value=(True, "")):
+    with patch.object(known_voices, "_speaker_cmds", autospec=True, return_value=(True, "")):
         assert server.claim_identity("voice", 9, "Erin, CEO of Acme", control=True)[0] == 404
         assert person(dash, "Erin") is None
         code, body = server.claim_identity("voice", 2, "Erin, CEO of Acme", control=True)

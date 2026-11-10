@@ -1,12 +1,12 @@
-// One card of the naming inbox (#2366, direction A; laid out to Joe's annotated mockup, #3263): the lead picture (or a
+// One card of the naming inbox: the lead picture (or a
 // voice's play button), then the guess ("Maybe Mia 67%") with "Yes, Mia" right beside it, a bar, why, a voice's
 // words, and when it was seen or heard. The name box sits at the card's top right, and the kind's answers in one row
 // of buttons under it, each an icon over a caption and its key ("Not N", a voice's "Multi M", "Ignore I"), with a
 // popover on hover and on keyboard focus that says what it does. With the card focused (not its name box), Y says
 // yes, N says not, I ignores, and each answer's own key runs it; `hotkeys` adds keys with no button (a picture's A
 // for Show all). The arrows move the selection to the card beside, above, or below on screen, and Space runs the
-// kind's own Space answer (a voice's play, a picture's Show all), #3241. A card that leaves the list (Yes, a name,
-// Ignore) first moves focus to the next one, without scrolling (#2329). Anything below the card (every picture, to
+// kind's own Space answer (a voice's play, a picture's Show all). A card that leaves the list (Yes, a name,
+// Ignore) first moves focus to the next one, without scrolling. Anything below the card (every picture, to
 // pick the wrong ones out) is its children.
 import { Button, Kbd, Progress, Text, Tooltip, UnstyledButton } from '@mantine/core';
 import { IconUserMinus, IconX } from '@tabler/icons-react';
@@ -28,7 +28,7 @@ const INK: Record<Band, string> = {
 export const guessWords = (guess: InboxGuess | null) =>
   guess && guess.band !== 'none' ? `${guess.band === 'probable' ? 'Probably' : 'Maybe'} ${guess.name}` : 'No guess yet';
 
-/** A picture in a row: its source, and what to do when it can't be shown (a missing file drops it, #2049). */
+/** A picture in a row: its source, and what to do when it can't be shown (a missing file drops it). */
 export interface RowPicture {
   src: string;
   alt?: string;
@@ -116,7 +116,7 @@ export function NamingRow({
   error?: string; // why the last answer failed
   done?: string; // the answer was taken: this replaces the guess and the answers
   busy?: boolean;
-  hidden?: boolean; // held while its answer saves (#2329): out of sight, still in the list
+  hidden?: boolean; // held while its answer saves: out of sight, still in the list
   kind?: string; // `data-kind`, for a list of several kinds
   answers?: CardAnswer[]; // the kind's own answers, after Not and before Ignore (a voice's Multi, Noise, and TV)
   pictureAnswers?: CardAnswer[]; // the lead picture's own answers, after Ignore
@@ -269,8 +269,8 @@ export function NamingRow({
                 </Text>
                 {yes && guessed && (
                   <Button
-                    // A Probably's Yes is a Default button and a Maybe's a Subtle one, so it asks for a look (#2361).
-                    // Neither is filled: a list of rows would otherwise fill the page with Primaries (#2594).
+                    // A Probably's Yes is a Default button and a Maybe's a Subtle one, so it asks for a look.
+                    // Neither is filled: a list of rows would otherwise fill the page with Primaries.
                     variant={guessed.band === 'probable' ? 'default' : 'subtle'}
                     size="compact-sm"
                     aria-keyshortcuts="Y"

@@ -1,25 +1,24 @@
-"""Captions on Continuum (#549): each camera's view described by the VLM when it has changed, as `camera.caption`
+"""Captions on Continuum: each camera's view described by the VLM when it has changed, as `camera.caption`
 records, and its notable objects grounded now and then, as `camera.objects` records.
 
 `CaptionPipeline` is one camera's path, synchronous so it tests without a broker, a camera, or a model: `feed` a frame
-(its pixels, time, and sequence) and get back what it produced. Around v1's models and rules, which it uses as they
-are (`vision/loop.py`, `vision/objects.py`):
+(its pixels, time, and sequence) and get back what it produced. Its parts:
 
 - The change gate: a 64x36 blurred grey signature of the 448-px tile, compared with the tile at the last VLM call (not
   the last frame, so slow drift adds up). The VLM is called when the mean difference, the share of pixels that
   moved, or one block of the view changed enough, or when the view has gone `max_idle_s` without a caption.
-- The VLM: any `Captioner` (v1's `OllamaVLM`, `MlxVLM`, and `MlxServerVLM` all fit), given the tile and this camera's
-  last three real captions, with v1's independent-observation prompt.
-- Grounding: an optional `ground` call (v1's Ollama grounder) on the whole frame, on a view's first look, when the view
+- The VLM: any `Captioner` (`OllamaVLM`, `MlxVLM`, and `MlxServerVLM` all fit), given the tile and this camera's
+  last three real captions, with the independent-observation prompt.
+- Grounding: an optional `ground` call (the Ollama grounder) on the whole frame, on a view's first look, when the view
   moved (at most every `objects.MIN_S`; the gate's idle refresh isn't movement), and otherwise every
   `objects.MAX_IDLE_S`, its boxes kept for `objects.TTL_S` and
   carried on the caption records in between.
 
-Animals (#1988): with `animals` set, each frame's fresh grounding gives its animal boxes, and a fresh caption that
+Animals: with `animals` set, each frame's fresh grounding gives its animal boxes, and a fresh caption that
 names an animal asks the VLM for them (see/caption_animals.py), for pet sightings.
 
 A caption the gate skipped is committed as a reference to the last real one (`unchanged`, `since`), and a failed VLM
-call as an `error` observation, each at most every `quiet_every_s`: one row per tick, as v1 kept, would be most of
+call as an `error` observation, each at most every `quiet_every_s`: one row per tick would be most of
 the stream. Faces aren't checked here (`faces` is None): the face worker's records hold them.
 """
 
@@ -38,7 +37,7 @@ from liberational.vision import objects
 
 TILE_PX = 448
 PROMPT_VERSION = "independent-v1"
-# v1's gate thresholds (vision/loop.py, measured on steady workshop frames: mad about 1.0, frac about 0.01).
+# The gate's thresholds (measured on steady workshop frames: mad about 1.0, frac about 0.01).
 GATE_MAD = 2.5
 GATE_FRAC = 0.03
 GATE_LOCAL = 18.0
@@ -89,7 +88,7 @@ class Captioner(Protocol):
 
 
 def tile_of(frame: np.ndarray, px: int = TILE_PX) -> np.ndarray:
-    """The frame scaled so its longer side is `px` (v1's `downscale`), never up."""
+    """The frame scaled so its longer side is `px`, never up."""
     h, w = frame.shape[:2]
     s = px / max(h, w)
     if s >= 1:
@@ -114,7 +113,7 @@ class Change:
 
 
 class ChangeGate:
-    """v1's change gate for one view."""
+    """The change gate for one view."""
 
     def __init__(
         self,
@@ -168,7 +167,7 @@ class CaptionPipeline:
         animals: CaptionAnimals | None = None,
     ) -> None:
         self.cam, self.vlm, self.ground, self.animals = cam, vlm, ground, animals
-        # The camera's caption interval (#1641): a change within this long of the last VLM call is deferred until it
+        # The camera's caption interval: a change within this long of the last VLM call is deferred until it
         # passes. Grounding keeps its own cadence.
         self.caption_every_s = caption_every_s
         self.called_at = -float("inf")
@@ -266,7 +265,7 @@ class CaptionPipeline:
     def _ground_due(self, moved: bool, ts: float) -> bool:
         """Grounding is the VLM's costliest call (about 2 s), so a view is grounded when it first appears, when it
         moved (at most every `objects.MIN_S`), and otherwise every `objects.MAX_IDLE_S`. The change gate's idle
-        refresh isn't movement: counting it grounded still views every ~35 s, most of the VLM's time (#1935)."""
+        refresh isn't movement: counting it grounded still views every ~35 s, most of the VLM's time."""
         last = self.grounded_at
         return last is None or (moved and ts - last >= objects.MIN_S) or ts - last >= objects.MAX_IDLE_S
 
@@ -305,7 +304,7 @@ class CaptionPipeline:
             items = grounded_items(self.ground(frame))
         except Exception as error:  # Unknown observation: keep cached geometry and its original observation time.
             reason = getattr(error, "reason", "grounding_failed")
-            if reason not in self.grounding_warned:  # once per kind of failure, so a broken grounding is seen (#1454)
+            if reason not in self.grounding_warned:  # once per kind of failure, so a broken grounding is seen
                 self.grounding_warned.add(reason)
                 LOG.warning("%s: object grounding failed (%s): %s", self.cam, reason, error)
             return self._object_record(frame, ts, frame_seq, "failed", attempted_at=ts, reason=reason)

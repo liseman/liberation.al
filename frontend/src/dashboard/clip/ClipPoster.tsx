@@ -1,4 +1,4 @@
-// A clip before it plays (#2476): its start frame, a play badge, and its length as m:ss. An Activities card, a People
+// A clip before it plays: its start frame, a play badge, and its length as m:ss. An Activities card, a People
 // card's recent video, and the Pickers' unnamed videos all show this; the button around it is the caller's.
 import { Skeleton } from '@mantine/core';
 import { IconPlayerPlayFilled } from '@tabler/icons-react';

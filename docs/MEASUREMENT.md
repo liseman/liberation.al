@@ -33,7 +33,7 @@ One line per clip or frame: who was really there.
 
 | Field | Meaning |
 |---|---|
-| `modality` | `face` scores the names on see-actions' face matches (`face.match` in the segment store, read through `vision/sightings.py`; #1846). `voice` scores the speaker names on transcript lines, resolved as history answers resolve them. Lines that are the pack's own playback are left out, as history answers leave them out. |
+| `modality` | `face` scores the names on see-actions' face matches (`face.match` in the segment store, read through `vision/sightings.py`). `voice` scores the speaker names on transcript lines, resolved as history answers resolve them. Lines that are the pack's own playback are left out, as history answers leave them out. |
 | `camera` | The camera, as Review names it. Required for `face`. |
 | `device` | Optional, for `voice`: count only lines from this microphone. |
 | `start`, `end` | The clip. Keep it short, under a minute, so it holds one scene. |
@@ -72,9 +72,9 @@ One line per real question, with what a right answer contains. This is the regre
 | `day` | Optional, `YYYY-MM-DD`: the day Review had selected, if it was asked there. |
 | `answer_includes`, `answer_excludes`, `answer_any` | Text the answer must hold, or must not hold. `answer_any` is a list of groups, and each group passes when the answer holds any one of its texts (`[["three", "3"]]`), for answers with more than one right wording. This is the answer `collect()` writes itself, which it does for who, last seen, lights, and counts. For transcript and caption questions it gives only evidence, and the words the user hears are written later from it, so check those with `evidence`, or run with `--ask`. An answer check fails when `collect()` gives no answer text, so an exclusion never passes on nothing. |
 | `draft` | Optional, `true` for a proposed question nobody has confirmed yet (one drafted from the recordings, say). It's scored like the rest, and the report counts drafts apart. Remove it once someone confirms the question and its answer. |
-| `evidence` | Records the answer must cite. Each is `at` (a time), `within_s` (how close, 30 by default), and optionally `includes` (text in the record) and `source`: `transcript`, `camera`, `call`, or `journal`, or a segment stream the answer's evidence came from (`walkby.span`, `zone.visit`, `action.span`, `action.window`, `movement.track`, or `movement.coverage`, matched on the evidence item's `stream`, #1909). A journal entry covers a stretch of time, so it counts when `at` falls in its span, widened by `within_s`. |
+| `evidence` | Records the answer must cite. Each is `at` (a time), `within_s` (how close, 30 by default), and optionally `includes` (text in the record) and `source`: `transcript`, `camera`, `call`, or `journal`, or a segment stream the answer's evidence came from (`walkby.span`, `zone.visit`, `action.span`, `action.window`, `movement.track`, or `movement.coverage`, matched on the evidence item's `stream`). A journal entry covers a stretch of time, so it counts when `at` falls in its span, widened by `within_s`. |
 
-Give at least one of the last two rows. Each question goes through `memory/history_qa.collect()`, the code the dashboard and the voice loop answer from, in the configured time zone. Recorded-frame analysis is off for the run, because it writes a cache and can queue scans. `--as-configured` keeps it as configured. A question passes when every check holds. A question `collect()` does not treat as a history question fails, and the report says so. The report also counts answers and evidence found.
+Give at least one of the last two rows. Each question goes through `memory/history_qa.collect()`, the code the dashboard and the voice loop answer from, in the configured time zone. `collect()` has the local model read the question once into a structured reading (`memory/question.py`, one short call to `recall.model`), so a run needs that model even without `--ask`; a question the model gives no reading for fails, and its answer says so. Each row of the `--json` output keeps the query under `query`, with the model's reading of the question as `query.reading`. `--part readings` scores the reader on its own, reworded copies included. Recorded-frame analysis is off for the run, because it writes a cache and can queue scans. `--as-configured` keeps it as configured. A question passes when every check holds. A question `collect()` does not treat as a history question fails, and the report says so. The report also counts answers and evidence found.
 
 `--ask` sends each question through `memory/ask.execute()` in local mode instead, the path the dashboard's Ask box takes: `collect()`, then the search rounds when `recall.enabled` is on and `recall.max_rounds` is above 0, then the local model's answer. The answer checks then read the answer the user hears, and the evidence checks read the evidence Ask answered from, the rounds' finds included. An answer that ends in an error fails its answer check, since the error message is still text. Each question records how long it took, how many search rounds it ran, and the model that answered. It also records how much of the expected evidence was in the answering model's input (`evidence_given`, and `model_input`, how many items it got): Ask finds more than fits the model's input budget, so evidence found but not given was cut before the model saw it, and evidence given with a wrong answer is evidence the model had and didn't use. An answer that needed no model call counts all its evidence as given. The report gives the median and slowest time, and the settings that change the answer: `ask.model`, `ask.num_ctx`, `recall.enabled`, `recall.max_rounds`, `recall.model`, `journal.enabled`, `models.ollama.llm`, and whether the journal store exists. The answer comes from OpenClaw's default model when one is set, so trust each question's `model` over `models.ollama.llm`. Ask's path writes nothing while recorded-frame analysis is off, but Ollama keeps the model it loads.
 
@@ -97,6 +97,30 @@ The quickest way to add real questions is to mark Review's Ask answers as you ge
 These labels come from Ask's answers, so score them the way Ask answered them, with `--ask`: the search rounds' finds and the answer's own words are only there. Add `--as-configured` when an answer cited recorded frames, since recorded-frame analysis is off for a run otherwise. Without `--ask`, a correction's text check fails, because `collect()` writes no answer text for transcript and caption questions.
 
 Each label's id is `ask-<asked_at>`, so marking the same answer again replaces its label. A mark changes no answer. Marks can only be made on the machine Liberational runs on (`POST /measurement/mark`, `dashboard/marks.py`). Live's general questions don't search recordings, so they have no marks.
+
+### readings.jsonl: how the model reads questions
+
+Ask has the local model read each question once into a structured reading (`memory/question.py`): whether it is about recorded history, where the answer is, the measure, the people, and the time words copied into fields. This part scores that reader alone, so a misread question can be told from a missed record.
+
+```json
+{"id": "who-at-clock", "question": "Who was here at 3pm?", "reading": {"source": "people", "measure": "who", "clock": "3pm"}}
+{"id": "who-at-clock-reworded", "question": "who was around at 3pm", "same_as": "who-at-clock"}
+```
+
+| Field | Meaning |
+|---|---|
+| `question` | Word for word, as it would be asked. |
+| `reading` | The reading a person agreed is right: only the fields that differ from `question.Reading`'s defaults (a plain question about what was said, with no time). The time fields hold the question's own words (`"day": "yesterday"`, `"clock": "3pm"`, `"part": "last night"`), never a worked-out date. A time the form can't hold is `"other_time"` with the phrase. |
+| `same_as` | In place of `reading`: the id of the label this one is a reworded copy of. It is scored against that label's reading, and the report counts how many copies the model read exactly like their original. |
+
+It runs only when named, because it calls the model, once for each question:
+
+```bash
+uv run tools/measure.py --part readings                              # your own labels, under paths.measurement
+uv run tools/measure.py --part readings --dir tests/data/measurement # the made-up set that ships with the code
+```
+
+The report gives how many questions were read exactly right, how many reworded copies agreed with their original, how long a reading took, each field's count where it was ever wrong (`clock: 31 of 34`), and each misread question with what was expected and what was read. `text` (the journal's search words) isn't scored, a refused time is scored as refused or not, names are compared without case or order, and a question labeled as not about history is scored on that field alone. Each call goes to `recall.model` on the Ollama the search loop uses (Ask's own when it is the same model), so run it when a prompt or model change needs comparing, and keep both `--json` results. To try another model, set `PACK_RECALL_MODEL` for the run and point it at a separate Ollama, as for any large model (see AGENTS.md, "Share the machine").
 
 ### entries.jsonl: physical entries and exits
 
@@ -139,7 +163,7 @@ Run this command from the repository root. The `python -m tools.measure` invocat
 
 Matching is per camera and kind, one prediction per hand-labeled event, maximizing matches within tolerance before minimizing timestamp error. Unmatched predictions are false positives and unmatched labels are false negatives. Hand-labeled `unsure` spans exclude both predictions and labels from scoring; matching never crosses an unsure span, even within the timing tolerance. A counter's own `unknown` spans are reported but do not erase missed events. Read per-camera entry and exit precision/recall with counts and coverage; unsupported kinds have unavailable metrics, including mixed-support camera aggregates. Cameras must not be summed into unique people.
 
-To score the movement tracks (#176), use `tools.measure_movement_entries:counter`. Its predictions are the supported image-edge entries and exits that movement answers count, at the middle of each edge's time estimate. Track births, disappearances, camera motion, and tracking gaps are never predictions; they come back as the counter's unknown spans. A broker read that fails stops the run instead of scoring zero.
+To score the movement tracks, use `tools.measure_movement_entries:counter`. Its predictions are the supported image-edge entries and exits that movement answers count, at the middle of each edge's time estimate. Track births, disappearances, camera motion, and tracking gaps are never predictions; they come back as the counter's unknown spans. A broker read that fails stops the run instead of scoring zero.
 
 Captions are never ground truth.
 
@@ -147,7 +171,7 @@ Keep the label revision, tolerance, counter version/settings and full JSON repor
 
 ### Owner activity feedback precision
 
-`liberational.memory.events.promotion_measurements(state)` exposes the current retained owner-feedback aggregates per activity kind and, once sufficiently rated, camera angle. The rows include rated events, Right events, precision (null without ratings), the configured thresholds, and counted/pending status (disabled while `events.answer_counts` is off). Repeated clicks on the same activity contribute only its latest verdict in broker commit order. Source and feedback purges remove their contribution; no UI display cap truncates this cohort. This is the measurement hook for #19.
+`liberational.memory.events.promotion_measurements(state)` exposes the current retained owner-feedback aggregates per activity kind and, once sufficiently rated, camera angle. The rows include rated events, Right events, precision (null without ratings), the configured thresholds, and counted/pending status (disabled while `events.answer_counts` is off). Repeated clicks on the same activity contribute only its latest verdict in broker commit order. Source and feedback purges remove their contribution; no UI display cap truncates this cohort. This is the measurement hook for activity count promotion.
 
 To rate detections, open **Known > Activities**. The kinds show their counting status and filter the clips. Recent clips appear newest first, each with its own player: **Yes** records a right verdict, **No** records a wrong verdict, and **Not sure** sets the clip aside without a verdict. You can also give the activity a clearer name.
 
@@ -186,7 +210,7 @@ and the span), so marking the same span again replaces its line.
 uv run python -m tools.measure --part events --event-counter some.module:counter --event-margin 30
 ```
 
-To score the activity detector (#228), use `tools.measure_activity_events:counter`. A label's `what` matches a detected span by the owner's name for it, else the detector's kind, without case and with `_` and `-` read as spaces, so "sit down" matches `sit_down`. Promoted and unverified spans both count, so the report scores the detector, not the promotion policy; each span's diagnostics say how many of each it found. A repeated movement counts its repetitions, and any other span counts once.
+To score the activity detector, use `tools.measure_activity_events:counter`. A label's `what` matches a detected span by the owner's name for it, else the detector's kind, without case and with `_` and `-` read as spaces, so "sit down" matches `sit_down`. Promoted and unverified spans both count, so the report scores the detector, not the promotion policy; each span's diagnostics say how many of each it found. A repeated movement counts its repetitions, and any other span counts once.
 
 The counter is called once per labeled span, as `counter(camera=..., what=..., start=..., end=..., state=...)`. The window it gets is the span widened by `--event-margin` seconds each way (30 by default), and it never sees the person, the labeled span, or the count. It returns `{"spans": [{"start", "end", "count"}, ...], "diagnostics": {...}}`: each stretch where it saw the event, and how many times in it. Each span has to lie inside the window.
 

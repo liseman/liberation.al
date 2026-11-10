@@ -1,6 +1,6 @@
-// Loading what the 3D view draws (#2876), by format, so one viewer grows into whatever the maps become. A place map is
+// Loading what the 3D view draws, by format, so one viewer grows into whatever the maps become. A place map is
 // a point cloud in PLY (spatial/ply.py: x, y, z, red, green, blue, and its own counts, which the loader skips). A
-// revision of fixed cameras can also have a 3D Gaussian splat (#2877, spatial/splats.py), served as SPZ; Spark (MIT)
+// revision of fixed cameras can also have a 3D Gaussian splat (spatial/splats.py), served as SPZ; Spark (MIT)
 // draws it as a SplatMesh, a three.js object in the same scene, so there's never a second viewer.
 import type { BufferGeometry, WebGLRenderer } from 'three';
 import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
@@ -25,6 +25,16 @@ export const SPLAT_FORMATS = ['spz'] as const;
 
 export const canDrawSplat = (format: string | null | undefined): boolean =>
   (SPLAT_FORMATS as readonly string[]).includes(format ?? '');
+
+/** A walk's look-from views (spatial/splats.py LOOK_PREFIX), as against the fixed cameras. */
+const WALK_PREFIX = 'walk-';
+
+/** The camera a splat opens from (#44): one whose frames it trained on, since anywhere else it's only smear. A walk's
+ *  splat opens from the walk's first view, a fixed-camera splat from the first fixed camera; null with none. */
+export function openingCamera(names: readonly string[], from: 'walk' | 'cameras' | null | undefined): string | null {
+  const walk = from === 'walk';
+  return names.find(n => n.startsWith(WALK_PREFIX) === walk) ?? null;
+}
 
 /** A splat in the scene: Spark's renderer (it sorts and draws every splat mesh in the scene) and the mesh. */
 export interface LoadedSplat {

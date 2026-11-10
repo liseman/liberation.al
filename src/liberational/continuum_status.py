@@ -36,7 +36,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from liberational import config as cfg
-from liberational import services
+from liberational import logs, services
 
 AUDIO = (
     "continuum-broker",
@@ -46,9 +46,9 @@ AUDIO = (
     "listen",
     "voice",
 )
-"""What the audio port's switch (#548) runs, in the order it's turned on."""
+"""What the audio port's switch runs, in the order it's turned on."""
 VISION = (*AUDIO, "see-decode", "see-actions", "see-captions", "continuum-gateway")
-"""What the vision port's switch (#549) adds."""
+"""What the vision port's switch adds."""
 PORTS = {"audio": AUDIO, "vision": VISION}
 SERVICES = VISION
 """Every Continuum service this checks."""
@@ -211,15 +211,11 @@ def ring_health(lines: Iterable[str]) -> dict[str, RingHealth]:
 
 
 def log_tail(path: pathlib.Path, limit: int = 1 << 20) -> list[str]:
-    """The last `limit` bytes of a log, as lines (a partial first line dropped); empty when it can't be read."""
-    try:
-        with path.open("rb") as f:
-            size = f.seek(0, 2)
-            f.seek(max(0, size - limit))
-            lines = f.read().decode("utf-8", "replace").splitlines()
-    except OSError:
-        return []
-    return lines[1:] if size > limit else lines
+    """The last `limit` bytes of a log and its older copy (logs.tail), as lines (a partial first line dropped);
+    empty when it can't be read."""
+    parts = logs.tail(path, limit)
+    lines = b"".join(p.data for p in parts).decode("utf-8", "replace").splitlines()
+    return lines[1:] if parts and parts[0].offset > 0 else lines
 
 
 def check_arena(

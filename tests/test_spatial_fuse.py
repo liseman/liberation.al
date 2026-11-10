@@ -1,4 +1,4 @@
-"""Tier 1 refinement (#2801): levelling, registration against a known offset, and fused revisions of a place."""
+"""Tier 1 refinement: levelling, registration against a known offset, and fused revisions of a place."""
 
 import itertools
 import math
@@ -10,7 +10,6 @@ from hypothesis import example, given, settings
 from hypothesis import strategies as st
 from hypothesis.extra import numpy as hnp
 
-from liberational import config as cfg
 from liberational import segment_log
 from liberational.memory import places
 from liberational.spatial import cameras, floorplan, footprints, fuse, ply, poses
@@ -141,10 +140,10 @@ def surface_and_jitter(draw):
 
 @settings(max_examples=60, deadline=None)
 @given(surface_and_jitter())
-# #3002: a point on a cell's edge, averaged back a hair below it, once moved to the cell next door.
+# A point on a cell's edge, averaged back a hair below it, once moved to the cell next door.
 @example((np.array([[1.65, 1.65, 1.65]]), np.zeros((1, 3)), np.zeros((1, 3))))
 def test_a_surface_seen_again_with_a_jitter_under_a_voxel_is_never_missed(case):
-    """#2933: MASt3R's noise puts a surface that's still there in a neighbouring voxel; that isn't a miss."""
+    """MASt3R's noise puts a surface that's still there in a neighbouring voxel; that isn't a miss."""
     pts, first, second = case
     fused = fuse.merge(as_fused(pts), pts + first, None)
     fused = fuse.merge(fused, pts + second, None)
@@ -307,7 +306,7 @@ def test_the_least_squares_step_recovers_a_yaw_shift_and_scale_exactly():
 
 
 def test_a_level_cloud_isnt_tilted_to_match_a_tilted_map():
-    # #2897 on Place 1: a correctly levelled snapshot was tilted 1.4 degrees by ICP to match a map that had drifted.
+    # A correctly levelled snapshot must not be tilted by ICP to match a map that had drifted.
     target = fuse.apply(tipped(1.5), room(0))
     source = fuse.apply(np.linalg.inv(similarity(25, [0.6, 0.3, 0.0])), room(1))
     reg = fuse.register(source, target)
@@ -331,7 +330,7 @@ def test_repeated_fusions_of_partial_views_keep_the_map_level():
 
 
 def test_a_fused_map_that_drifted_is_turned_level_with_its_cameras():
-    # #2897: Place 1's fused map had drifted 1.59 degrees before registration was made yaw-only.
+    # Place 1's fused map had drifted 1.59 degrees before registration was made yaw-only.
     tip = tipped(1.59)
     camera = places.CameraPose(
         tuple(float(x) for x in (tip @ similarity(0, [2.0, 1.0, 1.2])).ravel()), 400.0, 640, 360, T
@@ -355,7 +354,7 @@ def test_a_level_fused_map_is_left_as_it_is():
 
 
 def test_a_plane_with_the_map_under_it_is_not_taken_for_a_drifted_floor():
-    # #3000: one camera's view of a bedroom holds more dresser top than floor. Here the floor is a small patch at
+    # One camera's view of a bedroom holds more dresser top than floor. Here the floor is a small patch at
     # z = 0 and a table top three times its size is tipped 10 degrees, 0.8 m up: a floor fit takes the table.
     rng = np.random.default_rng(0)
     floor = np.c_[rng.uniform(0, 1, (2000, 2)), np.zeros(2000)]
@@ -371,7 +370,7 @@ def test_a_plane_with_the_map_under_it_is_not_taken_for_a_drifted_floor():
 
 
 def test_a_fused_map_keeps_its_levelled_floor_when_furniture_tops_outnumber_it(tmp_path):
-    # #3045: Place 2's bedroom camera sees more dresser top than floor. The map is levelled on its floor (z = 0), so
+    # Place 2's bedroom camera sees more dresser top than floor. The map is levelled on its floor (z = 0), so
     # its stored floor is that one, not the larger flat top 0.8 m up that a fit to the cloud would take.
     rng = np.random.default_rng(0)
     floor = np.c_[rng.uniform(0, 1, (2000, 2)), np.zeros(2000)]
@@ -384,15 +383,15 @@ def test_a_fused_map_keeps_its_levelled_floor_when_furniture_tops_outnumber_it(t
     assert height == pytest.approx(1.5, abs=0.02), "the camera stands 1.5 m above the floor, not 0.7 m"
 
 
-# Calibration from the owner's camera heights and from people seen by two cameras at once (#2960).
+# Calibration from the owner's camera heights and from people seen by two cameras at once.
 
 
-def test_measured_camera_heights_put_the_map_at_metric_scale(tmp_path):
+def test_measured_camera_heights_put_the_map_at_metric_scale(tmp_path, mounts):
     # MASt3R made the room at 0.6 of its size, and the camera 2 m up at 1.2; the owner measured 2 m
     small = room(0) * 0.6
     first = raw_revision(tmp_path, None, small, T, cameras={"s2": pose_at(0.6, -1.2, 0.6), "s3": pose_at(1, -1, 1)})
-    with cfg.override({"spatial": {"camera_heights_m": {"s2": 2.0}}}):
-        fused = fuse.refine(tmp_path, first.place, now=T + 1)
+    mounts({"s2": {"height_m": 2.0}})
+    fused = fuse.refine(tmp_path, first.place, now=T + 1)
     assert fused is not None
     pts, _, _ = ply.read(places.root(tmp_path) / fused.place / str(fused.map))
     hi = np.percentile(pts, 99.5, axis=0)
@@ -407,7 +406,7 @@ def test_without_measured_heights_the_map_keeps_its_scale(tmp_path):
     assert fused is not None and fused.cameras["s2"].pose[11] == pytest.approx(1.2)
 
 
-def test_a_map_fused_before_heights_were_known_is_rescaled_and_still_registers(tmp_path):
+def test_a_map_fused_before_heights_were_known_is_rescaled_and_still_registers(tmp_path, mounts):
     cams = {"s2": pose_at(0.6, -1.2, 0.6)}
     first = raw_revision(tmp_path, None, room(0) * 0.6, T, cameras=cams)
     fused = fuse.refine(tmp_path, first.place, now=T + 1)  # fused at MASt3R's scale
@@ -415,8 +414,8 @@ def test_a_map_fused_before_heights_were_known_is_rescaled_and_still_registers(t
     part = room(1)
     part = part[part[:, 0] < 4.5] * 0.6
     raw_revision(tmp_path, first.place, part, T + 2, cameras={"s2": pose_at(0.6, -1.2, 0.6)})
-    with cfg.override({"spatial": {"camera_heights_m": {"s2": 2.0}}}):
-        again = fuse.refine(tmp_path, first.place, now=T + 3)
+    mounts({"s2": {"height_m": 2.0}})
+    again = fuse.refine(tmp_path, first.place, now=T + 3)
     assert again is not None
     assert again.sources[-1] == fused.id, "the new map registered onto the rescaled one"
     assert again.frame == again.id != fused.frame, "a rescaled map is a new frame: an old splat wouldn't fit it"
@@ -459,7 +458,7 @@ TRUE = {"a": looking(0, 0, 1.5, 0), "b": looking(6, 1, 2.3, 180)}
 
 
 def test_people_each_camera_sees_alone_dont_move_the_cameras(tmp_path, monkeypatch):
-    # #2960: in most seconds where each of two cameras saw one person, they were two people, each hidden from the
+    # In most seconds where each of two cameras saw one person, they were two people, each hidden from the
     # other camera. Here camera a sees one person and camera b another a metre east, every second for five minutes.
     spots = np.random.default_rng(1).uniform([2, -1], [4, 2], (300, 2))
     seen = walk({"a": TRUE["a"]}, spots) + walk({"b": TRUE["b"]}, spots + [1.0, 0.0])
@@ -495,22 +494,22 @@ def test_people_too_few_to_measure_give_no_height():
     assert fuse.people(walk({"a": TRUE["a"]}, spots), {"a": TRUE["a"]}) is None
 
 
-def test_a_new_map_its_cameras_would_scale_far_from_one_isnt_fused(tmp_path):
-    # A wrong floor puts a camera at a tenth of its height: scaling the map eight times over is refused (#2960)
+def test_a_new_map_its_cameras_would_scale_far_from_one_isnt_fused(tmp_path, mounts):
+    # A wrong floor puts a camera at a tenth of its height: scaling the map eight times over is refused
     first = raw_revision(tmp_path, None, room(0), T, cameras={"s2": pose_at(1.0, -2.0, 1.0)})
-    with cfg.override({"spatial": {"camera_heights_m": {"s2": 16.0}}}):
-        assert fuse.refine(tmp_path, first.place, now=T + 1) is None
+    mounts({"s2": {"height_m": 16.0}})
+    assert fuse.refine(tmp_path, first.place, now=T + 1) is None
     assert [r.id for r in places.revisions(tmp_path, first.place)] == [first.id]
 
 
-def test_a_cameras_background_rides_through_fusion_and_still_reads_in_metres(tmp_path):
-    # #3070: positions read the fused revision. MASt3R made the room at 0.6 of its size; the background is a fraction of
+def test_a_cameras_background_rides_through_fusion_and_still_reads_in_metres(tmp_path, mounts):
+    # Positions read the fused revision. MASt3R made the room at 0.6 of its size; the background is a fraction of
     # the camera's height, so the couch cell (0.45 of the camera's 2 m) still reads 0.9 m up at metric scale.
     bg = places.Background(2, 1, (0.0, 0.45))
     cam = replace(pose_at(0.6, -1.2, 0.6), background=bg)
     first = raw_revision(tmp_path, None, room(0) * 0.6, T, cameras={"s2": cam})
-    with cfg.override({"spatial": {"camera_heights_m": {"s2": 2.0}}}):
-        fused = fuse.refine(tmp_path, first.place, now=T + 1)
+    mounts({"s2": {"height_m": 2.0}})
+    fused = fuse.refine(tmp_path, first.place, now=T + 1)
     assert fused is not None and fused.cameras["s2"].background == bg
     # The camera looks level along the room; at v = 0.9 its ray drops 0.48 m a metre: the couch hides 1.73 m of floor
     assert footprints.at_edge(fused.cameras["s2"], fused.floor, 0.75, 0.9) is True
@@ -583,7 +582,7 @@ def test_cameras_registered_in_a_map_give_the_similarity_that_puts_a_new_run_on_
     assert fuse.by_cameras(fuse._moved(old, np.diag([0.5, 0.5, 0.5, 1.0])), old) is None, "a scale of 2 is refused"
 
 
-# A merged place's owner plan is carried into the joined plan (#2997)
+# A merged place's owner plan is carried into the joined plan
 
 
 def plan_xy(rev, x, y):
@@ -698,7 +697,7 @@ def test_a_joined_map_with_no_plan_of_its_own_takes_the_carried_plan_square_to_t
 
 def test_a_small_room_seats_in_a_whole_homes_map_its_thinning_would_starve(tmp_path, monkeypatch):
     # The rest of the home: a 40 x 40 m floor, many times what registration keeps of a cloud (REG_POINTS, made small
-    # here to keep the maps small), so thinned whole, the den's own points would be a sliver of what ICP sees (#3205)
+    # here to keep the maps small), so thinned whole, the den's own points would be a sliver of what ICP sees
     monkeypatch.setattr(fuse, "REG_POINTS", 15_000)
     rng = np.random.default_rng(7)
     rest = np.c_[rng.uniform(-50.0, -10.0, (400_000, 2)), np.zeros(400_000)]
@@ -716,7 +715,7 @@ def test_a_small_room_seats_in_a_whole_homes_map_its_thinning_would_starve(tmp_p
 
 
 def test_a_seat_keeps_the_fuller_background_its_camera_had_and_fills_tonights_gaps(tmp_path):
-    # #3220: tonight's registration knew 98 of cam0's 2,304 cells, and the seat wrote that over a full background
+    # Tonight's registration knew 98 of cam0's 2,304 cells, and the seat wrote that over a full background
     had = places.Background(20, 20, (0.0,) * 200 + (0.45,) * 200)  # the floor, then the couch's back
     home = fused_place(tmp_path, room(0), T, {"hall": replace(looking(1.0, 1.0, 1.6, 0.0), background=had)})
     snapshot = fuse._cloud(tmp_path, home)
@@ -830,7 +829,7 @@ def test_moving_a_camera_the_place_doesnt_register_writes_nothing(tmp_path):
     assert places.latest(tmp_path, home.place) == home
 
 
-# An owner plan drawn on a fused map with no plan file (an imported one, #3276), and the rebuild from walks (#3286)
+# An owner plan drawn on a fused map with no plan file (an imported one), and the rebuild from walks
 
 VIEW = places.PageView("", 0.4, (3.0, -1.0), True)  # how the owner's page lies in the plan frame
 
@@ -866,7 +865,7 @@ def centre(poly):
 
 
 def test_a_join_carries_owner_plans_drawn_on_plan_less_maps_and_keeps_the_page(tmp_path, monkeypatch):
-    # #3284: the carry read the drawn revision's plan_transform, None on a plan-less map, so the den was kept as comments
+    # The carry read the drawn revision's plan_transform, None on a plan-less map, so the den was kept as comments
     no_machine_plan(monkeypatch)
     home = fused_place(tmp_path, room(0), T, {"hall": looking(1.0, 1.0, 1.6, 0.0)})
     away = fused_place(tmp_path, room(1), T + 10, {"den": looking(2.0, 1.0, 1.5, 90.0)})

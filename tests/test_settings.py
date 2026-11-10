@@ -23,7 +23,7 @@ def call(base, method, path, body=None, raw=None, **headers):
     if body is not None or raw is not None:
         headers.setdefault("Content-Type", "application/json")
     # A guard against a hung server, not a speed check: the first GET /config scans the services' code (readers.py,
-    # about 2 s idle), and on a loaded machine at test priority that ran past a 5 s timeout (#2967).
+    # about 2 s idle), and on a loaded machine at test priority that ran past a 5 s timeout.
     c = http.client.HTTPConnection(base.removeprefix("http://"), timeout=60)
     c.request(method, path, raw if raw is not None else json.dumps(body) if body is not None else None, headers)
     r = c.getresponse()
@@ -301,7 +301,7 @@ def test_the_restart_uninstalls_then_installs_then_restarts_the_dashboard_even_a
     monkeypatch.setattr(settings, "_pack_services", lambda verb, names: steps.append([verb, *names]) or (0, ""))
     said = []
     settings.restart(said.append, ["listen", "voice", "phone"], True, {"listen", "notes"}).join(5)
-    # notes uninstalled; voice, stopped with Stop now, stays stopped (#423); phone installed once; then the dashboard
+    # notes uninstalled; voice, stopped with Stop now, stays stopped; phone installed once; then the dashboard
     assert steps == [["uninstall", "notes"], ["install", "listen", "phone"], "exec"]
     assert "services: on phone (runs here after a Settings save; installed and started): done" in said
 
@@ -352,48 +352,48 @@ def test_a_port_on_the_command_line_must_be_a_real_port(argv, port):
 
 
 def test_camera_places_are_saved_one_per_camera_in_one_form(pack_toml):
-    cfg.save({"vision.places": "cam0: Living  room, 2=kitchen"})  # as Settings sends its tags
-    assert tomllib.loads(pack_toml.read_text())["vision"]["places"] == ["cam0: Living room", "cam2: kitchen"]
+    cfg.save({"vision.camera_names": "cam0: Living  room, 2=kitchen"})  # as Settings sends its tags
+    assert tomllib.loads(pack_toml.read_text())["vision"]["camera_names"] == ["cam0: Living room", "cam2: kitchen"]
 
 
 @pytest.mark.parametrize(
     "raw,match",
     [
-        pytest.param("living room", "is not a camera and a place", id="no-camera"),
-        pytest.param("cam0:", "is not a camera and a place", id="no-place"),
+        pytest.param("living room", "is not a camera and its name", id="no-camera"),
+        pytest.param("cam0:", "is not a camera and its name", id="no-place"),
         pytest.param("cam0: living room, upstairs", "'upstairs' is not a camera", id="comma-in-a-place"),
         pytest.param("cam0: den, 0: kitchen", "cam0 is named twice", id="twice"),
     ],
 )
 def test_a_camera_place_that_is_not_a_camera_and_a_name_is_refused(pack_toml, raw, match):
     with pytest.raises(cfg.SettingError, match=match):
-        cfg.save({"vision.places": raw})
+        cfg.save({"vision.camera_names": raw})
     assert not pack_toml.exists()
 
 
 def test_a_camera_goes_by_its_place_name_or_else_its_id():
-    from liberational.vision import places
+    from liberational.vision import views
 
-    with cfg.override({"vision": {"places": ["cam1: kitchen"]}}):
-        assert (places.place("cam1"), places.place("cam0")) == ("kitchen", "cam0")
-    with cfg.override({"vision": {"places": ["kitchen"]}}):  # set by hand, wrongly: no camera gets a name
-        assert places.place("cam1") == "cam1"
+    with cfg.override({"vision": {"camera_names": ["cam1: kitchen"]}}):
+        assert (views.name("cam1"), views.name("cam0")) == ("kitchen", "cam0")
+    with cfg.override({"vision": {"camera_names": ["kitchen"]}}):  # set by hand, wrongly: no camera gets a name
+        assert views.name("cam1") == "cam1"
 
 
 @pytest.mark.parametrize(
     "hand", [pytest.param("kitchen", id="malformed"), pytest.param("cam0: living room, upstairs", id="comma")]
 )
 def test_camera_places_set_by_hand_never_block_saving_something_else(pack_toml, hand):
-    pack_toml.write_text(f'[vision]\nplaces = ["{hand}"]\n')
+    pack_toml.write_text(f'[vision]\ncamera_names = ["{hand}"]\n')
     cfg.load.cache_clear()
-    cfg.save({"vision.fps": "10", "vision.places": hand})  # the form sends every field, as it shows them
-    assert tomllib.loads(pack_toml.read_text())["vision"] == {"places": [hand], "fps": 10}
+    cfg.save({"vision.fps": "10", "vision.camera_names": hand})  # the form sends every field, as it shows them
+    assert tomllib.loads(pack_toml.read_text())["vision"] == {"camera_names": [hand], "fps": 10}
 
 
 def test_a_line_break_in_a_camera_place_is_a_space():
-    from liberational.vision import places
+    from liberational.vision import views
 
-    assert places.parse(["cam0: living\nroom"]) == {"cam0": "living room"}
+    assert views.parse(["cam0: living\nroom"]) == {"cam0": "living room"}
 
 
 def test_every_plain_label_names_a_real_setting_and_a_real_section():
@@ -495,7 +495,7 @@ def test_a_machine_with_mlx_speaks_in_the_cloned_voice_once_there_is_a_reference
     with cfg.override({"owner": {"voice_ref": str(ref)}}):
         assert not settings.can_clone()  # nothing to clone yet: it speaks Kokoro
         ref.write_bytes(b"RIFF")
-        assert not settings.can_clone()  # not audio the voice could clone from (#301)
+        assert not settings.can_clone()  # not audio the voice could clone from
         sf.write(str(ref), np.zeros(1600, np.float32), 16000)
         assert settings.can_clone()
         monkeypatch.setattr(cfg, "has_mlx", lambda: False)
@@ -572,7 +572,7 @@ def test_a_setting_carries_the_group_labels_toml_gives_it(tmp_path, monkeypatch)
 
 
 def test_settings_still_open_in_a_process_that_predates_a_new_setting(tmp_path, monkeypatch, caplog):
-    # #498: a merge added [pose] to defaults.toml while the dashboard ran; its config was read before that.
+    # A merge added [pose] to defaults.toml while the dashboard ran; its config was read before that.
     monkeypatch.setattr(cfg, "DEFAULTS", tmp_path / "defaults.toml")
     cfg.DEFAULTS.write_text(DEFAULTS)
     cfg.load.cache_clear()

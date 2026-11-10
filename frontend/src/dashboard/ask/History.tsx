@@ -102,7 +102,7 @@ export function History({
     [],
   );
   // The list read in flight (the day's first page or an Older questions page): a new list read aborts it, so a
-  // reply for a day that's no longer shown can't replace the current list (#3202).
+  // reply for a day that's no longer shown can't replace the current list.
   const listRead = useRef<AbortController | null>(null);
   const startListRead = () => {
     listRead.current?.abort();

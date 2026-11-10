@@ -159,7 +159,7 @@ describe('BoxRenderer', () => {
     vi.advanceTimersByTime(100); // the clock, and a settled loop's heartbeat, which asks for the next frame
     frames.step(now);
   };
-  /** Frames until a settled renderer has measured again: a picture change is noticed within MEASURE_S (#2407). */
+  /** Frames until a settled renderer has measured again: a picture change is noticed within MEASURE_S. */
   const untilMeasured = () => {
     for (let i = 0; i <= MEASURE_S * 10; i++) frame();
   };
@@ -184,7 +184,7 @@ describe('BoxRenderer', () => {
     r.close();
   });
 
-  it('reads the layout only when a size or the picture changes, or after MEASURE_S, not every frame (#486)', () => {
+  it('reads the layout only when a size or the picture changes, or after MEASURE_S, not every frame', () => {
     let resized = () => {};
     let watched: Element[] = [];
     vi.stubGlobal(
@@ -285,7 +285,7 @@ describe('BoxRenderer', () => {
     r.close();
   });
 
-  describe('skeletons (#592)', () => {
+  describe('skeletons', () => {
     // One person with every joint placed and sure; a pose with no joint placed counts as none.
     const person = (): Pose => ({
       box: [0.2, 0.2, 0.6, 0.9],
@@ -397,7 +397,7 @@ describe('BoxRenderer', () => {
     r.close();
   });
 
-  it('keeps the boxes with no updates when told to (Review, paused: #374)', () => {
+  it('keeps the boxes with no updates when told to (Review, paused)', () => {
     const r = make({ staleS: Number.POSITIVE_INFINITY });
     r.push([face], T);
     for (let i = 0; i < 30; i++) frame(); // 3 s without an update
@@ -440,7 +440,7 @@ describe('BoxRenderer', () => {
     r.close();
   });
 
-  it("with pickFaces 'all', lets every face be picked, by keyboard too (#352)", () => {
+  it("with pickFaces 'all', lets every face be picked, by keyboard too", () => {
     const onPick = vi.fn();
     const r = make({ onPick, pickFaces: 'all' });
     r.push([face], T);
@@ -526,7 +526,7 @@ describe('BoxRenderer', () => {
     r.close();
   });
 
-  describe('settled (#2407)', () => {
+  describe('settled', () => {
     /** A box faded fully in and past its update: nothing about it changes any more. */
     const settled = () => {
       const r = make({ staleS: Number.POSITIVE_INFINITY });

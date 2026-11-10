@@ -14,8 +14,8 @@ CAPTION = {
     "ts_start": 1_800_000_000.5,
     "cam": "cam0",
     "yaw_deg": 0.0,
-    "caption": "Joe at the desk, typing",
-    "faces": [{"name": "Joe", "sim": 0.71, "bearing_deg": -4.0, "bbox": [120, 80, 180, 150]}],
+    "caption": "Sam at the desk, typing",
+    "faces": [{"name": "Sam", "sim": 0.71, "bearing_deg": -4.0, "bbox": [120, 80, 180, 150]}],
     "objects": [{"label": "laptop", "bbox_norm": [0.4, 0.5, 0.7, 0.8]}],
     "source": "mlx-server",
     "observation": {"version": 1, "status": "fresh", "camera": "cam0"},
@@ -142,9 +142,9 @@ def test_the_log_reads_a_streams_records_in_time_order_and_the_scene(
             [(vision_log.OBJECTS, {"ts_start": 100.5, "cam": "cam0", "objects": [], "source": "fake"})],
         )
     )
-    # Captions are the caption worker's segment rows (#1791): the scene reads them from the log's state.
+    # Captions are the caption worker's segment rows: the scene reads them from the log's state.
     writers = segment_log.Writers(segment_log.root(tmp_path))
-    for ts, cam, text in [(100.0, "cam0", "empty room"), (101.0, "cam1", "a cat"), (99.0, "cam0", "Joe leaves")]:
+    for ts, cam, text in [(100.0, "cam0", "empty room"), (101.0, "cam1", "a cat"), (99.0, "cam0", "Sam leaves")]:
         writers.append(segment_log.CAPTIONS, cam, [{"id": segment_log.new_id(), "ts_start": ts, "caption": text}])
     writers.append(segment_log.CAPTIONS, "cam0", [{"id": segment_log.new_id(), "ts_start": 900.0, "caption": "later"}])
     writers.close()
@@ -156,7 +156,7 @@ def test_the_log_reads_a_streams_records_in_time_order_and_the_scene(
         latest = log.latest(now=150.0)
     finally:
         log.close()
-    assert [r["caption"] for r in captions] == ["Joe leaves", "empty room", "a cat"]
+    assert [r["caption"] for r in captions] == ["Sam leaves", "empty room", "a cat"]
     assert [(r["cam"], r["source"]) for r in grounded] == [("cam0", "fake")]
     assert [e["caption"] for e in scene] == ["empty room", "a cat"]
     assert {cam: r["caption"] for cam, r in latest.items()} == {"cam0": "empty room", "cam1": "a cat"}
@@ -609,7 +609,7 @@ class _ThreadLink:
 
 
 def test_a_picture_decodes_apart_from_every_other_read(monkeypatch: pytest.MonkeyPatch) -> None:
-    # #2015: after a restart, face shots decoded H.264 on the shared link's thread and plain reads timed out behind
+    # After a restart, face shots decoded H.264 on the shared link's thread and plain reads timed out behind
     # them. A picture read must answer while that link is busy, and a read of the main link while a picture decodes.
     import threading
 
@@ -645,7 +645,7 @@ def test_a_picture_decodes_apart_from_every_other_read(monkeypatch: pytest.Monke
 
 
 def test_one_scene_read_serves_every_caller_for_a_few_seconds(monkeypatch: pytest.MonkeyPatch) -> None:
-    # #2022: each /scene poll read the whole hour of captions (0.4 to 1.5 s holding the GIL); several pages polling
+    # Each /scene poll read the whole hour of captions (0.4 to 1.5 s holding the GIL); several pages polling
     # stalled every other request. One read now serves all callers for SCENE_TTL_S.
     clock = [1000.0]
     monkeypatch.setattr(vision_log.time, "monotonic", lambda: clock[0])

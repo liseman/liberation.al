@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { kindOf } from './model';
 
-describe('kindOf (#1331)', () => {
+describe('kindOf', () => {
   it('puts each source where it belongs by what it is', () => {
     expect(kindOf('wyze')).toBe('camera');
     expect(['google_photos', 'icloud_photos', 'allsound', 'thinking_hat'].map(kindOf)).toEqual([
