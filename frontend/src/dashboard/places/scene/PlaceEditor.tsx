@@ -126,8 +126,10 @@ export function PlaceEditor({
   );
   return (
     <>
-      <Group justify="space-between" gap="xs" mb="xs" wrap="wrap">
-        <Text size="sm" c="dimmed">
+      {/* The hint and Versions on one row, the actions after: beside them on a wide screen, under them on a phone,
+          Discard and Save side by side (places.module.css). */}
+      <div className={classes.editorBar}>
+        <Text size="sm" c="dimmed" className={classes.editorHint}>
           {place.example ? (
             'An example flat. Nothing drawn here is saved.'
           ) : viewing ? (
@@ -149,9 +151,9 @@ export function PlaceEditor({
             'Draw rooms and walls, and put doors and windows in them.'
           )}
         </Text>
+        {versions}
         {viewing ? (
           <Group gap="xs" className={classes.editorActions}>
-            {versions}
             <Button size="xs" variant="default" disabled={restore.isPending} onClick={() => view(null)}>
               Back to the current plan
             </Button>
@@ -163,14 +165,14 @@ export function PlaceEditor({
           !place.example && (
             <Group gap="xs" className={classes.editorActions}>
               {edited && (
-                <Text size="sm" c="var(--lib-warn-text)" role="status">
+                <Text size="sm" c="var(--lib-warn-text)" role="status" className={classes.editorUnsaved}>
                   Unsaved changes
                 </Text>
               )}
-              {versions}
               <Button
                 size="xs"
                 variant="default"
+                className={classes.quietDisabled}
                 disabled={!edited || save.isPending}
                 onClick={() => {
                   setEdited(null);
@@ -181,6 +183,7 @@ export function PlaceEditor({
               </Button>
               <Button
                 size="xs"
+                className={classes.quietDisabled}
                 disabled={!toSave || empty}
                 loading={save.isPending}
                 onClick={() => toSave && save.mutate(toSave)}
@@ -190,7 +193,7 @@ export function PlaceEditor({
             </Group>
           )
         )}
-      </Group>
+      </div>
       {empty && (
         <Alert color="yellow" variant="light" mb="xs">
           A plan needs at least one room before it can be saved.
