@@ -88,6 +88,20 @@
   flex: 1 1 0;
   min-width: max-content;
 }
+/* What the two buttons do, in plain words (Ignore and Block): touch gets no popover. */
+.note {
+  max-width: 260px;
+}
+/* A folded card's hint, where its buttons will be. */
+.foldHint {
+  padding-top: 4px;
+}
+/* A phone: the buttons are full size (NamingRow) and at least a fingertip tall. */
+@media (max-width: 720px) {
+  .choice {
+    min-height: 44px;
+  }
+}
 .icon {
   display: flex;
 }
@@ -101,10 +115,16 @@
   white-space: nowrap;
 }
 .kbd {
-  font-size: 8px;
+  font-size: 11px;
   line-height: 1;
-  padding: 1px 3px;
+  padding: 2px 4px;
   border-bottom-width: 1px;
+}
+/* A touch screen has no keys to press. */
+@media (pointer: coarse) {
+  .kbd {
+    display: none;
+  }
 }
 :global(.who-wide) .list:global(.who-list) {
   display: grid;
@@ -205,6 +225,11 @@
 /* A folded card (several pictures, not selected) is one thing to click: selecting it opens it. */
 .row[data-folded] {
   cursor: pointer;
+}
+:global(.who-wide .who-group).row[data-folded] {
+  @mixin hover {
+    background: var(--mantine-color-default-hover);
+  }
 }
 .row:focus-visible {
   outline: 2px solid var(--mantine-primary-color-filled);

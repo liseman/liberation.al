@@ -53,6 +53,7 @@ export function PersonNameInput({
   w,
   miw,
   flex,
+  withChevron = false,
 }: {
   known: readonly string[];
   suggestions?: readonly NameSuggestion[];
@@ -84,6 +85,8 @@ export function PersonNameInput({
   w?: string | number;
   miw?: string | number;
   flex?: number;
+  /** A chevron at the box's right, as a select has: the naming inboxes' name boxes look alike (Pets' is a Cascader). */
+  withChevron?: boolean;
 }) {
   const input = useRef<HTMLInputElement>(null);
   // The first option is the one Enter takes: what's typed (an exact match, or Add) while typing, else the top guess.
@@ -139,6 +142,8 @@ export function PersonNameInput({
           w={w}
           miw={miw}
           flex={flex}
+          rightSection={withChevron ? <Combobox.Chevron /> : undefined}
+          rightSectionPointerEvents="none"
           autoComplete="off"
           data-autofocus={modalFocus || undefined}
           onChange={e => {

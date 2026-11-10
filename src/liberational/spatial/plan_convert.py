@@ -23,6 +23,11 @@ for (provenance marks, the anchor, revision history) is listed per place.
 The page (`--check`) draws each place's plan before and after, side by side, with those counts, to look over before
 running with `--yes`. It holds a real home's plan: it stays on this machine.
 
+The earlier versions of each owner plan are converted too, so every version in the plan's history stays one that
+can be looked at and restored once the DSL is no longer read. A version can't be rewritten, so each DSL version gets
+a converted copy right behind it in the history (memory/places.py `convert_plan_history`), and the Places page shows
+the copy in its place. A version the converter refuses is reported and left as it is.
+
 A place whose only plan is the machine's is reported and left as it is: the machine's plans are not the owner's to
 keep, and saving one from the plan editor makes it the owner's, as a scene.
 
@@ -143,6 +148,31 @@ def convert(held: places.Place) -> Outcome:
     if (why := differs(was, now)) is not None:
         return Outcome(held, "refused", f"the scene doesn't read back as the plan: {why}", _counts(was), _counts(now))
     return Outcome(held, "convert", "", _counts(was), _counts(now), made, page, left)
+
+
+def _is_dsl(text: str) -> bool:
+    return not plan_scene.is_scene(text)
+
+
+def _as_scene(text: str) -> str:
+    return text if plan_scene.is_scene(text) else plan_import.to_scene(text).scene
+
+
+def history(state: Path, outcomes: Sequence[Outcome], write: bool) -> list[str]:
+    """Give each place's earlier DSL versions their converted copies (or, with `write` false, say how many would get
+    one). Returns what to print."""
+    lines = []
+    for o in outcomes:
+        # in a dry run the plan that holds isn't converted yet: it is counted above, not as an earlier version
+        ahead = not write and o.state == "convert"
+        made, failed = places.convert_plan_history(
+            state, o.place.id, _is_dsl, _as_scene, write=write, skip_newest=ahead
+        )
+        if made:
+            verb = "converted" if write else "to convert"
+            lines.append(f"{o.place.name}: {made} earlier version{'' if made == 1 else 's'} {verb}")
+        lines += [f"{o.place.name}: NOT converted: {why}" for why in failed]
+    return lines
 
 
 def plan(state: Path, only: str | None = None) -> list[Outcome]:
@@ -316,9 +346,12 @@ def main(argv: Sequence[str] | None = None) -> None:
     page.write_text(check_page(outcomes))
     print(f"\nLook the plans over, before and after: {page}")
     if not args.yes:
+        print("\n".join(history(state, outcomes, write=False)))
         print("Nothing was changed. Add --yes to convert.")
         return
     print("\n".join(run(state, outcomes)))
+    # after the plans that hold: an earlier version whose plan was just converted is covered by that conversion
+    print("\n".join(history(state, outcomes, write=True)))
 
 
 if __name__ == "__main__":

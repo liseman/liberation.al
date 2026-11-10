@@ -4,7 +4,14 @@ import { delay, HttpResponse, http } from 'msw';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { renderPage } from '../../test/render';
 import { server } from '../../test/server';
-import { applied, LearnSurroundings, type SurroundingsChange, type SurroundingsView, toggled } from './Surroundings';
+import {
+  applied,
+  LearnSurroundings,
+  surroundingsHint,
+  type SurroundingsChange,
+  type SurroundingsView,
+  toggled,
+} from './Surroundings';
 
 let view: SurroundingsView;
 let posts: SurroundingsChange[];
@@ -97,7 +104,7 @@ describe("Live's Learn surroundings switch", () => {
     await user.click(await menuButton());
     const front = await screen.findByRole('menuitemcheckbox', { name: /front/ });
     const hall = screen.getByRole('menuitemcheckbox', { name: 'hall' });
-    expect(front).toHaveTextContent('default');
+    expect(front).toHaveTextContent('Used when none is chosen');
     expect(front).toHaveAttribute('aria-checked', 'true');
     expect(hall).toHaveAttribute('aria-checked', 'false');
     await user.click(hall);
@@ -130,6 +137,18 @@ describe("Live's Learn surroundings switch", () => {
     expect(hall).toHaveAttribute('aria-checked', 'true'); // shown at once, while saving
     expect(await screen.findByRole('alert')).toHaveTextContent("Couldn't change it: pack.toml is read only");
     await waitFor(() => expect(hall).toHaveAttribute('aria-checked', 'false'));
+  });
+
+  it('says what the switch does beside it, off and on, with a Places link while learning', async () => {
+    const user = userEvent.setup();
+    renderPage(<LearnSurroundings />);
+    await toggle();
+    expect(screen.getByText(surroundingsHint(view).off)).toBeInTheDocument();
+    expect(await menuButton()).toHaveTextContent('front');
+    await user.click(await toggle());
+    await waitFor(async () => expect(await toggle()).toBeChecked());
+    expect(screen.getByText(/Learning from front\. See progress in/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Places' })).toHaveAttribute('href', '/places');
   });
 
   it('disables the switch and the menu on another device, and says why', async () => {

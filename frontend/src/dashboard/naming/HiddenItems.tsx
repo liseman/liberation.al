@@ -12,7 +12,8 @@ import classes from './hidden.module.css';
 /** One ignored or blocked item: its key (what taking it back sends), what it is, and its pictures. */
 export interface HiddenItem {
   key: string;
-  label: string; // "Face 3", "Cat on the hall camera"
+  label: string; // "Face 3", "Cat on the hall camera", "Ignored today 13:23"
+  name?: string; // what it is in a sentence, when the label isn't ("the picture ignored today 13:23")
   pictures: string[]; // image URLs; a picture no longer kept shows as a blank tile
 }
 
@@ -59,7 +60,7 @@ function Section({
               size="compact-xs"
               variant="default"
               disabled={busy === item.key}
-              aria-label={`${action} ${item.label}`}
+              aria-label={`${action} ${item.name ?? item.label}`}
               onClick={() => onRestore(item)}
             >
               {action}

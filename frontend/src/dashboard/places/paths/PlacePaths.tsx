@@ -6,12 +6,15 @@
 //
 // The plan is the library's SVG string; the paths are a second SVG laid over it with the same viewBox, placed through
 // the library's projection, so scrubbing redraws only the paths.
+
 import { Button, Group, SegmentedControl, Slider, Text } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
+import { messageOf } from '../../../shared/http';
 import type { FloorplanResult, RenderOptions } from '../../../vendor/floorplan/index.js';
 import { projection } from '../../../vendor/floorplan/index.js';
 import { hm, plural } from '../../lib/format';
+import { LoadError } from '../../lib/page';
 import { type Point, type Positions, positionsQuery } from '../api';
 import classes from '../places.module.css';
 import type { Surface } from '../scene/draw';
@@ -288,6 +291,8 @@ export function PlacePaths({
   const strangers = data ? data.entities.filter(e => e.kind === 'unknown').map(e => e.id) : [];
   const strangersOff = strangers.length > 0 && strangers.every(id => hidden.has(id));
   const nobody = data && data.tracks.length === 0 && data.rooms.length === 0;
+  // No camera of the place can place anyone: nothing to show over time, whatever the window.
+  const cannotPlace = !example && !!nobody && data?.cameras === 0;
   // The cameras that can't place anyone yet, each with what it lacks (a camera that places isn't listed).
   const lacking = example ? [] : (data?.camera_notes ?? []).filter(c => c.missing.length > 0);
   return (
@@ -310,53 +315,64 @@ export function PlacePaths({
           <Overlay surface={surface} viewBox={viewBox} data={data} at={cursor} span={span} hidden={hidden} />
         )}
       </div>
-      <div className={classes.scrubber}>
-        <Group justify="space-between" gap="xs" wrap="wrap">
-          <SegmentedControl
-            size="xs"
-            value={win}
-            onChange={v => setWin(v as Window)}
-            data={[
-              { value: 'hour', label: 'Hour' },
-              { value: 'day', label: 'Day' },
-              { value: 'week', label: 'Week' },
-            ]}
-            aria-label="How far back"
+      {cannotPlace ? (
+        // nobody can be placed: there is no time to scrub through, so the reason stands where the controls would
+        <Text size="sm" c="dimmed" mt="sm">
+          {lacking.length > 0
+            ? 'Nobody can be placed here yet: each camera of this place is missing something.'
+            : data?.map === false
+              ? "This place has no map yet, and no camera has a spot on its plan, so nobody can be placed here. Turn on Learn surroundings on the Live tab to start a map, or add each camera's spot to the plan: where it is, how high, and which way it faces."
+              : "No camera has a spot on this place's plan or a fixed pose in its map yet, so nobody can be placed here. Add each camera's spot to the plan: where it is, how high, and which way it faces."}
+        </Text>
+      ) : (
+        <div className={classes.scrubber}>
+          <Group justify="space-between" gap="xs" wrap="wrap">
+            <SegmentedControl
+              size="xs"
+              value={win}
+              onChange={v => setWin(v as Window)}
+              data={[
+                { value: 'hour', label: 'Hour' },
+                { value: 'day', label: 'Day' },
+                { value: 'week', label: 'Week' },
+              ]}
+              aria-label="How far back"
+            />
+            <Text size="sm" fw={500} role="status">
+              {when(cursor, span)}
+            </Text>
+            <Button
+              size="compact-xs"
+              variant="subtle"
+              onClick={() => {
+                const now = Date.now() / 1000;
+                setPinned({ anchor: now, now, following: true });
+                setAt(null);
+              }}
+            >
+              Now
+            </Button>
+          </Group>
+          <Slider
+            min={start}
+            max={end}
+            step={Math.max(1, Math.round(span / 600))}
+            value={cursor}
+            onChange={v => setAt(v)}
+            label={v => when(v, span)}
+            thumbLabel="Time"
+            mt="xs"
           />
-          <Text size="sm" fw={500} role="status">
-            {when(cursor, span)}
-          </Text>
-          <Button
-            size="compact-xs"
-            variant="subtle"
-            onClick={() => {
-              const now = Date.now() / 1000;
-              setPinned({ anchor: now, now, following: true });
-              setAt(null);
-            }}
-          >
-            Now
-          </Button>
-        </Group>
-        <Slider
-          min={start}
-          max={end}
-          step={Math.max(1, Math.round(span / 600))}
-          value={cursor}
-          onChange={v => setAt(v)}
-          label={v => when(v, span)}
-          thumbLabel="Time"
-          mt="xs"
-        />
-        <Group justify="space-between" mt={4}>
-          <Text size="xs" c="dimmed">
-            {when(start, span)}
-          </Text>
-          <Text size="xs" c="dimmed">
-            {when(end, span)}
-          </Text>
-        </Group>
-      </div>
+          <Group justify="space-between" mt={4}>
+            <Text size="xs" c="dimmed">
+              {when(start, span)}
+            </Text>
+            <Text size="xs" c="dimmed">
+              {when(end, span)}
+            </Text>
+          </Group>
+        </div>
+      )}
       {lacking.length > 0 && (
         <ul className={classes.lacking} aria-label="Cameras that can't place anyone yet">
           {lacking.map(c => (
@@ -369,18 +385,15 @@ export function PlacePaths({
         </ul>
       )}
       {query.isError && !example ? (
-        <Text size="sm" c="red">
-          Couldn't load where people were.
-        </Text>
-      ) : nobody ? (
+        <LoadError
+          message="Couldn't load where people were"
+          detail={messageOf(query.error)}
+          onRetry={() => query.refetch()}
+          busy={query.isFetching}
+        />
+      ) : cannotPlace ? null : nobody ? (
         <Text size="sm" c="dimmed">
-          {data?.cameras === 0 && !example
-            ? lacking.length > 0
-              ? 'Nobody can be placed here yet: each camera of this place is missing something.'
-              : data?.map === false
-                ? "This place has no map yet, and no camera has a spot on its plan, so nobody can be placed here. Turn on Learn surroundings on the Live tab to start a map, or add each camera's spot to the plan: where it is, how high, and which way it faces."
-                : "No camera has a spot on this place's plan or a fixed pose in its map yet, so nobody can be placed here. Add each camera's spot to the plan: where it is, how high, and which way it faces."
-            : 'Nobody was placed here in this window.'}
+          Nobody was placed here in this window.
         </Text>
       ) : (
         data && (

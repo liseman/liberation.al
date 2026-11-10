@@ -11,6 +11,27 @@ export const hms = (ts: number): string => HMS.format(ts * 1000);
 /** A time of day as 24-hour HH:MM, in local time. */
 export const hm = (ts: number): string => HM.format(ts * 1000);
 
+const DAY = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+
+/** When something was seen, the dashboard's usual words: "today 18:40", "yesterday 18:40", or "Mon 26 Oct 18:40". */
+export function seenAt(ts: number, now = Date.now() / 1000): string {
+  const d = new Date(ts * 1000);
+  const day = (t: Date) => new Date(t.getFullYear(), t.getMonth(), t.getDate()).getTime();
+  const days = Math.round((day(new Date(now * 1000)) - day(d)) / 86_400_000);
+  if (days === 0) return `today ${hm(ts)}`;
+  if (days === 1) return `yesterday ${hm(ts)}`;
+  return `${DAY.format(d)} ${hm(ts)}`;
+}
+
+/** A span of time in seenAt's words: one moment when it is within a minute, the day once when it is one day
+ *  ("today 13:14 to 13:18"). */
+export function seenSpan(first: number, last: number, now = Date.now() / 1000): string {
+  const from = seenAt(first, now);
+  if (from === seenAt(last, now)) return from;
+  const sameDay = new Date(first * 1000).toDateString() === new Date(last * 1000).toDateString();
+  return `${from} to ${sameDay ? hm(last) : seenAt(last, now)}`;
+}
+
 /** How long ago ts was: "12 s ago", "4 min ago", "2.5 h ago", "3 d ago"; "-" for no time. */
 export function ago(ts: number | null | undefined, now = Date.now() / 1000): string {
   if (!ts) return '-';

@@ -1,5 +1,5 @@
-// Above a real place's plan: whose plan it is and what the owner can do about it. Edit plan opens the editor on the
-// plan that holds. When a machine plan was made after the owner's, the two can be compared, and while the machine's
+// Above a real place's plan, when the machine has a plan of its own beside the owner's: the two can be compared
+// (the page's Edit plan button is off while the machine's shows: you edit your own), and while the machine's
 // is showing it can be taken instead: that withdraws the owner's plan, as one more version in the plan's history
 // (scene/Versions.tsx), from which any earlier version can be restored.
 import { Badge, Button, Group, SegmentedControl } from '@mantine/core';
@@ -13,17 +13,7 @@ import classes from '../places.module.css';
 
 export type Showing = 'mine' | 'machine';
 
-export function OwnerBar({
-  place,
-  showing,
-  onShow,
-  onEdit,
-}: {
-  place: Place;
-  showing: Showing;
-  onShow: (s: Showing) => void;
-  onEdit: () => void;
-}) {
+export function OwnerBar({ place, showing, onShow }: { place: Place; showing: Showing; onShow: (s: Showing) => void }) {
   const client = useQueryClient();
   const withdraw = useMutation({
     mutationFn: () => savePlan(place.id, ''),
@@ -35,6 +25,8 @@ export function OwnerBar({
   const o = place.origin;
   if (place.example || !o || !place.planText) return null;
   const mine = o.source === 'owner';
+  // nothing to compare, nothing to say: the bar is only for a plan the machine has its own version of
+  if (!mine || (!o.machineNewer && !place.machinePlanText)) return null;
   return (
     <div className={classes.ownerBar}>
       <Group gap="xs">
@@ -75,9 +67,6 @@ export function OwnerBar({
             Use the machine's plan
           </Button>
         )}
-        <Button size="compact-sm" variant="light" onClick={onEdit} disabled={showing === 'machine'}>
-          Edit plan
-        </Button>
       </Group>
       {withdraw.isError && <StatusLine msg={{ err: `Couldn't change the plan: ${messageOf(withdraw.error)}` }} />}
     </div>

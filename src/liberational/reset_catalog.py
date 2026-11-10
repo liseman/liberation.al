@@ -7,19 +7,15 @@
 
 In order:
 
-1. Check the plan can run: each camera named with `--camera` is in `config/devices.toml`, and the broker's service is
-   installed (if it isn't, the reset refuses before stopping anything and says to run `pack-services install`).
+1. Check the plan can run: the broker's service is installed (if it isn't, the reset refuses before stopping
+   anything and says to run `pack-services install`).
 2. Stop every installed service outside the `core` group, then the core services too, and check that nothing is
    running and the broker's socket is closed. A broker that crash-loops (on an old catalog format, say) can bind its
    socket again between the stop and the check, so the reset stops it again until it stays down, and refuses only if
    it's still up after `STOP_WAIT_S`.
 3. Delete the catalog, the recorded video and audio it indexes (`tier` and `tier2`), the worker state derived from
    it (see `targets`), and the segment store.
-4. Turn on H.264 (`encoding = { enabled = true }` under its `video`) for every camera in `config/devices.toml`, or
-   only those named with `--camera`, before the broker first starts on the fresh catalog. Capture encodes only a
-   camera's MJPEG, so a camera set to capture anything else (a Mac's USB cameras deliver UYVY) is left as it is, and
-   the reset says why. A file with no camera turns nothing on.
-5. Start the broker and the other core services that were running, wait for the broker's socket, then start the
+4. Start the broker and the other core services that were running, wait for the broker's socket, then start the
    other services that were running. The broker always starts, even if it was stopped or crash-looping when the
    reset began: the reset leaves a fresh catalog it can open, and nothing else runs without it.
 
@@ -50,8 +46,6 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
-
-import tomlkit
 
 from liberational import config as cfg
 from liberational.service_cascade import BROKER
@@ -127,7 +121,6 @@ class Plan:
     state: Path  # paths.state
     faces: Path  # paths.faces, which fresh empties
     devices: Path  # config/devices.toml
-    cameras: tuple[str, ...] | None = None  # the cameras switched to H.264; None for every camera in the file
     socket: Path | None = None  # the broker's socket, if not state/continuum/broker.sock
     mode: str = "keep-taught"  # "keep-taught" or "fresh"
     voices: Path | None = None  # paths.voices, which fresh empties
@@ -216,84 +209,6 @@ def human(n: float) -> str:
     return f"{n:.1f} TB"
 
 
-def _camera(document: tomlkit.TOMLDocument, camera: str) -> dict | None:
-    devices = document.get("device")
-    if not isinstance(devices, list):
-        return None
-    return next((d for d in devices if isinstance(d, dict) and d.get("name") == camera), None)
-
-
-def no_encoding(document: tomlkit.TOMLDocument, device: dict) -> str | None:
-    """Why capture would refuse `video.encoding` for this device, or None if it can encode it. Capture encodes only
-    a camera's MJPEG, and reads the format as it merges it: the camera's own `video.format`, else the file's
-    top-level `[video]` one, else MJPEG."""
-    kind = device.get("kind")
-    if kind != "camera":
-        return f"it's a {kind} device, and capture encodes only a camera's MJPEG"
-    own = device.get("video")
-    defaults = document.get("video")
-    format = next(
-        (v["format"] for v in (own, defaults) if isinstance(v, dict) and isinstance(v.get("format"), str)), "MJPEG"
-    )
-    if format != "MJPEG":
-        return f"it captures {format}, and capture encodes only MJPEG"
-    return None
-
-
-def cameras(plan: Plan) -> list[str]:
-    """The cameras the reset turns H.264 on for: those named, else every camera device in the file."""
-    if plan.cameras is not None:
-        return list(plan.cameras)
-    devices = tomlkit.parse(plan.devices.read_text()).get("device")
-    if not isinstance(devices, list):
-        return []
-    return [str(d["name"]) for d in devices if isinstance(d, dict) and d.get("kind") == "camera" and d.get("name")]
-
-
-def missing(plan: Plan) -> list[str]:
-    """The cameras named with --camera that aren't devices in the file."""
-    document = tomlkit.parse(plan.devices.read_text())
-    return [c for c in plan.cameras or () if _camera(document, c) is None]
-
-
-def encoding_skipped(devices: Path, camera: str) -> str | None:
-    """Why the reset leaves the camera's encoding alone, or None if it turns it on."""
-    document = tomlkit.parse(devices.read_text())
-    device = _camera(document, camera)
-    if device is None:
-        raise LookupError(f"{camera} is not a [[device]] in {devices}")
-    return no_encoding(document, device)
-
-
-def encode_camera(devices: Path, camera: str) -> bool:
-    """Set `encoding = { enabled = true }` under the camera's `video`, keeping the file's comments and the rest of
-    its video settings. Returns whether the file changed: it doesn't for a camera capture can't encode
-    (`no_encoding`)."""
-    document = tomlkit.parse(devices.read_text())
-    device = _camera(document, camera)
-    if device is None:
-        raise LookupError(f"{camera} is not a [[device]] in {devices}")
-    if no_encoding(document, device) is not None:
-        return False
-    video = device.get("video")
-    if video is None:
-        video = tomlkit.table()
-        device["video"] = video
-    encoding = video.get("encoding")
-    if isinstance(encoding, dict) and encoding.get("enabled") is True:
-        return False
-    if isinstance(encoding, dict):
-        encoding["enabled"] = True
-    else:
-        inline = tomlkit.inline_table()
-        inline["enabled"] = True
-        video["encoding"] = inline
-    temporary = devices.with_name(devices.name + ".reset-tmp")
-    temporary.write_text(tomlkit.dumps(document))
-    temporary.replace(devices)
-    return True
-
-
 def listening(socket: Path) -> bool:
     with py_socket.socket(py_socket.AF_UNIX) as probe:
         try:
@@ -325,16 +240,7 @@ def describe(plan: Plan, host: Host) -> list[str]:
         lines.append(f"Truncate {len(truncated)} log files in {plan.logs} ({human(sum(size(p) for p in truncated))})")
     if plan.keep_places:
         lines.append(f"Keep: {plan.state / 'places'} (visits and positions start fresh)")
-    for camera in missing(plan):
-        lines.append(f"Refuses: {camera} is not a [[device]] in {plan.devices}")
-    for camera in [c for c in cameras(plan) if c not in missing(plan)]:
-        skipped = encoding_skipped(plan.devices, camera)
-        if skipped is None:
-            lines.append(f"Turn on H.264 for {camera} in {plan.devices}")
-        else:
-            lines.append(f"Leave {camera}'s encoding alone: {skipped}")
-    if not cameras(plan):
-        lines.append(f"Turn on H.264 for no camera: {plan.devices} has none")
+    lines.append(f"Not touched: {plan.devices} (each camera's encoding settings stay as they are)")
     lines.append("Start the broker and the services that were running")
     if BROKER not in installed:
         lines.append(f"Refuses: {BROKER} isn't installed (run `pack-services install` first)")
@@ -357,8 +263,6 @@ def run(
     """Do the reset. Raises Refused before anything is deleted, or Stopped after."""
     if plan.mode not in MODES:
         raise Refused(f"the mode is one of {', '.join(MODES)}")
-    if gone := missing(plan):
-        raise Refused(f"{', '.join(gone)} {'is' if len(gone) == 1 else 'are'} not a [[device]] in {plan.devices}")
 
     installed = host.installed()
     if BROKER not in installed:
@@ -391,10 +295,7 @@ def run(
         time.sleep(STOP_RETRY_S)
         host.stop(list(dict.fromkeys([*still, BROKER])))
 
-    finish = (
-        "Everything is stopped. Finish by hand: delete what's left of the plan's list, turn on encoding for the "
-        "cameras that capture MJPEG, then start the services."
-    )
+    finish = "Everything is stopped. Finish by hand: delete what's left of the plan's list, then start the services."
     try:
         for path in deleted(plan):
             say(f"Deleting {path}")
@@ -406,12 +307,6 @@ def run(
             path.write_bytes(b"")
         if plan.mode == "fresh" and plan.logs is not None:
             say(f"Truncated the logs in {plan.logs}")
-        for camera in cameras(plan):
-            skipped = encoding_skipped(plan.devices, camera)
-            if skipped is not None:
-                say(f"Left {camera}'s encoding alone: {skipped}")
-            elif encode_camera(plan.devices, camera):
-                say(f"Turned on H.264 for {camera}")
     except Exception as error:
         raise Stopped(f"{error}. {finish}") from error
 
@@ -441,12 +336,6 @@ def main(argv: Sequence[str] | None = None) -> None:
     which.add_argument("--keep-taught", action="store_true", help="the taught stores stay")
     which.add_argument("--fresh", action="store_true", help="delete every taught store too")
     parser.add_argument(
-        "--camera",
-        action="append",
-        metavar="NAME",
-        help="a camera to switch to H.264 (again for more); without it, every camera in config/devices.toml",
-    )
-    parser.add_argument(
         "--keep-places",
         action="store_true",
         help="keep state/places (maps, plans, walks, and splats); their visits and the positions start fresh",
@@ -457,7 +346,6 @@ def main(argv: Sequence[str] | None = None) -> None:
         state=cfg.path("paths.state"),
         faces=cfg.path("paths.faces"),
         devices=cfg.devices_file(),
-        cameras=tuple(args.camera) if args.camera else None,
         keep_places=args.keep_places,
         mode="fresh" if args.fresh else "keep-taught",
         voices=cfg.path("paths.voices"),
