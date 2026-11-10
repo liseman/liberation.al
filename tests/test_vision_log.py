@@ -339,11 +339,11 @@ def test_a_chunk_still_being_written_is_read_only_as_far_as_its_item_reaches(mon
     monkeypatch.setattr(read, "read_chunk_records", read_chunk_records)
     item = {"header": header, "locator": {"kind": "Chunk", "uri": "/tier/7-1-1.cnk"}}
     for window in ({}, {"start_ns": 120, "end_ns": 160}, {"start_ns": 50, "end_ns": 10_000}):
-        got = asyncio.run(read.records(None, vision_log.OBJECTS, item, **window))  # ty: ignore[invalid-argument-type] - a chunk read needs no client
+        got = asyncio.run(read.records(None, vision_log.OBJECTS, item, root="/state", **window))  # ty: ignore[invalid-argument-type] - a chunk read needs no client
         assert got == [read.Record(PID, 150, 150, b"{}")]
     assert asked == [(100, 200), (120, 160), (100, 200)]
     # A window the item doesn't reach holds none of its records, and the file isn't opened.
-    assert asyncio.run(read.records(None, vision_log.OBJECTS, item, start_ns=200, end_ns=300)) == []  # ty: ignore[invalid-argument-type] - a chunk read needs no client
+    assert asyncio.run(read.records(None, vision_log.OBJECTS, item, root="/state", start_ns=200, end_ns=300)) == []  # ty: ignore[invalid-argument-type] - a chunk read needs no client
     assert len(asked) == 3
 
 
