@@ -65,12 +65,19 @@ Phone walks (`pack-walkthrough`, the Places page's "Import a walk") and the nigh
 job runs, nothing records footprints, places positions, or trains splats on a schedule
 (`.venv/bin/python tools/place_positions.py` and `pack-spatial-splat` still run by hand).
 
-1. **Remove the scheduled job.** Under the application there is nothing to do: it stops scheduling
-   `spatial-cameras` when it starts on the new code. An install that still renders a unit per service removes its
-   timer, before the pull:
+1. **Remove the scheduled job.** An install that still renders a unit per service removes its timer, before the
+   pull:
 
    ```sh
    uv run --no-sync pack-services uninstall spatial-cameras
+   ```
+
+   Under the application, the job goes once the pull is in: quit the application and open it again, or have it
+   read the service list again without a restart, and check the job is no longer listed:
+
+   ```sh
+   uv run --no-sync pack-supervisor reload
+   uv run --no-sync pack-services status
    ```
 
 2. **Pull, and remove what `pack-config --check` reports** from `pack.toml`: `spatial-cameras` under `[services]`,

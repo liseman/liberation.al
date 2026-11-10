@@ -24,6 +24,7 @@ def status(**states):
     }
 
 
+DEVICES = {"camera": ([], 2), "microphone": ([], 1)}
 UP = status(continuum_capture="running", continuum_broker="running", listen="running", video_window="job")
 
 
@@ -58,6 +59,19 @@ def test_without_capture_it_never_claims_to_record(services, why):
     assert why in now.detail
 
 
+def test_a_requested_restart_says_restarting_with_how_many_are_up_not_not_recording():
+    services = status(continuum_capture="inactive", continuum_broker="running", listen="inactive", video_window="job")
+    now = app_window.summary(RUNNING, {**services, "restarting": True}, DEVICES)
+    assert (now.headline, now.recording) == ("Restarting (1 of 3 up)", False)
+    assert "not recording" not in now.headline
+
+
+def test_capture_back_up_during_a_restart_says_recording():
+    services = status(continuum_capture="running", continuum_broker="running", listen="inactive")
+    now = app_window.summary(RUNNING, {**services, "restarting": True}, DEVICES)
+    assert (now.headline, now.recording) == ("Running and recording", True)
+
+
 def test_a_service_waiting_to_restart_is_named():
     services = status(continuum_capture="running", listen="activating", journal="activating")
     assert "Restarting: journal, listen." in app_window.summary(RUNNING, services).detail
@@ -75,9 +89,6 @@ def test_outside_running_it_never_claims_to_record(phase, headline):
 def test_unknown_pauses_say_nothing_about_them():
     now = app_window.summary(RUNNING, UP, {})
     assert (now.headline, now.detail) == ("Running and recording", "3 of 3 services running.")
-
-
-DEVICES = {"camera": ([], 2), "microphone": ([], 1)}
 
 
 def test_a_declared_microphone_that_never_registered_is_named():
@@ -103,6 +114,76 @@ def test_a_paused_device_is_paused_not_missing():
     stuck = {**UP, "unregistered": [{"name": "desk", "kind": "microphone"}]}
     now = app_window.summary(RUNNING, stuck, {"camera": ([], 2), "microphone": (["desk"], 1)})
     assert (now.headline, now.detail) == ("Running and recording", "3 of 3 services running (microphone paused).")
+
+
+@pytest.mark.parametrize(
+    ("value", "font"),
+    [
+        pytest.param("'Ubuntu Sans 11'", ("Ubuntu Sans", 11.0), id="ubuntu"),
+        pytest.param("'Cantarell 10.5'", ("Cantarell", 10.5), id="fractional"),
+        pytest.param("'Noto Sans Bold Italic 12'\n", ("Noto Sans", 12.0), id="styles-dropped"),
+        pytest.param("'Inter'", None, id="no-size"),
+        pytest.param("", None, id="no-gsettings"),
+        pytest.param("'Sans 0'", None, id="zero"),
+    ],
+)
+def test_gnome_font_names_parse_to_a_family_and_size(value, font):
+    assert app_window.parse_font_name(value) == font
+
+
+@pytest.mark.parametrize(
+    ("resources", "dpi"),
+    [
+        pytest.param("Xft.antialias:\t1\nXft.dpi:\t192\n", 192.0, id="scaled"),
+        pytest.param("Xft.antialias:\t1\n", None, id="absent"),
+        pytest.param("Xft.dpi:\tlots\n", None, id="garbled"),
+        pytest.param("", None, id="no-xrdb"),
+    ],
+)
+def test_the_desktop_dpi_comes_from_the_x_resources(resources, dpi):
+    assert app_window.parse_xft_dpi(resources) == dpi
+
+
+def test_a_gnome_desktop_is_read_from_its_settings():
+    answers = {
+        "font-name": "'Cantarell 11'\n",
+        "color-scheme": "'prefer-dark'\n",
+        "-query": "Xft.dpi:\t144\n",
+    }
+    desktop = app_window.read_desktop(lambda argv: answers[argv[-1]], platform="linux")
+    assert desktop == app_window.Desktop(font=("Cantarell", 11.0), dark=True, dpi=144.0)
+
+
+def test_a_desktop_with_no_settings_tools_gets_the_light_defaults():
+    desktop = app_window.read_desktop(lambda argv: "", platform="linux")
+    assert desktop == app_window.Desktop(font=None, dark=False, dpi=None)
+    assert app_window.body_points(desktop) == 11.0
+
+
+def test_a_mac_is_asked_only_for_its_appearance():
+    asked = []
+
+    def ask(argv):
+        asked.append(argv[0])
+        return "Dark\n"
+
+    assert app_window.read_desktop(ask, platform="darwin") == app_window.Desktop(dark=True)
+    assert asked == ["defaults"]
+
+
+def test_a_monospace_match_falls_back_to_the_plain_sans():
+    matches = {
+        "Hack": "/fonts/Hack.ttf\t0\t100",
+        "sans-serif": "/fonts/DejaVuSans.ttf\t0\t",
+        "Ubuntu Sans:weight=semibold": "/fonts/UbuntuSans.ttf\t393216\t",
+    }
+    ask = lambda argv: matches[argv[-1]]
+    assert app_window.font_file("Hack", ask) == ("/fonts/DejaVuSans.ttf", 0)
+    assert app_window.font_file("Ubuntu Sans:weight=semibold", ask) == ("/fonts/UbuntuSans.ttf", 393216)
+
+
+def test_no_fontconfig_means_no_font_file():
+    assert app_window.font_file("Ubuntu Sans", lambda argv: "") is None
 
 
 class Proc:
@@ -189,7 +270,7 @@ def test_the_dashboard_opens_on_its_port(presence):
 
 WINDOW = textwrap.dedent(
     """
-    import threading, time
+    import sys, threading, time
     from liberational import app_window, supervisor
 
     class Proc:
@@ -212,7 +293,16 @@ WINDOW = textwrap.dedent(
         supervisor.App(supervisor.Supervisor(spec, spawn=spawn, kill=kill)), paused=lambda: {"camera": ([], 1)},
         starts_at_login=lambda: login["on"], set_start_at_login=set_login,
     )
-    window = app_window.Window(presence)
+    desktop = app_window.Desktop(font=("DejaVu Sans", 11), dark=sys.argv[2] == "dark", dpi=float(sys.argv[1]))
+    window = app_window.Window(presence, desktop)
+    look = window.look
+    assert look.style.theme_use() == "clam" and abs(look.scaling / (float(sys.argv[1]) / 72) - 1) < 0.02
+    if look.typesetter is not None:  # a Tk without Xft: the words are drawn by FreeType, never in a core X font
+        drawn = window.root.tk.call("image", "height", window.quit.cget("image")[0])
+    else:
+        import tkinter.font
+        assert look.heading_font.actual("family").lower() not in ("fixed", "courier")
+        drawn = tkinter.font.nametofont("TkDefaultFont", root=window.root).metrics("linespace")
     assert window.at_login.get() is False  # off unless the owner ticks it
     window.login.invoke()
     assert login["asked"] == [True] and window.at_login.get() is True
@@ -228,7 +318,8 @@ WINDOW = textwrap.dedent(
         seen.append(window.headline.cget("text"))
         if window.headline.cget("text") == "Running and recording" and "closed" not in seen:
             assert window.root.title() == "Liberational: Running and recording"
-            assert window.dot.cget("fg") == "#c62828"
+            assert window.dot.itemcget("light", "fill") == look.dot_colours[0]
+            assert window.root.tk.call("image", "height", window.headline.cget("image")[0]) > drawn
             seen.append("closed")
             window.ask_quit()  # what closing the window calls (WM_DELETE_WINDOW)
             assert str(window.quit.cget("state")) == "disabled"
@@ -239,19 +330,27 @@ WINDOW = textwrap.dedent(
     presence.thread.join(5)
     assert "Running and recording" in seen and "closed" in seen
     assert all(p.code is not None for p in procs.values()), "a worker outlived the window"
-    print("ok")
+    print(drawn, "ok")
     """
 )
 
 
 @pytest.mark.skipif(shutil.which("xvfb-run") is None, reason="needs xvfb-run for a display nobody is looking at")
-def test_the_real_window_shows_recording_and_closing_it_stops_everything():
-    """Tk itself, on a virtual display: the window comes up, says it is recording, and closing it quits: the workers
-    are stopped before the window goes."""
+@pytest.mark.parametrize(("dpi", "scheme"), [pytest.param(96, "light", id="1x"), pytest.param(192, "dark", id="2x")])
+def test_the_real_window_shows_recording_and_closing_it_stops_everything(dpi, scheme):
+    """Tk itself, on a virtual display: themed widgets, text sized for the display's scale, it says it is recording,
+    and closing it quits: the workers are stopped before the window goes."""
     done = subprocess.run(
-        ["xvfb-run", "-a", sys.executable, "-c", WINDOW], capture_output=True, text=True, timeout=60, check=False
+        ["xvfb-run", "-a", sys.executable, "-c", WINDOW, str(dpi), scheme],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
     )
     assert done.returncode == 0 and done.stdout.strip().endswith("ok"), done.stderr[-2000:]
+    # One line of 11 pt body text is about 1.2 to 1.5 times its size in pixels (11 pt at dpi / 72 pixels per point).
+    line = int(done.stdout.split()[-2])
+    assert 1.0 <= line / (11 * dpi / 72) <= 1.8
 
 
 def test_main_refuses_without_a_display_before_starting_any_service(monkeypatch):
