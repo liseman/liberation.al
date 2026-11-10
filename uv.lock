@@ -1224,6 +1224,7 @@ dependencies = [
     { name = "soundfile" },
     { name = "tomlkit" },
     { name = "transformers", version = "5.22.1", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform == 'darwin'" },
+    { name = "tzdata" },
     { name = "uvicorn" },
     { name = "websockets" },
 ]
@@ -1326,6 +1327,7 @@ requires-dist = [
     { name = "transformers", marker = "sys_platform != 'darwin' and extra == 'voice-clone'", specifier = "<5.17" },
     { name = "transformers", marker = "extra == 'deep-asr'", specifier = ">=5.13" },
     { name = "transformers", marker = "extra == 'segmentation'", specifier = ">=5.16.1" },
+    { name = "tzdata", specifier = ">=2026.6" },
     { name = "uvicorn" },
     { name = "websockets", specifier = ">=17.3" },
 ]

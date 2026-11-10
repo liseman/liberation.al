@@ -5,6 +5,18 @@ This guide covers the current Continuum installation. Fresh setup is in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). The old genericize and v1 import
 procedures are retired. Do not run an old catch-up script against current data.
 
+## The 3D view draws with PlayCanvas, and splats are served as SOG
+
+The Places 3D view moved from three.js and Spark to PlayCanvas, which reads a splat as SOG, not SPZ. After the pull:
+
+```sh
+mise run frontend                 # the dashboard's new build (PlayCanvas replaces three.js and Spark)
+.venv/bin/pack-spatial-splat      # gives each kept splat its SOG copy from its PLY, and removes its SPZ
+```
+
+Then restart the dashboard. Until `pack-spatial-splat` has run (the daily place job runs it too), a place whose splat
+was made before the pull shows its points, not its splat. No splat is retrained, and nothing else is dropped.
+
 ## Fixed-camera splats train against a depth model
 
 A fixed-camera place's splat now trains against a depth image per camera from Depth Anything 3's metric model, which

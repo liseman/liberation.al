@@ -563,7 +563,7 @@ def test_a_newer_map_in_the_same_frame_shows_the_last_splat_and_one_in_another_f
     # A nightly fusion with too few lit frames for a splat kept the map's frame, so the last splat still fits.
     place, rev_id = mapped
     first = places.revisions(tmp_path, place)[-1]
-    places.write_splat(tmp_path, first, master=b"ply", web=b"spz-bytes")
+    places.write_splat(tmp_path, first, master=b"ply", web=b"sog-bytes")
     same = places.revise(
         tmp_path, place, producer="tier1 fuse v1", map_bytes=CLOUD, map_format="ply", frame=first.frame, now=T + 10
     )
@@ -578,10 +578,10 @@ def test_a_newer_map_in_the_same_frame_shows_the_last_splat_and_one_in_another_f
 
 def test_the_scene_names_the_revisions_splat_once_it_has_one(tmp_path, mapped):
     place, rev_id = mapped
-    places.write_splat(tmp_path, places.revisions(tmp_path, place)[-1], master=b"ply", web=b"spz-bytes")
+    places.write_splat(tmp_path, places.revisions(tmp_path, place)[-1], master=b"ply", web=b"sog-bytes")
     reply = view.scene(tmp_path, place)[1]
     assert reply["splat"] == f"/places/splat?place={place}&revision={rev_id}"
-    assert (reply["splat_format"], reply["splat_bytes"]) == ("spz", len(b"spz-bytes"))
+    assert (reply["splat_format"], reply["splat_bytes"]) == ("sog", len(b"sog-bytes"))
 
 
 def test_the_scene_says_whether_its_splat_was_trained_from_a_walk_or_the_fixed_cameras(tmp_path, mapped):
@@ -589,23 +589,23 @@ def test_the_scene_says_whether_its_splat_was_trained_from_a_walk_or_the_fixed_c
     # later revision inherits those cameras, and a splat made for it is the daily fixed-camera one.
     place, _ = mapped
     first = places.revisions(tmp_path, place)[-1]
-    places.write_splat(tmp_path, first, master=b"ply", web=b"spz-bytes")
+    places.write_splat(tmp_path, first, master=b"ply", web=b"sog-bytes")
     assert view.scene(tmp_path, place)[1]["splat_from"] == "cameras"
     walked = places.revise(
         tmp_path, place, producer="tier1 fuse v1", cameras={"cam0": CAM, "walk-0m00s": CAM, "walk-0m10s": CAM},
         frame=first.frame, now=T + 10,
     )  # fmt: skip
-    places.write_splat(tmp_path, walked, master=b"ply", web=b"spz-bytes")
+    places.write_splat(tmp_path, walked, master=b"ply", web=b"sog-bytes")
     reply = view.scene(tmp_path, place)[1]
     assert (reply["splat_revision"], reply["splat_from"]) == (walked.id, "walk")
     daily = places.revise(tmp_path, place, producer="tier1 fuse v1", frame=first.frame, now=T + 20)
-    places.write_splat(tmp_path, daily, master=b"ply", web=b"spz-bytes")
+    places.write_splat(tmp_path, daily, master=b"ply", web=b"sog-bytes")
     reply = view.scene(tmp_path, place)[1]
     assert (reply["splat_revision"], reply["splat_from"]) == (daily.id, "cameras")
     assert "walk-0m00s" in reply["cameras"]  # the walk's views are still there to look from
     # #43: a walk's splat retrained onto a later revision, which only inherits the walk's cameras, says so itself.
     again = places.revise(tmp_path, place, producer="tier1 fuse v1", frame=first.frame, now=T + 30)
-    places.write_splat(tmp_path, again, master=b"ply", web=b"spz-bytes", source="walk")
+    places.write_splat(tmp_path, again, master=b"ply", web=b"sog-bytes", source="walk")
     reply = view.scene(tmp_path, place)[1]
     assert (reply["splat_revision"], reply["splat_from"]) == (again.id, "walk")
 
@@ -673,9 +673,9 @@ def test_the_map_is_served_in_ranges_cached_for_good_and_404_for_another_revisio
     assert get(url, **{"If-None-Match": f'"{rev}"'})[0].status == 304
     assert get(f"/places/map?place={place}&revision=not-a-revision")[0].status == 404
     assert get(f"/places/splat?place={place}&revision={rev}")[0].status == 404  # none made yet
-    places.write_splat(tmp_path, places.revisions(tmp_path, place)[-1], master=b"ply", web=b"spz-bytes")
+    places.write_splat(tmp_path, places.revisions(tmp_path, place)[-1], master=b"ply", web=b"sog-bytes")
     r, body = get(f"/places/splat?place={place}&revision={rev}")
-    assert (r.status, body, r.getheader("ETag")) == (200, b"spz-bytes", f'"{rev}"')
+    assert (r.status, body, r.getheader("ETag")) == (200, b"sog-bytes", f'"{rev}"')
     assert "immutable" in (r.getheader("Cache-Control") or "")
 
 

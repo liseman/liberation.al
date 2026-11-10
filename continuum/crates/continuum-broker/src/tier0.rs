@@ -401,6 +401,21 @@ impl Drop for Tier0 {
     }
 }
 
+/// How many bytes the shared memory filesystem holds in all (`/dev/shm` on Linux), or `None` where an arena has no
+/// such size to fit (macOS, or a Linux without `/dev/shm`).
+#[must_use]
+pub fn shm_capacity() -> Option<u64> {
+    #[cfg(target_os = "linux")]
+    {
+        let fs = rustix::fs::statvfs("/dev/shm").ok()?;
+        Some(fs.f_blocks.saturating_mul(fs.f_frsize))
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        None
+    }
+}
+
 /// Fails when the arena is larger than the shared memory filesystem (`/dev/shm` on Linux), where touching its last
 /// pages would SIGBUS the broker, and warns when it's larger than what's free there now. macOS has no such limit to
 /// check (its POSIX shared memory is backed by the VM system).
@@ -411,8 +426,8 @@ fn check_room(size: u64) -> Result<(), String> {
     let free = fs.f_bavail.saturating_mul(fs.f_frsize);
     if size > total {
         return Err(format!(
-            "the Tier 0 arena needs {size} bytes but /dev/shm holds {total}; pick a smaller profile or remount /dev/shm \
-             larger"
+            "the Tier 0 arena needs {size} bytes but /dev/shm holds {total}; leave --profile and --tier0-classes \
+             unset (the default fits itself to /dev/shm), or give /dev/shm more room"
         ));
     }
     if size > free {
