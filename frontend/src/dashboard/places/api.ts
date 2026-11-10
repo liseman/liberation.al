@@ -109,17 +109,21 @@ export const savePlan = (place: string, plan: string, base?: string | null) =>
     ...(base ? { base } : {}),
   });
 
-/** One owner plan in a place's history (GET /places/plan/history): when it was saved (epoch seconds), how many rooms
- *  it has, and whether it was a withdrawal (an empty plan, so the machine's held). */
+/** One saved version of a place's owner plan (GET /places/plan/history): when it was saved (epoch seconds), how many
+ *  rooms it has, whether it was a withdrawal (an empty plan, so the machine's held), whether it is stored as a scene
+ *  or in the old DSL, whether it is the one that holds, and what changed from the version before it. */
 export interface PlanVersion {
   id: string;
   at: number;
   rooms: number;
   source: string;
   withdrawn: boolean;
+  format: 'scene' | 'dsl';
+  current: boolean;
+  summary: string;
 }
 
-/** A place's owner plans, oldest first, and `previous`: the one Revert plan puts back (null with none). */
+/** A place's saved plan versions, oldest first. `previous` is the newest earlier one that differs from the current. */
 export interface PlanHistory {
   place: string;
   versions: PlanVersion[];
@@ -158,8 +162,8 @@ export const planSceneQuery = (place: string, record?: string) =>
     gcTime: 0,
   });
 
-/** Make an earlier owner plan hold again (Revert plan): written as a new record, so the one it replaces stays in the
- *  history and can be put back the same way. */
+/** Make an earlier version of the owner's plan hold again: written as a new version on top, so the one it replaces
+ *  stays in the history and can be put back the same way. */
 export const restorePlan = (place: string, record: string) =>
   request<{ ok: true; plan: string | null; plan_source: 'owner' | 'machine' | null }>('/places/plan/restore', {
     place,

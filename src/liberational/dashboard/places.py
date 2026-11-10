@@ -349,11 +349,11 @@ def correct(body: Mapping[str, Any], control: bool, state: Path, now: float | No
 
 
 def plan_versions(state: Path, place: str) -> Reply:
-    """GET /places/plan/history?place=: the place's owner plans (memory/places.py `plan_history`), oldest first, each
-    {id, at, rooms, source, withdrawn}, and `previous`: the version Revert plan puts back, or null with none. That's
-    the newest owner plan before the one that holds that isn't the same plan (`same_plan`: a re-registration of one
-    plan into a newer frame moves its corners by millimetres, and putting that back would change nothing the owner
-    can see), so reverting a revert goes back again; while the machine's plan holds, the newest owner plan."""
+    """GET /places/plan/history?place=: every saved version of the place's owner plan (memory/places.py
+    `plan_history`), oldest first, each {id, at, rooms, source, withdrawn, format, current, summary}. `current` marks
+    the one that holds (none while the machine's plan does), `format` says "scene" or "dsl", and `summary` is what
+    changed from the version before it, in a few words (`plan_change`). `previous` is the newest earlier version that
+    isn't the same plan as the current one (`same_plan`), or null."""
     from liberational.spatial import floorplan
 
     held = places.get(state, place)
@@ -361,6 +361,7 @@ def plan_versions(state: Path, place: str) -> Reply:
         return 404, {"error": "no such place"}
     history = places.plan_history(state, place)
     texts = [_plan_text(r.value) for r in history]
+    owned = held.plan_source == "owner"
     versions = [
         {
             "id": r.id,
@@ -368,11 +369,14 @@ def plan_versions(state: Path, place: str) -> Reply:
             "rooms": len(floorplan.rooms_from_dsl(t)),
             "source": r.value.get("source", "owner"),
             "withdrawn": not t.strip(),
+            "format": "scene" if plan_scene.is_scene(t) else "dsl",
+            "current": owned and i == len(history) - 1,
+            "summary": plan_change(texts[i - 1] if i else None, t),
         }
-        for r, t in zip(history, texts, strict=True)
+        for i, (r, t) in enumerate(zip(history, texts, strict=True))
     ]
     # the newest record is the one that holds while the owner's plan does; with the machine's holding, none of them
-    current = texts[-1] if held.plan_source == "owner" and texts else None
+    current = texts[-1] if owned and texts else None
     upto = len(history) - 1 if current is not None else len(history)
     previous = next(
         (
@@ -383,6 +387,97 @@ def plan_versions(state: Path, place: str) -> Reply:
         None,
     )
     return 200, {"place": held.id, "versions": versions, "previous": previous}
+
+
+MOVED_SPOT_M = 0.01  # a camera spot this far from where it was has moved
+TURNED_SPOT_DEG = 0.5
+MAX_CHANGES = 3  # how many changes a version's summary names before it counts the rest
+
+
+def plan_change(before: str | None, after: str) -> str:
+    """What changed between two versions of a plan, in a few words, for the versions timeline: rooms added, removed,
+    renamed, or reshaped, doors and windows added or removed, and camera spots added, removed, moved, or turned.
+    `before` is None for a place's first version. A version that can't be read says so, and the one after it is
+    summed up as if it were the first."""
+    from liberational.spatial import plan_import
+
+    if not after.strip():
+        return "Plan withdrawn"
+
+    def read(text: str | None) -> plan_import.Parsed | None:
+        if text is None or not text.strip():
+            return None
+        try:
+            return plan_import.parse(text)
+        except ValueError:
+            return None
+
+    now = read(after)
+    if now is None:
+        return "A plan that can't be read"
+    was = read(before)
+    if was is None:
+        cameras = f", {_count(len(now.cameras), 'camera spot')}" if now.cameras else ""
+        return f"{_count(len(now.rooms), 'room')}{cameras}"
+    changes: list[str] = []
+    old_rooms, new_rooms = {r.id: r for r in was.rooms}, {r.id: r for r in now.rooms}
+    changes += [f"added {_room(r)}" for i, r in new_rooms.items() if i not in old_rooms]
+    changes += [f"removed {_room(r)}" for i, r in old_rooms.items() if i not in new_rooms]
+    for i, r in new_rooms.items():
+        if i not in old_rooms:
+            continue
+        if r.name != old_rooms[i].name:
+            changes.append(f"renamed {_room(old_rooms[i])} to {_room(r)}")
+        if not _same_outline(r.polygon, old_rooms[i].polygon):
+            changes.append(f"reshaped {_room(r)}")
+    for kind, label in (("door", "door"), ("cased", "doorway"), ("window", "window")):
+        n = sum(o.kind == kind for o in now.openings) - sum(o.kind == kind for o in was.openings)
+        if n:
+            changes.append(f"{'added' if n > 0 else 'removed'} {_count(abs(n), label)}")
+    old_spots, new_spots = {c.id: c for c in was.cameras}, {c.id: c for c in now.cameras}
+    changes += [f"added camera {i}" for i in new_spots if i not in old_spots]
+    changes += [f"removed camera {i}" for i in old_spots if i not in new_spots]
+    for i, c in new_spots.items():
+        if i not in old_spots:
+            continue
+        o = old_spots[i]
+        if math.dist(c.at, o.at) > MOVED_SPOT_M:
+            changes.append(f"moved camera {i}")
+        elif (c.yaw is None) != (o.yaw is None) or (
+            c.yaw is not None and o.yaw is not None and abs((c.yaw - o.yaw + 180) % 360 - 180) > TURNED_SPOT_DEG
+        ):
+            changes.append(f"turned camera {i}")
+        elif (c.height, c.fov) != (o.height, o.fov):
+            changes.append(f"changed camera {i}")
+    if not changes:
+        return "No change to rooms, openings, or cameras"
+    shown = changes[:MAX_CHANGES]
+    more = len(changes) - len(shown)
+    text = ", ".join(shown) + (f", and {more} more" if more else "")
+    return text[0].upper() + text[1:]
+
+
+def _count(n: int, noun: str) -> str:
+    return f"{n} {noun}{'' if n == 1 else 's'}"
+
+
+def _room(room: Any) -> str:
+    return room.name or room.id
+
+
+def _same_outline(a: Sequence[tuple[float, float]], b: Sequence[tuple[float, float]]) -> bool:
+    """Whether two room outlines are one shape: the same corners within a centimetre, whatever corner each starts
+    at and whichever way round it goes."""
+    if len(a) != len(b):
+        return False
+
+    def near(p: tuple[float, float], q: tuple[float, float]) -> bool:
+        return math.dist(p, q) <= SAME_PLAN_M
+
+    n = len(a)
+    return any(
+        all(near(a[i], ring[(i + k) % n]) for i in range(n)) for ring in (list(b), list(b)[::-1]) for k in range(n)
+    )
 
 
 def plan_as_scene(state: Path, place: str, record: str | None = None) -> Reply:
@@ -419,9 +514,11 @@ def plan_as_scene(state: Path, place: str, record: str | None = None) -> Reply:
 
 
 def restore(body: Mapping[str, Any], control: bool, state: Path, now: float | None = None) -> Reply:
-    """POST /places/plan/restore {place, record}: make an earlier owner plan hold again (Revert plan), written as the
-    newest record (memory/places.py `restore_plan`), so the one it replaces stays in the history and can be put back
-    the same way. A teaching write, like POST /places/plan."""
+    """POST /places/plan/restore {place, record}: make an earlier version of the owner's plan hold again, written as
+    the newest record (memory/places.py `restore_plan`), so the one it replaces stays in the history and can be put
+    back the same way. A version saved in the old DSL is converted to a scene on the way (spatial/plan_import.py
+    `to_scene`), so what holds afterwards is what the plan editor works on; the old record stays as it was. A teaching
+    write, like POST /places/plan."""
     if not control:
         return 403, {"ok": False, "error": "plans can only be changed from this machine (Remote teaching is off)"}
     place, record = body.get("place"), body.get("record")
@@ -429,10 +526,17 @@ def restore(body: Mapping[str, Any], control: bool, state: Path, now: float | No
         return 400, {"ok": False, "error": "send the place's id and the plan record to put back"}
     if places.get(state, place) is None:
         return 404, {"ok": False, "error": "no such place"}
+    from liberational.spatial import plan_import
+
+    def as_scene(text: str) -> str:
+        return text if plan_scene.is_scene(text) else plan_import.to_scene(text).scene
+
     try:
-        places.restore_plan(state, place, record, now=now)
+        places.restore_plan(state, place, record, now=now, convert=as_scene)
     except KeyError:
         return 404, {"ok": False, "error": "no such plan in this place's history"}
+    except ValueError as e:  # a DSL version the converter refuses
+        return 422, {"ok": False, "error": f"that version can't be restored: {e}"}
     held = places.get(state, place)
     shown = (held.view.plan if held.view is not None else held.plan) if held else None
     return 200, {"ok": True, "plan": shown, "plan_source": held.plan_source if held else None}

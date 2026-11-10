@@ -273,7 +273,7 @@ export function PlanEditor({
       <Group justify="space-between" gap="xs" mb="xs" wrap="wrap">
         <Text size="sm" c="dimmed">
           Drag a wall, a corner, or a camera, and a selected camera's handle to turn it. Alt drags in millimetres. Your
-          plan replaces the machine's, which is kept, and Revert plan puts back the one before it.
+          plan replaces the machine's, which is kept, and every version you save can be restored from the Editor view.
         </Text>
         <Group gap="xs">
           <Tooltip label={`Undo (${KEYS.undo})`}>
