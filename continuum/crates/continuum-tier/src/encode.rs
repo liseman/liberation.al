@@ -295,8 +295,8 @@ impl Encoder {
         Self::try_open(Codec::H264, "h264_nvenc", width, height, settings, Open::Nvenc { gpu, cq }, &mut lifecycle)
     }
 
-    /// An SVT-AV1 encoder for one archived chunk: `settings.gop_frames` frames per keyframe (the whole chunk, so it
-    /// opens on its only keyframe), constant quality, and the source's `colors`.
+    /// An SVT-AV1 encoder for one archived chunk: `settings.gop_frames` frames per keyframe, constant quality, and
+    /// the source's `colors`.
     pub(crate) fn open_av1(
         width: u32,
         height: u32,

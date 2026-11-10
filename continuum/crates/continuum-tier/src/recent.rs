@@ -497,7 +497,8 @@ impl H264Window {
     }
 
     fn record(&mut self, path: &Path, chunk: Uuid, index: usize) -> Option<Vec<u8>> {
-        if !self.reader.as_ref().is_some_and(|(p, c, _)| p == path && *c == chunk) {
+        // A chunk still being written has grown since it was opened when the index is past what the reader holds.
+        if !self.reader.as_ref().is_some_and(|(p, c, r)| p == path && *c == chunk && index < r.records().len()) {
             self.reader = Some((path.to_path_buf(), chunk, ChunkReader::open(path).ok()?));
         }
         let (_, _, reader) = self.reader.as_mut()?;

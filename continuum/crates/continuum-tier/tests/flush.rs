@@ -77,9 +77,11 @@ fn frames_flush_into_timed_chunks_that_the_catalog_compacts() {
     let dir = tempfile::tempdir().expect("tempdir");
     let catalog = MemoryCatalog::new();
     let cam = register_cam(&catalog);
-    let mut flusher =
-        Flusher::new(dir.path(), FlushSettings { chunk_ns: S, audio_chunk_ns: S, ..FlushSettings::default() })
-            .expect("flusher");
+    let mut flusher = Flusher::new(
+        dir.path(),
+        FlushSettings { chunk_ns: S, part_ns: S, audio_chunk_ns: S, ..FlushSettings::default() },
+    )
+    .expect("flusher");
     flusher.declare(cam, shape());
 
     let mut closed = Vec::new();
@@ -136,9 +138,11 @@ fn attested_provenance_lands_in_frame_order_with_unknown_frames_left_unknown() {
     let dir = tempfile::tempdir().expect("tempdir");
     let catalog = MemoryCatalog::new();
     let cam = register_cam(&catalog);
-    let mut flusher =
-        Flusher::new(dir.path(), FlushSettings { chunk_ns: S, audio_chunk_ns: S, ..FlushSettings::default() })
-            .expect("flusher");
+    let mut flusher = Flusher::new(
+        dir.path(),
+        FlushSettings { chunk_ns: S, part_ns: S, audio_chunk_ns: S, ..FlushSettings::default() },
+    )
+    .expect("flusher");
     flusher.declare(cam, shape());
     let attested = |i: u32| FrameProvenance { device_seq: u64::from(i) + 500, epoch: 77, stamped_at_arrival: i == 2 };
     let mut ids = Vec::new();
@@ -179,7 +183,7 @@ fn nothing_is_lost_when_a_small_ring_wraps_many_times() {
     let dir = tempfile::tempdir().expect("tempdir");
     let mut flusher = Flusher::new(
         dir.path(),
-        FlushSettings { chunk_ns: 700 * MS, audio_chunk_ns: 700 * MS, ..FlushSettings::default() },
+        FlushSettings { chunk_ns: 700 * MS, part_ns: 700 * MS, audio_chunk_ns: 700 * MS, ..FlushSettings::default() },
     )
     .expect("flusher");
     let cam = StreamId(1);
@@ -232,7 +236,7 @@ fn a_chunk_left_open_by_a_crash_is_recovered_and_committable() {
     let cam = register_cam(&catalog);
     let mut flusher = Flusher::new(
         dir.path(),
-        FlushSettings { chunk_ns: 10 * S, audio_chunk_ns: 10 * S, ..FlushSettings::default() },
+        FlushSettings { chunk_ns: 10 * S, part_ns: 10 * S, audio_chunk_ns: 10 * S, ..FlushSettings::default() },
     )
     .expect("flusher");
     flusher.declare(cam, shape());
@@ -268,8 +272,10 @@ fn a_chunk_left_open_by_a_crash_is_recovered_and_committable() {
     assert_eq!(recovered[0].stream, cam);
     let reader = ChunkReader::open(&recovered[0].path).expect("open");
     assert!(reader.finalized());
-    // A second start finds nothing left to recover.
-    assert!(recover(dir.path()).expect("recover").is_empty());
+    // A second start finds it finished: it comes back only to be checked against the catalog, which may lack its
+    // last part.
+    let again = recover(dir.path()).expect("recover");
+    assert_eq!(again.iter().map(|r| (&r.path, r.records.len())).collect::<Vec<_>>(), [(&recovered[0].path, 12)]);
 
     // The recovered chunk commits like any other, with the ids the worker kept beside it.
     let chunk = continuum_tier::flush::new_chunk(
@@ -392,7 +398,7 @@ fn an_out_of_order_payload_starts_a_new_chunk_and_both_commit() {
     let cam = register_cam(&catalog);
     let mut flusher = Flusher::new(
         dir.path(),
-        FlushSettings { chunk_ns: 10 * S, audio_chunk_ns: 10 * S, ..FlushSettings::default() },
+        FlushSettings { chunk_ns: 10 * S, part_ns: 10 * S, audio_chunk_ns: 10 * S, ..FlushSettings::default() },
     )
     .expect("flusher");
     flusher.declare(cam, shape());
@@ -432,7 +438,7 @@ fn a_chunk_closes_at_the_catalog_frame_limit() {
     let dir = tempfile::tempdir().expect("tempdir");
     let mut flusher = Flusher::new(
         dir.path(),
-        FlushSettings { chunk_ns: 60 * S, audio_chunk_ns: 60 * S, ..FlushSettings::default() },
+        FlushSettings { chunk_ns: 60 * S, part_ns: 60 * S, audio_chunk_ns: 60 * S, ..FlushSettings::default() },
     )
     .expect("flusher");
     let imu = StreamId(5);
@@ -530,8 +536,9 @@ fn recovery_cleans_up_rewrite_leftovers_and_empty_chunks() {
     let empty = closed[0].path.with_file_name(format!("1-{}-1.cnk", T0 + 1));
     let w = continuum_tier::ChunkWriter::create(&empty, cam, ChunkFormat::Passthrough, T0 + 1).expect("create");
     std::mem::forget(w);
+    // Only the stream's newest finished chunk comes back, to be checked against the catalog.
     let recovered = recover(dir.path()).expect("recover");
-    assert!(recovered.is_empty(), "{recovered:?}");
+    assert_eq!(recovered.iter().map(|r| &r.path).collect::<Vec<_>>(), [&closed[0].path], "{recovered:?}");
     assert!(!closed[0].path.with_extension("rewrite").exists());
     assert!(!empty.exists());
     assert!(closed[0].path.exists());
@@ -543,7 +550,7 @@ fn a_slot_is_flushed_only_once_its_record_is_on_disk() {
     // after a kill loses everything after the last sync (simulated by truncating the chunk to its synced length);
     // nothing reported flushed may be among the lost.
     let dir = tempfile::tempdir().expect("tempdir");
-    let settings = FlushSettings { chunk_ns: 60 * S, audio_chunk_ns: 60 * S, sync_ns: 200 * MS };
+    let settings = FlushSettings { chunk_ns: 60 * S, part_ns: 60 * S, audio_chunk_ns: 60 * S, sync_ns: 200 * MS };
     let mut flusher = Flusher::new(dir.path(), settings).expect("flusher");
     let cam = StreamId(1);
     flusher.declare(cam, shape());
@@ -626,9 +633,11 @@ fn a_chunk_closed_before_a_failed_create_is_parked_and_handed_back() {
     let dir = tempfile::tempdir().expect("tempdir");
     let catalog = MemoryCatalog::new();
     let cam = register_cam(&catalog);
-    let mut flusher =
-        Flusher::new(dir.path(), FlushSettings { chunk_ns: S, audio_chunk_ns: S, ..FlushSettings::default() })
-            .expect("flusher");
+    let mut flusher = Flusher::new(
+        dir.path(),
+        FlushSettings { chunk_ns: S, part_ns: S, audio_chunk_ns: S, ..FlushSettings::default() },
+    )
+    .expect("flusher");
     flusher.declare(cam, shape());
     let bytes = frame_bytes(0);
     let first = Incoming { id: uuid(1), stream: cam, start_ns: 0, end_ns: 0, seq: 0, bytes: &bytes, key: true };
@@ -655,9 +664,11 @@ fn a_new_chunk_goes_in_its_streams_hour_directory() {
     let dir = tempfile::tempdir().expect("tempdir");
     let catalog = MemoryCatalog::new();
     let cam = register_cam(&catalog);
-    let mut flusher =
-        Flusher::new(dir.path(), FlushSettings { chunk_ns: S, audio_chunk_ns: S, ..FlushSettings::default() })
-            .expect("flusher");
+    let mut flusher = Flusher::new(
+        dir.path(),
+        FlushSettings { chunk_ns: S, part_ns: S, audio_chunk_ns: S, ..FlushSettings::default() },
+    )
+    .expect("flusher");
     flusher.declare(cam, shape());
     let bytes = frame_bytes(0);
     let at = 1_794_151_800_000_000_000; // 2026-11-08T15:30Z
@@ -686,9 +697,10 @@ fn recovery_finds_an_unfinished_chunk_in_an_hour_directory() {
     assert_eq!((found[0].path.clone(), found[0].stream, found[0].records.len()), (path, StreamId(3), 1));
 }
 
-/// Recovery opens a stream's chunks newest first and stops at its first finished one. A run finishes a
-/// stream's chunk before it opens the next, so nothing older can be unfinished; opening every chunk in the archive
-/// took minutes at each start, while the encoded cameras' Tier 0 rings filled with unflushed frames.
+/// Recovery opens a stream's chunks newest first and stops at its first finished one, which it hands back too
+/// (the catalog may lack its last part). A run finishes a stream's chunk before it opens the next, so nothing older
+/// can be unfinished; opening every chunk in the archive took minutes at each start, while the encoded cameras'
+/// Tier 0 rings filled with unflushed frames.
 #[test]
 fn recovery_stops_at_each_streams_newest_finished_chunk() {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -711,13 +723,70 @@ fn recovery_stops_at_each_streams_newest_finished_chunk() {
         path
     };
     let behind = chunk(3, T0, false); // older than a finished chunk: never opened
-    chunk(3, T0 + S, true);
+    let finished = chunk(3, T0 + S, true);
     let newest = chunk(3, T0 + 2 * S, false);
     let other = chunk(4, T0, false); // another stream with no finished chunk at all
     let found = continuum_tier::recover(dir.path()).expect("recover");
     let paths: Vec<_> = found.iter().map(|r| r.path.clone()).collect();
-    assert_eq!(paths, vec![newest, other]);
+    assert_eq!(paths, vec![finished, newest, other]);
     assert!(!ChunkReader::open(&behind).expect("open").finalized(), "left as it was, unopened by recovery");
+}
+
+/// docs/CONTINUUM.md, "Video chunks": an open H.264 chunk hands over its new records every `part_ns`, only ever
+/// before a keyframe (so a part decodes from its start and never presents before the last one), and the file closes
+/// on the first keyframe after `chunk_ns`.
+#[test]
+fn an_h264_chunk_hands_over_parts_before_keyframes_and_closes_on_one() {
+    const TENTH: u64 = 100 * MS;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let settings = FlushSettings { chunk_ns: 4 * S, part_ns: S, audio_chunk_ns: 4 * S, sync_ns: 200 * MS };
+    let mut flusher = Flusher::new(dir.path(), settings).expect("flusher");
+    let cam = StreamId(7);
+    flusher.declare(
+        cam,
+        StreamShape { chunk_format: ChunkFormat::H264Au, shape_name: "H264AnnexB".to_owned(), ..shape() },
+    );
+    // Ten frames a second with a keyframe every 1.5 s, for 7 seconds.
+    let mut handed = Vec::new();
+    for i in 0..70u32 {
+        let t = T0 + u64::from(i) * TENTH;
+        let p =
+            Incoming { id: uuid(i), stream: cam, start_ns: t, end_ns: t, seq: i, bytes: &[0, 0, 1], key: i % 15 == 0 };
+        handed.extend(flusher.append(p, t).expect("append").1);
+        assert!(flusher.rotate(t).expect("rotate").is_empty(), "a stream still sending is cut on its keyframes");
+    }
+    let seen: Vec<(u32, bool, u32, usize)> =
+        handed.iter().map(|c| (c.first_frame, c.more, c.records[0].seq, c.records.len())).collect();
+    // Parts before the keyframes at 1.5 s and 3 s; the file's last part at 4.5 s, the first keyframe past 4 s; then
+    // the next file's first part at 6 s.
+    assert_eq!(seen, [(0, true, 0, 15), (15, true, 15, 15), (30, false, 30, 15), (0, true, 45, 15)]);
+    let id = |c: &continuum_tier::Closed| c.chunk.payload.header.id();
+    assert!(id(&handed[0]) == id(&handed[1]) && id(&handed[1]) == id(&handed[2]), "one chunk, three commits");
+    assert_ne!(id(&handed[2]), id(&handed[3]));
+    assert_eq!(handed[0].path, handed[2].path);
+    // Each commit carries the chunk as it is by then: the whole span so far, and the file's length so far.
+    let ends: Vec<u64> = handed[..3].iter().map(|c| c.chunk.payload.header.end_ns()).collect();
+    assert_eq!(ends, [T0 + 14 * TENTH + 1, T0 + 29 * TENTH + 1, T0 + 44 * TENTH + 1]);
+    assert!(handed[..3].iter().all(|c| c.chunk.payload.header.start_ns() == T0));
+    let lengths: Vec<u64> = handed[..3]
+        .iter()
+        .map(|c| match &c.chunk.payload.location {
+            Some(StorageLocator::Chunk { length, .. }) => *length,
+            other => panic!("a chunk file: {other:?}"),
+        })
+        .collect();
+    assert!(lengths[0] < lengths[1] && lengths[1] < lengths[2], "{lengths:?}");
+    assert_eq!(lengths[2], std::fs::metadata(&handed[2].path).expect("file").len(), "footer included");
+    assert!(handed[0].durable.len() == 15, "a part is synced before it is handed over: {:?}", handed[0].durable.len());
+    // The camera stops. Once it has been quiet for a second, its waiting records are handed over on time.
+    let quiet = T0 + 69 * TENTH + 1_100 * MS;
+    assert_eq!(flusher.due(quiet), vec![cam]);
+    let last = flusher.rotate(quiet).expect("rotate");
+    assert_eq!(last.iter().map(|c| (c.first_frame, c.more, c.records.len())).collect::<Vec<_>>(), [(15, true, 10)]);
+    assert!(flusher.due(quiet + TENTH).is_empty(), "nothing waiting, and the file isn't due yet");
+    // At shutdown the file gets its footer; every record was handed over already.
+    assert!(flusher.close_all().expect("close").is_empty());
+    assert!(ChunkReader::open(&handed[3].path).expect("open").finalized());
 }
 
 /// A purge that deletes an hour's last chunk removes its directory; a new chunk in that hour makes it again.
@@ -726,9 +795,11 @@ fn a_chunk_after_its_hour_directory_was_pruned_is_still_created() {
     let dir = tempfile::tempdir().expect("tempdir");
     let catalog = MemoryCatalog::new();
     let cam = register_cam(&catalog);
-    let mut flusher =
-        Flusher::new(dir.path(), FlushSettings { chunk_ns: S, audio_chunk_ns: S, ..FlushSettings::default() })
-            .expect("flusher");
+    let mut flusher = Flusher::new(
+        dir.path(),
+        FlushSettings { chunk_ns: S, part_ns: S, audio_chunk_ns: S, ..FlushSettings::default() },
+    )
+    .expect("flusher");
     flusher.declare(cam, shape());
     let bytes = frame_bytes(0);
     let at = 1_794_151_800_000_000_000; // 2026-11-08T15:30Z
