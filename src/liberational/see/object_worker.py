@@ -215,7 +215,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     from liberational import config as cfg
 
     parser = argparse.ArgumentParser(prog="pack-see-objects", description=main.__doc__)
-    parser.add_argument("--manifest", type=Path, default=Path("config/devices.toml"), help="capture's device manifest")
+    parser.add_argument("--manifest", type=Path, default=cfg.devices_file(), help="capture's device manifest")
     parser.add_argument("--socket", type=Path, default=None, help="the broker's socket (default: under paths.state)")
     parser.add_argument("--interval", type=float, default=5.0, help="seconds between a camera's frames looked at")
     args = parser.parse_args(argv)

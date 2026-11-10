@@ -607,3 +607,8 @@ def test_unregistered_raises_when_the_broker_cannot_be_asked(monkeypatch, sdk):
     monkeypatch.setattr(sdk, "Client", SimpleNamespace(connect=connect))
     with pytest.raises(ConnectionRefusedError):
         asyncio.run(ready.unregistered(Path("/fixture/broker.sock"), (ready.CaptureNeed("desk.audio", "audio"),)))
+
+
+def test_no_manifest_yet_means_no_capture_device_is_required(tmp_path):
+    # A new install has no devices.toml until Settings' Devices writes one, and the application must still start.
+    assert ready.capture_needs(tmp_path / "devices.toml") == ()

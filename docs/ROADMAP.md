@@ -80,8 +80,8 @@ upright and near one height (`spatial/posegraph.py`). The walkthrough
 runs CUT3R, builds those loop edges, and applies the graph. Recording
 the walk with the phone's own tracked poses is the alternative that skips
 that back end. Each fixed-camera place gets a gaussian splat trained with
-gsplat, kept as a .ply and a .spz, served at `/places/splat`, and drawn by a
-Spark viewer. The rig's own pose track waits on the OAK-D.
+gsplat, kept as a .ply and a .sog, served at `/places/splat`, and drawn by
+PlayCanvas. The rig's own pose track waits on the OAK-D.
 
 ## Platform and interface
 
