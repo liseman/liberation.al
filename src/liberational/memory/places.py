@@ -55,7 +55,7 @@ map), and `pack-spatial-cameras`
 each camera in it: its pose in the map's frame, with the map's floor plane and the plan's frame, so `camera_to_plan`
 can put a pixel of that camera on the plan.
 
-**Places in the journal** : `places_for_span` is the one call the journal's pages make for a
+**Places in the journal**: `places_for_span` is the one call the journal's pages make for a
 span: the places visited in it and the places a registered fixed camera only observed, each with the rooms seen
 there. The pages' Places line keeps the visited ones (`PlaceRef.visited`). Rooms are the owner's drawn area zones
 (`see/zones.py`) that a person was in, until a floorplan and a pose track in the place's frame can say which plan
@@ -543,7 +543,7 @@ def project(rev: Revision, camera: str, u: float, v: float, height: float = 0.0)
 
 def project_pose(rev: Revision, cam: CameraPose, u: float, v: float, height: float = 0.0) -> tuple[float, float] | None:
     """`project` for a camera pose given in `rev`'s map frame rather than registered in it: a rig camera at one moment
-    (spatial/rig.py), whose pose comes from its rig's. The same floor and plan geometry as a fixed camera's."""
+    (spatial/rig.py, #5), whose pose comes from its rig's. The same floor and plan geometry as a fixed camera's."""
     if rev.floor is None:
         return None
     tr = rev.plan_transform or _floor_frame_of(tuple(rev.floor))

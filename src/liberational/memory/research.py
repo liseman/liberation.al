@@ -11,18 +11,18 @@ read, delete) and the worker (claim, heartbeat, finish) never overwrite each oth
 that stopped goes back to the queue once; interrupted again, it fails, so one bad question can't wedge the queue.
 
 Where its final answer runs (the GPU decision): by default research uses Ask's model and context on Ask's own Ollama (`ask.*`). A
-server that keeps one model loaded (ask-ollama on the Linux machine) then never swaps Ask's model out for research's, so instant
-Ask stays loaded. `[research]` can name another model, context, or server; a different model on Ask's one-model server
-would unload Ask's. At the end of a job (including a failed answer), Research reloads the normal Ask model and
-context when it used a different load on that same dedicated server. A failed reload is logged without discarding
-the report. Before every model call the worker waits while an instant Ask question is queued or running (the
-busy markers `hold()` leaves in `paths.state/ask/busy/`). A research answer already being written when one arrives
-is stopped and asked again after it (ask.YIELD), since the two would share the GPU and slow the instant one down; a
-search round's call is short and runs to its end. Thinking Research answers are capped at MAX_REPLY_TOKENS and half of
-the configured context, whichever is smaller. Planning and ranking use an explicitly configured recall.model or
-the already-resident conversational model at its shared context, keeping non-thinking JSON calls away from a
-thinking-only final-answer model. Planner history drops older evidence snippets when necessary; its search
-decisions and retained final-answer evidence are not discarded.
+server that keeps one model loaded (ask-ollama on the Linux machine) then never swaps Ask's model out for research's, so
+instant Ask stays loaded. `[research]` can name another model, context, or server; a different model on Ask's one-model
+server would unload Ask's. At the end of a job (including a failed answer), Research reloads the normal Ask model and
+context when it used a different load on that same dedicated server. A failed reload is logged without discarding the
+report. Before every model call the worker waits while an instant Ask question is queued or running (the busy markers
+`hold()` leaves in `paths.state/ask/busy/`). A research answer already being written when one arrives is stopped and
+asked again after it (ask.YIELD), since the two would share the GPU and slow the instant one down; a search round's call
+is short and runs to its end. Thinking Research answers are capped at MAX_REPLY_TOKENS and half of the configured
+context, whichever is smaller. Planning and ranking use an explicitly configured recall.model or the already-resident
+conversational model at its shared context, keeping non-thinking JSON calls away from a thinking-only final-answer
+model. Planner history drops older evidence snippets when necessary; its search decisions and retained final-answer
+evidence are not discarded.
 
 Research's final answer needs a server other than the voice loop's (`ollama.url`): the long reasoning call on the
 shared one would slow voice replies, so without another server it isn't offered.

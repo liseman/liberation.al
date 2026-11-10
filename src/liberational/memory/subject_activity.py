@@ -248,7 +248,7 @@ REMOVED = "Animal tracking was removed"
 
 
 def removed(what: str, species: str) -> dict[str, Any]:
-    """The plain answer for a question only animal tracking (see-tracks) could answer."""
+    """The plain answer for a question only animal tracking (see-tracks, since removed) could answer."""
     return dict(
         answer=f"{REMOVED}, so I can't say {what}.",
         evidence=[],

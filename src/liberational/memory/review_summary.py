@@ -44,13 +44,13 @@ renamed reads as new text and gets a new line. A line the model couldn't write c
 `rejected`, not asked for again; a model that was down is tried again after plain_text.RETRY_S, remembered in the
 process (`Lines`, plain_text's writer over these records).
 
-Written ahead: precompute() writes the lines before anyone looks. It writes the last RECENT_S first, coarse levels before
-fine (a day's hours before its 30 s steps) and newest first within a level, then older days a little at a time
-(BACKFILL_PER_PASS lines a pass, looking at most SWEEP_DAYS days a pass, back BACKFILL_DAYS,
-then round again from yesterday, so a day missed while the journal was off, or renamed since, is reached too). It stops for a voice turn and after BUDGET_S
-of model time a pass, and uses the journal's own model, so nothing new is loaded. A line is kept by the text its
-entry reads as now, so an entry rebuilt, relabeled, or renamed gets a new line and the old one simply goes unused;
-a summary that finds no line asks for it then (and the store keeps it).
+Written ahead: precompute() writes the lines before anyone looks. It writes the last RECENT_S first, coarse levels
+before fine (a day's hours before its 30 s steps) and newest first within a level, then older days a little at a time
+(BACKFILL_PER_PASS lines a pass, looking at most SWEEP_DAYS days a pass, back BACKFILL_DAYS, then round again from
+yesterday, so a day missed while the journal was off, or renamed since, is reached too). It stops for a voice turn and
+after BUDGET_S of model time a pass, and uses the journal's own model, so nothing new is loaded. A line is kept by the
+text its entry reads as now, so an entry rebuilt, relabeled, or renamed gets a new line and the old one simply goes
+unused; a summary that finds no line asks for it then (and the store keeps it).
 """
 
 import collections

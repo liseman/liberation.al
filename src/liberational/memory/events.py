@@ -13,10 +13,11 @@ latest retained verdict per event. A camera angle with enough ratings overrides 
 sources are rejected, not unknown candidates. Non-crossing kinds require sufficient Right feedback; crossings keep
 their existing eligible default until sufficient feedback demotes them. Camera-motion exclusions remain per span.
 
-Owner names and ratings are what the owner taught, so they live in the knowledge store (knowledge.sqlite3), outside the catalog reset: `activity.named` and `activity.feedback` records keyed by the span's id, over its
-time, with its kind, camera, and source stream. A rating without its source stream is from the rule-based era, whose
-kinds the model reuses, so it is left out of calibration. promotion_measurements exposes the current
-owner-agreement aggregates; these are an owner-selected cohort, not held-out detector accuracy or recall.
+Owner names and ratings are what the owner taught, so they live in the knowledge store (knowledge.sqlite3), outside the
+catalog reset: `activity.named` and `activity.feedback` records keyed by the span's id, over its time, with its kind,
+camera, and source stream. A rating without its source stream is from the rule-based era, whose kinds the model reuses,
+so it is left out of calibration. promotion_measurements exposes the current owner-agreement aggregates; these are an
+owner-selected cohort, not held-out detector accuracy or recall.
 
 """
 

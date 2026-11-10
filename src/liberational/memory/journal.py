@@ -1,5 +1,5 @@
 """Journal: a first-person entry for every 30 seconds of the day, rolled up into longer levels (after WorldMM), on
-Continuum . Entries are `journal.entry` payloads on the broker (liberational/memory_log.py): layer 3
+Continuum. Entries are `journal.entry` payloads on the broker (liberational/memory_log.py): layer 3
 interpretations whose subjects are the people in them; a rollup's parents are its child entries. A finest entry has
 no parents: the utterances, replies, and captions it was written from are in the segment store, which
 the broker can't name as a parent, and its `line_speakers` keys its lines by id instead. A speaker
@@ -206,8 +206,9 @@ def words(level: int, base: int) -> int:
 
 # The structured reply's bounds. Unbounded, the 4B now and then ran on until num_predict cut the JSON off: an
 # invalid reply, asked again on later passes, and the window given up on after MAX_RETRIES. Bounded, the reply always
-# closes. An entry cites at most MAX_SOURCE_IDS sources (entries kept on the Linux machine cite up to 11), each one of the window's
-# own ids; its text is at most TEXT_CHARS_PER_WORD characters per word of its budget (kept replies use about 6).
+# closes. An entry cites at most MAX_SOURCE_IDS sources (entries kept on the Linux machine cite up to 11), each one of
+# the window's own ids; its text is at most TEXT_CHARS_PER_WORD characters per word of its budget (kept replies use
+# about 6).
 MAX_SOURCE_IDS = 12
 TEXT_CHARS_PER_WORD = 8
 ID_TOKENS = 20  # a 36-character record id, quoted, with its comma

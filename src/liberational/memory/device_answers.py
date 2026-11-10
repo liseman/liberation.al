@@ -1,4 +1,4 @@
-"""Ask's answers from linked devices: "is Alex home", "when did Sam get here", "where did I last have my
+"""Ask's answers from linked devices: "is Alice home", "when did Sam get here", "where did I last have my
 AirPods".
 
 A question is answered here only when an owner link names the person or thing it asks about (proximity/devices.py);

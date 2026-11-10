@@ -7,9 +7,9 @@ candidate span of that kind, which the owner answers Yes or No in Known › Acti
 
 - **Where it lives.** The knowledge store (`knowledge.sqlite3`, collection `activity.kind`), keyed by kind, the latest
   record per kind winning. It is what the owner taught, so it survives a catalog reset and travels with
-  `pack-knowledge` export and import. Until the owner first changes the list it is STARTING, the initial kinds see-actions
-  reported with the same slugs and classes, so their answers carry over; the first change writes
-  STARTING into the store, and from then on the list is only the store.
+  `pack-knowledge` export and import. Until the owner first changes the list it is STARTING, the initial kinds
+  see-actions reported with the same slugs and classes, so their answers carry over; the first change writes STARTING
+  into the store, and from then on the list is only the store.
 - **Adding.** A new activity's classes are the class names that match its name and description (`match`): offline
   word matching against both models' 720 class names, no network and no language model. "Squats" reads NTU's
   "squat down"; "Cooking" reads Kinetics' "cooking egg", "cooking sausages", and so on.
