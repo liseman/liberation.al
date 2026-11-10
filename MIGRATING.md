@@ -5,6 +5,19 @@ This guide covers the current Continuum installation. Fresh setup is in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). The old genericize and v1 import
 procedures are retired. Do not run an old catch-up script against current data.
 
+## Positions are placed when written
+
+The Places page reads where people and pets were from the position layer (`position.placed`), which the nightly
+`pack-spatial-cameras` run fills from the raw footprints. After this upgrade the layer is empty, so the page shows no
+paths until that run, whose first pass places the last 30 days (about 20 s for each day of a busy place). To fill it
+at once, from the live checkout:
+
+```sh
+.venv/bin/python tools/place_positions.py
+```
+
+Restart the dashboard after the pull. Nothing is deleted: the raw footprints stay where they were.
+
 ## Remote dashboard cameras
 
 A dashboard opened over HTTPS cannot open the gateway's plain WebSocket on port 8766. The page uses `wss` on port
