@@ -12,9 +12,14 @@
 #   - SVT-AV1 (BSD) as the AV1 encoder and dav1d (BSD) as the AV1 decoder: the opt-in archive pass, and everything
 #     that reads what it wrote;
 #   - the RTSP demuxer over TCP and UDP, and the MP4 muxer;
+#   - TLS from mbedTLS (Apache 2.0), for rtsps:// cameras. Its license needs FFmpeg's --enable-version3, which makes
+#     the build LGPL version 3 or later; it is still not GPL. mbedTLS because it is one small source that builds the
+#     same on Linux and macOS: OpenSSL needs version 3 too and is several times the size, GnuTLS brings nettle, GMP,
+#     and libtasn1 with it, and macOS's Secure Transport would be a second TLS to test. FFmpeg doesn't check a
+#     server's certificate unless asked to, and cameras sign their own, so the link is encrypted but the camera is
+#     not authenticated: the same as a checkout's build;
 #   - libswscale.
-# Left out on purpose: TLS (so no rtsps:// cameras), and libavdevice, libavfilter, and libswresample, which nothing
-# calls.
+# Left out on purpose: libavdevice, libavfilter, and libswresample, which nothing calls.
 #
 # Every source is pinned by version and SHA-256. Bump a version here, then build and run the tier and capture
 # tests against it (packaging/wheels.sh says how).
@@ -32,6 +37,9 @@ SVTAV1=4.3.0
 SVTAV1_SHA=95ce8fc2381ba707e65ac8b9b2e165915bfbe9cd4d2f7b0f58d64ce31bd98f6d
 DAV1D=1.5.4
 DAV1D_SHA=686616b7c69eb88d44459391ab25cac13b6647a3b288835c5784e71c1514a5c5
+# The 3.6 long-term-support line.
+MBEDTLS=3.6.7
+MBEDTLS_SHA=a7e8bcbec0e6f761b4af24f25677626b35f762f68eef79c08677a363212d11f6
 # The oldest headers FFmpeg 8 accepts, so the oldest NVIDIA driver (530 and later) still encodes.
 NVCODEC=12.1.14.0
 NVCODEC_SHA=62b30ab37e4e9be0d0c5b37b8fee4b094e38e570984d56e1135a6b6c2c164c9f
@@ -76,6 +84,15 @@ meson compile -C "$work/dav1d/build" -j "$jobs" >/dev/null
 meson install -C "$work/dav1d/build" >/dev/null
 cp "$work/dav1d/COPYING" "$prefix/licenses/dav1d-COPYING.txt"
 
+fetch "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-$MBEDTLS/mbedtls-$MBEDTLS.tar.bz2" \
+  "$MBEDTLS_SHA" mbedtls
+cmake -S "$work/mbedtls" -B "$work/mbedtls/build" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$prefix" \
+  -DCMAKE_INSTALL_LIBDIR=lib -DUSE_STATIC_MBEDTLS_LIBRARY=ON -DUSE_SHARED_MBEDTLS_LIBRARY=OFF -DENABLE_PROGRAMS=OFF \
+  -DENABLE_TESTING=OFF -DMBEDTLS_FATAL_WARNINGS=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=ON >/dev/null
+cmake --build "$work/mbedtls/build" -j"$jobs" >/dev/null
+cmake --install "$work/mbedtls/build" >/dev/null
+cp "$work/mbedtls/LICENSE" "$prefix/licenses/mbedTLS-LICENSE.txt"
+
 hardware=()
 case "$(uname -s)" in
   Linux)
@@ -105,11 +122,15 @@ cd "$work/ffmpeg"
   --enable-decoder=h264 --enable-parser=h264 \
   --enable-bsf=h264_mp4toannexb,extract_extradata \
   --enable-demuxer=rtsp --enable-muxer=mp4 \
-  --enable-protocol=file,tcp,udp,rtp \
+  --enable-protocol=file,tcp,udp,rtp,tls --enable-version3 --enable-mbedtls \
   "${hardware[@]}" >/dev/null
 grep -q '^#define CONFIG_GPL 0' config.h || { echo "the FFmpeg build is not LGPL" >&2; exit 1; }
 make -j"$jobs" >/dev/null
 make install >/dev/null
-cp COPYING.LGPLv2.1 "$prefix/licenses/FFmpeg-COPYING.LGPLv2.1.txt"
+# The LGPL version 3 is written as additions to the GPL version 3, so both texts go along.
+grep -q '^#define FFMPEG_LICENSE "LGPL version 3 or later"' config.h \
+  || { echo "the FFmpeg build is not LGPL version 3" >&2; exit 1; }
+cp COPYING.LGPLv3 "$prefix/licenses/FFmpeg-COPYING.LGPLv3.txt"
+cp COPYING.GPLv3 "$prefix/licenses/FFmpeg-COPYING.GPLv3.txt"
 sed -n 's/^#define FFMPEG_CONFIGURATION //p' config.h > "$prefix/licenses/FFmpeg-configuration.txt"
-echo "FFmpeg $FFMPEG, OpenH264 $OPENH264, SVT-AV1 $SVTAV1, dav1d $DAV1D in $prefix"
+echo "FFmpeg $FFMPEG, OpenH264 $OPENH264, SVT-AV1 $SVTAV1, dav1d $DAV1D, mbedTLS $MBEDTLS in $prefix"

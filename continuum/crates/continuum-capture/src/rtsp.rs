@@ -19,6 +19,19 @@ mod worker;
 #[cfg(feature = "ffmpeg")]
 pub use worker::run;
 
+/// Whether this build reads `rtsps://` cameras: it has FFmpeg, and that FFmpeg has a TLS library.
+#[must_use]
+pub fn rtsps_available() -> bool {
+    #[cfg(feature = "ffmpeg")]
+    {
+        input::tls_available()
+    }
+    #[cfg(not(feature = "ffmpeg"))]
+    {
+        false
+    }
+}
+
 /// The registered payload shape. Its bytes are Annex-B H.264, not a CNK GOP wrapper.
 pub const SHAPE: &str = "H264AnnexB";
 

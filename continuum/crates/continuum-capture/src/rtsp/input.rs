@@ -114,6 +114,24 @@ impl Drop for Reader {
     }
 }
 
+/// Whether this FFmpeg has a TLS library, which an `rtsps://` camera needs. Reads FFmpeg's static protocol table:
+/// nothing is initialized and nothing is opened.
+pub(super) fn tls_available() -> bool {
+    let mut position = std::ptr::null_mut();
+    loop {
+        // SAFETY: avio_enum_protocols walks a static table; `position` is its own cursor, null to start, and each
+        // name it returns is a static NUL-terminated string (null after the last).
+        let name = unsafe { ffmpeg::ffi::avio_enum_protocols(&raw mut position, 0) };
+        if name.is_null() {
+            return false;
+        }
+        // SAFETY: as above, a non-null name is a static NUL-terminated string.
+        if unsafe { std::ffi::CStr::from_ptr(name) }.to_bytes() == b"tls" {
+            return true;
+        }
+    }
+}
+
 fn demux(
     settings: &RtspSettings,
     name: &str,
@@ -249,8 +267,8 @@ fn parameters_data(parameters: &ffmpeg::codec::Parameters) -> io::Result<(u32, u
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::{BufRead, BufReader, Write};
-    use std::net::{TcpListener, TcpStream};
+    use std::io::{BufRead, BufReader, Read, Write};
+    use std::net::TcpListener;
 
     fn base64(bytes: &[u8]) -> String {
         const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -296,7 +314,7 @@ mod tests {
         (decoder.sps[0].clone(), decoder.pps, pictures)
     }
 
-    fn rtp(stream: &mut TcpStream, sequence: &mut u16, timestamp: u32, marker: bool, payload: &[u8]) {
+    fn rtp(stream: &mut impl Write, sequence: &mut u16, timestamp: u32, marker: bool, payload: &[u8]) {
         let mut packet = vec![0x80, 96 | if marker { 0x80 } else { 0 }];
         packet.extend_from_slice(&sequence.to_be_bytes());
         packet.extend_from_slice(&timestamp.to_be_bytes());
@@ -310,9 +328,34 @@ mod tests {
     }
 
     fn server(listener: TcpListener, sps: Vec<u8>, pps: Vec<Vec<u8>>, pictures: Vec<(u32, Vec<Vec<u8>>)>) {
-        let (mut stream, _) = listener.accept().unwrap();
+        let (stream, _) = listener.accept().unwrap();
         stream.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
-        let mut input = BufReader::new(stream.try_clone().unwrap());
+        let stream = serve(stream, sps, pps, pictures);
+        let _ = stream.shutdown(std::net::Shutdown::Write);
+    }
+
+    /// The same server behind TLS, with a certificate it signs itself, as a camera does.
+    fn tls_server(listener: TcpListener, sps: Vec<u8>, pps: Vec<Vec<u8>>, pictures: Vec<(u32, Vec<Vec<u8>>)>) {
+        let identity = rcgen::generate_simple_self_signed(vec!["localhost".to_string()]).unwrap();
+        let key = rustls::pki_types::PrivateKeyDer::try_from(identity.signing_key.serialize_der()).unwrap();
+        let config = rustls::ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+            .with_safe_default_protocol_versions()
+            .unwrap()
+            .with_no_client_auth()
+            .with_single_cert(vec![identity.cert.der().clone()], key)
+            .unwrap();
+        let (stream, _) = listener.accept().unwrap();
+        stream.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+        let session = rustls::ServerConnection::new(Arc::new(config)).unwrap();
+        let mut stream = serve(rustls::StreamOwned::new(session, stream), sps, pps, pictures);
+        stream.conn.send_close_notify();
+        let _ = stream.flush();
+        let _ = stream.sock.shutdown(std::net::Shutdown::Write);
+    }
+
+    /// Answers one RTSP client over `stream`, sends the pictures interleaved in it, and hands the stream back.
+    fn serve<S: Read + Write>(stream: S, sps: Vec<u8>, pps: Vec<Vec<u8>>, pictures: Vec<(u32, Vec<Vec<u8>>)>) -> S {
+        let mut input = BufReader::new(stream);
         loop {
             let mut line = String::new();
             input.read_line(&mut line).unwrap();
@@ -344,10 +387,10 @@ mod tests {
                 }
                 "SETUP" => "Session: fixture\r\nTransport: RTP/AVP/TCP;unicast;interleaved=0-1\r\n".to_string(),
                 "PLAY" => "Session: fixture\r\n".to_string(),
-                _ => return,
+                _ => return input.into_inner(),
             };
             write!(
-                stream,
+                input.get_mut(),
                 "RTSP/1.0 200 OK\r\nCSeq: {sequence}\r\n{headers}Content-Length: {}\r\n\r\n{body}",
                 body.len()
             )
@@ -356,6 +399,7 @@ mod tests {
                 break;
             }
         }
+        let mut stream = input.into_inner();
         let mut sequence = 1;
         for (timestamp, nals) in pictures {
             for (index, nal) in nals.iter().enumerate() {
@@ -377,7 +421,41 @@ mod tests {
                 }
             }
         }
-        let _ = stream.shutdown(std::net::Shutdown::Write);
+        stream
+    }
+
+    #[test]
+    fn a_loopback_rtsps_source_is_read_through_tls() {
+        if !tls_available() {
+            eprintln!("this FFmpeg has no TLS library; skipped");
+            return;
+        }
+        let (sps, pps, pictures) = fixture();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || tls_server(listener, sps, pps, pictures));
+        let source = Reader::open(
+            RtspSettings {
+                url: format!("rtsps://{address}/fixture"),
+                connect_timeout_ms: 3000,
+                read_timeout_ms: 1000,
+                ..RtspSettings::default()
+            },
+            "test",
+        )
+        .unwrap();
+        assert_eq!((source.info.width, source.info.height), (64, 48));
+        let mut received = Vec::new();
+        while let Ok(Some(picture)) = source.next(Duration::from_secs(2)) {
+            received.push(picture);
+        }
+        // The same pictures as over plain TCP: the first is a keyframe with its parameter sets, in decode order.
+        assert!(!received.is_empty());
+        assert!(received[0].key);
+        assert!(super::super::annex_b_units(&received[0].bytes).unwrap().iter().any(|nal| nal[0] & 31 == 7));
+        assert!(received.windows(2).all(|pair| pair[0].sequence < pair[1].sequence));
+        server.join().unwrap();
+        drop(source);
     }
 
     #[test]
