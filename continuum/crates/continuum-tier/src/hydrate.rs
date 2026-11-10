@@ -231,8 +231,8 @@ impl JpegNv12 {
         if decoder.input_colorspace() != Some(ColorSpace::YCbCr) {
             if !self.warned {
                 self.warned = true;
-                eprintln!(
-                    "jpeg: WARN a JPEG that isn't YCbCr ({:?}): decoding through RGB, increased CPU load expected",
+                tracing::warn!(
+                    "jpeg: a JPEG that isn't YCbCr ({:?}): decoding through RGB, increased CPU load expected",
                     decoder.input_colorspace()
                 );
             }
