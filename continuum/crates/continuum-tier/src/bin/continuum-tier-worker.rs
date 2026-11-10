@@ -31,7 +31,10 @@ const USAGE: &str = "usage: continuum-tier-worker (--state-dir D | --socket S --
 fn main() -> ExitCode {
     continuum_log::init("continuum-tier-worker");
     if std::env::args_os().skip(1).any(|arg| arg == "--capabilities") {
-        println!(r#"{{"version":1,"rtsp_h264":true,"av1_archive":{}}}"#, cfg!(feature = "ffmpeg"));
+        println!(
+            r#"{{"version":1,"rtsp_h264":true,"av1_archive":{}}}"#,
+            continuum_tier::probe::av1_encoder_available()
+        );
         return ExitCode::SUCCESS;
     }
     let (mut state_dir, mut socket, mut chunks, mut manifest, mut streams) =

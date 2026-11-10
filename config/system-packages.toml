@@ -189,30 +189,6 @@ brew = "ffmpeg"
 services = []
 build = true
 
-[libavfilter-dev]
-why = "FFmpeg's avfilter headers, to build Continuum RTSP capture, H.264 Python decoding, and Tier video codecs with the ffmpeg feature."
-pkgconfig = "libavfilter"
-apt = "libavfilter-dev"
-brew = "ffmpeg"
-services = []
-build = true
-
-[libswresample-dev]
-why = "FFmpeg's swresample headers, to build Continuum RTSP capture, H.264 Python decoding, and Tier video codecs with the ffmpeg feature."
-pkgconfig = "libswresample"
-apt = "libswresample-dev"
-brew = "ffmpeg"
-services = []
-build = true
-
-[libavdevice-dev]
-why = "FFmpeg's avdevice headers, to build Continuum RTSP capture, H.264 Python decoding, and Tier video codecs with the ffmpeg feature."
-pkgconfig = "libavdevice"
-apt = "libavdevice-dev"
-brew = "ffmpeg"
-services = []
-build = true
-
 [libpipewire]
 # Checked by the headers' pkg-config module (the runtime library is there without them). libclang, which generates
 # the bindings, has no pkg-config module and only versioned names on Debian, so it's installed with it.

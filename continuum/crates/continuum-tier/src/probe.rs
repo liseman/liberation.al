@@ -29,7 +29,8 @@ pub struct Ffmpeg {
 }
 
 /// The encoders the tiers use, in the order the worker prefers them.
-pub const ENCODERS_OF_INTEREST: &[&str] = &["h264_nvenc", "h264_videotoolbox", "libx264", "flac", "libopus"];
+pub const ENCODERS_OF_INTEREST: &[&str] =
+    &["h264_nvenc", "h264_videotoolbox", "libx264", "libopenh264", "flac", "libopus"];
 
 /// The decoders the tiers use.
 pub const DECODERS_OF_INTEREST: &[&str] = &["h264_cuvid", "h264", "mjpeg", "flac", "libopus"];
@@ -55,6 +56,20 @@ fn probe_ffmpeg() -> Option<Ffmpeg> {
 #[cfg(not(feature = "ffmpeg"))]
 fn probe_ffmpeg() -> Option<Ffmpeg> {
     None
+}
+
+/// Whether this FFmpeg can encode the AV1 archive (SVT-AV1). The wheels' private FFmpeg leaves it out
+/// (docs/CONTINUUM.md, "Wheels"); a distribution's FFmpeg has it.
+#[must_use]
+pub fn av1_encoder_available() -> bool {
+    #[cfg(feature = "ffmpeg")]
+    {
+        crate::encode::codec_open().is_ok() && ffmpeg_next::encoder::find_by_name("libsvtav1").is_some()
+    }
+    #[cfg(not(feature = "ffmpeg"))]
+    {
+        false
+    }
 }
 
 impl Probe {

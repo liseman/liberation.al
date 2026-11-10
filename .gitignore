@@ -42,5 +42,6 @@ src/liberational/dashboard/static/app/
 
 # Continuum Broker build output (continuum/)
 continuum/target/
+continuum/dist/
 # continuum_py: maturin develop builds the extension into the package source (python/continuum_py/)
 continuum/python/continuum_py/*.so

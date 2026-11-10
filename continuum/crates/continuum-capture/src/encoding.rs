@@ -1,18 +1,19 @@
 //! Canonical MJPEG-camera H.264 adapter. The hardware encoder is NVENC, or VideoToolbox on macOS; its
-//! failure, at open or at run time, selects CPU H.264 (libx264), never raw JPEG.
+//! failure, at open or at run time, selects CPU H.264 (libx264, or OpenH264 where FFmpeg has no libx264), never raw
+//! JPEG.
 //! Each JPEG is decoded on the CPU straight to NV12, its own Y, Cb, and Cr repacked with no trip through RGB
 //! (`continuum_tier::JpegNv12`), into buffers kept from frame to frame.
 //! Source capture headers remain the publisher's responsibility; every accepted image yields exactly
 //! one access unit with its original monotonic timestamp and attested duration.
 
-use continuum_tier::h264::{H264Encoder, H264Settings};
+use continuum_tier::h264::{H264Encoder, H264Settings, SOFTWARE_H264_ENCODERS};
 use continuum_tier::{JpegNv12, TierError};
 
 use crate::manifest::VideoEncodingSettings;
 use crate::publish::Capture;
 
 const MAX_PIXELS: u64 = 16_777_216;
-/// The hardware encoders capture uses; a run-time failure of either falls back to libx264.
+/// The hardware encoders capture uses; a run-time failure of either falls back to a software encoder.
 const HARDWARE: [&str; 2] = ["h264_nvenc", "h264_videotoolbox"];
 
 /// This platform's hardware H.264 encoder: VideoToolbox on macOS (the Mac), NVENC elsewhere.
@@ -56,8 +57,8 @@ pub struct Pipeline {
 }
 
 impl Pipeline {
-    /// Opens this platform's hardware encoder ([`hardware_encoder`]), falling back loudly to low-delay libx264 on
-    /// failure.
+    /// Opens this platform's hardware encoder ([`hardware_encoder`]), falling back loudly to a low-delay software
+    /// encoder on failure.
     /// # Errors
     /// Invalid layout/settings or both hardware and software encoder initialization failing.
     pub fn new(width: u32, height: u32, fps: u32, config: VideoEncodingSettings) -> Result<Self, TierError> {
@@ -94,9 +95,9 @@ impl Pipeline {
             Ok(encoder) => encoder,
             Err(error) => {
                 tracing::warn!(
-                    "{hardware} initialization failed ({error}); using CPU libx264 veryfast H.264, increased CPU load expected"
+                    "{hardware} initialization failed ({error}); using CPU H.264, increased CPU load expected"
                 );
-                H264Encoder::open_with(&["libx264"], width, height, settings)?
+                H264Encoder::open_with(SOFTWARE_H264_ENCODERS, width, height, settings)?
             }
         };
         Ok(Self {
@@ -158,11 +159,11 @@ impl Pipeline {
             // frame back), is replaced for good: the frame is encoded again on the CPU as a keyframe.
             Err(error) if HARDWARE.contains(&self.encoder.encoder_name()) => {
                 tracing::warn!(
-                    "{} runtime failure ({error}); switching to CPU libx264 veryfast H.264, increased CPU load expected",
+                    "{} runtime failure ({error}); switching to CPU H.264, increased CPU load expected",
                     self.encoder.encoder_name()
                 );
                 self.break_chain();
-                self.encoder = H264Encoder::open_with(&["libx264"], self.width, self.height, self.settings)?;
+                self.encoder = H264Encoder::open_with(SOFTWARE_H264_ENCODERS, self.width, self.height, self.settings)?;
                 self.encode_one(nv12, capture.mono_ns, end, true)?
             }
             Err(error) => {
@@ -279,7 +280,7 @@ mod tests {
             height: 48,
             settings,
             interval_ns: 2_000_000_000,
-            encoder: H264Encoder::open_with(&["libx264"], 64, 48, settings).unwrap(),
+            encoder: H264Encoder::open_with(SOFTWARE_H264_ENCODERS, 64, 48, settings).unwrap(),
             previous: None,
             decoder: JpegNv12::default(),
             nv12: Vec::new(),
@@ -355,11 +356,11 @@ mod tests {
 
     #[test]
     #[cfg(not(target_os = "macos"))]
-    fn a_hardware_encoder_that_wont_open_falls_back_to_libx264() {
+    fn a_hardware_encoder_that_wont_open_falls_back_to_software() {
         // No GPU 63 here (and NVENC refuses 64x48 anyway): the pipeline still opens, on the CPU.
         let config = VideoEncodingSettings { enabled: true, gpu: 63, cq: 36, ..Default::default() };
         let mut pipeline = Pipeline::new(64, 48, 30, config).unwrap();
-        assert_eq!(pipeline.backend_name(), "libx264");
+        assert!(SOFTWARE_H264_ENCODERS.contains(&pipeline.backend_name()));
         let bytes = pipeline.encode(capture(1_900_000_000, 10, 1), &jpeg(64, 48)).unwrap();
         assert!(continuum_tier::gop::h264_idr(&bytes));
     }
@@ -373,7 +374,11 @@ mod tests {
         const H: u16 = 144;
         let config = VideoEncodingSettings { enabled: true, ..Default::default() };
         let mut pipeline = Pipeline::new(u32::from(W), u32::from(H), 30, config).unwrap();
-        assert_eq!(pipeline.backend_name(), "h264_videotoolbox", "VideoToolbox didn't open; capture would use libx264");
+        assert_eq!(
+            pipeline.backend_name(),
+            "h264_videotoolbox",
+            "VideoToolbox didn't open; capture would encode on the CPU"
+        );
         let picture = jpeg(W, H);
         let mut decoder = continuum_tier::video::H264StreamDecoder::new().unwrap();
         let samples = [
