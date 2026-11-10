@@ -90,11 +90,13 @@ of two things:
 
 - **The owner's spot on the plan** (`spatial/spots.py`). A camera's spot, set in the plan editor and kept in the
   plan's scene, says where the camera is, how high, and which way it faces. With the camera's held focal and lens (or
-  the spot's `fov`) that is a pose in the plan's own frame, and its foot points land on the plan with no map at all. The
-  one thing a spot doesn't say is how far the camera is tilted. That is fitted once per camera from the people it
-  sees walking: someone walking is upright and as tall at the far end of the room as at the near end, and only one
-  tilt makes them so. Nobody's height is assumed, and people sitting don't count. The fit is checked against the
-  spot's height (people must come out a person's height) and kept in `state/places/aims.json`.
+  the spot's `fov`) that is a pose in the plan's own frame, and its foot points land on the plan with no map at all. A
+  held focal belongs to the lens it was measured through: a camera with a lens in the device manifest and no focal
+  measured through it is read with the focal that lens's calibration gives. The one thing a spot doesn't say is how
+  far the camera is tilted. That is fitted once per camera from the people it sees walking: someone walking is upright
+  and as tall at the far end of the room as at the near end, and only one tilt makes them so. Nobody's height is
+  assumed, and people sitting don't count. The fit is checked against the spot's height (people must come out a
+  person's height) and kept in `state/places/aims.json`.
 - **A map's registration** (a revision's `cameras`), for a camera with no spot.
 
 The owner measured the spot, so it outranks what the machine works out. The check above may refine the pose a spot
@@ -110,6 +112,10 @@ of the surfaces that face up; the revision's floor plane is the levelling, and t
 that is on no rig and whose kept views all sit at one pose (within 0.5 m and 8 degrees) is registered as fixed at
 that pose. A camera on a rig, or seen from several poses, needs a pose for each moment: it isn't registered, and its
 foot points stay unplaced.
+
+A foot point the camera's spot could not see by the plan, because a solid wall stands between them, gets no
+position: the subject was up on furniture, not on the floor where the ray lands. The placer logs how many it left
+out for each camera, people and animals apart.
 
 When a spot or a registration moves where a camera puts people by more than 0.25 m, the placer places that place's
 samples again into a new generation, so a path is always in one frame. `memory/places.py:places_for_span` tells the
