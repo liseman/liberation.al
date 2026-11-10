@@ -1,12 +1,11 @@
 """The cameras and microphones this machine has and which ones Liberational uses, for Settings' Cameras and
-microphones (#384). Choosing them edits capture's device manifest (dashboard/cameras.py, POST /devices/camera and
+microphones. Choosing them edits capture's device manifest (dashboard/cameras.py, POST /devices/camera and
 POST /devices/mic).
 
 GET  /devices   {"control", "mics": [...], "cameras": [...], "notes": {"mics", "cameras"}}. Device names only.
 POST /devices/sensitivity  {"mic": device name, "sensitivity": 0..100 or null} -> one mic's sensitivity in
                 pack.toml (null: back to audio.sensitivity); {"default": 0..100} -> audio.sensitivity, for every
-                mic without its own. The microphone service applies either live, no restart (Joe: "Changing mic
-                sensitivity should not restart anything"). This machine only, same-origin JSON.
+                mic without its own. The microphone service applies either live, without restarting anything. This machine only, same-origin JSON.
 POST /devices/camera  {"index": a camera's index from GET /devices, "on": bool} -> adds or removes its [[device]] in
                 config/devices.toml and restarts continuum-capture. This machine only, same-origin JSON.
                 {index, flip}, {index, auto_exposure}, {index, exposure_target}, or {index, width, height, fps} saves
@@ -17,9 +16,9 @@ GET /devices/camera-controls?camera=<name> -> exposed native controls and curren
 POST /devices/camera-controls {"camera", "values" | "auto_exposure" | "reset"} -> saved native overrides;
                 capture applies them live on its control thread, without restarting the stream.
 POST /devices/mic  {"id": a microphone's id from GET /devices, "on": bool} -> the same for a microphone.
-GET/POST /devices/privacy -> pause or resume cameras or microphones for privacy (dashboard/privacy.py, #2260): capture
+GET/POST /devices/privacy -> pause or resume cameras or microphones for privacy (dashboard/privacy.py): capture
                 stops a paused device within about a second, without restarting the others.
-POST /devices/auto_gain  {"mic": device name, "on": bool} -> [audio.mic_auto_gain] in pack.toml (#410, #798). Live
+POST /devices/auto_gain  {"mic": device name, "on": bool} -> [audio.mic_auto_gain] in pack.toml. Live
                 too: the listen worker follows it within about a second, and says where each gain is in
                 state/listen.gain.json.
 """
@@ -73,8 +72,7 @@ def _scan() -> _MicDiscovery:
 def _discover_mics(*, fresh: bool = False) -> tuple[list[tuple[Any, ...]], dict[str, str]]:
     """Only hardware discovery is cached, never selection, gain, sensitivity, or broker liveness. Mutations ask for
     fresh discovery before resolving their target; concurrent readers share one scan instead of spawning children.
-    A read of a discovery older than DISCOVERY_FRESH_S answers from it at once and scans again in the background
-    (#2568): the scan is a child process that took about a second, and Settings > Devices waited for it every 2 s.
+    A read of a discovery older than DISCOVERY_FRESH_S answers from it at once and scans again in the background: the scan is a child process that took about a second, and Settings > Devices waited for it every 2 s.
     """
     global _mic_discovery, _rescan
     with _discovery_lock:
@@ -336,7 +334,7 @@ def _mac_cameras() -> list[tuple[int, str, str | None]]:
             out.append((int(m.group(1)), m.group(2).strip(), None))
     # Each camera's AVFoundation unique ID, which capture's manifest matches by (match = { path = "0x..." }): ffmpeg
     # lists names only, and three identical Arducams can't be told apart by name, so every manifest camera read as
-    # unplugged and Live showed none (2026-11-02). system_profiler lists the same devices, in the same order.
+    # unplugged and Live showed none. system_profiler lists the same devices, in the same order.
     ids = _mac_unique_ids()
     if len(ids) == len(out) and all(n == name for (_, n, _), (name, _) in zip(out, ids, strict=True)):
         out = [(i, n, uid) for (i, n, _), (_, uid) in zip(out, ids, strict=True)]

@@ -1,11 +1,11 @@
-"""What each service uses over time, for the Resource monitor's stacked usage chart (#2245, #2277, GET
+"""What each service uses over time, for the Resource monitor's stacked usage chart (GET
 /stats/history?since=).
 
 A `Sampler` thread started with the dashboard hands a /stats snapshot (server.Stats.snapshot) to `History.record`
 every `STEP_S`, which keeps one sample a step for the last `WINDOW_S`, whether or not anyone is looking; /stats polls
-record too. A sample costs about 0.4% of a core on devbox (36 samples at 5 s, niced): the process scan reads each process's command line once
+record too. A sample costs about 0.4% of a core on the Linux machine (36 samples at 5 s, niced): the process scan reads each process's command line once
 (proc_table.py) and the GPUs come from NVML in-process (nvml.py), where a full scan and three nvidia-smi calls a sample
-cost 4.3% (#2263). A gap in the samples is a gap in the chart, never a zero.
+cost 4.3%. A gap in the samples is a gap in the chart, never a zero.
 
 A sample is {"ts", "cpu": {group: % of the whole machine}, "mem": {group: bytes}, "gpu": [{"index", "used", "util",
 "apps": {group: bytes}}]}. A group is a service (the role /stats names a process by). An Ollama runner counts toward the
@@ -47,7 +47,7 @@ def nvidia() -> Gpus | None:
 
 
 def _smi() -> Gpus | None:
-    """nvidia-smi's answer: two calls, each a new process (30 to 60 ms of CPU on devbox)."""
+    """nvidia-smi's answer: two calls, each a new process (30 to 60 ms of CPU on the Linux machine)."""
     executable = shutil.which("nvidia-smi")
     if executable is None:
         return None
@@ -176,7 +176,7 @@ class History:
 
 class Sampler:
     """Samples `snapshot()` into `history` every `step_s` on a daemon thread of its own, from `start` for the dashboard's
-    whole life (#2277), so the chart always has the last half hour whether or not anyone is looking."""
+    whole life, so the chart always has the last half hour whether or not anyone is looking."""
 
     def __init__(self, history: History, snapshot: Callable[[], Mapping[str, Any]], step_s: float = STEP_S) -> None:
         self.history, self.snapshot, self.step_s = history, snapshot, step_s

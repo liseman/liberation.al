@@ -1,4 +1,4 @@
-"""A live tail of every service's log, for the dashboard's Debug tab (issue #111).
+"""A live tail of every service's log, for the dashboard's Debug tab.
 
 Each service writes data/logs/<name>.log (services.log_path, the same file under launchd and systemd), so this reads
 those files and nothing platform-specific. The service names come from services.toml, never from a request, so a

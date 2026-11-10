@@ -1,4 +1,4 @@
-"""The Inbox's routes (#1336): research jobs (memory/research.py) for the owner, on this dashboard's origin only.
+"""The Inbox's routes: research jobs (memory/research.py) for the owner, on this dashboard's origin only.
 
 GET    /research/jobs              {jobs: [newest first, without reports], available, reason, unread}
 GET    /research/jobs/<id>         one job with its report

@@ -1,4 +1,4 @@
-"""The cameras and microphones Continuum's capture uses (#549), for Settings' Cameras and microphones.
+"""The cameras and microphones Continuum's capture uses, for Settings' Cameras and microphones.
 
 Capture opens the devices its manifest (`config/devices.toml`) names: a `[[device]]` with `kind = "camera"` or
 `"microphone"` and a `match` (`usb = "vendor:product"`, or `name`, a piece of the device's name; every field given must match). Settings
@@ -279,7 +279,7 @@ def states(link: Any) -> dict[str, Any]:
     """Each manifest camera's status, as v1's vision.status.json had it: {"ts", "cameras": {name: {"state": "on",
     "size": [w, h], "fps"}}}, a camera absent while capture sends it nothing. `link` is a continuum_link.BrokerLink.
     Asked of the broker at most every STATUS_EVERY_S. A status older than that answers at once and is read again in
-    the background, one read at a time (#2568): reading every camera's last frames took about a second, which every
+    the background, one read at a time: reading every camera's last frames took about a second, which every
     page's event stream (camera_status) and Settings > Devices waited for every 2 s. Only the first read waits."""
     global _status_read
     with _status_lock:

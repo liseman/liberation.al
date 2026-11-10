@@ -1,4 +1,4 @@
-"""The Reports tab's API (#1340): /reports/api/*, over memory/reports.py's cached day aggregates.
+"""The Reports tab's API: /reports/api/*, over memory/reports.py's cached day aggregates.
 
 GET  /reports/api/layout            {"reports": [{"id", "kind", "arg", "title", "people"?}], "kinds": the report kinds}
 POST /reports/api/layout            {"reports": [...]}: the chosen reports and their order (same-origin JSON)
@@ -9,8 +9,8 @@ The layout lives in state/reports.sqlite3 (memory/reports.py's Store), not in th
 the same Reports page. The built-in reports start on it; the owner can remove any of them and add suggested ones. A
 built-in report added in a later version joins a saved layout once, at the end; one the owner removed stays removed.
 
-Who's around shows one person at a time through its filter (#2582), so there are no per-person Who's around cards. A
-layout saved with them ("When Joe is around") folds them into the Who's around card: their people become the filter's
+Who's around shows one person at a time through its filter, so there are no per-person Who's around cards. A
+layout saved with them ("When Alex is around") folds them into the Who's around card: their people become the filter's
 pinned choices, in their order, under "people".
 """
 
@@ -36,8 +36,8 @@ MAX_PEOPLE = 20
 AROUND = "whos_around"
 KEPT_PEOPLE = "around_people"  # Who's around's pins while the card is off the page
 
-# The reports shown as one card with a filter rather than a card per person or camera (#2582 for Who's around, then
-# the #2621 board's idea 2): kind -> (the field holding the filter's pinned choices, the card's title).
+# The reports shown as one card with a filter rather than a card per person or camera: kind -> (the field
+# holding the filter's pinned choices, the card's title).
 FILTERED: dict[str, tuple[str, str]] = {
     AROUND: ("people", "Who's around"),
     "person_activity": ("people", "Activity by person"),
@@ -182,13 +182,13 @@ def _days(n: int) -> str:
 
 
 def suggestions(view: reports.Reports) -> list[dict[str, Any]]:
-    """Reports to add, drawn from what the system knows (#2069): each pet, each kind of event, each zone with visits,
+    """Reports to add, drawn from what the system knows: each pet, each kind of event, each zone with visits,
     each camera's walk-bys, each person's activity, and each device source, ranked by how many days of data back
     them, then by how much, leaving out what's on the page already. A person's presence isn't a card of its own: Who's
-    around's filter shows one person (#2582). Words people said are never suggested: a word count ranks filler,
+    around's filter shows one person. Words people said are never suggested: a word count ranks filler,
     numbers, and swearing first. Only days already read count, so a suggestion never promises data that isn't
     there. The event Activity and events leads with isn't suggested as a card of its own while that card is on the
-    page: it would repeat the card's first chart (#2621 board, idea 3)."""
+    page: it would repeat the card's first chart."""
     activity = view.view("activity")
     walkbys = view.view("walkbys")
     person_activity = view.view("person_activity")
