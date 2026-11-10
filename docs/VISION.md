@@ -1,11 +1,16 @@
 # Vision pipeline
 
-How camera pictures become rows. [VISION-STREAMS.md](VISION-STREAMS.md) is the field reference for the streams named
-here. Paths are relative to `src/liberational/`.
+How camera pictures become rows, and why each stage is built the way it is.
+[VISION-STREAMS.md](VISION-STREAMS.md) is the field reference for the streams named here. Paths are relative to
+`src/liberational/`.
+
+Two ideas run through every stage. Each camera is decoded once and every model reads that one decode, because
+decoding is the cost the workers would otherwise each pay. And every stage writes coverage beside its output (the
+spans it looked at), so a reader can tell "nothing happened" from "nobody looked".
 
 ```text
 continuum-capture -> <camera>.video -> see-decode -> see-actions  -> pose, action, face, movement, walkby, animal
-                                                  -> see-captions -> camera.caption, camera.objects
+                                                  -> see-captions -> camera.caption, camera.objects, animal.grounding
                                                   -> see-objects  -> object.match
                                           see-actions' tracks -> see-zones -> zone.visit, presence.span
 ```
@@ -80,18 +85,24 @@ override.
 
 ## Captions and objects
 
-`pack-see-captions` (`see/caption_worker.py`) captions a view when its change gate says the view changed, and at
-least every 30 seconds while idle. Each caption describes the frame on its own. A skipped tick says "not
-re-observed"; it never repeats an earlier caption as fresh. Grounding (`camera.objects`) runs on a view's first look,
-after a caption that movement asked for, and otherwise every 5 minutes, because it is the costliest call.
-`observation.status` tells a fresh result from a cached, failed, or skipped one.
+`pack-see-captions` (`see/caption_worker.py`, `see/captions.py`) captions a view when its change gate says the view
+changed, and now and then while it is idle. The gate compares the view with the one at the last caption, not with the
+last frame, so slow drift adds up. Each caption describes the frame on its own. A skipped tick says `not_observed`; it
+never repeats an earlier caption as fresh. Grounding (`camera.objects`) runs on a view's first look, after a caption
+that movement asked for, and otherwise rarely, because it is the costliest call. `observation.status` tells a fresh
+result from a cached, failed, or skipped one.
+
+The captions are also an animal detector (`see/caption_animals.py`): a grounding that boxes an animal, or a fresh
+caption that names one, gives `animal.grounding` rows and their embeddings, in the same shapes as see-actions'
+animal streams. They are separate streams because a stream has one writer per camera.
 
 `pack-see-objects` (`see/object_worker.py`, `memory/objects.py`) finds the objects the owner outlined: SIFT features
-inside the saved mask, matched with RANSAC in each camera's newest frame every 5 seconds and confirmed in two frames.
-It writes `object.match`.
+inside the saved mask, matched with RANSAC in each camera's newest frame and confirmed in two frames. It writes
+`object.match`. With no object taught it decodes nothing.
 
 Outlining is on demand. `vision/segmentation.py` runs EdgeTAM in one child process when the owner clicks an object,
-draws a box, or asks to find objects in a frozen frame. The child stays warm for 120 seconds, and
+draws a box, or asks to find objects in a frozen frame, so a model fault cannot take the dashboard down. The child
+stays warm between requests and is stopped when idle, so an idle dashboard holds no GPU memory for it.
 `objects.segmentation_timeout_s` bounds each request. A missing model is an error, never a box presented as a mask.
 
 ## Zones and came-into-view
@@ -111,11 +122,21 @@ draws a box, or asks to find objects in a frozen frame. The child stays warm for
 ## Pets
 
 `people/pets.py` keeps owner-named pets (`pet.profile`) and the owner's labels of animal sightings (`pet.sighting`).
-`people/pet_recognition.py` names a new sighting by appearance only for a species whose labels pass a held-out
-check. Unlabeled sightings are offered for labeling for `pets.label_days` (14). A label keeps its photo, so
-`tools/restore_pet_references.py` can embed references again after a model change.
+A sighting is one animal track: the mean of its embeddings, from see-actions' `animal.embedding` and see-captions'
+`animal.grounding_embedding`.
 
-A pet's card has **Training images**: every sighting labeled as it, the least like the rest first, with the photo
-each label kept (an older example with none is listed without one). Removing some clears their labels, marks them
-not that pet, and erases their `pet.reference` and `pet.photo` records in one write. Every reader keys its kept
-answers by the knowledge store's generation, so recognition follows on the next read with no restart.
+`people/pet_recognition.py` names a new sighting by appearance only for a species whose labels pass a held-out
+check: each labeled sighting is recognized from the others, and too many wrong or undecided answers keep recognition
+off. Until then a best match is shown as a suggestion and nothing answers for a pet by appearance. A species with
+exactly one named pet has no second class to get wrong, so its labeled sightings are a gallery with a threshold of
+their own. The module's docstring has the thresholds.
+
+Unlabeled sightings are offered for labeling for `pets.label_days`. A label keeps its embedding and its photo
+(`pet.reference`, `pet.photo`), so it survives a reset, and `tools/restore_pet_references.py` can embed references
+again after a model change.
+
+A pet's training images are the sightings labeled as it, listed on its card with the least like the rest first. An
+example with no kept photo is listed without one. Removing some clears their labels, marks them not that pet, and
+erases their `pet.reference` and `pet.photo` records in one write. Every reader keys its kept answers by the
+knowledge store's generation, so recognition follows on the next read with no restart. [NAMING.md](NAMING.md) has
+the steps, and [PEOPLE.md](PEOPLE.md#what-the-naming-answers-store) what Ignore and Block store for a sighting.
