@@ -20,8 +20,8 @@ def test_defaults_are_generic():
     "var, raw, key, want",
     [
         pytest.param("PACK_PORTS_DASHBOARD", "9000", "ports.dashboard", 9000, id="int"),
-        pytest.param("PACK_VISION_CAMS", "0,2", "vision.cams", [0, 2], id="int-list"),
-        pytest.param("PACK_VISION_HOLD_FPS", "false", "vision.hold_fps", False, id="bool"),
+        pytest.param("PACK_JOURNAL_LEVELS", "60,120", "journal.levels", [60, 120], id="int-list"),
+        pytest.param("PACK_VISION_OBJECTS", "false", "vision.objects", False, id="bool"),
         pytest.param("PACK_AUDIO_EXCLUDE_DEVICES", "foo, bar", "audio.exclude_devices", ["foo", "bar"], id="str-list"),
         pytest.param("PACK_STATE", "/tmp/pack-state", "paths.state", "/tmp/pack-state", id="alias-state"),
         pytest.param("PACK_ASR", "whisper", "asr.engine", "whisper", id="alias-asr"),

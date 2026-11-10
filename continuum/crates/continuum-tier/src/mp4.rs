@@ -1,5 +1,5 @@
-//! Reading the sample table of an ordinary (unfragmented) MP4's video track, in pure Rust, for registering v1's
-//! recordings in place ([`crate::v1video`]).
+//! Reading the sample table of an ordinary (unfragmented) MP4's video track, in pure Rust, for registering
+//! recordings in place ([`crate::inplace_video`]).
 //!
 //! Only the `moov` box is read (the `mdat` is skipped by seeking): the track's timescale, its sample entry (codec,
 //! size, and the `avcC` or `hvcC` that holds the parameter sets), and from its sample table each sample's byte

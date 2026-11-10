@@ -19,7 +19,7 @@ from continuum_py.read import Record, records
 
 from conftest import spawn_broker, spawn_tier_worker, stop_broker
 
-TONE = Path(__file__).parent / "fixtures" / "v1_tone.flac"
+TONE = Path(__file__).parent / "fixtures" / "tone.flac"
 
 
 def uuid_of(n: int) -> str:
@@ -158,7 +158,7 @@ def test_flushed_payloads_read_back_from_their_chunk_even_through_a_stale_slot_l
     assert from_relative == every, "a relative chunk path, read from the working directory"
 
 
-def test_a_v1_flac_registered_in_place_reads_as_one_payload(socket: str, tmp_path: Path) -> None:
+def test_a_flac_registered_in_place_reads_as_one_payload(socket: str, tmp_path: Path) -> None:
     device = tmp_path / "wave"
     device.mkdir()
     shutil.copy(TONE, device / "a.flac")
@@ -167,8 +167,8 @@ def test_a_v1_flac_registered_in_place_reads_as_one_payload(socket: str, tmp_pat
     # The query's item is the file's one-frame chunk, and a FLAC file holds no record ids: the record is the chunk's.
     async def run() -> tuple[str, str | None, list[Record] | None]:
         async with await Client.connect(socket) as c:
-            await c.register_worker("v1-audio-import", [])
-            (registered,) = await c.register_v1_index("wave.audio_v1", str(device))
+            await c.register_worker("audio-import", [])
+            (registered,) = await c.register_audio_index("wave.audio_v1", str(device))
             (item,) = await items(c, "wave.audio_v1")
             return registered["chunk_id"], kind(item), await records(c, "wave.audio_v1", item)
 

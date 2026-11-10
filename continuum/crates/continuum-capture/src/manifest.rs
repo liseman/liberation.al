@@ -136,7 +136,7 @@ pub struct AudioRules {
     /// phone's continuity microphone).
     pub exclude: Vec<String>,
     /// On Linux: take PipeWire's sources when PipeWire is running, else raw ALSA devices, never both (one microphone
-    /// opened through two aliases wedged PipeWire in v1).
+    /// opened through two aliases wedges PipeWire).
     pub prefer_pipewire: bool,
 }
 
@@ -1016,7 +1016,8 @@ mod tests {
         let mount = parsed.devices[0].mount.clone().unwrap();
         assert_eq!(mount.rig.as_deref(), Some("pack"));
         assert_eq!(mount.turn, Some([30.0, -10.0, 0.0]));
-        let fixed = "[[device]]\nname='hall'\nkind='camera'\nmatch={name='Synthetic'}\nmount={height_m=2.1, outdoor=true}\n";
+        let fixed =
+            "[[device]]\nname='hall'\nkind='camera'\nmatch={name='Synthetic'}\nmount={height_m=2.1, outdoor=true}\n";
         let fixed = Manifest::parse(fixed).unwrap().devices[0].mount.clone().unwrap();
         assert_eq!((fixed.height_m, fixed.outdoor), (Some(2.1), true));
         let typo = text.replace("rig='pack'", "rig='pak'");

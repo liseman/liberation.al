@@ -55,7 +55,7 @@ export const SECTIONS: SectionDef[] = [
     blurb: 'Cameras and microphones. Phones, watches, and tags are in Known › Devices.',
     Body: Devices,
     useBadge: useDeviceIssues,
-    drawn: ['vision.camera_names', 'vision.cams', 'audio.sensitivity', 'audio.auto_gain_target_dbfs'],
+    drawn: ['vision.camera_names', 'audio.sensitivity', 'audio.auto_gain_target_dbfs'],
     anchors: [CARD_ID.camera, DEVICE_CARD.cameras, DEVICE_CARD.microphones, DEVICE_CARD.bluetooth],
   },
   {

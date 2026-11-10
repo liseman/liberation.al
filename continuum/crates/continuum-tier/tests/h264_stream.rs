@@ -2,7 +2,7 @@
 #![cfg(feature = "ffmpeg")]
 
 use continuum_tier::{
-    gop, v1video,
+    gop, inplace_video,
     video::{H264DecodeBackend, H264StreamDecoder},
 };
 
@@ -10,8 +10,8 @@ use continuum_tier::{
 fn stateful_decoder_preserves_input_tags_through_real_b_frame_reordering() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("synthetic.mp4");
-    std::fs::write(&path, include_bytes!("data/v1_bframes.mp4")).unwrap();
-    let units = v1video::gop_units(&path, 0, 0).unwrap();
+    std::fs::write(&path, include_bytes!("data/bframes.mp4")).unwrap();
+    let units = inplace_video::gop_units(&path, 0, 0).unwrap();
     assert!(units.windows(2).any(|pair| pair[1].pts_ns < pair[0].pts_ns));
     let mut decoder = H264StreamDecoder::new().unwrap();
     assert!(decoder.waiting_for_keyframe());
@@ -38,8 +38,8 @@ fn stateful_decoder_preserves_input_tags_through_real_b_frame_reordering() {
 fn a_picture_not_kept_still_decodes_as_a_reference_and_returns_its_tag_without_pixels() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("synthetic.mp4");
-    std::fs::write(&path, include_bytes!("data/v1_bframes.mp4")).unwrap();
-    let units = v1video::gop_units(&path, 0, 0).unwrap();
+    std::fs::write(&path, include_bytes!("data/bframes.mp4")).unwrap();
+    let units = inplace_video::gop_units(&path, 0, 0).unwrap();
     let decode = |keep: &dyn Fn(u64) -> bool| {
         let mut decoder = H264StreamDecoder::new().unwrap();
         let mut output = Vec::new();
@@ -76,8 +76,8 @@ fn a_narrow_b_frame_range_decodes_using_the_complete_reference_tail() {
     use continuum_tier::{ChunkFormat, ChunkWriter};
     let dir = tempfile::tempdir().unwrap();
     let source = dir.path().join("synthetic.mp4");
-    std::fs::write(&source, include_bytes!("data/v1_bframes.mp4")).unwrap();
-    let units = v1video::gop_units(&source, 0, 0).unwrap();
+    std::fs::write(&source, include_bytes!("data/bframes.mp4")).unwrap();
+    let units = inplace_video::gop_units(&source, 0, 0).unwrap();
     let path = dir.path().join("encoded.cnk");
     let mut writer = ChunkWriter::create(&path, StreamId(7), ChunkFormat::H264Au, 0).unwrap();
     for (index, unit) in units.iter().enumerate() {
@@ -103,8 +103,8 @@ fn a_narrow_b_frame_range_decodes_using_the_complete_reference_tail() {
 fn explicit_software_backend_matches_default_and_survives_reset() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("synthetic.mp4");
-    std::fs::write(&path, include_bytes!("data/v1_bframes.mp4")).unwrap();
-    let units = v1video::gop_units(&path, 0, 0).unwrap();
+    std::fs::write(&path, include_bytes!("data/bframes.mp4")).unwrap();
+    let units = inplace_video::gop_units(&path, 0, 0).unwrap();
     let mut default = H264StreamDecoder::new().unwrap();
     let mut explicit = H264StreamDecoder::with_backend(H264DecodeBackend::Software).unwrap();
     for round in 0..2 {
@@ -148,8 +148,8 @@ fn cuda_decoder_keeps_all_b_frame_tags_and_backend_after_reset() {
     let backend = H264DecodeBackend::Cuda { gpu };
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("synthetic.mp4");
-    std::fs::write(&path, include_bytes!("data/v1_bframes.mp4")).unwrap();
-    let units = v1video::gop_units(&path, 0, 0).unwrap();
+    std::fs::write(&path, include_bytes!("data/bframes.mp4")).unwrap();
+    let units = inplace_video::gop_units(&path, 0, 0).unwrap();
     assert!(units.windows(2).any(|pair| pair[1].pts_ns < pair[0].pts_ns));
     let mut decoder = H264StreamDecoder::with_backend(backend).unwrap();
     for round in 0..2 {

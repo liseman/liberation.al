@@ -60,10 +60,9 @@ def manifest_camera_names(path: Path | None = None, *, active_only: bool = False
 def camera_ids(*, active_only: bool = False) -> list[str]:
     """Configured IDs, retaining disabled history by default; only Live requests active_only.
 
-    A present manifest, including an empty one, replaces legacy camera indices.
+    The manifest is the only source: no manifest, like an empty one, means no cameras.
     """
-    native = manifest_camera_names(active_only=active_only)
-    return native if native is not None else [f"cam{c}" for c in cfg.get("vision.cams")]
+    return manifest_camera_names(active_only=active_only) or []
 
 
 def configured_camera_mentions(text: str) -> tuple[list[str], str]:

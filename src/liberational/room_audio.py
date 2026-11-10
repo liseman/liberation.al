@@ -9,7 +9,7 @@ silence where nothing was kept.
 Audio in a chunk not committed yet (up to the last 15 seconds) isn't read here: it would need a live ring lease. A
 clip asked for that soon has no samples yet, and says so.
 
-v1's archive, imported in place (`<device>.audio_v1`, #883), is FLAC files of about five minutes: each comes back
+Audio registered in place (`<stream>.audio_v1`) is whole FLAC files: each comes back
 whole as one record, decoded with `decode_flac` and laid at its start like a batch.
 """
 
@@ -106,7 +106,7 @@ async def read(client: Client, stream: str, start_ns: int, end_ns: int, channel:
         except ValueError, OSError:
             continue  # a chunk this machine can't read (not a local file, gone, corrupt): silence there
         for batch in found:
-            if bytes(batch.data[:4]) == b"fLaC":  # a v1 archive file, whole
+            if bytes(batch.data[:4]) == b"fLaC":  # a file registered in place, whole
                 try:
                     rate_hz, channels, pcm = decode_flac(batch.data)
                 except ValueError:

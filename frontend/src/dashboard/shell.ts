@@ -5,7 +5,7 @@ import { useSyncExternalStore } from 'react';
 export interface Shell {
   assistant: string;
   owner: string;
-  cams: string[]; // exact native camera/RTSP manifest names, or legacy vision.cams IDs when no manifest exists
+  cams: string[]; // exact native camera/RTSP manifest names
   activeCams: string[]; // Live/status only; disabled cameras stay in cams for recorded history
   views: Record<string, string>; // each named camera's name (vision.camera_names, #313), like "front camera"
   hotkeys: boolean; // dashboard.hotkeys: single-key shortcuts, off by default

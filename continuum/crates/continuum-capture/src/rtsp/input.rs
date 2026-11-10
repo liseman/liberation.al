@@ -272,8 +272,7 @@ mod tests {
 
     fn fixture() -> Fixture {
         ffmpeg::init().unwrap();
-        let path =
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../continuum-py/tests/fixtures/v1_bframes.mp4");
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../continuum-py/tests/fixtures/bframes.mp4");
         let mut source = ffmpeg::format::input(&path).unwrap();
         let stream = source.streams().best(ffmpeg::media::Type::Video).unwrap();
         let index = stream.index();

@@ -292,7 +292,6 @@ def test_history_default_cameras_follow_the_authoritative_native_manifest(tmp_pa
     path = tmp_path / "config" / "devices.toml"
     path.write_text('device=[{name="entryway",kind="rtsp"},{name="rear-2",kind="camera"}]')
     monkeypatch.setattr(cfg, "ROOT", tmp_path)
-    with cfg.override({"vision": {"cams": [0, 3]}}):
-        assert h.parse("what did cameras see in the last hour") == (["entryway", "rear-2"], 3600)
-        path.write_text("device=[]")
-        assert h.parse("what did cameras see in the last hour") == ([], 3600)
+    assert h.parse("what did cameras see in the last hour") == (["entryway", "rear-2"], 3600)
+    path.write_text("device=[]")
+    assert h.parse("what did cameras see in the last hour") == ([], 3600)

@@ -1,7 +1,7 @@
-"""v1's audio archive registered in place through continuum_py, against a real broker process, and the purge and
+"""FLAC files registered in place through continuum_py, against a real broker process, and the purge and
 FLAC helpers the speech importer uses (#548).
 
-Run with `mise run continuum-test`, which builds the broker first. `fixtures/v1_tone.flac` is half a second of a
+Run with `mise run continuum-test`, which builds the broker first. `fixtures/tone.flac` is half a second of a
 440 Hz tone, 16 bit mono at 48 kHz (made with ffmpeg's sine source).
 """
 
@@ -16,7 +16,7 @@ from continuum_py import Client, decode_flac
 
 from conftest import spawn_broker, stop_broker
 
-TONE = Path(__file__).parent / "fixtures" / "v1_tone.flac"
+TONE = Path(__file__).parent / "fixtures" / "tone.flac"
 START = 1_793_300_000_250_000_000
 
 
@@ -31,7 +31,7 @@ def socket(tmp_path: Path) -> Iterator[str]:
 
 
 def device_dir(tmp_path: Path) -> Path:
-    """A v1 device directory: the tone, and an index line for a file that's gone."""
+    """A directory to register: the tone, and an index line for a file that's gone."""
     device = tmp_path / "alsa-input-wave-3"
     (device / "2026-10-29").mkdir(parents=True)
     shutil.copy(TONE, device / "2026-10-29" / "140000.flac")
@@ -46,10 +46,10 @@ def test_the_archive_registers_once_and_a_second_run_is_a_repeat(socket: str, tm
     device = device_dir(tmp_path)
 
     async def run() -> tuple[list[dict], list[dict]]:
-        async with await Client.connect(socket, client_name="v1 importer") as client:
-            await client.register_worker("v1-audio-import", [])
-            first = await client.register_v1_index("wave3.audio_v1", str(device))
-            second = await client.register_v1_index("wave3.audio_v1", str(device))
+        async with await Client.connect(socket, client_name="importer") as client:
+            await client.register_worker("audio-import", [])
+            first = await client.register_audio_index("wave3.audio_v1", str(device))
+            second = await client.register_audio_index("wave3.audio_v1", str(device))
             return first, second
 
     first, second = asyncio.run(run())

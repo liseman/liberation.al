@@ -23,7 +23,7 @@ const row = (key: string, value: Setting['value']): Setting => ({
   description: key,
   section: 'devices',
 });
-const config = (control = true, { cams = [0, 1] }: { cams?: number[] } = {}): ConfigView => ({
+const config = (control = true): ConfigView => ({
   ok: true,
   control,
   needs_setup: false,
@@ -32,11 +32,7 @@ const config = (control = true, { cams = [0, 1] }: { cams?: number[] } = {}): Co
     {
       name: 'vision',
       description: '',
-      settings: [
-        row('vision.room', 'living room'),
-        row('vision.camera_names', ['cam0: front camera']),
-        row('vision.cams', cams),
-      ],
+      settings: [row('vision.room', 'living room'), row('vision.camera_names', ['cam0: front camera'])],
     },
     {
       name: 'audio',
@@ -127,8 +123,8 @@ it('renames a network camera through the display-name draft without replacing it
   expect(screen.getByRole('checkbox', { name: 'Use entryway' })).toBeChecked();
 });
 
-function renderDevices(control = true, settings: { cams?: number[] } = {}) {
-  const view = config(control, settings);
+function renderDevices(control = true) {
+  const view = config(control);
   // The Network cameras card between Cameras and Microphones reads the ingest sources (#1331).
   server.use(http.get('/ingest/api/items', () => HttpResponse.json(INGEST)));
   const page = renderPage(
@@ -441,7 +437,7 @@ describe('Settings: Cameras and microphones (#384)', () => {
       in_use: false,
     };
     server.use(http.get('/devices', () => HttpResponse.json({ ...devices, cameras: [devices.cameras[0], absent] })));
-    renderDevices(true, { cams: [0, 4] });
+    renderDevices(true);
     const [front] = await screen.findAllByRole('checkbox', { name: /^Use / });
     expect(front).toBeDisabled();
   });

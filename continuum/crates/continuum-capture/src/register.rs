@@ -52,7 +52,7 @@ pub fn encoded_video_spec(
 pub struct PcmFormat {
     /// Frames per second.
     pub rate_hz: u32,
-    /// Every channel the device has (none is dropped, unlike v1).
+    /// Every channel the device has (none is dropped).
     pub channels: u16,
     /// Bytes per sample: 2 for S16, 3 for S24_3LE, 4 for S32 or F32.
     pub bytes_per_sample: u16,

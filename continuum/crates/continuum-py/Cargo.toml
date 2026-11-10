@@ -27,7 +27,7 @@ arrow-buffer = "60"
 arrow-schema = "60"
 arrow-select = "60"
 continuum-shm.workspace = true
-# For the v1 audio archive and FLAC decoding.
+# For FLAC files registered in place and FLAC decoding.
 continuum-tier = { path = "../continuum-tier" }
 flatbuffers.workspace = true
 dlpark.workspace = true

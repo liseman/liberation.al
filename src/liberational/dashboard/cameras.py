@@ -223,7 +223,7 @@ def use(
     """Adds a `[[device]]` of `kind` for the device called `name` (matched by `usb` when known, else by its name), or
     removes every block of that kind that matches it (or, given `stream`, the one with that manifest name). Returns the
     manifest name it has now (None once removed). A camera is named camN, a microphone micN. A camera whose USB id
-    another plugged-in camera `shared` is matched by its first stable link in `paths`, as capture's --from-v1 does, so
+    another plugged-in camera `shared` is matched by its first stable link in `paths`, so
     each gets its own worker."""
     path = path or manifest_path()
     with _LOCK:

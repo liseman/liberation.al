@@ -104,10 +104,9 @@ def test_shell_serializes_prototype_named_cameras_and_aliases_as_literal_keys(tm
     assert shell["views"] == {"__proto__": "Front", "constructor": "Rear", "toString": "Side"}
 
 
-def test_shell_falls_back_to_legacy_cameras_only_without_manifest(tmp_path, monkeypatch):
+def test_shell_has_no_cameras_without_a_manifest(tmp_path, monkeypatch):
     monkeypatch.setattr(cfg, "ROOT", tmp_path)
-    with cfg.override({"vision": {"cams": [2, 7]}}):
-        assert names(server.fill(INDEX))["cams"] == ["cam2", "cam7"]
+    assert names(server.fill(INDEX))["cams"] == []
 
 
 class Tree:

@@ -83,6 +83,8 @@ pub mod gop;
 #[cfg(feature = "ffmpeg")]
 pub mod h264;
 pub mod hydrate;
+pub mod inplace_audio;
+pub mod inplace_video;
 pub mod layout;
 pub mod mp4;
 pub mod opus;
@@ -98,8 +100,6 @@ pub mod service;
 pub mod sweep;
 #[cfg(feature = "ffmpeg")]
 pub mod tier2;
-pub mod v1audio;
-pub mod v1video;
 #[cfg(feature = "ffmpeg")]
 pub mod video;
 pub mod worker;

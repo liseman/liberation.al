@@ -462,7 +462,7 @@ primary_devices = ["reSpeaker"]
 [audio.mic_auto_gain]
 
 # The channel the listen worker transcribes from a multichannel microphone, by its name in config/devices.toml
-# ("<name>" = 1); 0 when not listed, as v1.
+# ("<name>" = 1); 0 when not listed.
 [audio.mic_channel]
 
 [vision]
@@ -473,23 +473,12 @@ shared_decode_cameras = ["*"]
 # CUDA device ordinal for see-decode's NVDEC decoders. Without CUDA it shares one software decoder per camera and
 # logs the higher CPU cost.
 shared_decode_gpu = 0
-# Legacy OS camera indexes for missing-manifest fallback and --from-v1 manifest import. Current capture
-# selects cameras through config/devices.toml.
-cams = [0]
 # Display names used in People and Review: one "camera ID: name" per camera, naming the view ("cam0: front camera"),
 # never a room: a camera is an angle on what holds it, and where it looks comes from its mount and pose (#5). A
 # camera with no name shows its native ID.
 camera_names = []
 # auto picks mlx-server on Apple Silicon and ollama elsewhere.
 backend = "auto"
-# Legacy capture size and frame rate for --from-v1 manifest import. Current per-camera capture settings
-# live in config/devices.toml.
-width = 1280
-height = 720
-fps = 30
-# Legacy manifest-import default for Linux UVC cameras: hold frame rate in dim light by raising gain
-# instead of lengthening exposure. Current capture uses each manifest entry's setting.
-hold_fps = true
 # Ground notable objects with the Ollama caption backend on the first view, on scene changes at most every
 # 30 s, and on steady views every 300 s. The boxes are shown on live video between groundings.
 objects = true

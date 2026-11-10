@@ -1,7 +1,7 @@
 //! Fitting a device's clock to the host's (docs/CONTINUUM.md, "Timestamps").
 //!
 //! - [`LinearFit`]: least squares over a window of (device position, host time) points, giving an offset and a rate.
-//! - [`AudioClock`]: v1's sample-count clock, anchored to the driver's capture times and re-fitted continuously, with
+//! - [`AudioClock`]: a sample-count clock, anchored to the driver's capture times and re-fitted continuously, with
 //!   overruns kept as explicit gaps instead of shifting time.
 //! - [`PingFit`]: a serial device's clock (the Teensy's `micros()`), from ping and pong exchanges, keeping the ones
 //!   with the smallest round trip.
@@ -131,7 +131,7 @@ pub struct BlockStamp {
 /// Places audio blocks on the host clock from the driver's capture time for each block (ALSA or PipeWire's
 /// htimestamp, CoreAudio's `mHostTime`).
 ///
-/// It counts samples, as v1 did, but anchors the count to the driver's times and re-fits the rate continuously, so
+/// It counts samples, but anchors the count to the driver's times and re-fits the rate continuously, so
 /// the device's drift against the host is followed, not assumed away. When a block's capture time is later than the
 /// count says by more than half a block, samples were lost (an overrun): the count jumps by the missing samples (see
 /// [`GapUnit`]), and the block says how many, so time never shifts silently.

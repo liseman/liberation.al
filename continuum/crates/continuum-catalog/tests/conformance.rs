@@ -961,7 +961,7 @@ fn a_chunk_commit_keeps_every_absorbed_frame_resolvable<C: Catalog>(c: C) {
 }
 
 fn an_identical_header_for_an_absorbed_frame_is_a_repeat_answering_the_chunks_sequence<C: Catalog>(c: C) {
-    // The tier worker registering v1 audio twice (#685): the batches' headers again, after the chunk absorbed them.
+    // The tier worker registering audio in place twice (#685): the batches' headers again, after the chunk absorbed them.
     let s = chunked(&c);
     let chunk_seq = match c.get(id(100)).unwrap() {
         Some(Resolved::Payload(p)) => p.commit_seq,

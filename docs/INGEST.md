@@ -19,7 +19,7 @@ Every item takes the same path (`ingest/pipeline.py`), whatever it came from:
    picture to H.264 MP4 (copied without re-encoding when it already is H.264), and a still to a 2 second H.264
    clip, turned upright by its EXIF orientation.
 5. **Register on Continuum** in place, through the broker calls that register recordings
-   (`register_v1_index`, `register_v1_video_index`): sound on `<stream>.audio_v1`, picture on
+   (`register_audio_index`, `register_video_index`): sound on `<stream>.audio_v1`, picture on
    `<stream>.video_v1`, at the original time. The stream is `ingest-<source>` (`ingest-upload`, `ingest-link`,
    `ingest-google-photos`), or `wyze-<camera>` for each Wyze camera. Registering again is idempotent.
 

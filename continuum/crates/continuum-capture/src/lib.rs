@@ -75,7 +75,6 @@ pub mod driver;
 pub mod encoding;
 pub mod exposure;
 pub mod fit;
-pub mod from_v1;
 pub mod hotplug;
 pub mod mac_bandwidth;
 pub mod manifest;
