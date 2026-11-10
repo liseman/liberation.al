@@ -158,7 +158,8 @@ acknowledging; the supervisor restarts it with a new epoch.
 Every local MJPEG camera is stored as H.264 unless `encoding = { enabled = false }` is in its `[device.video]` (or
 `[video.encoding]` for every camera; other keys `gpu`, `cq` 0 to 51, default 36, and
 `keyframe_interval_ms`, default 2000). Capture (`continuum-capture/src/encoding.rs`, built with the `ffmpeg` feature)
-decodes each JPEG and publishes one immediate H.264 access unit (shape `H264AnnexB`) on the camera's usual
+decodes each JPEG on the CPU straight to NV12 (the JPEG's own Y, Cb, and Cr, never through RGB; a JPEG that isn't
+YCbCr goes through RGB with a warning) and publishes one immediate H.264 access unit (shape `H264AnnexB`) on the camera's usual
 `<camera>.video` stream. It opens the hardware encoder, `h264_nvenc` on the configured CUDA GPU or `h264_videotoolbox`
 on macOS (low-delay realtime), and falls back to low-delay `libx264` with a warning when that can't open or
 fails at runtime, including returning other than one access unit per frame; it never stores MJPEG once encoding is
