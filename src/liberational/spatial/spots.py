@@ -61,7 +61,7 @@ from liberational.spatial import cameras, footprints, lens, plan_import
 LOG = logs.get("spatial-spots")
 
 AIMS = "aims.json"  # under the places folder: each camera's fitted aim
-REFINED = "refined.json"  # under the places folder: each camera's within-bound wall refinement against its spot
+REFINED = "refined.json"  # under the places folder: each camera's plan check of its spot, and any refinement in bound
 FLOOR = (0.0, 0.0, 1.0, 0.0)  # the plan's floor in the plan's own frame: height is the third axis
 PLAN = (1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0)  # and its map-to-plan transform: the identity
 MISSING = ("height", "facing", "lens", "tilt", "check")
@@ -164,45 +164,68 @@ def refined_poses(state: Path) -> dict[str, dict[str, Any]]:
             spot_p = tuple(float(v) for v in row["spot"])
             pose_p = tuple(float(v) for v in row["pose"])
             if len(spot_p) == 16 and len(pose_p) == 16:
-                out[str(camera)] = {"spot": spot_p, "pose": pose_p, "at": float(row["at"])}
+                out[str(camera)] = {
+                    "spot": spot_p,
+                    "pose": pose_p,
+                    "at": float(row["at"]),
+                    "basis": row.get("basis") if isinstance(row.get("basis"), str) else None,
+                    "check": row.get("check") if isinstance(row.get("check"), dict) else None,
+                }
         except KeyError, TypeError, ValueError:
             continue
     return out
 
 
 def save_refined(
-    state: Path, camera: str, spot_pose: Sequence[float], refined_pose: Sequence[float] | None, now: float
+    state: Path,
+    camera: str,
+    spot_pose: Sequence[float],
+    refined_pose: Sequence[float] | None,
+    now: float,
+    basis: str | None = None,
+    check: Mapping[str, Any] | None = None,
 ) -> None:
-    """Save or clear `camera`'s refined pose against `spot_pose`, refusing anything outside `within_bounds`."""
+    """Save or clear `camera`'s refined pose against `spot_pose`, refusing anything outside `within_bounds`. With a
+    `check` (`spot_check.SpotCheck.as_dict`) and the `basis` it was made on, the row is kept even when nothing was
+    refined, so later views of the camera reuse the check instead of searching again."""
     folder = places.root(state)
     stored = {
-        c: {"spot": list(r["spot"]), "pose": list(r["pose"]), "at": r["at"]} for c, r in refined_poses(state).items()
+        c: {k: (list(v) if k in ("spot", "pose") else v) for k, v in r.items() if v is not None}
+        for c, r in refined_poses(state).items()
     }
-    if refined_pose is None or np.allclose(spot_pose, refined_pose, atol=1e-6):
+    pose = list(spot_pose) if refined_pose is None else list(refined_pose)
+    if check is None and np.allclose(spot_pose, pose, atol=1e-6):
         if camera not in stored:
             return
         del stored[camera]
     else:
         base = places.CameraPose(tuple(float(x) for x in spot_pose), 1.0, 1, 1)
-        cand = places.CameraPose(tuple(float(x) for x in refined_pose), 1.0, 1, 1)
+        cand = places.CameraPose(tuple(float(x) for x in pose), 1.0, 1, 1)
         if not within_bounds(base, cand):
             return
-        stored[camera] = {
+        row: dict[str, Any] = {
             "spot": [float(x) for x in spot_pose],
-            "pose": [float(x) for x in refined_pose],
+            "pose": [float(x) for x in pose],
             "at": float(now),
         }
+        if check is not None:
+            row["check"] = dict(check)
+            if basis is not None:
+                row["basis"] = basis
+        stored[camera] = row
     folder.mkdir(parents=True, exist_ok=True)
     json_state.write(folder / REFINED, stored, indent=1, sort_keys=True)
 
 
 def _intrinsics(camera: str, fov: float | None, held: lens.Held | None, width: int, height: int) -> places.CameraPose:
-    """A camera's rays, as a pose at the origin: its held focal and lens (`cameras.with_held`), else a pinhole of the
-    spot's `fov`. The caller has checked one of the two is there."""
+    """A camera's rays, as a pose at the origin: its held focal and lens (`cameras.with_held`), else the spot's `fov`
+    as the focal, with the camera's configured lens when it has one (`lens.as_registered`: the `fov` is then the
+    undone frame's, as the map takes it). The caller has checked one of the two is there."""
     blank = places.CameraPose(tuple(float(x) for x in np.eye(4).ravel()), float(width), width, height)
     if held is not None:
         return cameras.with_held(camera, blank, held)
-    return replace(blank, focal=width / (2 * math.tan(math.radians(fov or 90.0) / 2)))
+    focal = width / (2 * math.tan(math.radians(fov or 90.0) / 2))
+    return replace(blank, focal=focal, lens=lens.as_registered(camera))
 
 
 def _basis(spot: plan_import.Camera, held: lens.Held | None) -> str:
@@ -457,7 +480,11 @@ def read(state: Path, found: Mapping[str, Aim] | None = None) -> dict[str, Spot]
                 shape = _intrinsics(spot.id, spot.fov, own, aimed.width, aimed.height)
                 posed = replace(shape, pose=matrix, at=aimed.at)
                 row = stored_refined.get(spot.id)
-                if row is not None and np.allclose(row["spot"], matrix, atol=1e-6):
+                if (
+                    row is not None
+                    and np.allclose(row["spot"], matrix, atol=1e-6)
+                    and not np.allclose(row["pose"], matrix, atol=1e-6)
+                ):
                     cand = replace(posed, pose=row["pose"], at=row["at"])
                     if within_bounds(posed, cand):
                         refined = cand

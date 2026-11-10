@@ -40,6 +40,9 @@ export interface LearningCamera {
 export interface SpotSuggestion {
   shift_m: number;
   turn_deg: number;
+  /** Whether the better fit is past the bound on how far a map may move the spot, and on how far it may turn it. */
+  far_shift: boolean;
+  far_turn: boolean;
 }
 
 export interface LearningStatus {
@@ -221,8 +224,8 @@ const PARKED: Record<string, [label: string, full: string]> = {
 };
 
 function spotSuggestionWords(sug: SpotSuggestion): [label: string, detail: string] {
-  const farShift = sug.shift_m > 0.3;
-  const farTurn = sug.turn_deg > 5;
+  const farShift = sug.far_shift;
+  const farTurn = sug.far_turn;
   const metres = `${sug.shift_m.toFixed(1)} m`;
   const deg = `${Math.round(sug.turn_deg)}°`;
   if (farShift && farTurn) {

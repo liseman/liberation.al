@@ -239,6 +239,9 @@ class SpotFit:
     shift_m: float = 0.0
     turn_deg: float = 0.0
     suggestion: dict[str, float] | None = None
+    check: spot_check.SpotCheck | None = None  # the check this fit used, to keep for the camera's later views
+    basis: str | None = None  # what `check` was made on (`_check_basis`)
+    reused: bool = False  # whether `check` was a kept one (no search ran for this view)
 
     def as_dict(self) -> dict[str, Any]:
         out: dict[str, Any] = {
@@ -256,6 +259,7 @@ class SpotFit:
             out["free_space"] = None if self.free_space is None else round(self.free_space, 3)
             out["baseboard"] = None if self.baseboard is None else round(self.baseboard, 3)
             out["refined"] = self.refined is not None
+            out["reused"] = self.reused
             if self.refined is not None:
                 out["shift_m"] = round(self.shift_m, 3)
                 out["turn_deg"] = round(self.turn_deg, 2)
@@ -305,6 +309,8 @@ def spot_fit(
     image: np.ndarray | None = None,
     mask: np.ndarray | None = None,
     refine: bool = True,
+    geom: spot_check.PlanGeometry | None = None,
+    known: spot_check.SpotCheck | None = None,
 ) -> SpotFit:
     """Check a view at its spot's `pose` (camera to plan: x, y, and height above the floor) against `plan`, refine it
     within `spots.within_bounds` when warranted, and report any stronger offset past the bound (`spot_check`).
@@ -317,7 +323,8 @@ def spot_fit(
     When `plan` is a parsed owner plan (`plan_import.Parsed`), `spot_check.verify` scores vanishing points, floor
     flatness, solid-wall free space, projected baseboards and jambs, and oriented wall planes, applying a refinement
     only inside `(spots.REFINE_M, spots.REFINE_DEG)` and keeping the owner's spot untouched with a `suggestion` beyond
-    it."""
+    it. `geom` is `plan`'s `spot_check.prepare_plan`, when the caller has it already; `known` is a check kept for
+    this camera at this same spot and plan (`_check_basis`), used as it is instead of searching again."""
     from liberational.spatial import plan_import, plan_lineup
 
     c2w = np.asarray(pose, dtype=np.float64).reshape(4, 4)
@@ -330,9 +337,12 @@ def spot_fit(
     if not SPOT_SCALE[0] <= scale <= SPOT_SCALE[1]:
         return SpotFit(level, scale, 0, None, None, "floor")
     if isinstance(plan, plan_import.Parsed):
-        geom = spot_check.prepare_plan(plan)
-        vf = spot_check.prepare_view(image, depth, mask, focal, stride=STRIDE)
-        checked = spot_check.verify(vf, geom, c2w, refine=refine)
+        if known is not None:
+            checked = known
+        else:
+            geom = geom if geom is not None else spot_check.prepare_plan(plan)
+            vf = spot_check.prepare_view(image, depth, mask, focal, stride=STRIDE)
+            checked = spot_check.verify(vf, geom, c2w, refine=refine)
         if checked.refined:
             ref_c2w = np.asarray(checked.pose, dtype=np.float64).reshape(4, 4)
             ref_pts, _ = lift(depth, blank, focal, ref_c2w, stride=STRIDE)
@@ -358,6 +368,8 @@ def spot_fit(
             shift_m=checked.shift_m,
             turn_deg=checked.turn_deg,
             suggestion=checked.suggestion,
+            check=checked,
+            reused=known is not None,
         )
     scaled = centre + scale * (points.astype(np.float64) - centre)
     m = plan_lineup.measure(plan, plan_import.band(scaled, spots.PLAN)) if plan is not None else None
@@ -623,6 +635,13 @@ def _read_rgb(path: Path) -> np.ndarray:
     return cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
 
+def _read_mask(path: Path | None) -> np.ndarray | None:
+    """A prepared picture's covered pixels (`_mask_path`, 255 where covered), or None without one."""
+    import cv2
+
+    return None if path is None else cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
+
+
 def _read_depth(path: Path) -> np.ndarray:
     import cv2
 
@@ -723,16 +742,49 @@ def step(
             doing(frames.root(state_dir), None)
 
 
-def _plan(state_dir: Path, place: str, plans: Mapping[str, str] | None) -> Any:
-    """`place`'s parsed owner plan (`plan_lineup.read_plan`), or None when it has none that reads."""
-    from liberational.spatial import plan_lineup
-
+def _plan_text(state_dir: Path, place: str, plans: Mapping[str, str] | None) -> str | None:
+    """`place`'s owner plan as saved, or None when it has none."""
     if plans is not None:
-        text = plans.get(place)
-    else:
-        held = places.get(state_dir, place)
-        text = held.plan if held is not None and held.plan_source == "owner" else None
-    return plan_lineup.read_plan(text) if text else None
+        return plans.get(place)
+    held = places.get(state_dir, place)
+    return held.plan if held is not None and held.plan_source == "owner" and held.plan else None
+
+
+@dataclass
+class _PlanAt:
+    """A place's owner plan for one step: its text, as parsed (`plan_lineup.read_plan`; None when it doesn't read),
+    and its `spot_check.prepare_plan` geometry, made the first time a view of it needs a search."""
+
+    text: str | None
+    parsed: Any
+    _geom: spot_check.PlanGeometry | None = None
+
+    def geom(self) -> spot_check.PlanGeometry | None:
+        from liberational.spatial import plan_import
+
+        if self._geom is None and isinstance(self.parsed, plan_import.Parsed):
+            self._geom = spot_check.prepare_plan(self.parsed)
+        return self._geom
+
+
+def _check_basis(plan_text: str | None, camera: str, held: lens.Held | None, focal: float, size: Sequence[int]) -> str:
+    """What a camera's kept spot check depends on besides its spot's pose: the plan, the camera's configured lens and
+    held intrinsics, the focal of its undone picture (a share of its width), and its size, with
+    `spot_check.CHECK_VERSION`. A kept check made on another basis is searched again."""
+    import hashlib
+
+    held_part = None if held is None else [round(held.focal, 6), round(held.division, 6)]
+    raw = json.dumps(
+        [
+            spot_check.CHECK_VERSION,
+            plan_text or "",
+            lens.as_registered(camera),
+            held_part,
+            round(focal / max(size[0], 1), 5),
+            list(size),
+        ]
+    )
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
 def _park(state: State, frame: frames.Kept, now: float, basis: str, why: str) -> None:
@@ -748,8 +800,6 @@ def _step(
     spotted: Mapping[str, spots.Spot],
     plans: Mapping[str, str] | None,
 ) -> dict[str, Any] | None:
-    import cv2
-
     store = frames.Store(frames.root(state_dir))
     state = State.read(store.folder)
     forget(state, store.kept)
@@ -776,7 +826,7 @@ def _step(
     def fov_focal(camera: str) -> float | None:
         """A camera's focal as a share of its width from its spot's field of view, when nothing is held for it."""
         spot = spotted.get(camera)
-        if spot is None or spot.pose is None or camera in held or spot.pose.lens is not None:
+        if spot is None or spot.pose is None or camera in held:
             return None
         return spot.pose.focal / spot.pose.width
 
@@ -821,6 +871,16 @@ def _step(
         spot_poses: dict[str, dict[str, np.ndarray]] = {}  # place -> frame id -> pose
         spot_fits: dict[str, SpotFit] = {}  # frame id -> fit
         refused: dict[str, str] = {}  # frame id -> why
+        plan_at: dict[str, _PlanAt] = {}  # place -> its plan, read once a step
+        # Each camera's kept spot check (`spots.REFINED`): its spot's pose, the basis, and the check. A camera's views
+        # all stand at one pose, so the search runs once a spot and plan, and every later view reuses it.
+        kept_checks: dict[str, tuple[tuple[float, ...], str, spot_check.SpotCheck]] = {}
+        for camera, row in spots.refined_poses(state_dir).items():
+            kept = spot_check.SpotCheck.from_dict(row["check"]) if row.get("check") else None
+            if kept is not None and row.get("basis"):
+                kept_checks[camera] = (row["spot"], row["basis"], kept)
+        from liberational.spatial import plan_lineup
+
         for f in todo:
             spot = at_spot.get(f.id)
             if spot is None or spot.pose is None or not _depth_path(store, f.id).is_file():
@@ -828,20 +888,37 @@ def _step(
             pose = np.asarray(spot.pose.pose, dtype=np.float64).reshape(4, 4)
             focal = pictures.focal(f.id)
             assert focal is not None
-            mask_p = pictures.mask(f.id)
-            covered = cv2.imread(str(mask_p), cv2.IMREAD_GRAYSCALE) if mask_p is not None else None
+            if spot.place not in plan_at:
+                text = _plan_text(state_dir, spot.place, plans)
+                plan_at[spot.place] = _PlanAt(text, plan_lineup.read_plan(text) if text else None)
+            plan_here = plan_at[spot.place]
+            depth_here = _read_depth(_depth_path(store, f.id))
+            check_basis = _check_basis(plan_here.text, f.camera, held.get(f.camera), focal, depth_here.shape[::-1])
+            kept_check = kept_checks.get(f.camera)
+            known = (
+                kept_check[2]
+                if kept_check is not None
+                and kept_check[1] == check_basis
+                and np.allclose(kept_check[0], spot.pose.pose, atol=1e-6)
+                else None
+            )
             fit = spot_fit(
-                _read_depth(_depth_path(store, f.id)),
+                depth_here,
                 focal,
                 pose,
-                _plan(state_dir, spot.place, plans),
-                image=_read_rgb(pictures.image(f.id)),
-                mask=covered,
+                plan_here.parsed,
+                image=_read_rgb(pictures.image(f.id)) if known is None else None,
+                mask=_read_mask(pictures.mask(f.id)) if known is None else None,
+                geom=plan_here.geom() if known is None else None,
+                known=known,
             )
+            if fit.check is not None:
+                kept_checks[f.camera] = (spot.pose.pose, check_basis, fit.check)
+                fit = replace(fit, basis=check_basis)
             spot_fits[f.id] = fit
             did["spots"][f.camera] = fit.as_dict()
             LOG.info("%s: its view at its spot on the plan: %s", f.camera, json.dumps(fit.as_dict()))
-            if fit.refined is not None:
+            if fit.refined is not None and not fit.reused:
                 LOG.info(
                     "%s: refined within spot bounds by %.2f m and %.1f deg (score %.3f -> %.3f)",
                     f.camera,
@@ -850,7 +927,9 @@ def _step(
                     fit.at_spot or 0.0,
                     fit.score or 0.0,
                 )
-            if fit.suggestion is not None:
+            if fit.suggestion is not None and fit.reused:
+                pass  # warned when the check was made; the Places page keeps saying it
+            elif fit.suggestion is not None:
                 LOG.warning(
                     "%s: its view fits the plan better %.2f m and %.1f deg from its spot (score %.3f vs %.3f); "
                     "the owner's spot holds",
@@ -1095,7 +1174,13 @@ def _train(
             if spot.pose is not None and k in added:
                 fit = spot_fits.get(k)
                 spots.save_refined(
-                    state_dir, by_id[k].camera, spot.pose.pose, fit.refined if fit is not None else None, now
+                    state_dir,
+                    by_id[k].camera,
+                    spot.pose.pose,
+                    fit.refined if fit is not None else None,
+                    now,
+                    basis=fit.basis if fit is not None else None,
+                    check=fit.check.as_dict() if fit is not None and fit.check is not None else None,
                 )
     for i, k in enumerate(order):
         if k in dropped:
@@ -1315,9 +1400,13 @@ def summary(
                 and was_spot is not None
                 and _at(was_spot, current_spots.get(camera))
             ):
+                shift, turn = float(sug.get("shift_m") or 0.0), float(sug.get("turn_deg") or 0.0)
                 suggestions[camera] = {
-                    "shift_m": round(float(sug.get("shift_m") or 0.0), 2),
-                    "turn_deg": round(float(sug.get("turn_deg") or 0.0), 1),
+                    "shift_m": round(shift, 2),
+                    "turn_deg": round(turn, 1),
+                    # which of the spot's bounds the better fit is past (`spots.within_bounds`)
+                    "far_shift": bool(sug.get("far_shift", shift > spots.REFINE_M)),
+                    "far_turn": bool(sug.get("far_turn", turn > spots.REFINE_DEG)),
                 }
     return {
         "on": switch.on,

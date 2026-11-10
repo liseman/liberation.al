@@ -346,9 +346,9 @@ it('flags a spot whose view fits the plan better past the spot bound while notin
   const told = status({
     sampling: ['front', 'hall'],
     spot_suggestions: {
-      front: { shift_m: 0.62, turn_deg: 2.1 },
-      hall: { shift_m: 0.12, turn_deg: 14.2 },
-      porch: { shift_m: 0.55, turn_deg: 11.8 },
+      front: { shift_m: 0.62, turn_deg: 2.1, far_shift: true, far_turn: false },
+      hall: { shift_m: 0.12, turn_deg: 14.2, far_shift: false, far_turn: true },
+      porch: { shift_m: 0.55, turn_deg: 11.8, far_shift: true, far_turn: true },
     },
     cameras: { front: { recent: { view: 3 }, last_kept: 1.8e9 } },
   });

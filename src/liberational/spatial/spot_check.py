@@ -38,6 +38,10 @@ trusting monocular wall range to the centimetre:
 when it beats the spot pose by `REFINE_GAIN` and no pose beyond the bound beats the best in-bound pose by
 `SUGGEST_MARGIN`. When a pose beyond the bound wins by at least `SUGGEST_MARGIN`, the owner's spot holds untouched and
 `SpotCheck.suggestion` reports how far off the view wants to sit for the log and the Places page.
+
+**Once a spot.** A fixed camera's views all stand at one pose, so the search (about 900 candidate poses) runs once for
+a camera's spot and is kept (`spots.REFINED`, `SpotCheck.as_dict`); later views of it reuse that check until the spot,
+the plan, the camera's lens or focal, or `CHECK_VERSION` changes (the map step's `_check_basis`).
 """
 
 from __future__ import annotations
@@ -67,6 +71,7 @@ SUGGEST_MIN_SCORE = 0.35
 WIDE_M = 0.85
 WIDE_YAW_DEG = 20.0
 WIDE_PITCH_DEG = 10.0
+CHECK_VERSION = 1  # raised when `verify` scores differently, so kept checks are searched again
 
 
 @dataclass(frozen=True)
@@ -129,6 +134,33 @@ class PoseScore:
     wall_near: float | None = None
     why: str | None = None
 
+    @staticmethod
+    def from_dict(raw: Any) -> PoseScore:
+        """The inverse of `as_dict` (its rounding kept); raises KeyError, TypeError, or ValueError for one that
+        doesn't read."""
+
+        def opt(key: str) -> float | None:
+            return None if raw.get(key) is None else float(raw[key])
+
+        return PoseScore(
+            total=float(raw["total"]),
+            vp=float(raw["vp"]),
+            vp_horiz=float(raw["vp_horiz"]),
+            free_space=float(raw["free_space"]),
+            wall_norm=float(raw["wall_norm"]),
+            wall_coplanar=float(raw["wall_coplanar"]),
+            multi_wall=float(raw["multi_wall"]),
+            baseboard=float(raw["baseboard"]),
+            wire=float(raw["wire"]),
+            floor_flat=float(raw["floor_flat"]),
+            floor=opt("floor"),
+            scale=float(raw["scale"]),
+            wall_points=int(raw["wall_points"]),
+            wall_median=opt("wall_median"),
+            wall_near=opt("wall_near"),
+            why=None if raw.get("why") is None else str(raw["why"]),
+        )
+
     def as_dict(self) -> dict[str, Any]:
         return {
             "total": round(self.total, 4),
@@ -165,6 +197,46 @@ class SpotCheck:
     best_wide: PoseScore
     wide_shift_m: float
     wide_turn_deg: float
+    scored: int = 0  # how many candidate poses `verify` scored for it; 0 for one read back (`from_dict`)
+
+    def as_dict(self) -> dict[str, Any]:
+        """What a camera's kept check holds (`spots.REFINED`), for `from_dict`: enough to place later views of it
+        without searching again."""
+        return {
+            "at_spot": self.at_spot.as_dict(),
+            "chosen": self.chosen.as_dict(),
+            "pose": list(self.pose),
+            "refined": self.refined,
+            "shift_m": self.shift_m,
+            "turn_deg": self.turn_deg,
+            "suggestion": self.suggestion,
+        }
+
+    @staticmethod
+    def from_dict(raw: Any) -> SpotCheck | None:
+        """A kept check (`as_dict`), or None for one that doesn't read."""
+        try:
+            at_spot, chosen = PoseScore.from_dict(raw["at_spot"]), PoseScore.from_dict(raw["chosen"])
+            pose = tuple(float(x) for x in raw["pose"])
+            sug = raw.get("suggestion")
+            suggestion = None if sug is None else {str(k): float(v) for k, v in sug.items()}
+            if len(pose) != 16:
+                return None
+            return SpotCheck(
+                at_spot,
+                chosen,
+                pose,
+                bool(raw["refined"]),
+                float(raw["shift_m"]),
+                float(raw["turn_deg"]),
+                suggestion,
+                chosen,
+                chosen,
+                0.0,
+                0.0,
+            )
+        except AttributeError, KeyError, TypeError, ValueError:
+            return None
 
 
 def prepare_plan(plan: plan_import.Parsed) -> PlanGeometry:
@@ -757,10 +829,17 @@ def verify(vf: ViewFeatures, geom: PlanGeometry, spot_c2w: np.ndarray, refine: b
     any clear disagreement beyond that bound without moving past it."""
     base = np.asarray(spot_c2w, dtype=np.float64).reshape(4, 4)
     expected_room = plan_import._room_of(geom.plan, float(base[0, 3]), float(base[1, 3]))
-    at_spot = score_pose(vf, geom, base, expected_room, allow_outside=True)
+    scored = 0
+
+    def score(cand: np.ndarray, room: str | None, allow_outside: bool = False) -> PoseScore:
+        nonlocal scored
+        scored += 1
+        return score_pose(vf, geom, cand, room, allow_outside)
+
+    at_spot = score(base, expected_room, allow_outside=True)
     flat_spot = tuple(float(x) for x in base.ravel())
     if not refine or min(vf.h, vf.w) < MIN_VIEW_SIDE or len(vf.pts_cam) < MIN_GRID_POINTS:
-        return SpotCheck(at_spot, at_spot, flat_spot, False, 0.0, 0.0, None, at_spot, at_spot, 0.0, 0.0)
+        return SpotCheck(at_spot, at_spot, flat_spot, False, 0.0, 0.0, None, at_spot, at_spot, 0.0, 0.0, scored)
 
     def in_bound(cand: np.ndarray) -> bool:
         sh, tr = pose_delta(base, cand)
@@ -774,7 +853,7 @@ def verify(vf: ViewFeatures, geom: PlanGeometry, spot_c2w: np.ndarray, refine: b
                 cand = offset_pose(base, 0.0, 0.0, float(dyaw), float(dpitch), float(droll))
                 if not in_bound(cand):
                     continue
-                sc = score_pose(vf, geom, cand, expected_room)
+                sc = score(cand, expected_room)
                 if sc.total > best_rot[0]:
                     best_rot = (sc.total, (float(dyaw), float(dpitch), float(droll)))
                 if sc.total > best_in[0]:
@@ -789,7 +868,7 @@ def verify(vf: ViewFeatures, geom: PlanGeometry, spot_c2w: np.ndarray, refine: b
                 cand = offset_pose(base, float(dx), float(dy), ry, rp, rr)
                 if not in_bound(cand):
                     continue
-                sc = score_pose(vf, geom, cand, expected_room)
+                sc = score(cand, expected_room)
                 if sc.total > best_in[0]:
                     best_in = (sc.total, (float(dx), float(dy), ry, rp, rr), cand, sc)
 
@@ -801,7 +880,7 @@ def verify(vf: ViewFeatures, geom: PlanGeometry, spot_c2w: np.ndarray, refine: b
                 cand = offset_pose(base, bx, by, float(dyaw), float(dpitch), float(droll))
                 if not in_bound(cand):
                     continue
-                sc = score_pose(vf, geom, cand, expected_room)
+                sc = score(cand, expected_room)
                 if sc.total > best_in[0]:
                     best_in = (sc.total, (bx, by, float(dyaw), float(dpitch), float(droll)), cand, sc)
     _, (bx, by, byaw, bpitch, broll), _, _ = best_in
@@ -810,7 +889,7 @@ def verify(vf: ViewFeatures, geom: PlanGeometry, spot_c2w: np.ndarray, refine: b
             cand = offset_pose(base, float(dx), float(dy), byaw, bpitch, broll)
             if not in_bound(cand):
                 continue
-            sc = score_pose(vf, geom, cand, expected_room)
+            sc = score(cand, expected_room)
             if sc.total > best_in[0]:
                 best_in = (sc.total, (float(dx), float(dy), byaw, bpitch, broll), cand, sc)
 
@@ -821,7 +900,7 @@ def verify(vf: ViewFeatures, geom: PlanGeometry, spot_c2w: np.ndarray, refine: b
         for dpitch in (-10.0, -6.0, -3.0, 0.0, 3.0, 6.0, 10.0):
             for droll in (-3.0, 0.0, 3.0):
                 cand = offset_pose(base, 0.0, 0.0, float(dyaw), float(dpitch), float(droll))
-                sc = score_pose(vf, geom, cand, expected_room)
+                sc = score(cand, expected_room)
                 if sc.total > wide_rot[0]:
                     wide_rot = (sc.total, (float(dyaw), float(dpitch), float(droll)))
                 if sc.total > best_wide[0]:
@@ -833,7 +912,7 @@ def verify(vf: ViewFeatures, geom: PlanGeometry, spot_c2w: np.ndarray, refine: b
                 if math.hypot(float(dx), float(dy)) > WIDE_M + 0.1:
                     continue
                 cand = offset_pose(base, float(dx), float(dy), ry, rp, rr)
-                sc = score_pose(vf, geom, cand, expected_room)
+                sc = score(cand, expected_room)
                 if sc.total > best_wide[0]:
                     best_wide = (sc.total, (float(dx), float(dy), ry, rp, rr), cand, sc)
 
@@ -841,14 +920,14 @@ def verify(vf: ViewFeatures, geom: PlanGeometry, spot_c2w: np.ndarray, refine: b
     for dyaw in wyaw + np.array([-1.5, 0.0, 1.5]):
         for dpitch in wpitch + np.array([-1.5, 0.0, 1.5]):
             cand = offset_pose(base, wx, wy, float(dyaw), float(dpitch), wroll)
-            sc = score_pose(vf, geom, cand, expected_room)
+            sc = score(cand, expected_room)
             if sc.total > best_wide[0]:
                 best_wide = (sc.total, (wx, wy, float(dyaw), float(dpitch), wroll), cand, sc)
     _, (wx, wy, wyaw, wpitch, wroll), _, _ = best_wide
     for dx in wx + np.array([-0.10, 0.0, 0.10]):
         for dy in wy + np.array([-0.10, 0.0, 0.10]):
             cand = offset_pose(base, float(dx), float(dy), wyaw, wpitch, wroll)
-            sc = score_pose(vf, geom, cand, expected_room)
+            sc = score(cand, expected_room)
             if sc.total > best_wide[0]:
                 best_wide = (sc.total, (float(dx), float(dy), wyaw, wpitch, wroll), cand, sc)
 
@@ -868,6 +947,9 @@ def verify(vf: ViewFeatures, geom: PlanGeometry, spot_c2w: np.ndarray, refine: b
             "turn_deg": round(wide_turn, 1),
             "score": round(wide_sc.total, 3),
             "at_spot": round(at_spot.total, 3),
+            # which bound it's past (1 or 0), from the unrounded offsets: the page says which to check
+            "far_shift": float(wide_shift > spots.REFINE_M + 1e-4),
+            "far_turn": float(wide_turn > spots.REFINE_DEG + 1e-3),
         }
         return SpotCheck(
             at_spot=at_spot,
@@ -881,6 +963,7 @@ def verify(vf: ViewFeatures, geom: PlanGeometry, spot_c2w: np.ndarray, refine: b
             best_wide=wide_sc,
             wide_shift_m=wide_shift,
             wide_turn_deg=wide_turn,
+            scored=scored,
         )
 
     if in_sc.total >= at_spot.total + REFINE_GAIN and (in_shift > 1e-3 or in_turn > 0.05):
@@ -896,6 +979,7 @@ def verify(vf: ViewFeatures, geom: PlanGeometry, spot_c2w: np.ndarray, refine: b
             best_wide=wide_sc,
             wide_shift_m=wide_shift,
             wide_turn_deg=wide_turn,
+            scored=scored,
         )
 
     return SpotCheck(
@@ -910,4 +994,5 @@ def verify(vf: ViewFeatures, geom: PlanGeometry, spot_c2w: np.ndarray, refine: b
         best_wide=wide_sc,
         wide_shift_m=wide_shift,
         wide_turn_deg=wide_turn,
+        scored=scored,
     )

@@ -363,3 +363,30 @@ def test_a_configured_barrel_lens_is_undone_when_fitting_a_spots_tilt_and_placin
     want = places.floor_point(want_rev.cameras["cam0"], want_rev.floor, 0.85, 0.92, height=footprints.FOOT_M)
     assert want is not None
     assert (p.x, p.y) == pytest.approx(want[:2], abs=0.04)
+
+
+def test_a_configured_barrel_lens_is_undone_for_a_spot_with_only_a_field_of_view(tmp_path, monkeypatch):
+    # Nothing held: the spot's `fov` is the undone frame's, and the manifest's lens still undoes the raw pixels.
+    configured = lens.Lens(SIZE[0], SIZE[1], (280.0, 280.0, SIZE[0] / 2 - 0.5, SIZE[1] / 2 - 0.5), -0.3)
+    undone_focal = 280.0 * lens.out_scale(configured)
+    fov = math.degrees(2 * math.atan(SIZE[0] / (2 * undone_focal)))
+    fx, fy, cx, cy = configured.fractions()
+
+    # `walkers` gives pinhole pixels at FOCAL: their true rays, which the barrel lens bends.
+    def barrel(uv: np.ndarray) -> np.ndarray:
+        xu = (uv[:, 0] - 0.5) * SIZE[0] / FOCAL
+        yu = (uv[:, 1] - 0.5) * SIZE[1] / FOCAL
+        xd, yd = lens._distort(configured, xu, yu)
+        return np.column_stack([cx + fx * xd, cy + fy * yd])
+
+    feet_pin, heads_pin, _ = walkers(18.0, roll=-4.0, above=2.2)
+    taught(tmp_path, f"x-camera cam0 at 1,1 height 2.2 yaw 90 fov {fov:.4f}", held=False)
+    monkeypatch.setattr(spots, "people", lambda state, camera, now: (barrel(feet_pin), barrel(heads_pin)))
+    monkeypatch.setattr(lens, "as_registered", lambda camera: configured.as_tuple())
+
+    fitted = spots.fit(tmp_path, T, sizes=lambda camera, t: SIZE)["cam0"]
+
+    assert (fitted.pitch, fitted.roll) == pytest.approx((18.0, -4.0), abs=0.6)
+    pose = spots.read(tmp_path)["cam0"].pose
+    assert pose is not None
+    assert pose.lens == configured.as_tuple()
