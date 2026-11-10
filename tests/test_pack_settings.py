@@ -8,6 +8,8 @@ from hypothesis import strategies as st
 
 from liberational import config as cfg
 
+REPO = pathlib.Path(__file__).resolve().parents[1]
+
 
 def test_defaults_are_generic():
     assert cfg.owner_name() == ""
@@ -60,13 +62,101 @@ def test_override_and_identity_helpers():
 @pytest.mark.parametrize(
     "setting, want",
     [
-        pytest.param("some/dir/openclaw.json", cfg.ROOT / "some" / "dir" / "openclaw.json", id="relative"),
+        pytest.param("some/dir/openclaw.json", REPO / "some" / "dir" / "openclaw.json", id="relative"),
         pytest.param("~/.openclaw/openclaw.json", pathlib.Path.home() / ".openclaw" / "openclaw.json", id="home"),
     ],
 )
-def test_relative_paths_resolve_under_repo(setting, want):
+def test_relative_paths_resolve_under_repo(setting, want, monkeypatch):
+    monkeypatch.setattr(cfg, "OWNER_ROOT", REPO)  # as in a checkout with no PACK_ROOT
     with cfg.override({"agent": {"openclaw_config": setting}}):
         assert cfg.path("agent.openclaw_config") == want
+
+
+@pytest.fixture
+def installed(tmp_path, monkeypatch):
+    """No checkout and no PACK_ROOT, on Linux, with a made-up home directory."""
+    monkeypatch.setattr(cfg, "OWNER_ROOT", None)
+    monkeypatch.setattr(cfg.sys, "platform", "linux")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    for name in ("PACK_CONFIG", "XDG_CONFIG_HOME", "XDG_DATA_HOME"):
+        monkeypatch.delenv(name, raising=False)
+    return tmp_path
+
+
+@pytest.mark.parametrize(
+    "named, want",
+    [
+        pytest.param("data/state", ".local/share/liberational/state", id="data"),
+        pytest.param("data/models/x/y.onnx", ".local/share/liberational/models/x/y.onnx", id="data-nested"),
+        pytest.param("data", ".local/share/liberational", id="data-itself"),
+        pytest.param(".env.phone", ".config/liberational/.env.phone", id="beside-pack-toml"),
+        pytest.param("database/x", ".config/liberational/database/x", id="data-prefix-is-a-whole-part"),
+    ],
+)
+def test_installed_owner_files_split_between_the_config_and_data_directories(installed, named, want):
+    assert cfg.owner_file(named) == installed / want
+
+
+def test_installed_config_files_are_in_the_user_config_directory(installed):
+    assert cfg.local_config() == installed / ".config/liberational/pack.toml"
+    assert cfg.devices_file() == installed / ".config/liberational/devices.toml"
+    assert cfg.path("paths.logs") == installed / ".local/share/liberational/logs"
+
+
+def test_installed_directories_follow_absolute_xdg_variables_only(installed, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(installed / "conf"))
+    monkeypatch.setenv("XDG_DATA_HOME", "relative/ignored")
+    assert cfg.config_dir() == installed / "conf/liberational"
+    assert cfg.data_dir() == installed / ".local/share/liberational"
+
+
+def test_installed_on_macos_everything_is_in_application_support(installed, monkeypatch):
+    monkeypatch.setattr(cfg.sys, "platform", "darwin")
+    support = installed / "Library/Application Support/liberational"
+    assert (cfg.local_config(), cfg.owner_file("data/state")) == (support / "pack.toml", support / "state")
+
+
+def test_installed_first_save_makes_the_config_directory(installed):
+    cfg.write_local('[owner]\nname = "Alice"\n')
+    saved = installed / ".config/liberational/pack.toml"
+    assert tomllib.loads(saved.read_text()) == {"owner": {"name": "Alice"}}
+
+
+def test_installed_helpers_run_in_the_data_directory_which_is_made(installed):
+    assert cfg.workdir() == installed / ".local/share/liberational"
+    assert cfg.workdir().is_dir()
+
+
+def test_an_owner_root_lays_files_out_as_a_checkout(tmp_path, monkeypatch):
+    monkeypatch.setattr(cfg, "OWNER_ROOT", tmp_path)
+    monkeypatch.delenv("PACK_CONFIG")
+    assert cfg.local_config() == tmp_path / "pack.toml"
+    assert cfg.devices_file() == tmp_path / "config/devices.toml"
+    assert cfg.owner_file("data/state") == tmp_path / "data/state"
+    assert cfg.owner_file("/abs/x") == pathlib.Path("/abs/x")
+    assert cfg.workdir() == tmp_path
+
+
+@pytest.mark.parametrize(
+    "package, pyproject, want",
+    [
+        pytest.param("repo/src/liberational", "repo/pyproject.toml", "repo", id="checkout"),
+        pytest.param("venv/lib/site-packages/liberational", "venv/pyproject.toml", None, id="site-packages"),
+        pytest.param("repo/src/liberational", "elsewhere/pyproject.toml", None, id="src-without-pyproject"),
+    ],
+)
+def test_a_checkout_is_a_package_in_src_beside_a_pyproject(tmp_path, monkeypatch, package, pyproject, want):
+    (tmp_path / package).mkdir(parents=True)
+    (tmp_path / pyproject).parent.mkdir(parents=True, exist_ok=True)
+    (tmp_path / pyproject).write_text("")
+    monkeypatch.setattr(cfg, "PACKAGE", tmp_path / package)
+    assert cfg._checkout() == (tmp_path / want if want else None)
+
+
+def test_the_resources_the_code_reads_are_package_data():
+    names = {"defaults.toml", "labels.toml", "system-packages.toml", "services.toml"}
+    assert {f.name for f in cfg.RESOURCES.iterdir() if f.is_file()} == names
+    assert cfg.RESOURCES.parent == pathlib.Path(cfg.__file__).resolve().parent
 
 
 def test_runtime_data_defaults_live_under_data():

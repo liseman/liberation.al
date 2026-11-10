@@ -6,9 +6,9 @@ import subprocess
 
 import pytest
 
-from liberational import config as cfg
-
-_spec = importlib.util.spec_from_file_location("test_changed", cfg.ROOT / "tools" / "test_changed.py")
+_spec = importlib.util.spec_from_file_location(
+    "test_changed", pathlib.Path(__file__).resolve().parents[1] / "tools" / "test_changed.py"
+)
 assert _spec and _spec.loader
 tc = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(tc)

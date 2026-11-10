@@ -574,3 +574,36 @@ def test_manifest_enabled_requires_boolean(tmp_path):
     manifest.write_text('[[device]]\nname="cam0"\nkind="camera"\nenabled="false"\n')
     with pytest.raises(ValueError, match="enabled"):
         ready.capture_needs(manifest)
+
+
+def test_unregistered_names_the_needs_with_no_live_stream_in_one_look(monkeypatch, sdk):
+    clients = []
+
+    async def connect(*args, **kwargs):
+        rows = [
+            {"name": "cam0.video", "stream_id": 7, "live": True},
+            {"name": "old.audio", "stream_id": 8, "live": False},
+        ]
+        clients.append(ReadyClient(rows=rows))
+        return clients[-1]
+
+    monkeypatch.setattr(sdk, "Client", SimpleNamespace(connect=connect))
+    needs = (
+        ready.CaptureNeed("cam0.video", "video"),
+        ready.CaptureNeed("old.audio", "audio"),
+        ready.CaptureNeed("desk.audio", "audio"),
+    )
+    gone = asyncio.run(ready.unregistered(Path("/fixture/broker.sock"), needs))
+    assert gone == needs[1:]
+    assert len(clients) == 1 and clients[0].closed
+    assert asyncio.run(ready.unregistered(Path("/fixture/broker.sock"), ())) == ()
+    assert len(clients) == 1  # nothing declared: the broker isn't asked
+
+
+def test_unregistered_raises_when_the_broker_cannot_be_asked(monkeypatch, sdk):
+    async def connect(*args, **kwargs):
+        raise ConnectionRefusedError("no broker")
+
+    monkeypatch.setattr(sdk, "Client", SimpleNamespace(connect=connect))
+    with pytest.raises(ConnectionRefusedError):
+        asyncio.run(ready.unregistered(Path("/fixture/broker.sock"), (ready.CaptureNeed("desk.audio", "audio"),)))

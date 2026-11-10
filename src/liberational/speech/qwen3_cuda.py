@@ -39,7 +39,7 @@ _model: Qwen3Cuda | None = None
 
 
 def model_dir() -> pathlib.Path:
-    return cfg.ROOT / cfg.load()["models"]["hf"]["tts_clone_cuda"]["path"]
+    return cfg.owner_file(cfg.load()["models"]["hf"]["tts_clone_cuda"]["path"])
 
 
 def available() -> tuple[bool, str]:

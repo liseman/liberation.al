@@ -3,10 +3,11 @@
   pack-reset-catalog --keep-taught                # print the plan, change nothing
   pack-reset-catalog --keep-taught --yes          # a catalog-only reset: the taught stores stay
   pack-reset-catalog --fresh --yes                # nothing crosses: the taught stores are deleted too
+  pack-reset-catalog --keep-taught --keep-places --yes  # the places' maps, walks, and splats stay too
 
 In order:
 
-1. Check the plan can run: the camera to switch to H.264 is in `config/devices.toml`, and the broker's service is
+1. Check the plan can run: each camera named with `--camera` is in `config/devices.toml`, and the broker's service is
    installed (if it isn't, the reset refuses before stopping anything and says to run `pack-services install`).
 2. Stop every installed service outside the `core` group, then the core services too, and check that nothing is
    running and the broker's socket is closed. A broker that crash-loops (on an old catalog format, say) can bind its
@@ -14,15 +15,23 @@ In order:
    it's still up after `STOP_WAIT_S`.
 3. Delete the catalog, the recorded video and audio it indexes (`tier` and `tier2`), the worker state derived from
    it (see `targets`), and the segment store.
-4. Turn on H.264 for the camera (`encoding = { enabled = true }` under its `video`), before the broker
-   first starts on the fresh catalog. Capture encodes only a camera's MJPEG, so a camera set to capture anything
-   else (a Mac's USB cameras deliver UYVY) is left as it is, and the reset says why.
+4. Turn on H.264 (`encoding = { enabled = true }` under its `video`) for every camera in `config/devices.toml`, or
+   only those named with `--camera`, before the broker first starts on the fresh catalog. Capture encodes only a
+   camera's MJPEG, so a camera set to capture anything else (a Mac's USB cameras deliver UYVY) is left as it is, and
+   the reset says why. A file with no camera turns nothing on.
 5. Start the broker and the other core services that were running, wait for the broker's socket, then start the
    other services that were running. The broker always starts, even if it was stopped or crash-looping when the
    reset began: the reset leaves a fresh catalog it can open, and nothing else runs without it.
 
 From step 3 on, a failure leaves everything stopped and says how to finish by hand: starting a broker on half a
 reset is worse than a stopped house.
+
+`--keep-places` keeps `state/places`: each place's revisions, maps, plans, walk clouds, and splats, which take long to
+make again (a splat trains for a long time). They're files of their own and read nothing from the catalog. What a
+kept place still names from the old catalog is its revisions' `sources`, the ids of the visits they were made from:
+visits are rows in the segment store, which the reset deletes, and nothing reads those ids back. So the maps, plans,
+fixed cameras' poses, and splats work as before, while visits and the rig's positions start fresh, as does each
+camera's history behind a splat (the video it was trained on is gone).
 
 `--keep-taught` leaves the taught state alone: it's in `knowledge.sqlite3` and the files beside it, which no step
 reads or writes (a reset after a catalog format change or a model cutover). `--fresh` also deletes every taught store
@@ -118,11 +127,12 @@ class Plan:
     state: Path  # paths.state
     faces: Path  # paths.faces, which fresh empties
     devices: Path  # config/devices.toml
-    camera: str = "cam0"  # the camera switched to H.264
+    cameras: tuple[str, ...] | None = None  # the cameras switched to H.264; None for every camera in the file
     socket: Path | None = None  # the broker's socket, if not state/continuum/broker.sock
     mode: str = "keep-taught"  # "keep-taught" or "fresh"
     voices: Path | None = None  # paths.voices, which fresh empties
     logs: Path | None = None  # paths.logs, whose files fresh truncates (they hold names and transcripts)
+    keep_places: bool = False  # keep state/places (see the module docstring)
 
     @property
     def broker_socket(self) -> Path:
@@ -140,7 +150,7 @@ def targets(plan: Plan) -> list[Path]:
         continuum / "vector",  # the vector worker's index, rebuilt from what it follows
         continuum / "decoded",  # where the shared decode kept its frame ring before it moved to paths.decoded
         plan.state / "segments",  # the segment store
-        plan.state / "places",  # place revisions, maps, and plans: machine-made like the segment store
+        *([] if plan.keep_places else [plan.state / "places"]),  # place revisions, maps, plans, and splats
         plan.state / "identity.speech.cursor",  # identity's place in the speech stream
         plan.state / "see-zones.json",  # the zones worker's checkpoint of its input positions
         plan.state / "cache",  # caches of what the segment store held, such as the device tallies
@@ -228,6 +238,22 @@ def no_encoding(document: tomlkit.TOMLDocument, device: dict) -> str | None:
     return None
 
 
+def cameras(plan: Plan) -> list[str]:
+    """The cameras the reset turns H.264 on for: those named, else every camera device in the file."""
+    if plan.cameras is not None:
+        return list(plan.cameras)
+    devices = tomlkit.parse(plan.devices.read_text()).get("device")
+    if not isinstance(devices, list):
+        return []
+    return [str(d["name"]) for d in devices if isinstance(d, dict) and d.get("kind") == "camera" and d.get("name")]
+
+
+def missing(plan: Plan) -> list[str]:
+    """The cameras named with --camera that aren't devices in the file."""
+    document = tomlkit.parse(plan.devices.read_text())
+    return [c for c in plan.cameras or () if _camera(document, c) is None]
+
+
 def encoding_skipped(devices: Path, camera: str) -> str | None:
     """Why the reset leaves the camera's encoding alone, or None if it turns it on."""
     document = tomlkit.parse(devices.read_text())
@@ -295,15 +321,18 @@ def describe(plan: Plan, host: Host) -> list[str]:
     truncated = logs(plan)
     if truncated:
         lines.append(f"Truncate {len(truncated)} log files in {plan.logs} ({human(sum(size(p) for p in truncated))})")
-    try:
-        skipped = encoding_skipped(plan.devices, plan.camera)
-    except LookupError as error:
-        lines.append(f"Refuses: {error}")
-    else:
+    if plan.keep_places:
+        lines.append(f"Keep: {plan.state / 'places'} (visits and positions start fresh)")
+    for camera in missing(plan):
+        lines.append(f"Refuses: {camera} is not a [[device]] in {plan.devices}")
+    for camera in [c for c in cameras(plan) if c not in missing(plan)]:
+        skipped = encoding_skipped(plan.devices, camera)
         if skipped is None:
-            lines.append(f"Turn on H.264 for {plan.camera} in {plan.devices}")
+            lines.append(f"Turn on H.264 for {camera} in {plan.devices}")
         else:
-            lines.append(f"Leave {plan.camera}'s encoding alone: {skipped}")
+            lines.append(f"Leave {camera}'s encoding alone: {skipped}")
+    if not cameras(plan):
+        lines.append(f"Turn on H.264 for no camera: {plan.devices} has none")
     lines.append("Start the broker and the services that were running")
     if BROKER not in installed:
         lines.append(f"Refuses: {BROKER} isn't installed (run `pack-services install` first)")
@@ -326,8 +355,8 @@ def run(
     """Do the reset. Raises Refused before anything is deleted, or Stopped after."""
     if plan.mode not in MODES:
         raise Refused(f"the mode is one of {', '.join(MODES)}")
-    if _camera(tomlkit.parse(plan.devices.read_text()), plan.camera) is None:
-        raise Refused(f"{plan.camera} is not a [[device]] in {plan.devices}")
+    if gone := missing(plan):
+        raise Refused(f"{', '.join(gone)} {'is' if len(gone) == 1 else 'are'} not a [[device]] in {plan.devices}")
 
     installed = host.installed()
     if BROKER not in installed:
@@ -361,8 +390,8 @@ def run(
         host.stop(list(dict.fromkeys([*still, BROKER])))
 
     finish = (
-        f"Everything is stopped. Finish by hand: delete what's left of the plan's list, set {plan.camera}'s "
-        "encoding if it captures MJPEG, then start the services."
+        "Everything is stopped. Finish by hand: delete what's left of the plan's list, turn on encoding for the "
+        "cameras that capture MJPEG, then start the services."
     )
     try:
         for path in deleted(plan):
@@ -375,11 +404,12 @@ def run(
             path.write_bytes(b"")
         if plan.mode == "fresh" and plan.logs is not None:
             say(f"Truncated the logs in {plan.logs}")
-        skipped = encoding_skipped(plan.devices, plan.camera)
-        if skipped is not None:
-            say(f"Left {plan.camera}'s encoding alone: {skipped}")
-        elif encode_camera(plan.devices, plan.camera):
-            say(f"Turned on H.264 for {plan.camera}")
+        for camera in cameras(plan):
+            skipped = encoding_skipped(plan.devices, camera)
+            if skipped is not None:
+                say(f"Left {camera}'s encoding alone: {skipped}")
+            elif encode_camera(plan.devices, camera):
+                say(f"Turned on H.264 for {camera}")
     except Exception as error:
         raise Stopped(f"{error}. {finish}") from error
 
@@ -408,14 +438,25 @@ def main(argv: Sequence[str] | None = None) -> None:
     which = parser.add_mutually_exclusive_group(required=True)
     which.add_argument("--keep-taught", action="store_true", help="the taught stores stay")
     which.add_argument("--fresh", action="store_true", help="delete every taught store too")
-    parser.add_argument("--camera", default="cam0", help="the camera to switch to H.264")
+    parser.add_argument(
+        "--camera",
+        action="append",
+        metavar="NAME",
+        help="a camera to switch to H.264 (again for more); without it, every camera in config/devices.toml",
+    )
+    parser.add_argument(
+        "--keep-places",
+        action="store_true",
+        help="keep state/places (maps, plans, walks, and splats); their visits and the positions start fresh",
+    )
     parser.add_argument("--yes", action="store_true", help="do it; without this, only print the plan")
     args = parser.parse_args(argv)
     plan = Plan(
         state=cfg.path("paths.state"),
         faces=cfg.path("paths.faces"),
-        devices=cfg.ROOT / "config" / "devices.toml",
-        camera=args.camera,
+        devices=cfg.devices_file(),
+        cameras=tuple(args.camera) if args.camera else None,
+        keep_places=args.keep_places,
         mode="fresh" if args.fresh else "keep-taught",
         voices=cfg.path("paths.voices"),
         logs=cfg.path("paths.logs"),

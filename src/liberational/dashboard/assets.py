@@ -13,12 +13,12 @@ import html
 import pathlib
 from functools import lru_cache
 
-from liberational.config import ROOT
+from liberational.config import CHECKOUT
 
 STATIC = pathlib.Path(__file__).resolve().parent / "static"
 APP = STATIC / "app"  # Vite's output (frontend/vite.config.ts), served at /static/app/
 MANIFEST = APP / ".vite" / "manifest.json"
-FRONTEND = ROOT / "frontend"
+FRONTEND = CHECKOUT / "frontend" if CHECKOUT else None  # the sources, in a checkout only
 IMMUTABLE = "public, max-age=31536000, immutable"
 TYPES = {
     ".mjs": "text/javascript; charset=utf-8",
@@ -96,8 +96,10 @@ def built_page(name: str) -> tuple[str, bool]:
 
 def stale(frontend: pathlib.Path | None = None, manifest: pathlib.Path | None = None) -> bool:
     """Whether a frontend source (src/, its HTML pages, config, and lock file) changed after the last build. False
-    with no build or no frontend/ (an install that was never built says so in `built_page` instead)."""
+    with no build or no frontend/ (a wheel has none, and an install that was never built says so in `built_page` instead)."""
     frontend, manifest = frontend or FRONTEND, manifest or MANIFEST
+    if frontend is None:
+        return False
     try:
         built = manifest.stat().st_mtime_ns
     except OSError:

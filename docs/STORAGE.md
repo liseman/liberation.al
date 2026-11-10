@@ -25,7 +25,9 @@ are rebuilt by those tasks and untouched by a reset.
 
 Machine-made data is expendable. The catalog reset (`pack-reset-catalog --keep-taught`) deletes the catalog,
 the recordings it indexes, the vector index, the shared decode's frame ring, the segment store, and the derived
-workers' checkpoints, then restarts. This mode preserves `knowledge.sqlite3` and `faces/db.npz`.
+workers' checkpoints, then restarts. This mode preserves `knowledge.sqlite3` and `faces/db.npz`. With
+`--keep-places` it also keeps `state/places` (the places' maps, plans, walks, and splats, which take long to make
+again); their visits and the rig's positions start fresh.
 The separate `--fresh` mode removes taught state too, including face and voice references; see
 [MIGRATING.md](../MIGRATING.md) for the full reset boundary.
 

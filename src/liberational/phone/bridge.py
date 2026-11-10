@@ -896,10 +896,10 @@ STALL_REPLY = re.compile(
 
 def phone_tool_rule(call_sid: str | None = None) -> str:
     """How the agent checks the pack's services on this machine (launchd or systemd, via pack-services)."""
-    status = cfg.ROOT / ".venv" / "bin" / "pack-services"
+    status = cfg.program("pack-services")
     control = ""
     if call_sid and re.fullmatch(r"CA[0-9a-fA-F]{32}", call_sid):
-        end_call = cfg.ROOT / ".venv" / "bin" / "pack-phone-call"
+        end_call = cfg.program("pack-phone-call")
         control = (
             f" To end this call when the caller asks, call exec with: {end_call} --hangup {call_sid}. "
             "This ends this call only; do not place another call. "

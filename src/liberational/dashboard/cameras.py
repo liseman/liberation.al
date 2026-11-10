@@ -37,7 +37,7 @@ _SUBTABLE = re.compile(r"^\s*\[\s*device\s*\.")
 
 
 def manifest_path() -> pathlib.Path:
-    return cfg.ROOT / "config" / "devices.toml"
+    return cfg.devices_file()
 
 
 def manifest_cameras(path: pathlib.Path | None = None) -> list[dict[str, Any]]:

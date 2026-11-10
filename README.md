@@ -111,16 +111,15 @@ A successful install is not a hardware validation: check the service status and 
    the Python dependencies, builds `whisper-server` and the dashboard, turns on the Git hooks, and fetches the models
    for your platform. The first run downloads several GB; later runs skip what's already there.
 
-   The pet embedding model (`facebook/dinov3-vits16-pretrain-lvd1689m`) is gated on Hugging Face: accept its license on
-   its model page and set `HF_TOKEN` (or sign in with `uvx --from huggingface_hub hf auth login`) before running setup.
-   Without access, setup still fetches every other model, then lists the gated ones and exits with an error; pets
-   aren't told apart until you have access and run `mise run models` again.
+   No model needs a Hugging Face account: every default model is fetched without one. If you point a model at a
+   gated repository yourself, setup still fetches every other model, then lists the gated ones and exits with an
+   error.
 
    ```bash
    mise run setup
    ```
 
-   To see what the model step will fetch before it does: `uv run tools/fetch_models.py --list`.
+   To see what the model step will fetch before it does: `uv run pack-models --list`.
 
    After reviewing the AdaFace model card's dataset license (`config/defaults.toml` under `[models.adaface]`), export
    the face recognition ONNX model from the downloaded source and checkpoint:
@@ -205,6 +204,8 @@ uv run pack-walkthrough <folder>
 ```
 
 The place shows up under Known, in Places, which also marks the places and rooms no walk has covered yet.
+To add a walk to a place that's already there, open it in Places and drop the zip Stray Scanner exports on it: no
+copying and no command.
 [Recording and importing a walkthrough](docs/WALKTHROUGH.md) has the full advice, adding a walk to a place that's
 already there, and the plain-video alternative.
 
@@ -223,7 +224,7 @@ The system never guesses a name it wasn't taught. Start with yourself (the Getti
 |---|---|
 | A service isn't running | `uv run pack-services status`, then the Debug tab, which shows each service's log by level |
 | "missing system package" | `uv run pack-system check`, then `mise run system` |
-| A model is missing | `uv run tools/fetch_models.py --list`, then `mise run models` |
+| A model is missing | `uv run pack-models --list`, then `mise run models` |
 | No answers or captions | Ollama isn't running: `mise run ollama`, or check your Ollama service |
 | A camera or microphone doesn't appear | Its `[[device]]` match in `config/devices.toml` (`lsusb` for a USB ID), then `uv run pack-services restart continuum-capture` |
 | Continuum won't start | `mise run continuum-status`; build it with `mise run continuum-release` if the binaries are missing |

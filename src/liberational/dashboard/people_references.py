@@ -17,7 +17,7 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
 from liberational import config as cfg
-from liberational.config import ROOT
+from liberational.config import workdir
 from liberational.dashboard import context, people_list, roster_read, routes
 from liberational.dashboard.context import LOG, PY
 
@@ -107,7 +107,7 @@ def _face_cmd(args: Sequence[object]) -> tuple[bool, str]:
     try:
         r = subprocess.run(
             [str(PY), "-m", "liberational.vision.faces", *[str(x) for x in args]],
-            cwd=str(ROOT),
+            cwd=str(workdir()),
             capture_output=True,
             text=True,
             timeout=180,

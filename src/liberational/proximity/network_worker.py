@@ -228,10 +228,7 @@ def configured_source() -> tuple[NetworkSource, UniFiSession | None]:
     leases = cfg.get("network_devices.dhcp_lease_paths")
     if not isinstance(leases, list) or any(not isinstance(path, str) for path in leases):
         raise ValueError("network_devices.dhcp_lease_paths must be a list of local file paths")
-    paths = [Path(path).expanduser() for path in leases]
-    host = HostNetworkSource(
-        observer, arp, [path if path.is_absolute() else cfg.ROOT / path for path in paths], maximum
-    )
+    host = HostNetworkSource(observer, arp, [cfg.owner_file(path) for path in leases], maximum)
     session = configured_session() if cfg.get("unifi.url") else None
     unifi = (
         UniFiNetwork(

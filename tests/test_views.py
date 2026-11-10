@@ -42,7 +42,7 @@ def test_disabled_camera_keeps_history_identity_but_is_absent_from_live_shell(tm
     (tmp_path / "config").mkdir()
     path = tmp_path / "config" / "devices.toml"
     path.write_text('device = [{name="entryway", kind="rtsp", enabled=false}, {name="desk", kind="camera"}]')
-    monkeypatch.setattr(cfg, "ROOT", tmp_path)
+    monkeypatch.setattr(cfg, "OWNER_ROOT", tmp_path)
     assert views.camera_ids() == ["entryway", "desk"]
     assert views.camera_ids(active_only=True) == ["desk"]
 
@@ -59,7 +59,7 @@ def test_invalid_manifest_is_actionable(tmp_path, text):
 
 
 def test_camera_ids_come_only_from_the_manifest(tmp_path, monkeypatch):
-    monkeypatch.setattr(cfg, "ROOT", tmp_path)
+    monkeypatch.setattr(cfg, "OWNER_ROOT", tmp_path)
     (tmp_path / "config").mkdir()
     path = tmp_path / "config" / "devices.toml"
     assert views.camera_ids() == []  # no manifest, no cameras
@@ -82,7 +82,7 @@ def test_place_save_preserves_configured_ambiguous_tokens(tmp_path, monkeypatch)
     (root / "config" / "devices.toml").write_text(
         'device = [{name="0", kind="rtsp"}, {name="cam00", kind="camera"}, {name="CAM0", kind="camera"}]'
     )
-    monkeypatch.setattr(cfg, "ROOT", root)
+    monkeypatch.setattr(cfg, "OWNER_ROOT", root)
     pack = tmp_path / "pack.toml"
     monkeypatch.setattr(cfg, "local_config", lambda: pack)
     cfg.save({"vision.camera_names": "0: Zero, cam00: Padded, CAM0: Upper, entryway: Front"})
@@ -114,7 +114,7 @@ def test_configured_camera_mentions_are_exact_and_contextual(tmp_path, monkeypat
         'device=[{name="entryway",kind="rtsp"},{name="entryway-extra",kind="camera"},'
         '{name="0",kind="camera"},{name="cam00",kind="camera"},{name="CAM0",kind="camera"}]'
     )
-    monkeypatch.setattr(cfg, "ROOT", tmp_path)
+    monkeypatch.setattr(cfg, "OWNER_ROOT", tmp_path)
     cameras, remaining = views.configured_camera_mentions(question)
     assert cameras == want
     assert len(remaining) == len(question)
@@ -123,7 +123,7 @@ def test_configured_camera_mentions_are_exact_and_contextual(tmp_path, monkeypat
 def test_configured_camera_reference_is_masked_before_time_parsing(tmp_path, monkeypatch):
     (tmp_path / "config").mkdir()
     (tmp_path / "config" / "devices.toml").write_text('device=[{name="year",kind="rtsp"}]')
-    monkeypatch.setattr(cfg, "ROOT", tmp_path)
+    monkeypatch.setattr(cfg, "OWNER_ROOT", tmp_path)
     cameras, remaining = views.configured_camera_mentions("what did camera year show yesterday")
     assert cameras == ["year"]
     assert "year" not in remaining and "yesterday" in remaining
@@ -136,7 +136,7 @@ def named_camera_manifest(tmp_path, monkeypatch):
         'device=[{name="garden",kind="rtsp"},{name="reading-room",kind="camera"},'
         '{name="back_porch",kind="camera"},{name="0",kind="camera"}]'
     )
-    monkeypatch.setattr(cfg, "ROOT", tmp_path)
+    monkeypatch.setattr(cfg, "OWNER_ROOT", tmp_path)
     with cfg.override({"vision": {"camera_names": ["garden: Green room", "reading-room: Library"]}}):
         yield
 
@@ -187,7 +187,7 @@ def test_case_colliding_native_ids_need_exact_explicit_id(tmp_path, monkeypatch)
     (tmp_path / "config" / "devices.toml").write_text(
         'device=[{name="Garden",kind="camera"},{name="garden",kind="camera"}]'
     )
-    monkeypatch.setattr(cfg, "ROOT", tmp_path)
+    monkeypatch.setattr(cfg, "OWNER_ROOT", tmp_path)
     assert views.configured_camera_mentions("camera Garden today")[0] == ["Garden"]
     assert views.configured_camera_mentions("camera garden today")[0] == ["garden"]
     with pytest.raises(ValueError, match="[Aa]mbiguous.*camera"):
@@ -206,7 +206,7 @@ def test_longer_spoken_camera_id_owns_its_full_phrase(tmp_path, monkeypatch):
     (tmp_path / "config" / "devices.toml").write_text(
         'device=[{name="garden",kind="camera"},{name="garden-room",kind="camera"}]'
     )
-    monkeypatch.setattr(cfg, "ROOT", tmp_path)
+    monkeypatch.setattr(cfg, "OWNER_ROOT", tmp_path)
     assert views.configured_camera_mentions("camera garden room today")[0] == ["garden-room"]
     assert views.configured_camera_mentions("on the garden room today")[0] == ["garden-room"]
 

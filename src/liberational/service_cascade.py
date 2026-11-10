@@ -425,7 +425,19 @@ class SDKReadiness:
         from liberational import continuum_ready
 
         self.socket = socket
+        self.manifest = manifest
         self.needs = continuum_ready.capture_needs(manifest)
+
+    def missing(self) -> list[dict[str, str]]:
+        """The devices the manifest declares now (enabled ones) that have no live stream at the broker, as
+        {"name", "kind": "camera" | "microphone"}: what the application's window names (#183). Raises when the
+        broker can't be asked."""
+        from liberational import continuum_ready
+
+        needs = continuum_ready.capture_needs(self.manifest)  # read again: a device may have been added since
+        gone = asyncio.run(continuum_ready.unregistered(self.socket, needs))
+        kinds = {"video": "camera", "audio": "microphone"}
+        return [{"name": need.stream.rsplit(".", 1)[0], "kind": kinds[need.kind]} for need in gone]
 
     def previous(self, deadline: float) -> BrokerIdentity | None:
         from liberational import continuum_ready
@@ -540,7 +552,7 @@ class ServiceManager:
         if CAPTURE not in self.spec:
             return (), frozenset()
         worker = Path(services.argv(self.spec[CAPTURE])[0]).with_name("continuum-capture-worker").resolve()
-        network = rtsp_devices(cfg.ROOT / "config" / "devices.toml")
+        network = rtsp_devices(cfg.devices_file())
         found, rtsp = [], set()
         for process in psutil.process_iter(["exe", "cmdline"]):
             command = process.info.get("cmdline") or []
@@ -775,7 +787,7 @@ def _run_selected(
     names = tuple(name for name in chosen if name in have or install and name in original)
     if BROKER not in names:
         raise CascadeError("planning", "continuum-broker must be selected and installed")
-    ready = SDKReadiness(cfg.ROOT / "config/devices.toml", cfg.path("paths.state") / "continuum/broker.sock")
+    ready = SDKReadiness(cfg.devices_file(), cfg.path("paths.state") / "continuum/broker.sock")
     if ready.needs and CAPTURE not in names:
         raise CascadeError("planning", "configured capture devices require selected/installed continuum-capture")
     # Permanent SDK/configuration errors precede all unit writes and manager mutations.
@@ -784,7 +796,7 @@ def _run_selected(
         # A waiting controller must not apply an obsolete selection or device manifest.
         if services.selected() != chosen or set(services.installed()) != have:
             raise CascadeError("planning", "service selection/installation changed while waiting; retry the cascade")
-        fresh = SDKReadiness(cfg.ROOT / "config/devices.toml", cfg.path("paths.state") / "continuum/broker.sock")
+        fresh = SDKReadiness(cfg.devices_file(), cfg.path("paths.state") / "continuum/broker.sock")
         if fresh.needs != ready.needs:
             raise CascadeError("planning", "configured capture streams changed while waiting; retry the cascade")
         ready = fresh

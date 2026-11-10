@@ -1,18 +1,14 @@
 import hashlib
-import importlib.util
+import http.server
 import pathlib
 import sys
+import threading
 import zipfile
 from unittest.mock import create_autospec
 
 import pytest
 
-_spec = importlib.util.spec_from_file_location(
-    "fetch_models", pathlib.Path(__file__).parents[1] / "tools/fetch_models.py"
-)
-assert _spec and _spec.loader
-fetch_models = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(fetch_models)
+from liberational import fetch_models
 
 
 @pytest.fixture
@@ -30,7 +26,7 @@ def entry(z, **more):
 
 
 def test_a_zip_model_installs_the_one_file_it_names(tmp_path, archive, monkeypatch):
-    monkeypatch.setattr(fetch_models, "ROOT", tmp_path)
+    monkeypatch.setattr("liberational.config.OWNER_ROOT", tmp_path)
     digest = hashlib.sha256(archive.read_bytes()).hexdigest()
     fetch_models.fetch_file("pose", entry(archive, member="2023/rtmpose/end2end.onnx", sha256=digest))
     assert (tmp_path / "models" / "pose.onnx").read_bytes() == b"weights"
@@ -48,7 +44,7 @@ def test_a_zip_model_installs_the_one_file_it_names(tmp_path, archive, monkeypat
     ],
 )
 def test_a_zip_model_that_cannot_be_trusted_or_found_is_not_installed(tmp_path, archive, monkeypatch, more, why):
-    monkeypatch.setattr(fetch_models, "ROOT", tmp_path)
+    monkeypatch.setattr("liberational.config.OWNER_ROOT", tmp_path)
     with pytest.raises(SystemExit, match=why):
         fetch_models.fetch_file("pose", entry(archive, **more))
     assert not (tmp_path / "models" / "pose.onnx").exists()
@@ -61,7 +57,7 @@ def test_a_file_named_tar_that_isnt_an_archive_is_kept_as_it_is(tmp_path, monkey
     src.parent.mkdir()
     with zipfile.ZipFile(src, "w") as f:
         f.writestr("archive/data.pkl", b"weights")
-    monkeypatch.setattr(fetch_models, "ROOT", tmp_path)
+    monkeypatch.setattr("liberational.config.OWNER_ROOT", tmp_path)
     digest = hashlib.sha256(src.read_bytes()).hexdigest() if digest_ok else "0" * 64
     spec = {"url": src.as_uri(), "path": "models/geocalib/geocalib-pinhole.tar", "sha256": digest}
     if digest_ok:
@@ -84,11 +80,40 @@ def test_huggingface_download_honors_declared_checkpoint_patterns(monkeypatch):
     assert calls == [("fixture/sam2", {"allow_patterns": ["*.json", "*.safetensors"]})]
 
 
+@pytest.fixture
+def snapshot(tmp_path, monkeypatch):
+    """A fetched repository with its weights file: `snapshot_download` hands back its folder."""
+    import huggingface_hub
+
+    folder = tmp_path / "snapshot"
+    folder.mkdir()
+    (folder / "model.safetensors").write_bytes(b"weights")
+    (folder / "config.json").write_text("{}")
+    monkeypatch.setattr(huggingface_hub, "snapshot_download", lambda repo, **kwargs: str(folder))
+    return folder
+
+
+def test_a_fetched_copy_whose_weights_match_the_declared_checksum_is_kept(snapshot):
+    digest = hashlib.sha256(b"weights").hexdigest()
+    assert fetch_models.fetch_hf("pets", {"repo": "fixture/copy", "sha256": {"model.safetensors": digest}})
+    assert (snapshot / "model.safetensors").read_bytes() == b"weights"
+
+
+@pytest.mark.parametrize("present", [True, False], ids=["other-weights", "no-weights"])
+def test_a_fetched_copy_with_other_weights_is_refused_and_its_file_removed(snapshot, present):
+    if not present:
+        (snapshot / "model.safetensors").unlink()
+    with pytest.raises(SystemExit, match=r"pets: fixture/copy model\.safetensors has checksum .* expected 0000"):
+        fetch_models.fetch_hf("pets", {"repo": "fixture/copy", "sha256": {"model.safetensors": "0" * 64}})
+    assert not (snapshot / "model.safetensors").exists()  # nothing can load it
+    assert (snapshot / "config.json").exists()
+
+
 def test_huggingface_local_checkpoint_honors_revision_without_fetching_other_files(tmp_path, monkeypatch):
     import huggingface_hub
 
     calls = []
-    monkeypatch.setattr(fetch_models, "ROOT", tmp_path)
+    monkeypatch.setattr("liberational.config.OWNER_ROOT", tmp_path)
     monkeypatch.setattr(huggingface_hub, "snapshot_download", lambda repo, **kwargs: calls.append((repo, kwargs)))
     fetch_models.fetch_hf(
         "object_segmentation",
@@ -310,3 +335,112 @@ def test_no_ollama_also_skips_configured_advanced_models(monkeypatch, capsys):
     fetch_models.main()
 
     assert "ollama:" not in capsys.readouterr().out
+
+
+class _Server(http.server.ThreadingHTTPServer):
+    """One 3000-byte file at any path. `ranges` off ignores Range headers; `limit` cuts the body short (a connection
+    that drops); `asked` records each request's Range."""
+
+    body = bytes(range(250)) * 12
+    ranges = True
+    limit: int | None = None
+    url = ""
+
+    def __init__(self) -> None:
+        super().__init__(("127.0.0.1", 0), _Files)
+        self.asked: list[str | None] = []
+        self.url = f"http://127.0.0.1:{self.server_address[1]}/weights.bin"
+
+
+class _Files(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        server = self.server
+        assert isinstance(server, _Server)
+        body, asked = server.body, self.headers.get("Range")
+        server.asked.append(asked)
+        start = int(asked.removeprefix("bytes=").rstrip("-")) if asked and server.ranges else 0
+        if start >= len(body) and asked and server.ranges:
+            self.send_response(416)
+            self.send_header("Content-Range", f"bytes */{len(body)}")
+            self.end_headers()
+            return
+        self.send_response(206 if start else 200)
+        self.send_header("Content-Length", str(len(body) - start))
+        self.end_headers()
+        self.wfile.write(body[start : server.limit])
+
+    def log_message(self, format, *args):
+        pass
+
+
+@pytest.fixture
+def served():
+    server = _Server()
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    yield server
+    server.shutdown()
+    server.server_close()
+    thread.join()
+
+
+def test_a_download_that_was_cut_off_carries_on_from_what_it_has(tmp_path, served):
+    part = tmp_path / "weights.bin"
+    part.write_bytes(served.body[:1000])
+    fetch_models.download("weights", served.url, part)
+    assert part.read_bytes() == served.body
+    assert served.asked == ["bytes=1000-"]
+
+
+def test_a_server_that_ignores_the_range_replaces_what_was_there(tmp_path, served):
+    served.ranges = False
+    part = tmp_path / "weights.bin"
+    part.write_bytes(b"x" * 1000)
+    fetch_models.download("weights", served.url, part)
+    assert part.read_bytes() == served.body
+
+
+def test_a_whole_download_left_behind_is_not_fetched_again(tmp_path, served):
+    part = tmp_path / "weights.bin"
+    part.write_bytes(served.body)
+    fetch_models.download("weights", served.url, part)
+    assert part.read_bytes() == served.body
+    assert served.asked == ["bytes=3000-"]
+
+
+def test_a_leftover_longer_than_the_file_is_fetched_from_the_start(tmp_path, served):
+    part = tmp_path / "weights.bin"
+    part.write_bytes(b"x" * 4000)
+    fetch_models.download("weights", served.url, part)
+    assert part.read_bytes() == served.body
+    assert served.asked == ["bytes=4000-", None]
+
+
+def test_a_dropped_connection_keeps_what_arrived_and_the_next_run_finishes_the_model(tmp_path, served, monkeypatch):
+    monkeypatch.setattr("liberational.config.OWNER_ROOT", tmp_path)
+    entry = {"url": served.url, "path": "models/weights.bin", "sha256": hashlib.sha256(served.body).hexdigest()}
+    served.limit = 1200
+    with pytest.raises(OSError):
+        fetch_models.fetch_file("weights", entry)
+    assert not (tmp_path / "models/weights.bin").exists()
+    assert (tmp_path / "models/.weights.bin.fetch/weights.bin").read_bytes() == served.body[:1200]
+    served.limit = None
+    fetch_models.fetch_file("weights", entry)
+    assert (tmp_path / "models/weights.bin").read_bytes() == served.body
+    assert served.asked == [None, "bytes=1200-"]
+    assert [f.name for f in (tmp_path / "models").iterdir()] == ["weights.bin"]
+    fetch_models.fetch_file("weights", entry)
+    assert len(served.asked) == 2  # present: nothing is asked of the server again
+
+
+def test_a_download_with_the_wrong_checksum_is_thrown_away_not_carried_on_from(tmp_path, served, monkeypatch):
+    monkeypatch.setattr("liberational.config.OWNER_ROOT", tmp_path)
+    entry = {"url": served.url, "path": "models/weights.bin", "sha256": "0" * 64}
+    with pytest.raises(SystemExit, match="checksum mismatch"):
+        fetch_models.fetch_file("weights", entry)
+    assert list((tmp_path / "models").iterdir()) == []
+
+
+def test_progress_is_said_as_megabytes_of_the_whole():
+    assert fetch_models._progress("cut3r", 1_600_000_000, 3_200_000_000) == "  cut3r: 1,600 of 3,200 MB (50%)"
+    assert fetch_models._progress("cut3r", 5_000_000, None) == "  cut3r: 5 MB"

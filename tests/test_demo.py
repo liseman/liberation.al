@@ -84,7 +84,7 @@ def test_a_socket_path_too_long_for_a_socket_goes_to_a_short_dir(tmp_path):
 @pytest.mark.parametrize("inside", ["data", "data/demo"])
 def test_a_demo_dir_in_the_real_data_dir_is_refused(inside):
     with pytest.raises(SystemExit, match="real data directory"):
-        cli.check_dir(cfg.ROOT / inside)
+        cli.check_dir(cfg.workdir() / inside)
 
 
 def test_a_dir_holding_something_else_is_refused(tmp_path):

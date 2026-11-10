@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from liberational.dashboard import context, photo_files
-from liberational.people import pet_recognition, pet_shots
+from liberational.people import face_shots, pet_recognition, pet_shots
 from liberational.see.caption_animals import CaptionAnimals
 
 T = 1_800_000_000.0
@@ -142,3 +142,18 @@ def test_background_pet_jobs_share_one_lookup_before_acquiring_decode_turns(tmp_
     assert photo_files._pet_file(TRACK, tmp_path) == b"jpeg"
     assert photo_files._pet_file("run1:dog:2", tmp_path) == b"jpeg"
     assert calls == [tmp_path]
+
+
+def test_a_tracks_newest_photo_is_its_highest_revision_and_never_another_tracks(tmp_path):
+    folder = face_shots.directory(tmp_path, "run:cat:1", pet_shots.KIND)
+    folder.mkdir(parents=True)
+    for name in [
+        "run:cat:1-{v}-r2.jpg",
+        "run:cat:1-{v}-r10.jpg",
+        "run:cat:1-{v}-grid80-r11.jpg",
+        "run:cat:12-{v}-r12.jpg",
+    ]:
+        (folder / name.format(v=face_shots.VERSION)).write_bytes(b"jpg")
+    newest = pet_shots.newest(tmp_path, "run:cat:1")
+    assert newest is not None and newest.name == f"run:cat:1-{face_shots.VERSION}-r10.jpg"
+    assert pet_shots.newest(tmp_path, "run:cat:2") is None

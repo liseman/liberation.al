@@ -670,7 +670,7 @@ def phase_shift(frame: torch.Tensor, previous: torch.Tensor | None) -> tuple[tup
 
 class Shared:
     """One copy of a model on a device for every camera on it, one call at a time. Each camera's backend loaded
-    its own SigLIP 2, DINOv3, ST-GCN++, and MoViNet, about 4 GB on GPU 0 for six cameras, though they run rarely.
+    its own SigLIP 2, DINOv2, ST-GCN++, and MoViNet, about 4 GB on GPU 0 for six cameras, though they run rarely.
 
     A call runs on the calling camera's own CUDA stream (each camera thread sets one), and every method these models
     have returns host data, which waits for that stream: so when the lock passes to the next camera nothing of the last
@@ -808,7 +808,7 @@ class TorchBackend:
     def _embedder(self) -> Any:
         from liberational.vision.animal_embedder import DinoEmbedder
 
-        return shared(self.device, "dinov3", lambda: DinoEmbedder(device=str(self.device)))
+        return shared(self.device, "pet-embedding", lambda: DinoEmbedder(device=str(self.device)))
 
     @functools.cached_property
     def _verifier(self) -> Any:

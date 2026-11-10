@@ -160,6 +160,24 @@ os.execv, os.execve = _guarded_execv, _guarded_execve  # ty: ignore[invalid-assi
 
 
 @pytest.fixture(autouse=True)
+def _no_supervisor_here(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No application runs the services in a test unless the test says one does: `supervisor.read_status()` (the
+    default path, under the state directory) answers None, so the verbs and readers that ask it first (services.py)
+    go on as before. A test that gives a path, or patches read_status itself, gets what it asks for."""
+    from liberational import supervisor
+
+    real = supervisor.read_status
+    monkeypatch.setattr(supervisor, "read_status", lambda path=None: real(path) if path is not None else None)
+
+
+@pytest.fixture(autouse=True)
+def _no_real_login_entry(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A test never adds or removes the real desktop's autostart entry (login_item.py, #157): the desktop's config
+    directory is a temporary one for every test."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path_factory.mktemp("xdg")))
+
+
+@pytest.fixture(autouse=True)
 def speech(monkeypatch):
     """Every test reads and writes an in-memory speech log, never a broker: `speech.say({...})` puts an utterance
     there, `speech.reply({...})` a reply."""

@@ -48,7 +48,7 @@ def camera_names() -> list[str]:
     """The cameras in capture's manifest."""
     from liberational.see.frames import cameras_from_manifest
 
-    return [c.name for c in cameras_from_manifest(cfg.ROOT / "config" / "devices.toml")]
+    return [c.name for c in cameras_from_manifest(cfg.devices_file())]
 
 
 # ---- matching ----------------------------------------------------------------------------------------------------

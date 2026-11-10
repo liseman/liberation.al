@@ -50,7 +50,7 @@ def test_every_data_path_is_a_temp_dir(key):
     ids=["open", "sqlite-uri"],
 )
 def test_opening_a_real_data_path_is_refused(opener):
-    real = cfg.ROOT / "data" / "logs" / "no-such-file"
+    real = cfg.workdir() / "data" / "logs" / "no-such-file"
     with pytest.raises(RuntimeError, match="real data directory"):
         opener(real)
     assert "no-such-file" in conftest.hits.pop()[0]
@@ -59,13 +59,13 @@ def test_opening_a_real_data_path_is_refused(opener):
 def test_moving_a_file_into_a_real_data_path_is_refused(tmp_path):
     missing = tmp_path / "missing"  # a source that doesn't exist, so a broken guard still writes nothing
     with pytest.raises(RuntimeError, match="real data directory"):
-        os.replace(missing, cfg.ROOT / "data" / "state" / "moved-in")
+        os.replace(missing, cfg.workdir() / "data" / "state" / "moved-in")
     assert "moved-in" in conftest.hits.pop()[0]
 
 
 @pytest.fixture
 def temp_root(tmp_path, monkeypatch):
-    """ROOT is a temp dir with nothing selected to install; returns the service-manager commands sent."""
+    """The working directory is a temp dir with nothing selected to install; returns the service-manager commands sent."""
     sent = []
 
     def run(*cmd, check=False):
@@ -73,8 +73,8 @@ def temp_root(tmp_path, monkeypatch):
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
     # Only the checkout guard sees this root. Mutating the shared config module let lazy imports keep a temp
-    # manifest path after monkeypatch restored ROOT.
-    monkeypatch.setattr(services, "cfg", SimpleNamespace(ROOT=tmp_path))
+    # manifest path after monkeypatch restored it.
+    monkeypatch.setattr(services, "cfg", SimpleNamespace(workdir=lambda: tmp_path))
     monkeypatch.setattr(services, "preflight", lambda names: None)
     monkeypatch.setattr(services, "DARWIN", False)
     monkeypatch.setattr(services, "_run", run)
@@ -96,7 +96,7 @@ def test_a_temporary_directory_is_refused_unless_asked(temp_root, action):
 
 def test_a_git_worktree_is_refused(temp_root, tmp_path, monkeypatch):
     with monkeypatch.context() as m:
-        m.setattr(services.cfg, "ROOT", pathlib.Path("/srv/liberational"))
+        m.setattr(services.cfg, "workdir", lambda: pathlib.Path("/srv/liberational"))
         assert services.checkout_note() == ""  # a plain checkout passes
     (tmp_path / ".git").write_text("gitdir: /somewhere/.git/worktrees/x\n")  # checked before the temp dir
     assert "worktree" in services.checkout_note()

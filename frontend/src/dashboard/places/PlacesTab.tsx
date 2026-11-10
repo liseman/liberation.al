@@ -18,6 +18,7 @@ import classes from './places.module.css';
 import { parsePlaceDsl } from './plan/dsl';
 import type { Extensions } from './plan/ext';
 import { drawPlace, looks, type PlaceDrawing } from './plan/render';
+import { WalkImport } from './WalkImport';
 import { WalkBadge, WalkNote } from './walks';
 
 // The 3D view is its own chunk: three.js loads only when someone opens it.
@@ -240,6 +241,7 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
                   )}
                 </div>
                 {editing !== place.id && <WalkNote place={place} />}
+                {editing !== place.id && !place.example && <WalkImport place={place} />}
                 {!place.example && view === '3d' && editing !== place.id ? (
                   <Suspense
                     fallback={

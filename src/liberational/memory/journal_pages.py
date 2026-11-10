@@ -78,7 +78,6 @@ import math
 import pathlib
 import re
 import subprocess
-import sys
 import threading
 import time
 from collections.abc import Generator, Iterable, Mapping, Sequence
@@ -775,7 +774,7 @@ def _pack_services(*args: str) -> str:
     """The output of `pack-services <args>`, run as its own process: importing services.py here would make
     every service whose code reaches the journal count as reading what it reads to choose services (asr.engine,
     services.enable), so saving one of those would restart them all."""
-    exe = pathlib.Path(sys.executable).with_name("pack-services")  # the console script beside this venv's python
+    exe = cfg.program("pack-services")  # the console script beside this venv's python
     r = subprocess.run([str(exe), *args], capture_output=True, text=True, timeout=300)
     if r.returncode:  # a refusal (not installed, not the live checkout)
         raise RuntimeError(f"services refused: {(r.stderr or r.stdout).strip()}")
