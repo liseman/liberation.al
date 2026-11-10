@@ -1,6 +1,7 @@
 """The application's window (#156): what it says, that Quit drains and stops, and the real Tk window on a virtual
 display."""
 
+import importlib.util
 import shutil
 import subprocess
 import sys
@@ -346,7 +347,10 @@ WINDOW = textwrap.dedent(
 )
 
 
-@pytest.mark.skipif(shutil.which("xvfb-run") is None, reason="needs xvfb-run for a display nobody is looking at")
+@pytest.mark.skipif(
+    shutil.which("xvfb-run") is None or importlib.util.find_spec("tkinter") is None,
+    reason="needs xvfb-run and tkinter for a display nobody is looking at",
+)
 @pytest.mark.parametrize(("dpi", "scheme"), [pytest.param(96, "light", id="1x"), pytest.param(192, "dark", id="2x")])
 def test_the_real_window_shows_recording_and_closing_it_stops_everything(dpi, scheme):
     """Tk itself, on a virtual display: themed widgets, text sized for the display's scale, it says it is recording,
