@@ -1572,7 +1572,9 @@ committed there, as for a part refused for good, instead of the whole file being
 whole chunk, and the frames that arrived after it still need a home; so do frames the catalog won't take in order.
 The tier worker closes the file there, copies the uncommitted records (and their provenance records) into a new
 chunk file, and commits that as a chunk of its own. The old file keeps only what its chunk names, and the purge
-deals with it. If the new chunk is refused too, it is set aside as `.rejected`, as before.
+deals with it. If the new chunk is refused too, it is set aside as `.rejected`, as before. A part is committed
+before the frame that triggered it is appended, so on a stream of H.264 access units that keyframe opens the next
+chunk when the part is refused, and the frames after it are kept.
 
 **When a camera's times step back.** Capture starts a network camera's clock fit over when the camera's timestamps
 run off it, and the frames that follow can be stamped seconds earlier than the ones before. A chunk's frame index

@@ -9,7 +9,7 @@ from liberational import config as cfg
 from liberational.dashboard import journal as journal_view
 from liberational.demo import cli, dataset
 from liberational.memory import journal, places
-from liberational.people import pets, registry
+from liberational.people import pets, registry, transcript_view
 
 TODAY = dt.date(2026, 11, 9)
 DAY = dt.date(2026, 11, 8)  # the demo's day is the day before
@@ -53,6 +53,17 @@ def test_people_pet_and_place_are_seeded(seeded):
     (place,) = places.places(seeded)
     assert place.name == "Demo house"
     assert (place.plan_source, str(place.plan).count("\nroom ")) == ("machine", 5)
+
+
+def test_the_transcript_is_said_by_the_demo_people(tmp_path, memory, speech):
+    dataset.seed(tmp_path, memory, today=TODAY, say=speech.say)
+    lines = speech.range(0, 2e9)
+    said = transcript_view.View(tmp_path).named_speakers(lines)
+
+    assert len(lines) == len(dataset.TRANSCRIPT)
+    assert {e["speaker"] for e, _ in said} == {"Alice", "Dana", "Sam"}
+    assert [e["speaker"] for e, _ in said] == [line.speaker for line in dataset.TRANSCRIPT]
+    assert all(journal.day_bounds(DAY)[0] <= e["ts_start"] < journal.day_bounds(DAY)[1] for e in lines)
 
 
 def test_environment_points_every_path_into_the_demo_dir(tmp_path):
