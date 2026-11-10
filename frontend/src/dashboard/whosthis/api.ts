@@ -63,7 +63,6 @@ interface Listed<T> {
   refreshing?: boolean; // the server's last answer, patched, while it works out the full one
   shots_pending?: number;
   shots_unavailable?: number;
-  groups_without_shots?: number;
 }
 
 const listed = async <T>(url: string, signal: AbortSignal): Promise<Listed<T>> => {
@@ -75,7 +74,6 @@ const listed = async <T>(url: string, signal: AbortSignal): Promise<Listed<T>> =
     refreshing?: boolean;
     shots_pending?: number;
     shots_unavailable?: number;
-    groups_without_shots?: number;
   }>(url, undefined, signal, 'page');
   const groups = r.groups ?? [];
   const pending = r.pending === true;
@@ -87,7 +85,6 @@ const listed = async <T>(url: string, signal: AbortSignal): Promise<Listed<T>> =
     refreshing: r.refreshing === true,
     shots_pending: r.shots_pending,
     shots_unavailable: r.shots_unavailable,
-    groups_without_shots: r.groups_without_shots,
   };
 };
 

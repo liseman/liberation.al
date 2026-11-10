@@ -502,7 +502,6 @@ export function WhosThis({
     ...g,
     shots: g.shots.filter(s => typeof s.url === 'string' && s.url.trim() && !missingPictures.has(s.url)),
   }));
-  const groupsWithoutPictures = faceGroups.filter(g => !g.shots.length && !gone.has(`face:${g.id}`)).length;
   const rows: Row[] = [
     ...[
       ...faceGroups.filter(g => g.shots.length).map(g => ({ kind: 'face' as const, ...g })),
@@ -895,12 +894,6 @@ export function WhosThis({
             </Anchor>
           )}
           <ProcessingImages count={faces.data?.shots_pending} unavailable={faces.data?.shots_unavailable} />
-          {groupsWithoutPictures > 0 && (
-            <Text size="xs" c="dimmed" mt="xs" role="status">
-              {plural(groupsWithoutPictures, 'face group', 'face groups')}{' '}
-              {groupsWithoutPictures === 1 ? 'has' : 'have'} no showable picture.
-            </Text>
-          )}
           {/* One box for loading, saving, and empty, always in the page and a line tall, so moving between them
           doesn't move what's below. */}
           <p
@@ -913,11 +906,7 @@ export function WhosThis({
               ? `Saving ${pending.size} decision(s)…`
               : loading
                 ? `${slow ? 'Still loading' : 'Loading'} ${waiting}…`
-                : !rows.length &&
-                    !failed &&
-                    !faces.data?.shots_pending &&
-                    !faces.data?.shots_unavailable &&
-                    !groupsWithoutPictures
+                : !rows.length && !failed && !faces.data?.shots_pending && !faces.data?.shots_unavailable
                   ? 'Nobody is waiting for a name.'
                   : null}
           </p>
