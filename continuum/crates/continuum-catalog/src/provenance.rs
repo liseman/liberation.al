@@ -75,10 +75,39 @@ impl ChunkProvenance {
         Ok(())
     }
 
+    /// A chunk's provenance after a part of `added` frames joined its first `known` frames: one entry per frame of
+    /// the whole chunk, the side that attested nothing reading as unknown (epoch 0). `None` when neither side did.
+    #[must_use]
+    pub fn joined(stored: Option<Self>, known: usize, part: Option<&Self>, added: usize) -> Option<Self> {
+        if stored.is_none() && part.is_none() {
+            return None;
+        }
+        let mut frames = stored.map_or_else(Vec::new, |p| p.frames);
+        frames.resize(known, FrameProvenance::default());
+        match part {
+            Some(p) => frames.extend_from_slice(&p.frames),
+            None => frames.resize(known + added, FrameProvenance::default()),
+        }
+        Some(Self::new(frames))
+    }
+
+    /// Runs of frames in one epoch with one flags byte and consecutive device sequences, which is what a camera
+    /// that drops nothing sends: a run is its length, its first device sequence, its epoch, and its flags.
     pub(crate) fn encode(&self) -> Vec<u8> {
         let mut out = Out::new().u32(self.version).u32(u32::try_from(self.frames.len()).unwrap_or(u32::MAX));
-        for f in &self.frames {
-            out = out.u64(f.device_seq).u32(f.epoch).u8(f.flags());
+        let mut at = 0;
+        while at < self.frames.len() {
+            let first = self.frames[at];
+            let mut len = 1;
+            while self.frames.get(at + len).is_some_and(|f| {
+                f.epoch == first.epoch
+                    && f.flags() == first.flags()
+                    && f.device_seq == first.device_seq.wrapping_add(len as u64)
+            }) {
+                len += 1;
+            }
+            out = out.var(len as u64).var(first.device_seq).var(u64::from(first.epoch)).u8(first.flags());
+            at += len;
         }
         out.done()
     }
@@ -95,9 +124,12 @@ impl ChunkProvenance {
             return Err(bad("too many frames"));
         }
         let mut frames = Vec::with_capacity(count);
-        for _ in 0..count {
-            let (device_seq, epoch, flags) = (i.u64()?, i.u32()?, i.u8()?);
-            frames.push(FrameProvenance::from_wire(device_seq, epoch, flags).map_err(|_| bad("unknown flags"))?);
+        while frames.len() < count {
+            let (len, device_seq, epoch, flags) = (i.var()?, i.var()?, i.var()?, i.u8()?);
+            let len = usize::try_from(len).ok().filter(|&n| n > 0 && n <= count - frames.len());
+            let (Some(len), Ok(epoch)) = (len, u32::try_from(epoch)) else { return Err(bad("a run doesn't fit")) };
+            let first = FrameProvenance::from_wire(device_seq, epoch, flags).map_err(|_| bad("unknown flags"))?;
+            frames.extend((0..len).map(|n| FrameProvenance { device_seq: device_seq.wrapping_add(n as u64), ..first }));
         }
         if !i.is_empty() {
             return Err(bad("trailing bytes"));
@@ -128,5 +160,38 @@ mod tests {
         let mut version = bytes;
         version[..4].copy_from_slice(&2u32.to_be_bytes());
         assert!(ChunkProvenance::decode(&version).is_err(), "unknown version");
+    }
+
+    #[test]
+    fn a_camera_that_drops_nothing_is_one_run() {
+        let steady = ChunkProvenance::new(
+            (0..1800)
+                .map(|n| FrameProvenance { device_seq: 40_000 + n, epoch: 7, stamped_at_arrival: false })
+                .collect(),
+        );
+        let bytes = steady.encode();
+        assert_eq!(ChunkProvenance::decode(&bytes).unwrap(), steady);
+        assert!(bytes.len() < 20, "{} bytes", bytes.len());
+        let mut long = bytes.clone();
+        long[8] = 0xff; // the run claims more frames than the count
+        assert!(ChunkProvenance::decode(&long).is_err());
+    }
+
+    proptest::proptest! {
+        #[test]
+        fn any_provenance_round_trips(
+            rows in proptest::collection::vec((0u64..4, 0u32..3, proptest::bool::ANY), 0..64)
+        ) {
+            let mut seq = 0u64;
+            let p = ChunkProvenance::new(
+                rows.into_iter()
+                    .map(|(step, epoch, stamped_at_arrival)| {
+                        seq = seq.wrapping_add(step);
+                        FrameProvenance { device_seq: seq, epoch, stamped_at_arrival }
+                    })
+                    .collect(),
+            );
+            proptest::prop_assert_eq!(ChunkProvenance::decode(&p.encode()).unwrap(), p);
+        }
     }
 }

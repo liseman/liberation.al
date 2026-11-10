@@ -248,6 +248,53 @@ impl Row {
         })
     }
 }
+/// A chunk's row once a part joined it (`Catalog::extend_chunk`): the part's raw witnesses bound as [`bind`] binds
+/// a whole chunk's, joined with the row the chunk had. A chunk with no row stays unknown.
+pub(crate) fn extend(
+    old: Option<Row>,
+    header: &HeaderBuf,
+    info: &StreamInfo,
+    generation: u64,
+    seq: u64,
+    raw: &[Option<Row>],
+    clean: bool,
+) -> Result<Row> {
+    let mut row = bind(header, info, generation, seq, raw, clean)?;
+    let Some(old) = old else {
+        row.unknown = true;
+        return Ok(row);
+    };
+    if raw.iter().flatten().next().is_some() {
+        row.unknown |= old.input.source_generation != row.input.source_generation
+            || old.input.channels != row.input.channels
+            || old.input.shape_name != row.input.shape_name
+            || old.input.shape_version != row.input.shape_version;
+        row.input.first_seq = row.input.first_seq.min(old.input.first_seq);
+    } else {
+        row.input.source_generation = old.input.source_generation;
+        row.input.channels = old.input.channels;
+        row.input.shape_name.clone_from(&old.input.shape_name);
+        row.input.shape_version = old.input.shape_version;
+        row.input.first_seq = old.input.first_seq;
+    }
+    row.unknown |= old.unknown;
+    row.input.start_ns = row.input.start_ns.min(old.input.start_ns);
+    row.end_ns = row.end_ns.max(old.end_ns);
+    let mut spans = CoverageSet::new();
+    for span in old.input.spans.iter().chain(&row.input.spans) {
+        spans.insert(*span);
+    }
+    row.input.spans = spans.iter().collect();
+    let subjects: std::collections::BTreeSet<_> = old.subjects.iter().chain(&row.subjects).copied().collect();
+    row.subjects_complete &= old.subjects_complete && subjects.len() <= 128;
+    if row.subjects_complete {
+        row.subjects = subjects.into_iter().collect();
+    } else {
+        row.subjects.clear();
+        row.unknown = true;
+    }
+    Ok(row)
+}
 /// Bind only complete, same-generation original raw witnesses. Missing/cut inputs stay explicitly unknown.
 pub(crate) fn bind(
     header: &HeaderBuf,

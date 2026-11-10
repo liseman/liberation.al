@@ -30,7 +30,7 @@ pub mod schema {
 /// any minor works with any other. Major 1 removed the copy-group and `RetireCopy` messages.
 pub const SCHEMA_MAJOR: u16 = 1;
 /// The control protocol's minor version; see [`SCHEMA_MAJOR`].
-pub const SCHEMA_MINOR: u16 = 34;
+pub const SCHEMA_MINOR: u16 = 35;
 
 /// The alignment of every slab, ring segment, and mmap offset, in bytes (the Apple Silicon page size).
 pub const PAGE_ALIGN: usize = 16 * 1024;

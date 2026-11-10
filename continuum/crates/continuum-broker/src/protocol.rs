@@ -1309,6 +1309,9 @@ pub struct ChunkCommitAsk {
     pub absorbed: Vec<Uuid>,
     /// What capture attested about each frame (minor 27), or `None` when the worker sent none (version 0).
     pub provenance: Option<continuum_catalog::ChunkProvenance>,
+    /// 0 for a new chunk; for a part of one still being written (minor 35), the index of its first frame in the
+    /// whole chunk.
+    pub first_frame: u32,
 }
 
 /// Decode a nonabsorbing durable copy request. The writer validates the original payload and existing copies.
@@ -1393,7 +1396,12 @@ pub fn commit_chunk_ask(c: &continuum_core::schema::continuum::CommitChunk<'_>) 
         }
     };
     let payload = continuum_catalog::NewPayload { header, location: Some(location), coverage: None };
-    Ok(ChunkCommitAsk { chunk: continuum_catalog::NewChunk { payload, frames }, absorbed, provenance })
+    Ok(ChunkCommitAsk {
+        chunk: continuum_catalog::NewChunk { payload, frames },
+        absorbed,
+        provenance,
+        first_frame: c.first_frame(),
+    })
 }
 
 /// A `RewriteChunk`'s chunk id, new frame index, and new location, or why it isn't one.
