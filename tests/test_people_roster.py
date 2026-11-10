@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from liberational import config as cfg
-from liberational.dashboard import call_log, context, server
+from liberational.dashboard import call_log, context, people_list, people_reads, server
 from liberational.people import profiles, registry
 
 NO_FACES = SimpleNamespace(counts=dict, unknown_groups=list, rename=lambda a, b: 0)
@@ -16,16 +16,15 @@ NO_FACES = SimpleNamespace(counts=dict, unknown_groups=list, rename=lambda a, b:
 @pytest.fixture
 def state(tmp_path, monkeypatch):
     (tmp_path / "speakers.json").write_text(json.dumps({"speakers": []}))
-    for name, path in {
-        "CONTACTS_FILE": "contacts.json",
-        "PEOPLE_ADDED": "people_added.json",
-    }.items():
+    for name, path in {}.items():
         monkeypatch.setattr(server, name, tmp_path / path)
+    monkeypatch.setattr(people_list, "PEOPLE_ADDED", tmp_path / "people_added.json")
+    monkeypatch.setattr(people_list, "CONTACTS_FILE", tmp_path / "contacts.json")
     monkeypatch.setattr(call_log, "CALLS_DIR", tmp_path / "calls")
     monkeypatch.setattr(context, "STATE", tmp_path)
-    monkeypatch.setattr(server, "_room_lines", lambda *a, **k: [])
-    monkeypatch.setattr(server, "_faces_mod", lambda: NO_FACES)
-    monkeypatch.setattr(server, "_face_last_seen_at", dict)
+    monkeypatch.setattr(people_list, "_room_lines", lambda *a, **k: [])
+    monkeypatch.setattr(people_list, "_faces_mod", lambda: NO_FACES)
+    monkeypatch.setattr(people_list, "_face_last_seen_at", dict)
     with cfg.override({"owner": {"name": "Olive"}, "paths": {"state": str(tmp_path)}}):
         yield tmp_path
 
@@ -46,7 +45,7 @@ def call(state, label, folder="090000_CA1", started="2026-10-20T09:00:00"):
 
 
 def roster():
-    return sorted((p["name"], p["calls"]) for p in server.people_roster())
+    return sorted((p["name"], p["calls"]) for p in people_list.people_roster())
 
 
 def test_a_forgotten_callers_lines_build_no_profile_with_the_forgotten_reply_off(
@@ -72,7 +71,7 @@ def test_a_renamed_caller_is_one_person_under_their_new_name(state):
     call(state, "Dana")
     reg.rename("Dana", "Dee", "test")
     assert roster() == [("Dee", 1)]
-    dee = server.person_summary("Dee")
+    dee = people_reads.person_summary("Dee")
     assert dee is not None
     assert (dee["name"], dee["call_lines"]) == ("Dee", 1)
     reg.ensure("Dana", "test", added=True)  # someone new takes the old name, and calls after that are theirs
@@ -89,4 +88,4 @@ def test_a_deleted_caller_leaves_people(state, no_forgotten_reply):
     assert roster() == [("Dana Cole", 1), ("Zed", 1)]
     reg.forget("Dana Cole", "test")
     assert roster() == [("Zed", 1)]
-    assert server.person_summary("Dana Cole") == {"name": "Dana Cole", "lines": 0}
+    assert people_reads.person_summary("Dana Cole") == {"name": "Dana Cole", "lines": 0}

@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from liberational import config as cfg
-from liberational.dashboard import context, server
+from liberational.dashboard import context, speaker_lines
 from liberational.listen import media_tag, revisions
 from liberational.people import registry
 
@@ -318,12 +318,12 @@ def heard(tmp_path, monkeypatch):
 def test_not_tv_unmarks_the_lines_and_says_when_none_was_marked(heard, tmp_path):
     revisions.mark_media(tmp_path, heard[:1], source="classifier")
     key = registry.key_of(heard[0])
-    code, body = server.not_media({"lines": [key]})
+    code, body = speaker_lines.not_media({"lines": [key]})
     assert (code, body["lines"]) == (200, [key])
-    assert server.not_media({"lines": [key]})[0] == 404
-    assert server.undo_transcript({"undo": body["undo"]})[0] == 200  # its Undo marks it a TV's again
+    assert speaker_lines.not_media({"lines": [key]})[0] == 404
+    assert speaker_lines.undo_transcript({"undo": body["undo"]})[0] == 200  # its Undo marks it a TV's again
     assert revisions.filter_lines(tmp_path, heard[:1])[0].get("media") is True
-    assert server.not_media({"lines": []})[0] == 400
+    assert speaker_lines.not_media({"lines": []})[0] == 400
 
 
 # ---- the model ----

@@ -8,7 +8,7 @@ from unittest.mock import patch
 import pytest
 
 from liberational import config as cfg
-from liberational.dashboard import call_log, context, server
+from liberational.dashboard import call_log, context, people_list, people_reads, people_writes, server
 from liberational.people import contacts, profiles, registry
 from liberational.phone import outbound
 
@@ -269,33 +269,32 @@ def dashboard(tmp_path, monkeypatch):
     """The People tab on a state dir of its own, with no lines and no face database. Returns the state dir."""
     state = tmp_path / "state"
     (state / "people").mkdir(parents=True)
-    for name, path in {
-        "PEOPLE_ADDED": "people_added.json",
-        "CONTACTS_FILE": "contacts.json",
-    }.items():
+    for name, path in {}.items():
         monkeypatch.setattr(server, name, state / path)
+    monkeypatch.setattr(people_list, "PEOPLE_ADDED", state / "people_added.json")
+    monkeypatch.setattr(people_list, "CONTACTS_FILE", state / "contacts.json")
     monkeypatch.setattr(call_log, "CALLS_DIR", state / "calls")
     monkeypatch.setattr(context, "STATE", state)
     # conftest supplies an empty speech log; keep the real readers with this fixture's temporary call storage so
     # direct roster reads and mutation replies (which pass a shared raw/view snapshot) exercise the same path.
-    monkeypatch.setattr(server, "_face_last_seen_at", dict)
-    monkeypatch.setattr(server, "_faces_mod", no_faces)
+    monkeypatch.setattr(people_list, "_face_last_seen_at", dict)
+    monkeypatch.setattr(people_list, "_faces_mod", no_faces)
     with cfg.override({"paths": {"state": str(state), "faces": str(tmp_path / "faces")}}):
         yield state
 
 
 def roster():
-    return {p["name"]: p for p in server.people_roster()}
+    return {p["name"]: p for p in people_list.people_roster()}
 
 
 def aliases(name):
-    summary = server.person_summary(name)
+    summary = people_reads.person_summary(name)
     assert summary is not None
     return summary["aliases"]
 
 
 def test_the_roster_reads_the_number_from_the_registry(dashboard):
-    server.add_person("Dana", "+14155550123")
+    people_writes.add_person("Dana", "+14155550123")
     (dashboard / "contacts.json").write_text(json.dumps({"Dana": "+14155550999"}))  # a stale hand edit
     (dashboard / "people_added.json").write_text("[]")
     assert roster()["Dana"]["number"] == "+14155550123"
@@ -303,10 +302,10 @@ def test_the_roster_reads_the_number_from_the_registry(dashboard):
 
 def test_a_rename_carries_the_number_the_profile_and_the_old_name(dashboard):
     people = dashboard / "people"
-    server.add_person("Dana", "+14155550123")
+    people_writes.add_person("Dana", "+14155550123")
     (people / "dana.md").write_text(profile("dana", "- Dana runs a bakery."))
     (people / "dana cole.md").write_text(profile("dana cole", "- Someone else."))  # left by a past rename
-    code, body = server.rename_person("Dana", "Dana Cole", control=True)
+    code, body = people_writes.rename_person("Dana", "Dana Cole", control=True)
     assert (code, body["name"], body["notes"]) == (200, "Dana Cole", [])
     (dashboard / "contacts.json").unlink()  # the registry alone has it now
     assert roster()["Dana Cole"]["number"] == "+14155550123"
@@ -319,11 +318,11 @@ def test_a_rename_carries_the_number_the_profile_and_the_old_name(dashboard):
 
 
 def test_a_rename_reply_keeps_people_with_retained_room_transcripts(dashboard, speech):
-    server.add_person("Dana", "+14155550123")
-    server.add_person("Erin")
+    people_writes.add_person("Dana", "+14155550123")
+    people_writes.add_person("Erin")
     speech.say({"ts_start": 1_700_000_000, "speaker": "Erin", "text": "I enjoy chess."})
 
-    code, body = server.rename_person("Dana", "Dana Cole", control=True)
+    code, body = people_writes.rename_person("Dana", "Dana Cole", control=True)
 
     assert code == 200
     assert {p["name"]: (p["room"], p.get("number")) for p in body["people"]} == {
@@ -334,20 +333,20 @@ def test_a_rename_reply_keeps_people_with_retained_room_transcripts(dashboard, s
 
 
 def test_a_long_new_name_is_cut_without_a_trailing_space(dashboard):
-    server.add_person("Dana", "+14155550123")
-    code, body = server.rename_person("Dana", "A" * 39 + " Bee", control=True)
+    people_writes.add_person("Dana", "+14155550123")
+    code, body = people_writes.rename_person("Dana", "A" * 39 + " Bee", control=True)
     assert (code, body["name"]) == (200, "A" * 39)
     assert "A" * 39 in roster()
 
 
 def test_a_merge_into_someone_off_the_roster_combines_their_profiles(dashboard):
     people = dashboard / "people"
-    server.add_person("Dana", "+14155550123")
+    people_writes.add_person("Dana", "+14155550123")
     registry.at(dashboard).ensure("Erin", "test")  # known to the registry, but nothing puts Erin on the roster
     (people / "dana.md").write_text(profile("dana", "- Dana runs a bakery."))
     (people / "erin.md").write_text(profile("erin", "- Erin plays chess."))
     assert "Erin" not in roster()
-    assert server.rename_person("Dana", "Erin", control=True)[0] == 200
+    assert people_writes.rename_person("Dana", "Erin", control=True)[0] == 200
     text = (people / "erin.md").read_text()
     assert "- Erin plays chess." in text  # Erin's own profile is kept, not parked
     assert "- Dana runs a bakery." in text
@@ -355,19 +354,19 @@ def test_a_merge_into_someone_off_the_roster_combines_their_profiles(dashboard):
 
 def test_a_merge_combines_numbers_and_says_which_one_was_not_kept(dashboard):
     people = dashboard / "people"
-    server.add_person("Dana", "+14155550123")
-    server.add_person("Alice")
+    people_writes.add_person("Dana", "+14155550123")
+    people_writes.add_person("Alice")
     (people / "dana.md").write_text(profile("dana", "- Dana runs a bakery."))
     (people / "alice.md").write_text(profile("alice", "- Alice likes tea."))
-    code, body = server.rename_person("Dana", "alice", control=True)
+    code, body = people_writes.rename_person("Dana", "alice", control=True)
     assert (code, body["name"], body["merged"], body["notes"]) == (200, "Alice", True, [])
     (dashboard / "contacts.json").unlink()  # so the number below comes from the registry's merge
     assert roster()["Alice"]["number"] == "+14155550123"  # Alice had none: she gets Dana's
     assert "Dana" not in roster()
     facts = [ln for ln in (people / "alice.md").read_text().splitlines() if ln.startswith("- ")]
     assert facts == ["- Alice likes tea.", "- Dana runs a bakery."]
-    server.add_person("Erin", "+14155550999")
-    _, body = server.rename_person("Erin", "Alice", control=True)
+    people_writes.add_person("Erin", "+14155550999")
+    _, body = people_writes.rename_person("Erin", "Alice", control=True)
     assert body["notes"] == ["Alice keeps the number +14155550123. Erin's number, +14155550999, was not kept."]
     assert roster()["Alice"]["number"] == "+14155550123"
     assert read(dashboard / "contacts.json") == {"Alice": "+14155550123"}
@@ -375,11 +374,11 @@ def test_a_merge_combines_numbers_and_says_which_one_was_not_kept(dashboard):
 
 
 def test_a_merge_keeps_a_number_the_survivor_has_only_in_the_file(dashboard):
-    server.add_person("Dana", "+14155550123")
-    server.add_person("Hana")
+    people_writes.add_person("Dana", "+14155550123")
+    people_writes.add_person("Hana")
     contacts_file = dashboard / "contacts.json"
     contacts_file.write_text(json.dumps({**read(contacts_file), "Hana": "+14155550124"}))  # by hand
-    _, body = server.rename_person("Dana", "Hana", control=True)
+    _, body = people_writes.rename_person("Dana", "Hana", control=True)
     assert body["notes"] == ["Hana keeps the number +14155550124. Dana's number, +14155550123, was not kept."]
     contacts_file.unlink()
     assert roster()["Hana"]["number"] == "+14155550124"  # what the note said, from the registry
@@ -390,7 +389,7 @@ def test_before_the_backfill_the_files_still_list_everyone(dashboard):
     registry.at(dashboard).ensure("Dana", "step-3-backfill")
     (dashboard / "contacts.json").write_text(json.dumps({"dana": "+14155550123"}))
     (dashboard / "people_added.json").write_text(json.dumps(["Eve"]))
-    server.add_person("Gus", "+14155550124")  # one new write must not hide the rest
+    people_writes.add_person("Gus", "+14155550124")  # one new write must not hide the rest
     assert {k: v.get("number") for k, v in roster().items()} == {
         "dana": "+14155550123",
         "Eve": None,
