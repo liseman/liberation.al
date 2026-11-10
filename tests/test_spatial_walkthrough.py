@@ -899,3 +899,75 @@ def test_a_lidar_walk_into_a_place_with_an_owner_plan_is_placed_by_the_plan(tmp_
     assert (walk[:, :2] > [19.9, 4.9]).all() and (walk[:, :2] < [24.1, 8.1]).all(), "where the plan has the room"
     assert np.ptp(walk[:, 0]) > 3.5, "it spans the room's long side"
     assert int((counts["walked"] > 0).sum()) == len(walk), "its voxels, and only its, count as walked"
+
+
+WORLD_UP = np.array([0.0, -1.0, 0.0])  # these tests' world is y-down
+
+
+def facing(poses, off_deg=0.0):
+    """Each frame's wall direction in its own camera frame: the world's x axis, turned `off_deg` about up (a number,
+    or one for each frame)."""
+    off = np.radians(np.broadcast_to(off_deg, len(poses)))
+    world = np.stack([np.cos(off), np.zeros(len(poses)), np.sin(off)], axis=1)
+    return np.einsum("nji,nj->ni", poses[:, :3, :3], world)
+
+
+def heading_error_deg(poses, true):
+    """Each frame's heading about up against the true walk's, in degrees."""
+    turned = np.einsum("nji,njk->nik", true[:, :3, :3], poses[:, :3, :3])
+    return np.degrees(np.arctan2(turned[:, 0, 2], turned[:, 2, 2]))
+
+
+@pytest.mark.parametrize("heading_deg", [0.0, 25.0, -40.0, 170.0])
+def test_a_frames_walls_give_its_heading_up_to_quarter_turns(heading_deg):
+    pose = upright(math.radians(heading_deg), 2.0, 1.5)
+    found = W.wall_direction(seen(pose[None])[0], pose[:3, :3].T @ WORLD_UP)
+    assert found is not None
+    world = pose[:3, :3] @ found
+    assert abs(world[1]) < 0.02, "level"
+    off = math.degrees(math.atan2(world[2], world[0]))
+    assert (off + 45.0) % 90.0 - 45.0 == pytest.approx(0.0, abs=1.0), "along one of the box's walls"
+
+
+def test_a_frame_that_sees_only_the_floor_has_no_wall_direction():
+    rng = np.random.default_rng(5)
+    floor = np.c_[rng.uniform(-2, 2, 3000), np.full(3000, 1.4), rng.uniform(0.5, 4, 3000)]
+    assert W.wall_direction(floor, np.array([0.0, -1.0, 0.0])) is None
+    assert W.wall_direction(np.zeros((0, 3)), np.array([0.0, -1.0, 0.0])) is None
+
+
+def test_walls_take_a_drift_past_a_quarter_turn_out_of_the_walk_and_slanted_ones_are_outvoted():
+    true = rectangle(12.0, 9.0)  # 168 frames
+    walk = drifted(true, 0.7)  # 117 degrees by the end: past the quarter turn the walls can't tell apart
+    assert abs(heading_error_deg(walk, true)[-1]) > 100.0
+    slanted = np.zeros(len(true), dtype=bool)
+    slanted[[6, 7, 20, 21, 22, 40]] = True  # runs of frames that see a wall 30 degrees off the others
+    walls = facing(true, np.where(slanted, 30.0, 0.0))
+    walls[[3, 30, 31]] = np.nan
+    straight, kept = W.squared(walk, walls, WORLD_UP)
+    assert np.abs(heading_error_deg(straight, true)).max() < 3.0
+    assert np.linalg.norm(straight[:, :3, 3] - true[:, :3, 3], axis=1).max() < 0.3
+    assert not kept[slanted].any() and not kept[[3, 30, 31]].any()
+    assert kept.sum() == len(true) - 9
+
+
+def test_walls_that_share_no_grid_leave_the_walk_as_it_was():
+    true = rectangle(12.0, 9.0)
+    walk = drifted(true, 0.7)
+    anywhere = np.random.default_rng(11).uniform(0.0, 360.0, len(true))
+    straight, kept = W.squared(walk, facing(true, anywhere), WORLD_UP)
+    assert np.array_equal(straight, walk) and not kept.any()
+    none, kept = W.squared(walk, np.full((len(true), 3), np.nan), WORLD_UP)
+    assert np.array_equal(none, walk) and not kept.any()
+
+
+def test_walls_hold_the_middle_of_a_walk_with_no_revisit():
+    true = rectangle()[:42]  # three sides: it never sees its start again
+    n = len(true)
+    walk = drifted(true, 2.0)
+    answers = measured(true, steps(n), 0.5)
+    loose = W.close_loops(walk, answers, [], np.full(n, DEPTH), gravity=True)
+    assert np.linalg.norm(loose.poses[:, :3, 3] - true[:, :3, 3], axis=1).max() > 2.0, "nothing else holds it"
+    held = W.close_loops(walk, answers, [], np.full(n, DEPTH), gravity=True, walls=facing(true))
+    assert held.walls == n
+    assert np.linalg.norm(held.poses[:, :3, 3] - true[:, :3, 3], axis=1).max() < 0.3

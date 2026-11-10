@@ -263,3 +263,41 @@ def test_huber_alone_bounds_a_false_loops_pull(monkeypatch):
     monkeypatch.setattr(pg, "HUBER", 1e9)
     plain = position_error(pg.solve(true, edges).poses, true)
     assert robust < 0.5 * plain
+
+
+def facing(true, grid_deg=0.0, quarters=None):
+    """Each frame's wall direction in its own camera frame: the world's x axis turned `grid_deg` about up, and for
+    frame k `quarters[k]` quarter turns more (any of a square room's four walls)."""
+    turns = np.zeros(len(true)) if quarters is None else np.asarray(quarters)
+    angles = math.radians(grid_deg) + turns * math.pi / 2
+    world = np.stack([np.cos(angles), np.sin(angles), np.zeros(len(true))], axis=1)
+    return np.einsum("nji,nj->ni", true[:, :3, :3], world)
+
+
+@pytest.mark.parametrize("grid_deg", [0.0, 20.0, 44.0])
+def test_walls_hold_the_heading_of_a_walk_that_never_comes_back(grid_deg):
+    true = rectangle(6.0, 4.0)[:60]  # three sides: no revisit
+    start = drifted(true, 1, 30.0)
+    edges = pg.odometry(start)
+    assert position_error(pg.solve(start, edges, up=UP).poses, true) > 1.0, "nothing else holds it"
+    solved = pg.solve(start, edges, up=UP, walls=facing(true, grid_deg))
+    assert np.array_equal(solved.poses[0], start[0]), "the gauge"
+    assert position_error(solved.poses, true) < 0.15
+
+
+def test_any_of_the_four_walls_holds_a_frame_the_same_way():
+    true = rectangle(6.0, 4.0)[:60]
+    start = drifted(true, 1, 30.0)
+    one = pg.solve(start, pg.odometry(start), up=UP, walls=facing(true))
+    any_wall = pg.solve(start, pg.odometry(start), up=UP, walls=facing(true, quarters=np.arange(60) % 4))
+    assert any_wall.poses == pytest.approx(one.poses, abs=1e-6)
+
+
+def test_a_few_slanted_walls_and_frames_with_none_dont_turn_the_walk():
+    true = rectangle(6.0, 4.0)[:60]
+    start = drifted(true, 1, 30.0)
+    walls = facing(true)
+    walls[10:60:10] = facing(true, 30.0)[10:60:10]  # five frames see a wall 30 degrees off the rest
+    walls[5:60:10] = np.nan
+    solved = pg.solve(start, pg.odometry(start), up=UP, walls=walls)
+    assert position_error(solved.poses, true) < 0.3
