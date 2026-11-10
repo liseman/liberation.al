@@ -13,11 +13,10 @@ import math
 import pathlib
 import re
 import time
-import urllib.request
 from typing import Any
 
 from liberational import config as cfg
-from liberational import ollama_health, voice_turn
+from liberational import ollama, ollama_health
 
 GAP_S = 180.0
 MIN_LINES = 2
@@ -33,25 +32,19 @@ PROMPT = (
 
 def _llm(text: str, timeout: float = 60.0, *, background: bool = True) -> dict[str, str] | None:
     model = cfg.get("models.ollama.llm")  # the pack's small local model; fast and always loaded
-    body = {
-        "model": model,
-        "stream": False,
-        "think": False,
-        "format": "json",
-        "keep_alive": -1,
-        "options": {"temperature": 0, "num_predict": 160, "num_ctx": 4096},
-        "messages": [{"role": "system", "content": PROMPT}, {"role": "user", "content": text}],
-    }
-    req = urllib.request.Request(
-        f"{cfg.ollama_url()}/api/chat",
-        data=json.dumps(body).encode(),
-        headers={"Content-Type": "application/json"},
-    )
     try:
-        if background:
-            voice_turn.wait_quiet()
-        with ollama_health.call(model), urllib.request.urlopen(req, timeout=timeout) as r:
-            out = json.loads(json.load(r)["message"]["content"])
+        reply = ollama.chat(
+            model,
+            [{"role": "system", "content": PROMPT}, {"role": "user", "content": text}],
+            num_ctx=4096,
+            num_predict=160,
+            temperature=0,
+            think=False,
+            schema="json",
+            timeout=timeout,
+            background=background,
+        )
+        out = json.loads(reply["message"]["content"])
         if isinstance(out, dict) and out.get("topic"):
             return {k: str(out.get(k) or "").strip() for k in ("kind", "topic", "summary")}
     except OSError, ValueError, KeyError, ollama_health.Unavailable:

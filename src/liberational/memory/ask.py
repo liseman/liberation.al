@@ -33,10 +33,10 @@ import uuid
 from collections.abc import Callable, Mapping
 from email.message import Message
 from pathlib import Path
-from typing import Any, NoReturn, Protocol
+from typing import Any, Protocol
 
 from liberational import config as cfg
-from liberational import logs, ollama_health
+from liberational import logs, ollama
 from liberational.config import ROOT
 from liberational.vision import views
 
@@ -389,31 +389,20 @@ def local_answer(
         ],
     }
 
-    class NoRedirect(urllib.request.HTTPRedirectHandler):
-        def redirect_request(self, *args: object, **kwargs: object) -> NoReturn:
-            raise ValueError("Redirect refused")
-
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
+    def streamed(response: Any) -> dict[str, Any]:
+        return _streamed(response, on_text or (lambda text: None), YIELD, short_ready if on_short else None)
 
     def chat() -> str:
-        req = urllib.request.Request(
-            ollama_url() + "/api/chat",
-            data=json.dumps(payload).encode(),
-            headers={"Content-Type": "application/json"},
-        )
         timeout = max(THINK_TIMEOUT_S, ANSWER_TIMEOUT_S) if think else ANSWER_TIMEOUT_S
         while True:
             try:
-                with ollama_health.call(model), opener.open(req, timeout=timeout) as response:
-                    if not payload["stream"]:
-                        raw = response.read(2_000_001)
-                        if len(raw) > 2_000_000:
-                            raise ValueError("Model response too large")
-                        data = json.loads(raw)
-                    else:
-                        data = _streamed(
-                            response, on_text or (lambda text: None), YIELD, short_ready if on_short else None
-                        )
+                data = ollama.post(
+                    "/api/chat",
+                    payload,
+                    timeout=timeout,
+                    url=ollama_url(),
+                    read=streamed if payload["stream"] else None,
+                )
                 break
             except Yielded:
                 LOG.info("answer call stopped for an instant question; asking again once it is answered")

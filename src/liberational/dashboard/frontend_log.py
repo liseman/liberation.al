@@ -1,6 +1,8 @@
 """The dashboard frontend's own error log and trace: `POST /frontend/log` appends what the page reports to
-`logs/frontend.log`, one JSON object a line, so a failure seen in a browser can be read and fixed later. Local only:
-nothing leaves the machine.
+`logs/frontend.log` in the one log format, `<stamp> [frontend] LEVEL {json}` (logs.py), so a failure seen in a
+browser can be read and fixed later, and the Debug tab files it by level like any service's line: an error, an
+unhandled rejection, or an error boundary is ERROR, a chunk that failed to load or a failed request WARN, and a slow
+request or navigation INFO. Local only: nothing leaves the machine.
 
 The page (frontend/src/shared/telemetry.ts) sends batches of events: errors and unhandled rejections, chunks that
 failed to load, error boundaries, failed or slow requests, and slow navigations with the requests and chunks they
@@ -20,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from liberational import config as cfg
+from liberational import logs
 from liberational.dashboard import routes
 
 PATH = "/frontend/log"
@@ -88,6 +91,17 @@ def _item(item: object) -> dict[str, Any] | None:
     return out
 
 
+def level(event: dict[str, Any]) -> str:
+    """The level word an event's line carries."""
+    kind = event["type"]
+    if kind in ("error", "rejection", "boundary"):
+        return "ERROR"
+    status = event.get("status")
+    if kind == "chunk" or (kind == "request" and (status is None or status == 0 or status >= 400)):
+        return "WARN"
+    return "INFO"
+
+
 def _admit(now: float) -> bool:
     """Whether one more event fits this minute's cap (the caller holds the lock)."""
     while _kept and now - _kept[0] >= 60:
@@ -102,13 +116,13 @@ def append(events: list[Any], path: Path | None = None, now: float | None = None
     """Appends the batch's valid events, as far as the minute's cap allows, and returns how many it kept."""
     path = path or log_path()
     now = time.time() if now is None else now
-    received = time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime(now))
+    stamp = logs.stamp(now)
     lines = []
     with _lock:
         for event in events[:MAX_EVENTS]:
             if (kept := clean(event)) is None or not _admit(now):
                 continue
-            lines.append(json.dumps({"received": received, **kept}, separators=(",", ":")))
+            lines.append(f"{stamp} [frontend] {level(kept)} {json.dumps(kept, separators=(',', ':'))}")
         if not lines:
             return 0
         path.parent.mkdir(parents=True, exist_ok=True)

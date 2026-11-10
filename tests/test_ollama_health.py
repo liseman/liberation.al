@@ -161,18 +161,16 @@ def test_other_errors_pass_through_without_a_line_or_a_backoff(health, clock, li
     assert attempt(health, clock, 1)
 
 
-def test_the_caption_vlm_logs_one_line_and_stops_posting_every_frame(capsys):
+def test_the_caption_vlm_logs_one_line_and_stops_posting_every_frame(capsys, model_server):
     """Avoid logging one `vlm error` per second while Ollama is down."""
     frame = np.zeros((32, 32, 3), np.uint8)
     backend = vlm.OllamaVLM("qwen3-vl:4b-instruct")
-    with (
-        cfg.override({"ollama": {"url": URL}}),
-        patch.object(vlm.requests, "post", autospec=True, side_effect=REFUSED) as post,
-    ):
+    model_server.reply = REFUSED
+    with cfg.override({"ollama": {"url": URL}}):
         assert backend.caption(frame, []) == ""
         assert backend.caption(frame, []) == ""
         assert backend.caption(frame, []) == ""
-    assert post.call_count == 1
+    assert len(model_server.sent) == 1
     err = capsys.readouterr().err
     assert err.count("Ollama isn't running") == 1
     assert "vlm error" not in err
@@ -411,41 +409,36 @@ class Reply:
         return {"message": {"content": "A desk."}, "response": ""}
 
 
-def test_every_vision_model_call_asks_for_the_same_context_so_ollama_never_reloads_it():
+def test_every_vision_model_call_asks_for_the_same_context_so_ollama_never_reloads_it(model_server):
     """A warm-up with no num_ctx loaded the VLM at its 262k context (25.6 GB), then the first caption
     reloaded it at 4096."""
     frame = np.zeros((32, 32, 3), np.uint8)
     backend = vlm.OllamaVLM("qwen3-vl:4b-instruct")
-    with (
-        cfg.override({"ollama": {"url": URL}}),
-        patch.object(vlm.requests, "post", autospec=True, return_value=Reply()) as post,
-    ):
+    model_server.says("A desk.")
+    with cfg.override({"ollama": {"url": URL}}):
         backend.warm()
         backend.caption(frame, [])
         backend.ground(frame)
-    sent = [
-        (c.args[0].rsplit("/", 1)[-1], c.kwargs["json"].get("options", {}).get("num_ctx")) for c in post.call_args_list
-    ]
-    assert sent == [("generate", 4096), ("chat", 4096), ("chat", 4096)]
+    sent = [(s.path, s.payload.get("options", {}).get("num_ctx")) for s in model_server.sent]
+    assert sent == [("/api/generate", 4096), ("/api/chat", 4096), ("/api/chat", 4096)]
 
 
 @pytest.mark.parametrize(
     ("method", "args"),
     [("warm", ()), ("caption", (np.zeros((32, 32, 3), np.uint8), [])), ("ground", (np.zeros((32, 32, 3), np.uint8),))],
 )
-def test_background_vision_waits_before_sending_inference(monkeypatch, method, args):
+def test_background_vision_waits_before_sending_inference(monkeypatch, model_server, method, args):
     from liberational import voice_turn
 
     events = []
     monkeypatch.setattr(voice_turn, "wait_quiet", lambda: events.append("quiet"))
 
-    def post(*args, **kwargs):
+    def infer(sent):
         events.append("inference")
-        return Reply()
+        return {"message": {"content": "A desk."}, "response": ""}
 
-    backend = vlm.OllamaVLM("test-vlm")
-    with patch.object(vlm.requests, "post", autospec=True, side_effect=post):
-        getattr(backend, method)(*args)
+    model_server.reply = infer
+    getattr(vlm.OllamaVLM("test-vlm"), method)(*args)
     assert events == ["quiet", "inference"]
 
 
@@ -456,26 +449,18 @@ def _background_whisper():
 
 
 @pytest.mark.parametrize("call", [_facts, _profiles, _background_whisper])
-def test_background_text_callers_wait_before_sending_inference(monkeypatch, call):
+def test_background_text_callers_wait_before_sending_inference(monkeypatch, model_server, call):
     from liberational import voice_turn
 
     events = []
     monkeypatch.setattr(voice_turn, "wait_quiet", lambda: events.append("quiet"))
 
-    def post(*args, **kwargs):
+    def infer(sent):
         events.append("inference")
+        return {"message": {"content": "[]"}}
 
-        class TextReply(Reply):
-            def json(self):
-                return {"message": {"content": "[]"}}
-
-        return TextReply()
-
-    with (
-        patch.object(requests, "post", autospec=True, side_effect=post),
-        patch.object(requests.Session, "post", autospec=True, side_effect=post),
-    ):
-        call()
+    model_server.reply = infer
+    call()
     assert events == ["quiet", "inference"]
 
 
@@ -525,34 +510,21 @@ def test_server_caption_waits_before_queueing_http_request(monkeypatch):
     assert events == ["quiet", "inference"]
 
 
-class Cut:
-    def raise_for_status(self) -> None:
-        return None
-
-    def json(self) -> dict:
-        return {"message": {"content": '[{"label": "tv", "bbox_2d": [5'}, "done_reason": "length"}
-
-
-def test_a_grounding_reply_that_ran_out_of_tokens_is_truncated_not_an_answer():
+def test_a_grounding_reply_that_ran_out_of_tokens_is_truncated_not_an_answer(model_server):
     backend = vlm.OllamaVLM("test-vlm")
-    with (
-        cfg.override({"ollama": {"url": URL}}),
-        patch.object(vlm.requests, "post", autospec=True, return_value=Cut()),
-        pytest.raises(objects.GroundingTruncated),
-    ):
+    model_server.says('[{"label": "tv", "bbox_2d": [5', done_reason="length")
+    with cfg.override({"ollama": {"url": URL}}), pytest.raises(objects.GroundingTruncated):
         backend.ground(np.zeros((32, 32, 3), np.uint8))
 
 
-def test_grounding_asks_ollama_for_at_most_the_objects_the_prompt_asks_for():
+def test_grounding_asks_ollama_for_at_most_the_objects_the_prompt_asks_for(model_server):
     backend = vlm.OllamaVLM("test-vlm")
-    with (
-        cfg.override({"ollama": {"url": URL}}),
-        patch.object(vlm.requests, "post", autospec=True, return_value=Reply()) as post,
-    ):
+    model_server.says("A desk.")
+    with cfg.override({"ollama": {"url": URL}}):
         backend.ground(np.zeros((32, 32, 3), np.uint8))
-    schema = post.call_args.kwargs["json"]["format"]
-    assert schema["type"] == "array" and schema["maxItems"] == 8
-    assert "up to 8" in post.call_args.kwargs["json"]["messages"][0]["content"]
+    payload = model_server.sent[0].payload
+    assert payload["format"]["type"] == "array" and payload["format"]["maxItems"] == 8
+    assert "up to 8" in payload["messages"][0]["content"]
 
 
 def test_a_missing_threads_tag_says_to_make_it_not_pull_it():

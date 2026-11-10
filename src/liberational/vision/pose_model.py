@@ -17,6 +17,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from liberational import model_runtime
+from liberational.vision import onnx_runtime
 from liberational.vision.onnx_runtime import DetectorUnavailable, preload_gpu_libraries
 
 _LOG = logging.getLogger(__name__)
@@ -160,7 +161,7 @@ def load(path: pathlib.Path, provider: str = "auto") -> PoseModel:
     options.intra_op_num_threads = 2  # Keep reference CPU inference bounded without a retired runtime setting.
     for providers in ([*chosen, "CPUExecutionProvider"], ["CPUExecutionProvider"]):
         try:
-            s = ort.InferenceSession(str(path), options, providers=providers)
+            s = onnx_runtime.session(ort, str(path), options, providers=providers)
             model_input = s.get_inputs()[0]
             name, (ih, iw) = model_input.name, model_input.shape[2:4]
             if not (isinstance(iw, int) and isinstance(ih, int)):

@@ -263,6 +263,26 @@ def test_a_librarys_warnings_warn_is_in_the_one_format():
     assert re.match(r"\S+ \[py\.warnings\] WARN .*UserWarning: `torch_dtype` is deprecated", first), done.stderr
 
 
+def test_a_librarys_prints_inside_printed_are_log_lines_at_their_level(captured):
+    from liberational.vision import onnx_runtime
+
+    log = logs.get("vision.onnx_runtime")
+    with logs.printed(log, onnx_runtime._fallback_level):
+        print("*************** EP Error ***************")
+        print("EP Error CUDA failure 100: no CUDA-capable device is detected when using ['CUDAExecutionProvider']")
+        print("Falling back to ['CPUExecutionProvider'] and retrying.", end="")  # no newline: still a line
+    assert [line.split(" ", 1)[1] for line in lines(captured)] == [
+        "[vision.onnx_runtime] DEBUG *************** EP Error ***************",
+        (
+            "[vision.onnx_runtime] WARN EP Error CUDA failure 100: no CUDA-capable device is detected when using"
+            " ['CUDAExecutionProvider']"
+        ),
+        "[vision.onnx_runtime] WARN Falling back to ['CPUExecutionProvider'] and retrying.",
+    ]
+    print("after")  # stdout is the process's own again
+    assert len(lines(captured)) == 3
+
+
 def test_a_periodic_report_is_info_first_and_then_once_a_period():
     now = [0.0]
     clock = logs.Periodic(600.0, clock=lambda: now[0])

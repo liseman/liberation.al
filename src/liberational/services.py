@@ -82,8 +82,9 @@ def _expand(arg: str) -> str:
     return os.path.expanduser(_TEMPLATE.sub(sub, arg))
 
 
-def argv(svc: Service, *, startup: bool = False) -> list[str]:
-    """Absolute command line for a service."""
+def argv(svc: Service, *, startup: bool = False, name: str = "") -> list[str]:
+    """Absolute command line for a service. At startup, its wrappers too: a service with `log_relay = true` (a
+    program we don't own) runs under log_relay, tagged with its name, so its lines carry the one log format."""
     cmd = svc["command"]
     if cmd.startswith("pack-"):
         exe = [str(cfg.ROOT / ".venv" / "bin" / cmd)]
@@ -114,6 +115,8 @@ def argv(svc: Service, *, startup: bool = False) -> list[str]:
             "--",
             *command,
         ]
+    if startup and svc.get("log_relay"):
+        command = [str(cfg.ROOT / ".venv/bin/python"), "-m", "liberational.log_relay", "--tag", name, "--", *command]
     return command
 
 
@@ -179,7 +182,7 @@ def prune_logs() -> list[str]:
 def render_launchd(name: str, svc: Service) -> dict[str, str]:
     d: dict[str, Any] = {
         "Label": f"pack.{name}",
-        "ProgramArguments": argv(svc, startup=True),
+        "ProgramArguments": argv(svc, startup=True, name=name),
         "WorkingDirectory": str(cfg.ROOT),
         "EnvironmentVariables": environment(svc, name),
         "StandardOutPath": str(log_path(name)),
@@ -207,7 +210,7 @@ def render_systemd(name: str, svc: Service) -> dict[str, str]:
     # a removed log directory. Open the log only after mkdir, then exec to preserve signals.
     log = log_path(name)
     script = 'mkdir -p -- "$1" && shift && log=$1 && shift && exec "$@" >> "$log" 2>&1'
-    command = ["/bin/sh", "-c", script, "pack-log", str(log.parent), str(log), *argv(svc, startup=True)]
+    command = ["/bin/sh", "-c", script, "pack-log", str(log.parent), str(log), *argv(svc, startup=True, name=name)]
     # ':' disables systemd's $ expansion; %% preserves literal % specifiers in paths/args.
     start = "ExecStart=:" + " ".join(shlex.quote(a).replace("%", "%%") for a in command)
     env = "\n".join(f"Environment={shlex.quote(f'{k}={v}')}" for k, v in environment(svc, name).items())

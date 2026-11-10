@@ -347,17 +347,14 @@ def test_run_asks_with_researchs_settings(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def warm_requests(monkeypatch):
+def warm_requests(model_server):
     seen = []
 
-    def post(url, *, json, timeout, allow_redirects):
-        seen.append((url, json, timeout, allow_redirects, ask.local_settings(), ollama_health.gate))
-        response = requests.Response()
-        response.status_code = 200
-        response._content = b'{"done": true}'
-        return response
+    def load(sent):
+        seen.append((sent.url, sent.payload, sent.timeout, ask.local_settings(), ollama_health.gate))
+        return {"done": True}
 
-    monkeypatch.setattr(requests, "post", post)
+    model_server.reply = load
     return seen
 
 
@@ -391,7 +388,6 @@ def test_a_different_research_load_restores_normal_ask_after_its_overrides_exit(
             "http://127.0.0.1:11435/api/generate",
             {"model": "interactive", "stream": False, "keep_alive": -1, "options": {"num_ctx": 32768}},
             120,
-            False,
             ("interactive", 32768),
             None,
         )
