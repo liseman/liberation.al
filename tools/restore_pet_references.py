@@ -41,7 +41,7 @@ def photo(state: Path, track: str) -> Path | None:
     pattern = re.compile(rf"{re.escape(track)}-{re.escape(face_shots.VERSION)}-r(\d+)\.jpg")
     found = [
         (int(m.group(1)), p)
-        for p in face_shots.folder(state, pet_shots.KIND).glob(f"{track}-{face_shots.VERSION}-r*.jpg")
+        for p in face_shots.directory(state, track, pet_shots.KIND).glob(f"{track}-{face_shots.VERSION}-r*.jpg")
         if (m := pattern.fullmatch(p.name))
     ]
     return max(found)[1] if found else None

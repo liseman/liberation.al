@@ -1,4 +1,4 @@
-"""How many times something visited a zone (#1316): "how many times did the cat use the litter box today".
+"""How many times something visited a zone: "how many times did the cat use the litter box today".
 
 memory/event_counts.py routes a count question here when it names one of the zones drawn on a camera's view
 (see/zones.py) and no detected event has that name. The answer counts the segment store's `zone.visit` candidates
@@ -13,7 +13,7 @@ could have been seen:
   use the litter box") counts the visits of May's species that are May by memory/subject_activity.py's attribution
   (labels, recognition, or "probably" the only named pet of the species); otherwise every subject's, split by what
   it was. A question naming a person ("how many times did I go to the bathroom") counts that person's visits: a
-  visit's track is theirs when the faces seen on it name them (memory/zone_people.py, #1497). Visits whose track no
+  visit's track is theirs when the faces seen on it name them (memory/zone_people.py). Visits whose track no
   face names are reported apart, never counted as theirs or dropped silently.
 These are detected visits, not confirmed ones, and the answer says that.
 """

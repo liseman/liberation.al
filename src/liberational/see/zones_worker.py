@@ -1,5 +1,4 @@
-"""`pack-see-zones`: zone visits and coverage, and times someone was in view, from see-actions' tracked people (#1316,
-#1825).
+"""`pack-see-zones`: zone visits and coverage, and times someone was in view, from see-actions' tracked people.
 
 It follows see-actions' analyzed frames (see/tracked_frames.py: `pose.track` and `action.coverage` in the segment
 store) and feeds each camera's frames through see/zones.py's pipeline, which writes `zone.visit` and `zone.coverage`
@@ -36,13 +35,13 @@ from liberational.memory import presence_episodes
 from liberational.see import tracked_frames, zones
 
 LOG = logs.get("see-zones")
-VERSION = 4  # 3: from see-actions' tracked frames, with a local checkpoint; 4: presence episodes too (#1825)
+VERSION = 4  # 3: from see-actions' tracked frames, with a local checkpoint; 4: presence episodes too
 CHECKPOINT_S = 5.0
 ZONES_S = 5.0
 POLL_S = 1.0
 # see-actions flushes each camera's rows about once a second, each at its own moment, and every read lists and reads
-# every camera's open parts: reading at most once a second takes them all in one pass instead of one per flush
-# (#3211). Visits are a second later at most; the checkpoint already trails by CHECKPOINT_S.
+# every camera's open parts: reading at most once a second takes them all in one pass instead of one per
+# flush. Visits are a second later at most; the checkpoint already trails by CHECKPOINT_S.
 BATCH_S = 1.0
 MAX_CAMERAS = 64
 OUTPUTS = {"visit": segment_log.ZONE_VISITS, "coverage": segment_log.ZONE_COVERAGE}

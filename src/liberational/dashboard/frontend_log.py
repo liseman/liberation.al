@@ -1,4 +1,4 @@
-"""The dashboard frontend's own error log and trace (#2007): `POST /frontend/log` appends what the page reports to
+"""The dashboard frontend's own error log and trace: `POST /frontend/log` appends what the page reports to
 `logs/frontend.log`, one JSON object a line, so a failure seen in a browser can be read and fixed later. Local only:
 nothing leaves the machine.
 

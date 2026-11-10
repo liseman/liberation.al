@@ -1,5 +1,5 @@
 """Object memory by voice, with no model: "remember this as my wallet" saves the view for the Objects page, and "where
-did I leave my wallet?" answers from where it was last seen. It asks the dashboard's /objects API (#778); call only
+did I leave my wallet?" answers from where it was last seen. It asks the dashboard's /objects API; call only
 after the existing authorization succeeds."""
 
 import json

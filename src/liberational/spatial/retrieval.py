@@ -1,4 +1,4 @@
-"""Revisit proposals for a walkthrough (#2931): which pairs of a walk's frames may see the same place again, so MASt3R
+"""Revisit proposals for a walkthrough: which pairs of a walk's frames may see the same place again, so MASt3R
 measures only those (spatial/walkthrough.py).
 
 MegaLoc (gberton/MegaLoc, MIT, CVPR 2025 Workshops) is a place-recognition model: one 8448-number descriptor per image,
@@ -12,7 +12,7 @@ for a walk past two minutes (`cap_for`). On IMG_7676 (125
 frames at 1 fps) that replaced ORB matching plus pairs at fixed steps of 32 and 64 frames, which proposed 79 pairs:
 MegaLoc's best three of about 4,600 were exactly the three revisits whose near walls ICP fits, its 25 came within two
 frames of 10 of the 12 revisits MASt3R had been sure of, and 14 of the 20 pairs the old proposals never made had more
-than 1,000 MASt3R matches. The map came out the same (wall band within noise, #2931), for a third of the MASt3R pairs.
+than 1,000 MASt3R matches. The map came out the same (wall band within noise), for a third of the MASt3R pairs.
 It takes about 0.35 s a frame on 4 CPU threads.
 """
 

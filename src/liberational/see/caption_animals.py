@@ -1,6 +1,6 @@
-"""Animals the captions name (#1988): the caption VLM is the animal detector at home.
+"""Animals the captions name: the caption VLM is the animal detector at home.
 
-see-actions' YOLOX-nano scores the COCO animals too, but measured on devbox on 2026-11-03 it gave the household dog
+see-actions' YOLOX-nano scores the COCO animals too, but on the Linux machine it gave the household dog
 0.04 to 0.11 (its threshold is 0.35) while about one caption in six named the dog. So the caption pipeline finds them:
 
 - Any grounding of the frame (the scheduled one, `see/captions.py`) that boxes an animal species gives its boxes.
@@ -10,7 +10,7 @@ see-actions' YOLOX-nano scores the COCO animals too, but measured on devbox on 2
 
 Each box becomes an `animal.grounding` row (verified: the VLM's look is the image check) and, when its shorter side
 has `MIN_EMBED_PX` pixels, an `animal.grounding_embedding` row from the configured DINO crop embedding: see-actions' streams'
-shapes in streams of their own, since a stream has one writer per camera (#2062). Pet recognition
+shapes in streams of their own, since a stream has one writer per camera. Pet recognition
 (people/pet_recognition.py) and the Pets page see it as a sighting. A box continues the camera's last track of its
 species when it is the only one of that species now and was then, within `SAME_VISIT_S`; two cats at once each start
 their own, so no track mixes two animals. The embedder is made on the first box (`embed` is called lazily by the
@@ -30,7 +30,7 @@ from liberational.vision import objects
 
 LOG = logs.get("see-captions")
 
-# Words a caption or a grounded label may use, each to its household species (people/pets.HOUSEHOLD, #2035). Other
+# Words a caption or a grounded label may use, each to its household species (people/pets.HOUSEHOLD). Other
 # animals aren't pets here: a grounded "horse" or "zebra" is no sighting, and a caption naming one asks no look.
 SPECIES_WORDS: dict[str, str] = {
     **dict.fromkeys(("dog", "dogs", "puppy", "puppies", "pup", "pups"), "dog"),
@@ -105,11 +105,11 @@ class CaptionAnimals:
         every_s: float = EVERY_S,
         shots: Any = None,
     ) -> None:
-        """`shots` (a `pet_shots.Writer`) is offered each embedded box, for Pets' photo of its track (#2038)."""
+        """`shots` (a `pet_shots.Writer`) is offered each embedded box, for Pets' photo of its track."""
         self.cam, self.find, self.embed, self.pet_names, self.every_s = cam, find, embed, pet_names, every_s
         self.shots = shots
         self.asked_at = -float("inf")
-        self.run = uuid.uuid7().hex[-12:]  # track ids no other run used
+        self.run = uuid.uuid7().hex[:20]  # track ids no other run used, starting with the run's time (face_shots.hour)
         self.count = 0
         self.tracks: dict[str, _Track] = {}  # each species' last track on this camera
         self.warned: set[str] = set()
