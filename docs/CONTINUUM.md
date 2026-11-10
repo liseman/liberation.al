@@ -1562,6 +1562,11 @@ doesn't know is committed whole. Each stream's newest finished file is asked abo
 of that one, commits were failing as the last run ended and parts of older files may have been queued behind it, so
 the worker goes back through the stream's older finished files the same way, newest first, and stops at the first
 one the catalog holds whole (a start after a clean stop opens no older file) or refuses.
+A file whose chunk the catalog doesn't know is first checked against a purge having taken the chunk while the
+worker was down (a hidden chunk answers `GetChunk` as an unknown one does): the worker asks which of the file's
+records the catalog still holds as payloads (`ResolveFrames`). All of them means a new chunk, committed whole. Only
+the later ones means the chunk's absorbed frames are gone, and those later records move to a new chunk file and are
+committed there, as for a part refused for good, instead of the whole file being refused and set aside.
 
 **When a part is refused for good.** A range forget that covers everything an open chunk has committed hides the
 whole chunk, and the frames that arrived after it still need a home; so do frames the catalog won't take in order.

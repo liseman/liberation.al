@@ -21,6 +21,9 @@
 //!   ([`Outputs::committed_frames`]). A payload already in one is reported back rather than appended twice. When
 //!   the catalog lacks part of a stream's newest finished chunk, commits were failing as the last run ended, so the
 //!   stream's older finished chunks are rechecked the same way, newest first, back to one the catalog holds whole.
+//!   A recovered chunk a purge took from the catalog meanwhile isn't committed whole (the catalog would refuse it
+//!   and the file would be set aside): the records the catalog still holds as payloads move to a new chunk
+//!   ([`Outputs::first_unabsorbed`]).
 //! - On shutdown every open chunk is closed and committed.
 //! - A raw camera's frames (UYVY, YUYV, or NV12) are encoded as they land, with the `ffmpeg` feature: low-delay
 //!   H.264 with a keyframe every second ([`crate::raw::RawEncoder`], hardware first), one access unit per record in a
@@ -146,6 +149,18 @@ pub trait Outputs {
     /// Why the catalog couldn't be asked. The stream then takes no payloads this run, so nothing is committed twice.
     fn committed_frames(&mut self, _chunk: Uuid) -> Result<Option<usize>, String> {
         Ok(None)
+    }
+
+    /// The index of the first of `ids` the catalog still holds as a payload of its own, waiting to be absorbed into
+    /// a chunk: `None` when it holds none of them that way. Asked about the records of a recovered chunk the catalog
+    /// doesn't know, to tell a chunk it never saw (the first record, index 0) from one a purge took: there the
+    /// records the chunk had absorbed are gone, and only the ones that arrived after its last part are left.
+    ///
+    /// # Errors
+    ///
+    /// Why the catalog couldn't be asked. The stream then takes no payloads this run.
+    fn first_unabsorbed(&mut self, _ids: &[Uuid]) -> Result<Option<usize>, String> {
+        Ok(Some(0))
     }
 
     /// These payloads are in a recovered chunk's frames the catalog holds already: they are safe.
@@ -385,16 +400,33 @@ impl<O: Outputs> WorkerLoop<O> {
         r: Recovered,
     ) -> Rechecked {
         // What the catalog holds of it already: parts committed before the crash.
-        let held = match crate::layout::chunk_id_of(&r.path).map(|id| self.out.committed_frames(id)) {
-            Some(Ok(held)) => held.unwrap_or(0),
-            None => 0,
-            Some(Err(e)) => {
+        let asked = match crate::layout::chunk_id_of(&r.path) {
+            Some(id) => self.out.committed_frames(id),
+            None => Ok(None),
+        };
+        // A chunk the catalog doesn't know is one it never saw, or one a purge took while the last run was down
+        // (a hidden chunk and an unknown one answer alike). Its records the catalog still holds as payloads say
+        // which: all of them for a new chunk, and only those past its last part for one a purge took.
+        let asked = asked.and_then(|held| match held {
+            Some(held) => Ok((held, None)),
+            None => {
+                let ids: Vec<Uuid> = r.records.iter().map(|rec| rec.id).collect();
+                self.out.first_unabsorbed(&ids).map(|first| (0, first.filter(|first| *first > 0)))
+            }
+        });
+        let (held, purged_before) = match asked {
+            Ok(found) => found,
+            Err(e) => {
                 let why = format!("asking the catalog about recovered chunk {} failed: {e}", r.path.display());
                 tracing::warn!("{why}");
                 self.recovery_errors.insert(stream, why);
                 return Rechecked::Stopped;
             }
         };
+        if let Some(keep) = purged_before {
+            self.rehome_recovered(stream, &r, keep);
+            return Rechecked::Stopped;
+        }
         let from = held.min(r.records.len());
         let known: Vec<Uuid> = r.records[..from].iter().map(|rec| rec.id).collect();
         self.out.settled(&known);
@@ -958,7 +990,7 @@ impl<O: Outputs> WorkerLoop<O> {
                 closed.absorbed.len()
             );
             self.counts.rehomed += 1;
-            match self.rehome(&closed) {
+            match self.rehome(&closed.path, closed.stream, closed.first_frame as usize) {
                 Ok(Some(moved)) => self.finish(moved),
                 Ok(None) => self.out.rejected(&closed, &closed.path),
                 Err(e) => {
@@ -984,26 +1016,50 @@ impl<O: Outputs> WorkerLoop<O> {
         self.out.rejected(&closed, &aside);
     }
 
-    /// Moves the records of `refused`'s chunk file from its first frame on into a new chunk file beside it, and
-    /// returns that as a whole chunk to commit; `None` when a purge cut every one of them.
-    fn rehome(&mut self, refused: &Closed) -> Result<Option<Closed>, TierError> {
-        let (format, _) = *self.formats.get(&refused.stream).ok_or(TierError::UnknownStream(refused.stream))?;
-        let shape = self.sources.get(&refused.stream).ok_or(TierError::UnknownStream(refused.stream))?.clone();
+    /// A recovered chunk a purge took from the catalog while the last run was down: the catalog would refuse the
+    /// whole file for good (what the chunk had absorbed is gone), and setting it aside would take the records that
+    /// arrived after the chunk's last part with it. Those, from record `keep` on, move to a new chunk and are
+    /// committed, as a running worker does with a part refused for a hidden chunk. The file keeps the rest, for the
+    /// purge to remove.
+    fn rehome_recovered(&mut self, stream: StreamId, r: &Recovered, keep: usize) {
+        tracing::warn!(
+            "the catalog no longer knows recovered chunk {} (a purge took it); its {} records the catalog still \
+             holds as payloads move to a new chunk",
+            r.path.display(),
+            r.records.len() - keep
+        );
+        self.counts.rehomed += 1;
+        // What stays behind is in no chunk the catalog will show: a payload sent again is not a repeat.
+        for record in &r.records[..keep] {
+            self.recovered_ids.remove(&record.id);
+        }
+        match self.rehome(&r.path, stream, keep) {
+            Ok(Some(moved)) => self.finish(moved),
+            Ok(None) => {}
+            Err(e) => tracing::warn!("moving the records of {} failed: {e}", r.path.display()),
+        }
+    }
+
+    /// Moves the records of `stream`'s chunk file at `path` from record `keep` on into a new chunk file beside it,
+    /// and returns that as a whole chunk to commit; `None` when a purge cut every one of them.
+    fn rehome(&mut self, path: &Path, stream: StreamId, keep: usize) -> Result<Option<Closed>, TierError> {
+        let (format, _) = *self.formats.get(&stream).ok_or(TierError::UnknownStream(stream))?;
+        let shape = self.sources.get(&stream).ok_or(TierError::UnknownStream(stream))?.clone();
         // The shape the flusher wrote under: a raw camera's is its H.264.
         let shape = StreamShape { chunk_format: format, ..shape };
         let created_ns = crate::service::now_utc_ns();
         // A name the flusher never gives: its counter starts at 1.
-        let to = refused.path.with_file_name(format!("{}-{created_ns}-0.cnk", refused.stream.0));
-        let records = crate::chunk::split_off(&refused.path, refused.first_frame as usize, &to, created_ns)?;
+        let to = path.with_file_name(format!("{}-{created_ns}-0.cnk", stream.0));
+        let records = crate::chunk::split_off(path, keep, &to, created_ns)?;
         if records.is_empty() {
             return Ok(None);
         }
-        let chunk = new_chunk(&to, refused.stream, &shape, &records, created_ns)?;
+        let chunk = new_chunk(&to, stream, &shape, &records, created_ns)?;
         let absorbed: Vec<Uuid> = crate::flush::catalog_records(&records).iter().map(|r| r.id).collect();
         let provenance = crate::flush::provenance_of(&absorbed, &crate::chunk::read_provenance(&to)?);
         Ok(Some(Closed {
             path: to,
-            stream: refused.stream,
+            stream,
             records,
             chunk,
             first_frame: 0,
