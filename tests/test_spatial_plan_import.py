@@ -256,3 +256,19 @@ def test_a_camera_sees_through_a_door_but_not_through_a_wall():
     points = np.array([[5.0, 1.5], [5.0, 0.5], [2.0, 2.0], [7.0, 1.5]])
     # from (1, 1.5): straight through the door, through the wall beside it, in its own room, and outside the plan
     assert pi.in_sight(plan, sight, (1.0, 1.5), points).tolist() == [True, False, True, False]
+
+
+def test_a_moved_plans_shared_wall_is_split_once_and_its_archway_seen_through():
+    # A scene moved by a turn and a mirror (`moved`) still gives one partition for the shared stretch, and a cased
+    # archway in it is a gap the camera sees through, while the wall beside it is not.
+    raw = plans.scene(
+        'plan "P" walls 0.2/0.1\nroom a "A" other rect 0,0 4x3\nroom b "B" other rect 4,0 2x5\ncased a>b at 4,1.5 w0.8\n'
+    )
+    moved = pi.parse(pi.moved(raw, TRUE))
+    w = pi.walls(moved)
+    assert len(w.a) == 8
+    assert int(np.sum(np.isclose(w.half, 0.05))) == 1
+    sight = pi.sight_walls(moved)
+    eye = TRUE.point(2.0, 1.5)
+    through_cased = TRUE.points(np.array([[5.0, 1.5], [5.0, 2.8]]))
+    assert pi.in_sight(moved, sight, eye, through_cased).tolist() == [True, False]
