@@ -7,7 +7,7 @@ import types
 import pytest
 
 from liberational import config as cfg
-from liberational import memory_log
+from liberational import memory_log, voice_turn
 from liberational.domain import kernel
 from liberational.memory import facts, journal, recall
 from liberational.people import registry
@@ -473,38 +473,21 @@ class Ollama:
         self.reply, self.calls = reply, []
         self.lines: list[tuple[int, str]] = []  # (level, line) for each facts log line
 
-    def session(self):
-        ollama = self
-
-        class Session:
-            trust_env = True
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *exc):
-                return False
-
-            def post(self, url, **kwargs):
-                body = kwargs["json"]
-                system, user = (m["content"] for m in body["messages"])
-                ollama.calls.append(dict(system=system, data=json.loads(user), options=body["options"]))
-                content, reason = ollama.reply(system, json.loads(user), body["options"])
-                return types.SimpleNamespace(
-                    raise_for_status=lambda: None,
-                    json=lambda: {"message": {"content": content}, "done_reason": reason},
-                )
-
-        return Session
+    def answer(self, sent):
+        body = sent.payload
+        system, user = (m["content"] for m in body["messages"])
+        self.calls.append(dict(system=system, data=json.loads(user), options=body["options"]))
+        content, reason = self.reply(system, json.loads(user), body["options"])
+        return {"message": {"content": content}, "done_reason": reason}
 
 
 @pytest.fixture
-def ollama(env, monkeypatch):
+def ollama(env, monkeypatch, model_server):
     """The real `_ask` against a faked Ollama; `ollama.reply` decides each reply."""
     fake = Ollama(lambda system, data, options: pytest.fail("no reply set"))
     monkeypatch.setattr(facts, "_ask", ASK)
-    monkeypatch.setattr(facts.requests, "Session", lambda: fake.session()())
-    monkeypatch.setattr(facts.voice_turn, "wait_quiet", lambda: None)
+    model_server.reply = fake.answer
+    monkeypatch.setattr(voice_turn, "wait_quiet", lambda: None)
     monkeypatch.setattr(cfg, "ollama_url", lambda: "http://127.0.0.1:11434")
     monkeypatch.setattr(facts, "log", lambda *a, level=0: fake.lines.append((level, " ".join(str(x) for x in a))))
     return fake

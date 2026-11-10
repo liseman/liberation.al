@@ -43,10 +43,8 @@ import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
-import requests
-
 from liberational import config as cfg
-from liberational import logs, memory_log, ollama_health, voice_turn
+from liberational import logs, memory_log, ollama
 from liberational.domain.kernel import PersonId
 from liberational.listen import revisions
 from liberational.memory import journal
@@ -149,28 +147,18 @@ def _ask(system: str, user: str, schema: Mapping[str, Any], *, num_predict: int 
     """One local Ollama call with structured output: the reply as JSON, or BadReply when it isn't JSON. The journal's
     model and context size, so the two never make Ollama reload it. Loopback only: journal text stays on this
     machine."""
-    if not journal._loopback(cfg.ollama_url()):
-        raise ValueError("ollama.url isn't on this machine, and journal text stays local")
-    voice_turn.wait_quiet()
-    with ollama_health.call(journal.model_name()):
-        with requests.Session() as s:
-            s.trust_env = False
-            r = s.post(
-                f"{cfg.ollama_url()}/api/chat",
-                json={
-                    "model": journal.model_name(),
-                    "stream": False,
-                    "think": False,
-                    "keep_alive": -1,
-                    "format": schema,
-                    "options": {"num_ctx": 4096, "num_predict": num_predict, "temperature": 0.1},
-                    "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-                },
-                timeout=120,
-                allow_redirects=False,
-            )
-            r.raise_for_status()
-        data = r.json()
+    data = ollama.chat(
+        journal.model_name(),
+        [{"role": "system", "content": system}, {"role": "user", "content": user}],
+        num_ctx=4096,
+        num_predict=num_predict,
+        temperature=0.1,
+        think=False,
+        schema=schema,
+        timeout=120,
+        local=True,
+        background=True,
+    )
     try:
         return json.loads(data["message"]["content"])
     except json.JSONDecodeError as e:

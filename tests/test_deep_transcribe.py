@@ -1,6 +1,5 @@
 """The overnight Parakeet/Qwen pass and its local inference boundary; never real recordings or models."""
 
-import io
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -16,18 +15,12 @@ def never(*a):
     raise AssertionError("the merge model must not be asked")
 
 
-def test_ollama_choose_posts_to_configured_ollama_url(monkeypatch):
-    seen: list[str] = []
-
-    def urlopen(req, **kwargs):
-        seen.append(req.full_url)
-        return io.BytesIO(json.dumps({"message": {"content": json.dumps({"text": "a b c f"})}}).encode())
-
-    monkeypatch.setattr(deep.urllib.request, "urlopen", urlopen)
+def test_ollama_choose_posts_to_configured_ollama_url(model_server):
+    model_server.says(json.dumps({"text": "a b c f"}))
     with cfg.override({"ollama": {"url": "http://127.0.0.1:22434"}}):
         choose = deep.ollama_choose()
         assert choose("a b c d", "a b c e", "a b c f") == "a b c f"
-    assert seen == ["http://127.0.0.1:22434/api/chat"]
+    assert [sent.url for sent in model_server.sent] == ["http://127.0.0.1:22434/api/chat"]
 
 
 def test_agreeing_passes_win_without_the_model():

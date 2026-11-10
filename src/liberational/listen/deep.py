@@ -14,7 +14,6 @@ Model/API: https://huggingface.co/Qwen/Qwen3-ASR-0.6B-hf (Apache-2.0).
 import json
 import re
 import time
-import urllib.request
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -23,7 +22,7 @@ from typing import Any
 import numpy as np
 
 from liberational import config as cfg
-from liberational import logs, model_runtime, ollama_health
+from liberational import logs, model_runtime, ollama, ollama_health
 from liberational.listen.revisions import Revisions, revisions
 
 log = logs.get("deep-transcribe")
@@ -100,23 +99,18 @@ def ollama_choose(context: Sequence[str] = (), names: Sequence[str] = ()) -> Cal
             + f"A: {live}\nB: {p}\nC: {w}"
         )
         model = cfg.get("models.ollama.llm")
-        body = {
-            "model": model,
-            "stream": False,
-            "think": False,
-            "format": "json",
-            "keep_alive": -1,
-            "options": {"temperature": 0, "num_ctx": 4096, "num_predict": 120},
-            "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-        }
-        req = urllib.request.Request(
-            f"{cfg.ollama_url()}/api/chat",
-            json.dumps(body).encode(),
-            {"Content-Type": "application/json"},
-        )
         try:
-            with ollama_health.call(model), urllib.request.urlopen(req, timeout=60) as r:
-                text = json.loads(json.load(r)["message"]["content"]).get("text")
+            reply = ollama.chat(
+                model,
+                [{"role": "system", "content": system}, {"role": "user", "content": user}],
+                num_ctx=4096,
+                num_predict=120,
+                temperature=0,
+                think=False,
+                schema="json",
+                timeout=60,
+            )
+            text = json.loads(reply["message"]["content"]).get("text")
         except (OSError, ValueError, KeyError, ollama_health.Unavailable) as e:
             log.warning("merge model: %s", e)
             return None

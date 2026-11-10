@@ -85,7 +85,7 @@ def _with_names(request: str, *, owner: bool) -> str:
 
 
 from liberational import config as cfg
-from liberational import logs, model_runtime, ollama_health, vision_log
+from liberational import logs, model_runtime, ollama, vision_log
 from liberational.speech import clone_server
 
 STATE_DIR = cfg.path("paths.state")
@@ -128,31 +128,22 @@ def answer(request: str) -> str:
     from liberational.assistant.voice_auth import wake_phrase
 
     now = dt.datetime.now().strftime("%A %B %d %Y, %I:%M %p")
-    with ollama_health.call(cfg.get("models.ollama.llm")):
-        r = requests.post(
-            f"{cfg.ollama_url()}/api/chat",
-            timeout=60,
-            json={
-                "model": cfg.get("models.ollama.llm"),
-                "stream": False,
-                "think": False,
-                "keep_alive": -1,
-                "options": {"num_predict": 80, "temperature": 0.3, "num_ctx": 4096},
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": SYSTEM.format(name=cfg.assistant_name(), now=now),
-                    },
-                    {
-                        "role": "user",
-                        "content": request or f"{cfg.owner_or('Someone')} said {wake_phrase()} with no request.",
-                    },
-                ],
+    reply = ollama.chat(
+        cfg.get("models.ollama.llm"),
+        [
+            {"role": "system", "content": SYSTEM.format(name=cfg.assistant_name(), now=now)},
+            {
+                "role": "user",
+                "content": request or f"{cfg.owner_or('Someone')} said {wake_phrase()} with no request.",
             },
-        )
-        r.raise_for_status()
-    text = r.json()["message"]["content"].strip()
-    text = re.sub(r"<think>.*?</think>", "", text, flags=re.S).strip()
+        ],
+        num_ctx=4096,
+        num_predict=80,
+        temperature=0.3,
+        think=False,
+        timeout=60,
+    )
+    text = ollama.text(reply)
     return text.replace('"', "").replace("\n", " ") or "Yes?"
 
 
