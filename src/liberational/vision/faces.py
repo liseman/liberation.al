@@ -1793,7 +1793,7 @@ def _owner_tagged(
 # calibrated thresholds stand on their own ("unchecked"): a new install enrolled from photos still names people.
 # A failed check ("off") stops naming by appearance, live and automatic, until the tags pass again. On the
 # development install: 76 tagged groups of two people, 65 right, 1 wrong (a 3-face group tagged as one
-# of them that looks like the other at 0.68), 10 unknown: on. Where it is saved and who reads it: docs/ARCHITECTURE.md.
+# of them that looks like the other at 0.68), 10 unknown: on. Where it is saved and who reads it: docs/COMPONENTS.md.
 CHECK = cfg.path("paths.faces") / "check.json"
 CHECK_MIN_GROUPS = 6
 CHECK_MAX_WRONG = 0.1

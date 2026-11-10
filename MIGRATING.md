@@ -5,7 +5,7 @@ anything older, export what you taught (`pack-knowledge export`), set up fresh f
 import it.
 
 Fresh setup is in the [README](README.md). Components and state paths are in
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+[docs/COMPONENTS.md](docs/COMPONENTS.md).
 
 ## Every upgrade
 

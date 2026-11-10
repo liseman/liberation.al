@@ -1,51 +1,67 @@
 # Documentation map
 
-Start with the [project overview](../README.md), then [Architecture](ARCHITECTURE.md). Every document describes
-`main`.
+Every document describes `main`. The documents are grouped by what you came to do, following
+[Diataxis](https://diataxis.fr/): learn it, get a task done, look something up, or understand why it works the way
+it does. A document that still mixes kinds is listed under the one it mostly is.
 
-## Using it
+## Tutorial: learn it by doing
+
+| Document | You end up with |
+|---|---|
+| [README](../README.md), from "Install" to "Name people" | A running pack that knows you, from a clone |
+
+`mise run demo` opens the dashboard on a made-up household first, with none of your data.
+
+## How-to guides: get a task done
 
 | Document | Use it to |
 |---|---|
-| [README](../README.md) | Install, configure, and run the pack |
-| [Upgrading](../MIGRATING.md) | Update an existing install, and see what a reset keeps |
-| [Releases](RELEASES.md) | Install a release without a checkout, or make one |
+| [Releases](RELEASES.md) | Install a release with apt or uv, with no checkout; make a release; make the apt signing key |
+| [Upgrading](../MIGRATING.md) | Update an existing install, follow the steps a change needs, and reset state |
 | [Ingest](INGEST.md) | Import photos, video, and audio from elsewhere |
 | [Bluetooth](BLUETOOTH.md) | Set up advertisement sensors and link devices to people |
 | [Network](NETWORK.md) | Set up network inventory, device links, and network cameras |
-| [Storage](STORAGE.md) | See what is kept, for how long, and how much disk it takes |
+| [Measurement](MEASUREMENT.md) | Make hand-made labels and score the pack against them |
+| [Profiling](PROFILING.md) | Find where CPU goes |
+| [Contributing](../CONTRIBUTING.md) | Set up for development and get a change merged |
 
-## How it works
+## Reference: look something up
 
-| Document | Covers |
+| Document | Lists |
 |---|---|
-| [Architecture](ARCHITECTURE.md) | The parts, how data flows, where code lives, every component, and every state file |
-| [Services](SERVICES.md) | Startup, the supervisor, restarts, logs, and the install layout |
-| [Continuum](CONTINUUM.md) | The data layer, with its [broker](CONTINUUM-BROKER.md), [storage](CONTINUUM-STORAGE.md), [capture](CONTINUUM-CAPTURE.md), [gateway](CONTINUUM-GATEWAY.md), and [SDK](CONTINUUM-SDK.md) documents |
-| [Vision pipeline](VISION.md) | Decoding, the person pipeline, captions, objects, and zones |
+| [Components and state files](COMPONENTS.md) | Every service and library area with its port, what it writes and reads; every state file |
+| [config/defaults.toml](../config/defaults.toml) | Every setting and model, each with a comment |
+| [services/services.toml](../services/services.toml) | Every daemon and scheduled job |
+| [mise.toml](../mise.toml) | Every task (`mise tasks` lists them) |
+| [tools/](../tools/) | Maintenance scripts; each docstring says how to run it |
 | [Vision streams](VISION-STREAMS.md) | The fields of every vision stream |
+| [Continuum broker](CONTINUUM-BROKER.md) | The shared memory arena, payload headers, socket protocol, scheduler, and catalog |
+| [Continuum storage](CONTINUUM-STORAGE.md) | Tiers, chunk files, the segment store, and the vector worker |
+| [Continuum gateway](CONTINUUM-GATEWAY.md) | The WebSocket transport, binary messages, and requests |
+| [Storage](STORAGE.md) | What is kept, for how long, and how much disk it takes |
+| [Release notes](RELEASES.md#notes) | What each version changed and what an upgrade resets |
+| [Conventions](CONVENTIONS.md) | What may appear in this public repository |
+| [AGENTS.md](../AGENTS.md) | The rules for coding agents |
+| [Firmware](../firmware/esp32-ble-scanner/README.md) | The BLE receiver's build, flashing, and wire protocol |
+
+Do not copy the lists in `config/defaults.toml`, `services/services.toml`, `mise.toml`, or a tool's docstring into a
+document. Link to them.
+
+## Explanation: understand it
+
+| Document | Explains |
+|---|---|
+| [Manifesto](../MANIFESTO.md) | Why the project exists |
+| [Architecture](ARCHITECTURE.md) | The parts, how data flows between them, where code and data live, and the models |
+| [Services](SERVICES.md) | The one application, the supervisor, startup, the restart cascade, logs, and the install layout |
+| [Continuum](CONTINUUM.md) | The data layer and its decisions, with [capture](CONTINUUM-CAPTURE.md) and the [SDKs and builds](CONTINUUM-SDK.md) |
+| [Vision pipeline](VISION.md) | Decoding, the person pipeline, captions, objects, and zones |
 | [People](PEOPLE.md) | The knowledge store and how voices and faces are named |
 | [Domain model](DOMAIN-MODEL.md) | The vocabulary, layers, and rules behind identity and memory |
 | [Answers](ANSWERS.md) | Ask, counts, activities, the journal, and the voice turn |
 | [Dashboard](DASHBOARD.md) | The web server, the frontend layout, and Settings |
-| [Spatial memory](SPATIAL.md) | Place maps, floorplans, and positions |
-| [Firmware](../firmware/esp32-ble-scanner/README.md) | The BLE receiver's build, flashing, and wire protocol |
-
-## Working on it
-
-| Document | Covers |
-|---|---|
-| [Contributing](../CONTRIBUTING.md) | Setup, ground rules, and how a change gets merged |
-| [AGENTS.md](../AGENTS.md) | The rules for coding agents |
-| [Conventions](CONVENTIONS.md) | What may appear in this public repository |
-| [Measurement](MEASUREMENT.md) | Hand-made labels and the tools that score against them |
-| [Profiling](PROFILING.md) | Finding where CPU goes |
-| [Roadmap](ROADMAP.md) | Where each goal stands and what is open |
-| [Manifesto](../MANIFESTO.md) | Why the project exists |
-
-Settings are documented in [config/defaults.toml](../config/defaults.toml), services in
-[services/services.toml](../services/services.toml), and tasks in [mise.toml](../mise.toml). Each script under
-[tools/](../tools/) says how to run it in its docstring. Do not copy those lists into a document.
+| [Spatial memory](SPATIAL.md) | Places, maps, plans, and positions |
+| [Roadmap](ROADMAP.md) | Where each goal stands and what holds it back |
 
 ## History
 
