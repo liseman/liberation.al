@@ -214,11 +214,10 @@ import time
 import urllib.parse
 import urllib.request
 import uuid
-from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from collections.abc import Set as AbstractSet
 from concurrent.futures import Executor, Future, ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
-from dataclasses import dataclass, field
 from types import EllipsisType, FrameType, ModuleType
 from typing import TYPE_CHECKING, Any, TypedDict
 
@@ -240,12 +239,10 @@ from liberational import (
     model_runtime,
     readers,
     segment_log,
-    services,
     speech_log,
     vision_log,
     voice_turn,
 )
-from liberational.audio import gain, loudness
 from liberational.config import ROOT
 from liberational.dashboard import (
     assets,
@@ -255,6 +252,8 @@ from liberational.dashboard import (
     devreload,
     frontend_log,
     ingest,
+    known_voices,
+    live_status,
     machine_stats,
     network_cameras,
     reports,
@@ -263,6 +262,8 @@ from liberational.dashboard import (
     settings,
     shell_status,
     slow,
+    transcript_lines,
+    voice_clones,
 )
 from liberational.dashboard.context import LOG, PY, SSE_CLIENTS, SSE_LOCK, Reply, log
 from liberational.domain.identity import Basis, SubjectRef
@@ -278,8 +279,6 @@ from liberational.people import (
     together,
     transcript_view,
     video_thumbs,
-    voice_edits,
-    voice_list,
 )
 from liberational.see.faces import VISIT_GAP_S
 from liberational.vision import views
@@ -290,6 +289,12 @@ if TYPE_CHECKING:
 
 # The areas whose modules register their own routes (dashboard/routes.py); the rest are still registered below.
 routes.load(
+    "voice_clones",
+    "known_voices",
+    "review_reads",
+    "playback",
+    "live_status",
+    "transcript_lines",
     "call_log",
     "service_control",
     "machine_stats",
@@ -307,7 +312,6 @@ routes.load(
 )
 
 STATIC = assets.STATIC
-SCENE_POLL_S = 2.0  # how often the live feed asks the vision log for new captions
 PURGE_POLL_S = 5.0  # how often the live feed asks whether a purge took lines it showed
 
 
@@ -316,7 +320,6 @@ def _scene_key(entries: list[dict[str, Any]]) -> tuple[Any, ...]:
     return tuple(e.get("id") for e in entries[-5:])
 
 
-PAD_S, MAX_CLIP_S = 0.4, 60.0
 STATE_RESOLVED = context.STATE.resolve()
 PORT = cfg.get("ports.dashboard")  # main() takes an optional port argument
 APP_PATHS = (
@@ -359,22 +362,6 @@ def mtime(p: pathlib.Path) -> int:
 
 
 # ------------------------------------------------------------ transcript ----
-# What was heard and what the assistant said come from the broker's speech log (speech_log.shared()): utterances
-# on speech.utterance, replies on assistant.reply, each a transcript line (a dict) with its payload `id`. A line names
-# its voice (speaker_id, "Speaker n"), never a person; who said it is read through the event log (_view).
-TAIL_S = 7 * 86400  # how far back a tail looks first; the whole log only when that holds too few lines
-END_OF_TIME = float(2**32)  # 2106: "to the end" for a read of every line, whatever the clock says
-
-
-def heard_lines(start: float = 0.0, end: float | None = None) -> list[dict[str, Any]]:
-    """The utterances overlapping [start, end) (seconds; to the end by default), oldest first."""
-    from liberational.listen import revisions
-
-    return revisions.filter_lines(
-        context.STATE, speech_log.shared().range(start, end if end is not None else END_OF_TIME)
-    )
-
-
 def reject_transcript(body: Mapping[str, Any]) -> Reply:
     """Record the owner's correction for every exact line in one visible turn, atomically."""
     from liberational.listen import revisions
@@ -387,7 +374,9 @@ def reject_transcript(body: Mapping[str, Any]) -> Reply:
     keys = list(dict.fromkeys(keys))
     if token := revisions.current_rejection(context.STATE, keys):
         return 200, {"ok": True, "lines": keys, "undo": token}
-    available = {registry.key_of(e): e for e in heard_lines() if isinstance(e.get("ts_start"), int | float)}
+    available = {
+        registry.key_of(e): e for e in transcript_lines.heard_lines() if isinstance(e.get("ts_start"), int | float)
+    }
     if any(key not in available for key in keys):
         return 404, {"ok": False, "error": "One of those transcript lines is unavailable. Refresh the conversation."}
     try:
@@ -407,7 +396,9 @@ def media_transcript(body: Mapping[str, Any]) -> Reply:
     keys = list(dict.fromkeys(keys))
     if token := revisions.current_media(context.STATE, keys):
         return 200, {"ok": True, "lines": keys, "undo": token}
-    available = {registry.key_of(e): e for e in heard_lines() if isinstance(e.get("ts_start"), int | float)}
+    available = {
+        registry.key_of(e): e for e in transcript_lines.heard_lines() if isinstance(e.get("ts_start"), int | float)
+    }
     if any(key not in available for key in keys):
         return 404, {"ok": False, "error": "One of those transcript lines is unavailable. Refresh the conversation."}
     try:
@@ -428,7 +419,7 @@ def media_voice(body: Mapping[str, Any]) -> Reply:
         return 409, {"ok": False, "error": "That voice has a name. Give its lines to someone else instead."}
     lines = [
         e
-        for e in _view().lines(speech_log.retained())
+        for e in transcript_lines._view().lines(speech_log.retained())
         if e.get("speaker_id") == group and not e.get("media") and isinstance(e.get("ts_start"), int | float)
     ]
     if not lines:
@@ -469,38 +460,9 @@ def undo_transcript(body: Mapping[str, Any]) -> Reply:
     return 200, {"ok": True, "lines": lines}
 
 
-def said_lines(start: float = 0.0, end: float | None = None) -> list[dict[str, Any]]:
-    """The assistant's spoken replies overlapping [start, end), oldest first."""
-    return speech_log.shared().range(start, end if end is not None else END_OF_TIME, [speech_log.REPLIES])
-
-
-def heard_tail(n: int) -> list[dict[str, Any]]:
-    """The newest n utterances, oldest first."""
-    lines = heard_lines(time.time() - TAIL_S)
-    return (lines if len(lines) >= n else heard_lines())[-n:]
-
-
-def said_tail(n: int) -> list[dict[str, Any]]:
-    """The newest n replies, oldest first."""
-    lines = said_lines(time.time() - TAIL_S)
-    return (lines if len(lines) >= n else said_lines())[-n:]
-
-
 def speech_mark() -> int:
     """The newest commit sequence on the speech streams: a line committed after it has a higher one."""
     return speech_log.shared().mark((speech_log.UTTERANCES, speech_log.REPLIES))[0]
-
-
-def _view() -> transcript_view.View:
-    """Who said each line: the speech log's lines through the event log (people/transcript_view.py). Every route that
-    shows or uses a line's speaker reads lines through one of these, made per request."""
-    return transcript_view.View(context.STATE)
-
-
-def merged_tail(n: int = 80) -> list[dict[str, Any]]:
-    """The last n lines of what was heard and what the assistant said, in time order."""
-    heard_once = transcript_view.once(_view().lines(heard_tail(n)))  # another mic's copy of a line shows once
-    return sorted(heard_once + said_tail(n), key=lambda e: e.get("ts_start") or 0)[-n:]
 
 
 LIVE_LINES = 300  # as many lines as the Live tab keeps (MAX_LINES in frontend/src/dashboard/live/reduce.ts)
@@ -531,7 +493,7 @@ def label_marks(lines: list[dict]) -> dict[str, tuple]:
 def relabeled_tail(seen: dict[str, tuple], n: int = LIVE_LINES) -> tuple[list[dict], dict[str, tuple]]:
     """The last n heard lines a client was sent (`seen`, from label_marks) that read differently now, as readers see
     them, and how all n read now. A label is an event in the log; the line itself never changes."""
-    lines = _view().lines(heard_tail(n))
+    lines = transcript_lines._view().lines(transcript_lines.heard_tail(n))
     now = label_marks(lines)
     changed = [
         e
@@ -544,108 +506,6 @@ def relabeled_tail(seen: dict[str, tuple], n: int = LIVE_LINES) -> tuple[list[di
 DAY_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
-REVIEW_VIDEO_DAYS_S = 600.0  # the days with video are asked of the broker again this often (old days age out)
-REVIEW_TODAY_VIDEO_S = 60.0  # and whether today has video yet, at most this often until it has
-
-
-@dataclass
-class _Days:
-    """What recorded_days keeps between requests: each day's speech kinds, read in full once per state, purge,
-    and review revision and then followed line by line, and the days with video, asked again every
-    REVIEW_VIDEO_DAYS_S (today's every REVIEW_TODAY_VIDEO_S until it has some)."""
-
-    key: tuple[Any, ...] | None = None
-    seq: int = 0  # the speech history's position the days were read to
-    speech: dict[str, dict[str, bool]] = field(default_factory=dict)  # day: {"audio", "transcript"}
-    video: set[str] = field(default_factory=set)
-    video_key: tuple[str, str] | None = None  # (state, the local day) the video days were asked on
-    video_at: float = -math.inf
-    today_at: float = -math.inf  # when today's video was last asked about
-    lock: threading.Lock = field(default_factory=threading.Lock)
-
-
-_DAYS = _Days()
-
-
-def _note_speech(days: dict[str, dict[str, bool]], e: dict[str, Any]) -> None:
-    kinds = days.setdefault(time.strftime("%Y-%m-%d", time.localtime(e["ts_start"])), {})
-    kinds["transcript"] = True
-    if has_audio(e):  # a line keeps its audio as long as the line is kept
-        kinds["audio"] = True
-
-
-def recorded_days(state: pathlib.Path) -> list[dict[str, Any]]:
-    """Every day with something Review can show, oldest first: [{"day", "video", "audio", "transcript"}], each kind
-    true when the day has it: a camera's video on the broker (`<cam>.video`, any tier), and the speech log's lines by
-    local day, with audio when a line has it.
-
-    Reading every line and asking the broker for every day each time cost about 0.4 s of CPU a request. The
-    speech part is read in full only when the state, a purge, or a review correction could have taken lines; otherwise
-    only the lines committed since are added, so a line for any day shows at once. The days with video are asked again
-    every REVIEW_VIDEO_DAYS_S or when the local day changes, and today's every REVIEW_TODAY_VIDEO_S until it has video.
-    The lock is held across the broker's answers, so requests arriving together share one read."""
-    from liberational.listen import revisions
-
-    speech = speech_log.shared()
-    key = (str(state), speech.newest_purge(), revisions.review_revision(state))
-    today = time.strftime("%Y-%m-%d")
-    with _DAYS.lock:
-        if _DAYS.key != key:
-            seq = speech.mark((speech_log.UTTERANCES,))[0]  # before the read: a line committed in between comes twice
-            _DAYS.speech = {}
-            for e in heard_lines():
-                _note_speech(_DAYS.speech, e)
-            _DAYS.key, _DAYS.seq = key, seq
-        else:
-            new, _DAYS.seq = speech.since(_DAYS.seq, (speech_log.UTTERANCES,))
-            for e in new:
-                _note_speech(_DAYS.speech, e)
-        if _DAYS.video_key is None or _DAYS.video_key[0] != str(state):
-            _DAYS.video, _DAYS.today_at = set(), -math.inf  # another state's days never show
-        try:
-            log_of = vision_log.at(state)
-            if _DAYS.video_key != (str(state), today) or time.monotonic() - _DAYS.video_at >= REVIEW_VIDEO_DAYS_S:
-                _DAYS.video = set(log_of.video_days())
-                _DAYS.video_key, _DAYS.video_at = (str(state), today), time.monotonic()
-            elif today not in _DAYS.video and time.monotonic() - _DAYS.today_at >= REVIEW_TODAY_VIDEO_S:
-                _DAYS.today_at = time.monotonic()
-                midnight = time.mktime(time.strptime(today, "%Y-%m-%d"))
-                if log_of.has_video(midnight, time.time() + 1):
-                    _DAYS.video.add(today)
-        except vision_log.continuum_py.ContinuumError as e:  # no broker: the days with speech still show
-            log("review days: no video days from the broker:", repr(e), level=logs.WARN)
-        days = sorted(set(_DAYS.speech) | _DAYS.video)
-        return [
-            {
-                "day": d,
-                "video": d in _DAYS.video,
-                "audio": _DAYS.speech.get(d, {}).get("audio", False),
-                "transcript": _DAYS.speech.get(d, {}).get("transcript", False),
-            }
-            for d in days
-        ]
-
-
-def iter_back() -> Iterator[dict[str, Any]]:
-    """The utterances, newest first."""
-    yield from reversed(heard_lines())
-
-
-def find_entry(ts_start: float, tol: float = 0.002) -> dict[str, Any] | None:
-    for e in iter_back():
-        if abs(float(e.get("ts_start", -1)) - ts_start) <= tol:
-            return e
-    return None
-
-
-def find_line(line: str) -> dict[str, Any] | None:
-    """The transcript line with this key (registry.key_of), newest first like find_entry."""
-    for e in iter_back():
-        if isinstance(e.get("ts_start"), int | float) and registry.key_of(e) == line:
-            return e
-    return None
-
-
 def lines_near(e: dict[str, Any], n: int = 200) -> list[dict[str, Any]]:
     """The n lines stored on each side of e in the transcript, where another mic's copy of it is: written a
     moment apart live, or together by a re-transcription."""
@@ -653,7 +513,7 @@ def lines_near(e: dict[str, Any], n: int = 200) -> list[dict[str, Any]]:
     after: collections.deque[dict[str, Any]] = collections.deque(maxlen=n)
     before: list[dict[str, Any]] = []
     found = False
-    for x in iter_back():
+    for x in transcript_lines.iter_back():
         if not found:
             if isinstance(x.get("ts_start"), int | float) and registry.key_of(x) == key:
                 found = True
@@ -667,10 +527,10 @@ def lines_near(e: dict[str, Any], n: int = 200) -> list[dict[str, Any]]:
 
 
 def latest_for_speaker(sid: int) -> dict[str, Any] | None:
-    view = _view()
-    for e in iter_back():
+    view = transcript_lines._view()
+    for e in transcript_lines.iter_back():
         # A rejected line, or one with no voice, has no speaker_id.
-        if has_audio(e) and (e := view.line(e)).get("speaker_id") == sid:
+        if transcript_lines.has_audio(e) and (e := view.line(e)).get("speaker_id") == sid:
             return e
     return None
 
@@ -678,160 +538,23 @@ def latest_for_speaker(sid: int) -> dict[str, Any] | None:
 def speakers_with_audio(raw: list[dict[str, Any]] | None = None, view: transcript_view.View | None = None) -> set[int]:
     """The (merged-resolved) speaker ids that still have at least one line with audio, not counting lines marked as
     a TV's: a voice heard only from one is nobody to name."""
-    view = view if view is not None else _view()
-    lines = reversed(raw) if raw is not None else iter_back()
+    view = view if view is not None else transcript_lines._view()
+    lines = reversed(raw) if raw is not None else transcript_lines.iter_back()
     # Match independent line() reads: audio availability does not borrow labels from another microphone's copy.
     return {
         sid
-        for e in view.individual_lines(e for e in lines if has_audio(e) and not e.get("media"))
+        for e in view.individual_lines(e for e in lines if transcript_lines.has_audio(e) and not e.get("media"))
         if (sid := e.get("speaker_id")) is not None
     }
 
 
 # --------------------------------------------------------------- clips ----
-# A line's audio is a stretch of its microphone's stream on the broker ("audio": {stream, start_ns, end_ns}), read
-# back through the speech log (room_audio.py): the tier worker's flushed batches, silence where nothing was kept.
-# Audio still in the microphone's ring (the last couple of seconds) isn't flushed yet, so a clip that new is empty.
-RANGE_MAX_S = 330.0  # the longest stretch of room audio served at once (a video segment is five minutes)
-
-
-def has_audio(e: dict[str, Any]) -> bool:
-    """Whether a line says where its audio is: a microphone stream and a span on the broker."""
-    a = e.get("audio")
-    return isinstance(a, dict) and isinstance(a.get("stream"), str) and isinstance(a.get("start_ns"), int)
-
-
 def audio_s(e: dict[str, Any]) -> float:
     """How long a line's audio is, in seconds (0 for a line without audio)."""
-    if not has_audio(e):
+    if not transcript_lines.has_audio(e):
         return 0.0
     a = e["audio"]
     return max(0.0, (int(a.get("end_ns") or a["start_ns"]) - int(a["start_ns"])) / 1e9)
-
-
-def _channel(stream: str) -> int:
-    """The channel a microphone's lines are transcribed from ([audio.mic_channel], 0 by default)."""
-    return int((cfg.get("audio.mic_channel") or {}).get(stream.removesuffix(".audio"), 0))
-
-
-def wav(rate: int, samples: Any, loud: bool = True) -> bytes:
-    """Float samples as a 16-bit mono WAV, brought up to a listening level unless `loud` is False (audio/loudness.py:
-    some mics record speech near -55 dBFS, which plays as silence)."""
-    import numpy
-
-    pcm = (numpy.clip(numpy.asarray(samples, numpy.float32), -1.0, 1.0) * 32767).astype(numpy.int16)
-    if loud and len(pcm):
-        pcm = loudness.normalize(pcm, rate)
-    buf = io.BytesIO()
-    sf.write(buf, pcm, rate, format="WAV", subtype="PCM_16")  # ty: ignore[unresolved-attribute]  # soundfile is a dependency here
-    return buf.getvalue()
-
-
-def read_audio(stream: str, start: float, end: float) -> tuple[int, Any]:
-    """(rate, float samples) of `stream` over [start, end) seconds, silence where nothing was kept."""
-    return speech_log.shared().audio(stream, int(start * 1e9), int(end * 1e9), _channel(stream))
-
-
-def line_clip(e: dict[str, Any], pad: float = PAD_S) -> tuple[bytes, dict[str, Any]]:
-    """A line's audio as a WAV, padded `pad` seconds each side and at most MAX_CLIP_S long, and what it holds:
-    {"sr", "dur_s", "frames" (0 when nothing was kept: none yet, or purged), "stream", "start_s"}."""
-    import numpy
-
-    a = e["audio"]
-    start = max(0.0, a["start_ns"] / 1e9 - pad)
-    end = min(start + MAX_CLIP_S + 2 * pad, int(a.get("end_ns") or a["start_ns"]) / 1e9 + pad)
-    rate, x = read_audio(a["stream"], start, max(end, start + 0.01))
-    kept = int(numpy.count_nonzero(x))
-    return wav(rate, x), {"sr": rate, "dur_s": round(len(x) / rate, 3), "frames": len(x) if kept else 0,
-                          "stream": a["stream"], "start_s": round(start, 3)}  # fmt: skip
-
-
-def audio_range(start: Any, end: Any) -> tuple[bytes, dict[str, Any]]:
-    """-> (wav_bytes, info) of the room between two timestamps, for Review to play under recorded video (the
-    recordings carry no sound). Reads the microphone the newest line with audio came from, else each microphone in
-    turn until one kept audio there; silence where none did."""
-    import numpy
-
-    start, end = float(start), float(end)
-    if not end > start:
-        raise ValueError("end must be after start")
-    end = min(end, start + RANGE_MAX_S)
-    mics = sorted(speech_log.shared().mic_freshness())
-    newest = next((e["audio"]["stream"] for e in iter_back() if has_audio(e)), None)
-    if newest in mics:
-        mics.remove(newest)
-        mics.insert(0, newest)
-    rate, x = 16_000, numpy.zeros(int((end - start) * 16_000), numpy.float32)
-    for stream in mics:
-        r, y = read_audio(stream, start, end)
-        if numpy.count_nonzero(y):
-            rate, x = r, y
-            return wav(rate, x), {"stream": stream, "sr": rate, "dur_s": round(len(x) / rate, 3)}
-    if not mics:
-        raise FileNotFoundError("no microphone has kept any audio")
-    return wav(rate, x, loud=False), {"stream": None, "sr": rate, "dur_s": round(len(x) / rate, 3)}
-
-
-def audio_spans(day: str) -> list[dict[str, Any]]:
-    """Each microphone's kept audio over a local day: [{"device", "start", "end"}] (seconds), for Review's timeline."""
-    t0 = time.mktime(time.strptime(day, "%Y-%m-%d"))
-    end = dt.datetime.strptime(day, "%Y-%m-%d") + dt.timedelta(days=1)
-    t1 = time.mktime(end.timetuple())
-    out = []
-    for stream in sorted(speech_log.shared().mic_freshness()):
-        for a, b in speech_log.shared().audio_spans(stream, int(t0 * 1e9), int(t1 * 1e9)):
-            out.append({"device": stream.removesuffix(".audio"), "start": a / 1e9, "end": b / 1e9})
-    return out
-
-
-_VOICES = voice_list.VoiceList(lambda: speech_log.shared())
-
-
-def _speakers() -> dict[str, Any]:
-    """The voice list (people/voice_list.py: each voiceprint the speech log or the event log knows) as the dashboard
-    reads it: each voice with its name as "label" (its person by person_of, else "Speaker <id>"). "merged" is always
-    empty: a voice is claimed by naming it, never folded into another. When the speech log can't be read the
-    list is the event log's voices alone, and when the event log can't be read every voice reads as unnamed; both
-    failures are logged, so the rest of the dashboard keeps working."""
-    known: list[int] = []
-    try:
-        if registry.log_exists(context.STATE):
-            known = registry.at(context.STATE).voiceprints()
-    except Exception as e:
-        log("speakers: the event log's voices can't be read:", repr(e), level=logs.WARN)
-    try:
-        sp = _VOICES.voices(known)
-    except Exception as e:
-        log("speakers: the voice list can't be read from the speech log:", repr(e), level=logs.ERROR)
-        sp = voice_list.Tally().rows(known)
-    try:
-        names = registry.voice_names(context.STATE, [s["id"] for s in sp])
-    except Exception as e:
-        log("speakers: voices read as unnamed, the event log is unreadable:", repr(e), level=logs.WARN)
-        names = {}
-    enrolled = _enrolled_voices([s["id"] for s in sp])
-    return {
-        "speakers": [
-            {**s, "label": names.get(s["id"]) or f"Speaker {s['id']}", "enrolled": s["id"] in enrolled} for s in sp
-        ],
-        "merged": {},
-    }
-
-
-def _enrolled_voices(sids: list[int]) -> set[int]:
-    """The voices learned from a recording: a claim from an enroll (people/voice_edits.py) stands on them."""
-    try:
-        if not registry.log_exists(context.STATE):
-            return set()
-        reg = registry.at(context.STATE)
-        return {
-            n
-            for n in sids
-            if any(a.source == voice_edits.ENROLL_SOURCE for a in reg.person_of(registry.voiceprint(n)).standing)
-        }
-    except Exception as e:
-        log("speakers: which voices are enrolled can't be read:", repr(e), level=logs.WARN)
-        return set()
 
 
 _speakers_shared: tuple[tuple[Any, ...], dict[str, Any]] | None = None
@@ -857,7 +580,7 @@ def speakers_public() -> dict[str, Any]:
     key = _speakers_key()
     with _speakers_lock:  # one works it out; the others with the same key wait for it and reuse it
         if _speakers_shared is None or _speakers_shared[0] != key:
-            d = _speakers()
+            d = known_voices._speakers()
             value = {"speakers": sorted(d["speakers"], key=lambda s: -(s.get("last_seen") or 0)), "merged": d["merged"]}
             _speakers_shared = (key, value)
         return copy.deepcopy(_speakers_shared[1])
@@ -1282,206 +1005,6 @@ def video_thumb_jpeg(
 
 
 # ---------------------------------------------------------------- moments, clones ----
-def transcript_around(ts: float, n: int = 12) -> dict[str, Any]:
-    """Utterances closest to ts (by ts_start), n in total, in time order, from the day around it."""
-    es = heard_lines(ts - 86400, ts + 86400)
-    if not es:
-        return {"entries": [], "target": None}
-    i = min(range(len(es)), key=lambda k: abs(es[k].get("ts_start", 0) - ts))
-    lo, hi = max(0, i - n // 2), min(len(es), i + n // 2 + 1)
-    return {"entries": _view().lines(es[lo:hi]), "target": es[i].get("ts_start")}
-
-
-CLONES = context.STATE / "clones"
-CLONE_LOCK = threading.Lock()
-REVIEW_SUMMARY_MAX_S = 31 * 86400
-
-
-def _clone_run(args: list[str], timeout: float) -> tuple[int, Any, list[str]]:
-    """clone_say.py in a subprocess (MLX TTS is thread-affine and ~1.5 GB; it loads, works, exits). One at a time."""
-    with CLONE_LOCK:
-        r = subprocess.run(
-            [str(PY), "-m", "liberational.speech.clone_say", *args],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            cwd=str(ROOT),
-        )
-    out = [l for l in r.stdout.splitlines() if l[:1] in "{["]
-    try:
-        parsed = json.loads(out[-1]) if out else {}
-    except Exception:
-        parsed = {}
-    return r.returncode, parsed, [l for l in (r.stderr or "").strip().splitlines() if "Warn" not in l][-3:]
-
-
-def clones_list() -> dict[str, Any]:
-    """In-process (pure Python scan of the transcript); only build/say need the MLX worker."""
-    try:
-        from liberational.speech import clone_say
-
-        return {"clones": clone_say.candidates(), "error": None}
-    except Exception as ex:
-        return {"error": str(ex), "clones": []}
-
-
-def clone_build(sid: int) -> Reply:
-    rc, o, err = _clone_run(["build", str(sid)], 300)
-    return (200, {"ok": True, **o}) if rc == 0 else (409, {"ok": False, "error": " ".join(err) or f"rc={rc}"})
-
-
-def clone_pick(sid: object, keys: object) -> Reply:
-    """(code, body) for POST /clones/pick {"id", "lines": [line keys]}: make a voice's clone reference from the lines
-    the owner picked (clone_say.pick), and record each as the owner's word that it is that person's (an owner
-    tag on the line, given as a voice tag so it stays with its voice), so it also counts as theirs everywhere else, a
-    clone build included. In process: the picked
-    lines' own transcripts are the reference's words, so nothing loads a model, and the warm clone voice takes the
-    new reference at its next line."""
-    from liberational.speech import clone_say
-
-    if isinstance(sid, bool) or not isinstance(sid, int) or not isinstance(keys, list) or not keys:
-        return 400, {"ok": False, "error": 'Send {"id": voice id, "lines": [line keys]}.'}
-    if not CLONE_LOCK.acquire(blocking=False):  # a build or a pick is writing references now
-        return 409, {"ok": False, "error": "A voice is being built right now; try again in a moment."}
-    try:
-        done = clone_say.pick(sid, [str(k) for k in keys])
-    except ValueError as ex:
-        return 409, {"ok": False, "error": str(ex)}
-    except Exception as ex:
-        log("clones: pick failed:", repr(ex), level=logs.ERROR)
-        return 500, {"ok": False, "error": "Making the reference failed: " + str(ex)}
-    finally:
-        CLONE_LOCK.release()
-    used = done.pop("lines")
-    name = _speakers_by_id().get(done["id"])
-    if registry.is_name(name) and used:
-        try:  # the reference stands either way; this only counts the lines as theirs, and says so when it couldn't
-            _picked_clips(used, name)
-        except registry.WriteFailed as e:
-            done["note"] = f"The reference was made, but its lines weren't recorded as {name}'s: {e}"
-    return 200, {"ok": True, **done}
-
-
-def _picked_clips(used: list[dict[str, Any]], name: str) -> None:
-    """The lines a reference was made from, claimed as `name`'s (registry.WriteFailed when that can't be recorded)."""
-    with registry.recorded("picked clips"):
-        fresh = [e for e in used if not e.get("confirmed")]
-        claims = [registry.Claim(registry.utterance(e["ts_start"], e.get("device")), str(name)) for e in fresh]
-        # As a voice tag (its source), so each line stays with the voice: it counts as theirs for a build too.
-        registry.at(context.STATE).claim_many(claims, Basis.OWNER_TAG, transcript_view.VOICE_TAG)
-        from liberational.listen import voices
-
-        voices.confirm_lines(context.STATE, fresh)
-
-
-def _speakers_by_id() -> dict[int, str]:
-    """{voice id: its name, or "Speaker <id>"}, as the dashboard names voices."""
-    return {s["id"]: s["label"] for s in _speakers()["speakers"]}
-
-
-def clone_remove(sid: int) -> Reply:
-    """(code, body): delete a voice's clone reference (<id>.wav/.txt/.json) and its renders. The speaker, its
-    transcript lines and its voice embedding stay; the reference can be rebuilt from speech at any time. A voice made
-    from one uploaded recording keeps <id>.json, its clone-only mark: it has no room speech to rebuild from, and
-    without the mark it would be matched to room speech. Recording it again restores the reference."""
-    gone = []
-    keep = {f"{sid}.json"} if sid in _clone_only_ids() else set()
-    for p in list((context.STATE / "clones").glob(f"{sid}.*")) + list(
-        (context.STATE / "clones").glob(f"say-{sid}-*.wav")
-    ):
-        if p.name in keep:
-            continue
-        try:
-            p.unlink()
-            gone.append(p.name)
-        except OSError as ex:
-            return 500, {"ok": False, "error": f"{p.name}: {ex}"}
-    return 200, {"ok": True, "id": sid, "removed": gone}
-
-
-_clones_dir = context.STATE / "clones"
-
-
-def clone_record(raw_bytes: bytes, name: str) -> Reply:
-    """(code, body): enroll an uploaded WAV as a voice clone (ambient speakers enroll-clone, which computes its voice
-    embedding and marks it in state/clones/<id>.json) and keep it as that voice's clone reference in
-    state/clones/<id>.wav."""
-    name = name.strip()
-    if not (1 <= len(name) <= 40):
-        return 400, {"ok": False, "error": "name must be 1-40 chars"}
-    _clones_dir.mkdir(exist_ok=True)
-    tmp = _clones_dir / f"record-{int(time.time() * 1000)}.wav"
-    tmp.write_bytes(raw_bytes)
-    try:
-        from liberational.speech import clone_say
-
-        try:
-            heard = clone_say.voiced_seconds(tmp)
-        except SystemExit as ex:
-            return 400, {"ok": False, "error": str(ex)}
-        if heard < clone_say.PREP_MIN_S:
-            return 400, {
-                "ok": False,
-                "error": f"the recording is nearly silent ({heard:.1f} s with any sound); check the microphone and record again",
-            }
-        # A running microphone service once saved over a new voice and reused its id;
-        # now every change is a transaction that takes in the others first, so it runs on.
-        # A clone is a voice of its own, even under a person's name: enrolled by label it took over their room voice,
-        # which then was never matched again. Its id comes from the command, since the name may belong to others.
-        ok, out = _speaker_cmds([["enroll-clone", name, str(tmp)]])
-        got = re.search(r"^enrolled (.+) as id (\d+)$", out, re.M)
-        if not ok or got is None:
-            return 500, {"ok": False, "error": out or "enroll failed"}
-        s = {"id": int(got[2]), "label": got[1]}
-        # The reference: trimmed to the clearest ~15 s, at 24 kHz, with its exact words (clone_say.prepare).
-        rc, o, err = _clone_run(["prepare", str(s["id"]), str(tmp), s["label"]], 300)
-        if rc != 0:
-            return 500, {"ok": False, "error": " ".join(err) or "could not prepare the voice"}
-    finally:
-        tmp.unlink(missing_ok=True)
-    log(f"recorded clone {name!r} as speaker {s['id']} ({o.get('seconds')} s: {str(o.get('ref_text'))[:60]!r})")
-    return 200, {
-        "ok": True,
-        "id": s["id"],
-        "name": s["label"],
-        "seconds": o.get("seconds"),
-        "ref_text": o.get("ref_text"),
-    }
-
-
-def _age(f: pathlib.Path) -> int:
-    """When f was last written, for keeping the newest renders. A render that another request's cleanup removed
-    between listing and reading counts as the oldest, so the listing never fails."""
-    try:
-        return f.stat().st_mtime_ns
-    except OSError:
-        return -1
-
-
-def clone_say(sid: int, text: str) -> Reply:
-    """(code, body): speak text in voice sid. From the voice service's warm model when it's running, streamed, so it
-    starts playing in a second or two (dashboard/clone_stream.py); else in a new process that loads the model
-    first. Either way the answer's url is the render, played by the browser, which opens the playback window itself
-    (/playback/start) so the room microphone drops what it hears of it."""
-    from liberational.dashboard import clone_stream
-
-    CLONES.mkdir(exist_ok=True)
-    out = CLONES / f"say-{sid}-{int(time.time() * 1000)}.wav"
-    t0 = time.monotonic()
-    if clone_stream.start(sid, text, out):
-        rc, o, err = 0, {"streamed": True, "first_audio_ms": round(1000 * (time.monotonic() - t0))}, []
-    else:
-        rc, o, err = _clone_run(["say", str(sid), text, str(out)], 300)
-    # Filename order groups by voice ID, not age, and can delete the just-rendered clip.
-    for old in sorted(CLONES.glob("say-*.wav"), key=_age)[:-20]:
-        old.unlink(missing_ok=True)  # keep the 20 most recent renders
-    return (
-        (200, {"ok": True, "url": f"/clones/render?f={out.name}", **o})
-        if rc == 0
-        else (409, {"ok": False, "error": " ".join(err) or f"rc={rc}"})
-    )
-
-
 def _research(handler: H) -> bool:
     """Delegate /research* (the Inbox's research jobs) to dashboard/research.py."""
     if not handler.path.startswith("/research"):
@@ -1521,8 +1044,8 @@ def _room_lines(
     # Each line's person by their current name, as of the line's time: a renamed person keeps the lines heard under
     # their old name, and someone new who takes that name does not get them.
     if named_lines is None:
-        view = view if view is not None else _view()
-        named_lines = view.named(raw[-ROOM_TAIL:] if raw is not None else heard_tail(ROOM_TAIL))
+        view = view if view is not None else transcript_lines._view()
+        named_lines = view.named(raw[-ROOM_TAIL:] if raw is not None else transcript_lines.heard_tail(ROOM_TAIL))
     for e in named_lines:
         if e.get("media"):  # a TV's line is nobody's
             continue
@@ -1551,7 +1074,7 @@ def _call_lines(view: transcript_view.View | None = None) -> list[dict[str, Any]
     """The far end's lines from recent calls, each under the name of who said it now, read as of the call the way
     profile rebuilds read them (`profiles.call_name`): a renamed person keeps their calls under their new name, and a
     forgotten person's lines are left out, so neither leaves an entry in People under a name nobody has."""
-    rows, view, memo = [], view if view is not None else _view(), {}
+    rows, view, memo = [], view if view is not None else transcript_lines._view(), {}
     for c in call_log.calls_list(500):
         t = call_log.call_transcript(c["day"], c["dir"]) or {"transcript": []}
         start = profiles.call_start(call_log.CALLS_DIR / c["day"] / c["dir"])
@@ -1576,132 +1099,6 @@ def _call_lines(view: transcript_view.View | None = None) -> list[dict[str, Any]
 def _norm(name: str | None) -> str:
     """The key a name is matched by, as the registry matches it (registry.norm), with a "(phone)" suffix dropped."""
     return registry.norm(re.sub(r"\s*\(phone\)$", "", (name or "")))
-
-
-_scene_lock = threading.Lock()
-_scene_cache: dict[str, Any] = {"at": -math.inf, "value": None, "log": None}
-
-
-def scene_entries() -> list[dict[str, Any]]:
-    """The newest captions for Live (`camera.caption` on the vision log, as scene.json had them): an unchanged view
-    shows its last real caption, unchanged since then. Empty when the broker can't be asked.
-
-    Every open Live feed asks every SCENE_POLL_S, and each answer decodes the last hour of captions, so one read
-    serves every caller for SCENE_POLL_S: more tabs no longer mean more decoding. A failed read isn't kept."""
-    with _scene_lock:
-        source = vision_log.at(context.STATE)  # one per broker, shared: the answer kept is this log's
-        cached = _scene_cache["value"]
-        if (
-            cached is not None
-            and _scene_cache["log"] is source
-            and time.monotonic() - _scene_cache["at"] < SCENE_POLL_S
-        ):
-            return cached
-        try:
-            value = source.scene(time.time())
-        except Exception as e:
-            log("scene: the vision log couldn't be read:", e, level=logs.WARN)
-            return []
-        _scene_cache.update(at=time.monotonic(), value=value, log=source)
-        return value
-
-
-def review_search(day: str, query: str) -> Reply:
-    """Search the local meaning index inside one canonical local day; never run a ranking/chat model."""
-    from liberational.memory import ask, journal, recall
-
-    try:
-        if ask.validate_day(day) is None:
-            raise ValueError("day must be YYYY-MM-DD")
-        start, end = journal.day_bounds(day)
-    except ValueError, OverflowError:
-        return 400, {"error": "day must be YYYY-MM-DD"}
-    if not isinstance(query, str) or not query.strip() or len(query) > 500:
-        return 400, {"error": "Search must be 1 to 500 characters."}
-    try:
-        found = recall.search(
-            query.strip(), start, end, state=context.STATE, rank=False, limit=24, require_semantic=True
-        )
-    except recall.SemanticUnavailableError as error:
-        log("review meaning search unavailable:", type(error).__name__, level=logs.WARN)
-        return 503, {"error": str(error)}
-    except Exception as error:
-        log("review meaning search failed:", type(error).__name__, level=logs.WARN)
-        return 503, {"error": "The local meaning index could not answer. Try again."}
-    results = []
-    seen: set[str] = set()
-    for item in found:
-        ts, stop, text = item.get("ts"), item.get("end"), item.get("text")
-        if (
-            isinstance(ts, bool)
-            or not isinstance(ts, int | float)
-            or not math.isfinite(ts)
-            or not start <= ts < end
-            or not isinstance(text, str)
-            or not text.strip()
-        ):
-            continue
-        stop = (
-            min(end, max(ts, stop))
-            if isinstance(stop, int | float) and not isinstance(stop, bool) and math.isfinite(stop)
-            else ts
-        )
-        key = str(item.get("interpretation") or item.get("id") or f"{ts}:{len(results)}")
-        if key in seen:
-            continue
-        seen.add(key)
-        results.append({"id": key, "ts": ts, "end": stop, "text": text, "kind": "semantic"})
-        if len(results) == 24:
-            break
-    return 200, {"results": results}
-
-
-def history_at(ts: float, window: float = 30.0) -> dict[str, Any]:
-    """What each camera saw nearest wall-clock ts, within +-window seconds (at most 600), from the vision log's
-    captions: {"ts", "cams": {cam: {"ts", "dt", "caption", "unchanged", "since", "faces"}}}. faces is None when no
-    faces were checked. A view that hadn't changed shows its last real caption, unchanged since then."""
-    window = max(1.0, min(600.0, window))
-    out: dict[str, Any] = {"ts": ts, "window": window, "cams": {}}
-    try:
-        rows = vision_log.at(context.STATE).captions(ts - window, ts + window)
-    except Exception as ex:
-        out["error"] = str(ex)
-        return out
-    nearest: dict[str, dict[str, Any]] = {}
-    for r in rows:
-        best = nearest.get(r["cam"])
-        if best is None or abs(r["ts"] - ts) < abs(best["ts"] - ts):
-            nearest[r["cam"]] = r
-    for cam, row in nearest.items():
-        faces = row.get("faces")
-        out["cams"][cam] = {
-            "ts": row["ts"],
-            "dt": round(row["ts"] - ts, 2),
-            "caption": row.get("caption"),
-            "unchanged": bool(row.get("unchanged")),
-            "since": row.get("since") if row.get("unchanged") else None,
-            "faces": [{k: f.get(k) for k in ("name", "sim", "bearing_deg")} for f in faces if isinstance(f, dict)]
-            if isinstance(faces, list)
-            else None,
-        }
-    return _with_recorded_people(out, ts, window)
-
-
-def _with_recorded_people(out: dict[str, Any], ts: float, window: float) -> dict[str, Any]:
-    """Prefer who the face worker found (vision/sightings.py visits) over the caption's faces: named people it found
-    come first, marked "source": "recordings", and the live sample's other faces follow."""
-    from liberational.vision import sightings
-
-    by_cam = {}
-    for v in sightings.who_at(ts, min(window, 60.0), context.STATE):
-        by_cam.setdefault(v["cam"], []).append(
-            {"name": v["name"], "sim": round(v["best_sim"], 3), "bearing_deg": None, "source": "recordings"}
-        )
-    for cam, seen in by_cam.items():
-        entry = out["cams"].setdefault(cam, {"ts": None, "dt": None, "caption": None, "faces": None})
-        names = {f["name"].lower() for f in seen}
-        entry["faces"] = seen + [f for f in entry["faces"] or [] if str(f.get("name", "")).lower() not in names]
-    return out
 
 
 FACE_GROUP = re.compile(r"face \d+")  # unnamed face groups, normalized ("Face 3")
@@ -1823,11 +1220,6 @@ def _owner_keys() -> set[str]:
     return {_norm(cfg.owner_name()), _norm(cfg.owner_label())} - {""}
 
 
-def _clone_only_ids() -> set[int]:
-    """Ids of voices enrolled from one uploaded recording (clones/<id>.json with source "recorded")."""
-    return set(transcript_view.clone_only_ids(context.STATE))
-
-
 def people_roster(
     raw: list[dict[str, Any]] | None = None,
     view: transcript_view.View | None = None,
@@ -1844,7 +1236,7 @@ def people_roster(
     # A voice made from one uploaded recording is a clone, listed under Voice clones only: not a person here, and not a
     # name offered when tagging. Its voice and the room lines once filed under it are left out, so a name
     # only a clone carries is too. A person who shares the name keeps everything else.
-    clone_ids = _clone_only_ids()
+    clone_ids = voice_clones._clone_only_ids()
 
     def person(name: str) -> dict[str, Any]:
         return by.setdefault(
@@ -1867,7 +1259,7 @@ def people_roster(
         b["last"] = max(b["last"], r["ts"])
     # Named voices are people too, even before they've said a transcribed line (an owner enrolled from a recording).
     skip = {"unknown", "multiple speakers", cfg.assistant_name().lower()}
-    for sp in speakers if speakers is not None else _speakers()["speakers"]:
+    for sp in speakers if speakers is not None else known_voices._speakers()["speakers"]:
         lab = (sp.get("label") or "").strip()
         if lab and lab.lower() not in skip and not VOICE_GROUP.fullmatch(lab) and sp["id"] not in clone_ids:
             b = person(lab)
@@ -2210,13 +1602,13 @@ def _named_lines(since: float) -> list[tuple[float, float, str]]:
     key = (_voices_key(), since // 3600)
     if _named_cache["key"] != key:
         from_ = (since // 3600) * 3600
-        raw = heard_lines()
+        raw = transcript_lines.heard_lines()
         heard = [
             e
             for e in raw
             if isinstance(e.get("ts_start"), int | float) and e["ts_start"] >= from_ and not e.get("assistant")
         ]
-        view = _view()
+        view = transcript_lines._view()
         _named_cache.update(
             key=key,
             value=sorted(
@@ -2789,9 +2181,9 @@ def _unknown_voices() -> tuple[int, dict[str, Any]]:
 
     try:
         skipped = set(inbox_skips()["voice"])
-        clones = _clone_only_ids()
-        raw, view = speech_log.retained(), _view()
-        sp = _speakers()["speakers"]
+        clones = voice_clones._clone_only_ids()
+        raw, view = speech_log.retained(), transcript_lines._view()
+        sp = known_voices._speakers()["speakers"]
         audible = speakers_with_audio(raw, view)
         waiting = [
             s
@@ -2942,39 +2334,6 @@ def _unknown_voices_worked_out() -> Reply:
 _VOICE_GROUPS = _Fresh(
     "voice groups", _unknown_voices_worked_out, _voices_key, lambda: speech_mark(), patch=_patch_voice_groups
 )
-
-
-# Review's summaries, kept: {(start, end): (stamp, answer)}. Reading a day's journal off the broker took 2 to 5 s
-# a request, every request.
-_summaries: dict[tuple[float, float], tuple[Any, dict[str, Any]]] = {}
-_summaries_lock = threading.Lock()
-SUMMARY_KEEP_S = 60.0  # how long a kept summary is used, ready or not
-ENDED_SUMMARY_KEEP_S = 900.0  # and of an ended one, whose ready answer only a purge or a rare rebuild changes
-
-
-def review_summary_kept(start: float, end: float) -> dict[str, Any]:
-    """GET /review/summary's answer for [start, end), kept for SUMMARY_KEEP_S, and a ready answer of an ended stretch
-    for ENDED_SUMMARY_KEEP_S, or until a purge. The journal's own position can't be the stamp: it's the broker's
-    commit sequence, which moves every few seconds whatever stretch is asked about. A pending or partial answer (today's
-    always is, while the journal writes) is kept a minute too: working it out queues the rewrites still missing, and
-    once a minute is enough for that, where every request was 3 to 5 s."""
-    from liberational.memory import review_summary
-
-    now = time.time()
-    purge = speech_log.shared().newest_purge()
-    with _summaries_lock:
-        hit = _summaries.get((start, end))
-        if hit is not None:
-            (kept_purge, until), answer = hit
-            if kept_purge == purge and now < until:
-                return answer
-    answer = review_summary.summary(start, end, context.STATE)
-    keep = ENDED_SUMMARY_KEEP_S if end <= now and answer.get("status") == "ready" else SUMMARY_KEEP_S
-    with _summaries_lock:
-        if len(_summaries) >= 64:
-            _summaries.clear()
-        _summaries[(start, end)] = ((purge, now + keep), answer)
-    return answer
 
 
 class Starting(Exception):
@@ -3168,9 +2527,9 @@ def _people_fresh(purge: object) -> tuple[Any, ...]:
 
 def _people_view() -> dict[str, Any]:
     """GET /people: the roster, plus voices and faces nobody has named yet (skipped ones left out)."""
-    raw, view = speech_log.retained(), _view()
+    raw, view = speech_log.retained(), transcript_lines._view()
     skips = inbox_skips()
-    sp = _speakers()["speakers"]
+    sp = known_voices._speakers()["speakers"]
     # Only voices with a line left to play: the backfill and refine move lines to named people, which can leave an
     # unnamed voice with nothing behind it.
     audible = speakers_with_audio(raw, view)
@@ -3224,8 +2583,8 @@ def voice_clips(
     aside = set(inbox_skips()["line"])  # clips answered "Nobody" are not asked about again
     lines = {}
     # Another mic's copy of a line is the same speech: asked about once.
-    view = view if view is not None else _view()
-    for e in transcript_view.once(view.lines(raw[-60000:] if raw is not None else heard_tail(60000))):
+    view = view if view is not None else transcript_lines._view()
+    for e in transcript_view.once(view.lines(raw[-60000:] if raw is not None else transcript_lines.heard_tail(60000))):
         sid = e.get("speaker_id")  # merges followed; None once someone labeled the line
         if sid is None:
             continue
@@ -3233,7 +2592,7 @@ def voice_clips(
             continue
         if spans is not None and sid in want and isinstance(e.get("ts_start"), int | float):
             spans.setdefault(sid, []).append((float(e["ts_start"]), float(e.get("ts_end") or e["ts_start"])))
-        if sid in want and has_audio(e) and audio_s(e) >= 1.0 and (e.get("text") or "").strip():
+        if sid in want and transcript_lines.has_audio(e) and audio_s(e) >= 1.0 and (e.get("text") or "").strip():
             lines.setdefault(sid, []).append(e)
             if sims is not None and e.get("speaker_sim"):
                 sims.setdefault(sid, []).append(float(e["speaker_sim"]))
@@ -3456,7 +2815,7 @@ def _photos_from_scene() -> None:
                 if not p.exists() or now - p.stat().st_mtime > 60:
                     _crop(cam, f["ts"], bbox, p)
             elif not _photos(n):
-                view = view or _view()
+                view = view or transcript_lines._view()
                 if _living_name(view, n):
                     _crop(cam, f["ts"], bbox, _photo_dir(n) / f"{int(now * 1000)}.jpg")
         except OSError as ex:
@@ -3670,8 +3029,8 @@ def _recent_voice(
     (registry.key_of); the frontend plays it by ts_start until /clip takes line keys."""
     nm, out = _norm(name), []
     if named_lines is None:
-        lines = raw[-ROOM_TAIL:] if raw is not None else heard_tail(ROOM_TAIL)
-        view = view if view is not None else _view()
+        lines = raw[-ROOM_TAIL:] if raw is not None else transcript_lines.heard_tail(ROOM_TAIL)
+        view = view if view is not None else transcript_lines._view()
         named_lines = view.named(lines)
     for e in reversed(named_lines):
         if (
@@ -3703,7 +3062,7 @@ def person_card(name: str) -> dict[str, Any] | None:
         return None
     # Share raw speech and one fresh identity snapshot across roster and media readers. Cache only raw rows:
     # retained() follows commits and purges, while a new View sees renames without waiting for new speech.
-    raw, view = speech_log.retained(), _view()
+    raw, view = speech_log.retained(), transcript_lines._view()
     named_lines = view.named(raw[-ROOM_TAIL:])  # for recent voices
     saved_shots = face_shots.saved(context.STATE, revision=_shot_revision())
     me = _roster_row(name)
@@ -3915,7 +3274,7 @@ def why_name_view(q: Mapping[str, str]) -> tuple[dict[str, Any], int]:
         return {"error": "ts_start is a time"}, 400
     if e is None:
         return {"error": "no such line"}, 404
-    return why_name.for_line(e, _view(), lines_near(e)), 200
+    return why_name.for_line(e, transcript_lines._view(), lines_near(e)), 200
 
 
 def _has_log() -> bool:
@@ -3934,8 +3293,10 @@ def _newest_lines() -> dict[int, dict[str, Any]]:
     (what speakers_with_audio and latest_for_speaker would take one read per voice for)."""
     out: dict[int, dict[str, Any]] = {}
     # Share the retained speech cache and resolve voices in one batch, rather than one registry call per line.
-    for e in reversed(_view().individual_lines(e for e in speech_log.retained() if has_audio(e))):
-        if has_audio(e) and (sid := e.get("speaker_id")) is not None and sid not in out:
+    for e in reversed(
+        transcript_lines._view().individual_lines(e for e in speech_log.retained() if transcript_lines.has_audio(e))
+    ):
+        if transcript_lines.has_audio(e) and (sid := e.get("speaker_id")) is not None and sid not in out:
             out[sid] = e
     return out
 
@@ -3998,7 +3359,7 @@ def people_unnamed() -> dict[str, Any]:
     newest = _newest_lines()
     unnamed = [
         s
-        for s in _speakers()["speakers"]
+        for s in known_voices._speakers()["speakers"]
         if VOICE_GROUP.fullmatch((s.get("label") or "").strip()) and s["id"] in newest and s["id"] not in skips["voice"]
     ]
     unnamed.sort(key=lambda s: -(s.get("last_seen") or 0))
@@ -4074,8 +3435,12 @@ def _assign_face(name: str, gid: int, ops: list[dict[str, Any]]) -> None:
 
 def _voices_of(name: str) -> list[int]:
     """The ids of the room voices of the person called `name` (never a voice clone)."""
-    clones = _clone_only_ids()
-    return [s["id"] for s in _speakers()["speakers"] if _norm(s.get("label")) == _norm(name) and s["id"] not in clones]
+    clones = voice_clones._clone_only_ids()
+    return [
+        s["id"]
+        for s in known_voices._speakers()["speakers"]
+        if _norm(s.get("label")) == _norm(name) and s["id"] not in clones
+    ]
 
 
 def _voice_teaching(sid: int) -> list[dict[str, Any]]:
@@ -4085,14 +3450,14 @@ def _voice_teaching(sid: int) -> list[dict[str, Any]]:
     from liberational.listen import voices
 
     try:
-        raw, view = heard_tail(60000), _view()
+        raw, view = transcript_lines.heard_tail(60000), transcript_lines._view()
         aside = set(inbox_skips()["line"])
         stored = {registry.key_of(e): e for e in raw if isinstance(e.get("ts_start"), int | float)}
         mine = [
             stored[key]
             for e in transcript_view.once(view.lines(raw))
             if e.get("speaker_id") == sid
-            and has_audio(e)
+            and transcript_lines.has_audio(e)
             and not e.get("media")
             and not put_aside(e, aside)
             and (key := registry.key_of(e)) in stored
@@ -4135,7 +3500,7 @@ def _assign_voice(name: str, sid: int, ops: list[dict[str, Any]]) -> None:
     and changes nothing. Raises ValueError."""
     if _norm(name) in _owner_keys():
         raise ValueError("To make a voice yours, use That was me on People.")
-    d = _speakers()
+    d = known_voices._speakers()
     sid = int(d.get("merged", {}).get(str(sid), sid))
     voice = next((s for s in d.get("speakers", []) if s["id"] == sid), None)
     if voice is None:
@@ -4145,7 +3510,7 @@ def _assign_voice(name: str, sid: int, ops: list[dict[str, Any]]) -> None:
         raise ValueError(f"That voice is {old}'s already.")
     joins = bool(_voices_of(name))
     teach = _voice_teaching(sid)
-    ok, out = _speaker_cmds([["label", sid, name]])
+    ok, out = known_voices._speaker_cmds([["label", sid, name]])
     if not ok:
         raise ValueError(out or "naming the voice failed")
     taught = _teach_voice(teach, name)
@@ -4211,7 +3576,7 @@ def _undo_op(op: Mapping[str, Any]) -> str | None:
             if not gone:
                 return f"Face {op['gid']} is back, but {name}'s face row from it was gone already"
         elif kind == "voice_label":
-            ok, out = _speaker_cmds([["label", op["sid"], op["old"]]])
+            ok, out = known_voices._speaker_cmds([["label", op["sid"], op["old"]]])
             if not ok:
                 return out or "relabeling the voice failed"
             _untaught(op.get("lines") or [])
@@ -4370,7 +3735,7 @@ def _line_by_key(key: str) -> dict[str, Any] | None:
         _slug, ts = registry.split_key(key)
     except ValueError:
         return None
-    for e in iter_back():
+    for e in transcript_lines.iter_back():
         if (
             isinstance(e.get("ts_start"), int | float)
             and abs(e["ts_start"] - ts) <= 0.002
@@ -4401,7 +3766,7 @@ def _track_sightings(name: str, cam: str, track: str, at: float) -> list[str]:
     is only unique for a while, so the search stays within TRACK_REACH_S of the box's moment."""
     from liberational.vision import sightings
 
-    view = _view()
+    view = transcript_lines._view()
     return [
         f["id"]
         for f in sightings.faces(at - TRACK_REACH_S, at + TRACK_REACH_S, cam, context.STATE)
@@ -4478,7 +3843,7 @@ def correct_card(body: Mapping[str, Any]) -> Reply:
             return 404, {"ok": False, "error": f"That person in view isn't {name}."}
     else:
         line = _line_by_key(str(ident or ""))
-        if line is None or _norm(_view().line(line).get("speaker") or "") != _norm(name):
+        if line is None or _norm(transcript_lines._view().line(line).get("speaker") or "") != _norm(name):
             return 404, {"ok": False, "error": f"That line isn't {name}'s."}
     ops: list[dict[str, Any]] = []
     try:
@@ -4647,55 +4012,6 @@ REFINE_LOG = (
 )  # every label given in "Lines to check", with what it replaced, so it can be undone
 
 
-def _listening() -> bool:
-    """Whether the listen worker (which handles voice tags) is running here, as a service or by hand: the dashboard's
-    cached process scan."""
-    try:
-        return bool(services.processes().get("listen"))
-    except Exception:
-        return False
-
-
-MIC_FRESH_S = 10.0  # a microphone whose newest audio is older than this isn't being heard
-_mic_cache: dict[str, Any] = {"at": 0.0, "value": None}
-
-
-def camera_status() -> dict[str, Any]:
-    """The cameras capture is sending, from their `<name>.video` streams (dashboard/cameras.py), in the shape the
-    page reads: {"ts", "cameras": {name: {"state", "size", "fps"}}}."""
-    from liberational.dashboard import cameras, devices
-
-    return cameras.states(devices._link())
-
-
-def mic_status() -> dict[str, Any]:
-    """The microphones as the Live tab shows them: {"ts", "devices":
-    {name: {"name", "healthy", "gain"?}}}, "gain" from the listen worker's auto gain status. A microphone is healthy
-    while the listen worker runs and its `<name>.audio` stream on the broker has audio from the last MIC_FRESH_S; "ts"
-    is now while any is, and absent otherwise (not listening). Asked of the broker at most every 2 s."""
-    if time.monotonic() - _mic_cache["at"] < 2.0 and _mic_cache["value"] is not None:
-        return _mic_cache["value"]
-    try:
-        fresh = speech_log.shared().mic_freshness()
-    except Exception as e:
-        log("mic status:", repr(e), level=logs.WARN)
-        fresh = {}
-    listening, now_ns = _listening(), time.time_ns()
-    gains = {g.get("name"): g for g in gain.read_status(cfg.path("paths.state") / gain.STATUS).values()}
-    devices = {}
-    for stream, newest in fresh.items():
-        name = stream.removesuffix(".audio")
-        ok = listening and newest is not None and now_ns - newest < MIC_FRESH_S * 1e9
-        devices[name] = {"name": name, "healthy": ok}
-        if (g := gains.get(name)) and g.get("kind"):
-            devices[name]["gain"] = {"auto": g.get("auto"), "kind": g["kind"], "db": g.get("db")}
-    out: dict[str, Any] = {"devices": devices}
-    if any(d["healthy"] for d in devices.values()):
-        out["ts"] = time.time()
-    _mic_cache.update(at=time.monotonic(), value=out)
-    return out
-
-
 def request_voice_tags(ts_starts: object, name: object, control: bool = False, lines: object = None) -> Reply:
     """(code, body): queue "these lines were NAME" for the microphone service, which relabels them and learns the
     voice from their audio (audio/ambient.py Transcriber.process_tags). The dashboard never rewrites the transcript.
@@ -4734,7 +4050,11 @@ def request_voice_tags(ts_starts: object, name: object, control: bool = False, l
             )
             + "\n"
         )
-    note = None if _listening() else "The microphone service isn't running; the lines are tagged when it starts."
+    note = (
+        None
+        if live_status._listening()
+        else "The microphone service isn't running; the lines are tagged when it starts."
+    )
     if len(tags) > 1:
         note = " ".join(
             filter(
@@ -4768,7 +4088,7 @@ def label_speaker(sid: object, name: str, control: bool = False) -> Reply:
         if not (person := _person_name(name)):
             return 400, {"ok": False, "error": "Names start with a letter and use letters, spaces, . ' or -"}
         name = person
-    ok, out = _speaker_cmds([["label", str(sid), name]])
+    ok, out = known_voices._speaker_cmds([["label", str(sid), name]])
     log(f"label {sid} -> {name!r}: {'ok' if ok else 'FAILED'} {out[-120:]}", level=logs.INFO if ok else logs.ERROR)
     return (200 if ok else 500), {"ok": ok, "out": out, "speakers": speakers_public()}
 
@@ -4819,26 +4139,6 @@ def _unteach_reference(token: str) -> None:
     face = data.get("face") or {}
     if face.get("result") == "added" and data.get("person") and face.get("vec") is not None:
         _faces_mod().remove_row(str(data["person"]), face["vec"], face.get("dropped"))
-
-
-def _speaker_cmds(cmds: Sequence[Sequence[object]]) -> tuple[bool, str]:
-    """Run people/voice_edits.py commands in order (stopping at a failure), in a child process: an enroll loads the
-    speaker model, which the dashboard never holds. Returns (ok, output)."""
-    base = [str(PY), "-m", "liberational.people.voice_edits", "--state-dir", str(context.STATE)]
-    ok, outs = True, []
-    try:
-        for c in cmds:
-            r = subprocess.run(
-                [*base, *[str(x) for x in c]], cwd=str(ROOT), capture_output=True, text=True, timeout=120
-            )
-            outs.append((r.stdout + r.stderr).strip())
-            if r.returncode:
-                ok = False
-                break
-    except Exception as e:
-        ok = False
-        outs.append(repr(e))
-    return ok, "\n".join(outs)[-500:]
 
 
 _planning: set[int] = (
@@ -5129,12 +4429,12 @@ def _delete_person_locked(name: object, control: bool) -> Reply:
             "ok": False,
             "error": f"{name} is {living} now. To forget them, delete {living}.",
         }
-    d = _speakers()
+    d = known_voices._speakers()
     # Their voices. A voice clone recorded under the same name is not one of them, so it stays (a name only clones
     # have is not on the roster, so it never gets here).
-    clones = _clone_only_ids()
+    clones = voice_clones._clone_only_ids()
     ids = [s["id"] for s in d.get("speakers", []) if _norm(s.get("label")) == _norm(name) and s["id"] not in clones]
-    view = _view()
+    view = transcript_lines._view()
     try:  # before the voices are forgotten below, while they still resolve to the name
         from liberational.memory import journal
 
@@ -5168,7 +4468,7 @@ def _delete_person_locked(name: object, control: bool) -> Reply:
     try:  # without them their lines would stay theirs: stop, with them still in the registry to delete again
         reg = registry.at(context.STATE)
         group = reg.group(name)
-        heard = heard_lines()
+        heard = transcript_lines.heard_lines()
         mine = {
             registry.key_of(e)
             for e, pid in view.speakers(heard)
@@ -5212,7 +4512,7 @@ def _delete_person_locked(name: object, control: bool) -> Reply:
     for item in references.listing(context.STATE, name):
         _park(references.entry(context.STATE, item["id"]), "person_references")
     if ids:
-        ok, out = _speaker_cmds([["forget", i] for i in ids])
+        ok, out = known_voices._speaker_cmds([["forget", i] for i in ids])
         if not ok:
             return 500, {"ok": False, "error": out or "forgetting the voice failed"}
         removed["voices"] = len(ids)
@@ -5221,7 +4521,7 @@ def _delete_person_locked(name: object, control: bool) -> Reply:
     with VOICE_TAGS.open("a") as f:
         req = {"forget": sorted(ids), "name": name, "lines": lines, "requested_at": round(time.time(), 3)}
         f.write(json.dumps(req, ensure_ascii=False) + "\n")
-    if not _listening():
+    if not live_status._listening():
         notes.append("The microphone service isn't running; their lines go back to unnamed when it starts.")
     if ids:
         try:
@@ -5418,7 +4718,7 @@ def _someone_elses(voice: dict[str, Any], name: str) -> Reply | None:
     unnamed voice: claiming a named one merges all of that person's voice into someone else, which can't be undone.
     Live's Turn rename hit this when the owner typed their name on one of their turns matched to someone else."""
     label = str(voice.get("label") or "")
-    if not registry.is_name(label) or _norm(label) == _norm(name) or voice["id"] in _clone_only_ids():
+    if not registry.is_name(label) or _norm(label) == _norm(name) or voice["id"] in voice_clones._clone_only_ids():
         return None
     return 409, {
         "ok": False,
@@ -5476,7 +4776,7 @@ def _claim(kind: object, gid: Any, name: object, control: bool, selected_image: 
     if _norm(name) in _owner_keys():
         if not control:  # it makes the voice the owner's, who the assistant answers as the owner
             return 403, {"ok": False, "error": "Claiming a voice as yours can only be done on this machine."}
-        voices = _speakers()
+        voices = known_voices._speakers()
         sid = int(voices.get("merged", {}).get(str(gid), gid))
         voice = next((v for v in voices["speakers"] if v["id"] == sid), None)
         unnamed = bool(voice and VOICE_GROUP.fullmatch(str(voice.get("label") or "")))
@@ -5494,12 +4794,12 @@ def _claim(kind: object, gid: Any, name: object, control: bool, selected_image: 
                 ),
             }
         return code, {**body, "name": name, **people_view()}
-    d = _speakers()
+    d = known_voices._speakers()
     sid = int(d.get("merged", {}).get(str(gid), gid))
     voice = next((s for s in d.get("speakers", []) if s["id"] == sid), None)
     if voice is None:
         return 404, {"ok": False, "error": "no such voice"}
-    clones = _clone_only_ids()  # a voice clone with this name is not the person's voice: never merged into
+    clones = voice_clones._clone_only_ids()  # a voice clone with this name is not the person's voice: never merged into
     # The owner's voice is the owner's, as rename_person keeps it: a claim would merge it into someone (Live's Turn
     # rename on one of the owner's turns), which can't be undone, or relabel it so the owner check stops matching.
     if _norm(voice.get("label")) in _owner_keys() and sid not in clones:
@@ -5511,7 +4811,7 @@ def _claim(kind: object, gid: Any, name: object, control: bool, selected_image: 
         return refused
     # Naming it is the claim: a person may have several voices. It teaches listen the voice too.
     teach = _voice_teaching(sid) if _norm(voice.get("label")) != _norm(name) else []
-    ok, out = _speaker_cmds([["label", sid, name]])
+    ok, out = known_voices._speaker_cmds([["label", sid, name]])
     if not ok:
         return 500, {"ok": False, "error": out or "naming the voice failed"}
     taught = _teach_voice(teach, name)
@@ -5533,10 +4833,10 @@ def confirm_owner_voice(sid: Any) -> Reply:
         return 400, {"ok": False, "error": "Set the owner's name in Settings first."}
     if not re.fullmatch(r"\d{1,6}", str(sid)):
         return 400, {"ok": False, "error": "bad id"}
-    d = _speakers()
+    d = known_voices._speakers()
     sid = int(d.get("merged", {}).get(str(sid), sid))
     voices = {s["id"]: s for s in d.get("speakers", [])}
-    clones = _clone_only_ids()  # a clone of the owner's voice is not the voice the room is matched against
+    clones = voice_clones._clone_only_ids()  # a clone of the owner's voice is not the voice the room is matched against
     # The owner's voice is the one the owner check accepts, not one whose name only reads as theirs (a voice of
     # someone merged into them on People): that one is what this makes theirs.
     me = next(
@@ -5556,7 +4856,7 @@ def confirm_owner_voice(sid: Any) -> Reply:
         *([["label", str(sid), f"Speaker {sid}"]] if named else []),
         ["label", str(sid), cfg.owner_name() or owner],
     ]
-    ok, out = _speaker_cmds(cmds)
+    ok, out = known_voices._speaker_cmds(cmds)
     log(f"owner voice <- {sid}: {'ok' if ok else 'FAILED'} {out[-120:]}", level=logs.INFO if ok else logs.ERROR)
     note = "Got it. Lines from that voice are yours now, and it will be recognized as you."
     return (200 if ok else 500), {"ok": ok, "error": None if ok else out, "speakers": speakers_public(), "note": note}
@@ -5568,7 +4868,7 @@ REFINE_PAGE = 50  # uncertain lines sent at once; "remaining" counts them all
 def speakers_refine_list() -> dict[str, Any]:
     """Get ambiguous utterances: clips with low speaker_sim that are borderline between recognized speakers.
     These are candidates where the auto-labeling was uncertain and manual review would help."""
-    d = _speakers()
+    d = known_voices._speakers()
     spk_map = {s["id"]: s.get("label", "Speaker " + str(s["id"])) for s in d.get("speakers", [])}
     # Find enrolled speakers (real people with enough data)
     enrolled = [s for s in d.get("speakers", []) if s.get("enrolled")]
@@ -5585,7 +4885,7 @@ def speakers_refine_list() -> dict[str, Any]:
         if len(items) < REFINE_PAGE:
             items.append(cand)
 
-    for e in _view().lines(heard_lines()):
+    for e in transcript_lines._view().lines(transcript_lines.heard_lines()):
         sid = e.get("speaker_id")
         if sid is None or sid not in spk_map:
             continue
@@ -5621,7 +4921,7 @@ AMBIGUOUS = "more than one line starts then; send its line"
 def _stored_line(ts: object = None, line: object = None) -> dict[str, Any] | None:
     """A transcript line as stored: by its key (`line`, registry.key_of), else by its ts_start to the millisecond.
     Raises AmbiguousLine when the time alone matches lines from two microphones, and ValueError for a bad time."""
-    entries = heard_lines()
+    entries = transcript_lines.heard_lines()
     entries = [e for e in entries if isinstance(e.get("ts_start"), int | float) and not isinstance(e["ts_start"], bool)]
     if isinstance(line, str) and line:
         return next((e for e in entries if registry.key_of(e) == line), None)
@@ -5640,7 +4940,7 @@ def _line_at(
     e = _stored_line(ts, line)
     if e is None:
         return None
-    view = _view()
+    view = transcript_lines._view()
     return e, view.line(e), view
 
 
@@ -5713,7 +5013,7 @@ def _restore(
         )
     else:
         registry.at(context.STATE).release(line, "dashboard")
-        v = _view()
+        v = transcript_lines._view()
         now = v.line(stored).get("speaker")
         if legacy and name and registry.norm(now) != registry.norm(name):  # the line still carries the old label
             if voice is None and (was_voice := v.canonical(old.get("speaker_id"))) is not None:
@@ -5788,7 +5088,7 @@ def speakers_refine(action: object, body: dict[str, Any]) -> Reply:
             # their confirmed references. The undo puts the line back, and with it the reference goes.
             _teach_voice([stored], name)
         denied = _deny_voice(stored, said.person if said is not None else None, name) if action == "assign" else None
-        hit = _view().line(stored)
+        hit = transcript_lines._view().line(stored)
     except AmbiguousLine as ex:
         return 409, {"ok": False, "error": str(ex)}
     except Exception as ex:
@@ -5887,7 +5187,7 @@ def speakers_refine_undo(body: dict[str, Any]) -> Reply:
                 from liberational.listen import voices
 
                 voices.deny(context.STATE, [stored], str(e["denied"]), active=False)
-            hit = _view().line(stored)
+            hit = transcript_lines._view().line(stored)
         except Exception as ex:
             errors.append(str(ex))
             continue
@@ -6401,10 +5701,10 @@ class H(http.server.BaseHTTPRequestHandler):
 
     def clip(self, entry: dict[str, Any], info: bool = False) -> None:
         """A line's audio as a WAV (line_clip), or with `info` what it holds."""
-        if not has_audio(entry):
+        if not transcript_lines.has_audio(entry):
             return self._json({"ok": False, "error": "no audio for that utterance"}, 404)
         try:
-            data, meta = line_clip(entry)
+            data, meta = transcript_lines.line_clip(entry)
         except Exception as e:
             log("clip error:", repr(e), level=logs.ERROR)
             return self._json({"ok": False, "error": repr(e)[:200]}, 500)
@@ -6671,15 +5971,15 @@ class H(http.server.BaseHTTPRequestHandler):
             speech = speech_log.shared()
             streams = (speech_log.UTTERANCES, speech_log.REPLIES)
             seq, purge = speech.mark(streams)
-            entries = merged_tail(80)
+            entries = transcript_lines.merged_tail(80)
             ev("hello", {"ts": time.time(), "clients": SSE_CLIENTS[0]})
             voices = speakers_public()
             ev("speakers", voices)
             ev("transcript", {"entries": entries, "reset": True})
-            ev("scene", scene_entries())
-            mics = mic_status()
+            ev("scene", live_status.scene_entries())
+            mics = live_status.mic_status()
             ev("ambient", mics)
-            cams = camera_status()
+            cams = live_status.camera_status()
             ev("vision", cams)
             # The shell's status (#52): pauses, the services badge, and the Inbox's jobs, sent when they change.
             status = self._shell_status()
@@ -6687,7 +5987,7 @@ class H(http.server.BaseHTTPRequestHandler):
                 ev(kind, value)
             ev("ready", {"ts": time.time()})  # the opening snapshot is complete: a kind not sent yet won't be
             # The scene is asked of the vision log every SCENE_POLL_S, and sent when its newest captions change.
-            scene_at, scene_seen = time.monotonic(), _scene_key(scene_entries())
+            scene_at, scene_seen = time.monotonic(), _scene_key(live_status.scene_entries())
             purge_at = time.monotonic()
             last_ping = time.time()
             while True:
@@ -6700,13 +6000,13 @@ class H(http.server.BaseHTTPRequestHandler):
                         purge = now_purge
                         _, seen = relabeled_tail({})
                         seq = speech.mark(streams)[0]
-                        ev("transcript", {"entries": merged_tail(80), "reset": True})
+                        ev("transcript", {"entries": transcript_lines.merged_tail(80), "reset": True})
                         voices_due = True
                 new, seq = speech.since(seq, streams)
                 heard_now = [e for e in new if not e.get("assistant")]
                 if heard_now:
                     voices_due = True
-                    heard_now = _view().lines(heard_now)
+                    heard_now = transcript_lines._view().lines(heard_now)
                     seen.update(label_marks(heard_now))
                     heard_now = transcript_view.once(heard_now)  # another mic's copy in the same batch shows once
                     ev("transcript", {"entries": heard_now, "reset": False})
@@ -6717,7 +6017,7 @@ class H(http.server.BaseHTTPRequestHandler):
                     if (review_now := revisions.review_revision(context.STATE)) != review_mark:
                         review_mark = review_now
                         _, seen = relabeled_tail({})
-                        ev("transcript", {"entries": merged_tail(LIVE_LINES), "reset": True})
+                        ev("transcript", {"entries": transcript_lines.merged_tail(LIVE_LINES), "reset": True})
                     else:
                         changed, seen = relabeled_tail(seen)
                         if changed:
@@ -6725,19 +6025,21 @@ class H(http.server.BaseHTTPRequestHandler):
                     if (now_voices := speakers_public()) != voices:  # a voice's name lives in the log
                         voices = now_voices
                         ev("speakers", voices)
-                if time.monotonic() - scene_at >= SCENE_POLL_S:
+                if time.monotonic() - scene_at >= live_status.SCENE_POLL_S:
                     scene_at = time.monotonic()
-                    scene = scene_entries()
+                    scene = live_status.scene_entries()
                     if (key := _scene_key(scene)) != scene_seen:
                         scene_seen = key
                         ev("scene", scene)
                 if voices_due and (now_voices := speakers_public()) != voices:
                     voices = now_voices
                     ev("speakers", voices)
-                if (now_mics := mic_status()) != mics:  # cached: asked of the broker at most every 2 s
+                if (now_mics := live_status.mic_status()) != mics:  # cached: asked of the broker at most every 2 s
                     mics = now_mics
                     ev("ambient", mics)
-                if (now_cams := camera_status())["cameras"] != cams["cameras"] or now_cams["ts"] - cams["ts"] > 5:
+                if (now_cams := live_status.camera_status())["cameras"] != cams["cameras"] or now_cams["ts"] - cams[
+                    "ts"
+                ] > 5:
                     cams = now_cams  # sent when it changes, and every 5 s so the page knows it's fresh
                     ev("vision", cams)
                 for kind, value in status.changed():
@@ -6805,114 +6107,6 @@ def _get_events(h: H) -> None:
 @routes.get("/logs/stream")
 def _get_logs_stream(h: H) -> None:
     return h.log_stream()
-
-
-@routes.get("/history/at")
-def _get_history_at(h: H) -> None:
-    if not h._may_see_camera_history():
-        return h._json({"error": "camera history is only shown on this machine"}, 403)
-    q = h._query()
-    try:
-        ts, window = float(q.get("ts", "")), float(q.get("window", "30"))
-    except ValueError:
-        return h._json({"error": "bad ts or window"}, 400)
-    return h._json(history_at(ts, window))
-
-
-@routes.get("/scene")
-def _get_scene(h: H) -> None:
-    return h._json(scene_entries())
-
-
-@routes.get("/ambient")
-def _get_ambient(h: H) -> None:
-    return h._json(mic_status())
-
-
-@routes.get("/vision")
-def _get_vision(h: H) -> None:
-    return h._json(camera_status())
-
-
-@routes.get("/transcript")
-def _get_transcript(h: H) -> None:
-    q = h._query()
-    try:
-        n = max(1, min(1000, int(q.get("n", "80"))))
-    except ValueError:
-        n = 80
-    if q.get("around"):  # the moment a summary link points at: n/2 utterances either side of ts
-        try:
-            ts = float(q["around"])
-        except ValueError:
-            return h._json({"error": "bad around"}, 400)
-        return h._json(transcript_around(ts, n))
-    return h._json({"entries": merged_tail(n), "reset": True})
-
-
-@routes.get("/clones")
-def _get_clones(h: H) -> None:
-    return h._json(clones_list())
-
-
-@routes.get("/clones/render")
-def _get_clones_render(h: H) -> None:
-    f = h._query().get("f", "")
-    if not re.fullmatch(r"say-\d+-\d+\.wav", f):
-        return h._json({"error": "bad file"}, 400)
-    from liberational.dashboard import clone_stream
-
-    r = clone_stream.live(f)
-    if r is not None and not r.done and clone_stream.waits(h.headers.get("User-Agent") or ""):
-        r.wait()  # Safari: the finished file, a few seconds later
-    if r is None or (r.done and not r.error):
-        return h._wav_file(CLONES / f)  # 404 when the cleanup took it
-    if r.done:
-        return h._json({"error": r.error}, 502)
-    return h._stream_render(r)
-
-
-@routes.get_re(r"/clones/(\d{1,6})/lines")
-def _get_clones_x_lines(h: H, m: re.Match[str]) -> None:
-    from liberational.speech import clone_say
-
-    try:
-        return h._json({"lines": clone_say.pickable(int(m.group(1)))})
-    except Exception as ex:
-        log("clones: lines unreadable:", repr(ex), level=logs.ERROR)
-        return h._json({"error": "Could not read their lines."}, 500)
-
-
-@routes.get("/clones/audio")
-def _get_clones_audio(h: H) -> None:
-    try:
-        from liberational.speech import clone_say
-
-        ref = clone_say.ref_for(int(h._query().get("id", 0)), make=False)
-        return h._wav_file(ref) if ref else h._json({"error": "no reference for that voice yet"}, 404)
-    except ValueError:
-        return h._json({"error": "bad id"}, 400)
-
-
-@routes.get("/clip")
-def _get_clip(h: H) -> None:
-    q = h._query()
-    info = q.get("info") in ("1", "true")
-    if q.get("line"):  # the line's key: one microphone's line, never another's in the same millisecond
-        e = find_line(q["line"])
-        if e is None:
-            return h._json({"ok": False, "error": "no transcript line with that key"}, 404)
-        return h.clip(entry=e, info=info)
-    if "ts_start" in q:
-        try:
-            ts = float(q["ts_start"])
-        except ValueError:
-            return h._json({"ok": False, "error": "bad ts_start"}, 400)
-        e = find_entry(ts)
-        if e is None:
-            return h._json({"ok": False, "error": "no transcript entry at that ts_start"}, 404)
-        return h.clip(entry=e, info=info)
-    return h._json({"ok": False, "error": "need line=<key> or ts_start=<unix seconds>"}, 400)
 
 
 @routes.get_re(r"/speaker/(\d{1,6})/(latest|latest-clip)")
@@ -7079,39 +6273,6 @@ def _get_speakers_refine(h: H) -> None:
         return h._json({"ok": False, "error": str(ex)}, 500)
 
 
-@routes.get("/review/search")
-def _get_review_search(h: H) -> None:
-    q = h._query()
-    code, reply = review_search(q.get("day", ""), q.get("q", ""))
-    return h._json(reply, code)
-
-
-@routes.get("/review/summary")
-def _get_review_summary(h: H) -> None:
-    q = h._query()
-    if "day" in q:
-        from liberational.memory import ask, journal
-
-        try:
-            if ask.validate_day(q["day"]) is None:
-                raise ValueError("day must be YYYY-MM-DD")
-            start, end = journal.day_bounds(q["day"])
-        except ValueError, OverflowError:
-            return h._json({"error": "day must be YYYY-MM-DD"}, 400)
-    else:
-        try:
-            start, end = float(q.get("start", "")), float(q.get("end", ""))
-        except ValueError:
-            return h._json({"error": "start and end are times in seconds"}, 400)
-    if not (math.isfinite(start) and math.isfinite(end) and start < end <= start + REVIEW_SUMMARY_MAX_S):
-        return h._json({"error": "end must come after start, and within 31 days of it"}, 400)
-    try:
-        return h._json(review_summary_kept(start, end))
-    except Exception as ex:
-        log("review summary failed:", repr(ex), level=logs.ERROR)
-        return h._json({"error": "Couldn't read the journal for that stretch."}, 500)
-
-
 @routes.get("/pets/sightings")
 def _get_pets_sightings(h: H) -> None:
     from liberational.dashboard import pets
@@ -7123,46 +6284,6 @@ def _get_pets_sightings(h: H) -> None:
 @routes.get("/pets/sightings/photo")
 def _get_pets_sightings_photo(h: H) -> None:
     return h._pet_photo(h._query().get("track", ""))
-
-
-@routes.get("/review/days")
-def _get_review_days(h: H) -> None:
-    return h._json({"days": recorded_days(context.STATE), "today": time.strftime("%Y-%m-%d")})
-
-
-@routes.get("/transcript/day")
-def _get_transcript_day(h: H) -> None:
-    day = h._query().get("day") or time.strftime("%Y-%m-%d")
-    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
-        return h._json({"error": "bad day"}, 400)
-    t0 = time.mktime(time.strptime(day, "%Y-%m-%d"))
-    es = [
-        e for e in heard_lines(t0 - 3600, t0 + 90000) if time.strftime("%Y-%m-%d", time.localtime(e["ts_start"])) == day
-    ]
-    return h._json({"day": day, "entries": transcript_view.once(_view().lines(es))})  # once each
-
-
-@routes.get("/audio/range")
-def _get_audio_range(h: H) -> None:
-    q = h._query()
-    try:
-        wav, _info = audio_range(q.get("start"), q.get("end"))
-    except TypeError, ValueError:
-        return h._json({"error": "start and end must be timestamps, end after start"}, 400)
-    except FileNotFoundError as ex:
-        return h._json({"error": str(ex)}, 404)
-    except Exception as ex:
-        return h._json({"error": str(ex)}, 500)
-    # Browsers fetch media with Range requests and give up on a plain 200 (Review's room audio never loaded,
-    # with networkState stuck at 2); _media answers 206 like /clip does.
-    return h._media(wav, "audio/wav", {"Cache-Control": "no-store"})
-
-
-@routes.get("/audio/spans")
-def _get_audio_spans(h: H) -> None:
-    day = h._query().get("day") or time.strftime("%Y-%m-%d")
-    spans = audio_spans(day) if re.fullmatch(r"\d{4}-\d{2}-\d{2}", day) else []
-    return h._json({"day": day, "spans": spans})
 
 
 @routes.get("/health")
@@ -7216,19 +6337,6 @@ def _post_people_reference_upload(h: H) -> None:
         return h._json(references.stage(context.STATE, raw, "Local upload"))
     except (ValueError, OSError) as exc:
         return h._json({"error": str(exc)}, 400)
-
-
-@routes.post_raw("/clones/record")
-def _post_clones_record(h: H) -> None:
-    clen = int(h.headers.get("Content-Length") or 0)
-    raw = h.rfile.read(clen) if clen > 0 else b""
-    if len(raw) < 48000:  # less than ~16ms of audio
-        return h._json({"ok": False, "error": "too little data; need at least a few seconds of audio"}, 400)
-    try:
-        code, o = clone_record(raw, urllib.parse.unquote_plus(h._query().get("name", "")))
-        return h._json(o, code)
-    except Exception as ex:
-        return h._json({"ok": False, "error": str(ex)}, 500)
 
 
 @routes.post("/speakers/tag")
@@ -7325,68 +6433,13 @@ def _post_transcript_unlabel(h: H, body: Any) -> None:
         stored, _, view = found
         voice = view.canonical(stored.get("speaker_id"))
         _label_line(registry.utterance_of(stored), None, voice, label=transcript_view.UNKNOWN)
-        hit = _view().line(stored)
+        hit = transcript_lines._view().line(stored)
         transcript_view.rebuild_quietly(context.STATE, [transcript_view.day_of(hit["ts_start"])])
         return h._json({"ok": True, "entry": hit})
     except AmbiguousLine as ex:
         return h._json({"error": str(ex)}, 409)
     except Exception as ex:
         return h._json({"error": str(ex)}, 500)
-
-
-@routes.post("/clones/say")
-def _post_clones_say(h: H, body: Any) -> None:
-    try:
-        sid, text = int(body.get("id")), str(body.get("text", "")).strip()[:600]
-    except Exception:
-        return h._json({"error": "id and text required"}, 400)
-    if not text:
-        return h._json({"error": "nothing to say"}, 400)
-    code, o = clone_say(sid, text)
-    return h._json(o, code)
-
-
-@routes.post("/playback/start")
-def _post_playback_start(h: H, body: Any) -> None:
-    from liberational.speech import playback_guard as pg
-
-    secs = max(1.0, min(300.0, float(body.get("seconds") or 10)))
-    tok = pg.open_window(secs)
-    return h._json({"ok": True, "token": tok})
-
-
-@routes.post("/playback/stop")
-def _post_playback_stop(h: H, body: Any) -> None:
-    from liberational.speech import playback_guard as pg
-
-    pg.close_window(str(body.get("token") or ""))
-    return h._json({"ok": True})
-
-
-@routes.post("/clones/remove")
-def _post_clones_remove(h: H, body: Any) -> None:
-    try:
-        sid = int(body.get("id"))
-    except Exception:
-        return h._json({"error": "id required"}, 400)
-    code, o = clone_remove(sid)
-    return h._json(o, code)
-
-
-@routes.post("/clones/pick")
-def _post_clones_pick(h: H, body: Any) -> None:
-    code, o = clone_pick(body.get("id"), body.get("lines"))
-    return h._json(o, code)
-
-
-@routes.post("/clones/build")
-def _post_clones_build(h: H, body: Any) -> None:
-    try:
-        sid = int(body.get("id"))
-    except Exception:
-        return h._json({"error": "id required"}, 400)
-    code, o = clone_build(sid)
-    return h._json(o, code)
 
 
 @routes.post("/faces/not", "/people/photo")
@@ -7537,11 +6590,11 @@ def _warm_people() -> None:
     started = time.monotonic()
     errors: list[str] = []
     stages: tuple[tuple[str, Callable[[], Any], Callable[[], bool] | None], ...] = (
-        ("microphones", mic_status, None),
-        ("scene", scene_entries, None),
-        ("cameras", camera_status, None),
+        ("microphones", live_status.mic_status, None),
+        ("scene", live_status.scene_entries, None),
+        ("cameras", live_status.camera_status, None),
         ("roster", lambda: people_view(wait_s=None), None),
-        ("clones", clones_list, None),
+        ("clones", voice_clones.clones_list, None),
         ("voice groups", unknown_voices_view, _VOICE_GROUPS.ready),
         ("face groups", unknown_groups_view, _FACE_GROUPS.ready),
     )

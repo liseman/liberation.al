@@ -7,7 +7,8 @@ from unittest.mock import create_autospec
 import pytest
 
 from liberational import config as cfg
-from liberational.dashboard import context, server
+from liberational import services
+from liberational.dashboard import context, known_voices, server
 from speech_fake import fake
 from voices import write_voices
 
@@ -23,10 +24,10 @@ def ran(tmp_path, monkeypatch):
 
     fake = create_autospec(subprocess)  # scoped to the server module, unlike patching subprocess.run
     fake.run.side_effect = run
-    monkeypatch.setattr(server, "subprocess", fake)
+    monkeypatch.setattr(known_voices, "subprocess", fake)
     monkeypatch.setattr(context, "STATE", tmp_path)
-    monkeypatch.setattr(server.services, "installed", lambda: ["ambient", "vision"])
-    monkeypatch.setattr(server.services, "processes", dict)
+    monkeypatch.setattr(services, "installed", lambda: ["ambient", "vision"])
+    monkeypatch.setattr(services, "processes", dict)
     with cfg.override({"owner": {"name": "Alice"}}):
         yield ran
 

@@ -36,7 +36,7 @@ describe('the level a line states', () => {
     ['INFO neither time nor tag', 'info'],
     ['14:02:15 [dashboard] ERROR', 'error'],
     ['14:02:16 [backfill] INFO retried after an ERROR earlier', 'info'],
-    ['2026-11-03T02:20:15-08:00 [backfill] INFO dated stamp (#1696)', 'info'],
+    ['2026-11-03T02:20:15-08:00 [backfill] INFO dated stamp', 'info'],
     ['2026-11-03T02:20:16+05:30 [continuum-broker] ERROR bind failed', 'error'],
   ])('reads %j as %s', (text, level) => {
     expect(levelOf(text)).toBe(level);

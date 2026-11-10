@@ -11,9 +11,9 @@ def _line(i, sid, sim):
 
 
 def test_counts_every_uncertain_line_but_sends_one_page(tmp_path, monkeypatch):
-    write_voices(tmp_path, {1: "Joe"}, source=voice_edits.ENROLL_SOURCE)  # Joe's voice, learned from a recording
+    write_voices(tmp_path, {1: "Sam"}, source=voice_edits.ENROLL_SOURCE)  # Sam's voice, learned from a recording
     write_voices(tmp_path, {2: None})
-    lines = [_line(i, 1, 0.5) for i in range(5)]  # uncertain Joe lines
+    lines = [_line(i, 1, 0.5) for i in range(5)]  # uncertain Sam lines
     lines += [_line(900, 1, 0.9), _line(901, 2, 0.4)]  # a confident one, and one from a voice that isn't enrolled
     fake().write(lines)
     for name, value in {
@@ -25,4 +25,4 @@ def test_counts_every_uncertain_line_but_sends_one_page(tmp_path, monkeypatch):
     d = server.speakers_refine_list()
     assert d["remaining"] == 5
     assert [e["ts_start"] for e in d["items"]] == [1000.0, 1001.0, 1002.0]
-    assert d["items"][0]["sim_hint"] == "50% match to Joe"
+    assert d["items"][0]["sim_hint"] == "50% match to Sam"

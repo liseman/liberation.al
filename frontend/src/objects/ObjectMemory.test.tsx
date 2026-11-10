@@ -239,7 +239,7 @@ describe('remembering an object', () => {
     expect(screen.getByLabelText('Camera')).toHaveValue('cam3');
   });
 
-  it('names each camera by its place in the select and the frozen caption, else by its id (#2051)', async () => {
+  it('names each camera by its place in the select and the frozen caption, else by its id', async () => {
     const cameras = [
       { camera: 'cam0', name: 'living room', available: true, stale: false, source: 'camera' },
       { camera: 'cam1', available: true, stale: false, source: 'camera' },
@@ -388,7 +388,7 @@ describe('remembering an object', () => {
     expect(screen.queryByLabelText('Click an object to outline it')).not.toBeInTheDocument();
   });
 
-  it('finds the objects in view on request, and a click picks one to remember (#2020)', async () => {
+  it('finds the objects in view on request, and a click picks one to remember', async () => {
     serve();
     const clicks = segments();
     const finds: Record<string, unknown>[] = [];

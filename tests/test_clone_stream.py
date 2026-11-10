@@ -14,7 +14,7 @@ import pytest
 import soundfile as sf
 
 from liberational import config as cfg
-from liberational.dashboard import clone_stream, server
+from liberational.dashboard import clone_stream, server, voice_clones
 from liberational.speech import clone_say, clone_server
 
 SR = 24000
@@ -163,10 +163,10 @@ def test_the_dashboard_says_a_line_from_the_warm_voice_and_streams_it(voice, clo
         yield CHUNKS[1], SR
 
     voice["fn"] = synth
-    monkeypatch.setattr(server, "CLONES", clones)
+    monkeypatch.setattr(voice_clones, "CLONES", clones)
     monkeypatch.setattr(server, "DASH_PASSWORD", "")
     monkeypatch.setattr(clone_stream, "_reference", lambda sid: (clones / f"{sid}.wav", "the reference's words"))
-    monkeypatch.setattr(server, "_clone_run", lambda *a: pytest.fail("the old way ran"))
+    monkeypatch.setattr(voice_clones, "_clone_run", lambda *a: pytest.fail("the old way ran"))
     base = serve(server.H)
     req = urllib.request.Request(
         base + "/clones/say",
@@ -191,12 +191,12 @@ def test_the_dashboard_says_a_line_from_the_warm_voice_and_streams_it(voice, clo
 
 
 def test_without_the_warm_voice_the_line_is_made_the_old_way(clones, serve, monkeypatch):
-    monkeypatch.setattr(server, "CLONES", clones)
+    monkeypatch.setattr(voice_clones, "CLONES", clones)
     monkeypatch.setattr(clone_stream, "_reference", lambda sid: (clones / f"{sid}.wav", "words"))
     ran = []
-    monkeypatch.setattr(server, "_clone_run", lambda args, timeout: ran.append(args[0]) or (0, {"ms": 1}, []))
+    monkeypatch.setattr(voice_clones, "_clone_run", lambda args, timeout: ran.append(args[0]) or (0, {"ms": 1}, []))
     with cfg.override({"ports": {"voice": 9}}):  # nothing listens there
-        code, body = server.clone_say(7, "Hello there.")
+        code, body = voice_clones.clone_say(7, "Hello there.")
     assert (code, ran, body.get("streamed")) == (200, ["say"], None)
 
 
@@ -237,7 +237,7 @@ def test_a_line_that_fails_partway_is_an_error_and_isnt_kept(voice, clones, wind
         raise RuntimeError("out of memory")
 
     voice["fn"] = half
-    monkeypatch.setattr(server, "CLONES", clones)
+    monkeypatch.setattr(voice_clones, "CLONES", clones)
     monkeypatch.setattr(server, "DASH_PASSWORD", "")
     monkeypatch.setattr(clone_stream, "_reference", lambda sid: (clones / f"{sid}.wav", "the reference's words"))
     out = clones / "say-7-4.wav"

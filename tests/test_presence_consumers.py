@@ -261,7 +261,7 @@ def test_movement_is_separate_from_shared_sampled_counts_and_keeps_ask_evidence(
     assert result["movement"] == summary["movement"] == reviewed["movement"]
     assert result["movement"]["cameras"]["cam0"]["entry_count"] == 1
     assert result["movement"]["cameras"]["cam0"]["exit_count"] == 1
-    assert "in view" not in result["answer"], "the sampled visits are not Ask's count (#1591)"
+    assert "in view" not in result["answer"], "the sampled visits are not Ask's count"
     assert "came into the picture at least once" in result["answer"]
     assert "image" not in result["answer"] and "supported" not in result["answer"], "no tracker detail"
     tracked = [row for row in result["evidence"] if row.get("movement_evidence")]

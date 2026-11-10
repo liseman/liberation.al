@@ -175,7 +175,7 @@ describe('BoxLayer', () => {
     expect(frames.pending).toBe(0);
   });
 
-  describe('skeletons (#520)', () => {
+  describe('skeletons', () => {
     const lives = () => net.conns.flatMap(c => c.sent.filter(r => r.type === 'live').map(r => r.overlays));
 
     it('keeps the gateway subscription stable while skeleton visibility changes', async () => {
@@ -228,7 +228,7 @@ describe('BoxLayer', () => {
       expect(getByTestId('cam0').querySelector('svg.bx-skeletons')).toBeNull();
     });
 
-    it('fades skeletons away once none fresh arrive (stale, or nobody in view), rather than blinking (#592)', async () => {
+    it('fades skeletons away once none fresh arrive (stale, or nobody in view), rather than blinking', async () => {
       const { getByTestId } = render(<Tile cam="cam0" skeletons />);
       await flush();
       const c = net.ready('cam0', 1);

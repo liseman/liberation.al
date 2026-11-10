@@ -39,7 +39,7 @@ def test_a_suggestion_carries_its_evidence_newest_first():
     }
 
 
-LINES = [(H, H + 4, "Dana"), (H + 2, H + 5, "Joe"), (H + 100, H + 103, "Eli")]
+LINES = [(H, H + 4, "Dana"), (H + 2, H + 5, "Sam"), (H + 100, H + 103, "Eli")]
 
 
 def test_a_voice_sees_the_named_faces_in_view_while_it_spoke():
@@ -49,19 +49,19 @@ def test_a_voice_sees_the_named_faces_in_view_while_it_spoke():
 
 
 def test_a_face_hears_the_named_voices_around_it_but_never_the_owners():
-    pairs = T.Heard(LINES, [], ["joe"])([H + 6, H + 99, H + 200])
-    # H + 6 is 1 s after Dana's line ends (Joe's too, but the owner's voice never counts); H + 99 is 1 s before Eli's
+    pairs = T.Heard(LINES, [], ["sam"])([H + 6, H + 99, H + 200])
+    # H + 6 is 1 s after Dana's line ends (Sam's too, but the owner's voice never counts); H + 99 is 1 s before Eli's
     # starts; H + 200 is near nothing
     assert sorted(pairs) == [(H + 6, "Dana"), (H + 99, "Eli")]
 
 
 def test_a_voice_whose_own_face_was_in_view_explains_itself():
-    pairs = T.Heard(LINES, [(H + 2, "Dana")], ["Joe"])([H + 1])
+    pairs = T.Heard(LINES, [(H + 2, "Dana")], ["Sam"])([H + 1])
     assert pairs == []  # Dana's face was there: her speech isn't this face's
 
 
 def test_naming_a_voice_suggests_the_face_heard_with_it_end_to_end():
     face_times = [H + 1, H + 1801, H + 3601]
     lines = [(H, H + 4, "Dana"), (H + 1800, H + 1804, "Dana"), (H + 3600, H + 3602, "Dana")]
-    got = T.suggest(T.Heard(lines, [], ["Joe"])(face_times))
+    got = T.suggest(T.Heard(lines, [], ["Sam"])(face_times))
     assert got is not None and (got["name"], got["moments"]) == ("Dana", 3)

@@ -63,7 +63,7 @@ it("shows a bar's tooltip on the page's body, outside the chart's card, and take
   expect(screen.queryByText('Monday: 3 GB', { selector: 'div' })).toBeNull();
 });
 
-it('keeps the x-axis caption out of the scrolling plot, so the sticky labels never cover its start (#2515)', () => {
+it('keeps the x-axis caption out of the scrolling plot, so the sticky labels never cover its start', () => {
   renderPage(
     <Heatmap
       label="Lines by person and hour"

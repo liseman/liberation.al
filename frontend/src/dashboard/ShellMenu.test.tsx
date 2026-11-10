@@ -28,7 +28,7 @@ it('holds Settings and the Debug log as links', async () => {
   expect(screen.getByRole('menuitem', { name: 'Debug log' })).toHaveAttribute('href', '/debug');
 });
 
-it('marks the gear while a service has failed, as the Settings button did (#386)', async () => {
+it('marks the gear while a service has failed, as the Settings button did', async () => {
   const failed = { name: 'vision', description: '', state: 'failed', installed: true, pids: [], selected: true };
   server.use(http.get('/services', () => HttpResponse.json({ ok: true, control: true, services: [failed] })));
   renderPage(<ShellMenu />);

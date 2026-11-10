@@ -1,6 +1,6 @@
 [package]
 name = "continuum-segments"
-description = "Continuum's segment store: per-stream, per-camera, per-hour columnar files for machine time series (#1755)"
+description = "Continuum's segment store: per-stream, per-camera, per-hour columnar files for machine time series"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true

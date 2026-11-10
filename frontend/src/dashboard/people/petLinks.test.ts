@@ -30,7 +30,7 @@ describe('petInHash', () => {
   it.each([
     ['#pet=Moe%20Meerkat', { pet: 'Moe Meerkat' }],
     ['#species=Dog', { species: 'dog' }],
-    ['#card=Joe', {}],
+    ['#card=Sam', {}],
     ['', {}],
   ])('reads %s', (hash, wanted) => {
     expect(petInHash(hash)).toEqual(wanted);

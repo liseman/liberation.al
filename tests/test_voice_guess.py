@@ -8,7 +8,7 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from liberational.dashboard import context, server
+from liberational.dashboard import context, known_voices, server
 from liberational.people import registry
 from liberational.people import voice_guess as G
 from speech_fake import fake
@@ -148,7 +148,7 @@ def test_unnamed_voices_come_best_guess_first_with_their_clips(state):
     assert (code, body["count"], body["skipped"]) == (200, 2, [4])
     two, three = body["groups"]
     assert (two["label"], two["guess"]["name"], two["band"], two["score"]) == ("Speaker 2", "Kara", "probable", 90)
-    assert two["guess"]["id"] == "Kara", "the name to send back, as faces' and pets' guesses (#2366)"
+    assert two["guess"]["id"] == "Kara", "the name to send back, as faces' and pets' guesses"
     assert [c["ts"] for c in two["clips"]] == [101.5, 100.5]  # the less certain line first: it teaches more
     assert two["clips"][0] == {
         "ts": 101.5,
@@ -196,7 +196,7 @@ def test_the_route_says_when_the_voices_cannot_be_read(state, monkeypatch):
     def broken():
         raise ValueError("a half-written file")
 
-    monkeypatch.setattr(server, "_speakers", broken)
+    monkeypatch.setattr(known_voices, "_speakers", broken)
     code, body = server.unknown_voices_view()
     assert (code, body) == (500, {"error": "Could not read the voices waiting for a name."})
 

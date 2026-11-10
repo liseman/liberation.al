@@ -130,7 +130,7 @@ afterEach(() => {
 });
 
 describe('the player with no picture', () => {
-  it("says the room's sound is playing where only kept audio plays (#196)", () => {
+  it("says the room's sound is playing where only kept audio plays", () => {
     show({ playing: true, roomOnly: true });
     expect(screen.getByText(`No video at ${hms(T)}. Playing the room's sound.`)).toBeInTheDocument();
   });
@@ -141,7 +141,7 @@ describe('the player with no picture', () => {
   });
 });
 
-describe('expired video (#1748)', () => {
+describe('expired video', () => {
   const seg = (cam: string, i: number, broken?: 'expired') => ({
     cam,
     start: T - 10,
@@ -169,7 +169,7 @@ describe('expired video (#1748)', () => {
   });
 });
 
-describe("the journal's kept evidence in place of expired video (#2838)", () => {
+describe("the journal's kept evidence in place of expired video", () => {
   const DAY = '2026-10-27';
   const expiredSeg = {
     cam: 'cam0',
@@ -252,7 +252,7 @@ describe("the journal's kept evidence in place of expired video (#2838)", () => 
   });
 });
 
-describe('one camera large, the others as tiles (#327)', () => {
+describe('one camera large, the others as tiles', () => {
   it('shows the first camera with video large, names each camera, and says which tile has no video now', () => {
     show({ avail: ['cam1'] }, ['cam0', 'cam1']);
     const big = screen.getByLabelText('Rear camera video').parentElement as HTMLElement;
@@ -380,7 +380,7 @@ describe('the controls', () => {
   });
 });
 
-describe('the caption (#379)', () => {
+describe('the caption', () => {
   const note = (over: { caption: string; unchanged?: boolean; since?: number }) => ({
     notes: { cams: { cam0: { ts: T, dt: 0, faces: null, ...over } } },
     avail: ['cam0'],
@@ -403,7 +403,7 @@ describe('the caption (#379)', () => {
     expect(screen.getByTitle('Unchanged since 18:40')).toBeInTheDocument();
   });
 
-  it('keeps focus on the caption as it changes, and starts each new caption at two lines (#2537)', async () => {
+  it('keeps focus on the caption as it changes, and starts each new caption at two lines', async () => {
     const engine = show(note({ caption: 'Two people at the counter' }));
     const button = screen.getByRole('button', { name: 'Two people at the counter' });
     await userEvent.click(button);
@@ -426,7 +426,7 @@ describe('the caption (#379)', () => {
   });
 });
 
-describe('the boxes (#374)', () => {
+describe('the boxes', () => {
   it('defaults to people and remembers independent pet and object marker choices', async () => {
     show({ avail: ['cam0'] });
     const group = screen.getByRole('group', { name: 'Review markers' });

@@ -134,7 +134,7 @@ def test_a_name_or_alias_is_remembered_once_and_a_crop_over_a_face_is_refused(st
         store.remember(name="Purse", snapshot=snapshot(), bbox=BBOX)
     at = time.time() - 1
     live_face_boxes.append(
-        {"cam": "cam0", "start_ns": int(at * 1e9), "faces": [{"bbox": [0.2, 0.2, 0.4, 0.4], "name": "Joe"}]}
+        {"cam": "cam0", "start_ns": int(at * 1e9), "faces": [{"bbox": [0.2, 0.2, 0.4, 0.4], "name": "Sam"}]}
     )
     with pytest.raises(ValueError, match="face"):
         store.remember(name="keys", snapshot=snapshot(at=at), bbox=BBOX)

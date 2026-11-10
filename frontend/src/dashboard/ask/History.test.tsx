@@ -197,7 +197,7 @@ it('pages older questions with the server cursor and keeps the same day filter',
   ).toEqual([entry.question, 'An older question']);
 });
 
-it("drops an older-questions read that lands after the day changed, keeping the new day's list (#3202)", async () => {
+it("drops an older-questions read that lands after the day changed, keeping the new day's list", async () => {
   let release: () => void = () => {};
   const held = new Promise<void>(resolve => {
     release = resolve;

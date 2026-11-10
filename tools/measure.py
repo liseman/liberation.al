@@ -1673,7 +1673,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--journal", choices=("on", "off"), help="set journal.enabled for the run")
     ap.add_argument("--compare", nargs=2, metavar=("A", "B"), help="compare the retrieval part of two --json results")
     ap.add_argument(
-        "--sweep", action="store_true", help="identification: precision and recall at thresholds from today's up (#291)"
+        "--sweep", action="store_true", help="identification: precision and recall at thresholds from today's up"
     )
     a = ap.parse_args(argv)
     if not (math.isfinite(a.frame_window) and a.frame_window >= 0):

@@ -4,7 +4,7 @@ import { renderPage } from '../../test/render';
 import { usePrefs } from '../lib/prefs';
 import { SkeletonButton } from './Stage';
 
-describe("Live's Skeletons button (#520)", () => {
+describe("Live's Skeletons button", () => {
   afterEach(() => {
     localStorage.clear();
     usePrefs.setState({ skeletons: undefined });
