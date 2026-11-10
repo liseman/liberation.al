@@ -1,7 +1,7 @@
-"""Places and visits (#2799, part of the spatial memory goal #2794): the data model under maps and floorplans.
+"""Places and visits (part of spatial memory): the data model under maps and floorplans.
 
 A **place** is an indoor place, such as a home or an office. The machine makes one from a phone walkthrough
-(`pack-walkthrough`, #2787) or from fixed cameras that see the same space (`pack-spatial-cameras`, #2825). A
+(`pack-walkthrough`) or from fixed cameras that see the same space (`pack-spatial-cameras`). A
 **visit** is a span of time the rig spent in one place, derived from the place signals (the Wi-Fi access points it
 hears, GPS at the door, visual relocalization against the place's keyframes).
 
@@ -19,7 +19,7 @@ Two layers, following docs/DOMAIN-MODEL.md:
   map, counting only a map that revision wrote itself. A producer is still active when it wrote one of the last
   `PRODUCER_WINDOW` revisions (tier 1 fuses each new revision into its own last map). Older maps are pruned, and the
   revision records stay as the audit trail. Visits are rows in the `place.visit` segment stream (`segment_log.py`).
-- **A revision's splat** (#2877) is a 3D Gaussian splat trained on that revision's map, cameras, and their recorded
+- **A revision's splat** is a 3D Gaussian splat trained on that revision's map, cameras, and their recorded
   frames (spatial/splats.py), in the map's frame: `<revision id>.gs.ply` (the standard 3DGS PLY, the master) and
   `<revision id>.spz` (the compact copy the 3D view loads). It's written once, after its revision, and isn't a
   revision of its own (a revision is a reconstruction; a splat is a rendering of one). The newest `SPLATS_KEPT`
@@ -31,10 +31,10 @@ Two layers, following docs/DOMAIN-MODEL.md:
   corrected plan (newest per place wins over every machine plan until the owner withdraws it with an empty plan;
   `Place.machine_newer` says when a machine plan came after it). Every correction stays in the store (`plan_history`),
   so an earlier one can be put back (`restore_plan`). An owner may also bring a plan of their own, registered into a
-  revision's frame (spatial/plan_import.py, #3276); a revision with no plan file draws in its floor's frame
+  revision's frame (spatial/plan_import.py); a revision with no plan file draws in its floor's frame
   (`plan_frame`), shared by the revisions of the same map (`same_plan_frame`).
 
-**Merged places** (#2997): two places that turn out to be one home (a whole-home walkthrough passes through both) are
+**Merged places**: two places that turn out to be one home (a whole-home walkthrough passes through both) are
 merged by tier 1 (`fuse.join`): one place's newest revision brings in the other's map and cameras, and the other is
 retired (`retire`): its last revision names the place it went into (`merged_into`), so no reader lists it again. The
 other's owner plan correction is carried into the joined place's plan (`correct_plan` with source "merge"), moved into
@@ -48,19 +48,19 @@ Storage across a reset: `state/places/` and the segment store are machine-made, 
 (`reset_catalog.targets`); the owner's names and plan corrections are in the knowledge store and stay. Keyframes
 live with the video and follow the 30-day video window.
 
-This module is the schema and the read and write helpers. Its writers are `pack-walkthrough` (spatial/walkthrough.py,
-#2787: a phone video's cloud, floor, and plan), tier 1's fusion after each (spatial/fuse.py, #2801: the place's fused
+This module is the schema and the read and write helpers. Its writers are `pack-walkthrough` (spatial/walkthrough.py:
+a phone video's cloud, floor, and plan), tier 1's fusion after each (spatial/fuse.py: the place's fused
 map), and `pack-spatial-cameras`
-(spatial/cameras.py, #2825), which makes a place of each group of fixed cameras that see the same space and registers
+(spatial/cameras.py), which makes a place of each group of fixed cameras that see the same space and registers
 each camera in it: its pose in the map's frame, with the map's floor plane and the plan's frame, so `camera_to_plan`
 can put a pixel of that camera on the plan.
 
-**Places in the journal** (#2812, part of #2805): `places_for_span` is the one call the journal's pages make for a
+**Places in the journal**: `places_for_span` is the one call the journal's pages make for a
 span: the places visited in it and the places a registered fixed camera only observed, each with the rooms seen
 there. The pages' Places line keeps the visited ones (`PlaceRef.visited`). Rooms are the owner's drawn area zones
 (`see/zones.py`) that a person was in, until a floorplan and a pose track in the place's frame can say which plan
 room the rig was in. A zone visit on a fixed camera registered to a place (a revision's `cameras`, written by
-spatial/cameras.py, #2825) is filed under that camera's place, wherever the rig was; any other is filed under the
+spatial/cameras.py) is filed under that camera's place, wherever the rig was; any other is filed under the
 place the rig was in at the time. Rooms seen with no place known come back under a ref with no place, so a day
 without place visits still lists its rooms.
 """
@@ -105,7 +105,7 @@ Signals = dict[str, list[str]]  # what identifies a place, by kind: {"wifi": [BS
 
 @dataclass(frozen=True)
 class Background:
-    """What a registered camera sees with nobody in the way, cell by cell of its frame (#3070): each cell's surface's
+    """What a registered camera sees with nobody in the way, cell by cell of its frame: each cell's surface's
     height above the floor, as a fraction of the camera's own height above it (so the map's levelling and metric scale
     leave it as it is), row by row from the top left, None where the camera's point map had nothing sure. A cell of
     the floor is about 0; one of a couch's back, for a camera 1.5 m up, about 0.6. Cells are looked up by fractions of
@@ -139,18 +139,18 @@ class Background:
 
 @dataclass(frozen=True)
 class CameraPose:
-    """A fixed camera registered in its place's frame (#2825): where it sits and how it looks, in the map's metres."""
+    """A fixed camera registered in its place's frame: where it sits and how it looks, in the map's metres."""
 
     pose: tuple[float, ...]  # camera to place, a 4x4 matrix row by row (16 numbers); the camera looks along its +z
     focal: float  # focal length in pixels of the frame it was registered from
     width: int  # that frame's size in pixels
     height: int
     at: float = 0.0  # when it was registered (UTC epoch seconds); a revision that carries it over keeps this time
-    # A wide lens's distortion, undone in the frame the pose was registered from (#2998, spatial/lens.py's
+    # A wide lens's distortion, undone in the frame the pose was registered from (spatial/lens.py's
     # `Lens.as_tuple`: fx, fy, cx, cy as fractions of the frame, then lambda); None for a pinhole. A pixel of the
     # camera's own frames is undistorted with it before it's cast as a ray (`floor_point`).
     lens: tuple[float, ...] | None = None
-    # What the camera sees behind people (#3070): spatial/footprints.py's `at_edge` reads it. None for a camera
+    # What the camera sees behind people: spatial/footprints.py's `at_edge` reads it. None for a camera
     # registered alone or by MASt3R's alignment alone.
     background: Background | None = None
 
@@ -194,17 +194,17 @@ class Revision:
     map_format: str | None = None  # how that file is encoded, as its producer named it
     plan: str | None = None  # the plan file it uses, or None before the first plan
     cameras: dict[str, CameraPose] = field(default_factory=dict)  # fixed cameras registered in this place's frame
-    # The map's floor: (nx, ny, nz, d) with a point's height above the floor n . p + d, in metres (#2825). It goes
+    # The map's floor: (nx, ny, nz, d) with a point's height above the floor n . p + d, in metres. It goes
     # with the map: a new map without one has none.
     floor: tuple[float, ...] | None = None  # 4 numbers
     # Map to plan: (plan x, plan y, height above the floor) = this 3x4 matrix, row by row, times (x, y, z, 1): the
     # frame the plan's DSL is drawn in (spatial/floorplan.py's `Floorplan.transform`). It goes with the plan.
     plan_transform: tuple[float, ...] | None = None
-    # The map's frame (#2877): the id of the revision whose map first stood in it. Tier 1 carries it over while it
+    # The map's frame: the id of the revision whose map first stood in it. Tier 1 carries it over while it
     # fuses into the same map without moving it, so a splat made for one revision of that frame still fits a later
     # one's map. None for a revision written before frames were recorded.
     frame: str | None = None
-    # The place this one was merged into (#2997, `retire`): set only on a merged place's last revision, which has no
+    # The place this one was merged into (`retire`): set only on a merged place's last revision, which has no
     # map, plan, cameras, or signals of its own. A place merged away isn't listed (`place_ids`).
     merged_into: str | None = None
 
@@ -288,7 +288,7 @@ class Place:
     plan: str | None  # the plan that holds: the owner's correction if there is one, else the machine's
     plan_source: str | None  # "owner", "machine", or None with no plan yet
     machine_newer: bool  # a machine plan was made after the owner's correction that holds
-    # The revision whose frame the holding plan is drawn in (its `plan_transform`, #2831): the newest revision for a
+    # The revision whose frame the holding plan is drawn in (its `plan_transform`): the newest revision for a
     # machine plan, the one current when the owner saved a correction for theirs; None with no plan. Positions are
     # drawn on the plan by reading them in this frame (`spatial.positions.positions(frame_revision=)`).
     plan_revision: str | None = None
@@ -349,7 +349,7 @@ def _write(path: Path, data: bytes) -> None:
 
 
 def writing(state: Path) -> contextlib.AbstractContextManager[None]:
-    """Held while a job writes places (#3173): `pack-spatial-cameras` from its first place write through its fusion,
+    """Held while a job writes places: `pack-spatial-cameras` from its first place write through its fusion,
     and `pack-walkthrough` from its revision through its join, one at a time. A nightly run that seated a room into
     a place while a join retired it would make that place's newest revision a live one again, and a revision it wrote
     mid-join would be overwritten by the join's. The lock is `state/places.lock` (locking.py)."""
@@ -403,7 +403,7 @@ def merged_into(state: Path, place: str) -> str | None:
 
 
 def retire(state: Path, place: str, into: str, now: float | None = None) -> Revision:
-    """Write `place`'s last revision: merged into `into` (#2997), whose newest revision has brought in its map and
+    """Write `place`'s last revision: merged into `into`, whose newest revision has brought in its map and
     cameras. It keeps nothing of its own, so no reader lists it, no camera is registered in it, and no producer writes
     into it again; its earlier revisions stay as the record. The owner's name and plan for it stay in the knowledge
     store."""
@@ -439,14 +439,14 @@ def camera_places(state: Path) -> dict[str, str]:
 MAX_FLOOR_M = 15.0  # a floor hit farther from its camera than this is a pixel near the horizon, not a place in the room
 # A ray meeting the floor at less than this (degrees below its plane) lands too far for its error: from 1.7 m up at
 # 7.8 degrees, a 4 degree floor tilt moves the hit between 8 and 26 m. On Place 1 every point outside the plan came
-# from rays 6.8 to 11 degrees down, and every point inside from 13.3 or more (#2865).
+# from rays 6.8 to 11 degrees down, and every point inside from 13.3 or more.
 MIN_RAY_DEG = 12.0
 _MIN_RAY_SIN = math.sin(math.radians(MIN_RAY_DEG))
 
 
 def undistorted(cam: CameraPose, u: float, v: float) -> tuple[float, float]:
     """A pixel of the camera's own frames (fractions, as `floor_point` takes them) where it is in the undistorted frame
-    the pose was registered from: as it is for a pinhole camera, its wide lens undone for one with `lens` (#2998)."""
+    the pose was registered from: as it is for a pinhole camera, its wide lens undone for one with `lens`."""
     if cam.lens is None:
         return u, v
     from liberational.spatial import lens
@@ -461,9 +461,9 @@ def floor_point(
     """Where a camera's pixel ray meets the floor, in the map's frame (metres): `u` and `v` as camera_to_plan takes
     them. A pixel of something `height` above the floor (a person's heels and ankles, spatial/footprints.py's FOOT_M)
     is where its ray meets the plane that high, given as the floor point under it: cast to the floor itself, a foot
-    point lands too far by its height over the ray's slope (0.2 m at 4.5 m from a camera 1.5 m up, #3069). None
+    point lands too far by its height over the ray's slope (0.2 m at 4.5 m from a camera 1.5 m up). None
     without a floor; when the ray doesn't reach it (at or above the horizon, a camera at or under the floor); when it
-    meets the floor less than MIN_RAY_DEG below its plane, where a degree of floor tilt moves the hit metres (#2865);
+    meets the floor less than MIN_RAY_DEG below its plane, where a degree of floor tilt moves the hit metres;
     or when it lands more than MAX_FLOOR_M away. The pixel's ray is a pinhole's with its principal point at the
     frame's centre, as MASt3R fits it, after a wide lens's distortion is undone (`CameraPose.lens`)."""
     if floor is None:
@@ -511,7 +511,7 @@ def floor_frame(floor: Sequence[float]) -> tuple[float, ...] | None:
     """A map-to-floor transform for a place with no plan (12 numbers, as `Revision.plan_transform`): x is the map's x
     laid onto the floor (its y when x is within 60 degrees of the floor's up), y is up cross x, and the third row is
     the height above the floor. A camera registered alone never sees a room enclosed, so its place gets no plan, yet
-    its people stand on a known floor (#3151). None for a floor with no normal."""
+    its people stand on a known floor. None for a floor with no normal."""
     nx, ny, nz, off = (float(f) for f in floor)
     unit = math.sqrt(nx * nx + ny * ny + nz * nz)
     if unit < 1e-12:
@@ -529,7 +529,7 @@ def floor_frame(floor: Sequence[float]) -> tuple[float, ...] | None:
 @functools.lru_cache(maxsize=64)
 def _floor_frame_of(floor: tuple[float, ...]) -> tuple[float, ...] | None:
     """`floor_frame`, worked out once per floor: a positions read projects tens of thousands of points through a
-    revision with no plan file of its own (#3293)."""
+    revision with no plan file of its own."""
     return floor_frame(floor)
 
 
@@ -649,7 +649,7 @@ def _listed(value: Sequence[float] | None) -> list[float] | None:
 
 def _prune_maps(state: Path, place: str) -> None:
     """Keep the newest MAPS_KEPT map files (uuid7 names sort by time), and each producer's newest map whatever its
-    age: a producer that builds on its own last map (tier 1's fused map, #2801) must not lose it because other
+    age: a producer that builds on its own last map (tier 1's fused map) must not lose it because other
     producers wrote newer ones meanwhile, say a fixed-camera snapshot that didn't fuse and the next day's after it.
     Only producers among the last PRODUCER_WINDOW revisions count, so a retired producer's map isn't kept forever."""
     folder = root(state) / place
@@ -754,7 +754,7 @@ def _put(state: Path, collection: str, place: str, value: dict[str, Any], now: f
 
 def name(state: Path, place: str, text: str, now: float | None = None, source: str = "owner") -> None:
     """The owner names `place` (an empty name goes back to the placeholder). Keeps a copy of the place's signals.
-    `source` says who wrote it: "merge" for a name carried over from a place merged into this one (#2997)."""
+    `source` says who wrote it: "merge" for a name carried over from a place merged into this one."""
     place = _place_id(place)
     rev = latest(state, place)
     if rev is None:
@@ -777,13 +777,13 @@ def correct_plan(
 ) -> None:
     """The owner's corrected plan for `place`, drawn in the frame of revision `base` (the revision whose plan the owner
     edited; the newest when not given). An empty plan withdraws the correction, so the machine's plan holds again.
-    `source` says who wrote it: "merge" for one that carries a merged place's correction into this one (#2997).
+    `source` says who wrote it: "merge" for one that carries a merged place's correction into this one.
 
     `base` is stored and is the plan's `plan_revision` from then on: an owner who corrects their own plan again after
     a newer revision moved the frame is still editing text in the old frame, and labelling it with the newest would
-    put positions off it (#2869).
+    put positions off it.
 
-    `view` is how the owner drew it, when that isn't the plan frame (an imported plan, #3276): `{"plan": <the DSL as
+    `view` is how the owner drew it, when that isn't the plan frame (an imported plan): `{"plan": <the DSL as
     drawn on its page>, "turn": <radians>, "shift": [x, y], "mirror": <bool>}`, the move from the page into the
     plan frame (spatial/plan_import.py `Move`). The Places tab draws the page and turns positions onto it
     (`page_view`); `plan` stays in the plan frame for every other reader."""
@@ -859,7 +859,7 @@ def same_plan_frame(a: Revision, b: Revision) -> bool:
     """Whether two revisions of a place draw their plans in one frame: the same plan file, or, for revisions with no
     plan file, the same map frame (`Revision.frame`), floor, and plan transform, as tier 1's fused revisions of one map
     are, whose plan frame is their floor's (`floor_frame`). An owner plan drawn in a revision with no plan file of its
-    own (an imported one, #3276) holds for every revision in its frame this way."""
+    own (an imported one) holds for every revision in its frame this way."""
     if a.id == b.id:
         return True
     if a.plan is not None or b.plan is not None:
@@ -896,7 +896,7 @@ def places(state: Path) -> list[Place]:
         if owner_plan and corrected is not None:
             plan, source = owner_plan, "owner"
             # a machine plan newer than the correction: the one the newest revision has, made by a revision after it.
-            # A joined map that derives no plan has none, whatever earlier revisions made (#3196).
+            # A joined map that derives no plan has none, whatever earlier revisions made.
             made = next((r for r in chain if rev.plan is not None and r.id == rev.plan.removesuffix(".plan")), None)
             machine_newer = machine is not None and made is not None and made.at * 1e9 > corrected.start_ns
             # the frame the owner's plan is drawn in: the revision it was saved against, or for a correction saved
@@ -924,7 +924,7 @@ def visits(state: Path, start: float, end: float, place: str | None = None) -> l
     return sorted((v for v in found if place is None or v.place == place), key=lambda v: (v.start, v.id))
 
 
-# The journal's view (#2812): the places in a span, and the rooms seen in each.
+# The journal's view: the places in a span, and the rooms seen in each.
 
 
 @dataclass(frozen=True)
@@ -985,7 +985,7 @@ def places_for_span(state: Path, start: float, end: float) -> list[PlaceRef]:
     rooms: dict[str | None, list[str]] = {}
     cams = camera_places(state)
     for lo, hi, room, cam in _rooms(state, start, end):
-        # A fixed camera registered to a place (#2825) saw the room there, wherever the rig was. Otherwise it's the
+        # A fixed camera registered to a place saw the room there, wherever the rig was. Otherwise it's the
         # place the rig was in when the room was seen: the first visit that overlaps it.
         registered = cams.get(cam)
         place = registered or next((v.place for v in at if v.start <= hi and v.end >= lo), None)

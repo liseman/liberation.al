@@ -63,7 +63,7 @@ class Selector:
     """Which events a purge removes: those that match every field that is set. At least one must be set.
 
     `subjects` matches events whose envelope names any of them: a person, and the ids merged into them, forgotten in
-    one purge with one record (#725). Finding the rest of a person's records (rule 12) is the job of whatever applies
+    one purge with one record. Finding the rest of a person's records (rule 12) is the job of whatever applies
     `PersonForgotten`, not of the log.
     """
 

@@ -1,4 +1,4 @@
-"""Slow, read-only local network inventory into the segment store, with partial host-cache fallback (#1755).
+"""Slow, read-only local network inventory into the segment store, with partial host-cache fallback.
 
 No probes, DNS lookup, cloud API, alerts, or person/thing linking. Each poll writes one `network.device_observation`
 row per device it saw and one `network.inventory` row for the poll, under the poll's source ("unifi" or
@@ -6,7 +6,7 @@ row per device it saw and one `network.inventory` row for the poll, under the po
 observations: only a complete, authoritative poll can support absence (proximity/devices.py).
 
 Each poll also reads the Wi-Fi access points this machine hears (proximity/wifi.py, passive) and writes them as
-`wifi.access_point` rows when the set changes, or every `segment_log.WIFI_REWRITE_SECONDS` while it doesn't (#2798).
+`wifi.access_point` rows when the set changes, or every `segment_log.WIFI_REWRITE_SECONDS` while it doesn't.
 """
 
 import argparse

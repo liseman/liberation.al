@@ -1,12 +1,12 @@
-"""Appearance embeddings of animal crops, for telling pets of one species apart (#1332).
+"""Appearance embeddings of animal crops, for telling pets of one species apart.
 
 Each confirmed animal track's box is cropped tight (`animal_verifier.tight`) and embedded by DINOv3 ViT-S/16
 ([models.hf.animal_embedding], pinned revision): its 384-d CLS output, unit length. Self-supervised
 features keep instance detail (coat pattern, markings) that a text-aligned model tends to fold into "a cat".
 
-The crop is the box itself, not `animal_verifier.square`'s square with 10% context (#3024): a 2:1 cat or dog's square
+The crop is the box itself, not `animal_verifier.square`'s square with 10% context: a 2:1 cat or dog's square
 is about 60% floor or couch, which pulls one pet's sightings on different backgrounds apart. On the owner's labeled
-photos (2026-11-08) tight crops made about half the mistakes telling two cats apart at the same recall. Embeddings of
+photos, tight crops made about half the mistakes telling two cats apart at the same recall. Embeddings of
 the two crops don't compare, so `space()` names the crop with the model: every row and `pet.reference` records it as
 its `model`, and pet recognition ignores a reference of another space.
 

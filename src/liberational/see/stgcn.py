@@ -1,7 +1,7 @@
-"""The action model (#1745): ST-GCN++ on 2D skeletons, with pyskl's stock NTU RGB+D 120 weights.
+"""The action model: ST-GCN++ on 2D skeletons, with pyskl's stock NTU RGB+D 120 weights.
 
 ST-GCN++ (PYSKL, Duan et al. 2022) in plain PyTorch, the joint stream trained on HRNet 2D keypoints, NTU-120
-cross-subject: 84.4% top-1 there, and well below that in a house. Joe's call (2026-11-03): fast first, accuracy
+cross-subject: 84.4% top-1 there, and well below that in a house. Fast first, accuracy
 tuning later, so this is the stock model as pyskl tests it (`configs/stgcn++/stgcn++_ntu120_xsub_hrnet/j.py`),
 with no fine-tuning. The module names match pyskl's, so its checkpoint loads strictly: every key and shape must
 match, which is what checks the port.

@@ -4,7 +4,7 @@ GET  /config   every editable setting (config.schema(), with its label, help, an
                "restarts": what saving it restarts), "control" (may this viewer save), "needs_setup" (no pack.toml
                yet), and "restarts" (everything a save could restart). Secret values are never sent.
 POST /config   {"values": {"owner.name": "Alice", ...}} -> write pack.toml (config.save()), reply, then restart
-               only the installed services that read a changed setting (readers.py, #400), and re-exec the
+               only the installed services that read a changed setting (readers.py), and re-exec the
                dashboard if it reads one. "restarted" names the services and "restarting" says whether the
                dashboard comes back; a save of only live settings (labels.toml) restarts nothing.
                This machine only, same-origin JSON only, like POST /services. A new owner.name (with
@@ -14,7 +14,7 @@ GET  /config/voice_ref         {path, exists, seconds, recorded, prompt}: the ow
                                Unix seconds) and the passage to read;
                                ?audio=1 serves the clip itself.
 GET  /config/voices            {clone, kokoro}: whether the assistant speaks in the owner's cloned voice here, and
-                               the Kokoro voices tts.voice can name for a machine where it can't (#383).
+                               the Kokoro voices tts.voice can name for a machine where it can't.
 POST /config/voice_ref         a WAV body (8 to 60 s) -> saved as owner.voice_ref with the passage as its .txt
                                transcript, and the owner's voice enrolled from it. This machine only, same origin.
 """
@@ -50,7 +50,7 @@ def view(control: bool) -> dict[str, Any]:
 
 def reference_problem(path: pathlib.Path) -> str | None:
     """What's wrong with a voice reference: "missing", "unreadable" (it isn't audio soundfile can open, which the voice
-    service can't clone from either, #301), or None when it can be used."""
+    service can't clone from either), or None when it can be used."""
     import soundfile as sf
 
     if not path.is_file():
@@ -89,7 +89,7 @@ def plan(changed: Sequence[str]) -> tuple[list[str], bool]:
 
     try:
         hit = set(readers.affected(changed))
-    except Exception:  # the services' code can't be scanned: restart everything, as before #400
+    except Exception:  # the services' code can't be scanned: restart everything
         hit = {*services.declared(), "dashboard"}
     try:
         installed = set(services.installed())
@@ -136,7 +136,7 @@ def kokoro_voices() -> list[str]:
 
 
 def restarts() -> list[str]:
-    """What a save restarts, for Settings' save bar (#382): the services restart_names gives, then the dashboard.
+    """What a save restarts, for Settings' save bar: the services restart_names gives, then the dashboard.
     [] when the services can't be listed (an unknown name in pack.toml): a save still works, it just can't say."""
     try:
         return [*restart_names(), "dashboard"]
@@ -161,7 +161,7 @@ def port_after_restart() -> int:
     return port_arg() or cfg.get("ports.dashboard")
 
 
-STOPPED = {"inactive", "not loaded"}  # an installed service someone stopped with Stop now (#423)
+STOPPED = {"inactive", "not loaded"}  # an installed service someone stopped with Stop now
 
 
 def restart_names() -> list[str]:
@@ -173,7 +173,7 @@ def restart_names() -> list[str]:
 
 
 def run_here_changes(before: set[str]) -> tuple[list[str], list[str]]:
-    """What a save changed about which services run here (#423), from the ones selected before it: (to install: newly
+    """What a save changed about which services run here, from the ones selected before it: (to install: newly
     selected and not installed yet; to uninstall: installed and no longer selected). Never the dashboard."""
     have, chosen = set(services.installed()), set(services.selected())
     added = sorted(n for n in chosen - before if n not in have and n != "dashboard")
@@ -215,7 +215,7 @@ def here_changed(before: set[str] | None) -> bool:
 
 
 def apply_run_here(before: set[str] | None, log: Callable[..., None]) -> list[str]:
-    """Carry out a saved Also run or Don't run (#423): uninstall what may no longer run here, logging one line each,
+    """Carry out a saved Also run or Don't run: uninstall what may no longer run here, logging one line each,
     and say which newly allowed services to install with the restart. None before: nothing is known to have changed."""
     if before is None:
         return []
@@ -234,7 +234,7 @@ def restart(
     before: set[str] | None = None,
 ) -> threading.Thread:
     """After the reply has gone out: carry out a changed Also run or Don't run (before: the services selected before
-    the save, #423), install (and so restart) the named services on the new settings, leaving one stopped with Stop
+    the save), install (and so restart) the named services on the new settings, leaving one stopped with Stop
     now stopped until the computer restarts, then re-exec the dashboard if `dashboard`. Returns the thread doing it."""
 
     def go() -> None:

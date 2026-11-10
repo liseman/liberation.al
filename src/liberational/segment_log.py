@@ -1,4 +1,4 @@
-"""Derived streams in the segment store (#1755, #1779): typed schemas, row codecs, writers, and reads.
+"""Derived streams in the segment store: typed schemas, row codecs, writers, and reads.
 
 The segment store (`continuum_py.SegmentWriter`, `read_segments`) keeps per-frame and per-span machine output as
 typed columns, one writer per stream and camera, under `paths.state/segments`. A stream here is declared once: its
@@ -36,11 +36,11 @@ from liberational import config
 
 MOVEMENT_TRACKS = "movement.track"
 MOVEMENT_COVERAGE = "movement.coverage"
-ANIMAL_DETECTIONS = "animal.detection"  # see-actions' confirmed animal boxes (#1745)
-ANIMAL_EMBEDDINGS = "animal.embedding"  # and their appearance embeddings, for telling pets apart (#1332)
+ANIMAL_DETECTIONS = "animal.detection"  # see-actions' confirmed animal boxes
+ANIMAL_EMBEDDINGS = "animal.embedding"  # and their appearance embeddings, for telling pets apart
 ANIMAL_COVERAGE = "animal.coverage"  # and the spans it looked for animals in
-# see-captions' animals, grounded by the VLM when a caption names one (#1988), in the same shapes: their own streams,
-# since a stream has one writer per camera (#2062)
+# see-captions' animals, grounded by the VLM when a caption names one, in the same shapes: their own streams,
+# since a stream has one writer per camera
 ANIMAL_GROUNDINGS = "animal.grounding"
 ANIMAL_GROUNDING_EMBEDDINGS = "animal.grounding_embedding"
 ANIMAL_EMBEDDING_STREAMS = (ANIMAL_EMBEDDINGS, ANIMAL_GROUNDING_EMBEDDINGS)  # every animal embedding, for pets
@@ -49,16 +49,16 @@ WALKBY_COVERAGE = "walkby.coverage"
 ZONE_VISITS = "zone.visit"
 ZONE_COVERAGE = "zone.coverage"
 OBJECT_MATCHES = "object.match"
-ACTION_SPANS = "action.span"  # see-actions' model-based actions (#1745), in the ACTIVITY span shape
+ACTION_SPANS = "action.span"  # see-actions' model-based actions, in the ACTIVITY span shape
 CAPTIONS = "camera.caption"
 CAMERA_OBJECTS = "camera.objects"
 PRESENCE_SPANS = "presence.span"
 ACTION_COVERAGE = "action.coverage"
-ACTION_WINDOWS = "action.window"  # see-actions' scored windows: each track's top model classes (#1863 reads them)
-FACE_MATCHES = "face.match"  # see/head_faces.py: faces from see-actions' tracked heads (#1738)
+ACTION_WINDOWS = "action.window"  # see-actions' scored windows: each track's top model classes
+FACE_MATCHES = "face.match"  # see/head_faces.py: faces from see-actions' tracked heads
 FACE_VISITS = "face.visit"
 FACE_EMBEDDINGS = "face.embedding"  # one per face.match, for the vector worker's nearest-face search
-FACE_SIGNALS = "face.signal"  # one per look: how much it reads as a face (#2355); a set-aside one names no match
+FACE_SIGNALS = "face.signal"  # one per look: how much it reads as a face; a set-aside one names no match
 
 NS = 1_000_000_000
 Record = dict[str, Any]
@@ -278,7 +278,7 @@ SPEECH_ACTIVITY = "speech.activity"
 VOICE_EMBEDDINGS = "voice.embedding"
 VOICE_DIM = 192  # ReDimNet2 B3 (vox2-lm): 192 floats a voiceprint
 
-# A filed voice embedding (#1817): its voiceprint's subject, the person that voiceprint named when it was filed (the
+# A filed voice embedding: its voiceprint's subject, the person that voiceprint named when it was filed (the
 # entity a match names), the line it came from, and the vector. The vector worker follows this stream.
 VOICE = [
     *SPAN,
@@ -834,7 +834,7 @@ def camera_objects(row: Mapping[str, Any], cam: str) -> Record:
     }
 
 
-# Times someone was in view of a camera (memory/presence_episodes.py, #1825), written by see-zones from see-actions'
+# Times someone was in view of a camera (memory/presence_episodes.py), written by see-zones from see-actions'
 # frames: never a count of people, and `tracks` is distinct camera-local track ids, never identities.
 PRESENCE_SCHEMA = [
     *SPAN,
@@ -939,7 +939,7 @@ FACE_MATCH_SCHEMA = [
     ("quality", "f64"),
 ]
 FACE_VISIT_SCHEMA = [*SPAN, ("name", "str"), ("best_sim", "f64"), ("samples", "i64"), ("shots", "str")]
-# What each look's face is made of, beside its face.match (#2355): the pose's confidence in the five head joints it was
+# What each look's face is made of, beside its face.match: the pose's confidence in the five head joints it was
 # cropped from (nose, left eye, right eye, left ear, right ear; a back of a head has ears but no nose or eyes), the
 # detector's landmark frontalness (face_quality.frontal), and AdaFace's raw feature norm (NaN when not given). Kept
 # apart from face.match, whose stored segments have no room for new columns.
@@ -974,7 +974,7 @@ def face_embedding_row(r: Mapping[str, Any]) -> Row:
 def face_embedding(row: Mapping[str, Any], cam: str) -> Record:
     """A face.embedding row as a record. Its vector stays the float32 (512,) array the store read (a row of its
     (rows, 512) block, not a copy): a list of 512 Python floats cost about 66 us a row, 1.25 s of autoname's 2.2 s
-    over 7 days (18,889 rows, #3140), and every reader turns it straight back into numpy. It is a read-only view, so
+    over 7 days (18,889 rows), and every reader turns it straight back into numpy. It is a read-only view, so
     a reader can't change the block it shares (or an hour `keep_hours` kept), and the caller's own array stays as it
     was."""
     vector = np.asarray(row["vector"], np.float32).view()
@@ -1063,7 +1063,7 @@ def face_visit(row: Mapping[str, Any], cam: str) -> Record:
     }
 
 
-# see-actions' animals (see/action_animals.py, #1745): each confirmed box of a frame, and the embeddings its tracks
+# see-actions' animals (see/action_animals.py): each confirmed box of a frame, and the embeddings its tracks
 # are due. Their coverage has walk-by coverage's shape. A record's `ts_ns`, when it has one, is kept exactly; else
 # its `ts_start` is converted.
 EMBEDDING_DIM = 384  # DINOv3 ViT-S/16 (vision/animal_embedder.py); old DINOv2 vectors remain incompatible
@@ -1161,7 +1161,7 @@ STREAMS: dict[str, Stream] = {
         Stream(WALKBY_COVERAGE, WALKBY_COVERAGE_COLUMNS, walkby_coverage_row, walkby_coverage),
     )
 }
-# see-zones' outputs (#1779).
+# see-zones' outputs.
 STREAMS |= {
     s.name: s
     for s in (
@@ -1170,7 +1170,7 @@ STREAMS |= {
     )
 }
 STREAMS[ACTION_SPANS] = Stream(ACTION_SPANS, ACTIVITY, activity_row, activity)
-# The object worker's matches, and the caption worker's captions and object tracks (#1791).
+# The object worker's matches, and the caption worker's captions and object tracks.
 STREAMS[OBJECT_MATCHES] = Stream(OBJECT_MATCHES, OBJECT_MATCH_SCHEMA, object_match_row, object_match)
 STREAMS[CAPTIONS] = Stream(CAPTIONS, CAPTION_SCHEMA, caption_row, caption)
 STREAMS[CAMERA_OBJECTS] = Stream(CAMERA_OBJECTS, CAMERA_OBJECTS_SCHEMA, camera_objects_row, camera_objects)
@@ -1190,7 +1190,7 @@ STREAMS[ANIMAL_GROUNDING_EMBEDDINGS] = Stream(
 )
 
 
-# Place visits (#2799): a span of time the rig spent in one indoor place, derived from the place signals. Machine-
+# Place visits: a span of time the rig spent in one indoor place, derived from the place signals. Machine-
 # made, so a re-derivation writes new rows rather than editing old ones. The slot is what decided the visit (the
 # rig, or a fixed camera); `memory/places.py` reads them.
 PLACE_VISITS = "place.visit"
@@ -1328,7 +1328,7 @@ def ble_row(r: Mapping[str, Any]) -> Row:
 
 def _record(text: str) -> dict[str, Any]:
     """A row's JSON record: orjson, about four times faster than json (a day of Bluetooth sightings is about half a
-    million rows, #2875), and json for what orjson refuses (a NaN, an infinity, a lone surrogate). One difference: an
+    million rows), and json for what orjson refuses (a NaN, an infinity, a lone surrogate). One difference: an
     int past 64 bits comes back a float, where json keeps it; a Bluetooth record holds signal strengths, counts, and
     times, none that large."""
     try:
@@ -1518,7 +1518,7 @@ PLACED_PATHS = "position.path"
 STREAMS[PLACED_PATHS] = Stream(PLACED_PATHS, PLACED_SCHEMA, placed_row, placed)
 
 
-# Each fixed camera's pose over time (#3289, spatial/poses.py writes and reads it): one row per observation of where a
+# Each fixed camera's pose over time (spatial/poses.py writes and reads it): one row per observation of where a
 # camera was, in the map frame it was observed in (`frame`, a place revision's `Revision.frame`): a nightly seat's
 # registration, a match with a walk's frame, or the owner's measured spot (position only). The slot is the camera.
 # A camera that stays put is smoothed over its rows on read; one that moves starts a new stretch.
@@ -1558,7 +1558,7 @@ def camera_pose(row: Mapping[str, Any], cam: str) -> Record:
 STREAMS[CAMERA_POSES] = Stream(CAMERA_POSES, CAMERA_POSE_SCHEMA, camera_pose_row, camera_pose)
 
 
-# Condensed history (#2809): past the 30-day window, the nightly retention pass (`retention.py`) merges the dense
+# Condensed history: past the 30-day window, the nightly retention pass (`retention.py`) merges the dense
 # coverage rows, the device sightings, and the positions of each ended day into far fewer rows (contiguous intervals,
 # visits, and 10 s paths) and drops the originals. A forget hides every row of its range, later appends included, so
 # the merged rows go to a companion stream of the same schema, `<stream>.condensed`, and `Log` reads a stream and its
@@ -1675,10 +1675,10 @@ _HOURS: dict[tuple[Any, ...], tuple[Any, list[Record]]] = {}
 
 def keep_hours(on: bool = True) -> None:
     """Keep each ended hour's decoded records of a window still going in this process, for a reader that reads it
-    again and again (Review's day history of today, every minute: #2398). Each kept hour is checked against its files'
+    again and again (Review's day history of today, every minute). Each kept hour is checked against its files'
     stamp (`Log.stamp`) on every read, so a row written late or a purge shows at once; only the newest hours are read
     from the store. Off by default: a process that reads a window once gains nothing. Today's hours are a lot of
-    records: Review's day-history worker was about 1.1 GB by late afternoon on devbox (2026-11-07), dropped when the
+    records: Review's day-history worker was about 1.1 GB by late afternoon on the Linux machine, dropped when the
     day turns."""
     global _KEEP_HOURS
     _KEEP_HOURS = on
@@ -1687,7 +1687,7 @@ def keep_hours(on: bool = True) -> None:
 
 
 def _segment_moved(exc: BaseException) -> bool:
-    """Whether `read_segments` failed because a part vanished or was renamed while it was being opened (#3100)."""
+    """Whether `read_segments` failed because a part vanished or was renamed while it was being opened."""
     if isinstance(exc, OSError) and exc.errno == 2:
         return True
     if isinstance(exc, RuntimeError):
@@ -1707,7 +1707,7 @@ class Log:
         mtimes, and the deletions log. The store files each row under its own UTC hour, and a read opens the parts from
         the window's first hour, less the camera's longest span (`.maxspan`, so a track that began earlier is found),
         to its last; this lists the same parts (from an hour earlier at least). It moves when a row of the window is
-        written late or purged, and not otherwise: a reader of an ended stretch keys its answer on it (#2398).
+        written late or purged, and not otherwise: a reader of an ended stretch keys its answer on it.
         `streams` limits it to those; missing directories are nothing."""
         import os
 
@@ -1809,7 +1809,7 @@ class Log:
 
     def _read(self, stream: str, start: float, end: float, cameras: Sequence[str] | None) -> list[Record]:
         out = records(stream, self._segments(stream, STREAMS[stream].schema, start, end, cameras))
-        if stream in CONDENSED:  # its condensed history too (#2809)
+        if stream in CONDENSED:  # its condensed history too
             out = sorted(
                 [*out, *self._read(condensed(stream), start, end, cameras)],
                 key=lambda r: (r["ts_start"], str(r.get("id", ""))),
@@ -1900,7 +1900,7 @@ _FACE_GROUP = re.compile(r"Face (\d+)")
 
 
 def _face_groups_now(stream: str, rows: list[Record]) -> list[Record]:
-    """Face sightings with their unnamed group as it is now (#3181): a group folded into another since (a stranger
+    """Face sightings with their unnamed group as it is now: a group folded into another since (a stranger
     split across groups, vision/faces.py FOLD_SIM) is read as the group it went into, so its looks stay with it. The
     rows keep what was recorded; only the read changes. Every other stream's rows pass through."""
     if stream not in (FACE_MATCHES, FACE_EMBEDDINGS) or not rows:

@@ -1,10 +1,10 @@
 """Walk-bys over a window (Review path B, Ask): see-actions' `walkby.span` rows and their
-`walkby.coverage`, in the segment store (#1779).
+`walkby.coverage`, in the segment store.
 
 The result keeps the shape v1's recorded-video jobs gave, so Review's page renders it as it did: per camera and per
 direction, never summed across cameras or into unique people.
 
-What counts as walking past (#1403). A crossing is the moment one track's foot point got past the line, and a person
+What counts as walking past. A crossing is the moment one track's foot point got past the line, and a person
 standing or sitting at the line makes one every few seconds as they shift. So crossings are not counted one by one;
 they are chained (`chains`, `qualifies`, `walk`, which see/walk_bys.py applies as it watches):
 
@@ -120,7 +120,7 @@ def walk(chain: dict[str, Any]) -> dict[str, Any]:
 
 def from_spans(state: Any, start: float, end: float, cameras: Sequence[str] = ()) -> dict[str, Any]:
     """Each camera's walk-bys in [start, end), by direction, with what was analysed of the window: the "Walked past"
-    spans (see/walk_bys.py, #1403) and their coverage. The producer already judged each chain by the rules above as
+    spans (see/walk_bys.py) and their coverage. The producer already judged each chain by the rules above as
     it watched, so a day is a couple of reads. `line_crossings` totals the crossing records the walk-bys name;
     crossings that never made a walk-by (someone hovering at the line) aren't in these spans, so it has no
     per-direction split."""

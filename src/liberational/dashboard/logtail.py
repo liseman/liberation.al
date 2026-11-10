@@ -1,11 +1,12 @@
-"""A live tail of every service's log, for the dashboard's Debug tab (issue #111).
+"""A live tail of every service's log, for the dashboard's Debug tab.
 
 Each service writes data/logs/<name>.log (services.log_path, the same file under launchd and systemd), so this reads
 those files and nothing platform-specific. The service names come from services.toml, never from a request, so a
 request can only pick among those files.
 
-A tail starts with a bounded backlog (the last lines of each file, BACKLOG_LINES in all) and then sends new lines
-only. A file that is renamed away and replaced (rotation) is read to its end and then the new file from its start; a
+A tail starts with a bounded backlog (the last lines of each file, BACKLOG_LINES in all, reaching into the file's
+kept older copy just after a rotation) and then sends new lines only. The hourly trim (logs.trim) cuts a log
+shorter in place, which the tail follows like any truncation. A file that is renamed away and replaced (rotation) is read to its end and then the new file from its start; a
 file cut shorter in place (truncation) is read again from its start; a line is held until its newline arrives.
 """
 
@@ -15,7 +16,7 @@ from collections.abc import Iterable
 from typing import BinaryIO
 
 from liberational import config as cfg
-from liberational import services
+from liberational import logs, services
 
 BACKLOG_LINES = 200  # lines sent on connect, across every file
 BACKLOG_BYTES = 64 * 1024  # read from the end of each file for the backlog
@@ -72,17 +73,19 @@ class FileTail:
         return self.fh is not None
 
     def start(self) -> list[str]:
-        """The file's last whole lines (from at most BACKLOG_BYTES of it), and a position at its end."""
+        """The file's last whole lines (from at most BACKLOG_BYTES of it and its older copy), and a position at its
+        end."""
         if not self._open() or self.fh is None:
             return []
-        size = os.fstat(self.fh.fileno()).st_size
-        begin = max(0, size - BACKLOG_BYTES)
-        self.fh.seek(begin)
-        data = self.fh.read(size - begin)
-        self.offset = begin + len(data)
+        held = os.fstat(self.fh.fileno())
+        parts = logs.tail(self.path, BACKLOG_BYTES)
+        mine = [p for p in parts if (p.stat.st_dev, p.stat.st_ino) == (held.st_dev, held.st_ino)]
+        # Polling goes on from the end of what was read of the open file (all of it, if it was replaced meanwhile).
+        self.offset = mine[-1].offset + len(mine[-1].data) if mine else held.st_size
+        data = b"".join(p.data for p in parts)
         lines = data.split(b"\n")
         self.partial = lines.pop()  # a line still being written, sent once its newline arrives
-        if begin > 0 and lines:
+        if parts and parts[0].offset > 0 and lines:
             lines = lines[1:]  # the read began inside this line
         return [_line(raw) for raw in lines[-BACKLOG_LINES:]]
 
