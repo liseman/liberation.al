@@ -27,7 +27,8 @@ continuum-broker --version
 continuum-gateway --version
 continuum-export --version
 continuum-vector-worker --version
-continuum-capture --capabilities
+continuum-capture --capabilities | tee /tmp/capture
+grep -q '"rtsps":true' /tmp/capture || { echo "the capture supervisor has no TLS for rtsps:// cameras" >&2; exit 1; }
 continuum-tier-worker --capabilities | tee /tmp/tier
 grep -q '"av1_archive":true' /tmp/tier || { echo "the tier worker has no AV1 encoder" >&2; exit 1; }
 # The capture worker has no query: without its arguments it says how it's called and exits 2 or more.

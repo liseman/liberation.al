@@ -50,6 +50,9 @@ continuum-broker = { path = "../continuum-broker" }
 continuum-catalog.workspace = true
 continuum-sched.workspace = true
 proptest.workspace = true
+# The TLS side of the rtsps:// fixture: a server with a certificate it signs itself.
+rcgen = "0.14"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 tempfile.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "sync"] }
 

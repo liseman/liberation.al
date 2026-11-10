@@ -20,5 +20,8 @@ fn capability_query_precedes_manifest_socket_and_device_access() {
     let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(response["version"], 1);
     assert_eq!(response["rtsp_h264"], cfg!(feature = "ffmpeg"));
+    // rtsps:// also needs a TLS library in the FFmpeg it was built against.
+    assert!(response["rtsps"].is_boolean());
+    assert!(cfg!(feature = "ffmpeg") || response["rtsps"] == false);
     assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 0);
 }
