@@ -8,7 +8,6 @@ import sqlite3
 import subprocess
 import tempfile
 import tomllib
-from types import SimpleNamespace
 
 import pytest
 
@@ -63,6 +62,16 @@ def test_moving_a_file_into_a_real_data_path_is_refused(tmp_path):
     assert "moved-in" in conftest.hits.pop()[0]
 
 
+class Elsewhere:
+    """The config module as it is, but for a working directory of `root`."""
+
+    def __init__(self, root: pathlib.Path) -> None:
+        self.workdir = lambda: root
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(cfg, name)
+
+
 @pytest.fixture
 def temp_root(tmp_path, monkeypatch):
     """The working directory is a temp dir with nothing selected to install; returns the service-manager commands sent."""
@@ -72,9 +81,10 @@ def temp_root(tmp_path, monkeypatch):
         sent.append(cmd)
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
-    # Only the checkout guard sees this root. Mutating the shared config module let lazy imports keep a temp
-    # manifest path after monkeypatch restored it.
-    monkeypatch.setattr(services, "cfg", SimpleNamespace(workdir=lambda: tmp_path))
+    # Only the checkout guard sees this root: services' view of the config has its working directory here and every
+    # other setting as it is. Mutating the shared config module let lazy imports keep a temp manifest path after
+    # monkeypatch restored it.
+    monkeypatch.setattr(services, "cfg", Elsewhere(tmp_path))
     monkeypatch.setattr(services, "preflight", lambda names: None)
     monkeypatch.setattr(services, "DARWIN", False)
     monkeypatch.setattr(services, "_run", run)
