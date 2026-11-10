@@ -143,26 +143,39 @@ continuum/
 ## Running and checking it
 
 The five daemons are in the `core` group of [`services/services.toml`](../services/services.toml) and on by default.
-`config/devices.toml` names the cameras and microphones ([`config/devices.example.toml`](../config/devices.example.toml)
-documents every key). [CONTINUUM-CAPTURE.md](CONTINUUM-CAPTURE.md#list-restart-and-recover-devices) covers listing and
-restarting devices, and [SERVICES.md](SERVICES.md) covers startup and restarts.
+[RUNNING.md](RUNNING.md) covers starting, stopping, and restarting them, and [SERVICES.md](SERVICES.md) explains how the
+supervisor orders them. `config/devices.toml` names the cameras and microphones
+([`config/devices.example.toml`](../config/devices.example.toml) documents every key), and
+[CONTINUUM-CAPTURE.md](CONTINUUM-CAPTURE.md#list-restart-and-recover-devices) covers listing and restarting devices.
 
 ```sh
 mise run continuum-status
 ```
 
-`continuum-status` only reads, and exits 0 when healthy. It checks the services, the broker, stream freshness, Tier 0
-pressure, tier-worker flush lag, the search streams, and the gateway. Without `--port`, uninstalled services and
-unregistered search streams are only noted, and manifest devices are required only when `--port` (`audio` or `vision`)
-is given; [`src/liberational/continuum_status.py`](../src/liberational/continuum_status.py) documents its options and
-thresholds.
+`pack-continuum-status` is the same check. It only reads, and exits 0 when healthy and 1 when any check fails. Each
+check and what its failure means:
+
+| Check | A failure means |
+|---|---|
+| Services | A service is installed but not running. A Continuum service that is not installed is only noted |
+| Broker | Its socket refuses a connection, or the client handshake fails: the broker is down or starting |
+| Streams | A live capture stream has nothing in the window or an old newest payload, or a manifest device has no stream or no producer: capture is not reading it |
+| Tier 0 pressure | A size class has too many slots held (being written, pinned, or not yet in Tier 1), or a network camera's ring dropped or overwrote pictures |
+| Flush lag | The tier worker is behind: a capture stream's oldest payload still only in Tier 0 is older than the limit |
+| Search streams | The vector worker has not registered `vector.search` and `text.search` (only a failure when the stage expects it) |
+| Gateway | The gateway's port refuses a connection |
+
+`--port audio` or `--port vision` checks a stage of the switch: every service the stage needs must be installed and
+running, and every manifest device must stream. [`continuum_status.py`](../src/liberational/continuum_status.py)
+documents the options and thresholds.
 
 ```sh
 pack-reset-catalog --keep-taught
 ```
 
-Deletes machine-made state (the catalog, the recordings, the vector index, and the segment store) and keeps taught
-state ([`src/liberational/reset_catalog.py`](../src/liberational/reset_catalog.py)).
+Prints what a reset would delete and changes nothing. With `--yes`, it deletes machine-made state (the catalog, the
+recordings, the vector index, and the segment store) and keeps taught state
+([`src/liberational/reset_catalog.py`](../src/liberational/reset_catalog.py)).
 
 ## Guardrails
 

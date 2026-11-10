@@ -42,6 +42,7 @@ it does. A document that still mixes kinds is listed under the one it mostly is.
 | [mise.toml](../mise.toml) | Every task (`mise tasks` lists them) |
 | [tools/](../tools/) | Maintenance scripts; each docstring says how to run it |
 | [Vision streams](VISION-STREAMS.md) | The fields of every vision stream |
+| [Other streams](STREAMS.md) | The fields of the speech, place, network, Bluetooth, Wi-Fi, and position streams |
 | [Continuum broker](CONTINUUM-BROKER.md) | The shared memory arena, payload headers, socket protocol, scheduler, and catalog |
 | [Continuum storage](CONTINUUM-STORAGE.md) | Tiers, chunk files, the segment store, and the vector worker |
 | [Continuum gateway](CONTINUUM-GATEWAY.md) | The WebSocket transport, binary messages, and requests |
