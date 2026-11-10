@@ -1,7 +1,7 @@
 // Known › Places' reads: the places the house has (GET /places, memory/places.py) and where people and pets were in
 // one of them over a window of time (GET /places/positions; the position layer is spatial/positions.py).
 import { queryOptions } from '@tanstack/react-query';
-import { request } from '../../shared/http';
+import { request, upload } from '../../shared/http';
 
 /** A place, as GET /places lists it. */
 export interface PlaceSummary {
@@ -175,3 +175,56 @@ export const sceneQuery = (place: string) =>
     queryFn: ({ signal }) => request<Scene>(`/places/scene?${new URLSearchParams({ place })}`, undefined, signal),
     staleTime: 5 * 60_000,
   });
+
+/** A walk import (dashboard/walk_import.py): a walkthrough dropped on a place, uploaded, then imported into it in the
+ *  background. `status` goes uploading, extracting, importing, then done or failed. */
+export interface WalkJob {
+  id: string;
+  /** The place it was dropped on. */
+  place: string;
+  /** The dropped file's name. */
+  name: string;
+  kind: 'stray' | 'video';
+  status: 'uploading' | 'extracting' | 'importing' | 'done' | 'failed';
+  /** The importer's newest log line, while it runs. */
+  detail: string;
+  error: string;
+  /** What the import printed: the place and revision it wrote, and `meant_for` when the walk didn't register in the
+   *  place it was dropped on and was stored as a place of its own. */
+  result: { place?: string; revision?: string; registered?: string; meant_for?: string } & Record<string, string>;
+  /** A failed import kept its files, so it can run again without a second upload. */
+  retry: boolean;
+  started: number;
+  finished: number | null;
+}
+
+/** GET /places/walk: the newest import, the largest upload taken (MB), and whether a plain video is taken here. */
+export interface WalkImports {
+  job: WalkJob | null;
+  max_mb: number;
+  video: boolean;
+}
+
+export const walkActive = (job: WalkJob | null | undefined): boolean =>
+  !!job && job.status !== 'done' && job.status !== 'failed';
+
+export const walkQuery = () =>
+  queryOptions({
+    queryKey: ['places', 'walk'],
+    queryFn: ({ signal }) => request<WalkImports>('/places/walk', undefined, signal),
+    // While an import runs the page follows it; otherwise there is nothing to ask about.
+    refetchInterval: q => (walkActive(q.state.data?.job) ? 2000 : false),
+    staleTime: 0,
+  });
+
+/** Upload a walk (the zip Stray Scanner exports, or a video) for a place. The body is the file itself, sent as
+ *  application/octet-stream: the type the route takes, and one no cross-site page can send unasked. */
+export const uploadWalk = (place: string, file: File, onProgress?: (share: number) => void) =>
+  upload<{ job: WalkJob }>(
+    `/places/walk/upload?${new URLSearchParams({ place, name: file.name })}`,
+    file.slice(0, file.size, 'application/octet-stream'),
+    onProgress,
+  );
+
+export const retryWalk = () => request<{ job: WalkJob }>('/places/walk/retry', {});
+export const dismissWalk = () => request<{ job: null }>('/places/walk/dismiss', {});

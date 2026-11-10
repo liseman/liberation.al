@@ -285,3 +285,22 @@
   cursor: pointer;
   text-decoration: underline;
 }
+
+/* Where a walk is dropped to import it into the place. */
+.walkDrop {
+  border: 1px dashed var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-md);
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+
+.walkDrop[data-over] {
+  border-color: var(--mantine-primary-color-filled);
+  background: var(--mantine-primary-color-light);
+}
+
+.walkStatus {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+}

@@ -77,6 +77,21 @@ url = "http://127.0.0.1:11434"
 # GPU. The service listens on Ollama's default 127.0.0.1:11434, which is url's default.
 gpu = ""
 models = ""
+# The ollama service's server tuning, passed to `ollama serve` as OLLAMA_KEEP_ALIVE, OLLAMA_FLASH_ATTENTION,
+# OLLAMA_KV_CACHE_TYPE, and OLLAMA_MAX_LOADED_MODELS. keep_alive is how long a model stays loaded after a request that
+# doesn't say ("-1" forever, "30m", "" Ollama's own 5 minutes). It stays Ollama's default because the callers already
+# ask for what they need: the always-loaded models pass -1 on every call and a big batch model passes its own, while a
+# model loaded once by hand or by another client unloads on its own instead of holding GPU memory beside them. A Mac
+# that kept one large model resident (Homebrew's Ollama with OLLAMA_KEEP_ALIVE=-1) sets "-1". flash_attention is on
+# everywhere: it uses less memory for the same context at no cost in quality, a quantized KV cache needs it, and Ollama
+# turns it back off for a model that can't use it. kv_cache_type stays f16 (stock) by default, as ask.kv_cache_type
+# does: q8_0 (about half the cache memory, with a small loss of precision) or q4_0 changes every shared model's
+# answers, so a machine opts in. max_loaded_models is how many models stay loaded at once; 0 is Ollama's own default
+# (3 per GPU; a Mac counts as one).
+keep_alive = ""
+flash_attention = true
+kv_cache_type = "f16"
+max_loaded_models = 0
 # When Ollama isn't running (or lacks a model), callers fail fast and try it again only every retry_s seconds,
 # logging a reminder at most every log_every_s seconds, instead of an error on every call (ollama_health.py).
 retry_s = 30
