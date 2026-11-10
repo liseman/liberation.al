@@ -71,7 +71,7 @@ gitignored.
 
 | Tab | Shows |
 |---|---|
-| Live | Camera feeds with face, pose, and object overlays; the recent conversation; "Who's this?"; the "Learn surroundings" switch; Ask |
+| Live | Camera feeds with face, pose, and object overlays; the recent conversation; who is here now, with a link to "Who's this?"; the "Learn surroundings" switch; Ask |
 | Review | A day's timeline, transcript, summary, and recorded video, with filters by person, thing, event, and camera |
 | Journal | Month, week, day, and hour entries with their evidence |
 | Known | People, Pets, Objects, Activities, Devices, and Places: everything the owner names and corrects |
@@ -115,18 +115,5 @@ A setting whose comment in `defaults.toml` has a `# New feature: <name>` line ap
 
 ## Remote access
 
-A dashboard opened over HTTPS cannot open the gateway's plain WebSocket on port 8766. The page uses `wss` on port
-8767, so put a TLS proxy in front of the gateway. With Tailscale, for the tailnet only:
-
-```sh
-tailscale serve --bg --https=8767 http://127.0.0.1:8766
-```
-
-Then name the host the gateway should accept in `pack.toml` and restart the gateway:
-
-```toml
-[dashboard]
-gateway_allow_host = "machine.example-tailnet.ts.net"
-```
-
-Keep that proxy on the tailnet. The gateway asks for no password, so a public Funnel would publish the cameras.
+[REMOTE.md](REMOTE.md) is the guide: the dashboard password, what another device may do, and the camera gateway
+behind TLS for a dashboard opened over HTTPS.
