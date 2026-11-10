@@ -4,7 +4,7 @@
 // when the camera moves or a setting changes, never in a loop, so an open view costs nothing while it's still.
 // A revision with a splat (#2877) can be drawn as the splat instead of the points: Spark draws it in the same scene,
 // and asks for a frame (onDirty) when its sort or decode finishes. A splat of a few fixed cameras looks right only
-// from where they stand, so each camera has a button that puts the view there, showing just that camera's frame.
+// from where they stand, so each camera has a button that puts the view there, filled with that camera's frame.
 import { Button, Checkbox, Group, SegmentedControl, Slider, Text } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -13,7 +13,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { messageOf } from '../../../shared/http';
 import { type Scene, sceneQuery } from '../api';
 import classes from '../places.module.css';
-import { frustum, heightColour, heightOf, letterbox, planOutline, robustRange, type V3 } from './geometry';
+import { coverFov, frustum, heightColour, heightOf, planOutline, robustRange, type V3 } from './geometry';
 import { canDraw, canDrawSplat, type LoadedSplat, loadSplat, parseCloud } from './load';
 
 type Colour = 'rgb' | 'height';
@@ -156,26 +156,14 @@ function build(host: HTMLDivElement, data: Scene, bytes: ArrayBuffer): Built {
   camera.up.copy(up);
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = false;
-  // Looking from a fixed camera, only its own frame is drawn (its aspect, letterboxed, at its field of view): the rest
-  // of a wide view would show space it never saw, where a splat is only smear. Null: the whole view.
-  let frame: number | null = null;
-  const bars = new THREE.Color(css('--lib-bg', '#e9ecef'));
+  // Looking from a fixed camera, the view is filled with its frame (`coverFov`: cropped to the view's shape, never
+  // past its edges, where a splat is only smear) until the view goes home. Null: the view's own field of view.
+  let frame: { width: number; height: number; focal: number } | null = null;
   const size = new THREE.Vector2();
   const render = () => {
     renderer.getSize(size);
-    renderer.setScissorTest(false);
-    if (frame === null) {
-      renderer.setViewport(0, 0, size.x, size.y);
-      camera.aspect = size.x / Math.max(1, size.y);
-    } else {
-      const r = letterbox(size.x, size.y, frame);
-      renderer.setClearColor(bars);
-      renderer.clear();
-      renderer.setViewport(r.x, r.y, r.w, r.h);
-      renderer.setScissor(r.x, r.y, r.w, r.h);
-      renderer.setScissorTest(true);
-      camera.aspect = frame;
-    }
+    camera.aspect = size.x / Math.max(1, size.y);
+    if (frame) camera.fov = coverFov(frame.width, frame.height, frame.focal, camera.aspect);
     camera.updateProjectionMatrix();
     renderer.render(scene, camera);
   };
@@ -221,9 +209,8 @@ function build(host: HTMLDivElement, data: Scene, bytes: ArrayBuffer): Built {
     const p = cam.pose;
     const centre = new THREE.Vector3(p[3], p[7], p[11]);
     const forward = new THREE.Vector3(p[2], p[6], p[10]).normalize();
-    // Its own frame: its aspect and its vertical field of view, letterboxed in the view (`render`).
-    frame = cam.width / cam.height;
-    camera.fov = (2 * Math.atan(cam.height / 2 / cam.focal) * 180) / Math.PI;
+    // Its own frame, filling the view at whatever shape the view has (`render`).
+    frame = { width: cam.width, height: cam.height, focal: cam.focal };
     camera.position.copy(centre);
     // Orbit about a point just ahead, so a small drag looks around from where the camera stands.
     controls.target.copy(centre).addScaledVector(forward, 0.5);
@@ -309,7 +296,7 @@ export default function CloudView({ place }: { place: string }) {
       b.renderer.setSize(w, h, false);
       b.renderer.domElement.style.width = '100%';
       b.renderer.domElement.style.height = '100%';
-      b.render(); // sets the camera's aspect: the view's, or the frame it's looking from
+      b.render(); // sets the camera's aspect, and its field of view when it looks from a camera
     };
     const observer = new ResizeObserver(resize);
     observer.observe(el);
