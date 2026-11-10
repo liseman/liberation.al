@@ -1400,13 +1400,12 @@ def wifi(row: Mapping[str, Any], cam: str) -> Record:
 STREAMS[WIFI_ACCESS_POINTS] = Stream(WIFI_ACCESS_POINTS, WIFI_SCHEMA, wifi_row, wifi)
 
 
-# Where people, pets, and the rig wearer were (spatial/positions.py writes and reads it): one row per
-# observation, raw. A fixed camera's row is the foot point as it saw it (`u`, `v`, fractions of the frame; the camera is
-# the row's slot, since the store keeps a column of that name for slots) and is put on a place's plan when read,
-# through the camera's current registration, so a new map or plan never leaves stored coordinates stale. A rig row (once there's a rig pose) gives `place`, `x`, `y` directly, in the plan frame of
-# the place revision it names (`revision`). The slot is the camera, or "rig". `entity` is "person:<id>", "pet:<id>",
-# "rig", or None until someone is identified; readers name it when they read. The store has no nullable floats, so a
-# missing u, v, x, or y is NaN in the column and None in the record.
+# Fixed cameras' footprints (spatial/footprints.py records them, spatial/positions.py's `write_samples`): one row per
+# observation, raw. A row is the foot point as the camera saw it (`u`, `v`, fractions of the frame; the camera is the
+# row's slot, since the store keeps a column of that name for slots). The position layer's placer
+# (`positions.advance`) puts them on a place's plan and writes the result to `position.placed`, below; the walkable
+# floor reads these rows as they are. The store has no nullable floats, so a missing u, v, x, or y is NaN in the
+# column and None in the record.
 POSITIONS = "position.sample"
 POSITION_SCHEMA = [
     *SPAN,
@@ -1450,6 +1449,68 @@ def position(row: Mapping[str, Any], cam: str) -> Record:
 
 
 STREAMS[POSITIONS] = Stream(POSITIONS, POSITION_SCHEMA, position_row, position)
+
+
+# The position layer (spatial/positions.py writes and reads it): where each person, pet, and the rig wearer was, one
+# record shape for every source. A row is a subject (`entity`, None until someone is identified) at a time, in a
+# place, with the room and plan coordinates when they are known (`x`, `y` in the plan frame of the place revision
+# `place_revision` names; NaN for a room-only row), how sure, and which source said so ("fixed-camera", "rig-pose",
+# or "zone"). `path` groups rows into the line a view draws, and `seen_by` is the camera of a fixed-camera row (the
+# store keeps `camera` for the slot). The slot is the place and its writer (`positions.layer_slot`), so a read of
+# one place opens only that place's files.
+PLACED = "position.placed"
+PLACED_SCHEMA = [
+    *SPAN,
+    ("source", "str"),
+    ("confidence", "f32"),
+    ("entity", "str?"),
+    ("track", "str?"),
+    ("path", "str?"),
+    ("place", "str"),
+    ("room", "str?"),
+    ("room_id", "str?"),
+    ("x", "f64"),
+    ("y", "f64"),
+    ("place_revision", "str?"),
+    ("seen_by", "str?"),
+    ("uncertain", "bool"),
+]
+_PLACED_TEXT = ("entity", "track", "path", "room", "room_id")
+
+
+def placed_row(r: Mapping[str, Any]) -> Row:
+    return {
+        **_span_row(r),
+        "source": str(r["source"]),
+        "confidence": float(r["confidence"]),
+        "place": str(r["place"]),
+        **{k: None if r.get(k) is None else str(r[k]) for k in _PLACED_TEXT},
+        **{k: math.nan if r.get(k) is None else float(r[k]) for k in ("x", "y")},
+        "place_revision": None if r.get("revision") is None else str(r["revision"]),
+        "seen_by": None if r.get("camera") is None else str(r["camera"]),
+        "uncertain": bool(r.get("uncertain", False)),
+    }
+
+
+def placed(row: Mapping[str, Any], cam: str) -> Record:
+    return {
+        **_span(row, cam),
+        "source": row["source"],
+        "confidence": float(row["confidence"]),
+        "place": row["place"],
+        **{k: row[k] for k in _PLACED_TEXT},
+        **{k: None if math.isnan(float(row[k])) else float(row[k]) for k in ("x", "y")},
+        "revision": row["place_revision"],
+        "camera": row["seen_by"],
+        "uncertain": bool(row["uncertain"]),
+    }
+
+
+STREAMS[PLACED] = Stream(PLACED, PLACED_SCHEMA, placed_row, placed)
+# The same records thinned to paths as they are written (one per path per `positions.COARSE_S`, and each path's last
+# of a write): what a read of a long window scans, a tenth of the rows.
+PLACED_PATHS = "position.path"
+STREAMS[PLACED_PATHS] = Stream(PLACED_PATHS, PLACED_SCHEMA, placed_row, placed)
 
 
 # Each fixed camera's pose over time (spatial/poses.py writes and reads it): one row per observation of where a
@@ -1513,6 +1574,8 @@ CONDENSED = (
     NET_OBSERVATIONS,
     BLE_SIGHTINGS,
     POSITIONS,
+    PLACED,
+    PLACED_PATHS,
 )
 for _name in CONDENSED:
     _spec = STREAMS[_name]

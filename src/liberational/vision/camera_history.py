@@ -12,7 +12,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from liberational import vision_log
-from liberational.vision import places
+from liberational.vision import views
 
 RETENTION = 7 * 86400
 GAP = 30
@@ -93,10 +93,10 @@ def parse(request: str, now: float | None = None) -> tuple[list[str], float | At
     """The cameras a request names (all of them when it names none) and the time it asks about: a window of the
     last so many seconds ("in the last 2 hours"), a moment by its clock time ("at 3pm"), or None for now. A past
     time it can't read raises ValueError, so it is never answered with what the cameras show now."""
-    configured_cameras, remaining = places.configured_camera_mentions(request)
+    configured_cameras, remaining = views.configured_camera_mentions(request)
     q = remaining.lower()
     cams = re.findall(r"\bcam(?:era)?\s*(\d+|zero|one|two|three|four|five)\b", q)
-    cams = sorted(set(configured_cameras) | {"cam%d" % number(x) for x in cams}) or places.camera_ids()
+    cams = sorted(set(configured_cameras) | {"cam%d" % number(x) for x in cams}) or views.camera_ids()
     m = re.search(r"\b(?:last|past|previous)\s+(?:(\d+(?:\.\d+)?|[a-z]+)\s+)?(seconds?|minutes?|hours?|days?)\b", q)
     seconds = None
     if m:

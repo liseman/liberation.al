@@ -64,7 +64,7 @@ function faceTile(f: UnnamedFace, n: number, of: number): GridTile {
 
 /** A video to pick: its poster, what happens in it, and when and where. */
 function videoTile(v: UnnamedVideo): GridTile {
-  const when = `${shortWhen(v.start)}, ${cameraName(v.cam, v.place)}`;
+  const when = `${shortWhen(v.start)}, ${cameraName(v.cam, v.camera_name)}`;
   return {
     key: `video:${v.id}`,
     label: `Video: ${v.what ? `${v.what}, ` : ''}${when}, ${clipLength(v.duration_s)}`,

@@ -4,7 +4,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { renderPage } from '../../../test/render';
 import { server } from '../../../test/server';
 import CloudView from './CloudView';
-import { frustum, heightColour, heightOf, letterbox, planFrame, planOutline, robustRange, type V3 } from './geometry';
+import { coverFov, frustum, heightColour, heightOf, planFrame, planOutline, robustRange, type V3 } from './geometry';
 import { canDraw, canDrawSplat, parseCloud } from './load';
 
 afterEach(() => vi.restoreAllMocks());
@@ -45,13 +45,16 @@ it("draws a camera's view from its centre out to its image's corners", () => {
   near(bottomRight as V3, [2, 2.5, 2]);
 });
 
-it("fits a camera's frame in the view at its own aspect, centred, with bars on the spare sides", () => {
-  // a portrait phone frame (9:16) in a wide view: full height, bars left and right
-  expect(letterbox(1000, 500, 9 / 16)).toEqual({ x: 359.375, y: 0, w: 281.25, h: 500 });
-  // a landscape camera (16:9) in a tall view: full width, bars above and below
-  expect(letterbox(400, 800, 16 / 9)).toEqual({ x: 0, y: 287.5, w: 400, h: 225 });
-  // the same aspect fills it
-  expect(letterbox(1600, 900, 16 / 9)).toEqual({ x: 0, y: 0, w: 1600, h: 900 });
+it("fills the view with a camera's frame, cropped to the view's shape", () => {
+  const deg = (halfTan: number) => (2 * Math.atan(halfTan) * 180) / Math.PI;
+  // a 16:9 camera (512 x 288 at a focal of 256) in a view of its own shape: its own vertical field of view
+  expect(coverFov(512, 288, 256, 16 / 9)).toBeCloseTo(deg(144 / 256), 9);
+  // in a wider view (2:1) its full width spans the view, so the view shows less of its height
+  expect(coverFov(512, 288, 256, 2)).toBeCloseTo(deg(128 / 256), 9);
+  // in a taller view (1:1) its full height spans the view, and its sides are cropped
+  expect(coverFov(512, 288, 256, 1)).toBeCloseTo(deg(144 / 256), 9);
+  // a portrait phone frame (768 x 1024) in a wide view keeps its full width: a band across its middle
+  expect(coverFov(768, 1024, 700, 2)).toBeCloseTo(deg(192 / 700), 9);
 });
 
 it('colours the lowest heights blue and the highest red, and clamps beyond them', () => {

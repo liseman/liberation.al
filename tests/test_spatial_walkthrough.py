@@ -192,6 +192,45 @@ def test_a_wrong_match_far_along_a_long_walk_is_refused_by_the_capped_gate():
     assert closed.loops == [] and closed.refused == {"# m and # degrees off the odometry": 1}
 
 
+def test_a_long_walk_drifted_past_the_gates_cap_closes_where_its_return_frames_agree():
+    true = rectangle(20.0, 15.0)  # 280 frames, 70 m round
+    walk = drifted(true, 0.6)  # 167 degrees off by the end: past the gate's cap
+    n = len(true)
+    loops = [(0, n - 1), (3, n - 4)]
+    closed = W.close_loops(walk, measured(true, loops + steps(n), 0.5), loops, np.full(n, DEPTH), gravity=True)
+    assert closed.loops == loops and closed.supported == 2 and closed.refused == {}
+    assert max(closed.drift_deg) == pytest.approx(0.6 * (n - 1), abs=3.0)
+    assert np.linalg.norm(walk[-1, :3, 3] - true[-1, :3, 3]) > 5.0
+    assert np.linalg.norm(closed.poses[-1, :3, 3] - true[-1, :3, 3]) < 0.1
+
+
+def test_two_revisits_past_the_gate_that_disagree_dont_support_each_other():
+    true = rectangle(20.0, 15.0)
+    walk = drifted(true, 0.6)
+    n = len(true)
+    loops = [(0, n - 1), (3, n - 4)]
+    answers = measured(true, loops + steps(n), 0.5)
+    wrong = pg.relative(true[3], true[n - 4]) @ upright(math.radians(90), 0.0, 0.0)
+    wrong[:3, 3] += [2.0, 0.0, 3.0]  # 0.5 scale: 4 m and 6 m from where frame n - 4 is
+    answers[1] = {**answers[1], "forward": wrong.ravel().tolist(), "backward": np.linalg.inv(wrong).ravel().tolist()}
+    closed = W.close_loops(walk, answers, loops, np.full(n, DEPTH), gravity=True)
+    assert closed.loops == [] and closed.supported == 0
+    assert closed.refused == {"# m and # degrees off the odometry": 2}
+
+
+def test_a_revisit_two_laps_on_passes_the_gate_once_the_nearer_ones_are_closed():
+    true = np.concatenate([rectangle()] * 3)  # three laps of 56 frames
+    walk = drifted(true, 0.6)  # a lap on is 34 degrees off, two laps on 67: past the cap
+    n = len(true)
+    near = [(5, 62), (20, 77), (40, 97), (60, 117), (80, 137)]  # a lap and a step on (a lap on is the same pose)
+    far = [(10, 123), (30, 143)]
+    loops = sorted(near + far)
+    closed = W.close_loops(walk, measured(true, loops + steps(n), 0.5), loops, np.full(n, DEPTH), gravity=True)
+    assert sorted(closed.loops) == loops and closed.supported == 0, "the far ones are too far apart for support"
+    assert np.abs(walk[:150, :3, 3] - true[:150, :3, 3]).max() > 2.0
+    assert np.abs(closed.poses[:150, :3, 3] - true[:150, :3, 3]).max() < 0.5
+
+
 def test_mast3r_isnt_used_when_the_two_models_disagree_on_the_scene():
     true = rectangle()
     walk = drifted(true, 0.6)

@@ -484,8 +484,8 @@ def save(values: Mapping[str, Any]) -> tuple[list[str], list[str]]:
                 clean[key] = [f"{mac}: {name}" for mac, name in devices.parse_access_points(clean[key]).items()]
             except ValueError as ex:
                 raise SettingError(key, f"devices.access_points: {ex}") from None
-        if key == "vision.places":
-            from liberational.vision import places
+        if key == "vision.camera_names":
+            from liberational.vision import views
 
             # Settings sends every field as it shows it, and a list goes as tags split at commas. A value set by hand
             # that it shows unchanged is left as it is, so a malformed one never blocks saving something else.
@@ -497,10 +497,10 @@ def save(values: Mapping[str, Any]) -> tuple[list[str], list[str]]:
             try:
                 clean[key] = [
                     f"{cam}: {name}"
-                    for cam, name in places.parse(clean[key], places.manifest_camera_names() or []).items()
+                    for cam, name in views.parse(clean[key], views.manifest_camera_names() or []).items()
                 ]
             except ValueError as ex:
-                raise SettingError(key, f"vision.places: {ex}") from None
+                raise SettingError(key, f"vision.camera_names: {ex}") from None
     with LOCAL_WRITE:
         return _save(clean, defaults, values)
 

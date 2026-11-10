@@ -4,7 +4,7 @@ the places it passes again line up.
 A streaming model (CUT3R) gives every frame a camera-to-world pose that holds locally but drifts in heading over a
 long walk, so a wall the walk passes twice shows up twice. `solve` keeps the consecutive frames' relative poses
 (odometry, tight), adds the revisits MASt3R verified as loop edges (looser), and pulls every camera's up axis toward
-the walk's up (gravity) and its height toward the median (height), then finds the poses that fit all of it best.
+the walk's up (gravity) and its height toward one level (height), then finds the poses that fit all of it best.
 
 Pure functions, no I/O and no model, so this runs (and is tested) on any machine:
 
@@ -15,7 +15,9 @@ Pure functions, no I/O and no model, so this runs (and is tested) on any machine
   pulls with a bounded force; but a bounded force still bends a long chain (a loop 90 degrees off turned a 64-pose
   rectangle by 16 degrees, 1.3 m at a corner), so a loop that still disagrees by more than `REJECT` after the solve
   is dropped and the walk solved again without it, worst first. The acceptance checks are the first line, Huber
-  the second, and this the third.
+  the second, and this the third. The height prior's level is an unknown of the solve, starting at the drifted
+  walk's median: held there, a long walk whose drifted heights wandered (a simulated 10 minute walk's median was
+  1.8 m under its first camera) was levelled 1.8 m low, and its first step, the only one that could, took the jump.
 - `odometry`: the consecutive edges of a pose sequence.
 - `loop_scale`: the one number that puts MASt3R's pair translations into CUT3R's scale, or a refusal when the
   short-baseline pairs disagree on it.
@@ -43,7 +45,7 @@ CAMERA_UP = (0.0, -1.0, 0.0)  # an upright camera's up, in its own frame
 ODOMETRY_DEG, ODOMETRY_M = 2.0, 0.05  # CUT3R between consecutive frames, the part that already holds
 LOOP_DEG, LOOP_M = 5.0, 0.20  # a verified MASt3R pair, scale-aligned
 GRAVITY_DEG = 5.0  # a phone held upright
-HEIGHT_M = 0.3  # a camera's height along up, about the walk's median
+HEIGHT_M = 0.3  # a camera's height along up, about the walk's level (solved for)
 HEIGHT_PRIOR = True  # one storey (IMG_7676); a place with stairs turns this off
 HUBER = 1.0  # whitened units: a residual block past this pulls with a constant force
 REJECT = 4.0  # whitened: a loop still this far off after the solve (about 20 degrees or 0.8 m) is dropped
@@ -121,12 +123,12 @@ def solve(
     poses = np.array(poses, dtype=np.float64)
     g = world_up(poses) if up is None else np.asarray(up, dtype=np.float64) / np.linalg.norm(up)
     level = float(np.median(poses[:, :3, 3] @ g))
-    every = _Graph(edges, g, level, gravity, height)
+    every = _Graph(edges, g, gravity, height)
     kept = list(range(len(edges)))
     dropped: list[int] = []
     while True:
-        graph = _Graph([edges[k] for k in kept], g, level, gravity, height)
-        out, done, cost = _minimize(graph, poses, iterations)
+        graph = _Graph([edges[k] for k in kept], g, gravity, height)
+        out, done, cost = _minimize(graph, poses, level, iterations)
         white = every.whitened(out)
         far = [k for k in kept if edges[k].loop and white[k] > REJECT]
         if not far:
@@ -138,28 +140,30 @@ def solve(
     return Solution(out, done, cost, deg, m, tuple(sorted(dropped)))
 
 
-def _minimize(graph: _Graph, poses: np.ndarray, iterations: int) -> tuple[np.ndarray, int, float]:
-    """Levenberg-damped Gauss-Newton from `poses`: the poses it ends at, the iterations it took, and the cost."""
+def _minimize(graph: _Graph, poses: np.ndarray, level: float, iterations: int) -> tuple[np.ndarray, int, float]:
+    """Levenberg-damped Gauss-Newton from `poses` and the height prior's `level`: the poses it ends at, the
+    iterations it took, and the cost."""
     n = len(poses)
     if n < 2:
-        return poses, 0, graph.cost(poses)
+        return poses, 0, graph.cost(poses, level)
     damping = 1e-6
-    cost = graph.cost(poses)
+    cost = graph.cost(poses, level)
     done = 0
     for done in range(1, iterations + 1):
-        hessian, gradient = graph.normal(poses, n)
+        hessian, gradient = graph.normal(poses, n, level)
         scale = hessian.diagonal().mean() or 1.0
         while True:
             lhs = hessian + sparse.identity(hessian.shape[0], format="csc") * (damping * scale)
-            step = -np.asarray(spsolve(lhs.tocsc(), gradient)).reshape(n - 1, 6)
-            trial = _retract(poses, step)
-            new = graph.cost(trial)
+            step = -np.asarray(spsolve(lhs.tocsc(), gradient))
+            trial = _retract(poses, step[: 6 * (n - 1)].reshape(n - 1, 6))
+            rise = float(step[-1]) if graph.height else 0.0
+            new = graph.cost(trial, level + rise)
             if new <= cost or damping > 1e6:
                 break
             damping *= 10.0
         if new > cost:
             break
-        poses, cost = trial, new
+        poses, level, cost = trial, level + rise, new
         damping = max(damping / 10.0, 1e-9)
         if float(np.abs(step).max()) < STEP_TOL:
             break
@@ -241,7 +245,7 @@ def up_axis_error(c2w: np.ndarray, world_points: np.ndarray) -> float:
 class _Graph:
     """The residuals, their Jacobians, and the robust cost, over the edges and the priors."""
 
-    def __init__(self, edges: Sequence[Edge], up: np.ndarray, level: float, gravity: bool, height: bool) -> None:
+    def __init__(self, edges: Sequence[Edge], up: np.ndarray, gravity: bool, height: bool) -> None:
         self.i = np.array([e.i for e in edges], dtype=np.int64)
         self.j = np.array([e.j for e in edges], dtype=np.int64)
         self.z = np.array([e.measured for e in edges], dtype=np.float64).reshape(-1, 4, 4)
@@ -249,7 +253,6 @@ class _Graph:
             [[math.radians(e.sigma_deg)] * 3 + [e.sigma_m] * 3 for e in edges], dtype=np.float64
         ).reshape(-1, 6)
         self.up = up
-        self.level = level
         self.gravity = gravity
         self.height = height
         helper = np.array([1.0, 0.0, 0.0]) if abs(up[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
@@ -267,16 +270,16 @@ class _Graph:
         trans = np.einsum("kji,kj->ki", rz, d - self.z[:, :3, 3])
         return np.c_[rot, trans], err_r, d, rz
 
-    def _priors(self, poses: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    def _priors(self, poses: np.ndarray, level: float) -> tuple[np.ndarray, np.ndarray]:
         """Per pose: the gravity residual (n x 2, the camera up's tilt off up, in radians for small tilts) and the
-        height residual (n, metres)."""
+        height residual (n, metres, about `level`)."""
         ups = np.einsum("nij,j->ni", poses[:, :3, :3], CAMERA_UP)
-        return ups @ self.across, poses[:, :3, 3] @ self.up - self.level
+        return ups @ self.across, poses[:, :3, 3] @ self.up - level
 
-    def _blocks(self, poses: np.ndarray) -> list[np.ndarray]:
+    def _blocks(self, poses: np.ndarray, level: float) -> list[np.ndarray]:
         """Every residual block whitened, rows x block size: the edges, then gravity, then height."""
         res = self._edges(poses)[0] / self.sigma
-        tilt, rise = self._priors(poses)
+        tilt, rise = self._priors(poses, level)
         out = [res]
         if self.gravity:
             out.append(tilt / math.sin(math.radians(GRAVITY_DEG)))
@@ -284,8 +287,8 @@ class _Graph:
             out.append((rise / HEIGHT_M)[:, None])
         return out
 
-    def cost(self, poses: np.ndarray) -> float:
-        return float(sum(_huber(np.linalg.norm(b, axis=1)).sum() for b in self._blocks(poses)))
+    def cost(self, poses: np.ndarray, level: float) -> float:
+        return float(sum(_huber(np.linalg.norm(b, axis=1)).sum() for b in self._blocks(poses, level)))
 
     def whitened(self, poses: np.ndarray) -> np.ndarray:
         """Each edge's whitened residual norm."""
@@ -295,8 +298,10 @@ class _Graph:
         res = self._edges(poses)[0]
         return np.degrees(np.linalg.norm(res[:, :3], axis=1)), np.linalg.norm(res[:, 3:], axis=1)
 
-    def normal(self, poses: np.ndarray, n: int) -> tuple[sparse.csc_matrix, np.ndarray]:
-        """The Huber-weighted normal equations (J^T W J, J^T W r) over the free poses (all but the first)."""
+    def normal(self, poses: np.ndarray, n: int, level: float) -> tuple[sparse.csc_matrix, np.ndarray]:
+        """The Huber-weighted normal equations (J^T W J, J^T W r) over the free poses (all but the first) and, with
+        the height prior on, its level as one last unknown."""
+        size = 6 * (n - 1) + (1 if self.height else 0)
         rows: list[np.ndarray] = []
         cols: list[np.ndarray] = []
         vals: list[np.ndarray] = []
@@ -339,7 +344,7 @@ class _Graph:
             add(jj, white, self.j, start, w)
             resid.append((white * np.sqrt(w)[:, None]).ravel())
             start += k * 6
-        tilt, rise = self._priors(poses)
+        tilt, rise = self._priors(poses, level)
         nodes = np.arange(n)
         rot = poses[:, :3, :3]
         if self.gravity:
@@ -358,13 +363,16 @@ class _Graph:
             jac = np.zeros((n, 1, 6))
             jac[:, 0, 3:] = np.einsum("i,nij->nj", self.up, rot) / HEIGHT_M  # t + R v
             add(jac, white[:, None], nodes, start, w)
+            rows.append(start + nodes)  # each height residual falls as the level rises
+            cols.append(np.full(n, size - 1))
+            vals.append(-np.sqrt(w) / HEIGHT_M)
             resid.append(white * np.sqrt(w))
             start += n
         if not vals:  # nothing touches a free pose: no step
-            return sparse.csc_matrix((6 * (n - 1), 6 * (n - 1))), np.zeros(6 * (n - 1))
+            return sparse.csc_matrix((size, size)), np.zeros(size)
         r = np.concatenate(resid)
         jac_all = sparse.coo_matrix(
-            (np.concatenate(vals), (np.concatenate(rows), np.concatenate(cols))), shape=(start, 6 * (n - 1))
+            (np.concatenate(vals), (np.concatenate(rows), np.concatenate(cols))), shape=(start, size)
         ).tocsc()
         # A free pose no residual touches would leave the system singular; the damping covers it.
         return (jac_all.T @ jac_all).tocsc(), jac_all.T @ r

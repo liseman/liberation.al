@@ -42,7 +42,8 @@ run = [
 [tasks.system]
 description = "Install the system packages config/system-packages.toml declares and this machine is missing (shows the command and asks first)"
 raw = true  # it asks before running sudo apt-get or brew, so it needs the terminal
-run = "uv run pack-system install"
+# --no-project runs pack-system before uv sync builds continuum-py, so the FFmpeg and PipeWire headers are installed first.
+run = "PYTHONPATH=src uv run --no-project python -m liberational.system_packages install"
 
 [tasks.whisper]
 description = "Build whisper.cpp's whisper-server into data/whisper.cpp (CUDA with nvcc, Metal on Apple Silicon, else CPU; safe to re-run)"
@@ -156,6 +157,7 @@ echo "gsplat $V set up in $D"
 
 [tasks.frontend-deps]
 description = "Install the frontend's npm packages from frontend/package-lock.json (skipped while they're current)"
+wait_for = ["system"]
 dir = "frontend"
 sources = ["package.json", "package-lock.json"]
 outputs = ["node_modules/.package-lock.json"]
@@ -177,6 +179,7 @@ run = "../tools/niced.sh npx --no-install playwright install --only-shell chromi
 
 [tasks.hooks]
 description = "Use the repo's git hooks in .githooks/ (pre-commit refuses gitignored files, such as runtime data under data/, leftover conflict markers, and private data (tools/privacy_check.py, which also checks commit messages and pushes); pre-merge-commit refuses conflict markers a merge would bring in, and pre-push those in the commits being pushed; post-merge, post-checkout, and post-rewrite rebuild the frontend when frontend/ changed)"
+wait_for = ["system"]
 run = ["git config core.hooksPath .githooks", "python3 tools/privacy_check.py denylist"]
 
 [tasks.models]
@@ -220,6 +223,10 @@ run = ["tools/niced.sh uv run ruff format", "tools/niced.sh uv run ruff check --
 [tasks.dashboard]
 description = "Run the pack dashboard on http://localhost:8765/"
 run = "uv run pack-dashboard"
+
+[tasks.demo]
+description = "Run the dashboard on the made-up demo household (http://localhost:8766/), apart from any real data"
+run = "uv run pack-demo"
 
 [tasks.dev]
 description = "Run the dashboard with auto-reload (restarts on Python or config changes) and Vite's dev server, which hot-reloads the frontend"

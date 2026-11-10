@@ -7,7 +7,7 @@ export interface Shell {
   owner: string;
   cams: string[]; // exact native camera/RTSP manifest names, or legacy vision.cams IDs when no manifest exists
   activeCams: string[]; // Live/status only; disabled cameras stay in cams for recorded history
-  views: Record<string, string>; // each named camera's name (vision.places, #313), like "front camera"
+  views: Record<string, string>; // each named camera's name (vision.camera_names, #313), like "front camera"
   hotkeys: boolean; // dashboard.hotkeys: single-key shortcuts, off by default
 }
 
@@ -45,7 +45,7 @@ export function useActiveCameras(): string[] {
   return useSyncExternalStore(subscribeActiveCameras, () => shell().activeCams);
 }
 
-/** A saved change to the camera names (vision.places) renames them on this page too, without waiting for a reload. */
+/** A saved change to the camera names (vision.camera_names) renames them on this page too, without waiting for a reload. */
 export function setCameraNames(views: Record<string, string>): void {
   const host = globalThis as { NAMES?: Partial<Shell> };
   host.NAMES = { ...shell(), views: { ...views } };
