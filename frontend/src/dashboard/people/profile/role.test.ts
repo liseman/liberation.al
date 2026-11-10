@@ -111,12 +111,18 @@ describe('whereabouts', () => {
   });
 
   it('names the camera that saw them, by its name from Settings when it has one, else its id', () => {
-    expect(whereabouts({ here_now: { cam: 'cam0', place: 'front camera' } })).toBe('Here now, seen by Front camera');
-    expect(whereabouts({ here_now: { cam: 'cam0', place: 'cam0' } })).toBe('Here now, seen by cam0');
+    expect(whereabouts({ here_now: { cam: 'cam0', camera_name: 'front camera' } })).toBe(
+      'Here now, seen by Front camera',
+    );
+    expect(whereabouts({ here_now: { cam: 'cam0', camera_name: 'cam0' } })).toBe('Here now, seen by cam0');
     vi.useFakeTimers({ now: NOW, toFake: ['Date'] });
     try {
       expect(
-        whereabouts({ last_seen: at(2026, 10, 27, 20, 12), last_seen_cam: 'cam1', last_seen_place: 'rear camera' }),
+        whereabouts({
+          last_seen: at(2026, 10, 27, 20, 12),
+          last_seen_cam: 'cam1',
+          last_seen_camera_name: 'rear camera',
+        }),
       ).toBe('Last seen yesterday at 20:12 by Rear camera');
     } finally {
       vi.useRealTimers();
