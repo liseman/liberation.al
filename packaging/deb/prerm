@@ -1,0 +1,5 @@
+# Before the package's files are replaced (an upgrade) or removed: a running application drains and quits.
+case "$1" in
+  upgrade | remove | deconfigure | failed-upgrade) quit_applications ;;
+esac
+exit 0

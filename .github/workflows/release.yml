@@ -9,6 +9,8 @@
 #   continuum   the SDK wheel and the daemons wheel, per platform (continuum/packaging/, docs/CONTINUUM-SDK.md "Wheels")
 #   smoke       tools/release_smoke.sh per platform: install from the files, pack-setup, demo mode, the supervisor
 #   release     the GitHub Release, when every smoke test passed and a tag started the run
+#   apt         the .deb per architecture, tested in clean containers (apt.yml); a tag's run then signs and publishes
+#               the apt repository, a rehearsal publishes nothing
 name: release
 
 on:
@@ -211,3 +213,15 @@ jobs:
           case "$TAG" in *a[0-9]*|*b[0-9]*|*rc[0-9]*) flags+=(--prerelease) ;; esac
           gh release create "$TAG" --verify-tag --title "$TAG" --notes-file notes.md "${flags[@]}" \
             -- *.whl *-lock-*.txt SHA256SUMS
+
+  # After the release (a tag) or instead of it (a rehearsal, where `release` is skipped).
+  apt:
+    needs: [package, continuum, smoke, release]
+    if: ${{ !cancelled() && needs.smoke.result == 'success' && (needs.release.result == 'success' || needs.release.result == 'skipped') }}
+    uses: ./.github/workflows/apt.yml
+    with:
+      publish: ${{ github.event_name == 'push' }}
+    secrets:
+      APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
+    permissions:
+      contents: write
