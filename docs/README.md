@@ -19,6 +19,9 @@ it does. A document that still mixes kinds is listed under the one it mostly is.
 | [Running](RUNNING.md) | Open and quit the application, see what runs, restart one service or everything, and read logs |
 | [Upgrading](../MIGRATING.md) | Update an existing install, follow the steps a change needs, and reset state |
 | [Cameras](CAMERAS.md) | Add a camera, name its view, pause it, and calibrate a wide or fisheye lens |
+| [Zones](ZONES.md) | Draw zones on a camera's picture and find the visits counted in them |
+| [Activities](ACTIVITIES.md) | Keep your list of activities, answer clips so a kind counts in Ask, and mark an event by hand |
+| [Remote access](REMOTE.md) | Use the dashboard from another device, with a password, and get video over HTTPS |
 | [Naming](NAMING.md) | Name people and pets, answer the naming cards, and remove a wrong training image |
 | [Places](PLACES.md) | Have the cameras learn a place's map and see people on its plan |
 | [Ingest](INGEST.md) | Import photos, video, and audio from elsewhere |
