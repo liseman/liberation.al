@@ -1,4 +1,4 @@
-"""Typed glue between the pack's captioners and mlx-vlm (issue #181).
+"""Typed glue between the pack's captioners and mlx-vlm.
 
 mlx-vlm is installed only on Apple Silicon, so these keep the calls to it type-correct there without changing what
 is passed. Nothing here imports mlx-vlm at run time.
