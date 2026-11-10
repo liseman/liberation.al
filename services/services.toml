@@ -75,6 +75,18 @@ command = "pack-surroundings"
 background = true
 default = true
 
+# Fits spot cameras' tilts, gives learned maps their floor and fixed cameras, records the fixed cameras' footprints,
+# and runs the placer (spatial/positions.py). Reads pose tracks from the segment store's files.
+[positions]
+description = "Every hour, puts the people and pets the cameras saw on each place's plan."
+group = "workers"
+command = "pack-positions"
+restart = false
+schedule = "*:20"
+wait_for_broker = true
+background = true
+default = true
+
 [research]
 description = "Works through the Research questions asked in the dashboard, one at a time in the background, for the Inbox."
 group = "workers"

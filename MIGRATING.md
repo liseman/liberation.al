@@ -56,14 +56,27 @@ credentials. Device names identify streams, so do not rename devices as part of 
 
 Newest first. Do each one your install has not had yet.
 
+### Positions are placed every hour by `pack-positions`
+
+`tools/place_positions.py` is gone: its work is the `pack-positions` command, which the new `positions` service runs
+every hour at 20 past. It needs the command installed and the service added.
+
+1. **Install the new command** in the checkout's environment, keeping the extras your install uses (a bare
+   `uv sync` removes them; "Sync Python, keeping your extras" above has the command).
+2. **Add the service.** `uv run --no-sync pack-services install positions`, or under the application, quit it and
+   open it again.
+3. **Bring the positions up to date once**, so the first hourly run is short: `pack-positions --days 7` records up to
+   a week of footprints for cameras never recorded and places them. `pack-positions --dry-run` first prints what
+   that would place per camera and changes nothing.
+
 ### Spatial memory starts again from what the cameras see
 
 Phone walks (`pack-walkthrough`, the Places page's "Import a walk") and the nightly fixed-camera pass
 (`pack-spatial-cameras`, the `spatial-cameras` job at 01:00) are gone, with the tools built on them
 (`tools/rebuild_place.py`, `restore_owner_plan.py`, `fit_intrinsics.py`, `camera_poses.py`, `splat_walk_check.py`, and
 `walkthrough_closure.py`). A place's map is made by a new job that learns it from what the cameras see. Until that
-job runs, nothing records footprints, places positions, or trains splats on a schedule
-(`.venv/bin/python tools/place_positions.py` and `pack-spatial-splat` still run by hand).
+job runs, nothing trains splats on a schedule (`pack-spatial-splat` still runs by hand); positions are placed by
+`pack-positions` (above).
 
 1. **Remove the scheduled job.** An install that still renders a unit per service removes its timer, before the
    pull:
