@@ -226,11 +226,16 @@ def splat_file(state: Path, place: str, revision: str) -> Path | None:
 WALK_PREFIX = "walk-"  # a walk's look-from views (spatial/splats.py LOOK_PREFIX), not fixed cameras
 
 
-def _walk_splat(chain: Sequence[places.Revision], splatted: places.Revision) -> bool:
-    """Whether `splatted`'s splat was trained from a walk's frames rather than the fixed cameras' (#44): a walk's
+def _walk_splat(state: Path, chain: Sequence[places.Revision], splatted: places.Revision) -> bool:
+    """Whether `splatted`'s splat was trained from a walk's frames rather than the fixed cameras' (#44): what the
+    splat's own note says (`places.splat_source`), which a walk's splat retrained onto a later revision needs (#43).
+    A splat written before that note is told by where it is: a walk's
     splat is made for the revision its import wrote (spatial/splats.py `splat_walk`), the first to hold the walk's
     look-from cameras, while the daily fixed-camera splat lands on a later revision, which inherits them. So it's a
     walk's when `splatted` has walk cameras that the revision before it in `chain` lacks."""
+    source = places.splat_source(state, splatted)
+    if source is not None:
+        return source == "walk"
     at = next((i for i, r in enumerate(chain) if r.id == splatted.id), None)
     before = set(chain[at - 1].cameras) if at else set()
     return any(cam.startswith(WALK_PREFIX) and cam not in before for cam in splatted.cameras)
@@ -264,7 +269,7 @@ def scene(state: Path, place: str) -> Reply:
     except FileNotFoundError:  # pruned since it was found
         shown, splat_size = None, None
     stale = with_splat[-1] if shown is None and with_splat else None
-    walk_splat = shown is not None and _walk_splat(chain, shown)
+    walk_splat = shown is not None and _walk_splat(state, chain, shown)
     # an owner plan drawn in a revision with no plan file is in its floor's frame
     transform = places.plan_frame(rev) if owner else rev.plan_transform
     return 200, {
