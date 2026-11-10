@@ -1,7 +1,7 @@
 """The object worker on Continuum: finds the objects remembered on the Objects page in the camera video, and
 writes where it saw them as `object.match` rows in the segment store (`memory.objects.match_record`).
 
-Per camera, the newest frame every `interval_s` (v1's observer ran every 5 s) is matched against every object's
+Per camera, the newest frame every `interval_s` is matched against every object's
 template (`memory.objects.match`: SIFT features and a RANSAC homography, on the CPU). A match counts once a second,
 distinct frame within CONFIRM_S puts the object in the same place; a confirmed sighting is written with the frame as
 its evidence and synced at once (matches are rare), at most once per REPEAT_S for an object that hasn't moved. The

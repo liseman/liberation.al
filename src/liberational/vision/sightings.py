@@ -8,8 +8,8 @@ segment store:
 A sighting here is a face.match row: {id, ts, cam, bbox_norm, det, quality, track_id, name, sim, cluster}. Its name
 is the people registry's answer for the sighting first (`person_of`: the owner's word, or the identity worker's
 claim), the match's name when the registry has none, and nobody when the owner withdrew it. The owner's corrections
-(People's "Not <name>" and "Assign to") are registry claims on the sighting (`correct`). The read helpers keep v1's
-shapes, so the dashboard, history Q&A, and the timeline read them as before; an id is the match's id (a string).
+(People's "Not <name>" and "Assign to") are registry claims on the sighting (`correct`). The read helpers return plain
+dicts for the dashboard, history Q&A, and the timeline; an id is the match's id (a string).
 Readers that scan every sighting (shots, the best shots, unnamed clips) look back SHOT_DAYS.
 
 The voice helpers at the end (hand_labeled, candidate, decide) are the voice pass's, kept here for its callers.
@@ -51,7 +51,7 @@ def _now() -> float:
 
 
 def _same(a: object, b: str) -> bool:
-    """Names compare without case, as v1's lower() did."""
+    """Names compare without case."""
     return isinstance(a, str) and a.casefold() == b.casefold()
 
 
@@ -274,9 +274,9 @@ def _found(sid: str, state: State, around: float | None = None) -> dict[str, Any
 def correct(ids: Sequence[str], name: str | None, state: State = None) -> list[dict[str, Any]]:
     """The owner says sightings `ids` are `name` (None: nobody they know), as registry claims on each detection (the
     owner's word outranks the identity worker's). Saying someone else, or nobody, also withdraws the name it had
-    without the owner (its match's, or its face group's), so it stays off that person even if the one named now is deleted later (as v1 kept it). Returns
-    what each was, for uncorrect(): [{id, was}] (was: the name the registry gave it before, None for none; "not": the
-    person whose negative its face became)."""
+    without the owner (its match's, or its face group's), so it stays off that person even if the one named now is
+    deleted later. Returns what each was, for uncorrect(): [{id, was}] (was: the name the registry gave it before, None
+    for none; "not": the person whose negative its face became)."""
     from liberational.vision import faces as face_db
 
     reg = registry.at(state)
@@ -357,7 +357,7 @@ def uncorrect(prior: Sequence[Mapping[str, Any]], state: State = None) -> None:
 
 # ---- visits ----
 def _visits(since: float, until: float, state: State) -> list[dict[str, Any]]:
-    """face.visit records overlapping [since, until], as v1's rows: {name, cam, start, end, best_sim, samples}, with
+    """face.visit records overlapping [since, until], as rows: {name, cam, start, end, best_sim, samples}, with
     the ones the registry has changed a face of since rebuilt (_reconciled)."""
     rows = [
         {

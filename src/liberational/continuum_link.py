@@ -1,4 +1,4 @@
-"""A broker connection for v1's synchronous code: one Continuum client on a background event loop, shared by every
+"""A broker connection for synchronous code: one Continuum client on a background event loop, shared by every
 call, made on first use and made again after the broker restarts.
 
 The ported readers (`vision_log`, and `speech_log` in time) wrap their async reads in it, so the dashboard and the

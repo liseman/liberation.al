@@ -29,6 +29,7 @@ What a handler is called with:
 
 from __future__ import annotations
 
+import importlib
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -113,6 +114,12 @@ class Table:
         """Every route as (method, path or pattern, area), sorted."""
         routes = [*self.exact.values(), *self.ordered]
         return sorted((route.method, route.shown, route.area) for route in routes)
+
+
+def load(*areas: str) -> None:
+    """Import the dashboard modules that register routes, so the table has them: the server names them once."""
+    for area in areas:
+        importlib.import_module(f"liberational.dashboard.{area}")
 
 
 TABLE = Table()

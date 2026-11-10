@@ -1,6 +1,6 @@
 """Live microphone levels for the dashboard's meters (GET /audio/levels), read from the broker's PCM rings.
 
-v1's microphone service served these from its own port; on Continuum the dashboard reads each `<mic>.audio` ring
+The dashboard reads each `<mic>.audio` ring
 itself, under a read-only lease, from where the ring is when the page asks: every WINDOW_S it takes the records that
 landed since and sends their RMS and peak in dBFS. The listen worker's `speech.activity` rows (in the segment store)
 add a `speech` boolean while its energy gate state is fresh. This is a sound candidate, not Silero-verified speech.
@@ -24,7 +24,7 @@ from liberational import config as cfg
 from liberational import speech_log
 from liberational.listen.pcm import STAMP, Format
 
-WINDOW_S = 0.04  # about 25 updates a second, as v1's meters had
+WINDOW_S = 0.04  # about 25 updates a second
 ACTIVITY_POLL_S = 0.25
 ACTIVITY_FRESH_S = 3.0  # listen publishes transitions and a heartbeat every second
 _BYTES = {"S16LE": 2, "S24LE3": 3, "S32LE": 4, "F32LE": 4}

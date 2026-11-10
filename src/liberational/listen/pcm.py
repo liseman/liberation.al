@@ -12,7 +12,7 @@ What this module adds on top:
   capture) or a record whose stamp doesn't fit is reported, so the reader can close an utterance at the gap rather
   than splice two times together. The stamp check also catches a record torn by a stalled writer after a forced
   ring handover (the one case where a reader can validate mixed bytes).
-- `Resampler`: v1's stateful linear resample to 16 kHz, which keeps its phase across blocks.
+- `Resampler`: a stateful linear resample to 16 kHz, which keeps its phase across blocks.
 - `HostClock`: host monotonic nanoseconds to UTC, for a stamp taken on this machine.
 """
 
@@ -117,9 +117,9 @@ class Continuity:
 class Resampler:
     """Native rate to 16 kHz, stateful, so the filter and the phase carry across blocks.
 
-    A low-pass filter (CUTOFF_HZ, an FIR run with its state kept between blocks) comes first, then v1's linear
-    interpolation (`_resample_stream`). v1 never needed the filter: PipeWire handed it 16 kHz already. Capture on
-    Continuum records the microphone's native rate, and without the filter everything between 8 and 24 kHz of a
+    A low-pass filter (CUTOFF_HZ, an FIR run with its state kept between blocks) comes first, then linear
+    interpolation (`_resample_stream`). Capture
+    records the microphone's native rate, and without the filter everything between 8 and 24 kHz of a
     48 kHz stream folds back into the speech band: the Wave 3's hiss (45% of its energy) did, so the
     speech gate heard noise and ASR heard no words."""
 
