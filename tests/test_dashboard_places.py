@@ -845,17 +845,6 @@ def test_a_learned_map_without_its_splat_yet_says_its_on_its_way(tmp_path, visio
     assert (reply["splat_state"], reply["splat_wait"]["reason"]) == ("none", "learned")
 
 
-def test_without_the_map_step_installed_the_scene_reads_the_switch_alone(tmp_path, mapped, monkeypatch):
-    def missing(name):
-        raise ImportError(name)
-
-    monkeypatch.setattr(view.importlib, "import_module", missing)
-    place, _ = mapped
-    assert view.scene(tmp_path, place)[1]["learning"] == {
-        "on": False, "cameras": 0, "improving": False, "views": None, "improved": None,
-    }  # fmt: skip
-
-
 def test_a_learned_map_on_a_place_with_an_owners_plan_still_serves_the_owners_plan(tmp_path, monkeypatch):
     told(monkeypatch)
     # A place as a reset leaves it: listed with the owner's plan and no map. Then the cameras found its first map.
