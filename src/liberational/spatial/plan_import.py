@@ -789,6 +789,55 @@ def inside(plan: Parsed, q: np.ndarray) -> np.ndarray:
     return out
 
 
+# Walk coverage (#3): which rooms of a plan a LiDAR walk has seen. A room's floor is counted in COVER_CELL cells, and a
+# cell is walked when a voxel a walk saw (a fused map's `walked` count) lies over it, at any height.
+COVER_CELL = 0.1  # metres
+WALKED_SHARE = 0.3  # a room is walked when a walk saw at least this share of its cells
+MAPPED_SHARE = 0.2  # a room is mapped (by the cameras, if not walked) when the map has this share of its cells
+
+
+@dataclasses.dataclass(frozen=True)
+class RoomCoverage:
+    """How much of one room's floor a map covers: `walked` the share a LiDAR walk saw, `mapped` the share the map has
+    any point over."""
+
+    room: Room
+    walked: float
+    mapped: float
+
+    @property
+    def kind(self) -> str:
+        """ "walked", "cameras only", or "nothing"."""
+        if self.walked >= WALKED_SHARE:
+            return "walked"
+        return "cameras only" if self.mapped >= MAPPED_SHARE else "nothing"
+
+
+def room_coverage(points: np.ndarray, walks: np.ndarray, plan: Parsed, frame: Sequence[float]) -> list[RoomCoverage]:
+    """Each room of `plan` (in plan order, skipping a room too small for one cell) with how much of it the map's
+    `points` (N, 3, in the map's frame) cover, and how much the points with `walks` > 0 do (how many LiDAR walks saw
+    each one, `fuse.Fused.walks`). `frame` is the map-to-plan transform (`places.plan_frame`)."""
+    pts = in_frame(points, frame)[:, :2] if len(points) else np.zeros((0, 2))
+    walked_mask = np.asarray(walks) > 0
+    all_cells = {tuple(c) for c in np.floor(pts / COVER_CELL).astype(np.int64).tolist()}
+    walked_cells = {tuple(c) for c in np.floor(pts[walked_mask] / COVER_CELL).astype(np.int64).tolist()}
+    out: list[RoomCoverage] = []
+    for room in plan.rooms:
+        poly = np.asarray(room.polygon)
+        lo, hi = np.floor(poly.min(0) / COVER_CELL).astype(int), np.ceil(poly.max(0) / COVER_CELL).astype(int)
+        gx, gy = np.meshgrid(np.arange(lo[0], hi[0]), np.arange(lo[1], hi[1]))
+        cells = np.c_[gx.ravel(), gy.ravel()]
+        one = dataclasses.replace(plan, rooms=(room,))
+        cells = cells[inside(one, (cells + 0.5) * COVER_CELL)]
+        if not len(cells):
+            continue
+        keys = [tuple(c) for c in cells.tolist()]
+        walked = sum(k in walked_cells for k in keys) / len(keys)
+        mapped = sum(k in all_cells for k in keys) / len(keys)
+        out.append(RoomCoverage(room, walked, mapped))
+    return out
+
+
 SIGHT_SLACK = 0.1  # metres short of a point its line of sight is checked to: a wall's own points sit on its face
 
 

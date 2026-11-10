@@ -9,7 +9,8 @@ current contract or procedure. Current-system documents describe `main`.
 |---|---|
 | [Contributing](../CONTRIBUTING.md) | Install the toolchain, run services, and validate changes |
 | [Upgrading](../MIGRATING.md) | Update an existing installation, handle model-space changes, and inspect reset scope |
-| [Architecture](ARCHITECTURE.md) | Find component ownership, state paths, workers, dashboard behavior, and how to record a walkthrough |
+| [Architecture](ARCHITECTURE.md) | Find component ownership, state paths, workers, and dashboard behavior |
+| [Walkthrough](WALKTHROUGH.md) | Record a LiDAR walk, import it into a place, and see which places and rooms still need one |
 | [Storage](STORAGE.md) | Understand retention, owner knowledge, disposable history, and dated codec measurements |
 | [Ingest](INGEST.md) | Import media and understand analysis and deletion boundaries |
 | [Bluetooth](BLUETOOTH.md) | Configure advertisement sensors and link devices to people |

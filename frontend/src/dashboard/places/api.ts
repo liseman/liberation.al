@@ -24,6 +24,11 @@ export interface PlaceSummary {
   last_visit: number | null;
   /** When anyone was last seen there by its fixed cameras (#2905), apart from the owner's visits. */
   last_activity?: number | null;
+  /** How many walkthroughs went into the place (#3). */
+  walks?: number;
+  /** The plan's rooms no LiDAR walk covered, in plan order (every room while it has never been walked); null when it
+   *  can't tell (no plan, or no fused map in the plan's frame). */
+  unwalked_rooms?: { id: string; name: string }[] | null;
 }
 
 export const placesQuery = () =>

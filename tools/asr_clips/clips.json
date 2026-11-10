@@ -1,0 +1,116 @@
+{
+  "clips": [
+    {
+      "file": "01.ogg",
+      "voice": "af_heart",
+      "text": "Could you turn the kitchen lights down a little before dinner?",
+      "engines": {
+        "Parakeet TDT 0.6B v3 (sherpa-onnx)": "Could you turn the kitchen lights down a little before dinner?"
+      }
+    },
+    {
+      "file": "02.ogg",
+      "voice": "am_michael",
+      "text": "Alice left her umbrella by the front door again this morning.",
+      "engines": {
+        "Parakeet TDT 0.6B v3 (sherpa-onnx)": "Alice left her umbrella by the front door again this morning."
+      }
+    },
+    {
+      "file": "03.ogg",
+      "voice": "bf_emma",
+      "text": "Remind me to water the tomatoes on Thursday afternoon.",
+      "engines": {
+        "Parakeet TDT 0.6B v3 (sherpa-onnx)": "Remind me to water the tomatoes on Thursday afternoon."
+      }
+    },
+    {
+      "file": "04.ogg",
+      "voice": "bm_george",
+      "text": "When did Rex last go outside for a walk?",
+      "engines": {
+        "Parakeet TDT 0.6B v3 (sherpa-onnx)": "When did Rex last go outside for a walk?"
+      }
+    },
+    {
+      "file": "05.ogg",
+      "voice": "af_bella",
+      "text": "The package should arrive sometime between noon and three o'clock.",
+      "engines": {
+        "Parakeet TDT 0.6B v3 (sherpa-onnx)": "The package should arrive sometime between noon and three o'clock."
+      }
+    },
+    {
+      "file": "06.ogg",
+      "voice": "am_adam",
+      "text": "Dana called twice while you were in the shower, and she wants a call back.",
+      "engines": {
+        "Parakeet TDT 0.6B v3 (sherpa-onnx)": "Dana called twice while you were in the shower, and she wants a call back."
+      }
+    },
+    {
+      "file": "07.ogg",
+      "voice": "af_heart",
+      "text": "Set a timer for twenty five minutes and tell me when the bread is ready.",
+      "engines": {
+        "Parakeet TDT 0.6B v3 (sherpa-onnx)": "Set a timer for 25 minutes, and tell me when the bread is ready."
+      }
+    },
+    {
+      "file": "08.ogg",
+      "voice": "bm_george",
+      "text": "I think the heater in the garage is still running, can you check it?",
+      "engines": {
+        "Parakeet TDT 0.6B v3 (sherpa-onnx)": "I think the heater in the garage is still running. Can you check it?"
+      }
+    },
+    {
+      "file": "09.ogg",
+      "voice": "bf_emma",
+      "text": "Sam is bringing two friends over for the game on Saturday night.",
+      "engines": {
+        "Parakeet TDT 0.6B v3 (sherpa-onnx)": "Sam is bringing two friends over for the game on Saturday night."
+      }
+    },
+    {
+      "file": "10.ogg",
+      "voice": "am_michael",
+      "text": "What was the weather like yesterday when I went for my run?",
+      "engines": {
+        "Parakeet TDT 0.6B v3 (sherpa-onnx)": "What was the weather like yesterday when I went for my run?"
+      }
+    },
+    {
+      "file": "11.ogg",
+      "voice": "af_bella",
+      "text": "Please add milk, eggs, coffee, and a loaf of rye bread to the shopping list.",
+      "engines": {
+        "Parakeet TDT 0.6B v3 (sherpa-onnx)": "Please add milk, eggs, coffee, and a loaf of rye bread to the shopping list."
+      }
+    },
+    {
+      "file": "12.ogg",
+      "voice": "am_adam",
+      "text": "The dishwasher finished an hour ago, but nobody has emptied it yet.",
+      "engines": {
+        "Parakeet TDT 0.6B v3 (sherpa-onnx)": "The dishwasher finished an hour ago, but nobody has emptied it yet."
+      }
+    },
+    {
+      "file": "13.ogg",
+      "voice": "af_heart",
+      "text": "Good night. Lock the back door and turn off every light upstairs.",
+      "engines": {
+        "Parakeet TDT 0.6B v3 (sherpa-onnx)": "Good night, lock the back door and turn off every light upstairs."
+      }
+    },
+    {
+      "file": "14.ogg",
+      "voice": "bm_george",
+      "text": "My appointment with the dentist moved from Monday to the following Wednesday at ten.",
+      "engines": {
+        "Parakeet TDT 0.6B v3 (sherpa-onnx)": "My appointment with the dentist moved from Monday to the following Wednesday at 10."
+      }
+    }
+  ]
+}
