@@ -1227,10 +1227,27 @@ class LiveSources:
         return segment_log.at(self.state).range(segment_log.ZONE_VISITS, start, end)
 
     def zone_coverage(self, start: float, end: float) -> list[dict[str, Any]]:
+        import numpy as np
+
         from liberational import segment_log
 
-        rows = segment_log.at(self.state).range(segment_log.ZONE_COVERAGE, start, end)
-        return [{**r, "ts_start": max(r["ts_start"], start), "ts_end": min(r["ts_end"], end)} for r in rows]
+        # Each kind of subject's joined stretches, a camera at a time: what the reports read is whether an hour was
+        # looked at, for any subject and for animals.
+        log = segment_log.at(self.state)
+        kinds = {
+            k
+            for c in log.table(segment_log.ZONE_COVERAGE, start, end, ("subject_kind",)).values()
+            for k in c["subject_kind"]
+        }
+        out = []
+        for kind in sorted(kinds):
+            of_kind = (
+                ("subject_kind",),
+                lambda c, kind=kind: np.array([k == kind for k in c["subject_kind"]], dtype=bool),
+            )
+            for cam, found in log.covered(segment_log.ZONE_COVERAGE, start, end, where=of_kind).items():
+                out += [{"cam": cam, "subject_kind": kind, "ts_start": a, "ts_end": b} for a, b in found.spans]
+        return sorted(out, key=lambda r: (r["ts_start"], r["cam"], r["subject_kind"]))
 
     def action_spans(self, start: float, end: float) -> list[dict[str, Any]]:
         from liberational import segment_log

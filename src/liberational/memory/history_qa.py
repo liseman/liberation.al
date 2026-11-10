@@ -1231,15 +1231,15 @@ def _watched_since(state: pathlib.Path, since: float, now: float) -> str:
     try:
         from liberational import segment_log
 
-        rows = segment_log.at(state).range(segment_log.MOVEMENT_COVERAGE, since, now)
+        cams = segment_log.at(state).table(segment_log.MOVEMENT_COVERAGE, since, now, ("camera_motion", "supported_ns"))
     except OSError, TimeoutError, RuntimeError, ValueError:
         return ""
     spans = sorted(
-        (max(since, float(a)), min(now, float(b)))
-        for r in rows
-        if r.get("camera_motion") == "stable"
-        for a, b in (r.get("supported") or [])
-        if isinstance(a, int | float) and isinstance(b, int | float)
+        (max(since, segment_log.secs(a)), min(now, segment_log.secs(b)))
+        for c in cams.values()
+        for motion, flat in zip(c["camera_motion"], c["supported_ns"], strict=True)
+        if motion == "stable"
+        for a, b in itertools.batched([int(v) for v in flat], 2)
     )
     covered, cursor = 0.0, since
     for lo, hi in spans:
