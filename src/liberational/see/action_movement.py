@@ -1,4 +1,4 @@
-"""Movement and walk-bys from see-actions' tracks (#1745): `movement.track`, `movement.coverage`, `walkby.span`, and
+"""Movement and walk-bys from see-actions' tracks: `movement.track`, `movement.coverage`, `walkby.span`, and
 `walkby.coverage`, in the segment shapes their readers already use.
 
 see-actions follows people at full frame rate. About every SAMPLE_NS, `Movement.sample` hands one frame of its

@@ -1,4 +1,4 @@
-"""Phone numbers and the names added by hand, read from the person registry (issue #28).
+"""Phone numbers and the names added by hand, read from the person registry.
 
 A person's phone number, and whether the owner added them by hand (People: Add), are fields of their `Person` in the
 registry (`people/registry.py`). A rename or a merge changes that one record, so the number goes with the person.

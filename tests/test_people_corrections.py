@@ -134,7 +134,7 @@ def test_the_unnamed_list_has_faces_voices_and_clips(state):
             "count": 2,
             "last_seen": DAY + 1000,
             "cam": "cam1",
-            "place": "cam1",
+            "camera_name": "cam1",
         }
     ]
     assert [(v["id"], v["label"], v["sample"]["text"]) for v in out["voices"]] == [

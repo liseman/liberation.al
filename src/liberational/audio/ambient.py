@@ -1,10 +1,10 @@
 """Microphone selection rules: which input devices count as microphones to record (the dashboard's device page,
-dashboard/devices.py). What's left of v1's microphone service after #548's switch.
+dashboard/devices.py). What's left of v1's microphone service after the switch to Continuum.
 
 Capture, ASR, and the transcript moved to Continuum: continuum-capture records the microphones, the listen worker
 (listen/worker.py, with v1's VAD and speech gate in listen/gate.py) transcribes them onto the broker's speech log,
 and voices are voiceprints matched through the vector worker (listen/voices.py). v1's voice list (`SpeakerDB` over
-`state/voices.sqlite3`) and its `speakers` command line went with #772.
+`state/voices.sqlite3`) and its `speakers` command line were removed with it.
 """
 
 import json
@@ -70,7 +70,7 @@ def select_input_devices(
         devs = [d for d in devs if d[1] in include]
     seen, out = {}, []
     # Identical names are CoreAudio aggregate oddities. Two names with one slug would share a folder under state/audio
-    # and their lines' keys (#247), so only the first is opened.
+    # and their lines' keys, so only the first is opened.
     for i, name, ch, sr, _ in devs:
         slug = registry.slugify(name)
         if slug in seen:

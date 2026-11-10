@@ -1,8 +1,8 @@
-"""Whose voice a clip is, on Continuum (#548): for code outside the audio worker that has a clip and wants a name.
+"""Whose voice a clip is, on Continuum: for code outside the audio worker that has a clip and wants a name.
 
 v1 kept a voice list with a centroid per voice (`voices.sqlite3`) that the phone bridge, the assistant loop, and the
 voice clone's check each loaded and matched against. On Continuum a voice is a voiceprint: every embedding filed
-under it on `voice.embedding` in the segment store, indexed by the vector worker (#719, #1817). So a clip is embedded with ReDimNet2 B3 and the nearest
+under it on `voice.embedding` in the segment store, indexed by the vector worker. So a clip is embedded with ReDimNet2 B3 and the nearest
 stored embedding can group an unnamed voice, but a person is named only by listen/voices.py's confirmed-reference
 policy (minimum reference count, calibrated consistency, similarity floor, and competing-voice margin). A cluster
 label or a high automatic index score is never enough. Names still come from the registry.

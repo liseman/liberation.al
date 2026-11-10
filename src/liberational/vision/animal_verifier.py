@@ -59,7 +59,7 @@ def square(frame: np.ndarray, box: Sequence[float]) -> np.ndarray:
 
 def tight_bounds(height: int, width: int, box: Sequence[float]) -> tuple[int, int, int, int]:
     """The pixel bounds (left, top, right, bottom) of the box itself in a frame this size, clamped to it and at least a
-    pixel each way: the crop the pet embedder reads (#3024), where `square` would pad a 2:1 animal with background."""
+    pixel each way: the crop the pet embedder reads, where `square` would pad a 2:1 animal with background."""
     h, w = height, width
     # Rounded, not floored: a float32 box (0.6 as 0.60000002) must cut the same pixels as its float64 twin.
     a, b = min(max(0, round(box[0] * w)), w - 1), min(max(0, round(box[1] * h)), h - 1)

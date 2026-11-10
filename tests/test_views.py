@@ -146,12 +146,14 @@ def named_camera_manifest(tmp_path, monkeypatch):
     "question,want",
     [
         ("what did the garden camera show today", ["garden"]),
-        ("what happened in the garden today", ["garden"]),
+        ("what happened in the garden today", []),
+        ("what happened in the garden camera today", ["garden"]),
         ("what happened on the Garden today", ["garden"]),
         ("what did camera GARDEN show today", ["garden"]),
         ("what happened from the reading room camera today", ["reading-room"]),
-        ("what happened in the back porch today", ["back_porch"]),
-        ("what happened in the green room today", ["garden"]),
+        ("what happened in the back porch today", []),
+        ("what happened in the green room today", []),
+        ("what happened on the green room today", ["garden"]),
         ("what did the library camera show today", ["reading-room"]),
         ("garden today", []),
         ("what happened in the kitchen today", []),
@@ -166,19 +168,19 @@ def test_natural_configured_camera_selectors(named_camera_manifest, question, wa
     assert "today" in remaining or not want
 
 
-def test_ambiguous_place_alias_requires_actual_camera_id(named_camera_manifest):
+def test_ambiguous_camera_name_requires_actual_camera_id(named_camera_manifest):
     with (
         cfg.override({"vision": {"camera_names": ["garden: Library", "reading-room: Library"]}}),
         pytest.raises(ValueError, match="[Aa]mbiguous.*camera"),
     ):
-        views.configured_camera_mentions("what happened in the library today")
+        views.configured_camera_mentions("what did the library camera show today")
 
 
-def test_explicit_native_id_wins_over_a_conflicting_place_alias(named_camera_manifest):
+def test_explicit_native_id_wins_over_a_conflicting_camera_name(named_camera_manifest):
     with cfg.override({"vision": {"camera_names": ["reading-room: garden"]}}):
         assert views.configured_camera_mentions("what did camera garden show today")[0] == ["garden"]
         with pytest.raises(ValueError, match="[Aa]mbiguous.*camera"):
-            views.configured_camera_mentions("what happened in the garden today")
+            views.configured_camera_mentions("what happened on the garden today")
 
 
 def test_case_colliding_native_ids_need_exact_explicit_id(tmp_path, monkeypatch):
@@ -190,11 +192,11 @@ def test_case_colliding_native_ids_need_exact_explicit_id(tmp_path, monkeypatch)
     assert views.configured_camera_mentions("camera Garden today")[0] == ["Garden"]
     assert views.configured_camera_mentions("camera garden today")[0] == ["garden"]
     with pytest.raises(ValueError, match="[Aa]mbiguous.*camera"):
-        views.configured_camera_mentions("in the GARDEN today")
+        views.configured_camera_mentions("on the GARDEN today")
 
 
 @pytest.mark.parametrize("question", ["what happened in the morning", "what happened in the night"])
-def test_temporal_place_alias_does_not_select_a_camera(named_camera_manifest, question):
+def test_a_daypart_camera_name_does_not_select_a_camera(named_camera_manifest, question):
     with cfg.override({"vision": {"camera_names": ["garden: Morning", "reading-room: Night"]}}):
         assert views.configured_camera_mentions(question)[0] == []
         assert views.configured_camera_mentions("what did the night camera show")[0] == ["reading-room"]
@@ -207,7 +209,7 @@ def test_longer_spoken_camera_id_owns_its_full_phrase(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(cfg, "ROOT", tmp_path)
     assert views.configured_camera_mentions("camera garden room today")[0] == ["garden-room"]
-    assert views.configured_camera_mentions("in the garden room today")[0] == ["garden-room"]
+    assert views.configured_camera_mentions("on the garden room today")[0] == ["garden-room"]
 
 
 @pytest.mark.parametrize(
@@ -218,7 +220,7 @@ def test_longer_spoken_camera_id_owns_its_full_phrase(tmp_path, monkeypatch):
         "What did Dana talk about reading in the reading room yesterday?",
     ],
 )
-def test_room_in_a_speech_topic_does_not_select_a_camera(named_camera_manifest, question):
+def test_a_room_in_a_speech_topic_does_not_select_a_camera(named_camera_manifest, question):
     selected, remaining = views.configured_camera_mentions(question)
     assert selected == []
     assert remaining == question
