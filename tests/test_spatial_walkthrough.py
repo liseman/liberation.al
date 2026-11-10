@@ -794,6 +794,17 @@ def test_a_walks_posture_tells_looking_down_from_leaning_sideways():
     assert W.posture(rolled, up) == pytest.approx((10.0, 10.0, 0.0), abs=1e-6)
 
 
+def test_a_stray_export_is_read_into_a_rebuilds_piece_and_no_place_is_written(tmp_path):
+    folder = stray_fake.write(tmp_path / "71de12f9", [stray_fake.upright_pose(0.5 + 0.1 * k) for k in range(30)])
+    points, colors, floor, looks = W.stray_piece(folder)
+    assert len(points) == len(colors) > 1000
+    off = stray_fake.distance_to_room(points)
+    assert np.percentile(off, 90) < 0.01 and off.max() < 0.03, "the LiDAR points sit on the room's surfaces"
+    assert floor is not None and np.abs(np.asarray(floor[:3]) @ np.asarray(stray.WORLD_UP)) == pytest.approx(1.0)
+    assert looks and all(name.startswith("walk-") for name in looks)
+    assert places.place_ids(tmp_path) == []
+
+
 def test_a_portrait_stray_export_saves_upright_frames(tmp_path):
     sensor = [stray.turned(stray_fake.upright_pose(0.5 + 0.1 * k), stray_fake.CLOCKWISE.T) for k in range(30)]
     folder = stray_fake.write(tmp_path / "x", sensor)

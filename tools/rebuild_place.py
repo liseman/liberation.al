@@ -2,9 +2,20 @@
 """Rebuild a place's map from its LiDAR walks and its fixed cameras' clouds (spatial/fuse.py `rebuild` says
 how the pieces go together).
 
-The base is each Stray Scanner walk's own map (a revision of the place by `walkthrough.PRODUCER_STRAY` whose map file
-is still there), placed in the fused map's frame by the looks it shares with it and fitted to the owner's plan there
-(spatial/plan_import.py `register`, seeded where the looks put it). Each fixed camera then stands where the owner
+The base is the place's LiDAR walks, each given one of two ways:
+
+- `--walk <folder>` (repeatable): the walk's Stray Scanner export folder, read with the current walkthrough code
+  (`walkthrough.stray_piece`: its poses, LiDAR cloud, and views to look from; nothing is written) and placed on the
+  owner's plan as a LiDAR walk into the place is (`fuse.by_plan`: every turn and shift, kept when its walls fit the
+  plan). A walk that doesn't fit the plan is refused. This is the way for a walk that was fused straight into the
+  place (it never had a revision of its own) or whose revision's map file has been pruned, and the way to drop
+  earlier copies of a walk from the map: the rebuild holds only what it is given.
+- its own revision's map (a revision of the place by `walkthrough.PRODUCER_STRAY` whose map file is still there;
+  `--walk-revision`, or every such revision when no walk is named), placed in the fused map's frame by the looks it
+  shares with it and fitted to the owner's plan there (spatial/plan_import.py `register`, seeded where the looks put
+  it).
+
+The owner's plan must be drawn on the fused map's frame (`tools/restore_owner_plan.py` puts a place back on it). Each fixed camera then stands where the owner
 measured it (the plan's `x-camera` spot and height, its facing when given, else its registered one), and tonight's
 snapshot of each camera group (spatial/cameras.py `capture` and `snapshot`: frames and MASt3R, read only) is seated
 there and polished against the walks. Nothing else of the old map is kept: older machine-made material (soft
@@ -20,8 +31,8 @@ spots, the zones, and the device locations still resolve. It saves the rebuild t
 system temp dir). `--write --load <saved.npz>` writes exactly that rebuild to the live state, refusing if the place's
 fused map moved on since.
 
-    .venv/bin/python tools/rebuild_place.py --place <place id or name> [--walk-revision <id> ...] [--no-cameras] \\
-        [--day YYYY-MM-DD] [--save <file.npz>]
+    .venv/bin/python tools/rebuild_place.py --place <place id or name> [--walk <folder> ...] \\
+        [--walk-revision <id> ...] [--no-cameras] [--day YYYY-MM-DD] [--save <file.npz>]
     .venv/bin/python tools/rebuild_place.py --place <place> --load <file.npz> --write
 
 Run it from the live checkout, never while `pack-spatial-cameras` runs (the write takes the places lock).
@@ -149,6 +160,58 @@ def place_walk(
     return WalkPlaced(
         walk, fuse.Piece(points, colors, walk.floor, walk.cameras), transform, len(shared), off, before, after, moved
     )
+
+
+@dataclasses.dataclass(frozen=True)
+class FolderPlaced:
+    name: str  # the export folder's name
+    piece: fuse.Piece
+    transform: np.ndarray  # its cloud into the fused map's frame
+    found: str  # how it fits the owner's plan
+    after: Walls
+
+
+def place_folder(
+    state: Path,
+    place: str,
+    name: str,
+    piece: fuse.Piece,
+    plan: pi.Parsed,
+    frame: Sequence[float],
+) -> FolderPlaced | None:
+    """A walk read from its export folder (`piece`, in the walk's own frame) in `place`'s fused map's frame: levelled
+    by its floor and its own cloud's floor plane (as `place_walk` levels a walk revision), then placed by the owner's
+    plan (`fuse.by_plan`, the placement a LiDAR walk into the place gets). None when it has no floor or doesn't fit
+    the plan."""
+    if piece.floor is None:
+        return None
+    level = fuse.leveller(piece.floor)
+    try:
+        normal, d = floorplan.floor_plane(
+            fuse.apply(level, piece.points), (0.0, 0.0, 1.0), 0.03, np.random.default_rng(0)
+        )
+        level = fuse.leveller((*(float(x) for x in normal), -float(d))) @ level
+    except ValueError:
+        pass
+    placed = fuse.by_plan(state, place, fuse.apply(level, piece.points))
+    if placed is None:
+        return None
+    transform = placed[0] @ level
+    after = wall_stats(plan, pi.band(fuse.apply(transform, piece.points), frame))
+    return FolderPlaced(name, piece, transform, placed[1], after)
+
+
+def distinct(looks: Mapping[str, places.CameraPose], taken: set[str]) -> dict[str, places.CameraPose]:
+    """A walk's looks under names no earlier walk of the rebuild has: looks are named by their time into their walk
+    ("walk-0m00s"), so two walks share names, and the second's would replace the first's. A clashing name gets "b"s
+    until it's free (letters, digits, and hyphens, as camera names are). `taken` grows by the names given."""
+    out: dict[str, places.CameraPose] = {}
+    for name, pose in looks.items():
+        while name in taken:
+            name += "b"
+        taken.add(name)
+        out[name] = pose
+    return out
 
 
 def fuse_pose(rev: places.Revision, cam: str) -> np.ndarray:
@@ -380,7 +443,13 @@ def _place(state: Path, wanted: str) -> places.Place:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--place", required=True, help="place id or name")
-    ap.add_argument("--walk-revision", action="append", default=[], help="a Stray walk's revision (default: all)")
+    ap.add_argument("--walk", action="append", default=[], type=Path, help="a walk's Stray Scanner export folder")
+    ap.add_argument(
+        "--walk-revision",
+        action="append",
+        default=[],
+        help="a Stray walk's revision (default: all, unless --walk names the walks)",
+    )
     ap.add_argument("--no-cameras", action="store_true", help="leave the fixed cameras' snapshots out")
     ap.add_argument("--day", help="count position rows on this local day (default: today, up to now)")
     ap.add_argument("--save", type=Path, help="where the dry run saves the rebuild (.npz)")
@@ -420,11 +489,30 @@ def main() -> None:
     chain = places.revisions(state, held.id)
     from liberational.spatial import walkthrough
 
-    wanted = a.walk_revision or [
-        r.id for r in chain if r.producer == walkthrough.PRODUCER_STRAY and places.read_map(state, r) is not None
-    ]
-    if not wanted:
-        sys.exit("no Stray walk revision with its map; give --walk-revision")
+    wanted = a.walk_revision or (
+        []
+        if a.walk
+        else [r.id for r in chain if r.producer == walkthrough.PRODUCER_STRAY and places.read_map(state, r) is not None]
+    )
+    if not wanted and not a.walk:
+        sys.exit("no Stray walk revision with its map; give its export folder with --walk")
+    pieces: list[tuple[fuse.Piece, np.ndarray]] = []
+    names: set[str] = set()
+    for folder in a.walk:
+        from liberational.spatial import stray
+
+        if not stray.is_export(folder):
+            sys.exit(f"{folder} is not a Stray Scanner export folder (rgb.mp4 and odometry.csv)")
+        points, colors, floor, looks = walkthrough.stray_piece(folder)
+        if floor is None:
+            sys.exit(f"walk {folder.name} has no floor to level it by")
+        looks = distinct(looks, names)
+        f = place_folder(state, held.id, folder.name, fuse.Piece(points, colors, floor, looks), plan, frame)
+        if f is None:
+            sys.exit(f"walk {folder.name} doesn't fit the owner's plan, so it can't be placed; nothing is rebuilt")
+        print(f"walk {f.name}: {len(points)} points, {len(looks)} looks; {f.found}")
+        print("  " + f.after.line("placed by the plan"))
+        pieces.append((f.piece, f.transform))
     walks = []
     for wid in wanted:
         rev = next((r for r in chain if r.id == wid), None)
@@ -450,7 +538,7 @@ def main() -> None:
     groups = [] if a.no_cameras else snapshots(state, fixed, now)
     at_spots = spots(newest, plan, frame)
     rebuilt = fuse.rebuild(
-        [(w.piece, w.transform) for w in walks], groups, at_spots, inside_plan(plan, frame), newest.cameras
+        [*pieces, *((w.piece, w.transform) for w in walks)], groups, at_spots, inside_plan(plan, frame), newest.cameras
     )
     after = wall_stats(plan, pi.band(rebuilt.fused.points, frame))
     print(before.line("before"))
