@@ -76,9 +76,10 @@ fn rows_read_back_by_time_range_from_open_and_closed_parts_with_their_row_seq() 
     assert_eq!(open.parts, [part(None, 3)], "the open part, as far as read");
     w.close().unwrap();
     let closed = read(dir.path(), "body.detection", None, T0 + 2, T0 + 3).unwrap();
-    assert_eq!(closed.parts, [part(Some(3), 3)], "every part in the range, not only those with matching rows");
+    let rewritten = PartRef { version: 1, ..part(Some(3), 3) };
+    assert_eq!(closed.parts, [rewritten], "every part in the range, not only those with matching rows");
     let cam = dir.path().join("body.detection").join("cam0");
-    assert_eq!(files(&cam), [format!("{label}-0000-s0-3.arrows")], "closed: its row_seq range");
+    assert_eq!(files(&cam), [format!("{label}-0000-s0-3-v1.arrows")], "closed: its row_seq range, in one batch");
     assert_eq!(seqs_of(&read(dir.path(), "body.detection", None, T0, T0 + H).unwrap()), [0, 1, 2]);
 }
 
@@ -220,7 +221,7 @@ fn a_writer_resumed_at_a_saved_row_seq_drops_what_came_after_so_a_replay_writes_
     assert_eq!(seqs_of(&all), [0, 1, 2, 3]);
     let cam = dir.path().join("movement.track").join("cam0");
     assert!(
-        files(&cam).iter().any(|f| f.ends_with("-s0-2-v1.arrows")),
+        files(&cam).iter().any(|f| f.ends_with("-s0-2-v2.arrows")),
         "the straddling part rewritten: {:?}",
         files(&cam)
     );
@@ -539,7 +540,7 @@ fn a_resume_whose_rewrite_a_crash_cut_short_opens_again() {
     let saved = w.sync().unwrap();
     w.append(&rows(&[T0 + 3])).unwrap();
     w.close().unwrap();
-    let v0 = part_named(&cam, "-s0-3.arrows");
+    let v0 = part_named(&cam, "-s0-3-v1.arrows");
     let original = std::fs::read(&v0).unwrap();
     drop(Writer::open_at(root, "movement.track", "cam0", schema(), Some(saved)).unwrap());
     std::fs::write(&v0, original).unwrap(); // the crash, before the straddling part's old version went
@@ -566,4 +567,97 @@ fn a_rewrite_is_never_seen_half_written() {
         .filter(|n| !n.starts_with('.'))
         .collect();
     assert_eq!(names, [format!("{}-0000-s0-3-v1.arrows", hour_label(T0 / H))], "no temporary file left");
+}
+
+fn batches_in(path: &Path) -> usize {
+    reader::decode_file(path).unwrap().len()
+}
+
+#[test]
+fn a_part_appended_a_row_at_a_time_closes_as_one_batch_and_a_read_joins_an_open_parts_batches() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut w = Writer::open(dir.path(), "action.coverage", "cam0", schema()).unwrap();
+    let times: Vec<u64> = (1..=50).map(|i| T0 + i).collect();
+    for &t in &times {
+        w.append(&rows(&[t])).unwrap();
+    }
+    let cam = dir.path().join("action.coverage").join("cam0");
+    let label = hour_label(T0 / H);
+    assert_eq!(batches_in(&cam.join(format!("{label}-0000-s0.arrows"))), 50, "open: a batch an append");
+    let open = read(dir.path(), "action.coverage", None, T0, T0 + H).unwrap();
+    assert_eq!(open.batches.len(), 1, "read as one batch a part");
+    assert_eq!(ts_of(&open), times);
+    w.close().unwrap();
+    assert_eq!(files(&cam), [format!("{label}-0000-s0-50-v1.arrows")], "rewritten once, at its close");
+    assert_eq!(batches_in(&cam.join(format!("{label}-0000-s0-50-v1.arrows"))), 1);
+    let closed = read(dir.path(), "action.coverage", None, T0, T0 + H).unwrap();
+    assert_eq!(ts_of(&closed), times);
+    assert_eq!(seqs_of(&closed), (0..50).collect::<Vec<u64>>());
+    assert_eq!(
+        ts_of(&read(dir.path(), "action.coverage", None, T0 + 10, T0 + 13).unwrap()),
+        [T0 + 10, T0 + 11, T0 + 12]
+    );
+}
+
+#[test]
+fn a_follower_part_way_through_a_part_gets_the_rest_once_after_its_close_rewrites_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut w = Writer::open(dir.path(), "action.coverage", "cam0", schema()).unwrap();
+    let mut f = Follower::new(dir.path(), "action.coverage", None, Cursor::new());
+    w.append(&rows(&[T0 + 1])).unwrap();
+    w.append(&rows(&[T0 + 2])).unwrap();
+    assert_eq!(seq_batches(&f.poll().unwrap()), [0, 1]);
+    w.append(&rows(&[T0 + 3])).unwrap();
+    w.append(&rows(&[T0 + 4])).unwrap();
+    w.close().unwrap(); // the part is another file now, in one batch: the follower's place in the old one is no place in it
+    assert_eq!(seq_batches(&f.poll().unwrap()), [2, 3]);
+    assert!(f.poll().unwrap().is_empty());
+    assert_eq!(f.cursor().get("cam0"), Some(&4));
+}
+
+#[test]
+fn a_part_a_dead_writer_left_open_is_one_batch_once_recovered() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut w = Writer::open(dir.path(), "action.coverage", "cam0", schema()).unwrap();
+    for i in 1..=5 {
+        w.append(&rows(&[T0 + i])).unwrap();
+    }
+    w.sync().unwrap();
+    std::mem::forget(w); // died: its part stays open, its lock goes with the process (here, with the handle's leak)
+    let cam = dir.path().join("action.coverage").join("cam0");
+    std::fs::remove_file(cam.join(".writer.lock")).unwrap();
+    let w = Writer::open(dir.path(), "action.coverage", "cam0", schema()).unwrap();
+    assert_eq!(w.next_seq(), 5);
+    let label = hour_label(T0 / H);
+    assert_eq!(files(&cam), [format!("{label}-0000-s0-5-v1.arrows")]);
+    assert_eq!(batches_in(&cam.join(format!("{label}-0000-s0-5-v1.arrows"))), 1);
+}
+
+#[test]
+fn compact_rewrites_the_closed_parts_an_older_writer_left_a_batch_an_append_and_no_others() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut w = Writer::open(dir.path(), "action.coverage", "cam0", schema()).unwrap();
+    for i in 1..=4 {
+        w.append(&rows(&[T0 + i])).unwrap();
+    }
+    w.append(&rows(&[T0 + H + 1])).unwrap(); // closes the first hour; this hour stays open
+    w.append(&rows(&[T0 + H + 2])).unwrap();
+    let cam = dir.path().join("action.coverage").join("cam0");
+    let (a, b) = (hour_label(T0 / H), hour_label(T0 / H + 1));
+    // The first hour as an older writer closed it: a batch an append, under its first name.
+    let old = cam.join(format!("{a}-0000-s0-4.arrows"));
+    let batches: Vec<RecordBatch> = reader::decode_file(&cam.join(format!("{a}-0000-s0-4-v1.arrows")))
+        .unwrap()
+        .iter()
+        .flat_map(|b| (0..b.num_rows()).map(|i| b.slice(i, 1)).collect::<Vec<_>>())
+        .collect();
+    replace_part(&old, &cam.join(format!("{a}-0000-s0-4-v1.arrows")), &batches[0].schema(), &batches).unwrap();
+    assert_eq!(batches_in(&old), 4);
+    forget(dir.path(), None, None, T0 + 2, T0 + 3, DeletionKind::Forget).unwrap(); // rewrites it too, a batch each
+    assert_eq!(compact(dir.path()).unwrap(), 1, "the closed part, not the open one");
+    assert_eq!(files(&cam), [format!("{a}-0000-s0-4-v2.arrows"), format!("{b}-0000-s4.arrows")]);
+    assert_eq!(batches_in(&cam.join(format!("{a}-0000-s0-4-v2.arrows"))), 1);
+    assert_eq!(compact(dir.path()).unwrap(), 0, "nothing left to do");
+    let all = read(dir.path(), "action.coverage", None, T0, T0 + 2 * H).unwrap();
+    assert_eq!(ts_of(&all), [T0 + 1, T0 + 3, T0 + 4, T0 + H + 1, T0 + H + 2], "the forgotten row stays gone");
 }

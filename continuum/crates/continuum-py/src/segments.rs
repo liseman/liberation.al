@@ -585,6 +585,13 @@ pub(crate) fn segment_revision(py: Python<'_>, root: PathBuf) -> PyResult<u64> {
     py.detach(|| continuum_segments::revision(&root)).map_err(err)
 }
 
+/// Rewrites every closed part under `root` that holds more than one record batch as one, and returns how many it
+/// rewrote. Writers do this as they close a part; this is for parts closed before they did.
+#[pyfunction]
+pub(crate) fn compact_segments(py: Python<'_>, root: PathBuf) -> PyResult<u64> {
+    py.detach(|| continuum_segments::compact(&root)).map_err(err)
+}
+
 /// Follows a stream's rows from a cursor (`{camera: next row_seq}`): `poll()` gives what was written since, as
 /// `read_segments` does (without `parts`), and `cursor` is where it is now, to save.
 #[pyclass(name = "SegmentFollower", module = "continuum_py", frozen)]

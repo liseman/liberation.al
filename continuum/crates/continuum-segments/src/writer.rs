@@ -95,7 +95,7 @@ impl Writer {
                 None => {
                     let end = recover(&p)?;
                     // A forget while it was open only hid its rows; closed now, it can lose them.
-                    let closed = dir.join(Part::name(p.hour, p.part, p.first, Some(end)));
+                    let closed = crate::compact_closed(&dir.join(Part::name(p.hour, p.part, p.first, Some(end))))?;
                     crate::deletions::purge_closed(root, stream, camera, &closed)?;
                     end
                 }
@@ -245,7 +245,8 @@ impl Writer {
         Ok(Open { hour, part, first: self.next_seq, rows: 0, path, writer, synced: Instant::now(), log_len })
     }
 
-    /// Ends a part's stream, syncs it, and renames it closed; then records the next `row_seq`. A forget that came
+    /// Ends a part's stream, syncs it, and renames it closed; then records the next `row_seq` and rewrites the part as
+    /// one batch ([`crate::compact_closed`]). A forget that came
     /// while the part was open only hid the rows it named there (forgets rewrite closed parts only), so a part closed
     /// after one is rewritten without them.
     fn finish(&self, mut open: Open) -> Result<()> {
@@ -254,6 +255,7 @@ impl Writer {
         let closed = self.dir.join(Part::name(open.hour, open.part, open.first, Some(open.first + open.rows)));
         std::fs::rename(&open.path, &closed).map_err(io(&open.path))?;
         write_seq(&self.dir, self.next_seq)?;
+        let closed = crate::compact_closed(&closed)?;
         if crate::deletions::log_len(&self.root) != open.log_len {
             crate::deletions::purge_closed(&self.root, &self.stream, &self.camera, &closed)?;
         }

@@ -634,6 +634,9 @@ def segment_deletions(root: str | PathLike[str], after: int = 0) -> list[dict[st
 def segment_tail(root: str | PathLike[str], stream: str, cameras: list[str] | None = None) -> dict[str, int]:
     """Where each camera of `stream` ends now: a cursor to follow from here on, without reading history."""
 
+def compact_segments(root: str | PathLike[str]) -> int:
+    """Rewrites every closed part holding more than one record batch as one; how many it rewrote."""
+
 def segment_revision(root: str | PathLike[str]) -> int:
     """The newest deletion's revision; 0 when nothing was ever deleted."""
 

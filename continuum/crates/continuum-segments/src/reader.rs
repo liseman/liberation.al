@@ -152,9 +152,11 @@ fn read_camera(
         if p.hour < first_hour || p.hour > last_hour {
             continue;
         }
-        let mut rows = 0;
-        for batch in decode_file(&p.path)? {
-            rows += batch.num_rows() as u64;
+        // One batch a part: a part still open (or closed by an older writer) holds a batch an append, and filtering
+        // each of thousands of one-row batches cost far more than the rows did.
+        let batches = decode_file(&p.path)?;
+        let rows = batches.iter().map(|b| b.num_rows() as u64).sum();
+        if let Some(batch) = crate::joined(&batches)? {
             let ts = column::<Int64Array>(&batch, TS)?;
             let end = if overlap {
                 batch.column_by_name(crate::END).and_then(|c| c.as_any().downcast_ref::<Int64Array>())
@@ -191,6 +193,9 @@ struct Tail {
     decoder: StreamDecoder,
     offset: u64,
     done: bool,
+    /// The version of the part's file `offset` is a place in: a rewrite (the close's compaction, a forget) is
+    /// another file, read from its start.
+    version: u32,
 }
 
 /// Follows a stream's rows from a [`Cursor`]: each [`Follower::poll`] returns the rows written since, per camera in
@@ -328,8 +333,13 @@ impl Follower {
     /// The complete batches of a part not yet read.
     fn tail(&mut self, cam: &str, p: &Part) -> Result<Vec<RecordBatch>> {
         let key = (cam.to_owned(), p.hour, p.part);
-        let tail =
-            self.tails.entry(key).or_insert_with(|| Tail { decoder: StreamDecoder::new(), offset: 0, done: false });
+        let fresh = || Tail { decoder: StreamDecoder::new(), offset: 0, done: false, version: p.version };
+        let tail = self.tails.entry(key).or_insert_with(fresh);
+        if tail.version != p.version {
+            // Rewritten since the last poll: the old offset is no place in this file. Read it whole; the caller
+            // drops the rows behind its cursor.
+            *tail = fresh();
+        }
         if tail.done {
             return Ok(Vec::new());
         }
