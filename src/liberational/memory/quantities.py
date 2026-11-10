@@ -294,7 +294,7 @@ def record(state: pathlib.Path, lines: Iterable[tuple[dict[str, Any], PersonId |
             voice = registry.voiceprint(sid).id
         for ordinal, quantity in enumerate(parse(text)):
             # The event's id comes from the exact source time, device, and the quantity's place in the line (the key
-            # #229's receipts used), so a line measured twice retries the same immutable event.
+            # earlier receipts used), so a line measured twice retries the same immutable event.
             identity = json.dumps([_VERSION, float(timestamp).hex(), device, ordinal])
             key = hashlib.sha256(identity.encode()).hexdigest()
             event = Event.new(

@@ -33,7 +33,7 @@ from liberational import logs, vision_log
 MAX_CHARS = 60
 WINDOW_S = 15.0  # captions this far either side of a clip count as its own
 SETTLED_S = 60.0  # a clip whose caption window ended this long ago gets no new captions: its lookup is kept
-KEEP_S = 600.0  # for this long, so a card opened again doesn't read the segment store again (#2071)
+KEEP_S = 600.0  # for this long, so a card opened again doesn't read the segment store again
 KEPT = 512  # lookups kept at most
 _kept: dict[tuple[str, str, float, float], tuple[float, dict[str, Any] | None]] = {}
 _kept_lock = threading.Lock()
