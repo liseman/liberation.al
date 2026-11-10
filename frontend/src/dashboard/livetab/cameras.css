@@ -43,6 +43,12 @@
 .cams-head .cams-name-nudge {
   font-size: 13px;
 }
+.cams-head .surroundings {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
 .cam-controls {
   margin-left: auto;
   display: flex;
