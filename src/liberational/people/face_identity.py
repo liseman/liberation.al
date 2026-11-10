@@ -1,7 +1,6 @@
-"""Who see-actions' faces saw, read through the registry (#776): when each person was last seen on each camera, from
-the `face.visit` records in the segment store (#1738). It replaces v1's `detection_identity` projection (a SQLite rematch of every
-detection against the gallery, refreshed by a dashboard worker) for the People list's last seen and "when was X
-last seen" questions.
+"""Who see-actions' faces saw, read through the registry: when each person was last seen on each camera, from
+the `face.visit` records in the segment store. It answers the People list's last seen and "when was X last seen"
+questions.
 
 A visit names a person as the face worker matched them, and is read as the person who went by that name when the
 visit happened (`Registry.known_as(name, at=)`, the rule the other face readers use): a renamed person shows under
@@ -34,8 +33,8 @@ def last_seen(
     cameras: Sequence[str] | None = None,
 ) -> dict[str, Any]:
     """The newest visit of each person on each camera within [start, end) (seconds; `end` None for now), on `cameras`
-    when given, newest first: `{"matches": [{"name", "cam", "ts", "sim"}], "pending": False}`, the shape v1's
-    projection answered with (it was pending while it rematched; this never is). `name` is the person's current name."""
+    when given, newest first: `{"matches": [{"name", "cam", "ts", "sim"}], "pending": False}`
+    (`pending` is always False: nothing is worked out behind the read). `name` is the person's current name."""
     until = end if end is not None else time.time() + 1.0
     log = segment_log.at(state)
     visits = log.range(segment_log.FACE_VISITS, start, until)
@@ -73,7 +72,7 @@ def last_seen(
             person_names = {p.id: p.display_name for p in reg.people()}
         for v in visits:
             seen(v.get("name"), v.get("cam"), float(v.get("ts_end") or v["ts_start"]), _number(v.get("best_sim")))
-        # Someone still in view has no visit for their current run yet (Codex on #814): the newest matches of the
+        # Someone still in view has no visit for their current run yet: the newest matches of the
         # last TAIL_S say so. They remain a live bounded read, never retained past that tail.
         for m in matches:
             if m.get("name"):

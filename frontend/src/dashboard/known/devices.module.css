@@ -1,5 +1,5 @@
-/* Known › Devices' Wi-Fi cards (#1326): a bar across the day with the device's stays (the cards themselves are
-   settings/devices/deviceCards.module.css, #3267). */
+/* Known › Devices' Wi-Fi cards: a bar across the day with the device's stays (the cards themselves are
+   settings/devices/deviceCards.module.css). */
 /* The whole day, midnight to midnight: the device's stays filled in, marks at 06, 12, and 18, and an edge at now. */
 .bar {
   position: relative;

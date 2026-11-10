@@ -153,9 +153,9 @@ function serve({ notes = 200 }: { notes?: 200 | 403 } = {}) {
         chips: CHIPS.map(c => ({ ...c, spans: c.spans.map(([a, b]) => [(a ?? 0) + offset, (b ?? 0) + offset]) })),
       });
     }),
-    http.get('/review/boxes', () => HttpResponse.json({ boxes: [] })), // the large camera's boxes (#374)
+    http.get('/review/boxes', () => HttpResponse.json({ boxes: [] })), // the large camera's boxes
     http.get('/review/summary', ({ request }) => {
-      const q = new URL(request.url).searchParams; // the summary by time (#405): nothing in this stretch
+      const q = new URL(request.url).searchParams; // the summary by time: nothing in this stretch
       return HttpResponse.json({
         start: Number(q.get('start')),
         end: Number(q.get('end')),
@@ -205,8 +205,7 @@ async function chooseDay(day: string) {
 
 /** The day the picker shows, as it shows it ("Tue 27 Oct 2026"). */
 const shownDay = () => screen.getByLabelText(/^Day\b/).textContent;
-/** The day's lines, video, and audio have loaded: the status line no longer says it's loading (#2577 cut the day's
- *  stats, which used to stand for this). */
+/** The day's lines, video, and audio have loaded: the status line no longer says it's loading. */
 const dayLoaded = () =>
   waitFor(() => {
     expect(screen.queryByText(/Loading the day/)).toBeNull();
@@ -349,7 +348,7 @@ describe('opening a day', () => {
     expect(screen.getByRole('button', { name: /Morning, Dana\./ })).toHaveAttribute('aria-current', 'time');
   });
 
-  it('shows what the large camera saw at the playhead as its caption (#327)', async () => {
+  it('shows what the large camera saw at the playhead as its caption', async () => {
     serve();
     open();
     const video = await screen.findByRole('region', { name: 'Video' });
@@ -375,7 +374,7 @@ describe('opening a day', () => {
     );
     open(`#day=${DAY}`);
     expect(await screen.findByText('Nothing was transcribed this day.')).toBeInTheDocument();
-    // Said once, in the player, with no row of empty tiles (#2454 follow-up). The player says it once every source has
+    // Said once, in the player, with no row of empty tiles. The player says it once every source has
     // answered, which can be after the transcript did: wait for it rather than look at once.
     expect(await screen.findByText(/^Nothing was recorded (today|on .+)\.$/)).toBeInTheDocument();
     expect(screen.queryByText('No video now')).not.toBeInTheDocument();
@@ -391,7 +390,7 @@ describe('opening a day', () => {
 });
 
 describe('came-into-view chips', () => {
-  // The presence chips (#82): an event chip per camera, padded spans to play, and no time "in all".
+  // The presence chips: an event chip per camera, padded spans to play, and no time "in all".
   const PRESENCE = {
     id: 'presence:cam0',
     kind: 'event',
@@ -466,7 +465,7 @@ describe('moving through the day', () => {
     const dog = await within(filters).findByRole('checkbox', { name: /dog/ });
     expect(
       within(within(filters).getByRole('group', { name: 'People' })).getByRole('button', { name: /Dana/ }),
-    ).toBeInTheDocument(); // people are chips in Show only (#328)
+    ).toBeInTheDocument(); // people are chips in Show only
     expect(screen.queryByLabelText('Moment navigation shortcuts')).not.toBeInTheDocument();
     await userEvent.click(dog);
     expect(dog).toBeChecked();
@@ -536,7 +535,7 @@ describe('moving through the day', () => {
   });
 });
 
-describe('keyboard shortcuts (#2285)', () => {
+describe('keyboard shortcuts', () => {
   it('lists exactly the keys Review handles', async () => {
     serve();
     open();
@@ -547,7 +546,7 @@ describe('keyboard shortcuts (#2285)', () => {
         .getAllByText((_, el) => el?.tagName === 'KBD')
         .map(k => k.textContent),
     ).toEqual(REVIEW_KEYS.flatMap(k => k.shown));
-    // Two columns (#2577): the keys in one cell, what they do in the next, under their section.
+    // Two columns: the keys in one cell, what they do in the next, under their section.
     const row = (name: RegExp) => within(help).getByRole('row', { name });
     expect(within(row(/^\[\s*or\s*\]/)).getAllByRole('cell')[1]).toHaveTextContent(
       'Previous or next moment Show only picks',
@@ -575,7 +574,7 @@ describe('keyboard shortcuts (#2285)', () => {
   });
 });
 
-it("takes Review's keys from a focused transcript line too (Codex on #2516)", async () => {
+it("takes Review's keys from a focused transcript line too", async () => {
   serve();
   open();
   const line = await screen.findByRole('button', { name: /Where did the dog go\?/ });
@@ -606,7 +605,7 @@ describe('playing', () => {
 });
 
 describe('sound', () => {
-  it('says on the status line when the browser blocks the sound (#213)', async () => {
+  it('says on the status line when the browser blocks the sound', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(function (this: HTMLMediaElement) {
       // video is muted, so it may play; sound needs the browser's permission
@@ -652,7 +651,7 @@ describe('a person', () => {
     expect(await within(people).findByRole('button', { name: /Dana/ })).toHaveAttribute('aria-pressed', 'false');
   });
 
-  it("opens on the person's day: their visits, and a transcript of only their lines, the others a switch away (#2057)", async () => {
+  it("opens on the person's day: their visits, and a transcript of only their lines, the others a switch away", async () => {
     serve();
     open(`#person=Dana&day=${DAY}`);
     const tab = await screen.findByRole('tab', { name: 'Dana' });
@@ -682,7 +681,7 @@ describe('a person', () => {
     const people = await within(filters).findByRole('group', { name: 'People' });
     const dana = await within(people).findByRole('button', { name: /Dana/ });
     await waitFor(() => expect(dana).toHaveAttribute('aria-pressed', 'true'));
-    expect(screen.queryByRole('heading', { name: /clips/ })).not.toBeInTheDocument(); // no clip browser any more (#326)
+    expect(screen.queryByRole('heading', { name: /clips/ })).not.toBeInTheDocument(); // no clip browser any more
   });
 });
 
@@ -715,7 +714,7 @@ describe('ask', () => {
     const box = await askBox();
     await userEvent.type(box, 'What did the dog do?{Enter}');
     await waitFor(() => expect(jobs.posts).toEqual([expect.objectContaining({ day: DAY, scope: 'history' })]));
-    expect(screen.getByRole('button', { name: 'Research' })).toBeInTheDocument(); // Joe, 2026-11-06
+    expect(screen.getByRole('button', { name: 'Research' })).toBeInTheDocument();
   });
 
   it('answers with the moments it cites as time chips that play from there, and asks if it was right', async () => {
@@ -857,8 +856,8 @@ describe('summary by time', () => {
     const seekPlay = vi.spyOn(ReviewEngine.prototype, 'seekPlay');
     onTestFinished(() => seekPlay.mockRestore());
     await userEvent.click(within(summaries).getByRole('button', { name: /A conversation across midnight/ }));
-    // The click plays from the block's start (#2259). With no picture or room audio there, playback goes on with the
-    // next spoken line (#196), so the playhead itself moves on; the list, player, and timeline stay put (#2120).
+    // The click plays from the block's start. With no picture or room audio there, playback goes on with the
+    // next spoken line, so the playhead itself moves on; the list, player, and timeline stay put.
     expect(seekPlay).toHaveBeenCalledWith(target);
     expect(timeline()).toBe(oldTimeline);
     expect(players).toEqual(oldPlayers);
@@ -937,7 +936,7 @@ describe('detector storage availability', () => {
     expect(screen.queryByRole('group', { name: 'Show only' })).not.toBeInTheDocument();
     expect(screen.getByTestId('chips-skeleton')).toBeInTheDocument();
     // The video's boxes and Skip quiet time stay usable meanwhile, under the player rather than on its bar, so the
-    // bar keeps its height (#2486).
+    // bar keeps its height.
     expect(screen.getByRole('checkbox', { name: 'Skip quiet time' })).toBeInTheDocument();
     expect(screen.getByRole('group', { name: 'Review markers' })).toBeInTheDocument();
     const video = screen.getByRole('region', { name: 'Video' });
@@ -970,7 +969,7 @@ describe('detector storage availability', () => {
   });
 });
 
-describe('loading and errors (#250)', () => {
+describe('loading and errors', () => {
   it('covers the player, the timeline, and the transcript with placeholders until the day loads', async () => {
     let answer: () => void = () => {};
     hold = new Promise(r => {
@@ -1020,7 +1019,7 @@ describe('loading and errors (#250)', () => {
     expect(await within(filters).findByRole('checkbox', { name: /dog/ })).toBeInTheDocument();
   });
 
-  it('keeps loading, not failing, while a proxy gives up on a long day (#334)', async () => {
+  it('keeps loading, not failing, while a proxy gives up on a long day', async () => {
     serve();
     stillComputing.retryMs = 20;
     let answered = 0;
@@ -1045,7 +1044,7 @@ describe('loading and errors (#250)', () => {
     }
   });
 
-  it('says how long an ended day has left while the server works through it, then shows its chips (#435)', async () => {
+  it('says how long an ended day has left while the server works through it, then shows its chips', async () => {
     serve();
     working.pollMs = 20;
     let asked = 0;
@@ -1161,7 +1160,7 @@ describe('loading and errors (#250)', () => {
 });
 
 let show: (on: boolean) => void = () => {};
-/** Review in a tab that can be hidden, as App shows it (#330). */
+/** Review in a tab that can be hidden, as App shows it. */
 function Tabs() {
   const [on, setOn] = useState(true);
   show = setOn;
@@ -1172,7 +1171,7 @@ function Tabs() {
   );
 }
 
-describe('hidden behind another tab (#330)', () => {
+describe('hidden behind another tab', () => {
   /** Review as the dashboard shows it: its query defaults (fresh for 30 s), inside a tab that can be hidden. */
   function openTab(hash = `#day=${DAY}&t=${at(36011)}`) {
     history.replaceState(null, '', `/review${hash}`);
@@ -1228,7 +1227,7 @@ describe('hidden behind another tab (#330)', () => {
   });
 });
 
-describe('naming and correcting a speaker from the transcript (#300)', () => {
+describe('naming and correcting a speaker from the transcript', () => {
   const KEYED = [
     { ...ENTRIES[0], line: 'mic.36010000' },
     { ...ENTRIES[1], line: 'mic.36015000' },
@@ -1239,7 +1238,7 @@ describe('naming and correcting a speaker from the transcript (#300)', () => {
   function lines(read: () => object[]) {
     server.use(http.get('/transcript/day', () => HttpResponse.json({ day: DAY, entries: read() })));
   }
-  /** Why this name's reply for whatever line is asked about (#288). */
+  /** Why this name's reply for whatever line is asked about. */
   const explains = (name: string) =>
     server.use(
       http.get('/identity/why', () =>
@@ -1305,7 +1304,7 @@ describe('naming and correcting a speaker from the transcript (#300)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
     await screen.findByText('Undo failed for 1 of 2 lines. Storage unavailable');
     undoFailed = false;
-    // The toast it replaced leaves a tick later (lib/Toast, #2596)
+    // The toast it replaced leaves a tick later (lib/Toast)
     await waitFor(() => expect(screen.getAllByRole('button', { name: 'Undo' })).toHaveLength(1));
     await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
     await screen.findByText('Undone');
@@ -1316,7 +1315,7 @@ describe('naming and correcting a speaker from the transcript (#300)', () => {
     ]);
   });
 
-  it('corrects only the line whose person-minus was picked and offers to retry a denied one (#2605)', async () => {
+  it('corrects only the line whose person-minus was picked and offers to retry a denied one', async () => {
     serve();
     lines(() => KEYED);
     const sent: unknown[] = [];
@@ -1359,7 +1358,7 @@ describe('naming and correcting a speaker from the transcript (#300)', () => {
     const t = await screen.findByRole('region', { name: 'Transcript of the day' });
     await within(t).findByText('Coffee is ready.');
     await userEvent.click(within(t).getByRole('button', { name: 'Not this voice' }));
-    // An unmatched voice's turn goes through Who is this? by the voice's label, as a person's does (#2605).
+    // An unmatched voice's turn goes through Who is this? by the voice's label, as a person's does.
     const who = await screen.findByRole('dialog', { name: 'Who is this?' });
     await userEvent.click(
       within(who).getByRole('button', { name: 'Not sure, just remove it from the unmatched voice' }),
@@ -1478,7 +1477,7 @@ describe('naming and correcting a speaker from the transcript (#300)', () => {
     expect(await screen.findByText('Moved to Kara')).toBeInTheDocument();
   });
 
-  it('opens Why this name and keeps naming and correction in the turn header (#288)', async () => {
+  it('opens Why this name and keeps naming and correction in the turn header', async () => {
     serve();
     lines(() => KEYED);
     const asked: string[] = [];
@@ -1561,11 +1560,11 @@ describe('naming and correcting a speaker from the transcript (#300)', () => {
     await userEvent.click(within(t).getByRole('button', { name: 'Why Kara' }));
     const pop = await screen.findByRole('dialog', { name: 'Why Kara' });
     expect(within(pop).queryByRole('button', { name: /^Not / })).toBeNull();
-    // Lines tagged without a voice are renamed from here (#2580: no separate Name this voice).
+    // Lines tagged without a voice are renamed from here (no separate Name this voice).
     expect(within(pop).getByRole('button', { name: 'Say who this is…' })).toBeInTheDocument();
   });
 
-  it('shows a name given to an unmatched turn at once, while its lines are still being relabelled (Joe 2026-11-06)', async () => {
+  it('shows a name given to an unmatched turn at once, while its lines are still being relabelled', async () => {
     serve();
     lines(() => KEYED); // the day's lines come back unchanged: the microphone service hasn't relabelled them yet
     server.use(http.post('/speakers/tag', () => HttpResponse.json({ ok: true })));
@@ -1579,7 +1578,7 @@ describe('naming and correcting a speaker from the transcript (#300)', () => {
     expect(unknown).not.toHaveAttribute('data-unmatched');
   });
 
-  describe('a name that matches nobody (#2342)', () => {
+  describe('a name that matches nobody', () => {
     /** Speaker 1's turn, with what naming it posts recorded by route. */
     function numbered() {
       serve();
@@ -1620,7 +1619,7 @@ describe('naming and correcting a speaker from the transcript (#300)', () => {
       await waitFor(() => expect(posted['/speakers/tag']).toHaveLength(1));
       expect(posted['/people/add']).toEqual([{ name: 'Sam', number: '' }]);
       expect(posted['/people/claim']).toEqual([{ kind: 'voice', id: 1, name: 'Sam' }]);
-      // The waiting voices drop at once, as any voice named from a transcript does (#2331).
+      // The waiting voices drop at once, as any voice named from a transcript does.
       expect(client.getQueryData(['voices', 'unknown', 'groups'])).toMatchObject({ groups: [{ id: 4 }], count: 1 });
     });
 
@@ -1662,7 +1661,7 @@ it('keeps Space playback available beside Ask while leaving Space in its input a
   expect(panel).toBeVisible();
 });
 
-describe('Space from a focused control (#2352)', () => {
+describe('Space from a focused control', () => {
   it('plays without clicking the focused button', async () => {
     serve();
     open();
@@ -1686,7 +1685,7 @@ describe('Space from a focused control (#2352)', () => {
     expect(dog).not.toBeChecked();
   });
 
-  it('lets go of a chip a click focused, so Space lights no focus ring (#2427)', async () => {
+  it('lets go of a chip a click focused, so Space lights no focus ring', async () => {
     serve();
     open();
     const filters = await screen.findByRole('group', { name: 'Show only' });
@@ -1745,7 +1744,7 @@ it('searches unseen full-day summary blocks from the transcript tab and seeks th
   expect(input).toHaveFocus();
 });
 
-it("keeps the day's transcript under the search results, dimmed to the matches and highlighted (#2593)", async () => {
+it("keeps the day's transcript under the search results, dimmed to the matches and highlighted", async () => {
   serve();
   open();
   const t = await screen.findByRole('region', { name: 'Transcript of the day' });

@@ -1,4 +1,4 @@
-// A clip card's start-frame still (#2296), from the People cards' scene thumbnails (/people/video-thumb.jpg, #2058).
+// A clip card's start-frame still, from the People cards' scene thumbnails (/people/video-thumb.jpg).
 // The route serves a prepared file at once; a miss answers 202 and queues the decode in the dashboard's background
 // crop worker, under the shared decode cap and its admission limit, so many cards never decode at once. A card asks
 // only once it's near the screen, and asks again with backoff while the still is pending. 404 means no frame is kept.

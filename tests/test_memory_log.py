@@ -303,7 +303,7 @@ def test_a_drain_hands_over_the_records_after_the_durable_position_and_keeps_its
 
 
 def test_a_drain_waits_for_a_handler_longer_than_the_links_timeout(tmp_path):
-    """Codex on #872: the facts pass calls a model for seconds per hour, and the link's timeout cut the drain short
+    """The facts pass calls a model for seconds per hour, and the link's timeout cut the drain short
     and left it running behind the caller."""
     import time as clock
 
@@ -324,7 +324,7 @@ def test_a_drain_waits_for_a_handler_longer_than_the_links_timeout(tmp_path):
 
 
 def test_a_drain_over_a_full_subscription_queue_still_gets_its_handlers_replies():
-    """#1267: a backlog past the native client's 4,096-event subscription queue blocked that connection's socket
+    """A backlog past the native client's 4,096-event subscription queue blocked that connection's socket
     reader, so a handler's own write on the same client (the facts pass appending a fact) timed out. The drain
     subscribes on a connection of its own; the handler's requests go on the log's."""
     import time as clock
@@ -387,7 +387,7 @@ def test_selected_source_evidence_survives_the_memory_log_codec_and_store(log, s
     assert stored["evidence"] == evidence
 
 
-# ---- the range cache (#2440)
+# ---- the range cache
 
 
 @pytest.fixture
@@ -466,7 +466,7 @@ def test_a_range_wider_than_a_week_is_read_every_time(log, reads):
 
 
 def _old_revision(stored, lo, hi):
-    """The linear scan Corrections.revision replaced (#3177), as the oracle."""
+    """The linear scan Corrections.revision replaced, as the oracle."""
     return max(
         (r.position for r in stored if r.record.start_ns < hi and max(r.record.end_ns, r.record.start_ns + 1) > lo),
         default=0,

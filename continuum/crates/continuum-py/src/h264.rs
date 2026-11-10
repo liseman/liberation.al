@@ -36,7 +36,7 @@ impl PyH264Decoder {
         #[cfg(feature = "ffmpeg")]
         {
             use continuum_tier::video::{H264DecodeBackend, H264StreamDecoder};
-            // An archived chunk's AV1 units (#1479) decode in software, one temporal unit per push.
+            // An archived chunk's AV1 units decode in software, one temporal unit per push.
             match (codec, backend, gpu) {
                 ("av1", "software", 0) => return Ok(Self { decoder: H264StreamDecoder::av1().map_err(invalid)? }),
                 ("av1", ..) => {

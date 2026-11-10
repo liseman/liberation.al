@@ -14,7 +14,7 @@ type Reference = {
   face?: { result?: FaceResult };
 };
 
-/** What attaching a reference did, from the attach reply (#3254): a photo with exactly one face teaches it. */
+/** What attaching a reference did, from the attach reply: a photo with exactly one face teaches it. */
 export function attachedNote(item: Reference): string {
   if (item.kind !== 'image') return "Stored as a reference. Audio and video don't train recognition.";
   switch (item.face?.result) {

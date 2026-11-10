@@ -32,8 +32,11 @@ def none_load(_name, _platform):
 
 def test_the_declared_packages_load_and_name_real_services():
     packages = system_packages.load()
+    by_name = {p.name: p for p in packages}
     declared = set(tomllib.loads((cfg.ROOT / "services" / "services.toml").read_text()))
-    assert {p.name for p in packages} >= {"sox", "espeak-ng", "portaudio", "ffmpeg", "ffprobe"}
+    assert set(by_name) >= {"sox", "espeak-ng", "portaudio", "ffmpeg", "ffprobe", "pkg-config", "python3"}
+    for required in ("pkg-config", "python3", "libavcodec-dev", "libpipewire"):
+        assert not by_name[required].optional, required
     for p in packages:
         assert set(p.services) <= declared, p.name
 
@@ -292,7 +295,7 @@ def test_installing_services_names_their_missing_packages_and_the_fix(monkeypatc
 
 
 def test_the_dashboard_reports_missing_packages_and_checks_again_only_after_a_while(monkeypatch):
-    from liberational.dashboard import server
+    from liberational.dashboard import machine_stats
 
     calls = []
 
@@ -301,11 +304,11 @@ def test_the_dashboard_reports_missing_packages_and_checks_again_only_after_a_wh
         return {"missing": [{"name": "sox"}], "commands": ["sudo apt-get install -y sox"]}
 
     monkeypatch.setattr(system_packages, "status", status)
-    stats = server.Stats()
+    stats = machine_stats.Stats()
     assert stats.system_status()["missing"] == [{"name": "sox"}]
     stats.system_status()
     assert len(calls) == 1
-    stats.system_t -= server.SYSTEM_S + 1
+    stats.system_t -= machine_stats.SYSTEM_S + 1
     stats.system_status()
     assert len(calls) == 2
 

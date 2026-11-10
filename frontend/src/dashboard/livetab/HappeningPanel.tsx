@@ -1,4 +1,4 @@
-// The rail's "What's happening" (#356): the room's log, newest at the bottom, kept scrolled to the newest.
+// The rail's "What's happening": the room's log, newest at the bottom, kept scrolled to the newest.
 import { Text, Timeline, Title } from '@mantine/core';
 import { IconDoorEnter, IconDoorExit, IconMessage, IconWalk } from '@tabler/icons-react';
 import { useEffect, useRef } from 'react';

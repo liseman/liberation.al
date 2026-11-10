@@ -9,7 +9,7 @@ const VIEW = {
   species: ['cat', 'dog', 'rabbit'],
 };
 
-// #1986: an animal word opens Pets, at the pet or for its species; anything else isn't Pets' to open.
+// An animal word opens Pets, at the pet or for its species; anything else isn't Pets' to open.
 describe('petHref', () => {
   it.each([
     ['a taught pet, by name whatever the case', 'moe meerkat', '/pets#pet=Moe%20Meerkat'],
@@ -30,7 +30,7 @@ describe('petInHash', () => {
   it.each([
     ['#pet=Moe%20Meerkat', { pet: 'Moe Meerkat' }],
     ['#species=Dog', { species: 'dog' }],
-    ['#card=Joe', {}],
+    ['#card=Sam', {}],
     ['', {}],
   ])('reads %s', (hash, wanted) => {
     expect(petInHash(hash)).toEqual(wanted);

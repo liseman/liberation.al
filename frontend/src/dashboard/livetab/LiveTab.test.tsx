@@ -77,7 +77,7 @@ beforeEach(() => {
   useLiveStatus.setState({ now: NOW });
   setGatewayForTests(fakeGateway().connect); // a gateway that never answers, unless a test answers for it
   server.use(
-    // Getting started's reads (#296): nothing set up, so it shows; tests about it set their own.
+    // Getting started's reads: nothing set up, so it shows; tests about it set their own.
     http.get('/stats', () => HttpResponse.json({})),
     http.get('/devices', () => HttpResponse.json({ control: true, mics: [], cameras: [], notes: {} })),
     http.get('/config/voice_ref', () => HttpResponse.json({ exists: false })),
@@ -161,7 +161,7 @@ it.each(['__proto__', 'constructor', 'toString'])('shows the newest own caption 
 });
 
 describe('Live', () => {
-  it("marks a caption the view hasn't changed from, saying since when (#379)", () => {
+  it("marks a caption the view hasn't changed from, saying since when", () => {
     history.replaceState(null, '', '/#camera=cam0');
     const since = NOW - 600;
     renderLive({
@@ -300,13 +300,13 @@ describe('Live', () => {
   it('says the microphone is off while the cameras run', async () => {
     renderLive({ scene: both });
     expect(screen.getByRole('heading', { name: 'Live' })).toBeInTheDocument();
-    // A state of the conversation header's mic line (#2485), not a notice above the page.
+    // A state of the conversation header's mic line, not a notice above the page.
     const mics = screen.getByRole('region', { name: 'Microphones' });
     expect(within(mics).getByRole('status')).toHaveTextContent('Not listening');
     expect(await within(mics).findByRole('button', { name: 'Start listening' })).toBeInTheDocument();
   });
 
-  it("calls nothing off before the first status reads answer, and holds the cameras' place (#2485)", () => {
+  it("calls nothing off before the first status reads answer, and holds the cameras' place", () => {
     renderLive({ unread: true });
     expect(screen.queryByText("Liberational isn't listening yet")).toBeNull();
     expect(screen.queryByText('Not listening')).toBeNull();
@@ -324,7 +324,7 @@ describe('Live', () => {
     await userEvent.click(screen.getByRole('button', { name: 'All cameras' }));
     expect(screen.getByRole('button', { name: 'Open cam0 camera' })).toBeInTheDocument();
     expect(location.hash).toBe('');
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument(); // no full-size popup any more (#352)
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument(); // no full-size popup any more
   });
 
   it('heads the rig Cameras even with a stale room value, and names each camera', () => {
@@ -343,13 +343,13 @@ describe('Live', () => {
     expect(screen.getByRole('button', { name: 'Open Rear camera camera' })).toBeInTheDocument();
   });
 
-  it('offers to name only the cameras with no name, linking to Settings (#2585)', () => {
+  it('offers to name only the cameras with no name, linking to Settings', () => {
     vi.stubGlobal('NAMES', { cams: ['cam0', 'cam1'], views: { cam0: 'front camera' } });
     renderLive({ ambient: { ts: NOW - 1 }, scene: both });
     expect(screen.getByRole('link', { name: 'Name cam1' })).toHaveAttribute('href', '/settings#device-cameras');
   });
 
-  it('drops the link as soon as Settings saves the name, without a reload (#2595)', () => {
+  it('drops the link as soon as Settings saves the name, without a reload', () => {
     vi.stubGlobal('NAMES', { cams: ['cam0', 'cam1'], views: { cam0: 'front camera' } });
     renderLive({ ambient: { ts: NOW - 1 }, scene: both });
     expect(screen.getByRole('link', { name: 'Name cam1' })).toBeInTheDocument();
@@ -366,7 +366,7 @@ describe('Live', () => {
     expect(screen.queryByRole('link', { name: /^Name / })).not.toBeInTheDocument();
   });
 
-  it('shows a camera vision says is on, even before its first caption (#352)', async () => {
+  it('shows a camera vision says is on, even before its first caption', async () => {
     renderLive({
       ambient: { ts: NOW - 1 },
       scene: both.filter(e => e.cam === 'cam0'),
@@ -388,7 +388,7 @@ describe('Live', () => {
     expect(within(tile).getByText('Camera not responding, retrying')).toBeInTheDocument();
   });
 
-  it('keeps a camera that stopped giving frames in its tile, saying it is retrying (#324)', () => {
+  it('keeps a camera that stopped giving frames in its tile, saying it is retrying', () => {
     renderLive({
       ambient: { ts: NOW - 1 },
       scene: both.filter(e => e.cam === 'cam0'),
@@ -398,7 +398,7 @@ describe('Live', () => {
     expect(within(tile).getByText('Camera not responding, retrying')).toBeInTheDocument();
   });
 
-  it('says a camera and a microphone are paused for privacy instead of showing their last picture (#2260)', async () => {
+  it('says a camera and a microphone are paused for privacy instead of showing their last picture', async () => {
     server.use(
       http.get('/devices/privacy', () =>
         HttpResponse.json({
@@ -426,7 +426,7 @@ describe('Live', () => {
     expect(screen.getByText('wave3: Paused for privacy')).toBeInTheDocument();
   });
 
-  it("shows what's happening, newest at the bottom, and who is here, each linking to their card (#356)", async () => {
+  it("shows what's happening, newest at the bottom, and who is here, each linking to their card", async () => {
     renderLive({
       ambient: { ts: NOW - 1 },
       scene: both,
@@ -445,9 +445,9 @@ describe('Live', () => {
     expect(within(here).queryByRole('link', { name: /Eve/ })).toBeNull();
   });
 
-  it("leaves Who's this? to People and the day's summary to Review (#356)", async () => {
+  it("leaves Who's this? to People and the day's summary to Review", async () => {
     renderLive({ ambient: { ts: NOW - 1 }, scene: both });
-    expect(screen.queryByRole('heading', { name: "Who's this?" })).toBeNull(); // removed from Live (2026-10-29)
+    expect(screen.queryByRole('heading', { name: "Who's this?" })).toBeNull(); // removed from Live
     expect(screen.queryByText(/Planned the week|summary|minutes of speech/i)).toBeNull();
   });
 
@@ -459,12 +459,12 @@ describe('Live', () => {
     expect(screen.queryByRole('button', { name: /Appearance/ })).toBeNull();
   });
 
-  it('puts Here now under the cameras, and leaves the rail to the conversation (#2473)', async () => {
+  it('puts Here now under the cameras, and leaves the rail to the conversation', async () => {
     renderLive({ ambient: { ts: NOW - 1 }, scene: both });
-    // One region a panel, named as its heading and its grip are (#2621): no "Who's here" or "Right now" around them
+    // One region a panel, named as its heading and its grip are: no "Who's here" or "Right now" around them
     const here = screen.getByRole('region', { name: 'Here now' });
     expect(screen.getAllByRole('region', { name: 'Here now' })).toHaveLength(1);
-    expect(within(here).queryByRole('region', { name: 'Linked device evidence' })).toBeNull(); // cut (#2575)
+    expect(within(here).queryByRole('region', { name: 'Linked device evidence' })).toBeNull(); // cut
     const rail = screen.getByRole('region', { name: "What's happening" });
     expect(within(rail).queryByRole('region', { name: 'Here now' })).toBeNull();
     expect(screen.queryByRole('complementary', { name: 'Right now' })).toBeNull();
@@ -475,7 +475,7 @@ describe('Live', () => {
     expect(conversation.compareDocumentPosition(here) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('puts the microphones under the Conversation heading, saying what they hear (#2456)', () => {
+  it('puts the microphones under the Conversation heading, saying what they hear', () => {
     renderLive({ ambient: { ts: NOW - 1, devices: { wave: { name: 'Room mic', healthy: true } } }, scene: both });
     const head = screen.getByRole('heading', { name: 'Conversation' }).parentElement as HTMLElement;
     const mics = within(head).getByRole('region', { name: 'Microphones' });
@@ -492,7 +492,7 @@ describe('Live', () => {
   it.each([
     ['retrying', 'Camera not responding, retrying'],
     ['starting', 'Starting…'],
-  ])('says a camera is %s instead of off (#324)', (state, text) => {
+  ])('says a camera is %s instead of off', (state, text) => {
     renderLive({ vision: { ts: NOW - 1, cameras: { cam0: { state } } } });
     expect(screen.getByText(text)).toBeInTheDocument();
     expect(screen.queryByText("Cameras are off, so Liberational can't see who's here.")).not.toBeInTheDocument();

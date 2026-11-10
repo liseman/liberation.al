@@ -1,4 +1,4 @@
-//! The recent window of a camera's native H.264 (#1741): every access unit from any time in the last few minutes,
+//! The recent window of a camera's native H.264: every access unit from any time in the last few minutes,
 //! in decode order, then the live edge, with no seam between the tiers.
 //!
 //! A camera's encoded access units sit in Tier 0 slots until the tier worker absorbs them into a Tier 1 chunk

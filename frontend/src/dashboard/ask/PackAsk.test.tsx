@@ -99,7 +99,7 @@ describe('Live: My recordings searches recordings, Friends and Everyone are gene
     renderAsk();
     await ask('Question <img onerror=alert(1)>');
     await waitFor(() => expect(net.posts).toHaveLength(1));
-    // #2307: local runs the recordings search with no day, so the question names its own window ("today")
+    // Local runs the recordings search with no day, so the question names its own window ("today")
     expect(net.posts[0]).toEqual({ question: 'Question <img onerror=alert(1)>', mode: 'local', scope: 'history' });
     expect(buttons().every(b => (b as HTMLButtonElement).disabled)).toBe(true);
     expect(scope('Friends')).toBeDisabled();
@@ -258,7 +258,7 @@ describe('Live: My recordings searches recordings, Friends and Everyone are gene
     });
     renderAsk();
     await user.type(question(), 'Q');
-    await askIn('Friends'); // a general question (#2307)
+    await askIn('Friends'); // a general question
     await waitFor(() => expect(status()).toHaveTextContent('Friends · queued'));
     await wait(1000);
     expect(await screen.findByText('<script>alert(1)</script>')).toBeInTheDocument();
@@ -377,7 +377,7 @@ describe('restoring a saved job', () => {
   it.each([
     ['a friends job with recordings', { ...general, scope: 'history' }],
     ['a job saved before scopes', { ...general, scope: undefined }],
-    ['a local general job from before #2307', { ...general, mode: 'local' }],
+    ['an older local general job', { ...general, mode: 'local' }],
   ])('never resumes %s on Live', async (_, active) => {
     const net = jobServer();
     store(GENERAL, { active, question: 'Q' });

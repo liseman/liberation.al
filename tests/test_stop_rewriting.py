@@ -21,7 +21,16 @@ from hypothesis import strategies as hs
 
 import speech_fake
 from liberational import speech_log
-from liberational.dashboard import presence, server
+from liberational.dashboard import (
+    context,
+    people_list,
+    presence,
+    server,
+    shell_status,
+    speaker_lines,
+    transcript_lines,
+    unnamed_groups,
+)
 from liberational.domain.identity import Basis
 from liberational.domain.kernel import EventType
 from liberational.memory import history_qa, recall, summarize
@@ -79,7 +88,7 @@ def names(state):
 def legacy_state(state):
     """A state directory with lines as the code before step 4 left them: rewritten by merges, dashboard labels, voice
     tags, unlabels, and backfill relabels. The voices v1 merged (3 into Alice's, 6 into Dana's, 7 into 2) are their
-    own voiceprints now, each named for whoever it was folded into (#772: naming replaces merging)."""
+    own voiceprints now, each named for whoever it was folded into (naming replaces merging)."""
     write_voices(state, {1: "Alice", 2: None, 3: "Alice", 4: "Dana", 5: "Gus", 6: "Dana", 7: None})
     write_lines(
         state,
@@ -117,9 +126,8 @@ def dashboard(monkeypatch):
     """Point the dashboard server at a state directory, with no password."""
 
     def at(state):
-        for name, file in (("REFINE_LOG", "refine_log.jsonl"),):
-            monkeypatch.setattr(server, name, state / file)
-        monkeypatch.setattr(server, "STATE", state)
+        monkeypatch.setattr(speaker_lines, "REFINE_LOG", state / "refine_log.jsonl")
+        monkeypatch.setattr(context, "STATE", state)
         monkeypatch.setattr(server, "DASH_PASSWORD", "")
         return state
 
@@ -131,6 +139,9 @@ class Feed(server.H):
 
     def __init__(self, out):
         self.wfile = out
+
+    def _shell_status(self):
+        return shell_status.Status({})  # these feeds are about the transcript: no pauses, services, or research
 
     def send_response(self, code, message=None):
         pass
@@ -246,11 +257,11 @@ def test_naming_a_voice_moves_its_lines_without_rewriting_them(written):
 
 def test_labels_unlabels_and_undo_from_the_dashboard(written):
     hand, multi = ts(written, 8), ts(written, 0)
-    assert server.speakers_refine("assign", {"ts_start": hand, "name": "Hana"})[0] == 200
+    assert speaker_lines.speakers_refine("assign", {"ts_start": hand, "name": "Hana"})[0] == 200
     assert names(written)[8] == "Hana"
-    server.speakers_refine("multi", {"ts_start": multi})
+    speaker_lines.speakers_refine("multi", {"ts_start": multi})
     assert names(written)[0] == MULTI
-    server.speakers_refine_undo({"ts_starts": [hand, multi]})
+    speaker_lines.speakers_refine_undo({"ts_starts": [hand, multi]})
     assert (names(written)[0], names(written)[8]) == ("Alice", "Speaker 2")
     md = (written / "transcript" / f"{transcript_view.day_of(T0)}.md").read_text()
     assert "[09:00:00] Alice: line 0" in md  # the day's file was rebuilt
@@ -293,7 +304,7 @@ def test_a_reply_while_the_feed_connects_reaches_it(forgetting, monkeypatch):
     """Finding 11: on connect the feed read the tail, then the assistant's offset, so a reply in between was in
     neither the first batch nor any later read."""
     speech_fake.fake().reply({**REPLY, "text": "first"})
-    real_tail, replied = server.merged_tail, []
+    real_tail, replied = transcript_lines.merged_tail, []
 
     def tail(n=80):
         got = real_tail(n)
@@ -302,7 +313,7 @@ def test_a_reply_while_the_feed_connects_reaches_it(forgetting, monkeypatch):
             reply(forgetting, "REPLY-X")
         return got
 
-    monkeypatch.setattr(server, "merged_tail", tail)
+    monkeypatch.setattr(transcript_lines, "merged_tail", tail)
     sent = [e["text"] for ev in feed(monkeypatch) for e in ev["entries"]]
     assert sent.count("REPLY-X") == 1
 
@@ -402,7 +413,7 @@ def test_the_lines_labeled_as_someone_are_found_for_forgetting(reg):
     assert reg.utterances_of("Nobody") == []
 
 
-# ------------------------------------------------------- two microphones (#247) ----
+# ------------------------------------------------------- two microphones ----
 A, B = registry.utterance(20.0, "Mic A"), registry.utterance(20.0, "Mic B")  # one millisecond, two microphones
 
 
@@ -443,7 +454,7 @@ def test_a_new_label_outranks_an_old_one_on_its_line(reg):
 
 
 def test_an_old_label_on_a_millisecond_two_microphones_share_counts_for_both_until_one_changes(reg, tmp_path):
-    # Decision 2 on #247: what was said under the old id names every line that starts in that millisecond. What is
+    # What was said under the legacy millisecond id names every line that starts in that millisecond. What is
     # said from now on is per line, so undoing or replacing it on one line leaves the other.
     reg.claim(registry.utterance(20.0), "Dana", Basis.OWNER_TAG, "test")
     assert (who(reg, A), who(reg, B)) == ("Dana", "Dana")
@@ -494,7 +505,7 @@ def test_readers_see_a_label_on_only_its_microphones_line_unless_the_other_is_th
     write_lines(tmp_path, apart)
     registry.at(tmp_path).claim(registry.utterance_of(apart[0]), "Dana", Basis.OWNER_TAG, "dashboard")
     assert [e["speaker"] for e in transcript_view.View(tmp_path).lines(apart)] == ["Dana", "Alice"]
-    # The same words on both mics at once are one thing said: the label reaches its copy (#284), each line keeps its key
+    # The same words on both mics at once are one thing said: the label reaches its copy, each line keeps its key
     twins = [{**line(0, "Alice", 1, 0.9), "device": d} for d in ("Mic A", "Mic B")]
     assert [e["speaker"] for e in transcript_view.View(tmp_path).lines(twins)] == ["Dana", "Dana"]
 
@@ -565,21 +576,21 @@ def rename_alice(state, newcomer=True):
 
 
 def test_dashboard(heard):
-    assert [e["speaker"] for e in server.merged_tail(10)] == ["Dana", "Alice"]
-    assert [e["speaker"] for e in server.transcript_around(T0, 4)["entries"]] == ["Dana", "Alice"]
-    assert [r["who"] for r in server._room_lines()] == ["Dana", "Alice"]
-    latest = server.latest_for_speaker(1)
+    assert [e["speaker"] for e in transcript_lines.merged_tail(10)] == ["Dana", "Alice"]
+    assert [e["speaker"] for e in transcript_lines.transcript_around(T0, 4)["entries"]] == ["Dana", "Alice"]
+    assert [r["who"] for r in people_list._room_lines()] == ["Dana", "Alice"]
+    latest = speaker_lines.latest_for_speaker(1)
     assert latest is not None
     assert latest["ts_start"] == T0 + 5  # Dana's line is not voice 1's
-    clips, _ = server.voice_clips([{"id": 1, "label": "Alice"}])
+    clips, _ = unnamed_groups.voice_clips([{"id": 1, "label": "Alice"}])
     assert [c["ts"] for c in clips] == [T0 + 5]
 
 
 def test_a_voices_latest_line_is_found_past_a_newer_line_with_no_voice(heard):
-    # #3051: a newer line with audio but no voice of its own raised KeyError, so the People tab couldn't play the voice.
+    # A newer line with audio but no voice of its own raised KeyError, so the People tab couldn't play the voice.
     unvoiced = {"ts_start": T0 + 8, "ts_end": T0 + 9, "speaker": "", "text": "line 8", "audio": AUDIO}
     write_lines(heard, [*HEARD, unvoiced])
-    latest = server.latest_for_speaker(1)
+    latest = speaker_lines.latest_for_speaker(1)
     assert latest is not None
     assert latest["ts_start"] == T0 + 5
 
@@ -588,7 +599,7 @@ def test_people_views_keep_a_renamed_persons_lines_from_a_newcomer(heard):
     """The roster, a profile's recent lines, and Evidence read a line heard as Alice as of its time: it stays
     Alicia's after someone new is called Alice."""
     rename_alice(heard)
-    assert [r["who"] for r in server._room_lines()] == ["Dana", "Alicia", "Alicia"]
+    assert [r["who"] for r in people_list._room_lines()] == ["Dana", "Alicia", "Alicia"]
 
 
 def test_presence_follows_a_rename(heard):

@@ -1,4 +1,4 @@
-"""The contact card (#307): face shot quality (vision/face_quality.py), the best shots and the main photo
+"""The contact card: face shot quality (vision/face_quality.py), the best shots and the main photo
 (vision/sightings.py, over the face worker's faces on the vision log), and GET /people/<name>/card. Made-up names and
 synthetic faces; never the real data/."""
 
@@ -19,7 +19,7 @@ from hypothesis import strategies as hs
 import speech_fake
 from liberational import config as cfg
 from liberational import segment_log, speech_log, vision_log
-from liberational.dashboard import server
+from liberational.dashboard import call_log, context, people_list, people_reads, photo_files, server
 from liberational.memory import clip_labels
 from liberational.people import face_shots, registry, video_thumbs
 from liberational.vision import face_quality as fq
@@ -167,17 +167,16 @@ def card_state(tmp_path, monkeypatch, vision):
     cam1."""
     tmp = tmp_path
     (tmp / "speakers.json").write_text(json.dumps({"speakers": []}))
-    for name, path in {
-        "STATE": ".",
-        "CALLS_DIR": "calls",
-        "CONTACTS_FILE": "contacts.json",
-        "PEOPLE_ADDED": "people_added.json",
-    }.items():
+    for name, path in {}.items():
         monkeypatch.setattr(server, name, tmp / path)
-    monkeypatch.setattr(server, "_here_since", {})  # each test starts with no one in view
-    monkeypatch.setattr(server, "_here_cam", {})
-    monkeypatch.setattr(server, "_faces_mod", lambda: NO_FACES)
-    monkeypatch.setattr(server, "_face_last_seen_at", lambda: {"alice": (DAY1 + 50, "cam0")})
+    monkeypatch.setattr(people_list, "PEOPLE_ADDED", tmp / "people_added.json")
+    monkeypatch.setattr(people_list, "CONTACTS_FILE", tmp / "contacts.json")
+    monkeypatch.setattr(call_log, "CALLS_DIR", tmp / "calls")
+    monkeypatch.setattr(context, "STATE", tmp)
+    monkeypatch.setattr(people_list, "_here_since", {})  # each test starts with no one in view
+    monkeypatch.setattr(people_list, "_here_cam", {})
+    monkeypatch.setattr(people_list, "_faces_mod", lambda: NO_FACES)
+    monkeypatch.setattr(people_list, "_face_last_seen_at", lambda: {"alice": (DAY1 + 50, "cam0")})
     monkeypatch.setattr(SHOTS, "early", shot(vision, DAY1 + 5, 0.3))
     monkeypatch.setattr(SHOTS, "best", shot(vision, DAY1 + 40, 0.9))
     face_shots.write(tmp, SHOTS.early, "0", b"ready-jpeg")
@@ -202,11 +201,11 @@ def card_state(tmp_path, monkeypatch, vision):
 
 
 def test_the_card_has_the_best_shots_recent_video_and_voice(card_state):
-    first = server.person_card("ALICE")
+    first = people_reads.person_card("ALICE")
     assert first is not None
     assert first["videos"][0]["what"] is None  # the label isn't written yet: the card won't wait
     clip_labels.at(card_state).drain()
-    card = server.person_card("ALICE")
+    card = people_reads.person_card("ALICE")
     assert card is not None
     best = {"id": SHOTS.best, "url": f"/faces/shot/{SHOTS.best}.jpg", "ts": DAY1 + 40, "cam": "cam0", "score": 0.9}
     assert card["name"] == "Alice"
@@ -236,16 +235,16 @@ def test_the_card_has_the_best_shots_recent_video_and_voice(card_state):
 def test_card_hides_uncached_faces_and_reports_processing_without_decoding(card_state, monkeypatch):
     face_shots.path(card_state, SHOTS.early, "0").unlink()
     face_shots.path(card_state, SHOTS.best, "0").unlink()
-    jobs = face_shots.Pending(server._crop_process)
-    monkeypatch.setattr(server, "_crop_jobs", jobs)
-    card = server.person_card("Alice")
+    jobs = face_shots.Pending(photo_files._crop_process)
+    monkeypatch.setattr(photo_files, "_crop_jobs", jobs)
+    card = people_reads.person_card("Alice")
     assert card is not None
     assert card["shots"] == []
     assert card["photo"] is None
     assert card["shots_pending"] == 2
     assert len(jobs.pending) == 2  # the repeated roster/main-photo reads coalesce
     face_shots.write(card_state, SHOTS.best, "0", b"ready-jpeg")
-    refreshed = server.person_card("Alice")
+    refreshed = people_reads.person_card("Alice")
     assert refreshed is not None
     assert [s["id"] for s in refreshed["shots"]] == [SHOTS.best]
     assert refreshed["photo"]["id"] == SHOTS.best
@@ -256,15 +255,15 @@ def test_a_first_person_caption_rewrite_never_reaches_the_card(card_state, visio
     vision.records[vision_log.CAPTIONS][0]["caption"] = (
         "Foreground: man, seated, hand over mouth."  # the fake says "I ..."
     )
-    server.person_card("Alice")
+    people_reads.person_card("Alice")
     clip_labels.at(card_state).drain()
-    card = server.person_card("Alice")
+    card = people_reads.person_card("Alice")
     assert card is not None
     assert card["videos"][0]["what"] is None  # only the time and place show
 
 
 def test_the_roster_shows_the_main_photo_and_where_they_are(card_state):
-    alice = next(p for p in server.people_roster() if p["name"] == "Alice")
+    alice = next(p for p in people_list.people_roster() if p["name"] == "Alice")
     assert alice["photo"] == f"/faces/shot/{SHOTS.best}.jpg"
     assert (alice["last_seen"], alice["last_seen_cam"], alice["here_now"]) == (
         DAY1 + 50,
@@ -275,17 +274,17 @@ def test_the_roster_shows_the_main_photo_and_where_they_are(card_state):
 
 def test_someone_tagged_live_gets_their_saved_crop(card_state, monkeypatch):
     with cfg.override({"paths": {"faces": str(card_state / "faces")}}):
-        d = server._photo_dir("Bob")
+        d = photo_files._photo_dir("Bob")
         d.mkdir(parents=True)
         (d / "1793212345000.jpg").write_bytes(b"jpg")
-        assert server.main_photo("Bob") == {
+        assert people_list.main_photo("Bob") == {
             "id": None,
             "url": "/people/Bob/photos/1793212345000.jpg",
             "ts": 1793212345.0,
             "cam": None,
             "score": None,
         }
-        assert server.main_photo("Carol") is None
+        assert people_list.main_photo("Carol") is None
 
 
 def fake(state) -> FakeVisionLog:
@@ -307,7 +306,7 @@ def seen(state, *frames):
 
 
 def here(name="Alice"):
-    me = next(p for p in server.people_roster() if p["name"] == name)
+    me = next(p for p in people_list.people_roster() if p["name"] == name)
     return me["here_now"] and (me["here_now"]["cam"], me["here_now"]["since"])
 
 
@@ -367,13 +366,13 @@ def test_here_now_keeps_someone_on_the_camera_they_were_shown_on(card_state):
 
 def test_a_stale_scene_is_not_here_now(card_state):
     seen(card_state, (time.time() - 120, "cam1"))
-    card = server.person_card("Alice")
+    card = people_reads.person_card("Alice")
     assert card is not None
     assert card["here_now"] is None
 
 
 def test_nobody_gets_an_empty_card_and_a_bad_name_none(card_state):
-    assert server.person_card("Carol") == {
+    assert people_reads.person_card("Carol") == {
         "name": "Carol",
         "photo": None,
         "shots": [],
@@ -382,13 +381,13 @@ def test_nobody_gets_an_empty_card_and_a_bad_name_none(card_state):
         "last_seen": None,
         "here_now": None,
     }
-    assert server.person_card("a/b") is None
+    assert people_reads.person_card("a/b") is None
 
 
 def test_the_card_and_the_roster_say_where_each_camera_is(card_state):
     with cfg.override({"vision": {"camera_names": ["cam0: front camera"]}}):  # cam1 has no name: its id
-        card = server.person_card("Alice")
-        alice = next(p for p in server.people_roster() if p["name"] == "Alice")
+        card = people_reads.person_card("Alice")
+        alice = next(p for p in people_list.people_roster() if p["name"] == "Alice")
     assert card is not None
     assert [v["camera_name"] for v in card["videos"]] == ["front camera"]
     assert card["last_seen"] == {"ts": DAY1 + 50, "cam": "cam0", "camera_name": "front camera"}
@@ -401,7 +400,7 @@ def test_the_card_and_the_roster_say_where_each_camera_is(card_state):
 
 def test_a_recorded_visit_gets_a_scene_thumbnail_without_a_quality_face(card_state, monkeypatch):
     monkeypatch.setattr(st, "best", lambda *args, **kwargs: None)
-    card = server.person_card("Alice")
+    card = people_reads.person_card("Alice")
     assert card is not None
     assert card["videos"][0]["thumb"].startswith("/people/video-thumb.jpg?cam=cam0&start=")
 
@@ -415,8 +414,8 @@ def test_card_reads_retained_speech_once_and_reuses_it_between_requests(card_sta
         return original(streams)
 
     monkeypatch.setattr(speech, "all_lines", read)
-    first = server.person_card("Alice")
-    second = server.person_card("Alice")
+    first = people_reads.person_card("Alice")
+    second = people_reads.person_card("Alice")
     assert first is not None and second is not None
     assert [v["text"] for v in first["voices"]] == ["Coffee?", "Morning!"]
     assert second["voices"] == first["voices"]
@@ -432,10 +431,10 @@ def test_card_names_the_retained_tail_once_without_losing_voice_samples(card_sta
         return original(view, batches[-1])
 
     monkeypatch.setattr(server.transcript_view.View, "named", named)
-    server.people_view(wait_s=None)  # the list a person is opened from; its first read creates the registry,
-    server.people_view(wait_s=None)  # which moves the list's key once in a new state
+    people_reads.people_view(wait_s=None)  # the list a person is opened from; its first read creates the registry,
+    people_reads.people_view(wait_s=None)  # which moves the list's key once in a new state
     batches.clear()
-    card = server.person_card("Alice")
+    card = people_reads.person_card("Alice")
     assert card is not None
     assert [v["text"] for v in card["voices"]] == ["Coffee?", "Morning!"]
     assert len(batches) == 1  # the card names the tail once for voice samples; its roster row is the list's read
@@ -443,9 +442,9 @@ def test_card_names_the_retained_tail_once_without_losing_voice_samples(card_sta
 
 
 def test_card_cached_speech_sees_a_new_line(card_state, speech):
-    first = server.person_card("Alice")
+    first = people_reads.person_card("Alice")
     speech.say({"ts_start": DAY1 + 60, "text": "Another cup?", "speaker": "Alice"})
-    second = server.person_card("Alice")
+    second = people_reads.person_card("Alice")
     assert first is not None and second is not None
     assert [v["text"] for v in second["voices"]] == ["Another cup?", "Coffee?", "Morning!"]
     assert [v["text"] for v in first["voices"]] == ["Coffee?", "Morning!"]
@@ -454,10 +453,10 @@ def test_card_cached_speech_sees_a_new_line(card_state, speech):
 def test_card_cached_speech_uses_current_names_without_new_speech(card_state):
     reg = registry.at(card_state)
     reg.ensure("Alice", "test", at=DAY1 - 1)
-    first = server.person_card("Alice")
+    first = people_reads.person_card("Alice")
     reg.rename("Alice", "Alicia", "test")
-    renamed = server.person_card("Alicia")
-    old = server.person_card("Alice")
+    renamed = people_reads.person_card("Alicia")
+    old = people_reads.person_card("Alice")
     assert first is not None and renamed is not None and old is not None
     assert renamed["name"] == "Alicia"
     assert [v["text"] for v in renamed["voices"]] == ["Coffee?", "Morning!"]
@@ -465,18 +464,18 @@ def test_card_cached_speech_uses_current_names_without_new_speech(card_state):
 
 
 def test_card_cached_speech_drops_purged_voice_samples(card_state, speech):
-    first = server.person_card("Alice")
+    first = people_reads.person_card("Alice")
     speech.purge(speech_log.UTTERANCES, lambda e: e["ts_start"] == DAY1 + 30)
-    second = server.person_card("Alice")
+    second = people_reads.person_card("Alice")
     assert first is not None and second is not None
     assert [v["text"] for v in second["voices"]] == ["Morning!"]
     assert [v["text"] for v in first["voices"]] == ["Coffee?", "Morning!"]
 
 
 def test_opening_a_person_reads_their_row_from_the_list_without_building_a_roster(card_state, monkeypatch):
-    server.people_view(wait_s=None)  # the list a person is opened from; its first read creates the registry,
-    server.people_view(wait_s=None)  # which moves the list's key once in a new state
-    listed = server._PEOPLE_READS.last
+    people_reads.people_view(wait_s=None)  # the list a person is opened from; its first read creates the registry,
+    people_reads.people_view(wait_s=None)  # which moves the list's key once in a new state
+    listed = people_reads._PEOPLE_READS.last
     assert listed is not None
     (alice,) = [p for p in listed["people"] if p["name"] == "Alice"]
     memory = card_state / "memory.jsonl"
@@ -490,11 +489,13 @@ def test_opening_a_person_reads_their_row_from_the_list_without_building_a_roste
             )
         )
     )
-    monkeypatch.setattr(server, "MEMORY_FILE", memory)
-    monkeypatch.setattr(server, "people_roster", create_autospec(server.people_roster, side_effect=AssertionError))
+    monkeypatch.setattr(people_reads, "MEMORY_FILE", memory)
+    monkeypatch.setattr(
+        people_list, "people_roster", create_autospec(people_list.people_roster, side_effect=AssertionError)
+    )
 
-    summary = server.person_summary("alice")
-    card = server.person_card("Alice")
+    summary = people_reads.person_summary("alice")
+    card = people_reads.person_card("Alice")
 
     assert summary is not None and card is not None
     assert (summary["name"], summary["lines"], summary["room_lines"], summary["call_lines"]) == ("Alice", 2, 2, 0)
@@ -506,13 +507,13 @@ def test_opening_a_person_reads_their_row_from_the_list_without_building_a_roste
 def _counted_card(monkeypatch):
     """person_card with a count of its reads."""
     reads = []
-    original = server.person_card
+    original = people_reads.person_card
 
     def read(name):
         reads.append(name)
         return original(name)
 
-    monkeypatch.setattr(server, "person_card", read)
+    monkeypatch.setattr(people_reads, "person_card", read)
     return reads
 
 
@@ -528,28 +529,28 @@ def _settle(cards):
 
 
 def test_a_card_opened_again_answers_from_the_last_read_and_refreshes_it_in_the_background(card_state, monkeypatch):
-    server.people_view(wait_s=None)  # the list a person is opened from; its first read creates the registry,
-    server.people_view(wait_s=None)  # which moves the keys once in a new state
+    people_reads.people_view(wait_s=None)  # the list a person is opened from; its first read creates the registry,
+    people_reads.people_view(wait_s=None)  # which moves the keys once in a new state
     reads = _counted_card(monkeypatch)
-    cards = server._CARD_READS
+    cards = people_reads._CARD_READS
     first = cards.get("Alice")
     again = cards.get("alice")
     assert first is not None and again == first
     assert reads == ["Alice"]  # the second open read nothing
     assert "refreshing" not in first and "refreshing" not in again
-    monkeypatch.setattr(server, "CARD_REFRESH_S", 0.0)  # now the cached card is old
+    monkeypatch.setattr(people_reads, "CARD_REFRESH_S", 0.0)  # now the cached card is old
     assert cards.get("Alice") == {**first, "refreshing": True}  # answered from it, marked so the page asks again
     _settle(cards)
     assert reads == ["Alice", "Alice"]  # and read again behind it
-    monkeypatch.setattr(server, "CARD_REFRESH_S", 3600.0)
+    monkeypatch.setattr(people_reads, "CARD_REFRESH_S", 3600.0)
     assert cards.get("Alice") == first  # the one read behind it, no longer marked
     assert reads == ["Alice", "Alice"]
 
 
 def test_the_people_list_reads_ahead_only_cards_it_has_none_of_however_old_the_rest(card_state, monkeypatch):
-    server.people_view(wait_s=None)  # the list a person is opened from; its first read creates the registry,
-    server.people_view(wait_s=None)  # which moves the keys once in a new state
-    cards = server._CARD_READS
+    people_reads.people_view(wait_s=None)  # the list a person is opened from; its first read creates the registry,
+    people_reads.people_view(wait_s=None)  # which moves the keys once in a new state
+    cards = people_reads._CARD_READS
     assert cards.get("Alice") is not None
     reads = _counted_card(monkeypatch)
     monkeypatch.setattr(server.time, "time", lambda: 1e12)  # every cached card is now very old
@@ -559,15 +560,15 @@ def test_the_people_list_reads_ahead_only_cards_it_has_none_of_however_old_the_r
 
 
 def test_a_card_read_that_began_before_an_edit_is_never_kept(card_state, monkeypatch):
-    cards = server._CARD_READS
-    original = server.person_card
+    cards = people_reads._CARD_READS
+    original = people_reads.person_card
 
     def read_across_an_edit(name):
         card = original(name)
         cards.clear()  # a People POST landed while this read was running
         return card
 
-    monkeypatch.setattr(server, "person_card", read_across_an_edit)
+    monkeypatch.setattr(people_reads, "person_card", read_across_an_edit)
     assert cards.get("Alice") is not None
     assert cards.last == {}
 
@@ -578,14 +579,14 @@ def test_the_people_list_reads_cards_ahead_so_the_first_open_is_cached(card_stat
     c.request("GET", "/people", headers={"Accept": "application/json"})
     assert c.getresponse().status == 200
     c.close()
-    _settle(server._CARD_READS)
+    _settle(people_reads._CARD_READS)
     reads = _counted_card(monkeypatch)
-    assert server._CARD_READS.get("Alice") is not None
+    assert people_reads._CARD_READS.get("Alice") is not None
     assert reads == []
 
 
 def test_a_photo_hidden_from_the_card_is_gone_from_the_next_open(card_state, monkeypatch, serve):
-    monkeypatch.setattr(server, "_card_key", lambda: ("unchanged",))  # only the POST's clear can show the change
+    monkeypatch.setattr(people_reads, "_card_key", lambda: ("unchanged",))  # only the POST's clear can show the change
     monkeypatch.setattr(server.H, "_authed", lambda self: True)
     base = serve(server.H)
 

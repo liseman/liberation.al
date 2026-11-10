@@ -1,4 +1,4 @@
-"""Live's "What's happening" (#354): a plain log of the last few hours, newest at the bottom.
+"""Live's "What's happening": a plain log of the last few hours, newest at the bottom.
 
 GET /live/happening?since=&limit= gives {"items": [...], "updated": cursor}, items in time order:
 
@@ -26,21 +26,25 @@ restart starts the journal and the cursor over: a tab whose cursor is past the n
 model is asked again for the talk lines. The log is built at most once every BUILD_S seconds (every open Live tab
 polls it), reads only the transcript's last LOOKBACK_S, and never waits on the model. Only the first build waits;
 after that a poll answers from the last build while one background build at a time brings it up to date (a build
-takes 1 to 5 s under load, #1458).
+takes 1 to 5 s under load).
 """
 
+import math
 import pathlib
 import threading
 import time
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from liberational import logs, speech_log
-from liberational.dashboard import presence
+from liberational.dashboard import presence, routes
 from liberational.intervals import interval_groups
 from liberational.memory import plain_text
 from liberational.people import registry, transcript_view
 from liberational.vision import sightings, views
+
+if TYPE_CHECKING:
+    from liberational.dashboard.server import H
 
 LOOKBACK_S = 6 * 3600
 EDGE_S = 3600  # read this much before the window too, so what is cut at its start never reads as new
@@ -51,7 +55,7 @@ BUILD_S = 8.0
 MAX_TALK_LINES, MAX_TALK_CHARS = 20, 1500
 # Face sightings older than SETTLED_S are read again only every SETTLED_REFRESH_S, or at once when a purge, a hidden
 # record, or a name given moves their key: rereading the window's seven hours each build was most of what the
-# dashboard decoded at idle, about 190,000 records a minute with Live open (#1516).
+# dashboard decoded at idle, about 190,000 records a minute with Live open.
 SETTLED_S = 900.0
 SETTLED_REFRESH_S = 300.0
 _built: dict[str, tuple[float, list[dict[str, Any]]]] = {}
@@ -386,3 +390,23 @@ def _refresh(state: pathlib.Path, now: float, rewrites: plain_text.Rewrites) -> 
     finally:
         with _lock:
             _building.pop(key, None)
+
+
+# ---- routes (dashboard/routes.py): what the server answers for this area ----
+
+
+@routes.get("/live/happening")
+def _get_live_happening(h: H) -> None:
+    q = h._query()
+    try:
+        since = float(q["since"]) if q.get("since") else None
+        limit = max(1, min(200, int(q.get("limit") or 50)))
+    except ValueError:
+        return h._json({"error": "since is a time in seconds, and limit a number"}, 400)
+    if since is not None and not math.isfinite(since):
+        return h._json({"error": "since is a time in seconds"}, 400)
+    try:
+        return h._json(happening(h.state, since, limit))
+    except Exception as ex:
+        LOG.error(f"live happening failed: {ex!r}")
+        return h._json({"error": "Couldn't read what's been "}, 500)

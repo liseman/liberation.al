@@ -293,7 +293,7 @@ describe('the other corrections', () => {
   });
 });
 
-describe('why this is Dana (#288)', () => {
+describe('why this is Dana', () => {
   const why = (q: string) => ({
     name: 'Dana',
     subject: q.startsWith('shot') ? 'shot' : 'line',

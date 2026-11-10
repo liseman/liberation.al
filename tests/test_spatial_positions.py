@@ -22,7 +22,7 @@ FLOOR = (0.0, -1.0, 0.0, 0.0)
 TO_PLAN = (1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, -1.0, 0.0, 0.0)
 # A level camera 2 m above the floor at x = 1, looking along +z (288 px tall frame, 144 px focal): the bottom middle
 # of its frame drops a metre a metre, so an animal's footprint there (on the floor) lands 2 m ahead, at plan (1, 2),
-# and a person's (their heels, footprints.FOOT_M = 0.07 up) 1.93 m ahead (#3069).
+# and a person's (their heels, footprints.FOOT_M = 0.07 up) 1.93 m ahead.
 LEVEL = places.CameraPose((1.0, 0, 0, 1.0, 0, 1.0, 0, -2.0, 0, 0, 1.0, 0.0, 0, 0, 0, 1.0), 144.0, 512, 288, T)
 PLAN = 'plan "Home" walls 0.2/0.1\nroom r1 "Living" other rect 0,0 4x3\nroom r2 "Hall" other rect 0,3 4x2\n'
 
@@ -176,7 +176,7 @@ def test_a_pose_from_the_series_takes_the_cameras_held_focal(tmp_path, vision, m
 @pytest.mark.parametrize(
     ("registered", "plan", "v", "want"),
     [
-        # No plan: the feet's floor point in the floor's own frame (the map's x, and z as y), with no room (#3151)
+        # No plan: the feet's floor point in the floor's own frame (the map's x, and z as y), with no room
         pytest.param(True, False, 1.0, (True, 1.0, 1.93, None), id="place-without-a-plan"),
         pytest.param(True, True, 0.3, (True, None, None, None), id="looking-above-the-floor"),
         pytest.param(False, False, 1.0, (False, None, None, None), id="unregistered-camera"),
@@ -201,7 +201,7 @@ def test_a_rig_row_keeps_its_own_place_and_point_and_finds_its_room(tmp_path, vi
 
 
 def test_entities_are_named_when_read(tmp_path, vision, monkeypatch):
-    monkeypatch.setattr("liberational.config.owner_name", lambda: "Joe")
+    monkeypatch.setattr("liberational.config.owner_name", lambda: "Sam")
     alice = registry.at(tmp_path).ensure("Alice", "test")
     biscuit = pets.at(tmp_path).save("Biscuit", "dog")["id"]
     foot(vision, T, entity=f"person:{alice}")
@@ -209,7 +209,7 @@ def test_entities_are_named_when_read(tmp_path, vision, monkeypatch):
     foot(vision, T + 2, entity="rig")
     foot(vision, T + 3, entity="person:nobody")
     foot(vision, T + 4)
-    assert [p.name for p in P.derive(tmp_path, T - 1, T + 9)] == ["Alice", "Biscuit", "Joe", None, None]
+    assert [p.name for p in P.derive(tmp_path, T - 1, T + 9)] == ["Alice", "Biscuit", "Sam", None, None]
 
 
 def zone(vision, kind, start, end, cam="cam0", name="Kitchen"):
@@ -387,7 +387,7 @@ OWNER_ROOMS = 'plan "Home" walls 0.2/0.1\nroom r1 "Lounge" other rect 0,0 4x3\nr
 
 def test_a_joined_rooms_camera_lands_on_the_owners_plan_drawn_before_the_join(tmp_path, vision):
     # The owner drew the plan on the first revision, which registers cam0 only. A join brought in the porch, 3 m
-    # further along z, in a new map that stands 5 m along x from the first and has no plan of its own (#3196).
+    # further along z, in a new map that stands 5 m along x from the first and has no plan of its own.
     place = home(tmp_path)
     first = places.latest(tmp_path, place)
     assert first is not None
@@ -459,7 +459,7 @@ def test_a_camera_run_without_a_plan_leaves_no_plan_from_another_frame(tmp_path,
 
 
 def test_samples_read_only_the_asked_cameras_slots_from_the_store(tmp_path, monkeypatch):
-    # #2912: the slot filter ran after every slot was read, so it saved nothing; the store now reads only those slots.
+    # The slot filter ran after every slot was read, so it saved nothing; the store now reads only those slots.
     monkeypatch.setattr(S, "at", lambda state=None: S.Log(S.root(tmp_path)))
     P.write_samples(
         tmp_path,
@@ -579,7 +579,7 @@ def test_entity_names_refresh_registry_once_per_read(tmp_path, vision, monkeypat
 
 
 def test_an_unnamed_persons_tracks_share_their_face_group_on_every_camera(tmp_path, vision):
-    # #2981: tracks whose faces agree on an unnamed group ("Face 3") are one entity, still each its own path
+    # Tracks whose faces agree on an unnamed group ("Face 3") are one entity, still each its own path
     home(tmp_path)
     alice = registry.at(tmp_path).ensure("Alice", "test")
     for t in (1, 2, 3):
@@ -659,7 +659,7 @@ def test_an_animals_track_is_named_by_the_owners_label_of_it(tmp_path, vision):
 
 
 def embedding(state, ts, track, identity, k):
-    """One animal embedding: 0.95 along the animal's own axis, 0.31 along the sighting's (#1332's tests)."""
+    """One animal embedding: 0.95 along the animal's own axis, 0.31 along the sighting's."""
     import numpy as np
 
     v = np.zeros(384)
@@ -700,7 +700,7 @@ def test_pet_recognition_failing_leaves_animals_unnamed_but_still_placed(tmp_pat
     assert [(p.entity, p.x, p.y) for p in P.derive(tmp_path, T, T + 5)] == [(None, 1.0, 2.0)]
 
 
-# ---- a track no face names, by the one track another camera saw at the same time (#2981)
+# ---- a track no face names, by the one track another camera saw at the same time
 
 
 def two_cameras(tmp_path, backgrounds=None):
@@ -727,7 +727,7 @@ def two_cameras(tmp_path, backgrounds=None):
 
 
 def test_a_read_fills_a_cameras_pose_with_its_background_once(tmp_path):
-    # Every sample of a read asks for its camera's pose with the current background (#3293): one pose per camera
+    # Every sample of a read asks for its camera's pose with the current background: one pose per camera
     rev = two_cameras(tmp_path, backgrounds={"cam0": 0.5})
     where = P._Places(tmp_path)
     first = where.camera(rev, "cam0")
@@ -757,11 +757,11 @@ def alice_on_cam0(tmp_path, vision):
 
 
 def entities(tmp_path):
-    """Who each track was: a fused point (#2981's joined path) says it for every track of its path."""
+    """Who each track was: a fused point on a joined path says it for every track of its path."""
     return {t: p.entity for p in P.derive(tmp_path, T - 1, T + 20) for t in (p.path or "").split("+") if t}
 
 
-# ---- one entity's tracks on two cameras fused into one path (#2981)
+# ---- one entity's tracks on two cameras fused into one path
 
 
 def sin2(v):
@@ -844,7 +844,7 @@ def test_a_faceless_track_stays_unnamed_when_who_it_was_with_is_not_clear(
 
 @pytest.mark.parametrize(("second", "want"), [("Alice", "alice"), ("Dana", "face:3")])
 def test_a_face_group_track_is_the_one_person_its_partners_faces_named(tmp_path, vision, alice_on_cam0, second, want):
-    # #2981: living-room sees only the back of a named person's head, so its track gets a fresh unnamed group. cam0
+    # living-room sees only the back of a named person's head, so its track gets a fresh unnamed group. cam0
     # saw her face on two tracks in a row, each with living:3 alone in view (so each is living:3's partner, though
     # living:3, seeing two, has none of its own). When their faces name one person, the group yields to her.
     registry.at(tmp_path).ensure("Dana", "test")
@@ -860,7 +860,7 @@ def test_a_face_group_track_is_the_one_person_its_partners_faces_named(tmp_path,
 
 
 def test_a_face_group_track_never_yields_to_a_person_the_owner_said_it_isnt(tmp_path, vision, alice_on_cam0):
-    # #3190: as above, cam0's tracks partnering living:3 are Alice's, but the owner marked Face 3 not Alice
+    # As above, cam0's tracks partnering living:3 are Alice's, but the owner marked Face 3 not Alice
     face_nots.mark(tmp_path, "Alice", [3])
     for t in (2, 3, 4):
         vision.face(T + t, cam="living", cluster="Face 3", track_id="3")
@@ -907,7 +907,7 @@ COUCH, FLOOR_SEEN = 0.6, 0.0
 def test_a_fused_point_defers_to_the_camera_whose_foot_is_not_on_an_occluding_edge(
     tmp_path, vision, cam0_sees, living_sees, trusted
 ):
-    # #3070: a foot point on a couch's top is hidden and guessed, or just beyond it; the other camera can tell
+    # A foot point on a couch's top is hidden and guessed, or just beyond it; the other camera can tell
     two_cameras(tmp_path, {"cam0": cam0_sees, "living": living_sees})
     alice = registry.at(tmp_path).ensure("Alice", "test")
     for t in (1, 2, 3):
@@ -924,7 +924,7 @@ def test_a_fused_point_defers_to_the_camera_whose_foot_is_not_on_an_occluding_ed
     assert [p.y for p in fused] == pytest.approx([want] * 6, abs=0.002)
 
 
-# ---- a track broken in two on one camera (#2981's handoff)
+# ---- a track broken in two on one camera
 
 
 def test_a_track_broken_in_two_on_one_camera_is_one_person_and_one_path(tmp_path, vision, alice_on_cam0):
@@ -953,7 +953,7 @@ def test_a_track_that_may_not_be_the_one_before_stays_unnamed(tmp_path, vision, 
     assert got[next(iter(after))] is None
 
 
-# ---- feet on an occluding edge outside a fused path (#3070)
+# ---- feet on an occluding edge outside a fused path
 
 
 def on_path_of(track, got):
@@ -991,7 +991,7 @@ def test_a_foot_on_an_edge_is_put_where_the_other_camera_saw_the_same_person_tha
     cam0 = on_path_of("cam0:7", got)
     living_y = (2 - footprints.FOOT_M) / 0.5
     assert len(cam0) == 10
-    if deferred:  # one person drawn once (#2981): one path, a point a second, where living-room saw her
+    if deferred:  # one person drawn once: one path, a point a second, where living-room saw her
         assert {p.path for p in got} == {"cam0:7+living:3"}
         assert all(p.track is None and p.y == pytest.approx(living_y, abs=0.002) and not p.uncertain for p in cam0)
     else:
@@ -1028,14 +1028,14 @@ ON_RAY = (0.5, 1.0)
             (NEARBY, 1.0),
             {("cam0", "7"): "Face 3", ("living", "3"): "Dana", ("living", "4"): "Eve"},
             True,
-            id="on-the-ray-and-only-a-face-group",  # an unnamed group is no one in particular (#2981)
+            id="on-the-ray-and-only-a-face-group",  # an unnamed group is no one in particular
         ),
     ],
 )
 def test_a_foot_on_an_edge_among_several_people_is_put_where_the_one_on_its_ray_was(
     tmp_path, vision, other, names, settled
 ):
-    # #3070: living-room saw two people that second; neither is cam0's partner (both are within RIVAL_M), so only
+    # living-room saw two people that second; neither is cam0's partner (both are within RIVAL_M), so only
     # cam0's ray (its foot's column is right, its depth isn't) can say which one cam0 saw behind the occluder
     two_cameras(tmp_path, {"cam0": COUCH, "living": FLOOR_SEEN})
     for (cam, track_id), name in names.items():
@@ -1067,7 +1067,7 @@ def behind_the_couch(tmp_path, vision, cam0_seconds, living_seconds, names):
 
 
 def test_a_track_whose_feet_went_to_another_cameras_track_is_drawn_on_that_path_as_that_person(tmp_path, vision):
-    # #2981: every second living-room saw her, cam0's foot was put on living:3's point, so cam0:7 is Alice drawn twice:
+    # Every second living-room saw her, cam0's foot was put on living:3's point, so cam0:7 is Alice drawn twice:
     # one path, Alice's, also over the two seconds after living-room lost her
     got = behind_the_couch(tmp_path, vision, range(12), range(10), {("living", "3"): "Alice", ("living", "4"): "Dana"})
     alice = f"person:{registry.at(tmp_path).person_id('Alice')}"
@@ -1135,7 +1135,7 @@ def test_a_track_whose_clear_feet_were_far_from_the_one_its_hidden_feet_went_to_
 
 
 def test_a_face_group_the_owner_said_isnt_someone_is_never_put_on_their_point(tmp_path, vision):
-    # #3190: unmarked, cam0's group would be put on Dana's point, on its ray (the face-group case of the ray test)
+    # Unmarked, cam0's group would be put on Dana's point, on its ray (the face-group case of the ray test)
     for name in ("Dana", "Eve"):
         registry.at(tmp_path).ensure(name, "test")
         face_nots.mark(tmp_path, name, [3])
@@ -1208,7 +1208,7 @@ def cam0_registered(tmp_path, place, heights, now):
 
 
 # Tonight's registration masked someone sitting at cell 390 (u 0.5 to 0.55, v 0.95 to 1.0), so it doesn't know
-# what's there (#3168). At v 0.999 cam0's ray falls about a metre a metre: a 1.2 m couch (COUCH) hides 1.13 m of
+# what's there. At v 0.999 cam0's ray falls about a metre a metre: a 1.2 m couch (COUCH) hides 1.13 m of
 # floor there, over EDGE_M, and a 1 m piece of furniture (FURNITURE_M) 0.93 m, under it. At v 0.95 (0.9 a metre) it
 # hides 1.03 m.
 TONIGHT = [COUCH] * 390 + [None] + [COUCH] * 9
@@ -1237,7 +1237,7 @@ def test_a_foot_where_tonights_registration_saw_nobody_behind_is_not_taken_as_cl
 
 
 def test_an_owner_plan_drawn_in_a_revision_with_no_plan_file_names_rooms_in_its_frame(tmp_path, vision):
-    # An imported plan (#3276) drawn in the floor's own frame of a map with no machine plan: plan (x, y) = map (x, z)
+    # An imported plan drawn in the floor's own frame of a map with no machine plan: plan (x, y) = map (x, z)
     # for this y-down floor, as TO_PLAN has it. It holds there and in a later revision of the same map, not in a new map.
     place = home(tmp_path, plan=False)
     drawn = places.latest(tmp_path, place)
@@ -1304,16 +1304,29 @@ def test_each_run_places_only_what_came_since_the_last(tmp_path, vision):
     assert [p.t for p in P.positions(tmp_path, T - 1, T + 200, place=place)] == [T, T + 100]
 
 
+def failing_save(monkeypatch, nth):
+    """`P._save_marks` failing on its `nth` call from now, as a full disk would; returns a function that mends it."""
+    save, calls = P._save_marks, []
+
+    def flaky(state, marks):
+        calls.append(marks)
+        if len(calls) == nth:
+            raise OSError("no space left on device")
+        save(state, marks)
+
+    monkeypatch.setattr(P, "_save_marks", flaky)
+    return lambda: monkeypatch.setattr(P, "_save_marks", save)
+
+
 def test_a_piece_that_failed_after_its_rows_were_written_isnt_kept_twice(tmp_path, vision, monkeypatch):
     place = home(tmp_path)
     foot(vision, T - 50)
     P.advance(tmp_path, T - 10, chunk_s=P.BACKFILL_S)
     foot(vision, T)
-    save = P._save_marks
-    monkeypatch.setattr(P, "_save_marks", lambda *a: pytest.fail("the disk filled before the mark moved"))
-    with pytest.raises(pytest.fail.Exception):
+    mend = failing_save(monkeypatch, 2)  # the first save is of the registration checked; the second moves the mark
+    with pytest.raises(OSError, match="no space"):
         P.advance(tmp_path, T + 60, chunk_s=P.BACKFILL_S)
-    monkeypatch.setattr(P, "_save_marks", save)
+    mend()
     P.advance(tmp_path, T + 60, chunk_s=P.BACKFILL_S)
     assert [p.t for p in P.positions(tmp_path, T - 100, T + 200, place=place)] == [T - 50, T]
 
@@ -1427,10 +1440,90 @@ def test_a_reset_has_the_placer_place_everything_again_once(tmp_path, vision):
     foot(vision, T)
     P.advance(tmp_path, T + 60, chunk_s=P.BACKFILL_S)
     P.write(tmp_path, [record(T + 1, place)])  # the rig's own record: nothing can make it again
-    P.reset(tmp_path)
+    assert P.reset(tmp_path) == 1
     assert [p.source for p in P.positions(tmp_path, T - 1, T + 5, place=place)] == [P.RIG_POSE]
     P.advance(tmp_path, T + 60, chunk_s=P.BACKFILL_S)
     assert [p.source for p in P.positions(tmp_path, T - 1, T + 5, place=place)] == [P.FIXED_CAMERA, P.RIG_POSE]
+
+
+def registered_again(tmp_path, place, dx, at):
+    """`place`'s camera registered again `dx` metres along x from where LEVEL has it."""
+    cam = places.CameraPose(LEVEL.pose[:3] + (LEVEL.pose[3] + dx,) + LEVEL.pose[4:], 144.0, 512, 288, at)
+    return places.revise(tmp_path, place, producer="test", cameras={"cam0": cam}, now=at)
+
+
+def test_a_path_that_spans_a_re_registration_is_placed_again_in_one_frame(tmp_path, vision):
+    place = home(tmp_path)
+    foot(vision, T, v=0.75)  # the feet's plane 3.86 m ahead of the camera, which stands at x = 1
+    P.advance(tmp_path, T + 60, chunk_s=P.BACKFILL_S)
+    assert [(p.x, p.y) for p in P.positions(tmp_path, T - 1, T + 200, place=place)] == [(1.0, 3.86)]
+    newest = registered_again(tmp_path, place, 1.0, T + 80)  # the camera was a metre further along x all along
+    foot(vision, T + 100, v=0.75)
+    assert P.advance(tmp_path, T + 160, chunk_s=P.BACKFILL_S)["replaced"] == 1
+    got = P.positions(tmp_path, T - 1, T + 200, place=place, frame_revision=newest.id)
+    assert [(p.t - T, p.x, p.y, p.revision, p.in_frame) for p in got] == [
+        (0, 2.0, 3.86, newest.id, True),
+        (100, 2.0, 3.86, newest.id, True),
+    ]
+
+
+@pytest.mark.parametrize("dx", [0.0, 0.1], ids=["carried-over-as-it-was", "a-refit-of-centimetres"])
+def test_a_registration_that_puts_people_where_it_did_leaves_the_records_alone(tmp_path, vision, dx):
+    place = home(tmp_path)
+    foot(vision, T, v=0.75)
+    P.advance(tmp_path, T + 60, chunk_s=P.BACKFILL_S)
+    registered_again(tmp_path, place, dx, T + 80)
+    did = P.advance(tmp_path, T + 160, chunk_s=P.BACKFILL_S)
+    assert (did["replaced"], did["records"]) == (0, 0)
+    assert [(p.x, p.y) for p in P.positions(tmp_path, T - 1, T + 200, place=place)] == [(1.0, 3.86)]
+
+
+def test_refits_that_add_up_to_a_move_have_the_place_placed_again(tmp_path, vision):
+    place = home(tmp_path)
+    foot(vision, T, v=0.75)
+    P.advance(tmp_path, T + 60, chunk_s=P.BACKFILL_S)
+    registered_again(tmp_path, place, 0.15, T + 80)
+    assert P.advance(tmp_path, T + 160, chunk_s=P.BACKFILL_S)["replaced"] == 0
+    registered_again(tmp_path, place, 0.3, T + 180)  # 0.15 m from last night, 0.3 m from where its records are
+    assert P.advance(tmp_path, T + 260, chunk_s=P.BACKFILL_S)["replaced"] == 1
+    assert [(p.x, p.y) for p in P.positions(tmp_path, T - 1, T + 300, place=place)] == [(1.3, 3.86)]
+
+
+def test_only_the_place_whose_camera_was_registered_again_is_placed_again(tmp_path, vision):
+    place = home(tmp_path)
+    other = places.revise(
+        tmp_path, None, producer="test", cameras={"porch": LEVEL}, floor=FLOOR, map_bytes=b"x", map_format="ply",
+        plan=PLAN, plan_transform=TO_PLAN, now=T - 100,
+    ).place  # fmt: skip
+    foot(vision, T, v=0.75)
+    foot(vision, T + 1, v=0.75, cam="porch")
+    P.advance(tmp_path, T + 60, chunk_s=P.BACKFILL_S)
+    P.write(tmp_path, [record(T + 2, place)])  # the rig's own record there
+    registered_again(tmp_path, place, 1.0, T + 80)
+    did = P.advance(tmp_path, T + 160, chunk_s=P.BACKFILL_S)
+    assert (did["replaced"], did["records"]) == (1, 1)  # the porch's record wasn't placed again
+    assert [(p.source, p.x) for p in P.positions(tmp_path, T - 1, T + 200, place=place)] == [
+        (P.FIXED_CAMERA, 2.0),
+        (P.RIG_POSE, 1.0),
+    ]
+    assert [(p.t - T, p.x) for p in P.positions(tmp_path, T - 1, T + 200, place=other)] == [(1, 1.0)]
+
+
+def test_placing_a_place_again_picks_up_where_a_failed_run_stopped(tmp_path, vision, monkeypatch):
+    place = home(tmp_path)
+    half = P.BACKFILL_S / 2
+    cut = (T // half) * half  # the placer cuts on the clock: a footprint either side of a cut, in two pieces
+    for t in (cut - 100, cut + 100):
+        foot(vision, t, v=0.75)
+    P.advance(tmp_path, cut + 200, chunk_s=half)
+    registered_again(tmp_path, place, 1.0, cut + 300)
+    mend = failing_save(monkeypatch, 3)  # after the place is marked and the registration saved: the first piece's
+    with pytest.raises(OSError, match="no space"):
+        P.advance(tmp_path, cut + 400, chunk_s=half)
+    mend()
+    assert P.advance(tmp_path, cut + 400, chunk_s=half)["replaced"] == 0  # it goes on; it doesn't start over
+    got = P.positions(tmp_path, cut - 200, cut + 200, place=place)
+    assert [(p.t - cut, p.x) for p in got] == [(-100, 2.0), (100, 2.0)]
 
 
 def test_retention_thins_placed_records_by_path_and_keeps_every_zone_visit():

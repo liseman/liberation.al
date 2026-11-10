@@ -44,7 +44,7 @@ const SPEAKERS = {
 let posts: [string, unknown][];
 let asked: string[]; // the lines Why this name was asked about
 
-// Why the first line is Dana (#288): its voice was named in People, and it matched that voice at 0.71.
+// Why the first line is Dana: its voice was named in People, and it matched that voice at 0.71.
 const WHY = {
   name: 'Dana',
   subject: 'line',
@@ -103,7 +103,7 @@ beforeEach(() => {
   };
 });
 
-/** In Who is this?, which a Not <name> opens (#2605): just take it off the voice it was put down to. */
+/** In Who is this?, which a Not <name> opens: just take it off the voice it was put down to. */
 async function justRemove(from: string) {
   const who = await screen.findByRole('dialog', { name: 'Who is this?' });
   await userEvent.click(within(who).getByRole('button', { name: `Not sure, just remove it from ${from}` }));
@@ -112,7 +112,7 @@ const removed = (name: string, ...ids: string[]) =>
   ids.map(id => ['people/correct', { name, kind: 'voice', id, action: 'remove' }]);
 
 const badges = () => screen.getAllByRole('button', { name: /^(Rename|Why|.*: say who this is)/ });
-/** Rename turn i: a named voice's name opens Why this name (#288), and Rename this voice… is in it. */
+/** Rename turn i: a named voice's name opens Why this name, and Rename this voice… is in it. */
 async function rename(i: number, name: string) {
   const badge = badges()[i] as HTMLElement;
   await userEvent.click(badge);
@@ -122,7 +122,7 @@ async function rename(i: number, name: string) {
   expect(box).toHaveFocus();
   await userEvent.clear(box);
   await userEvent.type(box, `${name}{Enter}`);
-  // Naming a voice nobody has named with a new name asks to add them first (#2342).
+  // Naming a voice nobody has named with a new name asks to add them first.
   const add = screen.queryByRole('button', { name: 'Add' });
   if (add) await userEvent.click(add);
 }
@@ -211,7 +211,7 @@ describe('naming a voice from its badge', () => {
     ).toHaveTextContent('Tagging as Dana');
   });
 
-  it('shows a name given to an unmatched turn at once, before its lines come back with it (Joe 2026-11-06)', async () => {
+  it('shows a name given to an unmatched turn at once, before its lines come back with it', async () => {
     // The microphone service relabels tagged lines a while later, and the voices are read again slower still.
     server.use(
       http.get('/people', () => HttpResponse.json({ people: [{ name: 'Dana' }, { name: 'Carly' }] })),
@@ -268,7 +268,7 @@ describe('naming a voice from its badge', () => {
     expect(screen.getByRole('button', { name: 'Why Dana' })).toBeEnabled();
   });
 
-  it('asks who it is with Not <name>, as Review does (#300), and can take the turn off them', async () => {
+  it('asks who it is with Not <name>, as Review does, and can take the turn off them', async () => {
     const corrected: unknown[] = [];
     server.use(
       http.post('/people/correct', async ({ request }) => {
@@ -305,7 +305,7 @@ describe('naming a voice from its badge', () => {
   });
 });
 
-describe('why this name (#288)', () => {
+describe('why this name', () => {
   const TURN = [
     LINES[0] as TranscriptEntry,
     {
@@ -366,10 +366,10 @@ describe('why this name (#288)', () => {
   });
 });
 
-describe('voices nobody has named (#357)', () => {
+describe('voices nobody has named', () => {
   const turnOf = (text: string) => screen.getByText(text).closest('article') as HTMLElement;
 
-  it('shows a voice no person matched as Unmatched with "?", never its placeholder (#2580)', async () => {
+  it('shows a voice no person matched as Unmatched with "?", never its placeholder', async () => {
     renderTranscript();
     await screen.findByText('hello there');
     for (const text of ['sunny weather', 'who is this']) {
@@ -381,7 +381,7 @@ describe('voices nobody has named (#357)', () => {
     }
     expect(within(turnOf('hello there')).getByRole('button', { name: 'Why Dana' })).toHaveTextContent('Dana');
     expect(turnOf('hello there')).not.toHaveAttribute('data-unmatched');
-    // A voice is named from its name: no separate Name this voice button (#2580).
+    // A voice is named from its name: no separate Name this voice button.
     expect(screen.queryByRole('button', { name: 'Name this voice' })).not.toBeInTheDocument();
   });
 
@@ -396,7 +396,7 @@ describe('voices nobody has named (#357)', () => {
     const unknown = within(turnOf('who is this')).getByRole('button', { name: 'Not transcribed correctly' });
     expect(unknown.previousElementSibling).toBeNull();
     await userEvent.click(not);
-    // The same Who is this? as a person's (#2605), by the voice's label, with an Undo.
+    // The same Who is this? as a person's, by the voice's label, with an Undo.
     const who = await screen.findByRole('dialog', { name: 'Who is this?' });
     expect(within(who).getByText("It's not the unmatched voice in this line. Who is it?")).toBeInTheDocument();
     await justRemove('the unmatched voice');
@@ -442,7 +442,7 @@ describe('voices nobody has named (#357)', () => {
     await vi.waitFor(() => expect(posts).toEqual(removed('Speaker 2', 'mic@first', 'mic@second')));
   });
 
-  it('takes only the selected line off an unmatched voice, as off a person, with the person-minus beside its time (#2605)', async () => {
+  it('takes only the selected line off an unmatched voice, as off a person, with the person-minus beside its time', async () => {
     renderTranscript([
       { ts_start: T0 + 10, ts_end: T0 + 11, text: 'first', speaker_id: 2, speaker: 'Speaker 2', line: 'mic@first' },
       { ts_start: T0 + 12, ts_end: T0 + 13, text: 'second', speaker_id: 2, speaker: 'Speaker 2', line: 'mic@second' },
@@ -477,7 +477,7 @@ describe('voices nobody has named (#357)', () => {
   });
 });
 
-describe('two microphones in one millisecond (#247)', () => {
+describe('two microphones in one millisecond', () => {
   const TWINS: TranscriptEntry[] = [
     { ts_start: T0, text: 'from a', speaker_id: 1, speaker: 'Dana', line: `mic-a@${T0}.000` },
     { ts_start: T0, text: 'from b', speaker_id: null, speaker: 'unknown', line: `mic-b@${T0}.000` },
@@ -506,7 +506,7 @@ describe('two microphones in one millisecond (#247)', () => {
 });
 
 describe('the feed', () => {
-  it('follows the newest lines again after its new-lines pill, as Jump to latest did (Codex on #2516)', async () => {
+  it('follows the newest lines again after its new-lines pill, as Jump to latest did', async () => {
     const { client } = renderTranscript();
     const feed = await screen.findByRole('region', { name: 'Recent conversation' });
     // jsdom has no layout: a list 1000 px tall in a 300 px box, read at its top, is away from the end
@@ -530,7 +530,7 @@ describe('the feed', () => {
     expect(screen.queryByRole('button', { name: '1 new line' })).not.toBeInTheDocument();
   });
 
-  it('dims the turns without a match, highlights the matches, and says how many match (#2580)', async () => {
+  it('dims the turns without a match, highlights the matches, and says how many match', async () => {
     renderTranscript();
     await userEvent.type(await screen.findByRole('searchbox', { name: 'Search recent conversation' }), 'SUNNY');
     expect(screen.getByRole('status')).toHaveTextContent(/^1 match$/);
@@ -546,7 +546,7 @@ describe('the feed', () => {
     expect(document.querySelector('mark')).toBeNull();
   });
 
-  it('matches the name a turn shows, and never a placeholder (#2580)', async () => {
+  it('matches the name a turn shows, and never a placeholder', async () => {
     renderTranscript();
     const box = await screen.findByRole('searchbox', { name: 'Search recent conversation' });
     await userEvent.type(box, 'unmatched');
@@ -589,7 +589,7 @@ describe('the feed', () => {
   });
 });
 
-describe('sameTurn (#440: a turn renders again only when its lines change)', () => {
+describe('sameTurn (a turn renders again only when its lines change)', () => {
   const a = LINES[0] as TranscriptEntry;
   const b = LINES[1] as TranscriptEntry;
   const turn = (lines: TranscriptEntry[], id: number | null = 1): Turn => ({
@@ -699,7 +699,7 @@ describe('incorrect transcript turns', () => {
     expect(posts.at(-1)).toEqual(['transcript/undo', { undo: 'batch-one' }]);
   });
 
-  it('marks the visible turn as TV, keeps it greyed with a TV tag, and offers an Undo (#2468)', async () => {
+  it('marks the visible turn as TV, keeps it greyed with a TV tag, and offers an Undo', async () => {
     let marked = false;
     server.use(
       http.post('/transcript/media', async ({ request }) => {
@@ -724,7 +724,7 @@ describe('incorrect transcript turns', () => {
     await userEvent.click(within(turn).getByRole('button', { name: 'This is TV' }));
     expect(posts).toEqual([['transcript/media', { lines: [`mic-a@${T0}.000`, `mic-a@${T0 + 2}.000`] }]]);
     const tvTurn = () => screen.getByText('first misheard line').closest('article') as HTMLElement;
-    // Two TV tags, and the turn goes by TV: every line a TV's, so there's no voice to name (#2545).
+    // Two TV tags, and the turn goes by TV: every line a TV's, so there's no voice to name.
     await vi.waitFor(() => expect(within(tvTurn()).getAllByText('TV')).toHaveLength(3));
     expect(within(tvTurn()).queryByRole('button', { name: /^Not Dana/ })).not.toBeInTheDocument();
     expect(within(tvTurn()).getByRole('button', { name: 'Not transcribed correctly' })).toBeInTheDocument();
@@ -755,7 +755,7 @@ describe('incorrect transcript turns', () => {
     expect(within(turn).getByTitle(/^Marked as TV\. /)).toHaveTextContent(/^TV$/);
     await userEvent.click(within(turn).getByRole('button', { name: 'Not TV' }));
     expect(posts).toEqual([['transcript/not-media', { lines: [`mic-a@${T0}.000`, `mic-a@${T0 + 2}.000`] }]]);
-    // Not TV has an Undo (#2643).
+    // Not TV has an Undo.
     await userEvent.click(await screen.findByRole('button', { name: 'Undo' }));
     await vi.waitFor(() => expect(posts.at(-1)).toEqual(['transcript/undo', { undo: 'off1' }]));
     // A line's Not TV is its TV tag, at the start of the line, not where Not <name> sits at its end.

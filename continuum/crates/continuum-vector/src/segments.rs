@@ -1,4 +1,4 @@
-//! Embeddings followed from the segment store (#1755, #1817), one row per filed embedding under `paths.state/segments`:
+//! Embeddings followed from the segment store, one row per filed embedding under `paths.state/segments`:
 //!
 //! - `voice.embedding` (listen, ingest, and the dashboard's enroll): `id`, `ts_ns` and `end_ns`, `voiceprint` (the
 //!   voiceprint's subject), `person` (the person it names, when it names one), `utterance` (its line, when there is

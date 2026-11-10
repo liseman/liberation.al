@@ -1,5 +1,7 @@
-"""Telling pets apart (people/pet_recognition.py, #1332): sightings, groups, owner labels, and the held-out check that
+"""Telling pets apart (people/pet_recognition.py): sightings, groups, owner labels, and the held-out check that
 keeps recognition off until the labels show it works."""
+
+from unittest.mock import create_autospec
 
 import numpy as np
 import pytest
@@ -88,7 +90,7 @@ def test_a_labeled_sighting_is_never_recognized_from_its_own_label():
     ],
 )
 def test_a_cat_box_as_like_the_labeled_dog_as_a_cat_is_named_after_neither(with_dog, exclude, expected):
-    # #3062: the detector sometimes boxes the dog as a cat. Halfway between Mia's look and Bess's, the box is 0.67 like
+    # The detector sometimes boxes the dog as a cat. Halfway between Mia's look and Bess's, the box is 0.67 like
     # each: enough for Mia, but no further from the dog than from her.
     mia, poppy = seen(("m", 0, 1, T), ("p", 1, 2, T))
     bess = R.sightings([row("b", 5, 3, T, species="dog")])[0]
@@ -182,7 +184,7 @@ FIXTURE_ROWS = [
 def log(monkeypatch, tmp_path):
     continuum_py = pytest.importorskip("continuum_py")
     if not hasattr(continuum_py, "SegmentWriter"):
-        pytest.skip("this continuum_py predates the segment store (#1777)")
+        pytest.skip("this continuum_py predates the segment store")
     return Log(store(tmp_path, FIXTURE_ROWS))
 
 
@@ -200,13 +202,72 @@ def test_labeling_groups_turns_recognition_on_and_names_new_sightings(log):
     assert "recognized" not in rows["dog"] and "suggestion" not in rows["dog"], "no dog labels to compare with"
 
 
+def labeled_cats(state, now):
+    R.label(state, [f"m{k}" for k in range(4)], MIA, PETS, now=now)
+    R.label(state, [f"p{k}" for k in range(4)], POPPY, PETS, now=now + 1)
+
+
+def test_a_read_with_no_new_label_runs_no_check_and_a_new_label_runs_them_again(log, monkeypatch):
+    now = T + 30000
+    labeled_cats(log.state, now)
+    held_out = create_autospec(R.held_out, side_effect=R.held_out)
+    monkeypatch.setattr(R, "held_out", held_out)
+    first = R.view(log.state, PETS, now=now + 2)
+    assert [c.args[1] for c in held_out.call_args_list] == ["cat", "dog"]
+    again = R.view(log.state, PETS, now=now + 3)
+    assert held_out.call_count == 2, "nothing was labeled since: the kept checks answer"
+    assert again["recognition"] == first["recognition"]
+    R.label(log.state, ["m-new"], MIA, PETS, now=now + 4)
+    after = R.view(log.state, PETS, now=now + 5)
+    assert [c.args[1] for c in held_out.call_args_list] == ["cat", "dog", "cat", "dog"]
+    (cat,) = [c for c in after["recognition"] if c["species"] == "cat"]
+    assert (first["recognition"][0]["labeled"], cat["labeled"]) == (8, 9)
+
+
+def test_a_labeled_track_s_new_embedding_runs_its_species_check_again(log, monkeypatch):
+    now = T + 30000
+    labeled_cats(log.state, now)
+    held_out = create_autospec(R.held_out, side_effect=R.held_out)
+    monkeypatch.setattr(R, "held_out", held_out)
+    R.view(log.state, PETS, now=now + 2)
+    store(log.state, [row("m3", 0, 30, T + 3 * 3600 + 5)])  # Mia's last labeled visit, seen a little longer
+    R.view(log.state, PETS, now=now + 3)
+    assert [c.args[1] for c in held_out.call_args_list] == ["cat", "dog", "cat"], "the dog's inputs did not change"
+
+
+def polled(state):
+    return {s["track_id"] for g in R.view(state, PETS)["groups"] for s in g["sightings"]}
+
+
+def test_a_poll_gets_the_kept_answer_until_a_label_or_a_new_sighting_changes_it(log, monkeypatch):
+    now = T + 30000
+    monkeypatch.setattr(R.time, "time", lambda: now)
+    first = R.view(log.state, PETS)
+    assert R.view(log.state, PETS) is first
+    assert polled(log.state) >= {"m-new", "p-new"}
+    R.label(log.state, ["m-new"], MIA, PETS, now=now)
+    assert "m-new" not in polled(log.state)
+    store(log.state, [row("m-later", 0, 31, T + 25000)])
+    assert "m-later" in polled(log.state)
+    renamed = R.view(log.state, [{**PETS[0], "name": "Mittens"}, PETS[1]])
+    assert renamed["names"][MIA] == "Mittens"
+
+
+def test_a_kept_answer_is_given_again_only_for_a_while(log, monkeypatch):
+    monkeypatch.setattr(R.time, "time", lambda: T + 30000)
+    monkeypatch.setattr(R, "VIEW_TTL_S", 0.0)  # its label_days cutoff moves with time, so it's worked out again
+    first = R.view(log.state, PETS)
+    again = R.view(log.state, PETS)
+    assert again is not first and again == first
+
+
 def test_until_the_check_passes_a_match_is_only_a_suggestion(log):
     now = T + 30000
     R.label(log.state, ["m0", "m1"], MIA, PETS, now=now)
     rows = {s["track_id"]: s for g in R.view(log.state, PETS, now=now + 1)["groups"] for s in g["sightings"]}
     assert "recognized" not in rows["m-new"]
     assert rows["m-new"]["suggestion"]["label"] == MIA
-    assert rows["m-new"]["suggestion"]["clear"] is True, "a clear match the check doesn't trust yet (#2291)"
+    assert rows["m-new"]["suggestion"]["clear"] is True, "a clear match the check doesn't trust yet"
 
 
 def test_an_unclear_nearest_pet_is_a_suggestion_that_is_not_clear():
@@ -386,7 +447,7 @@ def test_unavailable_reference_read_never_returns_a_partial_recognition_answer(l
 
 
 def test_label_reads_before_the_evidence_lock_and_writes_under_it(log, monkeypatch):
-    # #2896: the read under the lock took about half a second, so quick labels queued behind each other.
+    # The read under the lock took about half a second, so quick labels queued behind each other.
     import fcntl
 
     from liberational import locking
@@ -423,7 +484,7 @@ def test_label_reads_before_the_evidence_lock_and_writes_under_it(log, monkeypat
 
 
 def test_embeddings_are_read_again_only_for_the_hours_whose_files_changed(log, monkeypatch):
-    # #2896: every label and every pet box read every embedding ever recorded.
+    # Every label and every pet box read every embedding ever recorded.
     original = segment_log.Log.range
     read: list[float] = []
 
@@ -468,7 +529,7 @@ def test_a_label_from_before_the_reset_keeps_its_imported_embeddings(log):
 
 
 def after_reset(log, rows):
-    """A state directory as a reset leaves it (#3018): the old one's knowledge store (labels, references), and a segment
+    """A state directory as a reset leaves it: the old one's knowledge store (labels, references), and a segment
     store holding only `rows`."""
     state = log.state / "after-reset"
     state.mkdir()
@@ -501,7 +562,7 @@ def test_an_ignored_label_keeps_no_example_and_relabeling_keeps_one(log):
 
 
 def test_a_reference_of_another_embedding_space_is_no_example_and_leaves_its_label_stranded(log):
-    """A square-crop reference from before #3024 doesn't compare with tight-crop embeddings."""
+    """An earlier square-crop reference doesn't compare with tight-crop embeddings."""
     state = after_reset(log, [])
     label = {"track_id": "old-mia", "species": "cat", "cam": "cam0", "label": MIA, "sighting_start": T}
     square = R.reference(np.array(look(0, 1)), label, 1)
@@ -517,7 +578,7 @@ def test_a_reference_of_another_embedding_space_is_no_example_and_leaves_its_lab
 
 
 def test_a_sighting_embedded_in_another_space_is_not_listed_labeled_or_named(log):
-    # #3042: square-crop rows from before #3024 were listed beside tight ones, and labeling one kept its square mean
+    # Earlier square-crop rows were listed beside tight ones, and labeling one kept its square mean
     # as a tight reference.
     taught(log)
     store(log.state, [{**row("m-square", 0, 30, T + 20005), "model": "facebook/dinov3:square"}])  # Mia's look
@@ -602,7 +663,7 @@ def test_sightings_come_from_see_actions_and_see_captions_streams_alike(tmp_path
     assert [s.track_id for s in R.recorded(tmp_path, now=T + 120)] == ["actions", "captions"]
 
 
-# Review's boxes (#2175): `resolve` names a window's tracks from owner-label spans, never from all of history.
+# Review's boxes: `resolve` names a window's tracks from owner-label spans, never from all of history.
 
 
 def taught(log, now=T + 30000):
@@ -682,7 +743,7 @@ def test_a_pet_the_owner_said_it_isnt_is_left_out_and_the_next_class_answers():
     mia, poppy, query = seen(("m", 0, 1, T), ("p", 1, 2, T), ("q", 0, 3, T))
     assert R.recognize(query, [(mia, MIA), (poppy, POPPY)])[0] == MIA
     label, _, suggestion = R.recognize(query, [(mia, MIA), (poppy, POPPY)], exclude={MIA})
-    assert (label, suggestion) == (None, POPPY), "Poppy is far from it: only a suggestion, never Mia (#2364)"
+    assert (label, suggestion) == (None, POPPY), "Poppy is far from it: only a suggestion, never Mia"
 
 
 def test_not_this_pet_moves_a_sightings_suggestion_on_and_taking_it_back_restores_it(log):
@@ -796,7 +857,7 @@ def test_a_groups_not_is_what_every_sighting_in_it_was_said_not_to_be(log):
 
 
 def _groups_one_at_a_time(found):
-    """groups() as it was before #2883: each centroid compared alone, the reference the fast one must agree with."""
+    """Reference groups() implementation: each centroid compared alone, which the vectorized version must match."""
     out = []
     for s in found:
         best, sim = None, R.GROUP_SIM

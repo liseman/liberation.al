@@ -1,11 +1,11 @@
-"""Why a name was given (#288): GET /identity/why explains a transcript line's or a recorded face's name from the
+"""Why a name was given: GET /identity/why explains a transcript line's or a recorded face's name from the
 assertion that decided it, with the match score behind it. It changes nothing."""
 
 import time
 
 import pytest
 
-from liberational.dashboard import server
+from liberational.dashboard import context, people_reads
 from liberational.domain.identity import Basis
 from liberational.listen import voices as live_voices
 from liberational.people import registry
@@ -21,7 +21,7 @@ def line(ts, text, sid=1, sim=0.71, device=None, speaker="Speaker 1", **extra):
 
 LINES = [
     line(1000.0, "Morning."),
-    line(1010.0, "Tea?", device="Kitchen"),  # two microphones' lines in one millisecond (#247)
+    line(1010.0, "Tea?", device="Kitchen"),  # two microphones' lines in one millisecond
     line(1010.0, "Coffee, please.", device="Hall", sim=0.6),
 ]
 
@@ -31,12 +31,12 @@ def state(tmp_path, monkeypatch):
     """Voice 1, which the owner named Dana in People; three lines heard on it."""
     write_voices(tmp_path, {1: {"label": "Dana"}}, source="dashboard")
     fake().write(LINES)
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     return tmp_path
 
 
 def why(**q):
-    return server.why_name_view({k: str(v) for k, v in q.items()})
+    return people_reads.why_name_view({k: str(v) for k, v in q.items()})
 
 
 def test_a_line_on_a_named_voice_is_explained_by_the_voices_name_and_its_match(state):
@@ -68,7 +68,7 @@ def test_a_line_the_owner_named_itself_is_explained_by_that_and_only_that_line(s
 
 def test_a_line_on_no_voice_with_no_name_says_nobody_named_it(tmp_path, monkeypatch):
     fake().write([line(1000.0, "Hi.", sid=None, sim=None)])
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     body, code = why(line="1000.000")
     assert (code, body["via"], body["basis"], body["similarity"], body["voice"]) == (200, "none", None, None, None)
 

@@ -1,4 +1,4 @@
-"""Why a name was given (#288): GET /identity/why?line=<key> for a transcript line, ?shot=<sighting id> for a recorded
+"""Why a name was given: GET /identity/why?line=<key> for a transcript line, ?shot=<sighting id> for a recorded
 face. Read only: it explains the name, and changes nothing.
 
 A reply is {"name", "subject": "line" | "shot", "via", "basis", "asserted_at", "source", "confidence",
@@ -15,7 +15,7 @@ A reply is {"name", "subject": "line" | "shot", "via", "basis", "asserted_at", "
   threshold a match needs; null when there was no match score, or when the owner's word decided (the score was for
   the name it replaced).
 - voice is {"id", "label"} for a line on a voice.
-- mark is what POST /measurement/mark needs to mark the name right or wrong (#224), less shown and right.
+- mark is what POST /measurement/mark needs to mark the name right or wrong, less shown and right.
 """
 
 from collections.abc import Iterable
@@ -41,7 +41,7 @@ def _sim(v: object) -> float | None:
 
 def for_line(e: dict[str, Any], view: transcript_view.View, near: Iterable[dict[str, Any]] = ()) -> dict[str, Any]:
     """Why a stored transcript line reads as it does: the same rule the view applied (View.rule). `near` is the lines
-    stored around it, so a label on another mic's copy of it is the one explained (#284)."""
+    stored around it, so a label on another mic's copy of it is the one explained."""
     from liberational.listen.voices import THRESHOLD as VOICE_MATCH  # loaded when asked
 
     near = list(near)
@@ -104,7 +104,7 @@ def for_shot(row: dict[str, Any], reg: registry.Registry | None) -> dict[str, An
 
 def shot_row(state: Path, sighting: str) -> dict[str, Any] | None:
     """A sighting's id, see-actions' match for it (name and score), time, and camera, or None. The sighting is the
-    `face.match` row itself (#1846)."""
+    `face.match` row itself."""
     from liberational import segment_log
     from liberational.vision import sightings
 

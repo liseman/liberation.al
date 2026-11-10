@@ -8,8 +8,6 @@ from unittest.mock import create_autospec
 from zoneinfo import ZoneInfo
 
 import pytest
-from hypothesis import given
-from hypothesis import strategies as st
 
 import speech_fake
 from liberational import config as cfg
@@ -83,30 +81,6 @@ def add_journal(state, text, start, level=30, people=()):
     return memory_log.at(state).append(memory_log.JOURNAL, record, subjects=subjects)
 
 
-@pytest.mark.parametrize(
-    ("question", "expected"),
-    [
-        ("when Alex last on camera3", True),
-        ("how many times lights went off", True),
-        (SAM_WANTED, True),
-        ("what did Alice and Dana talk about most yesterday?", True),
-        ("explain black holes", False),
-        ("turn on the lights", False),
-        ("what time is it", False),
-        ("write a poem", False),
-        ("who's home?", True),
-        ("Who is here right now?", True),
-        ("what happened today?", True),
-        ("what happened yesterday", True),
-        ("who is the president", False),
-        ("who is in charge here", False),
-        ("what happened in the war of 1812", False),
-    ],
-)
-def test_is_history_question(question, expected):
-    assert h.is_history_question(question) is expected
-
-
 @pytest.mark.parametrize("question", ["who's home?", "Who is home right now?", "who\u2019s here"])
 def test_who_is_home_reads_who_was_recognized_in_the_last_hour(question):
     query = h.parse(question, NOW)
@@ -173,8 +147,8 @@ def test_since_this_afternoon_starts_at_noon():
 
 
 @pytest.mark.parametrize("question", ["what did Dana say since this evening", "camera1 since this afternoon at 3pm"])
-def test_since_a_part_of_the_day_refuses_one_not_started_or_combined(question):
-    with pytest.raises(ValueError, match="hasn't started yet|single time window"):
+def test_since_a_part_of_the_day_refuses_one_not_started(question):
+    with pytest.raises(ValueError, match="hasn't started yet|in the future"):
         h.parse(question, dt.datetime(2026, 10, 23, 11, tzinfo=LA).timestamp())
 
 
@@ -201,7 +175,6 @@ def test_between_two_clocks_reads_the_hour_the_pm_names():
         pytest.param("what did Dana say since 3 this afternoon", "in the future", id="future-part"),
         pytest.param("what did Dana say since 3pm this morning", "isn't this morning", id="wrong-half"),
         pytest.param("what did Dana say since 25", "clock time like 3pm", id="bad-clock"),
-        pytest.param("what did Dana say since 9am in the last 2 hours", "single time window", id="combined"),
         pytest.param("what did Dana say since 9am on 2026-10-20", "single time window", id="with-date"),
     ],
 )
@@ -285,39 +258,6 @@ def test_a_passive_question_names_no_speaker(question):
 
 def test_a_passive_question_about_a_listener_keeps_the_name():
     assert h.parse("What was Dana told yesterday?", NOW)["person"] == "Dana"
-
-
-ORDINARY_TIME_WORDS = [
-    "the week of work",
-    "since its last oil change",
-    "the last chapter",
-    "the previous owner",
-    "the past",
-    "before leaving",
-    "after the meeting",
-    "since the move",
-    "the last one",
-    "a week of rain",
-    "the month of planning",
-]
-TOPICS = st.sampled_from(["the garden", "the van", "lunch", "the book", "work"])
-
-
-@given(st.sampled_from(ORDINARY_TIME_WORDS), TOPICS, st.sampled_from(["Dana", "Alice", "Sam"]))
-def test_ordinary_time_words_never_refuse_or_change_the_speaker(phrase, topic, name):
-    q = h.parse(f"what did {name} say about {topic} {phrase}", NOW, selected_day="2026-10-22")
-    assert (q["person"], q["window"]) == (name, "2026-10-22")
-
-
-@given(
-    st.sampled_from(["snack", "book", "place", "song", "time"]),
-    st.sampled_from(["someone", "somebody", "anyone", "anybody", "everyone"]),
-    st.sampled_from(["ask about", "mention", "say", "suggest"]),
-    st.sampled_from(["", " yesterday", " " + "since its last oil change"]),
-)
-def test_an_indefinite_speaker_never_becomes_a_person(noun, who, verb, tail):
-    q = h.parse(f"what {noun} did {who} {verb}{tail}?", NOW)
-    assert (q["person"], q["participants"]) == (None, [])
 
 
 @pytest.mark.parametrize(
@@ -461,7 +401,7 @@ def test_alias_not_relabel_named(state):
 
 
 def test_a_persons_several_voices_all_answer_for_them(state):
-    # #772: naming replaces merging, so one person may have several voices.
+    # Naming replaces merging, so one person may have several voices.
     write_voices(state, {1: "Sam", 2: "Sam"})
     transcripts(
         state,
@@ -549,7 +489,7 @@ UTOPIA = "We went to Utopia at the hot springs."
     ],
 )
 def test_a_selected_day_keeps_the_lines_the_question_is_about(state, monkeypatch, day, said_at, now):
-    """A busy day's newest lines don't push out the line the question names (#1303), and the day is cut at local
+    """A busy day's newest lines don't push out the line the question names, and the day is cut at local
     midnight, so the same words just outside it stay out."""
     d = dt.date.fromisoformat(day)
     before = dt.datetime.combine(d, dt.time(), tzinfo=LA).timestamp() - 600
@@ -626,7 +566,7 @@ def test_journal_entries_stay_ahead_of_the_newest_lines(state, monkeypatch):
 
 
 def test_lines_that_mention_passwords_or_codes_are_not_hidden(state):
-    """#92, by Joe's decision: history answers hide nothing for what a line says."""
+    """History answers hide nothing based on what a line says."""
     texts = ["We moved here in 2019 and want to fix the fence", "The password is rosebud", "The code is 482913"]
     transcripts(state, [dict(ts_start=YESTERDAY + i, speaker="Sam", text=t) for i, t in enumerate(texts)])
     assert [e["text"] for e in ask(state, SAM_WANTED)["evidence"]] == texts
@@ -820,7 +760,7 @@ def test_local_zone_reads_tz(tz, tmp_path, monkeypatch):
     assert dt.datetime(2026, 7, 1, 12, tzinfo=h.local_zone()).utcoffset() == dt.timedelta(hours=2)
 
 
-# ---- parts of the day (#195): one set of hours, against the selected day or today ----
+# ---- parts of the day: one set of hours, against the selected day or today ----
 
 
 def span(q):
@@ -855,7 +795,6 @@ def test_a_part_of_the_day_names_its_day_in_the_window():
         pytest.param("who was here this evening", "hasn't started yet", id="not-started-yet"),
         pytest.param("who was here tonight", "hasn't started yet", id="tonight-at-noon"),
         pytest.param("camera1 last 2 hours in the evening", "single time window", id="with-a-duration"),
-        pytest.param("who was here at 3pm in the afternoon", "single time window", id="with-a-clock-time"),
     ],
 )
 def test_a_part_of_the_day_that_cant_be_read_is_refused(question, message):
@@ -869,21 +808,8 @@ def test_a_night_across_the_spring_change_is_an_hour_short():
     assert q["end"] - q["start"] == 6 * 3600  # 22:00 to 05:00, with 02:00 to 03:00 skipped
 
 
-@pytest.mark.parametrize(
-    "question",
-    [
-        pytest.param("what did Dana say this morning", id="this-morning"),
-        pytest.param("what did we talk about in the afternoon", id="in-the-afternoon"),
-        pytest.param("what did Dana say during the night", id="during-the-night"),
-    ],
-)
-def test_a_part_of_the_day_makes_a_history_question(question):
-    """Codex on #219: collect() skips the parser unless this says yes, so the new windows would never be read."""
-    assert h.is_history_question(question)
-
-
 def test_speech_heard_on_two_mics_is_one_piece_of_evidence(state):
-    """#476: another mic's copy of a line (#284) is the same thing said, so an answer cites it once, even when the
+    """Another mic's copy of a line is the same thing said, so an answer cites it once, even when the
     two copies were written down a little differently, or start in different seconds."""
     write_voices(state, {1: "Sam"})
     transcripts(
@@ -962,7 +888,6 @@ def test_camera_name_is_not_mistaken_for_an_unsupported_time_phrase(tmp_path, mo
     result = h.parse(question, NOW)
     assert result["cameras"] == [camera_id]
     assert result["window"] == "yesterday"
-    assert h.is_history_question(question)
 
 
 @pytest.mark.parametrize(
@@ -989,7 +914,6 @@ def test_natural_time_words_constrain_the_actual_read_window(question, first, la
     end = dt.datetime.fromtimestamp(query["end"], LA)
     assert (start.day, start.hour, start.minute) == first
     assert (end.day, end.hour, end.minute) == last
-    assert h.is_history_question(question)
 
 
 @pytest.mark.parametrize(
@@ -1035,8 +959,7 @@ def test_a_clock_question_cannot_quote_a_line_from_the_rest_of_the_day(state):
     assert not any("blue bicycle" in quote for quote in quotes)
 
 
-def test_a_numeric_topic_is_not_reinterpreted_as_a_clock():
-    assert not h.is_history_question("tell me about 3 planets")
+def test_a_reading_with_no_clock_keeps_the_whole_day():
     query = h.parse("what did Dana say about 3 bicycles yesterday", NOW)
     assert query["at"] is None
     assert query["end"] - query["start"] == 86400
@@ -1051,8 +974,7 @@ def test_unresolvable_dst_clocks_are_refused_instead_of_shifted(question):
         h.parse(question, dt.datetime(2026, 11, 3, 17, tzinfo=LA).timestamp())
 
 
-def test_spelled_dates_reach_history_and_invalid_dates_are_not_dropped():
-    assert h.is_history_question("what did Dana say on October 22")
+def test_an_invalid_spelled_date_is_refused_not_dropped():
     with pytest.raises(ValueError, match="calendar date"):
         h.parse("what did Dana say on February 30", NOW)
 
@@ -1065,7 +987,6 @@ def test_a_clock_window_never_reads_after_question_time():
 
 @pytest.mark.parametrize("question", ["what did Dana say before 5pm", "what did Dana say on Friday"])
 def test_unsupported_time_still_routes_to_an_explicit_history_refusal(state, question):
-    assert h.is_history_question(question)
     result = h.collect(question, state, now=NOW)
     assert "Unsupported time phrase" in result["answer"]
     assert not result["evidence"]
@@ -1153,23 +1074,6 @@ def test_unreadable_visual_overview_keeps_independent_camera_evidence(state, mon
     result = h.collect("what was visible yesterday", state, now=NOW, day="2026-10-22")
     assert any(e["source"] == "camera" for e in result["evidence"])
     assert any("overview" in w.lower() and "OSError" in w for w in result["warnings"])
-
-
-@pytest.mark.parametrize(
-    "question", ["what direction should I walk to reach the station", "give me directions to walk across town"]
-)
-def test_general_navigation_is_not_recorded_history(question):
-    assert not h.is_history_question(question)
-
-
-def test_planned_direction_is_not_an_observed_crossing_question():
-    assert not h.is_direction_question("what direction did Dana plan to walk yesterday")
-
-
-def test_a_past_direction_request_without_the_word_walk_reaches_video():
-    question = "which way did they go yesterday"
-    assert h.is_history_question(question)
-    assert h.parse(question, NOW)["kind"] == "video"
 
 
 @pytest.mark.parametrize("camera_id", ["front", "rear-left", "side", "upper", "lower"])

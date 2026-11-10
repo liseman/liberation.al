@@ -408,7 +408,7 @@ class Client:
     def resolve_frames(self, ids: list[str]) -> Awaitable[list[dict[str, Any]]]:
         """Which chunk holds each of ids (at most 256), in the asked order: id, state ("unknown", "payload", or
         "absorbed"), stream_id, seq, chunk_id (None unless absorbed), frame_index, and start_ns. What an analysis
-        receipt names as its sources (#1394). Needs broker schema minor 26."""
+        receipt names as its sources. Needs broker schema minor 26."""
     def list_purges(self, *, after: str | None = None, limit: int = 0) -> Awaitable[list[dict[str, Any]]]:
         """Purge summaries, oldest first: purge_id, at_ns, kind, range, stream_ids, id_count, reason, detail, removed,
         finished, completed_ns. A summary never names a person."""
@@ -430,7 +430,7 @@ class Client:
         inputs: list[tuple[str, int]],
         body: bytes,
     ) -> Awaitable[None]:
-        """A durable worker's checkpoint, in place of its last (#1547); Conflict when an input's revision moved."""
+        """A durable worker's checkpoint, in place of its last; Conflict when an input's revision moved."""
     def load_worker_state(self, owner: str, contract: str) -> Awaitable[dict[str, Any] | None]:
         """{"position", "created_ns", "inputs", "body"} while its inputs' revisions hold, else None."""
     def forget_worker_state(self, owner: str, contract: str) -> Awaitable[bool]:
@@ -560,7 +560,7 @@ class RingWriter:
     def push(self, data: Buffer) -> int: ...
 
 class SegmentWriter:
-    """The one writer of a segment stream's camera (#1755). `schema` is (name, type) pairs with `ts_ns` "i64"."""
+    """The one writer of a segment stream's camera. `schema` is (name, type) pairs with `ts_ns` "i64"."""
 
     def __init__(
         self,
@@ -642,12 +642,15 @@ def segment_deletions(root: str | PathLike[str], after: int = 0) -> list[dict[st
 def segment_tail(root: str | PathLike[str], stream: str, cameras: list[str] | None = None) -> dict[str, int]:
     """Where each camera of `stream` ends now: a cursor to follow from here on, without reading history."""
 
+def compact_segments(root: str | PathLike[str]) -> int:
+    """Rewrites every closed part holding more than one record batch as one; how many it rewrote."""
+
 def segment_revision(root: str | PathLike[str]) -> int:
     """The newest deletion's revision; 0 when nothing was ever deleted."""
 
 class H264Decoder:
     """Stateful software or CUDA/NVDEC decoder, returning host NV12. Requires the optional ffmpeg feature.
-    `codec="av1"` decodes an archived chunk's AV1 temporal units (#1479), in software only."""
+    `codec="av1"` decodes an archived chunk's AV1 temporal units, in software only."""
 
     def __init__(self, backend: str = "software", gpu: int = 0, codec: str = "h264") -> None: ...
     @staticmethod

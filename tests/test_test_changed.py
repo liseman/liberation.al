@@ -1,4 +1,4 @@
-"""tools/test_changed.py (#270): which tests cover a change, and that it never falls back to the full suite."""
+"""tools/test_changed.py: which tests cover a change, and that it never falls back to the full suite."""
 
 import importlib.util
 import pathlib

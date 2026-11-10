@@ -323,7 +323,7 @@ describe('GatewayVideo', () => {
     expect(v.seeking).toBe(true);
   });
 
-  describe('on a gateway with request ids (#2384)', () => {
+  describe('on a gateway with request ids', () => {
     const REQ = ['watch', 'req'];
     const tagged = (stream: number, us: number, req: number) =>
       encodeHeader({ streamId: stream, payloadType: PayloadType.jpeg, keyframe: true, live: false, captureUs: us, req })
@@ -434,7 +434,7 @@ describe('GatewayVideo', () => {
     expect(worker.posted.filter(m => m.type === 'message').length - before).toBe(1);
   });
 
-  it('decodes the tail of a GOP that runs past its window, the next window starting after it (#917)', async () => {
+  it('decodes the tail of a GOP that runs past its window, the next window starting after it', async () => {
     const { net, worker, v } = rig();
     v.src = gatewaySegmentUrl(7, 0, 60_000_000);
     await flush();
@@ -723,7 +723,7 @@ describe('GatewayVideo', () => {
     await flush();
     worker.onmessage?.({ data: { type: 'codec', codec: 'av1', supported: false } } as MessageEvent);
     await flush();
-    answer(['av1']); // archived AV1 (#1479) in a browser without an AV1 decoder
+    answer(['av1']); // archived AV1 in a browser without an AV1 decoder
     expect([v.unplayable, v.unplayableCodec]).toEqual([true, 'av1']);
     v.currentTime = 2.5; // a window of JPEG frames
     await flush();
@@ -767,7 +767,7 @@ describe('GatewayVideo', () => {
   });
 });
 
-describe('a stretch still being recorded (#806)', () => {
+describe('a stretch still being recorded', () => {
   it('grows when told, plays on into the new part, and waits at the live edge instead of ending', async () => {
     const { net, time, v, events, done } = rig();
     v.src = gatewaySegmentUrl(7, 0, 2_000_000);

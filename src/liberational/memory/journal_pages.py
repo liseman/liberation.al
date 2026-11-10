@@ -1,18 +1,18 @@
-"""Journal pages: the day, week, and month levels at the top of the journal ladder (#2806, goal #2805). They replace
+"""Journal pages: the day, week, and month levels at the top of the journal ladder. They replace
 the old day summaries (`summary.day`, memory/daily_summary.py), so there is one ladder: 30 s entries roll up to hours
 (memory/journal.py), hours to a day page, and day pages to week and month pages.
 
 A page is a `journal.page` payload on the memory log (memory_log.py): Markdown with fixed headings, the same every
 time, so a person can read it and code can parse it; a section with nothing in it is left out. Pages are in the third
-person (Joe's decision 5). The model writes only the prose, as JSON fields (`sections`), and code assembles the page:
+person. The model writes only the prose, as JSON fields (`sections`), and code assembles the page:
 - Day: "In short", "What happened", "Talked about", and "Ate" from the model, then "People present" (who was seen or
   heard, from the timeline's encounters, moved here from the day summaries), "Counts", and "Evidence"; a "Places" line
-  under the title, the places visited and the rooms seen there (memory/places.py, #2812).
+  under the title, the places visited and the rooms seen there (memory/places.py).
 - Week: "Highlights" and "People" from the model, then "Counts" and "Evidence".
 - Month: "Notable events", "Trends", and "Changes" from the model, then "Evidence".
 The model cites its inputs by label (`[h3]` an hour, `[d2]` a day page) and may cite only those: code drops any other,
 turns each kept one into a link to its moment (`[h3](#t=<start>)`, which Review's chips read), and lists them under
-Evidence. Counts come from code (memory/journal_counts.py, #2807), never the model, which may only mention them.
+Evidence. Counts come from code (memory/journal_counts.py), never the model, which may only mention them.
 Speaker tokens (`[S<id>]`) are copied from the entries and become names only when read (`markdown`), as the entries'
 do, so a rename rewrites nothing stored; a token the input didn't have becomes "someone".
 
@@ -36,7 +36,7 @@ then is written again by the page model in the next batch (`interim`). Forgettin
 pages about them by subject, and the cascade takes every page built from a purged entry; the next pass writes them
 again without the person.
 
-Today has no page until it settles, so `today_page` (GET /journal/today, the Journal tab's current day, #2837)
+Today has no page until it settles, so `today_page` (GET /journal/today, the Journal tab's current day)
 builds a today-so-far page on request from the hour entries written so far: the same sections and code-written
 Counts, People present, Places, and Evidence, its title saying "so far" and a line saying which hours it covers.
 It is built in a background thread (the request never waits on the model), kept while its hours are the day's and
@@ -50,7 +50,7 @@ thinking model replies with the schema's JSON. It is loaded by the batch's first
 write loads nothing, kept loaded between its calls, and unloaded at its end (keep_alive 0). A guard (`plan`) first
 sizes it: Ollama's reported loaded size from an earlier batch, else its file, KV cache (`kv_bytes`, attention layers
 only for a hybrid model), and a margin. It loads beside Ollama's other models when that fits with room for the
-embedding model to reload. Else the daily batch opens a sleep window (Joe's decision, #2930: anything may be pushed
+embedding model to reload. Else the daily batch opens a sleep window (anything may be pushed
 off the GPUs for up to an hour around 03:00): it stops the services `journal.page_window_services` names (the voice
 loop, captions, and the other callers that would load Ollama's models again and push the page model out between its
 calls, as they did on 11-08's measurement) and unloads every Ollama model, then sizes the page model again with
@@ -61,8 +61,8 @@ journal's own model (`journal.model`, else `models.ollama.llm`, at summarize.NUM
 rebuild never opens a window. A failed page is tried again within the batch (up to MAX_TRIES), since the next batch is
 a day away. With `journal.page_model` empty, pages are written by the journal's model on every pass. Today so far and
 the entries below the day always use the journal's model. Calls yield to voice as the journal does (summarize.llm),
-and a long day's hours are shortened to fit the context. With `journal.cloud_pages` on (#2810, Joe's decision
-6), week and month pages go instead to the agent gateway (`agent.url`, an OpenAI-compatible chat endpoint) with
+and a long day's hours are shortened to fit the context. With `journal.cloud_pages` on,
+week and month pages go instead to the agent gateway (`agent.url`, an OpenAI-compatible chat endpoint) with
 `journal.cloud_agent` as the model, a stronger writer for the few, long pages that gain most from one; day pages and
 everything below always stay local. The pack still works offline: when the gateway isn't set up, can't be reached,
 or answers with something other than a page, the page is written locally, and that is logged once until a cloud
@@ -105,10 +105,10 @@ MAX_TRIES = 3  # failed model calls on one period, counted per process, before i
 MAX_ITEMS = 8  # bullets in one section, enforced by the reply schema
 #: A day's What happened, told a part of the day at a time: (field, label, first hour, end hour). Asked for as a list,
 #: the local model wrote a bullet an hour, which ran out of room by noon (out of tokens at 12 bullets, or at the
-#: schema's cap), so the first day pages lost their afternoons and evenings (#2870). As four fields the reply schema
+#: schema's cap), so the first day pages lost their afternoons and evenings. As four fields the reply schema
 #: makes it write every part of the day, and code assembles them in order. Each part is its own call (`day_prose`),
 #: with the whole prompt's room for that part's hours: in one call a long day's hours were cut to about 100 characters
-#: each to fit (#2889's 11-05 dry run), which made thin pages.
+#: each to fit, which made thin pages.
 PARTS = (
     ("night", "Night", 0, 6),
     ("morning", "Morning", 6, 12),
@@ -118,7 +118,7 @@ PARTS = (
 MAX_ITEM_CHARS = 240  # characters in one bullet or paragraph: a sentence or two
 PART_CHARS = 480  # characters in a day's In short
 #: A part of the day's What happened, as sentences that each name the hours they come from (`schema`): asked for one
-#: string with citations in it, qwen3:14b wrote none at all (#2930), where the 4B cited every sentence. With a list of
+#: string with citations in it, qwen3:14b wrote none at all, where the 4B cited every sentence. With a list of
 #: labels required beside each sentence, and only the part's own labels allowed, no model can leave them out.
 PART_SENTENCES = 3
 SENTENCE_CHARS = 200
@@ -134,7 +134,7 @@ PRESENT_SPANS = 8  # encounters listed per person under People present
 CITE = re.compile(r"\[([hd]\d+)\]")
 TOKEN = re.compile(r"\[S(\d+)\]")
 
-CLOUD_LEVELS = (WEEK, MONTH)  # the pages a cloud model may write (Joe's decision 6); day pages stay local
+CLOUD_LEVELS = (WEEK, MONTH)  # the pages a cloud model may write; day pages stay local
 CLOUD_TIMEOUT_S = 300  # a cloud page's whole call, through the gateway
 
 _TRIES: dict[str, int] = {}  # "level:period" -> failed model calls so far, in this process
@@ -378,12 +378,12 @@ def system_prompt(level: str, part: str = "") -> str:
             f"You write one {level} of {owner}'s journal as a short page that a person reads later. The input is JSON: "
             f"{what}, and the {level}'s counts, which code worked out.\n"
         )
-        # The first month page called its days "d1" and "d3" in its sentences (2026-11-08, #2870).
+        # The first month page called its days "d1" and "d3" in its sentences.
         more = (
             "- Name a day by its weekday or date, never by its label: a label goes only in the brackets after a "
             "sentence.\n"
         )
-        if level == MONTH:  # the first month pages called things seen on two of three days a trend (#2930)
+        if level == MONTH:  # the first month pages called things seen on two of three days a trend
             more += (
                 "- A trend is something at least three days show: cite every one of them. With fewer than seven days "
                 "in the input, leave trends empty.\n"
@@ -467,7 +467,7 @@ def schema(level: str, part: str = "", labels: Sequence[str] = ()) -> dict[str, 
 
 def reply_budget(level: str, part: str = "") -> int:
     """The reply tokens one call's longest reply needs, every field at its schema limits, so the JSON always closes:
-    a day's fixed 1,000 was cut off mid-string once its bullets ran long (#2870). Derived from the limits, so it can't
+    a day's fixed 1,000 was cut off mid-string once its bullets ran long. Derived from the limits, so it can't
     fall behind them; fit() shortens the inputs to make room."""
     chars = 0
     for name, bullets, _, width in _reply_fields(level, part):
@@ -506,7 +506,7 @@ def fit(system: str, payload: dict[str, Any], reply_tokens: int, model: str, lim
     """The payload as the model's user message, each input's text cut to the largest cap (characters, at a word) at
     which the prompt and the reply fit `limit` tokens: short inputs stay whole, and the longest are cut evenly. A
     binary search over the cap, so it always ends, in about log2 of the longest text's length prompt counts; with the
-    old loop, a day whose hours couldn't fit even at its floor spun forever and stopped the journal (#2870: 11-05's 22
+    old loop, a day whose hours couldn't fit even at its floor spun forever and stopped the journal (22
     hours at a 1,865-token reply). A cap under THIN_CHARS logs a warning, since a page from fragments is stored like
     any other. Raises journal.EmptyReply when even empty texts don't fit (the system prompt, labels, and reply alone):
     sent anyway, Ollama may cut the prompt from the front, dropping the instructions, and the reply would become a
@@ -588,7 +588,7 @@ def cloud(system: str, payload: dict[str, Any], agent: str) -> dict[str, Any]:
 
 # ---------------------------------------------------------------- the page model ----
 #: Bytes the guard adds to an estimate of a page model's weights and KV cache for its compute buffers (qwen3:14b at
-#: 8192 loaded at 10.3 GB, its file and f16 cache being 10.6 GB, #2930), and to Ollama's reported loaded size.
+#: 8192 loaded at 10.3 GB, its file and f16 cache being 10.6 GB), and to Ollama's reported loaded size.
 COMPUTE_MARGIN = 2**29  # 0.5 GiB
 MEASURED_MARGIN = 2**28  # 0.25 GiB
 #: Room for the embedding model (1 GB) to load again beside the page model, wanted when the batch leaves Ollama's
@@ -599,7 +599,7 @@ BATCH_KEEP_ALIVE = "5m"  # between a batch's calls; unloaded at its end, or by O
 BATCH_FILE = "journal_pages_batch.json"  # the last finished batch's local day, and page models' measured sizes
 RUNNERS = ("ollama", "llama-server")  # process names of Ollama's server and its model runners
 WINDOW_FILE = "journal_pages_window.json"  # an open window's stopped services and unloaded models, until it closes
-WINDOW_MAX_S = 3600  # the most a window stays open (Joe's hour, #2930); past it the rest is written by the small model
+WINDOW_MAX_S = 3600  # the most a window stays open; past it the rest is written by the small model
 FREE_WAIT_S = 30  # how long an opening window waits for Ollama to finish unloading its models
 
 
@@ -688,7 +688,7 @@ def _ollama_pids() -> set[int]:
 
 def most_free(gpus: Sequence[Mapping[str, Any]], ollama: set[int]) -> int:
     """The most free memory (bytes) on one GPU Ollama can load onto: the GPUs it already runs on (it may be pinned to
-    one, like devbox's second 3090), or any GPU when it runs on none."""
+    one, like a second GPU on the Linux machine), or any GPU when it runs on none."""
     mine = [g for g in gpus if ollama & set(g.get("apps") or {})] or list(gpus)
     return max((int(g["total"]) - int(g["used"]) for g in mine), default=0)
 
@@ -731,7 +731,7 @@ def plan(model: str, num_ctx: int, state: pathlib.Path | None = None, *, alone: 
 
 def _always(model: Mapping[str, Any]) -> bool:
     """Whether a loaded model (an /api/ps row) stays loaded until Ollama stops: keep_alive -1 gives an expiry
-    centuries away (2319 on devbox)."""
+    centuries away (2319 on the Linux machine)."""
     return str(model.get("expires_at") or "")[:4] >= "2100"
 
 
@@ -776,7 +776,7 @@ def _resolve(w: Writer) -> None:
 
 # ---------------------------------------------------------------- the sleep window ----
 def _pack_services(*args: str) -> str:
-    """The output of `pack-services <args>`, run as its own process (#2959): importing services.py here would make
+    """The output of `pack-services <args>`, run as its own process: importing services.py here would make
     every service whose code reaches the journal count as reading what it reads to choose services (asr.engine,
     services.enable), so saving one of those would restart them all."""
     exe = pathlib.Path(sys.executable).with_name("pack-services")  # the console script beside this venv's python
@@ -800,7 +800,7 @@ def _quietly(verb: str, names: list[str]) -> None:
 
 
 def open_window(state: pathlib.Path) -> dict[str, Any]:
-    """Make room on the GPUs for the page model (Joe's decision, #2930: a nightly window of up to an hour in which
+    """Make room on the GPUs for the page model (a nightly window of up to an hour in which
     anything may be pushed off them): stop the services `window_services` names (the voice loop, captions, and the
     other callers that load Ollama's models again), then unload every model Ollama has loaded, and wait for it to let
     them go. The window is written to WINDOW_FILE first, so one a crash leaves open is closed by the next pass
@@ -1043,7 +1043,7 @@ def _shared(lists: list[list[str]], heading: str) -> list[str]:
     """Up to MAX_ITEMS of the parts' `lists` (one per part, in the day's order), without a repeat of one already kept
     (the same words, ignoring case and citations: a topic can run across parts). Chosen a turn per part, each part's
     first items first, so a full day keeps some of every part's: cut in part order, four parts of four topics lost the
-    evening (the review of #2889). Listed in the day's order, and a cut is logged."""
+    evening. Listed in the day's order, and a cut is logged."""
     seen: set[str] = set()
     kept: list[list[str]] = [[] for _ in lists]
     dropped = 0
@@ -1100,7 +1100,7 @@ def day_prose(payload: dict[str, Any]) -> tuple[dict[str, Any], Producer]:
         data[name] = told_text(reply.get("what_happened"), labels)
         for field, heading in (("talked_about", "Talked about"), ("ate", "Ate")):
             items = _items(reply.get(field))
-            if len(items) >= PART_ITEMS:  # the schema's cap: the model may have had more to say than fit (#2870)
+            if len(items) >= PART_ITEMS:  # the schema's cap: the model may have had more to say than fit
                 log(f"the {name}'s {heading} came back at its {PART_ITEMS} item cap", level=logs.WARN)
             lists[field].append(items)
         if data[name].strip():
@@ -1146,10 +1146,10 @@ def clean(
             items = raw if isinstance(raw, list) else []
             if (
                 len(items) >= MAX_ITEMS and level != DAY
-            ):  # the schema's cap (a day's parts say so in `day_prose`): the model may have had more to say than fit (#2870)
+            ):  # the schema's cap (a day's parts say so in `day_prose`): the model may have had more to say than fit
                 log(f"the {level} page's {s.heading} came back at its {MAX_ITEMS} item cap", level=logs.WARN)
             cited[s.field] = [t for t in (one(x) for x in items[:MAX_ITEMS]) if t]
-        else:  # a day's In short has a part's room: at 240 its one long sentence stopped mid-clause (#2889's dry run)
+        else:  # a day's In short has a part's room: at 240 its one long sentence stopped mid-clause
             cited[s.field] = one(raw if isinstance(raw, str) else "", PART_CHARS if level == DAY else MAX_ITEM_CHARS)
     if not any(cited.values()):
         raise journal.EmptyReply("every section came back empty")
@@ -1171,9 +1171,9 @@ OPEN_END = re.compile(r"[.!?][\"'\u201d\u2019)]*\s*$")
 
 def _trim(text: str, most: int, *, stopped: bool = False) -> str:
     """`text` cut to about `most` characters at its last full sentence (with the citations that follow it), else at a
-    word: a reply the schema cut short ended mid-word ("seated on a brown", #2870). `stopped` says the schema already
-    stopped it at `most`, so it is trimmed back even though it fits: a part of 11-05 ended "no people were visible in
-    any room,所有" (#2889's dry run). A citation the full text made and the cut lost goes on the end, so no claim's
+    word: a reply the schema cut short ended mid-word ("seated on a brown"). `stopped` says the schema already
+    stopped it at `most`, so it is trimmed back even though it fits: a part once ended "no people were visible in
+    any room,所有". A citation the full text made and the cut lost goes on the end, so no claim's
     evidence is dropped; a few characters over `most` don't matter here, after the schema."""
     if len(text) <= most and not stopped:
         return text.strip()
@@ -1182,7 +1182,7 @@ def _trim(text: str, most: int, *, stopped: bool = False) -> str:
     clauses = [m.start() for m in CLAUSE_END.finditer(cut) if m.start() > most // 3]
     if ends:
         kept = cut[: ends[-1]].strip()
-    elif clauses:  # one long sentence: end it at its last clause, not mid-word (11-05's In short, #2891)
+    elif clauses:  # one long sentence: end it at its last clause, not mid-word
         kept = cut[: clauses[-1]].strip() + "."
     else:
         kept = cut.rsplit(" ", 1)[0].rstrip(",;:").strip()
@@ -1319,7 +1319,7 @@ def build(
 def place_names(refs: Sequence[places.PlaceRef]) -> list[str]:
     """A day page's Places line, in first-visit order: each place by its name, with the rooms seen there in
     parentheses, then the rooms seen while no place visit was known, which stand in for places until there are
-    some (#2812). A place only observed (a fixed camera there saw someone, #2825) isn't one the owner went to."""
+    some. A place only observed (a fixed camera there saw someone) isn't one the owner went to."""
     out = []
     for r in refs:
         if not r.visited:
@@ -1472,7 +1472,7 @@ def hidden(state: pathlib.Path, have: Mapping[str, Any] | None) -> bool:
 def repair(state: pathlib.Path, now: float, revision: int) -> dict[str, Any]:
     """Between daily batches, write again the settled pages a transcript correction hid, at once, so a corrected day
     (and its week and month) never shows no page until the next batch: the owner's Review marks land hours after the
-    day's batch (the 2026-11-09 week page, hidden at 06:57 until the next 03:00). Only the periods of the days the
+    day's batch (a week page was once hidden at 06:57 until the next 03:00). Only the periods of the days the
     corrections since the last check (`checked` in BATCH_FILE) touched are looked at, and nothing when there are none,
     so a pass with no new correction reads nothing. Never in a sleep window: the page model if it fits beside the rest,
     else the journal's model, whose pages the next batch writes again with the page model (`interim`)."""

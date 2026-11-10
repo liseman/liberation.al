@@ -75,7 +75,7 @@ def stored():
 
 
 def test_a_full_store_of_old_groups_keeps_a_new_stranger_seen_once(full):
-    # #3163: ranked by faces alone, days-old groups seen twice outlived every new stranger's group, seen once
+    # Ranked by faces alone, days-old groups seen twice outlived every new stranger's group, seen once
     faces._unk_save([1, 2], np.stack([unit(0), unit(1)]), [2, 2], 3)  # from before the store dated groups
     assert faces.group_unknown(unit(2)) == 3
     assert faces.group_unknown(unit(3)) == 4
@@ -183,7 +183,7 @@ def test_a_face_joins_only_above_the_unknown_join(store, similarity, joins):
 
 
 def test_a_group_is_dated_only_by_a_face_starting_or_joining_it(store, monkeypatch):
-    # #3004: People counts only groups seen lately, so the store dates each group by its faces, never by a save
+    # People counts only groups seen lately, so the store dates each group by its faces, never by a save
     clock = [1_000.0]
     monkeypatch.setattr(faces.time, "time", lambda: clock[0])
     faces._unk_save([1, 2], np.stack([unit(0), unit(1)]), [2, 2], 3)  # groups from before: no face has dated them
@@ -195,7 +195,7 @@ def test_a_group_is_dated_only_by_a_face_starting_or_joining_it(store, monkeypat
 
 
 def test_a_store_stamped_at_its_first_save_counts_none_of_those_times(store):
-    # #3006 gave every group its first save's time; only a later face dates a group
+    # Only a later face dates a group, not its first save's time
     np.savez(
         faces.UNK_DB,
         ids=np.array([1, 2, 3]),
@@ -208,7 +208,7 @@ def test_a_store_stamped_at_its_first_save_counts_none_of_those_times(store):
     assert faces.unknown_last_seen() == {3: 1_200.0}
 
 
-# Folding near-duplicate groups (#3181): one stranger split across groups becomes one, and every old number still reads
+# Folding near-duplicate groups: one stranger split across groups becomes one, and every old number still reads
 # as the group it went into.
 
 
@@ -287,7 +287,7 @@ def test_a_group_seen_beside_one_folded_in_never_joins_it(folding, vision):
 
 
 def test_a_stranger_split_across_two_groups_folds_once_their_centroids_meet(folding):
-    # #2244's split: two first faces 0.31 apart, so the second started a group of its own. Faces between them join
+    # Two first faces 0.31 apart start separate groups; faces between them join
     # the first, whose centroid moves toward the second until they are one stranger.
     second = blend(0, 1, 0.31)
     between = unit(0) * 1.05 + second
@@ -488,7 +488,7 @@ def test_scrfd_adapter_keeps_five_points_and_unit_embedding_for_head_faces(recog
     assert result[0].det == pytest.approx(0.9)
     np.testing.assert_array_equal(result[0].kps, LANDMARKS)
     np.testing.assert_allclose(result[0].emb[:3], [0.6, 0.8, 0], atol=1e-7)
-    assert result[0].norm == pytest.approx(5.0), "AdaFace's raw norm, before the unit vector (#2355)"
+    assert result[0].norm == pytest.approx(5.0), "AdaFace's raw norm, before the unit vector"
 
 
 def tagged(*people, faces=3):
@@ -541,7 +541,7 @@ def test_naming_is_trusted_unless_the_saved_check_failed(tmp_path, monkeypatch, 
     assert faces.trusted() is trusted
 
 
-# ---- learning from confidently named tracks (#3013)
+# ---- learning from confidently named tracks
 
 
 @pytest.fixture
@@ -570,7 +570,7 @@ def test_a_confident_track_teaches_new_views_of_its_person_and_says_so_without_a
     assert learned["names"] == ["Alice"] * added and learned["sources"] == ["cam0:7"] * added
     assert faces.load_db()[0] == ["Alice", "Bob"]  # the owner's rows are as they were
     assert len(faces.gallery()[0]) == 2 + added
-    # One line for the track, with the count: a line per view repeated the same text (#3148).
+    # One line for the track, with the count: a line per view repeated the same text.
     (line,) = [r.getMessage() for r in caplog.records if "face row" in r.getMessage()]
     assert line.startswith(f"learned {added} face rows for person ") and "Alice" not in line
 
@@ -679,7 +679,7 @@ def learned_alice_at(axis):
     ],
 )
 def test_a_name_only_learned_rows_give_needs_a_learned_row_at_the_bar(named, face, named_as):
-    # #3028: learned views widen a person; alone they name a face only when one is LEARNED_BAR alike
+    # Learned views widen a person; alone they name a face only when one is LEARNED_BAR alike
     learned_alice_at(5)
     assert faces.match(face())[0] == named_as
 
@@ -693,7 +693,7 @@ def test_autoname_plans_by_the_same_bar(named):
     ]
 
 
-# ---- the one-time cleanup of groups and learned rows from the side or back of a head (#3155)
+# ---- the one-time cleanup of groups and learned rows from the side or back of a head
 
 
 def test_dropping_groups_keeps_the_rest_their_members_and_the_next_number(tmp_path, monkeypatch):
@@ -715,7 +715,7 @@ def test_unlearning_views_removes_only_those_learned_rows_and_never_the_owners(n
     assert faces.load_db()[0] == ["Alice", "Bob"]
 
 
-# ---- the owner's negatives (#3246): "not this person" holds the matcher off that face
+# ---- the owner's negatives: "not this person" holds the matcher off that face
 
 
 def dana(k, w=0.6):
@@ -764,7 +764,7 @@ def test_naming_a_group_someone_takes_back_their_not_for_it(named):
     assert faces.load_nots()[0] == []
 
 
-# ---- a reference photo attached to a person teaches their face (#3245)
+# ---- a reference photo attached to a person teaches their face
 
 
 @pytest.fixture

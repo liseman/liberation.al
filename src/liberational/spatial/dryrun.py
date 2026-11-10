@@ -1,4 +1,4 @@
-"""Dry runs of spatial writes against live state (#3286, #3289): a throwaway copy of the state to write into, and the
+"""Dry runs of spatial writes against live state: a throwaway copy of the state to write into, and the
 measures the tools print before and after.
 
 `overlay` makes the copy: each entry of the live state linked in, except what a write would change. The place's

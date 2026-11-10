@@ -96,7 +96,7 @@ pub struct SupervisorSettings {
     /// A worker that recorded this long (from opening its device) before exiting is restarted after
     /// `backoff_initial_ms` again. 15 s: a network camera on a flapping link recorded 30 to 60 s at a time, each exit
     /// an RTSP timing check, and at 60 s every run counted as quick, so each restart waited the full 60 s cap and
-    /// driveway and patio recorded 10 to 35 percent of 11-07's afternoon and evening (#2904). A run this long opened
+    /// driveway and patio recorded 10 to 35 percent of 11-07's afternoon and evening. A run this long opened
     /// its device and recorded, so restarting it again soon costs nothing; a failed open or an instant death still
     /// doubles the wait.
     pub healthy_after_ms: u64,
@@ -104,7 +104,7 @@ pub struct SupervisorSettings {
     pub open_timeout_ms: u64,
     /// A worker asked to stop that hasn't exited this long after is killed; one that outlives the kill by as long
     /// again is given up on. Long enough for macOS to stop a UVC session and an audio unit: a kill mid-teardown
-    /// can wedge the device until it is power-cycled (#1388).
+    /// can wedge the device until it is power-cycled.
     pub stop_grace_ms: u64,
     /// macOS only: the aggregate raw camera estimate allowed before workers start. Unknown USB topology pools all
     /// configured cameras as one bus, even for requested MJPEG. Native modes cost at least two bytes/pixel,
@@ -219,7 +219,7 @@ pub struct VideoSettings {
     pub ring_seconds: f32,
     /// No frame for this long means the camera stalled: the worker exits and the supervisor restarts it.
     pub stall_ms: u64,
-    /// Steer exposure toward `exposure_target` (#535); false restores advertised native auto/default controls.
+    /// Steer exposure toward `exposure_target`; false restores advertised native auto/default controls.
     pub auto_exposure: bool,
     /// The mean luma (0 to 255) auto exposure steers toward: the faces' when some are in view, else the frame's.
     pub exposure_target: f32,
@@ -232,7 +232,7 @@ pub struct VideoSettings {
 
 impl VideoSettings {
     /// The encoding a device of `kind` uses: its own settings when set, else on with the defaults for a local
-    /// MJPEG camera, so MJPEG never reaches Tier 1 (#1928). A build without the `ffmpeg` feature can't encode, so
+    /// MJPEG camera, so MJPEG never reaches Tier 1. A build without the `ffmpeg` feature can't encode, so
     /// there the default is MJPEG as captured.
     #[must_use]
     pub fn encoding_for(&self, kind: DeviceKind) -> Option<VideoEncodingSettings> {
@@ -428,7 +428,7 @@ pub struct Device {
     /// Retain the private configuration and stream identity while deliberately excluding capture.
     #[serde(default = "enabled_by_default")]
     pub enabled: bool,
-    /// Paused for privacy from the dashboard's header (#2260): the supervisor keeps no worker on it, so the device
+    /// Paused for privacy from the dashboard's header: the supervisor keeps no worker on it, so the device
     /// is not opened and nothing from it is captured, until `paused` is false again. Followed live, about once a
     /// second, without restarting other devices.
     #[serde(default)]
@@ -451,18 +451,18 @@ pub struct Device {
     /// stamps, by stream suffix (`video`, `audio`).
     #[serde(default)]
     pub residual_offset_ns: std::collections::BTreeMap<String, i64>,
-    /// A fisheye camera's lens calibration (#1891, #2975). Capture doesn't use it; the Python readers do (see-actions
+    /// A fisheye camera's lens calibration. Capture doesn't use it; the Python readers do (see-actions
     /// rectifies each person through it, see/fisheye.py, and spatial/cameras.py leaves fisheye cameras out of
     /// fixed-camera places). It's declared here because a device's unknown keys are refused, so that a mistyped
     /// setting (`pasued = true`) stops capture rather than being ignored.
     #[serde(default)]
     pub fisheye: Option<FisheyeCalibration>,
-    /// A wide (not fisheye) lens's radial distortion (#2998), which spatial/lens.py undoes before MASt3R, the
+    /// A wide (not fisheye) lens's radial distortion, which spatial/lens.py undoes before MASt3R, the
     /// footprints, and the splats use the camera's frames. Capture doesn't use it.
     #[serde(default)]
     pub lens: Option<LensCalibration>,
     /// Overlays the camera burns into its frames (a timestamp, its name, a logo), as rectangles `[x1, y1, x2, y2]` in
-    /// fractions of the frame (#2998): spatial/lens.py paints them over and leaves them out. Capture doesn't use them.
+    /// fractions of the frame: spatial/lens.py paints them over and leaves them out. Capture doesn't use them.
     #[serde(default)]
     pub masks: Vec<[f64; 4]>,
     /// How the camera is mounted: on a rig, or fixed (#5). Capture doesn't use it.
@@ -984,7 +984,7 @@ mod tests {
 
     #[test]
     fn a_camera_carries_its_fisheye_calibration() {
-        // The line tools/calibrate_fisheye.py writes, as config/devices.example.toml documents it (#2975).
+        // The line tools/calibrate_fisheye.py writes, as config/devices.example.toml documents it.
         let manifest = "[[device]]\nname = \"rig\"\nkind = \"camera\"\nmatch = { name = \"x\" }\n\
             fisheye = { width = 1920, height = 1080, k = [690.0, 690.0, 959.5, 539.5], d = [0.05, -0.01, 0.002, 0.0], \
             rms = 0.4 }\n";
@@ -1016,7 +1016,8 @@ mod tests {
         let mount = parsed.devices[0].mount.clone().unwrap();
         assert_eq!(mount.rig.as_deref(), Some("pack"));
         assert_eq!(mount.turn, Some([30.0, -10.0, 0.0]));
-        let fixed = "[[device]]\nname='hall'\nkind='camera'\nmatch={name='Synthetic'}\nmount={height_m=2.1, outdoor=true}\n";
+        let fixed =
+            "[[device]]\nname='hall'\nkind='camera'\nmatch={name='Synthetic'}\nmount={height_m=2.1, outdoor=true}\n";
         let fixed = Manifest::parse(fixed).unwrap().devices[0].mount.clone().unwrap();
         assert_eq!((fixed.height_m, fixed.outdoor), (Some(2.1), true));
         let typo = text.replace("rig='pack'", "rig='pak'");

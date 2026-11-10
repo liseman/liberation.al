@@ -45,8 +45,7 @@ export function turnsOf(entries: readonly TranscriptEntry[], speakers: Speakers)
   return turns;
 }
 
-/** What a speaker's avatar says: up to two initials ("Dana Ruiz" is "DR"), or "?" for a voice nobody was matched to
- *  (#2580). */
+/** What a speaker's avatar says: up to two initials ("Dana Ruiz" is "DR"), or "?" for a voice nobody was matched to. */
 export function initials(name: string): string {
   if (!isNamed(name)) return '?';
   const words = name.trim().split(/\s+/).filter(Boolean);
@@ -60,7 +59,7 @@ export function initials(name: string): string {
 export const named = isNamed;
 
 /** What a search reads of a line: the name it shows, then its words ("Dana: Coffee's ready"), the same for Review's
- *  search results and for the transcript dimmed under them (#2580). `label` is the line's speaker as stored; an
+ *  search results and for the transcript dimmed under them. `label` is the line's speaker as stored; an
  *  unmatched voice is searched by what it shows, never by its placeholder. */
 export const lineSearchText = (label: string | null | undefined, text: string): string =>
   label ? `${shownName(label)}: ${text}` : text;
@@ -119,13 +118,13 @@ export function lineHits(search: LineSearch | null, query: string): ReadonlyMap<
 export const lineKey = (e: TranscriptEntry): string => String(e.line ?? e.ts_start);
 
 /** A turn's key: its first line's key, which stays as lines are added. Two microphones can start lines in the same
- *  millisecond (#247), so the start alone isn't enough (Codex on #2516). */
+ *  millisecond, so the start alone isn't enough. */
 export const turnKey = (t: Turn | undefined): string => {
   const first = t?.lines[0]?.e;
   return first ? lineKey(first) : '';
 };
 
 /** Whether two turns hold the very same lines. A feed keeps a line's object until the line changes, so a new line
- *  elsewhere re-renders only the turn it's in (#440). */
+ *  elsewhere re-renders only the turn it's in. */
 export const sameTurn = (a: Turn, b: Turn): boolean =>
   a.id === b.id && a.lines.length === b.lines.length && a.lines.every((l, k) => l.e === b.lines[k]?.e);

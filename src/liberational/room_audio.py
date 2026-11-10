@@ -1,7 +1,7 @@
-"""The room's audio on Continuum (#548, #786): a span of one microphone's PCM, read back from the broker.
+"""The room's audio on Continuum: a span of one microphone's PCM, read back from the broker.
 
 Capture writes each microphone into a ring on `<device>.audio` (stamped records, `listen/pcm.py`), and the tier worker
-writes the ring's batches into a chunk file that it commits every 15 seconds (#1974). A query of the stream over a span gives those
+writes the ring's batches into a chunk file that it commits every 15 seconds. A query of the stream over a span gives those
 chunks; `continuum_py.read.records` gives each chunk's batches, a batch being the ring's records exactly as captured,
 with the batch's UTC span. So a span of audio is the batches it overlaps, decoded and laid at their UTC times, with
 silence where nothing was kept.
@@ -9,7 +9,7 @@ silence where nothing was kept.
 Audio in a chunk not committed yet (up to the last 15 seconds) isn't read here: it would need a live ring lease. A
 clip asked for that soon has no samples yet, and says so.
 
-v1's archive, imported in place (`<device>.audio_v1`, #883), is FLAC files of about five minutes: each comes back
+v1's archive, imported in place (`<device>.audio_v1`), is FLAC files of about five minutes: each comes back
 whole as one record, decoded with `decode_flac` and laid at its start like a batch.
 """
 

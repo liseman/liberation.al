@@ -1,4 +1,4 @@
-// The one round play/stop control for a clip (#2041, step 5): Who's this?'s voices, a person's lines and voice
+// The one round play/stop control for a clip: Who's this?'s voices, a person's lines and voice
 // picks, and the clip picker all use it, so playing anything looks and reads the same.
 import { ActionIcon } from '@mantine/core';
 import { IconPlayerPlayFilled, IconPlayerStopFilled } from '@tabler/icons-react';

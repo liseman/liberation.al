@@ -64,7 +64,7 @@ const firstShown = (pinned: readonly string[], ids: readonly string[]): string |
 
 const walkBys = (n: number) => `${n} ${n === 1 ? 'walk-by' : 'walk-bys'}`;
 
-/** Walk-bys by camera (#2621 board, idea 2): every camera, or one picked in its filter. The filter works on the
+/** Walk-bys by camera: every camera, or one picked in its filter. The filter works on the
  *  figures already here, so picking a camera loads nothing. A card saved for one camera (arg) shows only that one. */
 export function WalkbyReport({
   arg,
@@ -148,7 +148,7 @@ function unconfirmedLine(names: string[]): string {
   return `Spans the model found. Not confirmed yet: ${list}.`;
 }
 
-/** One table per person (#2457): a row per activity across the hours of the day, with its time in all, one legend
+/** One table per person: a row per activity across the hours of the day, with its time in all, one legend
  * and one caveat for the whole report, and each activity's day-by-day grid behind "By day". */
 export function PersonActivityReport({
   arg,
@@ -160,7 +160,7 @@ export function PersonActivityReport({
   onPinned?: (people: string[]) => void;
 }) {
   const query = useReport<PersonActivity>('person_activity', arg);
-  // Activity by person (#2621 board, idea 2): one person at a time, from the figures already here, starting on the
+  // Activity by person: one person at a time, from the figures already here, starting on the
   // first pinned one (else the first); everyone is one click away. undefined: not picked yet; null: everyone.
   const [picked, setPerson] = useState<string | null | undefined>(undefined);
   return (
@@ -202,7 +202,7 @@ export function PersonActivityReport({
             )}
             {data.people.map(p => (
               <Stack key={p.id} gap="xs">
-                {/* The card already names a single person ("Joe's activity"); a name only tells several apart. */}
+                {/* The card already names a single person ("Dana's activity"); a name only tells several apart. */}
                 {data.people.length > 1 && <Title order={3}>{p.name}</Title>}
                 <Heatmap
                   label={`${p.name}'s activities by hour of day`}

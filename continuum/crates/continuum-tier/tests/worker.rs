@@ -1,6 +1,6 @@
 //! The tier worker's loop against the in-memory catalog, as the broker would drive it: a producer writes into a
 //! small Tier 0 ring that may reuse a slot only once the loop has marked it flushed, the loop ticks every frame,
-//! and every closed chunk is committed. Short and bounded (#552's acceptance): 16 slots, 4 seconds at 30 fps, so
+//! and every closed chunk is committed. Short and bounded: 16 slots, 4 seconds at 30 fps, so
 //! the ring wraps seven times; no hour-long run.
 
 use std::cell::RefCell;
@@ -467,7 +467,7 @@ fn files(dir: &std::path::Path) -> Vec<String> {
     names
 }
 
-/// #1942: a microphone's chunk becomes Opus as it closes, on time (`tick`) or at shutdown, before it's committed.
+/// A microphone's chunk becomes Opus as it closes, on time (`tick`) or at shutdown, before it's committed.
 #[test]
 fn a_microphone_chunk_is_committed_as_opus_with_its_payloads_ids_and_times() {
     #[expect(clippy::cast_precision_loss, reason = "test signal")]

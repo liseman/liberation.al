@@ -191,7 +191,7 @@ mod tests {
                 layout: "halpe26".to_owned(),
                 joints: vec![(0.5, 0.5, 0.9), (-1.0, -1.0, 0.0)],
             }],
-            captions: vec![("hello".to_owned(), "Joe".to_owned())],
+            captions: vec![("hello".to_owned(), "Sam".to_owned())],
         };
         let bytes = encode(&o);
         assert_eq!(decode(&bytes).expect("decode"), o);

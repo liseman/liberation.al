@@ -1,4 +1,4 @@
-//! The recent H.264 window (#1741) against a real broker and tier worker, in-process: a camera writes native access
+//! The recent H.264 window against a real broker and tier worker, in-process: a camera writes native access
 //! units into Tier 0, the tier worker absorbs them into committed Tier 1 chunks, and a window opened mid-GOP yields
 //! every access unit from the keyframe before its start, in decode order, across Tier 1, Tier 0, and the live edge,
 //! with a missing frame reported as a gap until the next keyframe. Short and bounded, with deadlines.

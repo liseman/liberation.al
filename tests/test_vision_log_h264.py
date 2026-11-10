@@ -1,4 +1,4 @@
-"""Recorded H.264 crops decode from the GOP's keyframe (vision_log.h264_picture, #1967)."""
+"""Recorded H.264 crops decode from the GOP's keyframe (vision_log.h264_picture)."""
 
 import asyncio
 from typing import Any, cast
@@ -183,7 +183,7 @@ def test_a_chunk_records_access_unit_is_unwrapped_for_the_decoder(data, unit):
 
 
 def test_a_stretch_from_h264_into_an_archived_av1_chunk_switches_decoders(stretches, monkeypatch):
-    """The archive pass (#1479) leaves some chunks H.264 next to AV1 ones: the H.264 decoder is drained, then an AV1
+    """The archive pass leaves some chunks H.264 next to AV1 ones: the H.264 decoder is drained, then an AV1
     decoder starts at the AV1 chunk's keyframe."""
     opened = []
 

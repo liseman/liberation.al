@@ -1,4 +1,4 @@
-"""Which services read which settings (readers.py, #400), on a small made-up package and on the real code."""
+"""Which services read which settings (readers.py), on a small made-up package and on the real code."""
 
 import ast
 import pathlib
@@ -164,8 +164,8 @@ def test_a_voice_setting_leaves_the_cameras_running():
 
 @pytest.mark.parametrize("key", ["asr.engine", "services.enable", "services.disable"])
 def test_choosing_which_services_run_leaves_the_cameras_and_the_journal_running(key):
-    # What services.py reads to choose services: the journal's sleep window runs pack-services rather than import it
-    # (#2959), so every service whose code reaches the journal doesn't count as reading these too.
+    # What services.py reads to choose services: the journal's sleep window runs pack-services rather than import it,
+    # so every service whose code reaches the journal doesn't count as reading these too.
     assert {"see-actions", "journal"}.isdisjoint(readers.affected([key]))
 
 
@@ -209,7 +209,7 @@ def test_every_setting_read_by_a_computed_key_was_checked_by_hand():
 
 
 def test_every_settings_restarts_match_the_plain_scan():
-    """affected_each looks reads up by key and its starts (#438); it must name the same services as checking every
+    """affected_each looks reads up by key and its starts; it must name the same services as checking every
     read with _under, for every real setting and a few that aren't."""
 
     def plain(key):

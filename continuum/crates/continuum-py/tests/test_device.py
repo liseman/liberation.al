@@ -1,7 +1,7 @@
 """Device choice and slab views as torch tensors (continuum_py.device).
 
-Run with `mise run continuum-test`. The CUDA tests run only where torch sees a GPU (devbox's 3090s) and the MPS ones
-only on a Mac; everything else runs everywhere.
+Run with `mise run continuum-test`. The CUDA tests run only where torch sees a GPU (the Linux machine's 3090s) and the
+MPS ones only on a Mac; everything else runs everywhere.
 """
 
 import os

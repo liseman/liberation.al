@@ -65,7 +65,7 @@ def test_same_day_counts_reach_chips_and_ask_and_voice_agree(detector_day, monke
     reviewed = chips.presence(DAY, state)
     assert (historical["query"]["start"], historical["query"]["end"]) == (start, end)
     assert (reviewed["start"], reviewed["end"]) == (start, end)
-    # Ask answers walk-bys from see-actions' walk-by spans and movement, never the sampled visits (#1591).
+    # Ask answers walk-bys from see-actions' walk-by spans and movement, never the sampled visits.
     assert "presence" not in historical and "presence" not in asked
     assert {camera: row["count"] for camera, row in summary["cameras"].items()} == {"cam0": 2, "cam1": 1}
     assert {camera: row["unknown_seconds"] for camera, row in summary["cameras"].items()} == {
@@ -106,7 +106,7 @@ def test_switch_off_removes_the_review_outputs(detector_day):
 
 
 def walk_by(vision, at, *, cam="cam0", direction="left_to_right", followed=True, line=None):
-    """A "Walked past" span as the walk-by worker writes one to the segment store (#1779)."""
+    """A "Walked past" span as the walk-by worker writes one to the segment store."""
     attributes = {"direction": direction, "line": line or {"kind": "vertical", "position": 0.5}, "crossings": 1}
     return vision.add(
         segment_log.WALKBY_SPANS,
@@ -171,6 +171,14 @@ class Unreachable:
         if stream in (segment_log.PRESENCE_SPANS, segment_log.ACTION_COVERAGE):
             return _unreachable(stream, lo, hi)
         return self.vision.range(stream, lo, hi, cams)
+
+    def table(self, stream, lo, hi, names, cams=None):
+        return self.vision.table(stream, lo, hi, names, cams)
+
+    def covered(self, stream, lo, hi, cams=None, **how):
+        if stream in (segment_log.PRESENCE_SPANS, segment_log.ACTION_COVERAGE):
+            return _unreachable(stream, lo, hi)
+        return self.vision.covered(stream, lo, hi, cams, **how)
 
 
 def test_an_unreadable_vision_log_is_explicit_in_history_and_review(detector_day, monkeypatch, vision):
@@ -253,7 +261,7 @@ def test_movement_is_separate_from_shared_sampled_counts_and_keeps_ask_evidence(
     assert result["movement"] == summary["movement"] == reviewed["movement"]
     assert result["movement"]["cameras"]["cam0"]["entry_count"] == 1
     assert result["movement"]["cameras"]["cam0"]["exit_count"] == 1
-    assert "in view" not in result["answer"], "the sampled visits are not Ask's count (#1591)"
+    assert "in view" not in result["answer"], "the sampled visits are not Ask's count"
     assert "came into the picture at least once" in result["answer"]
     assert "image" not in result["answer"] and "supported" not in result["answer"], "no tracker detail"
     tracked = [row for row in result["evidence"] if row.get("movement_evidence")]

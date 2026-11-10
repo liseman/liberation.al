@@ -1,11 +1,11 @@
-"""The same speech heard on two microphones, written as two lines (#284): a label on one copy applies to the other,
+"""The same speech heard on two microphones, written as two lines: a label on one copy applies to the other,
 readers show it once, and "Why this name" explains the copy by the label it borrowed. Each line keeps its own key."""
 
 from unittest.mock import create_autospec
 
 import pytest
 
-from liberational.dashboard import server
+from liberational.dashboard import context, inbox_state, people_reads, server, transcript_lines, unnamed_groups
 from liberational.domain.identity import Basis
 from liberational.people import registry, transcript_view
 from speech_fake import fake
@@ -28,7 +28,7 @@ LINES = [
 def state(tmp_path, monkeypatch):
     write_voices(tmp_path, {1: None})  # an unnamed voice heard all three
     fake().write(LINES)
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     return tmp_path
 
 
@@ -68,13 +68,13 @@ def test_one_line_read_with_the_lines_around_it_borrows_its_copys_label(state):
 
 def test_why_this_name_explains_a_copy_by_the_label_it_borrowed(state):
     label(state, 1000.0, "Kitchen", "Eve")
-    body, code = server.why_name_view({"line": "hall@1000.400"})
+    body, code = people_reads.why_name_view({"line": "hall@1000.400"})
     assert code == 200
     assert (body["name"], body["via"], body["basis"]) == ("Eve", "line", "correction")
 
 
 def test_the_days_transcript_shows_each_thing_said_once(state, monkeypatch):
-    entries = server.merged_tail(80)
+    entries = transcript_lines.merged_tail(80)
     assert [e["text"] for e in entries] == ["Lights on, please.", "Is dinner ready?"]
 
 
@@ -94,7 +94,7 @@ def test_the_live_feed_resends_a_labeled_line_even_when_it_reads_as_a_copy(state
     assert "hall@1000.400" in {registry.key_of(e) for e in changed}
 
 
-# ---- readers that show or count speech, once (#476) ----
+# ---- readers that show or count speech, once ----
 
 
 def with_audio(state):
@@ -105,16 +105,16 @@ def with_audio(state):
 
 def test_the_people_inbox_asks_about_speech_heard_on_two_mics_once(state, monkeypatch):
     with_audio(state)
-    monkeypatch.setattr(server, "inbox_skips", lambda: {"voice": [], "line": [], "face": []})
-    clips, total = server.voice_clips([{"id": 1, "label": "Speaker 1"}])
+    monkeypatch.setattr(inbox_state, "inbox_skips", lambda: {"voice": [], "line": [], "face": []})
+    clips, total = unnamed_groups.voice_clips([{"id": 1, "label": "Speaker 1"}])
     assert total == 2  # "Lights on, please." once, and "Is dinner ready?"
     assert sorted(c["text"] for c in clips) == ["Is dinner ready?", "Lights on, please."]
 
 
 def test_who_was_seen_together_counts_speech_heard_on_two_mics_once(state):
     write_voices(state, {1: "Dana"})  # the voice is Dana's now
-    server._named_cache.update(key=None, value=[])
-    spoken = server._named_lines(0)
+    unnamed_groups._named_cache.update(key=None, value=[])
+    spoken = unnamed_groups._named_lines(0)
     assert [(t, who) for t, _end, who in spoken] == [(1000.0, "Dana"), (1100.0, "Dana")]
 
 
@@ -193,7 +193,7 @@ def test_the_same_lines_read_twice_are_decided_once_and_each_reader_gets_its_own
     view = transcript_view.View(state)
     first = view.lines(LINES)
     first[0]["speaker"] = "changed"
-    assert [e["speaker"] for e in view.named(LINES)] == ["Eve", "Eve", "Speaker 1"]  # #2440: lines, then named
+    assert [e["speaker"] for e in view.named(LINES)] == ["Eve", "Eve", "Speaker 1"]  # Lines, then named
     assert batches == [3]
     view.lines(LINES[:2])  # another batch
     view.individual_lines(LINES)  # the same lines, read without borrowing a copy's label

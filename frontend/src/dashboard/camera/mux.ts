@@ -1,4 +1,4 @@
-// Live camera frames onto canvases, through Continuum's gateway (#549).
+// Live camera frames onto canvases, through Continuum's gateway.
 //
 // Each camera on screen has one gateway session (gateway.ts), shared by every canvas showing it and by its boxes
 // layer; its JPEG frames are decoded once and drawn on each of those canvases. A camera's session is released when

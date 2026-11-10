@@ -113,7 +113,7 @@ it('leads with the question and its actions, and says how sure it is in plain wo
     'href',
     expect.stringContaining('2026-10-22'),
   );
-  // One verdict line for this report's own caveat; the ones that hold for every report fold under it (#2674)
+  // One verdict line for this report's own caveat; the ones that hold for every report fold under it
   const sure = within(article).getByRole('region', { name: 'How sure is this?' });
   expect(sure).toHaveTextContent("Partly sure. 468 snapshots couldn't be read, so some of it is missing.");
   await userEvent.click(within(sure).getByText('2 more caveats'));
@@ -132,7 +132,7 @@ it('marks a report unread again, and deletes one', async () => {
   await userEvent.click(await screen.findByRole('button', { name: /garden/ }));
   await userEvent.click(await screen.findByRole('button', { name: 'Mark unread' }));
   await userEvent.click(screen.getByRole('button', { name: 'Delete' }));
-  // It asks first (#2661), with Cancel ("Keep it") focused, so Enter keeps the report
+  // It asks first, with Cancel ("Keep it") focused, so Enter keeps the report
   const ask = await screen.findByRole('dialog', { name: 'Delete this report?' });
   expect(within(ask).getByRole('button', { name: 'Keep it' })).toHaveFocus();
   await userEvent.click(within(ask).getByRole('button', { name: 'Delete' }));
@@ -156,7 +156,7 @@ it('keeps the report when Delete is answered Keep it', async () => {
   expect(screen.getByRole('article', { name: 'Research report' })).toBeInTheDocument();
 });
 
-it("links the answer's citation to its moment in Review, as the evidence list does (#2661)", async () => {
+it("links the answer's citation to its moment in Review, as the evidence list does", async () => {
   renderPage(<InboxTab />);
   await userEvent.click(await screen.findByRole('button', { name: /garden/ }));
   const cite = await screen.findByRole('link', { name: 'T1' });
@@ -207,7 +207,7 @@ it("Review's Research button is off, with the reason, where research can't run",
   await userEvent.type(screen.getByLabelText('What would you like to know?'), 'Who came by?');
   const button = screen.getByRole('button', { name: 'Research' });
   await waitFor(() => expect(button).toBeDisabled());
-  // A disabled button can't take focus, so the reason is on the page and describes the button (#2271).
+  // A disabled button can't take focus, so the reason is on the page and describes the button.
   expect(screen.getByText('Needs its own Ollama.')).toBeVisible();
   expect(button).toHaveAccessibleDescription('Needs its own Ollama.');
   await userEvent.hover(button.parentElement as HTMLElement);
@@ -232,7 +232,7 @@ function asDesktop() {
 }
 afterEach(() => vi.restoreAllMocks());
 
-it('opens the newest unread report on arrival on a wide screen, and stays closed once closed (#2674)', async () => {
+it('opens the newest unread report on arrival on a wide screen, and stays closed once closed', async () => {
   asDesktop();
   renderPage(<InboxTab />);
   // The waiting job is newer, but the unread finished one is what there is to read
@@ -250,7 +250,7 @@ it('leaves a phone on the list, with nothing to choose into beside it', async ()
   expect(screen.queryByText('Choose a report to read it.')).toBeNull();
 });
 
-it('marks a partial report on the list, and says when in 24-hour words (#2674)', async () => {
+it('marks a partial report on the list, and says when in 24-hour words', async () => {
   server.use(
     http.get('/research/jobs', () =>
       HttpResponse.json({ jobs: [{ ...done, answer_status: 'partial' }], available: true, reason: null, unread: 1 }),
@@ -263,7 +263,7 @@ it('marks a partial report on the list, and says when in 24-hour words (#2674)',
   expect(row).toHaveAccessibleName(/, \d\d:\d\d unread$/);
 });
 
-it("starts research from Review's Ask (#2674)", async () => {
+it("starts research from Review's Ask", async () => {
   renderPage(<InboxTab />);
   await userEvent.click(await screen.findByRole('button', { name: 'Research a question' }));
   expect(location.pathname).toBe('/review');
@@ -273,7 +273,7 @@ it("starts research from Review's Ask (#2674)", async () => {
   history.replaceState(null, '', '/inbox');
 });
 
-it('shows the moments the answer cites as a timeline, each opening Review (#2674)', async () => {
+it('shows the moments the answer cites as a timeline, each opening Review', async () => {
   server.use(
     http.get(`/research/jobs/${done.id}`, () =>
       HttpResponse.json({
@@ -307,12 +307,12 @@ it('shows the moments the answer cites as a timeline, each opening Review (#2674
   ]);
   expect(within(rows[0] as HTMLElement).getByRole('link')).toHaveAttribute('href', '/review#t=1');
   expect(rows[1]).toHaveTextContent('Said · Dana');
-  // The camera moment's still is a 404 (its video was dropped): its box says so, not just "Camera note" (#3165)
+  // The camera moment's still is a 404 (its video was dropped): its box says so, not just "Camera note"
   expect(await within(rows[0] as HTMLElement).findByText('Video no longer kept')).toBeInTheDocument();
   expect(rows[1]).not.toHaveTextContent('Video no longer kept');
 });
 
-it('asks the same question again, and opens the new report (#2674)', async () => {
+it('asks the same question again, and opens the new report', async () => {
   const fresh: Job = { ...waiting, id: 'c'.repeat(32), question: done.question, day: done.day, status: 'queued' };
   const sent: unknown[] = [];
   server.use(
@@ -333,7 +333,7 @@ it('asks the same question again, and opens the new report (#2674)', async () =>
   expect(await screen.findByText('Waiting for the research before it to finish.')).toBeInTheDocument();
 });
 
-it('opens Ask on the report for a follow-up (#2674, openAsk from #2680)', async () => {
+it('opens Ask on the report for a follow-up', async () => {
   const { useAskOpener } = await import('../ask/openAsk');
   renderPage(<InboxTab />);
   await userEvent.click(await screen.findByRole('button', { name: /garden/ }));

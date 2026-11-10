@@ -1,6 +1,6 @@
 """Voice listener: wake phrase ('Hey Bob' by default) -> fast local answer -> spoken via the clone voice.
 
-Follows the speech log (`speech_log`, #548; in the segment store since #1788): utterances as the listen worker writes
+Follows the speech log (`speech_log`, in the segment store): utterances as the listen worker writes
 them, replies written back on `assistant.reply`, and the voice turn set as broker system state. A line counts when its text starts with
 a configured wake phrase ('Hey Bob' or 'Hey, Bob'), from any speaker. The words after the wake phrase are the request.
 Answers come from the local Ollama LLM with the current local time; speech uses the shared TTS fallback.
@@ -72,7 +72,7 @@ def _with_names(request: str, *, owner: bool) -> str:
     """The question with "she" or "he" read as the conversation's subject (memory/pronouns.py), so "what has she
     been doing" goes to history like "what has the cat been doing"; the question itself is asked unchanged. Only
     for the owner: anyone else's question is classified as said, so a pronoun can never turn it into a history
-    question after the password check (#174) has passed it as one about now."""
+    question after the password check has passed it as one about now."""
     if not owner:
         return request
     from liberational.memory import pronouns
@@ -97,7 +97,7 @@ SYSTEM = (
 
 
 LOG = logs.get("voice")
-# The speech log on Continuum, once the service runs (#548): replies go there, and the voice turn is set as broker
+# The speech log on Continuum, once the service runs: replies go there, and the voice turn is set as broker
 # system state. None in a one-shot `--say` test, which only logs its reply.
 CONTINUUM: Any = None
 _TURN = "Idle"
@@ -160,10 +160,11 @@ def answer(request: str) -> str:
 # Owner = a line whose voice is the owner's (owner_voice) at sim >= OWNER_MIN_SIM, or tagged by a person; the owner is
 # never asked for a password. Anyone else gets, without a password, only the local talk-only answer for public
 # questions (answer, above) and read-only questions about what the cameras show now. Everything else, a camera question
-# about the past included (#174), needs the voice password, and once given it reaches the same agent (owner_answer),
+# about the past included, needs the voice password, and once given it reaches the same agent (owner_answer),
 # whose scope says the speaker is not the recognized owner.
 MEMORY = STATE_DIR / "memory.jsonl"
-OWNER_MIN_SIM = 0.45  # ambient labels short 1-2 s owner clips at 0.38-0.90; 0.60 rejected ~40% of the owner's own requests (2026-10-21)
+# Ambient labels short 1-2 s owner clips at 0.38-0.90; 0.60 rejected ~40% of the owner's own requests.
+OWNER_MIN_SIM = 0.45
 OWNER_RULE = (
     "[Tool rule: for this machine's state (services, processes, uptime, disk, files, versions), call exec first and answer "
     "from its output. The camera notes below ARE live access to this machine's cameras: never say you cannot see the cameras, answer from the notes. For weather: web_fetch https://wttr.in/<City>?format=3&u (spaces as +) and answer from that one line. For other web questions use web_search. "
@@ -188,7 +189,7 @@ def canonical_entry(entry: Mapping[str, Any]) -> dict[str, Any]:
     try:
         sid = e.get("speaker_id")
         if not isinstance(sid, int) or isinstance(sid, bool):
-            return e  # a voice id is a real int: True, or "1", isn't voice 1 (#175)
+            return e  # a voice id is a real int: True, or "1", isn't voice 1
         if 1 <= sid < registry.handed_out(pathlib.Path(STATE_DIR)):
             name = registry.voice_names(STATE_DIR, [sid])[sid]
             e["speaker_id"], e["speaker"] = sid, name or f"Speaker {sid}"
@@ -385,7 +386,7 @@ from liberational.assistant.voice_auth import Conversation, Grant, asks_about_th
 
 def follow_voice(key: str) -> str:
     """A speaker key (voice_auth.speaker_key) as it is now: "voice:5" is "voice:3" once voice 5 was merged into 3.
-    Voice auth follows its lockouts through merges with it (a pending request ends at a merge, #175); a requirement
+    Voice auth follows its lockouts through merges with it (a pending request ends at a merge); a requirement
     is never upgraded by this."""
     if match := re.fullmatch(r"voice:([0-9]+)", key):
         return speaker_key(canonical_entry(dict(speaker_id=int(match.group(1)))))
@@ -431,7 +432,7 @@ def _handle(text_line: str, speaker: Speaker | None = None, entry: Mapping[str, 
             from liberational.memory import history_qa
 
             if not result.owner and asks_about_the_past(result.request):
-                # accept() sends anyone else's question about the past to the password (#174); never answer one here
+                # accept() sends anyone else's question about the past to the password; never answer one here
                 reply = "That needs the voice password."
                 error = "unauthorized"
             elif history_qa.is_history_question(_with_names(result.request, owner=result.owner)):
@@ -561,7 +562,7 @@ def _handle(text_line: str, speaker: Speaker | None = None, entry: Mapping[str, 
         and not (history_speech and history_speech.prefix)
     ):  # that has an answer
         # A question the owner asked without the wake phrase may well have been for someone else in the room: a
-        # failure ("I can't do that without an agent") is never spoken over them (#480).
+        # failure ("I can't do that without an agent") is never spoken over them.
         log(f"not answering a line that didn't say {cfg.assistant_name()}'s name: error={error}", status=False)
         return None
     if speaker:
@@ -629,9 +630,9 @@ def _append(line: Mapping[str, Any]) -> None:
 
 
 def run_continuum() -> None:
-    """The voice service on Continuum (#548): utterances from the speech log as they're written, replies written
+    """The voice service on Continuum: utterances from the speech log as they're written, replies written
     back, and the voice turn set as system state. Lines from before it starts aren't answered (it follows
-    from now, as v1's floor did)."""
+    from now)."""
     global CONTINUUM
     from liberational import speech_log
 
@@ -642,7 +643,7 @@ def run_continuum() -> None:
     log("listening on the speech log")
     for entry in CONTINUUM.follow(idle_s=0.5):
         if entry is None:
-            # Between lines: any clone speech the dashboard asked for, on this thread (as v1's pause did).
+            # Between lines: any clone speech the dashboard asked for, on this thread.
             clone_server.run_pending(0)
             continue
         try:

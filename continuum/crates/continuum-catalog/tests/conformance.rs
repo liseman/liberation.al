@@ -127,7 +127,8 @@ fn a_wider_gap_joins_runs_left_by_narrower_ones_end_to_end<C: Catalog>(c: C) {
     let (cam, _) = graph(&c);
     c.mark_commit_clock(100).unwrap();
     let by = c.commit_seq_at(100).unwrap();
-    // Codex's case: [10, 11), [20, 21), and [30, 31) aged one at a time with no gap, then [0, 1) with a gap of 10.
+    // A case from review: [10, 11), [20, 21), and [30, 31) aged one at a time with no gap, then [0, 1) with a gap of
+    // 10.
     for (n, purge) in [(2, 730), (3, 731), (4, 732)] {
         let exact = PurgeSelector::AgeOut { ids: vec![id(n)], committed_by_seq: by, merge_gap_ns: 0 };
         c.purge(exact, "aged", "", id(purge), 5).unwrap();
@@ -397,7 +398,7 @@ fn recorded_aged_out_spans_merge_and_need_a_known_stream<C: Catalog>(c: C) {
     assert!(matches!(c.record_aged_out(StreamId(u32::MAX), &[iv(0, 1)]), Err(CatalogError::NotFound(_))));
 }
 
-/// #1803: one write looks at frames until its window says stop, and the next picks up after the last one it looked
+/// One write looks at frames until its window says stop, and the next picks up after the last one it looked
 /// at, so a sweep's commit covers as many frames as its time allows rather than one.
 #[test]
 fn redb_a_prune_window_stops_when_told_and_resumes_after_the_last_frame_looked_at() {
@@ -961,7 +962,7 @@ fn a_chunk_commit_keeps_every_absorbed_frame_resolvable<C: Catalog>(c: C) {
 }
 
 fn an_identical_header_for_an_absorbed_frame_is_a_repeat_answering_the_chunks_sequence<C: Catalog>(c: C) {
-    // The tier worker registering v1 audio twice (#685): the batches' headers again, after the chunk absorbed them.
+    // The tier worker registering v1 audio twice: the batches' headers again, after the chunk absorbed them.
     let s = chunked(&c);
     let chunk_seq = match c.get(id(100)).unwrap() {
         Some(Resolved::Payload(p)) => p.commit_seq,
@@ -2097,7 +2098,7 @@ fn worker_states_are_bounded_and_forgotten<C: Catalog>(c: C) {
 }
 
 fn an_age_out_keeps_the_worker_state_and_dependencies_read_before_it<C: Catalog>(c: C) {
-    // Aging isn't forgetting (#1587): what was built from an aged row is still right, so a worker's saved state and
+    // Aging isn't forgetting: what was built from an aged row is still right, so a worker's saved state and
     // a dependency bound before an age-out stay good. Readers still see the stream change.
     let (cam, _) = graph(&c);
     let progress = c.register_stream(info("progress")).unwrap();

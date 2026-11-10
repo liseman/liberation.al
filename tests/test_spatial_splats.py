@@ -1,4 +1,4 @@
-"""A splat of each fixed-camera place (spatial/splats.py, #2877): frames, start points, the SPZ copy, and the job."""
+"""A splat of each fixed-camera place (spatial/splats.py): frames, start points, the SPZ copy, and the job."""
 
 import datetime as dt
 import gzip

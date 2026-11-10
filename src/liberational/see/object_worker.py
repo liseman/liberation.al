@@ -1,13 +1,13 @@
-"""The object worker on Continuum (#778): finds the objects remembered on the Objects page in the camera video, and
-writes where it saw them as `object.match` rows in the segment store (#1791, `memory.objects.match_record`).
+"""The object worker on Continuum: finds the objects remembered on the Objects page in the camera video, and
+writes where it saw them as `object.match` rows in the segment store (`memory.objects.match_record`).
 
-Per camera, the newest frame every `interval_s` (v1's observer ran every 5 s) is matched against every object's
+Per camera, the newest frame every `interval_s` is matched against every object's
 template (`memory.objects.match`: SIFT features and a RANSAC homography, on the CPU). A match counts once a second,
 distinct frame within CONFIRM_S puts the object in the same place; a confirmed sighting is written with the frame as
 its evidence and synced at once (matches are rare), at most once per REPEAT_S for an object that hasn't moved. The
 objects are read again every REFRESH_S, so one remembered or forgotten on the page is picked up without a restart.
 
-With no object taught, the worker waits and decodes nothing (#1898): it reads the store every REFRESH_S, starts
+With no object taught, the worker waits and decodes nothing: it reads the store every REFRESH_S, starts
 following the cameras once one is taught, and goes back to waiting when every one is forgotten.
 """
 
@@ -157,7 +157,7 @@ class ObjectWorker:
 
     async def _taught(self, stop: asyncio.Event) -> bool:
         """Waits until an object is taught (the store is read every REFRESH_S): True then, False when `stop` is set
-        first. Until then nothing is decoded or matched (#1898)."""
+        first. Until then nothing is decoded or matched."""
         said = False
         while not stop.is_set():
             self.read_at = -1e18  # read now, whatever refresh last did

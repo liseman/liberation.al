@@ -1,4 +1,4 @@
-//! What one connection runs beside its control messages (#2380), the same over WebSockets and WebTransport: the
+//! What one connection runs beside its control messages, the same over WebSockets and WebTransport: the
 //! `live` feed, the `watch` set, and the requests sent with a `req`. A transport hands each control message to
 //! [`Mux::control`] and sends what it answers, and sends whatever [`Mux::next`] yields in between.
 //!
@@ -158,7 +158,7 @@ struct RequestQueue {
 }
 
 /// Under one lock, so a reply is published only while its request still holds its place: a cancel or a replacement
-/// takes the place first, and the old task's replies, however late, are dropped (Codex on #2384).
+/// takes the place first, and the old task's replies, however late, are dropped.
 #[derive(Default)]
 struct RequestState {
     /// Replies not sent yet, by request and the generation that made them.
@@ -640,7 +640,7 @@ mod tests {
         Arc::new(Session::new(Arc::new(ChunkSource::slow_listing(dir, delay)), None, OriginPolicy::default()))
     }
 
-    /// #2772: Live's camera poll asked `streams` on the page's one connection. Untagged, the connection waited for the
+    /// Live's camera poll asked `streams` on the page's one connection. Untagged, the connection waited for the
     /// listing (about 1.8 s when it re-read live chunks) and sent nothing else, so every watched stream's queue
     /// overflowed and waited for a keyframe. Tagged, the listing runs beside the rest and frames keep flowing.
     #[tokio::test]
@@ -678,7 +678,7 @@ mod tests {
         assert!(json(&out[1]).get("req").is_none());
     }
 
-    /// Codex on #2384: a finished request whose replies the page hasn't drained still counts toward the limit.
+    /// A finished request whose replies the page hasn't drained still counts toward the limit.
     #[tokio::test]
     async fn requests_waiting_to_be_sent_count_toward_the_limit_until_they_drain() {
         let dir = tempfile::tempdir().expect("tempdir");
@@ -740,7 +740,7 @@ mod tests {
         );
     }
 
-    /// #3210: a cancel frees the place at once, but the request's blocking read runs to its end. Started and
+    /// A cancel frees the place at once, but the request's blocking read runs to its end. Started and
     /// cancelled in a loop, those reads piled up without bound; they count toward the limit until they finish.
     #[tokio::test]
     async fn cancelled_requests_still_reading_count_toward_the_limit_until_their_reads_end() {
@@ -866,7 +866,7 @@ mod tests {
 mod request_tests {
     use super::*;
 
-    /// Codex on #2384: a task past its last await isn't stopped by `abort`, so its replies must be refused instead.
+    /// A task past its last await isn't stopped by `abort`, so its replies must be refused instead.
     #[test]
     fn a_late_reply_of_a_cancelled_or_replaced_request_is_dropped() {
         let queue = RequestQueue::default();

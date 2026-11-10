@@ -1,4 +1,4 @@
-"""Lights from colour cast, and conversation summaries with media set aside (2026-10-29)."""
+"""Lights from colour cast, and conversation summaries with media set aside."""
 
 import re
 

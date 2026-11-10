@@ -15,6 +15,7 @@ const at = (h: number, m = 0) =>
   new Date(`${TODAY}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`).getTime() / 1000;
 let items: DetectedActivity[];
 let posts: { url: string; body: unknown }[];
+let batches: string[][]; // the days of each batched /activities read
 let defined: (ActivityKind & { deleted?: boolean })[];
 
 const activity = (kind: string, name: string, more: Partial<ActivityKind> = {}): ActivityKind => ({
@@ -42,6 +43,7 @@ const clip = (id: string, start: number, kind: string, camera = 'kitchen'): Dete
 });
 
 beforeEach(() => {
+  batches = [];
   items = [clip('early', at(7, 22), 'drinking'), clip('late', at(18, 40), 'squats', 'living-room')];
   posts = [];
   defined = [activity('drinking', 'Drinking', { answers: 6, classes: { ntu: ['drink water'], kinetics: [] } })];
@@ -78,9 +80,11 @@ beforeEach(() => {
       posts.push({ url: '/activity/kinds/restore', body });
       return change(body.kind, false);
     }),
-    http.get('/activities', ({ request }) =>
-      HttpResponse.json({
-        items: new URL(request.url).searchParams.get('day') === TODAY ? items : [],
+    // The tab reads its week in one request (?days=a,b,...), and one day again after a change (?day=).
+    http.get('/activities', ({ request }) => {
+      const query = new URL(request.url).searchParams;
+      const listing = (day: string) => ({
+        items: day === TODAY ? items : [],
         truncated: false,
         promotion: [
           {
@@ -102,8 +106,12 @@ beforeEach(() => {
             precision: 1,
           },
         ],
-      }),
-    ),
+      });
+      const days = query.get('days');
+      if (days === null) return HttpResponse.json(listing(query.get('day') ?? ''));
+      batches.push(days.split(','));
+      return HttpResponse.json({ days: Object.fromEntries(days.split(',').map(day => [day, listing(day)])) });
+    }),
     http.post('/activity/feedback', async ({ request }) => {
       const body = (await request.json()) as { activity: string; verdict: 'right' | 'wrong' };
       posts.push({ url: '/activity/feedback', body });
@@ -126,13 +134,17 @@ it('lists the kinds by how far each is from counting, and the clips to check new
   expect(await screen.findByText('2 clips to check ›')).toBeInTheDocument();
   const kinds = within(screen.getByRole('complementary', { name: 'Activity kinds' }));
   expect(kinds.getByText('Counted in Ask')).toBeInTheDocument();
-  // Sentence-case names and one progress wording (#2473).
+  // Sentence-case names and one progress wording.
   expect(kinds.getByText('Drinking')).toBeInTheDocument();
   expect(kinds.getByText('4 more answers to count')).toBeInTheDocument();
-  const asked = screen.getAllByText(/^Is this /).map(q => q.textContent);
-  expect(asked).toEqual(['Is this “Squats”?', 'Is this “Drinking”?']);
+  const asks = screen.getAllByText(/^Is this /).map(q => q.textContent);
+  expect(asks).toEqual(['Is this “Squats”?', 'Is this “Drinking”?']);
+  // The week comes in one request, not one per day (#52).
+  expect(batches).toHaveLength(1);
+  expect(batches[0]).toHaveLength(7);
+  expect(batches[0]?.[0]).toBe(TODAY);
   expect(within(card(/Drinking at/)).getByRole('button', { name: /Play Drinking at/ })).toBeInTheDocument();
-  // Yes, No, and Not sure weigh the same (#2473): none is the filled one.
+  // Yes, No, and Not sure weigh the same: none is the filled one.
   const answers = within(card(/Drinking at/)).getAllByRole('button', { name: /^(Yes|No|Not sure)$/ });
   expect(answers.map(b => [b.textContent, b.dataset.variant])).toEqual([
     ['Yes', 'default'],
@@ -166,7 +178,7 @@ it('saves a name in the owner words for one clip, trimmed, when the field is lef
   renderPage(<ActivitiesTab />);
   await kindsListed();
   await screen.findByText('Is this “Drinking”?');
-  // The name field opens on demand (#2473), with focus in it.
+  // The name field opens on demand, with focus in it.
   expect(within(card(/Drinking at/)).queryByRole('combobox', { name: 'Call it' })).toBeNull();
   await userEvent.click(within(card(/Drinking at/)).getByRole('button', { name: 'Call it something else' }));
   const field = within(card(/Drinking at/)).getByRole('combobox', { name: 'Call it' });
@@ -219,7 +231,7 @@ it('shows only the clips of the kind picked in the roster, and all of them again
   expect(screen.getByRole('heading', { name: 'Clips to check' })).toBeInTheDocument();
 });
 
-it("shows a counted kind's clips as a 1 in 10 spot check among all activities, and all of them when it's picked (#2441)", async () => {
+it("shows a counted kind's clips as a 1 in 10 spot check among all activities, and all of them when it's picked", async () => {
   // walked_past is counted in Ask (the server's promotion row); of walk-0 to walk-19, walk-7 and walk-14 are sampled.
   items = [
     clip('early', at(7, 22), 'drinking'),
@@ -235,7 +247,7 @@ it("shows a counted kind's clips as a 1 in 10 spot check among all activities, a
     screen.getByText('Walked past is counted in Ask already, so 1 in 10 of its clips are here to check.'),
   ).toBeInTheDocument();
   expect(kindButton(/^All activities\b.*\b3 clips to check/)).toBeInTheDocument();
-  // The banner counts what the list holds, not every unanswered clip (#2451).
+  // The banner counts what the list holds, not every unanswered clip.
   expect(screen.getByText('3 clips to check ›')).toBeInTheDocument();
   await userEvent.click(kindButton(/^Walked past\b.*\b20 clips to check/));
   expect(shownIds()).toHaveLength(20);

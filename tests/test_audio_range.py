@@ -1,4 +1,4 @@
-"""Room audio and line clips from the microphones' streams on the broker (#548, #786): Review's audio under recorded
+"""Room audio and line clips from the microphones' streams on the broker: Review's audio under recorded
 video (/audio/range, /audio/spans) and a line's clip (/clip), read through the speech log."""
 
 import io
@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 import soundfile as sf
 
-from liberational.dashboard import server
+from liberational.dashboard import server, transcript_lines
 from speech_fake import fake
 
 SR = 16_000
@@ -36,14 +36,14 @@ def kept():
 
 
 def test_cuts_the_stretch_between_two_times(kept):
-    wav, info = server.audio_range(T0 + 2, T0 + 5)
+    wav, info = transcript_lines.audio_range(T0 + 2, T0 + 5)
     data, sr = decoded(wav)
     assert (info["stream"], sr) == ("kitchen.audio", SR)
     assert len(data) == 3 * SR and np.count_nonzero(data) > 0.9 * len(data)
 
 
 def test_silence_fills_where_nothing_was_kept(kept):
-    data, _ = decoded(server.audio_range(T0 - 2, T0 + 1)[0])
+    data, _ = decoded(transcript_lines.audio_range(T0 - 2, T0 + 1)[0])
     assert len(data) == 3 * SR
     assert not np.any(data[: 2 * SR - 10]), "before the audio starts: silence, so the clip still lines up"
     assert np.count_nonzero(data[2 * SR + 10 :]) > 0.9 * SR
@@ -52,7 +52,7 @@ def test_silence_fills_where_nothing_was_kept(kept):
 def test_the_microphone_of_the_newest_line_is_read_first(kept):
     fake().put_audio("hall.audio", int(T0 * NS), tone(10.0, amplitude=0.05))
     fake().say({"ts_start": T0, "text": "hi", "audio": {"stream": "hall.audio", "start_ns": int(T0 * NS)}})
-    assert server.audio_range(T0 + 1, T0 + 2)[1]["stream"] == "hall.audio"
+    assert transcript_lines.audio_range(T0 + 1, T0 + 2)[1]["stream"] == "hall.audio"
 
 
 @pytest.mark.parametrize(
@@ -65,19 +65,19 @@ def test_the_microphone_of_the_newest_line_is_read_first(kept):
 )
 def test_refuses_a_bad_range(kept, start, end):
     with pytest.raises(ValueError):
-        server.audio_range(start, end)
+        transcript_lines.audio_range(start, end)
 
 
 def test_no_microphone_on_the_broker_is_not_found():
     with pytest.raises(FileNotFoundError):
-        server.audio_range(T0, T0 + 1)
+        transcript_lines.audio_range(T0, T0 + 1)
 
 
 def test_quiet_room_audio_comes_out_at_a_normal_level():
-    """#336: a mic that records speech near -55 dBFS played as silence. The served audio is brought up."""
+    """A mic that records speech near -55 dBFS played as silence. The served audio is brought up."""
     fake().put_audio("kitchen.audio", int(T0 * NS), tone(4.0, amplitude=10 ** (-55 / 20)))
     fake().mics = {"kitchen.audio": None}
-    data, _ = decoded(server.audio_range(T0, T0 + 4)[0])
+    data, _ = decoded(transcript_lines.audio_range(T0, T0 + 4)[0])
     assert 20 * np.log10(np.sqrt(np.mean(data**2))) > -35
 
 
@@ -107,7 +107,7 @@ def test_audio_day_bounds_keep_the_last_hour_and_exclude_the_next_day_across_dst
     fake().put_audio("kitchen.audio", int(late * NS), tone(1.0))
     fake().put_audio("kitchen.audio", int(after * NS), tone(1.0))
     fake().mics = {"kitchen.audio": None}
-    assert server.audio_spans(day) == [{"device": "kitchen", "start": late, "end": late + 1}]
+    assert transcript_lines.audio_spans(day) == [{"device": "kitchen", "start": late, "end": late + 1}]
 
 
 def test_a_lines_clip_plays_its_own_stretch_and_says_when_nothing_was_kept(kept, serve, monkeypatch):
@@ -121,7 +121,7 @@ def test_a_lines_clip_plays_its_own_stretch_and_says_when_nothing_was_kept(kept,
     base = serve(server.H)
     with urllib.request.urlopen(base + f"/clip?line=kitchen@{T0 + 3:.3f}", timeout=5) as r:
         data, sr = decoded(r.read())
-    assert len(data) == pytest.approx((1 + 2 * server.PAD_S) * sr, abs=sr // 100)
+    assert len(data) == pytest.approx((1 + 2 * transcript_lines.PAD_S) * sr, abs=sr // 100)
     with pytest.raises(urllib.error.HTTPError) as no_audio:
         urllib.request.urlopen(base + f"/clip?line=kitchen@{T0 + 60:.3f}", timeout=5)
     assert no_audio.value.code == 404
@@ -131,11 +131,11 @@ def test_a_clip_whose_chunk_file_is_missing_is_not_found(kept, serve, monkeypatc
     # The catalog names a chunk file that isn't on disk (an install moved without its data, #62): 404, not 500.
     from continuum_py.read import ChunkMissing  # continuum_py is imported where it's used (TID253)
 
-    def missing(entry, pad=server.PAD_S):
+    def missing(entry, pad=transcript_lines.PAD_S):
         raise ChunkMissing("/state/continuum/tier/1/h/gone.cnk", "p", "kitchen.audio")
 
     monkeypatch.setattr(server, "DASH_PASSWORD", "")
-    monkeypatch.setattr(server, "line_clip", missing)
+    monkeypatch.setattr(transcript_lines, "line_clip", missing)
     at = int((T0 + 3) * NS)
     fake().say({"ts_start": T0 + 3, "ts_end": T0 + 4, "device": "kitchen", "text": "hi",
                 "audio": {"stream": "kitchen.audio", "start_ns": at, "end_ns": at + NS}})  # fmt: skip

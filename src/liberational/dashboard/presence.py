@@ -9,11 +9,11 @@ A chip is {"id", "kind": "person" | "object" | "event", "label", "spans": [[star
 event chips also carry "notes", one per span. Named person chips carry "speech" separately from their combined
 "spans", so a camera filter keeps utterances even when they overlap a face visit. A person chip seen on recorded
 video also carries "cams": {"cam0":
-[[start, end], ...]}, when each camera view saw them (the cameras are views of one rig, not rooms; #328). Faces
+[[start, end], ...]}, when each camera view saw them (the cameras are views of one rig, not rooms). Faces
 nobody has named make one more person chip, "person:unknown" ("Unknown faces"), with the same "cams". The result is
 cached until one of the sources changes, and for a day still going, for at most CAPTION_REFRESH_S (new captions).
 
-An ended day's answer is kept until something about that day changes (#2398): its segment files (an hour either side,
+An ended day's answer is kept until something about that day changes: its segment files (an hour either side,
 as stat()s, so a late row or a purge shows), the deletions log, the speech purges, the registry, the transcript
 review, and the journal's pages. A line heard today doesn't make yesterday's history be worked out again, and the
 movement read that dominates a load (8 to 12 s) is skipped while it holds. Review gets `for_page`'s answer: the chips
@@ -22,6 +22,7 @@ stay with presence()'s other readers (Ask).
 """
 
 import functools
+import json
 import math
 import multiprocessing
 import pathlib
@@ -32,15 +33,19 @@ from collections.abc import Iterable, Sequence
 from concurrent.futures import Executor, Future, ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from liberational import config as cfg
-from liberational import continuum_ready, logs, speech_log, vision_log
+from liberational import continuum_ready, logs, segment_log, speech_log
+from liberational.dashboard import routes
 from liberational.intervals import interval_groups
 from liberational.memory import presence_counts
 from liberational.people import registry, transcript_view
 from liberational.see.faces import VISIT_GAP_S
 from liberational.vision import sightings
+
+if TYPE_CHECKING:
+    from liberational.dashboard.server import H
 
 OBJECT_PAD = 2.0  # an observation covers about this long
 EVENT_PAD = 30.0  # a summary bullet that links a single moment
@@ -94,7 +99,7 @@ def object_label(raw: object) -> str:
     return SYNONYMS.get(s, s)
 
 
-UNKNOWN_FACES = "person:unknown"  # the chip for faces nobody has named (#328)
+UNKNOWN_FACES = "person:unknown"  # the chip for faces nobody has named
 
 
 def _chip(
@@ -221,19 +226,30 @@ def unknown_faces(
 
 def objects(state: pathlib.Path, start: float, end: float) -> list[dict[str, Any]]:
     seen, groundings = {}, {}
+    # Only the captions' times and grounded labels, as columns: a day is tens of thousands of captions, and a record
+    # of each (its text, boxes, and model fields) cost more than every other chip together.
+    names = ("ts_ns", "grounded", "obj_labels", "obj_ts_ns")
     try:
-        rows = [
-            (r["ts"], r.get("objects")) for r in vision_log.at(state).captions(start, end) if start <= r["ts"] < end
-        ]
-    except OSError:  # the broker is unreachable
-        rows = []
-    for ts, items in rows:
-        for o in items if isinstance(items, list) else ():
-            label = object_label(o.get("label") if isinstance(o, dict) else o)
+        cams = segment_log.at(state).table(segment_log.CAPTIONS, start, end, names)
+    except OSError:  # the store can't be read
+        cams = {}
+    rows = sorted(
+        (segment_log.secs(ts), labels, stamps)
+        for c in cams.values()
+        for ts, grounded, labels, stamps in zip(
+            c["ts_ns"].tolist(), c["grounded"].tolist(), c["obj_labels"], c["obj_ts_ns"]
+        )
+        if grounded and labels != "[]"
+    )
+    for ts, labels, stamps in rows:
+        if not start <= ts < end:
+            continue
+        for raw in json.loads(labels):
+            label = object_label(raw)
             if not label:
                 continue
             seen.setdefault(label, []).append((ts, ts + OBJECT_PAD))
-            groundings.setdefault(label, set()).add(o.get("ts", ts) if isinstance(o, dict) else ts)
+            groundings.setdefault(label, set()).add(segment_log.secs(int(stamps[0])) if len(stamps) else ts)
     return [
         _chip("object", label, merge(v, cfg.nonnegative_seconds("dashboard.object_gap_s")))
         for label, v in seen.items()
@@ -356,7 +372,7 @@ def sampled_presence(
 
 
 def tracked_movement(result: dict[str, Any], end: float) -> list[dict[str, Any]]:
-    """One plain chip per camera for tracked movement (#1434): every track's supported intervals joined into the
+    """One plain chip per camera for tracked movement: every track's supported intervals joined into the
     stretches someone was in view, with all the tracks' source ids and edge evidence, so a moment still plays.
     Entries and exits get no chip of their own (the camera's "came into view" chip already says that), and nearby
     arrival times get none either. Presentation only: the counts and records behind it are unchanged."""
@@ -435,7 +451,7 @@ def presence(day: str | None = None, state: str | pathlib.Path | None = None) ->
     measured: dict[str, Any] | None = None
     ended = end <= time.time()
     if ended:
-        # Nothing about an ended day changed: no reading at all, the movement read included (#2398). A stamp that
+        # Nothing about an ended day changed: no reading at all, the movement read included. A stamp that
         # can't be read is no stamp: the day is worked out as before, and its answer isn't kept under it.
         try:
             stamp: Any = ("ended", _ended_stamp(state, day, start, end))
@@ -489,7 +505,7 @@ _executor: Executor | None = None  # made on first use (_pool)
 def _pool() -> Executor:
     """One process of its own for day loads (under _request_lock). A load of today is about 10 s of pure Python
     once a minute, and run on a dashboard thread it held the interpreter lock that every request needs, so each one
-    waited behind it (#1477)."""
+    waited behind it."""
     global _executor
     if _executor is None:
         _executor = ProcessPoolExecutor(max_workers=1, mp_context=multiprocessing.get_context("spawn"))
@@ -522,7 +538,7 @@ _NOT_FOR_PAGE = ("source_ids", "evidence")  # Ask's and the summary's, not Revie
 
 
 def for_page(res: dict[str, Any]) -> dict[str, Any]:
-    """The day's answer as Review reads it (#2398): the chips without their evidence and source ids, and movement as
+    """The day's answer as Review reads it: the chips without their evidence and source ids, and movement as
     each camera's counts. The tracks, barriers, and unknown spans were 25 MB a day, sent to a page that never reads
     them, and pickled across processes every minute."""
     out = dict(res)
@@ -544,12 +560,9 @@ def _load(day: str, state: str) -> dict[str, Any]:
     """One day's answer, for for_request's job; in its own process, the settings as they are now."""
     if multiprocessing.parent_process() is not None:
         cfg.load.cache_clear()  # a setting saved since: the dashboard rereads its pack.toml, and so does this
-        # Today is read again every minute: each ended hour's records are kept in this process, and only the hours
-        # still going are read from the store (#2398).
-        from liberational import memtrim, segment_log
+        from liberational import memtrim
 
-        segment_log.keep_hours()
-        memtrim.start()  # what a load freed goes back to the system; the kept hours stay (#2850)
+        memtrim.start()  # what a load freed goes back to the system
     start, end = day_bounds(day)
     pending = dict(day=day, start=start, end=end, chips=[], partial=True, pending=True)
     try:
@@ -627,10 +640,10 @@ def for_request(
         return previous or pending
 
 
-WARM_EVERY_S = 30.0  # how often the dashboard checks today's answer in the background (#334)
+WARM_EVERY_S = 30.0  # how often the dashboard checks today's answer in the background
 # How old today's answer may get while nobody asks. An open Review polls every minute (CHIPS_MS), and each poll keeps
 # the minute's refresh; a load of today is about 10 s of CPU, so warming every minute regardless was a sixth of a core
-# all day (#1498). A visit after a quiet spell gets this answer at once and the fresh one on its next poll.
+# all day. A visit after a quiet spell gets this answer at once and the fresh one on its next poll.
 IDLE_WARM_S = 600.0
 _LOG = logs.get("dashboard")
 
@@ -651,3 +664,14 @@ def keep_warm(state: str | pathlib.Path | None = None, stop: threading.Event | N
     thread = threading.Thread(target=run, name="presence-warm", daemon=True)
     thread.start()
     return thread
+
+
+# ---- routes (dashboard/routes.py): what the server answers for this area ----
+
+
+@routes.get("/review/presence")
+def _get_review_presence(h: H) -> None:
+    day = h._query().get("day") or None
+    if day and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
+        return h._json({"error": "day must be YYYY-MM-DD"}, 400)
+    return h._json(for_request(day, h.state))

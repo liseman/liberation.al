@@ -922,8 +922,8 @@ async fn the_index_shows_an_ingested_copy_once_the_writer_has_committed_it() {
     committed(&broker, &mut c).await;
     let covered = broker.core.covered(continuum_core::StreamId(cam), Interval::new(0, 1000).unwrap()).await.unwrap();
     assert_eq!(covered.len(), 1);
-    // A camera frame is an instant that stands for its stream until the next one: at 30 fps it covers one period
-    // (#896), here clipped to the query's end.
+    // A camera frame is an instant that stands for its stream until the next one: at 30 fps it covers one period,
+    // here clipped to the query's end.
     assert_eq!(covered[0].interval, Interval::new(100, 1000).unwrap());
     assert_eq!(covered[0].tier, continuum_core::StorageTier::Tier1Warm);
     broker.stop().await;
@@ -2366,7 +2366,7 @@ async fn a_quoted_query_commits_dispatches_and_fulfills() {
     broker.stop().await;
 }
 
-/// Two consumers asking for the same missing range (#552, #896): the second quote says it shares the job in flight,
+/// Two consumers asking for the same missing range: the second quote says it shares the job in flight,
 /// committing it sends the worker nothing new, and the one job's commit fulfills both promises.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_second_consumer_shares_the_job_in_flight() {
@@ -3161,7 +3161,7 @@ async fn a_keeper_registering_during_the_grace_is_told_of_a_purge_that_finished_
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_keeper_owed_more_notices_than_its_queue_holds_catches_up_instead_of_being_closed() {
-    // the Mac, 2026-11-02: the tier worker came back owed 1541 notices, all sent at once into a 1024-message
+    // On the Mac, the tier worker came back owed 1541 notices, all sent at once into a 1024-message
     // queue, so it was closed before it could acknowledge any, reconnected, and was closed again, forever.
     let broker = Broker::start_forgetting(forget(50, 60_000)).await;
     let mut k = keeper(&broker, "tier-worker").await;
@@ -3935,8 +3935,8 @@ async fn a_repeat_reaches_a_subscriber_once_and_a_ranged_page_reads_only_the_win
     c.send(&heartbeat(9)).await;
     assert_eq!(c.recv().await.1, ControlPayload::Heartbeat, "the repeats weren't published again");
 
-    // One row a page over a range only payloads 3 and 4 overlap: the catalog reads the window from its time index
-    // (#935), so payloads 1 and 2 cost no pages at all.
+    // One row a page over a range only payloads 3 and 4 overlap: the catalog reads the window from its time index,
+    // so payloads 1 and 2 cost no pages at all.
     let mut got = Vec::new();
     let mut empty_pages = 0;
     let mut after = 0;
@@ -4062,7 +4062,7 @@ async fn a_time_query_on_a_ring_nothing_has_been_written_to_answers_with_no_tail
     broker.stop().await;
 }
 
-// Purge by ids and the purge listing (#631).
+// Purge by ids and the purge listing.
 
 fn purge_ids(request_id: u64, ids: &[u8], reason: &str, detail: &str) -> Vec<u8> {
     envelope(request_id, |b| {
@@ -4271,7 +4271,7 @@ async fn cost_models_and_clock_samples_are_saved_and_the_next_run_starts_from_th
     broker.stop().await;
 }
 
-// Stream listing (#668).
+// Stream listing.
 
 fn list_streams(request_id: u64) -> Vec<u8> {
     envelope(request_id, |b| {
@@ -4982,8 +4982,8 @@ async fn a_single_item_near_the_frame_limit_uses_exact_size_instead_of_conservat
     broker.stop().await;
 }
 
-/// #1270: the dashboard's face snapshot asked for a whole window in one sequence page (`max_items` 40,000) of many
-/// small inline rows. Before #1171 only inline bytes were budgeted, so headers pushed the page to about 18 MB and the
+/// The dashboard's face snapshot asked for a whole window in one sequence page (`max_items` 40,000) of many
+/// small inline rows. When only inline bytes were budgeted, headers pushed the page to about 18 MB and the
 /// session closed on every retry. The page is cut under the frame limit and the drain still returns every row.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_large_max_items_page_of_small_inline_rows_is_cut_under_the_frame_limit() {

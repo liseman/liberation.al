@@ -27,7 +27,7 @@ pub mod schema {
 
 /// The control protocol's major version (schemas/continuum.fbs). The broker refuses a `Hello` whose major differs;
 /// bump it for a change that isn't backward compatible. Minor versions only add fields and messages at the end, so
-/// any minor works with any other. Major 1 (#1948) removed the copy-group and `RetireCopy` messages.
+/// any minor works with any other. Major 1 removed the copy-group and `RetireCopy` messages.
 pub const SCHEMA_MAJOR: u16 = 1;
 /// The control protocol's minor version; see [`SCHEMA_MAJOR`].
 pub const SCHEMA_MINOR: u16 = 34;
@@ -151,7 +151,7 @@ impl SlotHandle {
 }
 
 /// The bytes a USB camera's frame is planned at: the size of the Tier 0 slot the broker reserves for it and capture
-/// claims, so both pick the same slot class (#2001). Raw frames (UYVY, and everything AVFoundation delivers) are
+/// claims, so both pick the same slot class. Raw frames (UYVY, and everything AVFoundation delivers) are
 /// 4:2:2 rows padded to 64 bytes; MJPEG's is a conservative bound, an uncompressed 4:2:2 frame plus 64 KiB of
 /// headers. `None` for a zero size or an overflow.
 #[must_use]

@@ -38,7 +38,7 @@ pub struct FlushSettings {
     /// starts on a keyframe.
     pub chunk_ns: u64,
     /// How long a microphone's chunk stays open (PCM batches, which become Opus at close). Audio has no keyframes,
-    /// and every chunk is kept forever with its catalog rows, so it's longer (#1974). Tier 1 readers such as
+    /// and every chunk is kept forever with its catalog rows, so it's longer. Tier 1 readers such as
     /// `room_audio` see a line once its chunk closes, so it stays short enough for a fresh line to play soon.
     pub audio_chunk_ns: u64,
     /// How often [`Flusher::sync_due`] syncs a chunk with records waiting, in nanoseconds. Shorter means less is
@@ -77,7 +77,7 @@ pub struct StreamShape {
     /// For a [`ChunkFormat::PcmBatch`] stream, its ring records' layout.
     pub pcm: Option<crate::pcm::PcmLayout>,
     /// For a raw camera stream (UYVY, YUYV, or NV12 frames), its frames' layout, from the first frame's capture
-    /// info: what its encoder is opened for (#900).
+    /// info: what its encoder is opened for.
     pub raw: Option<crate::raw::RawLayout>,
 }
 
@@ -179,7 +179,7 @@ pub struct Flusher {
     counter: u64,
     /// Chunks closed just before a new chunk's create failed (see [`Flusher::parked`]).
     parked: Vec<Closed>,
-    /// The hour directories made durable this run (`layout::make_hour_dir`, once each, #2908).
+    /// The hour directories made durable this run (`layout::make_hour_dir`, once each).
     synced: std::collections::BTreeSet<PathBuf>,
     /// Capture provenance by stream and payload id, until the chunk holding the payload closes.
     attested: BTreeMap<StreamId, BTreeMap<Uuid, continuum_catalog::FrameProvenance>>,
@@ -309,7 +309,7 @@ impl Flusher {
         }
         if !self.open.contains_key(&p.stream) {
             self.counter += 1;
-            // In its stream's UTC-hour directory (#2908), named as before.
+            // In its stream's UTC-hour directory, named as before.
             let hour = crate::layout::hour_dir(&self.dir, p.stream, now_ns);
             let path = hour.join(format!("{}-{}-{}.cnk", p.stream.0, now_ns, self.counter));
             let mut writer = match self.create_in(&hour, &path, p.stream, shape.chunk_format, now_ns) {

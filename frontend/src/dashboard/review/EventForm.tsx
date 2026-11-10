@@ -1,4 +1,4 @@
-// Mark a span of one camera as an event (#287, #518): what happened in the owner's own words, how many times it
+// Mark a span of one camera as an event: what happened in the owner's own words, how many times it
 // happened by watching, and optionally who it involved, what was measured (a value and a unit), and notes. It is
 // saved as a label in events.jsonl (POST /measurement/mark, dashboard/marks.py), for tools/measure.py --part events.
 // Marking the same span again replaces its label.

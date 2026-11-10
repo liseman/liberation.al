@@ -110,7 +110,7 @@ pub trait Catalog: Send + Sync {
         Ok(None)
     }
 
-    /// The stream's invalidation revision as its last forget left it (#1587): every change but an age-out's. A
+    /// The stream's invalidation revision as its last forget left it: every change but an age-out's. A
     /// dependency or worker state read at any revision from this one through the current one is still good, since
     /// aging isn't forgetting. A worker that only needs to know whether something it read was forgotten compares this
     /// one. `None` when unsupported or exhausted.
@@ -598,7 +598,7 @@ pub trait Catalog: Send + Sync {
 
     /// Closes a durable catalog's file cleanly, for a broker that is stopping: a running scrub is thrown away, the
     /// writes in flight finish, and the store is closed so that the next open finds it shut down rather than crashed
-    /// (redb otherwise repairs the whole file at the next open, #1383). Every call after it fails. Waits at most
+    /// (redb otherwise repairs the whole file at the next open). Every call after it fails. Waits at most
     /// `wait` for reads still holding the file; past that the file is left as a crash would leave it. A catalog with
     /// no file has nothing to do.
     ///
@@ -643,7 +643,7 @@ pub trait Catalog: Send + Sync {
         Ok(())
     }
 
-    /// [`Catalog::prune_frames`] as a cooperative work window (#1803): it looks at up to `max_rows` frames in one
+    /// [`Catalog::prune_frames`] as a cooperative work window: it looks at up to `max_rows` frames in one
     /// write, but stops early once `should_stop` says so (checked after each frame), and its `next` picks up from
     /// the last frame it looked at. A fixed commit cost then covers as many frames as the window allows, rather than
     /// a row budget that commit latency drives down to one. The callback must be cheap and must not call the catalog.
@@ -704,7 +704,7 @@ pub trait Catalog: Send + Sync {
     /// [`CatalogError::Storage`] only.
     fn forget(&self, name: ForgottenHash) -> Result<()>;
 
-    /// Stores a durable worker's checkpoint in place of its last one (one row per owner and contract, #1547), only
+    /// Stores a durable worker's checkpoint in place of its last one (one row per owner and contract), only
     /// if every input stream's invalidation revision still equals the one `state` was read under. A purge that
     /// advances one of them later deletes the row in its own transaction.
     ///

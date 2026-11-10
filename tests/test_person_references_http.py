@@ -8,7 +8,7 @@ import pytest
 import requests
 from PIL import Image
 
-from liberational.dashboard import server
+from liberational.dashboard import context, people_reads, people_writes, server
 from liberational.people import references
 from liberational.vision import faces
 
@@ -23,15 +23,15 @@ def found(monkeypatch):
         with patch.object(faces, "embed", autospec=True, return_value=[(np.zeros(4), v) for v in faces_in]):
             return True, json.dumps(faces.enroll_reference(name, path))
 
-    monkeypatch.setattr(server, "_face_cmd", run)
+    monkeypatch.setattr(people_writes, "_face_cmd", run)
     return faces_in
 
 
 @pytest.fixture
 def base(serve, tmp_path, monkeypatch, found):
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     monkeypatch.setattr(server, "DASH_PASSWORD", "")
-    monkeypatch.setattr(server, "people_view", lambda: {"people": [{"name": "Dana"}]})
+    monkeypatch.setattr(people_reads, "people_view", lambda: {"people": [{"name": "Dana"}]})
     monkeypatch.setattr(faces, "DB", tmp_path / "db.npz")
     return serve(server.H)
 
@@ -68,7 +68,7 @@ def test_upload_preview_attach_list_remove(base):
 
 
 def test_a_one_face_photo_teaches_its_person_and_removing_it_takes_the_row_back(base, found):
-    # #3245: a single-face reference photo becomes one of the person's owner face rows
+    # A single-face reference photo becomes one of the person's owner face rows
     face = np.zeros(512, np.float32)
     face[3] = 1.0
     found.append(face)
@@ -109,6 +109,6 @@ def test_candidate_lookup_uses_grounded_provider_without_agent(monkeypatch):
     post = create_autospec(requests.post)
     monkeypatch.setattr(name_lookup, "lookup", lookup)
     monkeypatch.setattr(requests, "post", post)
-    assert server.public_lookup("Dana", "Engineer", candidates=True) == result
+    assert people_writes.public_lookup("Dana", "Engineer", candidates=True) == result
     lookup.assert_called_once_with("Dana", "Engineer")
     post.assert_not_called()

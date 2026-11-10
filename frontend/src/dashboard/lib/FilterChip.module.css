@@ -1,4 +1,4 @@
-/* A filter chip (#2450 board item 6, duplicates item 8): neutral, with a small dot in the colour its series uses
+/* A filter chip: neutral, with a small dot in the colour its series uses
    elsewhere (a service's log lines, a person's marks), so the colour links chip to what it filters without the row
    outshouting the content. Off looks off: dashed and dimmed, not a missing tick on a bright chip. */
 .label,

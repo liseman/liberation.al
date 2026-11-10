@@ -1,5 +1,5 @@
-"""`pack-walkthrough VIDEO`: a place's point cloud and rough floorplan from a phone video walking through it (#2787,
-part of the spatial memory goal #2794), its poses corrected where the walk passes the same place again (#2931).
+"""`pack-walkthrough VIDEO`: a place's point cloud and rough floorplan from a phone video walking through it (part
+of spatial memory), its poses corrected where the walk passes the same place again.
 
     pack-walkthrough walk.mp4                    # a new place
     pack-walkthrough walk.mp4 --place <id>       # a new revision of a place that's already there
@@ -22,7 +22,7 @@ By hand, once per video; no service runs it. Steps:
    view hasn't moved `STILL` since the last frame taken, at most `MAX_FRAMES` (the seconds widen to fit).
 2. **Poses: CUT3R.** The frames go through CUT3R in walk order (spatial/cut3r_runner.py, in CUT3R's own runtime from
    `mise run cut3r`, with the checkpoint `mise run models` fetches): each frame's camera pose and its points in that
-   camera's frame. On IMG_7676 (#2787, a 2 minute, 99 m walk through a home) CUT3R kept the walk level and one storey
+   camera's frame. On IMG_7676 (a 2 minute, 99 m walk through a home) CUT3R kept the walk level and one storey
    tall where MASt3R's global alignment bent it, but its heading drifts, so a wall the walk passes twice shows up
    twice, shifted and turned.
 3. **Steps and revisits: MASt3R pairs.** Every consecutive pair of frames is measured, to find where CUT3R broke.
@@ -35,7 +35,8 @@ By hand, once per video; no service runs it. Steps:
    disagree across the walk (`posegraph.loop_scale`), no loop is closed.
 4. **Pose graph.** spatial/posegraph.py solves CUT3R's consecutive poses (odometry), the kept revisits (loops), and
    priors that the phone stays upright (gravity, only when `up_check` shows the poses' -y is really the image's up in
-   CUT3R's own world points) and at one height (one storey). Steps where CUT3R broke (a sure MASt3R measurement of
+   CUT3R's own world points) and at one height (one storey), and holds each frame's heading by the walls it sees
+   ("Single loops" below). Steps where CUT3R broke (a sure MASt3R measurement of
    the step turns more than `BREAK_DEG` differently) take MASt3R's measurement first (`close_loops`). A revisit whose
    two frames' near points can be fitted onto each other (point-to-plane `icp`, `fit_revisits`) is closed on that fit,
    tightly, rather than on MASt3R's pose, so its near walls land on each other. A walk of several minutes drifts
@@ -47,8 +48,8 @@ By hand, once per video; no service runs it. Steps:
    (`level_floor`), and the plan comes from spatial/floorplan.py on it.
 6. **Place.** A new place (`place` not given) gets a revision (memory/places.py): the cloud as its `.map` (binary
    PLY), the plan with its map-to-plan transform, the floor plane, and the video's name in its `walkthrough` signal;
-   tier 1 (spatial/fuse.py, #2801) makes it the place's first fused map. A walk into a place already there
-   (`into_place`, #3252) is fused into that place's map in the place's frame, so its registered fixed cameras keep
+   tier 1 (spatial/fuse.py) makes it the place's first fused map. A walk into a place already there
+   (`into_place`) is fused into that place's map in the place's frame, so its registered fixed cameras keep
    their poses: tier 1 registers it against the map, and when that fails (a crisp LiDAR walk of two rooms against a
    whole home's soft MASt3R map can't score 0.35 anywhere), MASt3R seats the place in the walk by the fixed cameras
    both see (`seat_places`, the join's seats), polished against the map around there when that holds. Nothing is
@@ -72,10 +73,29 @@ from ARKit's at the root mean square (5.4 m at the worst, the last 50 frames tur
 (1.0 m at the worst), its two nearest revisits (0.3 m apart) within 0.24 m and 2.3 degrees of ARKit's, and the worst
 revisit the solve left 0.48 m and 7.6 degrees off, inside the tolerance. No recording of several minutes was to hand.
 
-What the closure can't do: a walk that sees its start again only at the end closes there (0.2 to 0.3 m), but its
-middle has nothing to hold it, and a simulated 6 minute single loop was still 14 m off at the root mean square. A
-lone revisit past the gate, with no second one near it to agree, stays refused. The first frame keeps the tilt CUT3R
-gave it. And the doubled walls of step 4's note are CUT3R's depth, not its poses: closing the walk doesn't sharpen
+**Single loops.** A walk that sees its start again only at the end closes there (0.2 to 0.3 m), but revisits hold
+nothing in between: simulated single loops of 4 and 6 minutes were still bent 1 to 3 m and 2 to 65 m in the middle
+(the farthest frame, once the walk is laid on the true one by a rigid move). The walls hold it there. A house's walls
+stand square to each other, so the level direction a frame's walls face (`wall_direction`, from the normals of its own
+near points) gives that frame's heading up to quarter turns, with no revisit. `squared` tracks the turn they show
+over the whole walk at once, so a slanted wall or a cupboard, even a run of them, is passed by, and takes the drift
+out before the solve; `posegraph.solve` then holds every believed frame's heading on one grid, whose angle it solves for.
+The bend tolerance is `BEND_SHARE`, 1% of the walk's length. Simulated single loops with walls seen as one real
+recording's were (10 walks each, the farthest frame at the median and at the worst): 2 minutes and 90 m, bent 0.47
+and 0.87 m (0.75 and 1.0 m before); 4 minutes and 180 m, 0.82 and 1.25 m (1.55 and 3.1 m before); 6 minutes and
+270 m, 1.07 and 1.52 m (5.0 and 65 m before), all 30 inside the tolerance where 19 were. What is left is the steps'
+own length noise, which no heading fixes. Walks that cross their own path close as before (0.3 to 0.55 m bent).
+On the real recording 104 of 120 frames gave a wall direction, 60% of them
+within 5 degrees of one grid (most within 2) and the rest in short runs, most near 30 degrees off it either way; 66
+held the walk. Against its ARKit poses the closed walk's headings were 1.6 degrees off at the median and 4.1 at the
+90th percentile (6.9 and 12.7 without the walls), and its frames 0.34 m at the root mean square and 0.96 m at the
+worst (0.35 and 0.99), with the same 24 revisits kept: that walk crosses its own path, so its positions were held
+already. A place whose walls share no grid (fewer than `WALL_KEEP` of the frames with walls near the track) is left
+to its revisits, and the run logs it.
+
+What the closure can't do: a walk in a place with no square walls, that also never crosses its own path, has nothing
+to hold its middle. A lone revisit past the gate, with no second one near it to agree, stays refused. The first frame
+keeps the tilt CUT3R gave it. And the doubled walls of step 4's note are CUT3R's depth, not its poses: closing the walk doesn't sharpen
 them. So prefer a recording that carries its own tracked poses (a Stray Scanner export: ARKit's visual-inertial
 poses are metric, gravity-aligned, and drift about 1% of the walk, and its LiDAR depth is the cloud) whenever a
 device that makes one is to hand, and always for a walk past about two minutes, a walk that can't cross its own path
@@ -84,7 +104,7 @@ plain walls and little texture. A plain video is for a short look at a place whe
 there. docs/WALKTHROUGH.md says how to record either.
 
 Both models run niced, on the GPU with the most free memory (`spatial.gpu`). Models: CUT3R and MASt3R (code and
-weights CC BY-NC-SA 4.0, non-commercial; MASt3R accepted by Joe for now on 2026-11-07, CUT3R on 2026-11-08), and
+weights CC BY-NC-SA 4.0, non-commercial; MASt3R and CUT3R accepted for now), and
 MegaLoc for the revisit proposals (MIT, an ONNX export run on the CPU).
 """
 
@@ -183,6 +203,13 @@ GATE_MAX_M, GATE_MAX_DEG = 10.0, 60.0
 LOOP_ROUNDS = 8
 SUPPORT_FRAMES = 10
 SUPPORT_M, SUPPORT_DEG = 1.5, 15.0
+# The bend tolerance: once the corrected walk is laid on the true one as well as a rigid move can, no frame is
+# farther from where it was than this share of the walk's length, whether or not the walk crosses its own path ("Single
+# loops" in the module docstring). It is what a recording with tracked poses drifts (ARKit's, about 1% of the walk), so
+# a plain video's map is bent no more than the alternative's, and it is what a plan or a fixed camera's map can still
+# be fitted to: 0.9 m on a two minute walk and 2.7 m on a six minute one. Only a walk with a reference can be checked
+# against it; tools/walkthrough_closure.py does on simulated walks.
+BEND_SHARE = 0.01
 # The closure tolerance: a walk that returns to its start (and walks on for a few seconds, so several frames see it
 # again) ends within this of where its first frames say it is, in position and in heading about up.
 # tools/walkthrough_closure.py measures it on simulated walks of 2 to 10 minutes at IMG_7676's drift (the module
@@ -210,10 +237,10 @@ ICP_MIN_POINTS = 50  # pairs of points an ICP step needs
 # cloud (spatial/floorplan.py, up to 25 degrees off up, which fixed cameras' rough up needs) tilts with CUT3R's smear.
 # On IMG_7676 the fitted floor was 4.4 degrees off the cameras, 15% of the cloud more than 5 cm under it and the
 # cameras 0.5 to 1.3 m over it; the level one has 1% under it and the cameras 1.3 to 1.6 m over it, a phone's height.
-# Place 4 (IMG_7676 written by hand from a COLMAP cloud, #2931) got one 13.7 degrees off: levelled by it, the far side
+# Place 4 (IMG_7676 written by hand from a COLMAP cloud) got one 13.7 degrees off: levelled by it, the far side
 # of its 26 m map hung 3 m under the floor (43% of the points more than 5 cm under it; 8% under the level one).
 FLOOR_SUPPORT = 0.3  # a slab with this share of the best one's points can be the floor (floorplan.py's rule)
-# Joining places (#2997): a whole-home walk ties the fixed cameras' places together. MASt3R pairs each registered
+# Joining places: a whole-home walk ties the fixed cameras' places together. MASt3R pairs each registered
 # fixed camera's frame with every JOIN_STRIDE-th frame of the walk, then with the walk frames within JOIN_NEAR of each
 # that matched; a pair it is sure of (JOIN_MATCHES, MIN_INLIER_SHARE, its two directions agreeing) seats the camera's
 # place in the walk (`seat`), and a place is joined when at least JOIN_SEATS seats from different walk frames agree on
@@ -232,6 +259,30 @@ JOIN_AGREE_M, JOIN_AGREE_DEG = 1.5, 15.0
 JOIN_PLACES = 2  # places that must fit the walk before any is merged
 NEED_GIB = 6.0  # GPU memory either model needs free (CUT3R peaked at 3.3 GB, MASt3R's pairs at about 4)
 UP_OK_DEG = 30.0  # the gravity prior pulls only when CUT3R's camera -y is this close to its world points' image up
+# Walls hold the heading (`wall_direction`, `squared`; "Single loops" in the module docstring). A frame's wall
+# direction comes from WALL_POINTS of its near points: the normals within WALL_LEVEL of level (the sine of their tilt)
+# are walls', and the direction is kept when the normals within WALL_SPREAD_DEG of the fullest of WALL_BINS bins (a
+# quarter turn's worth) are at least WALL_SHARE of them and WALL_MIN_POINTS in number.
+WALL_POINTS, WALL_MIN_POINTS = 4000, 300
+WALL_LEVEL = 0.3
+WALL_BINS, WALL_SPREAD_DEG, WALL_SHARE = 36, 10.0, 0.4
+# Along the walk (`squared`), the turn the walls show is tracked in WALL_STEP_DEG steps, changing at most WALL_TURN_DEG
+# a frame (CUT3R's heading drifts about half a degree a frame, with a degree or two of noise), through the most frames'
+# walls within WALL_GATE_DEG, less WALL_STIFF times the square of each frame's change in degrees, the walk's steady
+# drift not counted: wandering a degree a frame costs little beside the walls it keeps, and swinging 30 degrees over
+# to a run of slanted walls costs more than they give. With a cost that only grew with the change, not its square,
+# the track stepped from the square walls to walls 30 degrees off, on to the ones 30 degrees the other way, and back
+# a quarter turn out; with the steady drift counted, it fell behind a stretch that drifted 1.4 degrees a frame, or
+# began on the slanted walls of a walk's first frames. Over 320 simulated walks of 2 to 10 minutes it never ends a
+# quarter turn out, and in 2 it sits on slanted walls for a stretch (the same at half and at twice this stiffness).
+# Walls hold a walk only when at least WALL_KEEP of its frames with walls are within WALL_GATE_DEG of the track:
+# with no grid at all, about a fifth would be. One real recording against its reference poses: 104 of 120 frames
+# gave a direction, 60% of them within 5 degrees of one grid (most within 2), the rest in runs, most near 30 degrees
+# off it either way. Two simpler ways were tried first on simulated walks with walls like those: following the
+# walls frame by frame slid onto a run of slanted ones, and a vote among each frame's neighbours was won by them
+# wherever most of a stretch was slanted.
+WALL_STEP_DEG, WALL_TURN_DEG, WALL_STIFF = 1.0, 3.0, 0.1
+WALL_GATE_DEG, WALL_KEEP = 8.0, 0.4
 
 
 @dataclass(frozen=True)
@@ -449,7 +500,7 @@ class Closure:
     residual, and `fitted` the revisits whose near points ICP fitted (`fit_revisits`), each with its fit, whether the
     solve then kept it or not. `drift_m` and `drift_deg` are how far each final loop edge was from the walk before any
     correction (the drift it closed), `loop_pairs` those edges' frames (the four lists run alongside it), and `supported` how many
-    revisits came in by another's support, not the gate."""
+    revisits came in by another's support, not the gate. `walls` is how many frames' walls held the heading."""
 
     poses: np.ndarray
     repaired: list[int]
@@ -468,6 +519,7 @@ class Closure:
     drift_m: list[float] = field(default_factory=list)
     drift_deg: list[float] = field(default_factory=list)
     supported: int = 0
+    walls: int = 0
 
 
 def _pose(m: Mapping[str, Any], key: str) -> np.ndarray:
@@ -565,6 +617,114 @@ def icp(
     return pose, float(np.isfinite(dist).mean())
 
 
+def wall_direction(cloud: np.ndarray, up: np.ndarray) -> np.ndarray | None:
+    """The level direction a frame's walls face, in its camera's frame (unit, any one of the four a quarter turn
+    apart), from its near points `cloud` and the world's `up` as that camera sees it; None when the frame shows no
+    wall clearly. The points' normals that are level (within `WALL_LEVEL` of it) are walls'; their angles about up,
+    a quarter turn apart counted as one, are binned, and the direction is the mean of those within `WALL_SPREAD_DEG`
+    of the fullest bin, when they are at least `WALL_SHARE` of the level normals and `WALL_MIN_POINTS` in number."""
+    pts = thin(np.asarray(cloud, dtype=np.float64), WALL_POINTS)
+    if len(pts) < max(WALL_MIN_POINTS, ICP_NEIGHBOURS):
+        return None
+    g = np.asarray(up, dtype=np.float64) / np.linalg.norm(up)
+    nrm = normals(pts)
+    nrm = nrm[np.abs(nrm @ g) < WALL_LEVEL]
+    if len(nrm) < WALL_MIN_POINTS:
+        return None
+    helper = np.array([0.0, 0.0, 1.0]) if abs(g[2]) < 0.9 else np.array([1.0, 0.0, 0.0])
+    a = np.cross(g, helper)
+    a /= np.linalg.norm(a)
+    b = np.cross(g, a)
+    four = 4.0 * np.arctan2(nrm @ b, nrm @ a)  # a quarter turn apart is one angle
+    bins = np.histogram(four % (2 * math.pi), bins=WALL_BINS, range=(0.0, 2 * math.pi))[0]
+    peak = (int(np.argmax(bins)) + 0.5) * 2 * math.pi / WALL_BINS
+    near = np.abs((four - peak + math.pi) % (2 * math.pi) - math.pi) <= 4.0 * math.radians(WALL_SPREAD_DEG)
+    if near.sum() < max(WALL_MIN_POINTS, WALL_SHARE * len(nrm)):
+        return None
+    angle = (peak + float(np.angle(np.exp(1j * (four[near] - peak)).mean()))) / 4.0
+    return math.cos(angle) * a + math.sin(angle) * b
+
+
+def wall_directions(clouds: Sequence[np.ndarray], c2w: np.ndarray, up: np.ndarray | Sequence[float]) -> np.ndarray:
+    """Every frame's `wall_direction` (n x 3; a row of NaN for a frame with none), each camera seeing the world's
+    `up` by its own pose."""
+    out = np.full((len(c2w), 3), np.nan)
+    for k, cloud in enumerate(clouds):
+        found = wall_direction(cloud, c2w[k, :3, :3].T @ np.asarray(up, dtype=np.float64))
+        if found is not None:
+            out[k] = found
+    return out
+
+
+def squared(walk: np.ndarray, walls: np.ndarray, up: np.ndarray | Sequence[float]) -> tuple[np.ndarray, np.ndarray]:
+    """`walk` with its heading held by its frames' `walls` (`wall_directions`), and which frames' walls held it (n
+    booleans). Each frame with walls says how far the walk has turned off the walls' grid by then, less whole quarter
+    turns; a wall that isn't square to the rest, a cupboard, or a view the cloud got wrong says something else, and
+    for a stretch of frames most may. So the walk's turn is tracked over the whole walk at once: of every way it
+    could change from frame to frame by at most `WALL_TURN_DEG`, the one that passes within `WALL_GATE_DEG` of the
+    most frames' walls (each counting more the nearer it is, less `WALL_STIFF` times the square of each frame's change
+    in degrees; the best path through `WALL_STEP_DEG` steps of a quarter turn, by dynamic programming; twice, the second time with
+    the first track's steady drift taken out, so only the drift's wander costs). The square walls line up
+    along the whole walk and the others don't, so a stretch where most frames see a slanted wall is passed straight
+    through. That turn is taken out of every frame: its heading turned back about `up`, and its step laid along the
+    corrected heading. The first frame keeps its heading. The frames whose walls are within `WALL_GATE_DEG` of the
+    track are the ones that held it. When they are fewer than `WALL_KEEP` of the frames with walls, the place isn't
+    square enough to steer by: the walk comes back as it was, and no frame is kept.
+
+    This is what brings a long walk's heading within the quarter turn `posegraph.solve` needs."""
+    walk = np.asarray(walk, dtype=np.float64)
+    n = len(walk)
+    g = np.asarray(up, dtype=np.float64) / np.linalg.norm(up)
+    helper = np.array([1.0, 0.0, 0.0]) if abs(g[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+    a = np.cross(g, helper)
+    a /= np.linalg.norm(a)
+    b = np.cross(g, a)
+    none = np.zeros(n, dtype=bool)
+    frames = np.flatnonzero(np.isfinite(walls).all(axis=1))
+    if not len(frames):
+        return walk, none
+    facing = np.einsum("nij,nj->ni", walk[frames, :3, :3], walls[frames])
+    off = -np.degrees(np.arctan2(facing @ b, facing @ a))  # the turn that would put each frame's walls on the grid
+    states = np.arange(0.0, 90.0, WALL_STEP_DEG)
+    shifts = np.arange(-round(WALL_TURN_DEG / WALL_STEP_DEG), round(WALL_TURN_DEG / WALL_STEP_DEG) + 1)
+    cost = WALL_STIFF * (shifts * WALL_STEP_DEG) ** 2
+
+    def track(seen: np.ndarray) -> np.ndarray:
+        """The best track (degrees a frame, followed through its quarter turns) through the frames' turns `seen`."""
+        apart = np.abs((states[None] - seen[:, None] + 45.0) % 90.0 - 45.0)  # frames with walls x states
+        gain = np.zeros((n, len(states)))
+        gain[frames] = np.clip(1.0 - apart / WALL_GATE_DEG, 0.0, None)
+        score = gain[0].copy()
+        came = np.zeros((n, len(states)), dtype=np.int64)  # the shift (an index into `shifts`) each state came by
+        for k in range(1, n):
+            reached = np.stack([np.roll(score, int(d)) for d in shifts]) - cost[:, None]  # from state s - d
+            came[k] = reached.argmax(axis=0)
+            score = reached.max(axis=0) + gain[k]
+        state = last = int(score.argmax())
+        out = np.zeros(n)
+        for k in range(n - 1, 0, -1):
+            d = int(shifts[came[k, state]])
+            out[k - 1] = out[k] - d * WALL_STEP_DEG
+            state = (state - d) % len(states)
+        return out + states[last] - out[-1]
+
+    # Twice: the second time with the first track's steady drift taken out, so that following the drift costs nothing
+    # and only its wander does.
+    first = track(off)
+    steady = (first[-1] - first[0]) / max(1, n - 1) * np.arange(n)
+    turn = track(off - steady[frames]) + steady
+    kept = none.copy()
+    kept[frames] = np.abs((turn[frames] - off + 45.0) % 90.0 - 45.0) <= WALL_GATE_DEG
+    if kept.sum() < max(1.0, WALL_KEEP * len(frames)):
+        return walk, none
+    back = Rotation.from_rotvec(np.radians(turn - turn[0])[:, None] * g[None]).as_matrix()
+    out = walk.copy()
+    out[:, :3, :3] = back @ walk[:, :3, :3]
+    steps = np.einsum("nij,nj->ni", back[:-1], np.diff(walk[:, :3, 3], axis=0))
+    out[1:, :3, 3] = walk[0, :3, 3] + np.cumsum(steps, axis=0)
+    return out, kept
+
+
 def close_loops(
     c2w: np.ndarray,
     measured: Sequence[Mapping[str, Any]],
@@ -575,12 +735,13 @@ def close_loops(
     up: Sequence[float] | None = None,
     step_deg: float = STEP_DEG,
     step_m: float = STEP_M,
+    walls: np.ndarray | None = None,
 ) -> Closure:
     """CUT3R's poses `c2w` corrected by the MASt3R pairs `measured` (the pairs mode's answers, their `a` and `b` as
     frame indices): its consecutive steps, and the `loops` (possible revisits).
 
     1. **Scale.** Each pair's translations go into CUT3R's scale by its own depths against CUT3R's (`depths`,
-       `frame_depths`, `pair_scale`): MASt3R's scale changes from pair to pair (#2787 found 0.41 to 1.0 between
+       `frame_depths`, `pair_scale`): MASt3R's scale changes from pair to pair (0.41 to 1.0 between
        segments), and on IMG_7676 consecutive pairs' translation lengths, the first way tried, spread 8.7x against
        CUT3R's, where the depths spread 1.4x. When even the depths spread more than `posegraph.SCALE_SPREAD`, the two
        models don't agree on the scene and MASt3R isn't used.
@@ -599,7 +760,15 @@ def close_loops(
        two frames' near points, from MASt3R's pose and from the first solve's (`fit_revisits`); a fit of at least
        `ICP_FIT` becomes its loop edge (`ICP_DEG`, `ICP_M`), in place of MASt3R's measurement when that was kept.
     5. **Again.** A second solve without the fallbacks: a kept repair as a plain step, a dropped one as CUT3R's step,
-       and the loops the first solve kept, or their fits."""
+       and the loops the first solve kept, or their fits.
+
+    With `walls` (`wall_directions`: the level direction each frame's walls face), the repaired walk's heading is
+    first held by them along the walk (`squared`), and every step takes the turn that gives it. The revisits are
+    then gated and solved against that walk, without the walls: they alone can tell a quarter turn from none, so a
+    break of a half turn that MASt3R didn't repair is theirs to turn back, and walls holding those frames on the
+    grid would stand in their way (on one real recording they did, and seven true revisits were dropped). The last
+    solve starts from there and holds each kept frame's heading on the walls' grid (`posegraph.solve`'s `walls`).
+    That is what holds the middle of a walk that has no revisit there ("Single loops" in the module docstring)."""
     by_pair = {(int(m["a"]), int(m["b"])): m for m in measured}
     posed = {
         p
@@ -658,6 +827,27 @@ def close_loops(
             "%d of %d steps repaired: CUT3R and MASt3R disagree on much of this video", len(repaired), len(c2w) - 1
         )
     walks = [chain(c2w[0], [next((x for x in extra if x.i == e.i), e) for e in steps]), np.asarray(c2w, np.float64)]
+    g = None if up is None else np.asarray(up, dtype=np.float64)
+    held: np.ndarray | None = None  # the wall directions that hold the heading: `walls`, less the frames off the grid
+    if walls is not None and len(c2w) > 1:
+        straight, on_grid = squared(walks[0], walls, posegraph.world_up(walks[0]) if g is None else g)
+        if on_grid.any():
+            held = np.where(on_grid[:, None], walls, np.nan)
+            # Each step's turn as the walls corrected it: the frames' turns about up, in the step's own frame.
+            rot = walks[0][:, :3, :3]
+            back = np.einsum("nij,nkj->nik", straight[:, :3, :3], rot)
+            fix = np.einsum("nji,nkj,nkl,nlm->nim", rot[:-1], back[:-1], back[1:], rot[:-1])
+
+            def turned(e: posegraph.Edge) -> posegraph.Edge:
+                measured = e.measured.copy()
+                measured[:3, :3] = fix[e.i] @ e.measured[:3, :3]
+                return dataclasses.replace(e, measured=measured)
+
+            steps = [turned(e) for e in steps]
+            extra = [turned(e) for e in extra]
+            walks = [straight, *walks]
+        elif np.isfinite(walls).any():
+            LOG.warning("the frames' walls don't share one grid, so they don't hold the walk's heading")
     start = walks[0]
     walked = np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(start[:, :3, 3], axis=0), axis=1))]
     first = len(steps) + len(extra)  # edges: the steps, the repairs, then the loops
@@ -686,7 +876,6 @@ def close_loops(
             fwd, back, matches, posegraph.relative(walk[e.i], walk[e.j]), this, gate_m, gate_deg
         )
 
-    g = None if up is None else np.asarray(up, dtype=np.float64)
     trial: posegraph.Solution | None = None
     supported = 0
     for _ in range(LOOP_ROUNDS):
@@ -726,7 +915,10 @@ def close_loops(
         if (edges[k].i, edges[k].j) in kept and (edges[k].i, edges[k].j) not in fitted
     ]
     loop_edges += [posegraph.Edge(i, j, pose, ICP_DEG, ICP_M, loop=True) for (i, j), (pose, _) in fitted.items()]
-    solution = posegraph.solve(chain(c2w[0], final), [*final, *loop_edges], up=g, gravity=gravity)
+    # With walls the last solve starts from the first one's poses: the revisits have by then turned every frame to
+    # the right quarter turn, which the walls can't tell apart (a break of a half turn looks square to them).
+    again = chain(c2w[0], final) if held is None else trial.poses
+    solution = posegraph.solve(again, [*final, *loop_edges], up=g, gravity=gravity, walls=held)
     loop_k = range(len(final), len(final) + len(loop_edges))
     drift = [posegraph.relative(e.measured, posegraph.relative(c2w[e.i], c2w[e.j])) for e in loop_edges]
     return Closure(
@@ -747,6 +939,7 @@ def close_loops(
         drift_m=[round(float(np.linalg.norm(d[:3, 3])), 2) for d in drift],
         drift_deg=[round(posegraph.angle_deg(d[:3, :3]), 1) for d in drift],
         supported=supported,
+        walls=0 if held is None else int(np.isfinite(held).all(axis=1).sum()),
     )
 
 
@@ -842,7 +1035,7 @@ def write_place(
 ) -> places.Revision:
     """The cloud, its floor, and its plan as a revision of `place` (a new one when None), the recording's name
     (`label`) added to its `walkthrough` signal, and `looks` registered in it as cameras (a Stray walk's views to look
-    from, #2877), else none."""
+    from), else none."""
     known = places.get(state, place) if place else None
     title = (known.name if known else "") or "Walkthrough"
     g = np.asarray(up, dtype=np.float64)
@@ -969,7 +1162,7 @@ def seat_places(
     frames: Callable[[Path, Sequence[str], Path, float], Mapping[str, Path]] | None = None,
 ) -> tuple[dict[str, np.ndarray], dict[str, Any]]:
     """Where each place of `held` (a place's fused revision, with its registered cameras) stands in the walk, by the
-    fixed cameras the walk sees (#2997, see JOIN_STRIDE): each camera's recorded frame (`frames`, by default
+    fixed cameras the walk sees (see JOIN_STRIDE): each camera's recorded frame (`frames`, by default
     spatial/cameras.py's) paired by MASt3R with the walk's frames, each sure pair a seat (`seat`), and a place seated
     where its seats agree (`agree`). `poses` are the walk's frames' poses in its levelled frame. Returns each seated
     place's transform (from its fused frame to the walk's levelled frame) and, per place, how many seats it had."""
@@ -1034,7 +1227,7 @@ def join_places(
     now: float | None = None,
     frames: Callable[[Path, Sequence[str], Path, float], Mapping[str, Path]] | None = None,
 ) -> dict[str, Any]:
-    """Merge the fixed cameras' places this walk passes through with it (#2997, see JOIN_STRIDE). `place` is the walk's
+    """Merge the fixed cameras' places this walk passes through with it (see JOIN_STRIDE). `place` is the walk's
     own new place, `level` takes the walk's poses into its fused frame, and `walk` still has its frames. Each other
     place with registered cameras is seated in the walk by its cameras (`seat_places`). With at least JOIN_PLACES
     places seated, they and the walk are merged (fuse.join) into `join_target`'s place. Returns what it did."""
@@ -1198,6 +1391,7 @@ def finish(
         "loops_dropped": len(closed.dropped),
         "loops_fitted": len(closed.fitted),
         "loops_supported": closed.supported,
+        "walls_held": closed.walls,
         "loop_drift_m": max(closed.drift_m, default=None),
         "loop_drift_deg": max(closed.drift_deg, default=None),
         "loop_worst_m": worst_m,
@@ -1234,9 +1428,9 @@ def into_place(
 ) -> tuple[places.Revision | None, str | None]:
     """The walk's cloud (`points`, in the walk's frame, `up` its up) fused into `place`'s map as a tier 1 revision,
     with the recording's name (`label`) added to the place's `walkthrough` signal and `looks` registered in it: the
-    place's fixed cameras keep their poses, since the walk is moved into their frame (#3252). A LiDAR walk (a Stray
+    place's fixed cameras keep their poses, since the walk is moved into their frame. A LiDAR walk (a Stray
     Scanner export, `producer` PRODUCER_STRAY) into a place whose owner plan is drawn on its map registers by the plan
-    first ("plan": `fuse.by_plan`, polished against the map around there), and fuses as walked (#3286). It registers
+    first ("plan": `fuse.by_plan`, polished against the map around there), and fuses as walked. It registers
     against the map as tier 1 registers any cloud ("map"), else by the fixed cameras both see ("cameras": MASt3R seats the
     place in the walk, `seat_places`, polished against the map around there when that holds, fuse.fuse_in), when
     `out` is given and MASt3R can run. Nothing is written when it registers neither way: (None, None), and the
@@ -1257,7 +1451,7 @@ def into_place(
     was = held.signals.get("walkthrough", [])
     signals = {**held.signals, "walkthrough": [*(v for v in was if v != label), label]}
     cams = dict(looks or {})
-    walked = producer == PRODUCER_STRAY  # a LiDAR walk: sharper than the cameras' clouds (fuse.merge, #3286)
+    walked = producer == PRODUCER_STRAY  # a LiDAR walk: sharper than the cameras' clouds (fuse.merge)
     if walked:
         placed = fuse.by_plan(state, place, fuse.apply(fuse.leveller(floor), points))
         if placed is not None:
@@ -1336,11 +1530,14 @@ def run(
         pairs = sorted(set(loops) | {(k, k + 1) for k in range(n - 1)})
         measured = measure(walk, pairs, out / "mast3r", required=True)
         depths = frame_depths(walk.points, counts)
-        closed = close_loops(c2w, measured, loops, depths, gravity, near_clouds(walk.points, counts))
+        clouds = near_clouds(walk.points, counts)
+        # Walls need the poses' up to be the world's, which is what the gravity check says.
+        walls = wall_directions(clouds, c2w, posegraph.world_up(c2w)) if gravity else None
+        closed = close_loops(c2w, measured, loops, depths, gravity, clouds, walls=walls)
         if closed.why_no_scale:
             LOG.warning("no loops closed: %s", closed.why_no_scale)
         up = posegraph.world_up(closed.poses)
-        with places.writing(state):  # the nightly fixed-camera run waits for the join (#3173)
+        with places.writing(state):  # the nightly fixed-camera run waits for the join
             did = finish(state, place, video.name, walk, closed, PRODUCER, up, out=out)
             did["join"] = join_new(state, place, did, walk, closed, out)
         if poses_out is not None:
@@ -1366,6 +1563,21 @@ def run(
         "mast3r_s": measured[0]["seconds"] if measured else None,
         "seconds": round(time.monotonic() - began, 1),
     }
+
+
+def stray_depths(folder: Path, picked: Sequence[int], code: int | None, out: Path) -> list[Path | None]:
+    """Each picked frame's LiDAR depth map (`stray.depth_map`, turned like its saved frame) as a 16-bit PNG under
+    `out`, for the splat to train against; None for a frame without one."""
+    import cv2
+
+    paths: list[Path | None] = []
+    for n, i in enumerate(picked):
+        depth = stray.depth_map(folder, i, code)
+        path = None if depth is None else out / f"d{n:03d}.png"
+        if depth is not None:
+            cv2.imwrite(str(path), depth)
+        paths.append(path)
+    return paths
 
 
 def _grab(
@@ -1444,10 +1656,13 @@ def run_stray(
         frames = [stray.saved_intrinsics(rows[i].k, size, FRAME_SIDE, code, turn) for i in picked]
         times = [rows[i].t for i in picked]
         looks = splats.look_from(closed.poses, frames, times)
-        with places.writing(state):  # the nightly fixed-camera run waits for the join (#3173)
+        with places.writing(state):  # the nightly fixed-camera run waits for the join
             did = finish(state, place, folder.name, walk, closed, PRODUCER_STRAY, stray.WORLD_UP, looks=looks, out=out)
             did["join"] = join_new(state, place, did, walk, closed, out)
-        did["splat"] = splats.splat_walk(state, did["place"], did["revision"], paths, closed.poses, frames, looks)
+        depths = stray_depths(folder, picked, code, out)
+        did["splat"] = splats.splat_walk(
+            state, did["place"], did["revision"], paths, closed.poses, frames, looks, depths
+        )
         if poses_out is not None:
             np.savez(
                 poses_out,

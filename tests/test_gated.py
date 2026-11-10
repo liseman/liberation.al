@@ -1,4 +1,4 @@
-"""tools/gated.sh: one Continuum gate at a time across a repository's worktrees (#611), with flock and with the
+"""tools/gated.sh: one Continuum gate at a time across a repository's worktrees, with flock and with the
 Python fallback macOS uses. Each test runs real commands in a throwaway repository."""
 
 import os

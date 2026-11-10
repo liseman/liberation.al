@@ -1,0 +1,34 @@
+{"id": "said-yesterday", "question": "What did Alice say about the car today?", "reading": {"people": ["Alice"], "day": "today"}}
+{"id": "said-yesterday-reworded", "question": "Today, what was it Alice said regarding the car?", "same_as": "said-yesterday"}
+{"id": "said-yesterday-short", "question": "what did Alice have to say today about the car", "same_as": "said-yesterday"}
+{"id": "who-at-clock", "question": "Who was here at 10:30?", "reading": {"source": "people", "measure": "who", "clock": "10:30"}}
+{"id": "who-at-clock-reworded", "question": "who was around at 10:30", "same_as": "who-at-clock"}
+{"id": "last-seen", "question": "When did I last see Dana?", "reading": {"source": "people", "measure": "last_time", "people": ["Dana"]}}
+{"id": "last-seen-reworded", "question": "when was Dana last here", "same_as": "last-seen"}
+{"id": "who-is-home", "question": "who's home right now?", "reading": {"source": "people", "measure": "who", "now": true}}
+{"id": "who-is-home-reworded", "question": "who is here at the moment", "same_as": "who-is-home"}
+{"id": "walked-by-range", "question": "How many people walked past between 2 and 4pm?", "reading": {"source": "cameras", "measure": "count", "movement": "walked_by", "clock": "2", "clock_end": "4pm"}}
+{"id": "came-in-today", "question": "how many people came in today", "reading": {"source": "cameras", "measure": "count", "movement": "came_in", "day": "today"}}
+{"id": "came-in-today-reworded", "question": "today, how many people entered", "same_as": "came-in-today"}
+{"id": "which-way", "question": "Which way did people walk by this morning?", "reading": {"source": "cameras", "movement": "walked_by", "direction": true, "part": "this morning"}}
+{"id": "recap-last-hours", "question": "What happened in the last 3 hours?", "reading": {"source": "both", "span": 3.0, "span_unit": "hours", "span_kind": "last"}}
+{"id": "recap-last-hours-reworded", "question": "give me a recap of the last 3 hours", "same_as": "recap-last-hours"}
+{"id": "recap-date", "question": "Summarize what happened on October 20", "reading": {"source": "both", "day": "10-20"}}
+{"id": "lights-duration", "question": "How long were the lights on yesterday?", "reading": {"source": "lights", "measure": "duration", "day": "yesterday"}}
+{"id": "lights-duration-reworded", "question": "yesterday, how long did the lights stay on", "same_as": "lights-duration"}
+{"id": "intent-since", "question": "What did I say I needed to finish since 2 this afternoon?", "reading": {"intent": true, "people": ["me"], "part": "this afternoon", "clock": "2", "since": true}}
+{"id": "since-noon", "question": "what did Sam say since noon", "reading": {"people": ["Sam"], "clock": "noon", "since": true}}
+{"id": "ago-minutes", "question": "who was here ten minutes ago", "reading": {"source": "people", "measure": "who", "span": 10.0, "span_unit": "minutes", "span_kind": "ago"}}
+{"id": "topics-week", "question": "What did we talk about most last week?", "reading": {"measure": "topics", "day": "last week"}}
+{"id": "topics-two-people", "question": "what were the main topics Dana and Sam discussed this week", "reading": {"measure": "topics", "people": ["Dana", "Sam"], "day": "this week"}}
+{"id": "seen-evening", "question": "What was Alice carrying yesterday afternoon?", "reading": {"source": "cameras", "people": ["Alice"], "day": "yesterday", "part": "afternoon"}}
+{"id": "seen-night-clock", "question": "what was on the shelf around 10 last night", "reading": {"source": "cameras", "part": "last night", "clock": "10"}}
+{"id": "seen-night-clock-reworded", "question": "last night around 10, what was on the shelf", "same_as": "seen-night-clock"}
+{"id": "journal-date", "question": "What does my journal say about the move on 2026-09-30?", "reading": {"source": "journal", "day": "2026-09-30"}}
+{"id": "refused-month", "question": "did anyone bring up the schedule last year", "reading": {"other_time": "last year"}}
+{"id": "refused-weekday", "question": "what did Dana say on Friday", "reading": {"people": ["Dana"], "other_time": "on Friday"}}
+{"id": "refused-before", "question": "who was here after 6pm", "reading": {"source": "people", "measure": "who", "other_time": "after 6pm"}}
+{"id": "no-time", "question": "what did Dana say about the van", "reading": {"people": ["Dana"]}}
+{"id": "general-knowledge", "question": "how far away is the moon", "reading": {"history": false}}
+{"id": "a-request", "question": "remind me to water the plants", "reading": {"history": false}}
+{"id": "small-talk", "question": "tell me a joke", "reading": {"history": false}}

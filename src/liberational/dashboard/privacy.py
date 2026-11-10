@@ -1,4 +1,4 @@
-"""Pausing cameras and microphones for privacy from the header's status icons (#2260).
+"""Pausing cameras and microphones for privacy from the header's status icons.
 
 A pause is `paused = true` on the device's `[[device]]` entry in config/devices.toml, so it lasts across restarts
 (and state resets) until it's resumed. Capture's supervisor reads it about once a second and keeps no worker on a
@@ -26,10 +26,28 @@ from liberational.dashboard import cameras
 KINDS = {"camera": ("camera", "rtsp"), "microphone": ("microphone", "xvf3800")}
 
 
+_ready: dict[
+    tuple[str, int, int], bool
+] = {}  # the capture binary as built (path, mtime, size): whether it follows pauses
+
+
 def ready() -> bool:
     """Whether the built capture follows pauses: an older one rejects the manifest's paused field outright, so it is
-    never written before the binary supports it."""
+    never written before the binary supports it. The binary is asked once per build, not once per read: the live
+    feed reads this view every second (#52)."""
     binary = cfg.ROOT / "continuum" / "target" / "release" / "continuum-capture"
+    try:
+        stat = binary.stat()
+    except OSError:
+        return False
+    key = (str(binary), stat.st_mtime_ns, stat.st_size)
+    if key not in _ready:
+        _ready.clear()
+        _ready[key] = _follows_pauses(binary)
+    return _ready[key]
+
+
+def _follows_pauses(binary: pathlib.Path) -> bool:
     try:
         result = subprocess.run([str(binary), "--capabilities"], capture_output=True, timeout=3, check=False)
         if result.returncode != 0 or len(result.stdout) >= 4096:
@@ -89,10 +107,26 @@ def state(paused: bool, name: str, said: tuple[set[str], set[str]] | None) -> st
     return "resuming" if name in applied_paused else "on"
 
 
+def _stamp(path: pathlib.Path) -> tuple[int, int] | None:
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    return stat.st_mtime_ns, stat.st_size
+
+
+_rows: dict[str, Any] = {"stamp": None, "rows": []}
+
+
 def view(control: bool) -> dict[str, Any]:
-    said = applied()
-    rows = [dict(row, state=state(row["paused"], row["name"], said)) for row in devices()]
-    return {"ok": True, "control": control, "ready": ready(), "devices": rows}
+    """The devices and their pause states. The manifest and capture's status file are read again only when one of
+    them changed on disk, since the live feed asks every second."""
+    stamp = (str(cameras.manifest_path()), _stamp(cameras.manifest_path()), str(status_path()), _stamp(status_path()))
+    if _rows["stamp"] != stamp:
+        said = applied()
+        rows = [dict(row, state=state(row["paused"], row["name"], said)) for row in devices()]
+        _rows.update(stamp=stamp, rows=rows)
+    return {"ok": True, "control": control, "ready": ready(), "devices": [dict(row) for row in _rows["rows"]]}
 
 
 def save(body: dict[str, Any]) -> tuple[int, dict[str, Any]]:

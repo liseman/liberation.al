@@ -1,4 +1,4 @@
-"""see-actions' animals (see/action_animals.py, #1745): the old body worker's animal rules on the GPU detector's
+"""see-actions' animals (see/action_animals.py): the old body worker's animal rules on the GPU detector's
 boxes, written to the segment store."""
 
 import subprocess
@@ -211,7 +211,7 @@ def test_a_gap_ends_the_tracks_and_the_coverage_run_and_later_tracks_are_new():
 def test_rows_round_trip_through_the_segment_store(tmp_path):
     continuum_py = pytest.importorskip("continuum_py")
     if not hasattr(continuum_py, "SegmentWriter"):
-        pytest.skip("this continuum_py predates the segment store (#1777)")
+        pytest.skip("this continuum_py predates the segment store")
     writers = segment_log.Writers(tmp_path)
     run([scene((ON_THE_FLOOR, CAT))] * 40, write=lambda stream, records: writers.append(stream, "cam0", records))
     writers.close()

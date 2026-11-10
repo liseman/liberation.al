@@ -1,6 +1,6 @@
 /* Review keeps video and timeline beside transcript/summary tabs on desktop, stacked on narrow windows.
    Ask stays mounted in a nonmodal panel so drafts and in-flight answers survive closing it. The "?" popover renders
-   in a portal outside .review, so it carries the tokens too: its legend's swatches are drawn with them (#2577). */
+   in a portal outside .review, so it carries the tokens too: its legend's swatches are drawn with them. */
 .review,
 .askPanel,
 .help {
@@ -42,7 +42,7 @@
   padding: 0;
 }
 
-/* The control bar's "?" (#2454, #2577): short sections of two aligned columns, the keys or a swatch on the left and
+/* The control bar's "?": short sections of two aligned columns, the keys or a swatch on the left and
    what it means on the right. The tables share one left column width, so everything lines up down the popover. */
 .helpPanel {
   display: flex;
@@ -93,7 +93,7 @@
   font-size: 11px;
 }
 
-/* The day header over the video (#2577): the day picker, Today, a person filter, and the status sentence, one row. */
+/* The day header over the video: the day picker, Today, a person filter, and the status sentence, one row. */
 .head {
   display: flex;
   align-items: center;
@@ -147,7 +147,7 @@
 .hint {
   margin-left: auto;
 }
-/* A skeleton laid over the player or the timeline while the day loads; what's under it stays mounted (#250). */
+/* A skeleton laid over the player or the timeline while the day loads; what's under it stays mounted. */
 .cover {
   position: absolute;
   inset: 0;
@@ -226,8 +226,8 @@
   pointer-events: none;
   will-change: transform;
 }
-/* the days still loading under the timeline: always one line tall, so it never moves the page (#2435) */
-/* Exactly one line, whatever it holds (#2485): several days loading wrapped it to two or three lines, and the page
+/* the days still loading under the timeline: always one line tall, so it never moves the page */
+/* Exactly one line, whatever it holds: several days loading wrapped it to two or three lines, and the page
    under it moved up when they finished. The full text is the line's title. */
 .chunkLine {
   height: calc(var(--mantine-font-size-xs) * var(--mantine-line-height-xs));
@@ -278,7 +278,7 @@
 }
 /* Phones give the day's status and the timeline's notes two lines rather than cutting them off at one: there's no
    title to hover there. Each slot is two lines tall whatever it holds, so a note that comes or goes
-   never moves the page (#2485): the status in two smaller lines within the header row's height, the notes in a
+   never moves the page: the status in two smaller lines within the header row's height, the notes in a
    two-line slot. Wide screens keep each to one line. */
 @media (max-width: 700px) {
   .head {
@@ -312,7 +312,7 @@
    window's own scrollbar when the video column (the day, the player, the timeline, and Show only) is taller than the
    window; the panel stays in view (sticky), exactly the window's height under the top bar less the column padding,
    with the transcript scrolling inside it. While the video column is no taller than the panel, the page is exactly
-   the window: no scrollbar at all (#2618, Joe's follow-up). */
+   the window: no scrollbar at all. */
 @media (min-width: 1000px) {
   .cols {
     grid-template-columns: minmax(0, 1fr) clamp(480px, 46.5vw, 660px);
@@ -456,7 +456,7 @@
   }
 }
 
-/* The summary by time (#405): a heading, then the stretches of what the timeline shows, under parts of the day. */
+/* The summary by time: a heading, then the stretches of what the timeline shows, under parts of the day. */
 .blocks {
   display: flex;
   flex-direction: column;
@@ -479,7 +479,7 @@
   margin: 0;
   font-size: 15px;
 }
-/* the stretches showing while finer ones load (#443): dimmed, then swapped in place */
+/* the stretches showing while finer ones load: dimmed, then swapped in place */
 .blocksBody[data-refining] {
   opacity: 0.55;
   transition: opacity 150ms;
@@ -489,7 +489,7 @@
   overflow-y: auto;
   overscroll-behavior: contain;
 }
-/* The story feed (#2275): one row per stretch (its time, its sentence, a play mark), with its activities as chips. */
+/* The story feed: one row per stretch (its time, its sentence, a play mark), with its activities as chips. */
 .feed {
   margin: 0;
   padding: 2px 0 0;
@@ -510,7 +510,7 @@
 .part:first-child {
   margin-top: 0;
 }
-/* A day's view (#2276): the day's own sentence first, then each part of the day as one sentence with its activities,
+/* A day's view: the day's own sentence first, then each part of the day as one sentence with its activities,
    its hours folded under it. */
 .daySentence {
   padding: 2px 8px 6px;
@@ -701,7 +701,7 @@
   overflow: visible;
 }
 
-/* One person's day (#2057): scroll inside the fixed reading panel, with its own focusable moment targets. */
+/* One person's day: scroll inside the fixed reading panel, with its own focusable moment targets. */
 .person {
   flex: 1;
   min-height: 0;
@@ -727,7 +727,7 @@
   border-radius: 2px;
 }
 
-/* The video's boxes and Skip quiet time while Show only loads or failed (#2486), as Show only's own last row. */
+/* The video's boxes and Skip quiet time while Show only loads or failed, as Show only's own last row. */
 .videoTools {
   display: flex;
   align-items: center;

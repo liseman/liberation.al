@@ -113,7 +113,7 @@ function Framed({ cam, hook }: { cam: string; hook: typeof import('./LiveCam').u
   );
 }
 
-describe('useCameraAspect (#2621)', () => {
+describe('useCameraAspect', () => {
   it("starts from the camera's shape last seen in this browser, then keeps the one its picture shows", async () => {
     const { useCameraAspect } = await import('./LiveCam');
     localStorage.setItem('liberational.cameraAspect', JSON.stringify({ desk: 0.75 }));

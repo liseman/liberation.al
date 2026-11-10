@@ -1,6 +1,6 @@
 //! Just enough of an H.264 sequence parameter set to tell a harmless in-band change (level, constraint flags,
 //! reference count, VUI timing) from one that changes the capture layout (profile, chroma format, bit depth,
-//! cropped size, or frame/field coding), which needs a new registration (#1640). Nothing here touches the bytes
+//! cropped size, or frame/field coding), which needs a new registration. Nothing here touches the bytes
 //! that are recorded.
 
 use std::fmt;
@@ -179,7 +179,7 @@ pub fn parse(nal: &[u8]) -> Option<Sps> {
         (_, 2) => (2, field),
         _ => (1, field),
     };
-    // Checked throughout: a corrupt set's sizes overflow u32, and an unreadable set beats a wrapped size (#3210).
+    // Checked throughout: a corrupt set's sizes overflow u32, and an unreadable set beats a wrapped size.
     let width = width_mbs.checked_mul(16)?.checked_sub(unit_x.checked_mul(crop[0].checked_add(crop[1])?)?)?;
     let height =
         (field * 16).checked_mul(height_units)?.checked_sub(unit_y.checked_mul(crop[2].checked_add(crop[3])?)?)?;
@@ -413,7 +413,7 @@ mod tests {
         assert_eq!(parse(&high_sps(&interlaced)).expect("readable").height, 1088, "34 field pairs of 16 rows");
     }
 
-    /// #3210: sizes and depths past u32 wrapped to a wrong layout in release builds (and panicked in debug). A corrupt
+    /// Sizes and depths past u32 wrapped to a wrong layout in release builds (and panicked in debug). A corrupt
     /// set like these is unreadable, as one cut short is.
     #[test]
     fn a_set_whose_size_or_depth_overflows_does_not_read() {

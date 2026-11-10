@@ -1,4 +1,4 @@
-//! The end an instant audio original's own samples bound (#1669), for `continuum-recording-bound`: its chunk
+//! The end an instant audio original's own samples bound, for `continuum-recording-bound`: its chunk
 //! frame's batch (CPB2, or the Opus batch Tier 2 re-encoded it to) says how many sample frames it holds and at what
 //! true rate.
 
@@ -18,7 +18,7 @@ pub const DRIFT: f64 = 1e-3;
 /// whose blocks per second agree with the stream's declared rate (when there is one).
 ///
 /// The frame is found through the original's frame row, or, once that row is pruned (an hour after its chunk ends),
-/// among the stream's chunks with an uncut frame at the original's start (#1711).
+/// among the stream's chunks with an uncut frame at the original's start.
 ///
 /// `root` is the data root (the state directory that holds `continuum/`), which relative chunk locators name files
 /// under.

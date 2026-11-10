@@ -8,7 +8,7 @@ import type { Stats, UsageHistory } from '../../sources/api';
 import { stats } from '../../sources/fixtures';
 import { Machine } from './Machine';
 
-/** Every process's models open: each folds to one line (#2728); these tests read the models under it. */
+/** Every process's models open: each folds to one line; these tests read the models under it. */
 async function openModels() {
   await screen.findByRole('heading', { name: 'Models in memory' });
   for (const t of screen.queryAllByRole('button', { expanded: false })) await userEvent.click(t);
@@ -44,7 +44,7 @@ describe('this machine', () => {
     expect(await screen.findByText('20%')).toBeInTheDocument();
   });
 
-  it("leaves What's using it to the header's task manager (#2258)", async () => {
+  it("leaves What's using it to the header's task manager", async () => {
     serve(stats());
     renderPage(<Machine />);
     expect(await screen.findByRole('region', { name: 'Health' })).toBeInTheDocument();
@@ -157,7 +157,7 @@ describe('all model sources', () => {
     since: Date.parse('2026-10-31T09:00:00Z') / 1000,
   });
 
-  it("folds each process's models to one line: its name, how many, and its memory (#2728)", async () => {
+  it("folds each process's models to one line: its name, how many, and its memory", async () => {
     serve(
       stats({
         model_runtime: {

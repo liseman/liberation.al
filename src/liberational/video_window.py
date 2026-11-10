@@ -1,4 +1,4 @@
-"""`pack-video-window`: each night, ages out camera video older than the history window (#1748).
+"""`pack-video-window`: each night, ages out camera video older than the history window.
 
 The system keeps video like an NVR: a fixed window (`video_window.days`, 30) of footage, and nothing older. Only the
 video goes. What was derived from it (detections, spans, captions, transcripts, the journal) stays; the retention
@@ -16,7 +16,7 @@ Each run walks every `*.video` stream in commit order from where the last run st
 video per camera.
 
 Journal evidence first. Before it ages anything out, a run promotes the moments the journal's day pages cite
-(memory/journal_evidence.py, #2808): a short clip, a still, and the caption of each, kept after the video goes. It
+(memory/journal_evidence.py): a short clip, a still, and the caption of each, kept after the video goes. It
 runs in the same process ahead of the purge, so a cited moment is always promoted before its video is removed,
 including by the disk floor's early hours. A failed promotion is logged as an error and the purge goes on: a full
 disk is the worse failure.
@@ -25,7 +25,7 @@ Disk floor. If free space on the recordings volume is below `video_window.free_f
 cutoff an hour at a time from the oldest video still kept, until free space is back above the floor, at most
 `MAX_EARLY_HOURS` hours a run and never into the newest `MIN_KEEP_S` of video. Each early hour is logged as a warning.
 
-Then the retention pass (`retention.py`, #2809): for each ended day past the window whose day page is written, it
+Then the retention pass (`retention.py`): for each ended day past the window whose day page is written, it
 condenses the dense coverage and device sightings, drops the per-frame rows, and ages out the audio chunks no speech
 touches. A dry run skips it.
 """
@@ -210,7 +210,14 @@ async def silent_audio(
     margin = retention.SPEECH_MARGIN_S
     segments = S.at(state)
     utterances = segments.range(S.UTTERANCES, a - margin, b + margin)
-    activity = segments.range(S.SPEECH_ACTIVITY, a - margin, b + margin)
+    # Only the seconds the gate heard speech, from three columns: a day is about 100,000 gate rows.
+    gates = segments.table(S.SPEECH_ACTIVITY, a - margin, b + margin, ("ts_ns", "stream", "in_speech"))
+    activity = [
+        {"ts_start": S.secs(ts), "stream": stream, "in_speech": True}
+        for c in gates.values()
+        for ts, stream, heard in zip(c["ts_ns"].tolist(), c["stream"], c["in_speech"].tolist(), strict=True)
+        if heard
+    ]
     counts: dict[str, int] = {}
     for stream in sorted(s["name"] for s in await client.list_streams() if s["name"].endswith(".audio")):
         page = await client.query(stream, to_ns(a), to_ns(b), all=True)
@@ -256,7 +263,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     days: list[str] = []
     kept: dict[str, dict[str, int]] = {}
     marks = None
-    if not args.dry_run:  # retention (#2809): the segment side first, outside the broker session below
+    if not args.dry_run:  # retention: the segment side first, outside the broker session below
         from liberational import retention
         from liberational import segment_log as S
 

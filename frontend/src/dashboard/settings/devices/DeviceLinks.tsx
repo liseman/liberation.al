@@ -1,6 +1,6 @@
-// Settings' Phones, watches, and tags card (#1363), now Known › Devices' device list: every device the Bluetooth
+// Settings' Phones, watches, and tags card, now Known › Devices' device list: every device the Bluetooth
 // sensors heard or the router saw in the last day, known ones first, each a compact card with where and when it was last
-// seen (#3267). Its Link button (#3274) opens a picker to link it to a person, name it as a thing (the same links `pack-devices
+// seen. Its Link button opens a picker to link it to a person, name it as a thing (the same links `pack-devices
 // link` makes, proximity/devices.py), or say where it lives (a place or a room of its plan); chips show each, with a
 // quick remove (DeviceActions.tsx). Links and locations whose device wasn't seen in the window are listed too, so one
 // can always be removed. Only this machine changes them.
@@ -40,7 +40,7 @@ import {
 export const UNKNOWN_SHOWN = 20;
 
 /** A device's details, behind the card's (i): its address, the sensor that heard it, and how often. Kept off the card
- *  face (#3267): a raw id ("AABBCCDDEE01") says nothing at a glance. */
+ *  face: a raw id ("AABBCCDDEE01") says nothing at a glance. */
 function Details({ device, label }: { device: SeenDevice; label: string }) {
   return (
     <Popover position="bottom-end" withArrow shadow="md">

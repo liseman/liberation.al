@@ -1,4 +1,4 @@
-//! The recent window of a camera's native H.264 in Python (#1741): `await open_h264_window(client, live, stream,
+//! The recent window of a camera's native H.264 in Python: `await open_h264_window(client, live, stream,
 //! from_ns)` returns an `H264Window`, whose `await next()` gives one dict per access unit or gap, history first and
 //! then live, and `None` once the live subscription ends. See `continuum_tier::recent` for the contract.
 //!

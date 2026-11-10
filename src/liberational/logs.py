@@ -1,5 +1,5 @@
 """One log format for every service: `<date>T<time><offset> [tag] LEVEL message` (stamp), written to stderr (services.py sends each service's
-stdout and stderr to logs/<service>.log, which the Debug tab tails). Stderr keeps a CLI's stdout for its output.
+stdout and stderr to logs/<service>.log, which the Debug tab tails, and `trim` below keeps each under a cap). Stderr keeps a CLI's stdout for its output.
 
 LEVEL is DEBUG, INFO, WARN, or ERROR:
 
@@ -22,10 +22,11 @@ bar redrawn in a log file is noise.
 
 import datetime as dt
 import logging
+import os
 import pathlib
 import sys
 import threading
-from typing import TextIO
+from typing import NamedTuple, TextIO
 
 from liberational import config as cfg
 
@@ -61,7 +62,7 @@ def level_name(levelno: int) -> str:
 
 def stamp(ts: float) -> str:
     """A log line's time: ISO 8601 local date and time to the second with its UTC offset (2026-11-03T02:20:15-08:00).
-    Lines carried only the time until #1696, so a log a few days long read as one day."""
+    Lines carried only the time before the date was added, so a log a few days long read as one day."""
     return dt.datetime.fromtimestamp(ts).astimezone().isoformat(timespec="seconds")
 
 
@@ -146,5 +147,84 @@ def get(tag: str) -> logging.Logger:
 
 def reason(error: BaseException) -> str:
     """What a log line says went wrong: the exception's text, else its type's name. A bare TimeoutError (a wait that
-    ran out) has no text, and logged as is it read "voice search unavailable ()" (#3073)."""
+    ran out) has no text, and logged as is it read "voice search unavailable ()"."""
     return str(error) or type(error).__name__
+
+
+# Rotation (#58). A service's log is written by a process that holds it open in append mode (the systemd wrapper's
+# `>>`, launchd's StandardOutPath), so it can't be renamed away: the writer would follow the rename. `trim` copies
+# and truncates instead, as logrotate's copytruncate does: an append-mode writer's next line goes to the start of
+# the emptied file. `pack-services trim-logs` runs it hourly (the log-trim service).
+CAP_BYTES = 10 * 1024 * 1024  # the most a log file keeps, current and older alike
+OLDER = ".1"  # the one older file kept beside each log: <name>.log.1
+
+
+def older(path: pathlib.Path) -> pathlib.Path:
+    """The kept older file of a log."""
+    return path.with_name(path.name + OLDER)
+
+
+def rotate(path: pathlib.Path, cap: int = CAP_BYTES) -> int:
+    """If a log is past cap bytes, move its last cap bytes (from a line start) to its older file, replacing what
+    was there, and empty it in place. Returns the bytes it freed, 0 when it was under the cap or missing.
+
+    A line written between the copy and the truncate is lost: the window is one read long."""
+    try:
+        f = path.open("r+b")
+    except OSError:
+        return 0
+    with f:
+        size = os.fstat(f.fileno()).st_size
+        if size <= cap:
+            return 0
+        f.seek(size - cap - 1)  # one byte more, to tell whether the window begins at a line's start
+        data = f.read()  # to the end, so lines written since the size was taken are kept
+        f.truncate(0)
+    data = data[-(cap + 1) :]
+    cut = data.find(b"\n")
+    data = data[cut + 1 :] if 0 <= cut < len(data) - 1 else data[1:]  # from the first whole line in the window
+    kept = older(path)
+    temp = kept.with_name(kept.name + ".tmp")
+    temp.write_bytes(data)
+    os.replace(temp, kept)
+    return size - len(data)
+
+
+def trim(directory: pathlib.Path, cap: int = CAP_BYTES) -> dict[str, int]:
+    """Rotate every log in directory that is past cap. Returns the bytes freed by file name, for each it rotated."""
+    freed = {}
+    for path in sorted(directory.glob("*.log")):
+        if path.is_file() and (n := rotate(path, cap)):
+            freed[path.name] = n
+    return freed
+
+
+class Part(NamedTuple):
+    """A piece of a log's tail: which file it's from (its stat), where in that file it starts, and its bytes."""
+
+    stat: os.stat_result
+    offset: int
+    data: bytes
+
+
+def tail(path: pathlib.Path, limit: int) -> list[Part]:
+    """The last limit bytes of a log, oldest first: the end of its older file when the current one is shorter than
+    limit (just after a rotation), then the current one. Empty when neither can be read."""
+    parts: list[Part] = []
+    want = limit
+    for file in (path, older(path)):
+        try:
+            with file.open("rb") as f:
+                stat = os.fstat(f.fileno())
+                begin = max(0, stat.st_size - want)
+                f.seek(begin)
+                data = f.read(stat.st_size - begin)
+        except OSError:
+            if file == path:
+                continue
+            break
+        parts.insert(0, Part(stat, begin, data))
+        want -= len(data)
+        if want <= 0 or begin > 0:
+            break
+    return parts

@@ -5,7 +5,7 @@ OLLAMA_* variables are dropped, and PACK_CONFIG points at a temp pack.toml whose
 under [paths] in config/defaults.toml (state, logs, faces, voices, calls, and so on) to an empty temp dir. Opening
 anything under the real ones fails the test that did it. On top of that, every attempt to install, restart, or remove
 a service (pack-services, systemctl, launchctl) or to re-exec the process is refused and fails the test that caused
-it. 2026-10-23: a settings test's stand-in for the restart was removed the instant the reply landed, the handler
+it. In an earlier bug, a settings test's stand-in for the restart was removed the instant the reply landed, the handler
 thread then called the real one, and a suite run in a temporary worktree reinstalled six real services pointing at
 that worktree.
 """
@@ -37,7 +37,7 @@ _PATHS = tomllib.loads((_REPO / "config" / "defaults.toml").read_text())["paths"
 # Short on purpose, and in /tmp by name (macOS's default temp dir is long): a test that points paths.state at tmp_path
 # puts the broker's socket at <tmp_path>/state/continuum/broker.sock, and a unix socket path stops at 108 bytes (104
 # on macOS). The old root, /tmp/liberational-tests-*/tmp/pytest-of-<user>/pytest-<n>/<test name>, came to about 118
-# and a broker client's connect failed in a background thread (#2781).
+# and a broker client's connect failed in a background thread.
 # The longest broker socket a test makes under the root: pytest's basetemp "p", a test dir (30 characters of the test's
 # name plus a number), then state/continuum/broker.sock. A unix socket path holds 107 bytes plus its NUL.
 _SOCKET_TAIL = "/p/" + "x" * 33 + "/state/continuum/broker.sock"
@@ -71,7 +71,7 @@ os.environ["PACK_CONFIG"] = str(_TMP / "pack.toml")
 # Test helpers imported above can prime the config cache before PACK_CONFIG points at this temporary pack.
 config.load.cache_clear()
 # Every temp file or dir the run makes (tempfile, subprocesses through TMPDIR, and pytest's own tmp_path) goes under
-# _TMP, which is removed when the session ends. 2026-10-28: tests that called tempfile.mkdtemp() in setUp and never
+# _TMP, which is removed when the session ends. Earlier tests that called tempfile.mkdtemp() in setUp and never
 # removed it left about 125,000 state dirs in /tmp across a day of runs and filled the tmpfs's inodes.
 _SCRATCH = _TMP / "t"
 _SCRATCH.mkdir()
@@ -179,6 +179,40 @@ def _conversation_summary_offline(monkeypatch):
     monkeypatch.setattr(conversation_summary, "_llm", lambda *a, **k: None)
 
 
+def _fixed_readings() -> dict[str, dict[str, Any]]:
+    return json.loads((_REPO / "tests" / "data" / "readings.json").read_text())
+
+
+_READINGS = _fixed_readings()
+
+
+@pytest.fixture(autouse=True)
+def readings(monkeypatch):
+    """A question is read by the local model (memory/question.py); a test never calls it. Each question a test asks
+    has a fixed reading: the ones in tests/data/readings.json (the question's words, then the fields that differ from
+    question.Reading's defaults), plus any the test sets itself, `readings["who came by"] = question.Reading(...)`.
+    A question with no reading fails the test, so a fixed reading always stands behind the answer under test and
+    what's checked is what the deterministic code does with it."""
+    from liberational.memory import question
+
+    given: dict[str, question.Reading] = {}
+
+    def read(asked: str) -> question.Reading:
+        key = " ".join(asked.split())
+        if key in given:
+            return given[key]
+        if key not in _READINGS:
+            raise LookupError(
+                f"no reading for {asked!r}: set readings[question], or add it to tests/data/readings.json"
+            )
+        fields: dict[str, Any] = dict(_READINGS[key])
+        fields["people"] = tuple(fields.get("people", ()))
+        return question.Reading(**fields)
+
+    monkeypatch.setattr(question, "read", read)
+    return given
+
+
 @pytest.fixture(autouse=True)
 def _device_registries_empty(monkeypatch):
     """Device makers come from registry files under data/models (proximity/vendors.py); a test never reads the real
@@ -280,7 +314,7 @@ def pytest_sessionfinish(session, exitstatus):
 @pytest.fixture(autouse=True)
 def _presence_state_starts_fresh(monkeypatch):
     """Review keeps its days' chips for the whole process: one test's records must not reach the next, which made a
-    full run fail where the same tests alone passed (#515). Only modules a test imported are touched."""
+    full run fail where the same tests alone passed. Only modules a test imported are touched."""
     yield
     review = sys.modules.get("liberational.dashboard.presence")
     if review is not None:
@@ -290,18 +324,19 @@ def _presence_state_starts_fresh(monkeypatch):
 @pytest.fixture(autouse=True)
 def _people_reads_start_fresh(monkeypatch):
     """The dashboard keeps its last roster read for the process: a later test whose inputs happened to match would
-    be answered from an earlier test's roster (#1458). Each test gets its own reads, and its requests wait them out
+    be answered from an earlier test's roster. Each test gets its own reads, and its requests wait them out
     (a cold read on a loaded machine outlasts PEOPLE_WAIT_S); the reads a test left running finish before the next."""
-    server = sys.modules.get("liberational.dashboard.server")
-    if server is None:
+    if sys.modules.get("liberational.dashboard.server") is None:
         yield
         return
-    reads = server._PeopleReads()
-    monkeypatch.setattr(server, "_PEOPLE_READS", reads)
-    monkeypatch.setattr(server, "_CARD_READS", server._CardReads())  # cards too: each test reads its own
-    monkeypatch.setattr(server, "_speakers_shared", None)  # and the voice list
-    monkeypatch.setattr(server, "PEOPLE_WAIT_S", None)
-    monkeypatch.setattr(server, "PEOPLE_REFRESH_S", 0.0)  # tests of the refresh itself; one test paces it (#2440)
+    from liberational.dashboard import people_reads, speaker_lines
+
+    reads = people_reads._PeopleReads()
+    monkeypatch.setattr(people_reads, "_PEOPLE_READS", reads)
+    monkeypatch.setattr(people_reads, "_CARD_READS", people_reads._CardReads())  # cards too: each test reads its own
+    monkeypatch.setattr(speaker_lines, "_speakers_shared", None)  # and the voice list
+    monkeypatch.setattr(people_reads, "PEOPLE_WAIT_S", None)
+    monkeypatch.setattr(people_reads, "PEOPLE_REFRESH_S", 0.0)  # tests of the refresh itself; one test paces it
     yield
     with reads.lock:
         pending = list(reads.pending.values())
@@ -416,7 +451,7 @@ def vision(monkeypatch: pytest.MonkeyPatch) -> FakeVisionLog:
 
     fake = FakeVisionLog()
     monkeypatch.setattr(vision_log, "at", lambda state=None: fake)
-    # The segment store's reads too (#1779): a test adds a moved stream's records under its segment name.
+    # The segment store's reads too: a test adds a moved stream's records under its segment name.
     monkeypatch.setattr(segment_log, "at", lambda state=None: fake)
     return fake
 

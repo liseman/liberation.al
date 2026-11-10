@@ -1,34 +1,34 @@
-"""Voices on Continuum (#548, #738): which voiceprint said each utterance, and the dashboard's voice tags.
+"""Voices on Continuum: which voiceprint said each utterance, and the dashboard's voice tags.
 
-v1 kept a voice list (`voices.sqlite3`: a running centroid per voice id) and matched each line against it. Here every
-utterance's ReDimNet2 B3 embedding is its own row on `voice.embedding` in the segment store (#1817), and the vector worker
-(#719) follows and indexes them; a line is matched to the nearest stored embeddings through
+There is no list of voices with a centroid each. Every
+utterance's ReDimNet2 B3 embedding is its own row on `voice.embedding` in the segment store, and the vector worker
+ follows and indexes them; a line is matched to the nearest stored embeddings through
 `continuum_py.search.Searcher`.
 
-- **Numbers.** A voiceprint keeps v1's form, an integer (`registry.voiceprint(n)`, "Speaker n" until it names
+- **Numbers.** A voiceprint is an integer (`registry.voiceprint(n)`, "Speaker n" until it names
   someone), since the registry, voice auth (`voice:<n>`), and the dashboard all key voices that way. `Voiceprints`
   hands out the next number, kept in `state/voiceprints.json` and always above every number the registry knows.
 - **Matching.** Unnamed clusters use the nearest embedding at cosine 0.45 (0.55 under one second). Named people
   use only individually human-confirmed utterances or explicit recording windows, never automatic observations, and
-  the gate (`calibrate`, `match_person`) is set on this home's room audio (#3248), not clean read speech. A person's
+  the gate (`calibrate`, `match_person`) is set on this home's room audio, not clean read speech. A person's
   core is their confirmed lines of REF_MIN_S (2 s) or more that agree at REF_AGREE (0.5) with another of their
   confirmations; short or stray answers stay out of it instead of disabling the person. They're eligible with three
   distinct confirmations and a core from two. A line is named by its nearest core reference, not their average (a
   line sounds most like the answers from the same room and moment), when that reaches PERSON_FLOOR (0.5), raised to
   clear their nearest other person's reference and their own negatives by PERSON_MARGIN (0.15), and when it beats
   every other person and each of their negatives by PERSON_MARGIN and the nearest unnamed voice by UNNAMED_MARGIN
-  (0.05). Measured on 2026-11-09 (counts only): same-person pairs of confirmed lines ranged 0.03 to 0.82 (lines
+  (0.05). Measured on the Linux machine (counts only): same-person pairs of confirmed lines ranged 0.03 to 0.82 (lines
   under 2 s never above 0.31), different people's at most 0.26, and 0.16% of pairs of lines from different voiceprints
   reach 0.5. On a held-out replay of the confirmed lines (each left out, the gate built from the rest, the index's
   other lines competing) this named 2 of 8 rightly, none wrongly, and none of the 1,319 unconfirmed lines; the
   old LibriSpeech gate (every leave-one-out positive at 0.65) named nobody. Wrong names cost more than missed ones,
   so the floor and the unnamed margin sit where the replay named no unconfirmed line; more answers make more people
   nameable. Without evidence a line remains unnamed.
-- **Negatives** (#3258). The owner taking a line from someone (a card's "Not <name>", or labeling it as somebody
+- **Negatives**. The owner taking a line from someone (a card's "Not <name>", or labeling it as somebody
   else) keeps its embedding as that person's negative (`deny`, `voice.not` in the knowledge store), released by the
-  undo: their threshold rises to clear it and a line must beat it by PERSON_MARGIN, as faces' "not <person>" (#3246).
+  undo: their threshold rises to clear it and a line must beat it by PERSON_MARGIN, as faces' "not <person>".
 - **Recent embeddings.** Only unnamed clusters use recent observations. The vector worker files an embedding a moment after it's committed, so a new speaker's
-  second line could miss their first and open a second voiceprint (v1 merged such fragments later). The matcher
+  second line could miss their first and open a second voiceprint. The matcher
   keeps the last two minutes of its own embeddings and matches against them too.
 - **Filing.** An embedding is filed only for a clip of a second or more, as a row in the writer's slot (listen's
   `listen`, an ingested item's `ingest-<id>`, the dashboard's enroll `enroll`) over its utterance's exact span, with
@@ -39,13 +39,13 @@ utterance's ReDimNet2 B3 embedding is its own row on `voice.embedding` in the se
 - **Names.** A line carries its voiceprint number and "Speaker n", never a person's name: who said it is read
   through the registry (`Registry.said`), so a rename, a merge, or a delete changes every line without rewriting
   one.
-- **Owner answers teach** (#3247). Naming a voice confirms a few of its lines (`teaching_lines`, `teach`) and a
+- **Owner answers teach**. Naming a voice confirms a few of its lines (`teaching_lines`, `teach`) and a
   line labeled as a person confirms that line, both as confirmed references (`confirm_lines`).
-- **Voice tags.** "This line was Alice" from the dashboard (`state/voice_tags.jsonl`, as v1's microphone service
-  read it) labels the line in the event log and teaches the voice: the line's embedding is filed again under
-  Alice's voiceprint, or opens one for her. A batch syncs its segment rows before one owner-knowledge transaction.
-  For a new person these prepared rows carry only the voiceprint and utterance; the committed registry claims
-  and references supply the person. A failed knowledge transaction never grants those rows a named identity. A forget request (People: Delete) needs nothing more here than
+- **Voice tags.** "This line was Alice" from the dashboard (`state/voice_tags.jsonl`) labels the line in the event log
+  and teaches the voice: the line's embedding is filed again under Alice's voiceprint, or opens one for her. A batch
+  syncs its segment rows before one owner-knowledge transaction. For a new person these prepared rows carry only the
+  voiceprint and utterance; the committed registry claims and references supply the person. A failed knowledge
+  transaction never grants those rows a named identity. A forget request (People: Delete) needs nothing more here than
   dropping the recent embeddings, since the dashboard purges the person's subjects itself.
 """
 
@@ -83,15 +83,15 @@ SHAPE = f"embedding/{MODEL}/{VERSION}"
 THRESHOLD = 0.45
 SHORT_THRESHOLD = 0.55  # provisional: the calibration set has no clips under MIN_EMB_S
 MIN_EMB_S = 1.0  # shorter clips never open a voiceprint and aren't filed
-# Fewer words than this never open, join, or feed an unnamed voice (#2253): a one-word line ("Yeah.") is too little
-# speech for a reliable voice print, and on devbox after the cutover reset 4 of the first 9 voiceprints were opened by
+# Fewer words than this never open, join, or feed an unnamed voice: a one-word line ("Yeah.") is too little
+# speech for a reliable voice print, and on the Linux machine after a reset 4 of the first 9 voiceprints were opened by
 # one. Duration can't tell them apart: the span includes padding, and 5 of 6 one-word lines ran past MIN_EMB_S.
 MIN_WORDS = 2
 K = 20
 SEARCH_TIMEOUT_S = 0.5
 RECENT_S = 120.0
 NS = 1_000_000_000
-# The source of a voice tag's assertions, as v1's microphone service wrote them (people/transcript_view.VOICE_TAG).
+# The source of a voice tag's assertions (people/transcript_view.VOICE_TAG).
 VOICE_TAG = "ambient"
 
 
@@ -118,7 +118,7 @@ class Reference:
 
 @dataclass(frozen=True)
 class Negative:
-    """The owner's "this line isn't them" (#3258): a line's vector that naming `person` must clear by the margin."""
+    """The owner's "this line isn't them": a line's vector that naming `person` must clear by the margin."""
 
     person: str
     key: str
@@ -129,14 +129,14 @@ class Negative:
 Unnamed = tuple[float, int, int]
 SAME_LINE_NS = 10_000_000  # a hit within 10 ms at both ends of a reference's span is that line's original vector
 
-# The named-voice gate, set on this home's room audio (#3248; "Matching" in the module docs says how).
+# The named-voice gate, set on this home's room audio ("Matching" in the module docs says how).
 MIN_REFERENCES = 3  # distinct confirmations before anyone can be named
 REF_MIN_S = 2.0  # a shorter confirmed line still counts as an answer but never joins the core
 REF_AGREE = 0.5  # a core reference agrees this well with a reference from another confirmation
 PERSON_FLOOR = 0.5  # the cosine a line needs to its nearest core reference
 PERSON_MARGIN = 0.15  # over any other person (references and index hits) and over the person's own negatives
 UNNAMED_MARGIN = 0.05  # over the nearest unnamed voice (an index hit or one of the matcher's recent lines)
-TURN_ALIKE = 0.65  # two lines of one tagged turn are one speaker at this cosine (VoiceTags' turn split, #2603)
+TURN_ALIKE = 0.65  # two lines of one tagged turn are one speaker at this cosine (VoiceTags' turn split)
 
 
 def _unit(vector: np.ndarray) -> np.ndarray | None:
@@ -166,7 +166,7 @@ class Voice:
 
 
 def core(refs: Sequence[Reference]) -> list[int]:
-    """Which of one person's unit references can name them (#3248): long enough to trust (REF_MIN_S; a reference with
+    """Which of one person's unit references can name them: long enough to trust (REF_MIN_S; a reference with
     no span counts) and agreeing at REF_AGREE with a long-enough reference from another of their confirmations. A
     short or stray line is left out instead of disabling the person: on room audio one noisy answer would otherwise
     keep them from ever being named."""
@@ -214,7 +214,7 @@ def negatives_of(negatives: Sequence[Negative]) -> dict[str, np.ndarray]:
 def calibrate(
     references: Sequence[Reference], negatives: Sequence[Negative] = ()
 ) -> dict[str, dict[str, float | int | bool]]:
-    """Each person's gate from their confirmed references as a set (#3248) and the owner's negatives (#3258).
+    """Each person's gate from their confirmed references as a set and the owner's negatives.
 
     They're eligible with MIN_REFERENCES distinct confirmations and a core (`core`) from at least two of them. Their
     threshold is PERSON_FLOOR, raised so a core reference clears by PERSON_MARGIN every other person's reference and
@@ -277,7 +277,7 @@ def match_person(
     `competitor` is an unnamed voice's best score with no provenance (the matcher's recent lines). `unnamed` are the
     index's unnamed hits with their spans: teaching a line copies its vector under the person, but its original stays
     under the unnamed voiceprint it was first heard as, so a hit over one of the person's own confirmed lines is that
-    line again, not a competing voice (#2165). Every other unnamed hit still competes."""
+    line again, not a competing voice. Every other unnamed hit still competes."""
     prepared = prepared or Calibration.build(references, negatives)
     policy = prepared.policy
     q = np.asarray(embedding, np.float32)
@@ -351,7 +351,7 @@ def confirmed_references(state: Path) -> list[Reference]:
     for voice, person in available.items():
         if person is not None and person in people and voice not in clones:
             by_person.setdefault(str(person), []).append(voice)
-    rejected = revisions.rejected_subjects(state) | revisions.media_subjects(state)  # nor a TV's line (#2468)
+    rejected = revisions.rejected_subjects(state) | revisions.media_subjects(state)  # nor a TV's line
     subjects = {
         str(item.record.value.get("confirmation_subject"))
         for item in existing
@@ -475,13 +475,13 @@ def confirm_lines(
     return len(records)
 
 
-TEACH_LINES = 3  # the most lines one naming of a voice confirms (#3247)
+TEACH_LINES = 3  # the most lines one naming of a voice confirms
 
 
 def teaching_lines(
     lines: Sequence[Mapping[str, Any]], offered: str | None, limit: int = TEACH_LINES
 ) -> list[Mapping[str, Any]]:
-    """The lines a voice's naming confirms as the person's (#3247): the clip the owner was offered (its line key,
+    """The lines a voice's naming confirms as the person's: the clip the owner was offered (its line key,
     `offered`) first, then the voice's most typical lines (best `speaker_sim`, then longest), at most `limit`. Only
     lines that can be a reference: a span of MIN_EMB_S or more (shorter ones file no embedding) and MIN_WORDS words."""
 
@@ -504,7 +504,7 @@ def teaching_lines(
 
 
 def teach(state: Path, lines: Sequence[Mapping[str, Any]], name: str, source: str = "dashboard") -> int:
-    """The owner named these lines `name` (#3247): each gets the owner's tag, and its embedding becomes one of the
+    """The owner named these lines `name`: each gets the owner's tag, and its embedding becomes one of the
     person's confirmed references (`confirm_lines`), which listen's gallery reads on its next revision check. An undo
     releases the lines' tags (registry `release`), and `confirmed_references` drops them at its next read. Returns the
     references written (0 for a line with no filed embedding; a repeat writes the same ids again)."""
@@ -516,7 +516,7 @@ def teach(state: Path, lines: Sequence[Mapping[str, Any]], name: str, source: st
     return confirm_lines(state, lines)
 
 
-NOTS = "voice.not"  # the owner's "this line isn't them" (#3258), in the knowledge store beside the references
+NOTS = "voice.not"  # the owner's "this line isn't them", in the knowledge store beside the references
 
 
 def deny(
@@ -528,10 +528,10 @@ def deny(
     base: Path | None = None,
     now: float | None = None,
 ) -> int:
-    """The owner said each of `lines` isn't the person with id `person` (#3258), or took it back (`active` False).
+    """The owner said each of `lines` isn't the person with id `person`, or took it back (`active` False).
 
     Each line's filed embedding becomes one of the person's negatives (`confirmed_negatives`): their threshold rises to
-    clear it, and a line must beat it by PERSON_MARGIN to be named them, as faces respect "not <person>" (#3246). A
+    clear it, and a line must beat it by PERSON_MARGIN to be named them, as faces respect "not <person>". A
     record is keyed by line and person, the newest winning, so an undo writes an inactive one. Kept by person id, it
     follows a rename or a merge. Returns the records written (a line with no filed embedding writes none, unless
     it's a take-back)."""
@@ -999,7 +999,7 @@ class VoiceMatcher:
 
     def _number(self, entity: object, people: People | None = None, clones: frozenset[int] | None = None) -> int | None:
         """The voiceprint a hit is filed under, or None for none or a voice clone's: a clone's recording is never a
-        person in the room (v1 never matched room speech to one, 2026-10-27)."""
+        person in the room, so room speech is never matched to one."""
         if not isinstance(entity, str):
             return None
         n = self.prints.number(entity)
@@ -1175,10 +1175,9 @@ class VoiceTags:
     ) -> TurnPlan:
         """What a named turn does with its lines. Its lines' voices are grouped by likeness. The group that sounds
         like the person's voice (`known`, their confirmed vectors), else a majority group, takes the name and teaches
-        the voice; each other group splits off as a voice of its own, to be named later (Joe 2026-11-06: "split the
-        lines into multiple people and keep the ones that match"). With no two lines alike there is nothing to split
-        from: the owner's word names every line, and nothing is taught (#2603). Groups with no majority and none
-        that sounds like the person are left unknown."""
+        the voice; each other group splits off as a voice of its own, to be named later. With no two lines alike there
+        is nothing to split from: the owner's word names every line, and nothing is taught. Groups with no majority and
+        none that sounds like the person are left unknown."""
         if len(turn) < 2:
             return TurnPlan(set(lines), set(lines), [])
         keys = set()
@@ -1459,7 +1458,7 @@ def _alike(close: np.ndarray) -> list[list[int]]:
 
 
 TAUGHT = "taught"  # the slot the taught voice vectors are written to after a reset
-REFERENCES = "voice.reference"  # the knowledge store's taught voice vectors (pack-knowledge import, #1755)
+REFERENCES = "voice.reference"  # the knowledge store's taught voice vectors (pack-knowledge import)
 
 
 def seed_taught(state: Path, people: People, *, base: Path | None = None) -> int:

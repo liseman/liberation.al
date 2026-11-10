@@ -2,7 +2,7 @@
 //!
 //! ```text
 //! continuum-gateway --state-dir data/state                       # WebSockets on 127.0.0.1:8766
-//! continuum-gateway --listen 0.0.0.0:8766 --webtransport 0.0.0.0:8767 --self-signed devbox,devbox.local,100.64.0.9
+//! continuum-gateway --listen 0.0.0.0:8766 --webtransport 0.0.0.0:8767 --self-signed host,host.local,192.0.2.9
 //! continuum-gateway --webtransport 0.0.0.0:8767 --cert tls/cert.pem --key tls/key.pem
 //! ```
 
@@ -68,7 +68,7 @@ fn served_names(args: &Args) -> Vec<String> {
     if let Ok(h) = hostname::get()
         && let Some(h) = h.to_str()
     {
-        // A machine with a domain reports `devbox.example.com`; its short name is what the LAN and mDNS use.
+        // A machine with a domain reports `host.example.com`; its short name is what the LAN and mDNS use.
         let short = h.split('.').next().unwrap_or(h);
         names.push(h.to_owned());
         names.push(short.to_owned());
@@ -117,7 +117,7 @@ async fn main() -> std::process::ExitCode {
         }
     };
     // The link reconnects when the broker comes (back); until then the chunk directory serves alone.
-    // Overlay streams in the segment store (camera.objects, #1791) are read from <state-dir>/segments.
+    // Overlay streams in the segment store (camera.objects) are read from <state-dir>/segments.
     let segments = args.state_dir.join("segments");
     let data_root = std::path::absolute(&args.state_dir).unwrap_or_else(|_| args.state_dir.clone());
     let with_broker = |s: Session| {

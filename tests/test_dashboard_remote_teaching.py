@@ -8,13 +8,15 @@ import urllib.parse
 
 import pytest
 
-from liberational.dashboard import server
+from liberational.dashboard import inbox_state, people_reads, people_writes, server, speaker_lines
 from liberational.people import references
 
 
 @pytest.fixture(params=["http", "https"])
 def post(serve, monkeypatch, tmp_path, request):
-    monkeypatch.setattr(server, "inbox_skip", lambda kind, ident, control: (200 if control else 403, {"ok": control}))
+    monkeypatch.setattr(
+        inbox_state, "inbox_skip", lambda kind, ident, control: (200 if control else 403, {"ok": control})
+    )
     base = serve(server.H)
     netloc = urllib.parse.urlsplit(base).netloc
 
@@ -28,7 +30,7 @@ def post(serve, monkeypatch, tmp_path, request):
             headers["Origin"] = f"{request.param}://{netloc}"
         else:
             headers["Origin"] = "https://evil.example"
-        conn = http.client.HTTPConnection(netloc, timeout=120)  # generous: devbox can be loaded
+        conn = http.client.HTTPConnection(netloc, timeout=120)  # generous: the Linux machine can be loaded
         data = raw if raw is not None else json.dumps(body or {"kind": "face", "id": 3})
         conn.request("POST", path, body=data, headers=headers)
         code = conn.getresponse().status
@@ -64,7 +66,7 @@ def test_never_without_a_password(post, monkeypatch):
     assert post("/inbox/skip", auth=False) == 403
 
 
-# Each route the handler gates itself (#2788), and the action behind it.
+# Each route the handler gates itself, and the action behind it.
 TEACHING_ACTIONS = {
     "/people/assign": "assign_to",
     "/people/assign-many": "assign_many",
@@ -80,7 +82,7 @@ def taught(monkeypatch):
     calls = []
     for action in TEACHING_ACTIONS.values():
         monkeypatch.setattr(
-            server, action, lambda *args, action=action: calls.append((action, args)) or (200, {"ok": True})
+            people_writes, action, lambda *args, action=action: calls.append((action, args)) or (200, {"ok": True})
         )
     return calls
 
@@ -111,12 +113,12 @@ def test_a_remote_claim_still_cannot_make_a_voice_the_owners(post, taught, monke
 
 
 def test_a_refused_teaching_route_answers_like_a_refused_inbox_skip():
-    code, body = server.teaching_refused()
-    skip_code, skip_body = server.inbox_skip("face", 3, control=False)
+    code, body = people_writes.teaching_refused()
+    skip_code, skip_body = inbox_state.inbox_skip("face", 3, control=False)
     assert (code, body.keys(), body["ok"]) == (skip_code, skip_body.keys(), False)
 
 
-# The teaching routes #2804 put on the same gate: each one's body, and what it calls once the gate lets it through.
+# Additional teaching routes on the same gate: each one's body, and what it calls once the gate lets it through.
 MORE_ROUTES = {
     "/speakers/refine": ({"action": "assign", "line": "mic@1.0", "name": "Dana"}, "speakers_refine"),
     "/transcript/unlabel": ({"line": "mic@1.0"}, "_line_at"),
@@ -136,10 +138,10 @@ def taught_more(monkeypatch):
     def record(name, reply):
         return lambda *args, **kwargs: calls.append(name) or reply
 
-    monkeypatch.setattr(server, "speakers_refine", record("speakers_refine", (200, {"ok": True})))
-    monkeypatch.setattr(server, "_line_at", record("_line_at", None))  # no such line: a 404 past the gate
-    monkeypatch.setattr(server, "add_person", record("add_person", None))
-    monkeypatch.setattr(server, "people_view", lambda: {"people": [{"name": "Dana"}]})
+    monkeypatch.setattr(speaker_lines, "speakers_refine", record("speakers_refine", (200, {"ok": True})))
+    monkeypatch.setattr(speaker_lines, "_line_at", record("_line_at", None))  # no such line: a 404 past the gate
+    monkeypatch.setattr(people_writes, "add_person", record("add_person", None))
+    monkeypatch.setattr(people_reads, "people_view", lambda: {"people": [{"name": "Dana"}]})
     monkeypatch.setattr(references, "fetch_media", record("fetch_media", b"jpeg"))
     monkeypatch.setattr(references, "stage", record("stage", {"id": "ref1"}))
     monkeypatch.setattr(references, "attach", record("attach", {"ok": True}))
@@ -190,10 +192,10 @@ def test_a_remote_upload_must_not_be_a_type_another_site_can_send(post, taught_m
     ],
 )
 def test_this_is_me_stays_on_this_machine_even_with_remote_teaching(post, monkeypatch, remote, teaching, control):
-    # Owner identity isn't teaching (#2804): This is me decides who the assistant answers as the owner.
+    # Owner identity isn't teaching: This is me decides who the assistant answers as the owner.
     calls = []
     monkeypatch.setattr(
-        server, "merge_into_owner", lambda name, voices, *, control: calls.append(control) or (200, {"ok": True})
+        people_writes, "merge_into_owner", lambda name, voices, *, control: calls.append(control) or (200, {"ok": True})
     )
     monkeypatch.setattr(server, "DASH_PASSWORD", "pw")
     monkeypatch.setattr(server, "remote_teaching", lambda: teaching)

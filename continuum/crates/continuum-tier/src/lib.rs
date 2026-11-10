@@ -1,4 +1,4 @@
-//! The tier worker's library (docs/CONTINUUM.md, "Storage tiers"; issue #552).
+//! The tier worker's library (docs/CONTINUUM.md, "Storage tiers").
 //!
 //! The tier worker drains Tier 0 into frame-indexed Tier 1 chunks before slots are reclaimed, and carries out purges
 //! on its files. A microphone's chunk becomes Opus ([`opus`]) as it closes, before it is committed. This crate is the part of it that needs no
@@ -16,7 +16,7 @@
 //! ordinary MP4. Nothing recompresses chunks after they are committed: video stays in Tier 1 until it ages out.
 
 /// Every line this crate writes to stderr, stamped with the local date, time, and UTC offset when its service turned
-/// stamping on (`log::stamp_lines`), as the broker's log lines are (#1696). Shadows the standard macro crate-wide.
+/// stamping on (`log::stamp_lines`), as the broker's log lines are. Shadows the standard macro crate-wide.
 #[macro_export]
 macro_rules! eprintln {
     ($($arg:tt)*) => {
@@ -24,7 +24,7 @@ macro_rules! eprintln {
     };
 }
 
-/// Stderr line stamps (#1696).
+/// Stderr line stamps.
 pub mod log {
     use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -108,7 +108,7 @@ use continuum_core::StreamId;
 
 pub use chunk::{ChunkError, ChunkFormat, ChunkReader, ChunkWriter, Record, scan_tail};
 pub use flush::{ChunkCommit, Closed, FlushSettings, Flusher, Incoming, StreamShape};
-pub use hydrate::{Hydrated, Picture, decode_jpeg, hydrate, hydrate_frame, read_chunk, rgb_to_nv12};
+pub use hydrate::{Hydrated, JpegNv12, Picture, decode_jpeg, hydrate, hydrate_frame, read_chunk, rgb_to_nv12};
 pub use probe::{Ffmpeg, Probe, probe};
 pub use recover::{Recovered, recover};
 pub use worker::{Appended, CameraFrameInfo, CommitFailure, Counts, Outputs, Payload, WorkerLoop};

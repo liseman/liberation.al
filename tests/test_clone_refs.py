@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from liberational import config as cfg
-from liberational.dashboard import server
+from liberational.dashboard import voice_clones
 from liberational.people import registry
 from liberational.speech import clone_say
 from voices import write_voices
@@ -20,7 +20,7 @@ def test_missing_speakers_means_no_clone_candidates(tmp_path, monkeypatch):
     assert voices == {}
     assert canon(7) == 7
     assert clone_say.candidates() == []
-    assert server.clones_list() == {"clones": [], "error": None}
+    assert voice_clones.clones_list() == {"clones": [], "error": None}
 
 
 @pytest.fixture
@@ -131,7 +131,7 @@ def test_candidates_count_a_voice_with_a_reference_as_ready(out, built, monkeypa
 
 
 def test_clone_render_cleanup_keeps_new_low_id_audio(tmp_path, monkeypatch):
-    monkeypatch.setattr(server, "CLONES", tmp_path)
+    monkeypatch.setattr(voice_clones, "CLONES", tmp_path)
     for i in range(20):
         old = tmp_path / f"say-99-{1000 + i}.wav"
         old.write_bytes(b"old audio")
@@ -143,8 +143,8 @@ def test_clone_render_cleanup_keeps_new_low_id_audio(tmp_path, monkeypatch):
         Path(args[-1]).write_bytes(b"new audio")
         return 0, {"ms": 1}, []
 
-    monkeypatch.setattr(server, "_clone_run", render)
-    code, result = server.clone_say(1, "A short test.")
+    monkeypatch.setattr(voice_clones, "_clone_run", render)
+    code, result = voice_clones.clone_say(1, "A short test.")
     assert code == 200
     assert (tmp_path / result["url"].split("f=")[1]).read_bytes() == b"new audio"
     assert len(list(tmp_path.glob("say-*.wav"))) == 20
@@ -155,15 +155,15 @@ def test_clone_render_cleanup_keeps_new_low_id_audio(tmp_path, monkeypatch):
 
 def test_clone_render_cleanup_survives_a_render_removed_meanwhile(tmp_path, monkeypatch):
     # Two renders finishing together: the other one's cleanup can remove a file this one has listed but not read.
-    monkeypatch.setattr(server, "CLONES", tmp_path)
+    monkeypatch.setattr(voice_clones, "CLONES", tmp_path)
     (tmp_path / "say-5-1.wav").symlink_to(tmp_path / "gone.wav")  # listed by the glob, but stat() fails
 
     def render(args, timeout):
         Path(args[-1]).write_bytes(b"new audio")
         return 0, {"ms": 1}, []
 
-    monkeypatch.setattr(server, "_clone_run", render)
-    code, result = server.clone_say(1, "A short test.")
+    monkeypatch.setattr(voice_clones, "_clone_run", render)
+    code, result = voice_clones.clone_say(1, "A short test.")
     assert code == 200
     assert (tmp_path / result["url"].split("f=")[1]).read_bytes() == b"new audio"
 
@@ -201,7 +201,7 @@ def test_clone_list_keeps_saved_name_without_voiceprint_binding(retained_clone, 
     retained_clone(source=source)
     assert registry.voice_names(clone_say.STATE, [9])[9] is None
 
-    response = server.clones_list()
+    response = voice_clones.clones_list()
     assert response["error"] is None
     choices = {c["id"]: c for c in response["clones"]}
     assert choices[9]["label"] == "Eli"

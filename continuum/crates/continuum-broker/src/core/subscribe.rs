@@ -136,7 +136,7 @@ impl CursorAcks {
 }
 
 /// Queues a sync behind every acknowledged position the writer doesn't have yet, even one waiting behind a write
-/// already queued for its name, so the sync is answered only once they are in the catalog (#1322). One write per
+/// already queued for its name, so the sync is answered only once they are in the catalog. One write per
 /// name stays the rule for ordinary acks (a catch-up acks every event); a sync is rare. When the queue can't take
 /// them all, the sync isn't queued: its reply drops, which the caller sees as busy, and the rest stay pending.
 /// `try_send` is the writer's queue (`Sender::try_send`), true when it took the job.

@@ -1,8 +1,8 @@
-"""Count questions about an event, answered from detected events (#290, #518), never from captions.
+"""Count questions about an event, answered from detected events, never from captions.
 
 "How many times did I open the fridge today", "how often did the dog get on the couch this week": history_qa sends a
 question that counts an event when events.answer_counts is on and the question names an event kind the detector, or
-the owner, has named (memory/events.py, #228). The answer is the count per span from the promoted events, the
+the owner, has named (memory/events.py). The answer is the count per span from the promoted events, the
 coverage (the recordings the detector has finished in the window), and a Review link for each span. When no finished
 recording covers the window it says so instead of estimating, and a window with recordings covered but nothing found
 is a real zero, unless matching unverified evidence is being withheld from promotion. A named unverified candidate
@@ -12,9 +12,9 @@ event asked about.
 Nothing here knows any kind of event in advance: a question is one of these only when it names one the store has, so
 "how many tablespoons in a cup" or "how many meetings tomorrow" go the way they always did. A question naming a zone
 drawn on a camera's view ("how many times did the cat use the litter box") is answered from zone visits instead
-(memory/zone_counts.py, #1316), unless a detected event has that name too.
+(memory/zone_counts.py), unless a detected event has that name too.
 
-Retired rules-based activity kinds are unavailable during the model-detector rebuild (#1742). They are never
+Retired rules-based activity kinds are unavailable during the model-detector rebuild. They are never
 counted from old rows; history_qa answers those requests explicitly before consulting evidence.
 """
 
@@ -49,16 +49,16 @@ STOP = frozenset({
 })  # fmt: skip
 
 
-# What the camera model doesn't detect (#1863): the retired rules' stillness and repeated movement, say.
+# What the camera model doesn't detect: the retired rules' stillness and repeated movement, say.
 UNSUPPORTED = (
     "The camera model doesn't detect that. It recognizes sitting down, standing up, picking something up, putting "
     "something down, falling, drinking, eating, phone calls, and phone use: ask when one happened, how many times, "
     "or what someone was doing."
 )
 # The retired rules' kinds, some of which see-actions' model now produces under the same names: a question naming
-# one is about activity (retired_question), answered from the model where it can be (action_kind, #1863).
+# one is about activity (retired_question), answered from the model where it can be (action_kind).
 REBUILDING_KINDS = ("stand_up", "sit_down", "repeated_movement", "pickup", "putdown", "phone_use", "eating_or_drinking")
-# see-actions' model kinds (#1856), by the plain words a question uses for them. A phone call before phone use, and a
+# see-actions' model kinds, by the plain words a question uses for them. A phone call before phone use, and a
 # fall before anything else, so "fell while on the phone" is a fall.
 ACTION_WORDS = (
     ("fall", r"\b(?:fall|falls|fell|fallen|falling)\b(?!\s+asleep)"),
@@ -112,7 +112,7 @@ TRANSCRIPT_ACTION = re.compile(
 
 def retired_question(question: str) -> bool:
     """A request for retired activity evidence, excluding transcript topics, ordinary device lookups, and counts of
-    see-actions' model kinds (answered from `action.span`, #1856)."""
+    see-actions' model kinds (answered from `action.span`)."""
     if TRANSCRIPT_ACTION.search(question):
         return False
     if cfg.get("events.answer_counts") and action_kind(question) is not None:
@@ -183,7 +183,7 @@ def owner_name(e: Mapping[str, Any]) -> str | None:
 
 
 def module() -> Any:
-    """memory/events.py (#228), or None while it isn't installed: then nothing is analyzed here yet."""
+    """memory/events.py, or None while it isn't installed: then nothing is analyzed here yet."""
     try:
         from liberational.memory import events
     except ImportError:
@@ -258,7 +258,7 @@ def named(question: str, state: Any) -> str | None:
 
 
 def zone_names(state: Any) -> list[str]:
-    """The names of the zones drawn on cameras' views (#1316): a count of visits to one is answered here too."""
+    """The names of the zones drawn on cameras' views: a count of visits to one is answered here too."""
     try:
         from liberational.memory import zone_counts
 
@@ -400,7 +400,7 @@ def answer(
         from liberational.memory import zone_counts
 
         return zone_counts.answer(asked, query, state, stamp, tz, same=same, content=content, person=person)
-    model_kinds = activity_kinds.model_kinds(state)  # the owner's activities read from a model (#3244)
+    model_kinds = activity_kinds.model_kinds(state)  # the owner's activities read from a model
     if asked not in model_kinds and retired_question(f"When was {asked} detected?"):
         return dict(
             answer=UNSUPPORTED, evidence=[], coverage={"available": False, "reason": "unsupported"}, warnings=[]
@@ -412,7 +412,7 @@ def answer(
             answer=f"Event detection isn't set up here yet, so I can't count {asked}.",
             evidence=[],
             coverage={"recordings": 0, "available": False},
-            warnings=["memory/events.py is not installed (#228)."],
+            warnings=["memory/events.py is not installed."],
         )
     projection = getattr(act, "count_evidence", None)
     promoted, unverified = (
@@ -488,7 +488,7 @@ def answer(
             quote=f"{owner_name(e) or 'something not named yet'}: {_n(_occurrences(e), 'time', 'times')} on "
             f"{e.get('camera')}, {_clock(float(e['start']), tz)} to {_clock(float(e['end']), tz)}",
             link="/review#" + urlencode(dict(day=stamp(float(e["start"]))[:10], t=float(e["start"]))),
-            method="EventDetected: a detector's promoted span (#228), not a caption",
+            method="EventDetected: a detector's promoted span, not a caption",
             stream=e.get("stream"),
             event=e.get("id"),
         )

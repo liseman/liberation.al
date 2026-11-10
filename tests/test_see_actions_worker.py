@@ -226,7 +226,7 @@ def _finish(runner: threading.Thread, result: list[bool]) -> bool:
 
 
 def test_a_camera_that_fails_to_load_leaves_the_others_running_and_comes_back_when_it_loads(caplog):
-    # #3120: back's fisheye entry is broken until it's fixed; front runs on meanwhile, and back is tried again.
+    # Back's fisheye entry is broken until it's fixed; front runs on meanwhile, and back is tried again.
     sources = {"front": Source(), "back": Source()}
     fixed, tries = threading.Event(), {"front": 0, "back": 0}
 
@@ -304,7 +304,7 @@ def test_a_camera_that_fails_while_another_waits_to_load_is_not_the_last_one_dow
 
 
 def test_a_camera_that_keeps_failing_is_still_tried_after_a_thousand_failures():
-    # #3130: the backoff's 2 ** streak stopped converting to a float at 1025 failures in a row, and the
+    # The backoff's 2 ** streak stopped converting to a float at 1025 failures in a row, and the
     # OverflowError ended the camera's supervisor thread, so it was never tried again.
     tries = {"front": 0, "back": 0}
     front = Source()

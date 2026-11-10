@@ -1,4 +1,4 @@
-"""tools/check_integrity.py (#479): references between the stores that point nowhere, on a made-up state."""
+"""tools/check_integrity.py: references between the stores that point nowhere, on a made-up state."""
 
 import importlib.util
 import json
@@ -33,7 +33,7 @@ def state(tmp_path):
     (tmp_path / "transcript.jsonl").write_text("".join(json.dumps(e) + "\n" for e in lines))
     c = sqlite3.connect(tmp_path / "sightings.sqlite3")  # v1's, which holds speech's voice_lines
     c.execute("CREATE TABLE voice_lines (key TEXT PRIMARY KEY, ts_start REAL NOT NULL, dur REAL, emb BLOB)")
-    old = registry.line_key(T + 1)  # a cached embedding from before #305, under its millisecond alone
+    old = registry.line_key(T + 1)  # a legacy cached embedding stored under its millisecond alone
     c.execute("INSERT INTO voice_lines VALUES (?, ?, 1.0, NULL)", (old, T + 1))
     c.commit()
     c.close()

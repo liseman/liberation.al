@@ -182,7 +182,7 @@ it('shows a neutral activity count in the hover title', () => {
   expect(screen.queryByText(/repetitions/)).not.toBeInTheDocument();
 });
 
-// From Joe's frontend log: a hover before the first paint measured the track threw "Invalid time value" in the clock.
+// A hover before the first paint measured the track used to throw "Invalid time value" in the clock.
 it('shows the hovered time when the pointer arrives before the first paint', () => {
   const { canvas } = setup();
   const track = canvas.closest('[role="slider"]');
@@ -318,7 +318,7 @@ describe('timeline drag intent', () => {
     expect(engine.view).toEqual(before);
   });
 
-  it('pans with a middle drag over the lanes, and never seeks (#2354)', () => {
+  it('pans with a middle drag over the lanes, and never seeks', () => {
     const { engine, track } = ready();
     const before = { ...engine.view };
     const cursor = engine.t;
@@ -355,7 +355,7 @@ describe('timeline drag intent', () => {
   });
 });
 
-describe('the days still loading under the timeline (#2435)', () => {
+describe('the days still loading under the timeline', () => {
   it('keeps one status line when nothing is loading, so a day arriving never moves the page', () => {
     renderPage(<ChunkLine chunkStatus={{ '2026-11-05': 'ready' }} range={null} />);
     expect(screen.getByRole('status')).toHaveTextContent(/^$/);

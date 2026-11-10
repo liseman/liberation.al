@@ -1,4 +1,4 @@
-// The line DSL for spatial memory's extensions (#2797): one `x-` statement per line, beside the upstream statements.
+// The line DSL for spatial memory's extensions: one `x-` statement per line, beside the upstream statements.
 // parsePlaceDsl blanks the `x-` lines before handing the text to the upstream parser (so its line numbers still
 // point at the right lines) and reads them itself; toPlaceDsl prints the upstream part with the library's printer and
 // appends the `x-` lines in a fixed order, so printing what was parsed gives the same text back.

@@ -1,7 +1,6 @@
-"""The voice list on Continuum (#772): every voiceprint with how often and when it was heard.
+"""The voice list on Continuum: every voiceprint with how often and when it was heard.
 
-v1 kept the list in `voices.sqlite3`, a row per voice with its centroid, references, line count, and first and last
-time heard. Listen (listen/voices.py) now gives each line a voiceprint number and files the line's embedding on the
+Listen (listen/voices.py) gives each line a voiceprint number and files the line's embedding on the
 broker, so the list is read from those:
 
 - **Voices.** A voiceprint is listed when a line on the speech log carries its number (`speaker_id`), or when the
@@ -10,7 +9,7 @@ broker, so the list is read from those:
   line (UTC seconds). A voiceprint known only to the event log has none of these: `n` is 0 and the times are None.
 - **Prints.** A voiceprint's embeddings are in the segment store (`voice.embedding`, each with its voiceprint and
   person), so the list holds none. Whatever compares a voice against another reads or searches them there.
-- **Names.** The list holds no names, as in v1 (issue #30): the dashboard names each voice through the registry.
+- **Names.** The list holds no names: the dashboard names each voice through the registry.
 
 `Tally` counts lines; `VoiceList` keeps one over the speech log, reading only the lines committed since it last
 read, and recounting from the start after a purge (which may have taken lines it counted).

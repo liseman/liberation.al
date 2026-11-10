@@ -70,7 +70,7 @@ fn a_scrub_leaves_no_byte_of_a_purged_header_in_the_file() {
     c.insert((1..=50).map(|n| payload(n, s, u64::from(n), &[], &[])).collect()).unwrap();
     c.insert((1..=50).map(|n| payload(100 + n, d, u64::from(n), &[id(n)], &[SUBJECT])).collect()).unwrap();
     c.forget(ForgottenHash([7; 32])).unwrap();
-    c.flush_durable().unwrap(); // commits reach the file once durable (#1958)
+    c.flush_durable().unwrap(); // commits reach the file once durable
     assert!(contains(&std::fs::read(&path).unwrap(), &SUBJECT.0));
     c.purge(PurgeSelector::Entity(SUBJECT), "forget", "", id(9_000), 1).unwrap();
     scrub_to_the_end(&c, 16);
@@ -630,7 +630,7 @@ fn aged_hour(merge_gap_ns: u64, complete: bool) -> (BTreeMap<String, i64>, BTree
 }
 
 /// Not a check: prints what one aged hour leaves in the catalog, as each payload's own span with the report kept
-/// (before #1529) and as runs with the report collapsed once acknowledged. Run with `--ignored --nocapture`.
+/// and as runs with the report collapsed once acknowledged. Run with `--ignored --nocapture`.
 #[test]
 #[ignore = "a measurement"]
 fn measure_the_catalog_bytes_an_aged_hour_leaves() {

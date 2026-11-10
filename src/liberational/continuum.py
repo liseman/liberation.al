@@ -1,4 +1,4 @@
-"""Ids and times as Continuum keeps them (#547, docs/CONTINUUM.md). Pure functions, no I/O.
+"""Ids and times as Continuum keeps them (docs/CONTINUUM.md). Pure functions, no I/O.
 
 - Ids: canonical UUIDv7 strings, kept as 16 bytes on the wire and in the catalog (decision 8). `check_id` refuses
   anything else. `keyed_id` makes the same id from the same key in any process.
@@ -28,9 +28,9 @@ U64_MAX = 2**64 - 1
 
 def keyed_id(seconds: float, *key: object) -> str:
     """A UUIDv7 that is the same every time for the same `key` at the same time: the 48-bit millisecond timestamp from
-    `seconds`, the rest from a hash of `key`, with the version and variant bits set. For a record derived from a v1
-    line or an event that must be written once whatever process writes it (a spoken quantity, an imported row): the
-    broker keeps one copy of a repeated header, so the same key sent twice is stored once."""
+    `seconds`, the rest from a hash of `key`, with the version and variant bits set. For a record derived from an
+    imported line or an event that must be written once whatever process writes it (a spoken quantity, an imported row):
+    the broker keeps one copy of a repeated header, so the same key sent twice is stored once."""
     ms = max(0, int(seconds * 1000)) & ((1 << 48) - 1)
     digest = hashlib.sha256("|".join(map(str, key)).encode()).digest()[:10]
     raw = bytearray(ms.to_bytes(6, "big") + digest)

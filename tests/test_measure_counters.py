@@ -71,7 +71,7 @@ def test_unknown_spans_are_merged_and_clipped_to_the_window():
 
 def test_an_unreadable_movement_log_fails_instead_of_scoring_zero(tmp_path, monkeypatch):
     class Offline:
-        def range(self, stream, start, end):
+        def table(self, stream, start, end, names):
             raise ConnectionRefusedError("no broker")
 
     monkeypatch.setattr(segment_log, "at", lambda state: Offline())

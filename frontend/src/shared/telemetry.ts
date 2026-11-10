@@ -1,4 +1,4 @@
-// The page's own error log and trace (#2007), kept on this machine: what goes wrong in a browser, and which page
+// The page's own error log and trace, kept on this machine: what goes wrong in a browser, and which page
 // loads are slow and why, batched to the dashboard's POST /frontend/log, which appends it to logs/frontend.log.
 //
 // What it reports: uncaught errors and promise rejections, chunks that failed to load (the dashboard's stale-chunk

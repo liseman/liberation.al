@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useMicRecorder, voicedSeconds } from './mic';
 
 let show: (on: boolean) => void = () => {};
-/** A tab that can be hidden, as App shows one (#330). */
+/** A tab that can be hidden, as App shows one. */
 function Tab({ children }: { children: ReactNode }) {
   const [on, setOn] = useState(true);
   show = setOn;
@@ -78,7 +78,7 @@ describe('useMicRecorder', () => {
     expect(track.stop).toHaveBeenCalled(); // the microphone is let go
   });
 
-  it('goes back to idle, not a dead "recording", when its tab is hidden mid-recording (#330)', async () => {
+  it('goes back to idle, not a dead "recording", when its tab is hidden mid-recording', async () => {
     const track = { stop: vi.fn() };
     vi.stubGlobal('navigator', { mediaDevices: { getUserMedia: () => Promise.resolve({ getTracks: () => [track] }) } });
     const node = () => ({ connect: vi.fn(), disconnect: vi.fn() });

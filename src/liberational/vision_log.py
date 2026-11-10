@@ -1,8 +1,7 @@
-"""The vision log on Continuum (#549): captions, detections, matches, poses, crossings, motion, and visits as broker
-payloads, read back in the shapes v1's readers use.
+"""The vision log on Continuum: captions, detections, matches, poses, crossings, motion, and visits as broker
+payloads, read back as dicts.
 
-v1 kept vision in `scene.json`, `camera_history.sqlite3`, `detections.sqlite3`, `sightings.sqlite3`, and
-`poses.sqlite3`. On Continuum each is a stream of small JSON payloads stored inline in the catalog (a pose or a
+Each is a stream of small JSON payloads stored inline in the catalog (a pose or a
 detection is far under the 64 KiB inline cap). The header carries the time (UTC nanoseconds, half open), the producer,
 and the provenance (the frames it came from, as parents); the JSON body carries the rest. Face embeddings aren't in
 the body: they go to the vector worker, keyed by the detection's payload id.
@@ -12,7 +11,7 @@ device: a reader asks for "captions over this hour" more often than for one came
 from the same query.
 
 Readers get dicts with `ts_start` and `ts_end` (seconds, from the header), `id` (the payload's id), and the stream's
-body keys. `VisionLog` is the synchronous face for v1's threaded code; async code uses `read_range` and `follow` with
+body keys. `VisionLog` is the synchronous face for threaded code; async code uses `read_range` and `follow` with
 its own client.
 """
 
@@ -77,14 +76,14 @@ STREAMS = {
             ),
         ),
         StreamDef(OBJECTS, "Layer1Raw", ("cam", "frame_seq", "objects", "source", "observation")),
-        # The owner's label for one animal sighting (#1332, people/pet_recognition.py): a named pet's id, "other",
+        # The owner's label for one animal sighting (people/pet_recognition.py): a named pet's id, "other",
         # or cleared (`active` false), parented to the embeddings it was judged from. The newest per track wins.
         StreamDef(
             PET_SIGHTINGS,
             "Layer2Decision",
             ("cam", "track_id", "species", "label", "active", "source", "sighting_start"),
         ),
-        # A subject's visit to a zone, and where visits could have been seen (#1316, see/zones.py, see/zones_worker.py).
+        # A subject's visit to a zone, and where visits could have been seen (see/zones.py, see/zones_worker.py).
         StreamDef(
             ZONE_VISITS,
             "Layer3Interpretation",
@@ -199,7 +198,7 @@ async def records_of(
 
 
 LOG = logs.get("vision-log")
-DECODE_SUMMARY_S = 60.0  # how often a process logs who had the vision log decode records for it (#1516)
+DECODE_SUMMARY_S = 60.0  # how often a process logs who had the vision log decode records for it
 _decoded: collections.Counter[str] = collections.Counter()
 _decoded_lock = threading.Lock()
 _decoded_since = time.monotonic()
@@ -304,7 +303,7 @@ async def follow(
     asks for the next one, so a record the caller never finished with comes again next time (at least once).
     `wait_for_streams_s` optionally waits for producer registration at startup; live subscription failures still raise.
     Each record is read through `client`, so it can't be a Backpressure reader, and a caller slow enough to leave
-    4,096 events waiting gets the connection closed under the SDK's default policy (#1267): use a connection of
+    4,096 events waiting gets the connection closed under the SDK's default policy: use a connection of
     its own and connect again after a close."""
 
     # Pinned, so each event carries its locator, which `records_of` reads like a query item's.
@@ -333,8 +332,8 @@ async def follow(
 
 
 def scene_entries(captions: Iterable[dict[str, Any]], limit: int = 30) -> list[dict[str, Any]]:
-    """Caption records as `scene.json`'s entries were: the newest `limit`, oldest first, each with `ts` (its start,
-    seconds) as v1's entries had."""
+    """Caption records as the scene's entries: the newest `limit`, oldest first, each with `ts` (its start,
+    seconds)."""
     newest = sorted(captions, key=lambda r: (r["ts_start"], r["id"]))[-limit:] if limit > 0 else []
     return [{**r, "ts": r["ts_start"]} for r in newest]
 
@@ -349,22 +348,21 @@ def latest_by_camera(captions: Iterable[dict[str, Any]]) -> dict[str, dict[str, 
 
 def is_real(caption: Mapping[str, Any]) -> bool:
     """Whether a `camera.caption` record is a description the VLM gave then: not a repeat of an earlier one for an
-    unchanged view (`unchanged`), and not empty (warming up, or a failed call). v1's readers told these apart by its
-    placeholder captions ("No new caption", "No caption yet")."""
+    unchanged view (`unchanged`), and not empty (warming up, or a failed call)."""
     text = caption.get("caption")
     return isinstance(text, str) and bool(text.strip()) and not caption.get("unchanged")
 
 
 def as_v1_row(caption: Mapping[str, Any]) -> dict[str, Any]:
-    """A `camera.caption` record with v1's `observations` names beside its own: `ts` (its start, seconds) and `yaw`
-    (`yaw_deg`), for readers written against camera_history's rows."""
+    """A `camera.caption` record with two more names beside its own, which some readers use: `ts` (its start,
+    seconds) and `yaw` (`yaw_deg`)."""
     return {**caption, "ts": caption["ts_start"], "yaw": caption.get("yaw_deg", 0.0)}
 
 
 class VisionLog:
     """The vision log for synchronous code: one broker client on a background event loop (see `BrokerLink`)."""
 
-    #: How far back `scene` looks for the newest captions (v1's scene.json kept the last 30 entries, about half a
+    #: How far back `scene` looks for the newest captions (the last 30 entries are about half a
     #: minute of captioning; an hour covers a camera that's been unchanged for a while).
     SCENE_WINDOW_S = 3600.0
 
@@ -377,7 +375,7 @@ class VisionLog:
         state: Path | None = None,
     ) -> None:
         self.link = BrokerLink(socket, client_name=client_name, timeout=timeout)
-        # Pictures decode on a link of their own (#2022): an H.264 frame decodes its whole stretch up to that frame, on
+        # Pictures decode on a link of their own: an H.264 frame decodes its whole stretch up to that frame, on
         # the link's loop thread, and every other read queued behind it. After a restart People's face shots and the
         # unknown-face photos decoded at once, and plain reads (/people, /faces/unknown/groups, /scene) timed out.
         # Made on the first picture, so a process that never decodes one never starts its thread.
@@ -418,14 +416,14 @@ class VisionLog:
 
         return self.link.call(go, timeout=timeout)
 
-    #: How long one read of the scene serves every caller (#2022).
+    #: How long one read of the scene serves every caller.
     SCENE_TTL_S = 5.0
 
     def scene(self, now: float, limit: int = 30) -> list[dict[str, Any]]:
         """`scene.json`'s entries as of `now`: the newest `limit` captions of the last hour, oldest first.
 
         One read serves every caller for SCENE_TTL_S, and callers that arrive during a read wait for it instead of
-        starting their own (#2022). A read costs 0.4 to 1.5 s holding the GIL whatever its stretch (the segment
+        starting their own. A read costs 0.4 to 1.5 s holding the GIL whatever its stretch (the segment
         files are read whole), and with several pages polling /scene, reads back to back stalled the dashboard's
         other requests. Captions change about once a minute per camera, so a few seconds' age is never seen."""
         with self._scene_lock:
@@ -511,14 +509,14 @@ class VisionLog:
 
     def captions(self, start: float, end: float, cams: Iterable[str] = ()) -> list[dict[str, Any]]:
         """Every `camera.caption` record overlapping [start, end) (seconds), on `cams` when given, in time order, each
-        with v1's row names too (`as_v1_row`)."""
+        with `ts` and `yaw` too (`as_v1_row`)."""
         wanted = set(cams)
         rows = self._captions(start, end, sorted(wanted) if wanted else None)
         return [as_v1_row(r) for r in rows if not wanted or r.get("cam") in wanted]
 
     def _captions(self, start: float, end: float, cams: list[str] | None = None) -> list[dict[str, Any]]:
         """`camera.caption` records over [start, end), only `cams`' when given (reading one camera is a third of the
-        time of reading all, #2071): they're in the segment store (#1791), not the broker."""
+        time of reading all): they're in the segment store, not the broker."""
         from liberational import segment_log
 
         return segment_log.at(self.state).range(segment_log.CAPTIONS, start, end, cams)
@@ -552,7 +550,7 @@ def _unit(data: bytes) -> bytes:
 
 
 def _codec(unit: bytes) -> str:
-    """`av1` for an archived chunk's AV1 temporal unit (#1479: it opens with a temporal delimiter OBU), else `h264`:
+    """`av1` for an archived chunk's AV1 temporal unit (it opens with a temporal delimiter OBU), else `h264`:
     an Annex B access unit opens with a zero byte."""
     return "av1" if unit[:1] and unit[0] & 0x80 == 0 and (unit[0] >> 3) & 0xF == 2 else "h264"
 
@@ -560,8 +558,8 @@ def _codec(unit: bytes) -> str:
 @dataclass
 class _Gop:
     """One decoded-forward stretch of a camera's recorded video: its records (start_ns, bytes) in decode order, and the
-    decoder part-way through. `codecs` is each record's codec when the stretch has AV1 in it (the archive pass,
-    #1479): the decoder is drained and replaced where the codec changes."""
+    decoder part-way through. `codecs` is each record's codec when the stretch has AV1 in it (the archive pass): the
+    decoder is drained and replaced where the codec changes."""
 
     records: list[tuple[int, bytes]]
     flip: bool
@@ -710,7 +708,7 @@ async def _h264_stretch(client: Client, stream: str, lo: int, hi: int) -> _Gop |
 async def h264_picture(client: Client, cam: str, target_ns: int, tolerance_ns: int) -> tuple[Any, int, bool] | None:
     """`cam`'s stored H.264 picture nearest `target_ns` (within `tolerance_ns`), decoded from the keyframe at or
     before it: (upright BGR image, its capture time in ns, whether capture flipped it), or None. A delta picture
-    can't be decoded alone (#1967). The open decoder is kept per stream, so a later picture in the same stretch
+    can't be decoded alone. The open decoder is kept per stream, so a later picture in the same stretch
     (a visit's face shots) decodes on from where the last one stopped."""
     import cv2
     import numpy as np

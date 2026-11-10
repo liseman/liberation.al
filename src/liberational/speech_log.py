@@ -1,14 +1,14 @@
-"""The speech log (#548, #1788): utterances, assistant replies, and the energy gate's state in the segment store,
-read back as v1's lines.
+"""The speech log: utterances, assistant replies, and the energy gate's state in the segment store,
+read back as transcript lines (dicts).
 
-v1 kept speech in `transcript.jsonl` and `assistant.jsonl`. Each utterance is now a row on `speech.utterance`, each
+Each utterance is a row on `speech.utterance`, each
 reply a row on `assistant.reply`, and the listen worker's gate state rows on `speech.activity`, all in the segment
-store under `paths.state/segments` (#1755; their columns and codecs are in `segment_log`). A stream has one writer
+store under `paths.state/segments` (their columns and codecs are in `segment_log`). A stream has one writer
 per slot (the store's camera): listen writes each microphone's lines under its device name, the voice service its
 replies under its client name, and an importer under a slot of its own, since a slot's writer lock is exclusive.
 Speech rows are kept until they're forgotten; there's no retention window.
 
-Readers get the same dicts v1's lines were, so the modules that read the old files change by one call:
+Readers get each line as a dict:
 
 - `ts_start` and `ts_end` in seconds, and `id` (the row's id, a UUIDv7).
 - Utterances: `device`, `speaker`, `speaker_id`, `speaker_sim`, `text`, `lat_ms`, `password` when it was one, and
@@ -19,7 +19,7 @@ A writer that runs again over the same input (a re-analyzed ingest item, a repea
 readers keep the first row of each id. Rows have no broker parents: the broker refuses a parent it doesn't hold, so
 nothing on the broker (an embedding) names a line as its parent either.
 
-`SpeechLog` is the synchronous face for v1's threaded code (the dashboard, the journal). `since` and `mark` number
+`SpeechLog` is the synchronous face for threaded code (the dashboard, the journal). `since` and `mark` number
 the lines this process has read in the order it read them (a process-local sequence, from 1): the first call reads
 every line once, and later ones only what was written since. Its broker client remains for what's still on the
 broker: microphone audio, purges, and the voice turn.
@@ -61,7 +61,7 @@ KEYS = {
 
 
 def to_ns(seconds: float) -> int:
-    """Seconds (v1's float times) as UTC nanoseconds. `round(t * 1e9)` is off by up to about 256 ns at today's epoch
+    """Seconds (a float) as UTC nanoseconds. `round(t * 1e9)` is off by up to about 256 ns at today's epoch
     (1.8e18 needs more than a float's 53 bits), so the whole seconds and the fraction are converted apart."""
     whole = int(seconds // 1)
     return whole * NS + round((seconds - whole) * NS)
@@ -145,7 +145,7 @@ def activity(now: float, fresh_s: float, *, base: Path | None = None) -> dict[st
     state is unknown, never quiet).
 
     The Live tab's meters ask this four times a second per open page, and reading the window from the store read the
-    hour's whole segment each time (about 20 ms of CPU a call on devbox, #2418). So the store is read once per base,
+    hour's whole segment each time (about 20 ms of CPU a call on the Linux machine). So the store is read once per base,
     then followed: each call reads only the rows written since the last, and keeps the newest state per device."""
     root = base if base is not None else segment_log.root()
     with _activity_lock:
@@ -430,7 +430,7 @@ class SpeechLog:
         """The id of the newest purge after `after` that can take data, else `after`. A reader that keeps lines
         compares this between reads: a new purge may have taken some of them. A purge only of the broker's worker
         state (WORKER_STREAM_PREFIX: checkpoints, trimmed every few seconds) takes nothing a reader keeps, and is left
-        out, so it doesn't make every cache keyed on this start over (#1458). Each call reads only purges it hasn't
+        out, so it doesn't make every cache keyed on this start over. Each call reads only purges it hasn't
         read before."""
 
         async def go(client: Client) -> str | None:
@@ -461,7 +461,7 @@ class SpeechLog:
 
     def stamp(self, start: float, end: float) -> tuple[tuple[str, int, int], ...]:
         """What the store holds of the lines in [start, end), cheaply (`segment_log.Log.stamp` over the speech
-        streams): it moves when a line of the window is written late (an ingested recording) or purged (#2398)."""
+        streams): it moves when a line of the window is written late (an ingested recording) or purged."""
         return segment_log.Log(self.segments).stamp(start, end, (UTTERANCES, REPLIES))
 
     def newest_removal(self) -> str | None:

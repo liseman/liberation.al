@@ -11,9 +11,9 @@
 //!
 //! Boxes are already normalized to the upright frame, as the overlay wants them.
 
-/// The face worker's live face boxes: a Tier 0 ring stream (#1762), followed live, never queried.
+/// The face worker's live face boxes: a Tier 0 ring stream, followed live, never queried.
 pub const FACE_BOXES: &str = "face.boxes";
-/// see-actions' live people, boxes and skeletons: a Tier 0 ring stream (#1980) in `pose.track`'s record shape. A live
+/// see-actions' live people, boxes and skeletons: a Tier 0 ring stream in `pose.track`'s record shape. A live
 /// page reads bodies and poses from it when see-actions has registered it; recorded video reads `pose.track`.
 pub const POSE_BOXES: &str = "pose.boxes";
 
@@ -251,7 +251,7 @@ impl Overlays {
     }
 }
 
-/// see-actions' test for a person's pose (actions.MIN_JOINTS and JOINT_SURE, #2024): at least 6 of COCO's 17 joints
+/// see-actions' test for a person's pose (actions.MIN_JOINTS and JOINT_SURE): at least 6 of COCO's 17 joints
 /// (halpe26's first 17) at 0.5 or more. Anything less (an object taken for a person, or someone almost out of view)
 /// isn't drawn as a skeleton.
 const MIN_JOINTS: usize = 6;
@@ -303,12 +303,12 @@ mod tests {
     fn a_face_boxes_record_names_the_frames_faces() {
         let mut o = all();
         let live = br#"{"cam":"facecam","frame_seq":9,"faces":[
-            {"bbox":[0.1,0.2,0.3,0.4],"name":"Joe","sim":0.7,"cluster":null,"track_id":3},
+            {"bbox":[0.1,0.2,0.3,0.4],"name":"Sam","sim":0.7,"cluster":null,"track_id":3},
             {"bbox":[0.5,0.2,0.6,0.4],"name":null,"sim":0.2,"cluster":"Face 2","track_id":"r:facecam:4"}]}"#;
         let frame = o.apply("face.boxes", T, live).expect("overlay");
         let faces: Vec<_> = frame.boxes.iter().map(|b| (b.label.as_str(), b.id.as_str(), b.kind.as_str())).collect();
-        assert_eq!(faces, [("Joe", "3", "face"), ("Face 2", "r:facecam:4", "face")]);
-        assert_eq!(frame.boxes[0].hue, Some(hue_of("Joe")));
+        assert_eq!(faces, [("Sam", "3", "face"), ("Face 2", "r:facecam:4", "face")]);
+        assert_eq!(frame.boxes[0].hue, Some(hue_of("Sam")));
         assert_eq!(o.overlay(T / 1_000).boxes.len(), 2);
         // Another camera's face.boxes changes nothing here.
         let elsewhere = String::from_utf8_lossy(live).replace("facecam", "desk");
@@ -387,7 +387,7 @@ mod tests {
     #[test]
     fn other_cameras_other_groups_and_bad_bodies_change_nothing() {
         let mut faces_only = Overlays::new("facecam", [Group::Faces]);
-        let other = br#"{"cam":"door","faces":[{"bbox":[0,0,1,1],"name":"Joe","track_id":1}]}"#;
+        let other = br#"{"cam":"door","faces":[{"bbox":[0,0,1,1],"name":"Sam","track_id":1}]}"#;
         assert!(faces_only.apply("face.boxes", T, other).is_none());
         assert!(faces_only.apply("pose.track", T, br#"{"cam":"facecam","people":[]}"#).is_none());
         assert!(faces_only.apply("face.boxes", T, b"not json").is_none());

@@ -1,6 +1,6 @@
-"""Devices linked to people and things (#1329): who is home, and where my things are.
+"""Devices linked to people and things: who is home, and where my things are.
 
-The owner links a device to a person ("Joe's phone") or names it as a thing ("AirPods", "keys tag"). A link is an
+The owner links a device to a person ("Alice's phone") or names it as a thing ("AirPods", "keys tag"). A link is an
 owner assertion in the knowledge store's `device.link` collection (outside the broker's reset), latest revision per
 link in the order written. It names the device by one selector:
 
@@ -8,10 +8,10 @@ link in the order written. It names the device by one selector:
 - `ble_fingerprint`: the exact advertising payload fingerprint the sightings' candidates use (proximity/ble.py), for
   a device whose address rotates but whose payload doesn't;
 - `ble_name`: the advertised local name, exactly;
-- `net_mac`: a Wi-Fi or wired MAC from the router's client list (`network.device_observation`, #1328). A phone's
+- `net_mac`: a Wi-Fi or wired MAC from the router's client list (`network.device_observation`). A phone's
   per-network private address is stable on that network.
 
-Sightings are read as they are recorded (`bluetooth.sighting`, #1327; `network.device_observation`). A link turns
+Sightings are read as they are recorded (`bluetooth.sighting`, `network.device_observation`). A link turns
 them into presence spans for a person (sightings no more than `devices.gap_s` apart are one stay) and a last seen
 time, place (the sensor that heard it), and signal strength for a thing. None of this is an identity: a shared or
 lent device, or a payload two devices share, is reported as the device, and every answer says these are device
@@ -19,7 +19,7 @@ sightings. Absence is never inferred where no sensor was running (`bluetooth.cov
 
 Every device seen is kept, linked or not; `summary` counts them. Nothing here alerts.
 
-**Where a device lives** (#3274): beside its person or thing link, the owner can say a device lives in a place, or a
+**Where a device lives**: beside its person or thing link, the owner can say a device lives in a place, or a
 room of that place's plan (memory/places.py), as a `device.location` in the knowledge store (taught state, carried
 across a reset by `pack-knowledge`), one per selector, revised in place. Known › Devices sets it and Ask says it
 ("Your TV lives in the Living room"). Nothing infers from it yet. Once the pack moves, these devices are beacons: a
@@ -46,7 +46,7 @@ from liberational.people import registry
 from liberational.proximity import ble, vendors
 
 LINKS = "device.link"
-LOCATIONS = "device.location"  # where a device lives: a place, or a room of its plan (#3274)
+LOCATIONS = "device.location"  # where a device lives: a place, or a room of its plan
 LOG = logs.get("devices")
 BLE_SIGHTINGS = segment_log.BLE_SIGHTINGS
 BLE_COVERAGE = segment_log.BLE_COVERAGE
@@ -491,7 +491,7 @@ def seen(
     for source, rows in records.items():
         for r in rows:
             # A router row counts only when the controller says it is connected now: ARP and DHCP cache rows
-            # (connected null) and expired leases are history, not presence (#1328).
+            # (connected null) and expired leases are history, not presence.
             if source == NET_OBSERVATIONS and r.get("connected") is not True:
                 continue
             if any(matches(link, r, source) for link in links):
@@ -549,7 +549,7 @@ def _tally(rows: Iterable[Mapping[str, Any]], source: str) -> dict[str, _Tally]:
 
 SUMMARY_SOURCES = (BLE_SIGHTINGS, NET_OBSERVATIONS)
 # Hour tallies kept per process, both sources together (about four days of each), oldest dropped first. Each holds the
-# newest row of every device heard that hour: a few tens of MB in all on devbox.
+# newest row of every device heard that hour: a few tens of MB in all on the Linux machine.
 KEPT_HOURS = 24 * 8
 TALLY_CACHE = Path("cache") / "device_tallies.json"  # under paths.state: the kept hours, across restarts
 TALLY_CACHE_VERSION = 1  # a cache of another version is ignored and rebuilt
@@ -646,21 +646,38 @@ class Devices:
             where = {"place": prior.place, "place_name": prior.place_name, "room": prior.room}
             write_location(self.knowledge, prior.id, {"kind": prior.kind, "value": prior.value}, where, False)
 
-    def read(self, start: float, end: float) -> tuple[dict[str, list[dict[str, Any]]], list[dict[str, Any]]]:
-        """(sightings by source, sensing coverage) over [start, end)."""
+    def read(
+        self, start: float, end: float, links: Sequence[Link] | None = None, *, coverage: bool = True
+    ) -> tuple[dict[str, list[dict[str, Any]]], list[dict[str, Any]]]:
+        """(sightings by source, sensing coverage) over [start, end). With `links`, only what those links can match
+        (`seen` reads nothing else): a source none of them names isn't read, and a Bluetooth sighting is parsed only
+        when its text holds a linked address or name, unless a link matches by payload fingerprint, which takes the
+        parsed payload. Without `coverage`, no sensing coverage is read."""
 
         log = segment_log.Log(self.segments)
-        records = {s: log.range(s, start, end) for s in (BLE_SIGHTINGS, NET_OBSERVATIONS)}
+        kinds = None if links is None else {link.kind for link in links}
+        records: dict[str, list[dict[str, Any]]] = {BLE_SIGHTINGS: [], NET_OBSERVATIONS: []}
+        if kinds is None or "ble_fingerprint" in kinds:
+            records[BLE_SIGHTINGS] = log.range(BLE_SIGHTINGS, start, end)
+        elif kinds & {"ble_identifier", "ble_name"}:
+            wanted = sorted(
+                {segment_log.json_text(x.value) for x in links or () if x.kind in ("ble_identifier", "ble_name")}
+            )
+            records[BLE_SIGHTINGS] = log.containing(BLE_SIGHTINGS, start, end, wanted)
+        if kinds is None or "net_mac" in kinds:
+            records[NET_OBSERVATIONS] = log.range(NET_OBSERVATIONS, start, end)
+        if not coverage:
+            return records, []
         # Preserve partial/inactive states and source provenance; consumers decide applicability.
-        coverage = [{**row, "stream": s} for s in (BLE_COVERAGE, NET_INVENTORY) for row in log.range(s, start, end)]
-        return records, coverage
+        sources = (BLE_COVERAGE, NET_INVENTORY) if links is None else sorted({_link_source(x) for x in links})
+        return records, [{**row, "stream": s} for s in sources for row in log.range(s, start, end)]
 
     def target(self, name: str, target: str, start: float, end: float) -> Seen | None:
         """What the sightings say about the person or thing called `name`, or None when no link names it."""
         mine = [x for x in self.links() if x.target == target and x.name.casefold() == name.casefold()]
         if not mine:
             return None
-        records, coverage = self.read(start, end)
+        records, coverage = self.read(start, end, mine)
         return seen(mine, records, coverage, gap_s())
 
     def people(self, start: float, end: float) -> list[tuple[str, Seen]]:
@@ -671,7 +688,7 @@ class Devices:
                 groups.setdefault(link.name.casefold(), []).append(link)
         if not groups:
             return []
-        records, coverage = self.read(start, end)
+        records, coverage = self.read(start, end, [link for mine in groups.values() for link in mine])
         gap = gap_s()
         return [(mine[0].name, seen(mine, records, coverage, gap)) for _, mine in sorted(groups.items())]
 
@@ -691,7 +708,8 @@ class Devices:
             if all(v is not None for v in newest.values()):
                 break
             lo = hi - 86400.0
-            records, _ = self.read(lo, hi)
+            unseen = [link for key, links in groups.items() if newest[key] is None for link in links]
+            records, _ = self.read(lo, hi, unseen, coverage=False)
             for key, links in groups.items():
                 if newest[key] is None:
                     newest[key] = seen(links, records, (), gap).last
@@ -716,7 +734,7 @@ class Devices:
     def comings(self, start: float, end: float) -> dict[str, Any]:
         """Every device the router said was connected over [start, end): its stays (arrived, last seen), each run of
         observations no more than devices.gap_s apart, with its name and link, newest first. Only rows the router
-        marks connected count, as for presence (#1328). `rows` is how many observations were read, for its cost."""
+        marks connected count, as for presence. `rows` is how many observations were read, for its cost."""
         links = self.links()
         located = self.locations()
         aps = access_point_names()
@@ -769,8 +787,8 @@ class Devices:
         where it was last heard and how strongly, the selectors it can be linked by, and its link (with the link's
         id) when it has one; `links` is every active link, seen in the window or not.
 
-        A day is about half a million Bluetooth rows on devbox, 20 s of CPU to read and as much again to go through,
-        and Known › Devices asks for it on every load (#2875). So each whole hour over by segment_log.SETTLE_S is
+        A day is about half a million Bluetooth rows on the Linux machine, 20 s of CPU to read and as much again to go through,
+        and Known › Devices asks for it on every load. So each whole hour over by segment_log.SETTLE_S is
         tallied once per process and kept (`_Tally`, checked against the store's stamp, so a late row or a purge
         shows), and only the window's first part hour and the hours still going are read on each call."""
         links = self.links()
@@ -928,7 +946,7 @@ def at(state: str | Path | None = None) -> Devices:
 
 
 def main(argv: Sequence[str] | None = None) -> None:
-    """`pack-devices`: list the devices seen, and link one to a person or name it as a thing (#1329)."""
+    """`pack-devices`: list the devices seen, and link one to a person or name it as a thing."""
     import argparse
     import datetime as dt
 

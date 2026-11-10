@@ -1,4 +1,4 @@
-//! `recording_bound` against real PCM and Opus batch chunks (#1669, #1711).
+//! `recording_bound` against real PCM and Opus batch chunks.
 
 use continuum_catalog::{
     Catalog, ChunkFrame, MAX_RECORDING_BYTES, NewChunk, NewPayload, RecordingPage, RedbCatalog, StreamInfo, StreamKind,

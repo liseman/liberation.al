@@ -1,4 +1,4 @@
-"""This machine's processes, each read once (proc_table.py, #2277)."""
+"""This machine's processes, each read once (proc_table.py)."""
 
 import subprocess
 import sys

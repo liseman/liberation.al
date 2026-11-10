@@ -1,11 +1,11 @@
-"""Questions about an animal (#1318): "what has the cat been doing lately", "when did the cat last use the litter box".
+"""Questions about an animal: "what has the cat been doing lately", "when did the cat last use the litter box".
 
 history_qa sends a question here when it asks about an animal the detector knows ("the cat") or a named pet
 (people/pets.py, applied to its species by the single-pet rule).
 
 - What it has been doing (`asked`, `answer`), and when it was last seen with no zone named: these were animal
-  tracking's questions (see-tracks), which was removed (#1808). The answer says so plainly, never "nothing happened".
-- When it was last in a zone (`last_asked`, `last_seen`): its newest visit to the zone named (`zone.visit`, #1316),
+  tracking's questions (see-tracks), which was removed. The answer says so plainly, never "nothing happened".
+- When it was last in a zone (`last_asked`, `last_seen`): its newest visit to the zone named (`zone.visit`),
   over the zone's coverage that says whether the cameras were watching for animals there since.
 
 Which visits are the pet (`attribute`), when a question names one: a track the owner labeled as that pet always is,
@@ -248,12 +248,12 @@ REMOVED = "Animal tracking was removed"
 
 
 def removed(what: str, species: str) -> dict[str, Any]:
-    """The plain answer for a question only animal tracking (see-tracks, deleted in #1808) could answer."""
+    """The plain answer for a question only animal tracking (see-tracks, since removed) could answer."""
     return dict(
         answer=f"{REMOVED}, so I can't say {what}.",
         evidence=[],
         coverage={"available": False, "species": species, "reason": "removed"},
-        warnings=[f"{REMOVED} (#1808): this is not a report that it wasn't there."],
+        warnings=[f"{REMOVED}: this is not a report that it wasn't there."],
     )
 
 
@@ -299,7 +299,7 @@ def last_seen(
         and keeps(whose, v.get("track_id"))
     ]
     what = f"in {zone}"
-    method = "ZoneVisit: a tracked animal inside an owner-drawn zone (#1316), an unconfirmed candidate"
+    method = "ZoneVisit: a tracked animal inside an owner-drawn zone, an unconfirmed candidate"
     days = round((end - start) / 86400.0)
     if not checks:
         return dict(

@@ -1,9 +1,9 @@
-"""Camera frames from the broker, for the vision workers (#549): which cameras capture's manifest has, and each
+"""Camera frames from the broker, for the vision workers: which cameras capture's manifest has, and each
 camera's newest frame, read from its Tier 0 slot and decoded.
 
 `newest` follows one camera's `<name>.video` stream with a pinned subscription (retried until capture registers it)
 and yields only the newest frame each time the caller is ready for one: a model slower than the camera skips frames
-rather than falling behind, as v1's live path did. A frame is read from its slot under a short lease, decoded (MJPEG,
+rather than falling behind. A frame is read from its slot under a short lease, decoded (MJPEG,
 or raw UYVY at the header's size), and flipped when capture says so. H264AnnexB streams feed every access unit
 through the optional native stateful decoder before newest-frame sampling, retaining the original presentation header.
 """
@@ -50,8 +50,8 @@ class Camera:
 
 def one_opencv_thread() -> None:
     """Run OpenCV with one thread in a vision worker. Its pool (a thread a core) spun between the small per-frame
-    calls these workers make, and the spinning cost more than the work: 1.4 of see-captions' 1.8 cores (#1656),
-    about half a core in the old face worker (#1680). Models run in their own runtimes' threads."""
+    calls these workers make, and the spinning cost more than the work: 1.4 of see-captions' 1.8 cores,
+    about half a core in the old face worker. Models run in their own runtimes' threads."""
     import cv2
 
     cv2.setNumThreads(1)
@@ -82,7 +82,7 @@ def cameras_from_manifest(path: Path, vision: Mapping[str, Any] | None = None) -
 
 def check_h264_decoder(cameras: Sequence[Camera]) -> None:
     """Log an ERROR at a worker's start when the manifest has network (`rtsp`) cameras but continuum_py was built
-    without the ffmpeg feature, so their H.264 can't be decoded and the worker would see none of their frames (#1626)."""
+    without the ffmpeg feature, so their H.264 can't be decoded and the worker would see none of their frames."""
     network = [c.name for c in cameras if c.kind == "rtsp" and not c.shared_decode]
     if not network or continuum_py.h264_decoder_available():
         return
@@ -183,7 +183,7 @@ class H264Frames:
     ) -> list[tuple[bytes, int, int, PayloadHeader]]:
         """Decode once into native-orientation host NV12, retaining each exact original source header. With `rich`,
         `keep` False decodes this unit for the reference chain only: its picture comes back with empty NV12 and no
-        BGR, never downloaded or copied (see-decode's pictures that no reader takes, #3218)."""
+        BGR, never downloaded or copied (see-decode's pictures that no reader takes)."""
         self.last_outputs.clear()
         capture = header.get("capture")
         if capture is None:
@@ -280,7 +280,7 @@ async def newest(
     header. Independent frames that arrive while the caller is busy are skipped, except the last; H.264 access
     units all decode first so skipped pictures can still provide references.
 
-    The camera's `every_ns` caps the rate by capture time (#1623): capture time is cut into `every_ns` slots, and a
+    The camera's `every_ns` caps the rate by capture time: capture time is cut into `every_ns` slots, and a
     frame is a candidate only in a slot no frame was taken or held from, so at most one frame a slot reaches the
     caller, and the slots, unlike `min_interval_s`, don't drift with load. Other frames are dropped before they're
     read or, for H.264, color converted; they are never witnessed. A capture clock that goes back or repeats is a
@@ -288,7 +288,7 @@ async def newest(
 
     A camera read through the shared decoder (`cam.shared_decode`) is paced by the decoder instead: it sends a
     picture each `every_ns`, else each `min_interval_s`, of capture time on its `shared_frames.Schedule`, so nothing
-    over the rate is converted or sent (#3218), and the slots and the monotonic interval here don't apply.
+    over the rate is converted or sent, and the slots and the monotonic interval here don't apply.
 
     Skipping is the sampling policy. Losing a frame is not: `on_break` is called when one couldn't be read or decoded
     (gone from its slot, an H.264 reset), and the frame waiting from before the loss is dropped, so the next frame
@@ -336,7 +336,7 @@ async def newest(
         if cam.shared_decode:
             from liberational.see.shared_frames import decoded_frames
 
-            # The decoder applies the rate (#3218): it sends only the pictures this reader's schedule takes, one each
+            # The decoder applies the rate: it sends only the pictures this reader's schedule takes, one each
             # `every_ns` (else `min_interval_s`) of capture time, rather than every shared BGR picture for the slots
             # here to drop half of them. Its pictures are in order, so there is no clock regression to catch.
             rate = every_ns or round(min_interval_s * 1e9)
@@ -450,7 +450,7 @@ async def until_stopped(stop: asyncio.Event, cameras: Sequence[asyncio.Task[None
     """Waits for `stop`. A camera's task that ends first (its model wouldn't load, say) has its error raised, logged at
     ERROR first, so the service exits and its supervisor restarts it, rather than living on doing nothing. A task
     that just ended (its frames stopped, as when the broker goes) raises a RuntimeError unlogged: the service's
-    `continuum_link.connected` block tells a broker outage (one WARN) from anything else (#2941)."""
+    `continuum_link.connected` block tells a broker outage (one WARN) from anything else."""
     stopping = asyncio.ensure_future(stop.wait())
     try:
         done, _ = await asyncio.wait([stopping, *cameras], return_when=asyncio.FIRST_COMPLETED)

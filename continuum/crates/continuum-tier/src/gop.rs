@@ -1,4 +1,4 @@
-//! Unit records: how a raw camera's H.264 and Opus audio sit in the chunk container (#553; docs/CONTINUUM.md,
+//! Unit records: how a raw camera's H.264 and Opus audio sit in the chunk container (docs/CONTINUUM.md,
 //! "Storage tiers").
 //!
 //! A raw camera's Tier 1 ([`ChunkFormat::H264Au`](crate::ChunkFormat::H264Au)) keeps one access unit per record, and
@@ -143,7 +143,7 @@ pub fn decode(record: &[u8]) -> Result<Vec<Unit>, TierError> {
     Ok(units)
 }
 
-/// Whether an AV1 temporal unit (low-overhead OBUs, as the archive pass writes them, #1479) carries a sequence
+/// Whether an AV1 temporal unit (low-overhead OBUs, as the archive pass writes them) carries a sequence
 /// header: SVT-AV1 writes one on each keyframe, so a decoder can start there.
 #[must_use]
 pub fn av1_key(bytes: &[u8]) -> bool {

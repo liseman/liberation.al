@@ -1,4 +1,4 @@
-"""Pet thumbnails (#2038): each animal track's photo saved as its largest box comes, served with no lookup, and cut
+"""Pet thumbnails: each animal track's photo saved as its largest box comes, served with no lookup, and cut
 from recorded video only for a track without one. Synthetic frames and made-up tracks."""
 
 import http.client
@@ -8,7 +8,7 @@ import cv2
 import numpy as np
 import pytest
 
-from liberational.dashboard import server
+from liberational.dashboard import context, photo_files, server
 from liberational.people import pet_recognition, pet_shots
 from liberational.see.caption_animals import CaptionAnimals
 
@@ -43,7 +43,7 @@ def test_a_track_is_rewritten_only_when_its_box_is_the_largest_yet(tmp_path):
     writer.offer(TRACK, [0.1, 0.1, 0.2, 0.2], 160, 120, crop)  # smaller: kept the first
     writer.offer(TRACK, BOX, 160, 120, crop)  # larger: rewritten
     assert len(cut) == 2
-    (saved,) = (tmp_path / pet_shots.KIND).glob("*.jpg")
+    (saved,) = (tmp_path / pet_shots.KIND).rglob("*.jpg")
     img = cv2.imread(str(saved))
     assert img is not None and img.shape == (pet_shots.PX, pet_shots.PX, 3)
     assert img[80:110, 80:110].mean() > 200  # the box in the middle
@@ -63,7 +63,7 @@ def test_a_captions_embedded_box_is_offered_for_its_tracks_photo():
 
 @pytest.fixture
 def route(serve, tmp_path, monkeypatch, vision):
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     vision.frames[("cam0", T)] = frame()
     monkeypatch.setattr(pet_recognition, "recorded", lambda state, now=None: [sighting()])
     host = serve(server.H).removeprefix("http://")
@@ -102,13 +102,13 @@ def test_an_unknown_or_unsafe_track_is_404(route, track):
 
 
 def test_a_photo_that_would_wait_too_long_for_a_cut_is_told_to_come_back(route, monkeypatch):
-    monkeypatch.setattr(server, "SHOT_WAIT_S", 0.05)
-    held = [server._shot_decode.acquire(timeout=1) for _ in range(2)]
+    monkeypatch.setattr(photo_files, "SHOT_WAIT_S", 0.05)
+    held = [photo_files._shot_decode.acquire(timeout=1) for _ in range(2)]
     try:
         code, headers, _ = route(TRACK)
     finally:
         for _ in held:
-            server._shot_decode.release()
+            photo_files._shot_decode.release()
     assert (code, headers["Retry-After"]) == (503, "2")
 
 
@@ -130,15 +130,15 @@ def test_background_pet_jobs_share_one_lookup_before_acquiring_decode_turns(tmp_
 
     def recorded(state, now=None):
         calls.append(state)
-        assert server._shot_decode.acquire(blocking=False)
-        assert server._shot_decode.acquire(blocking=False)
-        server._shot_decode.release()
-        server._shot_decode.release()
+        assert photo_files._shot_decode.acquire(blocking=False)
+        assert photo_files._shot_decode.acquire(blocking=False)
+        photo_files._shot_decode.release()
+        photo_files._shot_decode.release()
         return tracks
 
     monkeypatch.setattr(pet_recognition, "recorded", recorded)
     monkeypatch.setattr(pet_shots, "cut", lambda state, track: b"jpeg")
     pets._photo_tracks.cache_clear()
-    assert server._pet_file(TRACK, tmp_path) == b"jpeg"
-    assert server._pet_file("run1:dog:2", tmp_path) == b"jpeg"
+    assert photo_files._pet_file(TRACK, tmp_path) == b"jpeg"
+    assert photo_files._pet_file("run1:dog:2", tmp_path) == b"jpeg"
     assert calls == [tmp_path]

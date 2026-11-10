@@ -1,4 +1,4 @@
-""" "Who's this?" rows for unnamed voices (#347): people/voice_guess.py and GET /voices/unknown/groups."""
+""" "Who's this?" rows for unnamed voices: people/voice_guess.py and GET /voices/unknown/groups."""
 
 import json
 import math
@@ -8,7 +8,7 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from liberational.dashboard import server
+from liberational.dashboard import context, inbox_state, known_voices, people_reads, unnamed_groups
 from liberational.people import registry
 from liberational.people import voice_guess as G
 from speech_fake import fake
@@ -101,7 +101,7 @@ def prints(monkeypatch):
     """Each voice's stored embedding, as the broker would hand it to the dashboard (listen/voices.py prints)."""
     prints = {1: at(0.61), 2: E1, 3: [0.0, 0.0, 1.0, 0.0], 4: E1, 5: E1}
     monkeypatch.setattr(
-        server, "_voice_prints", lambda ns: {n: [np.asarray(prints[n], np.float32)] for n in ns if n in prints}
+        unnamed_groups, "_voice_prints", lambda ns: {n: [np.asarray(prints[n], np.float32)] for n in ns if n in prints}
     )
     return prints
 
@@ -128,27 +128,27 @@ def state(tmp_path, monkeypatch, prints):
         {"ts_start": 103.5, "speaker_id": 4, "speaker_sim": 0.9, "text": "Aside.", "audio": audio},
     ]
     fake().write(lines)
-    monkeypatch.setattr(server, "STATE", tmp_path)
-    monkeypatch.setattr(server, "INBOX_SKIPS", tmp_path / "inbox_skips.json")
-    monkeypatch.setattr(server._VOICE_GROUPS, "value", None)  # nothing kept from another test
-    server.inbox_skip("voice", 4, True)
+    monkeypatch.setattr(context, "STATE", tmp_path)
+    monkeypatch.setattr(inbox_state, "INBOX_SKIPS", tmp_path / "inbox_skips.json")
+    monkeypatch.setattr(unnamed_groups._VOICE_GROUPS, "value", None)  # nothing kept from another test
+    inbox_state.inbox_skip("voice", 4, True)
     yield tmp_path
     settle()  # a background refresh must not outlive the state it reads
 
 
 def settle():
-    """Wait for the kept voice rows' background refresh (#2346), so the next read gets the full answer."""
+    """Wait for the kept voice rows' background refresh, so the next read gets the full answer."""
     for thread in threading.enumerate():
         if thread.name == "fresh-voice groups":
             thread.join(timeout=30)
 
 
 def test_unnamed_voices_come_best_guess_first_with_their_clips(state):
-    code, body = server.unknown_voices_view()
+    code, body = people_reads.unknown_voices_view()
     assert (code, body["count"], body["skipped"]) == (200, 2, [4])
     two, three = body["groups"]
     assert (two["label"], two["guess"]["name"], two["band"], two["score"]) == ("Speaker 2", "Kara", "probable", 90)
-    assert two["guess"]["id"] == "Kara", "the name to send back, as faces' and pets' guesses (#2366)"
+    assert two["guess"]["id"] == "Kara", "the name to send back, as faces' and pets' guesses"
     assert [c["ts"] for c in two["clips"]] == [101.5, 100.5]  # the less certain line first: it teaches more
     assert two["clips"][0] == {
         "ts": 101.5,
@@ -184,7 +184,7 @@ def test_two_microphones_lines_in_one_millisecond_are_two_clips_by_key(state):
     ]
     for e in twins:
         fake().say(e)
-    three = next(g for g in server.unknown_voices_view()[1]["groups"] if g["id"] == 3)
+    three = next(g for g in people_reads.unknown_voices_view()[1]["groups"] if g["id"] == 3)
     twin = {c["line"]: c["url"] for c in three["clips"] if c["ts"] == 110.25}
     assert twin == {
         "kitchen-mic@110.250": "/clip?line=kitchen-mic%40110.250",
@@ -196,8 +196,8 @@ def test_the_route_says_when_the_voices_cannot_be_read(state, monkeypatch):
     def broken():
         raise ValueError("a half-written file")
 
-    monkeypatch.setattr(server, "_speakers", broken)
-    code, body = server.unknown_voices_view()
+    monkeypatch.setattr(known_voices, "_speakers", broken)
+    code, body = people_reads.unknown_voices_view()
     assert (code, body) == (500, {"error": "Could not read the voices waiting for a name."})
 
 
@@ -211,8 +211,8 @@ def test_a_voice_whose_lines_are_all_too_short_to_play_isnt_listed(state):
             "audio": {"stream": "mic.audio", "start_ns": 0, "end_ns": 500000000},
         }
     )
-    assert server.speakers_with_audio() >= {2, 3, 6}  # it has a line with audio; it's only too short to play
-    assert [g["id"] for g in server.unknown_voices_view()[1]["groups"]] == [2, 3]
+    assert unnamed_groups.speakers_with_audio() >= {2, 3, 6}  # it has a line with audio; it's only too short to play
+    assert [g["id"] for g in people_reads.unknown_voices_view()[1]["groups"]] == [2, 3]
 
 
 def test_a_named_voice_counts_by_its_refs():
@@ -228,26 +228,28 @@ def test_a_voice_clone_made_from_a_recording_is_never_a_guess(state, prints):
     write_voices(state, {7: "Star"})
     (state / "clones").mkdir()
     (state / "clones" / "7.json").write_text(json.dumps({"label": "Star", "source": "recorded"}))
-    two = next(g for g in server.unknown_voices_view()[1]["groups"] if g["id"] == 2)
+    two = next(g for g in people_reads.unknown_voices_view()[1]["groups"] if g["id"] == 2)
     assert two["guess"] is None  # Star sounds exactly like it, but Star is a clone
 
 
 def test_the_rows_are_kept_until_something_they_read_changes(state):
-    with patch.object(server, "speakers_with_audio", autospec=True, side_effect=server.speakers_with_audio) as audible:
-        first = server.unknown_voices_view()
-        assert server.unknown_voices_view() == first
+    with patch.object(
+        unnamed_groups, "speakers_with_audio", autospec=True, side_effect=unnamed_groups.speakers_with_audio
+    ) as audible:
+        first = people_reads.unknown_voices_view()
+        assert people_reads.unknown_voices_view() == first
         assert audible.call_count == 1
-        server.inbox_skip("voice", 3, True)
-        patched = server.unknown_voices_view()[1]
+        inbox_state.inbox_skip("voice", 3, True)
+        patched = people_reads.unknown_voices_view()[1]
         assert ([g["id"] for g in patched["groups"]], patched["refreshing"]) == ([2], True)
         settle()
         assert audible.call_count == 2
-        full = server.unknown_voices_view()[1]
+        full = people_reads.unknown_voices_view()[1]
         assert ([g["id"] for g in full["groups"]], "refreshing" in full) == ([2], False)
 
 
 def test_a_voice_heard_while_a_named_face_was_in_view_suggests_that_name(state, vision):
-    """Voice 3 speaks three times while Kara's face is in view (#225)."""
+    """Voice 3 speaks three times while Kara's face is in view."""
     audio = {"stream": "mic.audio", "start_ns": 0, "end_ns": 3000000000}
     for ts in (500.5, 1000.5):
         fake().say(
@@ -255,18 +257,18 @@ def test_a_voice_heard_while_a_named_face_was_in_view_suggests_that_name(state, 
         )
     for ts in (103.0, 501.0, 1002.0, 2000.0):  # the last is far from any line
         vision.face(ts, "cam0", "Kara", 0.7)
-    three = next(g for g in server.unknown_voices_view()[1]["groups"] if g["id"] == 3)
+    three = next(g for g in people_reads.unknown_voices_view()[1]["groups"] if g["id"] == 3)
     assert three["together"] is not None
     assert (three["together"]["name"], three["together"]["moments"]) == ("Kara", 3)
-    two = next(g for g in server.unknown_voices_view()[1]["groups"] if g["id"] == 2)
+    two = next(g for g in people_reads.unknown_voices_view()[1]["groups"] if g["id"] == 2)
     assert two["together"] is None  # nobody named was in view while voice 2 spoke
 
 
 def test_voice_recomputation_reuses_retained_speech_instead_of_reading_three_times(state):
     log = fake()
     with patch.object(log, "all_lines", autospec=True, side_effect=log.all_lines) as reads:
-        first = server._unknown_voices()
-        second = server._unknown_voices()
+        first = unnamed_groups._unknown_voices()
+        second = unnamed_groups._unknown_voices()
         assert reads.call_count == 1
     assert first == second
     assert first[0] == 200
@@ -274,18 +276,20 @@ def test_voice_recomputation_reuses_retained_speech_instead_of_reading_three_tim
 
 
 def test_kept_voice_groups_refresh_identity_names_and_drop_purged_audio_immediately(state):
-    assert server.unknown_voices_view()[1]["groups"][0]["guess"]["name"] == "Kara"
+    assert people_reads.unknown_voices_view()[1]["groups"][0]["guess"]["name"] == "Kara"
     registry.at(state).rename("Kara", "Katherine", "test")
-    assert server.unknown_voices_view()[1]["refreshing"] is True  # the kept rows, while the guesses are worked out
+    assert (
+        people_reads.unknown_voices_view()[1]["refreshing"] is True
+    )  # the kept rows, while the guesses are worked out
     settle()
-    renamed = server.unknown_voices_view()
+    renamed = people_reads.unknown_voices_view()
     assert renamed[1]["groups"][0]["guess"]["name"] == "Katherine"
     fake().purge("speech.utterance", lambda e: e.get("speaker_id") == 3)
-    assert [g["id"] for g in server.unknown_voices_view()[1]["groups"]] == [2]
+    assert [g["id"] for g in people_reads.unknown_voices_view()[1]["groups"]] == [2]
 
 
 def test_voice_recomputation_reads_new_speech_after_warming_retained_rows(state):
-    assert [g["id"] for g in server._unknown_voices()[1]["groups"]] == [2, 3]
+    assert [g["id"] for g in unnamed_groups._unknown_voices()[1]["groups"]] == [2, 3]
     fake().say(
         {
             "ts_start": 110.5,
@@ -295,7 +299,7 @@ def test_voice_recomputation_reads_new_speech_after_warming_retained_rows(state)
             "audio": {"stream": "mic.audio", "start_ns": 0, "end_ns": 3_000_000_000},
         }
     )
-    assert {g["id"] for g in server._unknown_voices()[1]["groups"]} == {2, 3, 5}
+    assert {g["id"] for g in unnamed_groups._unknown_voices()[1]["groups"]} == {2, 3, 5}
 
 
 def test_audio_availability_and_newest_samples_do_not_borrow_another_microphones_label(state):
@@ -325,5 +329,5 @@ def test_audio_availability_and_newest_samples_do_not_borrow_another_microphones
         ]
     )
     registry.at(state).claim(registry.utterance(120.0, "Desk"), "Dana", Basis.OWNER_TAG, "test")
-    assert server.speakers_with_audio() == {5}
-    assert server._newest_lines()[5]["device"] == "Hall"
+    assert unnamed_groups.speakers_with_audio() == {5}
+    assert people_reads._newest_lines()[5]["device"] == "Hall"

@@ -31,7 +31,7 @@ it('omits an unavailable image when the caller explicitly requests a null fallba
   expect(screen.queryByRole('img')).toBeNull();
 });
 
-it('tries a failed image again after a wait, as many times as asked, then shows the placeholder (#2018)', () => {
+it('tries a failed image again after a wait, as many times as asked, then shows the placeholder', () => {
   vi.useFakeTimers();
   try {
     renderPage(<SafeImage src="/faces/shot/a.jpg" alt="Alice" retries={2} />);
@@ -49,7 +49,7 @@ it('tries a failed image again after a wait, as many times as asked, then shows 
   }
 });
 
-// #2049: while a picture loads, and through its retries, a skeleton holds its place at its final size.
+// While a picture loads, and through its retries, a skeleton holds its place at its final size.
 const skeleton = () => document.querySelector('[data-safe-image]');
 
 it("shows a skeleton in the image's own box until the picture arrives", () => {

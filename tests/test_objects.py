@@ -134,7 +134,7 @@ def test_a_name_or_alias_is_remembered_once_and_a_crop_over_a_face_is_refused(st
         store.remember(name="Purse", snapshot=snapshot(), bbox=BBOX)
     at = time.time() - 1
     live_face_boxes.append(
-        {"cam": "cam0", "start_ns": int(at * 1e9), "faces": [{"bbox": [0.2, 0.2, 0.4, 0.4], "name": "Joe"}]}
+        {"cam": "cam0", "start_ns": int(at * 1e9), "faces": [{"bbox": [0.2, 0.2, 0.4, 0.4], "name": "Sam"}]}
     )
     with pytest.raises(ValueError, match="face"):
         store.remember(name="keys", snapshot=snapshot(at=at), bbox=BBOX)
@@ -333,7 +333,7 @@ def test_a_chosen_box_runs_sam2_once_and_its_selection_is_bound_to_the_snapshot(
 
 
 def test_there_is_no_automatic_proposal_endpoint(monkeypatch):
-    # Joe (#1481): segmentation only ever runs for a box or point the owner chose.
+    # Segmentation only ever runs for a box or point the owner chose.
     body = json.dumps({"snapshot": "any"}).encode()
 
     class Handler:

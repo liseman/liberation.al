@@ -1,4 +1,4 @@
-// A camera's recorded video for Review through Continuum's gateway (#549): the parts of a <video> the review engine
+// A camera's recorded video for Review through Continuum's gateway: the parts of a <video> the review engine
 // uses (VideoLike), played on a canvas by the player's WebCodecs worker from the gateway's `range` windows.
 //
 // A segment's URL names the stream and the stretch it covers (`gateway:<stream>:<start_us>:<end_us>`, from the
@@ -11,7 +11,7 @@
 // after a short wait, so playback picks up once the gateway is back, and nothing is reported as an error (Review marks
 // a segment that errors as cut off). A window whose frames are all in a codec this browser can't decode sets
 // `unplayable` (and `unplayableCodec`, which one), so Review can say why the picture is empty. Recorded video is H.264,
-// which every browser decodes, until the opt-in archive pass makes it AV1 (#1479), which older Safari can't.
+// which every browser decodes, until the opt-in archive pass makes it AV1, which older Safari can't.
 
 import type { FrameMetadata } from '../camera/geometry';
 import { decodeHeader, PayloadType } from '../player/header';
@@ -59,12 +59,12 @@ export interface GatewayVideoDeps {
 }
 
 /** How long playback waits at the end of a segment that has been growing before it ends there: Review lists today's
- *  video again every few seconds (#806), so the stretch being recorded grows on while it plays. */
+ *  video again every few seconds, so the stretch being recorded grows on while it plays. */
 const GROW_WAIT_MS = 15_000;
 
 /** A seek asks for a short window around its point, not a playing window: the frame showing at the point (the
  *  newest at or before it) and a few after. A 4 s window was 120 MJPEG frames and 28 MB, all decoded before the next
- *  scrub position could start (2026-10-30). Playing on from a seek asks for the next full window as usual; for
+ *  scrub position could start. Playing on from a seek asks for the next full window as usual; for
  *  H.264 the gateway sends whole GOPs from the keyframe anyway. */
 const SEEK_LEAD_US = 250_000;
 const SEEK_WINDOW_US = 500_000;
@@ -127,7 +127,7 @@ export class GatewayVideo implements VideoLike {
     const us = h.captureUs;
     // A frame of a window a later seek gave up on (the gateway answers a range whole, in order) is not decoded. A
     // GOP that starts in the window comes whole, so its tail runs past the window's end: those frames are the next
-    // window's first ones, and dropping them froze the picture at every window's end for up to a GOP (#917).
+    // window's first ones, and dropping them froze the picture at every window's end for up to a GOP.
     if (
       this.wanted !== null &&
       this.wantedEnd !== null &&
@@ -447,7 +447,7 @@ export class GatewayVideo implements VideoLike {
    *  become the new seek's decoded picture or completed-GOP frontier, even when their time windows overlap. */
   private resetForSeek(): void {
     if ((this.wanted !== null || this.framing !== null) && this.conn && this.outReq !== null) {
-      // Its replies carry its id: cancel it and keep the connection (the gateway's `req`, #2384).
+      // Its replies carry its id: cancel it and keep the connection (the gateway's `req`).
       this.conn.send({ type: 'cancel', req: this.outReq });
       this.outReq = null;
     } else if (this.wanted !== null || this.framing !== null) {

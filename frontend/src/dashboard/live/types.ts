@@ -1,7 +1,7 @@
 // The live data the dashboard server streams on GET /events, and polls on the same shapes when the stream is down.
 // Lines and scene entries carry more fields than these; the tabs that read them type what they use.
 
-/** A transcript line as a request names it: its key (`line`, "<device slug>@<ts_start>", #247), which no other
+/** A transcript line as a request names it: its key (`line`, "<device slug>@<ts_start>"), which no other
  *  microphone's line shares, or its ts_start as before keys, which the server refuses when two lines share it. */
 export type LineRef = string | number;
 
@@ -19,7 +19,7 @@ export interface TranscriptEntry {
   speaker?: string;
   speaker_id?: number | string | null;
   assistant?: boolean;
-  media?: boolean; // heard from a TV or radio (#2468): shown, but nobody's line
+  media?: boolean; // heard from a TV or radio: shown, but nobody's line
   media_by?: 'owner' | 'classifier'; // who marked it a TV's: the owner, or the audio tagger by ear
   _new?: boolean; // arrived in the last few seconds (the Live tab highlights it)
   [field: string]: unknown;
@@ -40,7 +40,7 @@ export interface Transcript {
 export interface SceneEntry {
   cam: string;
   ts: number;
-  /** The view hadn't changed, so its caption is the last real one, from `since` (epoch seconds), #379. */
+  /** The view hadn't changed, so its caption is the last real one, from `since` (epoch seconds). */
   unchanged?: boolean;
   since?: number | null;
   [field: string]: unknown;
@@ -70,13 +70,13 @@ export interface AmbientDevice {
   /** The level a frame has to pass for the VAD to hear speech now (dBFS). */
   threshold_dbfs?: number;
   sensitivity?: number | null;
-  /** Its gain now (auto gain, #410). */
+  /** Its gain now (auto gain). */
   gain?: { auto: boolean; kind: 'hardware' | 'software' | null; db: number | null };
   [field: string]: unknown;
 }
 
 /** One camera as vision reports it: "starting" until its first frame, "on" while frames come, "retrying" while it
- *  is being reopened after frames stopped (#324). */
+ *  is being reopened after frames stopped. */
 export interface VisionCamera {
   state: 'starting' | 'on' | 'retrying';
   since?: number;

@@ -15,7 +15,7 @@ from unittest.mock import create_autospec
 import pytest
 
 from liberational import config as cfg
-from liberational.dashboard import assets, devices, server
+from liberational.dashboard import assets, call_log, context, devices, inbox_state, people_list, server
 
 INDEX = (
     "<!doctype html><html><head><script>window.NAMES={{names_json}};</script><title>{{assistant}}</title></head>"
@@ -51,6 +51,14 @@ def test_shell_roundtrips_script_like_names_without_ending_its_script():
     script = page.split("<script>", 1)[1].split("</script>", 1)[0]
     assert "<" not in script
     assert names(page)["owner"] == owner
+
+
+def test_shell_says_first_run_setup_is_needed_until_the_local_config_exists(tmp_path, monkeypatch):
+    local = tmp_path / "pack.toml"
+    monkeypatch.setattr(cfg, "local_config", lambda: local)
+    assert names(server.fill(INDEX))["needsSetup"] is True
+    local.write_text("")
+    assert names(server.fill(INDEX))["needsSetup"] is False
 
 
 def test_shell_uses_exact_native_camera_names(tmp_path, monkeypatch):
@@ -130,14 +138,13 @@ def isolated_paths(tmp_path, monkeypatch):
     """Keep config defaults and import-time paths temporary until the HTTP servers have stopped."""
     state = tmp_path / "state"
     calls = tmp_path / "calls"
-    for name, value in {
-        "STATE": state,
-        "CALLS_DIR": calls,
-        "PEOPLE_ADDED": state / "people_added.json",
-        "CONTACTS_FILE": state / "contacts.json",
-        "INBOX_SKIPS": state / "inbox_skips.json",
-    }.items():
+    for name, value in {}.items():
         monkeypatch.setattr(server, name, value)
+    monkeypatch.setattr(people_list, "PEOPLE_ADDED", state / "people_added.json")
+    monkeypatch.setattr(inbox_state, "INBOX_SKIPS", state / "inbox_skips.json")
+    monkeypatch.setattr(people_list, "CONTACTS_FILE", state / "contacts.json")
+    monkeypatch.setattr(call_log, "CALLS_DIR", calls)
+    monkeypatch.setattr(context, "STATE", state)
     with cfg.override(
         {
             "paths": {
@@ -177,7 +184,7 @@ def dashboard(serve, monkeypatch):
 
 
 def test_the_page_says_whether_hotkeys_are_on(tree):
-    # Issue #64: dashboard.hotkeys, off by default, reaches the page as NAMES.hotkeys.
+    # dashboard.hotkeys, off by default, reaches the page as NAMES.hotkeys.
     tree.build()
     assert names(server.app_page()[1].decode())["hotkeys"] is False
     with cfg.override({"dashboard": {"hotkeys": True}}):
@@ -202,7 +209,7 @@ def test_a_fetch_of_a_tab_path_gets_the_api(dashboard, monkeypatch, people_api_b
 
     # This route test needs the real empty read path, without a detached photo worker outliving its settings.
     monkeypatch.setattr(face_photos, "refresh_async", face_photos.refresh)
-    monkeypatch.setattr(server, "_faces_mod", lambda: SimpleNamespace(counts=dict, unknown_groups=list))
+    monkeypatch.setattr(people_list, "_faces_mod", lambda: SimpleNamespace(counts=dict, unknown_groups=list))
     _, headers, body = get(dashboard, "/people", {"Accept": "*/*"})  # fetch() from the People tab
     assert headers["content-type"] == "application/json"
     assert json.loads(body)["people"] == []
@@ -222,7 +229,7 @@ def test_calls_tab_serves_html_navigation_and_preserves_the_json_api(tree, dashb
 
 @pytest.mark.parametrize("accept", ["application/json", "*/*"])
 def test_devices_tab_reloads_as_the_app_and_keeps_the_json_api(tree, dashboard, monkeypatch, accept):
-    # #2816: devices.handle answered GET /devices before the page check, so reloading the Devices tab got JSON.
+    # devices.handle answered GET /devices before the page check, so reloading the Devices tab got JSON.
     tree.build()
     seen = {"control": False, "mics": [], "cameras": []}
     monkeypatch.setattr(devices, "view", create_autospec(devices.view, return_value=seen))  # it reads the hardware
@@ -321,7 +328,7 @@ def test_in_dev_without_vite_the_page_is_the_last_build(tree, dashboard, monkeyp
 
 
 def test_objects_is_the_built_page_from_the_dashboard_or_says_how_to_build_it(tree, dashboard):
-    # The Objects page is the dashboard's own since object memory moved to Continuum (#778), and it is a tab of the
+    # The Objects page is the dashboard's own since object memory moved to Continuum, and it is a tab of the
     # one app page, so it needs the app built like every other tab.
     status, _, body = get(dashboard, "/objects")
     assert status == 503
