@@ -16,9 +16,9 @@ It does, in order:
    (LOCK, a constraints file the release build writes into the package), every version is pinned to it.
 3. Continuum: says whether the SDK and the daemons are in this environment. They come with the package as wheels;
    nothing here builds or fetches them.
-4. Models (fetch_models.py): fetches the ones this machine wants and doesn't have. A download that was cut off
+4. Ollama: says whether it is there and answering, and how to get it. Its models are pulled in step 5 when it is.
+5. Models (fetch_models.py): fetches the ones this machine wants and doesn't have. A download that was cut off
    carries on where it stopped, and each says how far it is.
-5. Ollama: says whether it is there and answering, and how to get it. Its models are pulled in step 4 when it is.
 
 It ends by saying how to open the application. Run again, it installs and downloads nothing it already has. The exit
 status is 1 while something the application needs is still missing (a needed system package, the extras, Continuum,
