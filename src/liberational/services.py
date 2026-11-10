@@ -875,18 +875,31 @@ def _dated(stamps: Sequence[str], end: float) -> list[float]:
     return out[::-1]
 
 
-def last_error(name: str, since: float | None = None, *, include_id: bool = False) -> dict[str, Any] | None:
-    """What last went wrong in a service, from the last LOG_TAIL_BYTES of its log (a long log is never read whole):
-    {"at": "HH:MM:SS", "ts": epoch seconds, "text"}, or None. That's its newest ERROR line, or a crash's exception
-    (the last line of a bare traceback, which an uncaught exception writes with no ERROR line; its time is the time
-    of the line before it, and "at" is "" and "ts" None when there's none).
+# Each log's newest error, kept with the file it was read from (device, inode, size, and mtime): /services is polled
+# every 15 s on every page, and reading the last 64 KiB of every service's log each time was 28 opens a poll on the
+# Linux machine. A log nobody wrote to since is not opened again.
+_log_errors: dict[str, tuple[tuple[int, int, int, int], dict[str, Any] | None]] = {}
+_log_errors_lock = threading.Lock()
 
-    since (epoch seconds) leaves out an error from before then: a running service's errors from before its current
-    start were fixed by that start, and only confuse the page. An error with no time counts as before. include_id
-    adds an opaque log occurrence id for dismissals: appending the same error in the same second is a new event,
-    while later unrelated log writes leave its id alone."""
+
+def _log_identity(stat: os.stat_result) -> tuple[int, int, int, int]:
+    return stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns
+
+
+def _newest_error(path: pathlib.Path) -> dict[str, Any] | None:
+    """The newest error in the last LOG_TAIL_BYTES of a log: {"at", "ts", "text", "id"}, or None. Read again only when
+    the file's size or modification time changed, or it's another file (rotated)."""
+    key = str(path)
     try:
-        with log_path(name).open("rb") as f:
+        identity = _log_identity(path.stat())
+    except OSError:
+        return None
+    with _log_errors_lock:
+        kept = _log_errors.get(key)
+    if kept is not None and kept[0] == identity:
+        return kept[1]
+    try:
+        with path.open("rb") as f:
             stat = os.fstat(f.fileno())
             end = stat.st_mtime
             f.seek(0, os.SEEK_END)
@@ -895,6 +908,15 @@ def last_error(name: str, since: float | None = None, *, include_id: bool = Fals
             tail = f.read()
     except OSError:
         return None
+    error = _parse_error(tail, offset, end, stat)
+    with _log_errors_lock:
+        # Keyed by what was opened: a write between the stat and the read is seen as a change by the next call.
+        _log_errors[key] = (_log_identity(stat), error)
+    return error
+
+
+def _parse_error(tail: bytes, offset: int, end: float, stat: os.stat_result) -> dict[str, Any] | None:
+    """_newest_error's answer from a log's tail, which starts at byte `offset` of a file last written at `end`."""
     found: tuple[int, str, int] | None = None  # (stamp index, or -1; text; byte offset of its occurrence)
     stamps: list[str] = []  # every timestamped line's time, in file order
     in_trace = after_error = False
@@ -921,17 +943,33 @@ def last_error(name: str, since: float | None = None, *, include_id: bool = Fals
         return None
     i, text, position = found
     ts = _dated(stamps, end)[i] if i >= 0 else None
-    if since is not None and (ts is None or ts + 1 <= since):  # the log's seconds are whole; since isn't
-        return None
-    error = {
+    occurrence = f"{stat.st_dev}:{stat.st_ino}:{position}:{ts}:{text}"
+    return {
         "at": stamps[i][-14:-6] if i >= 0 and "T" in stamps[i] else stamps[i] if i >= 0 else "",
         "ts": ts,
         "text": text,
+        "id": hashlib.sha256(occurrence.encode()).hexdigest(),
     }
-    if include_id:
-        occurrence = f"{stat.st_dev}:{stat.st_ino}:{position}:{ts}:{text}"
-        error["id"] = hashlib.sha256(occurrence.encode()).hexdigest()
-    return error
+
+
+def last_error(name: str, since: float | None = None, *, include_id: bool = False) -> dict[str, Any] | None:
+    """What last went wrong in a service, from the last LOG_TAIL_BYTES of its log (a long log is never read whole,
+    and an unchanged one isn't read again: `_newest_error`): {"at": "HH:MM:SS", "ts": epoch seconds, "text"}, or
+    None. That's its newest ERROR line, or a crash's exception (the last line of a bare traceback, which an uncaught
+    exception writes with no ERROR line; its time is the time of the line before it, and "at" is "" and "ts" None
+    when there's none).
+
+    since (epoch seconds) leaves out an error from before then: a running service's errors from before its current
+    start were fixed by that start, and only confuse the page. An error with no time counts as before. include_id
+    adds an opaque log occurrence id for dismissals: appending the same error in the same second is a new event,
+    while later unrelated log writes leave its id alone."""
+    found = _newest_error(log_path(name))
+    if found is None:
+        return None
+    ts = found["ts"]
+    if since is not None and (ts is None or ts + 1 <= since):  # the log's seconds are whole; since isn't
+        return None
+    return {k: v for k, v in found.items() if include_id or k != "id"}
 
 
 def _run_began(state: str | None, run: dict[str, Any] | None) -> float | None:
@@ -1048,12 +1086,38 @@ def processes(fresh: bool = False, *, nonblocking: bool = False) -> dict[str, li
         return {name: list(pids) for name, pids in _scan["pids"].items()}
 
 
+# What the service manager said of every unit (states() and runs(), one systemctl call each), kept for a few seconds:
+# several pages poll /services at once, and a state changes only when a service starts, stops, or fails.
+MANAGER_TTL_S = 5.0
+_manager_lock = threading.Lock()
+_manager: dict[str, Any] = {"at": None, "states": {}, "runs": {}}
+
+
+def _managed(fresh: bool = False) -> tuple[dict[str, str], dict[str, dict[str, Any]]]:
+    """(states(), runs()) for a status poll: the last answer when it is under MANAGER_TTL_S old, with each run's
+    `up_s` moved on by the answer's age. fresh=True (an action's reply) asks the manager now. Polls that arrive
+    together wait for one read instead of each starting their own."""
+    with _manager_lock:
+        at = _manager["at"]
+        if fresh or at is None or time.monotonic() - at >= MANAGER_TTL_S:
+            state, ran = states(), runs()
+            _manager.update(at=time.monotonic(), states=state, runs=ran)
+            return dict(state), {name: dict(run) for name, run in ran.items()}
+        age = time.monotonic() - at
+        return dict(_manager["states"]), {
+            name: {**run, "up_s": run["up_s"] + age} if run.get("up_s") is not None else dict(run)
+            for name, run in _manager["runs"].items()
+        }
+
+
 def snapshot(fresh: bool = False) -> list[dict[str, Any]]:
     """Every service declared for this platform: selected for this machine, installed, its state, and running pids
-    (fresh as in processes())."""
+    (fresh as in processes()). A poll reuses the service manager's last answer for MANAGER_TTL_S (`_managed`) and
+    opens only the logs written to since the last one (`_newest_error`)."""
     # A cold poll reports pending before asking the manager or reading logs; actions still get a fresh truth.
     procs = processes(fresh, nonblocking=not fresh)
-    chosen, state, need, ran = selected(), states(), required(), runs()
+    state, ran = _managed(fresh)
+    chosen, need = selected(), required()
     return [
         {
             "name": name,
