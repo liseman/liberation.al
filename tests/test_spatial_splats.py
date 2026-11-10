@@ -413,8 +413,9 @@ def test_a_walks_failed_training_leaves_the_walk_without_a_splat_and_says_why(tm
     k = np.array([[100.0, 0, 100], [0, 100, 50], [0, 0, 1]])
     with cfg.override({"spatial": {"splat_runtime": str(runtime), "splats_enabled": True, "gpu": 0}}):
         did = splats.splat_walk(
-            tmp_path, rev.place, rev.id, [tmp_path / "f000.jpg"], np.eye(4)[None], [(k, (200, 100))], rev.cameras
-        )
+            tmp_path, rev.place, rev.id, [tmp_path / "f000.jpg"], np.eye(4)[None], [(k, (200, 100))], rev.cameras,
+            refine=True,
+        )  # fmt: skip
     assert did is None
     assert not places.has_splat(tmp_path, rev)
     assert "CUDA out of memory" in caplog.text

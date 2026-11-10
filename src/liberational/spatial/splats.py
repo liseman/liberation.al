@@ -364,31 +364,15 @@ def carried(
     return rot, ca.mean(0) - scale * rot @ cb.mean(0), scale
 
 
-def splat_walk(
-    state: Path,
-    place: str,
-    revision: str,
+def walk_views(
     images: Sequence[Path],
     poses: np.ndarray,
     frames: Sequence[tuple[np.ndarray, tuple[int, int]]],
-    looks: Mapping[str, places.CameraPose],
-) -> dict[str, Any] | None:
-    """Train and keep a splat for a Stray walk's revision (`place`'s `revision`, what tier 1 made of it) from every
-    saved frame (`images`) at its pose (`poses`, the walk's frame) and intrinsics and size (`frames`), moved into the
-    revision's map frame by the similarity tier 1 moved the walk's `looks` by (`carried`), starting from the
-    revision's map points (at most WALK_START_POINTS); what it did. Every view trains, none held out. None (the log
-    says why) when splats are off, gsplat's runtime isn't installed, the frame can't be carried, or training fails.
-    ARKit's poses are metric and tracked, so unlike a CUT3R walk's they agree well enough across the walk (#2877)."""
-    runtime = cfg.path("spatial.splat_runtime")
-    if not cfg.get("spatial.splats_enabled") or not (runtime / ".venv" / "bin" / "python").exists():
-        LOG.info("no splat of the walk: splats are off or gsplat's runtime isn't installed (`mise run gsplat`)")
-        return None
-    rev = next((r for r in places.revisions(state, place) if r.id == revision), None)
-    moved = carried(looks, rev.cameras) if rev is not None and rev.map is not None else None
-    if rev is None or moved is None:
-        LOG.warning("no splat of the walk: revision %s of %s has no map or none of the walk's cameras", revision, place)
-        return None
-    rot, shift, scale = moved
+    moved: tuple[np.ndarray, np.ndarray, float] | None = None,
+) -> list[dict[str, Any]]:
+    """The runner's views for a walk's saved frames (`images`) at their poses (`poses`, camera to world) and
+    intrinsics and sizes (`frames`), moved by the similarity `moved` (rotation, shift, scale) when given."""
+    rot, shift, scale = moved if moved is not None else (np.eye(3), np.zeros(3), 1.0)
     views = []
     for image, pose, (k, (w, h)) in zip(images, poses, frames, strict=True):
         c2w = np.asarray(pose, dtype=np.float64).reshape(4, 4)
@@ -408,33 +392,83 @@ def splat_walk(
                 "height": int(h),
             }
         )
-    points, colors, _ = ply.read(places.root(state) / rev.place / str(rev.map))
-    pts = np.asarray(points, dtype=np.float32)
+    return views
+
+
+def train_walk(
+    views: Sequence[Mapping[str, Any]],
+    points: np.ndarray,
+    colors: np.ndarray | None,
+    *,
+    refine: bool,
+    holdout: Sequence[int] = (),
+    steps: int = WALK_STEPS,
+) -> tuple[dict[str, Any], bytes]:
+    """Train a walk's splat from `views` (`walk_views`), starting from `points` and `colors` (at most
+    WALK_START_POINTS of them, picked with a fixed seed), with each training view's pose refined while it trains when
+    `refine` (spatial/splat_runner.py's `pose_opt`) and the views at `holdout` scored, not trained on: the runner's
+    result and the trained PLY. Raises RuntimeError when gsplat's runtime is missing or training fails."""
+    runtime = cfg.path("spatial.splat_runtime")
+    pts = np.asarray(points, dtype=np.float32).reshape(-1, 3)
     rgb = np.full((len(pts), 3), 128, np.uint8) if colors is None else np.asarray(colors, np.uint8)
     if len(pts) > WALK_START_POINTS:
         pick = np.sort(np.random.default_rng(0).choice(len(pts), WALK_START_POINTS, replace=False))
         pts, rgb = pts[pick], rgb[pick]
     gpu = cameras.pick_gpu(int(cfg.get("spatial.gpu")), nvml.gpus())
-    try:
-        with tempfile.TemporaryDirectory(prefix="spatial-splat-walk-") as tmp:
-            folder = Path(tmp)
-            np.savez(folder / "start.npz", points=pts, colors=rgb)
-            job = folder / "job.json"
-            job.write_text(
-                json.dumps(
-                    {
-                        "views": views,
-                        "init": str(folder / "start.npz"),
-                        "steps": WALK_STEPS,
-                        "cap": WALK_GAUSSIANS,
-                        "sh_degree": SH_DEGREE,
-                        "out": str(folder),
-                        "reg": 0.0,
-                    }
-                )
+    with tempfile.TemporaryDirectory(prefix="spatial-splat-walk-") as tmp:
+        folder = Path(tmp)
+        np.savez(folder / "start.npz", points=pts, colors=rgb)
+        job = folder / "job.json"
+        job.write_text(
+            json.dumps(
+                {
+                    "views": list(views),
+                    "init": str(folder / "start.npz"),
+                    "steps": steps,
+                    "cap": WALK_GAUSSIANS,
+                    "sh_degree": SH_DEGREE,
+                    "out": str(folder),
+                    "reg": 0.0,
+                    "pose_opt": refine,
+                    "holdout": list(holdout),
+                }
             )
-            result = run_runner(runtime, job, gpu, timeout_s=WALK_TIMEOUT_S)
-            master = (folder / "splat.ply").read_bytes()
+        )
+        result = run_runner(runtime, job, gpu, timeout_s=WALK_TIMEOUT_S)
+        return {**result, "start_points": len(pts)}, (folder / "splat.ply").read_bytes()
+
+
+def splat_walk(
+    state: Path,
+    place: str,
+    revision: str,
+    images: Sequence[Path],
+    poses: np.ndarray,
+    frames: Sequence[tuple[np.ndarray, tuple[int, int]]],
+    looks: Mapping[str, places.CameraPose],
+    *,
+    refine: bool,
+) -> dict[str, Any] | None:
+    """Train and keep a splat for a walk's revision (`place`'s `revision`, what tier 1 made of it) from every saved
+    frame (`images`) at its pose (`poses`, the walk's frame) and intrinsics and size (`frames`), moved into the
+    revision's map frame by the similarity tier 1 moved the walk's `looks` by (`carried`), starting from the
+    revision's map points (at most WALK_START_POINTS); what it did. Every view trains, none held out. `refine` turns
+    on the trainer's pose refinement: on for a plain-video walk, whose CUT3R and pose-graph poses are a little off
+    here and there (#21), off for a Stray walk's tracked ARKit poses. None (the log says why) when splats are off,
+    gsplat's runtime isn't installed, the frame can't be carried, or training fails."""
+    runtime = cfg.path("spatial.splat_runtime")
+    if not cfg.get("spatial.splats_enabled") or not (runtime / ".venv" / "bin" / "python").exists():
+        LOG.info("no splat of the walk: splats are off or gsplat's runtime isn't installed (`mise run gsplat`)")
+        return None
+    rev = next((r for r in places.revisions(state, place) if r.id == revision), None)
+    moved = carried(looks, rev.cameras) if rev is not None and rev.map is not None else None
+    if rev is None or moved is None:
+        LOG.warning("no splat of the walk: revision %s of %s has no map or none of the walk's cameras", revision, place)
+        return None
+    views = walk_views(images, poses, frames, moved)
+    points, colors, _ = ply.read(places.root(state) / rev.place / str(rev.map))
+    try:
+        result, master = train_walk(views, points, colors, refine=refine)
         rows = ply.vertices(master)
         if rows is None:
             raise RuntimeError("the splat trainer wrote a PLY this reader can't take")
@@ -446,9 +480,12 @@ def splat_walk(
     did = {
         "revision": rev.id,
         "views": len(views),
-        "start_points": len(pts),
+        "start_points": result.get("start_points"),
         "gaussians": result.get("gaussians"),
         "train_psnr": result.get("train_psnr"),
+        "pose_opt": refine,
+        "pose_shift": result.get("pose_shift"),
+        "pose_turn_deg": result.get("pose_turn_deg"),
         "seconds": result.get("seconds"),
         "peak_vram_gib": result.get("peak_vram_gib"),
         "spz_mb": round(len(web) / 2**20, 1),

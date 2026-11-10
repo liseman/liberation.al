@@ -507,8 +507,13 @@ def test_a_second_video_of_a_place_is_fused_into_its_map_and_its_fixed_cameras_k
     assert producers == [W.PRODUCER, fuse.PRODUCER, fuse.PRODUCER, fuse.PRODUCER], "no unregistered map in between"
     latest = places.latest(tmp_path, first["place"])
     assert latest is not None and latest.id == second["revision"]
-    assert latest.cameras == {"s2": POSE}
+    assert fixed(latest.cameras) == {"s2": POSE}
     assert latest.signals["walkthrough"] == ["a.mp4", "b.mp4"]
+
+
+def fixed(cams):
+    """The fixed cameras of a revision's `cams`: without the walk's views to look from (`splats.look_from`)."""
+    return {name: pose for name, pose in cams.items() if not name.startswith(splats.LOOK_PREFIX)}
 
 
 def unrelated_place(state, cameras):
@@ -562,7 +567,7 @@ def test_a_walk_that_doesnt_register_in_a_place_is_its_own_place_and_the_place_k
     monkeypatch.setattr(W.cameras, "frames", frames)  # s2's recorded frames, to seat it by
     did = W.run(tmp_path, pan_video(tmp_path / "b.mp4"), place=old.place)
     assert places.latest(tmp_path, old.place) == old
-    assert places.camera_places(tmp_path) == {"s2": old.place}
+    assert fixed(places.camera_places(tmp_path)) == {"s2": old.place}
     assert did["meant_for"] == old.place and did["place"] != old.place and did["registered"] is None
     alone = places.latest(tmp_path, did["place"])
     assert alone is not None and alone.signals["walkthrough"] == ["b.mp4"] and alone.map is not None
@@ -582,7 +587,7 @@ def test_a_walk_its_places_map_cant_place_is_fused_where_the_fixed_cameras_seat_
     did = W.run(tmp_path, pan_video(tmp_path / "b.mp4"), place=old.place)
     assert did["place"] == old.place and did["registered"] == "cameras" and did["fused"]
     rev = places.latest(tmp_path, old.place)
-    assert rev is not None and rev.cameras == {"s2": POSE} and rev.frame == old.frame
+    assert rev is not None and fixed(rev.cameras) == {"s2": POSE} and rev.frame == old.frame
     assert rev.signals["walkthrough"] == ["a.mp4", "b.mp4"]
     cloud, _, _ = ply.read(places.root(tmp_path) / rev.place / str(rev.map))
     walls = cloud[(cloud[:, 0] > 19.9) & (cloud[:, 0] < 24.1)]
@@ -670,13 +675,9 @@ def test_a_portrait_stray_export_saves_upright_frames(tmp_path):
     assert first.shape[:2] == (stray_fake.RGB[0], stray_fake.RGB[1]), "portrait: as tall as the sensor is wide"
 
 
-def test_a_stray_walk_gets_a_splat_in_its_maps_frame_and_cameras_to_look_from(tmp_path, monkeypatch):
-    upright = [stray_fake.upright_pose(0.5 + 0.1 * k, heading=0.02 * k) for k in range(30)]
-    sensor = [stray.turned(p, stray_fake.CLOCKWISE.T) for p in upright]  # held upright: portrait
-    folder = stray_fake.write(tmp_path / "walk", sensor)
-    runtime = tmp_path / "gsplat"
-    (runtime / ".venv" / "bin").mkdir(parents=True)
-    (runtime / ".venv" / "bin" / "python").write_text("")
+def fake_trainer(monkeypatch):
+    """gsplat's runtime faked at its subprocess boundary (`splats.run_runner`): each job it's given is kept in the
+    list returned, and it answers with a two-Gaussian PLY."""
     jobs = []
 
     def trained(rt, job, gpu, timeout_s=0.0):
@@ -691,7 +692,18 @@ def test_a_stray_walk_gets_a_splat_in_its_maps_frame_and_cameras_to_look_from(tm
         (job.parent / "splat.ply").write_bytes(head.encode() + rows.tobytes())
         return {"gaussians": n, "train_psnr": 20.0, "seconds": 1.0}
 
-    monkeypatch.setattr(splats, "run_runner", trained)  # the subprocess boundary: gsplat's own runtime
+    monkeypatch.setattr(splats, "run_runner", trained)
+    return jobs
+
+
+def test_a_stray_walk_gets_a_splat_in_its_maps_frame_and_cameras_to_look_from(tmp_path, monkeypatch):
+    upright = [stray_fake.upright_pose(0.5 + 0.1 * k, heading=0.02 * k) for k in range(30)]
+    sensor = [stray.turned(p, stray_fake.CLOCKWISE.T) for p in upright]  # held upright: portrait
+    folder = stray_fake.write(tmp_path / "walk", sensor)
+    runtime = tmp_path / "gsplat"
+    (runtime / ".venv" / "bin").mkdir(parents=True)
+    (runtime / ".venv" / "bin" / "python").write_text("")
+    jobs = fake_trainer(monkeypatch)
     with cfg.override({"spatial": {"splat_runtime": str(runtime), "splats_enabled": True}}):
         did = W.run(tmp_path, folder, poses_out=tmp_path / "poses.npz")
     rev = places.latest(tmp_path, did["place"])
@@ -702,6 +714,7 @@ def test_a_stray_walk_gets_a_splat_in_its_maps_frame_and_cameras_to_look_from(tm
     assert len(looks) == min(splats.LOOK_FROM, did["frames"])
     (job,) = jobs
     assert len(job["views"]) == did["frames"] and job["reg"] == 0.0
+    assert job["pose_opt"] is False, "ARKit's tracked poses train as they are"
     view = job["views"][0]
     assert (view["width"], view["height"]) == (stray_fake.RGB[1], stray_fake.RGB[0]), "the upright frame's size"
     assert (view["cx"], view["cy"]) == pytest.approx((stray_fake.RGB[1] - 1 - stray_fake.K[1, 2], stray_fake.K[0, 2]))
@@ -711,6 +724,25 @@ def test_a_stray_walk_gets_a_splat_in_its_maps_frame_and_cameras_to_look_from(tm
         walked = saved["c2w"][0].ravel().tolist()
     assert view["pose"] != pytest.approx(walked, abs=1e-3), "tier 1 moved the walk"
     assert view["pose"] == pytest.approx(list(rev.cameras["walk-0m00s"].pose), abs=1e-6)
+
+
+def test_a_plain_video_walk_gets_a_splat_that_refines_its_poses(tmp_path, runtime, monkeypatch):
+    gsplat = tmp_path / "gsplat"
+    (gsplat / ".venv" / "bin").mkdir(parents=True)
+    (gsplat / ".venv" / "bin" / "python").write_text("")
+    jobs = fake_trainer(monkeypatch)
+    with cfg.override({"spatial": {"splat_runtime": str(gsplat), "splats_enabled": True}}):
+        did = W.run(tmp_path, pan_video(tmp_path / "walk.mp4"), poses_out=tmp_path / "poses.npz")
+    rev = places.latest(tmp_path, did["place"])
+    assert rev is not None and did["splat"] is not None and places.has_splat(tmp_path, rev)
+    (job,) = jobs
+    assert job["pose_opt"] is True and len(job["views"]) == did["frames"] == 5
+    view = job["views"][0]
+    # The fake CUT3R's focal is 300 px at its 512 px long side; the saved 320 x 240 frame scales it by 320 / 512,
+    # with the principal point at the frame's centre.
+    assert (view["width"], view["height"]) == (320, 240)
+    assert (view["fx"], view["fy"], view["cx"], view["cy"]) == pytest.approx((187.5, 187.5, 160.0, 120.0))
+    assert view["pose"] == pytest.approx(list(rev.cameras["walk-0m00s"].pose), abs=1e-6), "in the map's frame"
 
 
 def fixed_camera(x, y, height, heading_deg, pitch_deg=30.0):
