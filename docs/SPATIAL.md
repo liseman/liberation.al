@@ -76,7 +76,8 @@ changes, so the Live tab's button and camera picker take effect in about a secon
 takes one BGR picture every 5 s from each chosen camera, from see-decode's shared pictures. It skips, cheapest check
 first: a dark or night-mode frame, a frame whose 32 x 18 thumbnail matches the last one looked at (a still camera
 costs a few milliseconds a sample), a frame much less sharp than the camera's usual, and a frame the person detector
-finds a person or an animal in. Such a frame is skipped, not masked: the view comes by again without them.
+finds a person or an animal in. Such a frame is skipped, not masked: the view comes by again without them. What it's
+doing is in `state/surroundings/status.json` (`spatial/surroundings_worker.py`).
 
 **The gate** (#257). "Likely to improve the map" is measured twice, cheaply first.
 

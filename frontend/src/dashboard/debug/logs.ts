@@ -211,7 +211,10 @@ export function clock(t: number | null): string {
  *  names, a new one, lands in "Other", so none is ever dropped. */
 export const SERVICE_GROUPS: readonly { title: string; services: readonly string[] }[] = [
   { title: 'Capture and cameras', services: ['continuum-capture', 'video-window'] },
-  { title: 'Vision', services: ['see-decode', 'see-actions', 'see-zones', 'see-objects', 'see-captions'] },
+  {
+    title: 'Vision',
+    services: ['see-decode', 'see-actions', 'see-zones', 'see-objects', 'see-captions', 'surroundings'],
+  },
   {
     title: 'Audio and speech',
     services: ['listen', 'whisper', 'whisper-names', 'deep-transcribe', 'voice', 'phone-bridge'],

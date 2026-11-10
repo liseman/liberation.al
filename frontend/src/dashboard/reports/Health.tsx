@@ -121,6 +121,7 @@ const PLAIN: Record<string, string> = {
   'see-zones': 'Zones',
   'see-objects': 'Object detection',
   'see-captions': 'Camera captions',
+  surroundings: 'Learning surroundings',
   'continuum-tier-worker': 'Storage tiers',
   'continuum-vector-worker': 'Search vectors',
   'continuum-broker': 'Recording broker',

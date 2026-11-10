@@ -302,6 +302,7 @@ unless the row says otherwise.
 | `vision/camera_history.py` (`pack-camera-history`) | What each camera shows now | | | `camera.caption` | Core |
 | `video_window.py` (`pack-video-window`), `retention.py` | Nightly retention, 04:15 | | `state/journal_evidence/`, `video_window.json`, `retention.json` | Broker chunks, day pages | Optional |
 | `spatial/splats.py` (`pack-spatial-splat`) | A Gaussian splat per place revision | | `state/places/` | Recorded video | Optional, by hand, needs CUDA |
+| `spatial/surroundings_worker.py` (`pack-surroundings`) | While "learn surroundings" is on, samples the chosen cameras and keeps the frames likely to improve a place's map | | `state/surroundings/` | Decoded frames, `pack.toml` (followed live) | Optional, idle while off |
 | `proximity/` (`pack-bluetooth`) | Passive BLE sightings | USB serial | `bluetooth.sighting`, `bluetooth.coverage` | ESP32 receivers | Optional, off |
 | `proximity/network_worker.py` (`pack-network-devices`) | UniFi client inventory and heard Wi-Fi access points | Outbound local HTTPS | `network.*`, `wifi.access_point` | Local controller | Optional, off |
 | `proximity/devices.py` (`pack-devices`) | Device tallies, links, and presence answers | | `device.link`, `state/cache/device_tallies.json` | Bluetooth and network streams | Optional |
