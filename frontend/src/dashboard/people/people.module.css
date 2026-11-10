@@ -1,18 +1,18 @@
 /* The People tab: the list on the left, and Who's this? or a contact card beside it at full width (voice clones are
-   in each person's card and under Settings, #2455). On narrow windows only one of the roster and the detail shows at
+   in each person's card and under Settings). On narrow windows only one of the roster and the detail shows at
    a time (`.picked` is set while a person or the inbox is chosen). Ported from static/dashboard/tabs.css. */
 .page {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 36px;
   align-items: start;
-  /* Known's page frame sets the edges (#2469). */
+  /* Known's page frame sets the edges. */
 }
 .main {
   min-width: 0;
 }
 /* The roster is a fixed 36rem, room for two cards of about 18rem side by side (the list's 15rem minimum would make
-   three crowded ones at 46rem and up), and the candidates beside it take the rest of a wide window (Joe, #3237). Under
+   three crowded ones at 46rem and up), and the candidates beside it take the rest of a wide window. Under
    about 1200 px it gives way to 48vw so the candidates keep room until the phone layout takes over at 820 px. */
 .cols {
   display: grid;

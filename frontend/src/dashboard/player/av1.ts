@@ -1,5 +1,5 @@
 // AV1 codec strings name the sequence header's profile, level, tier, and bit depth: av01.P.LLT.DD
-// (https://aomediacodec.github.io/av1-isobmff/#codecsparam). The archive pass (#1479) stores one temporal unit per
+// (https://aomediacodec.github.io/av1-isobmff/#codecsparam). The archive pass stores one temporal unit per
 // frame in the low-overhead OBU format, its keyframe carrying the sequence header in band. This reads the header's
 // first fields, not the whole syntax; WebCodecs still validates the actual bitstream. The pass always encodes 8-bit
 // 4:2:0, so the depth is 08: a decoder takes the true depth from the in-band header either way.

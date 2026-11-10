@@ -26,6 +26,8 @@ what Ask already reads: journal (search() above), transcript and camera (history
 (history_qa's recorded visits), encounters (memory/timeline.py), and frames (video_evidence.collect). ask.execute then answers from what the loop
 gathered with the usual local answer path. Choices on top of WorldMM:
 
+- The loop is told how the question was read (the query's reading: its source, measure, and people), so the planner
+  and the query agree on what is asked instead of each reading the question for itself (#60).
 - The loop starts from what history_qa.collect already found, so the model can stop at once, and a loop whose
   rounds find nothing still answers from exactly the single pass's evidence.
 - A failed round (bad JSON, an unknown tool, bad arguments, a repeated search, or a tool error) still uses up its
@@ -203,10 +205,15 @@ def _planner_input(system: str, user: Any, model: str, num_ctx: int, num_predict
         prompt["snippets_compacted"] = True
 
 
-def _chat(system: str, user: Any, schema: Mapping[str, Any], num_predict: int) -> Any:
-    """The model's JSON reply to one structured-output call. Raises ValueError when it isn't JSON."""
+def _chat(
+    system: str, user: Any, schema: Mapping[str, Any], num_predict: int, shots: Sequence[tuple[str, str]] = ()
+) -> Any:
+    """The model's JSON reply to one structured-output call. `shots` are worked examples (a user turn and the reply
+    to it), sent as chat turns before `user`. Raises ValueError when the reply isn't JSON."""
     model, num_ctx = settings()
-    content = _planner_input(system, user, model, num_ctx or ask.OWN_NUM_CTX, num_predict)
+    examples = [(json.dumps(asked, ensure_ascii=False), reply) for asked, reply in shots]
+    framing = system + "".join(asked + reply for asked, reply in examples)  # what the prompt estimate counts
+    content = _planner_input(framing, user, model, num_ctx or ask.OWN_NUM_CTX, num_predict)
     data = _post(
         {
             "model": model,
@@ -218,13 +225,35 @@ def _chat(system: str, user: Any, schema: Mapping[str, Any], num_predict: int) -
             "options": {"num_ctx": num_ctx, "num_predict": num_predict, "temperature": 0},
             "messages": [
                 {"role": "system", "content": system},
+                *(
+                    {"role": role, "content": text}
+                    for asked, reply in examples
+                    for role, text in (("user", asked), ("assistant", reply))
+                ),
                 {"role": "user", "content": content},
             ],
         }
     )
-    summarize.observe_prompt_tokens(model, system, content, data.get("prompt_eval_count"))
+    if not examples:  # the estimator is calibrated on two-turn prompts; each example adds its own chat framing
+        summarize.observe_prompt_tokens(model, system, content, data.get("prompt_eval_count"))
     content = str((data.get("message") or {}).get("content") or "")
     return json.loads(re.sub(r"<think>.*?</think>\s*", "", content, flags=re.S))
+
+
+def chat_within(
+    system: str,
+    user: Any,
+    schema: Mapping[str, Any],
+    num_predict: int,
+    seconds: float,
+    shots: Sequence[tuple[str, str]] = (),
+) -> Any:
+    """_chat for a caller outside the loop (memory/question.py's reading), with its own deadline."""
+    token = _deadline.set(time.monotonic() + seconds)
+    try:
+        return _chat(system, user, schema, num_predict, shots)
+    finally:
+        _deadline.reset(token)
 
 
 def _local(ts: float) -> str:
@@ -622,6 +651,8 @@ DECIDE_SYSTEM = (
     "You plan the searches for {name}, who answers questions about the owner's recorded history. Each round, either "
     'stop because the evidence so far is enough to answer ({{"decision": "answer"}}), or pick exactly one read-only '
     'tool and its arguments ({{"decision": "search", "tool": ..., "args": {{...}}}}). Tools:\n{tools}\n'
+    "read_as, when given, is how the question was already read: where its answer is (speech, cameras, both, people, "
+    "lights, or journal), its measure, and the people it names. Search for that reading, not another one. "
     "Evidence is sufficient only if it supports the exact requested entity or relationship, not a nearby topic. "
     "If snippets do not identify the requested category, search alternative phrasings or concrete instances "
     "of that category before concluding it was not found. "
@@ -901,6 +932,9 @@ def loop(
     offered = tools()
     journal_only = query.get("kind") == "journal"
     requested_cameras = tuple(dict.fromkeys(query.get("cameras") or []))
+    # How the question was read (memory/question.py), so the planner searches for that reading, not one of its own.
+    reading = query.get("reading") or {}
+    read_as = {key: reading[key] for key in ("source", "measure", "people") if reading.get(key)}
     if journal_only:
         offered = [tool for tool in offered if tool == "journal"]
     if requested_cameras:
@@ -925,6 +959,8 @@ def loop(
             prompt: dict[str, Any] = {}
             if requested_cameras:
                 prompt["cameras"] = list(requested_cameras)
+            if read_as:
+                prompt["read_as"] = read_as
             prompt.update(
                 window=dict(start=_local(window[0]) if window[0] else "the earliest records", end=_local(window[1])),
                 evidence_so_far=dict(first=[_brief(r) for r in start[:SHOW_ITEMS]], count=len(start) + len(found)),

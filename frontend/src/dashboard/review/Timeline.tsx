@@ -1,4 +1,4 @@
-// The Review timeline: a compact combined strip by default (#2111), expandable into labelled lanes (R3, #328):
+// The Review timeline: a compact combined strip by default, expandable into labelled lanes (R3):
 // "Who spoke" (speech
 // coloured per person), one lane per camera angle (recorded video in grey, a bar per person in view), the audio kept,
 // and Events as tick marks, under hour labels, with a playhead you can drag. People picked in Show only stay at full
@@ -54,7 +54,7 @@ const COLORS = ['line', 'dim', 'mute', 'acc', 'bg', 'bg2', 'ink', 'warn'] as con
 type Colors = Record<(typeof COLORS)[number], string>;
 
 /** The days in view still loading or failed, on one line that keeps its height when empty, so days arriving one by
- *  one never move what is under the timeline (#2435): "Loading 2026-11-05 and 2026-11-04." */
+ *  one never move what is under the timeline: "Loading 2026-11-05 and 2026-11-04." */
 export function ChunkLine({
   chunkStatus,
   range,
@@ -106,7 +106,7 @@ export type { EventSpan } from './types';
 const MIN_SPAN_S = 1; // a shorter drag is taken as a slip, not a span
 
 /** onSpan: a span picked with the explicit Mark an event pointer tool. I/O marks live in the engine. notes: the
- *  page's notes about the timeline, shown on its status line, which keeps its height (#2435). */
+ *  page's notes about the timeline, shown on its status line, which keeps its height. */
 export function Timeline({
   loading = false,
   marks = NO_MARKS,
@@ -150,8 +150,8 @@ export function Timeline({
   const speakers = useLive('speakers') ?? EMPTY_SPEAKERS;
   const speakersRef = useRef(speakers);
   const redraw = useRef<() => void>(() => {});
-  // Mark an event (#287): the next drag in a camera's lane picks a span instead of scrubbing. The control bar's Mark
-  // turns it on (#2454), so it lives in the engine's store.
+  // Mark an event: the next drag in a camera's lane picks a span instead of scrubbing. The control bar's Mark
+  // turns it on, so it lives in the engine's store.
   const marking = useReview(s => s.markingTool);
   const markingRef = useRef(false);
   markingRef.current = marking;
@@ -380,7 +380,7 @@ export function Timeline({
         g.fillRect(px, RULER, 1, H - RULER);
         g.globalAlpha = 1;
       }
-      // the span being marked as an event (#287): a band over its camera's lane, edged at both ends
+      // the span being marked as an event: a band over its camera's lane, edged at both ends
       const sp = drag ?? shown.current.span;
       const lane = sp ? L.cams.find(l => l.cam === sp.cam) : undefined;
       if (sp && lane && sp.end >= t0 && sp.start <= t1) {
@@ -469,7 +469,7 @@ export function Timeline({
     // ---- pointer input: scrub (lanes, playhead), pan (ruler, or a middle drag anywhere), click to seek, pinch to zoom ----
     const pts = new Map<number, number>();
     let mode: 'scrub' | 'pan' | 'pending' | 'pinch' | 'span' | null = null;
-    let drag: EventSpan | null = null; // a span being dragged out (#287)
+    let drag: EventSpan | null = null; // a span being dragged out
     let spanFrom = 0;
     let startX = 0;
     let startY = 0;
@@ -488,7 +488,7 @@ export function Timeline({
       }
       W = width();
       pts.set(e.pointerId, local(e));
-      // A middle drag pans from anywhere on the timeline, and its release never seeks (#2354).
+      // A middle drag pans from anywhere on the timeline, and its release never seeks.
       if (e.button === 1) {
         e.preventDefault();
         startX = local(e);
@@ -741,7 +741,7 @@ export function Timeline({
       )}
       <div className={classes.trackRow}>
         {L.labels.length > 0 && (
-          // The lanes' names in a column to their left, so the lanes pack tight (#2577).
+          // The lanes' names in a column to their left, so the lanes pack tight.
           <div className={so.laneLabels} style={{ height: L.height }} aria-hidden>
             {L.labels.map(l => (
               <span
@@ -784,8 +784,8 @@ export function Timeline({
   );
 }
 
-/** How the timeline reads and how to move through it, for the control bar's "?" (#2454): each colour beside what it
- *  means, then the pointer's gestures beside what they do, in the "?" table's two columns (#2577). The colours mean
+/** How the timeline reads and how to move through it, for the control bar's "?": each colour beside what it
+ *  means, then the pointer's gestures beside what they do, in the "?" table's two columns. The colours mean
  *  the same in the compact strip and the camera lanes. */
 export function TimelineKey() {
   const swatches: [className: string | undefined, text: string][] = [
@@ -836,7 +836,7 @@ export function TimelineKey() {
   );
 }
 
-/** The timeline's tools on Review's control bar (#2454): how much of the day it spans, Latest, the Mark pointer tool,
+/** The timeline's tools on Review's control bar: how much of the day it spans, Latest, the Mark pointer tool,
  *  and whether it shows a lane per camera. mark: offer Mark (the page handles the span it picks). */
 export function TimelineTools({ mark = false }: { mark?: boolean }) {
   const engine = useEngine();

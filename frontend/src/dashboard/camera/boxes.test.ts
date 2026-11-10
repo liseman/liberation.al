@@ -159,7 +159,7 @@ describe('BoxRenderer', () => {
     vi.advanceTimersByTime(100); // the clock, and a settled loop's heartbeat, which asks for the next frame
     frames.step(now);
   };
-  /** Frames until a settled renderer has measured again: a picture change is noticed within MEASURE_S (#2407). */
+  /** Frames until a settled renderer has measured again: a picture change is noticed within MEASURE_S. */
   const untilMeasured = () => {
     for (let i = 0; i <= MEASURE_S * 10; i++) frame();
   };

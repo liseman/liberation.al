@@ -1,4 +1,4 @@
-// The top bar's way into the command palette (#2586, #2598): a labelled button like Ask's, with its shortcut shown
+// The top bar's way into the command palette: a labelled button like Ask's, with its shortcut shown
 // (Ctrl K, or ⌘K on a Mac), and on a phone just its icon, as Ask drops its key there (app.module.css). Opening goes
 // through the palette's store, so this button doesn't load the palette itself.
 import { Button, Kbd } from '@mantine/core';

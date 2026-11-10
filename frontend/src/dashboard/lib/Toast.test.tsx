@@ -51,7 +51,7 @@ it('keeps an error until it is dismissed', async () => {
   expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 });
 
-// Codex on #1990: a toast dismissed while hovered or focused leaves no hold behind for the next one.
+// A toast dismissed while hovered or focused leaves no hold behind for the next one.
 function Twice() {
   const [shown, setShown] = useState<string | null>('Pet added.');
   return (
@@ -107,7 +107,7 @@ it('offers no Undo for an empty undo token', () => {
   expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument();
 });
 
-// #2596: one queue for every page, so two things said at once both show, and closing one leaves the other.
+// One queue for every page, so two things said at once both show, and closing one leaves the other.
 it('stacks toasts from two places instead of replacing one with the other', async () => {
   const closed = vi.fn();
   renderPage(

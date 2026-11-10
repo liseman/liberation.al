@@ -1,4 +1,4 @@
-/* Who's this? (#310, #347): its rows on Live's rail (compact) and People's pane (wide). Class names are global, as
+/* Who's this?: its rows on Live's rail (compact) and People's pane (wide). Class names are global, as
    Live's other rail styles are. */
 .who-h {
   font: 600 13.5px var(--mantine-font-family);

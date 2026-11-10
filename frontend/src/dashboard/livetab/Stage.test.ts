@@ -61,7 +61,7 @@ it('preserves the clicked unknown face group, track, camera, and its own capture
   expect(relabel(face).label).toBe("Who's this?");
 });
 
-// #1986: an animal's box on Live's large view opens Pets, never an Objects draft.
+// An animal's box on Live's large view opens Pets, never an Objects draft.
 describe("following a large-view animal's box", () => {
   afterEach(() => history.replaceState(null, '', '/'));
   const animal = (label: string): BoxPick => ({ id: 'o', box: [0.1, 0.1, 0.3, 0.3], label, kind: 'object', ...at });

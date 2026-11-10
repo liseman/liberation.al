@@ -231,7 +231,7 @@ describe('empty states', () => {
     renderPage(<Calls people={[]} />);
     expect(await screen.findByRole('alert')).toHaveTextContent("Couldn't load the call log");
     expect(screen.queryByText('No calls yet')).not.toBeInTheDocument();
-    // Nobody has a number, so the form offers a number to type, and Call waits for one (#2668)
+    // Nobody has a number, so the form offers a number to type, and Call waits for one
     expect(screen.getByLabelText('Phone number with country code')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Call' })).toBeDisabled();
     fail = false;

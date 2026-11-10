@@ -1,4 +1,4 @@
-// The data behind This machine's stacked usage chart (#2245): the server's samples (GET /stats/history), merged as
+// The data behind This machine's stacked usage chart: the server's samples (GET /stats/history), merged as
 // they arrive, cut into one stack per resource. The services that get their own band are the few busiest across every
 // resource, so a service keeps its band and colour when the resource changes; their colours go in name order, so the
 // same services get the same colours on every load. Everything else (the rest of the machine and the smaller

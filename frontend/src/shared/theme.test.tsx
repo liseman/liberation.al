@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { Providers } from './Providers';
 
 // A dialog's content is a Paper, which the theme gives the card surface; its header has to match, or the title reads
-// as a strip on a block (#210).
+// as a strip on a block.
 describe('dialogs', () => {
   it.each([
     ['Modal', Modal],
@@ -24,7 +24,7 @@ describe('dialogs', () => {
   });
 });
 
-// Their close (x) button has only an icon: it needs a name a screen reader can say (#478).
+// Their close (x) button has only an icon: it needs a name a screen reader can say.
 describe('dialog close buttons', () => {
   it.each([
     ['Modal', Modal],

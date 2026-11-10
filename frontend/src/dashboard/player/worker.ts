@@ -56,7 +56,7 @@ const MAX_FRAMES = 600;
 type Codec = 'avc' | 'hevc' | 'av1';
 
 /** Rust's source.rs sniffs the same way: an H.264 SPS or an HEVC VPS or SPS says which codec, and that it's a keyframe.
- *  An archived AV1 unit (#1479) is an OBU stream, never Annex B: its keyframe carries the sequence header. */
+ *  An archived AV1 unit is an OBU stream, never Annex B: its keyframe carries the sequence header. */
 export function sniffCodec(annexb: Uint8Array): Codec | null {
   if (looksLikeAv1(annexb)) return av1Sequence(annexb).kind === 'none' ? null : 'av1';
   let i = 0;
@@ -237,12 +237,12 @@ class Pipeline {
       // Recorded playback retains its short backlog and queued future pictures for scrubbing. Behind means behind
       // the playhead, not the last frame drawn: after a seek back, every frame of the new window is older than the
       // one still on screen, and judging by it threw them all away, so nothing drew until the playhead caught up
-      // with the old picture (#1997).
+      // with the old picture.
       const at = typeof this.head === 'number' ? this.head : this.shownUs;
       const behind = [...this.frames.keys()].filter(t => t < at).sort((a, b) => a - b);
       for (const t of behind.slice(0, Math.max(0, behind.length - KEEP_BEHIND))) this.evict(t);
       // Over the cap, the frames farthest ahead of the playhead go: each seek back leaves the old position's frames
-      // ahead of it, and after a few, evicting the oldest threw away the window about to play (#1997).
+      // ahead of it, and after a few, evicting the oldest threw away the window about to play.
       while (this.frames.size > MAX_FRAMES)
         this.evict(typeof this.head === 'number' ? Math.max(...this.frames.keys()) : Math.min(...this.frames.keys()));
     }

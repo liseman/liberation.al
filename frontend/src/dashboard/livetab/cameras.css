@@ -1,4 +1,4 @@
-/* Overview pictures fill equal cards; a portrait stream fits its card, letterboxed, so the grid has no holes (#2456). */
+/* Overview pictures fill equal cards; a portrait stream fits its card, letterboxed, so the grid has no holes. */
 .live-cams {
   --cam-max-h: min(65dvh, 720px);
   container-type: inline-size;
@@ -8,7 +8,7 @@
   min-width: 0;
   margin-bottom: 24px;
 }
-/* The cameras' place while their state is unknown (#2485): their last height here, else a picture as wide as the
+/* The cameras' place while their state is unknown: their last height here, else a picture as wide as the
    stage (capped as the cameras are) plus the room the Cameras heading and the caption under the picture take. */
 .cam-wait {
   width: 100%;
@@ -21,7 +21,7 @@
     --cam-wait-extra: 170px; /* the caption wraps to several lines on a phone */
   }
 }
-/* An overview tile's place before its camera's state is known (#2485). */
+/* An overview tile's place before its camera's state is known. */
 .cam-tile-wait {
   cursor: default;
   background: var(--mantine-color-default-hover);
@@ -34,7 +34,7 @@
 }
 .cams-head h2 {
   margin: 0;
-  font: 600 18px / 1.45 var(--mantine-font-family); /* a section heading, as theme.ts h2 (#2594) */
+  font: 600 18px / 1.45 var(--mantine-font-family); /* a section heading, as theme.ts h2 */
 }
 .cams-head > span {
   font-size: 13px;

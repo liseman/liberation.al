@@ -179,6 +179,40 @@ def _conversation_summary_offline(monkeypatch):
     monkeypatch.setattr(conversation_summary, "_llm", lambda *a, **k: None)
 
 
+def _fixed_readings() -> dict[str, dict[str, Any]]:
+    return json.loads((_REPO / "tests" / "data" / "readings.json").read_text())
+
+
+_READINGS = _fixed_readings()
+
+
+@pytest.fixture(autouse=True)
+def readings(monkeypatch):
+    """A question is read by the local model (memory/question.py); a test never calls it. Each question a test asks
+    has a fixed reading: the ones in tests/data/readings.json (the question's words, then the fields that differ from
+    question.Reading's defaults), plus any the test sets itself, `readings["who came by"] = question.Reading(...)`.
+    A question with no reading fails the test, so a fixed reading always stands behind the answer under test and
+    what's checked is what the deterministic code does with it."""
+    from liberational.memory import question
+
+    given: dict[str, question.Reading] = {}
+
+    def read(asked: str) -> question.Reading:
+        key = " ".join(asked.split())
+        if key in given:
+            return given[key]
+        if key not in _READINGS:
+            raise LookupError(
+                f"no reading for {asked!r}: set readings[question], or add it to tests/data/readings.json"
+            )
+        fields: dict[str, Any] = dict(_READINGS[key])
+        fields["people"] = tuple(fields.get("people", ()))
+        return question.Reading(**fields)
+
+    monkeypatch.setattr(question, "read", read)
+    return given
+
+
 @pytest.fixture(autouse=True)
 def _device_registries_empty(monkeypatch):
     """Device makers come from registry files under data/models (proximity/vendors.py); a test never reads the real

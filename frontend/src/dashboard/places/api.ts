@@ -22,7 +22,7 @@ export interface PlaceSummary {
   machine_plan: string | null;
   /** When the house was last there (epoch seconds), or null. */
   last_visit: number | null;
-  /** When anyone was last seen there by its fixed cameras (#2905), apart from the owner's visits. */
+  /** When anyone was last seen there by its fixed cameras, apart from the owner's visits. */
   last_activity?: number | null;
   /** How many walkthroughs went into the place (#3). */
   walks?: number;
@@ -95,8 +95,8 @@ export const positionsQuery = (place: string, start: number, end: number) =>
     refetchOnWindowFocus: false,
   });
 
-/** Save the owner's corrected plan for a place (taught state over the machine's), or go back to the machine's with ""
- *  (#2859). `base` is the revision whose frame the edited text is in: the plan's plan_revision when the editor
+/** Save the owner's corrected plan for a place (taught state over the machine's), or go back to the machine's with "".
+ *  `base` is the revision whose frame the edited text is in: the plan's plan_revision when the editor
  *  opened it. */
 export const savePlan = (place: string, plan: string, base?: string | null) =>
   request<{ ok: true; plan: string | null; plan_source: 'owner' | 'machine' | null }>('/places/plan', {
@@ -138,7 +138,7 @@ export const restorePlan = (place: string, record: string) =>
     record,
   });
 
-/** What the 3D view draws for a place (GET /places/scene, #2876), all in its map's frame, or `revision: null` while it
+/** What the 3D view draws for a place (GET /places/scene), all in its map's frame, or `revision: null` while it
  *  has no map. */
 export interface Scene {
   place: string;
@@ -148,7 +148,7 @@ export interface Scene {
   map?: string;
   map_format?: string | null;
   map_bytes?: number;
-  /** The revision's 3D Gaussian splat (#2877): its URL (cached for good like the map), format, and size; null while
+  /** The revision's 3D Gaussian splat: its URL (cached for good like the map), format, and size; null while
    *  it has none. */
   splat?: string | null;
   splat_format?: string | null;

@@ -15,7 +15,7 @@ DOM. The Places tab (`src/dashboard/places/`) draws plans with it.
 except that `bin` and `cli` are left out: they are the Node command line and import `node:` modules.
 
 These files are not edited here. Our own additions to the plan format (provenance, unexplored areas, the anchor
-transform, visit history; #2797) go in a layer beside this directory, so they can go upstream later. Biome skips this
+transform, visit history) go in a layer beside this directory, so they can go upstream later. Biome skips this
 directory (`biome.json`).
 
 ## Updating

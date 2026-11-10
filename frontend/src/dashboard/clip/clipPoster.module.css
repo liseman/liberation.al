@@ -1,4 +1,4 @@
-/* A clip's poster (#2476): the start frame letterboxed on a dark ground in the camera's shape (--clip-ratio, 16:9
+/* A clip's poster: the start frame letterboxed on a dark ground in the camera's shape (--clip-ratio, 16:9
    until known), a play badge in the middle, and the length in the corner. The caller sizes its width. */
 .poster {
   position: relative;

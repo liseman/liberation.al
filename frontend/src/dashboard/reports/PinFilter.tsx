@@ -23,7 +23,7 @@ export const CAMERAS: PinWords = { all: 'Every camera', other: 'Another camera',
 
 /**
  * Which one the report shows. The parts keep their places whatever is pinned, so the button just pressed keeps
- * keyboard focus (#2591). A pin not among the choices now (merged, deleted, or not seen in this time) gets a line of
+ * keyboard focus. A pin not among the choices now (merged, deleted, or not seen in this time) gets a line of
  * its own to clear it.
  */
 export function PinFilter({

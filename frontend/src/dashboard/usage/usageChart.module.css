@@ -1,4 +1,4 @@
-/* This machine's stacked usage chart (#2245). Service bands take a validated categorical order (adjacent pairs pass
+/* This machine's stacked usage chart. Service bands take a validated categorical order (adjacent pairs pass
    the colour-vision checks in both schemes); everything else is a neutral band. A thin body-colour edge separates the
    stacked bands. */
 .root {

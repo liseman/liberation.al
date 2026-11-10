@@ -27,7 +27,7 @@ async function post(url: string, body: unknown, fallback: string): Promise<Reply
   }
 }
 
-// Who's this? (#310, #347) lives in ../whosthis; its queries are re-exported for the callers that import them here.
+// Who's this? lives in ../whosthis; its queries are re-exported for the callers that import them here.
 export {
   type Band,
   type Guess,
@@ -141,16 +141,16 @@ export const unlabelLine = (line: LineRef) => post('/transcript/unlabel', oneLin
 export const rejectLines = (lines: readonly LineRef[]) =>
   post('/transcript/reject', someLines(lines), 'Could not correct the transcript');
 
-/** "This is TV" (#2468): the lines stay, marked as a TV's, and leave people, voices, the journal, and Ask. Undone with
+/** "This is TV": the lines stay, marked as a TV's, and leave people, voices, the journal, and Ask. Undone with
  *  undoRejected, as a correction. */
 export const markTv = (lines: readonly LineRef[]) =>
   post('/transcript/media', someLines(lines), 'Could not mark it as TV');
 
-/** "Not TV" (#2468): take back these lines' TV marks, the owner's or the audio tagger's. */
+/** "Not TV": take back these lines' TV marks, the owner's or the audio tagger's. */
 export const notTv = (lines: readonly LineRef[]) =>
   post('/transcript/not-media', someLines(lines), 'Could not take the TV mark off');
 
-/** "TV or radio" on an unnamed voice (#2468): every line it has, marked as above. */
+/** "TV or radio" on an unnamed voice: every line it has, marked as above. */
 export const markTvVoice = (group: number) => post('/voices/unknown/media', { group }, 'Could not mark it as TV');
 
 export const undoRejected = (undo: string) =>

@@ -1,5 +1,5 @@
 /* The Voice clones panel and the recorder, after .clones, .clone, .clone-st, and .rec-* in static/dashboard/tabs.css. */
-/* Settings' Voice clones panel (#2455): it sits in the section, under its heading. */
+/* Settings' Voice clones panel: it sits in the section, under its heading. */
 .clones {
   min-width: 0;
 }

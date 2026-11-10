@@ -723,7 +723,7 @@ describe('GatewayVideo', () => {
     await flush();
     worker.onmessage?.({ data: { type: 'codec', codec: 'av1', supported: false } } as MessageEvent);
     await flush();
-    answer(['av1']); // archived AV1 (#1479) in a browser without an AV1 decoder
+    answer(['av1']); // archived AV1 in a browser without an AV1 decoder
     expect([v.unplayable, v.unplayableCodec]).toEqual([true, 'av1']);
     v.currentTime = 2.5; // a window of JPEG frames
     await flush();
