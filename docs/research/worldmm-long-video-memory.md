@@ -1,6 +1,6 @@
 # WorldMM long-video memory: historical research
 
-Date: 2026-10-27. WorldMM was read, not installed or run. Source: [WorldMM](https://github.com/wgcyeo/WorldMM) (Yeo, Kim, Yoon, and Hwang, CVPR 2026, [arXiv 2512.02425](https://arxiv.org/abs/2512.02425)), read at commit `133a55b` (2026-07-30). It bears on goal 2 in [ROADMAP.md](../ROADMAP.md) (answer questions about what happened) and the evidence model in [DOMAIN-MODEL.md](../DOMAIN-MODEL.md).
+WorldMM was read, not installed or run. Source: [WorldMM](https://github.com/wgcyeo/WorldMM) (Yeo, Kim, Yoon, and Hwang, CVPR 2026, [arXiv 2512.02425](https://arxiv.org/abs/2512.02425)), read at commit `133a55b` (2026-07-30). It bears on goal 2 in [ROADMAP.md](../ROADMAP.md) (answer questions about what happened) and the evidence model in [DOMAIN-MODEL.md](../DOMAIN-MODEL.md).
 
 > Historical research from October 2026. The upstream compatibility, licensing,
 > and benchmark observations below were recorded then and have not been

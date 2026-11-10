@@ -13,7 +13,7 @@ Integrate Teensy 4.1 microcontroller as sensor hub for ambient data collection. 
 
 ### Teensy 4.1 Core
 - **MCU:** ARM Cortex-M7, 600 MHz, 1024 KB SRAM
-- **Connection:** USB-C to Mac mini (data + power)
+- **Connection:** USB-C to the Mac (data + power)
 - **Bus:** I2C (3.3V pullups) for multi-sensor comms
 
 ### Sensor Suite

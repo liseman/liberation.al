@@ -5,7 +5,7 @@
 > been revalidated. See [Architecture](../ARCHITECTURE.md) for the current model
 > pipeline; this is not a deployment guide.
 
-Date: 2026-10-23. Research only; nothing installed, nothing in the repo changed. Companion to [video-segmentation.md](video-segmentation.md), which concluded that goal 3 (squats, weight, form) is a pose problem, not a mask problem.
+Research only; nothing installed, nothing in the repo changed. Companion to [video-segmentation.md](video-segmentation.md), which concluded that goal 3 (squats, weight, form) is a pose problem, not a mask problem.
 
 ## TL;DR
 
@@ -168,7 +168,7 @@ Per rep, from a camera that sees the lifter, with the COCO 17 (or Body8 26) skel
 
 Prototype 0, a benchmark script in `tools/` (nothing in the services), on 3 to 5 recorded segments plus two phone clips of real squats:
 - Models: RTMO-s/m, RTMPose-m and -l (Body8), RTMW-l, ViTPose-B and ViTPose++-L (transformers), RF-DETR Keypoint Preview, MediaPipe heavy as the control. Report p50 and p95 ms per frame, peak VRAM, and InsightFace `det_ms` while pose runs on the same GPU and on GPU 1.
-- Same script on the Mac mini: rtmlib on the CoreML EP and on CPU, ViTPose on MPS, with the captioner's rate while pose runs.
+- Same script on the Mac: rtmlib on the CoreML EP and on CPU, ViTPose on MPS, with the captioner's rate while pose runs.
 - Fisheye: each model on raw frames vs `fisheye_rectify` tiles vs raw plus keypoint undistortion, scored by agreement with the model's own output on the rectified tile for people near the edge, and by eye in the review player.
 
 Prototype 1, the analyzer, offline, on hand-counted footage: 20 sets (two lifters, 5 to 10 reps each, side view and 45 degree, a few with loose clothing) from a phone. Metrics: rep count exact-match rate and mean absolute error (gate: zero miscounts on side view); depth call agreement with two human raters on each rep (Cohen's kappa; gate: no "deep" call on a rep both raters called high); trunk angle plausibility; bar mean velocity against a manual 240 fps timing on ten reps (expect within 0.05 m/s). Run MediaPipe through the same code as the control.

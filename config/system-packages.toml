@@ -94,7 +94,7 @@ why = "Controls an XVF3800 microphone array's settings (only with that microphon
 library = "usb-1.0"
 apt = "libusb-1.0-0"
 brew = "libusb"
-services = []  # v1's microphone service drove the array's controls; nothing does on Continuum yet (#548)
+services = []  # v1's microphone service drove the array's controls; nothing does on Continuum yet
 optional = true
 
 [pw-dump]

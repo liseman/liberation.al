@@ -28,9 +28,9 @@ Then `uv run --no-sync pack-services install continuum-gateway`, so the unit's `
 The process does not read `pack.toml` itself. Cameras then show for a dashboard opened on the tailnet. From outside
 the tailnet they stay unavailable.
 
-## Pet embeddings are cut tight (2026-11-08)
+## Pet embeddings are cut tight
 
-Animal embeddings now crop the detector's box itself instead of a square with context (#3024), a new embedding space
+Animal embeddings now crop the detector's box itself instead of a square with context, a new embedding space
 (`<repo>:tight` in each row's and `pet.reference`'s `model`). References of the old space are ignored, so pet
 recognition is off until the owner's labels get new ones. After pulling, restart `see-actions`, `see-captions`, and the
 dashboard, then run once:
@@ -44,7 +44,7 @@ It finds each labeled track's animal in its saved photo (`state/pet_shots`, kept
 reference; a photo with no animal found leaves its label without one. Square-crop embeddings of unlabeled sightings
 age out with `pets.label_days`.
 
-## The shared Ollama is a pack service (2026-11-08)
+## The shared Ollama is a pack service
 
 The Ollama at `ollama.url` now runs as the `ollama` pack service, which waits for the NVIDIA driver before it starts.
 On Linux, stop and disable the system one so the two don't fight over port 11434, keep its model store, and install:

@@ -21,7 +21,7 @@
 # height = 720
 # fps = 30
 # hold_fps = true    # keep the frame rate in dim light (V4L2): more gain instead of longer exposure
-# auto_exposure = true    # steer the exposure toward exposure_target, slowly (#535); false leaves the camera's own
+# auto_exposure = true    # steer the exposure toward exposure_target, slowly; false leaves the camera's own
 # exposure_target = 110.0  # mean luma (0 to 255) to steer toward: the faces' when some are in view, else the frame's
 # flip = false       # mounted upside down: readers flip it
 # encoding = { enabled = true }  # store an MJPEG camera as H.264 (NVENC on gpu 0, else libx264), see ARCHITECTURE.md
@@ -31,16 +31,16 @@ name = "facecam"
 kind = "camera"
 match = { usb = "0fd9:0078" }  # Elgato Facecam
 # paused = true  # paused for privacy (the header's camera and microphone icons set it): capture keeps no worker on
-#                # it, so nothing from it is recorded, until it's resumed. Followed live, no restart (#2260).
+#                # it, so nothing from it is recorded, until it's resumed. Followed live, no restart.
 # video = { width = 1280, height = 720, fps = 30, format = "MJPEG", fallback = [[960, 540], [640, 480]], flip = false }
 # Live saves exposed Linux V4L2 controls here by numeric control ID, for example:
 # video = { auto_exposure = false, controls = { "9963777" = 3 } }  # contrast, only when this camera advertises it
 # Capture applies changed controls live and reapplies them on open/replug. Automatic exposure owns brightness
 # and exposure controls while enabled. Reset defaults saves adjustable control defaults and preserves auto_exposure.
 # residual_offset_ns = { video = 0 }  # from a clap-and-flash run
-# A fisheye lens's calibration, written by tools/calibrate_fisheye.py: see-actions then rectifies each person (#1891).
+# A fisheye lens's calibration, written by tools/calibrate_fisheye.py: see-actions then rectifies each person.
 # fisheye = { width = 1920, height = 1080, k = [690.0, 690.0, 959.5, 539.5], d = [0.05, -0.01, 0.002, 0.0], rms = 0.4 }
-# A wide (not fisheye) lens's barrel, written by tools/calibrate_lens.py from straight edges in the room (#2998), and
+# A wide (not fisheye) lens's barrel, written by tools/calibrate_lens.py from straight edges in the room, and
 # the overlays the camera burns in (a clock, its name, a logo) as [x1, y1, x2, y2] fractions of the frame: MASt3R,
 # the footprints, and the splats see the frame undistorted with the overlays left out (spatial/lens.py).
 # lens = { width = 896, height = 512, k = [448.0, 448.0, 447.5, 255.5], division = -0.31 }
