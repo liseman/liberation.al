@@ -203,7 +203,7 @@ fn demux(
         let arrival_ns = clocks.monotonic_ns();
         let framed = framing.picture(bytes);
         for note in framing.take_notes() {
-            eprintln!("capture worker {name}: {note}");
+            tracing::info!("{name}: {note}");
         }
         let Some(bytes) = framed? else { continue };
         let picture = AccessUnit {

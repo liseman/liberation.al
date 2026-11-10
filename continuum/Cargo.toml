@@ -8,6 +8,7 @@ members = [
     "crates/continuum-core",
     "crates/continuum-ffi",
     "crates/continuum-gateway",
+    "crates/continuum-log",
     "crates/continuum-py",
     "crates/continuum-search",
     "crates/continuum-segments",
@@ -29,6 +30,7 @@ rust-version = "1.90"
 continuum-catalog = { path = "crates/continuum-catalog" }
 continuum-core = { path = "crates/continuum-core" }
 continuum-gateway = { path = "crates/continuum-gateway" }
+continuum-log = { path = "crates/continuum-log" }
 continuum-search = { path = "crates/continuum-search" }
 continuum-sched = { path = "crates/continuum-sched" }
 continuum-shm = { path = "crates/continuum-shm" }

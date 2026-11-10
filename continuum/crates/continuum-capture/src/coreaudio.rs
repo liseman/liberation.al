@@ -58,7 +58,7 @@ impl Drop for CoreAudioSource {
         // pause is AudioOutputUnitStop, which returns once the unit has stopped calling back; the drop then
         // uninitializes and disposes of the unit and removes cpal's device listeners.
         if let Err(e) = step("stop audio unit", || stream.pause()) {
-            eprintln!("capture worker: coreaudio stop: {e}");
+            tracing::warn!("coreaudio stop: {e}");
         }
         step("release audio unit", || drop(stream));
     }
@@ -95,8 +95,8 @@ impl CoreAudioSource {
                     let t = info.timestamp();
                     let host_ns = u64::try_from(t.callback.as_nanos()).unwrap_or(u64::MAX);
                     if !reported.swap(true, Ordering::Relaxed) {
-                        eprintln!(
-                            "capture worker: coreaudio time: host {host_ns} ns, cpal capture {} ns, {} samples",
+                        tracing::info!(
+                            "coreaudio time: host {host_ns} ns, cpal capture {} ns, {} samples",
                             t.capture.as_nanos(),
                             data.len()
                         );

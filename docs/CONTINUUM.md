@@ -2251,6 +2251,7 @@ continuum/
     continuum-capture/    # the capture supervisor and the per-device capture workers
     continuum-gateway/    # the browser gateway
     continuum-segments/   # the segment store: per-stream, per-camera, per-hour Arrow IPC parts, and its deletion log
+    continuum-log/        # the daemons' one log format (`<stamp> [tag] LEVEL message`) and periodic counters at DEBUG
 ```
 
 The planner and scheduler are one crate (`continuum-sched`). Crate boundaries can move as the code shows what

@@ -17,7 +17,6 @@
 //! simply ignores it: `CONTINUUM_AV1_ARCHIVE=True` turns it on (services/services.toml sets it from
 //! `video_archive.av1`).
 
-use continuum_tier::eprintln;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
@@ -30,7 +29,7 @@ use continuum_tier::service::{Backoff, Service, Settings, manifest_streams, ride
 const USAGE: &str = "usage: continuum-tier-worker (--state-dir D | --socket S --chunks DIR) [--manifest config/devices.toml] [--stream NAME]...";
 
 fn main() -> ExitCode {
-    continuum_tier::log::stamp_lines();
+    continuum_log::init("continuum-tier-worker");
     if std::env::args_os().skip(1).any(|arg| arg == "--capabilities") {
         println!(r#"{{"version":1,"rtsp_h264":true,"av1_archive":{}}}"#, cfg!(feature = "ffmpeg"));
         return ExitCode::SUCCESS;
@@ -66,12 +65,12 @@ fn main() -> ExitCode {
         Ok(text) => match manifest_streams(&text) {
             Ok(found) => streams.extend(found),
             Err(e) => {
-                eprintln!("continuum-tier-worker: {}: {e}", manifest.display());
+                tracing::error!("{}: {e}", manifest.display());
                 return ExitCode::from(2);
             }
         },
         Err(e) if streams.is_empty() => {
-            eprintln!("continuum-tier-worker: no streams to follow ({}: {e}); give --stream", manifest.display());
+            tracing::error!("no streams to follow ({}: {e}); give --stream", manifest.display());
             return ExitCode::from(2);
         }
         Err(_) => {}
@@ -81,7 +80,7 @@ fn main() -> ExitCode {
     let rt = match tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build() {
         Ok(rt) => rt,
         Err(e) => {
-            eprintln!("continuum-tier-worker: no runtime: {e}");
+            tracing::error!("no runtime: {e}");
             return ExitCode::FAILURE;
         }
     };
@@ -100,14 +99,14 @@ fn main() -> ExitCode {
             stop.store(true, Ordering::SeqCst);
         });
     }
-    eprintln!("continuum-tier-worker: following {streams:?}, chunks in {}", chunk_dir.display());
+    tracing::info!("following {streams:?}, chunks in {}", chunk_dir.display());
     let settings =
         Settings { socket, chunk_dir, streams, flush: FlushSettings::default(), tick: Duration::from_millis(50) };
     let archive = match continuum_tier::archive::ArchiveSettings::from_env(|key| std::env::var(key).ok()) {
         Ok(archive) => archive,
         // Recording never waits on an optional pass: a bad setting is said, and the pass stays off.
         Err(e) => {
-            eprintln!("continuum-tier-worker: AV1 archive off: {e}");
+            tracing::warn!("AV1 archive off: {e}");
             None
         }
     };
@@ -121,7 +120,7 @@ fn main() -> ExitCode {
                 }
                 match service.run(&stop) {
                     Ok(()) => {
-                        eprintln!("continuum-tier-worker: stopped: {:?}", service.counts());
+                        tracing::info!("stopped: {:?}", service.counts());
                         return ExitCode::SUCCESS;
                     }
                     Err(e) => e,
@@ -130,13 +129,13 @@ fn main() -> ExitCode {
             Err(e) => e,
         };
         if !rides_through(&ended) {
-            eprintln!("continuum-tier-worker: {ended}");
+            tracing::error!("{ended}");
             return ExitCode::FAILURE;
         }
         let wait = backoff.after(began.elapsed());
-        eprintln!("continuum-tier-worker: {ended}; a new run in {:.2} s", wait.as_secs_f64());
+        tracing::warn!("{ended}; a new run in {:.2} s", wait.as_secs_f64());
         if !wait_unless_stopped(&stop, wait) {
-            eprintln!("continuum-tier-worker: stopped between runs");
+            tracing::info!("stopped between runs");
             return ExitCode::SUCCESS;
         }
     }

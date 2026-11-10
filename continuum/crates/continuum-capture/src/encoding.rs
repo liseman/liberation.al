@@ -88,8 +88,8 @@ impl Pipeline {
         let encoder = match open_hardware(hardware, width, height, settings, &config) {
             Ok(encoder) => encoder,
             Err(error) => {
-                eprintln!(
-                    "capture encoder: WARN {hardware} initialization failed ({error}); using CPU libx264 veryfast H.264, increased CPU load expected"
+                tracing::warn!(
+                    "{hardware} initialization failed ({error}); using CPU libx264 veryfast H.264, increased CPU load expected"
                 );
                 H264Encoder::open_with(&["libx264"], width, height, settings)?
             }
@@ -143,8 +143,8 @@ impl Pipeline {
             // A hardware encoder that fails, or breaks the one-access-unit-per-frame contract (an encoder that holds a
             // frame back), is replaced for good: the frame is encoded again on the CPU as a keyframe.
             Err(error) if HARDWARE.contains(&self.encoder.encoder_name()) => {
-                eprintln!(
-                    "capture encoder: WARN {} runtime failure ({error}); switching to CPU libx264 veryfast H.264, increased CPU load expected",
+                tracing::warn!(
+                    "{} runtime failure ({error}); switching to CPU libx264 veryfast H.264, increased CPU load expected",
                     self.encoder.encoder_name()
                 );
                 self.break_chain();

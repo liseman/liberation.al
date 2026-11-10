@@ -821,8 +821,8 @@ def test_a_failed_cascade_leaves_its_stage_and_reason_on_disk(tmp_path, monkeypa
         cascade.run_selected(["continuum-capture"], install=True, anywhere=True)
     logged = (tmp_path / "cascade.log").read_text().splitlines()
     assert [line.split(" ", 1)[1] for line in logged] == [
-        "cascade: install continuum-capture",
-        "cascade: failed at preflight: devices.toml: invalid camera configuration",
+        "[cascade] INFO install continuum-capture",
+        "[cascade] ERROR failed at preflight: devices.toml: invalid camera configuration",
     ]
 
 
@@ -830,7 +830,7 @@ def test_cascade_lines_go_to_stdout_and_the_log(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(cascade.cfg, "path", lambda key: tmp_path)
     cascade.file_log("cascade: ready: listen")
     assert capsys.readouterr().out == "cascade: ready: listen\n"
-    assert (tmp_path / "cascade.log").read_text().endswith(" cascade: ready: listen\n")
+    assert (tmp_path / "cascade.log").read_text().endswith(" [cascade] INFO ready: listen\n")
 
 
 @pytest.mark.parametrize("start_all", [False, True])

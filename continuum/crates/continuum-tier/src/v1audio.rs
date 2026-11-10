@@ -321,14 +321,14 @@ pub(crate) async fn register_in_place(
             if done.duplicate {
                 // The payload went in fresh but the chunk was there: only possible if the catalog stops refusing the
                 // repeat (#685) by some other route than taking it as one. The header-only payload is then an orphan.
-                eprintln!("{what}: {}: ingested again though its chunk was committed already", path.display());
+                tracing::warn!("{what}: {}: ingested again though its chunk was committed already", path.display());
             }
             done
         }
         (Ok(done), Some(e)) => {
             if !done.duplicate {
                 // Committed fresh after a refused ingest: a purge in flight over the span made the frame a cut one.
-                eprintln!("{what}: {}: committed with its frames cut ({e})", path.display());
+                tracing::warn!("{what}: {}: committed with its frames cut ({e})", path.display());
             }
             done
         }

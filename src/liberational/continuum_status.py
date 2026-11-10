@@ -150,7 +150,7 @@ _PLAN_CLASS = re.compile(r"class=\d+ configured_slot_bytes=(\d+) count=(\d+)")
 _PLAN_NETWORK = re.compile(r"camera=(\S+) .*\bbyte_budget_limited=true class_slots=\[([^\]]*)\]")
 _PLAN_SLOTS = re.compile(r"\((\d+), (\d+)\)")
 _HEALTH = re.compile(
-    r"capture worker (\S+): RTSP frames=(\d+) reader_dropped=\d+ pressure_dropped=(\d+) unflushed_overwrites=(\d+)"
+    r"\[capture-worker\] [A-Z]+ (\S+): RTSP frames=(\d+) reader_dropped=\d+ pressure_dropped=(\d+) unflushed_overwrites=(\d+)"
 )
 
 
@@ -186,8 +186,9 @@ def tier0_plan() -> Tier0Plan | None:
 
 @dataclass(frozen=True)
 class RingHealth:
-    """One network camera's encoded ring over its last health interval (10 s): pictures it published, and pictures
-    it dropped under pressure or overwrote before they were flushed."""
+    """One network camera's encoded ring over its last health interval: pictures it published, and pictures it
+    dropped under pressure or overwrote before they were flushed. The worker writes the line every 10 s, but at INFO
+    only once every 10 minutes (#59), so at the default level the interval is 10 minutes."""
 
     frames: int
     dropped: int

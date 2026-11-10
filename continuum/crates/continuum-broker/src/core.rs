@@ -1239,6 +1239,7 @@ pub fn spawn(
         upkeep: upkeep::Upkeep::default(),
         slots: slots::Slots::default(),
         archive_health: ArchiveHealth::default(),
+        health_clock: std::sync::Mutex::default(),
         worker_names: HashMap::new(),
         consumers: HashMap::new(),
         consumer_sessions: HashMap::new(),
@@ -1331,6 +1332,8 @@ struct Sched {
     slots: slots::Slots,
     /// Process-local loss and pressure diagnostics; never a persisted loss audit.
     archive_health: ArchiveHealth,
+    /// Which of the once-a-minute health lines is INFO: one every few minutes, the rest DEBUG (#59).
+    health_clock: std::sync::Mutex<continuum_log::Periodic>,
     /// Each worker's name from its manifest, for the plan steps in a quote.
     worker_names: HashMap<WorkerId, String>,
     /// The consumer each querying session is, and back.
@@ -1437,9 +1440,16 @@ fn remove_lapped_batch(index: &mut AvailabilityIndex, batch: &RingBatch, owed: b
     }
 }
 
-fn log_health_line(sessions: usize, active_purges: usize, health: &writer_health::Snapshot, archive: &ArchiveHealth) {
+fn log_health_line(
+    sessions: usize,
+    active_purges: usize,
+    health: &writer_health::Snapshot,
+    archive: &ArchiveHealth,
+    clock: &mut continuum_log::Periodic,
+) {
     let purge_steps: Vec<_> = health.samples.iter().map(|p| (p.id.to_string(), p.steps)).collect();
-    tracing::info!(
+    continuum_log::periodic!(
+        clock,
         sessions,
         background_queue_depth = health.queued,
         background_running = health.running,
@@ -1471,7 +1481,10 @@ const HEALTH_EVERY: Duration = Duration::from_secs(60);
 impl Sched {
     fn log_writer_health(&self, now: Instant) {
         let health = self.writer_health.snapshot(now, self.background.len());
-        log_health_line(self.sessions.len(), self.active_purges.load(Ordering::SeqCst), &health, &self.archive_health);
+        let mut clock = self.health_clock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let purges = self.active_purges.load(Ordering::SeqCst);
+        log_health_line(self.sessions.len(), purges, &health, &self.archive_health, &mut clock);
+        drop(clock);
         let old_purges: Vec<_> = health
             .warnings
             .into_iter()
@@ -3267,7 +3280,7 @@ mod tests {
             archive.slot_gap(StreamId(1), Interval::new(10, 20).unwrap(), "producer overwrite");
             archive.ring_gap(StreamId(2), Interval::new(20, 30).unwrap());
             let writer = writer_health::WriterHealth::default();
-            log_health_line(3, 0, &writer.snapshot(Instant::now(), 0), &archive);
+            log_health_line(3, 0, &writer.snapshot(Instant::now(), 0), &archive, &mut continuum_log::Periodic::default());
         });
         assert_eq!(logs.matches("Tier 0 archive pressure:").count(), 3, "one warning per class/episode");
         assert_eq!(archive.pressure_classes.len(), 2);

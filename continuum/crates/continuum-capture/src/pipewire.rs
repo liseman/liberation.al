@@ -190,8 +190,8 @@ fn run(
             {
                 // For the clap-and-flash run: which frame `now - delay` names is settled against this line.
                 st.reported = true;
-                eprintln!(
-                    "capture worker: pipewire time: delay {} ticks at {}/{}, buffered {}, quantum {} frames",
+                tracing::info!(
+                    "pipewire time: delay {} ticks at {}/{}, buffered {}, quantum {} frames",
                     t.delay(),
                     t.rate().num,
                     t.rate().denom,
@@ -203,7 +203,7 @@ fn run(
             if taken.len() > 1 {
                 st.backlogged += 1;
                 if st.backlogged.is_power_of_two() {
-                    eprintln!("capture worker: pipewire: {} calls found more than one buffer queued", st.backlogged);
+                    tracing::info!("pipewire: {} calls found more than one buffer queued", st.backlogged);
                 }
             }
             let frames: Vec<u64> = taken.iter().map(|b| (b.len() / frame_bytes) as u64).collect();
@@ -283,7 +283,7 @@ pub fn source_info(id: u32, get: impl Fn(&str) -> Option<String>) -> Option<crat
 pub fn watch_sources(events: mpsc::Sender<crate::supervisor::Event>) -> io::Result<JoinHandle<()>> {
     std::thread::Builder::new().name("pipewire registry".into()).spawn(move || {
         if let Err(e) = watch(&events) {
-            eprintln!("capture supervisor: pipewire registry: {e}");
+            tracing::warn!("pipewire registry: {e}");
         }
     })
 }

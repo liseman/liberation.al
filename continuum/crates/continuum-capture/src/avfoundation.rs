@@ -693,8 +693,8 @@ impl Camera for AvfSource {
                 .recv_timeout(FIRST_FRAME_TIMEOUT)
                 .map_err(|_| self.failure("the camera sent no first frame"))?;
             let frame = self.checked(frame)?;
-            eprintln!(
-                "capture worker: configured AVFoundation {}x{}, verified first output {}x{} stride {} {:?}, verified frame duration {} ns (rate 1000000000/{} fps); native admission unchanged",
+            tracing::info!(
+                "configured AVFoundation {}x{}, verified first output {}x{} stride {} {:?}, verified frame duration {} ns (rate 1000000000/{} fps); native admission unchanged",
                 self.configured.width,
                 self.configured.height,
                 frame.width,

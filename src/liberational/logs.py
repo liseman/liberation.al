@@ -16,8 +16,12 @@ The level is `logging.level`, or this service's entry in `logging.per_service` (
 running `pack-<service>` command, as services.toml names it. The first logger set up configures the package's
 loggers, so a daemon, a CLI, and a test all log the same way without calling anything first. The root logger is left
 alone: a process that configures it (logging.basicConfig) keeps that, and other libraries keep Python's default of
-warnings and errors only, in the one format. Services run with third-party progress bars off (services.py), since a
-bar redrawn in a log file is noise.
+warnings and errors only, in the one format, as do `warnings.warn` calls (captured as the `py.warnings` logger).
+Services run with third-party progress bars off and native libraries' own logs at errors (services.py), since a bar
+redrawn in a log file is noise and a native library's line has no stamp or level.
+
+A report written every few seconds (a camera's frame rate, a microphone's levels) logs at `Periodic().level()`:
+INFO the first time and once every `INFO_EVERY_S`, DEBUG between, so an idle service writes few INFO lines (#59).
 """
 
 import datetime as dt
@@ -26,6 +30,8 @@ import os
 import pathlib
 import sys
 import threading
+import time
+from collections.abc import Callable
 from typing import NamedTuple, TextIO
 
 from liberational import config as cfg
@@ -90,7 +96,7 @@ def service() -> str:
 def level_for(name: str | None = None) -> int:
     """The configured level for a service (this one by default): its `logging.per_service` entry, else
     `logging.level`. An unknown word is INFO, so a typo in pack.toml never silences a service."""
-    name = name or service()
+    name = service() if name is None else name
     level = str(cfg.get("logging.level") or "info").strip().lower()
     entries = cfg.get("logging.per_service") or []
     for entry in [entries] if isinstance(entries, str) else entries:  # one "service=level" written as a string
@@ -122,6 +128,12 @@ def setup(stream: TextIO | None = None, level: int | None = None) -> logging.Han
         last.setFormatter(Formatter())
         last.setLevel(logging.WARNING)
         logging.lastResort = last
+        # A library's warnings.warn (transformers' deprecation notes) printed bare. Captured, it goes to the
+        # py.warnings logger, which gets a NullHandler of its own when it has none: give it this format instead.
+        logging.captureWarnings(True)
+        warned = logging.getLogger("py.warnings")
+        warned.handlers = [last]
+        warned.propagate = False
         _handler = handler
         return handler
 
@@ -143,6 +155,31 @@ def get(tag: str) -> logging.Logger:
     if _handler is None:
         setup()
     return logging.getLogger(f"{_ROOT}.{tag}")
+
+
+INFO_EVERY_S = 600.0  # a periodic report's INFO line: one every 10 minutes, the rest DEBUG
+
+
+class Periodic:
+    """The level for a report written every few seconds: INFO the first time and once every `every` seconds, DEBUG
+    the rest. The Rust daemons do the same (continuum-log's Periodic)."""
+
+    def __init__(self, every: float = INFO_EVERY_S, clock: Callable[[], float] = time.monotonic) -> None:
+        self.every, self.clock = every, clock
+        self.last: float | None = None
+
+    def level(self) -> int:
+        now = self.clock()
+        if self.last is None or now - self.last >= self.every:
+            self.last = now
+            return logging.INFO
+        return logging.DEBUG
+
+
+def rust_filter(name: str | None = None) -> str:
+    """`RUST_LOG` for a service (this one by default; "" for `logging.level` alone), from the same settings as
+    level_for: a Rust daemon's tracing filter word."""
+    return {logging.DEBUG: "debug", logging.INFO: "info", logging.WARNING: "warn"}.get(level_for(name), "error")
 
 
 def reason(error: BaseException) -> str:

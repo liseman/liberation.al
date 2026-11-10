@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import json
+import logging
 import shutil
 import subprocess
 import sys
@@ -360,6 +361,8 @@ def test_a_quiet_candidate_is_brought_to_a_normal_level_with_bounded_gain_and_no
 def test_quiet_speech_gets_past_a_level_sensitive_gate_and_is_transcribed(caplog: pytest.LogCaptureFixture) -> None:
     # On devbox nothing was transcribed: Silero found no speech in -59 dBFS audio until it was levelled.
     from liberational.listen import worker as w
+
+    caplog.set_level(logging.DEBUG, logger=w.log.name)  # a clip's line is DEBUG (#59)
 
     heard = []
 

@@ -125,7 +125,7 @@ struct Status {
 /// Says a failure the first time only (`said` marks it).
 fn say_once(camera: &str, what: &str, said: &mut bool) {
     if !std::mem::replace(said, true) {
-        eprintln!("capture worker {camera}: auto exposure: {what} (said once)");
+        tracing::info!("{camera}: auto exposure: {what} (said once)");
     }
 }
 
@@ -137,8 +137,8 @@ impl Status {
         }
         self.last_report_ns = Some(now_ns);
         match self.last {
-            Some((l, of, exposure)) => eprintln!(
-                "capture worker {}: auto exposure: luma {:.0} of {of} ({:.1}% clipped), target {:.0}, exposure {exposure} \
+            Some((l, of, exposure)) => tracing::debug!(
+                "{}: auto exposure: luma {:.0} of {of} ({:.1}% clipped), target {:.0}, exposure {exposure} \
                  (cap {}): {}",
                 setup.camera,
                 l.mean,
@@ -147,7 +147,7 @@ impl Status {
                 auto.cap(),
                 auto.last()
             ),
-            None => eprintln!("capture worker {}: auto exposure: nothing measured yet", setup.camera),
+            None => tracing::debug!("{}: auto exposure: nothing measured yet", setup.camera),
         }
     }
 }
@@ -294,8 +294,8 @@ pub fn start(mut setup: SteerSetup, rt: &tokio::runtime::Handle) -> Option<Steer
             if let Some(next) = auto.step(now, current, measured) {
                 // Changed only when the camera reads it back: a write it ignored would otherwise look taken.
                 match device.set(next).map(|()| device.get()) {
-                    Ok(Some(got)) if got == next => eprintln!(
-                        "capture worker {}: {knob} {current} -> {next} (luma {:.0} of {of}, {:.1}% clipped, target \
+                    Ok(Some(got)) if got == next => tracing::debug!(
+                        "{}: {knob} {current} -> {next} (luma {:.0} of {of}, {:.1}% clipped, target \
                          {:.0})",
                         setup.camera,
                         measured.mean,
@@ -326,7 +326,7 @@ pub fn start(mut setup: SteerSetup, rt: &tokio::runtime::Handle) -> Option<Steer
         Err(e) => {
             faces_stop.store(true, Ordering::Relaxed);
             faces_task.abort();
-            eprintln!("capture worker: no auto exposure, the thread didn't start: {e}");
+            tracing::warn!("no auto exposure, the thread didn't start: {e}");
             None
         }
     }
@@ -353,12 +353,12 @@ fn follow_faces(
         let mut sub = match client.subscribe(&SubscribeSpec::new(["face.boxes"], Start::Live)).await {
             Ok(s) => s,
             Err(e) => {
-                eprintln!("capture worker {camera}: exposure measures the whole frame (no face.boxes: {e})");
+                tracing::warn!("{camera}: exposure measures the whole frame (no face.boxes: {e})");
                 return;
             }
         };
         let Some(mut reader) = sub.ring_reader(&client, None, continuum_shm::ReadFrom::Latest) else {
-            eprintln!("capture worker {camera}: exposure measures the whole frame (face.boxes has no ring)");
+            tracing::warn!("{camera}: exposure measures the whole frame (face.boxes has no ring)");
             return;
         };
         // The ring is followed on a blocking thread through its sequence word. The subscription carries no events (a
@@ -455,7 +455,7 @@ mod device {
         let mut device = match v4l::Device::with_path(&setup.node) {
             Ok(d) => d,
             Err(e) => {
-                eprintln!("capture worker {}: no auto exposure: {e}", setup.camera);
+                tracing::warn!("{}: no auto exposure: {e}", setup.camera);
                 return (None, false);
             }
         };
@@ -463,11 +463,11 @@ mod device {
             Ok(Some(control)) => control,
             Ok(None) => {
                 let (settled, report) = fall_back(&mut device);
-                eprintln!("capture worker {}: WARN {report}", setup.camera);
+                tracing::warn!("{}: {report}", setup.camera);
                 return (None, settled);
             }
             Err(error) => {
-                eprintln!("capture worker {}: no auto exposure: {error}", setup.camera);
+                tracing::warn!("{}: no auto exposure: {error}", setup.camera);
                 return (None, false);
             }
         };
@@ -479,7 +479,7 @@ mod device {
                 format!("brightness {} to {} (its exposure can't be set in this mode)", range.min, range.max)
             }
         };
-        eprintln!("capture worker {}: auto exposure toward luma {:.0}, by {what}", setup.camera, setup.settings.target);
+        tracing::info!("{}: auto exposure toward luma {:.0}, by {what}", setup.camera, setup.settings.target);
         (Some(Device { device, range, id: control.id, knob }), true)
     }
 
@@ -697,11 +697,11 @@ mod device {
         match v4l::Device::with_path(node) {
             Ok(mut device) => {
                 let (success, report) = restore_controls_status(&mut device, hold_fps);
-                eprintln!("capture worker {camera}: exposure steering OFF: {report}");
+                tracing::warn!("{camera}: exposure steering OFF: {report}");
                 success
             }
             Err(error) => {
-                eprintln!("capture worker {camera}: exposure steering OFF: cannot restore native controls: {error}");
+                tracing::warn!("{camera}: exposure steering OFF: cannot restore native controls: {error}");
                 false
             }
         }
@@ -719,13 +719,13 @@ mod device {
             return true;
         }
         let Ok(mut device) = v4l::Device::with_path(node) else {
-            eprintln!("capture worker {camera}: saved camera controls: cannot open {node}");
+            tracing::warn!("{camera}: saved camera controls: cannot open {node}");
             return false;
         };
         let errors = apply_controls(&mut device, saved, previous, steering);
         let applied = errors.is_empty();
         for error in errors {
-            eprintln!("capture worker {camera}: saved camera control: {error}");
+            tracing::warn!("{camera}: saved camera control: {error}");
         }
         applied
     }
@@ -1218,13 +1218,13 @@ mod device {
         _steering: bool,
     ) -> bool {
         if !saved.is_empty() {
-            eprintln!("capture worker {camera}: saved camera controls require V4L2 on Linux");
+            tracing::info!("{camera}: saved camera controls require V4L2 on Linux");
         }
         saved.is_empty()
     }
 
     pub fn open(setup: &SteerSetup) -> (Option<Device>, bool) {
-        eprintln!("capture worker {}: auto exposure isn't built for this OS yet: the camera's own runs", setup.camera);
+        tracing::info!("{}: auto exposure isn't built for this OS yet: the camera's own runs", setup.camera);
         (None, true)
     }
 

@@ -49,7 +49,7 @@ import continuum_py
 import numpy as np
 from continuum_py import Client
 
-from liberational import continuum_link, model_runtime, speech_log
+from liberational import continuum_link, logs, model_runtime, speech_log
 from liberational.audio import gain as auto_gain
 from liberational.listen.pcm import SR, Continuity, Format, HostClock, Resampler
 from liberational.listen.voices import Match, word_count
@@ -145,6 +145,7 @@ class MicPipeline:
         self.gain, self.monotonic = gain, monotonic
         self.breaks = 0
         self.levels: list[float] = []  # each record's dBFS since the last levels line
+        self.levels_clock = logs.Periodic()  # the levels line each minute: INFO every 10 minutes, else DEBUG (#59)
         self.candidates = 0
         self._restart()
 
@@ -210,7 +211,8 @@ class MicPipeline:
             if g.get("db") is not None
             else ""
         )
-        log.info(
+        log.log(
+            self.levels_clock.level(),
             "%s: levels p50 %.1f p90 %.1f max %.1f dBFS; VAD floor %.1f, opens at %.1f; %d candidates%s",
             self.mic.stream,
             float(np.percentile(d, 50)),
@@ -319,7 +321,7 @@ class Transcriber:
         t = time.perf_counter()
         if self.gate is not None and not self.gate(audio):
             found = getattr(self.gate, "last_speech_s", None)
-            log.info(
+            log.debug(  # one a clip, so DEBUG (#59)
                 "%s: %.1f s at %.1f dBFS: not speech%s",
                 mic or "a mic",
                 len(audio) / SR,
@@ -333,7 +335,7 @@ class Transcriber:
         t = time.perf_counter()
         text = self._asr(audio).strip()
         lat["asr"] = round((time.perf_counter() - t) * 1000)
-        log.info("%s: %.1f s at %.1f dBFS: %s", mic or "a mic", len(audio) / SR, was, "heard" if text else "no words")
+        log.debug("%s: %.1f s at %.1f dBFS: %s", mic or "a mic", len(audio) / SR, was, "heard" if text else "no words")
         if not text:
             return None
         emb = None

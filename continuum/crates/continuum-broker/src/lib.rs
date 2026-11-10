@@ -9,7 +9,6 @@ pub mod core;
 pub mod costs;
 pub mod host;
 pub mod index;
-pub mod log;
 pub mod protocol;
 pub mod scrub;
 pub mod server;

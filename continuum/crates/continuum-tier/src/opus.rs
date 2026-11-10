@@ -406,7 +406,7 @@ pub fn pcm_chunk_to_opus(path: &std::path::Path) -> Result<Vec<crate::chunk::Rec
         if let Some(dir) = path.parent()
             && let Err(e) = std::fs::File::open(dir).and_then(|d| d.sync_all())
         {
-            eprintln!("tier worker: syncing {} after its Opus rename failed: {e}", dir.display());
+            tracing::warn!("syncing {} after its Opus rename failed: {e}", dir.display());
         }
         Ok(records)
     })();

@@ -359,7 +359,7 @@ pub fn run_camera(
                     counts.arena_full_dropped += 1;
                     if last_pressure_warning.is_none_or(|last| arrival.saturating_sub(last) >= HEALTH_NS) {
                         last_pressure_warning = Some(arrival);
-                        eprintln!("capture worker: WARN stream {}: Tier 0 slots exhausted; {} frames dropped (device sequence {}); capture continues", stream.stream_id().0, counts.arena_full_dropped, raw.sequence);
+                        tracing::warn!("stream {}: Tier 0 slots exhausted; {} frames dropped (device sequence {}); capture continues", stream.stream_id().0, counts.arena_full_dropped, raw.sequence);
                     }
                 }
                 Err(e) => failure = Some(e),

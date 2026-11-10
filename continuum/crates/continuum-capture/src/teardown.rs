@@ -29,14 +29,13 @@ fn current() -> std::sync::MutexGuard<'static, Option<Running>> {
 fn still_running(device: &str, step: Option<(&'static str, Instant)>, now: Instant) -> Option<String> {
     let (name, since) = step?;
     let ran = now.saturating_duration_since(since);
-    (ran >= WATCH_EVERY)
-        .then(|| format!("capture worker {device}: teardown still in {name} after {} ms", ran.as_millis()))
+    (ran >= WATCH_EVERY).then(|| format!("{device}: teardown still in {name} after {} ms", ran.as_millis()))
 }
 
 /// Closes a device through `close`, timing it and every [`step`] inside it, then reports the total.
 pub fn close<T>(device: &str, close: impl FnOnce() -> T) -> T {
     let began = Instant::now();
-    eprintln!("capture worker {device}: teardown begins");
+    tracing::info!("{device}: teardown begins");
     *current() = Some(Running { device: device.to_owned(), began, step: None });
     let (done, finished) = std::sync::mpsc::channel::<()>();
     let watchdog = std::thread::Builder::new().name("teardown watchdog".into()).spawn(move || {
@@ -45,14 +44,14 @@ pub fn close<T>(device: &str, close: impl FnOnce() -> T) -> T {
             let guard = current();
             let Some(running) = guard.as_ref() else { return };
             if let Some(line) = still_running(&running.device, running.step, Instant::now()) {
-                eprintln!("{line}");
+                tracing::warn!("{line}");
             }
         }
     });
     let out = step("device close", close);
     let total = current().take().map_or(began.elapsed(), |r| r.began.elapsed());
     drop(done);
-    eprintln!("capture worker {device}: teardown done in {} ms", total.as_millis());
+    tracing::info!("{device}: teardown done in {} ms", total.as_millis());
     if let Ok(watchdog) = watchdog {
         let _ = watchdog.join();
     }
@@ -76,7 +75,7 @@ pub fn step<T>(name: &'static str, f: impl FnOnce() -> T) -> T {
     let mut guard = current();
     if let Some(running) = guard.as_mut() {
         running.step = outer;
-        eprintln!("capture worker {}: teardown {name} took {} ms", running.device, took.as_millis());
+        tracing::info!("{}: teardown {name} took {} ms", running.device, took.as_millis());
     }
     out
 }
@@ -92,7 +91,7 @@ mod tests {
         assert_eq!(still_running("cam0", step, start + Duration::from_millis(999)), None);
         assert_eq!(
             still_running("cam0", step, start + Duration::from_millis(2_500)).as_deref(),
-            Some("capture worker cam0: teardown still in session stopRunning after 2500 ms")
+            Some("cam0: teardown still in session stopRunning after 2500 ms")
         );
         assert_eq!(still_running("cam0", None, start + Duration::from_secs(9)), None, "between steps");
     }

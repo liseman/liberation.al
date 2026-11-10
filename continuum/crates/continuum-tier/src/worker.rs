@@ -304,7 +304,7 @@ impl<O: Outputs> WorkerLoop<O> {
                 } else {
                     self.quarantined.extend(r.records.iter().map(|record| record.id));
                 }
-                eprintln!("tier worker: {why}");
+                tracing::warn!("{why}");
                 for record in r.records {
                     self.recovered_ids.remove(&record.id);
                 }
@@ -327,7 +327,7 @@ impl<O: Outputs> WorkerLoop<O> {
                     self.counts.recovered += 1;
                     self.finish(closed);
                 }
-                Err(e) => eprintln!("tier worker: recovered chunk {} has no header: {e}", r.path.display()),
+                Err(e) => tracing::warn!("recovered chunk {} has no header: {e}", r.path.display()),
             }
         }
         self.flusher.declare(stream, shape);
@@ -534,8 +534,8 @@ impl<O: Outputs> WorkerLoop<O> {
         }
         self.counts.pcm_fallbacks += 1;
         if self.pcm_warned.insert(stream) {
-            eprintln!(
-                "tier worker: stream {} audio went to Tier 1 as LZ4: its f32 samples aren't exact 16 or 24 bit \
+            tracing::warn!(
+                "stream {} audio went to Tier 1 as LZ4: its f32 samples aren't exact 16 or 24 bit \
                  integers (a stream volume or resampling in PipeWire?); later fallbacks are only counted",
                 stream.0
             );
@@ -552,8 +552,8 @@ impl<O: Outputs> WorkerLoop<O> {
         }
         match crate::raw::RawEncoder::open(layout, RAW_FPS, crate::h264::H264_ENCODERS) {
             Ok(encoder) => {
-                eprintln!(
-                    "tier worker: stream {} ({}x{} {:?}) goes to Tier 1 as H.264 by {}",
+                tracing::info!(
+                    "stream {} ({}x{} {:?}) goes to Tier 1 as H.264 by {}",
                     stream.0,
                     layout.width,
                     layout.height,
@@ -567,10 +567,7 @@ impl<O: Outputs> WorkerLoop<O> {
                 StreamShape { chunk_format: ChunkFormat::H264Au, ..shape }
             }
             Err(e) => {
-                eprintln!(
-                    "tier worker: stream {} raw frames go to Tier 1 as LZ4: no H.264 encoder opens: {e}",
-                    stream.0
-                );
+                tracing::warn!("stream {} raw frames go to Tier 1 as LZ4: no H.264 encoder opens: {e}", stream.0);
                 shape
             }
         }
@@ -751,7 +748,7 @@ impl<O: Outputs> WorkerLoop<O> {
         match self.out.commit(&closed) {
             Ok(()) => self.counts.committed += 1,
             Err(CommitFailure::Retry(e)) => {
-                eprintln!("tier worker: committing {} failed, will try again: {e}", closed.path.display());
+                tracing::warn!("committing {} failed, will try again: {e}", closed.path.display());
                 self.counts.commit_retries += 1;
                 self.uncommitted.push_back(closed);
             }
@@ -786,8 +783,8 @@ impl<O: Outputs> WorkerLoop<O> {
             Err(e) => {
                 self.counts.opus_fallbacks += 1;
                 if self.opus_warned.insert(closed.stream) {
-                    eprintln!(
-                        "tier worker: stream {} chunk {} stays PCM, not Opus: {e}; later ones are only counted",
+                    tracing::warn!(
+                        "stream {} chunk {} stays PCM, not Opus: {e}; later ones are only counted",
                         closed.stream.0,
                         closed.path.display()
                     );
@@ -802,10 +799,10 @@ impl<O: Outputs> WorkerLoop<O> {
     fn reject(&mut self, closed: &Closed, why: &str) {
         let aside = closed.path.with_extension("rejected");
         if let Err(e) = std::fs::rename(&closed.path, &aside) {
-            eprintln!("tier worker: setting {} aside failed: {e}", closed.path.display());
+            tracing::warn!("setting {} aside failed: {e}", closed.path.display());
         }
-        eprintln!(
-            "tier worker: the broker refused chunk {} for good ({why}); set aside as {}",
+        tracing::error!(
+            "the broker refused chunk {} for good ({why}); set aside as {}",
             closed.path.display(),
             aside.display()
         );
@@ -824,7 +821,7 @@ impl<O: Outputs> WorkerLoop<O> {
                     self.counts.committed += 1;
                 }
                 Err(CommitFailure::Retry(e)) => {
-                    eprintln!("tier worker: committing {} failed again: {e}", c.path.display());
+                    tracing::warn!("committing {} failed again: {e}", c.path.display());
                     self.counts.commit_retries += 1;
                     return;
                 }
@@ -843,7 +840,7 @@ impl<O: Outputs> WorkerLoop<O> {
         }
         match self.out.flushed(ids) {
             Ok(()) => self.counts.flushed += ids.len() as u64,
-            Err(e) => eprintln!("tier worker: marking {} slots flushed failed: {e}", ids.len()),
+            Err(e) => tracing::warn!("marking {} slots flushed failed: {e}", ids.len()),
         }
     }
 }

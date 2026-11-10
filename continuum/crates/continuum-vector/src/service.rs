@@ -161,11 +161,7 @@ async fn subscribe_reader(socket: &Path, spec: &SubscribeSpec) -> Result<(Reader
             let controls = tokio::spawn(async move {
                 while let Some(message) = control_client.next_event().await {
                     if let Some(error) = message.envelope().payload_as_error() {
-                        eprintln!(
-                            "continuum-vector-worker: reader error {:?}: {}",
-                            error.code(),
-                            error.message().unwrap_or("")
-                        );
+                        tracing::warn!("reader error {:?}: {}", error.code(), error.message().unwrap_or(""));
                         let _ = control_client.close("reader error").await;
                         break;
                     }
@@ -212,7 +208,7 @@ async fn follow(
         match subscribe_reader(&socket, &spec).await {
             Ok((mut reader, mut sub)) => {
                 let skipped = |position: u64, why: String| {
-                    eprintln!("continuum-vector-worker: {stream} at {position}: skipped: {why}");
+                    tracing::warn!("{stream} at {position}: skipped: {why}");
                 };
                 completed = completed.max(sub.start_position());
                 // Filing precedes ack. Reconnect can lose that last ack, but must not append the row twice.
@@ -229,10 +225,10 @@ async fn follow(
                     if !matches!(error, WorkerError::Client(_)) {
                         return Err(error.into());
                     }
-                    eprintln!("continuum-vector-worker: {stream}: {error}; reconnecting reader");
+                    tracing::warn!("{stream}: {error}; reconnecting reader");
                 }
             }
-            Err(error) => eprintln!("continuum-vector-worker: {stream}: {error}; reconnecting reader"),
+            Err(error) => tracing::warn!("{stream}: {error}; reconnecting reader"),
         }
         // A lost reader must not restart the keeper registration or reopen the store in a tight loop.
         tokio::time::sleep(wait.max(Duration::from_millis(500))).await;
@@ -248,13 +244,13 @@ async fn serve_live(worker: Arc<SearchWorker>, socket: PathBuf, wait: Duration) 
             Ok((mut reader, mut sub)) => {
                 let result = worker
                     .serve(&mut sub, |position, why| {
-                        eprintln!("continuum-vector-worker: query at {position}: {why}");
+                        tracing::warn!("query at {position}: {why}");
                     })
                     .await;
                 reader.stop("reconnecting live queries").await;
                 result?;
             }
-            Err(error) => eprintln!("continuum-vector-worker: live queries: {error}; reconnecting reader"),
+            Err(error) => tracing::warn!("live queries: {error}; reconnecting reader"),
         }
         tokio::time::sleep(wait.max(Duration::from_millis(500))).await;
     }
@@ -312,8 +308,8 @@ pub async fn run(settings: Settings, stop: Arc<AtomicBool>) -> Result<(), Servic
     let store = VectorStore::open(&settings.store).await?;
     let worker = Arc::new(SearchWorker::new(Arc::clone(&client), store, streams));
     // The session id, so the broker's log of this session (why it closed one, say) can be found.
-    eprintln!(
-        "continuum-vector-worker: session {}: serving searches, store {}, following {:?}, {:?}*, text from {:?}, and \
+    tracing::info!(
+        "session {}: serving searches, store {}, following {:?}, {:?}*, text from {:?}, and \
          {:?} in the segment store {:?}",
         client.session_id(),
         settings.store.display(),
@@ -328,7 +324,7 @@ pub async fn run(settings: Settings, stop: Arc<AtomicBool>) -> Result<(), Servic
     {
         let worker = Arc::clone(&worker);
         tasks.spawn(async move {
-            worker.run(|e| eprintln!("continuum-vector-worker: {e}")).await;
+            worker.run(|e| tracing::warn!("{e}")).await;
             Err(ServiceError::Broker(
                 "the broker closed the connection (it closes a client whose outbound queue fills, or one that breaks \
                  the protocol; its log says which, under this session's id)"
@@ -378,7 +374,7 @@ pub async fn run(settings: Settings, stop: Arc<AtomicBool>) -> Result<(), Servic
                         Duration::from_secs(1),
                     );
                     if let Err(e) = followed.await {
-                        eprintln!("continuum-vector-worker: segments {}: {e}; again in {wait:?}", stream.name);
+                        tracing::warn!("segments {}: {e}; again in {wait:?}", stream.name);
                     }
                     tokio::time::sleep(wait).await;
                 }
@@ -394,7 +390,7 @@ pub async fn run(settings: Settings, stop: Arc<AtomicBool>) -> Result<(), Servic
             loop {
                 tick.tick().await;
                 if let Err(e) = worker.store().compact().await {
-                    eprintln!("continuum-vector-worker: compacting: {e}");
+                    tracing::warn!("compacting: {e}");
                 }
             }
         });

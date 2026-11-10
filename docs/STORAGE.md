@@ -166,7 +166,7 @@ rather than slowing anything, and the oldest backlog is the part left as H.264.
   used SVT-AV1 4.2 on 12-second clips; the tier worker links the system's SVT-AV1 (2.3 on devbox) and opens one
   encoder per chunk. Preset 10 took 0.017 core-seconds a frame (about 2.4 cores) and left 35% of the bytes, but a
   faster preset at the same CRF is a softer picture: compare stills before choosing it.
-- Logs: a summary line every 10 minutes (`tier worker: AV1 archive: ...`): chunks converted, bytes before and after,
+- Logs: a summary line every 10 minutes (`[continuum-tier-worker] INFO AV1 archive: ...`): chunks converted, bytes before and after,
   chunks kept as H.264 by reason, and whether the backlog is done.
 
 **Playback.** Review sends AV1 to the browser as it is (WebCodecs). Chrome, Edge, and Firefox decode it, and so does

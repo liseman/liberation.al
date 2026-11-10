@@ -276,7 +276,7 @@ pub async fn follow(
                     DeletionKind::Forget => {
                         // A space's table is named by its model and version, so the probe's size doesn't matter here.
                         let gone = apply(store, &root, &stream, &probe, d).await?;
-                        eprintln!("continuum-vector-worker: {}: forget {}: {gone} rows", stream.name, d.revision);
+                        tracing::info!("{}: forget {}: {gone} rows", stream.name, d.revision);
                     }
                     DeletionKind::Reset => {
                         place.cursor.clear();
@@ -303,7 +303,7 @@ pub async fn follow(
             let space = space_of_shape(&stream.shape, dim)?;
             let (rows, skipped) = rows_of(batch, &space, &stream)?;
             if skipped > 0 {
-                eprintln!("continuum-vector-worker: {} {slot}: skipped {skipped} rows (no id or vector)", stream.name);
+                tracing::warn!("{} {slot}: skipped {skipped} rows (no id or vector)", stream.name);
             }
             store.insert_embeddings(&space, &rows).await?;
         }
