@@ -315,6 +315,35 @@ def test_a_core_restart_is_the_cascade_over_the_supervisors_own_children(sup, wo
     assert world.procs["dashboard"].pid == dashboard  # diagnostics stay up through a core restart
 
 
+def test_status_says_restarting_while_a_requested_restart_runs_and_not_after(sup, world, monkeypatch, tmp_path):
+    # The window reads this to say "Restarting" rather than "not recording" while capture is down on purpose.
+    monkeypatch.setattr(cascade_health, "wait_for_health", lambda *a, **k: None)
+    monkeypatch.setattr(service_cascade, "file_log", lambda line: None)
+    monkeypatch.setattr(service_cascade.time, "sleep", lambda s: None)
+    sup.start_all()
+    assert sup.status()["restarting"] is False
+    seen = []
+    ready = world.broker
+
+    def broker(previous, deadline):
+        seen.append((sup.status()["restarting"], json.loads((tmp_path / "status.json").read_text())["restarting"]))
+        return ready(previous, deadline)
+
+    monkeypatch.setattr(world, "broker", broker)
+    sup.restart([BROKER])
+    assert seen == [(True, True)]
+    assert sup.status()["restarting"] is False
+    assert json.loads((tmp_path / "status.json").read_text())["restarting"] is False
+
+
+def test_a_failed_restart_does_not_leave_the_status_restarting(sup, world, monkeypatch):
+    sup.start_all()
+    monkeypatch.setattr(sup, "start", lambda names, deadline=None: (_ for _ in ()).throw(OSError("no such program")))
+    with pytest.raises(OSError):
+        sup.restart(["journal"])
+    assert sup.status()["restarting"] is False
+
+
 def test_restarting_a_reader_touches_only_it(sup, world):
     sup.start_all()
     world.log.clear()
