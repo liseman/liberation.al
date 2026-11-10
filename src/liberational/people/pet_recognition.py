@@ -11,8 +11,9 @@ The owner **labels** sightings, a whole group at a time, on People's Pets sectio
 (people/pets.py), as "another animal" (a visiting cat, say), or clears a label. Each label is a `pet.sighting` record in the
 knowledge store (outside the broker's reset), keyed by the track it was judged from. The newest label of a
 track wins. Labeling a sighting as a pet or "another animal" also writes its mean embedding there as a `pet.reference`
-record (`reference`), so the label keeps its example when a reset empties the segment store. Labels made before that
-was written get theirs from their saved photos (tools/restore_pet_references.py).
+record (`reference`), so the label keeps its example when a reset empties the segment store, and the sighting's
+saved photo as a `pet.photo` record (`photo`), so the example can be embedded again when the embedding model
+changes (tools/restore_pet_references.py, which also carries over examples taught before photos were kept).
 
 Unlabeled embeddings remain labelable for `pets.label_days`. Active owner labels, including "another animal", retain
 their whole sighting as a reference without an age cutoff. Clearing the newest label makes that sighting ordinary
@@ -74,6 +75,7 @@ requested tracks, and a track gets a name only when the same check and threshold
 named pet. Anything less stays unknown.
 """
 
+import base64
 import calendar
 import functools
 import json
@@ -92,25 +94,31 @@ import numpy as np
 from liberational import config, knowledge, locking, segment_log
 from liberational.people.pets import offered
 
-# Measured on the Linux machine against labeled photos cut tight to their box: 863 of two
-# cats and 773 of a dog. A labeled cat's nearest same-pet sighting from another visit was a median 0.74 alike. At
-# MATCH_SIM 0.70 (with MARGIN 0.05) the cats' held-out check had 574 right, 3 wrong, and 286 unknown; square crops at
-# 0.75 had 513, 5, and 403 of 921. At GROUP_SIM 0.75, 1,636 sightings made 557 groups, 1 sighting in a group led by
-# the other cat (square crops at 0.80: 810 groups, 2).
-# MATCH_SIM is 0.05 under what those photos supported: references are embedded from the 192 px saved photos,
-# live sightings from full frames, and one track's photo was a median 0.85 alike to its own live sightings (cats; the
-# dog 0.88), so live sightings score lower against the references than the references do against each other. In live
-# sightings, 0.70 named 17 of 36 cat sightings and held back 8 clear ones at 0.59 to 0.69; at 0.65 the
-# cats' held-out check had 700 right, 5 wrong, and 157 unknown of 862.
-GROUP_SIM = 0.75  # a sighting joins a group whose centroid is at least this similar
-MATCH_SIM = 0.65  # recognition's nearest labeled sighting must be at least this similar
+# Set for DINOv2 ViT-S/14 (`[models.hf.animal_embedding]`), on the Linux machine, from 354 saved photos (192 px, cut
+# tight to their box) of three pets: 191 of two cats and 163 of a dog, each named by the earlier model's taught
+# examples, since no photo of an owner-labeled sighting was kept then. Held out by HOLD_OUT_S:
+# - MATCH_SIM (with MARGIN 0.05), the two cats: 0.55 had 167 right, 1 wrong, and 23 unknown of 191; 0.60 had 145,
+#   0, and 46; 0.65 had 121, 0, and 70. A cat's nearest same-cat photo from another visit was a median 0.66 to 0.71
+#   alike, and its nearest photo of the other cat about 0.48.
+# - GROUP_SIM: at 0.65 the 354 made 107 groups with none led by another pet; at 0.60, 68 groups with 1 sighting in
+#   another pet's; at 0.75, 222 groups.
+# - MIN_GALLERY_SIM, the one dog: a cat photo's nearest dog photo was at most 0.54 alike (0.37 at the median), and
+#   the 10th percentile of the dog's nearest same-dog photo from another visit was 0.54 to 0.56, so 0.60 keeps the
+#   floor clear of every other animal measured.
+# These come from photos compared with photos. A live sighting is embedded from the full frame and compared with
+# examples that may have been embedded from a 192 px photo, which scores a little lower (with the earlier model a
+# track's photo was a median 0.85 to 0.90 alike to its own live sightings), so check them again against live
+# sightings once the owner has labeled some. Another model needs its own: DINOv3 ViT-S/16 sat about 0.10 higher
+# (0.65, 0.75, and 0.70).
+GROUP_SIM = 0.65  # a sighting joins a group whose centroid is at least this similar
+MATCH_SIM = 0.55  # recognition's nearest labeled sighting must be at least this similar
 MARGIN = 0.05  # and beat the nearest of any other class by this much
 HOLD_OUT_S = 600.0  # the held-out check leaves out labeled sightings this close in time to the one it checks
 MIN_LABELED = 6  # labeled sightings of a species before recognition can be on
 MAX_WRONG = 0.1  # the most of its decided held-out answers that may be wrong
 MIN_DECIDED = 0.5  # the least share of held-out answers that must be decided
 GALLERY_PERCENTILE = 10  # a one-pet species' threshold: this percentile of its labeled sightings' held-out similarity
-MIN_GALLERY_SIM = 0.7  # and never below this, since with one pet nothing measures how alike other animals look
+MIN_GALLERY_SIM = 0.6  # and never below this, since with one pet nothing measures how alike other animals look
 OTHER = "other"  # the label for an animal that is none of the named pets
 IGNORED = "ignored"  # put aside by the owner: off the list, and never an example for recognition
 ANIMAL = "animal"  # a sighting the detector gave a species no pet here is (a "bear" that's the dog): any household one
@@ -119,6 +127,7 @@ EVIDENCE_LOCK = Path("continuum/pet-evidence")
 LABELS = "pet.sighting"  # owner labels, in the knowledge store
 NOTS = "pet.not"  # the owner's "this sighting is not that pet", in the knowledge store
 REFERENCES = "pet.reference"  # labeled tracks' embeddings from before the reset
+PHOTOS = "pet.photo"  # labeled tracks' saved photos, so a reference can be embedded again by another model
 GALLERY_TTL_S = 300.0  # the longest a cached reference gallery is used before it's read again
 VIEW_TTL_S = 60.0  # the longest a kept /pets/sightings answer is given again: its label_days cutoff moves with time
 
@@ -799,8 +808,42 @@ def label(
             records.append(knowledge.Record(str(uuid.uuid7()), LABELS, tid, at, at, at, body, subjects))
             if value not in (None, IGNORED) and tid not in kept:
                 records.append(reference(s.mean, body, at))
+                if (jpg := saved_photo(state, tid)) is not None:
+                    records.append(photo(tid, jpg, at))
         _store(state).put(records)
         return len(track_ids)
+
+
+def saved_photo(state: Any, track: str) -> bytes | None:
+    """The track's photo as see-actions saved it (`state/pet_shots`, machine-made and kept 30 days), or None."""
+    from liberational.people import pet_shots
+
+    path = pet_shots.newest(Path(state), track)
+    try:
+        return path.read_bytes() if path is not None else None
+    except OSError:
+        return None
+
+
+def photo(track: str, jpg: bytes, at: int) -> knowledge.Record:
+    """A labeled sighting's `pet.photo`: the saved photo its reference can be embedded from again (the animal's box
+    cut square with context, `animal_verifier.square`), keyed by its track. It lives in the knowledge store with the
+    reference, so a catalog reset and `pack-knowledge export` keep it, where `state/pet_shots` is dropped. A
+    reference is a vector of one embedding space; with its photo, a change of model is a re-embed
+    (tools/restore_pet_references.py), not teaching every pet again."""
+    value = {"track_id": track, "jpg": base64.b64encode(jpg).decode(), "bytes": len(jpg)}
+    return knowledge.Record(str(uuid.uuid7()), PHOTOS, track, at, at, at, value)
+
+
+def photos(state: Any) -> dict[str, bytes]:
+    """Each labeled track's kept photo (`photo`), the newest of a track. A malformed record is skipped."""
+    out: dict[str, bytes] = {}
+    for r in _query(state, PHOTOS):
+        try:
+            out[str(r.value["track_id"])] = base64.b64decode(r.value["jpg"], validate=True)
+        except KeyError, TypeError, ValueError:
+            continue
+    return out
 
 
 def embedding_model() -> str:
