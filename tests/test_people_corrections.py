@@ -23,7 +23,6 @@ from liberational.dashboard import (
     people_reads,
     people_writes,
     photo_files,
-    server,
     speaker_lines,
     transcript_lines,
 )
@@ -55,8 +54,6 @@ def state(tmp_path, monkeypatch, pack, ran, vision):  # noqa: F811
     unnamed voice 2 with a line."""
     s = tmp_path / "state"
     s.mkdir()
-    for name, path in {}.items():
-        monkeypatch.setattr(server, name, s / path)
     monkeypatch.setattr(speaker_lines, "VOICE_TAGS", s / "voice_tags.jsonl")
     monkeypatch.setattr(speaker_lines, "REFINE_LOG", s / "refine_log.jsonl")
     monkeypatch.setattr(people_list, "PEOPLE_ADDED", s / "people_added.json")

@@ -12,7 +12,7 @@ import pytest
 import soundfile as sf
 
 from liberational import config as cfg
-from liberational.dashboard import server, settings
+from liberational.dashboard import settings
 
 ENROLL = [sys.executable, "-m", "liberational.people.voice_edits"]
 
@@ -48,9 +48,8 @@ def enrolled(monkeypatch):
 
 
 @pytest.fixture
-def call(serve, monkeypatch, ref, enrolled):
-    monkeypatch.setattr(server, "DASH_PASSWORD", "")
-    port = urllib.parse.urlsplit(serve(server.H)).port
+def call(serve_dashboard, monkeypatch, ref, enrolled):
+    port = urllib.parse.urlsplit(serve_dashboard()).port
 
     def request(method, body=None, path="/config/voice_ref", **headers):
         headers.setdefault("Host", f"127.0.0.1:{port}")

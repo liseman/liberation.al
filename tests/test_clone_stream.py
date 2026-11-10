@@ -14,7 +14,7 @@ import pytest
 import soundfile as sf
 
 from liberational import config as cfg
-from liberational.dashboard import clone_stream, server, voice_clones
+from liberational.dashboard import clone_stream, voice_clones
 from liberational.speech import clone_say, clone_server
 
 SR = 24000
@@ -154,7 +154,7 @@ def test_only_safari_waits_for_the_finished_file(agent, waits):
     assert clone_stream.waits(agent) is waits
 
 
-def test_the_dashboard_says_a_line_from_the_warm_voice_and_streams_it(voice, clones, serve, monkeypatch):
+def test_the_dashboard_says_a_line_from_the_warm_voice_and_streams_it(voice, clones, serve_dashboard, monkeypatch):
     more = threading.Event()  # the second half second is made only once the browser is listening
 
     def synth(*_):
@@ -164,10 +164,9 @@ def test_the_dashboard_says_a_line_from_the_warm_voice_and_streams_it(voice, clo
 
     voice["fn"] = synth
     monkeypatch.setattr(voice_clones, "CLONES", clones)
-    monkeypatch.setattr(server, "DASH_PASSWORD", "")
     monkeypatch.setattr(clone_stream, "_reference", lambda sid: (clones / f"{sid}.wav", "the reference's words"))
     monkeypatch.setattr(voice_clones, "_clone_run", lambda *a: pytest.fail("the old way ran"))
-    base = serve(server.H)
+    base = serve_dashboard()
     req = urllib.request.Request(
         base + "/clones/say",
         json.dumps({"id": 7, "text": "Hello there."}).encode(),
@@ -231,14 +230,13 @@ def test_the_playback_window_covers_the_longest_line_then_its_real_length(voice,
     assert all(w["end"] - w["start"] < longest for w in rows)
 
 
-def test_a_line_that_fails_partway_is_an_error_and_isnt_kept(voice, clones, windows, serve, monkeypatch):
+def test_a_line_that_fails_partway_is_an_error_and_isnt_kept(voice, clones, windows, serve_dashboard, monkeypatch):
     def half(*_):
         yield CHUNKS[0], SR
         raise RuntimeError("out of memory")
 
     voice["fn"] = half
     monkeypatch.setattr(voice_clones, "CLONES", clones)
-    monkeypatch.setattr(server, "DASH_PASSWORD", "")
     monkeypatch.setattr(clone_stream, "_reference", lambda sid: (clones / f"{sid}.wav", "the reference's words"))
     out = clones / "say-7-4.wav"
     assert clone_stream.start(7, "Hello there.", out)
@@ -247,7 +245,7 @@ def test_a_line_that_fails_partway_is_an_error_and_isnt_kept(voice, clones, wind
     r.wait(5)
     assert (r.error is not None, out.exists()) == (True, False)
     with pytest.raises(urllib.error.HTTPError) as e:
-        urllib.request.urlopen(serve(server.H) + f"/clones/render?f={out.name}", timeout=5)
+        urllib.request.urlopen(serve_dashboard() + f"/clones/render?f={out.name}", timeout=5)
     assert e.value.code == 502
 
 

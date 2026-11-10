@@ -72,15 +72,15 @@ def rollups(monkeypatch):
 
 
 @pytest.fixture
-def route(state, monkeypatch, serve):
+def route(state, monkeypatch, serve_dashboard):
     """The dashboard serving `state`, with a route cache of its own: `review_reads.review_summary_kept` keeps each window's
     answer for a minute keyed by the window alone, so without this a test asking for the same window as an earlier
     one, from another state, gets that test's answer."""
-    from liberational.dashboard import context, review_reads, server
+    from liberational.dashboard import context, review_reads
 
     monkeypatch.setattr(context, "STATE", state)
     monkeypatch.setattr(review_reads, "_summaries", {})
-    return urllib.parse.urlsplit(serve(server.H))
+    return urllib.parse.urlsplit(serve_dashboard())
 
 
 @pytest.fixture

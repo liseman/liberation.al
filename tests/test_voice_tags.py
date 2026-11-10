@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 
 import speech_fake
-from liberational.dashboard import context, server, speaker_lines, transcript_lines
+from liberational.dashboard import context, speaker_lines, transcript_lines
 from liberational.domain import kernel
 from liberational.listen import revisions
 from liberational.people import registry
@@ -48,11 +48,10 @@ def test_reject_transcript_validates_every_key_before_writing(tmp_path, monkeypa
     assert not (tmp_path / "knowledge.sqlite3").exists()
 
 
-def test_transcript_correction_route_requires_same_origin_json(tmp_path, monkeypatch, serve):
+def test_transcript_correction_route_requires_same_origin_json(tmp_path, monkeypatch, serve_dashboard):
     monkeypatch.setattr(context, "STATE", tmp_path)
-    monkeypatch.setattr(server, "DASH_PASSWORD", "")
     row = speech_fake.fake().say({"ts_start": 1000.0, "ts_end": 1003.0, "device": "mic", "text": "incorrect words"})
-    host = urllib.parse.urlsplit(serve(server.H)).netloc
+    host = urllib.parse.urlsplit(serve_dashboard()).netloc
 
     def post(path, body, headers):
         connection = http.client.HTTPConnection(host, timeout=5)
@@ -73,13 +72,14 @@ def test_transcript_correction_route_requires_same_origin_json(tmp_path, monkeyp
     assert post("/transcript/undo", {"undo": result["undo"]}, {"Content-Type": "application/json"})[0] == 200
 
 
-def test_transcript_correction_routes_refuse_no_control_requests_without_changing_state(tmp_path, monkeypatch, serve):
+def test_transcript_correction_routes_refuse_no_control_requests_without_changing_state(
+    dashboard_server, tmp_path, monkeypatch, serve_dashboard
+):
     monkeypatch.setattr(context, "STATE", tmp_path)
-    monkeypatch.setattr(server, "DASH_PASSWORD", "")
-    monkeypatch.setattr(server.H, "_can_control", lambda self: False)
+    monkeypatch.setattr(dashboard_server.H, "_can_control", lambda self: False)
     row = speech_fake.fake().say({"ts_start": 1000.0, "ts_end": 1003.0, "device": "mic", "text": "incorrect words"})
     key = registry.key_of(row)
-    host = urllib.parse.urlsplit(serve(server.H)).netloc
+    host = urllib.parse.urlsplit(serve_dashboard()).netloc
 
     def post(path, body):
         connection = http.client.HTTPConnection(host, timeout=5)
@@ -148,9 +148,8 @@ def test_refuses_bad_names_and_lines(tags, ts, name):
     assert not tags.exists()
 
 
-def test_route_needs_same_origin_json(tags, serve, monkeypatch):
-    monkeypatch.setattr(server, "DASH_PASSWORD", "")
-    host = urllib.parse.urlsplit(serve(server.H)).netloc
+def test_route_needs_same_origin_json(tags, serve_dashboard, monkeypatch):
+    host = urllib.parse.urlsplit(serve_dashboard()).netloc
 
     def post(**headers):
         c = http.client.HTTPConnection(host, timeout=5)

@@ -285,17 +285,16 @@ def test_ask_says_where_a_located_thing_lives(home, tmp_path):
 
 
 @pytest.fixture
-def http_(home, serve, monkeypatch, tmp_path):
+def http_(home, serve_dashboard, monkeypatch, tmp_path):
     import http.client
     import json
     import urllib.parse
 
-    from liberational.dashboard import context, server
+    from liberational.dashboard import context
 
     monkeypatch.setattr(context, "STATE", tmp_path)
-    monkeypatch.setattr(server, "DASH_PASSWORD", "")
     monkeypatch.setattr(device_links, "_held", {})  # an earlier test's listing, reused within the minute
-    netloc = urllib.parse.urlsplit(serve(server.H)).netloc
+    netloc = urllib.parse.urlsplit(serve_dashboard()).netloc
 
     def send(method, path, body=None, origin=None):
         conn = http.client.HTTPConnection(netloc, timeout=10)

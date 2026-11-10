@@ -267,8 +267,8 @@ def test_labels_unlabels_and_undo_from_the_dashboard(written):
     assert "[09:00:00] Alice: line 0" in md  # the day's file was rebuilt
 
 
-def test_unlabel_route(written, serve):
-    code, got = post(serve(server.H), "/transcript/unlabel", {"ts_start": ts(written, 0)})
+def test_unlabel_route(written, serve_dashboard):
+    code, got = post(serve_dashboard(), "/transcript/unlabel", {"ts_start": ts(written, 0)})
     assert (code, got["entry"]["speaker"], got["entry"]["unlabeled"]) == (200, UNKNOWN, True)
     assert names(written)[0] == UNKNOWN
     registry.at(written).claim(registry.voiceprint(1), "Erin", Basis.OWNER_TAG, "test")

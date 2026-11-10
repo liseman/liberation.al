@@ -7,7 +7,8 @@ from typing import ClassVar
 
 import pytest
 
-from liberational.dashboard import people_list, server, unnamed_groups
+from liberational import speech_log
+from liberational.dashboard import people_list, unnamed_groups
 
 
 class FakePool:
@@ -73,7 +74,7 @@ def inputs(tmp_path, monkeypatch):
     unk.write_bytes(b"one")
     speech = SimpleNamespace(newest=1)
     monkeypatch.setattr(people_list, "_faces_mod", lambda: SimpleNamespace(UNK_DB=unk))
-    monkeypatch.setattr(server.speech_log, "shared", lambda: SimpleNamespace(mark=lambda: (speech.newest, None)))
+    monkeypatch.setattr(speech_log, "shared", lambda: SimpleNamespace(mark=lambda: (speech.newest, None)))
     monkeypatch.setattr(unnamed_groups, "_groups_data", {"at": float("-inf"), "key": None})
     monkeypatch.setattr(unnamed_groups, "GROUPS_REFRESH_S", 0.0)  # read the inputs on every call
     return unk, speech

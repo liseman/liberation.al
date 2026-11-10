@@ -189,16 +189,15 @@ def test_history_needs_a_camera(tmp_path, vision):
 
 
 @pytest.fixture
-def http_(serve, monkeypatch, tmp_path, vision):
+def http_(serve_dashboard, monkeypatch, tmp_path, vision):
     import http.client
     import json
     import urllib.parse
 
-    from liberational.dashboard import context, server
+    from liberational.dashboard import context
 
     monkeypatch.setattr(context, "STATE", tmp_path)
-    monkeypatch.setattr(server, "DASH_PASSWORD", "")
-    netloc = urllib.parse.urlsplit(serve(server.H)).netloc
+    netloc = urllib.parse.urlsplit(serve_dashboard()).netloc
 
     def send(method, path, body=None, origin=None):
         conn = http.client.HTTPConnection(netloc, timeout=5)

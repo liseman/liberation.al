@@ -7,7 +7,7 @@ import urllib.request
 
 import pytest
 
-from liberational.dashboard import live_status, mic_levels, server
+from liberational.dashboard import live_status, mic_levels
 from speech_fake import fake
 
 
@@ -45,11 +45,10 @@ def test_a_microphones_auto_gain_is_shown_with_it(monkeypatch, tmp_path):
     assert status["devices"]["wave3"]["gain"] == {"auto": True, "kind": "hardware", "db": 30.0}
 
 
-def test_the_route_serves_the_status(serve, monkeypatch):
-    monkeypatch.setattr(server, "DASH_PASSWORD", "")
+def test_the_route_serves_the_status(serve_dashboard, monkeypatch):
     monkeypatch.setattr(live_status, "_listening", lambda: True)
     fake().mics = {"wave3.audio": time.time_ns()}
-    with urllib.request.urlopen(serve(server.H) + "/ambient", timeout=5) as r:
+    with urllib.request.urlopen(serve_dashboard() + "/ambient", timeout=5) as r:
         body = json.loads(r.read())
     assert body["devices"]["wave3"]["healthy"] is True and body["ts"] > 0
 

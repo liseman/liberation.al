@@ -12,7 +12,7 @@ import pytest
 from PIL import Image
 
 from liberational import config as cfg
-from liberational.dashboard import ingest, server
+from liberational.dashboard import ingest
 from liberational.ingest.pipeline import Pipeline
 from liberational.ingest.sources.google_photos import GooglePhotosSource
 from liberational.ingest.store import Store
@@ -39,12 +39,11 @@ def registrar():
 
 
 @pytest.fixture
-def base(serve, tmp_path, monkeypatch, registrar):
-    monkeypatch.setattr(server, "DASH_PASSWORD", "")
+def base(serve_dashboard, tmp_path, monkeypatch, registrar):
     pipe = Pipeline(Store(tmp_path / "ingest.sqlite3"), tmp_path / "media", registrar)
     monkeypatch.setattr(ingest, "_pipeline", pipe)
     monkeypatch.setattr(ingest, "WORKER", ingest.Worker())
-    return serve(server.H)
+    return serve_dashboard()
 
 
 def request(base, method, path, body=b"", headers=None):

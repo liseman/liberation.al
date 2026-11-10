@@ -239,10 +239,9 @@ def test_the_page_captures_a_view_remembers_from_it_and_keeps_a_spoken_draft(sto
 
 
 @pytest.mark.parametrize("path", ["/objects", "/objects/"])
-def test_objects_page_uses_the_shared_dashboard_entry(monkeypatch, path):
-    from liberational.dashboard import server
+def test_objects_page_uses_the_shared_dashboard_entry(dashboard_server, monkeypatch, path):
 
-    monkeypatch.setattr(server, "app_page", lambda: (200, b"configured dashboard shell"))
+    monkeypatch.setattr(dashboard_server, "app_page", lambda: (200, b"configured dashboard shell"))
 
     class Handler:
         def __init__(self):
@@ -382,18 +381,17 @@ def test_cancel_endpoint_prevents_a_delayed_segment_request_with_conflict_respon
     assert delayed.sent == (409, {"error": "EdgeTAM selection was cancelled."})
 
 
-def test_cancel_endpoint_is_served_through_the_dashboard_post_router(monkeypatch):
+def test_cancel_endpoint_is_served_through_the_dashboard_post_router(dashboard_server, monkeypatch):
     import http.client
     import http.server
     import json
     import threading
 
-    from liberational.dashboard import server
     from liberational.vision import segmentation
 
     calls = []
     monkeypatch.setattr(segmentation, "cancel", lambda job: calls.append(job) or False)
-    httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), server.H)
+    httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), dashboard_server.H)
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()
     connection = http.client.HTTPConnection("127.0.0.1", httpd.server_port, timeout=3)
@@ -454,17 +452,17 @@ def test_live_crop_import_rejects_invalid_input(change, log):
 
 
 @pytest.mark.parametrize(("fields", "size"), [({}, 40000), ({"kind": "full_frame"}, 3_000_000)])
-def test_import_route_accepts_bounded_image_envelopes_over_normal_json_limit(monkeypatch, fields, size):
+def test_import_route_accepts_bounded_image_envelopes_over_normal_json_limit(
+    dashboard_server, monkeypatch, fields, size
+):
     import http.client
     import http.server
     import json
     import threading
 
-    from liberational.dashboard import server
-
     calls = []
     monkeypatch.setattr(page, "import_view", lambda data: calls.append(data) or {"token": "live-crop"})
-    httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), server.H)
+    httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), dashboard_server.H)
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()
     connection = http.client.HTTPConnection("127.0.0.1", httpd.server_port, timeout=3)

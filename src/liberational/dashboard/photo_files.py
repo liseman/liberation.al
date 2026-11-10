@@ -67,6 +67,14 @@ def _shot_revision(state: pathlib.Path | None = None) -> str:
     return str(segment_revision(segment_log.root(context.STATE if state is None else state)))
 
 
+SHOT_PX = face_shots.PX
+
+
+def _shot_path(sid: str) -> pathlib.Path:
+    """Where sighting sid's crop is under the current deletion revision."""
+    return face_shots.path(context.STATE, sid, _shot_revision())
+
+
 def _shot_file(
     sid: str, state: pathlib.Path | None = None, *, on_decode: Callable[[], None] | None = None
 ) -> tuple[pathlib.Path | None, str | None]:

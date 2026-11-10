@@ -24,7 +24,6 @@ from liberational.dashboard import (
     people_list,
     people_reads,
     photo_files,
-    server,
     unnamed_groups,
 )
 from liberational.people import registry
@@ -189,8 +188,7 @@ def test_a_group_has_the_sightings_see_actions_matched_to_it(state, ids):
     assert (eight["shots"], eight["last_seen"]) == ([], None)
 
 
-def test_the_route_lists_the_groups_waiting_for_a_name(state, serve, monkeypatch):
-    monkeypatch.setattr(server, "DASH_PASSWORD", "")
+def test_the_route_lists_the_groups_waiting_for_a_name(state, serve_dashboard, monkeypatch):
     inbox_state.INBOX_SKIPS.write_text(json.dumps({"face": [7]}))
     groups = fresh_reads._Fresh(
         "face route", unnamed_groups._unknown_groups, unnamed_groups._faces_owner_key, lambda: 0
@@ -200,7 +198,7 @@ def test_the_route_lists_the_groups_waiting_for_a_name(state, serve, monkeypatch
     assert groups.get()[0] == 200
     assert groups.get()[0] == 200
     assert groups.ready()
-    with urllib.request.urlopen(serve(server.H) + "/faces/unknown/groups", timeout=5) as r:
+    with urllib.request.urlopen(serve_dashboard() + "/faces/unknown/groups", timeout=5) as r:
         assert r.status == 200
         body = json.loads(r.read())
     assert (body["count"], body["skipped"]) == (3, [7])
@@ -224,14 +222,14 @@ def test_to_name_lists_and_counts_only_groups_seen_in_the_last_unnamed_days(stat
     assert (sorted(g["id"] for g in body["groups"]), body["count"]) == (listed, len(listed))
 
 
-def test_group_sighting_pages_count_and_page_only_saved_crops(state, ids, serve, monkeypatch):
+def test_group_sighting_pages_count_and_page_only_saved_crops(state, ids, serve_dashboard, monkeypatch):
     from liberational.people import face_shots
 
     monkeypatch.setattr(context, "STATE", state)
     monkeypatch.setattr(photo_files, "_crop_jobs", face_shots.Pending(photo_files._crop_process))
     face_shots.write(state, ids[2], "0", b"jpeg")
     face_shots.write(state, ids[4], "0", b"jpeg")
-    base = serve(server.H)
+    base = serve_dashboard()
     with urllib.request.urlopen(base + "/faces/unknown/5/sightings?offset=0&limit=1", timeout=5) as response:
         before = json.loads(response.read())
     assert before == {
@@ -247,8 +245,7 @@ def test_group_sighting_pages_count_and_page_only_saved_crops(state, ids, serve,
     assert (after["total"], after["shots_pending"]) == (3, 5)
 
 
-def test_the_route_says_when_the_groups_cannot_be_read(state, serve, monkeypatch):
-    monkeypatch.setattr(server, "DASH_PASSWORD", "")
+def test_the_route_says_when_the_groups_cannot_be_read(state, serve_dashboard, monkeypatch):
 
     def broken():
         raise ValueError("a half-written file")
@@ -258,7 +255,7 @@ def test_the_route_says_when_the_groups_cannot_be_read(state, serve, monkeypatch
         "broken face route", unnamed_groups._unknown_groups, unnamed_groups._faces_owner_key, lambda: 0
     )
     monkeypatch.setattr(unnamed_groups, "_FACE_GROUPS", groups)
-    url = serve(server.H) + "/faces/unknown/groups"
+    url = serve_dashboard() + "/faces/unknown/groups"
     with urllib.request.urlopen(url, timeout=5) as r:
         assert r.status == 202
     work = unnamed_groups._FACE_GROUPS.cold

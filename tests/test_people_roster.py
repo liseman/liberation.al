@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from liberational import config as cfg
-from liberational.dashboard import call_log, context, people_cards, people_list, server
+from liberational.dashboard import call_log, context, people_cards, people_list
 from liberational.people import profiles, registry
 
 NO_FACES = SimpleNamespace(counts=dict, unknown_groups=list, rename=lambda a, b: 0)
@@ -16,8 +16,6 @@ NO_FACES = SimpleNamespace(counts=dict, unknown_groups=list, rename=lambda a, b:
 @pytest.fixture
 def state(tmp_path, monkeypatch):
     (tmp_path / "speakers.json").write_text(json.dumps({"speakers": []}))
-    for name, path in {}.items():
-        monkeypatch.setattr(server, name, tmp_path / path)
     monkeypatch.setattr(people_list, "PEOPLE_ADDED", tmp_path / "people_added.json")
     monkeypatch.setattr(people_list, "CONTACTS_FILE", tmp_path / "contacts.json")
     monkeypatch.setattr(call_log, "CALLS_DIR", tmp_path / "calls")

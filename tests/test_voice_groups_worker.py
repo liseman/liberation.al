@@ -1,5 +1,6 @@
 """Voice-group reads leave the dashboard process, while failed workers remain retryable."""
 
+import sys
 from concurrent.futures import Future
 from concurrent.futures.process import BrokenProcessPool
 from types import SimpleNamespace
@@ -7,8 +8,9 @@ from unittest.mock import create_autospec
 
 import pytest
 
-from liberational import config
-from liberational.dashboard import context, machine_stats, report_health, server, unnamed_groups
+from liberational import config, memtrim
+from liberational import config as cfg
+from liberational.dashboard import assets, context, machine_stats, report_health, server, settings, slow, unnamed_groups
 from liberational.memory import reports
 
 
@@ -77,16 +79,16 @@ def test_dashboard_start_activates_voice_worker_before_serving(worker, monkeypat
     monkeypatch.setattr(server, "PORT", server.PORT)
     monkeypatch.setattr(server, "DEV", server.DEV)
     monkeypatch.setattr(reports, "READ_IN_WORKER", False)
-    monkeypatch.setattr(server.sys, "argv", ["pack-dashboard"])
-    monkeypatch.setattr(server.settings, "port_arg", lambda: None)
-    monkeypatch.setattr(server.assets, "stale", lambda: False)
+    monkeypatch.setattr(sys, "argv", ["pack-dashboard"])
+    monkeypatch.setattr(settings, "port_arg", lambda: None)
+    monkeypatch.setattr(assets, "stale", lambda: False)
     monkeypatch.setattr(server, "_after_people_warm", lambda *args: None)
     monkeypatch.setattr(report_health, "start", lambda state: None)
     monkeypatch.setattr(machine_stats.SAMPLER, "start", lambda: None)
     monkeypatch.setattr(server.readers, "warm", lambda: None)
     monkeypatch.setattr(server, "_warm_faces", lambda: None)
-    monkeypatch.setattr(server.slow, "watch", lambda *logs: None)
-    monkeypatch.setattr(server.memtrim, "start", lambda: None)
+    monkeypatch.setattr(slow, "watch", lambda *logs: None)
+    monkeypatch.setattr(memtrim, "start", lambda: None)
     monkeypatch.setattr(server, "_warm_devices", lambda: None)
     http = create_autospec(server.DashboardServer, instance=True)
     http.serve_forever.side_effect = lambda: unnamed_groups._VOICE_GROUPS.compute()
@@ -98,10 +100,10 @@ def test_dashboard_start_activates_voice_worker_before_serving(worker, monkeypat
 
 
 def test_voice_worker_refreshes_settings_and_lowers_its_priority(monkeypatch):
-    clear = create_autospec(server.cfg.load.cache_clear)
+    clear = create_autospec(cfg.load.cache_clear)
     priority = create_autospec(context.low_priority)
     monkeypatch.setattr(unnamed_groups.multiprocessing, "parent_process", lambda: object())
-    monkeypatch.setattr(server.cfg.load, "cache_clear", clear)
+    monkeypatch.setattr(cfg.load, "cache_clear", clear)
     monkeypatch.setattr(context, "low_priority", priority)
     monkeypatch.setattr(unnamed_groups, "_unknown_voices", lambda: (200, {"groups": [], "count": 0}))
     assert unnamed_groups._unknown_voices_job() == (200, {"groups": [], "count": 0})

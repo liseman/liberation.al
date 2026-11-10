@@ -8,7 +8,8 @@ import pytest
 import requests
 from PIL import Image
 
-from liberational.dashboard import context, people_references, roster_read, server
+from liberational import config as cfg
+from liberational.dashboard import context, people_references, roster_read
 from liberational.people import references
 from liberational.vision import faces
 
@@ -28,12 +29,11 @@ def found(monkeypatch):
 
 
 @pytest.fixture
-def base(serve, tmp_path, monkeypatch, found):
+def base(serve_dashboard, tmp_path, monkeypatch, found):
     monkeypatch.setattr(context, "STATE", tmp_path)
-    monkeypatch.setattr(server, "DASH_PASSWORD", "")
     monkeypatch.setattr(roster_read, "people_view", lambda: {"people": [{"name": "Dana"}]})
     monkeypatch.setattr(faces, "DB", tmp_path / "db.npz")
-    return serve(server.H)
+    return serve_dashboard()
 
 
 def call(base, path, body=None, headers=None):
@@ -103,7 +103,7 @@ def test_new_json_routes_reject_nonobjects_and_cross_origin(base, path):
 def test_candidate_lookup_uses_grounded_provider_without_agent(monkeypatch):
     from liberational.people import name_lookup
 
-    monkeypatch.setattr(server.cfg, "agent_configured", lambda: False)
+    monkeypatch.setattr(cfg, "agent_configured", lambda: False)
     result = {"candidates": [{"name": "Dana", "detail": "Engineer", "url": "https://www.wikidata.org/wiki/Q123"}]}
     lookup = create_autospec(name_lookup.lookup, return_value=result)
     post = create_autospec(requests.post)

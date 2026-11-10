@@ -15,7 +15,6 @@ from liberational.dashboard import (
     people_corrections,
     people_list,
     people_writes,
-    server,
 )
 from liberational.people import contacts, profiles, registry
 from liberational.phone import outbound
@@ -277,8 +276,6 @@ def dashboard(tmp_path, monkeypatch):
     """The People tab on a state dir of its own, with no lines and no face database. Returns the state dir."""
     state = tmp_path / "state"
     (state / "people").mkdir(parents=True)
-    for name, path in {}.items():
-        monkeypatch.setattr(server, name, state / path)
     monkeypatch.setattr(people_list, "PEOPLE_ADDED", state / "people_added.json")
     monkeypatch.setattr(people_list, "CONTACTS_FILE", state / "contacts.json")
     monkeypatch.setattr(call_log, "CALLS_DIR", state / "calls")

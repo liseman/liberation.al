@@ -1,6 +1,8 @@
 import socket
 import sys
+import time
 import urllib.error
+import urllib.request
 from typing import Any
 from unittest.mock import patch
 
@@ -251,7 +253,7 @@ class Ps:
 def polled(monkeypatch):
     """The dashboard's Stats on a clock of its own, with Ollama answering (until `up` is cleared) and every /api/tags
     read counted."""
-    from liberational.dashboard import machine_stats, server
+    from liberational.dashboard import machine_stats
 
     clock = {"now": 1_800_000_000.0, "up": True, "tags": 0}
 
@@ -266,9 +268,9 @@ def polled(monkeypatch):
             raise REFUSED
         return Tags(["qwen3:4b-instruct", "qwen3-vl:4b-instruct", "emb:4b"])
 
-    monkeypatch.setattr(server.urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
     monkeypatch.setattr(oh, "_get", tags)
-    monkeypatch.setattr(server.time, "time", lambda: clock["now"])
+    monkeypatch.setattr(time, "time", lambda: clock["now"])
     with cfg.override({"ollama": {"url": URL}, **MODELS}):
         yield machine_stats.Stats(), clock
 
@@ -296,14 +298,14 @@ def test_stats_say_ollama_is_down_at_once_and_back_at_once(polled):
 
 
 def test_the_dashboard_stats_carry_what_to_tell_the_owner():
-    from liberational.dashboard import machine_stats, server
+    from liberational.dashboard import machine_stats
 
     def refused(*a, **k):
         raise urllib.error.URLError(ConnectionRefusedError(111, "refused"))
 
     with (
         cfg.override({"ollama": {"url": URL}, **MODELS}),
-        patch.object(server.urllib.request, "urlopen", side_effect=refused),
+        patch.object(urllib.request, "urlopen", side_effect=refused),
         patch.object(oh, "_get", side_effect=refused),
     ):
         o = machine_stats.Stats().ollama_ps()

@@ -29,9 +29,9 @@ def test_gzip_negotiation(header, accept):
 
 
 @pytest.fixture
-def api(serve, monkeypatch):
+def api(serve_dashboard, monkeypatch):
     monkeypatch.setattr(server, "DASH_PASSWORD", "synthetic-password")
-    host = serve(server.H).removeprefix("http://")
+    host = serve_dashboard().removeprefix("http://")
 
     def get(path, encoding="gzip", method="GET", auth=True):
         headers = {"Accept-Encoding": encoding, "Accept": "text/html", "X-Forwarded-For": "192.0.2.10"}
@@ -144,13 +144,13 @@ def test_controls_refuse_a_missing_host():
     assert not handler._can_control()
 
 
-def test_real_dashboard_dispatches_history_delete_to_local_broker(serve, memory):
+def test_real_dashboard_dispatches_history_delete_to_local_broker(serve_dashboard, memory):
     import json
 
     from liberational.memory import ask, ask_history
 
     ident = ask_history.at(ask.STATE).start("Synthetic saved question")
-    host = serve(server.H).removeprefix("http://")
+    host = serve_dashboard().removeprefix("http://")
     connection = http.client.HTTPConnection(host, timeout=5)
     try:
         connection.request(

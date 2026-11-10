@@ -4,6 +4,7 @@ import http.client
 import http.server
 import json
 import logging
+import subprocess
 import sys
 import threading
 import time
@@ -14,7 +15,7 @@ from unittest.mock import create_autospec
 import pytest
 
 import liberational.vision
-from liberational import config, knowledge, voice_turn
+from liberational import config, knowledge, logs, speech_log, voice_turn
 from liberational.dashboard import (
     context,
     fresh_reads,
@@ -28,6 +29,7 @@ from liberational.dashboard import (
     unnamed_groups,
     voice_clones,
 )
+from liberational.people import face_shots, registry
 
 
 def test_the_faces_helpers_are_imported_before_the_first_people_request(monkeypatch):
@@ -131,7 +133,7 @@ def test_warm_up_admits_each_stage_at_low_priority_and_leaves_faces_last(warm_so
         "face groups",
     ]
     warm_sources.logged.assert_called_once()
-    assert warm_sources.logged.call_args.kwargs["level"] == server.logs.INFO
+    assert warm_sources.logged.call_args.kwargs["level"] == logs.INFO
 
 
 def test_warm_up_logs_one_failure_and_still_warms_the_other_caches(monkeypatch, warm_sources):
@@ -159,7 +161,7 @@ def test_warm_up_logs_one_failure_and_still_warms_the_other_caches(monkeypatch, 
         "face groups",
     ]
     warm_sources.logged.assert_called_once()
-    assert warm_sources.logged.call_args.kwargs["level"] == server.logs.WARN
+    assert warm_sources.logged.call_args.kwargs["level"] == logs.WARN
     status = people_reads._people_warm_status()
     assert status["state"] == "incomplete"
     assert len(status["errors"]) == 2
@@ -185,7 +187,7 @@ def test_unpublished_success_is_retried_once_then_reports_incomplete(monkeypatch
     assert people_reads._people_warm_status()["state"] == "incomplete"
     assert any("face groups" in error for error in people_reads._people_warm_status()["errors"])
     warm_sources.logged.assert_called_once()
-    assert warm_sources.logged.call_args.kwargs["level"] == server.logs.WARN
+    assert warm_sources.logged.call_args.kwargs["level"] == logs.WARN
 
 
 def test_group_retry_can_publish_before_the_warm_up_reports_done(monkeypatch, warm_sources):
@@ -208,7 +210,7 @@ def test_group_retry_can_publish_before_the_warm_up_reports_done(monkeypatch, wa
     assert status["errors"] == []
     assert status["elapsed_s"] >= 0
     warm_sources.logged.assert_called_once()
-    assert warm_sources.logged.call_args.kwargs["level"] == server.logs.INFO
+    assert warm_sources.logged.call_args.kwargs["level"] == logs.INFO
 
 
 def test_request_joins_the_in_flight_people_warm_up(monkeypatch):
@@ -290,7 +292,7 @@ def roster(monkeypatch):
     monkeypatch.setattr(roster_read, "_people_view", read)
     monkeypatch.setattr(unnamed_groups, "_voices_key", lambda: state["voices"])
     monkeypatch.setattr(unnamed_groups, "_faces_owner_key", lambda **_: 0)
-    monkeypatch.setattr(server.speech_log, "shared", lambda: speech)
+    monkeypatch.setattr(speech_log, "shared", lambda: speech)
     return state, held, speech, reads
 
 
@@ -660,10 +662,10 @@ def test_the_faces_check_runs_in_a_child_process_and_saves_its_result(tmp_path, 
 def test_a_faces_check_child_that_fails_says_why(tmp_path, monkeypatch):
     monkeypatch.setattr(context, "STATE", tmp_path)
     monkeypatch.setattr(
-        server.subprocess,
+        subprocess,
         "run",
         create_autospec(
-            server.subprocess.run,
+            subprocess.run,
             return_value=SimpleNamespace(returncode=1, stdout="", stderr="Traceback ...\nStorageError: broken"),
         ),
     )
@@ -831,7 +833,7 @@ def test_two_patches_in_a_row_count_from_the_kept_answer(face_skips):
 
 def test_the_reply_leaves_the_patch_bookkeeping_out(monkeypatch):
     monkeypatch.setattr(photo_files, "_shot_revision", lambda: 0)
-    monkeypatch.setattr(server.face_shots, "saved", lambda *a, **k: set())
+    monkeypatch.setattr(face_shots, "saved", lambda *a, **k: set())
     code, body = unnamed_groups._ready_face_groups(*FACE_ANSWER)
     assert code == 200
     assert "_counted" not in body
@@ -1029,9 +1031,7 @@ def test_voice_patch_waits_for_the_full_answer_when_the_names_cant_be_read(voice
     def unreadable(state, sids):
         raise OSError("event log unreadable")
 
-    monkeypatch.setattr(
-        server.registry, "voice_names", create_autospec(server.registry.voice_names, side_effect=unreadable)
-    )
+    monkeypatch.setattr(registry, "voice_names", create_autospec(registry.voice_names, side_effect=unreadable))
     assert unnamed_groups._patch_voice_groups(VOICE_ANSWER, _voice_key(), _voice_key(mark=2)) is None
 
 

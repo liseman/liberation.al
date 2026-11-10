@@ -16,7 +16,7 @@ import soundfile as sf
 
 from liberational import config as cfg
 from liberational import services
-from liberational.dashboard import server, settings
+from liberational.dashboard import settings
 
 
 def call(base, method, path, body=None, raw=None, **headers):
@@ -200,10 +200,9 @@ def restarts(monkeypatch):
 
 
 @pytest.fixture
-def config_url(serve, monkeypatch, pack_toml, restarts):
-    monkeypatch.setattr(server, "DASH_PASSWORD", "")
+def config_url(serve_dashboard, monkeypatch, pack_toml, restarts):
     monkeypatch.setattr(sys, "argv", ["pack-dashboard"])
-    return serve(server.H)
+    return serve_dashboard()
 
 
 def test_get_reports_setup_and_control(config_url, pack_toml):
