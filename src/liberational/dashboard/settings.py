@@ -30,7 +30,7 @@ from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Any
 
 from liberational import config as cfg
-from liberational import service_cascade, services
+from liberational import login_item, service_cascade, services
 from liberational.dashboard import routes
 from liberational.dashboard.context import LOG
 
@@ -412,6 +412,11 @@ def handle(
         except SystemExit:  # an unknown service name in pack.toml: a save may be what fixes it
             selected_before = None
         written, overridden = cfg.save(values)
+        if login_item.KEY in values:  # the desktop's autostart entry follows the setting at once (#157)
+            try:
+                LOG.info(f"settings: {login_item.sync()}")
+            except OSError as ex:  # the setting is saved; the application applies it again when it next starts
+                LOG.warning(f"settings: start at login not applied: {ex}")
     except cfg.SettingError as ex:
         handler._json({"ok": False, "error": str(ex), "field": ex.key}, 400)
         return True
