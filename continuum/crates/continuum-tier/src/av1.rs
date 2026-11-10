@@ -7,9 +7,9 @@
 //! was read (a purge rewrote it), so the catalog's frame numbers, payload ids, and times all stay as they were; the
 //! caller tells the catalog the new offsets with `RewriteChunk`.
 //!
-//! Each chunk is its own GOP: a chunk decodes on its own, so its first unit is its only planned keyframe. With the
-//! tier worker's chunks of about 3.5 seconds, that costs about 20% more bytes than the 10-second GOPs measured
-//! (docs/STORAGE.md), for no change to the catalog or its readers' chunk rules.
+//! A chunk decodes on its own, so its first unit is a keyframe, and a camera's chunk is a minute long, so it gets
+//! another every [`GOP_SECONDS`] (the 10-second GOPs docs/STORAGE.md measured): a seek into archived video decodes
+//! at most that much. Each keyframe carries the sequence header.
 //!
 //! A chunk stays H.264 ([`Encoded::Kept`]) when converting it would change what readers see: tombstones (a
 //! purge's cut leaves the rest of its H.264 GOP undecodable), frames out of time order (B-frames, which AV1 units
@@ -18,6 +18,9 @@
 use std::fs;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
+
+/// How far apart an archived chunk's keyframes are, in seconds of its frame rate.
+pub const GOP_SECONDS: u32 = 10;
 
 use ff::util::color::Range;
 use ffmpeg_next as ff;
@@ -198,6 +201,12 @@ struct Pass<'a> {
 }
 
 impl Pass<'_> {
+    /// Frames from one keyframe to the next: [`GOP_SECONDS`] of the chunk's rate, or the whole of a shorter chunk.
+    fn gop(&self) -> u32 {
+        let whole = u32::try_from(self.units.len()).unwrap_or(u32::MAX);
+        self.rate.saturating_mul(GOP_SECONDS).min(whole).max(1)
+    }
+
     /// Encodes every picture the decoder has ready. `Some(why)` when this chunk can't be converted.
     fn take(&mut self, decoder: &mut ff::decoder::Video) -> Result<Option<String>, TierError> {
         let mut picture = ff::frame::Video::empty();
@@ -219,7 +228,7 @@ impl Pass<'_> {
                     transfer: picture.color_transfer_characteristic(),
                 };
                 let settings = Settings {
-                    gop_frames: u32::try_from(self.units.len()).unwrap_or(u32::MAX),
+                    gop_frames: self.gop(),
                     frame_rate: self.rate,
                     bit_rate: 0,
                     full_range: colors.range == Range::JPEG,
@@ -233,10 +242,12 @@ impl Pass<'_> {
                 };
                 self.encoder = Some(Encoder::open_av1(picture.width(), picture.height(), settings, options, colors)?);
             }
+            let gop = self.gop();
             let unit = &self.units[self.next];
             let nv12 = crate::video::to_nv12(&picture)?;
             let encoder = self.encoder.as_mut().expect("opened above");
-            for au in encoder.encode_keyframe(&nv12, unit.start_ns, unit.end_ns, self.next == 0)? {
+            let key = self.next.is_multiple_of(gop as usize);
+            for au in encoder.encode_keyframe(&nv12, unit.start_ns, unit.end_ns, key)? {
                 self.out.push(Some(record(&au)?));
             }
             self.next += 1;

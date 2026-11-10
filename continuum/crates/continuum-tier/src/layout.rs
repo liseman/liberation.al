@@ -32,6 +32,42 @@ pub fn hour_label(ns: u64) -> String {
     chrono::DateTime::from_timestamp(secs, 0).map_or_else(|| "0000000000".into(), |t| t.format("%Y%m%d%H").to_string())
 }
 
+/// The catalog id of the chunk in the file named `<stream>-<created_ns>-<counter>.cnk`: a UUIDv7 at the file's
+/// creation time whose other bits are a hash of the three, so it is the same every time it is derived. Every part of
+/// a chunk names the same id, and a recovery after a crash asks the catalog what it holds under it
+/// (docs/CONTINUUM.md, "Video chunks").
+#[must_use]
+pub fn chunk_id(stream: StreamId, created_ns: u64, counter: u64) -> continuum_core::Uuid {
+    // FNV-1a, written out: the id must not change with the compiler or a dependency.
+    let hash = |seed: u64| {
+        let mut h = 0xcbf2_9ce4_8422_2325u64 ^ seed;
+        for b in
+            u64::from(stream.0).to_le_bytes().into_iter().chain(created_ns.to_le_bytes()).chain(counter.to_le_bytes())
+        {
+            h = (h ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3);
+        }
+        h
+    };
+    let mut rest = [0u8; 10];
+    rest[..8].copy_from_slice(&hash(0).to_le_bytes());
+    rest[8..].copy_from_slice(&hash(1).to_le_bytes()[..2]);
+    continuum_core::Uuid(
+        uuid::Builder::from_unix_timestamp_millis(created_ns / 1_000_000, &rest).into_uuid().into_bytes(),
+    )
+}
+
+/// [`chunk_id`] for a chunk file, from its name; `None` for a name that isn't the flusher's.
+#[must_use]
+pub fn chunk_id_of(path: &Path) -> Option<continuum_core::Uuid> {
+    if path.extension()? != "cnk" {
+        return None;
+    }
+    let mut parts = path.file_stem()?.to_str()?.split('-');
+    let (stream, created_ns, counter) =
+        (parts.next()?.parse().ok()?, parts.next()?.parse().ok()?, parts.next()?.parse().ok()?);
+    parts.next().is_none().then(|| chunk_id(StreamId(stream), created_ns, counter))
+}
+
 /// Every directory chunk files are in: each hour directory, of `stream` alone when one is given. Sorted; a chunk
 /// directory that doesn't exist has none.
 ///
@@ -153,6 +189,23 @@ mod tests {
         let dir = Path::new("/tier");
         assert_eq!(hour_dir(dir, StreamId(7), T), Path::new("/tier/streams/7/2026110815"));
         assert_eq!(hour_dir(dir, StreamId(7), T + HOUR_NS), Path::new("/tier/streams/7/2026110816"));
+    }
+
+    #[test]
+    fn a_chunks_id_comes_from_its_name_alone() {
+        let id = chunk_id(StreamId(7), T, 3);
+        assert_eq!(chunk_id_of(Path::new(&format!("/tier/streams/7/2026110815/7-{T}-3.cnk"))), Some(id));
+        assert_eq!(uuid::Uuid::from_bytes(id.0).get_version_num(), 7);
+        let (secs, _) = uuid::Uuid::from_bytes(id.0).get_timestamp().expect("a v7 time").to_unix();
+        assert_eq!(secs, T / 1_000_000_000, "it sorts by when the file was created");
+        // Pinned: a recovery after an upgrade has to derive the id the last run committed under.
+        assert_eq!(uuid::Uuid::from_bytes(id.0).to_string(), "01a1bbc7-dcc0-70c7-a624-e2f341a46101");
+        for other in [chunk_id(StreamId(8), T, 3), chunk_id(StreamId(7), T + 1, 3), chunk_id(StreamId(7), T, 4)] {
+            assert_ne!(other, id);
+        }
+        for name in ["7-copy-0190.cnk", "7-1-1.rejected", "7-1.cnk", "7-1-1-1.cnk", "cam-1-1.cnk"] {
+            assert_eq!(chunk_id_of(Path::new(name)), None, "{name}");
+        }
     }
 
     #[test]
