@@ -1,6 +1,5 @@
-"""Registers ingested files on Continuum, through the calls the v1 importers used (the audio
-archive import's, and `pack-import-vision`'s `recordings`): `register_v1_index` for FLAC on `<stream>.audio_v1`, and
-`register_v1_video_index` for H.264 MP4 on `<stream>.video_v1`. Each file is registered in place: the broker reads
+"""Registers ingested files on Continuum, through the SDK's in-place calls: `register_audio_index` for FLAC on
+`<stream>.audio_v1`, and `register_video_index` for H.264 MP4 on `<stream>.video_v1`. Each file is registered in place: the broker reads
 an `index.jsonl` naming it by absolute path with its start, written to a temporary directory of its own, so nothing
 beside the media is written. Both calls are idempotent, so registering a file again returns the same chunk.
 
@@ -116,7 +115,7 @@ class BrokerRegistrar:
                 with tempfile.TemporaryDirectory(prefix="ingest-video-") as tmp:
                     (Path(tmp) / "index.jsonl").write_text(_index_line(path, start, cam=stream, fps=fps))
                     try:
-                        entries = await client.register_v1_video_index(stream, tmp)
+                        entries = await client.register_video_index(stream, tmp)
                     except BrokerError as e:
                         raise Refused(str(e)) from e
             for e in entries:
@@ -133,7 +132,7 @@ class BrokerRegistrar:
                 with tempfile.TemporaryDirectory(prefix="ingest-audio-") as tmp:
                     (Path(tmp) / "index.jsonl").write_text(_index_line(path, start))
                     try:
-                        entries = await client.register_v1_index(f"{stream}.audio_v1", tmp)
+                        entries = await client.register_audio_index(f"{stream}.audio_v1", tmp)
                     except BrokerError as e:
                         raise Refused(str(e)) from e
             for e in entries:

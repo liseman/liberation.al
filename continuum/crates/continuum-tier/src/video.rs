@@ -89,7 +89,7 @@ pub fn decode_gop(units: &[Unit]) -> Result<Vec<DecodedFrame>, TierError> {
     decode_units(ff::codec::Id::H264, units)
 }
 
-/// As [`decode_gop`], for a GOP of any FFmpeg `codec` (v1's recordings are H.264): `units` in decode order, each with
+/// As [`decode_gop`], for a GOP of any FFmpeg `codec` (files registered in place are H.264): `units` in decode order, each with
 /// its own presentation time, and the frames come back in presentation order with those times.
 ///
 /// # Errors

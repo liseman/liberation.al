@@ -16,6 +16,7 @@ use continuum_catalog::{Catalog, RedbCatalog};
 use continuum_tier::recording_bound::bounded_end;
 
 fn main() -> ExitCode {
+    continuum_log::init("continuum-recording-bound");
     let mut catalog = None;
     let mut apply = false;
     let mut args = std::env::args().skip(1);

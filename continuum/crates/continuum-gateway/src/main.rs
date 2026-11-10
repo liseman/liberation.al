@@ -82,9 +82,7 @@ fn served_names(args: &Args) -> Vec<String> {
 
 #[tokio::main]
 async fn main() -> std::process::ExitCode {
-    tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
-        .init();
+    continuum_log::init("continuum-gateway");
     let args = Args::parse();
     let chunks = args.chunks_dir.clone().unwrap_or_else(|| args.state_dir.join("continuum").join("tier"));
     let source = Arc::new(ChunkSource::new(&chunks));

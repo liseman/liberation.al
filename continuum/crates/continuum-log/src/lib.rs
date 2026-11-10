@@ -1,20 +1,22 @@
-//! The pack's one log format for the broker: `<stamp> [tag] LEVEL message`, the stamp ISO local date and time with
-//! its offset (2026-11-03T02:20:15-08:00), on stderr.
+//! The pack's one log format for Continuum's daemons: `<stamp> [tag] LEVEL message`, the stamp ISO local date and
+//! time with its offset (2026-11-03T02:20:15-08:00), on stderr (#59).
 //!
 //! Every pack service logs this way (AGENTS.md, "Log with levels"; `src/liberational/logs.py`), because the
 //! dashboard's Debug tab reads the level from each line (`frontend/src/dashboard/debug/logs.ts`, `levelOf`) and
 //! `pack-services` finds a service's last error with `services.ERROR_LINE`. The levels are DEBUG, INFO, WARN, and
 //! ERROR; tracing's TRACE is written as DEBUG. Structured fields follow the message as `key=value`.
+//!
+//! A daemon calls [`init`] with its tag first thing in `main` and logs with `tracing`'s macros. The level comes from
+//! `RUST_LOG`, which `pack-services` sets from `logging.level` and `logging.per_service` (INFO when unset). A counter
+//! a daemon reports every few seconds goes through [`Periodic`]: DEBUG each time, INFO once every few minutes.
 
 use std::fmt;
+use std::time::{Duration, Instant};
 
 use tracing::{Event, Level, Subscriber};
 use tracing_subscriber::fmt::format::Writer;
 use tracing_subscriber::fmt::{FmtContext, FormatEvent, FormatFields};
 use tracing_subscriber::registry::LookupSpan;
-
-/// The tag on the broker's lines: its service name in services.toml.
-pub const TAG: &str = "continuum-broker";
 
 /// The level word for a tracing level, as logs.py writes it.
 #[must_use]
@@ -41,12 +43,6 @@ impl PackFormat {
     }
 }
 
-impl Default for PackFormat {
-    fn default() -> Self {
-        Self::new(TAG)
-    }
-}
-
 impl<S, N> FormatEvent<S, N> for PackFormat
 where
     S: Subscriber + for<'a> LookupSpan<'a>,
@@ -60,14 +56,63 @@ where
     }
 }
 
-/// Sets up the broker's logging: [`PackFormat`] on stderr, no colors, filtered by `RUST_LOG` (INFO by default).
-pub fn init() {
+/// Sets up this process's logging: [`PackFormat`] tagged `tag` (the service's name in services.toml) on stderr, no
+/// colors, filtered by `RUST_LOG` (INFO by default). Call it once, first thing in `main`.
+pub fn init(tag: &'static str) {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
         .with_writer(std::io::stderr)
         .with_ansi(false)
-        .event_format(PackFormat::default())
+        .event_format(PackFormat::new(tag))
         .init();
+}
+
+/// How often a periodic counter is written at INFO; the reports between are DEBUG.
+pub const INFO_EVERY: Duration = Duration::from_secs(600);
+
+/// Picks the level of a counter that is reported often (a capture worker's frame counts every 10 s): INFO for the
+/// first report and then once every [`INFO_EVERY`], DEBUG for the rest, so an idle service's INFO lines stay few.
+#[derive(Debug)]
+pub struct Periodic {
+    every: Duration,
+    last_info: Option<Instant>,
+}
+
+impl Default for Periodic {
+    fn default() -> Self {
+        Self::new(INFO_EVERY)
+    }
+}
+
+impl Periodic {
+    /// A counter written at INFO once every `every`.
+    #[must_use]
+    pub const fn new(every: Duration) -> Self {
+        Self { every, last_info: None }
+    }
+
+    /// Whether this report is the INFO one, as of `now`. Updates the clock when it is.
+    pub fn info_at(&mut self, now: Instant) -> bool {
+        let due = self.last_info.is_none_or(|last| now.saturating_duration_since(last) >= self.every);
+        if due {
+            self.last_info = Some(now);
+        }
+        due
+    }
+
+    /// Whether this report is the INFO one, now.
+    pub fn info(&mut self) -> bool {
+        self.info_at(Instant::now())
+    }
+}
+
+/// Logs a periodic report through a [`Periodic`]: `periodic!(clock, "{name}: {counts:?}")` writes it at INFO when
+/// the clock says so, else at DEBUG.
+#[macro_export]
+macro_rules! periodic {
+    ($clock:expr, $($arg:tt)+) => {
+        if $clock.info() { ::tracing::info!($($arg)+) } else { ::tracing::debug!($($arg)+) }
+    };
 }
 
 #[cfg(test)]
@@ -106,7 +151,7 @@ mod tests {
             .with_max_level(Level::TRACE)
             .with_writer(buf.clone())
             .with_ansi(false)
-            .event_format(PackFormat::default())
+            .event_format(PackFormat::new("continuum-broker"))
             .finish();
         tracing::subscriber::with_default(sub, emit);
         let text = String::from_utf8(buf.0.lock().unwrap().clone()).unwrap();
@@ -143,5 +188,14 @@ mod tests {
         }
         assert_eq!(parse(&got[0]).3, "bind failed");
         assert_eq!(parse(&got[2]).3, "listening path=\"/x/broker.sock\"");
+    }
+
+    #[test]
+    fn a_periodic_counter_is_info_first_and_then_once_a_period() {
+        let start = Instant::now();
+        let mut clock = Periodic::new(Duration::from_secs(600));
+        let at = |s: u64| start + Duration::from_secs(s);
+        let levels: Vec<bool> = [0, 10, 590, 600, 610, 1199, 1200].iter().map(|&s| clock.info_at(at(s))).collect();
+        assert_eq!(levels, [true, false, false, true, false, false, true]);
     }
 }

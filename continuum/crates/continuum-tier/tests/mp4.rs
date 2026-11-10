@@ -1,4 +1,4 @@
-//! The MP4 sample table reader against a file FFmpeg wrote with B-frames, as v1's recorder did: `data/v1_bframes.mp4`
+//! The MP4 sample table reader against a file FFmpeg wrote with B-frames, as Ingest's conversion does: `data/bframes.mp4`
 //! is 2 seconds of a test pattern at 10 fps, 64x48, H.264 High with 2 B-frames and a keyframe every 10 frames
 //! (`ffmpeg -f lavfi -i testsrc=size=64x48:rate=10:duration=2 -c:v libx264 -profile:v high -bf 2 -g 10
 //! -keyint_min 10 -sc_threshold 0`). The expected values are ffprobe's packet table for it.
@@ -7,7 +7,7 @@ use std::io::Cursor;
 
 use continuum_tier::mp4::{read_video, to_annex_b};
 
-const FIXTURE: &[u8] = include_bytes!("data/v1_bframes.mp4");
+const FIXTURE: &[u8] = include_bytes!("data/bframes.mp4");
 
 /// ffprobe's (pts, size, pos, key) per packet, in decode order; the time base is 1/10240.
 const PACKETS: [(i64, u32, u64, bool); 20] = [
@@ -77,7 +77,7 @@ fn a_keyframe_becomes_annex_b_with_its_parameter_sets() {
 
 #[test]
 fn an_unfinished_or_damaged_file_is_an_error_not_a_panic() {
-    // v1 still writing: no moov yet.
+    // A file still being written: no moov yet.
     let moov_at = FIXTURE.windows(4).position(|w| w == b"moov").expect("moov") - 4;
     assert!(read_video(&mut Cursor::new(&FIXTURE[..moov_at])).is_err());
     // Every truncation and a sample of single-byte damage inside the moov.

@@ -22,6 +22,7 @@ const USAGE: &str = "usage: continuum-vector-worker (--state-dir D | --socket S 
                      [--embeddings STREAM]... [--embedding-prefix PREFIX]... [--texts STREAM]...";
 
 fn main() -> ExitCode {
+    continuum_log::init("continuum-vector-worker");
     let (mut state_dir, mut socket, mut store, mut embeddings) =
         (None::<PathBuf>, None::<PathBuf>, None::<PathBuf>, Vec::<String>::new());
     let (mut prefixes, mut texts, mut segments) = (Vec::<String>::new(), Vec::<String>::new(), None::<PathBuf>);
@@ -66,7 +67,7 @@ fn main() -> ExitCode {
     let rt = match tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build() {
         Ok(rt) => rt,
         Err(e) => {
-            eprintln!("continuum-vector-worker: no runtime: {e}");
+            tracing::error!("no runtime: {e}");
             return ExitCode::FAILURE;
         }
     };
@@ -86,11 +87,11 @@ fn main() -> ExitCode {
     }
     match rt.block_on(run(settings, stop)) {
         Ok(()) => {
-            eprintln!("continuum-vector-worker: stopped");
+            tracing::info!("stopped");
             ExitCode::SUCCESS
         }
         Err(e) => {
-            eprintln!("continuum-vector-worker: {e}");
+            tracing::error!("{e}");
             ExitCode::FAILURE
         }
     }

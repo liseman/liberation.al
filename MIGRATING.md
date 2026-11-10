@@ -5,6 +5,26 @@ This guide covers the current Continuum installation. Fresh setup is in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). The old genericize and v1 import
 procedures are retired. Do not run an old catch-up script against current data.
 
+## The manifest import and its `[vision]` keys are gone
+
+`continuum-capture --from-v1` is removed, and so are the settings it read: `vision.cams`, `vision.width`,
+`vision.height`, `vision.fps`, and `vision.hold_fps`. Cameras come only from `config/devices.toml`
+(`config/devices.example.toml` shows the format, and Settings' Devices panel writes it): with no manifest the
+dashboard lists no cameras, where it used to fall back to `vision.cams`. Per-camera size, frame rate, and `hold_fps`
+are the manifest's `[video]` keys.
+
+If `pack.toml` still sets one of those five keys, delete the line. This lists them:
+
+```sh
+.venv/bin/pack-config --check
+```
+
+The Python SDK's in-place registration calls are renamed (`register_v1_index` to `register_audio_index`,
+`register_v1_video_index` to `register_video_index`, `register_v1_flac` to `register_flac`, and `v1_gop_units` to
+`gop_units`), so rebuild the SDK and the Rust binaries (`mise run continuum-release`, then the sync under "Build and
+restart matching components") and restart every service after the pull. Stream names (`<stream>.audio_v1`,
+`<stream>.video_v1`) and stored data are unchanged; nothing is dropped.
+
 ## Video chunks are a minute long (catalog format 8)
 
 A camera now writes one chunk file and one catalog row a minute, and the catalog stores each chunk's frame index
@@ -30,6 +50,10 @@ model doesn't answer, Ask says it couldn't read the question, and a spoken quest
 There is nothing to migrate and no data to reset. After pulling, restart the dashboard, the voice loop, and research
 (`pack-services restart dashboard voice research`, or the names your install uses), since each holds the old parser
 in memory.
+
+`pack-camera-history` and the voice loop's camera answer now say only what the cameras show now. A camera question
+about the past ("what did camera 2 see in the last hour") is answered by Ask, from the same captions, so ask it in
+Ask or `pack-ask`.
 
 ## Segment parts close as one batch
 

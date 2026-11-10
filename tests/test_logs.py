@@ -8,6 +8,7 @@ import io
 import logging
 import pathlib
 import re
+import subprocess
 import sys
 import time
 from typing import Any, cast
@@ -252,6 +253,41 @@ def test_another_librarys_warning_in_an_unconfigured_process_is_in_the_one_forma
     assert [line.split(" ", 1)[1] for line in lines(captured)] == [
         "[faster_qwen3_tts.model] WARN Could not infer sample rate; defaulting to 24000 Hz."
     ]
+
+
+def test_a_librarys_warnings_warn_is_in_the_one_format():
+    # transformers' "`torch_dtype` is deprecated" printed bare, with no stamp or level. In its own process, since
+    # pytest takes warnings over for itself.
+    code = "from liberational import logs; logs.get('x'); import warnings; warnings.warn('`torch_dtype` is deprecated')"
+    done = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60, check=True)
+    first = done.stderr.splitlines()[0]
+    assert re.match(r"\S+ \[py\.warnings\] WARN .*UserWarning: `torch_dtype` is deprecated", first), done.stderr
+
+
+def test_a_periodic_report_is_info_first_and_then_once_a_period():
+    now = [0.0]
+    clock = logs.Periodic(600.0, clock=lambda: now[0])
+    seen = []
+    for t in (0.0, 60.0, 599.0, 600.0, 660.0, 1199.0, 1200.0):
+        now[0] = t
+        seen.append(clock.level())
+    info, debug = logs.INFO, logs.DEBUG
+    assert seen == [info, debug, debug, info, debug, debug, info]
+
+
+@pytest.mark.parametrize(
+    ("settings", "service", "word"),
+    [
+        ({"level": "info", "per_service": ["continuum-gateway=debug"]}, "continuum-gateway", "debug"),
+        ({"level": "info", "per_service": ["continuum-gateway=debug"]}, "continuum-broker", "info"),
+        ({"level": "warn", "per_service": []}, "continuum-broker", "warn"),
+        ({"level": "error", "per_service": []}, "continuum-broker", "error"),
+        ({"level": "debug", "per_service": ["continuum-broker=info"]}, "", "debug"),  # no name: the global level
+    ],
+)
+def test_a_rust_daemons_filter_follows_the_same_settings(settings, service, word):
+    with cfg.override({"logging": settings}):
+        assert logs.rust_filter(service) == word
 
 
 SRC = pathlib.Path(logs.__file__).parent

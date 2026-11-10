@@ -203,7 +203,7 @@ fn demux(
         let arrival_ns = clocks.monotonic_ns();
         let framed = framing.picture(bytes);
         for note in framing.take_notes() {
-            eprintln!("capture worker {name}: {note}");
+            tracing::info!("{name}: {note}");
         }
         let Some(bytes) = framed? else { continue };
         let picture = AccessUnit {
@@ -272,8 +272,7 @@ mod tests {
 
     fn fixture() -> Fixture {
         ffmpeg::init().unwrap();
-        let path =
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../continuum-py/tests/fixtures/v1_bframes.mp4");
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../continuum-py/tests/fixtures/bframes.mp4");
         let mut source = ffmpeg::format::input(&path).unwrap();
         let stream = source.streams().best(ffmpeg::media::Type::Video).unwrap();
         let index = stream.index();

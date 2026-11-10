@@ -1694,8 +1694,8 @@ the start, so a purge cut short by a restart is listed by `pending_purges` and s
    payload id the notice lists, sending `RewriteChunk` for the chunks the catalog knows; a file wholly inside a span
    is deleted only when the catalog doesn't know it, and files it set aside are purged the same way; a file already
    removed by retirement or an earlier purge is an idempotent `NotFound`, while permission failures, corrupt chunks,
-   and other I/O errors stay errors). v1 audio and video registered in place as chunks (`continuum_tier::v1audio`,
-   `v1video`) are the exception: a purge cuts their frames from the catalog, so Continuum never serves them again,
+   and other I/O errors stay errors). Audio and video files registered in place as chunks (`continuum_tier::inplace_audio`,
+   `inplace_video`) are the exception: a purge cuts their frames from the catalog, so Continuum never serves them again,
    but the `.flac` and `.mp4` files are neither rewritten nor deleted. The notice also goes to the vector worker, which deletes their rows with a delete predicate on
    payload id (vector rows are keyed by payload id, because LanceDB's `_rowid` changes when a table is compacted, so
    the header holds no row ids). A LanceDB delete only marks rows, the bytes stay in the data
@@ -1957,9 +1957,9 @@ overlay-shape streams. The gateway (`continuum-gateway`'s `vision`) merges a cam
 one `Overlay`, since the page keeps one per capture time: live, each record that changes a frame's overlay sends it
 again whole; a range reads the groups' streams over the window first (matches before detections, so every box in
 the window has its name) and sends each frame's overlay right after the frame. Live interpolation pairs tracked
-skeletons by track ID rather than detector position. A v1 recording registered in place (`<cam>.video_v1`, an MP4
+skeletons by track ID rather than detector position. An MP4 registered in place (`<cam>.video_v1`, an MP4
 at its own path) plays the same way as Tier 2: every GOP overlapping the range, whole from its keyframe, its access
-units in decode order with their presentation times (`continuum_tier::v1video::gop_units`).
+units in decode order with their presentation times (`continuum_tier::inplace_video::gop_units`).
 
 `spans` tells a page which stretches of a window have frames (`[start_us, end_us)` pairs, joined across gaps of at
 most `gap_us`, 2 s by default), for a timeline and for playing only what's there: from the broker's index of the
@@ -2325,6 +2325,7 @@ continuum/
     continuum-capture/    # the capture supervisor and the per-device capture workers
     continuum-gateway/    # the browser gateway
     continuum-segments/   # the segment store: per-stream, per-camera, per-hour Arrow IPC parts, and its deletion log
+    continuum-log/        # the daemons' one log format (`<stamp> [tag] LEVEL message`) and periodic counters at DEBUG
 ```
 
 The planner and scheduler are one crate (`continuum-sched`). Crate boundaries can move as the code shows what
