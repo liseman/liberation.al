@@ -24,8 +24,9 @@ The map step measures a kept frame a second time, against the map itself, once i
 `<id>.covered.png` when someone was in view (the pixels the map step leaves out).
 It never holds more than `MAX_KEPT` frames, or more than `PER_VIEW` frames of one view (the frames at least
 `SAME_VIEW` alike): a fifth look at a view pushes out its oldest, so a view's kept frames follow how it looks now.
-At `MAX_KEPT` the frame most like another kept frame goes first, the older of a tie. All of it is machine-made, and
-a reset deletes it.
+At `MAX_KEPT` the frame most like another kept frame goes first, the older of a tie. All of it is machine-made:
+`pack-reset-catalog` deletes it (unless `--keep-places`), and `pack-reset-places` leaves it, so the next map is
+made from the same frames.
 
 One process writes the store (the sampler); anything may read it. The index is replaced whole, after the files it
 names are written, so a reader never sees a frame without its files.

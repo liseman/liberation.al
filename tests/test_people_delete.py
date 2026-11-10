@@ -178,7 +178,7 @@ def test_the_journal_forgets_before_their_lines_are_put_back_to_unnamed(world):
 
 
 def test_the_journal_forgets_a_line_labeled_as_them_only_in_the_log(world):
-    # Alice's voice, labeled Dana Cole by hand after step 4: the line itself still says Alice.
+    # Alice's voice, labeled Dana Cole by hand, as an event: the line itself still says Alice.
     registry.at(world.state).claim(registry.utterance(2011.0), "Dana Cole", Basis.OWNER_TAG, "dashboard")
     code, body = people_writes.delete_person("Dana Cole", control=True)
     assert (code, body["removed"]["journal"]) == (200, 3)

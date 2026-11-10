@@ -129,7 +129,7 @@ def test_undo_everything_since_a_moment(lines, monkeypatch):
 
 
 def undo_old_label(lines, old, written):
-    """Undo a label logged before step 4, when it was written onto the line itself (`written`); `old` is what the log
+    """Undo a label logged before labels became events, when it was written onto the line itself (`written`); `old` is what the log
     says it replaced. Returns the undone line, as the undo reports it and as readers see it."""
     lines.write([_line(1000.0, "first", speaker=written, sid=None, sim=None, tagged=True)])
     entry = {"ts": 5.0, "action": "assign", "ts_start": 1000.0, "text": "first", "old": old}

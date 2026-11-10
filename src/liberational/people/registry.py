@@ -1,17 +1,16 @@
-"""The person registry and the person_of projection (steps 3 and 4 of docs/DOMAIN-MODEL.md).
+"""The person registry and the person_of projection (docs/DOMAIN-MODEL.md, "Records" and rule 2).
 
-Every person gets a `PersonId` that never changes, a UUIDv7 (open decision 3). Each place that writes a label appends
-the matching event to the independent knowledge SQLite event log through this module
-(step 3).
+Every person gets a `PersonId` that never changes, a UUIDv7. Each place that writes a label appends the matching event
+to the independent knowledge SQLite event log through this module.
 
-Transcript lines are different (step 4). A label given to one line is only an event here: a relabel, an unlabel, a
+Transcript lines are different (rule 1: observations are immutable). A label given to one line is only an event here: a relabel, an unlabel, a
 "multiple speakers", and a backfill voice match never rewrite `transcript.jsonl`. Readers see each line through
 `people/transcript_view.py`, which asks `said` who said it.
 
 - `Registry` writes the events and is also the projection: it is rebuilt from the log (rule 8), reading new events
   when it is asked something.
-- `Registry.person_of(subject)` says which person a voiceprint, faceprint, or observation is, by open decision 2
-  (`domain.identity.decide`), and keeps the assertions behind the answer. `Registry.said(lines)` answers it for many
+- `Registry.person_of(subject)` says which person a voiceprint, faceprint, or observation is, by the identity
+  precedence ("Identity precedence", `domain.identity.decide`), and keeps the assertions behind the answer. `Registry.said(lines)` answers it for many
   transcript lines at once.
 - A line can also carry a label that names nobody, "unknown" or "multiple speakers" (`UtteranceLabeled`), so a line
   the owner took away from its voice stays that way even when the voice had no name to withdraw.
@@ -46,7 +45,7 @@ Subjects. Today's stores have no ids for prints, so a subject id is the store's 
     sighting:<row id>   one face found in recorded video (sightings.sqlite3)
     photo:<ms>          one saved face photo of a person
 
-Forgetting (open decision 1): `forget` appends `PersonForgotten` and purges every event whose envelope names the person
+Forgetting ("Forgetting" in docs/DOMAIN-MODEL.md): `forget` appends `PersonForgotten` and purges every event whose envelope names the person
 or anyone merged into them. Assertion events name their person on the envelope for this reason.
 """
 
@@ -94,7 +93,7 @@ MEASUREMENTS = "measurements"  # spoken quantities (memory/quantities.py), read 
 _PAGE = 1000
 DECIDED_MAX = 200_000  # decisions kept between events: every line and face observation a busy day asks about
 
-ATTRIBUTES = ("role", "organization")  # what a tag or the Role button sets (Person, step 6)
+ATTRIBUTES = ("role", "organization")  # what a tag or the Role button sets (Person)
 FIELDS = (*ATTRIBUTES, "phone")  # every text field of a person besides their name (Person)
 CONTACT = ("phone", "added")  # what `contact` sets (people/contacts.py)
 AUTO = re.compile(r"(?:Speaker|Face) \d+|Caller \S*", re.IGNORECASE)  # in any capitals, as names compare
@@ -1155,7 +1154,7 @@ class Registry:
             return list(self._voiceprint_cache[want])
 
     def forget(self, name: str, source: str) -> int:
-        """Forget the person called `name` (open decision 1): append `PersonForgotten`, then purge every event about
+        """Forget the person called `name` ("Forgetting" in docs/DOMAIN-MODEL.md): append `PersonForgotten`, then purge every event about
         them or anyone merged into them. Returns how many events were purged; 0 when nobody has that name.
 
         `PersonForgotten` names only ids, never the name, and has no envelope subject, so it outlives the purge and a
@@ -1603,7 +1602,7 @@ def backfill(
         if is_name(labels.get(into)):
             by_basis[Basis.CLUSTER_MERGE].append(Claim(voiceprint(old), labels[into]))
     for e in lines:  # a line a person labeled: no similarity score and a name (see vision/sightings.hand_labeled)
-        # Since step 4 a label is never written onto a line, so a line the log already knows keeps what the log says:
+        # A label is never written onto a line, so a line the log already knows keeps what the log says:
         # a rerun must not put back a name the owner changed since.
         if e.get("speaker_sim") is None and is_name(e.get("speaker")) and not reg.has_claims(utterance_of(e)):
             by_basis[Basis.OWNER_TAG].append(Claim(utterance_of(e), e["speaker"]))
@@ -1671,7 +1670,7 @@ def ambiguous(state: str | pathlib.Path | None = None) -> dict[str, list[str]]:
 
 
 def main(argv: list[str] | None = None) -> None:
-    ap = argparse.ArgumentParser(description="The person registry over the event log (docs/DOMAIN-MODEL.md, step 3).")
+    ap = argparse.ArgumentParser(description="The person registry over the event log (docs/DOMAIN-MODEL.md).")
     ap.add_argument("--state-dir", default=None, help="state directory (paths.state by default)")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("backfill", help="give every name in today's stores a person id (safe to rerun)")
@@ -1685,7 +1684,9 @@ def main(argv: list[str] | None = None) -> None:
     sub.add_parser(
         "ambiguous", help="list old line ids (a millisecond alone) that more than one microphone's line starts in"
     )
-    sub.add_parser("lines", help="after the step 4 update: list lines whose name differs from what they showed before")
+    sub.add_parser(
+        "lines", help="after labels became events: list lines whose name differs from what they showed before"
+    )
     md = sub.add_parser("transcript", help="rebuild transcript/<day>.md from transcript.jsonl and the log")
     md.add_argument("days", nargs="*", help="YYYY-MM-DD (every day by default)")
     a = ap.parse_args(argv)

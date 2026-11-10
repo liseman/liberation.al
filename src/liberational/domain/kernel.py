@@ -1,9 +1,9 @@
 """The shared kernel: ids, the instant, evidence references, producers, and the event envelope and catalog.
 
-Every bounded context imports this module and no other context's module. See "Bounded contexts" and "Events" in
+Every bounded context imports this module and no other context's module. See "Contexts" and "Events" in
 docs/DOMAIN-MODEL.md.
 
-Ids are UUIDv7 strings, so they sort by creation time (open decision 3). Person ids are stored in the event log,
+Ids are UUIDv7 strings, so they sort by creation time. Person ids are stored in the event log,
 so changing the format now means a migration.
 """
 

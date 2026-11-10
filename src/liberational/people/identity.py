@@ -24,7 +24,7 @@ introduction's window are claimed too (`registry.detection`), so a reader asking
 answered. A voice is named by a claim on its voiceprint in the event log (the only record of a voice's name).
 
 A tag can carry a role and an organization ("that's Alice, CEO of Acme"), parsed by fixed rules in people/tags.py
-(step 6 of docs/DOMAIN-MODEL.md). They are kept on the record as "attributes" and given to the person in the event
+(a person's attributes, "Records" in docs/DOMAIN-MODEL.md). They are kept on the record as "attributes" and given to the person in the event
 log once the name is applied; a plain name tag works as before.
 
 Every proposal and what became of it is a record in the knowledge store's `identity.record` collection

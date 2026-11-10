@@ -9,12 +9,11 @@ name = "Alice"
 [assistant]
 name = "Bob"
 
-# Three cameras in a ring, mounted upside down:
+# Cameras, how each is mounted (which way it looks, and its field of view), and
+# whether it is upside down are set per camera in config/devices.toml (see
+# config/devices.example.toml), or in Settings. Here you can name each view:
 # [vision]
-# cams = [0, 1, 2]
-# yaws = [0, 120, 240]
-# fov = 160.0
-# Set each camera's video.flip in config/devices.toml, or use Settings.
+# camera_names = ["cam0: front camera", "cam1: back camera"]
 
 # Phone calls through Twilio, reached via Tailscale Funnel:
 # [phone]

@@ -1,4 +1,4 @@
-"""The event log port (docs/DOMAIN-MODEL.md, step 2): the contract every adapter must pass, and the SQLite adapter.
+"""The event log port (docs/DOMAIN-MODEL.md, "Event log port"): the contract every adapter must pass, and the SQLite adapter.
 
 A new adapter joins the contract by adding a param to the `log` fixture.
 """

@@ -22,8 +22,8 @@ Default runs do not load a counter. A callback controls its own I/O.
 To score an event counter against the event labels, select it the same way:
   uv run python -m tools.measure --part events --event-counter some.module:counter --event-margin 30
 
-The label formats, and how to add labels, are in docs/MEASUREMENT.md. This is the measurement set from
-docs/DOMAIN-MODEL.md, which steps 3, 7, and 8 need before they change what the user sees.
+The label formats, and how to add labels, are in docs/MEASUREMENT.md. It is what a change to
+identity, the timeline, or answers (docs/DOMAIN-MODEL.md) is measured against before it changes what the user sees.
 
 - Identification compares each labeled clip or frame with the names today's stores gave the same moment: face names
   on see-actions' face matches (`face.match` in the segment store, read through vision/sightings.py) for a camera clip, and resolved speaker labels on transcript
