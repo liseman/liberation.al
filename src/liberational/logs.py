@@ -24,14 +24,16 @@ A report written every few seconds (a camera's frame rate, a microphone's levels
 INFO the first time and once every `INFO_EVERY_S`, DEBUG between, so an idle service writes few INFO lines (#59).
 """
 
+import contextlib
 import datetime as dt
+import io
 import logging
 import os
 import pathlib
 import sys
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Generator
 from typing import NamedTuple, TextIO
 
 from liberational import config as cfg
@@ -180,6 +182,46 @@ def rust_filter(name: str | None = None) -> str:
     """`RUST_LOG` for a service (this one by default; "" for `logging.level` alone), from the same settings as
     level_for: a Rust daemon's tracing filter word."""
     return {logging.DEBUG: "debug", logging.INFO: "info", logging.WARNING: "warn"}.get(level_for(name), "error")
+
+
+class _Lines(io.TextIOBase):
+    """A stdout that logs each whole line it is given."""
+
+    def __init__(self, log: logging.Logger, level: Callable[[str], int]) -> None:
+        self.log, self.level, self.pending = log, level, ""
+
+    def writable(self) -> bool:
+        return True
+
+    def write(self, s: str) -> int:
+        *lines, self.pending = (self.pending + s).split("\n")
+        for line in lines:
+            if line.strip():
+                self.log.log(self.level(line), "%s", line.strip())
+        return len(s)
+
+    def flush(self) -> None:
+        if self.pending.strip():
+            self.log.log(self.level(self.pending), "%s", self.pending.strip())
+        self.pending = ""
+
+
+@contextlib.contextmanager
+def printed(log: logging.Logger, level: int | Callable[[str], int] = DEBUG) -> Generator[None]:
+    """A library's `print` calls inside this block (faster_qwen3_tts's "Capturing CUDA graph", ONNX Runtime's
+    "EP Error") as lines of log, at level, or at what level(line) says. sys.stdout is the process's, so another
+    thread's print in the meantime is logged too; services never print, so that's only a library's."""
+    fixed = level
+
+    def at(_line: str) -> int:
+        return fixed if isinstance(fixed, int) else fixed(_line)
+
+    lines = _Lines(log, at)
+    try:
+        with contextlib.redirect_stdout(lines):
+            yield
+    finally:
+        lines.flush()
 
 
 def reason(error: BaseException) -> str:

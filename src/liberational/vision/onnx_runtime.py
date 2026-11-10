@@ -3,6 +3,8 @@
 import logging
 from typing import Any
 
+from liberational import logs
+
 _LOG = logging.getLogger(__name__)
 _preload_failures: set[tuple[type[Exception], str]] = set()
 
@@ -34,3 +36,16 @@ def preload_gpu_libraries(ort: Any) -> None:
         if failure not in _preload_failures:
             _preload_failures.add(failure)
             _LOG.warning("Could not preload CUDA libraries (%s); detection may fall back to CPU", exc)
+
+
+def _fallback_level(line: str) -> int:
+    """ONNX Runtime's fallback notice is a framed block: the frame is DEBUG, the error and the fallback WARN."""
+    return logs.DEBUG if line.startswith("*") else logs.WARN
+
+
+def session(ort: Any, *args: Any, **kwargs: Any) -> Any:
+    """`ort.InferenceSession(*args, **kwargs)` for an accelerated provider. When the provider fails, ONNX Runtime
+    falls back to the CPU and prints an "EP Error" block to stdout, bare; built here, the block is WARN lines in
+    the one log format, and the caller still sees which provider it got (`get_providers()`)."""
+    with logs.printed(_LOG, _fallback_level):
+        return ort.InferenceSession(*args, **kwargs)

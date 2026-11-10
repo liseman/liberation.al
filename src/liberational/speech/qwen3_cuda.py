@@ -27,7 +27,9 @@ import numpy as np
 from numpy.typing import NDArray
 
 from liberational import config as cfg
-from liberational import model_runtime
+from liberational import logs, model_runtime
+
+LOG = logs.get("qwen3-cuda")
 
 CODEC_HZ = 12  # codec steps per second of audio (the 12Hz model)
 LANGUAGE = "Auto"  # Qwen3-TTS picks the language from the text
@@ -78,10 +80,12 @@ class Qwen3Cuda:
         from faster_qwen3_tts import FasterQwen3TTS
 
         self.device = device
-        self.m = FasterQwen3TTS.from_pretrained(
-            str(model_dir()), device=device, dtype=torch.bfloat16, local_files_only=True
-        )
-        self.m.warmup()  # capture the CUDA graphs now, not on the first reply (about 2.5 s)
+        # faster_qwen3_tts prints its progress ("Capturing CUDA graph for predictor..."): DEBUG lines instead.
+        with logs.printed(LOG):
+            self.m = FasterQwen3TTS.from_pretrained(
+                str(model_dir()), device=device, dtype=torch.bfloat16, local_files_only=True
+            )
+            self.m.warmup()  # capture the CUDA graphs now, not on the first reply (about 2.5 s)
         self._ref_mtimes: dict[str, int] = {}
         self.name = f"Qwen3-TTS clone on CUDA ({device})"
         where = f"GPU ({device})" if device.startswith("cuda") else "CPU" if device == "cpu" else device

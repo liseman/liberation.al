@@ -23,6 +23,7 @@
 #
 # wait_for_broker checks a real broker request before exec, for at most 60 seconds.
 # wait_for_gpu waits for the NVIDIA driver before exec (gpu_ready.py), for a program that picks its device once.
+# log_relay runs a program we don't own under log_relay.py, which writes its lines in the pack's log format.
 # Keep dashboard and gateway ungated: diagnostics and recorded playback work while the broker is offline.
 # Settings like cameras, ports, and models come from config, not from args here.
 
@@ -138,7 +139,10 @@ default = true
 wait_for_gpu = true
 throttle = 5
 reads_settings = false
-env = { CUDA_VISIBLE_DEVICES = "{ollama.gpu}", OLLAMA_MODELS = "{ollama.models}", OLLAMA_VULKAN = "0", GGML_VK_VISIBLE_DEVICES = "" }
+# Its lines in the pack's log format (log_relay.py), and the model runner's per-request chatter off: llama.cpp's
+# INFO lines were thousands an hour (warnings and errors still come through, marked by a level letter).
+log_relay = true
+env = { CUDA_VISIBLE_DEVICES = "{ollama.gpu}", OLLAMA_MODELS = "{ollama.models}", OLLAMA_VULKAN = "0", GGML_VK_VISIBLE_DEVICES = "", LLAMA_ARG_LOG_VERBOSITY = "2", LLAMA_ARG_LOG_PREFIX = "1" }
 
 # An Ollama server of Ask's own: one model, kept loaded, on the GPU ask.gpu names, reading the model store
 # ask.ollama_models names. Set ask.ollama_url to http://127.0.0.1:{ports.ask_ollama} to send Ask's answers there.
@@ -151,7 +155,8 @@ default = false
 platforms = ["linux-x86_64", "linux-aarch64"]
 throttle = 5
 reads_settings = false
-env = { OLLAMA_HOST = "127.0.0.1:{ports.ask_ollama}", CUDA_VISIBLE_DEVICES = "{ask.gpu}", OLLAMA_MODELS = "{ask.ollama_models}", OLLAMA_VULKAN = "0", GGML_VK_VISIBLE_DEVICES = "", OLLAMA_MAX_LOADED_MODELS = "{ask.max_loaded_models}", OLLAMA_KEEP_ALIVE = "-1", OLLAMA_NOPRUNE = "1", LLAMA_ARG_N_CPU_MOE = "{ask.cpu_expert_layers}", LLAMA_ARG_MOE_CACHE_MIB = "0", OLLAMA_KV_CACHE_TYPE = "{ask.kv_cache_type}", OLLAMA_FLASH_ATTENTION = "1", OLLAMA_NUM_PARALLEL = "1" }
+log_relay = true  # as ollama's
+env = { LLAMA_ARG_LOG_VERBOSITY = "2", LLAMA_ARG_LOG_PREFIX = "1", OLLAMA_HOST = "127.0.0.1:{ports.ask_ollama}", CUDA_VISIBLE_DEVICES = "{ask.gpu}", OLLAMA_MODELS = "{ask.ollama_models}", OLLAMA_VULKAN = "0", GGML_VK_VISIBLE_DEVICES = "", OLLAMA_MAX_LOADED_MODELS = "{ask.max_loaded_models}", OLLAMA_KEEP_ALIVE = "-1", OLLAMA_NOPRUNE = "1", LLAMA_ARG_N_CPU_MOE = "{ask.cpu_expert_layers}", LLAMA_ARG_MOE_CACHE_MIB = "0", OLLAMA_KV_CACHE_TYPE = "{ask.kv_cache_type}", OLLAMA_FLASH_ATTENTION = "1", OLLAMA_NUM_PARALLEL = "1" }
 
 # Continuum's daemons (docs/CONTINUUM.md). Build them first with `mise run continuum-release`.
 [continuum-broker]
