@@ -19,6 +19,12 @@ FOCAL = 144.0  # pixels: the bottom middle of the frame drops a metre a metre fr
 ROOMS = plans.scene(
     'plan "Home" walls 0.2/0.1\nroom r1 "Living" other rect 0,0 4x3\nroom r2 "Hall" other rect 0,3 4x2\n'
 )
+# The same, with a wide doorway from the living room into the hall and a front door, so a camera at (1, 1) facing
+# east sees into the hall and out of the front door at the frame's right edge
+OPEN = plans.scene(
+    'plan "Home" walls 0.2/0.1\nroom r1 "Living" other rect 0,0 4x3\nroom r2 "Hall" other rect 0,3 4x2\n'
+    "cased r1>r2 at 2.2,3 w2.4\ndoor exterior>r1 at 1.8,0 w2.4\n"
+)
 
 
 def walkers(pitch, roll=0.0, above=2.0, n=120, seed=0, across=3.0):
@@ -118,10 +124,10 @@ def pinhole(monkeypatch):
     monkeypatch.setattr(lens, "as_registered", lambda camera: None)  # no configured lens undoes the frames
 
 
-def taught(tmp_path, spot, *, view=None, held=True):
+def taught(tmp_path, spot, *, view=None, held=True, rooms=ROOMS):
     """A place kept across a reset: no map, and the owner's plan with one camera spot."""
     place = places.revise(tmp_path, None, producer="places reset v1", now=T - 100).place
-    places.correct_plan(tmp_path, place, ROOMS + spot + "\n", now=T - 50, view=view)
+    places.correct_plan(tmp_path, place, rooms + spot + "\n", now=T - 50, view=view)
     if held:
         lens.hold(tmp_path, "cam0", HELD, now=T - 50)
     return place
@@ -134,8 +140,8 @@ def fit(tmp_path, monkeypatch, pitch=0.0, above=2.0):
     return spots.fit(tmp_path, T, sizes=lambda camera, t: SIZE)
 
 
-def foot(vision, t, u=0.5, v=1.0, cam="cam0"):
-    row = dict(source=P.FIXED_CAMERA, confidence=0.9, camera=cam, u=u, v=v, track=f"{cam}:7", entity=None)
+def foot(vision, t, u=0.5, v=1.0, cam="cam0", track="7"):
+    row = dict(source=P.FIXED_CAMERA, confidence=0.9, camera=cam, u=u, v=v, track=f"{cam}:{track}", entity=None)
     row |= dict(place=None, room=None, x=None, y=None, revision=None)
     return vision.add(S.POSITIONS, ts_start=t, cam=cam, **row)
 
@@ -162,12 +168,12 @@ def test_a_footprint_is_placed_on_the_plan_through_the_owners_spot_with_no_map(t
         pytest.param(None, (2.93, 4.43, "Hall"), id="the-page-as-drawn"),
         # In a plan frame that is the page's mirror image, the same facing has its right hand the other way.
         pytest.param(
-            {"plan": ROOMS, "turn": 0.0, "shift": [0.0, 0.0], "mirror": True}, (2.93, -2.43, None), id="mirrored"
+            {"plan": OPEN, "turn": 0.0, "shift": [0.0, 0.0], "mirror": True}, (2.93, -2.43, None), id="mirrored"
         ),
     ],
 )
 def test_the_cameras_right_hand_follows_the_plans_handedness(tmp_path, vision, monkeypatch, pinhole, view, want):
-    place = taught(tmp_path, "x-camera cam0 at 1,1 height 2 yaw 90", view=view)
+    place = taught(tmp_path, "x-camera cam0 at 1,1 height 2 yaw 90", view=view, rooms=OPEN)
     fit(tmp_path, monkeypatch)
     foot(vision, T, u=1.0)
     (p,) = P.derive(tmp_path, T - 1, T + 5, place=place)
@@ -266,6 +272,20 @@ def test_a_run_of_the_job_fits_the_tilts_records_the_footprints_and_places_them(
     assert (again["recorded"], again["records"]) == (0, 0)
 
 
+@pytest.mark.parametrize("track", [pytest.param("7", id="person"), pytest.param("5:cat:1", id="animal")])
+def test_a_footprint_its_camera_cant_see_by_the_plan_gets_no_point(tmp_path, vision, monkeypatch, pinhole, track):
+    # The frame's bottom right corner from a level camera 2 m up at (1, 1) facing east lands about (2.9, 4.4): in the
+    # hall, behind the wall at y = 3 from the camera, where a pet up on a cabinet is cast to the floor.
+    place = taught(tmp_path, "x-camera cam0 at 1,1 height 2 yaw 90")
+    fit(tmp_path, monkeypatch)
+    foot(vision, T, u=1.0, v=1.0, track=track)
+    foot(vision, T + 2, u=0.5, v=1.0)  # in the living room, in view
+    hidden: set = set()
+    rows = P.derive(tmp_path, T - 1, T + 5, place=place, hidden=hidden)
+    assert [(p.x, p.y) for p in rows if p.x is not None] == [pytest.approx((2.93, 1.0), abs=0.03)]
+    assert hidden == {("cam0", f"cam0:{track}", T)}
+
+
 def test_the_owners_spot_outranks_the_maps_registration_of_the_camera(tmp_path, vision, monkeypatch, pinhole):
     # The map (y down, floor at y = 0, plan (x, y) = map (x, z)) registers cam0 at plan (1, 0) looking along the
     # plan's +y, which would put the heels at (1, 1.93). The owner's plan, drawn on that map's plan, says the camera
@@ -301,14 +321,15 @@ def test_a_dry_run_counts_what_each_camera_would_place_and_keeps_nothing(tmp_pat
     seen = [
         footprints.Footprint("cam0", T - 900, 0.5, 1.0, 7, 0.9),  # on the floor, in the living room
         footprints.Footprint("cam0", T - 850, 1.0, 1.0, 7, 0.9),  # in the hall, behind the wall from the camera
+        footprints.Footprint("cam0", T - 840, 1.0, 1.0, "5:cat:1", 0.9),  # an animal there too
         footprints.Footprint("cam0", T - 800, 0.5, 0.2, 7, 0.9),  # above the horizon: no floor point
         footprints.Footprint("porch", T - 700, 0.5, 1.0, 3, 0.9),  # a camera with no spot and no pose
     ]
     monkeypatch.setattr(footprints, "collect", lambda state, start, end, cameras: seen)
     cam0, porch = P.dry_run(tmp_path, ["cam0", "porch"], T, 24.0)
-    assert (cam0["by"], cam0["footprints"], cam0["placed"], cam0["in_a_room"], cam0["missing"]) == ("spot", 3, 2, 2, [])
-    assert cam0["in_view"] == 1
-    assert (porch["by"], porch["footprints"], porch["placed"], porch["in_view"]) == (None, 1, 0, None)
+    assert (cam0["by"], cam0["footprints"], cam0["placed"], cam0["in_a_room"], cam0["missing"]) == ("spot", 4, 1, 1, [])
+    assert (cam0["people_placed"], cam0["behind_wall"]) == (1, {"person": 1, "animal": 1})
+    assert (porch["by"], porch["footprints"], porch["placed"], porch["behind_wall"]) == (None, 1, 0, None)
     assert spots.aims(tmp_path) == {}
     assert not S.root(tmp_path).exists()
 
@@ -384,7 +405,7 @@ def test_a_configured_barrel_lens_is_undone_when_fitting_a_spots_tilt_and_placin
 
     feet_pin, heads_pin, tall = walkers(18.0, roll=-4.0, above=2.2)
     feet, heads = barrel(feet_pin), barrel(heads_pin)
-    place = taught(tmp_path, "x-camera cam0 at 1,1 height 2.2 yaw 90", held=False)
+    place = taught(tmp_path, "x-camera cam0 at 1,1 height 2.2 yaw 90", held=False, rooms=OPEN)
     lens.hold(tmp_path, "cam0", held_undone, now=T - 50)
     monkeypatch.setattr(spots, "people", lambda state, camera, now: (feet, heads))
 
