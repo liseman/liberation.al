@@ -218,20 +218,34 @@ def save_refined(
 
 
 def _intrinsics(camera: str, fov: float | None, held: lens.Held | None, width: int, height: int) -> places.CameraPose:
-    """A camera's rays, as a pose at the origin: its held focal and lens (`cameras.with_held`), else the spot's `fov`
-    as the focal, with the camera's configured lens when it has one (`lens.as_registered`: the `fov` is then the
-    undone frame's, as the map takes it). The caller has checked one of the two is there."""
+    """A camera's rays, as a pose at the origin: its held focal and lens (`cameras.with_held`) when they were measured
+    through the lens its frames are read through (`lens.through`), else the spot's `fov` as the focal, else the
+    configured lens's own (`lens.undone_focal`); with the camera's configured lens when it has one
+    (`lens.as_registered`: the `fov` is then the undone frame's, as the map takes it). The caller has checked one of
+    the three is there (`_lacks_lens`)."""
     blank = places.CameraPose(tuple(float(x) for x in np.eye(4).ravel()), float(width), width, height)
-    if held is not None:
+    configured = lens.as_registered(camera)
+    if lens.through(held, configured) is not None:
         return cameras.with_held(camera, blank, held)
-    focal = width / (2 * math.tan(math.radians(fov or 90.0) / 2))
-    return replace(blank, focal=focal, lens=lens.as_registered(camera))
+    if fov is None and configured is not None:
+        focal = lens.undone_focal(lens.Lens.from_tuple(configured)) * width
+    else:
+        focal = width / (2 * math.tan(math.radians(fov or 90.0) / 2))
+    return replace(blank, focal=focal, lens=configured)
+
+
+def _lacks_lens(spot: plan_import.Camera, held: lens.Held | None) -> bool:
+    """Whether a camera has nothing to give its rays a focal: no held focal of the frames it is read through, no `fov`
+    on its spot, and no configured lens."""
+    configured = lens.as_registered(spot.id)
+    return lens.through(held, configured) is None and spot.fov is None and configured is None
 
 
 def _basis(spot: plan_import.Camera, held: lens.Held | None) -> str:
     """What an aim depends on besides the pictures: the spot's height and `fov`, the camera's configured lens when it
-    has one, and the held focal and lens."""
+    has one, and the held focal and lens that apply to its frames (`lens.through`)."""
     configured = lens.as_registered(spot.id)
+    held = lens.through(held, configured)
     own = "" if configured is None else "/".join(f"{v:.5f}" for v in configured)
     lensed = "" if held is None else f"{held.focal:.5f}/{held.division:.5f}"
     return f"{spot.height}|{spot.fov}|{lensed}" + (f"|{own}" if own else "")
@@ -465,7 +479,7 @@ def read(state: Path, found: Mapping[str, Aim] | None = None) -> dict[str, Spot]
             missing = [
                 *(["height"] if spot.height is None else []),
                 *(["facing"] if spot.yaw is None else []),
-                *(["lens"] if own is None and spot.fov is None else []),
+                *(["lens"] if _lacks_lens(spot, own) else []),
             ]
             if "lens" not in missing and aimed is None:
                 missing.append("tilt")

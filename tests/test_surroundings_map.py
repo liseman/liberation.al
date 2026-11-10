@@ -166,6 +166,14 @@ def test_held_intrinsics_win_over_a_learned_focal_and_bring_their_lens():
     assert undo.k == pytest.approx((1.16 * 960, 1.16 * 960, 479.5, 269.5))
 
 
+def test_a_focal_held_through_another_lens_than_the_manifests_gives_way_to_the_learned_one():
+    configured = lens.Lens(896, 512, (448.0, 448.0, 447.5, 255.5), -0.3)
+    on_raw_frames = lens.Held(0.44, 0.0, "fit")
+    assert sm.optics(configured, [], on_raw_frames, 0.3).focal == 0.3
+    through_it = lens.Held(0.44, 0.0, "fit", lens=configured.as_tuple())
+    assert sm.optics(configured, [], through_it, 0.3).focal == 0.44
+
+
 def test_a_lens_in_the_manifest_is_undone_as_it_is_with_its_overlays_masked():
     configured = lens.Lens(896, 512, (448.0, 448.0, 447.5, 255.5), -0.3)
     optic = sm.optics(configured, [(0.0, 0.0, 0.2, 0.1)], None, 0.5)
