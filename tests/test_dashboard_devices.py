@@ -1157,11 +1157,11 @@ def test_pauses_are_offered_only_by_a_capture_that_says_it_follows_them(
 
 @pytest.fixture
 def capture_binary(tmp_path, monkeypatch):
-    """A built capture binary under a temporary root, which privacy.ready() asks for its capabilities."""
-    binary = tmp_path / "continuum" / "target" / "release" / "continuum-capture"
+    """A built capture binary in a temporary environment, which privacy.ready() asks for its capabilities."""
+    binary = tmp_path / "bin" / "continuum-capture"
     binary.parent.mkdir(parents=True)
     binary.write_bytes(b"build one")
-    monkeypatch.setattr(privacy.cfg, "OWNER_ROOT", tmp_path)
+    monkeypatch.setattr(privacy.cfg, "BIN", tmp_path / "bin")
     monkeypatch.setattr(privacy, "_ready", {})
     return binary
 

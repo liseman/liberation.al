@@ -28,8 +28,10 @@ Two kinds of file, in separate places:
   ~/Library/Application Support/liberational. A relative path in a setting follows the same split (owner_file()):
   "data/state" is data_dir()/state, and anything not under data/ is beside pack.toml.
 
-Nothing here finds a program through the checkout: the dev-only uses of CHECKOUT are the frontend sources, the
-reload watcher, and pyproject.toml's command list.
+Nothing finds a program through the checkout. The pack-* commands, the interpreter, and Continuum's daemons are in
+the bin directory of the environment the process runs in (program()); in a checkout `mise run continuum-release`
+links the daemons it builds into .venv/bin. The only uses of CHECKOUT are the frontend sources and pyproject.toml's
+command list.
 """
 
 import contextlib
@@ -131,8 +133,9 @@ def workdir() -> pathlib.Path:
 
 
 def program(name: str) -> pathlib.Path:
-    """A command installed with this package (a pack-* console script): beside the interpreter this process runs,
-    which is the environment's bin directory in a checkout's .venv and in an installed one alike."""
+    """A command installed with this package (a pack-* console script or a Continuum daemon): beside the
+    interpreter this process runs, which is the environment's bin directory in a checkout's .venv and in an
+    installed one alike. A checkout's daemons are links there to its release build (mise run continuum-release)."""
     return BIN / name
 
 

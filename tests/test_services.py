@@ -49,7 +49,7 @@ def test_unknown_names_are_rejected():
         s.selected()
 
 
-DAEMON, SCHEDULED = {"command": "pack-x", "env": {"A": "has space"}}, {"command": "tools/x.sh", "schedule": "07:05"}
+DAEMON, SCHEDULED = {"command": "pack-x", "env": {"A": "has space"}}, {"command": "pack-y", "schedule": "07:05"}
 
 
 def plist(svc):
@@ -61,7 +61,7 @@ def test_launchd_daemon_schedule_and_background():
     assert (daemon["Label"], daemon["WorkingDirectory"]) == ("pack.x", str(cfg.workdir()))
     assert daemon["ProgramArguments"] == [str(cfg.program("pack-x"))]
     assert (daemon["RunAtLoad"], daemon["KeepAlive"], daemon["ThrottleInterval"]) == (True, True, 10)
-    assert sync["ProgramArguments"] == ["/bin/bash", str(cfg.workdir() / "tools/x.sh")]
+    assert sync["ProgramArguments"] == [str(cfg.program("pack-y"))]
     assert (sync["StartCalendarInterval"], "KeepAlive" in sync) == ({"Hour": 7, "Minute": 5}, False)
     assert plist({**SCHEDULED, "schedule": "*:07"})["StartCalendarInterval"] == {"Minute": 7}
     bg = plist({**DAEMON, "background": True, "throttle": 60})
@@ -102,11 +102,37 @@ def test_args_expand_config_and_env(monkeypatch):
     monkeypatch.setenv("PACK_TEST_DIR", "/opt/x")
     monkeypatch.delenv("PACK_TEST_UNSET", raising=False)
     svc = {
-        "command": "tools/x",
+        "command": "pack-x",
         "args": ["{ports.whisper}", "{env:PACK_TEST_DIR:~/f}/a", "{env:PACK_TEST_UNSET:~/f}/b"],
     }
     with cfg.override({"ports": {"whisper": 8123}}):
-        assert s.argv(svc) == [str(cfg.workdir() / "tools/x"), "8123", "/opt/x/a", str(pathlib.Path.home() / "f/b")]
+        assert s.argv(svc)[1:] == ["8123", "/opt/x/a", str(pathlib.Path.home() / "f/b")]
+
+
+@pytest.mark.parametrize(
+    "setting, template, want",
+    [
+        pytest.param({"paths": {"state": "data/state"}}, "{paths.state}", "{root}/data/state", id="relative-path"),
+        pytest.param({"paths": {"state": "/srv/state"}}, "{paths.state}", "/srv/state", id="absolute-path"),
+        pytest.param({"paths": {"decoded": ""}}, "{paths.decoded}", "", id="empty-path-stays-empty"),
+        pytest.param({}, "{file:devices}", "{root}/config/devices.toml", id="device-manifest"),
+        pytest.param({"ask": {"gpu": "data/x"}}, "{ask.gpu}", "data/x", id="not-a-path-setting"),
+    ],
+)
+def test_path_arguments_are_whole_paths_whatever_the_working_directory(tmp_path, monkeypatch, setting, template, want):
+    monkeypatch.setattr(cfg, "OWNER_ROOT", tmp_path)
+    monkeypatch.delenv("PACK_STATE", raising=False)
+    with cfg.override(setting):
+        assert s.argv({"command": "pack-x", "args": [template]})[1:] == [want.replace("{root}", str(tmp_path))]
+
+
+def test_our_commands_come_from_the_environment_and_others_from_path(tmp_path, monkeypatch):
+    monkeypatch.setattr(cfg, "BIN", tmp_path)
+    monkeypatch.setattr(s.shutil, "which", {"ollama": "/opt/bin/ollama"}.get)
+    assert s.argv({"command": "pack-x"}) == [str(tmp_path / "pack-x")]
+    assert s.argv({"command": "continuum-broker"}) == [str(tmp_path / "continuum-broker")]
+    assert s.argv({"command": "ollama"}) == ["/opt/bin/ollama"]
+    assert s.argv({"command": "not-installed"}) == ["not-installed"]
 
 
 def test_env_fills_config_and_drops_a_variable_whose_setting_is_empty():
@@ -261,7 +287,7 @@ def test_services_run_without_progress_bars():
 
 
 def test_a_services_unit_carries_its_own_rust_log_level():
-    svc = {"command": "continuum/target/release/continuum-gateway"}
+    svc = {"command": "continuum-gateway"}
     with cfg.override({"logging": {"level": "info", "per_service": ["continuum-gateway=debug"]}}):
         gateway = s.render_systemd("continuum-gateway", svc)
         broker = s.render_systemd("continuum-broker", svc)
@@ -571,11 +597,11 @@ def test_ollama_runs_under_the_log_relay_outermost_tagged_with_its_name():
 def test_the_continuum_broker_gets_its_state_dir_and_capture_manifest():
     svc = s.declared()["continuum-broker"]
     assert s.argv(svc) == [
-        str(cfg.workdir() / "continuum/target/release/continuum-broker"),
+        str(cfg.program("continuum-broker")),
         "--state-dir",
-        str(cfg.get("paths.state")),
+        str(cfg.path("paths.state")),
         "--manifest",
-        "config/devices.toml",
+        str(cfg.devices_file()),
     ]
 
 
@@ -734,7 +760,7 @@ def test_tier_settings_reach_both_service_managers(monkeypatch):
         unit = s.render_systemd("continuum-tier-worker", service)["pack-continuum-tier-worker.service"]
         s.exec_service("continuum-tier-worker")
     command = next(line.removeprefix("ExecStart=:") for line in unit.splitlines() if line.startswith("ExecStart=:"))
-    expected = ["--state-dir", "/srv/pack/state-a", "--manifest", "config/devices.toml"]
+    expected = ["--state-dir", "/srv/pack/state-a", "--manifest", str(cfg.devices_file())]
     launcher = [sys.executable, "-m", "liberational.services", "exec", "continuum-tier-worker"]
     assert launch[-len(launcher) :] == launcher
     assert shlex.split(command)[-len(launcher) :] == launcher
@@ -761,7 +787,7 @@ def test_installed_tier_launcher_reads_settings_changes_on_each_start_without_re
         local.write_text('[paths]\nstate = "/srv/pack/state-b"\n')
         s.main()
         first = execute.call_args.args[1]
-        assert first[0] == str(cfg.workdir() / "continuum/target/release/continuum-tier-worker")
+        assert first[0] == str(cfg.program("continuum-tier-worker"))
         assert first[first.index("--state-dir") + 1] == "/srv/pack/state-b"
         assert "liberational.services" not in first, "the startup launcher must exec the worker without recursion"
         local.write_text('[paths]\nstate = "/srv/pack/state-c"\n')

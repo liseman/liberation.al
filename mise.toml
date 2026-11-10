@@ -287,9 +287,16 @@ env = { PYO3_PYTHON = "{{config_root}}/continuum/.venv/bin/python" }
 run = "../tools/build-slot.sh cargo build --workspace --all-targets"
 
 [tasks.continuum-release]
-description = "Build the Continuum daemons in release mode, for the services (continuum/target/release/); capture and the tier worker with FFmpeg for RTSP and media encoding"
+description = "Build the Continuum daemons in release mode and link them into .venv/bin, where the services find them; capture and the tier worker with FFmpeg for RTSP and media encoding"
 dir = "continuum"
-run = "../tools/build-slot.sh cargo build --release --bins --features continuum-tier/ffmpeg,continuum-capture/ffmpeg"
+run = [
+    "../tools/build-slot.sh cargo build --release --bins --features continuum-tier/ffmpeg,continuum-capture/ffmpeg",
+    "../tools/link-daemons.sh",
+]
+
+[tasks.continuum-link]
+description = "Link the Continuum daemons already built (continuum/target/release/) into .venv/bin, without building: needed once after the environment is made again"
+run = "tools/link-daemons.sh"
 
 [tasks.continuum-check]
 description = "Check the Continuum workspace: rustfmt, clippy with warnings as errors, ruff and ty on the Python bindings, and that the generated schema code is current"
