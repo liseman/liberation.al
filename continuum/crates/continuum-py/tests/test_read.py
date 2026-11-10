@@ -20,6 +20,8 @@ from continuum_py.read import Record, records
 from conftest import spawn_broker, spawn_tier_worker, stop_broker
 
 TONE = Path(__file__).parent / "fixtures" / "tone.flac"
+# The data root relative chunk locators are read against; the tests that read a relative one pass their own.
+ROOT = Path("/")
 
 
 def uuid_of(n: int) -> str:
@@ -84,7 +86,7 @@ def test_an_inline_payload_reads_back(socket: str) -> None:
         async with await Client.connect(socket) as c:
             await commit(c, 1, inline=b'{"text":"hello"}')
             (item,) = await items(c)
-            return kind(item), await records(c, "notes", item)
+            return kind(item), await records(c, "notes", item, root=ROOT)
 
     assert asyncio.run(run()) == ("Inline", [Record(uuid_of(1), 1_000, 1_500, b'{"text":"hello"}')])
 
@@ -96,13 +98,13 @@ def test_a_slot_payload_reads_back_whole(socket: str) -> None:
         async with await Client.connect(socket) as c:
             await commit(c, 1, shm=in_slot(c, body))
             (item,) = await items(c)
-            return kind(item), await records(c, "notes", item)
+            return kind(item), await records(c, "notes", item, root=ROOT)
 
     assert asyncio.run(run()) == ("Shm", [Record(uuid_of(1), 1_000, 1_500, body)])
 
 
 def test_flushed_payloads_read_back_from_their_chunk_even_through_a_stale_slot_locator(
-    socket: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    socket: str, tmp_path: Path
 ) -> None:
     bodies = [bytes([n]) * 5_000 for n in (1, 2, 3)]
 
@@ -139,23 +141,21 @@ def test_flushed_payloads_read_back_from_their_chunk_even_through_a_stale_slot_l
             # A query made before the flush handed out note 1's slot; say the slot has since been reused.
             assert slot_item["locator"] is not None
             stale: Locator = {**slot_item["locator"], "slot_generation": slot_item["locator"]["slot_generation"] + 1}
-            # A chunk recorded at a relative path (a tier worker given a relative directory) is read from the
-            # working directory.
+            # A chunk stored relative to the data root (#62) is read under the root the reader is given.
             assert chunk["locator"] is not None
-            monkeypatch.chdir(tmp_path)
             relative: Locator = {**chunk["locator"], "uri": str(Path(chunk["locator"]["uri"]).relative_to(tmp_path))}
             return (
-                await records(c, "notes", chunk),
-                await records(c, "notes", chunk, start_ns=2_000, end_ns=2_600),
-                await records(c, "notes", {**slot_item, "locator": stale}),
-                await records(c, "notes", {**chunk, "locator": relative}),
+                await records(c, "notes", chunk, root=ROOT),
+                await records(c, "notes", chunk, start_ns=2_000, end_ns=2_600, root=ROOT),
+                await records(c, "notes", {**slot_item, "locator": stale}, root=ROOT),
+                await records(c, "notes", {**chunk, "locator": relative}, root=tmp_path),
             )
 
     every, one, from_stale, from_relative = asyncio.run(run())
     assert every == [Record(uuid_of(n), n * 1_000, n * 1_000 + 500, bodies[n - 1]) for n in (1, 2, 3)]
     assert one == [Record(uuid_of(2), 2_000, 2_500, bodies[1])], "only the records in the range"
     assert from_stale == [Record(uuid_of(1), 1_000, 1_500, bodies[0])], "found in the chunk that absorbed it"
-    assert from_relative == every, "a relative chunk path, read from the working directory"
+    assert from_relative == every, "a relative chunk locator, read under the data root"
 
 
 def test_a_flac_registered_in_place_reads_as_one_payload(socket: str, tmp_path: Path) -> None:
@@ -170,7 +170,7 @@ def test_a_flac_registered_in_place_reads_as_one_payload(socket: str, tmp_path: 
             await c.register_worker("audio-import", [])
             (registered,) = await c.register_audio_index("wave.audio_v1", str(device))
             (item,) = await items(c, "wave.audio_v1")
-            return registered["chunk_id"], kind(item), await records(c, "wave.audio_v1", item)
+            return registered["chunk_id"], kind(item), await records(c, "wave.audio_v1", item, root=ROOT)
 
     chunk_id, got_kind, got = asyncio.run(run())
     assert got_kind == "Chunk"
@@ -189,7 +189,7 @@ def test_a_stale_locator_is_looked_up_again_and_read_from_where_the_payload_is_n
         async with await Client.connect(socket) as c:
             await commit(c, 1, inline=b"current")
             (item,) = await items(c)
-            return await records(c, "notes", gone(item, tmp_path))
+            return await records(c, "notes", gone(item, tmp_path), root=ROOT)
 
     assert asyncio.run(run()) == [Record(uuid_of(1), 1_000, 1_500, b"current")]
 
@@ -200,7 +200,7 @@ def test_a_payload_purged_since_the_query_reads_as_none(socket: str, tmp_path: P
             await commit(c, 1, inline=b"soon gone")
             (item,) = await items(c)
             await c.purge_range(0, 2**63 - 1, streams=["notes"], reason="test")
-            return await records(c, "notes", gone(item, tmp_path))
+            return await records(c, "notes", gone(item, tmp_path), root=ROOT)
 
     assert asyncio.run(run()) is None
 
@@ -210,7 +210,7 @@ def test_a_header_only_payload_has_no_records(socket: str) -> None:
         async with await Client.connect(socket) as c:
             await commit(c, 1)
             (item,) = await items(c)
-            return await records(c, "notes", item)
+            return await records(c, "notes", item, root=ROOT)
 
     assert asyncio.run(run()) == []
 
@@ -225,7 +225,7 @@ def test_a_header_only_payload_has_no_records(socket: str) -> None:
 def test_a_locator_that_isnt_readable_here_is_refused_at_once(socket: str, locator: Locator) -> None:
     async def run() -> None:
         async with await Client.connect(socket) as c:
-            await records(c, "notes", {"header": header(1, 1), "locator": locator})
+            await records(c, "notes", {"header": header(1, 1), "locator": locator}, root=ROOT)
 
     with pytest.raises(ValueError, match="not a local file|isn't a payload"):
         asyncio.run(run())
@@ -245,7 +245,7 @@ def test_chunk_reads_keep_explicit_audio_format_while_legacy_reads_stay_unknown(
         return [(uuid_of(1), 1_000, 1_500, b"audio", (12_000, 1, 496)), (uuid_of(2), 2_000, 2_500, b"legacy", None)]
 
     monkeypatch.setattr(reads, "read_chunk_records", chunk_records)
-    found = asyncio.run(records(client, "mic.audio", item))
+    found = asyncio.run(records(client, "mic.audio", item, root=ROOT))
     assert found == [
         Record(uuid_of(1), 1_000, 1_500, b"audio", reads.PcmFormat(12_000, 1, 496)),
         Record(uuid_of(2), 2_000, 2_500, b"legacy"),
@@ -369,7 +369,7 @@ def test_derived_copies_survive_restart_and_purge(tmp_path: Path, purge_args: Pu
             for number, item in enumerate(page["items"], 1):
                 assert kind(item) == "Chunk", "Tier 0's recreated arena must not supply the bytes"
                 assert decode_header(item["header"])["parents"] == [parent]
-                assert await records(client, "notes", item) == [
+                assert await records(client, "notes", item, root=ROOT) == [
                     Record(uuid_of(number), number * 1_000, number * 1_000 + 500, bodies[number - 1])
                 ]
             await client.purge(**purge_args)
@@ -386,7 +386,9 @@ def test_derived_copies_survive_restart_and_purge(tmp_path: Path, purge_args: Pu
                 )
                 assert worker.poll() is None, "Tier exited before removing its purged copies"
                 await asyncio.sleep(0.02)
-            assert await records(client, "notes", left["items"][0]) == [Record(uuid_of(4), 1_000, 1_500, b"s" * 70_000)]
+            assert await records(client, "notes", left["items"][0], root=ROOT) == [
+                Record(uuid_of(4), 1_000, 1_500, b"s" * 70_000)
+            ]
 
     try:
         headers, positions = asyncio.run(archive())
