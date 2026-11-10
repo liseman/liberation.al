@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from liberational.dashboard import known_voices, server
+from liberational.dashboard import known_voices, speaker_lines
 
 
 @pytest.fixture
@@ -26,33 +26,33 @@ def voices(monkeypatch):
         }
 
     monkeypatch.setattr(known_voices, "_speakers", speakers)
-    monkeypatch.setattr(server, "_speakers_key", lambda: state.key)
+    monkeypatch.setattr(speaker_lines, "_speakers_key", lambda: state.key)
     return state
 
 
 def test_the_voice_list_is_worked_out_once_while_nothing_it_reads_changed(voices):
-    first = server.speakers_public()
+    first = speaker_lines.speakers_public()
     assert [s["id"] for s in first["speakers"]] == [9, 4], "most recently heard first"
-    assert server.speakers_public() == first
+    assert speaker_lines.speakers_public() == first
     assert voices.calls == 1
 
 
 def test_a_label_or_a_new_line_works_it_out_again(voices):
-    server.speakers_public()
+    speaker_lines.speakers_public()
     voices.key = ("mark", 2)
-    server.speakers_public()
+    speaker_lines.speakers_public()
     assert voices.calls == 2
 
 
 def test_each_caller_gets_its_own_copy(voices):
-    first = server.speakers_public()
+    first = speaker_lines.speakers_public()
     first["speakers"][0]["label"] = "changed by a caller"
-    assert server.speakers_public()["speakers"][0]["label"] == "Speaker 9"
+    assert speaker_lines.speakers_public()["speakers"][0]["label"] == "Speaker 9"
 
 
 def test_a_dozen_streams_asking_at_once_share_one_working_out(voices):
     got = []
-    threads = [threading.Thread(target=lambda: got.append(server.speakers_public())) for _ in range(12)]
+    threads = [threading.Thread(target=lambda: got.append(speaker_lines.speakers_public())) for _ in range(12)]
     for t in threads:
         t.start()
     for t in threads:

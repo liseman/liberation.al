@@ -577,7 +577,7 @@ def test_decoding_is_counted_for_whoever_asked_and_summarized_each_minute(monkey
     clock = [10.0]
     monkeypatch.setattr(vision_log.time, "monotonic", lambda: clock[0])
     caplog.set_level("INFO", logger="liberational.vision-log")
-    token = continuum_link.CALLER.set("people-read dashboard.server._people_view")
+    token = continuum_link.CALLER.set("people-read dashboard.people_reads._people_view")
     try:
         vision_log._decode_records(rows)  # 10 s since the last summary: counted, not logged
         clock[0] = 70.0
@@ -585,7 +585,7 @@ def test_decoding_is_counted_for_whoever_asked_and_summarized_each_minute(monkey
     finally:
         continuum_link.CALLER.reset(token)
     [line] = [r.getMessage() for r in caplog.records if "vision log decoded" in r.getMessage()]
-    assert line == "vision log decoded 4 records in 70 s: people-read dashboard.server._people_view 4"
+    assert line == "vision log decoded 4 records in 70 s: people-read dashboard.people_reads._people_view 4"
 
 
 def test_the_inline_fast_path_is_counted_too(monkeypatch):

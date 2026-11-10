@@ -5,7 +5,7 @@ import time
 
 import pytest
 
-from liberational.dashboard import context, server
+from liberational.dashboard import context, people_reads
 from liberational.domain.identity import Basis
 from liberational.listen import voices as live_voices
 from liberational.people import registry
@@ -36,7 +36,7 @@ def state(tmp_path, monkeypatch):
 
 
 def why(**q):
-    return server.why_name_view({k: str(v) for k, v in q.items()})
+    return people_reads.why_name_view({k: str(v) for k, v in q.items()})
 
 
 def test_a_line_on_a_named_voice_is_explained_by_the_voices_name_and_its_match(state):
