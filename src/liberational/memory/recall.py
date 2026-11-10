@@ -26,6 +26,8 @@ what Ask already reads: journal (search() above), transcript and camera (history
 (history_qa's recorded visits), encounters (memory/timeline.py), and frames (video_evidence.collect). ask.execute then answers from what the loop
 gathered with the usual local answer path. Choices on top of WorldMM:
 
+- The loop is told how the question was read (the query's reading: its source, measure, and people), so the planner
+  and the query agree on what is asked instead of each reading the question for itself (#60).
 - The loop starts from what history_qa.collect already found, so the model can stop at once, and a loop whose
   rounds find nothing still answers from exactly the single pass's evidence.
 - A failed round (bad JSON, an unknown tool, bad arguments, a repeated search, or a tool error) still uses up its
@@ -649,6 +651,8 @@ DECIDE_SYSTEM = (
     "You plan the searches for {name}, who answers questions about the owner's recorded history. Each round, either "
     'stop because the evidence so far is enough to answer ({{"decision": "answer"}}), or pick exactly one read-only '
     'tool and its arguments ({{"decision": "search", "tool": ..., "args": {{...}}}}). Tools:\n{tools}\n'
+    "read_as, when given, is how the question was already read: where its answer is (speech, cameras, both, people, "
+    "lights, or journal), its measure, and the people it names. Search for that reading, not another one. "
     "Evidence is sufficient only if it supports the exact requested entity or relationship, not a nearby topic. "
     "If snippets do not identify the requested category, search alternative phrasings or concrete instances "
     "of that category before concluding it was not found. "
@@ -928,6 +932,9 @@ def loop(
     offered = tools()
     journal_only = query.get("kind") == "journal"
     requested_cameras = tuple(dict.fromkeys(query.get("cameras") or []))
+    # How the question was read (memory/question.py), so the planner searches for that reading, not one of its own.
+    reading = query.get("reading") or {}
+    read_as = {key: reading[key] for key in ("source", "measure", "people") if reading.get(key)}
     if journal_only:
         offered = [tool for tool in offered if tool == "journal"]
     if requested_cameras:
@@ -952,6 +959,8 @@ def loop(
             prompt: dict[str, Any] = {}
             if requested_cameras:
                 prompt["cameras"] = list(requested_cameras)
+            if read_as:
+                prompt["read_as"] = read_as
             prompt.update(
                 window=dict(start=_local(window[0]) if window[0] else "the earliest records", end=_local(window[1])),
                 evidence_so_far=dict(first=[_brief(r) for r in start[:SHOW_ITEMS]], count=len(start) + len(found)),
