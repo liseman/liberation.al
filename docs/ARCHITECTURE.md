@@ -198,9 +198,10 @@ password. [ANSWERS.md](ANSWERS.md#the-voice-turn) has the turn.
 ## Places
 
 Spatial memory keeps a map and floorplan of each indoor place, made from what the cameras see, and
-`spatial/positions.py` places people and pets on the plan through each camera's pose in the map. The owner's names
-and plan corrections are taught state and supersede the machine's view. Until a place has a map with a camera
-registered in it, the placer and the Places page say that nobody can be placed there.
+`spatial/positions.py` places people and pets on the plan through each camera's pose: from the spot the owner gave
+it on the plan (`spatial/spots.py`), else from the map. The owner's names and plan corrections are taught state and
+supersede the machine's view. A camera with neither a spot nor a pose in a map places nobody, and the placer and
+the Places page say what each camera lacks.
 
 [SPATIAL.md](SPATIAL.md) covers the jobs and files.
 
@@ -373,7 +374,7 @@ one `<service>.log` each, trimmed hourly past 10 MB by the `log-trim` service. H
 | `state/journal_pages_window.json`, `journal_pages_batch.json` | `pack-journal` | The same | The page batch's sleep window and last finished day |
 | `state/journal_evidence/<day>/` | `pack-video-window` | Dashboard | Clips and stills of moments day pages cite; durable |
 | `state/video_window.json`, `retention.json` | `pack-video-window` | The same | Age-out progress and finished retention days |
-| `state/places/<place>/`, `footprints.json`, `positions.json`, `state/places.lock` | Spatial jobs through `memory/places.py` | `memory/places.py`, `spatial/positions.py` | Place revisions, maps, plans, splats, and placer progress |
+| `state/places/<place>/`, `footprints.json`, `positions.json`, `aims.json`, `state/places.lock` | Spatial jobs through `memory/places.py` | `memory/places.py`, `spatial/positions.py` | Place revisions, maps, plans, splats, placer progress, each spot camera's fitted tilt, and each place's line-up with its owner's plan (`plan.lineup`, `spatial/plan_lineup.py`) |
 | `state/surroundings/` | The surroundings sampler (`spatial/surroundings_frames.py`: frames, `index.json`, `status.json`) and the map step (`spatial/surroundings_map.py`: `map.json`, `progress.json` and `training.json` while a step runs, depth images) | Each other, the Places page | The frames kept for learning a place's map, at most 300, with their descriptors and depth; what each step placed |
 | `state/cache/device_tallies.json` | `proximity/devices.py` | The same | Hourly device tallies; rebuildable |
 | `state/ingest.sqlite3`, `ingest-locks/`, `ingest-analyzed.json` | Dashboard, `pack-ingest`, `pack-ingest-analyze` | The same | Ingested items, per-item locks, and the analysis ledger |

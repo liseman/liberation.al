@@ -32,7 +32,7 @@ Nothing runs on a schedule. These run by hand, and the job that maps a place cal
 | Job | Does |
 |---|---|
 | `pack-spatial-splat [--place ID]` (`spatial/splats.py`) | Trains one Gaussian splat per revision that registers fixed cameras, from a day of their recorded frames, with gsplat and a Depth Anything 3 depth prior. `train_views` trains one from many posed views of a moving camera |
-| `tools/place_positions.py` | Records the fixed cameras' raw footprints (`spatial/footprints.py`) and runs the placer (`spatial/positions.py`), which places people's and pets' foot points on the plan |
+| `tools/place_positions.py` | Works out the tilt of each camera with a spot on its place's plan (`spatial/spots.py`), records the fixed cameras' raw footprints (`spatial/footprints.py`), and runs the placer (`spatial/positions.py`), which places people's and pets' foot points on the plan. `--dry-run` prints what it would place per camera and changes nothing |
 
 `spatial/cameras.py` is what jobs that work from recorded frames share: which cameras are fixed, reading a camera's
 recorded frame, whether a frame is lit (`daylight`) and sharp (`sharpness`), the people in it (`detector`,
@@ -45,11 +45,24 @@ pose over time for the placer to read; nothing writes it at present.
 ## Positions
 
 `spatial/footprints.py` records raw foot points as cameras saw them (`position.sample`). A foot point is placed
-through its camera's pose in a place's map, so while no revision registers a camera the placer places nothing and
-says so, and the Places page says nobody can be placed there. The placer maps them to
-plan coordinates and writes `position.placed` and `position.path`: who or what, place, room, coordinates, time,
-confidence, and source. When a registration moves a camera's placement by more than 0.25 m, the placer places that
-place's samples again into a new generation, so a path is always in one frame.
+through its camera's pose, which comes from one of two things:
+
+- **The owner's spot on the plan** (`spatial/spots.py`). A plan's `x-camera <camera> at x,y height <m> yaw <deg>` line
+  says where the camera is, how high, and which way it faces, and that is enough: the camera has a pose in the plan's
+  own frame, with its held focal and lens, and its foot points land on the plan's floor with no map. The one thing a
+  spot doesn't say is how far the camera is tilted. That is worked out once per camera from the people it sees
+  walking: someone walking is upright and as tall at the far end of the room as at the near end, and only one tilt
+  makes them so. The fit is checked against the spot's height (people must come out a person's height) and kept in
+  `state/places/aims.json`. A spot outranks any pose a map gives the camera: a map may refine it only within 0.3 m
+  and 5 degrees, and whoever applies that logs it.
+- **A map's registration** (a revision's `cameras`), for a camera with no spot.
+
+A camera with neither places nobody. A spot that lacks something says what, per camera: no height, no facing (yaw),
+no known lens, too few people seen walking to work out the tilt yet, or people who come out the wrong height. The
+Places page lists those under the plan, and the rest of the place's cameras place people as usual. The placer maps
+foot points to plan coordinates and writes `position.placed` and `position.path`: who or what, place, room,
+coordinates, time, confidence, and source. When a spot or a registration moves a camera's placement by more than
+0.25 m, the placer places that place's samples again into a new generation, so a path is always in one frame.
 
 `memory/places.py:places_for_span` tells the journal which places and rooms a span touched.
 
@@ -60,7 +73,7 @@ Each defaults to a dry run that prints what would change. Their docstrings have 
 | Tool | Does |
 |---|---|
 | `tools/import_owner_plan.py` | Registers an owner-supplied floorplan into a place's map and saves it as the owner plan |
-| `tools/place_positions.py` | Records footprints and runs the placer; `--reset` places every place again |
+| `tools/place_positions.py` | Fits spot cameras' tilts, records footprints, and runs the placer; `--dry-run` changes nothing, `--days N` reaches further back the first time, and `--reset` places every place again |
 | `tools/calibrate_lens.py`, `tools/calibrate_fisheye.py` | Calibrate a camera's lens |
 
 ## Learning surroundings
@@ -155,8 +168,26 @@ foot points are placed on the map's floor in metres, through the same geometry a
 needs a pose for each moment (#7), so its foot points stay unplaced until then. While a place has no map, or a camera
 has no pose, readers say that and show no position.
 
-**The owner's plan** (#261) is kept as taught state. Lining a learned map up with it comes after the map exists: until
-then the 3D view and positions are in the map's own frame, and the plan is drawn on its own.
+**The owner's plan** (#261) is kept as taught state, and a learned map is lined up with it
+(`spatial/plan_lineup.py`): a turn, a shift, and a scale on the floor, written as the `plan_transform` of a revision
+with no map of its own, with the owner's plan saved again, unchanged, as drawn in that revision's frame. Learned
+revisions carry the transform over, so the 3D view, the plan, and the positions share one frame from then on.
+
+- *Evidence.* Two or more fixed cameras the plan has a measured spot for (`x-camera`) give the line-up outright: each
+  camera registered in the map must land on its spot. Otherwise the map's wall band is fitted to the plan's walls,
+  and a single measured spot rules out the fits that put its camera elsewhere.
+- *Found once.* A wall fit is kept only when the map lies on at least 30% of the plan's wall length, scores 1.15
+  times better than the best different fit (one square room fits its plan four ways), and then sits on the walls
+  (a median of 10 cm from a wall's face). Until then the place is unaligned and its status says why (no map, no
+  floor, too little of the plan, more than one fit, or a poor fit): the 3D view and positions stay in the map's own
+  frame, and the plan is drawn on its own. A fit is tried again only after the map's walls grew by a fifth.
+- *Checked as it grows.* Each later map is measured on the plan through the transform it has, with no search. A map
+  that left its plan is fitted once more; when that finds nothing the line-up stays and is flagged as drifted.
+
+`plan_lineup.advance(state)` does all of it, is called at the end of every map step, and costs one small read when
+nothing changed; `plan_lineup.status(state, place)` is what a reader says. The made-up maps in its tests (noise of a
+few centimetres, a scale 8% to 17% off) line up within a centimetre or two at the rooms' corners, in under 4 s for a
+whole home on the Linux machine.
 
 ## Model runtimes
 
