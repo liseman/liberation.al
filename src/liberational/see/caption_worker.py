@@ -3,12 +3,12 @@ through the caption pipeline (`see.captions`), and written as `camera.caption` a
 segment store (segment_log.py), with `animal.grounding` and `animal.grounding_embedding` rows for the animals the
 captions name (see/caption_animals.py).
 
-Each camera is looked at most every `min_interval_s` (1 s, v1's `--interval`), newest frame first; the change gate
+Each camera is looked at most every `min_interval_s` (1 s), newest frame first; the change gate
 decides whether the VLM sees it, at most once per camera's caption interval (`caption_every_s`, 60 s for network
 cameras by default). Every row names its frame (`frame_id`), and a caption repeated for an unchanged view says
 since when (`since`). Segment rows are readable as soon as
 they're appended and synced at most SYNC_S apart, so a crash loses at most that much. The pipelines are made and run
-on one model thread shared by every camera: v1's in-process MLX backend answers only on the thread that loaded it.
+on one model thread shared by every camera: the in-process MLX backend answers only on the thread that loaded it.
 """
 
 import asyncio
@@ -160,15 +160,15 @@ def caption_every_s(cam: Camera, network_s: float, own: Mapping[str, Any]) -> fl
 @model_runtime.reporting("see-captions")
 def main(argv: Sequence[str] | None = None) -> None:
     """`pack-see-captions`: the caption worker as a service. It reads the cameras in capture's manifest from the broker
-    (run continuum-broker and continuum-capture with it), with v1's VLM backend (pack-vlm on Apple Silicon, else
-    Ollama) and, when [vision] objects is on and the backend is Ollama, v1's object grounding."""
+    (run continuum-broker and continuum-capture with it), with the VLM backend (pack-vlm on Apple Silicon, else
+    Ollama) and, when [vision] objects is on and the backend is Ollama, object grounding."""
     import argparse
 
     from liberational import config as cfg
     from liberational import continuum_link
     from liberational.people import registry
     from liberational.people.pets import PetRegistry
-    from liberational.see import vlm as v1
+    from liberational.see import vlm as vlm_backends
     from liberational.vision import animal_embedder
 
     parser = argparse.ArgumentParser(prog="pack-see-captions", description=main.__doc__)
@@ -191,7 +191,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         raise SystemExit(f"no cameras in {args.manifest}")
     check_h264_decoder(cameras)
     backend = args.backend if args.backend != "auto" else "mlx-server" if cfg.has_mlx() else "ollama"
-    vlm: list[v1.Backend] = []  # made once, on the model thread
+    vlm: list[vlm_backends.Backend] = []  # made once, on the model thread
     embed = caption_animals.LazyEmbedder()  # shared by every camera, loaded on the first animal box
     pet_photos = pet_shots.Writer(cfg.path("paths.state"))  # Pets' sighting photos, one a track
     pets = PetRegistry(registry.knowledge_path(None))
@@ -206,9 +206,9 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     def pipeline(cam: Camera) -> CaptionPipeline:
         if not vlm:
-            vlm.append(v1.make_vlm(backend))
+            vlm.append(vlm_backends.make_vlm(backend))
             vlm[0].warm()
-        ollama = vlm[0] if isinstance(vlm[0], v1.OllamaVLM) else None
+        ollama = vlm[0] if isinstance(vlm[0], vlm_backends.OllamaVLM) else None
         ground = ollama.ground if ollama is not None and cfg.get("vision.objects") else None
         every = caption_every_s(cam, cfg.get("vision.network_caption_every_s"), cfg.get("vision.caption_every_s") or {})
         find = None if ollama is None else functools.partial(ollama.ground, prompt=caption_animals.PROMPT)

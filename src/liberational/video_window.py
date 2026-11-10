@@ -210,7 +210,14 @@ async def silent_audio(
     margin = retention.SPEECH_MARGIN_S
     segments = S.at(state)
     utterances = segments.range(S.UTTERANCES, a - margin, b + margin)
-    activity = segments.range(S.SPEECH_ACTIVITY, a - margin, b + margin)
+    # Only the seconds the gate heard speech, from three columns: a day is about 100,000 gate rows.
+    gates = segments.table(S.SPEECH_ACTIVITY, a - margin, b + margin, ("ts_ns", "stream", "in_speech"))
+    activity = [
+        {"ts_start": S.secs(ts), "stream": stream, "in_speech": True}
+        for c in gates.values()
+        for ts, stream, heard in zip(c["ts_ns"].tolist(), c["stream"], c["in_speech"].tolist(), strict=True)
+        if heard
+    ]
     counts: dict[str, int] = {}
     for stream in sorted(s["name"] for s in await client.list_streams() if s["name"].endswith(".audio")):
         page = await client.query(stream, to_ns(a), to_ns(b), all=True)

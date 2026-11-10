@@ -975,8 +975,7 @@ def face_embedding(row: Mapping[str, Any], cam: str) -> Record:
     """A face.embedding row as a record. Its vector stays the float32 (512,) array the store read (a row of its
     (rows, 512) block, not a copy): a list of 512 Python floats cost about 66 us a row, 1.25 s of autoname's 2.2 s
     over 7 days (18,889 rows), and every reader turns it straight back into numpy. It is a read-only view, so
-    a reader can't change the block it shares (or an hour `keep_hours` kept), and the caller's own array stays as it
-    was."""
+    a reader can't change the block it shares, and the caller's own array stays as it was."""
     vector = np.asarray(row["vector"], np.float32).view()
     vector.flags.writeable = False
     return {
@@ -1667,23 +1666,7 @@ class Writers:
 
 
 HOUR_S = 3600.0
-SETTLE_S = 120.0  # an hour this long over is kept: rows reach their files within a few seconds of their time
-MAX_HOURS = 1000  # kept hours, before the cache starts over (a day of every stream read, with room)
-_KEEP_HOURS = False
-_HOURS: dict[tuple[Any, ...], tuple[Any, list[Record]]] = {}
-
-
-def keep_hours(on: bool = True) -> None:
-    """Keep each ended hour's decoded records of a window still going in this process, for a reader that reads it
-    again and again (Review's day history of today, every minute). Each kept hour is checked against its files'
-    stamp (`Log.stamp`) on every read, so a row written late or a purge shows at once; only the newest hours are read
-    from the store. Off by default: a process that reads a window once gains nothing. Today's hours are a lot of
-    records: Review's day-history worker was about 1.1 GB by late afternoon on the Linux machine, dropped when the
-    day turns."""
-    global _KEEP_HOURS
-    _KEEP_HOURS = on
-    if not on:
-        _HOURS.clear()
+SETTLE_S = 120.0  # an hour this long over is settled: rows reach their files within a few seconds of their time
 
 
 def _segment_moved(exc: BaseException) -> bool:
@@ -1749,44 +1732,10 @@ class Log:
         return tuple(sorted(out))
 
     def range(self, stream: str, start: float, end: float, cameras: Sequence[str] | None = None) -> list[Record]:
-        """Every record of `stream` overlapping [start, end), in time order. With `keep_hours` on, a window over an hour
-        long is read an hour at a time, each ended hour's records kept (see `keep_hours`)."""
+        """Every record of `stream` overlapping [start, end), in time order."""
         if end <= start:
             return []
-        if _KEEP_HOURS and end - start > HOUR_S and end > time.time():
-            return _face_groups_now(stream, self._by_hour(stream, start, end, cameras))
         return _face_groups_now(stream, self._read(stream, start, end, cameras))
-
-    def _by_hour(self, stream: str, start: float, end: float, cameras: Sequence[str] | None) -> list[Record]:
-        settled = time.time() - SETTLE_S
-        # Only the window still going keeps its hours (an ended day's reader keeps its whole answer instead): what's
-        # kept from before this window, yesterday's hours once the day has turned, goes.
-        for old in [k for k in _HOURS if k[0] == str(self.base) and k[1] == stream and k[3] <= start]:
-            del _HOURS[old]
-        out: list[Record] = []
-        at = start
-        while at < end:
-            upto = min(end, (math.floor(at / HOUR_S) + 1) * HOUR_S)
-            if upto <= settled:
-                key = (str(self.base), stream, at, upto, tuple(cameras) if cameras is not None else None)
-                stamp = self.stamp(at, upto, (stream,))
-                kept = _HOURS.get(key)
-                if kept is None or kept[0] != stamp:
-                    kept = (stamp, self._read(stream, at, upto, cameras))
-                    if len(_HOURS) >= MAX_HOURS:
-                        _HOURS.clear()
-                    _HOURS[key] = kept
-                rows = kept[1]
-            else:
-                rows = self._read(stream, at, upto, cameras)
-            # A record spanning an hour's end is in both hours' reads, and ids aren't unique in every stream: each
-            # record is taken from the one hour holding its start (or the window's, for one that began before it),
-            # whose read always has it.
-            out.extend(dict(r) for r in rows if at <= max(r["ts_start"], start) < upto)  # copies: a reader that
-            # changes a record can't change the kept hour
-            at = upto
-        out.sort(key=lambda r: (r["ts_start"], r.get("id", "")))
-        return out
 
     def _segments(
         self,
@@ -1850,18 +1799,27 @@ class Log:
         *,
         join_s: float = 0.0,
         instants: bool = False,
+        where: tuple[Sequence[str], Callable[[Mapping[str, Any]], np.ndarray]] | None = None,
     ) -> dict[str, Covered]:
         """Each camera's coverage of [start, end) from a coverage stream: its rows' spans cut to the window and
         joined where they meet or lie within `join_s` of each other, oldest first, with the frames its rows counted.
         A row with no length (one frame analyzed on its own) is no stretch and joins nothing, unless `instants`
         keeps it as a span of no length. The spans are joined as columns (a day of see-actions' coverage is about
         100,000 rows a camera, and a few stretches once joined). A camera with no coverage row in the window isn't
-        there."""
+        there. `where` keeps only some rows: the columns it reads, and a function from a camera's columns to a mask
+        of the rows that count (a zone's coverage of one kind of subject, say)."""
         has_frames = any(name == "frames" for name, _ in STREAMS[stream].schema)
-        names = ("ts_ns", "end_ns", "frames") if has_frames else ("ts_ns", "end_ns")
+        names = ["ts_ns", "end_ns", *(["frames"] if has_frames else []), *(where[0] if where else ())]
         out: dict[str, Covered] = {}
-        for cam, columns in self.table(stream, start, end, names, cameras).items():
+        for cam, columns in self.table(stream, start, end, list(dict.fromkeys(names)), cameras).items():
             first, last = columns["ts_ns"], columns["end_ns"]
+            frames = columns["frames"] if has_frames else None
+            if where is not None:
+                mask = np.asarray(where[1](columns), dtype=bool)
+                first, last = first[mask], last[mask]
+                frames = frames[mask] if frames is not None else None
+                if not mask.any():
+                    continue
             if not instants:
                 first, last = first[last > first], last[last > first]
             order = np.argsort(first, kind="stable")
@@ -1875,7 +1833,24 @@ class Log:
                     for a, b in zip(first[begins].tolist(), np.maximum.reduceat(last, begins).tolist(), strict=True)
                     if (hi := min(end, secs(b))) > (lo := max(start, secs(a))) or (instants and hi == lo)
                 ]
-            out[cam] = Covered(spans, int(columns["frames"].sum()) if has_frames else 0)
+            out[cam] = Covered(spans, int(frames.sum()) if frames is not None else 0)
+        return out
+
+    def containing(
+        self, stream: str, start: float, end: float, texts: Sequence[str], column: str = "record"
+    ) -> list[Record]:
+        """`range`, for the rows whose `column` (text) holds one of `texts`: a record is built only for those. For a
+        stream whose record is JSON text (Bluetooth sightings: a day is some 400,000 rows, and a reader that wants
+        one device's parsed every one of them). A caller passes each value as the text holds it (`json_text`) and
+        still checks the records it gets: the test finds a value anywhere in the text."""
+        spec = STREAMS[stream]
+        names = [name for name, _ in spec.schema]
+        out: list[Record] = []
+        for cam, columns in self.table(stream, start, end, names).items():
+            for i, text in enumerate(columns[column]):
+                if any(t in text for t in texts):
+                    out.append(spec.to_record({name: columns[name][i] for name in names}, cam))
+        out.sort(key=lambda r: (r["ts_start"], str(r.get("id", ""))))
         return out
 
 
@@ -1889,6 +1864,11 @@ class Covered:
     @property
     def seconds(self) -> float:
         return sum(b - a for a, b in self.spans)
+
+
+def json_text(value: str) -> str:
+    """A string as JSON text holds it, without its quotes: what `Log.containing` looks for."""
+    return json.dumps(value, ensure_ascii=False)[1:-1]
 
 
 def _joined(a: Any, b: Any) -> Any:

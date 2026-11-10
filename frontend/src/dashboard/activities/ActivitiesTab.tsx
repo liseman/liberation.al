@@ -198,7 +198,7 @@ function ClipCard({
   );
 }
 
-/** How far a learning kind is from being counted, in one wording (#2473): "3 more answers to count". */
+/** How far a learning kind is from being counted, in one wording: "3 more answers to count". */
 export function learningText(p: ActivityPromotion | undefined): string {
   if (p?.status === 'needs_ratings') {
     const n = p.remaining_ratings;
@@ -246,7 +246,7 @@ function KindButton({
   active: boolean;
   waiting: number;
   onClick: () => void;
-  onDelete?: () => void; // the owner's activity: it can be deleted (#3244)
+  onDelete?: () => void; // the owner's activity: it can be deleted
   name?: string;
   children: ReactNode;
 }) {
@@ -271,7 +271,7 @@ function KindButton({
   );
 }
 
-/** A row's bin: quiet until it's meant, as Ingest's (#2715), and it asks first. */
+/** A row's bin: quiet until it's meant, as Ingest's, and it asks first. */
 function DeleteKind({ name, onDelete }: { name: string; onDelete: () => void }) {
   return (
     <Tooltip label="Delete this activity">

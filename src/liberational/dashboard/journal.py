@@ -31,12 +31,16 @@ import re
 import time
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
 
 from liberational import config as cfg
 from liberational import memory_log
+from liberational.dashboard import routes
 from liberational.memory import history_qa, journal, journal_evidence, journal_pages
+
+if TYPE_CHECKING:
+    from liberational.dashboard.server import H
 
 Reply = tuple[int, dict[str, Any]]
 
@@ -253,3 +257,45 @@ def listing(query: Mapping[str, str], state: Path, now: float | None = None) -> 
     except ValueError:
         return 400, {"error": "month, week, and day are YYYY-MM-DD dates; hour and start are epoch times"}
     return months(state, today)
+
+
+# ---- routes (dashboard/routes.py): what the server answers for this area ----
+
+
+@routes.get("/journal")
+def _get_journal(h: H) -> None:
+    code, reply = listing(h._query(), h.state)
+    return h._json(reply, code)
+
+
+@routes.get("/journal/today")
+def _get_journal_today(h: H) -> None:
+    from liberational.memory import ask, journal_pages
+
+    try:
+        day = ask.validate_day(h._query().get("day", ""))
+    except ValueError:
+        return h._json({"error": "day must be YYYY-MM-DD"}, 400)
+    code, reply = journal_pages.today_page(h.state, time.time(), dt.date.fromisoformat(day) if day else None)
+    return h._json(reply, code)
+
+
+@routes.get("/journal/evidence")
+def _get_journal_evidence(h: H) -> None:
+    from liberational.memory import journal_evidence
+
+    day = h._query().get("day") or ""
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
+        return h._json({"error": "day must be YYYY-MM-DD"}, 400)
+    return h._json({"day": day, "sources": journal_evidence.resolve_day(h.state, day)})
+
+
+@routes.get_re(r"/journal/evidence/(\d{4}-\d{2}-\d{2})/([0-9A-Za-z_.-]{1,96})")
+def _get_journal_evidence_x_x(h: H, m: re.Match[str]) -> None:
+    from liberational.memory import journal_evidence
+
+    found = journal_evidence.file(h.state, m.group(1), m.group(2))
+    if found is None:
+        return h._send(404, "text/plain", b"")
+    # Byte ranges (206), which Safari and iOS need to play an mp4 at all.
+    return h._media(found, "video/mp4" if found.suffix == ".mp4" else "image/jpeg")

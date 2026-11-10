@@ -684,7 +684,7 @@ describe('voice clone', () => {
     ).toBeInTheDocument();
   });
 
-  it('says how much was heard, how much is usable, and why it falls short (#388)', async () => {
+  it('says how much was heard, how much is usable, and why it falls short', async () => {
     const clone = {
       id: 3,
       label: 'Dana',
@@ -734,7 +734,7 @@ describe('voice clone', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Not enough clean speech after all.');
   });
 
-  it('removes a built clone after asking, and offers no Remove before one is built (#2455)', async () => {
+  it('removes a built clone after asking, and offers no Remove before one is built', async () => {
     serve({ clones: [{ id: 3, label: 'Dana', ready: true, built: true }] });
     const sent = posts('/clones/remove', { ok: true, removed: ['a.wav'] });
     show();

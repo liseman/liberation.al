@@ -27,7 +27,7 @@
 # Settings like cameras, ports, and models come from config, not from args here.
 
 # The workers below run on Continuum: each needs continuum-broker and continuum-capture, and listen also
-# continuum-vector-worker. They replace v1's vision, identity, backfill, and other services.
+# continuum-vector-worker.
 [listen]
 description = "Listens to the microphones, writes down what people say, and works out who said it."
 group = "workers"
@@ -167,7 +167,7 @@ reads_settings = false
 stop_timeout = 75
 
 # One worker process per camera and microphone in config/devices.toml, opened one at a time (docs/CONTINUUM.md, One
-# process per physical device). It opens the same devices as v1's vision service, so don't run both.
+# process per physical device).
 [continuum-capture]
 description = "Records from each camera and microphone."
 group = "core"

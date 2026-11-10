@@ -16,7 +16,7 @@ from PIL import Image
 
 from liberational import config as cfg
 from liberational import segment_log
-from liberational.dashboard import server
+from liberational.dashboard import context, server
 from liberational.people import registry
 from liberational.see import subjects
 from liberational.vision import face_guess as G
@@ -205,7 +205,7 @@ def test_to_name_lists_and_counts_only_groups_seen_in_the_last_unnamed_days(stat
     ids, vecs, counts, nxt, sums = fid._unk_load_sums()
     fid._unk_save(ids, vecs, counts, nxt, sums, last_seen={6: B, 8: time.time() - 8 * 86400})
     server.INBOX_SKIPS.write_text(json.dumps({"face": [7]}))
-    monkeypatch.setattr(server, "STATE", state)
+    monkeypatch.setattr(context, "STATE", state)
     with cfg.override({"faces": {"unnamed_days": days}}):
         code, body = server._unknown_groups()
     assert code == 200
@@ -215,7 +215,7 @@ def test_to_name_lists_and_counts_only_groups_seen_in_the_last_unnamed_days(stat
 def test_group_sighting_pages_count_and_page_only_saved_crops(state, ids, serve, monkeypatch):
     from liberational.people import face_shots
 
-    monkeypatch.setattr(server, "STATE", state)
+    monkeypatch.setattr(context, "STATE", state)
     monkeypatch.setattr(server, "_crop_jobs", face_shots.Pending(server._crop_process))
     face_shots.write(state, ids[2], "0", b"jpeg")
     face_shots.write(state, ids[4], "0", b"jpeg")
@@ -256,11 +256,11 @@ def test_the_route_says_when_the_groups_cannot_be_read(state, serve, monkeypatch
 
 
 def test_a_face_heard_with_a_named_voice_suggests_that_name_but_never_the_owners(state, monkeypatch, vision, ids):
-    """Face 6 is seen three times while Dana speaks; the owner, Joe, talks near Face 5 all the while."""
+    """Face 6 is seen three times while Dana speaks; the owner, Sam, talks near Face 5 all the while."""
     from voices import write_voices
 
     add_sightings(vision, ids, [(30, 400.0, 6, None, 0.9, 0.2), (31, 900.0, 6, None, 0.9, 0.2)])
-    write_voices(state, {1: "Dana", 2: "Joe"})
+    write_voices(state, {1: "Dana", 2: "Sam"})
     lines = [(49.0, 52.0, 1), (399.0, 402.0, 1), (899.0, 903.0, 1), (104.0, 106.0, 2), (106.5, 108.0, 2)]
     fake().write(
         [
@@ -268,8 +268,8 @@ def test_a_face_heard_with_a_named_voice_suggests_that_name_but_never_the_owners
             for a, b, sid in lines
         ]
     )
-    monkeypatch.setattr(server, "STATE", state)
-    with cfg.override({"owner": {"name": "Joe"}}):
+    monkeypatch.setattr(context, "STATE", state)
+    with cfg.override({"owner": {"name": "Sam"}}):
         code, body = server.unknown_groups_view()
     assert code == 200
     by = {g["id"]: g for g in body["groups"]}
@@ -294,11 +294,11 @@ def test_a_row_with_a_suggestion_sorts_with_the_maybes(monkeypatch):
 @pytest.fixture
 def heard(state, monkeypatch, vision, ids):
     """Face 6 seen at 50, 400, and 900 (plus Face 5's eight at 101 to 108), all after B, lines written by the test
-    (their times after B too), Joe the owner."""
+    (their times after B too), Sam the owner."""
     from voices import write_voices
 
     add_sightings(vision, ids, [(30, 400.0, 6, None, 0.9, 0.2), (31, 900.0, 6, None, 0.9, 0.2)])
-    monkeypatch.setattr(server, "STATE", state)
+    monkeypatch.setattr(context, "STATE", state)
 
     def lines(voices, spoken, heard_as=""):
         write_voices(state, voices)
@@ -309,7 +309,7 @@ def heard(state, monkeypatch, vision, ids):
             ]
         )
 
-    with cfg.override({"owner": {"name": "Joe"}}):
+    with cfg.override({"owner": {"name": "Sam"}}):
         yield lines
 
 
@@ -326,8 +326,8 @@ def test_a_suggestion_names_the_person_as_they_are_called_now(heard, state):
 
 
 def test_the_owner_is_left_out_by_who_they_are_not_how_a_name_is_spelled(heard, state):
-    heard({2: "Joe"}, [(49.0, 52.0, 2), (399.0, 402.0, 2), (899.0, 903.0, 2)])
-    registry.at(state).rename("Joe", "Jordan", "test")  # the owner's name in the config is still Joe
+    heard({2: "Sam"}, [(49.0, 52.0, 2), (399.0, 402.0, 2), (899.0, 903.0, 2)])
+    registry.at(state).rename("Sam", "Jordan", "test")  # the owner's name in the config is still Sam
     assert six(server.unknown_groups_view()) is None
 
 
@@ -343,7 +343,7 @@ def test_a_voice_whose_own_face_was_seen_a_moment_later_is_explained(heard, stat
 def test_named_windows_batch_only_their_overlaps_and_match_the_unbatched_read(tmp_path, vision, monkeypatch):
     from liberational.vision import sightings
 
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     vision.face(B + 1, name="Dana")
     vision.face(B + 6, name="Alice")  # the gap is not co-occurrence evidence
     vision.face(B + 11, name="Alice")
@@ -430,7 +430,7 @@ def test_an_unavailable_face_read_fails_instead_of_returning_an_empty_list(state
 def test_a_recent_legacy_group_is_hidden_after_its_imported_sightings_are_deleted(state, vision, ids, monkeypatch):
     from liberational import segment_log
 
-    monkeypatch.setattr(server, "STATE", state)
+    monkeypatch.setattr(context, "STATE", state)
     monkeypatch.setattr(server, "_FACE_GROUP_LAST_SEEN", {})
     before = server._unknown_groups()
     assert before[0] == 200
@@ -449,7 +449,7 @@ def test_a_recent_legacy_group_is_hidden_after_its_imported_sightings_are_delete
 def test_empty_group_filter_keeps_unknown_older_and_incomplete_history(state, vision, monkeypatch):
     from liberational.vision import sightings
 
-    monkeypatch.setattr(server, "STATE", state)
+    monkeypatch.setattr(context, "STATE", state)
     monkeypatch.setattr(server, "_FACE_GROUP_LAST_SEEN", {(str(state), 6): B + 50})
     rows = [{"id": 6, "last_seen": None}, {"id": 8, "last_seen": None}]
     incomplete = sightings.FaceBatch(0, (sightings.SHOT_DAYS + 2) * 86400, state)
@@ -463,7 +463,7 @@ def test_empty_group_filter_keeps_unknown_older_and_incomplete_history(state, vi
 def test_a_group_whose_retained_matches_are_already_named_is_not_asked_again(state, vision, ids, monkeypatch):
     from liberational import segment_log
 
-    monkeypatch.setattr(server, "STATE", state)
+    monkeypatch.setattr(context, "STATE", state)
     raw = next(r for r in vision.records[segment_log.FACE_MATCHES] if r["id"] == ids[20])
     raw["name"] = "Dana"  # the other retained match of Face 6 was already named Kara
     code, body = server._unknown_groups()
@@ -475,7 +475,7 @@ def test_a_group_whose_retained_matches_are_already_named_is_not_asked_again(sta
 def test_a_group_resolved_by_owner_claims_is_not_asked_again(state, ids, monkeypatch):
     from liberational.domain.identity import Basis
 
-    monkeypatch.setattr(server, "STATE", state)
+    monkeypatch.setattr(context, "STATE", state)
     registry.at(state).claim(registry.detection(ids[20]), "Dana", Basis.OWNER_TAG, "test")
     code, body = server._unknown_groups()
     assert code == 200
@@ -488,7 +488,7 @@ def test_mixed_named_and_low_confidence_unknown_evidence_still_counts_as_without
     from liberational import segment_log
     from liberational.people import face_shots
 
-    monkeypatch.setattr(server, "STATE", state)
+    monkeypatch.setattr(context, "STATE", state)
     monkeypatch.setattr(server, "_crop_jobs", face_shots.Pending(server._crop_process))
     raw = next(r for r in vision.records[segment_log.FACE_MATCHES] if r["id"] == ids[20])
     raw["det"] = 0.1  # not a crop candidate, but still unknown evidence in the mixed group
@@ -503,7 +503,7 @@ def test_mixed_named_and_low_confidence_unknown_evidence_still_counts_as_without
 
 
 def test_a_scan_limited_group_with_unknown_members_is_not_mistaken_for_resolved(state, monkeypatch):
-    monkeypatch.setattr(server, "STATE", state)
+    monkeypatch.setattr(context, "STATE", state)
     monkeypatch.setattr(G, "SCAN", 1)  # the newest Face 5 observation fills the picture scan
     code, body = server._unknown_groups()
     assert code == 200
@@ -521,7 +521,7 @@ def test_resolved_group_omission_requires_a_complete_snapshot(state):
 
 
 def test_ordinary_unknown_face_updates_during_warming_do_not_discard_the_kept_answer(state, monkeypatch):
-    monkeypatch.setattr(server, "STATE", state)
+    monkeypatch.setattr(context, "STATE", state)
     calls = []
 
     def compute():
@@ -537,7 +537,7 @@ def test_ordinary_unknown_face_updates_during_warming_do_not_discard_the_kept_an
 
 
 def test_group_removal_skips_and_identity_edits_invalidate_kept_face_rows(state, monkeypatch):
-    monkeypatch.setattr(server, "STATE", state)
+    monkeypatch.setattr(context, "STATE", state)
     before = server._faces_owner_key()
     ids, vecs, counts, nxt = fid._unk_load()
     fid._unk_save(ids[1:], vecs[1:], counts[1:], nxt)
@@ -553,7 +553,7 @@ def test_group_removal_skips_and_identity_edits_invalidate_kept_face_rows(state,
 
 
 def test_the_people_key_ignores_face_groups_the_worker_adds_and_evicts_but_not_naming(state, monkeypatch):
-    monkeypatch.setattr(server, "STATE", state)
+    monkeypatch.setattr(context, "STATE", state)
     before = server._faces_owner_key(groups=False)
     ids, vecs, counts, nxt = fid._unk_load()
     fid._unk_save([*ids[1:], nxt], np.vstack([vecs[1:], vecs[:1]]), [*counts[1:], 1], nxt + 1)  # one in, one out
@@ -565,7 +565,7 @@ def test_the_people_key_ignores_face_groups_the_worker_adds_and_evicts_but_not_n
 
 
 def test_the_count_includes_groups_past_the_listed_ones(state, monkeypatch):
-    monkeypatch.setattr(server, "STATE", state)
+    monkeypatch.setattr(context, "STATE", state)
     baseline = server._unknown_groups()[1]["count"]
     ids, vecs, counts, _ = fid._unk_load()
     extra = list(range(100, 130))  # 30 more strangers, seen twice each, far from everyone
@@ -583,7 +583,7 @@ def kara(state, monkeypatch):
     """The fixture's state with Kara known to the registry, as an owner tag of an earlier face left her."""
     from liberational.domain.identity import Basis
 
-    monkeypatch.setattr(server, "STATE", state)
+    monkeypatch.setattr(context, "STATE", state)
     reg = registry.at(state)
     reg.claim(registry.face_group(1), "Kara", Basis.OWNER_TAG, "test")
     return reg
@@ -715,7 +715,7 @@ def test_a_match_to_a_name_the_registry_lacks_is_left_waiting(state):
 
 
 def test_groups_past_the_listed_ones_are_counted_only_while_still_asked(state, monkeypatch):
-    monkeypatch.setattr(server, "STATE", state)
+    monkeypatch.setattr(context, "STATE", state)
     baseline = server._unknown_groups()[1]["count"]
     ids, vecs, counts, _ = fid._unk_load()
     kara = fid.load_db()[1][0]

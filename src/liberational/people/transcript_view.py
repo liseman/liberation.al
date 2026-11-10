@@ -354,7 +354,7 @@ class View:
         """The voice a line someone labeled `name` goes with, as the label left the line before step 4.
 
         A voice tag (`tag`) taught the microphone service the line's voice: it added it to the voice labeled with
-        the person's name, or started that voice (v1's SpeakerDB.tag; listen/voices.py VoiceTags now). The log does
+        the person's name, or started that voice (listen/voices.py VoiceTags). The log does
         not record which voice, so it is the first voice that is the person now, and never a voice clone, which a tag
         skips. Else the voice stored on the line, when that names them: the voice a voice tag before
         step 4 wrote onto the line, or the voice a voice tag's line was heard as. Else None, as a label given in

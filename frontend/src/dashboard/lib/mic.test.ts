@@ -78,7 +78,7 @@ describe('useMicRecorder', () => {
     expect(track.stop).toHaveBeenCalled(); // the microphone is let go
   });
 
-  it('goes back to idle, not a dead "recording", when its tab is hidden mid-recording (#330)', async () => {
+  it('goes back to idle, not a dead "recording", when its tab is hidden mid-recording', async () => {
     const track = { stop: vi.fn() };
     vi.stubGlobal('navigator', { mediaDevices: { getUserMedia: () => Promise.resolve({ getTracks: () => [track] }) } });
     const node = () => ({ connect: vi.fn(), disconnect: vi.fn() });

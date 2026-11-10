@@ -26,7 +26,7 @@ describe('clipSegments', () => {
 });
 
 describe('useClip', () => {
-  it("opens the camera's clip cut at its end, so a People card's video stops there too (#2476)", async () => {
+  it("opens the camera's clip cut at its end, so a People card's video stops there too", async () => {
     const segments: RawSegment[] = [
       { cam: 'cam0', start: 100, end: 400, url: 'gateway:1:0:300000000' },
       { cam: 'cam1', start: 100, end: 400, url: 'gateway:2:0:300000000' },
@@ -39,7 +39,7 @@ describe('useClip', () => {
     unmount();
   });
 
-  it('opens a moment-long clip (a 0 s sighting) with enough video to show a frame (#2547)', async () => {
+  it('opens a moment-long clip (a 0 s sighting) with enough video to show a frame', async () => {
     const segments: RawSegment[] = [{ cam: 'cam0', start: 100, end: 400, url: 'gateway:1:0:300000000' }];
     const load = vi.fn(async (_start: number, _end: number, _signal: AbortSignal) => segments);
     const { result, unmount } = renderHook(() => useClip({ cam: 'cam0', start: 150, end: 150, loadSegments: load }));

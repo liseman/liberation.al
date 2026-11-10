@@ -15,7 +15,7 @@ import pytest
 
 import liberational.vision
 from liberational import config, knowledge, voice_turn
-from liberational.dashboard import server
+from liberational.dashboard import context, server
 
 
 def test_the_faces_helpers_are_imported_before_the_first_people_request(monkeypatch):
@@ -632,7 +632,7 @@ def test_a_change_made_during_a_cold_start_answers_with_its_own_read(roster, mon
 
 def test_the_faces_check_runs_in_a_child_process_and_saves_its_result(tmp_path, monkeypatch):
     # In the dashboard's own process it held every request up for seconds every 10 minutes.
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     imported_before = "liberational.vision.faces" in sys.modules
     check = server._run_check()
     assert (check["groups"], check["status"]) == (0, "unchecked")  # an install with no tags yet
@@ -642,7 +642,7 @@ def test_the_faces_check_runs_in_a_child_process_and_saves_its_result(tmp_path, 
 
 
 def test_a_faces_check_child_that_fails_says_why(tmp_path, monkeypatch):
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     monkeypatch.setattr(
         server.subprocess,
         "run",
@@ -849,7 +849,7 @@ def voice_state(monkeypatch, tmp_path):
     from liberational.people import registry
 
     skips = {"face": [], "voice": [9.0], "line": []}
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     monkeypatch.setattr(server, "inbox_skips", lambda: skips)
     yield registry.at(tmp_path), skips
     registry.close_all()

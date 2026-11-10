@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from liberational.dashboard import server
+from liberational.dashboard import context, server
 from liberational.people import voice_edits
 from speech_fake import fake
 from voices import write_voices
@@ -55,7 +55,7 @@ def test_skipped_things_stay_out_of_the_inbox(state, monkeypatch):
     server.inbox_skip("line", 101.5, True)
     server.inbox_skip("voice", 3, True)
     server.inbox_skip("face", 8, True)
-    monkeypatch.setattr(server, "STATE", state)
+    monkeypatch.setattr(context, "STATE", state)
     monkeypatch.setattr(server, "_faces_mod", lambda: faces)  # the face model
     view = server.people_view()
     refine = server.speakers_refine_list()

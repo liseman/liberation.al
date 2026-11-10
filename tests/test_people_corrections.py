@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 
 from liberational import config as cfg
-from liberational.dashboard import server
+from liberational.dashboard import call_log, context, server
 from liberational.domain.identity import Basis
 from liberational.people import card_prefs, face_shots, registry, video_thumbs
 from liberational.vision import faces as face_db
@@ -42,15 +42,15 @@ def state(tmp_path, monkeypatch, pack, ran, vision):  # noqa: F811
     s = tmp_path / "state"
     s.mkdir()
     for name, path in {
-        "STATE": ".",
         "CONTACTS_FILE": "contacts.json",
         "PEOPLE_ADDED": "people_added.json",
         "INBOX_SKIPS": "inbox_skips.json",
-        "CALLS_DIR": "calls",
         "REFINE_LOG": "refine_log.jsonl",
         "VOICE_TAGS": "voice_tags.jsonl",
     }.items():
         monkeypatch.setattr(server, name, s / path)
+    monkeypatch.setattr(call_log, "CALLS_DIR", s / "calls")
+    monkeypatch.setattr(context, "STATE", s)
     monkeypatch.setattr(face_db, "DB", tmp_path / "faces" / "db.npz")
     monkeypatch.setattr(face_db, "UNK_DB", tmp_path / "faces" / "unknown.npz")
     monkeypatch.setattr(server, "_face_last_seen_at", dict)

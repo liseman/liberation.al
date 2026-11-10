@@ -201,7 +201,7 @@ def test_a_rig_row_keeps_its_own_place_and_point_and_finds_its_room(tmp_path, vi
 
 
 def test_entities_are_named_when_read(tmp_path, vision, monkeypatch):
-    monkeypatch.setattr("liberational.config.owner_name", lambda: "Joe")
+    monkeypatch.setattr("liberational.config.owner_name", lambda: "Sam")
     alice = registry.at(tmp_path).ensure("Alice", "test")
     biscuit = pets.at(tmp_path).save("Biscuit", "dog")["id"]
     foot(vision, T, entity=f"person:{alice}")
@@ -209,7 +209,7 @@ def test_entities_are_named_when_read(tmp_path, vision, monkeypatch):
     foot(vision, T + 2, entity="rig")
     foot(vision, T + 3, entity="person:nobody")
     foot(vision, T + 4)
-    assert [p.name for p in P.derive(tmp_path, T - 1, T + 9)] == ["Alice", "Biscuit", "Joe", None, None]
+    assert [p.name for p in P.derive(tmp_path, T - 1, T + 9)] == ["Alice", "Biscuit", "Sam", None, None]
 
 
 def zone(vision, kind, start, end, cam="cam0", name="Kitchen"):

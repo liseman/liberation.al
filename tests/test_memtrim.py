@@ -6,7 +6,7 @@ from unittest.mock import create_autospec
 
 import pytest
 
-from liberational import memtrim, segment_log
+from liberational import memtrim
 from liberational.dashboard import presence
 
 
@@ -40,17 +40,14 @@ def test_a_process_starts_one_trim_thread_however_often_asked(calls):
     assert sum(t.name == "malloc-trim" for t in threading.enumerate()) == before + 1
 
 
-def test_reviews_day_history_worker_trims_and_keeps_its_hours(monkeypatch):
+def test_reviews_day_history_worker_trims(monkeypatch):
     start = create_autospec(memtrim.start)
-    keep = create_autospec(segment_log.keep_hours)
     monkeypatch.setattr(presence.multiprocessing, "parent_process", lambda: object())  # as in its worker process
     monkeypatch.setattr(presence.cfg.load, "cache_clear", lambda: None)
     monkeypatch.setattr(memtrim, "start", start)
-    monkeypatch.setattr(segment_log, "keep_hours", keep)
     monkeypatch.setattr(presence, "presence", lambda day, state: {"chips": []})
     presence._load("2026-11-07", "/nowhere")
     start.assert_called_once_with()
-    keep.assert_called_once_with()
 
 
 def test_a_day_load_in_the_dashboards_own_process_starts_no_trim(monkeypatch):

@@ -276,7 +276,7 @@ def use(
 
 
 def states(link: Any) -> dict[str, Any]:
-    """Each manifest camera's status, as v1's vision.status.json had it: {"ts", "cameras": {name: {"state": "on",
+    """Each manifest camera's status: {"ts", "cameras": {name: {"state": "on",
     "size": [w, h], "fps"}}}, a camera absent while capture sends it nothing. `link` is a continuum_link.BrokerLink.
     Asked of the broker at most every STATUS_EVERY_S. A status older than that answers at once and is read again in
     the background, one read at a time: reading every camera's last frames took about a second, which every

@@ -10,7 +10,7 @@ import pytest
 
 import speech_fake
 from liberational import config as cfg
-from liberational.dashboard import server
+from liberational.dashboard import context, server
 from liberational.domain.identity import Basis
 from liberational.listen import revisions
 from liberational.people import registry
@@ -28,7 +28,7 @@ def state(tmp_path, monkeypatch):
         ("OUT", tmp_path / "clones"),
     ):
         monkeypatch.setattr(clone_say, name, path)
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     monkeypatch.setattr(clone_say, "cut", lambda e: np.full(int(clone_say.dur(e) * SR), 0.1, np.float32))
     write_voices(tmp_path, {3: {"label": "Carly", "centroid": [1.0, 0, 0, 0]}, 5: None})
     return tmp_path

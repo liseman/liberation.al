@@ -240,7 +240,7 @@ it('says when a face was last seen', () => {
 });
 
 describe("Who's this?", () => {
-  it("counts every face and voice that waits, not just the ones listed, as People's line does (#2451)", async () => {
+  it("counts every face and voice that waits, not just the ones listed, as People's line does", async () => {
     // The server lists the first face groups but counts them all: 3 listed of 30, plus no voices.
     serve([]);
     server.use(
@@ -571,7 +571,7 @@ it.each([
   ['/faces/shot/7.jpg?size=80', false, '/faces/shot/7.jpg'],
   ['/faces/shot/7.jpg', true, '/faces/shot/7.jpg?size=80'],
   ['/faces/shot/7.jpg', false, '/faces/shot/7.jpg'],
-])('sizes shot %s (small: %s) as %s, never doubling the size (#2392)', (url, small, want) => {
+])('sizes shot %s (small: %s) as %s, never doubling the size', (url, small, want) => {
   expect(shotSrc(url, small)).toBe(want);
 });
 
@@ -582,7 +582,7 @@ it('shows a server shot URL that already asks for the thumbnail as the saved cro
   expect(kara.querySelector('.who-shot img')).toHaveAttribute('src', '/faces/shot/1.jpg');
 });
 
-describe('on the shared naming inbox (#2366)', () => {
+describe('on the shared naming inbox', () => {
   it('names a face with Yes, as picking the guess does', async () => {
     serve([KARA, LUCA]);
     show();
@@ -759,7 +759,7 @@ describe('on the shared naming inbox (#2366)', () => {
     expect(screen.getByRole('radiogroup', { name: 'Picture size' })).toBeInTheDocument();
   });
 
-  it('sorts by certainty, highest first, and the Certainty toggle flips it to lowest first (#3263)', async () => {
+  it('sorts by certainty, highest first, and the Certainty toggle flips it to lowest first', async () => {
     serve([LUCA, KARA]);
     renderPage(<WhosThis last={{}} live={[]} wide />);
     await row(/^Face 5/);
@@ -790,7 +790,7 @@ describe("voices in Who's this?", () => {
     ).toBeInTheDocument();
   });
 
-  it('plays and stops the clip with Space on the selected voice card, but not from its name box (#3241)', async () => {
+  it('plays and stops the clip with Space on the selected voice card, but not from its name box', async () => {
     vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(() => Promise.resolve());
     vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
     serveVoices([VOICE]);
@@ -859,7 +859,7 @@ describe("voices in Who's this?", () => {
     );
   });
 
-  it("shows a voice's answers as Multi, Noise, TV, and Ignore, each with its key and what it does (#3263)", async () => {
+  it("shows a voice's answers as Multi, Noise, TV, and Ignore, each with its key and what it does", async () => {
     serveVoices([VOICE]);
     show();
     const voice = await row(/^Speaker 12/);
@@ -916,7 +916,7 @@ describe("answering Who's this? quickly", () => {
     expect(nameBox(await row(/^Speaker 12/))).toBeEnabled();
   });
 
-  it('marks a voice as a TV or radio, and Undo brings it back (#2468)', async () => {
+  it('marks a voice as a TV or radio, and Undo brings it back', async () => {
     serveVoices([VOICE]);
     const sent: { url: string; body: unknown }[] = [];
     server.use(
@@ -951,7 +951,7 @@ describe("answering Who's this? quickly", () => {
   });
 });
 
-describe('seen or heard together (#225)', () => {
+describe('seen or heard together', () => {
   const together = (name: string, moments = 3) => ({
     name,
     moments,
@@ -1253,7 +1253,7 @@ it('never calls a pending empty list nobody waiting and exposes a subsequent fai
   expect(await screen.findByText('Nobody is waiting for a name.')).toBeInTheDocument();
 });
 
-it('keeps saying nobody is waiting through a background refresh, with no loading line (#1984)', async () => {
+it('keeps saying nobody is waiting through a background refresh, with no loading line', async () => {
   serve([]);
   const { client } = show();
   expect(await screen.findByText('Nobody is waiting for a name.')).toBeInTheDocument();
@@ -1273,7 +1273,7 @@ it('keeps saying nobody is waiting through a background refresh, with no loading
   release();
 });
 
-describe('Show all and Not this person (#2008)', () => {
+describe('Show all and Not this person', () => {
   const shot = (id: string) => ({ id, ts: at(18, 40), url: `/faces/shot/${id}.jpg` });
   function pictures(ids: string[], ignored = false) {
     let left = ids;
@@ -1306,7 +1306,7 @@ describe('Show all and Not this person (#2008)', () => {
     expect(await within(card).findByRole('region', { name: 'Every picture of Face 5' })).toBeVisible();
   });
 
-  it('opens every picture with Space on the selected row, but not from its name box (#3241)', async () => {
+  it('opens every picture with Space on the selected row, but not from its name box', async () => {
     serve([{ ...KARA, shot_count: 3 }]);
     pictures(['a', 'b', 'c']);
     show();

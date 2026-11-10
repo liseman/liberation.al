@@ -392,7 +392,7 @@ describe('the Ingest tab', () => {
     expect(screen.getByRole('button', { name: 'Retry' })).toBeEnabled();
   });
 
-  it('points to Settings for sources instead of listing them (#1331)', async () => {
+  it('points to Settings for sources instead of listing them', async () => {
     serve(view());
     renderPage(<IngestTab />);
     expect(screen.getByRole('heading', { name: 'Ingest', level: 1 })).toBeInTheDocument();
@@ -438,7 +438,7 @@ describe('the Ingest tab', () => {
     await waitFor(() => expect(retried).toEqual({ id: 2 }));
   });
 
-  it('says where an item came from in words, and keeps a long name readable (#2689)', async () => {
+  it('says where an item came from in words, and keeps a long name readable', async () => {
     const link = 'https://example.invalid/a/very/long/path/to/a/video/that/does/not/fit?v=abc123';
     serve(
       view({
@@ -457,7 +457,7 @@ describe('the Ingest tab', () => {
     expect(screen.getByText(link)).toHaveAttribute('title', link);
   });
 
-  it("says a failed source job in words, with a way to where it's fixed (#2689)", async () => {
+  it("says a failed source job in words, with a way to where it's fixed", async () => {
     serve(
       view({
         jobs: [
@@ -491,7 +491,7 @@ describe('the Ingest tab', () => {
     expect(screen.getByText('Fetching https://example.invalid/w: working')).toBeInTheDocument();
   });
 
-  it('keeps Retry in words on a failed row and Delete a quiet icon on every row (#2715)', async () => {
+  it('keeps Retry in words on a failed row and Delete a quiet icon on every row', async () => {
     serve(view({ items: [item(), item({ id: 2, name: 'talk.m4a', status: 'failed', detail: 'ffmpeg failed' })] }));
     renderPage(<IngestTab />);
     const talk = (await screen.findByText('talk.m4a')).closest('li') as HTMLElement;
@@ -512,7 +512,7 @@ describe('the Ingest tab', () => {
     ['bigger than 4096 MB (ingest.max_mb)', 'Raise ingest.max_mb in Settings'],
     ["ffmpeg couldn't convert it: moov atom not found", "It couldn't be converted"],
     ['Upload interrupted. Please retry.', 'The upload was cut off. Add it again.'],
-  ])('says %j in plain words, the original under Details (#2712)', async (detail, plain) => {
+  ])('says %j in plain words, the original under Details', async (detail, plain) => {
     serve(view({ items: [item({ status: 'failed', detail })] }));
     renderPage(<IngestTab />);
     const row = (await screen.findByText('beach.jpg')).closest('li') as HTMLElement;
@@ -530,7 +530,7 @@ describe('the Ingest tab', () => {
     expect(row.querySelector('details')).toBeNull();
   });
 
-  it('groups the list by what needs you: in progress, needs attention, then added (#2716)', async () => {
+  it('groups the list by what needs you: in progress, needs attention, then added', async () => {
     serve(
       view({
         items: [
@@ -552,7 +552,7 @@ describe('the Ingest tab', () => {
     expect(headings).toEqual(['In progress 1', 'Needs attention 2', 'Added 1']);
   });
 
-  it('shows the newest ten added, and the rest on Show all (#2716)', async () => {
+  it('shows the newest ten added, and the rest on Show all', async () => {
     const many = Array.from({ length: 12 }, (_, k) => item({ id: k + 1, name: `photo-${k + 1}.jpg` }));
     serve(view({ items: many }));
     renderPage(<IngestTab />);
@@ -563,7 +563,7 @@ describe('the Ingest tab', () => {
     expect(screen.queryByRole('region', { name: 'In progress' })).toBeNull(); // an empty group isn't shown
   });
 
-  it("says what's working and what needs attention, and shows a working bar on a row coming in (#2718)", async () => {
+  it("says what's working and what needs attention, and shows a working bar on a row coming in", async () => {
     serve(
       view({
         items: [
@@ -593,7 +593,7 @@ describe('the Ingest tab', () => {
     [{ state: 'done', frames: 30, captions: 2, lines: 41 } as const, '2 captions · 41 lines heard', true],
     [{ state: 'done', frames: 1, captions: 1, lines: 0 } as const, '1 caption', false],
     [{ state: 'done', frames: 1, captions: 0, lines: 0 } as const, 'Nothing in it to describe or hear', false],
-  ])('says what came of an added item (%j) (#2719)', async (analysis, words, review) => {
+  ])('says what came of an added item (%j)', async (analysis, words, review) => {
     serve(view({ items: [item({ analysis })] }));
     renderPage(<IngestTab />);
     const row = (await screen.findByText('beach.jpg')).closest('li') as HTMLElement;
@@ -655,7 +655,7 @@ describe('the Ingest tab', () => {
     );
   });
 
-  it('says which item a file that was already here matched, and shows it (#2720)', async () => {
+  it('says which item a file that was already here matched, and shows it', async () => {
     const kept = item({ id: 7, name: 'beach day.jpg' });
     serve(view({ items: [kept] }));
     server.use(http.post('/ingest/api/upload', () => HttpResponse.json({ item: kept, new: false })));
@@ -672,7 +672,7 @@ describe('the Ingest tab', () => {
     expect(row).toHaveFocus();
   });
 
-  it('uploads a batch as a queue and keeps going past a failure (#2721)', async () => {
+  it('uploads a batch as a queue and keeps going past a failure', async () => {
     serve(view());
     server.use(
       http.post('/ingest/api/upload', ({ request }) => {
@@ -698,7 +698,7 @@ describe('the Ingest tab', () => {
     ]);
   });
 
-  it('takes files dropped anywhere on the page, outlining it while they are dragged (#2721)', async () => {
+  it('takes files dropped anywhere on the page, outlining it while they are dragged', async () => {
     const got: (string | null)[] = [];
     serve(view());
     server.use(

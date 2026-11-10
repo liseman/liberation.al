@@ -152,7 +152,7 @@ describe('Space on the naming cards', () => {
   });
 });
 
-describe("a naming card's answers (#3263)", () => {
+describe("a naming card's answers", () => {
   const MIA = { id: 'mia', name: 'Mia', score: 67, band: 'maybe' as const };
   function card(answers: CardAnswer[] = [], hotkeys?: Record<string, () => void>) {
     const items: InboxItem[] = [

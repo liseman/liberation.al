@@ -1,6 +1,6 @@
 """The dashboard's voice edits on voiceprints: what `python -m liberational.people.voice_edits` does.
 
-v1 ran these on its voice list (`audio/ambient.py speakers ...`, writing `voices.sqlite3`). A voice is now a
+A voice is a
 voiceprint number (listen/voices.py): its name is a claim in the event log, and its prints are embeddings on the
 broker. So:
 

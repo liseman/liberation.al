@@ -1,7 +1,7 @@
 """The segment streams (src/liberational/segment_log.py): records survive the typed columns, and the store keeps them
 where a checkpoint said."""
 
-import json
+import dataclasses
 import math
 import threading
 import time
@@ -444,13 +444,13 @@ FIXED = {
         "frame_id": "0190a5b8-0000-7000-8000-000000000003",
         "bbox": [0.25, 0.125, 0.375, 0.3125],
         "det": 0.875,
-        "name": "Joe",
+        "name": "Sam",
         "sim": 0.625,
         "cluster": None,
         "quality": 0.5,
     },
     S.FACE_VISITS: {
-        "name": "Joe",
+        "name": "Sam",
         "best_sim": 0.625,
         "samples": 12,
         "shots": [
@@ -656,60 +656,11 @@ def test_a_tail_gives_what_is_appended_after_it_starts_and_nothing_before(store)
     writers.close()
 
 
-@pytest.fixture
-def kept_hours():
-    S.keep_hours()
-    yield
-    S.keep_hours(False)
-
-
 def write(store, records, stream=S.MOVEMENT_TRACKS):
     writers = S.Writers(store)
     writers.append(stream, "cam0", records)
     writers.sync()
     writers.close()
-
-
-def as_rows(records):
-    return [json.dumps(r, sort_keys=True, default=str) for r in records]
-
-
-def test_a_window_still_going_reads_its_ended_hours_once_and_answers_as_a_plain_read(store, kept_hours, monkeypatch):
-    """Review rereads today's history every minute; its ended hours' records are kept."""
-    now = time.time()
-    hour = (now // 3600) * 3600
-    start = hour - 3 * 3600
-    rows = [one(S.MOVEMENT_TRACKS, ts_start=start + k * 1500, ts_end=start + k * 1500 + 2400) for k in range(7)]
-    rows.append({**rows[0], "ts_start": start + 10, "ts_end": start + 20})  # the same id twice: both are rows
-    write(store, rows)
-    log = S.Log(store)
-    plain = log._read(S.MOVEMENT_TRACKS, start, now + 3600, None)
-    reads = []
-    real = S.Log._read
-    monkeypatch.setattr(S.Log, "_read", lambda self, *a: reads.append(a[1:3]) or real(self, *a))
-    first = log.range(S.MOVEMENT_TRACKS, start, now + 3600)
-    assert as_rows(first) == as_rows(plain), "the same records, a span across hours once, duplicate ids kept"
-    reads.clear()
-    first[0]["ts_start"] = 0  # a reader changing its copy changes nothing kept
-    again = log.range(S.MOVEMENT_TRACKS, start, now + 3600)
-    assert as_rows(again) == as_rows(plain)
-    assert all(lo >= hour - S.HOUR_S for lo, _ in reads), f"only the newest hours read again: {reads}"
-
-
-def test_a_row_written_late_into_a_kept_hour_shows_on_the_next_read(store, kept_hours):
-    now = time.time()
-    start = (now // 3600) * 3600 - 3 * 3600
-    write(store, [one(S.MOVEMENT_TRACKS, ts_start=start + 60, ts_end=start + 70)])
-    log = S.Log(store)
-    assert len(log.range(S.MOVEMENT_TRACKS, start, now + 3600)) == 1
-    write(store, [one(S.MOVEMENT_TRACKS, ts_start=start + 120, ts_end=start + 130)])  # late, into the oldest hour
-    assert len(log.range(S.MOVEMENT_TRACKS, start, now + 3600)) == 2
-
-
-def test_an_ended_window_keeps_nothing(store, kept_hours):
-    write(store, [one(S.MOVEMENT_TRACKS, ts_start=T + 60, ts_end=T + 70)])
-    assert len(S.Log(store).range(S.MOVEMENT_TRACKS, T, T + 4 * 3600)) == 1
-    assert not S._HOURS, "an ended day's reader keeps its whole answer instead"
 
 
 def test_a_part_listed_then_renamed_before_open_is_retried(store, monkeypatch):
@@ -892,3 +843,35 @@ def test_a_row_of_no_length_joins_nothing_unless_instants_are_kept(store):
         (T, T + 3),
         (T + 9, T + 9),
     ]
+
+
+def test_containing_builds_a_record_only_for_the_rows_whose_text_holds_a_value(store, monkeypatch):
+    spec = S.STREAMS[S.BLE_SIGHTINGS]
+    rows = [
+        {"id": S.new_id(), "start": T + n, "end": T + n + 5, "identifier": name, "local_name": 'a "quoted" name'}
+        for n, name in enumerate(["AA:01", "BB:02", "AA:01"])
+    ]
+    writers = S.Writers(store)
+    writers.append(S.BLE_SIGHTINGS, "ble", rows)
+    writers.close()
+    built = []
+    counting = dataclasses.replace(spec, to_record=lambda row, cam: built.append(row["id"]) or spec.to_record(row, cam))
+    monkeypatch.setitem(S.STREAMS, S.BLE_SIGHTINGS, counting)
+    log = S.Log(store)
+    got = log.containing(S.BLE_SIGHTINGS, T, T + 100, ["AA:01"])
+    assert [(r["start"], r["identifier"]) for r in got] == [(T, "AA:01"), (T + 2, "AA:01")]
+    assert built == [rows[0]["id"], rows[2]["id"]], "the other row was never parsed"
+    assert len(log.containing(S.BLE_SIGHTINGS, T, T + 100, [S.json_text('a "quoted" name')])) == 3
+    assert log.containing(S.BLE_SIGHTINGS, T, T + 100, ["CC:03"]) == []
+
+
+def test_covered_counts_only_the_rows_where_keeps(store):
+    writers = S.Writers(store)
+    for a, b, kind in ((T, T + 10, "person"), (T + 10, T + 20, "animal"), (T + 30, T + 40, "animal")):
+        row = {"id": S.new_id(), "ts_start": a, "ts_end": b, "subject_kind": kind, "definition": "d", "zones": ["z"]}
+        writers.append(S.ZONE_COVERAGE, "cam0", [{**row, "frames": 10}])
+    writers.append(S.ZONE_COVERAGE, "cam1", [{**row, "subject_kind": "person", "frames": 10}])
+    writers.close()
+    animals = (("subject_kind",), lambda c: np.array([k == "animal" for k in c["subject_kind"]]))
+    got = S.Log(store).covered(S.ZONE_COVERAGE, T, T + 100, where=animals)
+    assert got == {"cam0": S.Covered([(T + 10, T + 20), (T + 30, T + 40)], frames=20)}, "cam1 looked for no animal"

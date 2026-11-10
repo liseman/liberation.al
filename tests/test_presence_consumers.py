@@ -172,6 +172,14 @@ class Unreachable:
             return _unreachable(stream, lo, hi)
         return self.vision.range(stream, lo, hi, cams)
 
+    def table(self, stream, lo, hi, names, cams=None):
+        return self.vision.table(stream, lo, hi, names, cams)
+
+    def covered(self, stream, lo, hi, cams=None, **how):
+        if stream in (segment_log.PRESENCE_SPANS, segment_log.ACTION_COVERAGE):
+            return _unreachable(stream, lo, hi)
+        return self.vision.covered(stream, lo, hi, cams, **how)
+
 
 def test_an_unreadable_vision_log_is_explicit_in_history_and_review(detector_day, monkeypatch, vision):
     state, _start, end = detector_day
@@ -253,7 +261,7 @@ def test_movement_is_separate_from_shared_sampled_counts_and_keeps_ask_evidence(
     assert result["movement"] == summary["movement"] == reviewed["movement"]
     assert result["movement"]["cameras"]["cam0"]["entry_count"] == 1
     assert result["movement"]["cameras"]["cam0"]["exit_count"] == 1
-    assert "in view" not in result["answer"], "the sampled visits are not Ask's count (#1591)"
+    assert "in view" not in result["answer"], "the sampled visits are not Ask's count"
     assert "came into the picture at least once" in result["answer"]
     assert "image" not in result["answer"] and "supported" not in result["answer"], "no tracker detail"
     tracked = [row for row in result["evidence"] if row.get("movement_evidence")]

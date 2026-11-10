@@ -119,7 +119,7 @@ async fn main() {
         publish(&p, det, t, i, face.into_bytes()).await;
         // Every third frame is posed and matched, as a sampling worker would.
         if i % 3 == 0 {
-            publish(&p, mat, t, i, br#"{"cam":"cam0","track_id":"fake:cam0:1","name":"Joe","sim":0.7}"#.to_vec()).await;
+            publish(&p, mat, t, i, br#"{"cam":"cam0","track_id":"fake:cam0:1","name":"Sam","sim":0.7}"#.to_vec()).await;
             let mut joints = vec!["[-1,-1,0]".to_owned(); 26];
             joints[5] = format!("[{x1},{y1},0.9]");
             joints[7] = format!("[{x2},{y2},0.9]");

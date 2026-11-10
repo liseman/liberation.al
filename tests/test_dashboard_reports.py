@@ -90,18 +90,18 @@ def test_saved_per_person_whos_around_cards_fold_into_the_filter_in_page_order(t
             "reports": [
                 card("whos_around", "whos_around"),
                 card("conversations", "conversations"),
-                card("whos_around:p-joe", "whos_around", "p-joe", "When Joe is around"),
-                card("person_activity:p-joe", "person_activity", "p-joe"),
+                card("whos_around:p-sam", "whos_around", "p-sam", "When Sam is around"),
+                card("person_activity:p-sam", "person_activity", "p-sam"),
                 card("whos_around:p-carly", "whos_around", "p-carly", "When Carly is around"),
             ],
             "known": ["whos_around", "conversations", "activity", "health"],
         },
     )
     got = page.layout(store)
-    # Joe's activity card folds too, into an Activity by person card in its place.
+    # Sam's activity card folds too, into an Activity by person card in its place.
     assert [r["id"] for r in got] == ["whos_around", "conversations", "person_activity"]
-    assert got[0]["people"] == ["p-joe", "p-carly"] and got[0]["arg"] is None
-    assert got[2] == card("person_activity", "person_activity", title="Activity by person", people=["p-joe"])
+    assert got[0]["people"] == ["p-sam", "p-carly"] and got[0]["arg"] is None
+    assert got[2] == card("person_activity", "person_activity", title="Activity by person", people=["p-sam"])
 
 
 def test_a_person_card_kept_after_removing_whos_around_brings_it_back_in_that_place(tmp_path):
@@ -110,27 +110,27 @@ def test_a_person_card_kept_after_removing_whos_around_brings_it_back_in_that_pl
         store,
         [
             card("conversations", "conversations"),
-            card("whos_around:p-joe", "whos_around", "p-joe", "When Joe is around"),
+            card("whos_around:p-sam", "whos_around", "p-sam", "When Sam is around"),
         ],
     )
     got = page.layout(store)
     assert got == [
         card("conversations", "conversations"),
-        card("whos_around", "whos_around", title="Who's around", people=["p-joe"]),
+        card("whos_around", "whos_around", title="Who's around", people=["p-sam"]),
     ]
 
 
 def test_the_filters_people_are_saved_and_read_back(base):
-    chosen = [card("whos_around", "whos_around", people=["p-carly", "p-joe", "p-carly"])]
+    chosen = [card("whos_around", "whos_around", people=["p-carly", "p-sam", "p-carly"])]
     status, saved = request(base, "POST", "/reports/api/layout", {"reports": chosen})
     assert status == 200
     _, got = request(base, "GET", "/reports/api/layout")
-    assert got["reports"] == saved["reports"] == [card("whos_around", "whos_around", people=["p-carly", "p-joe"])]
+    assert got["reports"] == saved["reports"] == [card("whos_around", "whos_around", people=["p-carly", "p-sam"])]
 
 
 @pytest.mark.parametrize(
     "people",
-    [pytest.param("p-joe", id="not-a-list"), pytest.param([3], id="not-strings"), pytest.param([""], id="empty")],
+    [pytest.param("p-sam", id="not-a-list"), pytest.param([3], id="not-strings"), pytest.param([""], id="empty")],
 )
 def test_layout_refuses_malformed_people(base, people):
     status, _ = request(base, "POST", "/reports/api/layout", {"reports": [card("w", "whos_around", people=people)]})
@@ -138,7 +138,7 @@ def test_layout_refuses_malformed_people(base, people):
 
 
 def test_the_people_cap_counts_people_not_repeats(base):
-    chosen = [card("whos_around", "whos_around", people=["p-joe"] * 30 + [f"p-{i}" for i in range(19)])]
+    chosen = [card("whos_around", "whos_around", people=["p-sam"] * 30 + [f"p-{i}" for i in range(19)])]
     status, saved = request(base, "POST", "/reports/api/layout", {"reports": chosen})
     assert status == 200
     assert len(saved["reports"][0]["people"]) == 20
@@ -153,10 +153,10 @@ def test_layout_refuses_more_than_twenty_people(base):
 def test_removing_whos_around_and_adding_it_back_keeps_its_pins(tmp_path):
     store = reports.Store(tmp_path / "reports.sqlite3")
     talk = card("conversations", "conversations")
-    page.save_layout(store, [card("whos_around", "whos_around", people=["p-joe", "p-carly"]), talk])
+    page.save_layout(store, [card("whos_around", "whos_around", people=["p-sam", "p-carly"]), talk])
     page.save_layout(store, [talk])
     back = page.save_layout(store, [talk, card("whos_around", "whos_around", title="Who's around")])
-    assert back[1]["people"] == ["p-joe", "p-carly"]
+    assert back[1]["people"] == ["p-sam", "p-carly"]
     # Unpinned everyone, then off and back: nothing comes back, since the card had no pins when it went.
     page.save_layout(store, [talk, card("whos_around", "whos_around", title="Who's around")])
     page.save_layout(store, [talk])
@@ -182,7 +182,7 @@ def test_camera_walkby_cards_fold_into_one_card_with_the_cameras_pinned(tmp_path
 def test_removing_activity_by_person_and_adding_it_back_keeps_its_pins(tmp_path):
     store = reports.Store(tmp_path / "reports.sqlite3")
     talk = card("conversations", "conversations")
-    page.save_layout(store, [card("person_activity", "person_activity", people=["p-joe"]), talk])
+    page.save_layout(store, [card("person_activity", "person_activity", people=["p-sam"]), talk])
     page.save_layout(store, [talk])
     back = page.save_layout(store, [talk, card("person_activity", "person_activity")])
-    assert back[1]["people"] == ["p-joe"]
+    assert back[1]["people"] == ["p-sam"]

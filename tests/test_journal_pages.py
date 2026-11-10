@@ -473,9 +473,9 @@ def test_a_failed_build_is_tried_again_only_after_a_while(env, inline):
 
 
 def test_the_journal_today_route_answers_json_and_refuses_a_bad_day(env, inline, serve, monkeypatch):
-    from liberational.dashboard import server
+    from liberational.dashboard import context, server
 
-    monkeypatch.setattr(server, "STATE", env.state)
+    monkeypatch.setattr(context, "STATE", env.state)
     monkeypatch.setattr(server, "DASH_PASSWORD", "")
     base = serve(server.H)
     with urllib.request.urlopen(f"{base}/journal/today") as r:
@@ -631,9 +631,9 @@ def test_a_topic_or_meal_listed_by_more_than_one_part_is_listed_once(env):
         ),
         pytest.param("Alice read a long book by the window", 20, "Alice read a long", id="word"),
         pytest.param(
-            "Joe said 'Oh here they are.' [h4] Then he left the room and walked to the",
+            "Sam said 'Oh here they are.' [h4] Then he left the room and walked to the",
             50,
-            "Joe said 'Oh here they are.' [h4]",
+            "Sam said 'Oh here they are.' [h4]",
             id="quoted",
         ),
         pytest.param(

@@ -84,7 +84,7 @@ describe('daySegments', () => {
     ]);
   });
 
-  it("asks only about the named cameras' streams, live and v1's, when given cameras (#2552)", async () => {
+  it("asks only about the named cameras' streams, live and v1's, when given cameras", async () => {
     const gw = gateway(
       [
         { id: 1, name: 'cam0.video' },
@@ -99,7 +99,7 @@ describe('daySegments', () => {
     expect(new Set(segs.map(s => s.cam))).toEqual(new Set(['cam0']));
   });
 
-  it('lists again on the same connection, and hangs up once listings stop (#917)', async () => {
+  it('lists again on the same connection, and hangs up once listings stop', async () => {
     vi.useFakeTimers();
     try {
       const gw = gateway([{ id: 1, name: 'cam0.video' }], { 1: [[1_000_000, 4_000_000]] });
@@ -116,7 +116,7 @@ describe('daySegments', () => {
     }
   });
 
-  it('lists video that aged out past the history window as expired, apart from what still plays (#1748)', async () => {
+  it('lists video that aged out past the history window as expired, apart from what still plays', async () => {
     const gw = gateway(
       [{ id: 1, name: 'cam0.video' }],
       { 1: [[5_000_000, 8_000_000]] },
@@ -254,7 +254,7 @@ describe('bounded listings', () => {
   });
 });
 
-describe('a fragmented day (#2348)', () => {
+describe('a fragmented day', () => {
   // Bursts of a second, 5 s apart: MAX_DAY_SEGMENTS + 808 of them, as a camera recording in short bursts lists.
   const n = MAX_DAY_SEGMENTS + 808;
   const bursts = Array.from({ length: n }, (_, i) => ({

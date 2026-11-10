@@ -197,6 +197,93 @@ pub fn decode_jpeg(bytes: &[u8]) -> Result<Picture, TierError> {
     Ok(Picture { width: u32::from(info.width), height: u32::from(info.height), rgb })
 }
 
+/// Decodes JPEG frames straight to NV12 (full-range BT.601, the JPEG's own Y, Cb, and Cr, as [`rgb_to_nv12`] makes
+/// from RGB), for a camera that sends MJPEG: one of these per camera, so its working buffer is reused between frames.
+///
+/// A JPEG already holds YCbCr, so nothing goes through RGB: the decoder hands back the three components per pixel
+/// (chroma upsampled to full size, whatever the JPEG's subsampling), luma is copied out, and each 2 by 2 block of
+/// chroma is averaged in integers. Against decoding to RGB and converting back in floating point per pixel, this
+/// is under a third of the CPU a frame (`tests/jpeg_nv12.rs` times both: nearly all of what is left is the JPEG
+/// decode itself), and the pictures agree to within rounding (a mean difference under one level in 255).
+///
+/// A JPEG that isn't YCbCr (grayscale, CMYK) takes the RGB path, with one warning.
+#[derive(Debug, Default)]
+pub struct JpegNv12 {
+    /// The decoder's output: Y, Cb, Cr per pixel, row-major.
+    ycc: Vec<u8>,
+    warned: bool,
+}
+
+impl JpegNv12 {
+    /// Decodes `bytes` into `nv12` (resized to fit: `w * h` luma, then `ceil(w / 2) * ceil(h / 2)` interleaved Cb
+    /// and Cr pairs; an odd width or height repeats the last column or row) and returns the picture's width and
+    /// height.
+    ///
+    /// # Errors
+    ///
+    /// [`TierError::Codec`] for bytes that aren't a whole JPEG: strict, as [`decode_jpeg`] is, so a truncated
+    /// frame is an error and never a picture with a grey band.
+    pub fn decode(&mut self, bytes: &[u8], nv12: &mut Vec<u8>) -> Result<(u32, u32), TierError> {
+        use zune_jpeg::JpegDecoder;
+        use zune_jpeg::zune_core::bytestream::ZCursor;
+        use zune_jpeg::zune_core::colorspace::ColorSpace;
+        use zune_jpeg::zune_core::options::DecoderOptions;
+
+        let jpeg = |e| TierError::Codec(format!("jpeg: {e}"));
+        let options = DecoderOptions::default().jpeg_set_out_colorspace(ColorSpace::YCbCr).set_strict_mode(true);
+        let mut decoder = JpegDecoder::new_with_options(ZCursor::new(bytes), options);
+        decoder.decode_headers().map_err(jpeg)?;
+        if decoder.input_colorspace() != Some(ColorSpace::YCbCr) {
+            if !self.warned {
+                self.warned = true;
+                eprintln!(
+                    "jpeg: WARN a JPEG that isn't YCbCr ({:?}): decoding through RGB, increased CPU load expected",
+                    decoder.input_colorspace()
+                );
+            }
+            let picture = decode_jpeg(bytes)?;
+            *nv12 = rgb_to_nv12(&picture);
+            return Ok((picture.width, picture.height));
+        }
+        let info = decoder.info().ok_or_else(|| TierError::Codec("jpeg: no image info".to_owned()))?;
+        let (w, h) = (usize::from(info.width), usize::from(info.height));
+        let size = decoder.output_buffer_size().ok_or_else(|| TierError::Codec("jpeg: too big".to_owned()))?;
+        if w == 0 || h == 0 || size != w * h * 3 {
+            return Err(TierError::Codec("jpeg: not a three component picture".to_owned()));
+        }
+        self.ycc.resize(size, 0);
+        decoder.decode_into(&mut self.ycc).map_err(jpeg)?;
+        ycc_to_nv12(&self.ycc, w, h, nv12);
+        Ok((u32::from(info.width), u32::from(info.height)))
+    }
+}
+
+/// Repacks interleaved full-size Y, Cb, Cr (`w * h * 3` bytes) as NV12 into `out`, resized to fit.
+fn ycc_to_nv12(ycc: &[u8], w: usize, h: usize, out: &mut Vec<u8>) {
+    let (uv_w, uv_h) = (w.div_ceil(2), h.div_ceil(2));
+    out.resize(w * h + 2 * uv_w * uv_h, 0);
+    let (luma, chroma) = out.split_at_mut(w * h);
+    for (dst, src) in luma.iter_mut().zip(ycc.chunks_exact(3)) {
+        *dst = src[0];
+    }
+    let row = w * 3;
+    for (cy, dst) in chroma.chunks_exact_mut(2 * uv_w).enumerate() {
+        let top = &ycc[cy * 2 * row..][..row];
+        let bottom = &ycc[(cy * 2 + 1).min(h - 1) * row..][..row];
+        // Whole 2 by 2 blocks first, then an odd width's last column, which stands for both of its block's columns.
+        let pairs = dst.chunks_exact_mut(2).zip(top.chunks_exact(6).zip(bottom.chunks_exact(6)));
+        for (uv, (a, b)) in pairs {
+            uv[0] = ((u16::from(a[1]) + u16::from(a[4]) + u16::from(b[1]) + u16::from(b[4]) + 2) / 4) as u8;
+            uv[1] = ((u16::from(a[2]) + u16::from(a[5]) + u16::from(b[2]) + u16::from(b[5]) + 2) / 4) as u8;
+        }
+        if w % 2 == 1 {
+            let (a, b) = (&top[row - 3..], &bottom[row - 3..]);
+            dst[2 * uv_w - 2] = (u16::from(a[1]) + u16::from(b[1])).div_ceil(2) as u8;
+            dst[2 * uv_w - 1] = (u16::from(a[2]) + u16::from(b[2])).div_ceil(2) as u8;
+        }
+    }
+}
+
 /// Converts RGB to NV12 (full-range BT.601, 4:2:0 with interleaved UV), the format the doc names for decoded
 /// frames. Dimensions should be even: an odd width gives a chroma plane whose stride is one more than half the
 /// luma's, which consumers that assume equal strides misread (the chroma average repeats the last row or column).

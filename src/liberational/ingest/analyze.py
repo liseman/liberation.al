@@ -7,8 +7,9 @@ takes each ingested item once it's `done`, decodes its converted files, and runs
 - video and photos: frames one a second (a photo: its one frame) through `CaptionPipeline` (captions and objects,
   committed by `CaptionWorker`'s own code). Faces in ingested items aren't analyzed while faces move to see-actions'
   tracked heads; the worker says so when it loads its models;
-- audio, and a video's sound: v1's VAD, then the listen worker's `Transcriber` (speech gate, ASR, ReDimNet2 B3), its voice
-  matcher, and an utterance on `speech.utterance` in the segment store, under the item's own slot (`ingest-<item id>`).
+- audio, and a video's sound: the energy VAD, then the listen worker's `Transcriber` (speech gate, ASR, ReDimNet2 B3),
+  its voice matcher, and an utterance on `speech.utterance` in the segment store, under the item's own slot
+  (`ingest-<item id>`).
 
 Every record is timed at the item's original time (pipeline.py settles it) plus its offset in the file, and names the
 item's registered chunk as its parent, so it sits beside what the cameras and mics recorded then. The camera and
@@ -269,7 +270,7 @@ def audio_blocks(path: Path) -> Iterator[np.ndarray]:
 
 
 class Speech:
-    """Utterances from a file: v1's VAD, the listen worker's transcriber and voice matcher, `speech.utterance`."""
+    """Utterances from a file: the energy VAD, the listen worker's transcriber and voice matcher, `speech.utterance`."""
 
     def __init__(
         self,
@@ -800,7 +801,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         from liberational.see.captions import CaptionPipeline
         from liberational.speech.asr import ASR
 
-        log.info("faces in ingested items aren't analyzed while faces move to see-actions' tracked heads (#1738)")
+        log.info("faces in ingested items aren't analyzed while faces move to see-actions' tracked heads")
         backend = cfg.get("vision.backend")
         backend = backend if backend != "auto" else "mlx-server" if cfg.has_mlx() else "ollama"
         vlm = vlm_backends.make_vlm(backend)

@@ -74,7 +74,7 @@ One line per real question, with what a right answer contains. This is the regre
 | `draft` | Optional, `true` for a proposed question nobody has confirmed yet (one drafted from the recordings, say). It's scored like the rest, and the report counts drafts apart. Remove it once someone confirms the question and its answer. |
 | `evidence` | Records the answer must cite. Each is `at` (a time), `within_s` (how close, 30 by default), and optionally `includes` (text in the record) and `source`: `transcript`, `camera`, `call`, or `journal`, or a segment stream the answer's evidence came from (`walkby.span`, `zone.visit`, `action.span`, `action.window`, `movement.track`, or `movement.coverage`, matched on the evidence item's `stream`). A journal entry covers a stretch of time, so it counts when `at` falls in its span, widened by `within_s`. |
 
-Give at least one of the last two rows. Each question goes through `memory/history_qa.collect()`, the code the dashboard and the voice loop answer from, in the configured time zone. Recorded-frame analysis is off for the run, because it writes a cache and can queue scans. `--as-configured` keeps it as configured. A question passes when every check holds. A question `collect()` does not treat as a history question fails, and the report says so. The report also counts answers and evidence found.
+Give at least one of the last two rows. Each question goes through `memory/history_qa.collect()`, the code the dashboard and the voice loop answer from, in the configured time zone. `collect()` has the local model read the question once into a structured reading (`memory/question.py`, one short call to `recall.model`), so a run needs that model even without `--ask`; a question the model gives no reading for fails, and its answer says so. Each row of the `--json` output keeps the query under `query`, with the model's reading of the question as `query.reading`. `--part readings` scores the reader on its own, reworded copies included. Recorded-frame analysis is off for the run, because it writes a cache and can queue scans. `--as-configured` keeps it as configured. A question passes when every check holds. A question `collect()` does not treat as a history question fails, and the report says so. The report also counts answers and evidence found.
 
 `--ask` sends each question through `memory/ask.execute()` in local mode instead, the path the dashboard's Ask box takes: `collect()`, then the search rounds when `recall.enabled` is on and `recall.max_rounds` is above 0, then the local model's answer. The answer checks then read the answer the user hears, and the evidence checks read the evidence Ask answered from, the rounds' finds included. An answer that ends in an error fails its answer check, since the error message is still text. Each question records how long it took, how many search rounds it ran, and the model that answered. It also records how much of the expected evidence was in the answering model's input (`evidence_given`, and `model_input`, how many items it got): Ask finds more than fits the model's input budget, so evidence found but not given was cut before the model saw it, and evidence given with a wrong answer is evidence the model had and didn't use. An answer that needed no model call counts all its evidence as given. The report gives the median and slowest time, and the settings that change the answer: `ask.model`, `ask.num_ctx`, `recall.enabled`, `recall.max_rounds`, `recall.model`, `journal.enabled`, `models.ollama.llm`, and whether the journal store exists. The answer comes from OpenClaw's default model when one is set, so trust each question's `model` over `models.ollama.llm`. Ask's path writes nothing while recorded-frame analysis is off, but Ollama keeps the model it loads.
 
@@ -97,6 +97,30 @@ The quickest way to add real questions is to mark Review's Ask answers as you ge
 These labels come from Ask's answers, so score them the way Ask answered them, with `--ask`: the search rounds' finds and the answer's own words are only there. Add `--as-configured` when an answer cited recorded frames, since recorded-frame analysis is off for a run otherwise. Without `--ask`, a correction's text check fails, because `collect()` writes no answer text for transcript and caption questions.
 
 Each label's id is `ask-<asked_at>`, so marking the same answer again replaces its label. A mark changes no answer. Marks can only be made on the machine Liberational runs on (`POST /measurement/mark`, `dashboard/marks.py`). Live's general questions don't search recordings, so they have no marks.
+
+### readings.jsonl: how the model reads questions
+
+Ask has the local model read each question once into a structured reading (`memory/question.py`): whether it is about recorded history, where the answer is, the measure, the people, and the time words copied into fields. This part scores that reader alone, so a misread question can be told from a missed record.
+
+```json
+{"id": "who-at-clock", "question": "Who was here at 3pm?", "reading": {"source": "people", "measure": "who", "clock": "3pm"}}
+{"id": "who-at-clock-reworded", "question": "who was around at 3pm", "same_as": "who-at-clock"}
+```
+
+| Field | Meaning |
+|---|---|
+| `question` | Word for word, as it would be asked. |
+| `reading` | The reading a person agreed is right: only the fields that differ from `question.Reading`'s defaults (a plain question about what was said, with no time). The time fields hold the question's own words (`"day": "yesterday"`, `"clock": "3pm"`, `"part": "last night"`), never a worked-out date. A time the form can't hold is `"other_time"` with the phrase. |
+| `same_as` | In place of `reading`: the id of the label this one is a reworded copy of. It is scored against that label's reading, and the report counts how many copies the model read exactly like their original. |
+
+It runs only when named, because it calls the model, once for each question:
+
+```bash
+uv run tools/measure.py --part readings                              # your own labels, under paths.measurement
+uv run tools/measure.py --part readings --dir tests/data/measurement # the made-up set that ships with the code
+```
+
+The report gives how many questions were read exactly right, how many reworded copies agreed with their original, how long a reading took, each field's count where it was ever wrong (`clock: 31 of 34`), and each misread question with what was expected and what was read. `text` (the journal's search words) isn't scored, a refused time is scored as refused or not, names are compared without case or order, and a question labeled as not about history is scored on that field alone. Each call goes to `recall.model` on the Ollama the search loop uses (Ask's own when it is the same model), so run it when a prompt or model change needs comparing, and keep both `--json` results. To try another model, set `PACK_RECALL_MODEL` for the run and point it at a separate Ollama, as for any large model (see AGENTS.md, "Share the machine").
 
 ### entries.jsonl: physical entries and exits
 

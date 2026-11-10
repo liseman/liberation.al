@@ -25,6 +25,16 @@ The Python SDK's in-place registration calls are renamed (`register_v1_index` to
 restart matching components") and restart every service after the pull. Stream names (`<stream>.audio_v1`,
 `<stream>.video_v1`) and stored data are unchanged; nothing is dropped.
 
+## Questions are read by the local model
+
+Ask and the voice loop no longer read a question's time, people, and kind with patterns. The local model reads each
+question once into a structured query (`memory/question.py`, #60), so every history question needs the model that
+`recall.model` names (empty means `ask.model`, else `models.ollama.llm`), also with `recall.enabled` off. When that
+model doesn't answer, Ask says it couldn't read the question, and a spoken question is answered as a general one.
+There is nothing to migrate and no data to reset. After pulling, restart the dashboard, the voice loop, and research
+(`pack-services restart dashboard voice research`, or the names your install uses), since each holds the old parser
+in memory.
+
 ## Segment parts close as one batch
 
 A segment part used to keep one record batch for every append for good, so a stream appended a row at a time (the

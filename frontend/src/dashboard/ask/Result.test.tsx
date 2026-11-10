@@ -233,7 +233,7 @@ describe('Prose', () => {
   });
 });
 
-describe('citeLinks (#2661)', () => {
+describe('citeLinks', () => {
   const evidence = [
     { id: 'C6', href: '/review#day=2026-11-04&t=1&cam=living-room' },
     { label: 'J3', link: '/review#day=2026-11-04&t=2' },

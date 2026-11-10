@@ -303,12 +303,12 @@ mod tests {
     fn a_face_boxes_record_names_the_frames_faces() {
         let mut o = all();
         let live = br#"{"cam":"facecam","frame_seq":9,"faces":[
-            {"bbox":[0.1,0.2,0.3,0.4],"name":"Joe","sim":0.7,"cluster":null,"track_id":3},
+            {"bbox":[0.1,0.2,0.3,0.4],"name":"Sam","sim":0.7,"cluster":null,"track_id":3},
             {"bbox":[0.5,0.2,0.6,0.4],"name":null,"sim":0.2,"cluster":"Face 2","track_id":"r:facecam:4"}]}"#;
         let frame = o.apply("face.boxes", T, live).expect("overlay");
         let faces: Vec<_> = frame.boxes.iter().map(|b| (b.label.as_str(), b.id.as_str(), b.kind.as_str())).collect();
-        assert_eq!(faces, [("Joe", "3", "face"), ("Face 2", "r:facecam:4", "face")]);
-        assert_eq!(frame.boxes[0].hue, Some(hue_of("Joe")));
+        assert_eq!(faces, [("Sam", "3", "face"), ("Face 2", "r:facecam:4", "face")]);
+        assert_eq!(frame.boxes[0].hue, Some(hue_of("Sam")));
         assert_eq!(o.overlay(T / 1_000).boxes.len(), 2);
         // Another camera's face.boxes changes nothing here.
         let elsewhere = String::from_utf8_lossy(live).replace("facecam", "desk");
@@ -387,7 +387,7 @@ mod tests {
     #[test]
     fn other_cameras_other_groups_and_bad_bodies_change_nothing() {
         let mut faces_only = Overlays::new("facecam", [Group::Faces]);
-        let other = br#"{"cam":"door","faces":[{"bbox":[0,0,1,1],"name":"Joe","track_id":1}]}"#;
+        let other = br#"{"cam":"door","faces":[{"bbox":[0,0,1,1],"name":"Sam","track_id":1}]}"#;
         assert!(faces_only.apply("face.boxes", T, other).is_none());
         assert!(faces_only.apply("pose.track", T, br#"{"cam":"facecam","people":[]}"#).is_none());
         assert!(faces_only.apply("face.boxes", T, b"not json").is_none());

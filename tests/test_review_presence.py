@@ -33,7 +33,9 @@ def state(tmp_path, monkeypatch, vision):
         vision.visit(name, start, end, "cam0", best_sim=0.8, samples=5)
     for i in range(10):  # one observation every 10 s; a grounding at 0 s and 30 s, then one at 60 s
         g = T0 + 30 * (i * 10 // 30)
-        items = [{"label": "Guitars", "ts": g}, {"label": "lamp", "ts": T0}]
+        items = [{"label": "Guitars", "ts": g}]  # a caption's boxes are one grounding's, so they share its time
+        if g == T0:
+            items.append({"label": "lamp", "ts": g})
         if i == 9:
             items.append({"label": "Television", "ts": g})
         vision.caption(T0 + 10 * i, caption="", objects=items)

@@ -8,7 +8,7 @@ const people: Person[] = [
 ];
 const call = (more: Partial<Call>): Call => ({ day: '2026-11-03', dir: 'c', ...more });
 
-describe('callTitle (#2684 fields)', () => {
+describe('callTitle', () => {
   it.each<[string, Partial<Call>, string]>([
     [
       'a placed call to someone by name',
@@ -41,8 +41,8 @@ describe('callMeta', () => {
       callMeta(call({ started: '2026-11-03T17:40:00', durationSeconds: 182, turns: 14, speakers: { Dana: {} } })),
     ).toBe('17:40 · 3 min · with Dana');
     expect(callMeta(call({ durationSeconds: 4 }))).toBe('4 s');
-    expect(callMeta(call({ durationSeconds: 48, speakers: { Sam: {}, Joe: {} } }), 'Sam called')).toBe(
-      '48 s · with Joe',
+    expect(callMeta(call({ durationSeconds: 48, speakers: { Sam: {}, Alice: {} } }), 'Sam called')).toBe(
+      '48 s · with Alice',
     );
   });
 });

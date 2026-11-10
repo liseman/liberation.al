@@ -22,6 +22,7 @@ stay with presence()'s other readers (Ask).
 """
 
 import functools
+import json
 import math
 import multiprocessing
 import pathlib
@@ -32,15 +33,19 @@ from collections.abc import Iterable, Sequence
 from concurrent.futures import Executor, Future, ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from liberational import config as cfg
-from liberational import continuum_ready, logs, speech_log, vision_log
+from liberational import continuum_ready, logs, segment_log, speech_log
+from liberational.dashboard import routes
 from liberational.intervals import interval_groups
 from liberational.memory import presence_counts
 from liberational.people import registry, transcript_view
 from liberational.see.faces import VISIT_GAP_S
 from liberational.vision import sightings
+
+if TYPE_CHECKING:
+    from liberational.dashboard.server import H
 
 OBJECT_PAD = 2.0  # an observation covers about this long
 EVENT_PAD = 30.0  # a summary bullet that links a single moment
@@ -221,19 +226,30 @@ def unknown_faces(
 
 def objects(state: pathlib.Path, start: float, end: float) -> list[dict[str, Any]]:
     seen, groundings = {}, {}
+    # Only the captions' times and grounded labels, as columns: a day is tens of thousands of captions, and a record
+    # of each (its text, boxes, and model fields) cost more than every other chip together.
+    names = ("ts_ns", "grounded", "obj_labels", "obj_ts_ns")
     try:
-        rows = [
-            (r["ts"], r.get("objects")) for r in vision_log.at(state).captions(start, end) if start <= r["ts"] < end
-        ]
-    except OSError:  # the broker is unreachable
-        rows = []
-    for ts, items in rows:
-        for o in items if isinstance(items, list) else ():
-            label = object_label(o.get("label") if isinstance(o, dict) else o)
+        cams = segment_log.at(state).table(segment_log.CAPTIONS, start, end, names)
+    except OSError:  # the store can't be read
+        cams = {}
+    rows = sorted(
+        (segment_log.secs(ts), labels, stamps)
+        for c in cams.values()
+        for ts, grounded, labels, stamps in zip(
+            c["ts_ns"].tolist(), c["grounded"].tolist(), c["obj_labels"], c["obj_ts_ns"]
+        )
+        if grounded and labels != "[]"
+    )
+    for ts, labels, stamps in rows:
+        if not start <= ts < end:
+            continue
+        for raw in json.loads(labels):
+            label = object_label(raw)
             if not label:
                 continue
             seen.setdefault(label, []).append((ts, ts + OBJECT_PAD))
-            groundings.setdefault(label, set()).add(o.get("ts", ts) if isinstance(o, dict) else ts)
+            groundings.setdefault(label, set()).add(segment_log.secs(int(stamps[0])) if len(stamps) else ts)
     return [
         _chip("object", label, merge(v, cfg.nonnegative_seconds("dashboard.object_gap_s")))
         for label, v in seen.items()
@@ -544,12 +560,9 @@ def _load(day: str, state: str) -> dict[str, Any]:
     """One day's answer, for for_request's job; in its own process, the settings as they are now."""
     if multiprocessing.parent_process() is not None:
         cfg.load.cache_clear()  # a setting saved since: the dashboard rereads its pack.toml, and so does this
-        # Today is read again every minute: each ended hour's records are kept in this process, and only the hours
-        # still going are read from the store.
-        from liberational import memtrim, segment_log
+        from liberational import memtrim
 
-        segment_log.keep_hours()
-        memtrim.start()  # what a load freed goes back to the system; the kept hours stay
+        memtrim.start()  # what a load freed goes back to the system
     start, end = day_bounds(day)
     pending = dict(day=day, start=start, end=end, chips=[], partial=True, pending=True)
     try:
@@ -651,3 +664,14 @@ def keep_warm(state: str | pathlib.Path | None = None, stop: threading.Event | N
     thread = threading.Thread(target=run, name="presence-warm", daemon=True)
     thread.start()
     return thread
+
+
+# ---- routes (dashboard/routes.py): what the server answers for this area ----
+
+
+@routes.get("/review/presence")
+def _get_review_presence(h: H) -> None:
+    day = h._query().get("day") or None
+    if day and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
+        return h._json({"error": "day must be YYYY-MM-DD"}, 400)
+    return h._json(for_request(day, h.state))

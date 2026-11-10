@@ -329,7 +329,7 @@ function researchAQuestion() {
 export function InboxTab() {
   const q = useQuery(researchQuery());
   const [open, setOpen] = useState<string | null>(null);
-  // On a wide screen the reader beside the list opens on arrival (#2674): the newest unread report, else the newest.
+  // On a wide screen the reader beside the list opens on arrival: the newest unread report, else the newest.
   // Closing it ("All reports") or a phone, where the list is the page, leaves it closed.
   const wide = useMediaQuery(`(min-width: ${PHONE_MAX + 1}px)`, undefined, { getInitialValueInEffect: false }) ?? false;
   const [closed, setClosed] = useState(false);
@@ -347,7 +347,7 @@ export function InboxTab() {
       meta={jobs.length ? plural(jobs.length, 'report') : undefined}
       lede="Questions looked into slowly, in the background. Each report lands here when it's done."
       actions={
-        // Research starts from Review's Ask, which has the day's recordings to look through (#2674)
+        // Research starts from Review's Ask, which has the day's recordings to look through
         <Button size="sm" onClick={researchAQuestion}>
           Research a question
         </Button>
@@ -380,7 +380,7 @@ export function InboxTab() {
           <ul className={classes.items}>
             {jobs.map(j => {
               const unread = (j.status === 'done' || j.status === 'failed') && !j.read;
-              // A finished report whose answer came out short of whole says so on the list (#2674)
+              // A finished report whose answer came out short of whole says so on the list
               const partial = j.status === 'done' && !!j.answer_status && j.answer_status !== 'ok';
               return (
                 <li key={j.id}>
@@ -408,7 +408,7 @@ export function InboxTab() {
                         )}
                         {when(j.created_at)}
                         {/* What the dot and a finished row's missing badge say, for screen readers; the row is named
-                            by its visible words plus these, not an aria-label that left the date out (axe, #2661) */}
+                            by its visible words plus these, not an aria-label that left the date out (axe) */}
                         {((j.status === 'done' && !partial) || unread) && (
                           <>
                             {' '}

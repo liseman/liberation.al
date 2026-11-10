@@ -9,7 +9,7 @@ import pathlib
 
 import pytest
 
-from liberational.dashboard import server
+from liberational.dashboard import context, server
 
 SEG = "cam0/2026-01-01/000000.mp4"
 BODY = bytes(range(256)) * 12_000  # about 3 MB, past any one read the server makes
@@ -36,7 +36,7 @@ def base(serve, tmp_path, monkeypatch):
     (tmp_path / "video" / "cam0" / "2026-01-01").mkdir(parents=True)
     (tmp_path / "video" / SEG).write_bytes(BODY)
     monkeypatch.setattr(Media, "file", tmp_path / "video" / SEG, raising=False)
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     monkeypatch.setattr(server, "DASH_PASSWORD", "")
 
     def whole(self):

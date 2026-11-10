@@ -19,11 +19,14 @@ These are detected visits, not confirmed ones, and the answer says that.
 """
 
 import datetime as dt
+import json
 import time
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
+
+import numpy as np
 
 from liberational import segment_log
 from liberational.see import zones
@@ -190,14 +193,23 @@ def answer(
     unknown_whose: list[dict[str, Any]] = []
     if narrowed:
         visits, unknown_whose = _theirs(state, visits, person)
-    rows = [
-        c
-        for c in log.range(segment_log.ZONE_COVERAGE, start, end)
-        if c.get("subject_kind") in kinds and set(c.get("zones") or []) & set(wanted)
-    ]
-    spans = [(max(float(c["ts_start"]), start), min(float(c["ts_end"]), end), c.get("cam")) for c in rows]
-    unlooked = sorted(kinds - {str(c.get("subject_kind")) for c in rows})
-    covered = _union([(a, b) for a, b, _ in spans if b > a])
+    looked: set[str] = set()
+
+    def checked(columns: Mapping[str, Any]) -> np.ndarray:
+        """The coverage rows that looked for one of `kinds` in one of the zones asked about."""
+        keep = np.array(
+            [
+                kind in kinds and not wanted.keys().isdisjoint(json.loads(zones))
+                for kind, zones in zip(columns["subject_kind"], columns["zones"], strict=True)
+            ],
+            dtype=bool,
+        )
+        looked.update(kind for kind, kept in zip(columns["subject_kind"], keep.tolist(), strict=True) if kept)
+        return keep
+
+    found = log.covered(segment_log.ZONE_COVERAGE, start, end, where=(("subject_kind", "zones"), checked))
+    unlooked = sorted(kinds - looked)
+    covered = _union([span for cam in found.values() for span in cam.spans])
     seconds = sum(b - a for a, b in covered)
     coverage["covered"] = [{"start": a, "end": b} for a, b in covered]
     coverage["seconds"] = seconds
@@ -263,7 +275,7 @@ def answer(
             f"{_clock(float(v['ts_start']), tz)} to {_clock(float(v['ts_end']), tz)}",
             link="/review#"
             + urlencode(dict(day=stamp(float(v["ts_start"]))[:10], t=float(v["ts_start"]), cam=v.get("cam") or "")),
-            method="ZoneVisit: a tracked subject inside an owner-drawn zone (#1316), an unconfirmed candidate",
+            method="ZoneVisit: a tracked subject inside an owner-drawn zone, an unconfirmed candidate",
             stream="zone.visit",
             event=v["id"],
         )
