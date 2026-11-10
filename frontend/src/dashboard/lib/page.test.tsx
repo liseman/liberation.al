@@ -9,6 +9,11 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+it('can show a card grid skeleton shaped like the People roster', () => {
+  renderPage(<PageLoading label="people" shape="cards" lines={2} />);
+  expect(screen.getByTestId('cards-skeleton')).toBeInTheDocument();
+});
+
 it('shows the skeleton under the real heading, and says it is still loading only once the wait runs long', async () => {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
   renderPage(
