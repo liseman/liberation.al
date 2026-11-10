@@ -460,10 +460,12 @@ pub(crate) fn commit_payload_copy(
     finish(&mut b, request_id, fb::ControlPayload::CommitPayloadCopy, body.as_union_value())
 }
 
-/// `CommitChunk`: a closed chunk and the Tier 0 payloads it absorbed, in frame order.
+/// `CommitChunk`: a chunk, or the part of one from frame `first_frame` on, and the Tier 0 payloads it absorbed, in
+/// frame order.
 pub(crate) fn commit_chunk(
     request_id: u64,
     chunk: &crate::worker::NewChunk,
+    first_frame: u32,
     absorbed: &[continuum_core::Uuid],
     provenance: Option<&[crate::worker::FrameProvenance]>,
 ) -> Vec<u8> {
@@ -489,6 +491,7 @@ pub(crate) fn commit_chunk(
             absorbed: Some(absorbed),
             frame_provenance,
             provenance_version: if provenance.is_some() { crate::worker::PROVENANCE_VERSION } else { 0 },
+            first_frame,
         },
     );
     finish(&mut b, request_id, fb::ControlPayload::CommitChunk, c.as_union_value())

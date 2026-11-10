@@ -100,7 +100,7 @@ Each label's id is `ask-<asked_at>`, so marking the same answer again replaces i
 
 ### readings.jsonl: how the model reads questions
 
-Ask has the local model read each question once into a structured reading (`memory/question.py`): whether it is about recorded history, where the answer is, the measure, the people, and the time words copied into fields. This part scores that reader alone, so a misread question can be told from a missed record.
+Ask has the local model read each question once into a structured reading (`memory/question.py`): whether it is about recorded history, where the answer is, the measure, an action the camera model detects, whether it asks what is usual, the people, and the time words copied into fields. This part scores that reader alone, so a misread question can be told from a missed record.
 
 ```json
 {"id": "who-at-clock", "question": "Who was here at 3pm?", "reading": {"source": "people", "measure": "who", "clock": "3pm"}}

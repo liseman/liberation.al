@@ -12,7 +12,16 @@ import pytest
 
 from liberational import config as cfg
 from liberational import speech_log
-from liberational.dashboard import call_log, context, server
+from liberational.dashboard import (
+    call_log,
+    context,
+    known_voices,
+    live_status,
+    people_list,
+    people_writes,
+    server,
+    speaker_lines,
+)
 from liberational.domain.identity import Basis
 from liberational.memory import ask, history_qa, journal
 from liberational.people import contacts, face_shots, forgotten, registry
@@ -65,7 +74,7 @@ def add_lines(state, *lines):
 
 def named_voices(state):
     """{voice: its name} for each voice the event log names now."""
-    return {s["id"]: s["label"] for s in server._speakers()["speakers"] if s["label"] != f"Speaker {s['id']}"}
+    return {s["id"]: s["label"] for s in known_voices._speakers()["speakers"] if s["label"] != f"Speaker {s['id']}"}
 
 
 def requests(state):
@@ -94,20 +103,19 @@ def world(tmp_path, monkeypatch):
     rollup = journal_entry(state, [entry], 1980, 2160, level=180)
     kept = journal_entry(state, [alices], 2010, 2040)
     faces = FakeFaces()
-    files = {
-        "CONTACTS_FILE": "contacts.json",
-        "PEOPLE_ADDED": "people_added.json",
-        "VOICE_TAGS": "voice_tags.jsonl",
-    }
+    files = {}
     for name, path in files.items():
         monkeypatch.setattr(server, name, state / path)
+    monkeypatch.setattr(speaker_lines, "VOICE_TAGS", state / "voice_tags.jsonl")
+    monkeypatch.setattr(people_list, "PEOPLE_ADDED", state / "people_added.json")
+    monkeypatch.setattr(people_list, "CONTACTS_FILE", state / "contacts.json")
     monkeypatch.setattr(call_log, "CALLS_DIR", state / "calls")
     monkeypatch.setattr(context, "STATE", state)
     ran = in_process_voice_edits(monkeypatch)
-    monkeypatch.setattr(server, "_listening", lambda: False)  # the microphone service isn't running
-    monkeypatch.setattr(server, "_faces_mod", lambda: faces)
-    monkeypatch.setattr(server, "_face_last_seen_at", dict)
-    monkeypatch.setattr(server, "_room_lines", create_autospec(server._room_lines, return_value=[]))
+    monkeypatch.setattr(live_status, "_listening", lambda: False)  # the microphone service isn't running
+    monkeypatch.setattr(people_list, "_faces_mod", lambda: faces)
+    monkeypatch.setattr(people_list, "_face_last_seen_at", dict)
+    monkeypatch.setattr(people_list, "_room_lines", create_autospec(people_list._room_lines, return_value=[]))
     monkeypatch.setattr(clone_say, "STATE", state)
     monkeypatch.setattr(clone_say, "OUT", state / "clones")
     with cfg.override({"owner": {"name": "Alice"}, "paths": {"state": str(state), "faces": str(faces_dir)}}):
@@ -126,7 +134,7 @@ def test_forgets_everything_but_the_recordings(world):
         if row.event.subject == dana
     }
     assert len(before) == 3  # registration and both voice assertions, stored in owner knowledge
-    code, body = server.delete_person("dana cole", control=True)
+    code, body = people_writes.delete_person("dana cole", control=True)
     assert (code, body["ok"], body["name"]) == (200, True, "Dana Cole")
     assert body["removed"] == {
         "voices": 2,
@@ -169,14 +177,14 @@ def test_the_journal_forgets_before_their_lines_are_put_back_to_unnamed(world):
         return forget(name, ids, state)
 
     with patch.object(journal, "forget", spy):
-        server.delete_person("Dana Cole", control=True)
+        people_writes.delete_person("Dana Cole", control=True)
     assert calls == [("Dana Cole", ["3", "4"], False)]  # voice_tags not written yet
 
 
 def test_the_journal_forgets_a_line_labeled_as_them_only_in_the_log(world):
     # Alice's voice, labeled Dana Cole by hand after step 4: the line itself still says Alice.
     registry.at(world.state).claim(registry.utterance(2011.0), "Dana Cole", Basis.OWNER_TAG, "dashboard")
-    code, body = server.delete_person("Dana Cole", control=True)
+    code, body = people_writes.delete_person("Dana Cole", control=True)
     assert (code, body["removed"]["journal"]) == (200, 3)
     assert journal_status(world.state, world.journal[2]) == ["purged"]
     assert requests(world.state)[0]["lines"] == [
@@ -191,7 +199,7 @@ def test_an_old_label_on_two_microphones_lines_forgets_only_the_line_that_is_sti
     reg = registry.at(world.state)
     reg.claim(registry.utterance(2050.0), "Dana Cole", Basis.OWNER_TAG, "dashboard")  # before lines had devices
     reg.claim(registry.utterance(2050.0, "Mic B"), "Alice", Basis.OWNER_TAG, "dashboard")  # since: Mic B's is Alice's
-    assert server.delete_person("Dana Cole", control=True)[0] == 200
+    assert people_writes.delete_person("Dana Cole", control=True)[0] == 200
     assert "mic-a@2050.000" in requests(world.state)[0]["lines"]
     assert not {"2050.000", "mic-b@2050.000"} & set(requests(world.state)[0]["lines"])
 
@@ -199,28 +207,28 @@ def test_an_old_label_on_two_microphones_lines_forgets_only_the_line_that_is_sti
 def test_a_journal_failure_deletes_nothing_so_deleting_again_finishes(world):
     reg = registry.at(world.state)
     with patch.object(journal, "forget", side_effect=OSError("disk full")):
-        code, body = server.delete_person("Dana Cole", control=True)
+        code, body = people_writes.delete_person("Dana Cole", control=True)
     assert (code, body["ok"]) == (500, False)
     assert "nothing was deleted" in body["error"]
     # The registry still knows her, so a second delete finds her and her journal entries under every name.
     assert (world.ran, (world.state / "voice_tags.jsonl").exists(), world.faces.forgotten) == ([], False, [])
     assert reg.person_id("Dana Cole") is not None
-    code, body = server.delete_person("Dana Cole", control=True)
+    code, body = people_writes.delete_person("Dana Cole", control=True)
     assert (code, body["removed"]["journal"], body["removed"]["voices"]) == (200, 2, 2)
     assert reg.person_id("Dana Cole") is None
 
 
 def test_deleting_again_or_someone_unknown_is_a_no_op(world):
-    server.delete_person("Dana Cole", control=True)
+    people_writes.delete_person("Dana Cole", control=True)
     world.ran.clear()
-    code, body = server.delete_person("Dana Cole", control=True)
+    code, body = people_writes.delete_person("Dana Cole", control=True)
     assert (code, body["ok"], world.ran, sum(body["removed"].values())) == (200, True, [], 0)
 
 
 def test_forgetting_also_purges_their_events(world):
     reg = registry.at(world.state)
     dana = reg.person_id("Dana Cole")
-    server.delete_person("dana cole", control=True)
+    people_writes.delete_person("dana cole", control=True)
     assert (reg.person_id("Dana Cole"), reg.person_of(registry.voiceprint(3)).person) == (None, None)
     assert reg.person_id("Alice") is not None
     left = [s.event for st in (registry.PEOPLE, registry.ASSERTIONS) for s in reg.log.read(st)]
@@ -240,7 +248,7 @@ def test_forgetting_moves_their_profile_aside_under_every_name_they_had(world):
     (state / "contacts.json").write_text(json.dumps({**c, "Dana": "+14155550199"}))  # left under a name she had
     for n in ("dana.md", "dee.md", "Erin.md"):
         (state / "people" / n).write_text("# x\n")
-    server.delete_person("Dana Cole", control=True)
+    people_writes.delete_person("Dana Cole", control=True)
     parked = sorted(f.name.rsplit("-", 1)[0] for f in (state.parent / "premove" / "people").glob("*.md"))
     assert parked == ["Dana Cole", "dana"]
     assert sorted(f.name for f in (state / "people").iterdir()) == ["Erin.md", "dee.md"]
@@ -254,7 +262,7 @@ def test_asking_about_them_afterwards_doesnt_look_like_anything(world, question)
     reg = registry.at(world.state)
     reg.claim(registry.voiceprint(3), "Dana", Basis.OWNER_TAG, "test")
     reg.rename("Dana", "Dana Cole", "test")  # renamed before she was forgotten
-    server.delete_person("Dana Cole", control=True)
+    people_writes.delete_person("Dana Cole", control=True)
     with (
         patch.object(history_qa, "collect", side_effect=AssertionError("looked for evidence")),
         patch.object(ask, "local_answer", side_effect=AssertionError("asked the model")),
@@ -278,9 +286,9 @@ def test_a_leftover_row_under_a_renamed_persons_old_name_is_refused(world, monke
     reg = dana_renamed_dee(state)
     hers = journal_entry(state, [], 2990, 3020)  # an entry of hers from before the rename, its line long gone
     call = [{"who": "Dana", "text": "Hi, it's Dana.", "ts": 2990.0, "src": "call:x"}]  # heard before the rename
-    monkeypatch.setattr(server, "_call_lines", lambda: call)
-    assert "Dana" in {p["name"] for p in server.people_roster()}
-    code, body = server.delete_person("Dana", control=True)
+    monkeypatch.setattr(people_list, "_call_lines", lambda: call)
+    assert "Dana" in {p["name"] for p in people_list.people_roster()}
+    code, body = people_writes.delete_person("Dana", control=True)
     assert (code, body["ok"]) == (409, False)
     assert "Dee" in body["error"]
     assert (world.ran, (state / "voice_tags.jsonl").exists(), world.faces.forgotten) == ([], False, [])
@@ -294,7 +302,7 @@ def test_a_voice_clone_that_shares_their_name_stays(world):
     write_voices(state, {9: "Dana Cole"})
     (state / "clones" / "9.wav").write_bytes(b"wav")
     (state / "clones" / "9.json").write_text(json.dumps({"label": "Dana Cole", "source": "recorded"}))
-    code, body = server.delete_person("Dana Cole", control=True)
+    code, body = people_writes.delete_person("Dana Cole", control=True)
     assert (code, body["removed"]["voices"], body["removed"]["clones"]) == (200, 2, 2)
     assert world.ran == [["forget", "3"], ["forget", "4"]]  # never the clone's voice
     assert requests(state)[0]["forget"] == [3, 4]
@@ -302,9 +310,9 @@ def test_a_voice_clone_that_shares_their_name_stays(world):
 
 
 def test_owner_and_remote_requests_are_refused(world):
-    assert server.delete_person("alice", control=True)[0] == 403
-    assert server.delete_person("Dana Cole", control=False)[0] == 403
-    assert server.delete_person("", control=True)[0] == 400
+    assert people_writes.delete_person("alice", control=True)[0] == 403
+    assert people_writes.delete_person("Dana Cole", control=False)[0] == 403
+    assert people_writes.delete_person("", control=True)[0] == 400
     assert world.ran == []
     assert named_voices(world.state) == {1: "Alice", 3: "Dana Cole", 4: "Dana Cole"}
 
@@ -330,7 +338,7 @@ def test_concurrent_reference_attach_cannot_survive_deletion(world, serve, monke
         return attach(state, token, person)
 
     def delete():
-        result = server.delete_person("Dana Cole", control=True)
+        result = people_writes.delete_person("Dana Cole", control=True)
         deleted.set()
         return result
 
@@ -356,15 +364,15 @@ def test_concurrent_reference_attach_cannot_survive_deletion(world, serve, monke
 def test_their_continuum_subjects_include_the_voices_the_delete_forgets(world, monkeypatch):
     # Read before the voice forget retracts their voiceprints, or those would no longer resolve to them.
     asked = []
-    monkeypatch.setattr(server, "_purge_continuum", lambda subjects: (asked.append(set(subjects)), (0, 0))[1])
+    monkeypatch.setattr(people_writes, "_purge_continuum", lambda subjects: (asked.append(set(subjects)), (0, 0))[1])
     pid = registry.at(world.state).person_id("Dana Cole")
-    assert server.delete_person("dana cole", control=True)[0] == 200
+    assert people_writes.delete_person("dana cole", control=True)[0] == 200
     assert asked == [{pid, *(registry.subject_uuid(registry.voiceprint(i)) for i in (3, 4))}]
 
 
 def test_a_failed_continuum_purge_keeps_them_in_the_registry_to_delete_again(world, monkeypatch):
-    monkeypatch.setattr(server, "_purge_continuum", lambda subjects: (0, 1))
-    code, body = server.delete_person("dana cole", control=True)
+    monkeypatch.setattr(people_writes, "_purge_continuum", lambda subjects: (0, 1))
+    code, body = people_writes.delete_person("dana cole", control=True)
     assert (code, body["ok"]) == (500, False) and "delete them again" in body["error"]
     assert registry.at(world.state).person_id("Dana Cole") is not None
 
@@ -375,7 +383,7 @@ def test_deleting_someone_clears_their_face_crops_and_keeps_everyone_elses(world
     for sid in (hers, alices):
         face_shots.write(world.state, sid, "0", b"jpg")
         face_shots.write(world.state, sid, "0", b"jpg", "shots_grid")
-    assert server.delete_person("dana cole", control=True)[0] == 200
+    assert people_writes.delete_person("dana cole", control=True)[0] == 200
     assert sorted(p.name for p in (world.state / "shots").rglob("*.jpg")) == sorted(
         face_shots.path(world.state, alices, "0", kind).name for kind in ("shots", "shots_grid")
     )
@@ -391,9 +399,9 @@ def test_a_delete_stopped_by_the_continuum_purge_finishes_when_run_again(world, 
         asked.append(set(subjects))
         return next(results)
 
-    monkeypatch.setattr(server, "_purge_continuum", purge)
-    assert server.delete_person("dana cole", control=True)[0] == 500
-    code, body = server.delete_person("dana cole", control=True)
+    monkeypatch.setattr(people_writes, "_purge_continuum", purge)
+    assert people_writes.delete_person("dana cole", control=True)[0] == 500
+    code, body = people_writes.delete_person("dana cole", control=True)
     assert (code, body["ok"]) == (200, True)
     # The second run still found everything of hers on the broker, her voiceprints included.
     prints = {registry.subject_uuid(registry.voiceprint(i)) for i in (3, 4)}
@@ -413,10 +421,10 @@ def test_a_failed_forget_in_the_registry_is_not_reported_as_done(world, monkeypa
         return real(self, name, source)
 
     monkeypatch.setattr(registry.Registry, "forget", flaky)
-    code, body = server.delete_person("dana cole", control=True)
+    code, body = people_writes.delete_person("dana cole", control=True)
     assert (code, body["ok"]) == (500, False)
     assert "still in the person registry" in body["error"] and "delete them again" in body["error"]
     assert registry.at(world.state).person_id("Dana Cole") is not None
-    code, body = server.delete_person("dana cole", control=True)
+    code, body = people_writes.delete_person("dana cole", control=True)
     assert (code, body["ok"]) == (200, True)
     assert registry.at(world.state).person_id("Dana Cole") is None

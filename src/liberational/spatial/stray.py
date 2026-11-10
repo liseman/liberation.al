@@ -122,6 +122,37 @@ def saved_intrinsics(
     return pixels @ scale @ np.asarray(k, dtype=np.float64) @ np.asarray(turn, dtype=np.float64), out_size
 
 
+def _depth(folder: Path, frame: int) -> tuple[np.ndarray, np.ndarray] | None:
+    """One frame's LiDAR depth map as recorded (16-bit millimetres, the sensor's orientation) and which of its pixels
+    are kept (confident and in range); None when the frame has no depth map."""
+    import cv2
+
+    depth = cv2.imread(str(folder / "depth" / f"{frame:06d}.png"), cv2.IMREAD_UNCHANGED)
+    if depth is None:
+        return None
+    conf = cv2.imread(str(folder / "confidence" / f"{frame:06d}.png"), cv2.IMREAD_UNCHANGED)
+    z = depth.astype(np.float64) / 1000.0
+    keep = (z >= NEAR_M) & (z <= FAR_M)
+    if conf is not None:
+        keep &= conf >= MIN_CONFIDENCE
+    return depth, keep
+
+
+def depth_map(folder: Path, frame: int, code: int | None) -> np.ndarray | None:
+    """One frame's LiDAR depth as a map to train a splat against (spatial/splats.py): 16-bit millimetres along the
+    view axis, 0 where the depth isn't kept (not confident, or out of range), turned by the cv2.rotate `code` its
+    saved frame was turned by (`upright`); None when the frame has no depth map. It covers the frame's whole field of
+    view at the LiDAR's own size."""
+    import cv2
+
+    got = _depth(folder, frame)
+    if got is None:
+        return None
+    depth, keep = got
+    kept = np.where(keep, depth, 0).astype(np.uint16)
+    return kept if code is None else cv2.rotate(kept, code)
+
+
 def points(
     folder: Path, frame: int, k: np.ndarray, rgb_size: tuple[int, int], image: np.ndarray | None
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -130,15 +161,12 @@ def points(
     grey."""
     import cv2
 
-    depth = cv2.imread(str(folder / "depth" / f"{frame:06d}.png"), cv2.IMREAD_UNCHANGED)
-    if depth is None:
+    got = _depth(folder, frame)
+    if got is None:
         return np.zeros((0, 3)), np.zeros((0, 3), np.uint8)
-    conf = cv2.imread(str(folder / "confidence" / f"{frame:06d}.png"), cv2.IMREAD_UNCHANGED)
+    depth, keep = got
     h, w = depth.shape[:2]
     z = depth.astype(np.float64) / 1000.0
-    keep = (z >= NEAR_M) & (z <= FAR_M)
-    if conf is not None:
-        keep &= conf >= MIN_CONFIDENCE
     sx, sy = w / rgb_size[0], h / rgb_size[1]
     v, u = np.nonzero(keep)
     zz = z[v, u]

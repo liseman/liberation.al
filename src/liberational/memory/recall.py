@@ -934,7 +934,7 @@ def loop(
     requested_cameras = tuple(dict.fromkeys(query.get("cameras") or []))
     # How the question was read (memory/question.py), so the planner searches for that reading, not one of its own.
     reading = query.get("reading") or {}
-    read_as = {key: reading[key] for key in ("source", "measure", "people") if reading.get(key)}
+    read_as = {key: reading[key] for key in ("source", "measure", "people", "action") if reading.get(key)}
     if journal_only:
         offered = [tool for tool in offered if tool == "journal"]
     if requested_cameras:

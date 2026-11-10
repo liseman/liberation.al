@@ -1,4 +1,4 @@
-"""Slow dashboard views kept fresh (server._Fresh): the owner's changes show at once, new data a moment later."""
+"""Slow dashboard views kept fresh (fresh_reads._Fresh): the owner's changes show at once, new data a moment later."""
 
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -6,7 +6,7 @@ from unittest.mock import create_autospec
 
 import pytest
 
-from liberational.dashboard import context, server
+from liberational.dashboard import context, fresh_reads, inbox_state, server, unnamed_groups
 from liberational.vision import faces
 
 
@@ -21,7 +21,7 @@ def view(answers: list[tuple[int, dict]]):
             gate.wait(5)  # a background refresh waits until the test lets it go
         return answers[min(len(calls), len(answers)) - 1]
 
-    fresh = server._Fresh("test", compute, lambda: owner["v"], lambda: data["v"])
+    fresh = fresh_reads._Fresh("test", compute, lambda: owner["v"], lambda: data["v"])
     return fresh, owner, data, gate, calls
 
 
@@ -48,14 +48,16 @@ def test_the_owners_change_is_worked_out_at_once():
 
 def test_a_purge_bypasses_cached_face_groups_immediately(tmp_path, monkeypatch):
     monkeypatch.setattr(context, "STATE", tmp_path)
-    monkeypatch.setattr(server, "INBOX_SKIPS", tmp_path / "skips.json")
+    monkeypatch.setattr(inbox_state, "INBOX_SKIPS", tmp_path / "skips.json")
     monkeypatch.setattr(faces, "UNK_DB", tmp_path / "unknown.npz")
     epoch = {"purge": None}
     log = create_autospec(server.speech_log.SpeechLog, instance=True)
     log.newest_voice_purge.side_effect = lambda: epoch["purge"]
     monkeypatch.setattr(server.speech_log, "shared", create_autospec(server.speech_log.shared, return_value=log))
     groups = ["Face 1"]
-    fresh = server._Fresh("face groups", lambda: (200, {"groups": groups.copy()}), server._faces_owner_key, lambda: 0)
+    fresh = fresh_reads._Fresh(
+        "face groups", lambda: (200, {"groups": groups.copy()}), unnamed_groups._faces_owner_key, lambda: 0
+    )
     assert fresh.get() == (200, {"groups": ["Face 1"]})
     groups.clear()
     epoch["purge"] = "purge-after-ingest-delete"
@@ -64,18 +66,18 @@ def test_a_purge_bypasses_cached_face_groups_immediately(tmp_path, monkeypatch):
 
 def test_a_video_only_purge_leaves_the_face_groups_key_as_it_was(tmp_path, monkeypatch):
     monkeypatch.setattr(context, "STATE", tmp_path)
-    monkeypatch.setattr(server, "INBOX_SKIPS", tmp_path / "skips.json")
+    monkeypatch.setattr(inbox_state, "INBOX_SKIPS", tmp_path / "skips.json")
     monkeypatch.setattr(faces, "UNK_DB", tmp_path / "unknown.npz")
     purges = {"any": "a", "voice": "a"}
     log = create_autospec(server.speech_log.SpeechLog, instance=True)
     log.newest_purge.side_effect = lambda: purges["any"]
     log.newest_voice_purge.side_effect = lambda: purges["voice"]
     monkeypatch.setattr(server.speech_log, "shared", create_autospec(server.speech_log.shared, return_value=log))
-    before = server._faces_owner_key(), server._faces_owner_key(groups=False)
+    before = unnamed_groups._faces_owner_key(), unnamed_groups._faces_owner_key(groups=False)
     purges["any"] = "nightly-video-window"  # SpeechLog.newest_voice_purge leaves a video-only purge out
-    assert (server._faces_owner_key(), server._faces_owner_key(groups=False)) == before
+    assert (unnamed_groups._faces_owner_key(), unnamed_groups._faces_owner_key(groups=False)) == before
     purges["voice"] = purges["any"] = "a-forget"
-    assert server._faces_owner_key() != before[0] and server._faces_owner_key(groups=False) != before[1]
+    assert unnamed_groups._faces_owner_key() != before[0] and unnamed_groups._faces_owner_key(groups=False) != before[1]
 
 
 def test_an_error_is_not_kept():
@@ -98,7 +100,7 @@ def test_concurrent_cold_readers_share_one_computation(monkeypatch):
         assert release.wait(5), "the test did not release the cold computation"
         return 200, {"n": 1}
 
-    fresh = server._Fresh("cold", compute, lambda: 0, lambda: 0)
+    fresh = fresh_reads._Fresh("cold", compute, lambda: 0, lambda: 0)
     work = fresh._work
     entries = 0
 
@@ -134,7 +136,7 @@ def test_a_raised_initial_computation_can_be_retried():
             raise RuntimeError("view source unavailable")
         return 200, {"n": 1}
 
-    fresh = server._Fresh("retry", compute, lambda: 0, lambda: 0)
+    fresh = fresh_reads._Fresh("retry", compute, lambda: 0, lambda: 0)
     with pytest.raises(RuntimeError, match="view source unavailable"):
         fresh.get()
     assert fresh.get() == (200, {"n": 1})
@@ -157,7 +159,7 @@ def test_owner_change_bypasses_old_refresh_and_keeps_its_newer_answer(monkeypatc
             owner_computing.set()
         return 200, {"revision": revision}
 
-    fresh = server._Fresh("owner change", compute, lambda: owner["v"], lambda: data["v"])
+    fresh = fresh_reads._Fresh("owner change", compute, lambda: owner["v"], lambda: data["v"])
     refresh = fresh._refresh
 
     def observed_refresh(keys):
@@ -204,7 +206,7 @@ def test_old_owner_sample_cannot_replace_a_newer_published_answer(monkeypatch):
         completion.old_owner = revision == (0, 1)
         return 200, {"revision": revision}
 
-    fresh = server._Fresh("publication", compute, owner_key, lambda: data["v"])
+    fresh = fresh_reads._Fresh("publication", compute, owner_key, lambda: data["v"])
     refresh = fresh._refresh
 
     def observed_refresh(keys):
@@ -252,7 +254,7 @@ def test_ready_rejects_success_that_was_not_published_after_owner_changed():
         owner["v"] += 1
         return 200, {"n": 1}
 
-    fresh = server._Fresh("unpublished", compute, lambda: owner["v"], lambda: 0)
+    fresh = fresh_reads._Fresh("unpublished", compute, lambda: owner["v"], lambda: 0)
     assert fresh.get() == (200, {"n": 1})
     assert fresh.value is None
     assert not fresh.ready()
@@ -266,7 +268,7 @@ def test_ready_never_calls_owner_key_while_holding_the_publication_lock():
         finally:
             fresh.lock.release()
 
-    fresh = server._Fresh("owner callback", lambda: (200, {"n": 1}), owner, lambda: 0)
+    fresh = fresh_reads._Fresh("owner callback", lambda: (200, {"n": 1}), owner, lambda: 0)
     assert fresh.get() == (200, {"n": 1})
     assert fresh.ready()
 
@@ -289,7 +291,7 @@ def test_cold_polls_share_background_work_and_surface_failure(failure):
         assert release.wait(5)
         return (500, {"error": "unavailable"}) if failure else (200, {"groups": [], "count": 0})
 
-    fresh = server._Fresh("cold polling", compute, lambda: 0, lambda: 0)
+    fresh = fresh_reads._Fresh("cold polling", compute, lambda: 0, lambda: 0)
     pending = (202, {"pending": True, "groups": [], "count": None, "skipped": []})
     try:
         assert fresh.poll() == pending
@@ -308,7 +310,9 @@ def test_cold_polls_share_background_work_and_surface_failure(failure):
 
 def test_warm_poll_validates_owner_instead_of_serving_a_cold_completion():
     owner = {"v": 0}
-    fresh = server._Fresh("poll correction", lambda: (200, {"revision": owner["v"]}), lambda: owner["v"], lambda: 0)
+    fresh = fresh_reads._Fresh(
+        "poll correction", lambda: (200, {"revision": owner["v"]}), lambda: owner["v"], lambda: 0
+    )
     assert fresh.poll()[0] == 202
     work = fresh.cold
     assert work is not None
@@ -326,7 +330,7 @@ def test_cold_poll_reports_a_raised_source_error_and_allows_retry():
             raise RuntimeError("source unavailable")
         return 200, {"groups": [], "count": 0}
 
-    fresh = server._Fresh("cold failure", compute, lambda: 0, lambda: 0)
+    fresh = fresh_reads._Fresh("cold failure", compute, lambda: 0, lambda: 0)
     assert fresh.poll()[0] == 202
     work = fresh.cold
     assert work is not None

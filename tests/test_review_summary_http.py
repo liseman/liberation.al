@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from liberational.dashboard import context, server
+from liberational.dashboard import context, review_reads, server
 from liberational.memory import history_qa, recall, review_summary
 
 
@@ -170,13 +170,13 @@ def test_day_summary_rejects_invalid_or_noncanonical_day_without_reading(request
 
 @pytest.mark.parametrize(
     ("status", "kept_s"),
-    [pytest.param("ready", server.ENDED_SUMMARY_KEEP_S, id="ready"), pytest.param("partial", 60, id="partial")],
+    [pytest.param("ready", review_reads.ENDED_SUMMARY_KEEP_S, id="ready"), pytest.param("partial", 60, id="partial")],
 )
 def test_an_ended_stretchs_summary_is_kept_longest_once_ready(request_, monkeypatch, status, kept_s):
     """A day's summary read the journal off the broker every request (2 to 5 s); today's is always partial."""
     clock = {"now": 1_800_000_000.0}
     monkeypatch.setattr(server.time, "time", lambda: clock["now"])
-    monkeypatch.setattr(server, "_summaries", {})
+    monkeypatch.setattr(review_reads, "_summaries", {})
     answer = {"start": 0, "end": 1, "level": 1, "status": status, "blocks": []}
     summary = create_autospec(review_summary.summary, return_value=answer)
     monkeypatch.setattr(review_summary, "summary", summary)

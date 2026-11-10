@@ -34,6 +34,19 @@ impl Out {
         self.0.extend_from_slice(v);
         self
     }
+    /// A LEB128 varint (values only: it breaks key order).
+    pub(crate) fn var(mut self, mut v: u64) -> Self {
+        while v >= 0x80 {
+            self.0.push((v & 0x7f) as u8 | 0x80);
+            v >>= 7;
+        }
+        self.0.push(v as u8);
+        self
+    }
+    /// A signed difference as a zigzag varint.
+    pub(crate) fn zigzag(self, v: i64) -> Self {
+        self.var(((v << 1) ^ (v >> 63)).cast_unsigned())
+    }
     /// A length-prefixed byte string (values only: it breaks key order).
     pub(crate) fn bytes(self, v: &[u8]) -> Self {
         let len = u32::try_from(v.len()).unwrap_or(u32::MAX);
@@ -74,6 +87,24 @@ impl<'a> In<'a> {
     }
     pub(crate) fn u8(&mut self) -> Result<u8> {
         Ok(self.take(1)?[0])
+    }
+    pub(crate) fn var(&mut self) -> Result<u64> {
+        let mut v = 0u64;
+        for shift in (0..64).step_by(7) {
+            let b = self.u8()?;
+            if shift == 63 && b > 1 {
+                break;
+            }
+            v |= u64::from(b & 0x7f) << shift;
+            if b & 0x80 == 0 {
+                return Ok(v);
+            }
+        }
+        Err(corrupt("a varint over 64 bits"))
+    }
+    pub(crate) fn zigzag(&mut self) -> Result<i64> {
+        let v = self.var()?;
+        Ok((v >> 1).cast_signed() ^ -((v & 1).cast_signed()))
     }
     pub(crate) fn u32(&mut self) -> Result<u32> {
         Ok(u32::from_be_bytes(self.take(4)?.try_into().map_err(|_| corrupt("u32"))?))
@@ -168,19 +199,89 @@ pub(crate) fn read_stream_info(b: &[u8]) -> Result<StreamInfo> {
     Ok(StreamInfo { name, kind, layer, format, shape_name, shape_version, rate_hz, anchor })
 }
 
+/// A frame index stored as its columns, as they are.
+const FRAMES_PLAIN: u8 = 0;
+/// A frame index whose columns are zstd-compressed: the columns' length as a varint, then the frame.
+const FRAMES_ZSTD: u8 = 1;
+/// The most a frame index's columns may take, compressed or not: far past any chunk the catalog accepts.
+const MAX_FRAME_COLUMNS: usize = 16 << 20;
+
+/// A chunk's frame index, delta-coded in columns (docs/CONTINUUM.md, "Video chunks"): the frame count; each frame's
+/// start as the change in its spacing from the previous frame's; each record's offset as the change in its distance
+/// past the previous record's end (a fixed record head apart: all zeros); each length as a varint; and the indexes
+/// of the cut frames. All differences wrap, so any index round-trips. The columns are then zstd-compressed when
+/// that is smaller, which it is for anything but a handful of frames: a camera's frame takes about 4 bytes (most
+/// of it the jitter in its capture times), against 25 as fixed-width integers.
 pub(crate) fn frames(v: &[ChunkFrame]) -> Vec<u8> {
-    let mut o = Out::new();
+    let mut times = Out::new().var(v.len() as u64);
+    let (mut gaps, mut lengths) = (Out::new(), Out::new());
+    let (mut start, mut spacing, mut end, mut gap) = (0u64, 0u64, 0u64, 0u64);
     for f in v {
-        o = o.u64(f.start_ns).u64(f.offset).u64(f.length).u8(u8::from(f.cut));
+        let step = f.start_ns.wrapping_sub(start);
+        let here = f.offset.wrapping_sub(end);
+        times = times.zigzag(step.wrapping_sub(spacing).cast_signed());
+        gaps = gaps.zigzag(here.wrapping_sub(gap).cast_signed());
+        lengths = lengths.var(f.length);
+        (start, spacing, end, gap) = (f.start_ns, step, f.offset.wrapping_add(f.length), here);
     }
-    o.done()
+    let cut = crate::cut_indexes(v);
+    let mut columns = times.raw(&gaps.done()).raw(&lengths.done()).var(cut.len() as u64);
+    let mut last = 0;
+    for index in cut {
+        columns = columns.var(u64::from(index - last));
+        last = index;
+    }
+    let columns = columns.done();
+    match zstd::bulk::compress(&columns, 3) {
+        Ok(packed) if packed.len() + 5 < columns.len() => {
+            Out::new().u8(FRAMES_ZSTD).var(columns.len() as u64).raw(&packed).done()
+        }
+        _ => Out::new().u8(FRAMES_PLAIN).raw(&columns).done(),
+    }
 }
 
 pub(crate) fn read_frames(b: &[u8]) -> Result<Vec<ChunkFrame>> {
     let mut i = In::new(b);
-    let mut out = Vec::new();
-    while !i.is_empty() {
-        out.push(ChunkFrame { start_ns: i.u64()?, offset: i.u64()?, length: i.u64()?, cut: i.u8()? == 1 });
+    let unpacked;
+    let mut i = match i.u8()? {
+        FRAMES_PLAIN => i,
+        FRAMES_ZSTD => {
+            let len = usize::try_from(i.var()?).ok().filter(|&n| n <= MAX_FRAME_COLUMNS);
+            let len = len.ok_or_else(|| corrupt("a frame index too large"))?;
+            unpacked =
+                zstd::bulk::decompress(i.rest(), len).map_err(|_| corrupt("a frame index that doesn't unpack"))?;
+            if unpacked.len() != len {
+                return Err(corrupt("a frame index of another length"));
+            }
+            In::new(&unpacked)
+        }
+        _ => return Err(corrupt("an unknown frame index layout")),
+    };
+    // Every frame takes at least three bytes of columns, so a count past that is damage, not a size to allocate.
+    let count = usize::try_from(i.var()?).ok().filter(|&n| n <= i.rest().len() / 3);
+    let count = count.ok_or_else(|| corrupt("a frame count past the index"))?;
+    let mut out = Vec::with_capacity(count);
+    let (mut start, mut spacing) = (0u64, 0u64);
+    for _ in 0..count {
+        spacing = spacing.wrapping_add(i.zigzag()?.cast_unsigned());
+        start = start.wrapping_add(spacing);
+        out.push(ChunkFrame { start_ns: start, offset: 0, length: 0, cut: false });
+    }
+    let gaps = (0..count).map(|_| i.zigzag()).collect::<Result<Vec<_>>>()?;
+    let (mut end, mut gap) = (0u64, 0u64);
+    for (f, change) in out.iter_mut().zip(gaps) {
+        gap = gap.wrapping_add(change.cast_unsigned());
+        f.offset = end.wrapping_add(gap);
+        f.length = i.var()?;
+        end = f.offset.wrapping_add(f.length);
+    }
+    let mut index = 0usize;
+    for _ in 0..i.var()? {
+        index = usize::try_from(i.var()?).ok().and_then(|step| index.checked_add(step)).unwrap_or(usize::MAX);
+        out.get_mut(index).ok_or_else(|| corrupt("a cut frame past the index"))?.cut = true;
+    }
+    if !i.is_empty() {
+        return Err(corrupt("bytes after the frame index"));
     }
     Ok(out)
 }
@@ -416,6 +517,7 @@ pub(crate) fn read_doomed(b: &[u8]) -> Result<Doomed> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::strategy::Strategy as _;
 
     #[test]
     fn records_round_trip() {
@@ -469,5 +571,72 @@ mod tests {
         assert_eq!(read_record(&record(&aged)).unwrap(), aged);
         let by_ids = PurgeRecord { kind: PurgeKind::Ids { count: 2 }, report: None, completed_ns: None, ..rec };
         assert_eq!(read_record(&record(&by_ids)).unwrap(), by_ids);
+    }
+
+    #[test]
+    fn a_cameras_frame_index_is_a_few_bytes_a_frame() {
+        // A minute at 30 fps with capture times that jitter by up to 40 microseconds, records one 45-byte head apart,
+        // and access units of a few kilobytes: what a camera's chunk holds.
+        let mut at = 24 + 45;
+        let mut noise = 0x9e37_79b9_7f4a_7c15u64;
+        let fr: Vec<ChunkFrame> = (0..1800u64)
+            .map(|n| {
+                noise ^= noise << 13;
+                noise ^= noise >> 7;
+                noise ^= noise << 17;
+                let length = 300 + noise % 3_000;
+                let start_ns = 1_794_151_800_000_000_000 + n * 33_333_333 + (noise >> 40) % 40_000;
+                let f = ChunkFrame { start_ns, offset: at, length, cut: n == 9 };
+                at += length + 45;
+                f
+            })
+            .collect();
+        let bytes = frames(&fr);
+        assert_eq!(read_frames(&bytes).unwrap(), fr);
+        assert_eq!(bytes[0], FRAMES_ZSTD);
+        assert!(bytes.len() < 5 * fr.len(), "{} bytes for {} frames (25 each fixed-width)", bytes.len(), fr.len());
+        // A few frames aren't worth a compressor's frame.
+        assert_eq!(frames(&fr[..3])[0], FRAMES_PLAIN);
+        assert_eq!(read_frames(&frames(&fr[..3])).unwrap(), fr[..3]);
+        assert_eq!(read_frames(&frames(&[])).unwrap(), []);
+    }
+
+    #[test]
+    fn a_damaged_frame_index_is_refused() {
+        let two = [ChunkFrame::new(5, 69, 300), ChunkFrame { cut: true, ..ChunkFrame::new(9, 414, 2) }];
+        let bytes = frames(&two);
+        assert_eq!(read_frames(&bytes).unwrap(), two);
+        assert!(read_frames(&bytes[..bytes.len() - 1]).is_err(), "truncated");
+        assert!(read_frames(&[bytes.as_slice(), &[0]].concat()).is_err(), "trailing bytes");
+        let mut layout = bytes.clone();
+        layout[0] = 9;
+        assert!(read_frames(&layout).is_err(), "an unknown layout");
+        let mut count = bytes.clone();
+        count[1] = 0x7f;
+        assert!(read_frames(&count).is_err(), "a count past the index");
+        let mut cut = bytes.clone();
+        *cut.last_mut().unwrap() = 5;
+        assert!(read_frames(&cut).is_err(), "a cut frame past the index");
+        assert!(read_frames(&[FRAMES_ZSTD, 4, 1, 2, 3]).is_err(), "not a zstd frame");
+        assert!(In::new(&[0xff; 11]).var().is_err(), "a varint over 64 bits");
+    }
+
+    proptest::proptest! {
+        #[test]
+        fn any_frame_index_round_trips(
+            fr in proptest::collection::vec(
+                (proptest::num::u64::ANY, proptest::num::u64::ANY, proptest::num::u64::ANY, proptest::bool::ANY)
+                    .prop_map(|(start_ns, offset, length, cut)| ChunkFrame { start_ns, offset, length, cut }),
+                0..200,
+            )
+        ) {
+            proptest::prop_assert_eq!(read_frames(&frames(&fr)).unwrap(), fr);
+        }
+
+        #[test]
+        fn any_signed_difference_round_trips(v in proptest::num::i64::ANY) {
+            let bytes = Out::new().zigzag(v).done();
+            proptest::prop_assert_eq!(In::new(&bytes).zigzag().unwrap(), v);
+        }
     }
 }

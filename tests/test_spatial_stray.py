@@ -56,6 +56,31 @@ def test_a_frame_without_depth_has_no_points(tmp_path):
     assert len(pts) == 0 and len(colors) == 0
 
 
+def test_a_depth_map_keeps_the_sure_depths_in_millimetres_and_zeroes_the_rest(tmp_path):
+    folder = write(tmp_path / "x", walk())
+    rows = stray.read_odometry(folder)
+    got = stray.depth_map(folder, 7, None)
+    assert got is not None and got.dtype == np.uint16 and got.shape == (48, 64)
+    assert not got[:, :4].any(), "the low-confidence strip"
+    # A kept pixel's depth puts its ray on the room's surfaces: the centre pixel looks along the view axis.
+    v, u = 24, 32
+    ray = np.array([(u + 0.5) * RGB[0] / 64 - 0.5 - K[0, 2], (v + 0.5) * RGB[1] / 48 - 0.5 - K[1, 2], 1.0])
+    ray[:2] /= (K[0, 0], K[1, 1])
+    world = rows[7].c2w[:3, :3] @ (ray * got[v, u] / 1000.0) + rows[7].c2w[:3, 3]
+    assert distance_to_room(world[None]).max() < 0.002
+
+
+def test_a_portrait_depth_map_is_turned_like_its_frame(tmp_path):
+    folder = write(tmp_path / "x", walk(CLOCKWISE))
+    got = stray.depth_map(folder, 7, 0)  # cv2.ROTATE_90_CLOCKWISE, as `upright` gives for this walk
+    assert got is not None and got.shape == (64, 48)
+    assert not got[:4].any() and got[4:].all(), "the sensor's left strip is the upright frame's top"
+
+
+def test_a_frame_without_depth_has_no_depth_map(tmp_path):
+    assert stray.depth_map(write(tmp_path / "x", walk()), 999, None) is None
+
+
 @pytest.mark.parametrize("which", range(4), ids=["landscape", "clockwise", "upside-down", "counterclockwise"])
 def test_the_turned_frame_shows_up_as_up(which):
     cv2 = pytest.importorskip("cv2")

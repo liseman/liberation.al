@@ -108,6 +108,13 @@ async def _read(client: Client, item: Item, start_ns: int, end_ns: int) -> list[
         data = _read_slot(client, locator)
         return None if data is None else [Record(*whole, data)]
     if kind == "Chunk":
+        # A camera's chunk is committed in parts while its file is still being written, so the file can hold records
+        # past what the item names: its next part, whose payloads are still Tier 0 items of their own. Reading only
+        # the item's own span keeps a caller that walks a query's items from getting those twice.
+        start_ns = max(start_ns, header["start_ns"])
+        end_ns = min(end_ns, max(header["end_ns"], header["start_ns"] + 1))
+        if start_ns >= end_ns:
+            return []
         # File I/O (and LZ4 or FLAC for some streams): off the event loop.
         found = await asyncio.to_thread(read_chunk_records, _local(locator["uri"]), start_ns, end_ns)
         if found is None:

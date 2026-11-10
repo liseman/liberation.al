@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from asking import query
 from liberational import vision_log
 from liberational.memory import event_counts, zone_counts
 from liberational.memory import history_qa as h
@@ -66,16 +67,16 @@ def visit(vision, zone, definition, at, dwell, label="cat", ended="left"):
 
 
 def ask(state, question=QUESTION, **query):
-    q = h.parse(question, NOW)
+    q = h.parse(question, NOW, state=state)
     q.update(query)
-    asked = event_counts.wanted(question, state)
+    asked = event_counts.wanted(q, state)
     assert asked is not None
     return event_counts.answer(asked, q, state, h.stamp, LA)
 
 
 def test_a_count_question_naming_a_zone_is_routed_to_it(litter):
     state, *_ = litter
-    assert event_counts.wanted(QUESTION, state) == "Litter box"
+    assert event_counts.wanted(query(QUESTION, state), state) == "Litter box"
 
 
 def test_the_cat_counts_long_visits_joining_a_split_track_and_skipping_passes_and_people(litter):
@@ -208,7 +209,7 @@ def test_a_zone_that_isn_t_drawn_is_not_a_last_seen_question(litter, may):
     state, *_ = litter
     from liberational.memory import subject_activity
 
-    assert subject_activity.last_asked("when did the cat last use the scratching post", state) is None
+    assert subject_activity.last_asked(query("when did the cat last use the scratching post", state), state) is None
 
 
 def test_the_last_litter_box_visit_survives_a_rename_of_the_zone(litter, may):

@@ -383,7 +383,7 @@ def snapshots(monkeypatch):
         asked.append(fresh)
         return SNAPSHOT
 
-    monkeypatch.setattr(server.services, "snapshot", snapshot)
+    monkeypatch.setattr(service_control.services, "snapshot", snapshot)
     return asked
 
 
@@ -437,7 +437,7 @@ def test_each_action_runs_its_pack_services_command(base, pack_services):
 @pytest.mark.parametrize("elapsed", [309, 630], ids=["cold-start-over-five-minutes", "late-recovery"])
 def test_core_install_allows_the_bounded_cascade_to_finish(base, pack_services, monkeypatch, name, elapsed):
     row = {"name": name, "selected": True, "installed": True, "state": "active", "pids": [42]}
-    monkeypatch.setattr(server.services, "snapshot", lambda fresh=False: [row])
+    monkeypatch.setattr(service_control.services, "snapshot", lambda fresh=False: [row])
     pack_services.elapsed = elapsed
     assert call(base, "POST", {"name": name, "action": "on"})[0] == 200
     assert 630 <= pack_services.timeouts[0] <= 900, "cascade plus recovery must remain finitely bounded"
@@ -541,7 +541,7 @@ def test_enable_and_disable_refuse_what_they_cannot_change(base, pack_services, 
     assert call(base, "POST", {"name": "dashboard", "action": "disable"})[0] == 400  # this page runs on it
     assert call(base, "POST", {"name": "see-faces", "action": "enable"})[0] == 409  # selected already
     whisper = {"name": "whisper", "selected": True, "installed": True, "state": "active", "pids": [], "required": True}
-    monkeypatch.setattr(server.services, "snapshot", lambda fresh=False: [whisper])
+    monkeypatch.setattr(service_control.services, "snapshot", lambda fresh=False: [whisper])
     assert call(base, "POST", {"name": "whisper", "action": "disable"})[0] == 409  # asr.engine needs it
     assert pack_services.ran == []
 
@@ -561,7 +561,7 @@ def test_core_repair_keeps_old_processes_visible_to_the_cascade(base, pack_servi
         {"name": name, "selected": True, "installed": True, "state": "active", "pids": [42]}
         for name in ("continuum-broker", "continuum-capture")
     ]
-    monkeypatch.setattr(server.services, "snapshot", lambda fresh=False: [*SNAPSHOT, *core])
+    monkeypatch.setattr(service_control.services, "snapshot", lambda fresh=False: [*SNAPSHOT, *core])
     pack_services.elapsed = 630  # A late failure must still have time to finish diagnostic recovery.
     code, body = call(base, "POST", {"all": "repair"})
     assert (code, body["ok"]) == (200, True)
@@ -572,7 +572,7 @@ def test_core_repair_keeps_old_processes_visible_to_the_cascade(base, pack_servi
 def test_all_off_removes_every_installed_service_but_the_dashboard(base, pack_services, monkeypatch):
     installed_dashboard = {"name": "dashboard", "selected": True, "installed": True, "state": "active", "pids": []}
     monkeypatch.setattr(
-        server.services, "snapshot", lambda fresh=False: [*SNAPSHOT[:3], installed_dashboard, SNAPSHOT[4]]
+        service_control.services, "snapshot", lambda fresh=False: [*SNAPSHOT[:3], installed_dashboard, SNAPSHOT[4]]
     )
     code, body = call(base, "POST", {"all": "off"})
     assert (code, body["ok"]) == (200, True), body
@@ -624,7 +624,9 @@ def test_stats_name_each_service_and_each_ollama_runner_by_its_model(monkeypatch
     ]
     monkeypatch.setattr(proc_table, "table", as_table(lambda: procs))
     monkeypatch.setattr(server.psutil, "Process", {p.pid: p for p in procs}.__getitem__)
-    monkeypatch.setattr(server.services, "processes", lambda fresh=False: {"continuum-broker": [1], "see-faces": [2]})
+    monkeypatch.setattr(
+        service_control.services, "processes", lambda fresh=False: {"continuum-broker": [1], "see-faces": [2]}
+    )
     asked = []
 
     def ollama_blob(name):
@@ -659,7 +661,7 @@ def test_a_runner_s_weights_come_from_its_model_argument():
 def test_stats_asked_again_within_a_second_give_the_same_measurement(monkeypatch):
     # Two pages polling a moment apart: the second read CPU "since the last call" as nearly nothing.
     monkeypatch.setattr(proc_table, "table", dict)
-    monkeypatch.setattr(server.services, "processes", lambda fresh=False: {})
+    monkeypatch.setattr(service_control.services, "processes", lambda fresh=False: {})
     clock = [1000.0]
     monkeypatch.setattr(server.time, "time", lambda: clock[0])
     stats = machine_stats.Stats()
@@ -696,7 +698,7 @@ def test_stats_read_the_cpu_the_same_from_any_request_thread(monkeypatch):
     # psutil 7 keeps cpu_percent's last reading per thread, and each /stats request is a new server thread: it read 0%
     # every time. Two snapshots taken on two fresh threads measure the time between them.
     monkeypatch.setattr(proc_table, "table", dict)
-    monkeypatch.setattr(server.services, "processes", lambda fresh=False: {})
+    monkeypatch.setattr(service_control.services, "processes", lambda fresh=False: {})
     clock = [1000.0]
     monkeypatch.setattr(server.time, "time", lambda: clock[0])
     readings = iter([times(10, 90), times(85, 115)])

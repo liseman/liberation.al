@@ -21,7 +21,16 @@ from hypothesis import strategies as hs
 
 import speech_fake
 from liberational import speech_log
-from liberational.dashboard import context, presence, server, shell_status
+from liberational.dashboard import (
+    context,
+    people_list,
+    presence,
+    server,
+    shell_status,
+    speaker_lines,
+    transcript_lines,
+    unnamed_groups,
+)
 from liberational.domain.identity import Basis
 from liberational.domain.kernel import EventType
 from liberational.memory import history_qa, recall, summarize
@@ -117,8 +126,7 @@ def dashboard(monkeypatch):
     """Point the dashboard server at a state directory, with no password."""
 
     def at(state):
-        for name, file in (("REFINE_LOG", "refine_log.jsonl"),):
-            monkeypatch.setattr(server, name, state / file)
+        monkeypatch.setattr(speaker_lines, "REFINE_LOG", state / "refine_log.jsonl")
         monkeypatch.setattr(context, "STATE", state)
         monkeypatch.setattr(server, "DASH_PASSWORD", "")
         return state
@@ -249,11 +257,11 @@ def test_naming_a_voice_moves_its_lines_without_rewriting_them(written):
 
 def test_labels_unlabels_and_undo_from_the_dashboard(written):
     hand, multi = ts(written, 8), ts(written, 0)
-    assert server.speakers_refine("assign", {"ts_start": hand, "name": "Hana"})[0] == 200
+    assert speaker_lines.speakers_refine("assign", {"ts_start": hand, "name": "Hana"})[0] == 200
     assert names(written)[8] == "Hana"
-    server.speakers_refine("multi", {"ts_start": multi})
+    speaker_lines.speakers_refine("multi", {"ts_start": multi})
     assert names(written)[0] == MULTI
-    server.speakers_refine_undo({"ts_starts": [hand, multi]})
+    speaker_lines.speakers_refine_undo({"ts_starts": [hand, multi]})
     assert (names(written)[0], names(written)[8]) == ("Alice", "Speaker 2")
     md = (written / "transcript" / f"{transcript_view.day_of(T0)}.md").read_text()
     assert "[09:00:00] Alice: line 0" in md  # the day's file was rebuilt
@@ -296,7 +304,7 @@ def test_a_reply_while_the_feed_connects_reaches_it(forgetting, monkeypatch):
     """Finding 11: on connect the feed read the tail, then the assistant's offset, so a reply in between was in
     neither the first batch nor any later read."""
     speech_fake.fake().reply({**REPLY, "text": "first"})
-    real_tail, replied = server.merged_tail, []
+    real_tail, replied = transcript_lines.merged_tail, []
 
     def tail(n=80):
         got = real_tail(n)
@@ -305,7 +313,7 @@ def test_a_reply_while_the_feed_connects_reaches_it(forgetting, monkeypatch):
             reply(forgetting, "REPLY-X")
         return got
 
-    monkeypatch.setattr(server, "merged_tail", tail)
+    monkeypatch.setattr(transcript_lines, "merged_tail", tail)
     sent = [e["text"] for ev in feed(monkeypatch) for e in ev["entries"]]
     assert sent.count("REPLY-X") == 1
 
@@ -568,13 +576,13 @@ def rename_alice(state, newcomer=True):
 
 
 def test_dashboard(heard):
-    assert [e["speaker"] for e in server.merged_tail(10)] == ["Dana", "Alice"]
-    assert [e["speaker"] for e in server.transcript_around(T0, 4)["entries"]] == ["Dana", "Alice"]
-    assert [r["who"] for r in server._room_lines()] == ["Dana", "Alice"]
-    latest = server.latest_for_speaker(1)
+    assert [e["speaker"] for e in transcript_lines.merged_tail(10)] == ["Dana", "Alice"]
+    assert [e["speaker"] for e in transcript_lines.transcript_around(T0, 4)["entries"]] == ["Dana", "Alice"]
+    assert [r["who"] for r in people_list._room_lines()] == ["Dana", "Alice"]
+    latest = speaker_lines.latest_for_speaker(1)
     assert latest is not None
     assert latest["ts_start"] == T0 + 5  # Dana's line is not voice 1's
-    clips, _ = server.voice_clips([{"id": 1, "label": "Alice"}])
+    clips, _ = unnamed_groups.voice_clips([{"id": 1, "label": "Alice"}])
     assert [c["ts"] for c in clips] == [T0 + 5]
 
 
@@ -582,7 +590,7 @@ def test_a_voices_latest_line_is_found_past_a_newer_line_with_no_voice(heard):
     # A newer line with audio but no voice of its own raised KeyError, so the People tab couldn't play the voice.
     unvoiced = {"ts_start": T0 + 8, "ts_end": T0 + 9, "speaker": "", "text": "line 8", "audio": AUDIO}
     write_lines(heard, [*HEARD, unvoiced])
-    latest = server.latest_for_speaker(1)
+    latest = speaker_lines.latest_for_speaker(1)
     assert latest is not None
     assert latest["ts_start"] == T0 + 5
 
@@ -591,7 +599,7 @@ def test_people_views_keep_a_renamed_persons_lines_from_a_newcomer(heard):
     """The roster, a profile's recent lines, and Evidence read a line heard as Alice as of its time: it stays
     Alicia's after someone new is called Alice."""
     rename_alice(heard)
-    assert [r["who"] for r in server._room_lines()] == ["Dana", "Alicia", "Alicia"]
+    assert [r["who"] for r in people_list._room_lines()] == ["Dana", "Alicia", "Alicia"]
 
 
 def test_presence_follows_a_rename(heard):

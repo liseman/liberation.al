@@ -5,7 +5,7 @@ import urllib.parse
 
 import pytest
 
-from liberational.dashboard import server
+from liberational.dashboard import live_status, server
 
 NOW = 1_800_000_000.0
 
@@ -20,7 +20,7 @@ def notes(vision):
 
 
 def test_nearest_note_per_camera_within_the_window(notes):
-    cams = server.history_at(NOW, 20)["cams"]
+    cams = live_status.history_at(NOW, 20)["cams"]
     assert set(cams) == {"cam0", "cam1"}
     assert (cams["cam0"]["caption"], cams["cam0"]["dt"]) == ("Alice at the desk.", -4)
     assert (cams["cam0"]["unchanged"], cams["cam0"]["since"]) == (False, None)
@@ -29,8 +29,8 @@ def test_nearest_note_per_camera_within_the_window(notes):
 
 
 def test_window_is_bounded_and_nothing_in_it_is_empty(notes):
-    assert server.history_at(NOW, 10_000)["window"] == 600
-    assert server.history_at(NOW - 200, 20)["cams"] == {}
+    assert live_status.history_at(NOW, 10_000)["window"] == 600
+    assert live_status.history_at(NOW - 200, 20)["cams"] == {}
 
 
 def test_history_is_for_this_machine_only(serve, monkeypatch):
@@ -75,5 +75,5 @@ def test_remote_history_needs_the_setting_and_a_password(serve, monkeypatch):
 def test_a_note_stored_while_the_view_was_unchanged_shows_its_last_real_caption(vision):
     vision.caption(NOW - 300, "cam0", "Two people on the couch.")
     vision.caption(NOW - 2, "cam0", "Two people on the couch.", unchanged=True, since=NOW - 300, gated=True)
-    cam = server.history_at(NOW, 20)["cams"]["cam0"]
+    cam = live_status.history_at(NOW, 20)["cams"]["cam0"]
     assert (cam["caption"], cam["unchanged"], cam["since"]) == ("Two people on the couch.", True, NOW - 300)

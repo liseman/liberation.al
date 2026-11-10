@@ -221,7 +221,12 @@ fn psnr(a: &[u8], b: &[u8]) -> f64 {
 fn raw_frames_become_h264_chunks_that_start_on_keyframes_and_decode_back() {
     let _gpu = gpu();
     let dir = tempfile::tempdir().unwrap();
-    let settings = FlushSettings { chunk_ns: 1_000_000_000, audio_chunk_ns: 1_000_000_000, sync_ns: 100_000_000 };
+    let settings = FlushSettings {
+        chunk_ns: 1_000_000_000,
+        part_ns: 1_000_000_000,
+        audio_chunk_ns: 1_000_000_000,
+        sync_ns: 100_000_000,
+    };
     let mut w = WorkerLoop::new(dir.path(), settings, Kept::default()).unwrap();
     w.declare(CAM, shape());
     feed(&mut w, 90);
@@ -255,7 +260,12 @@ fn raw_frames_become_h264_chunks_that_start_on_keyframes_and_decode_back() {
 fn a_worker_killed_mid_gop_leaves_a_chunk_recovery_reads_whole() {
     let _gpu = gpu();
     let dir = tempfile::tempdir().unwrap();
-    let settings = FlushSettings { chunk_ns: 10_000_000_000, audio_chunk_ns: 10_000_000_000, sync_ns: 100_000_000 };
+    let settings = FlushSettings {
+        chunk_ns: 10_000_000_000,
+        part_ns: 10_000_000_000,
+        audio_chunk_ns: 10_000_000_000,
+        sync_ns: 100_000_000,
+    };
     let mut w = WorkerLoop::new(dir.path(), settings, Kept::default()).unwrap();
     w.declare(CAM, shape());
     feed(&mut w, 45); // a GOP and a half

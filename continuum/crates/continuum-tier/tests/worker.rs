@@ -97,11 +97,22 @@ impl Outputs for Broker {
             }
         }
         // The catalog refusing the chunk itself is for good, as the broker reports it.
-        self.catalog
-            .commit_chunk_with_provenance(closed.chunk.clone(), &closed.absorbed, closed.provenance.as_ref())
-            .map_err(|e| CommitFailure::Reject(e.to_string()))?;
+        let provenance = closed.provenance.as_ref();
+        let done = if closed.first_frame == 0 {
+            self.catalog.commit_chunk_with_provenance(closed.chunk.clone(), &closed.absorbed, provenance)
+        } else {
+            self.catalog.extend_chunk(closed.chunk.clone(), closed.first_frame, &closed.absorbed, provenance)
+        };
+        done.map_err(|e| CommitFailure::Reject(e.to_string()))?;
         self.committed.borrow_mut().push(closed.path.clone());
         Ok(())
+    }
+
+    fn committed_frames(&mut self, chunk: Uuid) -> Result<Option<usize>, String> {
+        match self.catalog.get(chunk).map_err(|e| e.to_string())? {
+            Some(continuum_catalog::Resolved::Payload(known)) => Ok(known.frames.map(|f| f.len())),
+            _ => Ok(None),
+        }
     }
 
     fn rejected(&mut self, _closed: &Closed, aside: &std::path::Path) {
@@ -115,7 +126,7 @@ fn nothing_is_lost_when_a_ring_that_reuses_only_flushed_slots_wraps_many_times()
     let catalog = Rc::new(MemoryCatalog::new());
     let cam = register_cam(&catalog);
     let broker = Broker { catalog: Rc::clone(&catalog), ..Broker::default() };
-    let settings = FlushSettings { chunk_ns: 700 * MS, audio_chunk_ns: 700 * MS, sync_ns: 200 * MS };
+    let settings = FlushSettings { chunk_ns: 700 * MS, part_ns: 700 * MS, audio_chunk_ns: 700 * MS, sync_ns: 200 * MS };
     let mut w = WorkerLoop::new(dir.path(), settings, broker.clone()).expect("loop");
     w.declare(cam, shape(ChunkFormat::Passthrough));
 
@@ -172,7 +183,7 @@ fn a_failed_commit_is_tried_again_in_order_and_nothing_is_committed_twice() {
     *broker.fail_commits.borrow_mut() = 3;
     let mut w = WorkerLoop::new(
         dir.path(),
-        FlushSettings { chunk_ns: 300 * MS, audio_chunk_ns: 300 * MS, sync_ns: 100 * MS },
+        FlushSettings { chunk_ns: 300 * MS, part_ns: 300 * MS, audio_chunk_ns: 300 * MS, sync_ns: 100 * MS },
         broker.clone(),
     )
     .expect("loop");
@@ -261,7 +272,7 @@ fn a_chunk_the_broker_refuses_for_good_is_set_aside_and_the_rest_go_on() {
     let broker = Broker { catalog: Rc::clone(&catalog), ..Broker::default() };
     let mut w = WorkerLoop::new(
         dir.path(),
-        FlushSettings { chunk_ns: 300 * MS, audio_chunk_ns: 300 * MS, sync_ns: 100 * MS },
+        FlushSettings { chunk_ns: 300 * MS, part_ns: 300 * MS, audio_chunk_ns: 300 * MS, sync_ns: 100 * MS },
         broker.clone(),
     )
     .expect("loop");
@@ -310,7 +321,7 @@ fn a_chunk_a_crash_left_open_commits_with_the_provenance_capture_attested() {
         let broker = Broker { catalog: Rc::clone(&catalog), ..Broker::default() };
         let mut w = WorkerLoop::new(
             dir.path(),
-            FlushSettings { chunk_ns: 10 * S, audio_chunk_ns: 10 * S, sync_ns: 100 * MS },
+            FlushSettings { chunk_ns: 10 * S, part_ns: 10 * S, audio_chunk_ns: 10 * S, sync_ns: 100 * MS },
             broker,
         )
         .expect("loop");
@@ -356,7 +367,7 @@ fn a_chunk_a_crash_left_open_is_committed_when_its_stream_returns_and_not_append
         let broker = Broker { catalog: Rc::clone(&catalog), ..Broker::default() };
         let mut w = WorkerLoop::new(
             dir.path(),
-            FlushSettings { chunk_ns: 10 * S, audio_chunk_ns: 10 * S, sync_ns: 100 * MS },
+            FlushSettings { chunk_ns: 10 * S, part_ns: 10 * S, audio_chunk_ns: 10 * S, sync_ns: 100 * MS },
             broker,
         )
         .expect("loop");
@@ -475,7 +486,7 @@ fn a_microphone_chunk_is_committed_as_opus_with_its_payloads_ids_and_times() {
     let batch = mic_batch(50, tone);
     for on_time in [true, false] {
         let dir = tempfile::tempdir().expect("tempdir");
-        let settings = FlushSettings { chunk_ns: 2 * S, audio_chunk_ns: 2 * S, sync_ns: 200 * MS };
+        let settings = FlushSettings { chunk_ns: 2 * S, part_ns: 2 * S, audio_chunk_ns: 2 * S, sync_ns: 200 * MS };
         let (mut w, broker, mic) = mic_worker(dir.path(), settings);
         let payloads: Vec<Payload> = (1..=2).map(|n| mic_payload(&broker, mic, n, 48_000, &batch)).collect();
         for p in &payloads {
@@ -688,7 +699,7 @@ fn rtsp_access_units_keep_original_bytes_and_decode_order_while_catalog_indexes_
     let stream = rtsp_catalog(&broker.catalog);
     let mut worker = WorkerLoop::new(
         dir.path(),
-        FlushSettings { chunk_ns: 60 * S, audio_chunk_ns: 60 * S, sync_ns: S },
+        FlushSettings { chunk_ns: 60 * S, part_ns: 60 * S, audio_chunk_ns: 60 * S, sync_ns: S },
         broker.clone(),
     )
     .unwrap();
@@ -786,9 +797,12 @@ fn after_a_close_away_from_a_keyframe_a_native_stream_drops_frames_until_its_nex
     let dir = tempfile::tempdir().unwrap();
     let broker = Broker::default();
     let stream = rtsp_catalog(&broker.catalog);
-    let mut worker =
-        WorkerLoop::new(dir.path(), FlushSettings { chunk_ns: S, audio_chunk_ns: S, sync_ns: S }, broker.clone())
-            .unwrap();
+    let mut worker = WorkerLoop::new(
+        dir.path(),
+        FlushSettings { chunk_ns: S, part_ns: S, audio_chunk_ns: S, sync_ns: S },
+        broker.clone(),
+    )
+    .unwrap();
     worker.declare(stream, rtsp_shape());
     for (sequence, key) in [(0, true), (1, false), (2, false)] {
         let frame = rtsp_frame(&broker.catalog, stream, sequence, key);
@@ -814,7 +828,7 @@ fn after_a_close_away_from_a_keyframe_a_native_stream_drops_frames_until_its_nex
 }
 
 #[test]
-fn a_microphone_chunk_stays_open_for_fifteen_seconds_where_video_closes_after_two() {
+fn a_microphone_chunk_stays_open_for_fifteen_seconds_and_is_committed_once() {
     let batch = mic_batch(50, |_| 0.25);
     let dir = tempfile::tempdir().expect("tempdir");
     let (mut w, broker, mic) = mic_worker(dir.path(), FlushSettings::default());
@@ -823,10 +837,188 @@ fn a_microphone_chunk_stays_open_for_fifteen_seconds_where_video_closes_after_tw
         w.payload(&p, p.start_ns).expect("payload");
     }
     w.tick(T0 + 5 * S).expect("tick");
-    assert_eq!(w.counts().committed, 0, "past video's 2 s, an audio chunk is still open");
+    assert_eq!(w.counts().committed, 0, "past video's 2 s parts: an audio chunk has none, and is still open");
     w.tick(T0 + 17 * S).expect("tick");
-    assert_eq!(w.counts().committed, 1, "it closes once 15 s old");
+    assert_eq!(w.counts().committed, 1, "it closes once 15 s old, and is committed whole, as Opus");
     let settings = FlushSettings::default();
-    assert_eq!(settings.open_ns(ChunkFormat::H264Au), 2 * S);
-    assert_eq!(settings.open_ns(ChunkFormat::PcmBatch), 15 * S);
+    assert_eq!((settings.open_ns(ChunkFormat::H264Au), settings.part_ns(ChunkFormat::H264Au)), (60 * S, Some(2 * S)));
+    assert_eq!((settings.open_ns(ChunkFormat::PcmBatch), settings.part_ns(ChunkFormat::PcmBatch)), (15 * S, None));
+}
+
+/// A camera at 10 fps under a chunk length and part cadence scaled down from the defaults' minute and 2 s.
+const TENTH: u64 = 100 * MS;
+
+fn parts_settings() -> FlushSettings {
+    FlushSettings { chunk_ns: 10 * S, part_ns: S, audio_chunk_ns: 10 * S, sync_ns: 200 * MS }
+}
+
+fn feed(w: &mut WorkerLoop<Broker>, catalog: &MemoryCatalog, cam: StreamId, frames: std::ops::Range<u32>) {
+    for i in frames {
+        let t = T0 + u64::from(i) * TENTH;
+        ingest(catalog, uuid(i), cam, t, i);
+        let p = Payload {
+            pcm_rate_hz: 0,
+            id: uuid(i),
+            stream: cam,
+            start_ns: t,
+            end_ns: t,
+            seq: i,
+            bytes: frame_bytes(i),
+            provenance: None,
+        };
+        w.payload(&p, t).expect("payload");
+        w.tick(t).expect("tick");
+    }
+}
+
+/// The stream's chunks in `[T0, T0 + seconds)`: each one's id, file, and frame count.
+fn chunks(catalog: &MemoryCatalog, cam: StreamId, seconds: u64) -> Vec<(Uuid, std::path::PathBuf, usize)> {
+    let page = catalog.range(cam, Interval::new(T0, T0 + seconds * S).expect("window"), None, 10_000).expect("range");
+    page.items
+        .iter()
+        .filter_map(|item| {
+            let Some(StorageLocator::Chunk { uri, .. }) = item.locations.first() else { return None };
+            Some((item.header.id(), std::path::PathBuf::from(uri), item.frames.as_ref()?.len()))
+        })
+        .collect()
+}
+
+#[test]
+fn a_cameras_chunk_is_one_file_and_one_catalog_row_that_takes_its_frames_in_parts() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let catalog = Rc::new(MemoryCatalog::new());
+    let cam = register_cam(&catalog);
+    let broker = Broker { catalog: Rc::clone(&catalog), ..Broker::default() };
+    let mut w = WorkerLoop::new(dir.path(), parts_settings(), broker.clone()).expect("loop");
+    w.declare(cam, shape(ChunkFormat::Passthrough));
+
+    // Five seconds in, the chunk is still open (it closes at ten), and the catalog already holds what is older than
+    // a part: one row, whose frames read back from the file that is still being written.
+    feed(&mut w, &catalog, cam, 0..50);
+    let open = chunks(&catalog, cam, 5);
+    assert_eq!(open.len(), 1, "one row for the open file: {open:?}");
+    assert!(open[0].2 >= 40, "every frame older than a part is in it: {}", open[0].2);
+    assert!(
+        matches!(catalog.get(uuid(30)).expect("get"), Some(continuum_catalog::Resolved::AbsorbedFrame { .. })),
+        "a frame from two seconds ago left Tier 0's index for the chunk"
+    );
+    assert!(broker.flushed.borrow().contains(&uuid(39)));
+    assert!(!continuum_tier::ChunkReader::open(&open[0].1).expect("open").finalized(), "no footer yet");
+    let slice = hydrate(&open[0].1, T0 + 3 * S, T0 + 3 * S + TENTH).expect("hydrate the open file");
+    assert_eq!(slice.iter().map(|h| h.bytes.clone()).collect::<Vec<_>>(), [frame_bytes(30)]);
+    let parts_so_far = w.counts().committed;
+    assert!((4..=5).contains(&parts_so_far), "a commit a second: {parts_so_far}");
+
+    feed(&mut w, &catalog, cam, 50..250);
+    w.shutdown().expect("shutdown");
+    assert_eq!((w.uncommitted(), w.counts().rejected, w.counts().rehomed), (0, 0, 0));
+    // 25 seconds of video: three files (ten seconds, ten, and five), three rows, every frame in exactly one.
+    let all = chunks(&catalog, cam, 30);
+    assert_eq!(all.iter().map(|c| c.2).collect::<Vec<_>>(), [100, 100, 50]);
+    assert_eq!(continuum_tier::layout::chunk_paths(dir.path(), None).expect("list").len(), 3);
+    let files_committed: BTreeSet<_> = broker.committed.borrow().iter().cloned().collect();
+    assert_eq!(files_committed.len(), 3);
+    assert!(w.counts().committed >= 23, "a part a second: {}", w.counts().committed);
+    for (id, path, frames) in &all {
+        assert_eq!(continuum_tier::layout::chunk_id_of(path), Some(*id), "a chunk's id is its file's");
+        let reader = continuum_tier::ChunkReader::open(path).expect("open");
+        assert!(reader.finalized());
+        assert_eq!(reader.records().len(), *frames, "the file and its row agree");
+    }
+    assert_eq!(hydrate(&all[1].1, T0 + 15 * S, T0 + 15 * S + TENTH).expect("hydrate")[0].bytes, frame_bytes(150));
+}
+
+#[test]
+fn a_part_refused_because_a_forget_hid_its_chunk_moves_to_a_new_chunk() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let catalog = Rc::new(MemoryCatalog::new());
+    let cam = register_cam(&catalog);
+    let broker = Broker { catalog: Rc::clone(&catalog), ..Broker::default() };
+    let mut w = WorkerLoop::new(dir.path(), parts_settings(), broker.clone()).expect("loop");
+    w.declare(cam, shape(ChunkFormat::Passthrough));
+    feed(&mut w, &catalog, cam, 0..35);
+    let (old_id, old_path, held) = chunks(&catalog, cam, 5).remove(0);
+    // Forget everything so far. The purge hides the open chunk; the worker hasn't heard of it yet.
+    let range = continuum_catalog::PurgeSelector::Range {
+        span: Interval::new(T0, T0 + 35 * TENTH).expect("span"),
+        streams: Some(vec![cam]),
+    };
+    catalog.start_purge(range, "privacy", "", uuid(9_000), 1).expect("start");
+    for _ in 0..8 {
+        if catalog.get(old_id).expect("get").is_none() {
+            break;
+        }
+        catalog.purge_step(uuid(9_000), 1).expect("step");
+    }
+    assert!(catalog.get(old_id).expect("get").is_none(), "hidden");
+
+    // Frames keep coming. The next part is refused for good, and what the catalog doesn't hold moves out.
+    feed(&mut w, &catalog, cam, 35..60);
+    assert_eq!((w.counts().rehomed, w.counts().rejected), (1, 0));
+    let old = continuum_tier::ChunkReader::open(&old_path).expect("the old file stays, for the purge");
+    assert!(old.finalized());
+    assert_eq!(old.records().len(), held, "it keeps exactly what its chunk names");
+    w.shutdown().expect("shutdown");
+    assert_eq!(w.uncommitted(), 0);
+
+    // Every frame after the forgotten span is in a chunk the catalog shows, and reads back.
+    let after = chunks(&catalog, cam, 10);
+    assert!(after.iter().all(|c| c.0 != old_id));
+    for i in 35..60u32 {
+        let t = T0 + u64::from(i) * TENTH;
+        let got: Vec<Vec<u8>> =
+            after.iter().flat_map(|c| hydrate(&c.1, t, t + 1).expect("hydrate")).map(|h| h.bytes).collect();
+        assert_eq!(got, [frame_bytes(i)], "frame {i}");
+    }
+    let moved = broker.committed.borrow().iter().find(|p| **p != old_path).cloned().expect("a new chunk");
+    let first = continuum_tier::ChunkReader::open(&moved).expect("open").records()[0];
+    assert_eq!(first.id, uuid(u32::try_from(held).expect("small")), "it starts where the catalog's chunk stopped");
+}
+
+#[test]
+fn a_crash_between_parts_commits_only_what_the_catalog_lacks() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let catalog = Rc::new(MemoryCatalog::new());
+    let cam = register_cam(&catalog);
+    // The first run commits three parts of its open chunk and dies with six more frames in the file.
+    let held = {
+        let broker = Broker { catalog: Rc::clone(&catalog), ..Broker::default() };
+        let mut w = WorkerLoop::new(dir.path(), parts_settings(), broker).expect("loop");
+        w.declare(cam, shape(ChunkFormat::Passthrough));
+        feed(&mut w, &catalog, cam, 0..36);
+        std::mem::forget(w);
+        chunks(&catalog, cam, 5).remove(0)
+    };
+    assert_eq!(held.2, 30, "parts at 1, 2, and 3 seconds, each cut as the next frame lands");
+
+    let broker = Broker { catalog: Rc::clone(&catalog), ..Broker::default() };
+    let mut w = WorkerLoop::new(dir.path(), parts_settings(), broker.clone()).expect("loop");
+    w.recovered(continuum_tier::recover(dir.path()).expect("recover"));
+    w.declare(cam, shape(ChunkFormat::Passthrough));
+    assert_eq!((w.counts().recovered, w.counts().committed, w.counts().rejected), (1, 1, 0));
+    let whole = chunks(&catalog, cam, 5);
+    assert_eq!(whole, [(held.0, held.1.clone(), 36)], "the same chunk, with the six frames it lacked");
+    // The broker sends the unacknowledged frames again: they are in the recovered chunk, not appended twice.
+    let again = Payload {
+        pcm_rate_hz: 0,
+        id: uuid(33),
+        stream: cam,
+        start_ns: T0 + 33 * TENTH,
+        end_ns: T0 + 33 * TENTH,
+        seq: 33,
+        bytes: frame_bytes(33),
+        provenance: None,
+    };
+    assert_eq!(w.payload(&again, T0 + 4 * S).expect("payload"), Appended::Recovered);
+    w.shutdown().expect("shutdown");
+
+    // A third start finds the same file finished and whole in the catalog: nothing to commit.
+    let broker = Broker { catalog: Rc::clone(&catalog), ..Broker::default() };
+    let mut w = WorkerLoop::new(dir.path(), parts_settings(), broker.clone()).expect("loop");
+    let found = continuum_tier::recover(dir.path()).expect("recover");
+    assert_eq!(found.len(), 1, "the stream's newest finished chunk comes back to be checked");
+    w.recovered(found);
+    w.declare(cam, shape(ChunkFormat::Passthrough));
+    assert_eq!((w.counts().recovered, w.counts().committed), (0, 0));
+    assert_eq!(chunks(&catalog, cam, 5).len(), 1);
 }

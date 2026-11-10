@@ -14,7 +14,7 @@ import pytest
 from liberational import config as cfg
 from liberational.assistant import voice
 from liberational.assistant.voice_auth import Grant
-from liberational.dashboard import context, server
+from liberational.dashboard import context, known_voices, people_list, people_reads, people_writes, server
 from liberational.people import identity, registry, tags
 from speech_fake import fake
 from voices import write_voices
@@ -154,7 +154,7 @@ TYPED = {
 
 @pytest.mark.parametrize(("text", "want"), TYPED.items(), ids=TYPED)
 def test_a_typed_tag_is_parsed(text, want):
-    t = server._typed_tag(text)
+    t = people_writes._typed_tag(text)
     assert ((t.name, t.role, t.organization) if t else None) == want
 
 
@@ -296,24 +296,23 @@ def test_a_spoken_tag_gives_the_person_attributes_only_with_the_flag_on(tmp_path
 @pytest.fixture
 def dash(tmp_path, monkeypatch):
     """The dashboard's people reads and writes on a temp state dir."""
-    for name, path in (
-        ("PEOPLE_ADDED", tmp_path / "people_added.json"),
-        ("CONTACTS_FILE", tmp_path / "contacts.json"),
-    ):
+    for name, path in ():
         monkeypatch.setattr(server, name, path)
+    monkeypatch.setattr(people_list, "PEOPLE_ADDED", tmp_path / "people_added.json")
+    monkeypatch.setattr(people_list, "CONTACTS_FILE", tmp_path / "contacts.json")
     monkeypatch.setattr(context, "STATE", tmp_path)
     return tmp_path
 
 
 def roster():
-    return {p["name"]: p for p in server.people_roster()}
+    return {p["name"]: p for p in people_list.people_roster()}
 
 
 def test_adding_a_person_typed_with_a_role(dash):
-    tag = server._typed_tag("Alice, CEO of Acme")
+    tag = people_writes._typed_tag("Alice, CEO of Acme")
     assert tag is not None
-    server.add_person("Alice", **tag.attributes())
-    server.add_person("Dana Cole")
+    people_writes.add_person("Alice", **tag.attributes())
+    people_writes.add_person("Dana Cole")
     people = roster()
     assert (people["Alice"]["role"], people["Alice"]["organization"]) == ("CEO", "Acme")
     assert "role" not in people["Dana Cole"]
@@ -327,16 +326,16 @@ def test_the_roster_opens_no_log_that_is_not_there(dash):
 
 
 def test_describing_a_person_sets_and_clears_role_and_organization(dash):
-    server.add_person("Dana")
-    code, body = server.describe_person("dana", role="CTO", organization="Initech", control=True)
+    people_writes.add_person("Dana")
+    code, body = people_writes.describe_person("dana", role="CTO", organization="Initech", control=True)
     assert (code, body["name"], body["role"], body["organization"]) == (200, "Dana", "CTO", "Initech")
-    code, body = server.describe_person("Dana", role="", control=True)
+    code, body = people_writes.describe_person("Dana", role="", control=True)
     assert (code, body.get("role"), body["organization"]) == (200, None, "Initech")
-    assert server.describe_person("Nobody", role="CEO", control=True)[0] == 404
-    assert server.describe_person("Dana", control=True)[0] == 400
-    assert server.describe_person("Dana", role="x" * 81, control=True)[0] == 400
-    assert server.describe_person("Dana", role=7, control=True)[0] == 400
-    summary = server.person_summary("Dana")
+    assert people_writes.describe_person("Nobody", role="CEO", control=True)[0] == 404
+    assert people_writes.describe_person("Dana", control=True)[0] == 400
+    assert people_writes.describe_person("Dana", role="x" * 81, control=True)[0] == 400
+    assert people_writes.describe_person("Dana", role=7, control=True)[0] == 400
+    summary = people_reads.person_summary("Dana")
     assert summary is not None
     assert (summary.get("role"), summary["organization"]) == (None, "Initech")
 
@@ -347,7 +346,7 @@ def test_describing_a_person_sets_and_clears_role_and_organization(dash):
 )
 def test_the_describe_route_writes_only_for_this_machine(dash, serve, monkeypatch, host, code, role):
     monkeypatch.setattr(server, "DASH_PASSWORD", "")
-    server.add_person("Dana")
+    people_writes.add_person("Dana")
     c = http.client.HTTPConnection("127.0.0.1", urllib.parse.urlsplit(serve(server.H)).port, timeout=5)
     body = json.dumps({"name": "Dana", "role": "CTO"})
     c.request("POST", "/people/describe", body, {"Content-Type": "application/json", "Host": host})
@@ -361,7 +360,7 @@ def test_the_describe_route_writes_only_for_this_machine(dash, serve, monkeypatc
 def test_a_failing_log_is_reported_when_describing(dash):
     (dash / "people_added.json").write_text(json.dumps(["Dana"]))
     with patch.object(registry, "at", autospec=True, side_effect=OSError("disk full")):
-        code, body = server.describe_person("Dana", role="CTO", control=True)
+        code, body = people_writes.describe_person("Dana", role="CTO", control=True)
     assert code == 500
     assert "disk full" in body["error"]
 
@@ -369,10 +368,10 @@ def test_a_failing_log_is_reported_when_describing(dash):
 def test_claiming_with_a_role_records_it_only_once_the_claim_stands(dash):
     write_voices(dash, {2: None})
     fake().say({"ts_start": 10.0, "text": "Hi.", "speaker_id": 2})  # heard, so on the voice list
-    with patch.object(server, "_speaker_cmds", autospec=True, return_value=(True, "")):
-        assert server.claim_identity("voice", 9, "Erin, CEO of Acme", control=True)[0] == 404
+    with patch.object(known_voices, "_speaker_cmds", autospec=True, return_value=(True, "")):
+        assert people_writes.claim_identity("voice", 9, "Erin, CEO of Acme", control=True)[0] == 404
         assert person(dash, "Erin") is None
-        code, body = server.claim_identity("voice", 2, "Erin, CEO of Acme", control=True)
+        code, body = people_writes.claim_identity("voice", 2, "Erin, CEO of Acme", control=True)
     assert (code, body["name"]) == (200, "Erin")
     p = person(dash, "Erin")
     assert (p.role, p.organization) == ("CEO", "Acme")
