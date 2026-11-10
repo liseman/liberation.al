@@ -150,7 +150,7 @@ def test_records_go_in_decode_order_not_time_order(monkeypatch):
         async def query(self, stream, lo, hi):
             return {"items": items}
 
-    async def records(client, stream, item, *, start_ns, end_ns):
+    async def records(client, stream, item, *, root, start_ns, end_ns):
         return [
             vision_log.read.Record(payload, T0 + at_s * S, T0 + at_s * S, payload.encode(), None)
             for payload, at_s in stored[id(item["header"])]

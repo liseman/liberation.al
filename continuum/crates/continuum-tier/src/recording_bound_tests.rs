@@ -109,7 +109,7 @@ fn an_instant_originals_own_samples_bound_its_end_and_free_its_stream() {
     let [original] = &originals[..] else { panic!("one instant original") };
     assert_eq!((original.original, original.frame), (ORIGINAL, Some((CHUNK, 0))));
     // 3200 frames at 16 kHz is 200 ms, widened by 1000 ppm (0.2 ms) and one 10 ms block.
-    let end = bounded_end(&c, original, Some(100.0)).unwrap();
+    let end = bounded_end(&c, std::path::Path::new("/"), original, Some(100.0)).unwrap();
     assert_eq!(end, START + 210_200_000);
     assert!(c.bound_instant_original(ORIGINAL, end).unwrap());
     assert!(page(&c, stream, START - 10, START - 5).history_known);
@@ -122,7 +122,7 @@ fn a_stream_rate_that_disagrees_with_the_batch_leaves_the_original_held() {
     let originals = c.instant_originals().unwrap();
     let [original] = &originals[..] else { panic!("one instant original") };
     // 160-frame blocks at 16 kHz are 100 a second; a stream declaring 50 disagrees. The end is still reported.
-    let why = bounded_end(&c, original, Some(50.0)).unwrap_err();
+    let why = bounded_end(&c, std::path::Path::new("/"), original, Some(50.0)).unwrap_err();
     assert!(why.contains("declares Some(50.0)") && why.contains(&format!("{}", START + 210_200_000)), "{why}");
 }
 
@@ -140,7 +140,7 @@ fn an_original_whose_frame_row_was_pruned_is_found_by_its_start() {
     let dir = tempfile::tempdir().unwrap();
     let (c, _) = fixture(dir.path());
     let original = pruned(&c);
-    assert_eq!(bounded_end(&c, &original, Some(100.0)).unwrap(), START + 210_200_000);
+    assert_eq!(bounded_end(&c, std::path::Path::new("/"), &original, Some(100.0)).unwrap(), START + 210_200_000);
 }
 
 #[test]
@@ -148,7 +148,7 @@ fn an_opus_copy_bounds_the_same_end_as_the_pcm_it_was_encoded_from() {
     let dir = tempfile::tempdir().unwrap();
     let (c, _) = fixture_with(dir.path(), ORIGINAL, true);
     let original = pruned(&c);
-    assert_eq!(bounded_end(&c, &original, Some(100.0)).unwrap(), START + 210_200_000);
+    assert_eq!(bounded_end(&c, std::path::Path::new("/"), &original, Some(100.0)).unwrap(), START + 210_200_000);
 }
 
 #[test]
@@ -156,6 +156,6 @@ fn a_frame_at_its_start_holding_another_record_leaves_the_original_held() {
     let dir = tempfile::tempdir().unwrap();
     let (c, _) = fixture_with(dir.path(), Uuid([9; 16]), false);
     let original = pruned(&c);
-    let why = bounded_end(&c, &original, Some(100.0)).unwrap_err();
+    let why = bounded_end(&c, std::path::Path::new("/"), &original, Some(100.0)).unwrap_err();
     assert!(why.contains("own record"), "{why}");
 }

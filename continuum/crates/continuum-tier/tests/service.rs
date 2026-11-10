@@ -73,6 +73,7 @@ fn every_frame_a_producer_writes_into_tier_0_reaches_a_committed_chunk() {
     let settings = Settings {
         socket: socket.clone(),
         chunk_dir: chunk_dir.clone(),
+        data_root: None,
         // The second stream isn't registered: the worker follows the first and tries the second again later.
         streams: vec!["cam0.video".into(), "cam9.video".into()],
         flush: FlushSettings {
@@ -208,6 +209,7 @@ fn every_ring_batch_a_microphone_writes_reaches_a_committed_chunk() {
     let settings = Settings {
         socket: socket.clone(),
         chunk_dir: chunk_dir.clone(),
+        data_root: None,
         streams: vec!["mic.audio".into()],
         flush: FlushSettings {
             chunk_ns: 500_000_000,
@@ -334,6 +336,7 @@ fn a_ring_carved_after_the_worker_subscribed_ends_its_run_and_the_next_run_in_th
     let settings = Settings {
         socket: socket.clone(),
         chunk_dir: dir.path().join("tier"),
+        data_root: None,
         streams: vec!["mic.audio".into()],
         flush: FlushSettings {
             chunk_ns: 500_000_000,
@@ -429,6 +432,8 @@ fn a_purge_reaches_the_chunk_files_and_is_acknowledged() {
     let settings = Settings {
         socket: socket.clone(),
         chunk_dir: chunk_dir.clone(),
+        // Relative locators (#62): the purge must find them in its known map and rewrite them relative.
+        data_root: Some(dir.path().to_path_buf()),
         streams: vec!["cam0.video".into()],
         flush: FlushSettings {
             chunk_ns: 300_000_000,
@@ -523,8 +528,10 @@ fn a_purge_reaches_the_chunk_files_and_is_acknowledged() {
     let mut cut_starts = Vec::new();
     for item in &page.items {
         let Some(StorageLocator::Chunk { uri, length, .. }) = item.locations.first() else { panic!("a chunk") };
-        assert_eq!(*length, std::fs::metadata(uri).unwrap().len(), "the catalog has the file's length");
-        let file = continuum_tier::ChunkReader::open(std::path::Path::new(uri)).unwrap();
+        assert!(uri.starts_with("tier/"), "stored relative to the data root, rewrite included: {uri}");
+        let path = continuum_core::chunk_path::resolve(dir.path(), uri);
+        assert_eq!(*length, std::fs::metadata(&path).unwrap().len(), "the catalog has the file's length");
+        let file = continuum_tier::ChunkReader::open(&path).unwrap();
         for (f, r) in item.frames.as_ref().unwrap().iter().zip(file.records()) {
             assert_eq!((f.offset, f.cut), (r.offset, r.cut), "the catalog's frame index is the file's");
             if f.cut {
@@ -568,6 +575,7 @@ fn derived_copy_case(late_after_purge: bool, register_after_start: bool) {
             Settings {
                 socket: socket.clone(),
                 chunk_dir: chunk_dir.clone(),
+                data_root: None,
                 streams: vec![],
                 flush: FlushSettings::default(),
                 tick: Duration::from_millis(5),
@@ -664,6 +672,7 @@ fn derived_copy_case(late_after_purge: bool, register_after_start: bool) {
             Settings {
                 socket: socket.clone(),
                 chunk_dir: chunk_dir.clone(),
+                data_root: None,
                 streams: vec![],
                 flush: FlushSettings::default(),
                 tick: Duration::from_millis(5),
@@ -781,6 +790,7 @@ fn the_av1_archive_pass_converts_a_committed_chunk_and_the_catalog_follows() {
     let settings = Settings {
         socket: socket.clone(),
         chunk_dir: chunk_dir.clone(),
+        data_root: None,
         streams: vec!["cam0.video".into()],
         flush: FlushSettings {
             chunk_ns: 60_000_000_000,
@@ -847,6 +857,7 @@ fn the_av1_archive_pass_converts_a_committed_chunk_and_the_catalog_follows() {
         Settings {
             socket: socket.clone(),
             chunk_dir: chunk_dir.clone(),
+            data_root: None,
             // cam9 isn't registered: the pass's queries for it are refused and it goes on with cam0.
             streams: vec!["cam0.video".into(), "cam9.video".into()],
             flush: FlushSettings::default(),
@@ -933,6 +944,7 @@ fn a_dropped_undecodable_frame_gives_its_tier_0_slot_back() {
     let settings = Settings {
         socket: socket.clone(),
         chunk_dir: dir.path().join("tier"),
+        data_root: None,
         streams: vec!["patio.video".into()],
         flush: FlushSettings::default(),
         tick: Duration::from_millis(20),

@@ -1596,11 +1596,15 @@ The caller's API is the same for every tier; only the latency differs, and the q
 
 A query for a stream's own data needs no hydrate. Once the tier worker flushes a stream's payloads, the catalog
 keeps the chunk as one payload whose Chunk locator names the whole file, and the payloads it absorbed are its
-records, each with its own id and time. A consumer on the same machine reads the records itself. In Python,
+records, each with its own id and time. A Chunk locator names a file under the data root (the state directory that holds
+`continuum/`, each service's `--state-dir`) relative to it, such as `continuum/tier/<stream>/<hour>/<id>.cnk`, and
+every reader joins it to its own configured root (`continuum_core::chunk_path`), so a moved install still reads its
+older chunks; only a file outside the root (a v1 recording registered in place) keeps an absolute path. Catalogs
+from before this are rewritten once by `continuum-relative-locators` (MIGRATING.md). A consumer on the same machine reads the records itself. In Python,
 `continuum_py.read.records` turns any query item into its payloads (inline bytes, a Tier 0 slot copied under a lease
 that must still be valid after the copy, or a chunk's live records in a time range). When the locator went stale
 between the query and the read (a flush freed the slot, a purge took the chunk), it looks again over the item's own
-span, once, for the item or the chunk that absorbed it; an item purged by then reads as None. The chunk file is open
+span, once, for the item or the chunk that absorbed it; an item purged by then reads as None. A chunk the catalog still names after that second look, but whose file isn't on disk, raises `ChunkMissing` with the path (logged once per file), since asking again can't find it. The chunk file is open
 only during the read, so a purge's rewrite (a new file renamed over the old) or unlink is never held up. Hydrate
 jobs are for compute inputs, which need the bytes in Tier 0 slots.
 

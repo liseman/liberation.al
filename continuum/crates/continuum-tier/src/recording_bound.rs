@@ -2,6 +2,8 @@
 //! frame's batch (CPB2, or the Opus batch Tier 2 re-encoded it to) says how many sample frames it holds and at what
 //! true rate.
 
+use std::path::Path;
+
 use continuum_catalog::{Catalog, InstantOriginal, Resolved};
 use continuum_core::{Interval, StorageLocator, StorageTier, Uuid};
 
@@ -18,9 +20,17 @@ pub const DRIFT: f64 = 1e-3;
 /// The frame is found through the original's frame row, or, once that row is pruned (an hour after its chunk ends),
 /// among the stream's chunks with an uncut frame at the original's start.
 ///
+/// `root` is the data root (the state directory that holds `continuum/`), which relative chunk locators name files
+/// under.
+///
 /// # Errors
 /// Why the original is left as it is.
-pub fn bounded_end(c: &dyn Catalog, original: &InstantOriginal, stream_rate: Option<f64>) -> Result<u64, String> {
+pub fn bounded_end(
+    c: &dyn Catalog,
+    root: &Path,
+    original: &InstantOriginal,
+    stream_rate: Option<f64>,
+) -> Result<u64, String> {
     let candidates = match original.frame {
         Some(frame) => vec![frame],
         None => frames_at(c, original)?,
@@ -30,7 +40,7 @@ pub fn bounded_end(c: &dyn Catalog, original: &InstantOriginal, stream_rate: Opt
     }
     let mut why = String::new();
     for (chunk, index) in candidates {
-        match own_record(c, original, chunk, index) {
+        match own_record(c, root, original, chunk, index) {
             Ok(Some(bytes)) => return end_of(original, &bytes, stream_rate),
             Ok(None) => why = "no chunk frame at its start is this original's own record".into(),
             Err(e) => return Err(e),
@@ -62,7 +72,13 @@ fn frames_at(c: &dyn Catalog, original: &InstantOriginal) -> Result<Vec<(Uuid, u
 
 /// The record bytes of frame `index` of `chunk` when that record absorbed this original at its start; `None` when it
 /// is some other record.
-fn own_record(c: &dyn Catalog, original: &InstantOriginal, chunk: Uuid, index: u32) -> Result<Option<Vec<u8>>, String> {
+fn own_record(
+    c: &dyn Catalog,
+    root: &Path,
+    original: &InstantOriginal,
+    chunk: Uuid,
+    index: u32,
+) -> Result<Option<Vec<u8>>, String> {
     let Some(Resolved::Payload(indexed)) = c.get(chunk).map_err(|e| e.to_string())? else {
         return Err(format!("chunk {chunk} isn't cataloged"));
     };
@@ -74,7 +90,7 @@ fn own_record(c: &dyn Catalog, original: &InstantOriginal, chunk: Uuid, index: u
         })
     };
     let uri = chunk_uri(Some(StorageTier::Tier1Warm)).or_else(|| chunk_uri(None)).ok_or("its chunk has no file")?;
-    let file = std::path::absolute(uri.strip_prefix("file://").unwrap_or(&uri)).map_err(|e| e.to_string())?;
+    let file = continuum_core::chunk_path::resolve(root, &uri);
     let mut reader = ChunkReader::open(&file).map_err(|e| e.to_string())?;
     let record = *reader.records().get(index as usize).ok_or("its frame index is past the chunk's records")?;
     if record.id != original.original || record.start_ns != original.start_ns || record.cut {

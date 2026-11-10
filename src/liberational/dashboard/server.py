@@ -845,10 +845,15 @@ class H(http.server.BaseHTTPRequestHandler):
 
     def clip(self, entry: dict[str, Any], info: bool = False) -> None:
         """A line's audio as a WAV (line_clip), or with `info` what it holds."""
+        from continuum_py.read import ChunkMissing  # with the reader, like the module's other continuum_py imports
+
         if not transcript_lines.has_audio(entry):
             return self._json({"ok": False, "error": "no audio for that utterance"}, 404)
         try:
             data, meta = transcript_lines.line_clip(entry)
+        except ChunkMissing as e:
+            # The catalog names a chunk file that isn't on disk (logged once per file where it's read).
+            return self._json({"ok": False, "error": f"the audio's chunk file is missing: {e.filename}"}, 404)
         except Exception as e:
             log("clip error:", repr(e), level=logs.ERROR)
             return self._json({"ok": False, "error": repr(e)[:200]}, 500)

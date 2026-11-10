@@ -191,13 +191,23 @@ pub struct Session {
     broker: Option<BrokerLink>,
     /// The segment store (`<state>/segments`), for the overlay streams it holds (see [`segment_overlays`]).
     segments: Option<PathBuf>,
+    /// The data root (`--state-dir`), which relative chunk locators name files under
+    /// ([`continuum_core::chunk_path`]). Empty until [`Session::with_data_root`]: the working directory.
+    data_root: PathBuf,
 }
 
 impl Session {
     /// Sessions over `source`, advertising `webtransport` when it's on, for browsers the `origins` policy allows.
     #[must_use]
     pub fn new(source: Arc<ChunkSource>, webtransport: Option<WebTransportEndpoint>, origins: OriginPolicy) -> Self {
-        Self { source, webtransport, origins, broker: None, segments: None }
+        Self { source, webtransport, origins, broker: None, segments: None, data_root: PathBuf::new() }
+    }
+
+    /// Reads relative chunk locators as files under `root`, the state directory that holds `continuum/`.
+    #[must_use]
+    pub fn with_data_root(mut self, root: PathBuf) -> Self {
+        self.data_root = root;
+        self
     }
 
     /// Reads the overlay streams the segment store holds ([`segment_overlays::STREAMS`]) from `root`.
@@ -839,7 +849,7 @@ impl Session {
                     if !chunks_seen.insert((uri.clone(), item.header.id())) {
                         continue;
                     }
-                    let path = Path::new(uri.strip_prefix("file://").unwrap_or(uri));
+                    let path = &continuum_core::chunk_path::resolve(&self.data_root, uri);
                     let budget = max.saturating_add(1).saturating_sub(keyed.len());
                     // A file registered in place: an MP4 at its own path, read by GOP.
                     if item.header.shape_name() == continuum_tier::inplace_video::SHAPE {
@@ -998,7 +1008,7 @@ impl Session {
                     if !seen.insert((uri.clone(), item.header.id())) {
                         continue;
                     }
-                    let path = Path::new(uri.strip_prefix("file://").unwrap_or(uri));
+                    let path = &continuum_core::chunk_path::resolve(&self.data_root, uri);
                     let (mut frames, lost) = ChunkSource::chunk_frames_snapshot(
                         path,
                         stream,

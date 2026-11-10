@@ -50,6 +50,33 @@ mise run continuum-release
 
 Build first: the reset starts the broker and the tier worker again, and they have to be the new ones.
 
+## Chunk locators are relative to the state directory (2026-11-09)
+
+The catalog used to store each Tier 1 and Tier 2 chunk's file as an absolute path, so an install whose checkout (and
+`data/`) moved could no longer read any older audio or video. New chunks are stored relative to the state directory
+(`paths.state`, the one that holds `continuum/`), and every reader joins them to its own configured state directory.
+A catalog reset (such as the one for format 8, above) starts with relative locators and needs nothing more. Otherwise
+a one-off migration rewrites the locators already in the catalog. It takes the broker's lock and refuses to run while
+the broker holds it, is safe to run again (a second run rewrites nothing), and commits in short batches. From the live
+checkout, after the pull:
+
+```sh
+mise run continuum-release                     # builds continuum-relative-locators with the daemons
+mise run continuum-py-ffmpeg                   # the Python SDK, whose recent-window reader takes the root now
+uv run --no-sync pack-services stop continuum-broker
+continuum/target/release/continuum-relative-locators --catalog data/state/continuum/catalog.redb
+uv run --no-sync pack-services restart --cascade
+uv run --no-sync pack-services restart continuum-gateway dashboard
+```
+
+Use your own `paths.state` in the `--catalog` path if it isn't `data/state`. The cascade starts the broker again and
+restarts every service that reads chunks with the new code (a reader still on the old code would read a relative
+locator against its working directory); it leaves the gateway and the dashboard running, hence the last line. The
+migration prints how many locator rows it looked at and how many it rewrote. A locator that names a file outside any
+state directory (a v1 recording registered in place) keeps its absolute path. A link from an old checkout's `data/`
+to the new one is no longer needed once this has run. A chunk the catalog names but whose file is gone now reads as
+missing (one error per file in the reader's log, a 404 from `/clip`), not as a stale locator.
+
 ## Questions are read by the local model
 
 Ask and the voice loop no longer read a question's time, people, and kind with patterns. The local model reads each

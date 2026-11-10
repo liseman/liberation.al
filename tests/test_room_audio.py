@@ -1,9 +1,11 @@
 """room_audio: a ring batch from a flushed chunk split back into its records, the layout read from the batch itself."""
 
+import asyncio
+
 import numpy as np
 import pytest
 
-from liberational import room_audio
+from liberational import continuum_link, room_audio, vision_log
 from liberational.listen.pcm import STAMP
 
 
@@ -63,3 +65,20 @@ def test_explicit_archive_format_uses_true_rate_and_stride_despite_jitter(span_n
 def test_invalid_explicit_archive_format_does_not_fall_back_to_guessing(format):
     data = batch("F32LE", 1, 120, 3, "<f4")
     assert room_audio.split_batch("PCM_F32LEx1", data, 30_000_000, format) is None
+
+
+def test_a_chunk_file_the_catalog_names_but_that_is_missing_is_raised_not_read_as_silence(monkeypatch, tmp_path):
+    from continuum_py import read  # continuum_py is imported where it's used (TID253)
+
+    header, _ = vision_log.encode(vision_log.OBJECTS, 1, {"cam": "cam0", "objects": {}, "ts_start": 0.0})
+    item = {"header": header, "locator": {"kind": "Chunk", "uri": "continuum/tier/1/h/gone.cnk"}}
+
+    class Catalog:
+        async def query(self, stream, start_ns, end_ns, *, all=False):
+            return {"items": [item]}
+
+    monkeypatch.setattr(read, "read_chunk_records", lambda uri, start_ns, end_ns: None)
+    monkeypatch.setattr(continuum_link, "data_root", lambda: tmp_path)
+    with pytest.raises(read.ChunkMissing) as missing:
+        asyncio.run(room_audio.read(Catalog(), "kitchen.audio", 0, 1_000_000_000))  # ty: ignore[invalid-argument-type] - a fake client with query only
+    assert missing.value.filename == str(tmp_path / "continuum/tier/1/h/gone.cnk")

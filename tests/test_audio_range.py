@@ -123,3 +123,20 @@ def test_a_lines_clip_plays_its_own_stretch_and_says_when_nothing_was_kept(kept,
     with pytest.raises(urllib.error.HTTPError) as no_audio:
         urllib.request.urlopen(base + f"/clip?line=kitchen@{T0 + 60:.3f}", timeout=5)
     assert no_audio.value.code == 404
+
+
+def test_a_clip_whose_chunk_file_is_missing_is_not_found(kept, serve_dashboard, monkeypatch):
+    # The catalog names a chunk file that isn't on disk (an install moved without its data, #62): 404, not 500.
+    from continuum_py.read import ChunkMissing  # continuum_py is imported where it's used (TID253)
+
+    def missing(entry, pad=transcript_lines.PAD_S):
+        raise ChunkMissing("/state/continuum/tier/1/h/gone.cnk", "p", "kitchen.audio")
+
+    monkeypatch.setattr(transcript_lines, "line_clip", missing)
+    at = int((T0 + 3) * NS)
+    fake().say({"ts_start": T0 + 3, "ts_end": T0 + 4, "device": "kitchen", "text": "hi",
+                "audio": {"stream": "kitchen.audio", "start_ns": at, "end_ns": at + NS}})  # fmt: skip
+    with pytest.raises(urllib.error.HTTPError) as gone:
+        urllib.request.urlopen(serve_dashboard() + f"/clip?line=kitchen@{T0 + 3:.3f}", timeout=5)
+    assert gone.value.code == 404
+    assert "gone.cnk" in json.loads(gone.value.read())["error"]

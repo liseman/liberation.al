@@ -97,9 +97,11 @@ impl PyH264Window {
 
 /// Opens `stream`'s recent window at `from_ns` (UTC ns), which must be within `window_s` seconds of `now_ns` (now,
 /// by default). `client` answers queries and maps the arena; `live` is a connection of its own for the live
-/// subscription, made with `subscription_overflow="backpressure"`. An awaitable.
+/// subscription, made with `subscription_overflow="backpressure"`. `data_root` is the state directory that holds
+/// `continuum/`, which relative chunk locators name files under (the working directory when None). An awaitable.
 #[pyfunction]
-#[pyo3(signature = (client, live, stream, from_ns, window_s = 300.0, now_ns = None))]
+#[pyo3(signature = (client, live, stream, from_ns, window_s = 300.0, now_ns = None, data_root = None))]
+#[allow(clippy::too_many_arguments)] // one per Python parameter, most of them keywords with defaults
 pub(crate) fn open_h264_window<'py>(
     py: Python<'py>,
     client: &PyClient,
@@ -108,7 +110,9 @@ pub(crate) fn open_h264_window<'py>(
     from_ns: u64,
     window_s: f64,
     now_ns: Option<u64>,
+    data_root: Option<std::path::PathBuf>,
 ) -> PyResult<Bound<'py, PyAny>> {
+    let root = data_root.unwrap_or_default();
     let window = Duration::try_from_secs_f64(window_s).map_err(|_| {
         PyValueError::new_err(format!("window_s must be a nonnegative number of seconds, not {window_s}"))
     })?;
@@ -124,7 +128,7 @@ pub(crate) fn open_h264_window<'py>(
     };
     let (client, live) = (client.shared(), live.shared());
     crate::awaitable(py, async move {
-        let window = H264Window::open(client, live, &stream, from_ns, window, now_ns)
+        let window = H264Window::open(client, live, &root, &stream, from_ns, window, now_ns)
             .await
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
         Ok(PyH264Window { inner: Arc::new(tokio::sync::Mutex::new(window)) })

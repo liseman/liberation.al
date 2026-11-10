@@ -59,6 +59,7 @@ pub const fn is_aligned_16k(offset: usize) -> bool {
     offset.is_multiple_of(PAGE_ALIGN)
 }
 
+pub mod chunk_path;
 mod types;
 
 pub use types::{BootId, DecodeError, HeaderBuf, HeaderSpec, Interval, MAX_INLINE_BYTES, StageId, StorageLocator};

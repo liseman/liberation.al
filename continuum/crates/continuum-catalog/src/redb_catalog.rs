@@ -1609,7 +1609,61 @@ pub struct RedbCatalog {
 /// of the disk's busy time.
 pub const DURABLE_EVERY: std::time::Duration = std::time::Duration::from_secs(1);
 
+/// One batch of [`RedbCatalog::relativize_chunk_locators`].
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RelativizeBatch {
+    /// Location rows looked at.
+    pub scanned: usize,
+    /// Chunk locators rewritten to their relative form.
+    pub rewritten: usize,
+    /// Where the next batch starts (pass it back as `after`); `None` once every row was looked at.
+    pub next: Option<Vec<u8>>,
+}
+
 impl RedbCatalog {
+    /// One short transaction of the one-off migration to relative chunk locators (#62): looks at up to `batch`
+    /// location rows after the key `after` (from the start when `None`) and rewrites each Tier 1 or 2 chunk locator
+    /// that names a file under some data root, absolutely or against an old working directory, to its form relative
+    /// to the data root ([`continuum_core::chunk_path::relative_form`]). Idempotent: a locator in that form already,
+    /// or a file outside any data root, is left as it is. The write counts as a catalog change, so it drops a saved
+    /// restart projection that could still hold the old locators. Run it with the broker stopped (it holds the
+    /// catalog), then [`Catalog::close`] for durability.
+    ///
+    /// # Errors
+    ///
+    /// The storage failing, or a row that doesn't decode.
+    pub fn relativize_chunk_locators(&self, after: Option<&[u8]>, batch: usize) -> Result<RelativizeBatch> {
+        let batch = batch.max(1);
+        self.write(|w| {
+            let mut rows: Vec<(Vec<u8>, Vec<u8>)> = Vec::with_capacity(batch);
+            let mut more = false;
+            w.scan(LOCATIONS, after.unwrap_or(&[]), None, &mut |key, value| {
+                if after.is_some_and(|a| key == a) {
+                    return Ok(true);
+                }
+                if rows.len() == batch {
+                    more = true;
+                    return Ok(false);
+                }
+                rows.push((key.to_vec(), value.to_vec()));
+                Ok(true)
+            })?;
+            let mut out = RelativizeBatch {
+                scanned: rows.len(),
+                next: if more { rows.last().map(|(k, _)| k.clone()) } else { None },
+                ..RelativizeBatch::default()
+            };
+            for (key, value) in rows {
+                let StorageLocator::Chunk { tier, uri, offset, length } = codec::locator(&value)? else { continue };
+                let Some(relative) = continuum_core::chunk_path::relative_form(&uri) else { continue };
+                let rewritten = StorageLocator::Chunk { tier, uri: relative, offset, length };
+                w.put(LOCATIONS, &key, &rewritten.encode())?;
+                out.rewritten += 1;
+            }
+            Ok(out)
+        })
+    }
+
     /// Process-local phase timings from this successful open. No catalog reads are performed.
     #[must_use]
     pub fn open_timings(&self) -> OpenTimings {

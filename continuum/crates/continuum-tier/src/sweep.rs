@@ -117,12 +117,22 @@ pub fn by_stream(found: &[Candidate]) -> BTreeMap<StreamId, ((u64, u64), Vec<&Ca
     out
 }
 
+/// The files the catalog's chunk locators `uris` name, as the keys [`sweep`] compares by: each resolved against the
+/// data root `root` (a relative locator is under it) and normalized, so a relative locator and the absolute path the
+/// chunk directory lists for the same file are one key (`continuum_core::chunk_path`).
+#[must_use]
+pub fn named_files<'a>(root: &Path, uris: impl IntoIterator<Item = &'a str>) -> BTreeSet<String> {
+    uris.into_iter().map(|uri| continuum_core::chunk_path::resolve(root, uri).to_string_lossy().into_owned()).collect()
+}
+
 /// Deletes (or, with `dry_run`, only counts) each of `files` whose path isn't among `named` (the catalog's chunk
-/// locators over their span, as local paths), adding to `report`.
+/// locators over their span, as [`named_files`] keys them), adding to `report`. A candidate's path is normalized the
+/// same way before it is looked up, so a chunk directory spelled with `.` or `..` still matches.
 pub fn sweep(files: &[&Candidate], named: &BTreeSet<String>, dry_run: bool, report: &mut Report) {
     for c in files {
         report.checked += 1;
-        if named.contains(c.path.to_string_lossy().as_ref()) {
+        let key = continuum_core::chunk_path::resolve(Path::new(""), &c.path.to_string_lossy());
+        if named.contains(key.to_string_lossy().as_ref()) {
             continue;
         }
         report.unnamed += 1;
@@ -209,5 +219,25 @@ mod tests {
         }
         assert_eq!(report, Report { checked: 3, unnamed: 2, deleted: 2, skipped: 0 });
         assert!(named.exists() && !orphan.exists() && !other.exists());
+    }
+
+    #[test]
+    fn a_file_named_by_a_relative_locator_stays_however_the_chunk_directory_is_spelled() {
+        // The catalog stores locators relative to the data root (#62), and the chunk directory lists absolute paths:
+        // the sweep must take them for the same file, or it deletes every chunk of the lookback an hour after a start.
+        let root = tempfile::tempdir().unwrap();
+        let tier = root.path().join("continuum").join("tier");
+        let named = chunk(&tier, 6, START - 3 * MIN, 1);
+        let orphan = chunk(&tier, 6, START - 2 * MIN, 2);
+        let relative = named.strip_prefix(root.path()).unwrap().to_string_lossy().into_owned();
+        assert!(relative.starts_with("continuum/tier/"), "{relative}");
+        std::fs::create_dir(root.path().join("continuum").join("x")).unwrap();
+        let spelled = root.path().join("continuum").join("x").join("..").join("tier");
+        let found = candidates(&spelled, START, &BTreeSet::new(), &mut 0).unwrap();
+        let files: Vec<&Candidate> = found.iter().collect();
+        let mut report = Report::default();
+        sweep(&files, &named_files(root.path(), [relative.as_str()]), false, &mut report);
+        assert_eq!(report, Report { checked: 2, unnamed: 1, deleted: 1, skipped: 0 });
+        assert!(named.exists() && !orphan.exists());
     }
 }

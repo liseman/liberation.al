@@ -86,6 +86,10 @@ pub struct Settings {
     pub socket: PathBuf,
     /// Where chunk files go.
     pub chunk_dir: PathBuf,
+    /// The data root (the state directory that holds `continuum/`): locators of files under it are stored relative
+    /// to it ([`continuum_core::chunk_path`]), and relative locators are read against it. `None` (a bare
+    /// `--chunks` directory) stores absolute paths and reads relative ones against the working directory.
+    pub data_root: Option<PathBuf>,
     /// Configured raw streams to follow, by name. Registered Derived streams are discovered automatically.
     pub streams: Vec<String>,
     /// How chunks are cut and synced.
@@ -261,6 +265,8 @@ struct BrokerOutputs {
     pending: BTreeMap<Uuid, Pending>,
     /// Payloads a recovered chunk's commit made safe before the broker sent them again: settled when they come.
     early: BTreeSet<Uuid>,
+    /// [`Settings::data_root`], for the locators it commits.
+    data_root: Option<PathBuf>,
 }
 
 impl BrokerOutputs {
@@ -291,7 +297,8 @@ impl Outputs for BrokerOutputs {
     }
 
     fn commit(&mut self, closed: &Closed) -> Result<(), CommitFailure> {
-        let chunk = to_new_chunk(closed);
+        let mut chunk = to_new_chunk(closed);
+        chunk.location = stored(self.data_root.as_deref(), chunk.location);
         let provenance = to_client_provenance(closed);
         let commit = self.client.commit_chunk_part(&chunk, closed.first_frame, &closed.absorbed, provenance.as_deref());
         let done = self.rt.block_on(commit).map_err(|e| {
@@ -546,6 +553,11 @@ impl Phases {
 }
 
 impl Service {
+    /// The directory relative locators are read against: the data root, or the working directory without one.
+    fn root(&self) -> PathBuf {
+        self.settings.data_root.clone().unwrap_or_default()
+    }
+
     /// Connects, registers, maps the arena, recovers what the last run left open, and subscribes to every stream
     /// the broker knows. Call from a thread that isn't a runtime worker (it blocks on `rt`).
     ///
@@ -572,8 +584,15 @@ impl Service {
         let arena = client.arenas().first().map(|m| m.arena.clone()).ok_or(ServiceError::NoArena)?;
         let (events_tx, events) = mpsc::channel(4_096);
         let subs = settings.streams.iter().map(|_| None).collect();
-        let out =
-            BrokerOutputs { client, rt: rt.clone(), arena, subs, pending: BTreeMap::new(), early: BTreeSet::new() };
+        let out = BrokerOutputs {
+            client,
+            rt: rt.clone(),
+            arena,
+            subs,
+            pending: BTreeMap::new(),
+            early: BTreeSet::new(),
+            data_root: settings.data_root.clone(),
+        };
         let began = Instant::now();
         let mut work = WorkerLoop::new(&settings.chunk_dir, settings.flush, out)?;
         phases.done("chunk directory");
@@ -777,7 +796,8 @@ impl Service {
 
     fn attach_copy(&mut self, copy: crate::copies::Copy) -> Result<(), ServiceError> {
         let out = self.work.outputs_mut();
-        match self.rt.block_on(out.client.commit_payload_copy(copy.record.id, &copy.location)) {
+        let location = stored(out.data_root.as_deref(), copy.location.clone());
+        match self.rt.block_on(out.client.commit_payload_copy(copy.record.id, &location)) {
             Ok(()) => {
                 self.derived.insert(copy.stream);
                 // So the next start doesn't commit it again; a mark that fails only costs that.
@@ -983,6 +1003,7 @@ impl Service {
     ///
     /// A chunk file problem swapping one in, or the connection failing (a refused rewrite is logged).
     fn archive_step(&mut self) -> Result<(), ServiceError> {
+        let root = self.root();
         let now = self.now_ns();
         let client = Arc::clone(&self.work.outputs_mut().client);
         let Some(archive) = self.archive.as_mut() else { return Ok(()) };
@@ -1034,8 +1055,10 @@ impl Service {
                     Err(e) => return Err(e.into()),
                 };
                 for item in found {
-                    if let Some(locator @ StorageLocator::Chunk { .. }) = item.locator {
-                        items.push((item.header.id(), locator));
+                    if let Some(StorageLocator::Chunk { tier, uri, offset, length }) = item.locator {
+                        // The archive works on files: the locator's own, resolved against the data root.
+                        let uri = local_uri(&root, &uri)?;
+                        items.push((item.header.id(), StorageLocator::Chunk { tier, uri, offset, length }));
                     }
                 }
             }
@@ -1060,7 +1083,7 @@ impl Service {
         rewrites: Vec<(crate::archive::Candidate, Vec<crate::chunk::Record>, u64)>,
     ) -> Result<(), ServiceError> {
         for (candidate, records, length) in rewrites {
-            let uri = local_uri(&candidate.path.to_string_lossy())?;
+            let uri = locator_uri(self.settings.data_root.as_deref(), &candidate.path);
             let location = StorageLocator::Chunk { tier: candidate.tier, uri, offset: 0, length };
             match self.rt.block_on(client.rewrite_chunk(candidate.chunk, &location, &catalog_frames(&records))) {
                 Ok(()) => {}
@@ -1109,6 +1132,7 @@ impl Service {
         ids: Vec<Uuid>,
         spans: &[continuum_client::PurgedSpan],
     ) -> Result<(), ServiceError> {
+        let root = self.root();
         if self.purge_jobs.iter().any(|j| j.purge_ids.contains(&purge_id)) {
             return Ok(());
         }
@@ -1158,7 +1182,7 @@ impl Service {
                 self.rt.block_on(client.query_all(&continuum_client::QuerySpec::hit_only(name.clone(), hull)))?.items
             {
                 if let Some(StorageLocator::Chunk { uri, .. }) = &item.locator {
-                    let uri = local_uri(uri)?;
+                    let uri = local_uri(&root, uri)?;
                     located.push((*stream, PathBuf::from(&uri)));
                     known.insert(uri, item.header.id());
                 }
@@ -1168,8 +1192,10 @@ impl Service {
         // and any file the catalog locates outside it (an Opus chunk the removed Tier 2 sweep wrote under `tier2/`):
         // forgetting reaches every copy, whatever tier its locator names.
         let mut all = chunk_files(&self.settings.chunk_dir, None)?;
-        let mut have =
-            all.iter().map(|(_, path)| local_uri(&path.to_string_lossy())).collect::<Result<BTreeSet<_>, _>>()?;
+        let mut have = all
+            .iter()
+            .map(|(_, path)| local_uri(&root, &path.to_string_lossy()))
+            .collect::<Result<BTreeSet<_>, _>>()?;
         for (stream, path) in located {
             if path.is_file() && have.insert(path.to_string_lossy().into_owned()) {
                 all.push((stream, path));
@@ -1222,6 +1248,7 @@ impl Service {
     /// An I/O error listing the chunk directory, or the connection failing.
     fn sweep_unnamed(&mut self, skip: &BTreeSet<PathBuf>) -> Result<(), ServiceError> {
         use crate::sweep;
+        let root = self.root();
         let dry_run = std::env::var_os(sweep::DRY_RUN_ENV).is_some();
         let mut report = sweep::Report::default();
         let found = sweep::candidates(&self.settings.chunk_dir, self.epoch_ns, skip, &mut report.skipped)?;
@@ -1232,12 +1259,14 @@ impl Service {
                 continue;
             };
             let spec = continuum_client::QuerySpec::hit_only(name.clone(), hull);
-            let mut named = BTreeSet::new();
-            for item in self.rt.block_on(client.query_all(&spec))?.items {
-                if let Some(StorageLocator::Chunk { uri, .. }) = &item.locator {
-                    named.insert(local_uri(uri)?);
-                }
-            }
+            let items = self.rt.block_on(client.query_all(&spec))?.items;
+            let named = sweep::named_files(
+                &root,
+                items.iter().filter_map(|item| match &item.locator {
+                    Some(StorageLocator::Chunk { uri, .. }) => Some(uri.as_str()),
+                    _ => None,
+                }),
+            );
             sweep::sweep(&files, &named, dry_run, &mut report);
         }
         tracing::info!(
@@ -1258,6 +1287,8 @@ impl Service {
     ///
     /// A chunk file problem, or the connection failing (a refusal of a rewrite is logged and counted instead).
     fn purge_step(&mut self) -> Result<(), ServiceError> {
+        let root = self.root();
+        let data_root = self.settings.data_root.clone();
         self.recent_purges.retain(|(at, _, _)| at.elapsed() < PURGE_MEMORY);
         let Some(job) = self.purge_jobs.front_mut() else { return Ok(()) };
         job.started = true;
@@ -1274,7 +1305,7 @@ impl Service {
                 Ok(info) => {
                     for location in &info.locations {
                         if let StorageLocator::Chunk { tier, uri, .. } = location {
-                            let uri = local_uri(uri)?;
+                            let uri = local_uri(&root, uri)?;
                             job.known.insert(uri.clone(), chunk);
                             job.tiers.insert(uri, *tier);
                         }
@@ -1293,7 +1324,7 @@ impl Service {
                 break;
             }
             let Some((stream, path)) = job.files.pop_front() else { break };
-            let uri = local_uri(&path.to_string_lossy())?;
+            let uri = local_uri(&root, &path.to_string_lossy())?;
             let chunk = job.known.get(&uri).copied();
             let windows = job.windows.get(&stream).map_or(&[][..], Vec::as_slice);
             if crate::copies::is_copy(&path) {
@@ -1324,6 +1355,7 @@ impl Service {
             if let (Some(chunk), Some((records, length))) = (chunk, records) {
                 // The copy's own tier, from the snapshot: an Opus chunk under `tier2/` keeps its Tier 2 locator.
                 let tier = job.tiers.get(&uri).copied().unwrap_or(continuum_core::StorageTier::Tier1Warm);
+                let uri = locator_uri(data_root.as_deref(), Path::new(&uri));
                 let location = StorageLocator::Chunk { tier, uri, offset: 0, length };
                 let frames = catalog_frames(&records);
                 match self.rt.block_on(client.rewrite_chunk(chunk, &location, &frames)) {
@@ -1545,21 +1577,30 @@ fn catalog_frames(records: &[crate::chunk::Record]) -> Vec<ChunkFrame> {
         .collect()
 }
 
-fn local_uri(uri: &str) -> Result<String, crate::TierError> {
-    use std::path::Component;
-    let path = Path::new(uri.strip_prefix("file://").unwrap_or(uri));
-    let absolute = if path.is_absolute() { path.to_path_buf() } else { std::env::current_dir()?.join(path) };
-    let mut normalized = PathBuf::new();
-    for component in absolute.components() {
-        match component {
-            Component::CurDir => {}
-            Component::ParentDir => {
-                normalized.pop();
-            }
-            other => normalized.push(other.as_os_str()),
-        }
+/// The file a catalog locator names, as an absolute normalized path string: the key the purge, sweep, and archive
+/// compare catalog rows and files by.
+fn local_uri(root: &Path, uri: &str) -> Result<String, crate::TierError> {
+    let path = continuum_core::chunk_path::resolve(root, uri);
+    path.to_str().map(str::to_owned).ok_or_else(|| crate::TierError::Codec("chunk URI is not UTF-8".into()))
+}
+
+/// The locator a file is stored under: relative to the data root when there is one ([`continuum_core::chunk_path`]).
+fn locator_uri(root: Option<&Path>, path: &Path) -> String {
+    match root {
+        Some(root) => continuum_core::chunk_path::to_uri(root, path),
+        None => std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf()).to_string_lossy().into_owned(),
     }
-    normalized.to_str().map(str::to_owned).ok_or_else(|| crate::TierError::Codec("chunk URI is not UTF-8".into()))
+}
+
+/// `location` with a chunk's file path in its stored form ([`locator_uri`]).
+fn stored(root: Option<&Path>, location: StorageLocator) -> StorageLocator {
+    match location {
+        StorageLocator::Chunk { tier, uri, offset, length } => {
+            let uri = locator_uri(root, Path::new(uri.strip_prefix("file://").unwrap_or(&uri)));
+            StorageLocator::Chunk { tier, uri, offset, length }
+        }
+        other => other,
+    }
 }
 
 /// The chunk files in the chunk directory, committed and set aside, with the stream each belongs to (from its name):
@@ -1828,6 +1869,7 @@ mod tests {
         let settings = Settings {
             socket: socket.clone(),
             chunk_dir: directory.path().join("tier"),
+            data_root: None,
             streams: vec![first_name.into()],
             flush: FlushSettings::default(),
             tick: Duration::from_millis(1),
@@ -1967,6 +2009,7 @@ mod tests {
             Settings {
                 socket: socket.clone(),
                 chunk_dir: chunk_dir.clone(),
+                data_root: None,
                 streams: Vec::new(),
                 flush: FlushSettings::default(),
                 tick: Duration::from_millis(10),
@@ -2028,6 +2071,7 @@ mod tests {
             Settings {
                 socket: socket.clone(),
                 chunk_dir: chunk_dir.clone(),
+                data_root: None,
                 streams: Vec::new(),
                 flush: FlushSettings::default(),
                 tick: Duration::from_millis(10),
@@ -2115,6 +2159,7 @@ mod tests {
             Settings {
                 socket: socket.clone(),
                 chunk_dir: chunk_dir.clone(),
+                data_root: None,
                 streams: vec![],
                 flush: FlushSettings::default(),
                 tick: Duration::from_millis(5),
@@ -2156,6 +2201,7 @@ mod tests {
                 Settings {
                     socket: socket.clone(),
                     chunk_dir: alias,
+                    data_root: None,
                     streams: vec![],
                     flush: FlushSettings::default(),
                     tick: Duration::from_millis(5),

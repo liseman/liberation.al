@@ -51,6 +51,8 @@ fn run(path: &std::path::Path, apply: bool) -> Result<(), String> {
         .map_err(|e| format!("{}: {e}", lock_path.display()))?;
     lock.try_lock().map_err(|_| format!("the broker holds {}: stop it first", lock_path.display()))?;
     let c = RedbCatalog::open(path).map_err(|e| e.to_string())?;
+    // The catalog is `<state>/continuum/catalog.redb`: relative chunk locators are under `<state>`.
+    let root = continuum_core::chunk_path::data_root_of_catalog(path);
     let streams = c.streams(None, 100_000).map_err(|e| e.to_string())?;
     let originals = c.instant_originals().map_err(|e| e.to_string())?;
     if originals.is_empty() {
@@ -59,7 +61,7 @@ fn run(path: &std::path::Path, apply: bool) -> Result<(), String> {
     for original in originals {
         let label = format!("stream {} original {} at {} ns", original.stream.0, original.original, original.start_ns);
         let rate = streams.iter().find(|(id, _)| *id == original.stream).and_then(|(_, info)| info.rate_hz);
-        match bounded_end(&c, &original, rate) {
+        match bounded_end(&c, &root, &original, rate) {
             Ok(end_ns) => {
                 let ms = (end_ns - original.start_ns) as f64 / 1e6;
                 if apply {
