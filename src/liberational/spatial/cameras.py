@@ -1272,9 +1272,32 @@ def capture(state: Path, indoor: Sequence[str], out: Path, now: float) -> Captur
 
 
 def run(state: Path, now: float | None = None) -> dict[str, Any]:
-    """One pass: footprints, frames, MASt3R, places. Returns what it did, for the log."""
-    cams = fixed_cameras(cfg.ROOT / "config" / "devices.toml")
+    """One pass: footprints, frames, MASt3R, places, then the position layer. Returns what it did, for the log."""
     now = time.time() if now is None else now
+    try:
+        did = _places_pass(state, now)
+    finally:
+        # Last, so the day's footprints are placed in the frame of the plan this run leaves the place drawing; and
+        # whatever became of the places, so a failed registration doesn't hold the day's paths back.
+        placed = _place_positions(state, now)
+    return {**did, "positions": placed}
+
+
+def _place_positions(state: Path, now: float) -> dict[str, int] | None:
+    """The position layer brought up to where the footprints are recorded (`positions.advance`); None when it
+    failed, which the next run makes up for from its mark."""
+    from liberational.spatial import positions
+
+    try:
+        return positions.advance(state, now - footprints.FLUSH_S)
+    except Exception:  # the layer is behind until the next run; the places this run made are still good
+        LOG.exception("placing positions failed")
+        return None
+
+
+def _places_pass(state: Path, now: float) -> dict[str, Any]:
+    """Footprints, frames, MASt3R, and places."""
+    cams = fixed_cameras(cfg.ROOT / "config" / "devices.toml")
     # Footprints first (#2800): every fixed camera's, registered or not, so a place has them by the time it has poses.
     # The log's footprints_recorded is what this run added since each camera's mark (a day's backfill the first time,
     # then only the new rows), not what a plan reads: the walkable floor reads the last 14 days back on every run.

@@ -233,7 +233,7 @@ def test_the_walkable_read_turns_many_footprints_into_few_counted_cells(tmp_path
         for i in range(600)
     ]
     step = dict(t=NOW + 700, source=positions.FIXED_CAMERA, confidence=0.9, track="den:7", camera="den", u=0.5, v=0.6)
-    positions.write_positions(tmp_path, [*still, step])
+    positions.write_samples(tmp_path, [*still, step])
     (den,) = F.walked(tmp_path, ["den"], NOW + 3600)
     assert sorted(den.counts.tolist()) == [1, 600]  # 601 footprints, two cells
 
@@ -296,7 +296,7 @@ def test_the_walkable_read_leaves_animals_footprints_out(tmp_path):
     from liberational.spatial import positions
 
     row = dict(source=positions.FIXED_CAMERA, confidence=0.9, camera="den", v=0.6)
-    positions.write_positions(
+    positions.write_samples(
         tmp_path,
         [
             {**row, "t": NOW, "track": "den:7", "u": 0.3},
