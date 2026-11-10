@@ -39,7 +39,7 @@ that says "Keeping frames" needs nothing. "Nothing new in view", "Person or anim
 is blurred" say why the camera's recent pictures were passed by: wait, or change what the camera sees. A row marked
 as a warning has a parked frame, which is the next section.
 
-When a place has a map, switch its view from Plan to 3D to see it.
+When a place has a map, switch its view from Plan to 3D map to see it.
 
 ## Act on a parked frame
 
