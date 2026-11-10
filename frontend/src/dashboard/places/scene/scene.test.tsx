@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { HttpResponse, http } from 'msw';
 import { expect, it, vi } from 'vitest';
 import { editorUrl, fromHash, type Open, ours, type Scene } from '../../../plan-editor/protocol';
@@ -257,8 +257,42 @@ it('draws nothing for a scene with nothing on its level, and leaves out a spot w
 const HOME: Place = { id: 'p1', name: 'Home', lastVisit: null, plan: null, scene: EXAMPLE_SCENE, example: false };
 const FLAT = EXAMPLE_PLACES.find(p => p.scene) as Place;
 
-function serveScene(reply: Record<string, unknown> = {}) {
+const VERSIONS = [
+  {
+    id: 'v1',
+    at: 1762500000,
+    rooms: 1,
+    source: 'owner',
+    withdrawn: false,
+    format: 'dsl',
+    current: false,
+    summary: '1 room',
+  },
+  {
+    id: 'v2',
+    at: 1762503600,
+    rooms: 0,
+    source: 'owner',
+    withdrawn: true,
+    format: 'dsl',
+    current: false,
+    summary: 'Plan withdrawn',
+  },
+  {
+    id: 'v3',
+    at: 1762507200,
+    rooms: 6,
+    source: 'owner',
+    withdrawn: false,
+    format: 'scene',
+    current: true,
+    summary: 'Added Kitchen, moved camera hall',
+  },
+];
+
+function serveScene(reply: Record<string, unknown> = {}, versions: unknown[] = []) {
   server.use(
+    http.get('/places/plan/history', () => HttpResponse.json({ place: 'p1', versions, previous: null })),
     http.get('/places/plan/scene', () =>
       HttpResponse.json({ place: 'p1', scene: EXAMPLE_SCENE, converted: false, left: [], base: 'r1', ...reply }),
     ),
@@ -325,6 +359,7 @@ it('opens the stored plan again on Discard, and refuses to save a plan with no r
 });
 
 it("says why when a plan can't be opened or saved", async () => {
+  server.use(http.get('/places/plan/history', () => HttpResponse.json({ place: 'p1', versions: [], previous: null })));
   server.use(
     http.get('/places/plan/scene', () =>
       HttpResponse.json({ error: "this plan can't be opened in the editor: the plan has no rooms" }, { status: 422 }),
@@ -352,4 +387,84 @@ it('opens an example without asking the server, and offers nothing to save', () 
   expect(screen.getByTitle('The plan in 3D')).toBeTruthy();
   expect(screen.getByText('An example flat. Nothing drawn here is saved.')).toBeTruthy();
   expect(screen.queryByRole('button', { name: 'Save plan' })).toBeNull();
+});
+
+it("lists the plan's versions newest first, with what changed and which is current", async () => {
+  serveScene({}, VERSIONS);
+  renderPage(<PlaceEditor place={HOME} view="2d" scheme="light" />);
+  const list = await screen.findByRole('list');
+  const rows = [...list.querySelectorAll('button')];
+  expect(rows.map(r => r.textContent)).toEqual([
+    expect.stringMatching(/Current.*Added Kitchen, moved camera hall/),
+    expect.stringContaining('Plan withdrawn'),
+    expect.stringContaining('1 room'),
+  ]);
+  expect(rows[0]?.getAttribute('aria-current')).toBe('true');
+  expect((rows[1] as HTMLButtonElement).disabled).toBe(true); // a withdrawal has no plan to look at
+});
+
+it('says there is no version yet for a plan never saved, and shows none for an example', async () => {
+  serveScene();
+  const first = renderPage(<PlaceEditor place={HOME} view="2d" scheme="light" />);
+  expect(await screen.findByText('No saved version yet. Each save adds one here.')).toBeTruthy();
+  first.unmount();
+  renderPage(<PlaceEditor place={FLAT} view="2d" scheme="light" />);
+  expect(screen.queryByRole('heading', { name: 'Versions' })).toBeNull();
+});
+
+it('opens an earlier version to look at without changing anything, and restores it as a new version', async () => {
+  const asked: (string | null)[] = [];
+  const restored: unknown[] = [];
+  server.use(
+    http.get('/places/plan/history', () => HttpResponse.json({ place: 'p1', versions: VERSIONS, previous: null })),
+    http.get('/places/plan/scene', ({ request }) => {
+      asked.push(new URL(request.url).searchParams.get('record'));
+      return HttpResponse.json({
+        place: 'p1',
+        scene: EXAMPLE_SCENE,
+        converted: true,
+        left: ['x-anchor a'],
+        base: 'r1',
+      });
+    }),
+    http.post('/places/plan/restore', async ({ request }) => {
+      restored.push(await request.json());
+      return HttpResponse.json({ ok: true, plan: '{}', plan_source: 'owner' });
+    }),
+  );
+  renderPage(<PlaceEditor place={HOME} view="2d" scheme="light" />);
+  const current = await screen.findByTitle('Plan editor');
+  fireEvent.click(await screen.findByRole('button', { name: /1 room/ }));
+  expect(await screen.findByText(/Looking at it changes nothing/)).toBeTruthy();
+  await waitFor(() => expect(asked).toEqual([null, 'v1']));
+  await waitFor(() => expect(screen.getByTitle('Plan editor')).not.toBe(current)); // the editor opened on that version
+  expect(screen.queryByRole('button', { name: 'Save plan' })).toBeNull(); // nothing to save while looking
+  expect(screen.queryByText(/have no place in the new format/)).toBeNull();
+  expect(screen.getByRole('button', { name: /1 room/ }).getAttribute('aria-current')).toBe('true');
+  // an edit made while looking is not a change to the plan
+  fromFrame(screen.getByTitle('Plan editor') as HTMLIFrameElement, {
+    type: 'plan-editor:changed',
+    scene: EXAMPLE_SCENE,
+  });
+  expect(screen.queryByText('Changes not saved yet.')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Restore this version' }));
+  await waitFor(() => expect(restored).toEqual([{ place: 'p1', record: 'v1' }]));
+  expect(await screen.findByRole('button', { name: 'Save plan' })).toBeTruthy(); // back on the plan as it is now
+});
+
+it('goes back to the current plan from an earlier version, and asks before dropping unsaved changes', async () => {
+  serveScene({}, VERSIONS);
+  renderPage(<PlaceEditor place={HOME} view="2d" scheme="light" />);
+  const frame = (await screen.findByTitle('Plan editor')) as HTMLIFrameElement;
+  fromFrame(frame, { type: 'plan-editor:changed', scene: EXAMPLE_SCENE });
+  fireEvent.click(await screen.findByRole('button', { name: /1 room/ }));
+  const dialog = await screen.findByRole('dialog', { name: 'Discard your changes?' });
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  expect(screen.getByText('Changes not saved yet.')).toBeTruthy(); // still on the plan, with the changes
+  fireEvent.click(screen.getByRole('button', { name: /1 room/ }));
+  fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Discard changes' }));
+  expect(await screen.findByText(/Looking at it changes nothing/)).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Back to the current plan' }));
+  expect(await screen.findByRole('button', { name: 'Save plan' })).toBeTruthy();
 });

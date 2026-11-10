@@ -443,3 +443,66 @@
   stroke: var(--lib-card);
   stroke-width: 1.5;
 }
+
+/* The plan editor with its versions beside it (scene/PlaceEditor.tsx, scene/Versions.tsx): the timeline is a strip
+   on the right, and goes under the editor on a narrow page. */
+.editorWithVersions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 15rem;
+  gap: var(--mantine-spacing-md);
+  align-items: start;
+}
+
+@media (max-width: 1000px) {
+  .editorWithVersions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.versions {
+  min-width: 0;
+}
+
+.versionList {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-inline-start: 2px solid var(--mantine-color-default-border);
+  max-height: min(78vh, 60rem);
+  overflow-y: auto;
+}
+
+.version {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  margin-inline-start: -2px;
+  padding: 6px 10px;
+  border-inline-start: 2px solid transparent;
+  border-radius: 0 var(--mantine-radius-md) var(--mantine-radius-md) 0;
+
+  @mixin hover {
+    background: var(--mantine-color-default-hover);
+  }
+
+  &[aria-current="true"] {
+    border-inline-start-color: var(--mantine-primary-color-filled);
+    background: var(--mantine-color-default-hover);
+  }
+
+  &:disabled {
+    cursor: default;
+    opacity: 0.6;
+  }
+}
+
+.versionWhen {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--mantine-font-size-sm);
+  font-weight: 500;
+}

@@ -336,7 +336,7 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
                     ) : showing === 'machine' && machine ? (
                       <>
                         <Text size="sm" c="dimmed" mb="xs">
-                          The newest machine plan, to compare. Yours holds until you revert to it.
+                          The newest machine plan, to compare. Yours holds unless you take this one.
                         </Text>
                         <div
                           className={classes.drawing}
