@@ -29,6 +29,11 @@ TYPES = {
     ".woff2": "font/woff2",
     ".woff": "font/woff",
     ".map": "application/json; charset=utf-8",  # the build's sourcemaps
+    # the plan editor's page and what it fetches (frontend/plan-editor/, frontend/public/pascal/)
+    ".html": "text/html; charset=utf-8",
+    ".webp": "image/webp",
+    ".wasm": "application/wasm",
+    ".ktx2": "image/ktx2",
 }
 
 NOT_BUILT = """<!doctype html>

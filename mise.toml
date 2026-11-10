@@ -131,7 +131,7 @@ run = "../tools/niced.sh npm ci --no-audit --no-fund"
 description = "Build the dashboard frontend (frontend/) into src/liberational/dashboard/static/app/ (skipped while it's current)"
 depends = ["frontend-deps"]
 dir = "frontend"
-sources = ["*.html", "*.ts", "*.mjs", "*.json", "src/**/*"]
+sources = ["*.html", "*.ts", "*.mjs", "*.json", "src/**/*", "plan-editor/*.html", "public/**/*"]
 outputs = ["../src/liberational/dashboard/static/app/.vite/manifest.json"]
 run = "../tools/niced.sh npm run build"
 

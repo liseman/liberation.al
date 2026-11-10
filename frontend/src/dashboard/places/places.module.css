@@ -218,6 +218,69 @@
   cursor: grab;
 }
 
+.cameraCone {
+  fill: var(--mantine-primary-color-filled);
+  fill-opacity: 0.14;
+  stroke: var(--mantine-primary-color-filled);
+  stroke-opacity: 0.6;
+  stroke-width: 1;
+  pointer-events: none;
+}
+
+.cameraCone[data-selected] {
+  fill-opacity: 0.24;
+}
+
+.cameraNoFacing {
+  fill: none;
+  stroke: var(--mantine-color-yellow-6);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+  pointer-events: none;
+}
+
+.cameraArm {
+  stroke: var(--mantine-primary-color-filled);
+  stroke-width: 1.5;
+  stroke-dasharray: 3 3;
+  pointer-events: none;
+}
+
+.cameraDot,
+.cameraTurn {
+  fill: var(--mantine-primary-color-filled);
+  stroke: var(--lib-card);
+  stroke-width: 2;
+  cursor: grab;
+  outline: none;
+}
+
+.cameraTurn {
+  fill: var(--lib-card);
+  stroke: var(--mantine-primary-color-filled);
+}
+
+.cameraDot[data-selected] {
+  stroke: var(--mantine-color-text);
+}
+
+.cameraDot:focus-visible,
+.cameraTurn:focus-visible {
+  stroke: var(--mantine-color-text);
+  stroke-width: 3;
+}
+
+.placeCatcher {
+  fill: transparent;
+  cursor: crosshair;
+}
+
+.cameraForm {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
 .editorPanels {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -304,4 +367,14 @@
   padding: 0;
   cursor: pointer;
   text-decoration: underline;
+}
+
+/* The new plan editor and its 3D view (scene/PlanFrame.tsx): a page of its own in a frame, tall enough to work in. */
+.planFrame {
+  display: block;
+  width: 100%;
+  height: min(78vh, 60rem);
+  min-height: 28rem;
+  border: 0;
+  border-radius: var(--mantine-radius-md);
 }

@@ -348,11 +348,28 @@ it("switches a real place between its plan and its map in 3D, but not an example
   vi.restoreAllMocks();
 });
 
-it('offers no 3D view of an example plan', async () => {
+it("offers no map in 3D for an example plan, and no editor for one that isn't a scene yet", async () => {
   serve([]);
   renderPage(<PlacesTab />);
   await screen.findAllByRole('img', { name: /^Floor plan/ });
+  fireEvent.click(row(/Example cabin/));
   expect(screen.queryByRole('radio', { name: '3D' })).toBeNull();
+  expect(screen.queryByRole('radio', { name: 'Editor' })).toBeNull();
+});
+
+it('opens the example flat in the new plan editor and in its 3D view, each in a frame made only then', async () => {
+  serve([]);
+  const { container } = renderPage(<PlacesTab />);
+  await screen.findAllByRole('img', { name: /^Floor plan/ });
+  expect(container.querySelector('iframe')).toBeNull(); // nothing of the editor loads until it is asked for
+  fireEvent.click(screen.getByRole('radio', { name: 'Editor' }));
+  expect(screen.getByTitle('Plan editor').getAttribute('src')).toContain('plan-editor/index.html#view=2d');
+  expect(screen.getByText(/Nothing drawn here is saved yet/)).toBeTruthy();
+  fireEvent.click(screen.getByRole('radio', { name: '3D' }));
+  expect(screen.getByTitle('The plan in 3D').getAttribute('src')).toContain('plan-editor/index.html#view=3d');
+  fireEvent.click(screen.getByRole('radio', { name: 'Plan' }));
+  expect(container.querySelector('iframe')).toBeNull();
+  expect(drawing()).toBeTruthy();
 });
 
 it("says when a place was last in use: the owner's visit, or anyone its cameras saw since", () => {

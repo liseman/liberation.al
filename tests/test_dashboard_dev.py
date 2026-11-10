@@ -265,11 +265,18 @@ def test_a_build_older_than_the_frontend_says_so(tree, dashboard):
         ("/static/app/assets/index-abc123.js", "text/javascript; charset=utf-8", assets.IMMUTABLE),
         ("/static/app/assets/index-abc123.js.map", "application/json; charset=utf-8", assets.IMMUTABLE),
         ("/static/app/stray.js", "text/javascript; charset=utf-8", "no-store"),
+        # the plan editor's page and what it fetches from the dashboard
+        ("/static/app/plan-editor/index.html", "text/html; charset=utf-8", "no-store"),
+        ("/static/app/pascal/icons/wall.webp", "image/webp", "no-store"),
+        ("/static/app/pascal/decoders/basis/basis_transcoder.wasm", "application/wasm", "no-store"),
+        ("/static/app/pascal/material/wood/planks/planks_basecolor_512.ktx2", "image/ktx2", "no-store"),
     ],
-    ids=["hashed-js", "hashed-map", "unhashed"],
+    ids=["hashed-js", "hashed-map", "unhashed", "editor-page", "editor-icon", "decoder", "texture"],
 )
 def test_only_hashed_assets_are_cached_for_good(tree, dashboard, path, ctype, cache):
-    (tree.static / path.removeprefix("/static/")).write_text("export {}")
+    file = tree.static / path.removeprefix("/static/")
+    file.parent.mkdir(parents=True, exist_ok=True)
+    file.write_text("export {}")
     status, headers, _ = get(dashboard, path)
     assert (status, headers["content-type"], headers["cache-control"]) == (200, ctype, cache)
 

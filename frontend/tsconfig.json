@@ -15,7 +15,12 @@
     "erasableSyntaxOnly": true,
     "isolatedModules": true,
     "skipLibCheck": true,
-    "noEmit": true
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "paths": {
+      "@pascal-app/editor": ["./src/plan-editor/pascal-editor.d.ts"],
+      "@pascal-app/editor/locales": ["./src/plan-editor/pascal-editor.d.ts"]
+    }
   },
-  "include": ["src", "vite.config.ts"]
+  "include": ["src", "vite.config.ts", "vite.pascal.ts", "vite.plan-editor.config.ts"]
 }
