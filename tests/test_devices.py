@@ -12,7 +12,7 @@ import pytest
 import test_network_worker as net
 from liberational import config as cfg
 from liberational import segment_log
-from liberational.dashboard import context, device_links, server
+from liberational.dashboard import context, device_links, photo_files, server
 from liberational.memory import device_answers, places
 from liberational.memory import history_qa as h
 from liberational.proximity import ble, devices, vendors
@@ -780,9 +780,9 @@ def test_a_read_that_began_before_a_link_changed_is_not_kept(slow_summary):
 
 def test_the_dashboard_reads_the_device_list_once_at_start_at_low_priority(monkeypatch):
     listing = create_autospec(device_links.listing, return_value=(200, {}))
-    priority = create_autospec(server._low_priority)
+    priority = create_autospec(photo_files._low_priority)
     monkeypatch.setattr(device_links, "listing", listing)
-    monkeypatch.setattr(server, "_low_priority", priority)
+    monkeypatch.setattr(photo_files, "_low_priority", priority)
     server._warm_devices()
     priority.assert_called_once_with(19)
     listing.assert_called_once_with("", state=context.STATE)
@@ -795,7 +795,7 @@ def test_a_failed_device_warm_up_is_logged_not_raised(monkeypatch):
         raise RuntimeError("no broker")
 
     monkeypatch.setattr(device_links, "listing", unreachable)
-    monkeypatch.setattr(server, "_low_priority", lambda priority=15: None)
+    monkeypatch.setattr(photo_files, "_low_priority", lambda priority=15: None)
     monkeypatch.setattr(server, "log", lambda *a, **k: logged.append(a))
     server._warm_devices()
     assert logged and "warm-up failed" in logged[0][0]

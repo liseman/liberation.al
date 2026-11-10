@@ -206,14 +206,14 @@ def test_decode_exceptions_are_unavailable_and_never_spin_in_the_queue(tmp_path)
 
 
 def test_frame_rpc_timeout_stays_pending_then_retries_without_an_error_trace(tmp_path, monkeypatch, vision, caplog):
-    from liberational.dashboard import server
+    from liberational.dashboard import photo_files
 
     now = [10.0]
     monkeypatch.setattr(face_shots.time, "monotonic", lambda: now[0])
     row = vision.face(NOW, "cam0", "Alice", 0.8)
     vision.frames[("cam0", NOW)] = np.full((120, 160, 3), 200, np.uint8)
     evidence = vision.frame_evidence("cam0", NOW)
-    jobs = face_shots.Pending(server._crop_process)
+    jobs = face_shots.Pending(photo_files._crop_process)
     with patch.object(vision, "frame_evidence", autospec=True, side_effect=[TimeoutError(), evidence]) as read:
         assert jobs.offer(tmp_path, "shots", row["id"], "0")
         assert jobs.one()
@@ -288,42 +288,42 @@ def test_a_flood_of_face_crops_neither_keeps_out_nor_delays_a_pet_photo(tmp_path
 
 
 def test_background_worker_shares_the_existing_decode_cap(tmp_path, monkeypatch):
-    from liberational.dashboard import server
+    from liberational.dashboard import photo_files
 
-    monkeypatch.setattr(server, "SHOT_WAIT_S", 0)
-    assert server._shot_decode.acquire(blocking=False)
-    assert server._shot_decode.acquire(blocking=False)
+    monkeypatch.setattr(photo_files, "SHOT_WAIT_S", 0)
+    assert photo_files._shot_decode.acquire(blocking=False)
+    assert photo_files._shot_decode.acquire(blocking=False)
     try:
-        monkeypatch.setattr(server.vision_log, "at", lambda state: None)
+        monkeypatch.setattr(photo_files.vision_log, "at", lambda state: None)
         from liberational.vision import sightings
 
         monkeypatch.setattr(sightings, "shot", lambda sid, state: {"cam": "cam0", "ts": 1, "bbox_norm": [0, 0, 1, 1]})
-        assert server._crop_process((tmp_path, "shots", "face-a", "0")) is None
+        assert photo_files._crop_process((tmp_path, "shots", "face-a", "0")) is None
     finally:
-        server._shot_decode.release()
-        server._shot_decode.release()
+        photo_files._shot_decode.release()
+        photo_files._shot_decode.release()
 
 
 def test_revision_revalidation_needs_no_decode_slot_and_marks_the_crop_ready(tmp_path, monkeypatch, vision):
-    from liberational.dashboard import context, server
+    from liberational.dashboard import context, people_list, photo_files
 
     row = vision.face(1_800_000_000, "cam0", "Alice", 0.8)
     monkeypatch.setattr(context, "STATE", tmp_path)
-    monkeypatch.setattr(server, "_shot_revision", lambda state=None: "1")
-    monkeypatch.setattr(server, "SHOT_WAIT_S", 0)
-    monkeypatch.setattr(server, "_crop_jobs", face_shots.Pending(server._crop_process))
+    monkeypatch.setattr(photo_files, "_shot_revision", lambda state=None: "1")
+    monkeypatch.setattr(photo_files, "SHOT_WAIT_S", 0)
+    monkeypatch.setattr(photo_files, "_crop_jobs", face_shots.Pending(photo_files._crop_process))
     face_shots.write(tmp_path, row["id"], "0", b"jpeg")
     assert face_shots.saved(tmp_path, revision="1") == set()
-    assert server._ready_faces([row]) == ([], 1, 0)
-    assert server._shot_decode.acquire(blocking=False)
-    assert server._shot_decode.acquire(blocking=False)
+    assert people_list._ready_faces([row]) == ([], 1, 0)
+    assert photo_files._shot_decode.acquire(blocking=False)
+    assert photo_files._shot_decode.acquire(blocking=False)
     try:
-        result = server._crop_process((tmp_path, "shots", row["id"], "1"))
+        result = photo_files._crop_process((tmp_path, "shots", row["id"], "1"))
     finally:
-        server._shot_decode.release()
-        server._shot_decode.release()
+        photo_files._shot_decode.release()
+        photo_files._shot_decode.release()
     assert result == face_shots.CropResult(True, False)
-    assert server._ready_faces([row]) == ([row], 0, 0)
+    assert people_list._ready_faces([row]) == ([row], 0, 0)
 
 
 def test_background_worker_starts_once_at_low_priority_and_stops(tmp_path):
@@ -360,16 +360,16 @@ def test_background_worker_starts_once_at_low_priority_and_stops(tmp_path):
 
 
 def test_group_ready_counts_refresh_without_rebuilding_the_identity_snapshot(tmp_path, monkeypatch):
-    from liberational.dashboard import context, server
+    from liberational.dashboard import context, photo_files, unnamed_groups
 
     monkeypatch.setattr(context, "STATE", tmp_path)
     jobs = face_shots.Pending(lambda key: face_shots.CropResult(True))
-    monkeypatch.setattr(server, "_crop_jobs", jobs)
+    monkeypatch.setattr(photo_files, "_crop_jobs", jobs)
     shots = [{"id": sid, "ts": t, "url": f"/faces/shot/{sid}.jpg"} for t, sid in enumerate("abcdefgh")]
     face_shots.write(tmp_path, "h", "0", b"jpeg")
     face_shots.write(tmp_path, "h", "0", b"jpeg", "shots_grid")  # outside the old six-shot preview, but ready
     body = {"groups": [{"id": 1, "shots": shots[:6], "_all_shots": shots}], "count": 1}
-    code, view = server._ready_face_groups(200, body)
+    code, view = unnamed_groups._ready_face_groups(200, body)
     assert code == 200
     assert [r["id"] for r in view["groups"][0]["shots"]] == ["h"]
     assert view["groups"][0]["shots"][0]["url"] == "/faces/shot/h.jpg?size=80"
@@ -378,31 +378,31 @@ def test_group_ready_counts_refresh_without_rebuilding_the_identity_snapshot(tmp
     assert "_all_shots" not in view["groups"][0]
     face_shots.write(tmp_path, "a", "0", b"jpeg")
     face_shots.write(tmp_path, "a", "0", b"jpeg", "shots_grid")
-    after = server._ready_face_groups(200, body)[1]
+    after = unnamed_groups._ready_face_groups(200, body)[1]
     assert [r["id"] for r in after["groups"][0]["shots"]] == ["a", "h"]
     assert after["shots_pending"] == 6
     jobs.process = lambda key: face_shots.CropResult(False)
     assert jobs.one()
-    failed = server._ready_face_groups(200, body)[1]
+    failed = unnamed_groups._ready_face_groups(200, body)[1]
     assert failed["shots_unavailable"] == 0  # this job's file appeared externally before the queued attempt
     assert jobs.one()
-    failed = server._ready_face_groups(200, body)[1]
+    failed = unnamed_groups._ready_face_groups(200, body)[1]
     assert failed["shots_unavailable"] == failed["groups"][0]["shots_unavailable"] == 1
     assert len(body["groups"][0]["shots"]) == 6  # cached input remains unchanged
 
 
 def test_pet_photo_readiness_preserves_video_metadata_and_counts_each_track_once(tmp_path, monkeypatch):
-    from liberational.dashboard import context, server
+    from liberational.dashboard import context, photo_files, unnamed_groups
     from liberational.people import pet_shots
 
     monkeypatch.setattr(context, "STATE", tmp_path)
-    monkeypatch.setattr(server, "_crop_jobs", face_shots.Pending(lambda key: face_shots.CropResult(True)))
+    monkeypatch.setattr(photo_files, "_crop_jobs", face_shots.Pending(lambda key: face_shots.CropResult(True)))
     face_shots.write(tmp_path, "a", "0", b"jpeg", pet_shots.KIND)
     face_shots.write(tmp_path, "a", "0", b"jpeg", pet_shots.KIND + "_grid")
     a = {"track_id": "a", "cam": "cam0", "start": 10, "end": 12}
     b = {"track_id": "b", "cam": "cam0", "start": 20, "end": 22}
     body = {"groups": [{"id": "cats", "sightings": [a, b]}], "seen": {"pet-a": [b]}, "names": {}}
-    code, view = server._ready_pet_view(200, body)
+    code, view = unnamed_groups._ready_pet_view(200, body)
     assert code == 200
     assert view["groups"][0]["sightings"] == [
         {**a, "photo_ready": True, "thumb_ready": True},
@@ -417,18 +417,18 @@ def test_pet_photo_readiness_preserves_video_metadata_and_counts_each_track_once
 
 
 def test_pet_video_preparation_is_independent_of_photo_availability(tmp_path, monkeypatch, vision):
-    from liberational.dashboard import context, server
+    from liberational.dashboard import context, photo_files, unnamed_groups
     from liberational.people import pet_shots
 
     monkeypatch.setattr(context, "STATE", tmp_path)
-    jobs = face_shots.Pending(server._crop_process)
-    monkeypatch.setattr(server, "_crop_jobs", jobs)
+    jobs = face_shots.Pending(photo_files._crop_process)
+    monkeypatch.setattr(photo_files, "_crop_jobs", jobs)
     face_shots.write(tmp_path, "pet-look", "0", b"pet-photo", pet_shots.KIND)
     face_shots.write(tmp_path, "pet-look", "0", b"pet-photo", pet_shots.KIND + "_grid")
     vision.frames[("cam0", 20)] = np.full((120, 160, 3), 150, np.uint8)
     row = {"track_id": "pet-look", "cam": "cam0", "start": 20, "end": 22, "how": "labeled"}
     body = {"seen": {"pet-a": [row]}, "groups": []}
-    first = server._ready_pet_view(200, body)[1]
+    first = unnamed_groups._ready_pet_view(200, body)[1]
     assert first["seen"]["pet-a"][0] == {
         **row,
         "photo_ready": True,
@@ -438,7 +438,7 @@ def test_pet_video_preparation_is_independent_of_photo_availability(tmp_path, mo
     }
     assert first["photos_pending"] == 0 and first["videos_pending"] == 1
     assert jobs.one()
-    after = server._ready_pet_view(200, body)[1]
+    after = unnamed_groups._ready_pet_view(200, body)[1]
     assert after["videos_pending"] == after["videos_unavailable"] == 0
     assert after["seen"]["pet-a"][0]["video_status"] == "ready"
     assert after["seen"]["pet-a"][0]["video_thumb"] == "/people/video-thumb.jpg?cam=cam0&start=20.000&end=25.000"
@@ -446,15 +446,15 @@ def test_pet_video_preparation_is_independent_of_photo_availability(tmp_path, mo
 
 @pytest.mark.parametrize("kind,pixels", [("shots", 160), ("pet_shots", 192)])
 def test_grid_variant_uses_saved_jpeg_and_keeps_detail_bytes(tmp_path, monkeypatch, kind, pixels):
-    from liberational.dashboard import context, server
+    from liberational.dashboard import context, photo_files
 
     monkeypatch.setattr(context, "STATE", tmp_path)
-    monkeypatch.setattr(server, "_shot_revision", lambda state=None: "0")
+    monkeypatch.setattr(photo_files, "_shot_revision", lambda state=None: "0")
     source = np.random.default_rng(1).integers(0, 256, (pixels, pixels, 3), dtype=np.uint8)
     ok, encoded = cv2.imencode(".jpg", source)
     assert ok
     original = face_shots.write(tmp_path, "saved", "0", encoded.tobytes(), kind)
-    result = server._crop_process((tmp_path, kind + "_grid", "saved", "0"))
+    result = photo_files._crop_process((tmp_path, kind + "_grid", "saved", "0"))
     grid = face_shots.path(tmp_path, "saved", "0", kind + "_grid")
     assert result == face_shots.CropResult(True, False)
     image = cv2.imread(str(grid))
@@ -476,13 +476,13 @@ def test_grid_http_waits_for_background_variant_and_never_promotes_old_revision(
 ):
     import http.client
 
-    from liberational.dashboard import context, server
+    from liberational.dashboard import context, photo_files, server
 
     revision = ["0"]
     monkeypatch.setattr(context, "STATE", tmp_path)
-    monkeypatch.setattr(server, "_shot_revision", lambda state=None: revision[0])
-    jobs = face_shots.Pending(server._crop_process)
-    monkeypatch.setattr(server, "_crop_jobs", jobs)
+    monkeypatch.setattr(photo_files, "_shot_revision", lambda state=None: revision[0])
+    jobs = face_shots.Pending(photo_files._crop_process)
+    monkeypatch.setattr(photo_files, "_crop_jobs", jobs)
     jpg = face_shots.encode(np.full((160, 160, 3), 123, np.uint8))
     assert jpg is not None
     face_shots.write(tmp_path, "saved", "0", jpg, kind)
@@ -514,21 +514,21 @@ def test_grid_http_waits_for_background_variant_and_never_promotes_old_revision(
 
 
 def test_original_detail_counts_and_pet_main_photo_stay_ready_while_grid_variant_is_pending(tmp_path, monkeypatch):
-    from liberational.dashboard import context, server
+    from liberational.dashboard import context, photo_files, unnamed_groups
 
     monkeypatch.setattr(context, "STATE", tmp_path)
-    monkeypatch.setattr(server, "_crop_jobs", face_shots.Pending(server._crop_process))
+    monkeypatch.setattr(photo_files, "_crop_jobs", face_shots.Pending(photo_files._crop_process))
     face_shots.write(tmp_path, "face-a", "0", b"jpeg")
     face_shots.write(tmp_path, "face-b", "0", b"jpeg")
     face_shots.write(tmp_path, "face-a", "0", b"jpeg", "shots_grid")
     shots = [{"id": sid, "url": f"/faces/shot/{sid}.jpg", "ts": 1} for sid in ["face-a", "face-b"]]
     body = {"groups": [{"id": 1, "shots": shots}], "count": 1}
-    result = server._ready_face_groups(200, body)[1]
+    result = unnamed_groups._ready_face_groups(200, body)[1]
     assert len(result["groups"][0]["shots"]) == 1
     assert result["groups"][0]["shot_count"] == 2
     assert result["shots_pending"] == 1
     face_shots.write(tmp_path, "pet-a", "0", b"jpeg", "pet_shots")
-    result = server._ready_pet_view(
+    result = unnamed_groups._ready_pet_view(
         200, {"seen": {"pet": [{"track_id": "pet-a", "cam": "cam0", "start": 1, "end": 2}]}}
     )[1]
     assert result["seen"]["pet"][0]["photo_ready"] is True

@@ -5,13 +5,13 @@ import threading
 import time
 from concurrent.futures import ProcessPoolExecutor
 
-from liberational.dashboard import presence, server
+from liberational.dashboard import people_reads, presence, server, unnamed_groups
 from liberational.memory import reports
 
 POOLS = [
-    (server, "_groups_executor"),
-    (server, "_voices_executor"),
-    (server, "_people_executor"),
+    (unnamed_groups, "_groups_executor"),
+    (unnamed_groups, "_voices_executor"),
+    (people_reads, "_people_executor"),
     (presence, "_executor"),
     (reports, "_executor"),
 ]

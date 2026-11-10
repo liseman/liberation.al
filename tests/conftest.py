@@ -326,16 +326,17 @@ def _people_reads_start_fresh(monkeypatch):
     """The dashboard keeps its last roster read for the process: a later test whose inputs happened to match would
     be answered from an earlier test's roster. Each test gets its own reads, and its requests wait them out
     (a cold read on a loaded machine outlasts PEOPLE_WAIT_S); the reads a test left running finish before the next."""
-    server = sys.modules.get("liberational.dashboard.server")
-    if server is None:
+    if sys.modules.get("liberational.dashboard.server") is None:
         yield
         return
-    reads = server._PeopleReads()
-    monkeypatch.setattr(server, "_PEOPLE_READS", reads)
-    monkeypatch.setattr(server, "_CARD_READS", server._CardReads())  # cards too: each test reads its own
-    monkeypatch.setattr(server, "_speakers_shared", None)  # and the voice list
-    monkeypatch.setattr(server, "PEOPLE_WAIT_S", None)
-    monkeypatch.setattr(server, "PEOPLE_REFRESH_S", 0.0)  # tests of the refresh itself; one test paces it
+    from liberational.dashboard import people_reads, speaker_lines
+
+    reads = people_reads._PeopleReads()
+    monkeypatch.setattr(people_reads, "_PEOPLE_READS", reads)
+    monkeypatch.setattr(people_reads, "_CARD_READS", people_reads._CardReads())  # cards too: each test reads its own
+    monkeypatch.setattr(speaker_lines, "_speakers_shared", None)  # and the voice list
+    monkeypatch.setattr(people_reads, "PEOPLE_WAIT_S", None)
+    monkeypatch.setattr(people_reads, "PEOPLE_REFRESH_S", 0.0)  # tests of the refresh itself; one test paces it
     yield
     with reads.lock:
         pending = list(reads.pending.values())
