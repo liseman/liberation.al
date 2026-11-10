@@ -24,10 +24,11 @@ A place is an indoor place, such as a home. The machine's view of it is a chain 
 A revision that changes only the floor, the cameras, or the transform points at the earlier map. The newest two maps
 and splats are kept; plans and revision records stay.
 
-All of that is an interpretation, so it can be deleted and made again. What the owner taught is in the knowledge
-store and supersedes it without changing it: a place's name (`place.named`), its plan (`place.plan`, with every
-earlier version), and each camera's held focal and lens. While a place has an owner's plan, that is its only plan:
-the Places page, the 3D view, and the position layer use it and no machine plan stands in for it.
+All of that is an interpretation, so it can be deleted and made again. What the owner taught is in the knowledge store
+and supersedes it without changing it: a place's name (`place.named`), its plan (`place.plan`, with every earlier
+version; floorplan DSL text, or a scene saved from the page's Editor view, `spatial/plan_scene.py`), and each camera's
+held focal and lens. While a place has an owner's plan, that is its only plan: the Places page, the 3D view, and the
+position layer use it and no machine plan stands in for it.
 
 ## Learning surroundings
 
