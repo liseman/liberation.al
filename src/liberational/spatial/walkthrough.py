@@ -81,19 +81,21 @@ near points) gives that frame's heading up to quarter turns, with no revisit. `s
 over the whole walk at once, so a slanted wall or a cupboard, even a run of them, is passed by, and takes the drift
 out before the solve; `posegraph.solve` then holds every believed frame's heading on one grid, whose angle it solves for.
 The bend tolerance is `BEND_SHARE`, 1% of the walk's length. Simulated single loops with walls seen as one real
-recording's were (10 walks each, the farthest frame at the median and at the worst): 2 minutes and 90 m, bent 0.46
-and 0.84 m (0.75 and 1.0 m before); 4 minutes and 180 m, 0.77 and 1.28 m (1.55 and 3.1 m before); 6 minutes and
-270 m, 1.04 and 1.46 m (5.0 and 65 m before), all 30 inside the tolerance where 19 were. What is left is the steps'
+recording's were (10 walks each, the farthest frame at the median and at the worst): 2 minutes and 90 m, bent 0.47
+and 0.87 m (0.75 and 1.0 m before); 4 minutes and 180 m, 0.82 and 1.25 m (1.55 and 3.1 m before); 6 minutes and
+270 m, 1.07 and 1.52 m (5.0 and 65 m before), all 30 inside the tolerance where 19 were. What is left is the steps'
 own length noise, which no heading fixes. Walks that cross their own path close as before (0.3 to 0.55 m bent).
 On the real recording 104 of 120 frames gave a wall direction, 60% of them
-within 5 degrees of one grid (most within 2) and the rest in short runs, most near 30 degrees off it either way. A
-place whose walls share no grid (fewer than `WALL_KEEP` of the frames with walls believed) is left to its revisits,
-and the run logs it.
+within 5 degrees of one grid (most within 2) and the rest in short runs, most near 30 degrees off it either way; 66
+held the walk. Against its ARKit poses the closed walk's headings were 1.6 degrees off at the median and 4.1 at the
+90th percentile (6.9 and 12.7 without the walls), and its frames 0.34 m at the root mean square and 0.96 m at the
+worst (0.35 and 0.99), with the same 24 revisits kept: that walk crosses its own path, so its positions were held
+already. A place whose walls share no grid (fewer than `WALL_KEEP` of the frames with walls near the track) is left
+to its revisits, and the run logs it.
 
 What the closure can't do: a walk in a place with no square walls, that also never crosses its own path, has nothing
 to hold its middle. A lone revisit past the gate, with no second one near it to agree, stays refused. The first frame
-keeps the tilt CUT3R
-gave it. And the doubled walls of step 4's note are CUT3R's depth, not its poses: closing the walk doesn't sharpen
+keeps the tilt CUT3R gave it. And the doubled walls of step 4's note are CUT3R's depth, not its poses: closing the walk doesn't sharpen
 them. So prefer a recording that carries its own tracked poses (a Stray Scanner export: ARKit's visual-inertial
 poses are metric, gravity-aligned, and drift about 1% of the walk, and its LiDAR depth is the cloud) whenever a
 device that makes one is to hand, and always for a walk past about two minutes, a walk that can't cross its own path
@@ -761,9 +763,12 @@ def close_loops(
        and the loops the first solve kept, or their fits.
 
     With `walls` (`wall_directions`: the level direction each frame's walls face), the repaired walk's heading is
-    first held by them frame by frame (`squared`), and both solves hold each kept frame's heading on the walls' grid
-    (`posegraph.solve`'s `walls`). That is what holds the middle of a walk that has no revisit there ("Single loops"
-    in the module docstring)."""
+    first held by them along the walk (`squared`), and every step takes the turn that gives it. The revisits are
+    then gated and solved against that walk, without the walls: they alone can tell a quarter turn from none, so a
+    break of a half turn that MASt3R didn't repair is theirs to turn back, and walls holding those frames on the
+    grid would stand in their way (on one real recording they did, and seven true revisits were dropped). The last
+    solve starts from there and holds each kept frame's heading on the walls' grid (`posegraph.solve`'s `walls`).
+    That is what holds the middle of a walk that has no revisit there ("Single loops" in the module docstring)."""
     by_pair = {(int(m["a"]), int(m["b"])): m for m in measured}
     posed = {
         p
@@ -828,6 +833,18 @@ def close_loops(
         straight, on_grid = squared(walks[0], walls, posegraph.world_up(walks[0]) if g is None else g)
         if on_grid.any():
             held = np.where(on_grid[:, None], walls, np.nan)
+            # Each step's turn as the walls corrected it: the frames' turns about up, in the step's own frame.
+            rot = walks[0][:, :3, :3]
+            back = np.einsum("nij,nkj->nik", straight[:, :3, :3], rot)
+            fix = np.einsum("nji,nkj,nkl,nlm->nim", rot[:-1], back[:-1], back[1:], rot[:-1])
+
+            def turned(e: posegraph.Edge) -> posegraph.Edge:
+                measured = e.measured.copy()
+                measured[:3, :3] = fix[e.i] @ e.measured[:3, :3]
+                return dataclasses.replace(e, measured=measured)
+
+            steps = [turned(e) for e in steps]
+            extra = [turned(e) for e in extra]
             walks = [straight, *walks]
         elif np.isfinite(walls).any():
             LOG.warning("the frames' walls don't share one grid, so they don't hold the walk's heading")
@@ -871,7 +888,7 @@ def close_loops(
         edges += passed
         taken = {(e.i, e.j) for e in passed}
         pending = [e for e in pending if (e.i, e.j) not in taken]
-        trial = posegraph.solve(start, edges, up=g, gravity=gravity, walls=held)
+        trial = posegraph.solve(start, edges, up=g, gravity=gravity)
         walks = [trial.poses, start, np.asarray(c2w, np.float64)]
         if not pending:
             break
@@ -898,9 +915,9 @@ def close_loops(
         if (edges[k].i, edges[k].j) in kept and (edges[k].i, edges[k].j) not in fitted
     ]
     loop_edges += [posegraph.Edge(i, j, pose, ICP_DEG, ICP_M, loop=True) for (i, j), (pose, _) in fitted.items()]
-    again = chain(c2w[0], final)
-    if held is not None:
-        again = squared(again, held, posegraph.world_up(again) if g is None else g)[0]
+    # With walls the last solve starts from the first one's poses: the revisits have by then turned every frame to
+    # the right quarter turn, which the walls can't tell apart (a break of a half turn looks square to them).
+    again = chain(c2w[0], final) if held is None else trial.poses
     solution = posegraph.solve(again, [*final, *loop_edges], up=g, gravity=gravity, walls=held)
     loop_k = range(len(final), len(final) + len(loop_edges))
     drift = [posegraph.relative(e.measured, posegraph.relative(c2w[e.i], c2w[e.j])) for e in loop_edges]

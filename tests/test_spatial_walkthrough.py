@@ -971,3 +971,17 @@ def test_walls_hold_the_middle_of_a_walk_with_no_revisit():
     held = W.close_loops(walk, answers, [], np.full(n, DEPTH), gravity=True, walls=facing(true))
     assert held.walls == n
     assert np.linalg.norm(held.poses[:, :3, 3] - true[:, :3, 3], axis=1).max() < 0.3
+
+
+def test_revisits_still_turn_back_a_half_turn_break_that_walls_cant_see():
+    true = rectangle()
+    n = len(true)
+    walk = np.array(true)
+    walk[50:] = walk[50] @ upright(math.pi, 0.0, 0.0) @ np.linalg.inv(walk[50]) @ walk[50:]  # the last frames, flipped
+    loops = [(1, n - 3), (2, n - 2), (3, n - 1)]
+    unbroken = [p for p in steps(n) if p != (49, 50)]  # nothing measured the step that broke, so it isn't repaired
+    answers = measured(true, loops + unbroken, 0.5)
+    closed = W.close_loops(walk, answers, loops, np.full(n, DEPTH), gravity=True, walls=facing(true))
+    assert closed.walls == n, "square to the walls either way round"
+    assert closed.loops == loops and closed.dropped == []
+    assert np.abs(heading_error_deg(closed.poses, true)[52:]).max() < 10.0
