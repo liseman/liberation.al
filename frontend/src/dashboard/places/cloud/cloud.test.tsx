@@ -4,9 +4,20 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { renderPage } from '../../../test/render';
 import { server } from '../../../test/server';
 import CloudView from './CloudView';
-import { coverFov, frustum, heightColour, heightOf, planFrame, planOutline, robustRange, type V3 } from './geometry';
+import { collisionMesh, glb, glbUrl } from './collision';
+import { toViewerUp, turned } from './frame';
+import {
+  coverFov,
+  frustum,
+  heightColour,
+  heightOf,
+  planFrame,
+  planOutline,
+  planWalls,
+  robustRange,
+  type V3,
+} from './geometry';
 import { canDraw, canDrawSplat, openingCamera, parseCloud } from './load';
-import { dolly, slide, turn } from './orbit';
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -235,34 +246,92 @@ it('opens a splat from a view it trained on: a walk splat from the walk, else a 
   expect(openingCamera([], 'cameras')).toBeNull();
 });
 
-it('turns the eye about its target, level with the floor or over the top, keeping its distance', () => {
-  const up: V3 = [0, 0, 1];
-  // a quarter turn about up takes an eye on +x round to +y, at the same height and distance
-  near(turn([2, 0, 1], [0, 0, 1], up, Math.PI / 2, 0), [0, 2, 1]);
-  // pitching down from level swings it toward the floor: lower, nearer the axis, still 2 m away
-  const lowered = turn([2, 0, 1], [0, 0, 1], up, 0, Math.PI / 6);
-  near(lowered, [2 * Math.cos(Math.PI / 6), 0, 1 - 2 * Math.sin(Math.PI / 6)]);
-  // it never goes over the pole, however far the drag: straight up is as far as it gets, short of it
-  const top = turn([2, 0, 1], [0, 0, 1], up, 0, -10);
-  expect(top[2]).toBeGreaterThan(2.99);
-  expect(Math.hypot(top[0], top[1])).toBeGreaterThan(0);
-  expect(Math.hypot(top[0], top[1], top[2] - 1)).toBeCloseTo(2, 9);
+it("turns the map so its floor's up is the viewer's up, by the smallest turn", () => {
+  // a levelled map (z up): x stays, the map's up becomes y, and its y becomes the viewer's -z
+  const level = toViewerUp([0, 0, 1]);
+  near(turned([0, 0, 1], level), [0, 1, 0]);
+  near(turned([1, 0, 0], level), [1, 0, 0]);
+  near(turned([0, 1, 0], level), [0, 0, -1]);
+  // a map that's already y up isn't turned, and an upside-down one is turned over
+  near(turned([3, 4, 5], toViewerUp([0, 1, 0])), [3, 4, 5]);
+  near(turned([0, -1, 0], toViewerUp([0, -1, 0])), [0, 1, 0]);
+  // a tilted floor: its normal still lands on +y, and lengths are kept
+  const tilt = toViewerUp([0.6, 0, 0.8]);
+  near(turned([0.6, 0, 0.8], tilt), [0, 1, 0]);
+  expect(Math.hypot(...turned([1, 2, 3], tilt))).toBeCloseTo(Math.hypot(1, 2, 3), 9);
 });
 
-it('turns about whatever the floor says is up', () => {
-  // up along y: a quarter turn takes an eye on +z round to +x
-  near(turn([0, 0, 3], [0, 0, 0], [0, 1, 0], Math.PI / 2, 0), [3, 0, 0]);
+// A two-room plan, 4 m by 3 m each, side by side, with a door in the wall between them.
+const TWO_ROOMS = [
+  'plan "Home" walls 0.2/0.1',
+  'room a "A" living rect 0,0 4x3',
+  'room b "B" living rect 4,0 4x3',
+  'door a>b w0.9',
+].join('\n');
+const IDENTITY = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0];
+
+it("stops a walk at the plan's walls and lets it through their doorways", () => {
+  const walls = planWalls(TWO_ROOMS, IDENTITY);
+  const length = ([a, b]: [V3, V3]) => Math.hypot(b[0] - a[0], b[1] - a[1]);
+  // the wall between the rooms (x = 4, 3 m long) is two pieces with a 0.9 m gap between them
+  const between = walls.filter(([a, b]) => Math.abs(a[0] - 4) < 1e-6 && Math.abs(b[0] - 4) < 1e-6);
+  expect(between).toHaveLength(2);
+  expect(between.reduce((sum, w) => sum + length(w), 0)).toBeCloseTo(3 - 0.9, 6);
+  // the outside walls are whole: the two rooms' outline is 8 + 3 + 8 + 3 m
+  const outside = walls.filter(w => !between.includes(w));
+  expect(outside.reduce((sum, w) => sum + length(w), 0)).toBeCloseTo(22, 6);
 });
 
-it('moves the eye in and out along its line of sight, never onto its target', () => {
-  near(dolly([4, 0, 0], [0, 0, 0], 0.5), [2, 0, 0]);
-  near(dolly([4, 0, 0], [0, 0, 0], 2), [8, 0, 0]);
-  expect(dolly([4, 0, 0], [0, 0, 0], 0)[0]).toBeCloseTo(0.02, 9);
+it('builds the walk a floor to stand on and walls with two faces', () => {
+  const floor: V3[] = [
+    [0, 0, 0],
+    [4, 0, 0],
+    [4, 0, 3],
+    [0, 0, 3],
+  ];
+  const mesh = collisionMesh(
+    floor,
+    [
+      [
+        [1, 0, 1],
+        [3, 0, 1],
+      ],
+    ],
+    [0, 1, 0],
+    2.4,
+  );
+  // four corners each for the floor and the wall; two triangles a face, both faces
+  expect(mesh.positions).toHaveLength(8 * 3);
+  expect(mesh.indices).toHaveLength(2 * 12);
+  // the wall stands 2.4 m up from its line on the floor
+  expect(Array.from(mesh.positions.slice(12))).toEqual([1, 0, 1, 3, 0, 1, 3, 2.4, 1, 1, 2.4, 1].map(Math.fround));
 });
 
-it('slides the eye and its target together across the view', () => {
-  // looking along +y with z up: dragging right moves the scene right, so both go to -x; dragging down, both go up
-  const { eye, target } = slide([0, -3, 1], [0, 0, 1], [0, 0, 1], 0.5, 0.25);
-  near(eye, [-0.5, -3, 1.25]);
-  near(target, [-0.5, 0, 1.25]);
+it('writes the collision as a GLB the viewer will take for one: a data URL ending in .glb', () => {
+  const mesh = collisionMesh(
+    [
+      [0, 0, 0],
+      [1, 0, 0],
+      [1, 0, 1],
+      [0, 0, 1],
+    ],
+    [],
+    [0, 1, 0],
+  );
+  const bytes = glb(mesh);
+  const view = new DataView(bytes.buffer);
+  expect(new TextDecoder().decode(bytes.subarray(0, 4))).toBe('glTF');
+  expect(view.getUint32(8, true)).toBe(bytes.length);
+  const jsonLength = view.getUint32(12, true);
+  const json = JSON.parse(new TextDecoder().decode(bytes.subarray(20, 20 + jsonLength)));
+  expect(json.accessors[0]).toMatchObject({ count: 4, type: 'VEC3', min: [0, 0, 0], max: [1, 0, 1] });
+  expect(json.accessors[1].count).toBe(12);
+  // the buffer holds the positions, the indices, and four spare bytes no accessor reaches
+  expect(json.buffers[0].byteLength).toBe(4 * 12 + 12 * 4 + 4);
+  const first = new Float32Array(bytes.buffer.slice(20 + jsonLength + 8, 20 + jsonLength + 8 + 48));
+  expect(Array.from(first)).toEqual(Array.from(mesh.positions));
+  const url = glbUrl(bytes);
+  // what the viewer checks: the last piece of the URL's path after a dot
+  expect(new URL(url).pathname.split('.').pop()).toBe('glb');
+  expect(url.startsWith('data:model/gltf-binary,%67%6c%54%46')).toBe(true);
 });
