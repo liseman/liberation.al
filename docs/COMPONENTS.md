@@ -54,8 +54,8 @@ unless the row says otherwise.
 | `supervisor.py` (`pack-supervisor`), `app_window.py` (`pack-app`) | Runs the services as one application | `state/supervisor/control.sock` | `state/supervisor/` | `services.toml` | Core |
 | `service_profile.py`, `tools/profile_services.py` | Opt-in CPU profiles | | `paths.logs/profiles/` | procfs | Optional, off |
 
-Other commands are CLIs: `pack-config`, `pack-services`, `pack-setup`, `pack-models`, `pack-system`,
-`pack-knowledge`, `pack-reset-catalog`, `pack-rename-camera`, `pack-continuum-status`, `pack-catalog-stats`,
+Other commands are CLIs: `pack-config`, `pack-services`, `pack-setup`, `pack-models`, `pack-system`, `pack-knowledge`,
+`pack-reset-catalog`, `pack-reset-places`, `pack-rename-camera`, `pack-continuum-status`, `pack-catalog-stats`,
 `pack-faces`, `pack-voice-clone`, `pack-clone-say`, `pack-clone-tts`, `pack-call`, `pack-phone-call`,
 `pack-call-eval`, `pack-call-review`, `pack-ask-friends`, and `pack-xvf3800`. `pyproject.toml` maps each to its
 module, whose docstring says how to use it.

@@ -14,7 +14,7 @@ documentation maintainer, stop here and write that section instead.
 | Kind | Where | Documents today |
 |---|---|---|
 | Tutorial | `README.md`, "Install" to "Name people" | That path is the only lesson. `mise run demo` is its safe starting point |
-| How-to guide | `MIGRATING.md`, `CONTRIBUTING.md`, and task documents in `docs/` | `MIGRATING.md`, `CONTRIBUTING.md`, `docs/RELEASES.md` (install and make a release), `docs/INGEST.md`, `docs/BLUETOOTH.md`, `docs/NETWORK.md`, `docs/PROFILING.md`, `docs/MEASUREMENT.md` |
+| How-to guide | `MIGRATING.md`, `CONTRIBUTING.md`, and task documents in `docs/` | `MIGRATING.md`, `CONTRIBUTING.md`, `docs/RELEASES.md` (install and make a release), `docs/PLACES.md`, `docs/INGEST.md`, `docs/BLUETOOTH.md`, `docs/NETWORK.md`, `docs/PROFILING.md`, `docs/MEASUREMENT.md` |
 | Reference | The declaring file first, then `docs/` | `config/defaults.toml` (settings), `services/services.toml` (services), `mise.toml` (tasks), tool docstrings, `docs/COMPONENTS.md` (every service and state file), `docs/VISION-STREAMS.md`, `docs/CONTINUUM-GATEWAY.md`, `docs/CONTINUUM-BROKER.md`, `docs/CONTINUUM-STORAGE.md`, `docs/STORAGE.md`, `docs/CONVENTIONS.md` |
 | Explanation | `docs/`, one document per area | `MANIFESTO.md`, `docs/ARCHITECTURE.md`, `docs/CONTINUUM.md`, `docs/CONTINUUM-CAPTURE.md`, `docs/CONTINUUM-SDK.md`, `docs/SERVICES.md`, `docs/VISION.md`, `docs/PEOPLE.md`, `docs/DOMAIN-MODEL.md`, `docs/ANSWERS.md`, `docs/DASHBOARD.md`, `docs/SPATIAL.md`, `docs/ROADMAP.md`, `docs/history/` |
 

@@ -18,6 +18,7 @@ it does. A document that still mixes kinds is listed under the one it mostly is.
 |---|---|
 | [Releases](RELEASES.md) | Install a release with apt or uv, with no checkout; make a release; make the apt signing key |
 | [Upgrading](../MIGRATING.md) | Update an existing install, follow the steps a change needs, and reset state |
+| [Places](PLACES.md) | Have the cameras learn a place's map and see people on its plan |
 | [Ingest](INGEST.md) | Import photos, video, and audio from elsewhere |
 | [Bluetooth](BLUETOOTH.md) | Set up advertisement sensors and link devices to people |
 | [Network](NETWORK.md) | Set up network inventory, device links, and network cameras |
