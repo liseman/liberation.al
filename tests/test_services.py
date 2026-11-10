@@ -558,6 +558,15 @@ def test_an_uninstall_that_fails_says_so(systemd, tmp_path, capsys):
     assert any(line.startswith("pack-b: FAILED") for line in out)
 
 
+def test_ollama_runs_under_the_log_relay_outermost_tagged_with_its_name():
+    svc = s.declared()["ollama"]
+    command = s.argv(svc, startup=True, name="ollama")
+    relay = [str(cfg.ROOT / ".venv/bin/python"), "-m", "liberational.log_relay", "--tag", "ollama", "--"]
+    assert command[: len(relay)] == relay
+    assert "liberational.gpu_ready" in command[len(relay) :], "the GPU wait runs inside the relay"
+    assert "log_relay" not in " ".join(s.argv(svc)), "only the service's own start is relayed"
+
+
 def test_the_continuum_broker_gets_its_state_dir_and_capture_manifest():
     svc = s.declared()["continuum-broker"]
     assert s.argv(svc) == [

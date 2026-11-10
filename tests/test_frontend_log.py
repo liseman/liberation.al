@@ -1,8 +1,9 @@
 """The frontend's own log (dashboard/frontend_log.py): what a page reports is kept only as known fields, with
-no query or hash on a path, capped per minute and in size, and appended as JSON lines."""
+no query or hash on a path, capped per minute and in size, and appended as log lines carrying JSON."""
 
 import io
 import json
+import re
 from email.message import Message
 from pathlib import Path
 from typing import Any
@@ -19,8 +20,21 @@ def _fresh_minute():
     fl._kept.clear()
 
 
+LINE = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-]\d\d:\d\d \[frontend\] (DEBUG|INFO|WARN|ERROR) (\{.*\})$")
+
+
+def records(path: Path) -> list[tuple[str, dict[str, Any]]]:
+    """Each line's level and event, failing on a line that isn't `<stamp> [frontend] LEVEL {json}`."""
+    out = []
+    for line in path.read_text().splitlines():
+        found = LINE.match(line)
+        assert found, line
+        out.append((found[1], json.loads(found[2])))
+    return out
+
+
 def lines(path: Path) -> list[dict[str, Any]]:
-    return [json.loads(line) for line in path.read_text().splitlines()]
+    return [event for _, event in records(path)]
 
 
 def test_an_event_keeps_known_fields_and_its_path_loses_query_and_hash() -> None:
@@ -84,7 +98,26 @@ def test_appends_json_lines_and_caps_the_minute(tmp_path: Path, monkeypatch: pyt
     assert fl.append(events, log, now=1030.0) == 0, "the same minute: nothing more"
     assert fl.append(events[:1], log, now=1061.0) == 1, "a minute later, room again"
     assert [line["message"] for line in lines(log)] == ["e0", "e1", "e2", "e0"]
-    assert all(line["type"] == "error" and line["route"] == "/" and "received" in line for line in lines(log))
+    assert all(line["type"] == "error" and line["route"] == "/" for line in lines(log))
+
+
+@pytest.mark.parametrize(
+    ("event", "expected"),
+    [
+        pytest.param({"type": "error", "message": "x"}, "ERROR", id="error"),
+        pytest.param({"type": "rejection", "message": "x"}, "ERROR", id="rejection"),
+        pytest.param({"type": "boundary", "message": "x"}, "ERROR", id="boundary"),
+        pytest.param({"type": "chunk", "url": "/static/app/a.js"}, "WARN", id="chunk"),
+        pytest.param({"type": "request", "url": "/x", "status": 500}, "WARN", id="server-error"),
+        pytest.param({"type": "request", "url": "/x", "status": 0}, "WARN", id="network-failure"),
+        pytest.param({"type": "request", "url": "/x", "status": 200, "ms": 4000}, "INFO", id="slow"),
+        pytest.param({"type": "navigation", "route": "/", "ms": 3000}, "INFO", id="navigation"),
+    ],
+)
+def test_each_event_is_a_line_at_its_level(tmp_path: Path, event: dict[str, Any], expected: str) -> None:
+    log = tmp_path / "frontend.log"
+    assert fl.append([event], log, now=1000.0) == 1
+    assert [level for level, _ in records(log)] == [expected]
 
 
 def test_rotates_once_past_the_size_cap(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
