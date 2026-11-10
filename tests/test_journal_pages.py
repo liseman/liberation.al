@@ -742,7 +742,7 @@ QWEN3_14B_INFO = {  # /api/show's model_info for qwen3:14b, the fields the guard
 
 
 @pytest.fixture
-def big(env, monkeypatch):
+def big(env, monkeypatch, model_server):
     """The page model "big" (9 GB of weights) set, with a fake Ollama API, one GPU Ollama runs on, and fake services
     (voice and see-captions installed) whose stops and starts are recorded."""
     env.ollama = []  # (path, body) of every Ollama API call besides chat
@@ -763,6 +763,7 @@ def big(env, monkeypatch):
         }.get(path, {})
 
     monkeypatch.setattr(journal_pages, "_ollama", ollama)
+    model_server.reply = lambda sent: ollama(sent.path, sent.payload)  # a load or unload (liberational/ollama.py)
     monkeypatch.setattr(journal_pages.nvml, "gpus", lambda: env.gpus)
     monkeypatch.setattr(journal_pages, "_ollama_pids", lambda: {100})  # 200 is another process on the GPU
 

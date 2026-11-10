@@ -30,23 +30,19 @@ shared one would slow voice replies, so without another server it isn't offered.
 
 import contextlib
 import fcntl
-import ipaddress
 import json
 import os
 import re
 import signal
 import threading
 import time
-import urllib.parse
 import uuid
 from collections.abc import Generator, Mapping
 from pathlib import Path
 from typing import Any
 
-import requests
-
 from liberational import config as cfg
-from liberational import logs, ollama_health, voice_turn
+from liberational import logs, ollama, ollama_health, voice_turn
 
 LOG = logs.get("research")
 MAX_QUESTION = 1200
@@ -432,25 +428,7 @@ def _restore_ask(url: str, model: str, num_ctx: int) -> None:
     from liberational.memory import ask
 
     try:
-        endpoint = urllib.parse.urlsplit(url)
-        host = endpoint.hostname
-        if endpoint.scheme != "http" or not host or not (host == "localhost" or ipaddress.ip_address(host).is_loopback):
-            raise ValueError("Ask restoration requires a loopback Ollama endpoint")
-        with ollama_health.call(model):
-            response = requests.post(
-                url + "/api/generate",
-                json={
-                    "model": model,
-                    "stream": False,
-                    "keep_alive": ask.keep_alive(model, num_ctx),
-                    "options": {"num_ctx": num_ctx},
-                },
-                timeout=120,
-                allow_redirects=False,
-            )
-            if 300 <= response.status_code < 400:
-                raise ValueError("Ask restoration redirects are forbidden")
-            response.raise_for_status()
+        ollama.load(model, num_ctx=num_ctx, keep_alive=ask.keep_alive(model, num_ctx), url=url, local=True)
     except Exception as error:
         # A completed report remains useful even if reloading Ask fails. The next Ask can retry its own load.
         LOG.warning("Could not restore Ask's model after Research: %s", type(error).__name__)

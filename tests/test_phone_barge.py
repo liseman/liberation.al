@@ -4,7 +4,6 @@ import asyncio
 import base64
 import json
 import threading
-from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -42,7 +41,7 @@ class Marks:
             self.call.mark_event.set()
 
 
-def test_mission_greeting_is_audible_before_model_result(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_mission_greeting_is_audible_before_model_result(monkeypatch: pytest.MonkeyPatch, model_server) -> None:
     call = bridge.Call(object())
     call.verified_owner = True
     call.say = "Arrange dinner."
@@ -51,9 +50,9 @@ def test_mission_greeting_is_audible_before_model_result(monkeypatch: pytest.Mon
     pcm = np.zeros(160, np.int16)
     monkeypatch.setattr(bridge, "FIXED_AUDIO", {"It's Bob.": pcm, "When works?": pcm})
 
-    def model_request(*args, **kwargs):
+    def model_request(sent):
         assert heard.wait(2), "mission generation blocked the initial greeting"
-        return SimpleNamespace(raise_for_status=lambda: None, json=lambda: {"message": {"content": "When works?"}})
+        return {"message": {"content": "When works?"}}
 
     class Socket:
         async def send_text(self, text: str) -> None:
@@ -65,7 +64,7 @@ def test_mission_greeting_is_audible_before_model_result(monkeypatch: pytest.Mon
                 call.mark_event.set()
 
     call.ws = Socket()
-    monkeypatch.setattr(bridge.requests, "post", model_request)
+    model_server.reply = model_request
     asyncio.run(call.greet())
     assert [entry["text"] for entry in call.transcript] == ["It's Bob.", "When works?"]
     assert len([message for message in messages if message["event"] == "media"]) == 2

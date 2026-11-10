@@ -271,6 +271,15 @@ def _ollama_health_starts_fresh():
     ollama_health.HEALTH.missing.clear()
 
 
+@pytest.fixture
+def model_server(monkeypatch):
+    """The model server in memory (tests/ollama_fake.py): `model_server.sent` is every chat and generate request
+    made through liberational/ollama.py, and `model_server.reply` is what it answers."""
+    import ollama_fake
+
+    return ollama_fake.install(monkeypatch)
+
+
 @pytest.fixture(autouse=True)
 def _no_real_services():
     before = len(hits)

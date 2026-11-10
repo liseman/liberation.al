@@ -89,7 +89,7 @@ from typing import TYPE_CHECKING, Any
 import requests
 
 from liberational import config as cfg
-from liberational import logs, memory_log, nvml, ollama_health
+from liberational import logs, memory_log, nvml, ollama, ollama_health
 from liberational.listen import revisions
 from liberational.memory import history_qa, journal, journal_counts, places, summarize, timeline
 
@@ -859,7 +859,7 @@ def recover(state: pathlib.Path) -> None:
 def unload(model: str) -> None:
     """Let Ollama unload `model` now (keep_alive 0). Logged, never raised: Ollama drops it after BATCH_KEEP_ALIVE."""
     try:
-        _ollama("/api/generate", {"model": model, "keep_alive": 0})
+        ollama.load(model, keep_alive=0, local=True)
     except Exception as e:
         log(
             f"couldn't unload {model} ({type(e).__name__}: {e}); Ollama drops it in {BATCH_KEEP_ALIVE}", level=logs.WARN
@@ -875,10 +875,13 @@ def reload(models: Sequence[Mapping[str, Any]]) -> None:
         if not m.get("always"):  # loaded for a while (Ask's, say): it loads on its next call, and expires then
             continue
         name, ctx = str(m["name"]), m.get("context_length")
-        options = {"num_ctx": ctx} if isinstance(ctx, int) and ctx > 0 else {}
-        body: dict[str, Any] = {"model": name, "keep_alive": -1, "options": options}
+        num_ctx = ctx if isinstance(ctx, int) and ctx > 0 else None
         try:
-            _ollama("/api/embed", {**body, "input": ""}) if name == embedding else _ollama("/api/generate", body)
+            if name == embedding:
+                options = {} if num_ctx is None else {"num_ctx": num_ctx}
+                _ollama("/api/embed", {"model": name, "keep_alive": -1, "options": options, "input": ""})
+            else:
+                ollama.load(name, num_ctx=num_ctx, local=True)
         except Exception as e:
             log(f"couldn't load {name} again ({type(e).__name__}: {e}); it loads on its next call", level=logs.WARN)
 

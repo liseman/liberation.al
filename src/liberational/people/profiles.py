@@ -34,10 +34,8 @@ import tempfile
 from collections.abc import Iterable
 from typing import Any
 
-import requests
-
 from liberational import config as cfg
-from liberational import ollama_health, voice_turn
+from liberational import ollama
 from liberational.people import forgotten, registry, transcript_view
 
 STATE = cfg.path("paths.state")
@@ -288,34 +286,24 @@ def ask_llm(name: str, lines: list[str]) -> Any:
         "words copied from one line that support it}. Only use facts clearly stated. "
         "If none, return [].\n\nLines:\n" + sample
     )
-    voice_turn.wait_quiet()
-    with ollama_health.call(LLM):
-        r = requests.post(
-            f"{cfg.ollama_url()}/api/chat",
-            timeout=180,
-            json={
-                "model": LLM,
-                "stream": False,
-                "think": False,
-                "keep_alive": -1,
-                # Match OpenClaw's runner (num_ctx 65536, resident) so this call reuses it instead of
-                # evicting it, reloading at the 262k default (32 GB) and flushing the agent's prompt cache.
-                # OpenClaw also sends truncate/shift=false; Ollama's default (shift=true) launches
-                # llama-server with --context-shift, a different runner, so omitting these restarted
-                # the 30B (and wiped its KV cache) on every call.
-                "truncate": False,
-                # The big context only pays off on a separate big model; on the shared small one it forces a second
-                # load that never comes (num_ctx).
-                "options": {
-                    "temperature": 0.0,
-                    "num_predict": REPLY_TOKENS,
-                    "num_ctx": ctx,
-                },
-                "messages": [{"role": "user", "content": prompt}],
-            },
-        )
-        r.raise_for_status()
-    raw = r.json()["message"]["content"].strip()
+    reply = ollama.chat(
+        LLM,
+        [{"role": "user", "content": prompt}],
+        # Match OpenClaw's runner (num_ctx 65536, resident) so this call reuses it instead of evicting it,
+        # reloading at the 262k default (32 GB) and flushing the agent's prompt cache. The big context only pays
+        # off on a separate big model; on the shared small one it forces a second load that never comes (num_ctx).
+        num_ctx=ctx,
+        num_predict=REPLY_TOKENS,
+        temperature=0.0,
+        think=False,
+        # OpenClaw also sends truncate/shift=false; Ollama's default (shift=true) launches llama-server with
+        # --context-shift, a different runner, so omitting these restarted the 30B (and wiped its KV cache) on
+        # every call.
+        truncate=False,
+        timeout=180,
+        background=True,
+    )
+    raw = reply["message"]["content"].strip()
     m = re.search(r"\[.*\]", raw, re.S)
     try:
         return json.loads(m.group(0)) if m else []
