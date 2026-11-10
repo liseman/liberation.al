@@ -1,7 +1,7 @@
 // The Ask widget, ported from static/lib/ask.js. With a day (Review) it asks about that day's recordings, with a
 // single local Ask. Without one, local searches the recordings for the time the question names, and friends and
-// everyone are general questions for the LLMs (#2307); Live opts into the scope choice (showModes), shown as one
-// segmented control under the question box with a single Ask button (#2452).
+// everyone are general questions for the LLMs; Live opts into the scope choice (showModes), shown as one
+// segmented control under the question box with a single Ask button.
 import {
   Button,
   CloseButton,
@@ -38,7 +38,7 @@ function help(day: string | null): string {
     : 'Searches your recordings for the time the question names. Enter asks · Shift+Enter adds a line.';
 }
 
-/** Research (#1336): the question taken slowly in the background, its report in the Inbox. */
+/** Research: the question taken slowly in the background, its report in the Inbox. */
 function ResearchButton({ question, day, busy }: { question: string; day: string; busy: boolean }) {
   const client = useQueryClient();
   const jobs = useQuery(researchQuery());
@@ -72,7 +72,7 @@ function ResearchButton({ question, day, busy }: { question: string; day: string
           </Button>
         </span>
       </Tooltip>
-      {/* A disabled button can't take focus, so its reason is on the page, not only in the hover tooltip (#2271). */}
+      {/* A disabled button can't take focus, so its reason is on the page, not only in the hover tooltip. */}
       {reason && (
         <Text id={reasonId} size="xs" c="dimmed">
           {reason}
@@ -164,7 +164,7 @@ function AskCard({
   // Live's scope choice: what Enter and Ask send. It starts on My recordings (or the scope of a job picked back up),
   // so a question only leaves this machine after Friends or Everyone is chosen.
   const [pick, setPick] = useState<Mode>(ask.mode);
-  const id = useId(); // Review and the Live panel can both be in the page (a hidden tab stays mounted, #330)
+  const id = useId(); // Review and the Live panel can both be in the page (a hidden tab stays mounted)
   // A research report this Ask follows up on (openAsk, from the Inbox): shown as a chip over the box, and sent with
   // each question until it's closed. A follow-up asks My recordings, since a report is about your own recordings.
   const [context, setContext] = useState<AskContext | null>(null);
@@ -202,7 +202,7 @@ function AskCard({
     void ask.submit('local');
   };
   const nothingYet = !ask.result && !ask.busy && !ask.question.trim();
-  // A few questions to start from, under the box (#2594 follow-up): Review's are about the day it shows, Live's about
+  // A few questions to start from, under the box: Review's are about the day it shows, Live's about
   // your own recordings. They go once there's a question or an answer, and there are none while following up on a
   // report, where the next question is the owner's own.
   const starters = day ? (onSeek ? suggestions(!!today) : null) : showModes && !context ? LIVE_STARTERS : null;
@@ -240,7 +240,7 @@ function AskCard({
       onMoments={onMarks ? setSavedTimes : undefined}
     />
   );
-  // Every Ask puts the answer right under the box, then the past questions (#2452).
+  // Every Ask puts the answer right under the box, then the past questions.
   const output = (
     <div className={classes.output}>
       {answer}

@@ -20,7 +20,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-// #2007: the page's own log, kept to paths, capped, and traced per navigation.
+// The page's own log, kept to paths, capped, and traced per navigation.
 describe('what a log line keeps', () => {
   it.each([
     ['/people#card=Dana', '/people'],

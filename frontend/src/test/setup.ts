@@ -11,7 +11,7 @@ import { server } from './server';
 
 // findBy and waitFor resolve on the first matching DOM change, so their timeout only bounds how long a failing check
 // takes to report. Testing Library's 1 s default assumed a CPU of our own: on a quiet machine a Settings page took
-// 960 ms of it to render, and under the shared machine's load whole files failed (#1321). 10 s, with vite.config.ts's
+// 960 ms of it to render, and under the shared machine's load whole files failed. 10 s, with vite.config.ts's
 // 30 s per test, leaves room for that load.
 configure({ asyncUtilTimeout: 10_000 });
 

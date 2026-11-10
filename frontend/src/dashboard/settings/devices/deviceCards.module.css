@@ -1,4 +1,4 @@
-/* Known › Devices' compact cards (#3267): a grid of fixed-width cards, more columns as the window widens and one on a
+/* Known › Devices' compact cards: a grid of fixed-width cards, more columns as the window widens and one on a
    phone, like the People roster's. Every section of the tab (Who's home, Your things, the Wi-Fi, and the device list)
    uses it. */
 .grid {
@@ -74,7 +74,7 @@
   font-family: var(--mantine-font-family-monospace);
   overflow-wrap: anywhere;
 }
-/* The Link button, as the Who's this? cards' answers (#3266): its icon over its caption and key cap. */
+/* The Link button, as the Who's this? cards' answers: its icon over its caption and key cap. */
 .action {
   display: flex;
   flex-direction: column;

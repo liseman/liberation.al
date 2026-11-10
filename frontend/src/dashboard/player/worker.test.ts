@@ -207,7 +207,7 @@ describe('sniffCodec', () => {
     expect(sniffCodec(new Uint8Array([0, 0, 0, 1, 0x67, 1, 0, 0, 1, 0x65]))).toBe('avc');
     expect(sniffCodec(new Uint8Array([0, 0, 1, 0x40, 0x01, 0, 0, 1, 0x42, 0x01]))).toBe('hevc');
     expect(sniffCodec(new Uint8Array([0, 0, 1, 0x41, 5]))).toBeNull();
-    // An archived AV1 keyframe (#1479): temporal delimiter, then the sequence header; a delta unit has none.
+    // An archived AV1 keyframe: temporal delimiter, then the sequence header; a delta unit has none.
     expect(sniffCodec(AV1_KEY)).toBe('av1');
     expect(sniffCodec(new Uint8Array([0x12, 0, 0x32, 1, 0]))).toBeNull();
   });

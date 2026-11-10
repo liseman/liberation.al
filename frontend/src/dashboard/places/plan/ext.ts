@@ -1,4 +1,4 @@
-// Spatial memory's extensions to the floorplan plan format (#2797), kept beside the vendored library
+// Spatial memory's extensions to the floorplan plan format, kept beside the vendored library
 // (src/vendor/floorplan) rather than in it, so they can go upstream later. In the JSON form each is an `x-` key at the
 // top of the document: the upstream parser ignores `x-` keys by design, so an extended plan is still a valid upstream
 // plan. The line DSL spells them as `x-` statements (dsl.ts).

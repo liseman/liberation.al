@@ -112,7 +112,7 @@ export const transcriptQuery = (day: string, today = false, priority = 0) =>
     refetchInterval: today ? LIVE_FILL_MS : false,
   });
 
-/** How often today's video is listed again while Review shows it, so the newest stretch keeps growing (#806). */
+/** How often today's video is listed again while Review shows it, so the newest stretch keeps growing. */
 export const LIVE_FILL_MS = 5000;
 
 /** The day's video, from Continuum's gateway: every camera's stretches with frames. Today's is listed again every
@@ -184,7 +184,7 @@ export function timeLeft(seconds: number): string {
 export const dayName = (day: string): string =>
   new Date(`${day}T12:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 
-/** The server is working out an ended day's count, once, off the request (#435): Review shows how far along, and
+/** The server is working out an ended day's count, once, off the request: Review shows how far along, and
  *  asks again every working.pollMs. */
 export class DayStillWorking extends Error {
   readonly progress: DayProgress;
@@ -204,7 +204,7 @@ export const isDetectorStoragePending = (error: unknown): boolean =>
 export const isDetectorStorage = (error: unknown): boolean => error instanceof DetectorStorageError;
 
 /** A proxy gave up waiting (502, 503, 504), this page did (RequestTimeout), or the connection dropped: the server is
- *  likely still working on the day, so Review keeps asking and says it is still loading rather than failing (#334). */
+ *  likely still working on the day, so Review keeps asking and says it is still loading rather than failing. */
 export const stillComputing = { retryMs: 5000 }; // how long to wait before asking again (tests shorten it)
 
 export const isStillComputing = (error: unknown): boolean =>
@@ -238,7 +238,7 @@ export const chipsQuery = (day: string, today: boolean, priority = 0) =>
       count < (isStillComputing(error) ? 6 : 1),
     retryDelay: (count, error) =>
       isStillComputing(error) ? stillComputing.retryMs : Math.min(1000 * 2 ** count, 30000),
-    // Never a second request for the day while one is still running (a slow day used to pile them up, #334).
+    // Never a second request for the day while one is still running (a slow day used to pile them up).
     // Ended days also recover automatically after errors; a hard failure keeps its error UI between polls.
     refetchInterval: query =>
       query.state.fetchStatus === 'fetching'
@@ -253,7 +253,7 @@ export const chipsQuery = (day: string, today: boolean, priority = 0) =>
     refetchOnWindowFocus: false,
   });
 
-/** A source explicitly selected for a written summary (#2119), with its own camera, people, and evidence kind. */
+/** A source explicitly selected for a written summary, with its own camera, people, and evidence kind. */
 export interface BlockEvidenceSource {
   id: string;
   stream: string;
@@ -266,18 +266,18 @@ export interface BlockEvidenceSource {
   text: string;
 }
 
-/** One stretch of the day in a sentence (GET /review/summary, #404): a whole journal window, so the first and last
+/** One stretch of the day in a sentence (GET /review/summary): a whole journal window, so the first and last
  *  can reach past the range asked for. Tags use the Show only chips' ids (person:, object:, event:) plus topic:. */
 export interface Block {
   start: number;
   end: number;
   text: string;
   tags: string[];
-  /** Explicit supplied-source selection (#2119); older cached blocks may have no attribution. */
+  /** Explicit supplied-source selection; older cached blocks may have no attribution. */
   evidence?: { status: 'verified' | 'unverified'; sources: BlockEvidenceSource[] };
 }
 
-/** A part of the day summed up in one sentence (#2276), from its hour lines; text null while it's being written. */
+/** A part of the day summed up in one sentence, from its hour lines; text null while it's being written. */
 export interface PartRollup {
   name: string; // "Night", "Morning", "Afternoon", or "Evening": the same hours as partOfDay
   start: number;
@@ -307,7 +307,7 @@ export interface Blocks {
   days?: DayRollup[]; // at the hour level only (a day's view)
 }
 
-export const BLOCKS_POLL_MS = 5000; // while blocks are still being written (#404)
+export const BLOCKS_POLL_MS = 5000; // while blocks are still being written
 
 /** The summary blocks of the timeline's visible range in one day. */
 export const blocksQuery = (day: string, t0: number, t1: number) =>

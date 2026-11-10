@@ -1,6 +1,6 @@
-// "Who is this?" (#309): after "Not <name>…" on something put down to someone (a photo, a video, a line), pick who it
+// "Who is this?": after "Not <name>…" on something put down to someone (a photo, a video, a line), pick who it
 // really is, someone new, or just take it off them. The contact card opens it from an item's ⋯ menu, and Review's
-// transcript from a line's (#300); each posts the correction it picks (/people/correct).
+// transcript from a line's; each posts the correction it picks (/people/correct).
 import { Button, Group, Modal, Text, TextInput } from '@mantine/core';
 import { useEffect, useState } from 'react';
 import classes from './whoIsThis.module.css';

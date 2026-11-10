@@ -1,4 +1,4 @@
-// Settings' draft (#382): what has been typed and not saved, shared by every section, the search, and the save bar.
+// Settings' draft: what has been typed and not saved, shared by every section, the search, and the save bar.
 // Server values are query data; the draft is the page's own, so moving between sections (or tabs) keeps it. A
 // section's own panel (catalog.ts Body) reads and changes it through useDraft.
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -52,7 +52,7 @@ export function DraftProvider({ view, children }: { view: ConfigView; children: 
   const [note, setNote] = useState('');
   const [failure, setFailure] = useState<{ error: string; field?: string } | null>(null);
   const controller = useRef<AbortController | null>(null);
-  // The page stays mounted (#330), so the settings can change elsewhere meanwhile (Sources writes the devices): a
+  // The page stays mounted, so the settings can change elsewhere meanwhile (Sources writes the devices): a
   // fresh view is what is saved now, and the draft keeps only what was changed here.
   const before = useRef(saved);
   useEffect(() => {
@@ -64,7 +64,7 @@ export function DraftProvider({ view, children }: { view: ConfigView; children: 
       ...Object.fromEntries(Object.entries(current).filter(([k, v]) => v !== old[k])),
     }));
   }, [saved]);
-  // No abort on cleanup: a hidden tab cleans its effects up too (#330), and leaving Settings mid-save must not stop
+  // No abort on cleanup: a hidden tab cleans its effects up too, and leaving Settings mid-save must not stop
   // the save or the restart it follows.
   const all = useMemo(() => view.sections.flatMap(s => s.settings), [view]);
   const mutation = useMutation({
@@ -84,7 +84,7 @@ export function DraftProvider({ view, children }: { view: ConfigView; children: 
         ? ` ${reply.overridden.join(', ')} stay as the environment sets them.`
         : '';
       if (reply.restarting === false) {
-        // The dashboard stays up (#400): show the saved settings here, and say what restarts in the background. A
+        // The dashboard stays up: show the saved settings here, and say what restarts in the background. A
         // secret is never sent back, so the one just saved is cleared rather than left looking unsaved.
         await client.invalidateQueries({ queryKey: CONFIG_KEY });
         const secrets = all.filter(r => r.secret && r.key in changes).map(r => r.key);
@@ -123,7 +123,7 @@ export function DraftProvider({ view, children }: { view: ConfigView; children: 
         : all.filter(row => row.section === section).sort((a, b) => (a.order ?? 1e4) - (b.order ?? 1e4)),
     value: key => values[key],
     set: (key, value) => {
-      setNote(''); // a "Saved" note from a save that kept this page (#400) gives way to the new change
+      setNote(''); // a "Saved" note from a save that kept this page gives way to the new change
       setValues(current => ({ ...current, [key]: value }));
     },
     reset: key => setValues(current => ({ ...current, [key]: saved[key] as string | boolean })),

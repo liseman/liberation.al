@@ -1,4 +1,4 @@
-// One filter chip for the app (#2450 board item 6, duplicates item 8): Mantine's Chip (a checkbox to assistive tech),
+// One filter chip for the app: Mantine's Chip (a checkbox to assistive tech),
 // drawn neutral with a dot in its series' colour and an optional count, dashed and dimmed when off.
 import { Chip } from '@mantine/core';
 import type { ReactNode } from 'react';

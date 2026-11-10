@@ -1,6 +1,6 @@
-// The top bar's one menu (#2453): Settings, the Resource monitor, the theme, Live's display choices, and the Debug log,
+// The top bar's one menu: Settings, the Resource monitor, the theme, Live's display choices, and the Debug log,
 // under a gear. They were five separate controls in four styles; none is used often enough to sit in the bar. A
-// failed or crash-looping service still shows on the gear as a dot, from every tab (#386).
+// failed or crash-looping service still shows on the gear as a dot, from every tab.
 import { ActionIcon, type MantineColorScheme, Menu, useMantineColorScheme } from '@mantine/core';
 import { useHotkeys } from '@mantine/hooks';
 import {

@@ -1,5 +1,5 @@
-// "Why this name" (#288): a popover that says what decided a line's or a face's name (the owner's word, an
-// introduction, a voice's name, a match), when, and how closely it matched; asks whether the name is right (#224's
+// "Why this name": a popover that says what decided a line's or a face's name (the owner's word, an
+// introduction, a voice's name, a match), when, and how closely it matched; asks whether the name is right (quality
 // marks, which change nothing); and holds the fix ("Not Dana…", and Live's "Rename this voice…") beside it.
 import { Button, Group, Loader, Popover, Stack, Text } from '@mantine/core';
 import { useMutation, useQuery } from '@tanstack/react-query';

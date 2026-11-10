@@ -20,7 +20,7 @@ export const MODE_NAMES: Record<Mode, string> = { local: 'My recordings', friend
 export type Scope = 'history' | 'general';
 
 /** Local searches the recordings (a Review day, or on Live the window the question names); friends and everyone
- * are general questions, so no recorded evidence is sent off this machine (#2307). */
+ * are general questions, so no recorded evidence is sent off this machine. */
 export const scopeOf = (day: string | null, mode: Mode): Scope => (day || mode === 'local' ? 'history' : 'general');
 
 export const isMode = (value: unknown): value is Mode => typeof value === 'string' && Object.hasOwn(MODES, value);
@@ -66,7 +66,7 @@ function askedOf(j: Record<string, unknown>): Asked | null {
 }
 
 export const modeLabel = (mode: Mode, showModes: boolean): string => (showModes ? MODE_NAMES[mode] : 'Ask');
-// An Ask says nothing at rest: its status line is for progress while an answer is coming (#2452).
+// An Ask says nothing at rest: its status line is for progress while an answer is coming.
 const readyText = (_showModes: boolean) => '';
 
 /** An error's text for the viewer: the server's reason when it gave one, else the old widget's "HTTP <status>". */
@@ -152,7 +152,7 @@ export function useAskJob(day: string | null, showModes: boolean) {
   const [elapsed, setElapsed] = useState('');
   const [error, setError] = useState('');
   const [result, setResult] = useState<unknown>(null);
-  // The answer as the model writes it (#1336), until the finished result replaces it.
+  // The answer as the model writes it, until the finished result replaces it.
   const [partial, setPartial] = useState('');
   const [asked, setAsked] = useState<Asked | null>(null);
   const input = useRef<HTMLTextAreaElement>(null);

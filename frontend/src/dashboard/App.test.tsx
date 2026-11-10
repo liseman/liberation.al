@@ -60,7 +60,7 @@ beforeEach(() => {
     http.get('/config', () =>
       HttpResponse.json({ ok: true, control: true, needs_setup: false, path: 'pack.toml', sections: [] }),
     ),
-    // Getting started's reads (#296): nothing set up, so it shows; tests about it set their own.
+    // Getting started's reads: nothing set up, so it shows; tests about it set their own.
     http.get('/stats', () => HttpResponse.json({})),
     http.get('/devices', () => HttpResponse.json({ control: true, mics: [], cameras: [], notes: {} })),
     http.get('/config/voice_ref', () => HttpResponse.json({ exists: false })),
@@ -116,7 +116,7 @@ afterEach(() => {
   history.pushState(null, '', '/');
 });
 
-/** Settings is in the top bar's menu (#2453). */
+/** Settings is in the top bar's menu. */
 async function openSettings() {
   await userEvent.click(screen.getByRole('button', { name: 'Menu' }));
   await userEvent.click(await screen.findByRole('menuitem', { name: 'Settings' }));
@@ -353,7 +353,7 @@ describe('status icons', () => {
     await userEvent.tab(); // skip link
     await userEvent.tab(); // brand
     for (const _ of TABS.filter(t => t.id !== 'debug')) await userEvent.tab(); // tabs
-    await userEvent.tab(); // Go to (the command palette, #2586)
+    await userEvent.tab(); // Go to (the command palette)
     await userEvent.tab(); // Ask
     await userEvent.tab();
     const pill = screen.getByRole('button', { name: /Microphone: Listening\./ });
@@ -526,7 +526,7 @@ describe('Ask', () => {
     renderApp('/');
     await userEvent.click(screen.getByRole('button', { name: 'Ask' }));
     const dialog = await screen.findByRole('dialog', { name: 'Ask' });
-    // The dialog opens at once and its body loads inside it (#2239).
+    // The dialog opens at once and its body loads inside it.
     expect(await within(dialog).findByRole('textbox', { name: /What would you like to ask/ })).toBeInTheDocument();
     // The dialog names it, so the widget's own heading is left out.
     expect(within(within(dialog).getByRole('region', { name: 'Ask' })).queryByRole('heading')).toBeNull();
@@ -658,7 +658,7 @@ it('preserves Live’s draft and reconnects its pane after Settings and an Activ
   await openSettings();
   await screen.findByRole('dialog', { name: 'Settings' });
   await userEvent.click(screen.getByRole('button', { name: 'Close settings' }));
-  // The floating window (#1358) stays open under Settings, with its draft.
+  // The floating window stays open under Settings, with its draft.
   expect(await screen.findByRole('textbox', { name: /What would you like to ask/ })).toHaveValue('A Live draft');
   await userEvent.click(screen.getByRole('link', { name: 'Review' }));
   await screen.findByRole('slider', { name: /Timeline/ });

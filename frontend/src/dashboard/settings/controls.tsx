@@ -1,4 +1,4 @@
-// Controls for settings a text box would serve badly (#383): the assistant's voice, the time zone, and the owner's
+// Controls for settings a text box would serve badly: the assistant's voice, the time zone, and the owner's
 // voice reference. Row.tsx draws one of these in a setting's section instead of its plain control; Advanced still
 // shows each setting's raw value.
 import { ActionIcon, Button, Group, Modal, Select, Text, TextInput } from '@mantine/core';
@@ -72,7 +72,7 @@ function AssistantVoice(props: ControlProps) {
     queryKey: VOICES_KEY,
     queryFn: ({ signal }) => request<Voices>('/config/voices', undefined, signal),
   });
-  // With a cloned voice it speaks in that, and this is the voice for when it can't (#2728): the picker still shows, with
+  // With a cloned voice it speaks in that, and this is the voice for when it can't: the picker still shows, with
   // that said under it. It used to show "Your cloned voice" in the Fallback voice row, which isn't the fallback.
   const fallbackOnly = !!voices.data?.clone;
   const value = String(d.value(row.key) ?? '');
@@ -164,7 +164,7 @@ interface Reference {
   exists: boolean;
   seconds: number;
   recorded?: number;
-  problem?: 'missing' | 'unreadable' | null; // the voice can't clone from it (#301)
+  problem?: 'missing' | 'unreadable' | null; // the voice can't clone from it
 }
 const SAVED_KEY = 'voice-ref';
 
@@ -226,6 +226,6 @@ export const CONTROLS: Record<string, ComponentType<ControlProps>> = {
   'tts.voice': AssistantVoice,
   'time.timezone': TimeZone,
   'owner.voice_ref': VoiceReference,
-  'services.enable': ServicesPick, // #386
+  'services.enable': ServicesPick,
   'services.disable': ServicesPick,
 };

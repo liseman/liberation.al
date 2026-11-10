@@ -3,7 +3,7 @@ import { hashTiming, ReviewEngine } from './engine';
 import type { Chip } from './types';
 
 beforeEach(() => {
-  hashTiming.everyMs = 0; // each link write lands at once here (#2391)
+  hashTiming.everyMs = 0; // each link write lands at once here
 });
 
 const DAY = '2026-10-27';

@@ -134,7 +134,7 @@ it('lists the kinds by how far each is from counting, and the clips to check new
   expect(await screen.findByText('2 clips to check ›')).toBeInTheDocument();
   const kinds = within(screen.getByRole('complementary', { name: 'Activity kinds' }));
   expect(kinds.getByText('Counted in Ask')).toBeInTheDocument();
-  // Sentence-case names and one progress wording (#2473).
+  // Sentence-case names and one progress wording.
   expect(kinds.getByText('Drinking')).toBeInTheDocument();
   expect(kinds.getByText('4 more answers to count')).toBeInTheDocument();
   const asks = screen.getAllByText(/^Is this /).map(q => q.textContent);
@@ -144,7 +144,7 @@ it('lists the kinds by how far each is from counting, and the clips to check new
   expect(batches[0]).toHaveLength(7);
   expect(batches[0]?.[0]).toBe(TODAY);
   expect(within(card(/Drinking at/)).getByRole('button', { name: /Play Drinking at/ })).toBeInTheDocument();
-  // Yes, No, and Not sure weigh the same (#2473): none is the filled one.
+  // Yes, No, and Not sure weigh the same: none is the filled one.
   const answers = within(card(/Drinking at/)).getAllByRole('button', { name: /^(Yes|No|Not sure)$/ });
   expect(answers.map(b => [b.textContent, b.dataset.variant])).toEqual([
     ['Yes', 'default'],
@@ -178,7 +178,7 @@ it('saves a name in the owner words for one clip, trimmed, when the field is lef
   renderPage(<ActivitiesTab />);
   await kindsListed();
   await screen.findByText('Is this “Drinking”?');
-  // The name field opens on demand (#2473), with focus in it.
+  // The name field opens on demand, with focus in it.
   expect(within(card(/Drinking at/)).queryByRole('combobox', { name: 'Call it' })).toBeNull();
   await userEvent.click(within(card(/Drinking at/)).getByRole('button', { name: 'Call it something else' }));
   const field = within(card(/Drinking at/)).getByRole('combobox', { name: 'Call it' });
@@ -247,7 +247,7 @@ it("shows a counted kind's clips as a 1 in 10 spot check among all activities, a
     screen.getByText('Walked past is counted in Ask already, so 1 in 10 of its clips are here to check.'),
   ).toBeInTheDocument();
   expect(kindButton(/^All activities\b.*\b3 clips to check/)).toBeInTheDocument();
-  // The banner counts what the list holds, not every unanswered clip (#2451).
+  // The banner counts what the list holds, not every unanswered clip.
   expect(screen.getByText('3 clips to check ›')).toBeInTheDocument();
   await userEvent.click(kindButton(/^Walked past\b.*\b20 clips to check/));
   expect(shownIds()).toHaveLength(20);

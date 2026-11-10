@@ -1,4 +1,4 @@
-// Which kind each ingest source is (#1331), so Settings shows it where it belongs: a camera source with the
+// Which kind each ingest source is, so Settings shows it where it belongs: a camera source with the
 // cameras, anything else that brings media in under Imported media. Links are pasted on the Ingest tab instead.
 // A source not named here (a new adapter) is imported media until it's added to CAMERAS.
 

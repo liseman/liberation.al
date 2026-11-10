@@ -35,7 +35,7 @@ export function useDeviceIssues(): SectionBadge | null {
     Object.values(cams ?? {}).filter(c => c.state === 'retrying').length +
     Object.values((ambient?.devices ?? {}) as Record<string, AmbientDevice>).filter(d => d.healthy === false).length;
   if (n) return { text: n === 1 ? '1 issue' : `${n} issues`, tone: 'warn' };
-  // A camera with no name goes by its id on every page (#2585)
+  // A camera with no name goes by its id on every page
   const missing = unnamed(shell().activeCams, views).length;
   return missing ? { text: missing === 1 ? 'Name 1 camera' : `Name ${missing} cameras`, tone: 'dim' } : null;
 }

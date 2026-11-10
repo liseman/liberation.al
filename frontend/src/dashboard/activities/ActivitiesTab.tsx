@@ -1,11 +1,11 @@
-// Known › Activities (#2283): teach the house which repeated movements it detects are real, and what to call them, so
+// Known › Activities: teach the house which repeated movements it detects are real, and what to call them, so
 // Ask can count them. Laid out like Pets: the kinds on the left (counted in Ask, or how far each has to go), and on the
 // right the clips of the last week still waiting for an answer, newest first, each with its own small player.
 // Answers and names use Review's routes and stores (/activity/feedback, /activity/name), so Ask's counting reads them
 // as before; "Not sure" only sets a clip aside for now, since the stores take right or wrong. The kinds double as the
-// clips filter (#2294): pick one to see only its clips, remembered per browser. On a phone the clips come first (Known's
+// clips filter: pick one to see only its clips, remembered per browser. On a phone the clips come first (Known's
 // design pass, P5): the kinds are a row of chips that scrolls sideways under the clips' heading, and the chosen kind's
-// progress is one line under it. The list of activities is the owner's (#3244): + adds one, and each row's bin deletes
+// progress is one line under it. The list of activities is the owner's: + adds one, and each row's bin deletes
 // it after asking, with an Undo.
 import {
   ActionIcon,
@@ -89,13 +89,13 @@ function ClipCard({
 }: {
   day: string;
   item: DetectedActivity;
-  names: readonly string[]; // the owner's activities, offered as names: a clip called by one teaches it (#3244)
+  names: readonly string[]; // the owner's activities, offered as names: a clip called by one teaches it
   label?: string; // its activity's own name, when the owner defined it
   onAside: () => void;
 }) {
   const client = useQueryClient();
   const [name, setName] = useState(item.name ?? '');
-  // The name field opens on demand (#2473), or at once for a clip already named.
+  // The name field opens on demand, or at once for a clip already named.
   const [naming, setNaming] = useState(!!item.name);
   const kind = item.name ?? label ?? activityKind(item);
   const answer = useMutation({
@@ -142,7 +142,7 @@ function ClipCard({
       </div>
       <div className={classes.ask}>
         <Text fw={600}>Is this “{capital(kind)}”?</Text>
-        {/* Three answers at the same weight (#2473): checking a model, No counts as much as Yes. */}
+        {/* Three answers at the same weight: checking a model, No counts as much as Yes. */}
         <Button.Group className={classes.answers} aria-label="Answer">
           <Button
             variant="default"
@@ -463,7 +463,7 @@ export function ActivitiesTab() {
   for (const { item } of open) waitingOf.set(kindKey(item.kind), (waitingOf.get(kindKey(item.kind)) ?? 0) + 1);
   // A remembered kind that's no longer listed (its clips aged out of the week) shows every kind instead.
   const selected = rows.find(r => chosen !== null && kindKey(r.kind) === chosen);
-  // A kind counted in Ask shows only a spot-check sample of its clips among all activities (Joe, #2441); picking it
+  // A kind counted in Ask shows only a spot-check sample of its clips among all activities; picking it
   // shows every one.
   const sampled = toCheck(open, recent.promotion);
   const thinned = !selected && sampled.length < open.length;

@@ -1,11 +1,11 @@
-// One transcript list for Live and Review (#2450 follow-up): lines grouped into turns, only the turns in view (plus
-// OVERSCAN either side) mounted (#2382), and the list held still as lines arrive (#2286). At the live end it keeps
+// One transcript list for Live and Review: lines grouped into turns, only the turns in view (plus
+// OVERSCAN either side) mounted, and the list held still as lines arrive. At the live end it keeps
 // following the newest line; scrolled away, it holds on the first visible line, and a pill says how many lines arrived
 // below. A turn mid-naming stays mounted while scrolled away, so its edit isn't lost.
 // Live and Review are configurations of it: Live a tail of recent lines that play when clicked, Review a day whose
 // current line follows the playhead (marked by setting aria-current, so following never re-renders the list) and
 // seeks when clicked.
-// A search dims the turns without a match and highlights the matches (#2580): every turn stays where it is, so the
+// A search dims the turns without a match and highlights the matches: every turn stays where it is, so the
 // list's height and the line it holds on don't move as the words are typed.
 import { Button } from '@mantine/core';
 import { IconArrowDown } from '@tabler/icons-react';
@@ -200,7 +200,7 @@ export function Transcript({
     },
   });
   // Read only when what's above the list changes: reading offsetTop on every render forced a layout in the middle of
-  // each scroll frame (#2412).
+  // each scroll frame.
   const hasList = turns.length > 0;
   const hasTop = top != null && top !== false;
   // biome-ignore lint/correctness/useExhaustiveDependencies: the list's offset changes with these, not with renders
@@ -279,7 +279,7 @@ export function Transcript({
     const was = atEnd.current;
     atEnd.current = true;
     // Say so before remember() reads the new position: it reports only a change, and this one is already made, so
-    // Live would stay not following after its new-lines pill (Codex on #2516).
+    // Live would stay not following after its new-lines pill.
     if (!was) onAtEndRef.current?.(true);
     scrollList(el.scrollHeight);
     remember();

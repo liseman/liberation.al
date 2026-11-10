@@ -20,7 +20,7 @@ function storage(): Pick<Storage, 'getItem' | 'setItem'> {
   return { getItem: k => kept.get(k) ?? null, setItem: (k, v) => void kept.set(k, v) };
 }
 
-// #2005: a tab left open across a redeploy asks for chunks the build removed.
+// A tab left open across a redeploy asks for chunks the build removed.
 describe('isChunkLoadError', () => {
   it.each([
     ['Chrome', new TypeError('Failed to fetch dynamically imported module: /static/app/assets/Known-OLD.js')],
@@ -55,7 +55,7 @@ describe('claimReload', () => {
   });
 });
 
-// #2054, from Joe's frontend log: Vite's preload error came first and its handler claimed the reload; Vite then
+// Vite's preload error can fire first so its handler claims the reload; Vite then
 // resolved the import with nothing, and the lazy wrapper's "reading 'default'" reached the page's boundary.
 describe('while a reload is under way', () => {
   beforeEach(() => {
@@ -86,7 +86,8 @@ describe('while a reload is under way', () => {
   });
 });
 
-// Joe's frontend log filled with "Failed to fetch dynamically imported module" from tabs that then reloaded fine.
+// Without filtering, the frontend log fills with "Failed to fetch dynamically imported module" from tabs that then
+// reload fine.
 describe('what a preload error logs', () => {
   beforeEach(() => {
     sessionStorage.clear();

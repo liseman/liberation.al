@@ -1,6 +1,6 @@
 // The live conversation: the shared transcript (transcript/Transcript.tsx) over the recent feed. Lines play when
 // clicked, the list follows the newest line (or holds still when told not to), and a search dims the recent turns
-// without a match and highlights the matches (#2580); older lines are Review's.
+// without a match and highlights the matches; older lines are Review's.
 import { Anchor, Button, CloseButton, Group, Text, TextInput, Title } from '@mantine/core';
 import { type ReactNode, useCallback, useMemo, useState } from 'react';
 import { plural } from '../lib/format';
@@ -13,7 +13,7 @@ import { lineHits, lineSearch, type Turn } from '../transcript/model';
 import { Transcript as Lines } from '../transcript/Transcript';
 import './conversation.css';
 
-/** meter: what the microphones hear, in the header beside the conversation (#2456). */
+/** meter: what the microphones hear, in the header beside the conversation. */
 export function Transcript({ listening, meter = null }: { listening: boolean; meter?: ReactNode }) {
   const transcript = useLive('transcript');
   const speakers = useLive('speakers') ?? EMPTY_SPEAKERS;
@@ -63,7 +63,7 @@ export function Transcript({ listening, meter = null }: { listening: boolean; me
           onChange={e => setQuery(e.currentTarget.value)}
           onKeyDown={e => e.key === 'Escape' && setQuery('')}
           style={{ flex: 1, minWidth: 120 }}
-          // How many match, and Clear, inside the box: a line or a button appearing beside it moved the list (#2580).
+          // How many match, and Clear, inside the box: a line or a button appearing beside it moved the list.
           rightSectionWidth={searching ? 'auto' : undefined}
           rightSection={
             searching && (

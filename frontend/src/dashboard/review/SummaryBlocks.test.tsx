@@ -17,7 +17,7 @@ const D0 = new Date(2026, 9, 27).getTime() / 1000;
 const at = (h: number, m = 0) => D0 + h * 3600 + m * 60;
 
 const BLOCKS: Block[] = [
-  // as #404 writes them: no time, no full stop, and person: and topic: tags
+  // as written by the server: no time, no full stop, and person: and topic: tags
   {
     start: at(8),
     end: at(11),
@@ -164,7 +164,7 @@ describe('the summary by time', () => {
     const lunch = await findStretch(/Lunch with Dana in the kitchen/);
     const list = screen.getByRole('list');
     await userEvent.click(lunch);
-    expect(engine.seekPlay).toHaveBeenCalledWith(at(12)); // plays from there (#2259)
+    expect(engine.seekPlay).toHaveBeenCalledWith(at(12)); // plays from there
     expect(engine.zoomTo).not.toHaveBeenCalled();
     expect(lunch).toHaveAttribute('aria-pressed', 'true');
     act(() => engine.ui.setState({ t: at(15, 5) }));

@@ -1,6 +1,6 @@
 // Who's around: a calendar heatmap of who was home or in view, by day (across) and hour (down), from face visits and
 // heard voices. Everyone at once shows how many people were there; one person shows their minutes. The owner's pinned
-// people (#2582, which folded the old "When X is around" cards in) sit one click away beside Everyone.
+// people (which folded the old "When X is around" cards in) sit one click away beside Everyone.
 
 import { Group, SegmentedControl, Stack, Text } from '@mantine/core';
 import { useRef, useState } from 'react';
@@ -45,7 +45,7 @@ export function WhosAround({
 }) {
   const [person, setPerson] = useState<string | null>(arg);
   const [view, setView] = useState('clock');
-  // Keep showing the last figures while another person's load (#2591): swapping the card for a skeleton on each step
+  // Keep showing the last figures while another person's load: swapping the card for a skeleton on each step
   // would take the filter, and keyboard focus with it, away mid-arrow. The chart dims until the new figures arrive.
   const query = useReport<Data>('whos_around', person, { keep: true });
   const last = useRef(person);

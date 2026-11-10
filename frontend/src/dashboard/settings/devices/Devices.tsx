@@ -2,8 +2,8 @@
 // preview, its name, how it is doing, whether it is used, and Mirror; each microphone with its live level against the
 // threshold speech has to pass, its sensitivity, and whether to listen with it. The names and choice of
 // cameras and microphones are settings (Settings' draft and save bar; saving restarts what reads them). Sensitivity
-// applies at once (POST /devices/sensitivity, #331), and Mirror is this browser's own choice. Between the cameras
-// and the microphones, the Network cameras card lists the ingest sources that are cameras (#1331). A camera or
+// applies at once (POST /devices/sensitivity), and Mirror is this browser's own choice. Between the cameras
+// and the microphones, the Network cameras card lists the ingest sources that are cameras. A camera or
 // microphone that's off shows only its name and its checkbox; its settings come back when it's checked (SourceItem).
 import { Anchor, Button, Checkbox, NativeSelect, Slider, Stack, Switch, Text } from '@mantine/core';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -348,7 +348,7 @@ function Cameras({ view, off }: { view: DeviceView; off: boolean }) {
 }
 
 /** A sensitivity slider that saves when let go, at once and live: the microphone service follows pack.toml without
- *  a restart (Joe: "Changing mic sensitivity should not restart anything"). The reply is the new device list, so
+ *  a restart (changing mic sensitivity does not restart services). The reply is the new device list, so
  *  mics following the default move with it; Settings' copy of the config is refetched, so its draft agrees. */
 function SensitivitySlider({
   label,
@@ -440,7 +440,7 @@ export function DefaultSensitivity({ row, id, disabled }: ControlProps) {
   );
 }
 
-/** Auto gain for one mic (#410): on or off at once, live, outside the draft. Under it, which gain moves and where it
+/** Auto gain for one mic: on or off at once, live, outside the draft. Under it, which gain moves and where it
  *  is now, from the microphone service's status ("Hardware gain +12.5 dB": the mic's own capture volume). */
 function AutoGain({ mic, live, off }: { mic: MicRow; live: MicGain | undefined; off: boolean }) {
   const client = useQueryClient();
@@ -466,7 +466,7 @@ function AutoGain({ mic, live, off }: { mic: MicRow; live: MicGain | undefined; 
         onChange={e => save.mutate(e.currentTarget.checked)}
         disabled={off || save.isPending}
       />
-      {/* #494: on devbox, a Wave:3 raised 40 dB matched its owner's lines to unnamed voices */}
+      {/* On the Linux machine, a Wave:3 raised 40 dB matched its owner's lines to unnamed voices */}
       <Text size="sm" c="dimmed" mt={4}>
         Can change how voices are recognized. Record your voice sample again after turning it on.
       </Text>
@@ -590,7 +590,7 @@ export function Devices() {
   return (
     <>
       <Text size="sm" c="dimmed">
-        {/* Every card on the page (#2695): it named only two of the four */}
+        {/* Every card on the page: it named only two of the four */}
         On this page: <Anchor href={`#${DEVICE_CARD.cameras}`}>Cameras</Anchor> ·{' '}
         <Anchor href={`#${CARD_ID.camera}`}>Network cameras</Anchor> ·{' '}
         <Anchor href={`#${DEVICE_CARD.microphones}`}>Microphones</Anchor> ·{' '}
@@ -607,7 +607,7 @@ export function Devices() {
           </SettingsRow>
         )}
       </SettingsSection>
-      {/* Cameras recorded over the network: Wyze now, UniFi Protect and Reolink (#1317) next (settings/sources/). */}
+      {/* Cameras recorded over the network: Wyze now, UniFi Protect and Reolink next (settings/sources/). */}
       <NetworkCameras
         names={{
           value: d.value('vision.camera_names'),
@@ -641,7 +641,7 @@ export function Devices() {
           </SettingsRow>
         )}
       </SettingsSection>
-      {/* Phones, watches, and tags linked to people and things (#1363) live in Known › Devices now. */}
+      {/* Phones, watches, and tags linked to people and things live in Known › Devices now. */}
       <Text size="sm">
         Phones, watches, and tags are in{' '}
         <Anchor href={href('/devices')} onClick={linkClick}>

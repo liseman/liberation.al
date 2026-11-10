@@ -1,4 +1,4 @@
-// One gateway connection per page for every stream the page follows live (#2380): the gateway's `watch` sends each
+// One gateway connection per page for every stream the page follows live: the gateway's `watch` sends each
 // watched stream's frames on it, at the rate asked (its newest frame that decodes alone, at most max_fps a second),
 // or every frame at 0. Consumers subscribe by stream name with the rate they need; the connection asks for each
 // stream at the fastest any subscriber wants, and a new `watch` replaces the set whenever that changes.
@@ -58,7 +58,7 @@ let ready = false; // hello and streams have come on this connection
 let available: boolean | null = null; // the gateway answers `watch`; null until a hello says
 let sent = ''; // the watch set last sent, so an unchanged one isn't sent again
 let listedAt = 0;
-/** The gateway runs a tagged `streams` beside the connection's frames (its hello says `streams_req`, #2772). */
+/** The gateway runs a tagged `streams` beside the connection's frames (its hello says `streams_req`). */
 let taggedStreams = false;
 let nextReq = 1;
 let retry = 0;
@@ -195,7 +195,7 @@ function open(): void {
 
 /** Ask the gateway for its streams on the watch connection. Tagged when it can run the listing beside the
  *  frames: untagged, the connection sent nothing until the listing was done, which took about 1.8 s when it re-read
- *  live chunks, long enough for every camera's queue to overflow and wait for a keyframe (#2772). */
+ *  live chunks, long enough for every camera's queue to overflow and wait for a keyframe. */
 function askStreams(c: Connection | null): void {
   c?.send(taggedStreams ? { type: 'streams', req: nextReq++ } : { type: 'streams' });
 }

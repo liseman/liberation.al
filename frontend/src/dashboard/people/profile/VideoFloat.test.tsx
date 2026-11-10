@@ -221,7 +221,7 @@ describe('floating People video', () => {
     });
     await waitFor(() =>
       expect(new URL((screen.getByRole('link', { name: 'Open in Review' }) as HTMLAnchorElement).href).hash).toContain(
-        `t=${START + 5}`, // a whole second, written without decimals (#2391)
+        `t=${START + 5}`, // a whole second, written without decimals
       ),
     );
     await userEvent.click(screen.getByRole('link', { name: 'Open in Review' }));

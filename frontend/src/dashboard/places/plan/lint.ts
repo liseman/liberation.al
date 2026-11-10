@@ -1,4 +1,4 @@
-// Lint for a place's plan (#2797). The upstream linter is written for designing a house: a habitable room needs a
+// Lint for a place's plan. The upstream linter is written for designing a house: a habitable room needs a
 // window, a door must be wide enough, a bedroom shouldn't open off the living room. A plan of a place the house has
 // seen is a record, not a design, so those findings say nothing useful about it. What matters is whether the plan
 // is sound as geometry (rooms tile, walls and openings resolve) and whether its extensions are. lintPlace keeps the

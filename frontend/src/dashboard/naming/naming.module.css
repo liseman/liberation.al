@@ -1,6 +1,6 @@
-/* The shared naming inbox (#2366), in the layout Joe picked (direction A) and annotated (#3263). In a wide pane (People's,
-   Pets'), the rows are cards in as many columns as fit (#3241), each at least the picked size's card width
-   (--naming-card, set by NamingInbox), as the roster's cards are (#3101). A card is three columns: the picture at the
+/* The shared naming inbox. In a wide pane (People's,
+   Pets'), the rows are cards in as many columns as fit, each at least the picked size's card width
+   (--naming-card, set by NamingInbox), as the roster's cards are. A card is three columns: the picture at the
    picked size (--naming-photo), then the guess with "Yes, <name>" beside it, its bar, its reason, a voice's words, and
    when it was seen, then at the top right the name box with the answer buttons in one row under it, sharing its
    width. Each card is its own container: a card too narrow for the three puts the name box and buttons under the

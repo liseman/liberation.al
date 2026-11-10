@@ -63,7 +63,7 @@ export function spaced(ticks: Set<number>, at: (i: number) => number, gap = 56):
 
 /** In-app navigation for an SVG link (an SVGAElement, whose href linkClick can't read). */
 /** A chart wider than its frame scrolls, newest at the right: show the newest end first, as on a phone, where two
- *  weeks of hours don't fit (#1493). Only when the drawing's width changes, so it never fights the reader's own scrolling. */
+ *  weeks of hours don't fit. Only when the drawing's width changes, so it never fights the reader's own scrolling. */
 export function useNewestInView(ref: RefObject<HTMLElement | null>, drawn: number): void {
   // biome-ignore lint/correctness/useExhaustiveDependencies: a new width is the trigger, though the effect reads the DOM
   useLayoutEffect(() => {
@@ -72,7 +72,7 @@ export function useNewestInView(ref: RefObject<HTMLElement | null>, drawn: numbe
   }, [ref, drawn]);
 }
 
-/** A chart's left axis, kept in view while the plot scrolls under it (#1499): its own SVG, stuck to the frame's left
+/** A chart's left axis, kept in view while the plot scrolls under it: its own SVG, stuck to the frame's left
  *  edge, overlapping the plot's blank left margin so the plot's coordinates don't move. */
 function YAxis({
   title,
@@ -94,7 +94,7 @@ function YAxis({
 }
 
 /** A chart's x-axis caption, in the page rather than in the scrolling plot: the plot scrolls to its newest column,
- *  which used to put the caption's start behind the sticky label column (#2515). It sticks to the frame's left edge,
+ *  which used to put the caption's start behind the sticky label column. It sticks to the frame's left edge,
  *  starts where the plot does, and wraps at the frame's width. */
 function XCaption({ left, children }: { left: number; children: ReactNode }) {
   return (
@@ -152,7 +152,7 @@ export function useTip(): [Tip | null, (tip: Tip | null) => void] {
   return [tip, setTip];
 }
 
-/** The tooltip floats over the page (#1982): in a portal on the document's body with fixed positioning, so the chart's
+/** The tooltip floats over the page: in a portal on the document's body with fixed positioning, so the chart's
  *  card, which scrolls sideways and clips, never cuts it off or grows around it. It's placed before it's painted. */
 export function Tooltip({ tip }: { tip: Tip | null }) {
   const ref = useRef<HTMLDivElement>(null);

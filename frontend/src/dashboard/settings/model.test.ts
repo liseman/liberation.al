@@ -32,7 +32,7 @@ describe('settings drafts', () => {
 });
 
 it.each([
-  // Settings is a page of its own since #382: it comes back where it was
+  // Settings is a page of its own: it comes back where it was
   [
     'http://example.test/settings#set-recall.enabled',
     'http://example.test:9000/',

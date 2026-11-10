@@ -43,7 +43,7 @@
 .itemMeta {
   margin-top: 2px;
   font-size: 12px;
-  color: var(--mantine-color-dimmed); /* --lib-dim read at 2.9:1 on the page (#2661) */
+  color: var(--mantine-color-dimmed); /* --lib-dim read at 2.9:1 on the page */
 }
 
 .detail {
@@ -98,7 +98,7 @@
   margin: 4px 0 0;
   padding-left: 20px;
   font-size: 14px;
-  color: var(--mantine-color-dimmed); /* --lib-dim read at 2.9:1 on the page (#2661) */
+  color: var(--mantine-color-dimmed); /* --lib-dim read at 2.9:1 on the page */
 }
 
 .lookedBody {
@@ -130,7 +130,7 @@
   }
 }
 
-/* "Partly sure" in amber, "Fairly sure" in green, as text (#2674) */
+/* "Partly sure" in amber, "Fairly sure" in green, as text */
 .verdict {
   font-weight: 700;
 }
@@ -147,7 +147,7 @@
   color: var(--mantine-color-dimmed);
 }
 
-/* The moments the answer cites (#2674): time, a still, the evidence's words on a line, and where it came from */
+/* The moments the answer cites: time, a still, the evidence's words on a line, and where it came from */
 .moments {
   list-style: none;
   margin: 12px 0 0;

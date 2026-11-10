@@ -1,6 +1,6 @@
-// The Reports tab (#1340): charts over everything recorded, each mark a link to Review at that moment. The owner
+// The Reports tab: charts over everything recorded, each mark a link to Review at that moment. The owner
 // picks which reports show and in what order; the server keeps that choice (dashboard/reports.py), not the browser.
-// A row of chips under the heading jumps to each report, and the move and remove controls wait behind Arrange (#2457).
+// A row of chips under the heading jumps to each report, and the move and remove controls wait behind Arrange.
 // It loads as its own chunk (App.tsx), so D3 stays out of the main bundle.
 import { ActionIcon, Button, Card, Group, Menu, Stack, Text, Title } from '@mantine/core';
 import { useElementSize } from '@mantine/hooks';
@@ -31,7 +31,7 @@ const VIEWS: Record<string, (report: ChosenReport, onPins: (pins: string[]) => v
 /** Where a report's card is on the page, for its jump chip. */
 const anchor = (r: ChosenReport) => `report-${r.id.replace(/[^\w-]/g, '_')}`;
 
-/** A row of chips under the heading, one per report, that jumps to its card (#2457). */
+/** A row of chips under the heading, one per report, that jumps to its card. */
 function JumpChips({ reports }: { reports: ChosenReport[] }) {
   const { ref, height } = useElementSize<HTMLElement>();
   // The row wraps on a narrow window, so the cards' scroll margin reads its real height.
@@ -64,7 +64,7 @@ function JumpChips({ reports }: { reports: ChosenReport[] }) {
   );
 }
 
-/** The smaller kinds, two to a row on a wide screen (#2726): reports.module.css's .cards grid. */
+/** The smaller kinds, two to a row on a wide screen: reports.module.css's .cards grid. */
 const HALF = new Set(['person_activity', 'devices', 'walkbys']);
 
 /** The reports that sit half width: two smaller ones next to each other in the page's order share a row; a smaller
@@ -118,7 +118,7 @@ function ReportCard({
     >
       <Group justify="space-between" mb="sm" wrap="nowrap">
         <Title order={2}>{reportTitle(report)}</Title>
-        {/* Removing a card is its own ⋯ menu (#2621 board, idea 8); Arrange adds Up and Down, and its own Remove. */}
+        {/* Removing a card is its own ⋯ menu; Arrange adds Up and Down, and its own Remove. */}
         {!arranging && (
           <Menu position="bottom-end" withinPortal>
             <Menu.Target>

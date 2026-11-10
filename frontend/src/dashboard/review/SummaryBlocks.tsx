@@ -1,9 +1,9 @@
-// Review's Summary as one story feed (#2275, #405): a sentence for each stretch of what the timeline shows, coarse for
-// the whole day and finer as it zooms in (GET /review/summary, #404), under parts of the day, each with the detected
-// activities inside it. Every click plays from there (#2259): a stretch from its start, an activity from its own.
+// Review's Summary as one story feed: a sentence for each stretch of what the timeline shows, coarse for
+// the whole day and finer as it zooms in (GET /review/summary), under parts of the day, each with the detected
+// activities inside it. Every click plays from there: a stretch from its start, an activity from its own.
 // Show only's chips highlight the stretches tagged with them, and "Only these" hides the rest. Picking a stretch keeps
 // the list and selection in place; deliberate timeline pans and zooms still request the summary for the new range.
-// A day's view (#2276) opens with the day's own sentence, and each part of the day reads as one sentence with its
+// A day's view opens with the day's own sentence, and each part of the day reads as one sentence with its
 // activities, its hours folded under it; a part with no sentence yet shows its hours.
 import { Switch, UnstyledButton } from '@mantine/core';
 import { IconChevronRight, IconPlayerPlayFilled } from '@tabler/icons-react';
@@ -86,7 +86,7 @@ export function picked(b: Block, sel: ReadonlySet<string>, cameras: readonly str
   return facets.size > 0 && [...facets.values()].every(tags => tags.some(tag => b.tags.includes(tag)));
 }
 
-/** The range to ask for (#443): the timeline's when it zooms (its span changes) or moves off the stretches shown, else
+/** The range to ask for: the timeline's when it zooms (its span changes) or moves off the stretches shown, else
  *  the one already asked, so the view following the playhead during playback doesn't ask again. */
 export function nextAsk(asked: View | null, range: View | null, shown: readonly Block[]): View | null {
   if (!range || !asked) return range;
@@ -99,7 +99,7 @@ export function nextAsk(asked: View | null, range: View | null, shown: readonly 
 
 export function SummaryBlocks({ day }: { day: string }) {
   const engine = useEngine();
-  const cameraNames = useCameraNames(); // a camera's current name (#2595), following a rename in Settings
+  const cameraNames = useCameraNames(); // a camera's current name, following a rename in Settings
   const range = useReview(s => s.range);
   const rangeIntent = useReview(s => s.rangeIntent);
   const sel = useReview(s => s.sel);
@@ -109,7 +109,7 @@ export function SummaryBlocks({ day }: { day: string }) {
   const [unfolded, setUnfolded] = useState<ReadonlySet<string>>(() => new Set()); // parts showing their hours
   const [runsOpen, setRunsOpen] = useState<ReadonlySet<string>>(() => new Set()); // unconfirmed runs shown chip by chip
   const pickedNavigation = useRef<{ navigation: number; view: number } | null>(null);
-  // The stretches showing: kept while finer ones load or are still being written, then swapped in place (#443).
+  // The stretches showing: kept while finer ones load or are still being written, then swapped in place.
   const [kept, setKept] = useState<Blocks | null>(null);
   const [asked, setAsked] = useState<View | null>(null);
   // biome-ignore lint/correctness/useExhaustiveDependencies: on a new range; kept is read, not followed
@@ -144,7 +144,7 @@ export function SummaryBlocks({ day }: { day: string }) {
 
   const select = (b: Block) => {
     setSelected(b.start);
-    engine.seekPlay(b.start); // plays from its start on every click, the same row again too (#2259)
+    engine.seekPlay(b.start); // plays from its start on every click, the same row again too
     pickedNavigation.current = { navigation: engine.navigationVersion, view: rangeIntent };
   };
   const play = (item: DetectedActivity) => engine.seekActivity(item.start, item.camera, { play: true });
@@ -192,7 +192,7 @@ export function SummaryBlocks({ day }: { day: string }) {
       </UnstyledButton>
     );
     // A stretch's chips, with 3 or more unconfirmed ones of a kind folded into one toggle: "read, 14 times (not yet
-    // confirmed)" rather than 14 "read?" chips (#2454 follow-up). Confirmed ones always show.
+    // confirmed)" rather than 14 "read?" chips. Confirmed ones always show.
     const chips = (list: readonly DetectedActivity[], at: string): ReactNode[] => {
       const runs = foldRuns(list, a => a.name ?? activityKind(a));
       return runs.map(run => {

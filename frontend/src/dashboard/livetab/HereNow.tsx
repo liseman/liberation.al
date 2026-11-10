@@ -1,5 +1,5 @@
-// Live's "Here now" (#356), under the cameras (#2473): who the cameras see (where, and since when), the named pets
-// they see (#2606), and who was heard in the last minute, side by side in a row that wraps, each linking to their card.
+// Live's "Here now", under the cameras: who the cameras see (where, and since when), the named pets
+// they see, and who was heard in the last minute, side by side in a row that wraps, each linking to their card.
 import { Anchor, Group, Text, Title } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
 import type { MouseEventHandler } from 'react';

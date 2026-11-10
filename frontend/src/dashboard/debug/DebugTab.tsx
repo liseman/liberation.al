@@ -1,5 +1,5 @@
-// The Debug tab: every service's log as one live tail, Papertrail style (issue #111). Each line is prefixed with
-// its level and its service, colored by them; services can be hidden, a minimum level hides the lower ones (#240), a
+// The Debug tab: every service's log as one live tail, Papertrail style. Each line is prefixed with
+// its level and its service, colored by them; services can be hidden, a minimum level hides the lower ones, a
 // search filters or highlights, the tail can be paused, and a line's time opens the lines around it.
 import {
   Alert,

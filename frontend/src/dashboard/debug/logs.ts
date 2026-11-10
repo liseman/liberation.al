@@ -6,8 +6,8 @@ export const CAP = 5000; // lines kept in the browser, so a chatty service can't
 export const AROUND = 10; // lines shown on each side of a clicked timestamp
 
 /**
- * Log levels, lowest first. Every service logs "<stamp> [service] LEVEL message" (issue #240), the stamp an ISO
- * local date and time with offset (2026-11-03T02:20:15-08:00, #1696) or, in lines from before it, "HH:MM:SS".
+ * Log levels, lowest first. Every service logs "<stamp> [service] LEVEL message", the stamp an ISO
+ * local date and time with offset (2026-11-03T02:20:15-08:00) or, in lines from before it, "HH:MM:SS".
  */
 export const LEVELS = ['debug', 'info', 'warn', 'error'] as const;
 export type Level = (typeof LEVELS)[number];
@@ -207,7 +207,7 @@ export function clock(t: number | null): string {
   });
 }
 
-/** The Debug tab's service chips, in sections by what each service does (Joe, 2026-11-04). A service no section
+/** The Debug tab's service chips, grouped in sections by what each service does. A service no section
  *  names, a new one, lands in "Other", so none is ever dropped. */
 export const SERVICE_GROUPS: readonly { title: string; services: readonly string[] }[] = [
   { title: 'Capture and cameras', services: ['continuum-capture', 'video-window'] },
