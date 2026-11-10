@@ -37,14 +37,15 @@ agreement, not measured accuracy.
 ## Spatial memory
 
 The open plan: a point cloud and a floorplan of every indoor place, cheap enough to run unattended
-([SPATIAL.md](SPATIAL.md)). Spatial memory is being built again from what the cameras see: the place store, the
-owner's plans, the splat trainer, and the position layer are in place, and the job that maps a place is the open
-work. People and pets are drawn on the plan once a place's map registers its cameras.
+([SPATIAL.md](SPATIAL.md)). While "Learn surroundings" is on, a place's map and splat are learned from frames the
+cameras see and refined as they see more. People and pets are drawn on the plan through each fixed camera's spot on
+the owner's plan, or through its place in the learned map.
 
 What is open:
 
 - Two fixed cameras can still put one person about a metre apart.
-- The wearable rig is not a position source; its pose track waits on a depth camera.
+- Fixed cameras that overlap nowhere share one map only when each has a spot on the owner's plan.
+- A camera on a moving rig is not a position source: it needs a pose for each moment.
 
 ## Platform
 

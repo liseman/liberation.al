@@ -204,7 +204,7 @@ it on the plan (`spatial/spots.py`), else from the map. The owner's names and pl
 supersede the machine's view. A camera with neither a spot nor a pose in a map places nobody, and the placer and
 the Places page say what each camera lacks.
 
-[SPATIAL.md](SPATIAL.md) covers the jobs and files.
+[SPATIAL.md](SPATIAL.md) explains how it works, and [PLACES.md](PLACES.md) is the guide to setting it up.
 
 ## Devices and network
 
