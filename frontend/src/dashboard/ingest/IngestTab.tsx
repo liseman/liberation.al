@@ -350,7 +350,7 @@ function Upload() {
           className={classes.bar}
         />
       )}
-      {/* One card, one entry point: files and links both start here (#2457 board). */}
+      {/* One card, one entry point: files and links both start here. */}
       <Link />
     </Box>
   );
@@ -430,7 +430,7 @@ function ItemRow({
   return (
     <Box component="li" className={classes.item} data-item-id={item.id} tabIndex={-1}>
       <Stack gap={0} style={{ minWidth: 0 }}>
-        {/* Two lines at most, and the whole name on hover: a link's address was nothing but its start (#2689). */}
+        {/* Two lines at most, and the whole name on hover: a link's address was nothing but its start. */}
         <Text fw={600} lineClamp={2} title={item.name} className={classes.name}>
           {item.name}
         </Text>
@@ -448,7 +448,7 @@ function ItemRow({
         </Text>
         {item.status === 'done' && <Found item={item} />}
         {PENDING.has(item.status) && (
-          // Still coming in: the pipeline says which step, not how far (#2718).
+          // Still coming in: the pipeline says which step, not how far.
           <Progress value={100} striped animated size="xs" mt={4} aria-label={`${status}…`} className={classes.bar} />
         )}
         {item.detail &&
@@ -487,7 +487,7 @@ function ItemRow({
             Retry
           </Button>
         )}
-        {/* Quiet until it's meant (#2715): a red Delete on every row was the loudest thing in the list. It still asks. */}
+        {/* Quiet until it's meant: a red Delete on every row was the loudest thing in the list. It still asks. */}
         <ActionIcon
           variant="subtle"
           color="gray"
@@ -593,7 +593,7 @@ function Jobs({ jobs, sources }: { jobs: Job[]; sources: readonly SourceInfo[] }
     <Stack gap={2} mt="xs">
       {shown.map(j => {
         const { what, card } = jobWords(j, sources);
-        // A link's failure in plain words (#2712); a source's own message already says what to do.
+        // A link's failure in plain words; a source's own message already says what to do.
         if (j.status === 'failed' && j.what.startsWith('link '))
           return (
             <div key={j.id}>
@@ -606,7 +606,7 @@ function Jobs({ jobs, sources }: { jobs: Job[]; sources: readonly SourceInfo[] }
         return (
           <Text key={j.id} size="sm" c={j.status === 'failed' ? 'var(--lib-bad)' : 'dimmed'}>
             {what}: {j.status === 'failed' ? j.error : j.status === 'running' ? 'working' : 'waiting'}
-            {/* A source's failure is fixed in Settings, where it signs in or is set up (#2689). */}
+            {/* A source's failure is fixed in Settings, where it signs in or is set up. */}
             {j.status === 'failed' && card && (
               <>
                 {' '}
@@ -622,7 +622,7 @@ function Jobs({ jobs, sources }: { jobs: Job[]; sources: readonly SourceInfo[] }
   );
 }
 
-/** What came of an item (#2719): what reading it found, and a way to its moment in Review when lines were heard.
+/** What came of an item: what reading it found, and a way to its moment in Review when lines were heard.
  *  Review's transcript shows a brought-in item's lines at its time; its camera lanes don't show the item's video, so
  *  without lines there's nothing there to open. */
 function Found({ item }: { item: IngestItem }) {
@@ -673,7 +673,7 @@ function ListGroup({ title, count, children }: { title: string; count: number; c
   );
 }
 
-/** The list grouped by what needs you (#2716): what's still coming in, what needs attention (a failure, or a deletion
+/** The list grouped by what needs you: what's still coming in, what needs attention (a failure, or a deletion
  *  still cleaning up), then what was added, newest first, the first ADDED_SHOWN until "Show all". A failure can't
  *  scroll out of sight below a day's photos. */
 function Groups({ view, onDeleted }: { view: IngestView; onDeleted: (name: string) => void }) {
@@ -692,7 +692,7 @@ function Groups({ view, onDeleted }: { view: IngestView; onDeleted: (name: strin
   return (
     <Stack gap="md">
       {summary && (
-        // What's going on, at a glance (#2718). Not a live region: it changes with every poll, and each row says its own.
+        // What's going on, at a glance. Not a live region: it changes with every poll, and each row says its own.
         <Text size="sm" c="dimmed">
           {summary}
         </Text>

@@ -220,9 +220,9 @@ export function Result({
   history?: boolean;
   answer?: boolean;
   folded?: boolean;
-  /** No "Answer" heading or status badge, for a page that frames the answer itself (the Inbox reader, #2674) */
+  /** No "Answer" heading or status badge, for a page that frames the answer itself (the Inbox reader) */
   bare?: boolean;
-  /** Shown in the answer's box under its text: the Inbox reader's cited moments (#2674) */
+  /** Shown in the answer's box under its text: the Inbox reader's cited moments */
   after?: ReactNode;
 }) {
   if (!isRec(result)) return null;
