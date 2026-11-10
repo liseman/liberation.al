@@ -1,4 +1,3 @@
-import datetime as dt
 from unittest.mock import ANY, create_autospec, patch
 
 import pytest
@@ -7,6 +6,7 @@ from liberational import config as cfg
 from liberational.assistant import voice
 from liberational.assistant.voice_auth import UNHEARD, Conversation
 from liberational.memory import ask as pack_ask
+from liberational.memory import history_qa, question
 from liberational.phone import outbound
 from liberational.vision import camera_history as h
 from voices import write_voices
@@ -19,51 +19,39 @@ def row(vision, age, cam="cam1", caption="Same. Desk.", **extra):
     return vision.caption(NOW - age, cam, caption, **extra)
 
 
-def query(vision, q="what changed on cam 1 in the last hour"):
+def query(vision, q="what do you see on cam 1"):
     return h.query(q, vision, NOW)
 
 
 @pytest.mark.parametrize(
-    ("question", "expected"),
+    ("question", "cameras"),
     [
-        ("cam 1 last hour", (["cam1"], 3600)),
-        ("camera one past one hour", (["cam1"], 3600)),
-        ("cam1 previous an hour", (["cam1"], 3600)),
-        ("camera two last five minutes", (["cam2"], 300)),
-        ("cam zero now", (["cam0"], None)),
+        ("what's on cam 1", ["cam1"]),
+        ("what does camera one see", ["cam1"]),
+        ("show me camera two and cam zero", ["cam0", "cam2"]),
     ],
 )
-def test_parse_reads_camera_and_window(question, expected):
-    assert h.parse(question) == expected
+def test_the_cameras_a_question_names_are_looked_up(question, cameras):
+    assert h.cameras(question) == cameras
 
 
-def test_parse_rejects_a_window_with_no_length():
-    with pytest.raises(ValueError, match="relative window"):
-        h.parse("camera 1 yesterday")
-
-
-def test_partial_stale_window_counts_only_its_camera(vision):
-    for args in ((4000,), (50, "cam1", "Changed. Chair moved."), (5, "cam2")):
+def test_now_is_the_newest_caption_of_the_last_ten_minutes_on_its_camera(vision):
+    for args in ((4000, "cam1", "Empty desk."), (50, "cam1", "A person at the desk."), (5, "cam2", "A hallway.")):
         row(vision, *args)
-    c = query(vision)["cameras"][0]
-    assert c["count"] == 1
-    assert c["partial"]
-    assert c["stale"]
-    assert c["change_count"] == 1
+    r = query(vision)
+    assert r["cameras"] == [dict(cam="cam1", count=1, last=NOW - 50, stale=True, latest="A person at the desk.")]
+    assert r["answer"] == f"cam1, observed at {h.stamp(NOW - 50)} (stale): A person at the desk."
+
+
+def test_a_camera_quiet_for_ten_minutes_says_when_it_was_last_seen_never_an_old_view(vision):
+    row(vision, 4000, "cam1", "Empty desk.")
+    answer = query(vision)["answer"]
+    assert answer == f"cam1: no observations in the last 10 minutes. Last observation {h.stamp(NOW - 4000)}, stale."
+    assert "Empty desk" not in answer
 
 
 def test_no_saved_history(vision):
     assert "No saved history" in query(vision)["answer"]
-
-
-def test_full_samples_then_a_gap_turns_partial(vision):
-    for x in range(0, 3601, 10):
-        if not 100 <= x <= 200:  # a gap of more than 30 s in the window
-            row(vision, x)
-    assert query(vision)["cameras"][0]["partial"]
-    for x in range(110, 200, 10):
-        row(vision, x)
-    assert not query(vision)["cameras"][0]["partial"]
 
 
 @pytest.fixture(autouse=True)
@@ -174,91 +162,44 @@ def test_a_guest_gives_the_password_for_any_camera_question_about_the_past(histo
     history_worker.assert_not_called()
 
 
-def test_the_owner_still_gets_a_camera_history_window(history_worker, owner_state):
-    with patch.object(voice, "camera_query", autospec=True, return_value={"answer": "Two changes."}) as camera:
-        assert voice.handle("Hey Bob what changed on camzero in the last 2 hours", entry=OWNER) == "Two changes."
-    camera.assert_called_once_with("what changed on camzero in the last 2 hours")
+def test_the_owners_question_with_a_time_in_it_goes_to_ask_never_the_current_view(history_worker, owner_state):
+    # Its reading isn't marked history but has a window (tests/data/readings.json): that is still the past.
+    with patch.object(voice, "camera_query", autospec=True, side_effect=AssertionError("current view read")):
+        reply = voice.handle("Hey Bob what changed on camzero over the past 2 hours", entry=OWNER)
+    assert reply == "camera result"
+    history_worker.assert_called_once_with("what changed on camzero over the past 2 hours")
+
+
+@pytest.mark.parametrize(
+    ("reading", "past"),
+    [
+        pytest.param(question.Reading(history=False, source="cameras"), False, id="what-they-show-now"),
+        pytest.param(question.Reading(history=True, source="cameras"), True, id="a-history-question"),
+        pytest.param(question.Reading(history=False, source="cameras", clock="3pm"), True, id="a-clock"),
+        pytest.param(question.Reading(history=False, source="cameras", day="yesterday"), True, id="a-day"),
+        pytest.param(
+            question.Reading(history=False, source="cameras", span=2, span_unit="hours", span_kind="last"),
+            True,
+            id="a-window",
+        ),
+        pytest.param(
+            question.Reading(history=False, source="cameras", other_time="last month"), True, id="a-refused-time"
+        ),
+    ],
+)
+def test_a_camera_question_is_about_the_past_when_its_reading_has_a_time(readings, reading, past):
+    readings["what about the cameras"] = reading
+    assert history_qa.asks_about_the_past("what about the cameras") is past
+
+
+def test_the_owners_in_person_camera_question_about_the_past_is_asks_too(history_worker, readings):
+    readings["what did the cameras see at 3pm"] = question.Reading(history=False, source="cameras", clock="3pm")
+    with patch.object(voice, "camera_query", autospec=True, side_effect=AssertionError("current view read")):
+        assert voice.owner_answer("what did the cameras see at 3pm", "session") == "camera result"
+    history_worker.assert_called_once_with("what did the cameras see at 3pm", mode="local")
 
 
 # ---- clock times: what a camera showed at 3pm, never what it shows now ----
-
-EVENING = dt.datetime(2026, 10, 24, 18, 0).timestamp()  # local time, as people ask
-
-
-def local(day, hour, minute=0):
-    return dt.datetime(2026, 10, day, hour, minute).timestamp()
-
-
-@pytest.mark.parametrize(
-    ("question", "moment"),
-    [
-        pytest.param("what did cam 0 show at 3pm", local(24, 15), id="pm-today"),
-        pytest.param("what did cam 0 show at 3:30 p.m.", local(24, 15, 30), id="minutes-and-dots"),
-        pytest.param("what did cam 0 show at 15:00", local(24, 15), id="24-hour"),
-        pytest.param("what did cam 0 show at noon", local(24, 12), id="noon"),
-        pytest.param("what did cam 0 show around 9 am", local(24, 9), id="around-am"),
-        pytest.param("what did cam 0 show at 8pm", local(23, 20), id="not-yet-today-is-yesterday"),
-        pytest.param("what did cam 0 show yesterday at 3pm", local(23, 15), id="yesterday"),
-        pytest.param("what did cam 0 show at midnight", local(24, 0), id="midnight"),
-    ],
-)
-def test_parse_reads_a_clock_time_as_a_moment(question, moment):
-    assert h.parse(question, EVENING) == (["cam0"], h.At(moment))
-
-
-@pytest.mark.parametrize(
-    "question",
-    [
-        pytest.param("what did cam 0 show today at 8pm", id="later-today"),
-        pytest.param("what did cam 0 show at 13pm", id="no-such-time"),
-        pytest.param("what did cam 0 show at 25:00", id="no-such-24-hour-time"),
-        pytest.param("what did cam 0 show this morning", id="part-of-day"),
-        # A clock time with another time word must not quietly mean today or yesterday.
-        pytest.param("what did cam 0 show two days ago at 3pm", id="days-ago"),
-        pytest.param("what did cam 0 show at 3pm last week", id="last-week"),
-        pytest.param("what did cam 0 show at 3pm on 2026-10-20", id="a-date"),
-        pytest.param("what did cam 0 show on monday at 3pm", id="a-weekday"),
-        pytest.param("what did cam 0 show at 3pm in the evening", id="with-a-part-of-day"),
-    ],
-)
-def test_parse_refuses_a_past_time_it_cant_read(question):
-    with pytest.raises(ValueError):
-        h.parse(question, EVENING)
-
-
-def test_a_number_alone_is_not_a_clock_time():
-    assert h.parse("what do you see at cam 3", EVENING) == (["cam3"], None)
-
-
-def test_a_clock_time_reads_the_caption_nearest_it_never_the_current_view(vision):
-    three = local(24, 15)
-    vision.caption(three - 400, "cam0", "Same. Empty desk.")
-    vision.caption(three - 90, "cam0", "Changed. A person at the desk.")
-    vision.caption(EVENING - 5, "cam0", "Same. Lights off.")
-    answer = h.query("what did cam 0 show at 3pm", vision, EVENING)["answer"]
-    assert answer == f"cam0 at {h.stamp(three - 90)}: Changed. A person at the desk."
-
-
-def test_a_clock_time_on_an_unchanged_view_says_what_it_repeats_and_since_when(vision):
-    three = local(24, 15)
-    vision.caption(three - 200, "cam0", "A person at the desk.")
-    vision.caption(three - 10, "cam0", "A person at the desk.", unchanged=True, since=three - 200, gated=True)
-    answer = h.query("what did cam 0 show at 3pm", vision, EVENING)["answer"]
-    assert answer == f"cam0 at {h.stamp(three - 10)}: unchanged since {h.stamp(three - 200)}: A person at the desk."
-
-
-def test_a_clock_time_on_a_warm_up_says_so_and_never_shows_an_older_caption(vision):
-    three = local(24, 15)
-    vision.caption(three - 200, "cam0", "A man at a desk.")
-    vision.caption(three - 5, "cam0", None)  # the VLM was still warming up
-    answer = h.query("what did cam 0 show at 3pm", vision, EVENING)["answer"]
-    assert "starting up" in answer and "A man at a desk" not in answer
-
-
-def test_a_clock_time_with_nothing_near_it_says_so(vision):
-    vision.caption(EVENING - 5, "cam0", "Same. Lights off.")
-    answer = h.query("what did cam 0 show at 3pm", vision, EVENING)["answer"]
-    assert answer == f"cam0: no observations within 5 minutes of {h.stamp(local(24, 15))}."
 
 
 def test_a_guest_gives_the_password_for_a_clock_time_camera_question(history_worker, owner_state):
@@ -277,22 +218,22 @@ def test_the_owners_clock_time_camera_question_reads_that_time_through_the_share
 
 
 @pytest.mark.parametrize("camera_id", ["entryway", "0", "cam00", "CAM0"])
-def test_history_parse_preserves_configured_camera_names(tmp_path, monkeypatch, camera_id):
+def test_configured_camera_names_are_kept_as_they_are(tmp_path, monkeypatch, camera_id):
     (tmp_path / "config").mkdir()
     (tmp_path / "config" / "devices.toml").write_text(
         'device=[{name="entryway",kind="rtsp"},{name="0",kind="camera"},'
         '{name="cam00",kind="camera"},{name="CAM0",kind="rtsp"}]'
     )
     monkeypatch.setattr(cfg, "ROOT", tmp_path)
-    assert h.parse(f"camera {camera_id} last hour") == ([camera_id], 3600)
+    assert h.cameras(f"what's on camera {camera_id}") == [camera_id]
 
 
-def test_history_default_cameras_follow_the_authoritative_native_manifest(tmp_path, monkeypatch):
+def test_a_question_that_names_no_camera_reads_the_manifests_cameras(tmp_path, monkeypatch):
     (tmp_path / "config").mkdir()
     path = tmp_path / "config" / "devices.toml"
     path.write_text('device=[{name="entryway",kind="rtsp"},{name="rear-2",kind="camera"}]')
     monkeypatch.setattr(cfg, "ROOT", tmp_path)
     with cfg.override({"vision": {"cams": [0, 3]}}):
-        assert h.parse("what did cameras see in the last hour") == (["entryway", "rear-2"], 3600)
+        assert h.cameras("what do the cameras see") == ["entryway", "rear-2"]
         path.write_text("device=[]")
-        assert h.parse("what did cameras see in the last hour") == ([], 3600)
+        assert h.cameras("what do the cameras see") == []

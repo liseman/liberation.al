@@ -257,6 +257,11 @@ def owner_answer(request: str, session_key: str, grant: Grant | None = None) -> 
     camera = camera_read(request, CAMERA_Q.search)
     if camera:
         try:
+            from liberational.memory import ask as pack_ask
+            from liberational.memory import history_qa
+
+            if history_qa.asks_about_the_past(request):  # never the current view for a question with a time in it
+                return pack_ask.spoken(pack_ask.ask(request, mode="local"))
             return camera_query(request)["answer"]
         except ValueError as ex:
             return str(ex)
@@ -435,7 +440,8 @@ def _handle(text_line: str, speaker: Speaker | None = None, entry: Mapping[str, 
                 # accept() sends anyone else's question about the past to the password; never answer one here
                 reply = "That needs the voice password."
                 error = "unauthorized"
-            elif history_qa.is_history_question(_with_names(result.request, owner=result.owner)):
+            elif history_qa.asks_about_the_past(_with_names(result.request, owner=result.owner)):
+                # Anything with a time in it is Ask's: the camera answer below only knows what they show now.
                 reply = pack_ask.spoken(pack_ask.ask(result.request, **history_options))
             else:
                 reply = camera_query(result.request)["answer"]
