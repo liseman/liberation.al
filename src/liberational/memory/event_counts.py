@@ -219,8 +219,8 @@ def _occurrences(event: Mapping[str, Any]) -> int:
 
 
 def uncalibrated(state: Any, kind: str) -> int | None:
-    """How many more Right ratings `kind` needs before Ask counts it (memory/events.py's promotion), or None once it
-    counts. A model kind with too few ratings has no trustworthy count yet."""
+    """How many more Yes or No answers `kind` needs before Ask counts it (memory/events.py's promotion), or None once
+    it counts. A model kind with too few answers has no trustworthy count yet."""
     from liberational.memory import events
 
     rows = [r for r in events.promotion_measurements(state) if r["kind"] == kind and r["camera"] is None]
@@ -240,8 +240,8 @@ def _model_kind_unchecked(
     cameras: list[str],
     stamp: Callable[[float], str],
 ) -> dict[str, Any]:
-    """The answer for a model kind not yet checked by the owner's ratings: what it saw, unverified, and how to check
-    it, never a count."""
+    """The answer for a model kind the owner has not checked with Yes or No in Known on Activities: what it saw,
+    unverified, and how to check it, never a count."""
     what = kind.replace("_", " ")
     seen = [
         e
@@ -250,8 +250,9 @@ def _model_kind_unchecked(
     ]
     watched = sum(max(0.0, min(c["end"], end) - max(c["start"], start)) for c in coverage["covered"])
     text = (
-        f"I can't count {what} yet: the camera model's {what} detections aren't checked. Rate {remaining} more of them "
-        f"Right or Wrong in Review and I'll count them."
+        f"I can't count {what} yet: the camera model's {what} detections aren't checked. "
+        f"Answer {remaining} more of them Yes or No in Known on Activities "
+        f"(Not sure sets one aside), and I'll count them."
     )
     text += (
         f" In that time it flagged {_n(len(seen), 'possible ' + what, 'possible ' + what + 's')}, unverified."

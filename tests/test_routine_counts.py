@@ -111,9 +111,15 @@ def test_an_unrated_model_kind_is_not_counted_and_says_how_to_check_it(tmp_path,
     vision.add(segment_log.ACTION_SPANS, ts_start=DAY + 9 * H, ts_end=DAY + 9 * H + 2, cam="cam0", kind=kind,
                candidate=True, track_id="1", subject_type="person", camera_moved=False)  # fmt: skip
     reply = h.collect(question, tmp_path, NOW)
-    assert f"I can't count {what} yet" in reply["answer"]
-    assert f"Rate {cfg.get('activity.promotion_min_ratings')} more" in reply["answer"]
-    assert "times" not in reply["answer"].split(".")[0]
+    answer = reply["answer"]
+    assert f"I can't count {what} yet" in answer
+    assert (
+        f"Answer {cfg.get('activity.promotion_min_ratings')} more of them Yes or No in Known on Activities "
+        "(Not sure sets one aside), and I'll count them."
+    ) in answer
+    assert "Right or Wrong" not in answer
+    assert "in Review" not in answer
+    assert "times" not in answer.split(".")[0]
 
 
 def test_how_often_the_cat_usually_uses_the_litter_box_is_a_typical_day_of_its_visits(tmp_path, vision):
