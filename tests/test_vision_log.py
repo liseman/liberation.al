@@ -830,7 +830,9 @@ def frame_evidence(monkeypatch: pytest.MonkeyPatch, queried: dict, snapshots: li
     ok, jpeg = cv2.imencode(".jpg", np.full((6, 8, 3), 200, np.uint8))
     assert ok
 
-    async def records(client: Any, stream: str, item: Any, *, start_ns: int, end_ns: int) -> list[read.Record]:
+    async def records(
+        client: Any, stream: str, item: Any, *, root: Any, start_ns: int, end_ns: int
+    ) -> list[read.Record]:
         return [read.Record(PID, FRAME_NS, FRAME_NS + 1, jpeg.tobytes())]
 
     monkeypatch.setattr(read, "records", records)
