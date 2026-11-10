@@ -104,7 +104,7 @@ peak, and the image check).
 | Stream | Fields |
 |---|---|
 | `animal.detection` | One confirmed box: `ts_ns`, `frame_id`, `track_id` (`<run>:<species>:<n>`), `species`, `box` (normalized x1, y1, x2, y2, and score), `verified` (the track passed the image check), `model`. |
-| `animal.embedding` | One appearance embedding of a confirmed track: `ts_ns`, `track_id`, `species`, `box`, `vector` (384 floats, unit length, DINOv3 ViT-S/16), `model`. Pet recognition reads it. |
+| `animal.embedding` | One appearance embedding of a confirmed track: `ts_ns`, `track_id`, `species`, `box`, `vector` (384 floats, unit length, DINOv2 ViT-S/14), `model`. Pet recognition reads it. |
 | `animal.coverage` | The spans of samples looked at: `id` and `frames`. A covered span without detections saw no animal; a gap or a stop splits it. |
 
 ## see-zones and presence

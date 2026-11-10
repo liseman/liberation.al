@@ -11,6 +11,7 @@ and follow face_shots' naming, retention, and pruning.
 from __future__ import annotations
 
 import collections
+import re
 import threading
 import time
 from collections.abc import Callable
@@ -32,6 +33,18 @@ def path(state: Path, track: str, revision: str) -> Path:
 
 def others(state: Path, track: str, revision: str) -> list[Path]:
     return face_shots.others(state, track, revision, KIND)
+
+
+def newest(state: Path, track: str) -> Path | None:
+    """The track's newest saved photo (the highest deletion revision), or None. A track id has no glob characters
+    (people/pets.py's TRACK)."""
+    pattern = re.compile(rf"{re.escape(track)}-{re.escape(face_shots.VERSION)}-r(\d+)\.jpg")
+    found = [
+        (int(m.group(1)), p)
+        for p in face_shots.directory(state, track, KIND).glob(f"{track}-{face_shots.VERSION}-r*.jpg")
+        if (m := pattern.fullmatch(p.name))
+    ]
+    return max(found)[1] if found else None
 
 
 def encode(patch: Any) -> bytes | None:

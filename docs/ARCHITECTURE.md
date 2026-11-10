@@ -245,7 +245,7 @@ it found a different file at instead of overwriting it; `pack.toml` and `devices
 
 What crosses: every knowledge-store collection (an export refuses a store holding a collection it doesn't list,
 naming each): people and identity events, names, voice and face references and the owner's voice and face
-negatives (`voice.not`, `face.not`), pets (profiles, labels, references, and `pet.not`), transcript corrections (the
+negatives (`voice.not`, `face.not`), pets (profiles, labels, references and their photos, and `pet.not`), transcript corrections (the
 owner's, not the audio tagger's TV marks), activities (names, feedback, and the owner's kinds, `activity.kind`),
 zones, place names and plans (the joined place's plan and rooms are a `place.plan`), device links and locations, Object crops,
 forgotten-name suppressions, and the journal and Ask records kept there. And the taught files: voiceprints and
@@ -334,12 +334,13 @@ missing/unexpected weights and differed by at most 0.000164 in boxes and 0.00086
   strongest alternative species, person, or household-background prompt. The model's processor defines the crop
   preprocessing; the verifier does not reuse CLIP's softmax or image normalization.
   Pet appearance uses the configured DINO model's CLS output, normalized to a unit 384-vector; register and patch
-  tokens are not pooled into that vector. The checkpoint's processor owns RGB resize and normalization. DINOv3
-  ViT-S/16 is the default, under the DINOv3 License. Its publisher's repository is gated, so the default `repo`
-  is an ungated copy of the same files, pinned to the declared HF revision; `mise run models` checks the weights
-  against the publisher's SHA-256 and refuses a mismatch. The embedding space keeps the publisher's name
-  (`space`), so rows and taught references read the same whichever source the weights came from. DINOv2 vectors,
-  including taught `pet.reference` vectors, cannot be compared with the new space despite their equal dimension.
+  tokens are not pooled into that vector. The checkpoint's processor owns RGB resize and normalization. Meta's
+  DINOv2 ViT-S/14 (Apache-2.0, ungated) is the default, pinned to the declared HF revision; `mise run models`
+  checks its weights against the declared SHA-256 and refuses a mismatch. `space` names the embedding space in
+  rows and taught references. Vectors of another model, including taught `pet.reference` vectors, cannot be
+  compared with it despite an equal dimension. A label also keeps its sighting's saved photo in the knowledge store
+  (`pet.photo`), so after a model change `tools/restore_pet_references.py` embeds the references again without the
+  owner teaching the pets twice; its `--carry-from` carries over examples taught before photos were kept.
 
 Track ids are see-actions' own, unique across restarts, and every reader joins on them as strings: zone visits,
 face matches, and action windows name the same tracks. A restart or a decode gap starts new tracks, ends open ones
@@ -1205,7 +1206,7 @@ Model names, download revisions, and files are declared in `config/defaults.toml
 | Speaker identity | ReDimNet2 B3 VoxCeleb2 LM, 192 dimensions, ONNX Runtime |
 | Face detection and identity | SCRFD plus AdaFace IR50 WebFace4M RGB, 512 dimensions, ONNX Runtime with CUDA, CoreML, or CPU providers |
 | People and animals | RF-DETR Small boxes, RTMPose halpe26 poses, ST-GCN++ skeleton actions, and optional MoViNet-A2 crop actions |
-| Animal verification and appearance | SigLIP 2 verification and DINOv3 ViT-S/16 appearance vectors (the DINOv3 License; fetched ungated and checked by checksum) |
+| Animal verification and appearance | SigLIP 2 verification and DINOv2 ViT-S/14 appearance vectors (both Apache-2.0, ungated; the weights checked by checksum) |
 
 Ask uses `ask.model` when set, otherwise the configured local OpenClaw default, otherwise `models.ollama.llm`
 (`memory/ask.py:local_settings`). Research's empty model/server settings inherit Ask's settings. The
