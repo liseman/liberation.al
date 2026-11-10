@@ -20,7 +20,7 @@ def preload_gpu_libraries(ort: Any) -> None:
     Every CUDA session builder calls this first, so it also sets ONNX Runtime's
     own logger to errors only: its warnings bypass this package's format, and
     the only one the logs ever carried was "No registered plugin EP device
-    found" once per CUDA session, about 30 raw lines per see-actions start
+    found" once per CUDA session, about 30 raw lines per see-actions start.
     Where a model runs is logged by its loader.
     """
     if hasattr(ort, "set_default_logger_severity"):

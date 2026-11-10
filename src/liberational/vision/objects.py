@@ -9,7 +9,7 @@ pixels for the live stream.
 `parse` reads that JSON, `to_pixels` converts a box onto an image, and `draw` paints the boxes. The caption path
 (see/captions.py) asks after the view changes, at most every MIN_S and at least every MAX_IDLE_S, and keeps the
 last boxes for TTL_S. Grounding is a separate, slower call from the caption: about 260 output tokens, about 2.6 s
-on the Linux machine with qwen3-vl:4b through Ollama, against about 0.9 s for a caption, and Ollama answers one request
+on an RTX 3090 with qwen3-vl:4b through Ollama, against about 0.9 s for a caption, and Ollama answers one request
 at a time. Only the Ollama backend grounds; the MLX backends leave objects empty (logged once).
 """
 

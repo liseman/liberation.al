@@ -794,8 +794,8 @@ LEARN_CONSISTENT = 0.35
 LEARN_NOVEL = 0.85
 LEARN_OTHERS = 0.30
 LEARN_FLOOR = 0.40  # and a learned view must already look like the person alone: a new angle, not someone new
-# And it must be more like the person than like anyone else's rows or any unnamed group's representative, by LEARN_GAP
-#: a view about as like a "Face N" may be someone the gallery lacks. Against named people LEARN_OTHERS and
+# And it must be more like the person than like anyone else's rows or any unnamed group's representative, by LEARN_GAP:
+# a view about as like a "Face N" may be someone the gallery lacks. Against named people LEARN_OTHERS and
 # LEARN_FLOOR already leave a 0.10 gap, so it binds on the groups. Of 286 replayed learn events it
 # refuses 50 (0.10 would refuse 89); held out, naming the day's later tracks it changed little at either.
 LEARN_GAP = 0.05
@@ -1427,7 +1427,8 @@ def autoname(keep: Iterable[int] = (), apply: bool = True, state: pathlib.Path |
     An automatic name is an embedding match (system tier, with the recognizer as producer), never an owner tag, and
     it never enrolls the group's face (`name_cluster(enroll=False)`): only owner-confirmed faces teach the gallery,
     so a wrong automatic name can't snowball. Each name gets its own undo token, as a tag does. A group whose name
-    was withdrawn before (an undone automatic name, or an owner's untag) is left for the owner, and one marked not that person is never named them."""
+    was withdrawn before (an undone automatic name, or an owner's untag) is left for the owner, and one marked not that
+    person is never named them."""
     from liberational.people import card_prefs
 
     state = state or cfg.path("paths.state")
