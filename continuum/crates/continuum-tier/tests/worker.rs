@@ -1256,3 +1256,49 @@ fn records_step_back_only_when_they_start_before_the_last_committed_one() {
     assert!(!continuum_tier::flush::steps_back(&records, 6), "nothing new");
     assert!(!continuum_tier::flush::steps_back(&records[..4], 1), "B-frames after their keyframe are not a step");
 }
+
+#[test]
+fn a_quiet_network_camera_whose_clock_stepped_back_has_no_part_cut_on_the_timer() {
+    let dir = tempfile::tempdir().unwrap();
+    let broker = Broker::default();
+    let stream = rtsp_catalog(&broker.catalog);
+    let settings = FlushSettings { chunk_ns: 60 * S, part_ns: S, audio_chunk_ns: 60 * S, sync_ns: 200 * MS };
+    let mut worker = WorkerLoop::new(dir.path(), settings, broker.clone()).unwrap();
+    worker.declare(stream, rtsp_shape());
+    let frame = |sequence: u32| {
+        let presentation = if sequence < 75 { sequence + 300 } else { sequence + 212 };
+        let mut payload = rtsp_payload(&broker.catalog, stream, sequence, presentation);
+        payload.bytes = vec![0, 0, 0, 1, if sequence.is_multiple_of(30) { 0x65 } else { 0x41 }, sequence as u8];
+        payload
+    };
+    // The link stalls in the middle of the third GOP, just after capture re-anchored the clock about 3 seconds back.
+    for sequence in 0..80u32 {
+        let now = T0 + u64::from(sequence) * FRAME_NS;
+        worker.payload(&frame(sequence), now).unwrap();
+        worker.tick(now).unwrap();
+    }
+    let committed = worker.counts().committed;
+    // Two seconds of nothing: the stream is quiet and a part is due, but its records stepped back, so none is cut.
+    let stalled = T0 + 80 * FRAME_NS + 2 * S;
+    worker.tick(stalled).unwrap();
+    assert_eq!((worker.counts().committed, *broker.refusals.borrow()), (committed, 0));
+    // The backlog arrives: the rest of the GOP, then the next keyframe, where the chunk closes cleanly.
+    for sequence in 80..150u32 {
+        let now = stalled + u64::from(sequence - 80) * FRAME_NS;
+        worker.payload(&frame(sequence), now).unwrap();
+        worker.tick(now).unwrap();
+    }
+    worker.shutdown().unwrap();
+    let counts = worker.counts();
+    assert_eq!((counts.rehomed, counts.rejected, counts.undecodable, counts.appended), (1, 0, 0, 150));
+    assert_eq!((*broker.refusals.borrow(), worker.uncommitted()), (0, 0));
+    for sequence in 0..150u32 {
+        assert!(
+            matches!(
+                broker.catalog.get(uuid(sequence)).unwrap(),
+                Some(continuum_catalog::Resolved::AbsorbedFrame { .. })
+            ),
+            "frame {sequence} is in a chunk"
+        );
+    }
+}

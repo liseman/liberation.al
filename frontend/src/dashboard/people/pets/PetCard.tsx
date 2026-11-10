@@ -11,7 +11,17 @@ import { Empty, ItemActions, type MenuAction, Section } from '../profile/parts';
 import classes from '../profile/profile.module.css';
 import { cameraName, whereabouts } from '../profile/role';
 import { VideoTile } from '../profile/VideoTile';
-import { type Check, type Pet, petPhoto, petVideos, photoUrl, type Seen, species as Species, span } from './api';
+import {
+  type Check,
+  type Pet,
+  petPhoto,
+  petVideos,
+  photoUrl,
+  type Seen,
+  species as Species,
+  span,
+  videoSightings,
+} from './api';
 
 /** Whether a species is recognized by appearance yet, and how its held-out check went. */
 export function checkText(check: Check): string {
@@ -61,7 +71,7 @@ export function PetCard({
     { label: 'Hide from the card', onClick: () => onPhoto?.('hide', s.track_id) },
   ];
   const videos = petVideos(seen);
-  const selected = seen.slice(0, 4);
+  const selected = videoSightings(seen);
   const videosPending = selected.filter(s => s.video_status === 'pending').length;
   const videosUnavailable = selected.filter(s => s.video_status === 'unavailable').length;
   const where = newest ? whereabouts({ last_seen: newest.end, last_seen_cam: newest.cam }) : 'Not seen yet';
