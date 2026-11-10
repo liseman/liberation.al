@@ -1,4 +1,4 @@
-//! Timed device teardown (#1388): when a worker closes its device, each step says how long it took, and a
+//! Timed device teardown: when a worker closes its device, each step says how long it took, and a
 //! watchdog says which step is still running every second. A worker owns one device, so one tracker per process
 //! is enough.
 //!

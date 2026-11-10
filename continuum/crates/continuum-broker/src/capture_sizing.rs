@@ -34,7 +34,7 @@ struct NetworkVideo {
 struct Device {
     name: String,
     kind: String,
-    /// `[[device]].enabled = false` starts no capture worker, so the broker reserves no ring for it (#1657).
+    /// `[[device]].enabled = false` starts no capture worker, so the broker reserves no ring for it.
     #[serde(default = "enabled_by_default")]
     enabled: bool,
     #[serde(default)]
@@ -103,7 +103,7 @@ fn total_bytes(classes: &[SlotClass], ring_bytes: u64) -> Result<u64, String> {
     add(add(align(metadata, PAGE)?, payload)?, align(ring_bytes, PAGE)?)
 }
 
-/// A camera frame's planned bytes, shared with capture's class pick (`continuum_core::camera_frame_bound`, #2001).
+/// A camera frame's planned bytes, shared with capture's class pick (`continuum_core::camera_frame_bound`).
 /// AVFoundation delivers UYVY even if MJPEG was requested, so a Mac's frames are raw.
 fn frame_bytes(width: u32, height: u32, format: &str, mac: bool) -> Result<u64, String> {
     if width == 0 || height == 0 {
@@ -291,7 +291,7 @@ pub fn plan(text: &str, baseline: &[SlotClass], mac: bool, budget: u64, ring_byt
     }
     // A USB camera claims the smallest class that holds its planned frame (capture's pick_class over
     // camera_frame_bound). Where that's a class an RTSP camera added above, its slots were never reserved there, so
-    // it shared the RTSP camera's few and dropped frames (#2001): reserve them in that one class too.
+    // it shared the RTSP camera's few and dropped frames: reserve them in that one class too.
     for (camera, bounds) in cameras.iter_mut().zip(&usb_bounds) {
         for &bound in bounds {
             let claimed = classes
@@ -523,7 +523,7 @@ mod network_tests {
 
     #[test]
     fn a_usb_camera_has_its_slots_in_every_class_it_claims_including_one_an_rtsp_camera_added() {
-        // devbox, #2001: cam0 (960x540 MJPEG, falling back to 640x480) beside an RTSP camera, whose classes include
+        // A USB camera (cam0: 960x540 MJPEG, falling back to 640x480) beside an RTSP camera, whose classes include
         // 1 MiB. cam0 claims the smallest class that holds each planned frame (capture's pick over
         // continuum_core::camera_frame_bound): 2 MiB for 960 x 2 x 540 + 64 KiB = 1,102,336 bytes, and the RTSP
         // camera's 1 MiB for 640 x 2 x 480 + 64 KiB = 679,936. Its 30 x 10 s + 25% + 8 = 383 slots go in both.

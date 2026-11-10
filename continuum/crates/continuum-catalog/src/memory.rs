@@ -32,7 +32,7 @@ impl MemoryCatalog {
     fn insert_in(st: &mut State, payloads: Vec<NewPayload>) -> Result<Vec<Inserted>> {
         // Already indexed with identical header bytes (or earlier in this batch): the same commit sequence, unwritten.
         // A frame a chunk absorbed since, sent again with the stream and start its frame index holds, is a repeat too,
-        // answering the chunk's sequence (#685).
+        // answering the chunk's sequence.
         let mut fresh: Vec<NewPayload> = Vec::new();
         let mut first: HashMap<Uuid, usize> = HashMap::new();
         // Ok((id, answers)): indexed already, `answers` the payload whose sequence it gets. Err((i, repeat)): the
@@ -95,7 +95,7 @@ struct State {
     /// Goes up by one with each new stream ([`Catalog::stream_generation`]).
     stream_generation: u64,
     invalidations: HashMap<u32, u64>,
-    /// Stream -> its revision at its last forget (#1587); absent means the current revision.
+    /// Stream -> its revision at its last forget; absent means the current revision.
     forgotten_at: HashMap<u32, u64>,
     names: HashMap<String, u32>,
     payloads: HashMap<Uuid, HeaderBuf>,
@@ -133,13 +133,13 @@ struct State {
     uncovered: Vec<(u32, Interval)>,
     scrub_due: bool,
     forgotten: BTreeSet<ForgottenHash>,
-    /// (owner, contract) -> a worker's checkpoint and the stream id each input resolved to (#1547).
+    /// (owner, contract) -> a worker's checkpoint and the stream id each input resolved to.
     worker_states: HashMap<(String, String), (crate::WorkerState, Vec<StreamId>)>,
     /// UTC ns -> head commit sequence then.
     commit_clock: BTreeMap<u64, u64>,
     /// Stream -> its spans aged out.
     aged: HashMap<u32, CoverageSet>,
-    /// (stream, start, dependent) -> end: derived payloads' dependencies on stretches of streams (#1535).
+    /// (stream, start, dependent) -> end: derived payloads' dependencies on stretches of streams.
     deps: BTreeMap<(u32, u64, Uuid), u64>,
     /// Chunk -> its per-frame capture provenance, fixed at commit.
     provenance: HashMap<Uuid, crate::ChunkProvenance>,
@@ -421,11 +421,11 @@ impl State {
         *revision = revision.saturating_add(1);
         let revision = *revision;
         self.forgotten_at.insert(stream.0, revision);
-        // A worker's state built from this stream may hold what the purge took: it goes with it (#1547).
+        // A worker's state built from this stream may hold what the purge took: it goes with it.
         self.worker_states.retain(|_, (_, ids)| !ids.contains(&stream));
     }
 
-    /// An age-out's change (#1587): readers see it, but what was built from the aged rows stays right.
+    /// An age-out's change: readers see it, but what was built from the aged rows stays right.
     fn invalidate_aged(&mut self, stream: StreamId) {
         let revision = self.invalidations.entry(stream.0).or_default();
         self.forgotten_at.entry(stream.0).or_insert(*revision);
@@ -1008,7 +1008,7 @@ impl Catalog for MemoryCatalog {
                     "chunk {id} absorbs {f}, which has parents (not a raw frame)"
                 )));
             }
-            // A payload with dependencies (#1535) is derived as much as one with parents: absorbing it would drop
+            // A payload with dependencies is derived as much as one with parents: absorbing it would drop
             // its header and commit sequence, and its frame row is pruned an hour on.
             if st.deps.keys().any(|&(_, _, d)| d == f) {
                 return Err(CatalogError::Invalid(format!(
@@ -1047,7 +1047,7 @@ impl Catalog for MemoryCatalog {
         }
         staged.check(std::slice::from_ref(&chunk.payload))?;
         // Every absorbed frame keeps its row: a consumer slower than the tier worker (ASR, a VLM) commits a child a
-        // second or more after its parent frame was absorbed, and the parent must still resolve (#848's cause).
+        // second or more after its parent frame was absorbed, and the parent must still resolve.
         for &(index, f) in &live {
             let index = u32::try_from(index).map_err(|_| CatalogError::Invalid(format!("chunk {id} is too long")))?;
             staged.frames.insert(f, (id, index));
@@ -1727,7 +1727,7 @@ fn purge_in(
                 }
             }
         }
-        // What depended on a removed payload's or a cut frame's stretch of its stream (#1535) goes too.
+        // What depended on a removed payload's or a cut frame's stretch of its stream goes too.
         for id in &doomed {
             let stretch = match st.frames.get(id) {
                 Some(&(chunk, index)) => st.frame_slot(chunk, index),
@@ -1811,7 +1811,7 @@ fn purge_in(
 
 /// An age-out: removes the named payloads committed by the cutoff (and a whole chunk's kept frames), keeping what
 /// was derived from them, and records their spans as aged out. Their children's headers still name them, but the
-/// parent index forgets them (#1576): an id that no longer resolves is followed by no purge.
+/// parent index forgets them: an id that no longer resolves is followed by no purge.
 fn age_out_in(
     st: &mut State,
     ids: &[Uuid],

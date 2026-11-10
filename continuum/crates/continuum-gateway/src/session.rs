@@ -255,7 +255,7 @@ impl Session {
     pub fn hello(&self, transport: &str) -> Outgoing {
         Outgoing::Text(
             Reply::Hello {
-                // streams_req: a `streams` with `req` runs as a request of its own (#2772)
+                // streams_req: a `streams` with `req` runs as a request of its own
                 features: vec!["watch".to_owned(), "req".to_owned(), "streams_req".to_owned()],
                 transport: transport.to_owned(),
                 webtransport: self.webtransport(),
@@ -371,7 +371,7 @@ impl Session {
     /// keyframe at or before it (which decodes alone), then a `frame` reply. Read with `range` over a short
     /// look-back, widened for a keyframe further back.
     /// A stream's newest frame that decodes alone, within the `frame` lookback (15 s), with its `media` reply when
-    /// asked: what a `watch` paints a stream's tile with at once (#2380). Nothing for a stream with no recent frame
+    /// asked: what a `watch` paints a stream's tile with at once. Nothing for a stream with no recent frame
     /// (a camera paused for privacy sends nothing new).
     #[must_use]
     pub fn newest(&self, stream: u32, media_context: bool) -> Vec<Outgoing> {
@@ -675,7 +675,7 @@ impl Session {
         let Some(client) = link.client_or_reconnect_blocking() else { return Ok(recorded) };
         let asked = std::time::Instant::now();
         let listed = link.rt.block_on(client.list_streams());
-        // Which part a slow listing spent its time in, the chunk directory or the broker (#2772).
+        // Which part a slow listing spent its time in, the chunk directory or the broker.
         if started.elapsed() > SLOW_LISTING {
             tracing::info!(chunks = ?chunks, broker = ?asked.elapsed(), "a slow stream listing");
         }
@@ -1195,7 +1195,7 @@ type Mp4Read = (Vec<(u64, Frame)>, usize, Option<u64>);
 /// budget stopped it, so the range can say where to continue.
 ///
 /// Known, won't fix: GOPs a purge cut in the catalog are still served from the file (the file is never rewritten,
-/// and the cut flags don't reach the gateway); v1's recordings are deleted once Continuum is done (#708).
+/// and the cut flags don't reach the gateway); v1's recordings are deleted once Continuum is done.
 fn mp4_frames(
     path: &Path,
     stream: u32,
@@ -1716,8 +1716,8 @@ impl Session {
 
 /// A raw camera's Tier 0 frame (UYVY, YUYV, NV12; its layout from the capture info) as a JPEG at half size, for the
 /// live view: the page can't draw raw frames, and a raw camera's short-GOP H.264 is Tier 1, written after the fact
-/// (#900). Without this a raw camera (the Arducams on a Mac, which offer no MJPEG there) showed no live picture at all
-/// (a Mac, 2026-11-02). None when the frame can't be laid out or decoded.
+/// Without this a raw camera (the Arducams on the Mac, which offer no MJPEG there) showed no live picture at all.
+/// None when the frame can't be laid out or decoded.
 fn raw_jpeg(shape: &str, width: u32, height: u32, stride: u32, bytes: &[u8]) -> Option<Vec<u8>> {
     let layout = continuum_tier::raw::RawLayout::of(shape, width, height, stride)?;
     let nv12 = continuum_tier::raw::to_nv12(&layout, bytes).ok()?;

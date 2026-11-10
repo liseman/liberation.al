@@ -312,7 +312,7 @@ fn stored_ts(cam: &Path) -> Vec<u64> {
     out
 }
 
-/// #3210: a forget only hid the rows it named in the then-open part; with no compaction, they stayed on disk until a
+/// A forget only hid the rows it named in the then-open part; with no compaction, they stayed on disk until a
 /// later forget happened to cover that hour. Closing the part drops them.
 #[test]
 fn rows_forgotten_while_their_part_was_open_leave_the_disk_when_it_closes() {

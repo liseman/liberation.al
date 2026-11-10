@@ -1,5 +1,5 @@
 //! Continuum's search payloads, shared by the vector worker (`continuum-vector`) and the SDKs (`continuum_py`), so
-//! both sides read and write the same bytes (#546; docs/CONTINUUM.md, "Vector worker"). Arrow only, no LanceDB.
+//! both sides read and write the same bytes (docs/CONTINUUM.md, "Vector worker"). Arrow only, no LanceDB.
 //!
 //! A consumer commits a `vector.query` ([`VectorQuery`]) or `text.query` ([`TextQuery`]) payload, one row of Arrow
 //! IPC, and the vector worker answers with one `vector.search` or `text.search` payload ([`encode_hits`]) whose

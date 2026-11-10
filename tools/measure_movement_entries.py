@@ -1,4 +1,4 @@
-"""Opt-in counter that scores the camera-local movement tracks (#176, #1262) against hand-labeled entries and exits.
+"""Opt-in counter that scores the camera-local movement tracks against hand-labeled entries and exits.
 
 Run from the repository with an explicit matching tolerance:
   uv run python -m tools.measure --part entries --entry-counter tools.measure_movement_entries:counter --entry-tolerance 2
@@ -36,7 +36,7 @@ def _unknown(items: list[dict[str, Any]], start: float, end: float) -> list[dict
 
 
 def counter(*, camera: str, start: float, end: float, state: Path) -> dict[str, Any]:
-    """Return the #81 scorer contract without receiving any ground-truth labels."""
+    """Return the entry-scorer contract without receiving any ground-truth labels."""
     result = movement_counts.collect(state, start=start, end=end, cameras=[camera])
     data = result["cameras"].get(camera)
     if result["errors"] or data is None:

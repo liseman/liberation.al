@@ -109,7 +109,7 @@ pub fn run(
     // Pictures that found Tier 0 full and were published after waiting for the broker to free space.
     let mut full_waited = 0u64;
     let mut overwritten = 0u64;
-    // Pictures passed over after a drop while waiting for the next IDR: a drop costs these too (#2350).
+    // Pictures passed over after a drop while waiting for the next IDR: a drop costs these too.
     let mut idr_skipped = 0u64;
     let mut wait_for_idr = false;
     let mut last_packet = clocks.monotonic_ns();

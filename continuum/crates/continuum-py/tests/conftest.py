@@ -1,7 +1,7 @@
 """Starting a real broker for a test so it can't outlive the test run.
 
 A fixture's `finally` stops its broker when the test ends, but not when the test process itself is killed (a timeout,
-a Ctrl-C at the wrong moment, SIGKILL), and a broker left that way runs on with its socket and arena (2026-10-29: one
+a Ctrl-C at the wrong moment, SIGKILL), and a broker left that way runs on with its socket and arena (one
 ran for 7 hours after its worktree was deleted). So every broker is started through `spawn_broker`:
 
 - On Linux the kernel kills it when the process that started it dies, however that dies: it's started through

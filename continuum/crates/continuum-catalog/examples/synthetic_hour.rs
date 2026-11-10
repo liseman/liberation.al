@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use continuum_catalog::{Catalog, NewPayload, RedbCatalog, StreamInfo, StreamKind};
 use continuum_core::{DomainLayer, HeaderBuf, HeaderSpec, PayloadFormat, StorageLocator, Uuid};
 
-/// (name, rows a second, inline bytes): about devbox's per-frame derived streams.
+/// (name, rows a second, inline bytes): about the Linux machine's per-frame derived streams.
 const STREAMS: &[(&str, u32, usize)] = &[
     ("motion.progress", 12, 900),
     ("body.progress", 8, 950),
