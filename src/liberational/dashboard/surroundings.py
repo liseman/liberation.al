@@ -9,6 +9,10 @@ POST /surroundings  {"on"?: bool, "cameras"?: [name, ...]} -> the same view afte
      empty "cameras" goes back to the default. A name the manifest doesn't have is refused (400) and nothing is
      saved. This machine only, same-origin JSON only, like the other controls. Nothing restarts: the sampler
      follows pack.toml.
+GET  /surroundings/status  what learning is doing now, for the Places page to show while it's open (#283): the map
+     step's `summary` (spatial/surroundings_map.py) as it is, {"on", "sampling", "kept", "waiting", "running",
+     "step", "last_step", "cameras", "places"}. A few small state files and one lock test a read, so a page may ask
+     every few seconds.
 """
 
 from __future__ import annotations
@@ -59,6 +63,13 @@ def change(body: Any) -> tuple[int, dict[str, Any]]:
 @routes.get("/surroundings")
 def _get(h: H) -> None:
     h._json(view(h._can_control()))
+
+
+@routes.get("/surroundings/status")
+def _get_status(h: H) -> None:
+    from liberational.spatial import surroundings_map
+
+    h._json(surroundings_map.summary(h.state))
 
 
 @routes.post("/surroundings")

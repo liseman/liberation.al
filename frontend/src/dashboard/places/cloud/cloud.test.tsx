@@ -18,7 +18,7 @@ import {
   type V3,
 } from './geometry';
 import { canDraw, canDrawSplat, openingCamera, parseCloud, readBytes, splatFault } from './load';
-import { learningNote, loadingText, splatNote } from './status';
+import { learningNote, loadingText, planNote, splatNote } from './status';
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -483,4 +483,34 @@ it.each([
 
 it("says nothing about learning when the scene doesn't", () => {
   expect(learningNote({ place: 'p1', revision: 'r2' })).toBeNull();
+});
+
+it.each([
+  ['no_floor', /^Your plan isn't drawn on this map yet: the map has no floor yet to lay it on\./],
+  ['too_little', /^Your plan isn't drawn on this map yet: the map covers too little of your plan so far/],
+  ['ambiguous', /^Your plan isn't drawn on this map yet: what the map has so far fits your plan more than one way\./],
+  ['not_tried', /^Your plan isn't drawn on this map yet: the map hasn't been lined up with it yet\./],
+] as const)("says why the owner's plan isn't drawn on a map not lined up with it: %s", (reason, text) => {
+  const said = planNote({
+    place: 'p1',
+    revision: 'r2',
+    plan: 'plan "Home"',
+    plan_source: 'owner',
+    plan_aligned: false,
+    plan_transform: null,
+    plan_lineup: { state: 'unaligned', reason },
+  });
+  expect(said).toMatch(text);
+  expect(said).toMatch(/The Plan view shows your plan as you drew it\.$/);
+});
+
+it("says nothing about an owner's plan that is drawn on its map, and flags a map that moved off it", () => {
+  const drawn = { place: 'p1', revision: 'r2', plan_source: 'owner', plan_aligned: true } as const;
+  expect(planNote({ ...drawn, plan_lineup: { state: 'aligned', reason: null } })).toBeNull();
+  expect(planNote({ ...drawn, plan_lineup: { state: 'aligned', reason: 'drifted' } })).toMatch(/moved off it since/);
+});
+
+it('says nothing about a plan for a place with only a machine plan, or with no map', () => {
+  expect(planNote({ place: 'p1', revision: 'r2', plan_source: 'machine', plan_aligned: true })).toBeNull();
+  expect(planNote({ place: 'p1', revision: null, plan_source: 'owner', plan_aligned: false })).toBeNull();
 });

@@ -201,11 +201,30 @@ export interface Scene {
   /** Map to plan, 3x4 row by row. */
   plan_transform?: number[] | null;
   cameras?: Record<string, { pose: number[]; focal: number; width: number; height: number; at: number }>;
-  /** The plan in this revision's frame (DSL), and whose it is. */
+  /** The place's plan (DSL), and whose it is. A place with an owner's plan always gives that one. It's in this
+   *  revision's frame only with a `plan_transform`: an owner's plan a learned map isn't lined up with yet has none,
+   *  and isn't drawn on the map. */
   plan?: string | null;
   plan_source?: 'owner' | 'machine';
+  plan_aligned?: boolean;
+  /** For a place with an owner's plan: how the map stands with it, and why it isn't lined up when it isn't. */
+  plan_lineup?: PlanLineup | null;
   /** How the map is learned from the cameras; also given while the place has no map. */
   learning?: Learning;
+}
+
+export interface PlanLineup {
+  state: 'aligned' | 'unaligned';
+  reason:
+    | 'no_map'
+    | 'no_floor'
+    | 'plan_unreadable'
+    | 'too_little'
+    | 'ambiguous'
+    | 'poor_fit'
+    | 'drifted'
+    | 'not_tried'
+    | null;
 }
 
 /** How often the 3D view asks for the scene again while it's open: a learned map gets a newer splat every so

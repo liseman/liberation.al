@@ -13,6 +13,7 @@ import { type PlaceSummary, placesQuery } from './api';
 import { OwnerBar, type Showing } from './edit/OwnerBar';
 import { PlanEditor } from './edit/PlanEditor';
 import { EXAMPLE_PLACES, type Place } from './examples';
+import { LearningBadge, LearningPanel, useLearning } from './learning';
 import { PlacePaths } from './paths/PlacePaths';
 import classes from './places.module.css';
 import { parsePlaceDsl } from './plan/dsl';
@@ -122,6 +123,8 @@ function drawOrNull(place: Place, scheme: 'light' | 'dark'): PlaceDrawing | null
 export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] }) {
   const scheme = useComputedColorScheme('light');
   const server = useQuery(placesQuery());
+  // What "Learn surroundings" is doing now: a badge on each place and a panel, while it's on (learning.tsx).
+  const learning = useLearning();
   // The examples are the empty state: they show only while no place has a plan yet (or the list couldn't load), after
   // any places still waiting for their first.
   const real = server.data?.places ?? [];
@@ -175,6 +178,7 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
               mapped.
             </Text>
           )}
+          <LearningPanel status={learning} />
           <div className={classes.layout}>
             <nav aria-label="Places">
               <ul className={classes.list}>
@@ -200,6 +204,7 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
                                 Example
                               </Badge>
                             )}
+                            {!p.example && <LearningBadge status={learning} place={p.id} />}
                           </span>
                         }
                         description={`${r ? `${planSummary(r)} · ` : p.plan ? '' : 'No plan yet · '}${lastVisit(p)}`}
@@ -213,7 +218,10 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
               <Paper withBorder radius="md" className={classes.plan}>
                 <div className={classes.planHead}>
                   <Text fw={600} component="h2" className={classes.planTitle}>
-                    {place.name}
+                    <span className={classes.name}>
+                      {place.name}
+                      {!place.example && <LearningBadge status={learning} place={place.id} />}
+                    </span>
                   </Text>
                   {result && (
                     <Text size="sm" c="dimmed">

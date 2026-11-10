@@ -75,7 +75,6 @@ can't be put in that frame (`in_frame` false: a camera that revision doesn't reg
 it's left out; a room-only span is kept either way.
 """
 
-import importlib
 import math
 import re
 import time
@@ -136,11 +135,11 @@ def listing(state: Path, now: float | None = None) -> Reply:
                 # an owner plan drawn on its own page is shown as drawn; positions come turned onto it
                 "plan": p.view.plan if p.view is not None else p.plan,
                 "plan_source": p.plan_source,
-                "machine_newer": p.machine_newer,
+                # An owner's plan is the place's only plan: no machine plan is offered beside it, newer or not.
+                "machine_newer": False,
                 "revision": {"id": rev.id, "at": rev.at, "producer": rev.producer} if rev else None,
                 "plan_revision": p.plan_revision,
-                # the newest machine plan, to compare with an owner correction that holds over it
-                "machine_plan": places.machine_plan(state, rev) if p.plan_source == "owner" and rev else None,
+                "machine_plan": None,
                 "last_visit": last.get(p.id),
                 "last_activity": seen.get(p.id),
             }
@@ -182,16 +181,11 @@ LEARNED = "surroundings"  # what a learned map's producer starts with, and what 
 
 
 def _summary(state: Path) -> dict[str, Any]:
-    """What the map step knows (spatial/surroundings_map.py's `summary`, #258): the switch, the cameras sampled, the
-    kept frames waiting for a place, whether a step is running, and each place's views and when it last improved.
-    On an install without the map step, only the switch."""
-    try:
-        step = importlib.import_module("liberational.spatial.surroundings_map")
-    except ImportError:
-        from liberational.spatial import surroundings
+    """What the map step knows (spatial/surroundings_map.py's `summary`): the switch, the cameras sampled, the kept
+    frames waiting for a place, whether a step is running, and each place's views and when it last improved."""
+    from liberational.spatial import surroundings_map
 
-        return {"on": surroundings.read().on}
-    return step.summary(state)
+    return surroundings_map.summary(state)
 
 
 def _learning(state: Path, place: str) -> dict[str, Any]:
@@ -234,9 +228,12 @@ def _splat_wait(state: Path, rev: places.Revision) -> dict[str, Any]:
 
 
 def scene(state: Path, place: str) -> Reply:
-    """GET /places/scene: what the 3D view draws for a place, all in its map's frame (metres). The plan is the one in
-    that revision's frame: the owner's correction when it's drawn in this revision's frame (its plan_revision uses the
-    same plan file), else the revision's own machine plan, so the outline lands on the cloud."""
+    """GET /places/scene: what the 3D view draws for a place, all in its map's frame (metres). While the place has an
+    owner's plan, that is the plan, whatever the map: `plan_source` is "owner", and no machine plan is given in its
+    place. It's laid on the map only when it's drawn in this revision's frame (`plan_transform`, with `plan_aligned`
+    true); until a learned map is lined up with it the transform is None, so the view draws the map alone, and
+    `plan_lineup` says why (spatial/plan_lineup.py `status`). A place with no owner's plan gives the revision's own
+    machine plan, in its frame."""
     held = places.get(state, place)
     if held is None:
         return 404, {"error": "no such place"}
@@ -246,7 +243,10 @@ def scene(state: Path, place: str) -> Reply:
         return 200, {"place": place, "revision": None, "learning": learning}
     by_id = {r.id: r for r in places.revisions(state, place)}
     drawn = by_id.get(held.plan_revision or "")
-    owner = held.plan_source == "owner" and drawn is not None and places.same_plan_frame(drawn, rev)
+    from liberational.spatial import plan_lineup  # numpy and scipy: only a scene needs them
+
+    owned = held.plan_source == "owner"
+    aligned = owned and drawn is not None and places.same_plan_frame(drawn, rev)
     try:
         size = (places.root(state) / place / rev.map).stat().st_size
     except FileNotFoundError:  # pruned since it was found
@@ -275,8 +275,12 @@ def scene(state: Path, place: str) -> Reply:
     else:
         splat_state = "stale" if stale is not None else "none"
     splat_query = {"place": place, "revision": shown.id if shown else "", "format": SPLAT_FORMAT}
-    # an owner plan drawn in a revision with no plan file is in its floor's frame
-    transform = places.plan_frame(rev) if owner else rev.plan_transform
+    if owned:
+        # an owner plan drawn in a revision with no plan file is in its floor's frame; one not drawn in this map's
+        # frame has no place on it yet
+        transform = places.plan_frame(rev) if aligned else None
+    else:
+        transform = rev.plan_transform
     return 200, {
         "place": place,
         "revision": rev.id,
@@ -297,8 +301,10 @@ def scene(state: Path, place: str) -> Reply:
         "floor": list(rev.floor) if rev.floor else None,
         "plan_transform": list(transform) if transform else None,
         "cameras": {cam: pose.as_dict() for cam, pose in rev.cameras.items()},
-        "plan": held.plan if owner else places.machine_plan(state, rev),
-        "plan_source": "owner" if owner else "machine",
+        "plan": held.plan if owned else places.machine_plan(state, rev),
+        "plan_source": "owner" if owned else "machine",
+        "plan_aligned": aligned if owned else transform is not None,
+        "plan_lineup": plan_lineup.status(state, place) if owned else None,
     }
 
 

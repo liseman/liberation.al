@@ -2,7 +2,8 @@
 // (`splat_state`, `splat_wait`): there is none yet and why, the one shown is still improving or was made for an
 // earlier map, or the newest one doesn't line up with this map and isn't shown. And what it says about learning
 // (`learning`, #259): whether the map is being learned from the cameras, how many views it was built from, and
-// when it last improved. Nothing here draws, so it's tested as text.
+// when it last improved. And what it says about the owner's plan (`plan_lineup`): why it isn't drawn on a map that
+// isn't lined up with it yet. Nothing here draws, so it's tested as text.
 import type { Learning, Scene, SplatWait } from '../api';
 
 const when = (at: number) =>
@@ -84,6 +85,36 @@ export function learningNote(scene: Scene): string | null {
   if (learning.improving)
     return `Learning is on, and this map is still improving: new views are being added to it.${built}`;
   return `Learning is on. This map improves when the cameras see something it doesn't have yet.${built}`;
+}
+
+/** Why the owner's plan isn't drawn on a map that isn't lined up with it yet. */
+function unaligned(reason: NonNullable<Scene['plan_lineup']>['reason']): string {
+  switch (reason) {
+    case 'no_floor':
+      return "the map has no floor yet to lay it on. It's lined up once the map has one.";
+    case 'too_little':
+      return "the map covers too little of your plan so far to tell where it goes. It's lined up once the cameras have seen more of the place.";
+    case 'ambiguous':
+      return "what the map has so far fits your plan more than one way. It's lined up once the cameras have seen enough to tell.";
+    case 'poor_fit':
+      return "the map doesn't sit on your plan's walls well enough yet. It's tried again as the map grows.";
+    case 'plan_unreadable':
+      return 'your plan has no room to line the map up with.';
+    default:
+      return "the map hasn't been lined up with it yet. That's tried each time the map grows.";
+  }
+}
+
+/** What to say about the owner's plan on this map: nothing while it's drawn where it belongs (or the place has no
+ *  plan of the owner's); why it isn't drawn while the map isn't lined up with it; and that the map has moved off it
+ *  when a line-up no longer holds. The plan itself is never replaced: the Plan view shows it as drawn. */
+export function planNote(scene: Scene): string | null {
+  if (scene.plan_source !== 'owner' || !scene.revision) return null;
+  if (!scene.plan_aligned)
+    return `Your plan isn't drawn on this map yet: ${unaligned(scene.plan_lineup?.reason ?? null)} The Plan view shows your plan as you drew it.`;
+  if (scene.plan_lineup?.reason === 'drifted')
+    return 'Your plan is drawn where the map was lined up with it, but the map has moved off it since, so the outline may be off.';
+  return null;
 }
 
 /** A splat's loading, as text: how much of it has come, then that it's being drawn. */

@@ -23,6 +23,20 @@ export const server = setupServer(
   http.get('/devices/privacy', () => HttpResponse.json({ ok: true, control: false, ready: false, devices: [] })),
   // Live's "Learn surroundings" switch: no cameras to learn from (so it isn't drawn), unless a test serves its own.
   http.get('/surroundings', () => HttpResponse.json({ ok: true, control: false, on: false, cameras: [], chosen: [] })),
+  // What learning is doing, for the Places page: off and nothing kept, unless a test serves its own.
+  http.get('/surroundings/status', () =>
+    HttpResponse.json({
+      on: false,
+      sampling: [],
+      kept: 0,
+      waiting: 0,
+      running: false,
+      step: null,
+      last_step: null,
+      cameras: {},
+      places: {},
+    }),
+  ),
   // Settings' Phones, watches, and tags: nothing seen and nothing linked, unless a test serves its own.
   // Known › Devices' whereabouts and Wi-Fi today: nothing linked and nothing on the Wi-Fi, unless a test serves its
   // own.

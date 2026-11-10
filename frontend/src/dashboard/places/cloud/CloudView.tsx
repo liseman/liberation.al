@@ -23,7 +23,7 @@ import { type Scene, sceneQuery } from '../api';
 import classes from '../places.module.css';
 import { canDraw, canDrawSplat, openingCamera, parseCloud, readBytes, splatFault } from './load';
 import { type Built, build, type Colour, type View } from './scene';
-import { learningNote, loadingText, splatNote } from './status';
+import { learningNote, loadingText, planNote, splatNote } from './status';
 
 type Draw = 'points' | 'splat';
 
@@ -248,6 +248,7 @@ export default function CloudView({ place }: { place: string }) {
   const splatLoading = hasSplat && !splatError && !splatReady && !newer;
   const note = read ? splatNote(read) : null;
   const learning = read ? learningNote(read) : null;
+  const plan = read ? planNote(read) : null;
   const retry = () => {
     setDrawFault(null);
     setAttempt(n => n + 1);
@@ -374,6 +375,11 @@ export default function CloudView({ place }: { place: string }) {
       {learning && (
         <Text size="xs" c="dimmed" mt="xs">
           {learning}
+        </Text>
+      )}
+      {plan && (
+        <Text size="xs" c="dimmed" mt="xs">
+          {plan}
         </Text>
       )}
       {cams.length > 0 && (
