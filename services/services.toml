@@ -67,6 +67,14 @@ command = "pack-see-captions"
 wait_for_broker = true
 default = true
 
+# Holds no camera and no model while the "learn surroundings" switch is off (spatial/surroundings_worker.py).
+[surroundings]
+description = "While \"Learn surroundings\" is on, samples pictures from the chosen cameras and keeps the ones that improve the map of a place."
+group = "workers"
+command = "pack-surroundings"
+background = true
+default = true
+
 [research]
 description = "Works through the Research questions asked in the dashboard, one at a time in the background, for the Inbox."
 group = "workers"

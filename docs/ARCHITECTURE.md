@@ -304,6 +304,7 @@ unless the row says otherwise.
 | `spatial/cameras.py` (`pack-spatial-cameras`) | Nightly fixed-camera registration, fusion, and positions, 01:00 | | `state/places/`, `position.*` | Recorded video, `pose.track` | Optional, needs CUDA |
 | `spatial/walkthrough.py` (`pack-walkthrough`) | Imports a phone walk into a place | | `state/places/` | The recording | Optional, by hand |
 | `spatial/splats.py` (`pack-spatial-splat`) | A Gaussian splat per place revision | | `state/places/` | Recorded video | Optional, needs CUDA |
+| `spatial/surroundings_worker.py` (`pack-surroundings`) | While "learn surroundings" is on, samples the chosen cameras and keeps the frames likely to improve a place's map | | `state/surroundings/` | Decoded frames, `pack.toml` (followed live) | Optional, idle while off |
 | `proximity/` (`pack-bluetooth`) | Passive BLE sightings | USB serial | `bluetooth.sighting`, `bluetooth.coverage` | ESP32 receivers | Optional, off |
 | `proximity/network_worker.py` (`pack-network-devices`) | UniFi client inventory and heard Wi-Fi access points | Outbound local HTTPS | `network.*`, `wifi.access_point` | Local controller | Optional, off |
 | `proximity/devices.py` (`pack-devices`) | Device tallies, links, and presence answers | | `device.link`, `state/cache/device_tallies.json` | Bluetooth and network streams | Optional |
