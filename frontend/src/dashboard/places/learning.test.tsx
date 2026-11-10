@@ -8,6 +8,7 @@ import { hm } from '../lib/format';
 import {
   activityText,
   cameraReasons,
+  parkedReasons,
   LEARNING_OFF_MS,
   LEARNING_ON_MS,
   LEARNING_RUNNING_MS,
@@ -95,6 +96,22 @@ it("says why a camera's frames aren't being kept, by what most of its recent loo
     { camera: 'hall', why: 'a person or an animal is in view' },
     { camera: 'porch', why: "it's too dark" },
     { camera: 'yard', why: 'the picture is blurred' },
+  ]);
+});
+
+it('counts the parked frames, and says for each camera why its frame is not in the map', () => {
+  const parked = status({ parked: 2, parked_cameras: { hall: 'overlap', front: 'facing' } });
+  expect(samplingText(parked)).toBe('Sampling 2 cameras · 37 frames kept, 2 parked.');
+  expect(parkedReasons(parked)).toEqual([
+    { camera: 'front', why: 'its spot on the plan has no facing. Give it one in the plan editor' },
+    {
+      camera: 'hall',
+      why: 'its view overlaps nothing in the map yet, and it has no spot on the plan to place it by',
+    },
+  ]);
+  expect(parkedReasons(status())).toEqual([]); // an older service says nothing of parking
+  expect(parkedReasons(status({ parked_cameras: { front: 'something new' } }))).toEqual([
+    { camera: 'front', why: "it can't be placed yet" },
   ]);
 });
 

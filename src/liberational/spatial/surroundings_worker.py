@@ -373,7 +373,8 @@ class Service:
         state = surroundings_map.State.read(self.sampler.store.folder)
         for frame_id in state.drop:
             self.sampler.store.remove(frame_id)
-        return len(surroundings_map.due(self.sampler.store.kept, state, self.clock()))
+        basis = surroundings_map.spot_bases(self.sampler.store.folder.parent)
+        return len(surroundings_map.due(self.sampler.store.kept, state, self.clock(), basis))
 
     async def _map(self) -> None:
         """One look at whether a map step is due, and the step when it is."""

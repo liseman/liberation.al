@@ -2,7 +2,8 @@
 // switch is on, moving only while a map step runs, and a panel that says in plain words what's going on (the
 // cameras sampled, the frames kept and waiting, what the running step is doing, or since when the map is up to
 // date), with a bar: measured while the step says how far it is (the splat's training), unmeasured otherwise. For
-// a sampled camera none of whose recent frames was kept, it says why. GET /surroundings/status
+// a sampled camera none of whose recent frames was kept, it says why, and for a camera whose kept frame is parked
+// (not in the map), why that is. GET /surroundings/status
 // (dashboard/surroundings.py) is the map step's own summary: a few small files a read, so it's asked often.
 import { Badge, Loader, Paper, Progress, Stack, Text } from '@mantine/core';
 import { queryOptions, useQuery } from '@tanstack/react-query';
@@ -37,6 +38,10 @@ export interface LearningStatus {
   /** Frames kept in all, and how many of them aren't in a place yet. */
   kept: number;
   waiting: number;
+  /** Kept frames no step is due for: nothing places them until the map grows or their camera's spot changes. */
+  parked?: number;
+  /** For each camera with a parked frame, why (a word of the map step's PARKED). */
+  parked_cameras?: Record<string, string>;
   running: boolean;
   step: LearningStep | null;
   /** When the last step ended (epoch seconds), or null. */
@@ -104,7 +109,27 @@ export function samplingText(status: LearningStatus): string {
   const cams = status.sampling.length;
   const sampled = cams ? `Sampling ${plural(cams, 'camera', 'cameras')}` : 'No camera is chosen to learn from';
   const waiting = status.waiting > 0 ? `, ${count(status.waiting)} waiting` : '';
-  return `${sampled} · ${plural(status.kept, 'frame', 'frames')} kept${waiting}.`;
+  const parked = (status.parked ?? 0) > 0 ? `, ${count(status.parked ?? 0)} parked` : '';
+  return `${sampled} · ${plural(status.kept, 'frame', 'frames')} kept${waiting}${parked}.`;
+}
+
+/** Why a camera's kept frame isn't in the map, in words, by the map step's word for it. */
+const PARKED: Record<string, string> = {
+  overlap: 'its view overlaps nothing in the map yet, and it has no spot on the plan to place it by',
+  facing: 'its spot on the plan has no facing. Give it one in the plan editor',
+  height: 'its spot on the plan has no height. Give it one in the plan editor',
+  lens: "its lens isn't known yet",
+  tilt: 'too few people have been seen walking past it to work out its tilt',
+  check: "its height, lens, or tilt doesn't fit the people it sees",
+  frame: "the plan's frame can't hold a map",
+  floor: "the floor it sees doesn't sit on the plan's floor. Check its height on the plan",
+};
+
+/** For each camera whose kept frame is parked: why, in words. A reason this page doesn't know is said plainly. */
+export function parkedReasons(status: LearningStatus): { camera: string; why: string }[] {
+  return Object.entries(status.parked_cameras ?? {})
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([camera, why]) => ({ camera, why: PARKED[why] ?? "it can't be placed yet" }));
 }
 
 /** The outcomes of a look that kept its frame. */
@@ -171,6 +196,7 @@ export function LearningPanel({ status }: { status: LearningStatus | undefined }
   if (!status?.on) return null;
   const done = measured(status);
   const reasons = cameraReasons(status);
+  const parked = parkedReasons(status);
   return (
     <Paper withBorder radius="md" p="sm" mb="sm" role="status" aria-label="Learning surroundings">
       <Stack gap={6}>
@@ -187,6 +213,11 @@ export function LearningPanel({ status }: { status: LearningStatus | undefined }
         <Text size="xs" c="dimmed">
           {samplingText(status)}
         </Text>
+        {parked.map(r => (
+          <Text size="xs" c="dimmed" key={`parked-${r.camera}`}>
+            {viewName(r.camera)}: not in the map yet, {r.why}.
+          </Text>
+        ))}
         {reasons.map(r => (
           <Text size="xs" c="dimmed" key={r.camera}>
             {viewName(r.camera)}: no frames kept lately, {r.why}.

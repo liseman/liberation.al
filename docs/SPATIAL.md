@@ -124,12 +124,23 @@ runs one by hand. A step takes up to 12 waiting frames.
   to metres by Depth Anything 3's metric depth of both frames, gives the frame's pose in the map. Frames are placed
   outward from the ones that have a pose, each through its pair with the most agreeing matches. The splat trainer's
   pose refinement takes up what's left.
-- *A frame no pair places is parked.* It stays kept, and no step starts for it until a map has gained a view (it's
-  then tried once more) or it has been parked for a day (it's dropped, and its camera's next clear frame takes its
-  place). So a fixed camera that sees nothing the map shows keeps one frame, costs nothing, and is in no map: it
-  joins when a camera that moves, or a new one, bridges the two views. Until then such a camera has no splat. Its
-  people are still placed, from the owner's spot for it on the plan. Putting its frames in the place's map from
-  that spot, once the map is lined up with the plan, is #288.
+- *A camera with a spot on the owner's plan needs no pair.* A fixed camera whose spot gives a pose (where it is,
+  its measured height, its facing, and the tilt fitted from people walking, `spatial/spots.py`) has its kept frames
+  placed at that pose, in the plan's own frame. Its depth is lifted through the pose and checked: the floor it shows
+  must come out at the plan's, and the depth is scaled about the camera to put it there (the height is
+  tape-measured, the depth model's metres aren't); a scale outside 0.75 to 1.35 refuses the view. A place with such
+  a view stands in its plan's frame: the plan's floor, no transform to find, its cameras at their spots, and the
+  owner's plan saved as drawn in it, so the line-up reads it as lined up and searches for nothing. That is what
+  gives a house whose fixed cameras overlap nowhere one map. Read only on the Linux machine's four kept frames:
+  three placed from their spots with their floors 0.10, 0.20, and 0.23 m under the plan's before the fix (depth
+  scaled 0.90, 0.88, and 0.90), the fourth, whose spot has no facing, placed through its overlap with one of them,
+  and one splat of the four views at 35.0 dB on them, in two steps of 59 and 36 s. The views' walls are measured
+  against the plan's and not judged: the measure can't tell a right spot from a wrong one yet (#292).
+- *A frame nothing places is parked.* It stays kept, with the reason (its view overlaps nothing in a map and its
+  camera has no spot; or the spot lacks its facing, its height, a lens, or a tilt; or its floor doesn't fit the
+  plan's), and no step starts for it until a map has gained a view, its camera's spot changes, or it has been
+  parked for a day (it's dropped, and its camera's next frame takes its place). The Places page lists the parked
+  cameras with the reason.
 - *A camera's optics.* Its held intrinsics (`lens.Held`, taught state) give its focal and the lens to undo; a lens in
   the device manifest is undone the same way. A camera with neither gets its focal from MASt3R, once, kept from then
   on. Two fixed cameras with held intrinsics came out 2.9 m apart; with MASt3R's focals (7% and 15% off) 4.8 m.

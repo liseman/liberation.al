@@ -9,7 +9,7 @@ import pytest
 
 from liberational import config as cfg
 from liberational.memory import places
-from liberational.spatial import cameras, lens, ply, splat_runner, splats
+from liberational.spatial import cameras, lens, ply, splat_runner, splats, spots
 from liberational.spatial import surroundings_frames as frames
 from liberational.spatial import surroundings_map as sm
 
@@ -217,6 +217,7 @@ class Models:
         self.before: dict[int, dict] = {}  # the trainer's `before` for a view index
         self.jobs: list[dict] = []
         self.measured: list[list[tuple[str, str]]] = []
+        self.depth = lambda height, width, focal: np.full((height, width), 2.0, dtype=np.float32)  # a wall 2 m off
 
     def run_mast3r(self, runtime, images, out, gpu, *, pairs, nice=0, **_):
         self.measured.append([tuple(p) for p in pairs])
@@ -231,8 +232,13 @@ class Models:
         return {"pairs": answer}
 
     def run_depth(self, runtime, request, gpu):
+        import cv2
+
         for view in json.loads(Path(request).read_text())["views"]:
-            np.save(view["out"], np.full((36, 64), 2.0, dtype=np.float32))
+            image = cv2.imread(view["image"])
+            assert image is not None
+            height, width = image.shape[:2]
+            np.save(view["out"], self.depth(height, width, view["focal"]))
 
     def run_runner(self, runtime, job, gpu, timeout_s=0.0):
         spec = json.loads(Path(job).read_text())
@@ -274,10 +280,10 @@ def state(tmp_path):
     return tmp_path / "state"
 
 
-def keep(state: Path, angle: float, t: float, camera: str = "front") -> frames.Kept:
+def keep(state: Path, angle: float, t: float, camera: str = "front", size: tuple[int, int] = (64, 36)) -> frames.Kept:
     """Put a made-up frame in the kept store, as the sampler would have."""
     store = frames.Store(frames.root(state))
-    picture = np.full((36, 64, 3), 90, dtype=np.uint8)
+    picture = np.full((size[1], size[0], 3), 90, dtype=np.uint8)
     _, kept = store.offer(camera, picture, unit(angle), 100.0, now=t)
     assert kept is not None
     return kept
@@ -584,3 +590,170 @@ def test_the_summary_gives_the_sampled_cameras_recent_looks_from_the_samplers_st
     assert said["cameras"] == {"front": {"recent": {"same": 3, "person": 9}, "last_kept": 50.0}}
     monkeypatch.setattr(surroundings, "read", lambda: surroundings.Switch(False, ("front",), (), "front"))
     assert sm.summary(state)["cameras"] == {}
+
+
+# ---- a camera with a spot on the owner's plan (#288)
+
+ROOMS = 'plan "Home" walls 0.2/0.1\nroom r1 "Living" other rect 0,0 4x3\nroom r2 "Hall" other rect 0,3 4x2\n'
+#: A camera 1 m up at (2, 1.5) on the plan, level, looking along the plan's +x: its right is the plan's -y, its
+#: down the plan's -z.
+LOOKING_EAST = (0.0, 0.0, 1.0, 2.0, -1.0, 0.0, 0.0, 1.5, 0.0, -1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
+
+
+def spot(place: str, camera: str = "front", pose=LOOKING_EAST, missing: tuple[str, ...] = ()) -> spots.Spot:
+    posed = None if missing else places.CameraPose(tuple(pose), 44.8, 64, 36)  # a focal 0.7 of the width
+    return spots.Spot(camera, place, "r", (pose[3], pose[7]), pose[11], 90.0, 90.0, True, posed, missing)
+
+
+def owned(state: Path) -> str:
+    """A place kept across a reset: no map, and the owner's plan of two rooms."""
+    place = places.revise(state, None, producer="places reset v1", now=10.0).place
+    places.correct_plan(state, place, ROOMS, now=20.0)
+    return place
+
+
+def floor_depth(long: float = 1.0):
+    """The depth a level camera 1 m up sees of a floor, with a wall 4 m off above the horizon, as a depth model
+    `long` times too long would give it."""
+
+    def depth(height: int, width: int, focal: float) -> np.ndarray:
+        down = (np.arange(height) + 0.5 - height / 2)[:, None] / focal  # how far below the axis each row looks
+        with np.errstate(divide="ignore"):
+            floor = np.where(down > 0, 1.0 / down, np.inf)
+        return np.broadcast_to(np.minimum(floor, 4.0) * long, (height, width)).astype(np.float32)
+
+    return depth
+
+
+def test_a_views_floor_is_found_where_its_depth_puts_it_and_its_depth_scaled_to_the_plans():
+    focal = 0.7 * 256
+    depth = floor_depth(long=1.1)(144, 256, focal)
+    fit = sm.spot_fit(depth, focal, np.array(LOOKING_EAST).reshape(4, 4), None)
+    # A depth 1.1 times too long puts the floor of a camera 1 m up at 1 - 1.1 = -0.1 m, and 1 / 1.1 brings it back.
+    assert fit.floor == pytest.approx(-0.1, abs=0.02)
+    assert fit.scale == pytest.approx(1 / 1.1, abs=0.02)
+    assert fit.why is None
+
+
+def test_a_view_whose_floor_is_far_from_the_plans_is_refused():
+    focal = 0.7 * 256
+    fit = sm.spot_fit(floor_depth(long=2.0)(144, 256, focal), focal, np.array(LOOKING_EAST).reshape(4, 4), None)
+    assert (fit.why, fit.scale) == ("floor", pytest.approx(0.5, abs=0.03))  # no depth model is twice too long
+
+
+def test_a_view_with_its_floor_on_the_plans_keeps_its_depth_and_one_with_no_floor_too():
+    focal = 0.7 * 256
+    on = sm.spot_fit(floor_depth()(144, 256, focal), focal, np.array(LOOKING_EAST).reshape(4, 4), None)
+    assert (on.floor, on.scale) == (pytest.approx(0.0, abs=0.02), 1.0)
+    wall_only = sm.spot_fit(np.full((144, 256), 2.0, np.float32), focal, np.array(LOOKING_EAST).reshape(4, 4), None)
+    assert (wall_only.floor, wall_only.scale, wall_only.why) == (None, 1.0, None)
+
+
+def test_a_few_strays_under_the_floor_are_not_the_floor():
+    rng = np.random.default_rng(0)
+    floor = np.c_[rng.uniform(0, 3, (3000, 2)), rng.normal(0.0, 0.003, 3000)]
+    strays = np.c_[rng.uniform(0, 0.4, (80, 2)), rng.normal(-1.2, 0.003, 80)]  # a level patch far below
+    table = np.c_[rng.uniform(1, 2, (4000, 2)), rng.normal(0.75, 0.003, 4000)]  # larger than the floor, but too high
+    assert sm.level_floor(np.vstack([floor, strays, table]), height=1.4) == pytest.approx(0.0, abs=0.02)
+
+
+def test_a_camera_with_a_spot_is_placed_from_it_with_no_pairing_in_the_plans_frame(models, state):
+    from liberational.spatial import plan_lineup
+
+    place = owned(state)
+    first = keep(state, 0, t=1.0)
+    did = sm.step(state, now=100.0, held={}, spotted={"front": spot(place)})
+    assert did is not None
+    assert models.measured == []  # MASt3R was asked nothing
+    assert (list(did["places"]), did["places"][place]["views"], did["unplaced"]) == ([place], 1, 0)
+    rev = newest(state, place)
+    assert (rev.floor, rev.plan_transform) == (spots.FLOOR, spots.PLAN)
+    assert rev.cameras["front"].pose == LOOKING_EAST
+    [view] = models.jobs[0]["views"]
+    assert (view["pose"], view["fixed"]) == (list(LOOKING_EAST), True)
+    [seen] = sm.views(state, place)
+    assert (seen.id, seen.pose) == (first.id, LOOKING_EAST)
+    assert sm.in_plan_frame(state, place)
+    # The wall 2 m in front of a camera at x = 2 looking along +x is at x = 4, in the plan's metres.
+    assert rev.map is not None
+    points, _, _ = ply.read(places.root(state) / place / rev.map)
+    assert points[:, 0] == pytest.approx(4.0)
+    # The owner's plan is drawn in this map's frame, and the line-up finds it so without a search.
+    held = places.get(state, place)
+    assert held is not None and (held.plan_source, held.plan_revision) == ("owner", rev.id)
+    assert held.plan == ROOMS
+    lined = plan_lineup.advance(state, now=101.0)[place]
+    assert (lined["state"], lined["by"]) == ("aligned", "owner")
+
+
+def test_a_camera_whose_spot_lacks_its_facing_is_parked_with_the_reason_until_the_owner_gives_one(models, state):
+    place = owned(state)
+    keep(state, 0, t=1.0, camera="hall")
+    keep(state, 90, t=2.0)
+    lacking = {"hall": spot(place, "hall"), "front": spot(place, missing=("facing",))}
+    did = sm.step(state, now=100.0, held={}, spotted=lacking)
+    assert did is not None and did["unplaced"] == 1
+    saved = sm.State.read(frames.root(state))
+    [parked] = [entry for entry in saved.frames.values() if entry.get("parked") is not None]
+    assert (parked["why"], parked["basis"]) == ("facing", "spot:facing")
+    assert (
+        sm.due(frames.Store(frames.root(state)).kept, saved, 160.0, sm.bases(lacking)) == []
+    )  # no step a minute later
+    given = {**lacking, "front": spot(place, pose=(*LOOKING_EAST[:3], 1.0, *LOOKING_EAST[4:]))}
+    assert len(sm.due(frames.Store(frames.root(state)).kept, saved, 160.0, sm.bases(given))) == 1
+    did = sm.step(state, now=200.0, held={}, spotted=given)
+    assert did is not None and (did["unplaced"], did["places"][place]["views"]) == (0, 2)
+
+
+def test_a_camera_with_no_spot_joins_through_a_view_that_overlaps_a_spot_view(models, state):
+    place = owned(state)
+    at_spot = keep(state, 0, t=1.0, camera="hall")
+    other = keep(state, 40, t=2.0)
+    models.pairs[frozenset((at_spot.id, other.id))] = pair(at_spot.id, other.id, shifted(z=0.5))
+    did = sm.step(state, now=100.0, held={}, spotted={"hall": spot(place, "hall")})
+    assert did is not None and did["places"][place]["views"] == 2
+    poses = {v.id: np.array(v.pose).reshape(4, 4) for v in sm.views(state, place)}
+    # Half a pair's unit forward of the spot view, at 2 m to the unit: 1 m along the plan's +x from x = 2.
+    assert poses[other.id][:3, 3] == pytest.approx([3.0, 1.5, 1.0])
+    fixed = {v["image"].split("/")[-1].split(".")[0]: v.get("fixed", False) for v in models.jobs[0]["views"]}
+    assert fixed == {at_spot.id: True, other.id: False}
+
+
+def test_a_map_learned_in_a_frame_of_its_own_is_started_again_when_a_spot_view_arrives(models, state):
+    place = owned(state)
+    old = keep(state, 0, t=1.0)
+    did = sm.step(state, now=100.0, held={}, spotted={})
+    assert did is not None and list(did["places"]) == [place]  # the one place with no map took it, at its own origin
+    first = newest(state, place)
+    assert first.plan_transform is None
+    keep(state, 90, t=2.0, camera="hall")
+    did = sm.step(state, now=200.0, held={}, spotted={"hall": spot(place, "hall")})
+    assert did is not None
+    rev = newest(state, place)
+    assert rev.frame == rev.id != first.frame  # a new frame: the plan's
+    assert "resume" not in models.jobs[-1]  # the old frame's splat is no start for it
+    assert [v.camera for v in sm.views(state, place)] == ["hall"]
+    saved = sm.State.read(frames.root(state))
+    assert old.id not in saved.frames  # back to waiting, not parked: the next step tries it against the new map
+
+
+def test_a_view_is_placed_again_when_its_cameras_spot_moves(models, state):
+    place = owned(state)
+    keep(state, 0, t=1.0)
+    sm.step(state, now=100.0, held={}, spotted={"front": spot(place)})
+    moved = (*LOOKING_EAST[:3], 1.0, *LOOKING_EAST[4:])  # the owner put the camera a metre to the west
+    did = sm.step(state, now=200.0, held={}, spotted={"front": spot(place, pose=moved)})
+    assert did is not None
+    [seen] = sm.views(state, place)
+    assert seen.pose == moved
+
+
+def test_a_spot_view_whose_floor_is_far_off_is_parked_as_such(models, state):
+    place = owned(state)
+    keep(state, 0, t=1.0, size=(256, 144))
+    models.depth = floor_depth(long=2.0)
+    did = sm.step(state, now=100.0, held={}, spotted={"front": spot(place)})
+    assert did is not None and (did["unplaced"], did["places"]) == (1, {})
+    assert did["spots"]["front"]["why"] == "floor"
+    summary = sm.summary(state, now=160.0, spotted={"front": spot(place)})
+    assert (summary["parked"], summary["parked_cameras"]) == (1, {"front": "floor"})
