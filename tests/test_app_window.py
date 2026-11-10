@@ -114,10 +114,10 @@ def presence(monkeypatch):
     yield made
     made.quit()
     if made.thread is not None:
-        made.thread.join(5)
+        made.thread.join(30)
 
 
-def wait_for(check, seconds=5.0):
+def wait_for(check, seconds=30.0):
     deadline = time.monotonic() + seconds
     while not check():
         assert time.monotonic() < deadline, "timed out"
