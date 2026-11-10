@@ -18,7 +18,7 @@ A place is an indoor place, such as a home. The machine's view of it is a chain 
 |---|---|
 | `<revision>.json` | Producer, source visits, identifying signals, the floor plane, the map-to-plan transform, and each registered fixed camera's pose |
 | `<revision>.map` | The point cloud (binary PLY) |
-| `<revision>.plan` | A machine-made plan, in the floorplan DSL |
+| `<revision>.plan` | A machine-made plan: a scene, as the plan editor loads and saves it (`spatial/plan_scene.py`) |
 | `<revision>.gs.ply`, `<revision>.sog` | A Gaussian splat of the map and its copy for the 3D view |
 
 A revision that changes only the floor, the cameras, or the transform points at the earlier map. The newest two maps
@@ -26,7 +26,7 @@ and splats are kept; plans and revision records stay.
 
 All of that is an interpretation, so it can be deleted and made again. What the owner taught is in the knowledge store
 and supersedes it without changing it: a place's name (`place.named`), its plan (`place.plan`, with every earlier
-version; floorplan DSL text, or a scene saved from the page's Editor view, `spatial/plan_scene.py`), and each camera's
+version: a scene saved from the plan editor), and each camera's
 held focal and lens. While a place has an owner's plan, that is its only plan: the Places page, the 3D view, and the
 position layer use it and no machine plan stands in for it.
 
@@ -81,9 +81,9 @@ the camera's next frame takes its place.
 `position.path`: who or what, place, room, coordinates, time, confidence, and source. A camera's pose comes from one
 of two things:
 
-- **The owner's spot on the plan** (`spatial/spots.py`). A plan's `x-camera <camera> at x,y height <m> yaw <deg>`
-  line says where the camera is, how high, and which way it faces. With the camera's held focal and lens (or the
-  spot's `fov`) that is a pose in the plan's own frame, and its foot points land on the plan with no map at all. The
+- **The owner's spot on the plan** (`spatial/spots.py`). A camera's spot, set in the plan editor and kept in the
+  plan's scene, says where the camera is, how high, and which way it faces. With the camera's held focal and lens (or
+  the spot's `fov`) that is a pose in the plan's own frame, and its foot points land on the plan with no map at all. The
   one thing a spot doesn't say is how far the camera is tilted. That is fitted once per camera from the people it
   sees walking: someone walking is upright and as tall at the far end of the room as at the near end, and only one
   tilt makes them so. Nobody's height is assumed, and people sitting don't count. The fit is checked against the
@@ -133,9 +133,8 @@ is read at the pose its revision holds).
 
 ## Hand tools
 
-`tools/import_owner_plan.py` registers an owner-supplied floorplan into a place's map and saves it as the owner
-plan. `tools/calibrate_lens.py` and `tools/calibrate_fisheye.py` calibrate a camera's lens. Each prints what it found
-and writes only with `--write`; their docstrings have the options.
+`tools/calibrate_lens.py` and `tools/calibrate_fisheye.py` calibrate a camera's lens. Each prints what it found and
+writes only with `--write`; their docstrings have the options, and [Cameras](CAMERAS.md) has the steps.
 
 ## Model runtimes
 
