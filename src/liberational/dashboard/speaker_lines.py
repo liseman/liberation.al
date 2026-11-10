@@ -24,6 +24,7 @@ from liberational.dashboard import (
     live_status,
     people_list,
     people_reads,
+    roster_read,
     routes,
     transcript_lines,
     unnamed_groups,
@@ -167,8 +168,8 @@ def _speakers_key() -> tuple[Any, ...]:
     return (
         log_mark(),
         speech_log.shared().mark(),
-        people_reads.mtime(context.STATE / "voiceprints.json"),
-        people_reads.mtime(context.STATE / "speakers.json"),
+        roster_read.mtime(context.STATE / "voiceprints.json"),
+        roster_read.mtime(context.STATE / "speakers.json"),
     )
 
 

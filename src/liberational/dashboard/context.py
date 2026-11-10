@@ -6,6 +6,7 @@ here, not in the server, so an area's module and its tests don't need the server
 taken at import.
 """
 
+import os
 import sys
 import threading
 from typing import Any
@@ -26,3 +27,13 @@ SSE_LOCK = threading.Lock()
 
 def log(*a: object, level: int = logs.INFO) -> None:
     LOG.log(level, " ".join(str(x) for x in a))
+
+
+def low_priority(priority: int = 15) -> None:
+    """Lower this thread's CPU priority (and the decoder threads it starts) so live vision comes first."""
+    try:
+        tid = threading.get_native_id()
+        if os.getpriority(os.PRIO_PROCESS, tid) < priority:
+            os.setpriority(os.PRIO_PROCESS, tid, priority)
+    except OSError, AttributeError:
+        pass  # shortcut: per-thread nice is Linux only; macOS decodes at normal priority

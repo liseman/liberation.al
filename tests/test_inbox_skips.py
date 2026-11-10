@@ -8,7 +8,7 @@ from liberational.dashboard import (
     context,
     inbox_state,
     people_list,
-    people_reads,
+    roster_read,
     speaker_lines,
     unnamed_groups,
 )
@@ -64,7 +64,7 @@ def test_skipped_things_stay_out_of_the_inbox(state, monkeypatch):
     inbox_state.inbox_skip("face", 8, True)
     monkeypatch.setattr(context, "STATE", state)
     monkeypatch.setattr(people_list, "_faces_mod", lambda: faces)  # the face model
-    view = people_reads.people_view()
+    view = roster_read.people_view()
     refine = speaker_lines.speakers_refine_list()
     assert [v["id"] for v in view["unknown"]["voices"]] == [2]
     assert [f["id"] for f in view["unknown"]["faces"]] == [7]

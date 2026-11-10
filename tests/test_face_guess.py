@@ -20,9 +20,9 @@ from liberational.dashboard import (
     context,
     fresh_reads,
     inbox_state,
+    people_corrections,
     people_list,
     people_reads,
-    people_writes,
     photo_files,
     server,
     unnamed_groups,
@@ -619,7 +619,7 @@ def test_a_clear_match_is_named_automatically_without_teaching_the_gallery(kara,
 
 def test_an_undone_automatic_name_brings_the_group_back_and_is_not_redone(kara, state):
     named = fid.autoname(keep=[8], state=state)
-    code, body = people_writes.undo_people({"undo": named[0]["undo"]})
+    code, body = people_corrections.undo_people({"undo": named[0]["undo"]})
     assert (code, body["ok"]) == (200, True)
     assert 5 in [g["id"] for g in fid.unknown_groups()]
     assert kara.person_of(registry.face_group(5)).person is None

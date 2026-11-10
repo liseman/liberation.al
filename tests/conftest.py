@@ -338,14 +338,14 @@ def _people_reads_start_fresh(monkeypatch):
     if sys.modules.get("liberational.dashboard.server") is None:
         yield
         return
-    from liberational.dashboard import people_reads, speaker_lines
+    from liberational.dashboard import people_cards, roster_read, speaker_lines
 
-    reads = people_reads._PeopleReads()
-    monkeypatch.setattr(people_reads, "_PEOPLE_READS", reads)
-    monkeypatch.setattr(people_reads, "_CARD_READS", people_reads._CardReads())  # cards too: each test reads its own
+    reads = roster_read._PeopleReads()
+    monkeypatch.setattr(roster_read, "_PEOPLE_READS", reads)
+    monkeypatch.setattr(people_cards, "_CARD_READS", people_cards._CardReads())  # cards too: each test reads its own
     monkeypatch.setattr(speaker_lines, "_speakers_shared", None)  # and the voice list
-    monkeypatch.setattr(people_reads, "PEOPLE_WAIT_S", None)
-    monkeypatch.setattr(people_reads, "PEOPLE_REFRESH_S", 0.0)  # tests of the refresh itself; one test paces it
+    monkeypatch.setattr(roster_read, "PEOPLE_WAIT_S", None)
+    monkeypatch.setattr(roster_read, "PEOPLE_REFRESH_S", 0.0)  # tests of the refresh itself; one test paces it
     yield
     with reads.lock:
         pending = list(reads.pending.values())
