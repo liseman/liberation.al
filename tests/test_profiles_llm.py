@@ -1,5 +1,5 @@
 """The profile fact pass's model call (people/profiles.py): on the shared small model it asks for the context the
-model is kept loaded at, and its lines fit it (#917)."""
+model is kept loaded at, and its lines fit it."""
 
 from unittest.mock import patch
 

@@ -1,4 +1,4 @@
-// The person name box (PersonNameInput, Mantine's Combobox), loaded the first time one opens (#2529): Live shows it
+// The person name box (PersonNameInput, Mantine's Combobox), loaded the first time one opens: Live shows it
 // only when a turn or a face is being named, so its code stays out of Live's first load. Until it's there, a plain
 // box of the same size and label holds its place, so nothing moves when it arrives.
 import { TextInput } from '@mantine/core';

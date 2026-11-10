@@ -1,8 +1,8 @@
-// Settings as a page (#382): a menu of sections on the left with a search across every setting, the section on
+// Settings as a page: a menu of sections on the left with a search across every setting, the section on
 // the right, and a save bar once something has changed. A link to a setting (/settings#set-<key>) opens its section
 // and focuses it; a link to a section (/settings#<id>) opens it, and one to a card in it (an anchor, catalog.ts)
 // opens it and scrolls to that card. At phone width the menu and the section take turns:
-// the menu first, then the section with a link back to it (#787). First-run setup is SettingsForm's.
+// the menu first, then the section with a link back to it. First-run setup is SettingsForm's.
 import { Alert, Button, NavLink, Text, TextInput, Title } from '@mantine/core';
 import { IconChevronLeft } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
@@ -214,7 +214,7 @@ function NavItem({ section, current, onOpen }: { section: SectionDef; current: b
 
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-');
 
-/** A section's rows by card (#385): each group in the order its first row comes. Rows with no group share one
+/** A section's rows by card: each group in the order its first row comes. Rows with no group share one
  *  untitled card, or, in a section with titled groups, come last under "Other" (a new feature not yet in
  *  labels.toml lands there). */
 export function groups(rows: Setting[]): [string, Setting[]][] {

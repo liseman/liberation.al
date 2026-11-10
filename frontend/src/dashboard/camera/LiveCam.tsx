@@ -7,7 +7,7 @@ import { type Ref, type RefObject, useCallback, useEffect, useLayoutEffect, useR
 const ASPECT_KEY = 'liberational.cameraAspect';
 
 /** Each camera's last shape in this browser: a large camera on Live's panel grid is as wide as its height allows,
- *  so starting from 16:9 and then learning the camera's own shape moved it sideways on every load (#2621). */
+ *  so starting from 16:9 and then learning the camera's own shape moved it sideways on every load. */
 function rememberedAspects(): Record<string, number> {
   try {
     const value: unknown = JSON.parse(localStorage.getItem(ASPECT_KEY) ?? '{}');

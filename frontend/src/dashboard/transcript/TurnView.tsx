@@ -1,8 +1,8 @@
 // One turn of a transcript, on Live and Review alike: the speaker's avatar and name, the time, the turn's actions,
 // then its lines. A voice is named from here (an unmatched voice's name, or Rename in Why this name); a name that matches
-// nobody asks "Add <name> as a new person?" first, and Add creates them with just the name (#2342). A named
-// speaker's name opens Why this name (#288). A turn put down to the wrong person opens Who is this? (#300). A voice no
-// person was matched to shows as Unmatched with "?" for its avatar, never a placeholder like "Speaker 261" (#2580).
+// nobody asks "Add <name> as a new person?" first, and Add creates them with just the name. A named
+// speaker's name opens Why this name. A turn put down to the wrong person opens Who is this?. A voice no
+// person was matched to shows as Unmatched with "?" for its avatar, never a placeholder like "Speaker 261".
 import { Button, Mark, Text } from '@mantine/core';
 import { IconUserMinus, IconX } from '@tabler/icons-react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -31,7 +31,7 @@ export interface TurnHandlers {
   onLine: (e: TranscriptEntry, i: number) => void;
   onNot: (n: Not, from: HTMLElement | null) => void;
   onTrash: (lines: readonly TranscriptEntry[]) => void;
-  /** "This is TV" (#2468): the turn's lines not marked as a TV's yet. */
+  /** "This is TV": the turn's lines not marked as a TV's yet. */
   onTv: (lines: readonly TranscriptEntry[]) => void;
   /** "Not TV": take the TV marks off these lines. */
   onNotTv: (lines: readonly TranscriptEntry[]) => void;
@@ -57,7 +57,7 @@ const marked = (text: string, ranges: readonly Range[] | undefined): ReactNode =
   return out;
 };
 
-/** A TV line's tag: the audio tagger's mark says it was by ear (#2468). */
+/** A TV line's tag: the audio tagger's mark says it was by ear. */
 function TvTag({ e, onNot, disabled }: { e: TranscriptEntry; onNot?: () => void; disabled?: boolean }) {
   const ear = e.media_by === 'classifier';
   const said = ear ? 'Marked as TV by ear' : 'Marked as TV';
@@ -67,7 +67,7 @@ function TvTag({ e, onNot, disabled }: { e: TranscriptEntry; onNot?: () => void;
         {ear ? 'TV by ear' : 'TV'}
       </span>
     );
-  // Not TV is the tag itself, at the start of the line, away from Not <name> at its end (#2590).
+  // Not TV is the tag itself, at the start of the line, away from Not <name> at its end.
   return (
     <button
       type="button"
@@ -90,7 +90,7 @@ function usePlayingIn(t: Turn): string | null {
 }
 
 // Memoized, with stable handlers from the list: scrolling re-renders the list, never the turns already mounted, and a
-// new line re-renders only the turn it joins (#440): turns are rebuilt from the lines, so they compare by their lines.
+// new line re-renders only the turn it joins: turns are rebuilt from the lines, so they compare by their lines.
 export const TurnView = memo(
   function TurnView({
     t,
@@ -105,8 +105,8 @@ export const TurnView = memo(
     t: Turn;
     speakers: Speakers;
     saving: boolean;
-    other?: boolean; // someone else's, shown dimmed beside the person Review is for (#2057)
-    missed?: boolean; // nothing in it matches the search: dimmed, but kept in place (#2580)
+    other?: boolean; // someone else's, shown dimmed beside the person Review is for
+    missed?: boolean; // nothing in it matches the search: dimmed, but kept in place
     hits?: ReadonlyMap<string, LineHit>; // a search's matches in this turn's lines, by line key
     more?: ReactNode; // actions a page adds to every turn
     h: TurnHandlers;
@@ -116,7 +116,7 @@ export const TurnView = memo(
     const known = useKnownPeople();
     const playing = usePlayingIn(t);
     const [mode, setMode] = useState<Mode>(null);
-    const [adding, setAdding] = useState<string | null>(null); // a name that matches nobody, asking to add them (#2342)
+    const [adding, setAdding] = useState<string | null>(null); // a name that matches nobody, asking to add them
     const [draft, setDraft] = useState<{ text: string; n: number } | null>(null); // the box again after Cancel
     const [status, setStatus] = useState<{ text: string; err?: boolean } | null>(null);
     const [why, setWhy] = useState(false);
@@ -196,11 +196,12 @@ export const TurnView = memo(
     const rename = async (typed: string | null, added = false) => {
       setStatus(null);
       // An exact match (any case) is that person, spelled as they are. Naming a voice nobody has named with a name
-      // that matches nobody asks to add them first (#2342); renaming a named voice relabels the voice.
+      // that matches nobody asks to add them first; renaming a named voice relabels the voice.
       const match = typed ? known.find(k => k.toLowerCase() === typed.toLowerCase()) : undefined;
       if (typed && unnamed && !added && !match && typed !== name) {
         setAdding(typed);
-        // The shared confirm (#2538): Add is focused (the new person is easily removed); Cancel (or closing) gives the name box back with what was typed.
+        // The shared confirm: Add is focused (the new person is easily removed); Cancel (or closing) gives the name box
+        // back with what was typed.
         void confirm({
           title: 'New person',
           body: `Add ${typed} as a new person?`,
@@ -257,10 +258,10 @@ export const TurnView = memo(
     const busy = saving || mode === 'saving' || mode === 'tagging';
     const canCorrect = (t.id != null || !unnamed) && t.lines.every(({ e }) => !!e.line);
     const lines = () => t.lines.map(({ e }) => e);
-    // Every line a TV's (#2468): nobody said them, so there's no voice to name, take them off, or say why.
+    // Every line a TV's: nobody said them, so there's no voice to name, take them off, or say why.
     const allTv = t.lines.every(({ e }) => e.media);
     const tvLines = () => lines().filter(e => e.media && e.line);
-    // Not <name>, for the turn or one line, matched or not (#2605): Who is this? moves the lines to someone or just
+    // Not <name>, for the turn or one line, matched or not: Who is this? moves the lines to someone or just
     // takes them off the voice, with one Undo, and retries what failed. An unmatched voice goes by its label there.
     const notLines = (ls: readonly TranscriptEntry[], shown: string) => {
       setWhy(false);
@@ -366,7 +367,7 @@ export const TurnView = memo(
                   className={classes.line}
                   data-i={i}
                   data-key={e.line ?? e.ts_start}
-                  data-review-keys // Review's shortcuts still work from a focused line (Codex on #2516)
+                  data-review-keys // Review's shortcuts still work from a focused line
                   data-new={e._new || undefined}
                   data-media={e.media || undefined}
                   data-playing={playing === playerKey(e) || undefined}

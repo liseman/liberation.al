@@ -158,7 +158,7 @@ def test_bad_requests(lines):
     assert (code, o["undone"]) == (200, [])
 
 
-# ------------------------------------------------------- two microphones (#247) ----
+# ------------------------------------------------------- two microphones ----
 A, B = "mic-a@2000.000", "mic-b@2000.000"
 
 
@@ -200,7 +200,7 @@ def test_undo_by_line_key_puts_back_only_that_line(twins):
 def test_undo_by_line_key_finds_a_label_logged_before_keys(lines):
     server.speakers_refine("assign", {"ts_start": 1000.0, "name": "Carly"})
     rows = logged()
-    del rows[-1]["line"]  # as written before #247
+    del rows[-1]["line"]  # legacy entry without a line key
     server.REFINE_LOG.write_text("".join(json.dumps(r) + "\n" for r in rows))
     code, o = server.speakers_refine_undo({"lines": ["1000.000"]})
     assert (code, [u["ts_start"] for u in o["undone"]]) == (200, [1000.0])
@@ -214,7 +214,7 @@ def test_a_clip_by_line_key_is_that_microphones_line(twins):
 def test_undo_takes_back_one_label_of_a_line_labeled_before_and_after_keys(lines):
     server.speakers_refine("assign", {"ts_start": 1000.0, "name": "Carly"})
     rows = logged()
-    del rows[-1]["line"]  # the first label, as written before #247
+    del rows[-1]["line"]  # the first label, written without a line key
     server.REFINE_LOG.write_text("".join(json.dumps(r) + "\n" for r in rows))
     server.speakers_refine("assign", {"ts_start": 1000.0, "name": "Dana"})  # labeled again since
     code, o = server.speakers_refine_undo({"ts_starts": [1000.0]})
@@ -249,7 +249,7 @@ def test_undo_takes_back_one_label_of_a_microphones_line_labeled_before_and_afte
     key = "mic-a@3000.000"
     server.speakers_refine("assign", {"line": key, "name": "Carly"})
     rows = logged()
-    del rows[-1]["line"]  # the first label, as written before #247
+    del rows[-1]["line"]  # the first label, written without a line key
     server.REFINE_LOG.write_text("".join(json.dumps(r) + "\n" for r in rows))
     server.speakers_refine("assign", {"line": key, "name": "Dana"})  # labeled again since, by its key
     code, o = server.speakers_refine_undo({"lines": [key]})

@@ -76,9 +76,9 @@ def test_the_view_lists_every_source_and_never_sends_a_wyze_secret(base):
     with cfg.override({"ingest": {"wyze_password": "hunter2", "wyze_cameras": ["front-door"]}}):
         code, view = request(base, "GET", "/ingest/api/items")
     assert code == 200
-    assert all(isinstance(s["blocked"], bool) for s in view["sources"])  # a sign-in that can't work yet waits (#2695)
+    assert all(isinstance(s["blocked"], bool) for s in view["sources"])  # a sign-in that can't work yet waits
     later = [s["name"] for s in view["sources"] if s["later"]]
-    assert later == ["icloud_photos", "allsound", "thinking_hat"]  # no way in yet: Coming later (#2728)
+    assert later == ["icloud_photos", "allsound", "thinking_hat"]  # no way in yet: Coming later
     assert [s["name"] for s in view["sources"]] == [
         "link",
         "wyze",
@@ -120,7 +120,7 @@ def test_an_upload_is_ingested_in_the_background_and_a_second_copy_is_a_duplicat
 
 
 def test_an_item_says_what_reading_it_found_once_its_pass_is_done(base, tmp_path):
-    """For the Ingest tab's "what came of it" (#2719): the analysis ledger's row for each item."""
+    """For the Ingest tab's "what came of it": the analysis ledger's row for each item."""
     request(base, "POST", "/ingest/api/upload?name=beach.jpg", photo_bytes(tmp_path))
     [item] = items(base)
     assert item["analysis"] == {"state": "waiting"}  # brought in, not read yet

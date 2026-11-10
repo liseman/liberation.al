@@ -1,4 +1,4 @@
-"""The animal check's decision rule and crop (vision/animal_verifier.py, #1435); the model itself is measured, not
+"""The animal check's decision rule and crop (vision/animal_verifier.py); the model itself is measured, not
 unit tested (see the module's docs)."""
 
 import importlib.util

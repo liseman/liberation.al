@@ -89,7 +89,7 @@ export function whereabouts(p: {
   return `Last seen ${dayTime(p.last_seen)}${by ? ` by ${by}` : ''}`;
 }
 
-/** A camera as people read it: its name from Settings (vision.camera_names, #313) with a capital, "Front camera", else its
+/** A camera as people read it: its name from Settings (vision.camera_names) with a capital, "Front camera", else its
  *  id, "cam0". The server sends the id as the name when there is none. '' with no camera. */
 export function cameraName(cam: string | null | undefined, name?: string | null): string {
   const n = name?.trim();

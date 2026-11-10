@@ -1,4 +1,4 @@
-""" "Who's this?" rows for unnamed voices (#347): people/voice_guess.py and GET /voices/unknown/groups."""
+""" "Who's this?" rows for unnamed voices: people/voice_guess.py and GET /voices/unknown/groups."""
 
 import json
 import math
@@ -137,7 +137,7 @@ def state(tmp_path, monkeypatch, prints):
 
 
 def settle():
-    """Wait for the kept voice rows' background refresh (#2346), so the next read gets the full answer."""
+    """Wait for the kept voice rows' background refresh, so the next read gets the full answer."""
     for thread in threading.enumerate():
         if thread.name == "fresh-voice groups":
             thread.join(timeout=30)
@@ -247,7 +247,7 @@ def test_the_rows_are_kept_until_something_they_read_changes(state):
 
 
 def test_a_voice_heard_while_a_named_face_was_in_view_suggests_that_name(state, vision):
-    """Voice 3 speaks three times while Kara's face is in view (#225)."""
+    """Voice 3 speaks three times while Kara's face is in view."""
     audio = {"stream": "mic.audio", "start_ns": 0, "end_ns": 3000000000}
     for ts in (500.5, 1000.5):
         fake().say(

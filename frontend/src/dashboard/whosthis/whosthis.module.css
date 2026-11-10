@@ -1,5 +1,5 @@
 /* Who's this?: the narrow window's way back, the play button, and the recent decisions under the list, moved from
-   People's old inbox (#347). */
+   People's old inbox. */
 
 /* "Back to people" shows only on narrow windows, where the inbox takes the whole page. */
 .back {
@@ -14,7 +14,7 @@
 }
 
 .play {
-  /* The round play control itself is the shared PlayToggle (Mantine ActionIcon, #2041); this is only its place. */
+  /* The round play control itself is the shared PlayToggle (Mantine ActionIcon); this is only its place. */
   margin-top: 6px;
 }
 
@@ -86,7 +86,7 @@
   }
 }
 
-/* Every picture of a face group, to take the wrong ones out (#2008). A selected picture gets a ring and a check drawn
+/* Every picture of a face group, to take the wrong ones out. A selected picture gets a ring and a check drawn
    over it (outline and a pseudo-element), so selecting never moves the grid. */
 .picker {
   grid-column: 1 / -1; /* the whole row, under its picture and its answer, on People's wide cards */

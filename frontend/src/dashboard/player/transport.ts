@@ -15,7 +15,7 @@ export type Reply =
       media_context?: boolean;
       /** The vision overlays a page can ask for by name (faces, bodies, poses, objects), with the broker. */
       overlay_groups?: string[];
-      /** What this gateway answers beyond the basics: `watch` (many streams live) and `req` (request ids), #2380. */
+      /** What this gateway answers beyond the basics: `watch` (many streams live) and `req` (request ids). */
       features?: string[];
     }
   | { type: 'streams'; streams: StreamSummary[] }
@@ -39,7 +39,7 @@ export type Reply =
       start_us: number;
       end_us: number;
       spans: [number, number][];
-      /** Stretches whose video aged out past the history window (#1748). */
+      /** Stretches whose video aged out past the history window. */
       expired?: [number, number][];
       /** The window held more spans than one reply lists: ask again over its halves. */
       partial?: boolean;

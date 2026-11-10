@@ -1,4 +1,4 @@
-"""On a Mac, /devices matches manifest cameras by AVFoundation unique ID (2026-11-02)."""
+"""On a Mac, /devices matches manifest cameras by AVFoundation unique ID."""
 
 import subprocess
 from types import SimpleNamespace

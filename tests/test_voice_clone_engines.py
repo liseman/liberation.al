@@ -104,7 +104,7 @@ def test_reference_transcript_falls_back_to_the_prompt(tmp_path):
 
 def test_tts_clones_on_cuda_without_mlx(tmp_path, monkeypatch, cuda):
     ref = tmp_path / "owner_ref.wav"
-    sf.write(str(ref), np.zeros(1600, np.float32), 16000)  # a reference the voice can read (#301)
+    sf.write(str(ref), np.zeros(1600, np.float32), 16000)  # a reference the voice can read
     monkeypatch.setattr(tts, "REF_WAV", ref)
     t = tts.TTS(clone=True)
     assert t.clone

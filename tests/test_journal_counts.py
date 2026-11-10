@@ -1,4 +1,4 @@
-"""The journal's code-built Counts tables (#2807): what the owner has named, counted from the count modules over a
+"""The journal's code-built Counts tables: what the owner has named, counted from the count modules over a
 day or a week, with unwatched time unknown and never zero, and "Usual" from earlier periods with enough footage.
 
 Zones run through the real zone and event count modules over an in-memory segment store; named events through

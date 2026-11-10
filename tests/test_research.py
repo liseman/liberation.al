@@ -1,4 +1,4 @@
-"""Research jobs for the Inbox (#1336): the durable queue, where research may run, yielding to instant Ask, and
+"""Research jobs for the Inbox: the durable queue, where research may run, yielding to instant Ask, and
 the routes."""
 
 import http.client
@@ -61,7 +61,7 @@ def test_reports_are_marked_read_and_unread_and_listed_without_their_report(stor
     ident = finished(store)
     assert store.mark(ident, True) is True
     assert [(j["id"], j["read"], "result" in j) for j in store.jobs()] == [(ident, True, False)]
-    assert store.jobs()[0]["answer_status"] == "ok"  # how it came out, for the list (#2674)
+    assert store.jobs()[0]["answer_status"] == "ok"  # how it came out, for the list
     store.mark(ident, False)
     assert store.get(ident)["read"] is False
 

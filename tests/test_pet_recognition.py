@@ -1,4 +1,4 @@
-"""Telling pets apart (people/pet_recognition.py, #1332): sightings, groups, owner labels, and the held-out check that
+"""Telling pets apart (people/pet_recognition.py): sightings, groups, owner labels, and the held-out check that
 keeps recognition off until the labels show it works."""
 
 from unittest.mock import create_autospec
@@ -90,7 +90,7 @@ def test_a_labeled_sighting_is_never_recognized_from_its_own_label():
     ],
 )
 def test_a_cat_box_as_like_the_labeled_dog_as_a_cat_is_named_after_neither(with_dog, exclude, expected):
-    # #3062: the detector sometimes boxes the dog as a cat. Halfway between Mia's look and Bess's, the box is 0.67 like
+    # The detector sometimes boxes the dog as a cat. Halfway between Mia's look and Bess's, the box is 0.67 like
     # each: enough for Mia, but no further from the dog than from her.
     mia, poppy = seen(("m", 0, 1, T), ("p", 1, 2, T))
     bess = R.sightings([row("b", 5, 3, T, species="dog")])[0]
@@ -447,7 +447,7 @@ def test_unavailable_reference_read_never_returns_a_partial_recognition_answer(l
 
 
 def test_label_reads_before_the_evidence_lock_and_writes_under_it(log, monkeypatch):
-    # #2896: the read under the lock took about half a second, so quick labels queued behind each other.
+    # The read under the lock took about half a second, so quick labels queued behind each other.
     import fcntl
 
     from liberational import locking
@@ -484,7 +484,7 @@ def test_label_reads_before_the_evidence_lock_and_writes_under_it(log, monkeypat
 
 
 def test_embeddings_are_read_again_only_for_the_hours_whose_files_changed(log, monkeypatch):
-    # #2896: every label and every pet box read every embedding ever recorded.
+    # Every label and every pet box read every embedding ever recorded.
     original = segment_log.Log.range
     read: list[float] = []
 
@@ -529,7 +529,7 @@ def test_a_label_from_before_the_reset_keeps_its_imported_embeddings(log):
 
 
 def after_reset(log, rows):
-    """A state directory as a reset leaves it (#3018): the old one's knowledge store (labels, references), and a segment
+    """A state directory as a reset leaves it: the old one's knowledge store (labels, references), and a segment
     store holding only `rows`."""
     state = log.state / "after-reset"
     state.mkdir()
@@ -562,7 +562,7 @@ def test_an_ignored_label_keeps_no_example_and_relabeling_keeps_one(log):
 
 
 def test_a_reference_of_another_embedding_space_is_no_example_and_leaves_its_label_stranded(log):
-    """A square-crop reference from before #3024 doesn't compare with tight-crop embeddings."""
+    """An earlier square-crop reference doesn't compare with tight-crop embeddings."""
     state = after_reset(log, [])
     label = {"track_id": "old-mia", "species": "cat", "cam": "cam0", "label": MIA, "sighting_start": T}
     square = R.reference(np.array(look(0, 1)), label, 1)
@@ -578,7 +578,7 @@ def test_a_reference_of_another_embedding_space_is_no_example_and_leaves_its_lab
 
 
 def test_a_sighting_embedded_in_another_space_is_not_listed_labeled_or_named(log):
-    # #3042: square-crop rows from before #3024 were listed beside tight ones, and labeling one kept its square mean
+    # Earlier square-crop rows were listed beside tight ones, and labeling one kept its square mean
     # as a tight reference.
     taught(log)
     store(log.state, [{**row("m-square", 0, 30, T + 20005), "model": "facebook/dinov3:square"}])  # Mia's look
@@ -663,7 +663,7 @@ def test_sightings_come_from_see_actions_and_see_captions_streams_alike(tmp_path
     assert [s.track_id for s in R.recorded(tmp_path, now=T + 120)] == ["actions", "captions"]
 
 
-# Review's boxes (#2175): `resolve` names a window's tracks from owner-label spans, never from all of history.
+# Review's boxes: `resolve` names a window's tracks from owner-label spans, never from all of history.
 
 
 def taught(log, now=T + 30000):
@@ -857,7 +857,7 @@ def test_a_groups_not_is_what_every_sighting_in_it_was_said_not_to_be(log):
 
 
 def _groups_one_at_a_time(found):
-    """groups() as it was before #2883: each centroid compared alone, the reference the fast one must agree with."""
+    """Reference groups() implementation: each centroid compared alone, which the vectorized version must match."""
     out = []
     for s in found:
         best, sim = None, R.GROUP_SIM

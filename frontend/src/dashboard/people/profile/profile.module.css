@@ -179,7 +179,7 @@
   font-family: var(--mantine-font-family);
 }
 .play {
-  /* The control is the shared PlayToggle (Mantine ActionIcon, #2041); this keeps its 26 px place, which an empty
+  /* The control is the shared PlayToggle (Mantine ActionIcon); this keeps its 26 px place, which an empty
      placeholder holds too when a voice has nothing to play, so the rows line up. */
   flex: 0 0 26px;
   width: 26px;
@@ -209,7 +209,7 @@
   position: relative;
 }
 /* The corner holds the menu: positioned here, on a box of our own, because the menu button's own position is
-   Mantine's (relative), which would drop it into the flow under the photo (#2421). */
+   Mantine's (relative), which would drop it into the flow under the photo. */
 .tileCorner {
   position: absolute;
   top: 6px;
@@ -326,7 +326,7 @@
   margin-top: -8px; /* takes no room while empty, but stays in the page so what it says is announced */
 }
 
-/* the ⋯ menu inside the Why this name popover's anchor (#288): it lays out as the menu button alone */
+/* the ⋯ menu inside the Why this name popover's anchor: it lays out as the menu button alone */
 .whyAnchor {
   display: inline-flex;
 }
@@ -335,7 +335,7 @@
   margin-top: 10px;
 }
 
-/* The card's loading line keeps its one line when empty (#2485), so a read coming and going moves nothing. */
+/* The card's loading line keeps its one line when empty, so a read coming and going moves nothing. */
 .loadLine {
   min-height: calc(var(--mantine-font-size-sm) * var(--mantine-line-height-sm));
 }

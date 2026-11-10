@@ -10,7 +10,7 @@
   flex: 1;
   min-height: 0;
 }
-/* The transcript shows below, its turns dimmed to the matches (#2593). A fixed share, so the transcript resizes once
+/* The transcript shows below, its turns dimmed to the matches. A fixed share, so the transcript resizes once
    as a search opens, not with every word typed. */
 .search[data-active][data-beside] {
   flex: 0 0 45%;

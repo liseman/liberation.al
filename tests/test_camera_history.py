@@ -95,7 +95,7 @@ def test_the_owner_gets_a_spoken_camera_history_answer(history_worker, owner_sta
     speaker = create_autospec(voice.Speaker, instance=True)
     reply = voice.handle("Hey Bob what changed on Cam One in the last hour", speaker, OWNER)
     assert reply == "camera result"
-    # With a speaker, voice hands Ask a callback to speak a short answer early (#1749).
+    # With a speaker, voice hands Ask a callback to speak a short answer early.
     history_worker.assert_called_once_with("what changed on Cam One in the last hour", on_short=ANY)
     speaker.speak.assert_called_once_with("camera result")
 
@@ -109,7 +109,7 @@ def test_the_owner_gets_a_spoken_camera_history_answer(history_worker, owner_sta
     ],
 )
 def test_anyone_else_gives_the_password_for_a_camera_history_question(history_worker, owner_state, entry):
-    """#174: a camera question about the past is answered from the transcript and memory, so only the verified owner
+    """A camera question about the past is answered from the transcript and memory, so only the verified owner
     gets it without the password."""
     reply = voice.handle("Hey Bob what changed on Cam One in the last hour", entry=entry)
     assert reply == "Please say your password for this request, or say cancel."
@@ -145,7 +145,7 @@ def test_nonowner_actions_still_need_the_password():
 def test_the_voice_service_never_answers_a_guests_camera_history_question_without_the_password(
     history_worker, owner_state, monkeypatch
 ):
-    """The second lock (#174): even a camera Grant for a guest that asks about the past gets no history answer."""
+    """The second lock: even a camera Grant for a guest that asks about the past gets no history answer."""
     guest_grant = voice.Grant("what changed on cam one in the last hour", "camera", False, False, False, False, False)
     monkeypatch.setattr(voice.CONVERSATION, "accept", lambda *a, **k: guest_grant)
     assert (
@@ -166,7 +166,7 @@ def test_the_voice_service_never_answers_a_guests_camera_history_question_withou
     ],
 )
 def test_a_guest_gives_the_password_for_any_camera_question_about_the_past(history_worker, owner_state, question):
-    """An adversarial review of #174: a camera name run together ("camzero") is a camera to the camera history, which
+    """A camera name run together ("camzero") is a camera to the camera history, which
     then reads its time window, but not to the history classifier. Whatever reads the past needs the password."""
     with patch.object(voice, "camera_query", autospec=True, side_effect=AssertionError("caption history read")):
         reply = voice.handle("Hey Bob " + question, entry={"speaker_id": 2, "speaker_sim": 0.9})
@@ -180,7 +180,7 @@ def test_the_owner_still_gets_a_camera_history_window(history_worker, owner_stat
     camera.assert_called_once_with("what changed on camzero in the last 2 hours")
 
 
-# ---- clock times (#206): what a camera showed at 3pm, never what it shows now ----
+# ---- clock times: what a camera showed at 3pm, never what it shows now ----
 
 EVENING = dt.datetime(2026, 10, 24, 18, 0).timestamp()  # local time, as people ask
 
@@ -213,7 +213,7 @@ def test_parse_reads_a_clock_time_as_a_moment(question, moment):
         pytest.param("what did cam 0 show at 13pm", id="no-such-time"),
         pytest.param("what did cam 0 show at 25:00", id="no-such-24-hour-time"),
         pytest.param("what did cam 0 show this morning", id="part-of-day"),
-        # Codex on #212: a clock time with another time word must not quietly mean today or yesterday.
+        # A clock time with another time word must not quietly mean today or yesterday.
         pytest.param("what did cam 0 show two days ago at 3pm", id="days-ago"),
         pytest.param("what did cam 0 show at 3pm last week", id="last-week"),
         pytest.param("what did cam 0 show at 3pm on 2026-10-20", id="a-date"),
@@ -262,7 +262,7 @@ def test_a_clock_time_with_nothing_near_it_says_so(vision):
 
 
 def test_a_guest_gives_the_password_for_a_clock_time_camera_question(history_worker, owner_state):
-    """#174's lock covers clock times too: a moment is a past question (voice_auth.asks_about_the_past)."""
+    """The lock covers clock times too: a moment is a past question (voice_auth.asks_about_the_past)."""
     with patch.object(voice, "camera_query", autospec=True, side_effect=AssertionError("caption history read")):
         reply = voice.handle("Hey Bob what did cam 0 show at 3pm", entry={"speaker_id": 2, "speaker_sim": 0.9})
     assert reply == "Please say your password for this request, or say cancel."

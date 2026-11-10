@@ -1,4 +1,4 @@
-// Skeleton playback's data and timing (#1987): the spans to pick from, one span's pose frames, and which frame shows
+// Skeleton playback's data and timing: the spans to pick from, one span's pose frames, and which frame shows
 // at a moment of playback.
 import { request } from '../../shared/http';
 import { MIN_CONF, type Pose } from '../pose/skeleton';

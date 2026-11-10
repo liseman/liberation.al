@@ -1,4 +1,4 @@
-"""tools/rebuild_place.py (#3286): the cameras put on the owner's measured spots."""
+"""tools/rebuild_place.py: the cameras put on the owner's measured spots."""
 
 import importlib.util
 import math

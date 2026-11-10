@@ -169,7 +169,7 @@ def test_serial_source_is_bounded_recovers_on_unplug_and_closes_port():
 
 
 def test_a_sensor_says_in_the_log_when_it_attaches_and_detaches(caplog):
-    """A healthy run shows in bluetooth.log (#2660): which sensor, by name and chip, on which port."""
+    """A healthy run shows in bluetooth.log: which sensor, by name and chip, on which port."""
     port = create_autospec(sources.SerialPort, instance=True)
     port.read.side_effect = [hello(name="Desk") + report(), OSError("unplug")]
     source = sources.SerialSource(opener=lambda path, baud: port, clock=lambda: 102)

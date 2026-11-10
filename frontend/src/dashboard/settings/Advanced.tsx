@@ -1,4 +1,4 @@
-// Advanced (#387): every setting by its raw key and its defaults.toml comment, a card per config section, with a
+// Advanced: every setting by its raw key and its defaults.toml comment, a card per config section, with a
 // filter and "Only changed from default", as the design draws it (Advanced.dc.html).
 import { Button, Checkbox, Group, Text, TextInput } from '@mantine/core';
 import { useEffect, useState } from 'react';
@@ -43,7 +43,7 @@ export function Advanced() {
   const d = useDraft();
   const [filter, setFilter] = useState('');
   const [changedOnly, setChangedOnly] = useState(false);
-  // Each config section folds to its heading and count (#2728, Joe's Settings board idea 6): the filter comes first,
+  // Each config section folds to its heading and count: the filter comes first,
   // and a section opens when the owner opens it, a filter or "Only changed" is on, or it holds a linked, edited, or
   // refused setting. On a phone, every key listed in full ran to 32,000 px.
   const [opened, setOpened] = useState<ReadonlySet<string>>(() => new Set());

@@ -1,4 +1,4 @@
-// Correcting a place's plan by hand (#2859): the parts of the floorplan library's playground editor the owner needs,
+// Correcting a place's plan by hand: the parts of the floorplan library's playground editor the owner needs,
 // on Mantine. Drag a wall (along its own normal) or a corner, rename a room, add or remove a door. Each edit is a
 // splice into the plan's DSL text and the drawing is made again from it, so the drawing and the text can't drift; a
 // drag that makes the plan wrong turns its findings up rather than being blocked. Every edit is a step in a bounded
@@ -55,7 +55,7 @@ export function read(text: string, options: RenderOptions): { result?: Floorplan
   }
 }
 
-/** The findings worth showing while correcting a plan: the geometry checks #2797 kept, errors and warnings only. */
+/** The findings worth showing while correcting a plan: the geometry checks, errors and warnings only. */
 export function findingsOf(text: string): Finding[] {
   try {
     return lintPlace(parsePlaceDsl(text)).filter(f => f.severity !== 'info');

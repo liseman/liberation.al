@@ -1,9 +1,9 @@
-// The boxes Review draws over the large camera (#374): who and what that camera saw at the playhead, from GET
-// /review/boxes, a minute of one camera at a time. People are body boxes from see-actions' pose tracks, 10 a second
-// (#2257), and pets come 5 a second: both move smoothly between samples and end at a gap. Faces come about once a
+// The boxes Review draws over the large camera: who and what that camera saw at the playhead, from GET
+// /review/boxes, a minute of one camera at a time. People are body boxes from see-actions' pose tracks, 10 a second,
+// and pets come 5 a second: both move smoothly between samples and end at a gap. Faces come about once a
 // second; they're drawn only for a person without a body box (older recordings), and naming an unknown body uses its
 // track's face. The camera's object labels (chair, car) come from groundings every several seconds, so each carries
-// the moment it stops standing ("until"); remembered things are held a while after each sample. Show only (#328)
+// the moment it stops standing ("until"); remembered things are held a while after each sample. Show only
 // keeps only what it picks.
 import { queryOptions } from '@tanstack/react-query';
 import { request } from '../../shared/http';

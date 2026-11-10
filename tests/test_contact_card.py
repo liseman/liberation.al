@@ -1,4 +1,4 @@
-"""The contact card (#307): face shot quality (vision/face_quality.py), the best shots and the main photo
+"""The contact card: face shot quality (vision/face_quality.py), the best shots and the main photo
 (vision/sightings.py, over the face worker's faces on the vision log), and GET /people/<name>/card. Made-up names and
 synthetic faces; never the real data/."""
 

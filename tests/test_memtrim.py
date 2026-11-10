@@ -1,4 +1,4 @@
-"""Returning freed memory to the system (memtrim.py, #2850)."""
+"""Returning freed memory to the system (memtrim.py)."""
 
 import os
 import threading

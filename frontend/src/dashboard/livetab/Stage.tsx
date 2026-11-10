@@ -1,4 +1,4 @@
-// Live opens multiple cameras as preview cards in a grid of equal cells; a portrait picture fits its cell (#2456).
+// Live opens multiple cameras as preview cards in a grid of equal cells; a portrait picture fits its cell.
 // A selected exact camera ID gets the full video and
 // face/object controls; the #camera hash preserves that selection across reloads. The caption sits below pixels.
 import { Anchor, Button, NativeSelect, Switch, Text, Tooltip, UnstyledButton } from '@mantine/core';
@@ -33,7 +33,7 @@ import { CAMERA_SERVICES, StartButton } from './Setup';
 import './cameras.css';
 
 /** Mirror this camera's picture left to right, in this browser only (the boxes are drawn here, so they mirror
- *  too). Settings' Mirror is the same choice (#384). */
+ *  too). Settings' Mirror is the same choice. */
 function FlipButton({ cam }: { cam: string }) {
   const on = usePrefs(s => mirrored(s, cam));
   return (
@@ -80,7 +80,7 @@ export const relabel = (b: Box): Box =>
   b.kind === 'face' && b.tone === 'unknown' ? { ...b, label: "Who's this?" } : b;
 
 /** Follow a large-view box: faces open People; an animal (a taught pet's name, or a species) opens Pets, at that pet
- *  or for that species (#1986); and any other object opens a cropped Objects draft. */
+ *  or for that species; and any other object opens a cropped Objects draft. */
 export function follow(pick: BoxPick, camera?: string, canvas?: HTMLCanvasElement | null, pets?: PetsView): void {
   const animal = pick.kind === 'object' ? petHref(pick.label, pets) : null;
   if (animal) {
@@ -182,7 +182,7 @@ function LiveTilesSwitch() {
 function Small({ cam, state, onShow }: { cam: string; state: CamState; onShow: () => void }) {
   const name = viewName(cam);
   const mirror = usePrefs(s => mirrored(s, cam));
-  // Live tiles: the same JPEG stream Live's large camera shows (2026-11-05); off, a sparse preview every few s.
+  // Live tiles: the same JPEG stream Live's large camera shows; off, a sparse preview every few s.
   const live = usePrefs(s => s.liveTiles ?? true);
   const tile = useCameraAspect<HTMLDivElement>(cam);
   return (
@@ -208,7 +208,7 @@ function Small({ cam, state, onShow }: { cam: string; state: CamState; onShow: (
   );
 }
 
-/** A camera with no name goes by its id on every page (#2585), so the heading offers to name it. It reads only the
+/** A camera with no name goes by its id on every page, so the heading offers to name it. It reads only the
  *  page shell, so it is there from the first paint, in the waiting heading too, and moves nothing when it lands. */
 function NameNudge({ cams }: { cams: readonly string[] }) {
   const missing = unnamed(cams, useCameraNames()); // a name saved in Settings takes it away at once
@@ -236,7 +236,7 @@ function writeCamera(cam: string | null): void {
   history.replaceState(history.state, '', location.pathname + location.search + (hash.size ? `#${hash}` : ''));
 }
 
-/** The cameras' last height in this browser, so their place is held at it on the next load (#2485). */
+/** The cameras' last height in this browser, so their place is held at it on the next load. */
 const STAGE_H_KEY = 'liberational.live.stageHeight';
 function rememberedStageHeight(): number | undefined {
   try {
@@ -348,13 +348,13 @@ export function Stage({
     />
   );
   // Until vision and the scene have both answered, nothing is known to be off, so the cameras' place is held
-  // (#2485) rather than saying "Cameras are off" and then swapping the cameras in over it, which moved everything
+  // rather than saying "Cameras are off" and then swapping the cameras in over it, which moved everything
   // under them. The overview's place is the overview itself, with empty tiles, so the grid's own CSS sizes it
   // exactly; one large camera's place is its height last time in this browser, else a capped 16:9 picture.
   if (!shown.length && (vision === undefined || !sceneKnown)) {
     const overview = cams.length > 1 && !(chosen && cams.includes(chosen));
     return (
-      // Its own key, as the cameras' section has (#2485): React would otherwise reuse this section's nodes for the
+      // Its own key, as the cameras' section has: React would otherwise reuse this section's nodes for the
       // real one by position, and the grid's node turning into the heading counts as a shift though nothing moves.
       <section key="stage-wait" className="live-cams stage-wait" aria-label="Cameras" aria-busy="true">
         {overview ? (

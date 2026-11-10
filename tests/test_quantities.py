@@ -204,7 +204,7 @@ def test_receipts_name_the_line_by_its_device(tmp_path, file_log):
 def test_a_line_measured_twice_is_one_event(tmp_path, file_log):
     """The event's id comes from the line (its exact time, device, and the quantity's place), so measuring a line
     again, in any process, sends the same event and the log keeps one. A line measured before this (under a receipt
-    key, with a random id) is measured once more after the import; v1's old measurements are Joe's to drop."""
+    key, with a random id) is measured once more after the import; v1's old measurements can be dropped by the owner."""
     from liberational.continuum import keyed_id
     from liberational.memory.quantities import record
 

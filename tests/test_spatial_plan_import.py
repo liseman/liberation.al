@@ -1,4 +1,4 @@
-"""An owner-supplied floorplan (#3276): read from the DSL, registered onto a synthetic map's wall band with a known
+"""An owner-supplied floorplan: read from the DSL, registered onto a synthetic map's wall band with a known
 move, and written back in the map's frame. Every plan here is made up."""
 
 import math

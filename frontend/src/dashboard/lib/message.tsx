@@ -1,5 +1,5 @@
 // What a change said: a line of text (with an Undo token when it can be undone, and sticky while it's still in
-// progress), or an error. Every page's status line and toast take this one shape (#2457 duplicates, row 1).
+// progress), or an error. Every page's status line and toast take this one shape.
 import { Text } from '@mantine/core';
 
 export type Message<U = never> = { text: string; undo?: U | null; sticky?: boolean } | { err: string } | null;

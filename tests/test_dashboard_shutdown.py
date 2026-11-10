@@ -1,4 +1,4 @@
-"""A dashboard stop closes its worker pools, so their semaphores are unlinked and nothing is warned as leaked (#3166)."""
+"""A dashboard stop closes its worker pools, so their semaphores are unlinked and nothing is warned as leaked."""
 
 import multiprocessing
 import threading

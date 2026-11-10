@@ -1,4 +1,4 @@
-"""The face files (#411): faces/db.npz and unknown_clusters.npz are written whole and moved into place, and every
+"""The face files: faces/db.npz and unknown_clusters.npz are written whole and moved into place, and every
 read-modify-write holds a lock across processes, so a torn file, a crash mid-write, or two writers at once (vision,
 identity, the dashboard) never lose a face. Temp files and made-up faces only; never the real data/."""
 

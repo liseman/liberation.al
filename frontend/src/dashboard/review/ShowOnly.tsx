@@ -1,7 +1,7 @@
-// Review's "Show only" (R3, #328): the day's people (each with their colour), unknown faces, things, and events, as
+// Review's "Show only" (R3): the day's people (each with their colour), unknown faces, things, and events, as
 // chips. Picking people shows only their speech and presence on the timeline at full strength; picking anything
 // marks its time, and playback can skip the rest. Replaces Chips.tsx. Each group lists its 10 most common at first,
-// with "+N more" for the rest (#2454): a busy day had about 250 things, and the panel ran thousands of pixels tall.
+// with "+N more" for the rest: a busy day had about 250 things, and the panel ran thousands of pixels tall.
 import { Button, Chip as MantineChip, TextInput, Tooltip, UnstyledButton } from '@mantine/core';
 import { type CSSProperties, memo, useId, useMemo, useState } from 'react';
 import { EMPTY_SPEAKERS } from '../lib/speakers';
@@ -23,7 +23,7 @@ const GROUPS: { name: string; has: (c: Chip) => boolean }[] = [
   { name: 'Events', has: c => c.kind === 'event' },
 ];
 
-/** A label as people read it: "sewing_machine" is "sewing machine" (#2454 follow-up). */
+/** A label as people read it: "sewing_machine" is "sewing machine". */
 const spaced = (label: string): string => label.replace(/_+/g, ' ');
 
 /** How many chips a group lists before "+N more". */
@@ -38,7 +38,7 @@ export function capped(chips: readonly Chip[], picked: ReadonlySet<string>, all:
 }
 
 /** video: also hold the video's markers and Skip quiet time (Review's page, whose control bar leaves them out). */
-// Memoized (#2522): Review re-renders on every query and status change while it plays, and redrawing a few hundred
+// Memoized: Review re-renders on every query and status change while it plays, and redrawing a few hundred
 // chips with their tooltips each time was Review's largest render cost. Its props (the engine's chip list) only
 // change with the day's data; the selection, colours, and cameras it reads from the engine's store.
 export const ShowOnly = memo(function ShowOnly({ chips, video = false }: { chips: Chip[]; video?: boolean }) {
@@ -205,7 +205,7 @@ export const ShowOnly = memo(function ShowOnly({ chips, video = false }: { chips
                 {moreButton(g)}
               </div>
             ) : (
-              // Things and events are rounded pills, like the cameras, and wrap instead of scrolling (#2287).
+              // Things and events are rounded pills, like the cameras, and wrap instead of scrolling.
               <div className={classes.pills} data-review-keys>
                 {g.chips.map(c => (
                   <Tooltip key={c.id} label={tip(c)} events={{ hover: true, focus: true, touch: false }}>

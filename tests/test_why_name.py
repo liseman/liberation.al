@@ -1,4 +1,4 @@
-"""Why a name was given (#288): GET /identity/why explains a transcript line's or a recorded face's name from the
+"""Why a name was given: GET /identity/why explains a transcript line's or a recorded face's name from the
 assertion that decided it, with the match score behind it. It changes nothing."""
 
 import time
@@ -21,7 +21,7 @@ def line(ts, text, sid=1, sim=0.71, device=None, speaker="Speaker 1", **extra):
 
 LINES = [
     line(1000.0, "Morning."),
-    line(1010.0, "Tea?", device="Kitchen"),  # two microphones' lines in one millisecond (#247)
+    line(1010.0, "Tea?", device="Kitchen"),  # two microphones' lines in one millisecond
     line(1010.0, "Coffee, please.", device="Hall", sim=0.6),
 ]
 

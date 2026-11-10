@@ -1,4 +1,4 @@
-/* The page frame (#2450): one left edge, one heading size, and one header row on every page. */
+/* The page frame: one left edge, one heading size, and one header row on every page. */
 .frame {
   --page-gutter: 24px;
   --page-top: 20px; /* the space above the page's first row; Known's sticky tab row takes it inside itself */

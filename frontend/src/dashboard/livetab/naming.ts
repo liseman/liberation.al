@@ -1,4 +1,4 @@
-// Naming a voice from a transcript (#357, #300): Live's turns and Review's do it the same way. A voice nobody has
+// Naming a voice from a transcript: Live's turns and Review's do it the same way. A voice nobody has
 // named is renamed (or claimed, when the name is someone's already); lines with no voice, or a known voice given
 // someone else's name (heard wrong), have just those lines tagged, since claiming the voice would merge all of one
 // person's voice into another's, which can't be undone. Naming a voice also confirms only the visible turn's lines.
@@ -18,7 +18,7 @@ export type Named = { done: 'nothing' } | { done: 'tagged'; as: string } | { don
 export interface Naming {
   voice: number | string | null; // the voice's id, or null for lines no voice was matched to
   current: string; // the name the lines show now
-  lines: readonly LineRef[]; // each by its key, never another microphone's line (#247)
+  lines: readonly LineRef[]; // each by its key, never another microphone's line
   added?: boolean; // the name was just added as a person, so it counts as known before the roster is read again
 }
 

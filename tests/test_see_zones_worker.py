@@ -1,4 +1,4 @@
-"""The zone worker (#1316, #1825) on a real segment store: see-actions' rows in, zone visits and coverage out."""
+"""The zone worker on a real segment store: see-actions' rows in, zone visits and coverage out."""
 
 import asyncio
 import itertools

@@ -1,4 +1,4 @@
-"""The owner's activity list (memory/activity_kinds.py, #3244): add and delete, the starting kinds carrying over, the
+"""The owner's activity list (memory/activity_kinds.py): add and delete, the starting kinds carrying over, the
 classes a new one is read from, what it learns from answers, and deleted kinds leaving every read."""
 
 import pytest

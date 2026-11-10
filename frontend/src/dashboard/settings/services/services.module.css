@@ -1,4 +1,4 @@
-/* Settings' Services (#386, drawn as cards in #787): a summary card, a card per group, and Turned off. Phone width
+/* Settings' Services: a summary card, a card per group, and Turned off. Phone width
    (600px and under) puts each row's name and switch on one line and makes every control a 44px touch target. */
 .stack {
   display: flex;
@@ -402,7 +402,7 @@
   }
 }
 
-/* A group's count and its Show or Hide (#2728) */
+/* A group's count and its Show or Hide */
 .groupTrail {
   display: inline-flex;
   align-items: center;

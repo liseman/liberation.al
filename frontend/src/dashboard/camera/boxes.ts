@@ -7,7 +7,7 @@
 // movement. Boxes fade in and out, and a changed name crossfades. The DOM is built here, not by React: it changes on
 // every frame while boxes move. Once every box has settled (faded in or out, crossfaded, past its newest sample), the
 // loop drops to a heartbeat every MEASURE_S until the next update, and a frame writes a style only when its value
-// changed, so still boxes cost no style, layout, or paint work (#2407). Its class names are global, in camera.css.
+// changed, so still boxes cost no style, layout, or paint work. Its class names are global, in camera.css.
 
 import { type Pose, wireframe } from '../pose/skeleton';
 import { type LiveFrame, wantPoses, watchBoxes } from './gateway';
@@ -110,10 +110,10 @@ interface Track {
 export interface BoxOptions {
   mirror?: boolean;
   onPick?: ((pick: BoxPick) => void) | null;
-  /** Which faces onPick takes: unknown ones (to name them), or every face (Live's large view links each, #352). */
+  /** Which faces onPick takes: unknown ones (to name them), or every face (Live's large view links each). */
   pickFaces?: 'unknown' | 'all';
   pickObjects?: boolean;
-  /** Pets can be clicked too (Review's "Not <name>" on a pet's box, #2607). */
+  /** Pets can be clicked too (Review's "Not <name>" on a pet's box). */
   pickPets?: boolean;
   /** Told when the pointer comes onto a box (with it) and leaves it (null): Review reveals a box's actions on hover. */
   onHover?: ((pick: BoxPick | null) => void) | null;
@@ -132,7 +132,7 @@ export class BoxRenderer {
   heard = 0;
   rect: Rect = { x: 0, y: 0, w: 0, h: 0 };
   skel: SVGSVGElement | null = null; // the skeletons drawn over the picture (skeletons())
-  // The skeletons fade like the boxes (#592): their opacity eases toward 1 while a pose is fresh and toward 0 once
+  // The skeletons fade like the boxes: their opacity eases toward 1 while a pose is fresh and toward 0 once
   // an update brings none or updates stop, so a missed pose turn dims them briefly instead of blinking them out.
   skelOpacity = 0;
   skelHere = false;
@@ -141,7 +141,7 @@ export class BoxRenderer {
   raf = 0; // the requested animation frame, 0 while the loop idles
   idle: ReturnType<typeof setTimeout> | null = null; // the heartbeat while settled
   // measure() reads layout, which forces one every frame. It reads again only when the picture, its natural size,
-  // or a watched size changes, or after MEASURE_S (a safety net for moves no size change shows), #486.
+  // or a watched size changes, or after MEASURE_S (a safety net for moves no size change shows).
   pic: Element | null = null;
   nat = '';
   css = '';
@@ -437,7 +437,7 @@ export class BoxRenderer {
       nu: s.swap.toFixed(2),
       old: (1 - s.swap).toFixed(2),
     };
-    // Only what changed is written: a still box costs no style recalculation, layout, or paint (#2407).
+    // Only what changed is written: a still box costs no style recalculation, layout, or paint.
     const was = s.written;
     if (was?.className !== next.className) {
       el.className = next.className;
@@ -553,7 +553,7 @@ export const liveBoxes = (d: LiveFrame): Box[] => [
   })),
 ];
 
-/** Ask for camera cam's skeletons while this page shows it (#520); returns the function that stops asking. */
+/** Ask for camera cam's skeletons while this page shows it; returns the function that stops asking. */
 export const wantSkeletons = (cam: string): (() => void) => wantPoses(cam);
 
 /** Call fn with each of camera cam's live box frames, from its gateway session; returns the function that stops. */

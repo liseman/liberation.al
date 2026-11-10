@@ -1,4 +1,4 @@
-"""One person record (issue #28): a person's phone number, added mark, and old names live on their `Person` in the
+"""One person record: a person's phone number, added mark, and old names live on their `Person` in the
 registry, so a rename or a merge carries them. contacts.json and people_added.json are read models, written beside
 the registry and read only for a name the registry has nothing for."""
 

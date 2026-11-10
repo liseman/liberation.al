@@ -228,7 +228,7 @@ def test_purging_an_hour_takes_its_pages_and_the_next_pass_writes_them_without_i
 
 
 def test_a_failing_period_is_tried_three_times_in_one_pass_then_waits_for_its_inputs_to_change(env):
-    # Tried again at once, not on later passes: with the page model the next batch is a day away (#2930).
+    # Tried again at once, not on later passes: with the page model the next batch is a day away.
     hour(env, at(TUE, 9), "I read.")
     env.replies["day"] = RuntimeError("the model broke")
     run(env, at(WED, 4))
@@ -300,7 +300,7 @@ def test_owner_corrected_days_are_considered_however_old():
     assert old not in journal_pages.candidates("day", WED, 2)
 
 
-# ---- the opt-in cloud model for week and month pages (#2810) ----------------------------------------------------
+# ---- the opt-in cloud model for week and month pages ----------------------------------------------------
 GATEWAY = "http://gateway.test/v1/chat/completions"
 CLOUD = {
     "journal": {"cloud_pages": True, "cloud_agent": "openclaw/journal"},
@@ -400,7 +400,7 @@ def test_the_switch_on_without_a_gateway_writes_locally_and_says_so_once(env, ga
     assert capsys.readouterr().err.count("cloud pages are on, but agent.url is empty") == 1
 
 
-# ---- today so far (#2837) -------------------------------------------------------------------------------------------
+# ---- today so far -------------------------------------------------------------------------------------------
 class Inline:
     """An executor that runs what it's given at once, so a test sees a background build finish before it goes on."""
 
@@ -494,7 +494,7 @@ def test_the_places_line_leaves_out_places_the_owner_only_observed():
     assert journal_pages.place_names(refs) == ["Office (Desk)", "Hall", "Desk"]
 
 
-# ---- What happened stopped at noon (#2870) ---------------------------------------------------------------------------
+# ---- What happened stopped at noon ---------------------------------------------------------------------------
 def test_a_page_written_under_an_older_prompt_is_written_again_but_a_quiet_marker_is_not(env, monkeypatch):
     hour(env, at(TUE, 9), "I read.")
     run(env, at(WED, 4))
@@ -564,8 +564,8 @@ def test_what_happened_is_told_a_part_of_the_day_at_a_time_from_the_parts_own_ho
 
 
 def test_a_sentence_the_schema_stopped_near_its_cap_ends_at_its_last_full_sentence(env):
-    # Live on 11-05, parts came back at their cap mid-sentence, one ending "in any room,所有"; qwen3:14b's stopped two
-    # characters short of it, "present in" (#2930).
+    # Live, parts once came back at their cap mid-sentence, one ending "in any room,所有"; qwen3:14b's stopped two
+    # characters short of it, "present in".
     hour(env, at(TUE, 9), "I read.")
     first = "Alice read a long book by the window in the study all morning while the rain fell outside."
     stopped = (first + " She then sat on the brown sofa by the window" * 5)[: journal_pages.SENTENCE_CHARS - 2]
@@ -577,7 +577,7 @@ def test_a_sentence_the_schema_stopped_near_its_cap_ends_at_its_last_full_senten
 
 
 def test_a_parts_sentences_are_cited_from_their_cites_lists(env):
-    # qwen3:14b wrote no citations in a part's text (#2930); the schema's cites list carries them instead.
+    # qwen3:14b wrote no citations in a part's text; the schema's cites list carries them instead.
     hour(env, at(TUE, 8), "I read.")
     hour(env, at(TUE, 10), "I cooked.")
     env.replies["day"] = {
@@ -642,7 +642,7 @@ def test_a_topic_or_meal_listed_by_more_than_one_part_is_listed_once(env):
             "Alice read in the morning.",
             id="clause",
         ),
-        # The review of #2880: a cut keeps a sentence's citations, and never loses one the full text made
+        # A cut keeps a sentence's citations, and never loses one the full text made
         pytest.param(
             "Alice read [h3]. Bob came [h4]. Cara left after a while [h5].",
             40,
@@ -672,7 +672,7 @@ def test_text_past_its_limit_is_cut_at_a_sentence_else_a_word(text, most, kept):
 
 @pytest.mark.parametrize("level", journal_pages.LEVELS)
 def test_the_reply_budget_holds_the_longest_reply_the_schema_allows(level):
-    # A day's fixed 1,000 tokens cut its JSON off mid-string (#2870), and a month's 1,200 was short of its own limits.
+    # A day's fixed 1,000 tokens cut its JSON off mid-string, and a month's 1,200 was short of its own limits.
     props = journal_pages.schema(level, labels=["h1", "h12"])["properties"].values()
 
     def chars(item):  # a cited sentence holds its text and up to its most labels, each like "h12"
@@ -685,7 +685,7 @@ def test_the_reply_budget_holds_the_longest_reply_the_schema_allows(level):
     assert journal_pages.reply_budget(level) >= longest / journal_pages.CHARS_PER_TOKEN + 100
 
 
-# ---- fit() always ends, and fits (#2870: it spun forever on 11-05 and stopped the journal) --------------------------
+# ---- fit() always ends, and fits (it once spun forever and stopped the journal) ----------------------------
 def _hours(n, chars):
     words = ("alice read by the window while bob cooked dinner and the cat slept " * (chars // 60 + 1))[:chars]
     return [
@@ -729,7 +729,7 @@ def test_a_cut_below_the_thin_floor_says_so(capsys):
     assert "a thin page" in capsys.readouterr().err
 
 
-# ---- the page model's daily batch (#2930) ---------------------------------------------------------------------------
+# ---- the page model's daily batch ---------------------------------------------------------------------------
 GiB = 2**30
 QWEN3_14B_INFO = {  # /api/show's model_info for qwen3:14b, the fields the guard reads
     "general.architecture": "qwen3",

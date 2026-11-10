@@ -1,8 +1,8 @@
-// A place's map in 3D (#2876): the point cloud the house built of it, with the floor, the fixed cameras' views, and
+// A place's map in 3D: the point cloud the house built of it, with the floor, the fixed cameras' views, and
 // the plan's outline on the floor, in an orbit view. three.js (MIT) draws it; this chunk loads only when the 3D view
 // opens (PlacesTab lazy-loads it), since three.js is most of its weight. Drawing is on demand: a frame is rendered
 // when the camera moves or a setting changes, never in a loop, so an open view costs nothing while it's still.
-// A revision with a splat (#2877) can be drawn as the splat instead of the points: Spark draws it in the same scene,
+// A revision with a splat can be drawn as the splat instead of the points: Spark draws it in the same scene,
 // and asks for a frame (onDirty) when its sort or decode finishes. A splat of a few fixed cameras looks right only
 // from where they stand, so each camera has a button that puts the view there, filled with that camera's frame.
 import { Button, Checkbox, Group, SegmentedControl, Slider, Text } from '@mantine/core';

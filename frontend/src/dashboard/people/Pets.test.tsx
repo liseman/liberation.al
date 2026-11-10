@@ -13,7 +13,7 @@ import type { Seen, Sighting, SightingsView } from './pets/api';
 const MIA = '019c0000-0000-7000-8000-000000000001';
 const REX = '019c0000-0000-7000-8000-000000000002';
 const NEW_ID = '019c0000-0000-7000-8000-0000000000ff';
-const SPECIES = ['dog', 'cat', 'bird']; // as /pets offers them: household, most likely first (#2035)
+const SPECIES = ['dog', 'cat', 'bird']; // as /pets offers them: household, most likely first
 const T = 1_800_000_000;
 
 const sighting = (track: string, extra: Partial<Sighting> = {}): Sighting => ({
@@ -41,7 +41,7 @@ let pets: Pet[];
 let view: SightingsView;
 let writes: { url: string; body: unknown }[];
 
-/** /pets and /pets/sightings as the server answers: a label takes its sightings off the list, as it does (#2016). */
+/** /pets and /pets/sightings as the server answers: a label takes its sightings off the list, as it does. */
 function serve() {
   server.use(
     http.get('/pets', () => HttpResponse.json({ pets, species: SPECIES })),
@@ -337,7 +337,7 @@ describe("Pets in People's form (#2019)", () => {
     expect(writes[0]).toEqual({ url: '/pets/save', body: { id: MIA, name: 'Miso', species: 'cat', sex: 'female' } });
     await user.click(screen.getByRole('button', { name: 'More for Miso' }));
     await user.click(await screen.findByRole('menuitem', { name: 'Remove' }));
-    // Asked first, with Cancel focused (#2538).
+    // Asked first, with Cancel focused.
     const ask = await screen.findByRole('dialog', { name: /^Remove / });
     expect(within(ask).getByRole('button', { name: 'Cancel' })).toHaveFocus();
     await user.click(within(ask).getByRole('button', { name: 'Remove' }));
@@ -643,7 +643,7 @@ describe('Sightings to name', () => {
       const user = userEvent.setup();
       renderPage(<Pets />);
       const row = await within(await inbox()).findByRole('listitem', { name: /^3 cat sightings/ });
-      // No Show all photos button of its own (#3263): the Show all link, A, and Space open them
+      // No Show all photos button of its own: the Show all link, A, and Space open them
       expect(within(row).queryByRole('button', { name: /^Show all photos/ })).toBeNull();
       expect(within(row).getByRole('button', { name: /^Show all \(/ })).toHaveAttribute('aria-keyshortcuts', 'A');
       row.focus();
