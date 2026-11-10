@@ -19,11 +19,11 @@ Mount Pico 4 projector on motorized gimbal + OAK-D stereo depth camera for real-
 ### Projector
 - **Pico 4:** 1200 ANSI lumens, 2160×1200 DLP, 0.25-2.5m throw
 - **Gimbal:** 2-axis motorized (pan/tilt, ±45° range)
-- **Control:** USB from the Mac or direct servo commands
+- **Control:** USB from Mac mini or direct servo commands
 
 ### Depth Camera
 - **OAK-D:** Stereo + ToF, 30-80 FPS, 0.1-10m range, 640×400 depth resolution
-- **Connection:** USB to the Mac
+- **Connection:** USB to Mac mini
 - **Latency:** <35ms depth frame
 
 ## Calibration

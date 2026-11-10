@@ -5,7 +5,7 @@
 > been revalidated. See [Architecture](../ARCHITECTURE.md) for the current model
 > pipeline; this is not a deployment guide.
 
-Research only; nothing installed, nothing in the repo changed.
+Date: 2026-10-23. Research only; nothing installed, nothing in the repo changed.
 
 ## TL;DR
 
@@ -148,7 +148,7 @@ Prototype 0, a benchmark script outside the services (a `tools/` script or the s
 - Models: SAM 3 (transformers, bf16, 1008 and 560 px, detect every 1 and every 4 frames), SAM 3 Tracker with box seeds, EdgeTAM, SAM 2.1 Tiny; SAM 3.1 from the official repo if it installs on Python 3.14 (the repo asks for 3.12+ and torch 2.7+; a separate venv is fine).
 - Object counts 1, 4, and 8 (seeded from real Qwen3-VL grounding output on those frames).
 - Report p50 and p95 ms per frame, peak VRAM (`torch.cuda.max_memory_allocated`), and the effect on the live path when run concurrently on the same GPU (InsightFace `det_ms` and caption rate from the existing stats) and on GPU 1.
-- Same script on the Mac: mlx-vlm SAM 3 at 8-bit and 5-bit, 336, 560, and 1008 px; EdgeTAM on MPS; and the captioner's rate while it runs.
+- Same script on the Mac mini: mlx-vlm SAM 3 at 8-bit and 5-bit, 336, 560, and 1008 px; EdgeTAM on MPS; and the captioner's rate while it runs.
 
 Quality, without a labeling project:
 - Tracking: use the next grounding call as free ground truth. For each object seeded at t, compare the tracked box at t + 30 s with the fresh Qwen3-VL box of the same label (IoU over 0.5 counts as kept). Report kept rate, drift, and ID switches, on desk footage and on walking footage.

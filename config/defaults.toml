@@ -675,7 +675,7 @@ needs = "cuda"
 # Fixed checkpoint revision and local directory keep on-demand requests entirely offline.
 [models.hf.mast3r]
 # Fixed-camera places: MASt3R ViT-L 512, metric (naver; code and weights CC BY-NC-SA 4.0, the weights also
-# under their training datasets' non-commercial terms; accepted for non-commercial use). Only its safetensors and config.
+# under their training datasets' non-commercial terms; accepted for now). Only its safetensors and config.
 repo = "naver/MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric"
 revision = "06e7259f34c3060f322df5cb0c7b9094f57e41fc"
 path = "data/models/mast3r"
@@ -722,7 +722,7 @@ sha256 = "86d6aeacd8bbd974c59ce39f61854e00d36911c732ad89be471476fd708722ac"
 
 [models.files.cut3r]
 # Walkthrough camera poses (spatial/walkthrough.py reads this path; pack-walkthrough): CUT3R 512 DPT
-# (CUT3R/CUT3R; code and weights CC BY-NC-SA 4.0, accepted for non-commercial use), about 3.2 GB. The authors publish it on
+# (CUT3R/CUT3R; code and weights CC BY-NC-SA 4.0, accepted for now), about 3.2 GB. The authors publish it on
 # Google Drive; this mirror is byte for byte the same file (sha256). It's a pickle: spatial/cut3r_runner.py loads
 # it weights-only, never as code. A missing file fails the walk.
 url = "https://huggingface.co/blanchon/CUT3R/resolve/bdd24091fb5120b609e178aee1f71bd972aa7986/cut3r_512_dpt_4_64.pth"

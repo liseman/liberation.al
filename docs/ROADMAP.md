@@ -3,7 +3,7 @@
 The product has three goals: identify people after teaching, answer questions
 about what happened, and summarize or analyze events. Specific examples are test
 cases for those goals, not separate products. Those three are met. Spatial
-memory is the open plan for place: a point cloud and a floorplan of every indoor
+memory (#1) is the open plan for place: a point cloud and a floorplan of every indoor
 place.
 
 [Architecture](ARCHITECTURE.md) describes the current implementation. Work is

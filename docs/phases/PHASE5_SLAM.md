@@ -13,8 +13,8 @@ Deploy ORB-SLAM3 on Raspberry Pi 5 satellite for real-time visual inertial odome
 
 ### Compute
 - **Raspberry Pi 5:** 8GB RAM, arm64 (secondary compute)
-- **Connected to:** the Mac via USB for data sync
-- **Role:** Dedicated SLAM processor (offload from the Mac)
+- **Connected to:** Mac mini via USB for data sync
+- **Role:** Dedicated SLAM processor (offload from Mac)
 
 ### Sensors
 - **OAK-D stereo camera:** 640×400 @ 30 FPS depth, USB to Pi 5
