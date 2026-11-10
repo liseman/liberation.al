@@ -1249,3 +1249,37 @@ def test_the_nightly_run_writes_and_fuses_places_under_the_lock_a_join_holds(tmp
     cameras.run(tmp_path, now=T)
     assert held == {"write": True, "fuse": True}
     assert not held_by_another(tmp_path), "released after"
+
+
+@pytest.mark.parametrize("registration_fails", [False, True], ids=["after-the-places", "though-registration-failed"])
+def test_the_nightly_run_places_the_days_positions_last(tmp_path, monkeypatch, registration_fails):
+    from liberational.spatial import positions
+
+    did = []
+    real_get = cfg.get
+    monkeypatch.setattr(cfg, "get", lambda key, *a: False if key == "spatial.splats_enabled" else real_get(key, *a))
+    monkeypatch.setattr(cameras, "fixed_cameras", lambda path: ["cam0"])
+    monkeypatch.setattr(cameras, "indoor_cameras", lambda cams, outdoor: cams)
+    monkeypatch.setattr(cameras.footprints, "record", lambda state, cams, now: did.append("footprints") or 0)
+    monkeypatch.setattr(cameras, "detector", lambda: None)
+    monkeypatch.setattr(cameras, "frames", lambda *a, **kw: {"cam0": tmp_path / "cam0.png"})
+    monkeypatch.setattr(cameras.nvml, "gpus", list)
+
+    def run_mast3r(*a, **kw):
+        if registration_fails:
+            raise RuntimeError("out of memory")
+        return {"groups": [], "floorless": []}
+
+    monkeypatch.setattr(cameras, "run_mast3r", run_mast3r)
+    monkeypatch.setattr(cameras, "run_geocalib", lambda *a, **kw: {})
+    monkeypatch.setattr(cameras, "write_places", lambda *a, **kw: did.append("places") or [])
+    monkeypatch.setattr(fuse, "refine_all", lambda *a, **kw: [])
+    monkeypatch.setattr(positions, "advance", lambda state, upto: did.append(("positions", upto)) or {"records": 3})
+    placed = ("positions", T - footprints.FLUSH_S)  # up to where the footprints are recorded
+    if registration_fails:
+        with pytest.raises(RuntimeError, match="out of memory"):
+            cameras.run(tmp_path, now=T)
+        assert did == ["footprints", placed]
+    else:
+        assert cameras.run(tmp_path, now=T)["positions"] == {"records": 3}
+        assert did == ["footprints", "places", placed]

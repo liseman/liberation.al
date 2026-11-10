@@ -58,7 +58,7 @@ POSES = "pose.track"  # see-actions writes it with its own schema; it's dropped 
 DROPPED = (POSES, S.FACE_MATCHES, S.FACE_SIGNALS, S.FACE_EMBEDDINGS)
 COVERAGE = (S.ACTION_COVERAGE, S.WALKBY_COVERAGE, S.ANIMAL_COVERAGE, S.ZONE_COVERAGE)
 SIGHTINGS = (S.NET_OBSERVATIONS, S.BLE_SIGHTINGS)
-POSITIONS = (S.POSITIONS,)
+POSITIONS = (S.POSITIONS, S.PLACED, S.PLACED_PATHS)
 POSITION_EVERY_S = 10.0  # one position per track (or entity) per this long is kept past the window
 
 Record = dict[str, Any]
@@ -147,19 +147,23 @@ def merge_sightings(
 
 
 def thin_positions(rows: Iterable[Mapping[str, Any]], every: float = POSITION_EVERY_S) -> list[Record]:
-    """Positions thinned to paths (spatial/positions.py's `thin`): of each track's (or with none, each entity's)
-    samples from one source and camera, the first in every `every` seconds and the last. A walk's shape and its ends
-    survive; the second-by-second jitter doesn't. A row with neither track nor entity is kept as its own path."""
+    """Positions thinned to paths (spatial/positions.py's `thin`): of each path's (a placed row's `path`, else its
+    track's, or with none its entity's) samples from one source and camera, the first in every `every` seconds and the
+    last. A walk's shape and its ends survive; the second-by-second jitter doesn't. A row with neither track nor
+    entity is kept as its own path, and so is every zone row: it is a visit's whole span, not a sample of one."""
     from liberational.spatial import positions
 
     def key(r: Mapping[str, Any]) -> object:
-        return positions.path_key(r.get("track"), r.get("entity"), r.get("source"), r.get("camera"), str(r.get("id")))
+        if r.get("source") == positions.ZONE:
+            return f"row:{r.get('id')}"
+        line = r.get("path") or r.get("track")
+        return positions.path_key(line, r.get("entity"), r.get("source"), r.get("camera"), str(r.get("id")))
 
     return [dict(r) for r in positions.thin(list(rows), key, lambda r: float(r["ts_start"]), every)]
 
 
 def merged(stream: str, rows: Sequence[Mapping[str, Any]]) -> list[Record]:
-    if stream == S.POSITIONS:
+    if stream in POSITIONS:
         return thin_positions(rows)
     if stream == S.NET_OBSERVATIONS:
         return merge_sightings(rows, _net_key)

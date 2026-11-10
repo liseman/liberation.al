@@ -2,6 +2,9 @@
 
 import http.client
 import json
+import socket
+import threading
+from dataclasses import replace
 from urllib.parse import urlsplit
 
 import numpy as np
@@ -34,51 +37,51 @@ def test_the_listing_gives_each_place_its_plan_revision_and_last_visit(tmp_path,
     assert rows[bare.place]["name"].startswith("Place ")  # a placeholder until the owner names it
 
 
-def seen(vision, at, *, camera=None, place=None, end=None):
-    """A position sample as spatial/positions.py writes it (#2905)."""
-    vision.add(
-        S.POSITIONS, ts_start=at, ts_end=at if end is None else end, cam=camera or "rig", camera=camera, place=place,
-        source="fixed-camera", confidence=0.8,
-    )  # fmt: skip
+def seen(state, at, place, end=None):
+    """A record in the position layer (spatial/positions.py), as the placer writes one for a place's camera."""
+    row = position(at, x=1.0, y=1.0, end=end)
+    positions.write(state, [replace(row, id=S.new_id(), place=place)])
 
 
-def test_a_place_only_its_cameras_watch_lists_when_anyone_was_last_seen_there(tmp_path, mapped, vision):
-    # #2905: a visit is the owner's (the rig was there), so a place only fixed cameras watch had none and read "No
-    # visits yet" with hundreds of tracks on its plan.
-    watched, _ = mapped  # registers cam0
-    tagged = places.revise(tmp_path, None, producer="cameras-v1", now=T + 10).place
-    seen(vision, T + 100, camera="cam0", end=T + 120)
-    seen(vision, T + 500, camera="cam9")  # a camera no place registered: nobody's activity
-    seen(vision, T + 300, place=tagged)
+def test_a_place_only_its_cameras_watch_lists_when_anyone_was_last_seen_there(tmp_path, mapped):
+    # A visit is the owner's (the rig was there), so a place only fixed cameras watch has none: its activity is
+    # listed apart from visits.
+    watched, _ = mapped
+    other = places.revise(tmp_path, None, producer="cameras-v1", now=T + 10).place
+    seen(tmp_path, T + 100, watched, end=T + 120)
+    seen(tmp_path, T + 300, other)
     rows = {r["id"]: r for r in view.listing(tmp_path, now=T + 3600)[1]["places"]}
     assert (rows[watched]["last_activity"], rows[watched]["last_visit"]) == (T + 120, None)
-    assert rows[tagged]["last_activity"] == T + 300
+    assert rows[other]["last_activity"] == T + 300
 
 
 @pytest.mark.parametrize(("ago", "found"), [(3 * 86400, True), (8 * 86400, False)], ids=["this-week", "older"])
-def test_last_activity_looks_back_a_week(tmp_path, mapped, vision, ago, found):
-    now = T + 30 * 86400  # mapped registered cam0
-    seen(vision, now - ago, camera="cam0")
+def test_last_activity_looks_back_a_week(tmp_path, mapped, ago, found):
+    watched, _ = mapped
+    now = T + 30 * 86400
+    seen(tmp_path, now - ago, watched)
     row = view.listing(tmp_path, now=now)[1]["places"][0]
     assert row["last_activity"] == (now - ago if found else None)
 
 
-def test_a_place_found_in_a_newer_pass_has_its_cameras_left_out_of_the_older_ones(
-    tmp_path, mapped, vision, monkeypatch
-):
-    # A busy place's cameras are read for the hour it was found in, not the week the other places still need.
-    watched, _ = mapped  # registers cam0
-    never = places.revise(tmp_path, None, producer="walkthrough-v1", now=T + 10).place  # no cameras: never found
+def test_a_place_found_in_a_newer_pass_isnt_read_again_in_the_older_ones(tmp_path, mapped, monkeypatch):
+    # A busy place is read for the hour it was found in, not the week a place nobody was seen in still needs.
+    watched, _ = mapped
+    never = places.revise(tmp_path, None, producer="walkthrough-v1", now=T + 10).place
     now = T + 30 * 86400
-    seen(vision, now - 60, camera="cam0")
+    seen(tmp_path, now - 60, watched)
     asked = []
-    read = positions.samples
+    scan = positions._scan
     monkeypatch.setattr(
-        positions, "samples", lambda *a, cameras=None: asked.append(cameras) or read(*a, cameras=cameras)
+        positions,
+        "_scan",
+        lambda state, lo, hi, slots, **k: asked.append((slots[0], now - lo)) or scan(state, lo, hi, slots, **k),
     )
     rows = {r["id"]: r for r in view.listing(tmp_path, now=now)[1]["places"]}
     assert (rows[watched]["last_activity"], rows[never]["last_activity"]) == (now - 60, None)
-    assert asked == [["cam0", positions.RIG], [positions.RIG], [positions.RIG]]
+    mine, theirs = (positions.layer_slot(p, positions.FIXED_CAMERA) for p in (watched, never))
+    assert [back for slot, back in asked if slot == mine] == [3600]
+    assert [back for slot, back in asked if slot == theirs] == [3600, 86400, 7 * 86400]
 
 
 def test_an_owner_corrected_plan_is_the_one_listed(tmp_path, vision):
@@ -121,8 +124,10 @@ class Reader:
         self.asked: list[tuple] = []
         self.refuse = ""  # a ValueError to raise, as the reader does for a frame it can't use
 
-    def __call__(self, state, start, end, place=None, entity=None, every=None, frame_revision=None):
+    def __call__(self, state, start, end, place=None, entity=None, every=None, frame_revision=None, cancelled=None):
         self.asked.append((start, end, place, entity, every, frame_revision))
+        if cancelled is not None and cancelled():
+            raise positions.Cancelled
         if self.refuse:
             raise ValueError(self.refuse)
         return self.rows
@@ -276,6 +281,50 @@ def test_the_listing_route_answers_json_and_a_page_load_gets_the_app(serve):
     assert (status, kind.split(";")[0]) == (200, "application/json")
     assert json.loads(body) == {"places": []}
     assert get("/places", "text/html")[1].startswith("text/html")
+
+
+def test_a_positions_read_stops_without_an_answer_when_the_client_hangs_up(tmp_path, reader, home, serve, monkeypatch):
+    monkeypatch.setattr(server, "STATE", tmp_path)
+    url = urlsplit(serve(server.H))
+    asked, hung_up, tick = threading.Event(), threading.Event(), threading.Event()
+
+    def read(state, start, end, *, cancelled, **kw):
+        asked.set()
+        for _ in range(3000):  # the read asks as it goes, for 30 s at most
+            if cancelled():
+                hung_up.set()
+                break
+            tick.wait(0.01)
+        raise positions.Cancelled
+
+    monkeypatch.setattr(positions, "positions", read)
+    conn = socket.create_connection((url.hostname, url.port), timeout=30)
+    query = f"place={home[0]}&start={T}&end={T + 3600}"
+    conn.sendall(f"GET /places/positions?{query} HTTP/1.1\r\nHost: x\r\nAccept: application/json\r\n\r\n".encode())
+    assert asked.wait(30)
+    assert not hung_up.is_set()
+    conn.close()
+    assert hung_up.wait(30)
+
+
+def test_a_client_still_waiting_isnt_taken_for_gone(tmp_path, reader, home, serve, monkeypatch):
+    monkeypatch.setattr(server, "STATE", tmp_path)
+    host = urlsplit(serve(server.H)).netloc
+    checks = []
+
+    def read(state, start, end, *, cancelled, **kw):
+        checks.append(cancelled())
+        return []
+
+    monkeypatch.setattr(positions, "positions", read)
+    conn = http.client.HTTPConnection(host, timeout=120)
+    conn.request(
+        "GET", f"/places/positions?place={home[0]}&start={T}&end={T + 3600}", headers={"Accept": "application/json"}
+    )
+    reply = conn.getresponse()
+    body = json.loads(reply.read())
+    conn.close()
+    assert (reply.status, body["tracks"], checks) == (200, [], [False])
 
 
 def test_points_with_no_entity_or_track_are_left_off_the_paths(tmp_path, reader, home):
