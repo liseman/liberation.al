@@ -1262,6 +1262,7 @@ dependencies = [
  "redb",
  "tempfile",
  "uuid",
+ "zstd 0.13.4",
 ]
 
 [[package]]

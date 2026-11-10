@@ -140,6 +140,69 @@ async fn a_worker_commits_a_chunk_once_and_a_retry_is_a_duplicate() {
     assert_eq!(again.commit_seq, first.commit_seq);
 }
 
+/// The chunk of [`chunk`] as it is once it holds frames `0..to`, carrying only the frames from `from` on: a part.
+fn part(cam: StreamId, from: u32, to: u32, uri: &str) -> NewChunk {
+    let mut whole = chunk(cam, to, uri);
+    whole.frames.drain(..from as usize);
+    whole
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_chunk_still_being_written_takes_its_frames_in_parts() {
+    let b = broker().await;
+    let (_producer, tier, cam) = setup(&b, 9).await;
+    let uri = "/var/tier/cam0-1.cnk";
+    let ids = |r: std::ops::Range<u32>| r.map(uuid).collect::<Vec<Uuid>>();
+    let first = tier.commit_chunk(&chunk(cam, 3, uri), &ids(0..3)).await.unwrap();
+    let rows: Vec<FrameProvenance> =
+        (3..6).map(|i| FrameProvenance { device_seq: 100 + i, epoch: 7, stamped_at_arrival: false }).collect();
+    let second = tier.commit_chunk_part(&part(cam, 3, 6, uri), 3, &ids(3..6), Some(&rows)).await.unwrap();
+    assert_eq!(second.chunk_id, uuid(1_000));
+    assert!(second.commit_seq > first.commit_seq, "the chunk moves in commit order when it grows");
+    assert!(!second.duplicate && !second.hidden);
+    // The same part again, after a lost reply.
+    let again = tier.commit_chunk_part(&part(cam, 3, 6, uri), 3, &ids(3..6), Some(&rows)).await.unwrap();
+    assert_eq!((again.duplicate, again.commit_seq), (true, second.commit_seq));
+    tier.commit_chunk_part(&part(cam, 6, 9, uri), 6, &ids(6..9), None).await.unwrap();
+
+    // One chunk holds all nine frames, at its new length, and the frames' own rows are gone.
+    let info = tier.get_chunk(uuid(1_000)).await.unwrap();
+    assert_eq!(info.span, (T0, T0 + 8 * FRAME_NS + 1));
+    assert_eq!(info.frames.iter().map(|f| f.offset).collect::<Vec<_>>(), (0..9).map(|i| i * 600).collect::<Vec<_>>());
+    assert!(
+        matches!(&info.locations[..], [StorageLocator::Chunk { length: 5_400, .. }]),
+        "one Tier 1 copy, as long as the file is now: {:?}",
+        info.locations
+    );
+    let attested = info.provenance.unwrap();
+    assert_eq!((attested[2].epoch, &attested[3..6], attested[8].epoch), (0, &rows[..], 0), "unknown where unsaid");
+    let resolved = tier.resolve_frames(&ids(7..8)).await.unwrap();
+    assert!(
+        matches!(
+            resolved[0].source,
+            continuum_client::FrameSource::Absorbed { chunk, frame_index: 7, .. } if chunk == uuid(1_000)
+        ),
+        "a frame from the last part, at its place in the whole chunk: {resolved:?}"
+    );
+    // The availability index counts the chunk's span once, however many parts brought it.
+    let span = continuum_core::Interval::new(T0, T0 + 8 * FRAME_NS + 1).unwrap();
+    let covered = b.core.covered(cam, span).await.unwrap();
+    assert_eq!(covered.len(), 1, "{covered:?}");
+    assert_eq!((covered[0].interval, covered[0].tier), (span, StorageTier::Tier1Warm));
+
+    // A part out of place, and a part of a chunk the broker doesn't know.
+    let gap = tier.commit_chunk_part(&part(cam, 3, 6, uri), 4, &ids(3..6), None).await.unwrap_err();
+    assert_eq!(gap.broker_code(), Some(fb::ErrorCode::BadRequest), "{gap}");
+    let mut stranger = part(cam, 3, 6, uri);
+    let mut spec = HeaderSpec::raw(uuid(2_000), cam, T0, T0 + 5 * FRAME_NS + 1);
+    spec.format = PayloadFormat::EncodedVideo;
+    spec.shape_name = "MJPEG".into();
+    spec.shape_version = 1;
+    stranger.header = HeaderBuf::build(&spec).unwrap();
+    let unknown = tier.commit_chunk_part(&stranger, 3, &ids(3..6), None).await.unwrap_err();
+    assert_eq!(unknown.broker_code(), Some(fb::ErrorCode::NotFound), "{unknown}");
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn frame_provenance_goes_in_with_the_chunk_and_comes_back_from_get_chunk() {
     let b = broker().await;

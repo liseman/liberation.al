@@ -5,6 +5,22 @@ This guide covers the current Continuum installation. Fresh setup is in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). The old genericize and v1 import
 procedures are retired. Do not run an old catch-up script against current data.
 
+## Video chunks are a minute long (catalog format 8)
+
+A camera now writes one chunk file and one catalog row a minute, and the catalog stores each chunk's frame index
+compactly (docs/CONTINUUM.md, "Video chunks"). The catalog file's format changed with it, and the broker refuses a
+format 7 file, so this upgrade needs a catalog reset. It deletes the catalog, the recorded video and audio it indexes,
+the worker state derived from it, and the segment store; what you taught the system (people, voices, faces, pets,
+zones, and settings) stays. After the pull, from the live checkout:
+
+```sh
+mise run continuum-release
+.venv/bin/pack-reset-catalog --keep-taught          # prints the plan
+.venv/bin/pack-reset-catalog --keep-taught --yes    # stops the services, resets, and starts them again
+```
+
+Build first: the reset starts the broker and the tier worker again, and they have to be the new ones.
+
 ## Questions are read by the local model
 
 Ask and the voice loop no longer read a question's time, people, and kind with patterns. The local model reads each

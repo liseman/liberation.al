@@ -1,6 +1,7 @@
 //! The chunk file: an append-only container of concatenated payloads with their times, and a frame index.
 //!
-//! A Tier 1 chunk holds 1 to 5 seconds of one stream's payloads as the producer wrote them (MJPEG frames as JPEG
+//! A Tier 1 chunk holds a stretch of one stream's payloads (a minute of a camera, 15 seconds of a microphone) as the
+//! producer wrote them (MJPEG frames as JPEG
 //! bytes, LZ4 or FLAC or Arrow IPC bytes from [`crate::codecs`]), one record after another. Each record is
 //! self-describing (length, times, sequence, a CRC over its header fields and bytes), and every append writes
 //! straight to the file, so a worker that is killed loses nothing it appended (the page cache has it) and a power
@@ -816,6 +817,48 @@ pub fn finalize(path: &Path) -> Result<Vec<Record>, ChunkError> {
     Ok(records)
 }
 
+/// Moves a chunk's records from index `keep` on (in file order) into a new chunk file at `to`, with the same stream,
+/// format, and flip, and each record's id, times, sequence, and provenance record; records a purge cut are left
+/// behind. The new file is finished and durable before the old one is cut back to its first `keep` records and
+/// given a footer, so a crash in between leaves the moved records in both files, never in neither. Returns the new
+/// file's records; an empty list (and no new file) when there is nothing past `keep` to move.
+///
+/// For a part the catalog refused for good (docs/CONTINUUM.md, "Video chunks"): the chunk keeps what the catalog
+/// holds of it, and the rest becomes a chunk of its own.
+///
+/// # Errors
+///
+/// [`ChunkError::NotAChunk`], [`ChunkError::Corrupt`] for a record that doesn't read back, or an I/O error.
+pub fn split_off(path: &Path, keep: usize, to: &Path, created_ns: u64) -> Result<Vec<Record>, ChunkError> {
+    let mut reader = ChunkReader::open(path)?;
+    let all = reader.records().to_vec();
+    if keep >= all.len() || all[keep..].iter().all(|r| r.cut) {
+        return Ok(Vec::new());
+    }
+    let provenance = read_provenance(path)?;
+    let mut writer = ChunkWriter::create(to, reader.stream(), reader.format(), created_ns)?;
+    writer.set_flip(reader.flip())?;
+    for (index, r) in all.iter().enumerate().skip(keep).filter(|(_, r)| !r.cut) {
+        let bytes = reader.read(index)?;
+        if let Some(attested) = provenance.get(&r.id) {
+            writer.append_provenance(r.id, *attested)?;
+        }
+        writer.append_payload(r.id, r.start_ns, r.end_ns, r.seq, &bytes)?;
+    }
+    let moved = writer.close()?;
+    if let Some(dir) = to.parent() {
+        File::open(dir)?.sync_all()?;
+    }
+    drop(reader);
+    let end = keep.checked_sub(1).map_or(HEADER_LEN, |last| all[last].offset + u64::from(all[last].len));
+    let mut file = OpenOptions::new().write(true).open(path)?;
+    file.set_len(end)?;
+    file.seek(SeekFrom::Start(end))?;
+    write_footer(&mut file, &all[..keep])?;
+    file.sync_all()?;
+    Ok(moved)
+}
+
 /// Deletes a chunk file. Missing is fine (a purge may run twice).
 ///
 /// # Errors
@@ -1112,6 +1155,45 @@ mod tests {
         rewrite_without(&path, &[1]).expect("rewrite");
         let r = ChunkReader::open(&path).expect("open");
         assert!(r.records()[1].cut && r.records().iter().all(|r| r.id == NIL));
+    }
+
+    #[test]
+    fn a_chunks_tail_moves_to_a_new_file_and_the_chunk_keeps_its_head() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let (path, to) = (dir.path().join("7-5-1.cnk"), dir.path().join("7-9-2.cnk"));
+        let mut w = ChunkWriter::create(&path, StreamId(7), ChunkFormat::H264Au, 5).expect("create");
+        w.set_flip(true).expect("flip");
+        let data = frames(5);
+        let attested = FrameProvenance { device_seq: 40, epoch: 3, stamped_at_arrival: true };
+        for (i, f) in data.iter().enumerate() {
+            if i == 3 {
+                w.append_provenance(id(i as u8), attested).expect("provenance");
+            }
+            w.append_payload(id(i as u8), i as u64 * 10, i as u64 * 10 + 1, i as u32, f).expect("append");
+        }
+        w.sync().expect("sync"); // still open: no footer
+
+        let moved = split_off(&path, 3, &to, 9).expect("split");
+        assert_eq!(
+            moved.iter().map(|r| (r.id, r.start_ns, r.seq)).collect::<Vec<_>>(),
+            [(id(3), 30, 3), (id(4), 40, 4)]
+        );
+        let mut new = ChunkReader::open(&to).expect("the new chunk");
+        assert!(new.finalized() && new.flip());
+        assert_eq!((new.stream(), new.format(), new.created_ns()), (StreamId(7), ChunkFormat::H264Au, 9));
+        assert_eq!(new.records(), moved.as_slice());
+        assert_eq!((new.read(0).expect("read"), new.read(1).expect("read")), (data[3].clone(), data[4].clone()));
+        assert_eq!(read_provenance(&to).expect("provenance"), BTreeMap::from([(id(3), attested)]));
+
+        let mut old = ChunkReader::open(&path).expect("the old chunk");
+        assert!(old.finalized(), "it has its footer now");
+        assert_eq!(old.records().iter().map(|r| r.id).collect::<Vec<_>>(), [id(0), id(1), id(2)]);
+        assert_eq!(old.read(2).expect("read"), data[2]);
+        assert!(read_provenance(&path).expect("provenance").is_empty(), "the moved frame's record went with it");
+
+        let nothing = dir.path().join("7-9-3.cnk");
+        assert!(split_off(&path, 3, &nothing, 9).expect("nothing past it").is_empty());
+        assert!(!nothing.exists());
     }
 
     #[test]

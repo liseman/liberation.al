@@ -112,8 +112,9 @@ fn code_of(e: &CatalogError) -> ErrorCode {
     }
 }
 
-/// On the writer: commits a chunk and reports it to the scheduler task. A chunk the catalog has already, with the
-/// same header, is answered as a duplicate (with its commit sequence), so the worker can retry after a lost reply.
+/// On the writer: commits a chunk, or a part of one still being written, and reports it to the scheduler task. A
+/// chunk the catalog has already, with the same header, is answered as a duplicate (with its commit sequence), so
+/// the worker can retry after a lost reply; the catalog answers a repeated part the same way.
 pub(super) fn commit_chunk_job(
     catalog: &dyn Catalog,
     session: SessionId,
@@ -125,19 +126,47 @@ pub(super) fn commit_chunk_job(
     let chunk = header.id();
     let span = Interval::new(header.start_ns(), header.end_ns().max(header.start_ns().saturating_add(1)));
     let tier = ask.chunk.payload.location.as_ref().map(StorageLocator::tier);
-    let slots = span.map(|s| continuum_catalog::frame_slots(s, &ask.chunk.frames)).unwrap_or_default();
-    let copy = span.zip(tier).map(|(span, tier)| (header.stream(), span, tier, slots));
-    let result = match catalog.get(chunk) {
-        // A retry after a lost reply: the first commit compacted the frames, so the catalog would refuse them now.
-        // The same chunk is a duplicate; another chunk under its id is a conflict.
-        Ok(Some(continuum_catalog::Resolved::Payload(known))) if known.header.as_bytes() == header.as_bytes() => {
-            Ok(continuum_catalog::Inserted { seq: known.commit_seq, hidden: false, duplicate: true, cut: Vec::new() })
-        }
-        Ok(Some(_)) => Err((ErrorCode::Conflict, format!("{chunk} is known already with other contents"))),
-        Ok(None) => catalog
-            .commit_chunk_with_provenance(ask.chunk, &ask.absorbed, ask.provenance.as_ref())
-            .map_err(|e| (code_of(&e), e.to_string())),
-        Err(e) => Err((code_of(&e), e.to_string())),
+    let known = catalog.get(chunk);
+    let (copy, result) = if ask.first_frame > 0 {
+        // The index gains only what the part adds: the chunk's span from its old end, and the part's cut slots.
+        let old_end = match &known {
+            Ok(Some(continuum_catalog::Resolved::Payload(k))) => k.header.end_ns().max(k.header.start_ns() + 1),
+            _ => header.start_ns(),
+        };
+        let slots = span.map(|s| continuum_catalog::frame_slots(s, &ask.chunk.frames)).unwrap_or_default();
+        let added = Interval::new(old_end.min(header.end_ns()), header.end_ns());
+        let copy = added.zip(tier).map(|(added, tier)| (header.stream(), added, tier, slots));
+        let first_frame = ask.first_frame;
+        let result = catalog
+            .extend_chunk(ask.chunk, first_frame, &ask.absorbed, ask.provenance.as_ref())
+            .map(|mut inserted| {
+                // The catalog names cut frames by their place in the whole chunk; the slots here are the part's.
+                inserted.cut = inserted.cut.iter().filter_map(|i| i.checked_sub(first_frame)).collect();
+                inserted
+            })
+            .map_err(|e| (code_of(&e), e.to_string()));
+        (copy, result)
+    } else {
+        let slots = span.map(|s| continuum_catalog::frame_slots(s, &ask.chunk.frames)).unwrap_or_default();
+        let copy = span.zip(tier).map(|(span, tier)| (header.stream(), span, tier, slots));
+        let result = match known {
+            // A retry after a lost reply: the first commit compacted the frames, so the catalog would refuse them
+            // now. The same chunk is a duplicate; another chunk under its id is a conflict.
+            Ok(Some(continuum_catalog::Resolved::Payload(known))) if known.header.as_bytes() == header.as_bytes() => {
+                Ok(continuum_catalog::Inserted {
+                    seq: known.commit_seq,
+                    hidden: false,
+                    duplicate: true,
+                    cut: Vec::new(),
+                })
+            }
+            Ok(Some(_)) => Err((ErrorCode::Conflict, format!("{chunk} is known already with other contents"))),
+            Ok(None) => catalog
+                .commit_chunk_with_provenance(ask.chunk, &ask.absorbed, ask.provenance.as_ref())
+                .map_err(|e| (code_of(&e), e.to_string())),
+            Err(e) => Err((code_of(&e), e.to_string())),
+        };
+        (copy, result)
     };
     let _ = events.send(Event::ChunkCommitted { session, request_id, chunk, copy, result });
 }

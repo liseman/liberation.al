@@ -1,10 +1,14 @@
-//! The flush from Tier 0 to Tier 1: every payload is appended to its stream's open chunk as it lands, and a chunk
-//! is closed every `chunk_ns` (1 to 5 seconds, 2 by default). The ring only has to cover this lag, never a chunk.
+//! The flush from Tier 0 to Tier 1: every payload is appended to its stream's open chunk as it lands. A camera's
+//! chunk is one file for `chunk_ns` (a minute), and the catalog hears about its new records every `part_ns` (2
+//! seconds), so the ring only has to cover that lag, never a chunk (docs/CONTINUUM.md, "Video chunks").
 //!
 //! The flusher knows nothing about sockets or shared memory. The worker feeds it each payload's header fields and
-//! bytes (read from the slot) and commits each [`Closed`] chunk to the catalog with
+//! bytes (read from the slot) and commits each [`Closed`] it hands back: a chunk's first part with
 //! [`continuum_catalog::Catalog::commit_chunk`], which compacts the absorbed frames' headers into the chunk's
-//! (docs/CONTINUUM.md, "Catalog").
+//! (docs/CONTINUUM.md, "Catalog"), and each later part with [`continuum_catalog::Catalog::extend_chunk`], which
+//! does the same for the frames the part adds. A part is cut on a keyframe, or once an H.264 stream has gone
+//! quiet, and after a sync, so the catalog never names bytes a power cut could drop.
+//! A microphone's chunk is committed once, when it closes, since it becomes Opus then.
 //!
 //! The `flushed` contract: a slot is marked `flushed` only once its record is durable. [`Flusher::append`] writes
 //! the record straight into the chunk file (a killed worker loses none of it, the page cache has it), but a power
@@ -19,6 +23,9 @@
 //! time is before the last record's (a retransmit, an out-of-order ingest): the catalog needs a chunk's frames in
 //! time order, so the late payload starts a new chunk, whose span may overlap the old one's, which the catalog
 //! allows.
+//!
+//! A chunk's id is derived from its file's name ([`crate::layout::chunk_id`]), so every part names the same chunk
+//! and a recovery after a crash finds what the catalog already holds of it.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -34,9 +41,12 @@ use crate::worker::CameraFrameInfo;
 /// How the flusher cuts and syncs chunks.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FlushSettings {
-    /// How long a video chunk stays open, in nanoseconds (the doc's 1 to 5 seconds): short, so the next one soon
-    /// starts on a keyframe.
+    /// How long a chunk file stays open, in nanoseconds, for everything but a microphone: a camera writes one file a
+    /// minute, closed on the first keyframe after this.
     pub chunk_ns: u64,
+    /// How often an open chunk's new records are committed, in nanoseconds: what bounds the time a frame is in Tier
+    /// 0 alone, so it stays well inside the 10 s ring. At or above `chunk_ns`, a chunk is committed once, at close.
+    pub part_ns: u64,
     /// How long a microphone's chunk stays open (PCM batches, which become Opus at close). Audio has no keyframes,
     /// and every chunk is kept forever with its catalog rows, so it's longer. Tier 1 readers such as
     /// `room_audio` see a line once its chunk closes, so it stays short enough for a fresh line to play soon.
@@ -53,11 +63,18 @@ impl FlushSettings {
     pub fn open_ns(&self, format: ChunkFormat) -> u64 {
         if matches!(format, ChunkFormat::PcmBatch | ChunkFormat::Opus) { self.audio_chunk_ns } else { self.chunk_ns }
     }
+
+    /// How often an open chunk of `format` commits a part; `None` for a microphone's, which is committed once, at
+    /// its close (it becomes Opus then, and a chunk has one format).
+    #[must_use]
+    pub fn part_ns(&self, format: ChunkFormat) -> Option<u64> {
+        (!matches!(format, ChunkFormat::PcmBatch | ChunkFormat::Opus)).then_some(self.part_ns)
+    }
 }
 
 impl Default for FlushSettings {
     fn default() -> Self {
-        Self { chunk_ns: 2_000_000_000, audio_chunk_ns: 15_000_000_000, sync_ns: 200_000_000 }
+        Self { chunk_ns: 60_000_000_000, part_ns: 2_000_000_000, audio_chunk_ns: 15_000_000_000, sync_ns: 200_000_000 }
     }
 }
 
@@ -106,31 +123,39 @@ pub struct Incoming<'a> {
 /// on one.
 pub const QUIET_NS: u64 = 1_000_000_000;
 
-/// What a `CommitChunk` to the broker carries, borrowed from a [`Closed`] chunk: the chunk's own header and
-/// location, its frame index, and the Tier 0 payloads it absorbed, in the frames' order.
+/// What a `CommitChunk` to the broker carries, borrowed from a [`Closed`]: the chunk's own header and location, the
+/// frames this commit adds, and the Tier 0 payloads behind them, in the frames' order.
 #[derive(Clone, Copy, Debug)]
 pub struct ChunkCommit<'a> {
-    /// The chunk's header (on the frames' stream, spanning them, no parents).
+    /// The chunk's header (on the frames' stream, spanning every frame so far, no parents).
     pub header: &'a HeaderBuf,
-    /// Where the chunk file is.
+    /// Where the chunk file is, and how long it is now.
     pub location: &'a StorageLocator,
+    /// The index of `frames[0]` in the whole chunk: 0 for a chunk's first commit.
+    pub first_frame: u32,
     /// One entry per absorbed payload, in order.
     pub frames: &'a [ChunkFrame],
     /// The absorbed payloads' ids, in the same order.
     pub absorbed: &'a [Uuid],
 }
 
-/// A chunk the flusher closed, ready for `commit_chunk`.
+/// What the flusher hands over for the catalog: a chunk it closed, or a part of one (the records since the chunk's
+/// last commit; `first_frame` and `more` say which). A chunk committed once is one of these with `first_frame` 0
+/// and `more` false.
 #[derive(Debug)]
 pub struct Closed {
     /// The chunk's file.
     pub path: PathBuf,
     /// Its stream.
     pub stream: StreamId,
-    /// The records it holds, in order.
+    /// The records this commit adds, in file order.
     pub records: Vec<Record>,
-    /// The chunk payload and frame index for the catalog.
+    /// The chunk's payload (its header and location as they are now) and the frames this commit adds.
     pub chunk: NewChunk,
+    /// The index of this commit's first frame in the whole chunk: 0 commits the chunk, anything else extends it.
+    pub first_frame: u32,
+    /// The chunk's file is still open: more parts follow.
+    pub more: bool,
     /// The Tier 0 payloads it absorbed, in the same order as `chunk.frames` (each record carries its id, so a
     /// recovered chunk has them too).
     pub absorbed: Vec<Uuid>,
@@ -153,6 +178,7 @@ impl Closed {
         ChunkCommit {
             header: &self.chunk.payload.header,
             location: self.chunk.payload.location.as_ref().expect("a closed chunk has a location"),
+            first_frame: self.first_frame,
             frames: &self.chunk.frames,
             absorbed: &self.absorbed,
         }
@@ -161,6 +187,12 @@ impl Closed {
 
 struct Open {
     writer: ChunkWriter,
+    /// The chunk's id, the same for every part ([`crate::layout::chunk_id`]).
+    id: Uuid,
+    /// How many of the writer's records earlier parts handed over.
+    committed: usize,
+    /// When the last part was cut (or the chunk was opened).
+    part_ns: u64,
     /// Appended but not yet synced.
     pending: Vec<Uuid>,
     last_sync_ns: u64,
@@ -246,7 +278,7 @@ impl Flusher {
     ///
     /// A chunk or I/O error. The caller must leave the old stream shape in place until this succeeds.
     pub fn close(&mut self, stream: StreamId) -> Result<Option<Closed>, TierError> {
-        if self.open.contains_key(&stream) { self.close_stream(stream).map(Some) } else { Ok(None) }
+        if self.open.contains_key(&stream) { self.close_stream(stream) } else { Ok(None) }
     }
 
     /// Payloads appended but not yet durable, across every open chunk.
@@ -303,8 +335,18 @@ impl Flusher {
             // Native encoded cameras arrive in decode order; their B-frame PTS can legitimately regress.
             let backwards = !(shape.chunk_format == ChunkFormat::H264Au && shape.shape_name == "H264AnnexB")
                 && open.writer.records().last().is_some_and(|last| p.start_ns < last.start_ns);
+            // A part is cut only before a keyframe, so its frames never present before the last part's (B-frames
+            // reorder only inside a GOP).
+            let part = self
+                .settings
+                .part_ns(shape.chunk_format)
+                .is_some_and(|every| now_ns.saturating_sub(open.part_ns) >= every)
+                && p.key
+                && open.writer.records().len() > open.committed;
             if aged || full || backwards {
-                closed = Some(self.close_stream(p.stream)?);
+                closed = self.close_stream(p.stream)?;
+            } else if part {
+                closed = Some(self.cut_part(p.stream, now_ns)?);
             }
         }
         if !self.open.contains_key(&p.stream) {
@@ -312,6 +354,7 @@ impl Flusher {
             // In its stream's UTC-hour directory, named as before.
             let hour = crate::layout::hour_dir(&self.dir, p.stream, now_ns);
             let path = hour.join(format!("{}-{}-{}.cnk", p.stream.0, now_ns, self.counter));
+            let id = crate::layout::chunk_id(p.stream, now_ns, self.counter);
             let mut writer = match self.create_in(&hour, &path, p.stream, shape.chunk_format, now_ns) {
                 Ok(w) => w,
                 Err(e) => {
@@ -322,8 +365,18 @@ impl Flusher {
                 }
             };
             writer.set_flip(self.camera_layouts.get(&p.stream).is_some_and(|c| c.flip))?;
-            self.open
-                .insert(p.stream, Open { writer, pending: Vec::new(), last_sync_ns: now_ns, last_append_ns: now_ns });
+            self.open.insert(
+                p.stream,
+                Open {
+                    writer,
+                    id,
+                    committed: 0,
+                    part_ns: now_ns,
+                    pending: Vec::new(),
+                    last_sync_ns: now_ns,
+                    last_append_ns: now_ns,
+                },
+            );
         }
         let open = self.open.get_mut(&p.stream).expect("just opened");
         // Ahead of the frame's own record, so a crash between the two leaves no frame claiming it (finalize trims it).
@@ -371,14 +424,14 @@ impl Flusher {
         Ok(durable)
     }
 
-    /// The streams whose chunk [`Flusher::rotate`] would close now: past its time, and for an
-    /// [`ChunkFormat::H264Au`] stream also quiet for [`QUIET_NS`] (its encoder has to be drained first; see
-    /// [`crate::worker`]).
+    /// The streams [`Flusher::rotate`] would act on now: a chunk past its time, or one with records a part is due
+    /// for, and for an [`ChunkFormat::H264Au`] stream also quiet for [`QUIET_NS`] (its encoder has to be drained
+    /// first; see [`crate::worker`]). A stream still sending H.264 is cut in [`Flusher::append`], on its keyframes.
     #[must_use]
     pub fn due(&self, now_ns: u64) -> Vec<StreamId> {
         self.open
             .iter()
-            .filter(|(_, o)| now_ns.saturating_sub(o.writer.created_ns()) >= self.settings.open_ns(o.writer.format()))
+            .filter(|(_, o)| self.closes(o, now_ns) || self.parts(o, now_ns))
             .filter(|(_, o)| {
                 o.writer.format() != ChunkFormat::H264Au || now_ns.saturating_sub(o.last_append_ns) >= QUIET_NS
             })
@@ -386,7 +439,17 @@ impl Flusher {
             .collect()
     }
 
-    /// Closes every chunk [`Flusher::due`] names: open for `chunk_ns` or longer (and an H.264 stream's quiet).
+    fn closes(&self, o: &Open, now_ns: u64) -> bool {
+        now_ns.saturating_sub(o.writer.created_ns()) >= self.settings.open_ns(o.writer.format())
+    }
+
+    fn parts(&self, o: &Open, now_ns: u64) -> bool {
+        o.writer.records().len() > o.committed
+            && self.settings.part_ns(o.writer.format()).is_some_and(|every| now_ns.saturating_sub(o.part_ns) >= every)
+    }
+
+    /// Closes every chunk [`Flusher::due`] names that is open for `chunk_ns` or longer, and cuts a part from the
+    /// others it names.
     ///
     /// # Errors
     ///
@@ -395,8 +458,10 @@ impl Flusher {
         let due = self.due(now_ns);
         let mut out = std::mem::take(&mut self.parked);
         for s in due {
-            match self.close_stream(s) {
-                Ok(c) => out.push(c),
+            let closes = self.open.get(&s).is_some_and(|o| self.closes(o, now_ns));
+            let done = if closes { self.close_stream(s) } else { self.cut_part(s, now_ns).map(Some) };
+            match done {
+                Ok(c) => out.extend(c),
                 // What closed so far stays parked for the next call, not lost with the error.
                 Err(e) => {
                     self.parked = out;
@@ -425,7 +490,7 @@ impl Flusher {
         let mut out = std::mem::take(&mut self.parked);
         for s in streams {
             match self.close_stream(s) {
-                Ok(c) => out.push(c),
+                Ok(c) => out.extend(c),
                 Err(e) => {
                     self.parked = out;
                     return Err(e);
@@ -435,23 +500,55 @@ impl Flusher {
         Ok(out)
     }
 
-    fn close_stream(&mut self, stream: StreamId) -> Result<Closed, TierError> {
+    /// Closes a stream's chunk and hands over what no part did yet: its last part, or the whole chunk. `None` when
+    /// every record was in a part already (the file gains only its footer).
+    fn close_stream(&mut self, stream: StreamId) -> Result<Option<Closed>, TierError> {
         let open = self.open.remove(&stream).ok_or(TierError::UnknownStream(stream))?;
         let shape = self.shapes.get(&stream).ok_or(TierError::UnknownStream(stream))?.clone();
         let path = open.writer.path().to_path_buf();
         let created_ns = open.writer.created_ns();
-        let records = open.writer.close()?;
-        let chunk = new_chunk_with_camera(
-            &path,
-            stream,
-            &shape,
-            &records,
-            created_ns,
-            self.camera_layouts.get(&stream).copied(),
-        )?;
+        let all = open.writer.close()?;
+        if all.len() == open.committed && open.committed > 0 {
+            debug_assert!(open.pending.is_empty(), "a part's cut syncs everything it hands over");
+            return Ok(None);
+        }
+        let camera = self.camera_layouts.get(&stream).copied();
+        let chunk = part_chunk(&path, open.id, stream, &shape, &all, open.committed, created_ns, camera)?;
+        let records = all[open.committed..].to_vec();
         let absorbed: Vec<Uuid> = catalog_records(&records).iter().map(|r| r.id).collect();
         let provenance = self.take_attested(stream, &absorbed);
-        Ok(Closed { path, stream, records, chunk, absorbed, durable: open.pending, provenance })
+        let first_frame = u32::try_from(open.committed).unwrap_or(u32::MAX);
+        Ok(Some(Closed {
+            path,
+            stream,
+            records,
+            chunk,
+            first_frame,
+            more: false,
+            absorbed,
+            durable: open.pending,
+            provenance,
+        }))
+    }
+
+    /// Hands over an open chunk's records since its last part, synced first: the chunk stays open.
+    fn cut_part(&mut self, stream: StreamId, now_ns: u64) -> Result<Closed, TierError> {
+        let shape = self.shapes.get(&stream).ok_or(TierError::UnknownStream(stream))?.clone();
+        let camera = self.camera_layouts.get(&stream).copied();
+        let open = self.open.get_mut(&stream).ok_or(TierError::UnknownStream(stream))?;
+        open.writer.sync()?;
+        open.last_sync_ns = now_ns;
+        open.part_ns = now_ns;
+        let durable = std::mem::take(&mut open.pending);
+        let (path, id, from) = (open.writer.path().to_path_buf(), open.id, open.committed);
+        let all = open.writer.records();
+        let chunk = part_chunk(&path, id, stream, &shape, all, from, open.writer.created_ns(), camera)?;
+        let records = all[from..].to_vec();
+        open.committed = all.len();
+        let absorbed: Vec<Uuid> = catalog_records(&records).iter().map(|r| r.id).collect();
+        let provenance = self.take_attested(stream, &absorbed);
+        let first_frame = u32::try_from(from).unwrap_or(u32::MAX);
+        Ok(Closed { path, stream, records, chunk, first_frame, more: true, absorbed, durable, provenance })
     }
 
     /// The chunk's provenance, one per frame (unknown frames get epoch 0), or `None` when nothing was attested.
@@ -495,7 +592,7 @@ pub(crate) fn catalog_records(records: &[Record]) -> Vec<&Record> {
     catalog_record_indexes(records).into_iter().map(|index| &records[index]).collect()
 }
 
-/// The catalog's chunk payload and frame index for a chunk file.
+/// The catalog's chunk payload and frame index for a whole chunk file, under the id its name gives.
 ///
 /// # Errors
 ///
@@ -508,19 +605,42 @@ pub fn new_chunk(
     records: &[Record],
     created_ns: u64,
 ) -> Result<NewChunk, TierError> {
+    new_part(path, stream, shape, records, 0, created_ns)
+}
+
+/// As [`new_chunk`], for the chunk's records from `from` on (a recovered chunk the catalog holds the start of): the
+/// header spans every record, and the frames are those from `from`.
+///
+/// # Errors
+///
+/// As [`new_chunk`].
+pub fn new_part(
+    path: &Path,
+    stream: StreamId,
+    shape: &StreamShape,
+    records: &[Record],
+    from: usize,
+    created_ns: u64,
+) -> Result<NewChunk, TierError> {
     let flip = crate::ChunkReader::open(path)?.flip();
     let camera = shape
         .raw
         .map(|raw| CameraFrameInfo { width: raw.width, height: raw.height, stride: raw.stride, flip, device_seq: 0 })
         .or_else(|| flip.then_some(CameraFrameInfo { width: 0, height: 0, stride: 0, flip, device_seq: 0 }));
-    new_chunk_with_camera(path, stream, shape, records, created_ns, camera)
+    // A file whose name isn't the flusher's (a test fixture) gets an id of its own.
+    let id = crate::layout::chunk_id_of(path).unwrap_or_else(|| Uuid(uuid::Uuid::now_v7().into_bytes()));
+    part_chunk(path, id, stream, shape, records, from.min(records.len()), created_ns, camera)
 }
 
-fn new_chunk_with_camera(
+/// Chunk `id`'s payload as it is with `records` in its file, and the frames of those from `from` on.
+#[allow(clippy::too_many_arguments)]
+fn part_chunk(
     path: &Path,
+    id: Uuid,
     stream: StreamId,
     shape: &StreamShape,
     records: &[Record],
+    from: usize,
     created_ns: u64,
     camera: Option<CameraFrameInfo>,
 ) -> Result<NewChunk, TierError> {
@@ -534,7 +654,6 @@ fn new_chunk_with_camera(
         }
         None => (created_ns, created_ns.saturating_add(1)),
     };
-    let id = Uuid(uuid::Uuid::now_v7().into_bytes());
     let mut spec = HeaderSpec::raw(id, stream, start_ns, end_ns);
     spec.layer = shape.layer;
     spec.format = shape.format;
@@ -563,7 +682,7 @@ fn new_chunk_with_camera(
     };
     Ok(NewChunk {
         payload: NewPayload { header, location: Some(location), coverage: None },
-        frames: catalog_records(records).iter().map(|r| r.frame()).collect(),
+        frames: catalog_records(&records[from..]).iter().map(|r| r.frame()).collect(),
     })
 }
 

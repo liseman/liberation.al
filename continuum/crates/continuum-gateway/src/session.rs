@@ -1071,7 +1071,16 @@ impl Session {
             return Ok(cached);
         }
         let info = authoritative_chunk(link.rt.block_on(client.get_chunk(chunk)))?;
-        if info.chunk_id != chunk || info.stream.0 != stream || !info.locations.contains(locator) {
+        // A chunk still being written grows between the query and this read (a part every 2 s): the same file, only
+        // longer, and this snapshot's frame index is the newer of the two.
+        let same_file = |known: &StorageLocator| match (known, locator) {
+            (
+                StorageLocator::Chunk { tier: a, uri: x, offset: o, .. },
+                StorageLocator::Chunk { tier: b, uri: y, offset: p, .. },
+            ) => a == b && x == y && o == p,
+            _ => known == locator,
+        };
+        if info.chunk_id != chunk || info.stream.0 != stream || !info.locations.iter().any(same_file) {
             return Err("chunk locator changed while opening playback".into());
         }
         let after = link

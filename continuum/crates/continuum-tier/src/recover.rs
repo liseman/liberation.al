@@ -7,6 +7,11 @@
 //! reclaimed those slots; the chunk is the copy, and every record in it was durable or is being re-read from a slot
 //! the broker still holds).
 //!
+//! Each stream's newest finished chunk comes back too. A camera's chunk is committed in parts while it is open
+//! (docs/CONTINUUM.md, "Video chunks"), so the run may have ended after the file got its footer and before its last
+//! part reached the catalog; the worker asks the catalog how many of a recovered chunk's frames it holds and commits
+//! the rest, which for a chunk it holds whole is nothing.
+//!
 //! Derived `*-copy-*.cnk` sidecars are recovered by `copies`, never absorbed as raw chunks.
 //!
 //! Leftovers of an interrupted [`crate::chunk::rewrite_without`] (`.rewrite` files) or Opus conversion
@@ -28,7 +33,7 @@ use continuum_core::{StreamId, Uuid};
 use crate::TierError;
 use crate::chunk::{ChunkFormat, ChunkReader, Record, finalize, read_provenance};
 
-/// A chunk found at startup without a footer, now finalized.
+/// A chunk found at startup without a footer, now finalized, or a stream's newest finished one.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Recovered {
     /// The chunk's file.
@@ -48,9 +53,9 @@ pub struct Recovered {
     pub provenance: BTreeMap<Uuid, FrameProvenance>,
 }
 
-/// Finalizes every unfinished `.cnk` under `dir` and returns them, oldest first. Finished chunks are left alone, and
-/// only each stream's chunks newer than its newest finished one are opened; files that aren't chunks are skipped;
-/// empty chunks and `.rewrite` and `.partial` leftovers are deleted.
+/// Finalizes every unfinished `.cnk` under `dir` and returns them with each stream's newest finished chunk, oldest
+/// first. Other finished chunks are left alone, and only each stream's chunks from its newest finished one on are
+/// opened; files that aren't chunks are skipped; empty chunks and `.rewrite` and `.partial` leftovers are deleted.
 ///
 /// # Errors
 ///
@@ -86,6 +91,13 @@ pub fn recover(dir: &Path) -> Result<Vec<Recovered>, TierError> {
         };
         if reader.finalized() {
             settled.insert(stream_dir);
+            if !reader.records().is_empty() {
+                let (stream, format, created_ns) = (reader.stream(), reader.format(), reader.created_ns());
+                let records = reader.records().to_vec();
+                drop(reader);
+                let provenance = read_provenance(&path)?;
+                out.push(Recovered { path, stream, format, created_ns, records, skipped: 0, provenance });
+            }
             continue;
         }
         if reader.records().is_empty() {

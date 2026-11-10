@@ -6,15 +6,19 @@
 //! The rules:
 //! - A payload is appended to its stream's open chunk at once, in the chunk's format (LZ4 for raw frames, as is for
 //!   MJPEG, FLAC, Arrow IPC, and Opus, which arrive already encoded).
-//! - On each tick the flusher syncs what is due ([`FlushSettings::sync_ns`]) and closes chunks whose time is up.
-//!   Durable ids are reported at once; a closed chunk is committed, then its remaining ids are reported.
+//! - On each tick the flusher syncs what is due ([`FlushSettings::sync_ns`]), cuts a part from each open chunk that
+//!   is due one ([`FlushSettings::part_ns`]), and closes chunks whose time is up. Durable ids are reported at once; a
+//!   part or a closed chunk is committed, then its remaining ids are reported.
 //! - A commit that fails for now (the broker busy or gone) is kept and tried again, at most once every
 //!   [`RETRY_NS`], in order, so a broker hiccup never leaves a finished chunk the catalog doesn't know about. A
-//!   commit the broker refuses for good (its frames don't match the catalog: a purge doomed one, or it was absorbed
-//!   already) can never succeed, so its file is set aside (renamed `.rejected`) and the queue moves on.
-//! - Chunks a crash left open come back from [`crate::recover`]. Each is committed once its stream is declared again
-//!   (its header needs the stream's shape, which the first payload brings), and a payload already in one is reported
-//!   back rather than appended twice.
+//!   commit the broker refuses for good can never succeed. A whole chunk's file is set aside (renamed `.rejected`)
+//!   and the queue moves on. A later part's chunk is in the catalog already (a purge hid it, say), so its file
+//!   stays: the chunk is closed, the records the catalog doesn't hold are moved into a new chunk file
+//!   ([`crate::chunk::split_off`]), and that is committed as a chunk of its own.
+//! - Chunks a crash left open come back from [`crate::recover`], with each stream's newest finished one. Each is
+//!   committed once its stream is declared again (its header needs the stream's shape, which the first payload
+//!   brings): whole when the catalog doesn't know it, or only the records past what the catalog holds of it
+//!   ([`Outputs::committed_frames`]). A payload already in one is reported back rather than appended twice.
 //! - On shutdown every open chunk is closed and committed.
 //! - A raw camera's frames (UYVY, YUYV, or NV12) are encoded as they land, with the `ffmpeg` feature: low-delay
 //!   H.264 with a keyframe every second ([`crate::raw::RawEncoder`], hardware first), one access unit per record in a
@@ -120,16 +124,30 @@ pub trait Outputs {
     /// broker reclaims them only when it must.
     fn flushed(&mut self, ids: &[Uuid]) -> Result<(), String>;
 
-    /// Commits a closed chunk to the catalog, which compacts the absorbed frames into it.
+    /// Commits a chunk, or a part of one ([`Closed::first_frame`]), to the catalog, which compacts the absorbed
+    /// frames into it.
     ///
     /// # Errors
     ///
     /// Why it couldn't be committed: [`CommitFailure::Retry`] and the loop tries again; [`CommitFailure::Reject`]
-    /// and it sets the chunk aside and calls [`Outputs::rejected`].
+    /// and it sets a whole chunk aside and calls [`Outputs::rejected`], or moves a part's records to a new chunk.
     fn commit(&mut self, closed: &Closed) -> Result<(), CommitFailure>;
 
     /// A chunk the broker refused for good was set aside (its file renamed to `aside`): forget its payloads.
     fn rejected(&mut self, _closed: &Closed, _aside: &Path) {}
+
+    /// How many frames the catalog holds of `chunk`: `None` when it doesn't know the chunk. Asked once for each
+    /// chunk recovered at startup.
+    ///
+    /// # Errors
+    ///
+    /// Why the catalog couldn't be asked. The stream then takes no payloads this run, so nothing is committed twice.
+    fn committed_frames(&mut self, _chunk: Uuid) -> Result<Option<usize>, String> {
+        Ok(None)
+    }
+
+    /// These payloads are in a recovered chunk's frames the catalog holds already: they are safe.
+    fn settled(&mut self, _ids: &[Uuid]) {}
 }
 
 /// What the loop has done, for the program's health line.
@@ -137,8 +155,10 @@ pub trait Outputs {
 pub struct Counts {
     /// Payloads appended.
     pub appended: u64,
-    /// Chunks committed.
+    /// Commits made: chunks, and parts of them.
     pub committed: u64,
+    /// Times a refused part's records were moved into a new chunk.
+    pub rehomed: u64,
     /// Payloads reported durable.
     pub flushed: u64,
     /// Commits that failed and were queued to try again.
@@ -170,8 +190,12 @@ pub struct WorkerLoop<O: Outputs> {
     pcm_warned: BTreeSet<StreamId>,
     /// Microphone streams whose first chunk kept as PCM has been logged (`Counts::opus_fallbacks` counts them all).
     opus_warned: BTreeSet<StreamId>,
-    /// Closed chunks whose commit failed, oldest first.
+    /// Chunks and parts whose commit failed, oldest first.
     uncommitted: VecDeque<Closed>,
+    /// The file of a chunk whose part was refused, while its remaining records are gathered: parts of it that
+    /// turn up meanwhile go to `gathered` instead of the catalog.
+    refused: Option<std::path::PathBuf>,
+    gathered: Vec<Closed>,
     /// When a queued commit was last tried.
     last_retry_ns: u64,
     /// Chunks recovered at startup, by stream, waiting for the stream's shape.
@@ -233,6 +257,8 @@ impl<O: Outputs> WorkerLoop<O> {
             pcm_warned: BTreeSet::new(),
             opus_warned: BTreeSet::new(),
             uncommitted: VecDeque::new(),
+            refused: None,
+            gathered: Vec::new(),
             last_retry_ns: 0,
             recovered: BTreeMap::new(),
             recovered_ids: BTreeSet::new(),
@@ -287,7 +313,24 @@ impl<O: Outputs> WorkerLoop<O> {
         let shape = self.raw_shape(stream, shape);
         self.formats.insert(stream, (shape.chunk_format, shape.pcm));
         for r in self.recovered.remove(&stream).unwrap_or_default() {
-            if camera && r.format == ChunkFormat::Lz4 {
+            // What the catalog holds of it already: parts committed before the crash.
+            let held = match crate::layout::chunk_id_of(&r.path).map(|id| self.out.committed_frames(id)) {
+                Some(Ok(held)) => held.unwrap_or(0),
+                None => 0,
+                Some(Err(e)) => {
+                    let why = format!("asking the catalog about recovered chunk {} failed: {e}", r.path.display());
+                    eprintln!("tier worker: {why}");
+                    self.recovery_errors.insert(stream, why);
+                    continue;
+                }
+            };
+            let from = held.min(r.records.len());
+            let known: Vec<Uuid> = r.records[..from].iter().map(|rec| rec.id).collect();
+            self.out.settled(&known);
+            if from == r.records.len() {
+                continue;
+            }
+            if camera && r.format == ChunkFormat::Lz4 && from == 0 {
                 let aside = r.path.with_extension(format!("{}.layout-unknown", uuid::Uuid::now_v7()));
                 // A hard link refuses to overwrite an existing quarantine; only remove the original after success.
                 let renamed = (|| -> std::io::Result<()> {
@@ -310,16 +353,19 @@ impl<O: Outputs> WorkerLoop<O> {
                 }
                 continue;
             }
-            let absorbed: Vec<Uuid> = crate::flush::catalog_records(&r.records).iter().map(|rec| rec.id).collect();
-            match new_chunk(&r.path, stream, &shape, &r.records, r.created_ns) {
+            let records = r.records[from..].to_vec();
+            let absorbed: Vec<Uuid> = crate::flush::catalog_records(&records).iter().map(|rec| rec.id).collect();
+            match crate::flush::new_part(&r.path, stream, &shape, &r.records, from, r.created_ns) {
                 Ok(chunk) => {
                     // Frames the chunk file has no provenance record for stay unknown.
                     let provenance = crate::flush::provenance_of(&absorbed, &r.provenance);
                     let closed = Closed {
                         path: r.path,
                         stream,
-                        records: r.records,
+                        records,
                         chunk,
+                        first_frame: u32::try_from(from).unwrap_or(u32::MAX),
+                        more: false,
                         absorbed,
                         durable: Vec::new(),
                         provenance,
@@ -734,12 +780,16 @@ impl<O: Outputs> WorkerLoop<O> {
         &mut self.out
     }
 
-    /// A chunk closed: report what its close made durable (those records are on disk either way), then commit it,
-    /// or queue it when the commit fails. Commits stay in order: a chunk waits behind any queued before it.
+    /// A chunk closed, or a part was cut: report what that made durable (those records are on disk either way), then
+    /// commit it, or queue it when the commit fails. Commits stay in order: one waits behind any queued before it.
     fn finish(&mut self, closed: Closed) {
         let closed = self.opus_at_close(closed);
         let durable = closed.durable.clone();
         self.report(&durable);
+        if self.refused.as_deref() == Some(closed.path.as_path()) {
+            self.gathered.push(closed);
+            return;
+        }
         if !self.uncommitted.is_empty() {
             self.uncommitted.push_back(closed);
             self.retry();
@@ -752,7 +802,7 @@ impl<O: Outputs> WorkerLoop<O> {
                 self.counts.commit_retries += 1;
                 self.uncommitted.push_back(closed);
             }
-            Err(CommitFailure::Reject(e)) => self.reject(&closed, &e),
+            Err(CommitFailure::Reject(e)) => self.reject(closed, &e),
         }
     }
 
@@ -794,9 +844,52 @@ impl<O: Outputs> WorkerLoop<O> {
         closed
     }
 
-    /// Sets aside a chunk the broker refused for good: its file is renamed `.rejected` (kept for a person to look
-    /// at; recovery skips it), and its payloads are forgotten.
-    fn reject(&mut self, closed: &Closed, why: &str) {
+    /// A commit the broker refused for good. The rest of the chunk is gathered first: its file is closed if it is
+    /// still open, and its parts still queued, or cut meanwhile, are taken back. Then a whole chunk (nothing of it
+    /// is in the catalog) is set aside: its file is renamed `.rejected` (kept for a person to look at; recovery
+    /// skips it), and its payloads are forgotten. A later part's chunk is in the catalog, so its file stays, and
+    /// what the catalog doesn't hold of it moves to a new chunk ([`WorkerLoop::rehome`]).
+    fn reject(&mut self, mut closed: Closed, why: &str) {
+        let mut rest: Vec<Closed> = Vec::new();
+        let queued = std::mem::take(&mut self.uncommitted);
+        for c in queued {
+            if c.path == closed.path { rest.push(c) } else { self.uncommitted.push_back(c) }
+        }
+        if closed.more && self.flusher.open_path(closed.stream) == Some(closed.path.as_path()) {
+            self.refused = Some(closed.path.clone());
+            #[cfg(feature = "ffmpeg")]
+            if let Err(e) = self.drain(closed.stream, crate::service::now_utc_ns()) {
+                eprintln!("tier worker: draining stream {}'s encoder failed: {e}", closed.stream.0);
+            }
+            match self.flusher.close(closed.stream) {
+                Ok(Some(last)) => self.finish(last),
+                Ok(None) => {}
+                Err(e) => eprintln!("tier worker: closing {} failed: {e}", closed.path.display()),
+            }
+            self.refused = None;
+            rest.append(&mut self.gathered);
+        }
+        for c in &rest {
+            closed.absorbed.extend_from_slice(&c.absorbed);
+        }
+        if closed.first_frame > 0 {
+            eprintln!(
+                "tier worker: the broker refused a part of chunk {} for good ({why}); its {} uncommitted records \
+                 move to a new chunk",
+                closed.path.display(),
+                closed.absorbed.len()
+            );
+            self.counts.rehomed += 1;
+            match self.rehome(&closed) {
+                Ok(Some(moved)) => self.finish(moved),
+                Ok(None) => self.out.rejected(&closed, &closed.path),
+                Err(e) => {
+                    eprintln!("tier worker: moving the records of {} failed: {e}", closed.path.display());
+                    self.out.rejected(&closed, &closed.path);
+                }
+            }
+            return;
+        }
         let aside = closed.path.with_extension("rejected");
         if let Err(e) = std::fs::rename(&closed.path, &aside) {
             tracing::warn!("setting {} aside failed: {e}", closed.path.display());
@@ -810,7 +903,37 @@ impl<O: Outputs> WorkerLoop<O> {
         for id in &closed.absorbed {
             self.recovered_ids.remove(id);
         }
-        self.out.rejected(closed, &aside);
+        self.out.rejected(&closed, &aside);
+    }
+
+    /// Moves the records of `refused`'s chunk file from its first frame on into a new chunk file beside it, and
+    /// returns that as a whole chunk to commit; `None` when a purge cut every one of them.
+    fn rehome(&mut self, refused: &Closed) -> Result<Option<Closed>, TierError> {
+        let (format, _) = *self.formats.get(&refused.stream).ok_or(TierError::UnknownStream(refused.stream))?;
+        let shape = self.sources.get(&refused.stream).ok_or(TierError::UnknownStream(refused.stream))?.clone();
+        // The shape the flusher wrote under: a raw camera's is its H.264.
+        let shape = StreamShape { chunk_format: format, ..shape };
+        let created_ns = crate::service::now_utc_ns();
+        // A name the flusher never gives: its counter starts at 1.
+        let to = refused.path.with_file_name(format!("{}-{created_ns}-0.cnk", refused.stream.0));
+        let records = crate::chunk::split_off(&refused.path, refused.first_frame as usize, &to, created_ns)?;
+        if records.is_empty() {
+            return Ok(None);
+        }
+        let chunk = new_chunk(&to, refused.stream, &shape, &records, created_ns)?;
+        let absorbed: Vec<Uuid> = crate::flush::catalog_records(&records).iter().map(|r| r.id).collect();
+        let provenance = crate::flush::provenance_of(&absorbed, &crate::chunk::read_provenance(&to)?);
+        Ok(Some(Closed {
+            path: to,
+            stream: refused.stream,
+            records,
+            chunk,
+            first_frame: 0,
+            more: false,
+            absorbed,
+            durable: Vec::new(),
+            provenance,
+        }))
     }
 
     fn retry(&mut self) {
@@ -827,7 +950,7 @@ impl<O: Outputs> WorkerLoop<O> {
                 }
                 Err(CommitFailure::Reject(e)) => {
                     if let Some(c) = self.uncommitted.pop_front() {
-                        self.reject(&c, &e);
+                        self.reject(c, &e);
                     }
                 }
             }

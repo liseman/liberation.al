@@ -32,3 +32,25 @@
 {"id": "general-knowledge", "question": "how far away is the moon", "reading": {"history": false}}
 {"id": "a-request", "question": "remind me to water the plants", "reading": {"history": false}}
 {"id": "small-talk", "question": "tell me a joke", "reading": {"history": false}}
+{"id": "event-count", "question": "How many times did I water the plants this week?", "reading": {"source": "cameras", "measure": "count", "people": ["me"], "day": "this week"}}
+{"id": "event-count-reworded", "question": "this week, how often did I water the plants", "same_as": "event-count"}
+{"id": "zone-count-pet", "question": "how many times did Mittens use the litter box yesterday", "reading": {"source": "cameras", "measure": "count", "day": "yesterday", "people": ["Mittens"]}}
+{"id": "zone-count-species", "question": "How often did the dog go to the front door today?", "reading": {"source": "cameras", "measure": "count", "day": "today"}}
+{"id": "action-count", "question": "how many times did I stand up today", "reading": {"source": "cameras", "measure": "count", "people": ["me"], "action": "stand_up", "day": "today"}}
+{"id": "action-count-reworded", "question": "today, how many times did I get up", "same_as": "action-count"}
+{"id": "action-when", "question": "When did Dana sit down this morning?", "reading": {"source": "cameras", "measure": "when", "people": ["Dana"], "action": "sit_down", "part": "this morning"}}
+{"id": "action-fall", "question": "did anyone fall last night", "reading": {"source": "cameras", "measure": "when", "action": "fall", "part": "last night"}}
+{"id": "doing-zone", "question": "What was Sam doing in the kitchen yesterday?", "reading": {"source": "cameras", "measure": "doing", "people": ["Sam"], "day": "yesterday"}}
+{"id": "animal-doing", "question": "what has Rex been up to today", "reading": {"source": "cameras", "measure": "doing", "day": "today", "people": ["Rex"]}}
+{"id": "animal-last-zone", "question": "When did Mittens last use the litter box?", "reading": {"source": "cameras", "measure": "last_time", "people": ["Mittens"]}}
+{"id": "animal-where", "question": "where is the cat", "reading": {"source": "cameras", "measure": "where"}}
+{"id": "home", "question": "Is Alice home?", "reading": {"source": "people", "measure": "home", "people": ["Alice"], "now": true}}
+{"id": "home-reworded", "question": "is Alice here right now", "same_as": "home"}
+{"id": "arrived", "question": "when did Dana get home", "reading": {"source": "people", "measure": "arrived", "people": ["Dana"]}}
+{"id": "thing-where", "question": "Where are my keys?", "reading": {"source": "cameras", "measure": "where"}}
+{"id": "thing-where-reworded", "question": "my keys, where are they?", "same_as": "thing-where"}
+{"id": "usual-night", "question": "How many times do I usually use the kitchen at night?", "reading": {"source": "cameras", "measure": "count", "people": ["me"], "usual": true, "part": "night"}}
+{"id": "usual-day", "question": "how often does Mittens typically use the litter box per day", "reading": {"source": "cameras", "measure": "count", "usual": true, "people": ["Mittens"]}}
+{"id": "undetected", "question": "How long was I sitting still today?", "reading": {"source": "cameras", "measure": "duration", "people": ["me"], "action": "stillness", "day": "today"}}
+{"id": "said-about-an-action", "question": "what did Sam say about feeding the cat", "reading": {"people": ["Sam"]}}
+{"id": "unknown-name", "question": "how many times did I open the fridge today", "reading": {"source": "cameras", "measure": "count", "people": ["me"], "day": "today"}}

@@ -13,7 +13,6 @@ Model classes are guesses, never confirmed. Time `action.coverage` doesn't cover
 """
 
 import collections
-import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -23,16 +22,9 @@ import numpy as np
 
 from liberational import segment_log
 from liberational.memory import event_counts
+from liberational.memory import question as reader
 
 UNSUPPORTED = event_counts.UNSUPPORTED
-DOING = re.compile(
-    r"\bwhat\s+(?:was|were|is|am|are|did|has|have)\s+(?P<who>[a-z]+)\s+(?:been\s+)?(?:doing|do|up\s+to)\b", re.I
-)
-ZONE = re.compile(
-    r"\b(?:in|at|by|near)\s+(?:the\s+|my\s+)?(?P<zone>[a-z][a-z ]{1,40}?)(?=\s+(?:today|yesterday|last|this|at|on|between|from|around|before|after)\b|[?.!]|$)",
-    re.I,
-)
-SOMEONE = frozenset({"i", "me", "we", "someone", "anyone", "anybody", "somebody", "they", "he", "she", "you"})
 TOP_GUESSES = 3
 MAX_EVIDENCE = 10
 
@@ -45,36 +37,22 @@ class Asked:
     who: str | None = None  # a named person, for `doing`
 
 
-def _zone(question: str, state: Any) -> str | None:
-    names = event_counts.zone_names(state)
-    m = ZONE.search(question)
-    if m is None:
+def asked(query: Mapping[str, Any], state: Any) -> Asked | None:
+    """What a non-count activity question asks, from its structured query (the reading's measure, action, picked
+    zone, and people), or None when it isn't one. Counts are event_counts', and a question about what was said is
+    the transcript's."""
+    if query.get("kind") in ("transcript", "journal"):
         return None
-    said = m["zone"].strip().lower()
-    return next((n for n in names if n.lower() == said or event_counts.same(n, said)), None)
-
-
-def asked(question: str, state: Any) -> Asked | None:
-    """What a non-count activity question asks, or None when it isn't one (counts are event_counts')."""
-    from liberational.memory import activity_kinds
-
-    if event_counts.TRANSCRIPT_ACTION.search(question):
-        return None
-    if event_counts.action_kind(question) is not None:
-        return None  # a count: event_counts' while answer_counts is on, else the usual history answer
-    # A kind's own name ("when was phone_use detected"), else its plain words.
-    kind = next(
-        (k for k in sorted(activity_kinds.model_kinds(state)) if "_" in k and re.search(rf"\b{k}\b", question, re.I)),
-        None,
-    ) or next((k for k, pattern in event_counts._ACTION_WORDS if pattern.search(question)), None)
-    if kind is not None and not DOING.search(question):
+    action, measure = query.get("action") or "", query.get("measure")
+    if action in reader.UNDETECTED:
+        return Asked("unsupported")  # stillness, repeated movement: the model doesn't detect them
+    if action and measure != "count":
         # "When did I sit down", "how long was I on my phone", "did anyone eat": when the model saw it.
-        return Asked("when", kind=kind)
-    if (m := DOING.search(question)) is not None:
-        who = m["who"].lower()
-        return Asked("doing", zone=_zone(question, state), who=None if who in SOMEONE else m["who"])
-    if event_counts.retired_question(question):
-        return Asked("unsupported")
+        return Asked("when", kind=action)
+    if measure == "doing":
+        people = query.get("people") or []
+        named = None if query.get("first_person") or not people else str(people[0])
+        return Asked("doing", zone=(query.get("subjects") or {}).get("zone"), who=named)
     return None
 
 
