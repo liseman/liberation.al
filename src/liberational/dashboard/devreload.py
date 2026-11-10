@@ -18,7 +18,7 @@ import time
 import uuid
 from collections.abc import Callable, Iterable
 
-from liberational.config import ROOT, local_config
+from liberational.config import PACKAGE, RESOURCES, local_config
 
 BOOT = uuid.uuid4().hex[:12]  # changes on every restart, so pages can tell the server came back with new code
 
@@ -28,8 +28,7 @@ def _newest(files: Iterable[pathlib.Path]) -> int:
 
 
 def code_version() -> int:
-    src = ROOT / "src" / "liberational"
-    return _newest([*src.rglob("*.py"), *(ROOT / "config").glob("*.toml"), local_config()])
+    return _newest([*PACKAGE.rglob("*.py"), *RESOURCES.glob("*.toml"), local_config()])
 
 
 def _imports() -> tuple[bool, list[str]]:

@@ -11,7 +11,7 @@ from liberational import config
 from liberational.vision import animal_embedder as E
 
 torch = pytest.importorskip("torch")
-REPO = "facebook/dinov3-vits16-pretrain-lvd1689m"
+REPO = "facebook/dinov2-small"
 
 
 class Model:
@@ -92,8 +92,8 @@ def test_the_space_is_named_by_the_weights_not_by_where_they_were_fetched_from()
         assert E.space() == "publisher/other:tight"  # no declared space: the repository names it
 
 
-def test_the_default_space_is_the_one_stored_rows_and_taught_references_carry():
-    assert E.space() == "facebook/dinov3-vits16-pretrain-lvd1689m:tight"
+def test_the_default_space_is_the_default_models():
+    assert E.space() == "facebook/dinov2-small:tight"
 
 
 def test_configured_revision_pins_both_weights_and_preprocessing(adapter):

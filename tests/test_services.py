@@ -5,6 +5,7 @@ import pathlib
 import plistlib
 import shlex
 import subprocess
+import sys
 from unittest.mock import create_autospec
 
 import psutil
@@ -48,7 +49,7 @@ def test_unknown_names_are_rejected():
         s.selected()
 
 
-DAEMON, SCHEDULED = {"command": "pack-x", "env": {"A": "has space"}}, {"command": "tools/x.sh", "schedule": "07:05"}
+DAEMON, SCHEDULED = {"command": "pack-x", "env": {"A": "has space"}}, {"command": "pack-y", "schedule": "07:05"}
 
 
 def plist(svc):
@@ -57,10 +58,10 @@ def plist(svc):
 
 def test_launchd_daemon_schedule_and_background():
     daemon, sync = plist(DAEMON), plist(SCHEDULED)
-    assert (daemon["Label"], daemon["WorkingDirectory"]) == ("pack.x", str(cfg.ROOT))
-    assert daemon["ProgramArguments"] == [str(cfg.ROOT / ".venv/bin/pack-x")]
+    assert (daemon["Label"], daemon["WorkingDirectory"]) == ("pack.x", str(cfg.workdir()))
+    assert daemon["ProgramArguments"] == [str(cfg.program("pack-x"))]
     assert (daemon["RunAtLoad"], daemon["KeepAlive"], daemon["ThrottleInterval"]) == (True, True, 10)
-    assert sync["ProgramArguments"] == ["/bin/bash", str(cfg.ROOT / "tools/x.sh")]
+    assert sync["ProgramArguments"] == [str(cfg.program("pack-y"))]
     assert (sync["StartCalendarInterval"], "KeepAlive" in sync) == ({"Hour": 7, "Minute": 5}, False)
     assert plist({**SCHEDULED, "schedule": "*:07"})["StartCalendarInterval"] == {"Minute": 7}
     bg = plist({**DAEMON, "background": True, "throttle": 60})
@@ -101,11 +102,37 @@ def test_args_expand_config_and_env(monkeypatch):
     monkeypatch.setenv("PACK_TEST_DIR", "/opt/x")
     monkeypatch.delenv("PACK_TEST_UNSET", raising=False)
     svc = {
-        "command": "tools/x",
+        "command": "pack-x",
         "args": ["{ports.whisper}", "{env:PACK_TEST_DIR:~/f}/a", "{env:PACK_TEST_UNSET:~/f}/b"],
     }
     with cfg.override({"ports": {"whisper": 8123}}):
-        assert s.argv(svc) == [str(cfg.ROOT / "tools/x"), "8123", "/opt/x/a", str(pathlib.Path.home() / "f/b")]
+        assert s.argv(svc)[1:] == ["8123", "/opt/x/a", str(pathlib.Path.home() / "f/b")]
+
+
+@pytest.mark.parametrize(
+    "setting, template, want",
+    [
+        pytest.param({"paths": {"state": "data/state"}}, "{paths.state}", "{root}/data/state", id="relative-path"),
+        pytest.param({"paths": {"state": "/srv/state"}}, "{paths.state}", "/srv/state", id="absolute-path"),
+        pytest.param({"paths": {"decoded": ""}}, "{paths.decoded}", "", id="empty-path-stays-empty"),
+        pytest.param({}, "{file:devices}", "{root}/config/devices.toml", id="device-manifest"),
+        pytest.param({"ask": {"gpu": "data/x"}}, "{ask.gpu}", "data/x", id="not-a-path-setting"),
+    ],
+)
+def test_path_arguments_are_whole_paths_whatever_the_working_directory(tmp_path, monkeypatch, setting, template, want):
+    monkeypatch.setattr(cfg, "OWNER_ROOT", tmp_path)
+    monkeypatch.delenv("PACK_STATE", raising=False)
+    with cfg.override(setting):
+        assert s.argv({"command": "pack-x", "args": [template]})[1:] == [want.replace("{root}", str(tmp_path))]
+
+
+def test_our_commands_come_from_the_environment_and_others_from_path(tmp_path, monkeypatch):
+    monkeypatch.setattr(cfg, "BIN", tmp_path)
+    monkeypatch.setattr(s.shutil, "which", {"ollama": "/opt/bin/ollama"}.get)
+    assert s.argv({"command": "pack-x"}) == [str(tmp_path / "pack-x")]
+    assert s.argv({"command": "continuum-broker"}) == [str(tmp_path / "continuum-broker")]
+    assert s.argv({"command": "ollama"}) == ["/opt/bin/ollama"]
+    assert s.argv({"command": "not-installed"}) == ["not-installed"]
 
 
 def test_env_fills_config_and_drops_a_variable_whose_setting_is_empty():
@@ -138,10 +165,26 @@ def test_ask_ollama_cpu_expert_profile_has_bounded_gpu_cache(layers, kv):
 
 
 def test_path_has_venv_first_and_no_duplicates(monkeypatch):
-    venv, shims = str(cfg.ROOT / ".venv" / "bin"), str(pathlib.Path.home() / ".local/share/mise/shims")
+    venv, shims = str(cfg.BIN), str(pathlib.Path.home() / ".local/share/mise/shims")
     monkeypatch.setattr(s, "DARWIN", False)
     monkeypatch.setenv("PATH", os.pathsep.join(["/usr/bin", venv, "/usr/bin"]))
     assert s.environment({})["PATH"].split(os.pathsep) == [venv, shims, "/usr/bin", "/bin", "/usr/sbin", "/sbin"]
+    monkeypatch.setattr(cfg, "CHECKOUT", None)  # an installed package has no mise
+    assert s.environment({})["PATH"].split(os.pathsep) == [venv, "/usr/bin", "/bin", "/usr/sbin", "/sbin"]
+
+
+def test_a_service_built_from_source_is_only_declared_in_a_checkout(monkeypatch):
+    assert s.declared()["whisper"]["source_build"] is True
+    monkeypatch.setattr(cfg, "CHECKOUT", None)
+    assert "whisper" not in s.declared()
+    assert "continuum-broker" in s.declared()
+    with cfg.override({"asr": {"engine": "whisper"}}), pytest.raises(SystemExit, match="built from source"):
+        s.selected()
+
+
+def test_whisper_server_is_named_by_its_whole_path(tmp_path, monkeypatch):
+    monkeypatch.setattr(cfg, "OWNER_ROOT", tmp_path)
+    assert s.argv(s.declared()["whisper"])[1] == str(tmp_path / "data/whisper.cpp/build/bin/whisper-server")
 
 
 @pytest.mark.parametrize(
@@ -260,7 +303,7 @@ def test_services_run_without_progress_bars():
 
 
 def test_a_services_unit_carries_its_own_rust_log_level():
-    svc = {"command": "continuum/target/release/continuum-gateway"}
+    svc = {"command": "continuum-gateway"}
     with cfg.override({"logging": {"level": "info", "per_service": ["continuum-gateway=debug"]}}):
         gateway = s.render_systemd("continuum-gateway", svc)
         broker = s.render_systemd("continuum-broker", svc)
@@ -561,7 +604,7 @@ def test_an_uninstall_that_fails_says_so(systemd, tmp_path, capsys):
 def test_ollama_runs_under_the_log_relay_outermost_tagged_with_its_name():
     svc = s.declared()["ollama"]
     command = s.argv(svc, startup=True, name="ollama")
-    relay = [str(cfg.ROOT / ".venv/bin/python"), "-m", "liberational.log_relay", "--tag", "ollama", "--"]
+    relay = [sys.executable, "-m", "liberational.log_relay", "--tag", "ollama", "--"]
     assert command[: len(relay)] == relay
     assert "liberational.gpu_ready" in command[len(relay) :], "the GPU wait runs inside the relay"
     assert "log_relay" not in " ".join(s.argv(svc)), "only the service's own start is relayed"
@@ -570,11 +613,11 @@ def test_ollama_runs_under_the_log_relay_outermost_tagged_with_its_name():
 def test_the_continuum_broker_gets_its_state_dir_and_capture_manifest():
     svc = s.declared()["continuum-broker"]
     assert s.argv(svc) == [
-        str(cfg.ROOT / "continuum/target/release/continuum-broker"),
+        str(cfg.program("continuum-broker")),
         "--state-dir",
-        str(cfg.get("paths.state")),
+        str(cfg.path("paths.state")),
         "--manifest",
-        "config/devices.toml",
+        str(cfg.devices_file()),
     ]
 
 
@@ -682,7 +725,7 @@ def test_mandatory_broker_clients_wait_before_exec_on_both_platforms():
     service = {"command": "pack-fixture", "args": ["--flag", "two words"], "wait_for_broker": True}
     plain = s.argv(service)
     launched = plist(service)["ProgramArguments"]
-    assert launched[:3] == [str(cfg.ROOT / ".venv/bin/python"), "-m", "liberational.continuum_ready"]
+    assert launched[:3] == [sys.executable, "-m", "liberational.continuum_ready"]
     assert launched[launched.index("--") + 1 :] == plain
     unit = s.render_systemd("fixture", service)["pack-fixture.service"]
     start = next(line.removeprefix("ExecStart=:") for line in unit.splitlines() if line.startswith("ExecStart=:"))
@@ -694,7 +737,7 @@ def test_gpu_services_wait_for_the_driver_before_exec():
     service = {"command": "ollama", "args": ["serve"], "wait_for_gpu": True}
     plain = s.argv(service)
     launched = plist(service)["ProgramArguments"]
-    assert launched[:4] == [str(cfg.ROOT / ".venv/bin/python"), "-m", "liberational.gpu_ready", "--"]
+    assert launched[:4] == [sys.executable, "-m", "liberational.gpu_ready", "--"]
     assert launched[4:] == plain
     assert "liberational.gpu_ready" not in plist({"command": "ollama", "args": ["serve"]})["ProgramArguments"]
 
@@ -715,6 +758,27 @@ def test_the_shared_ollama_is_a_pack_service_pinned_by_config():
     assert "CUDA_VISIBLE_DEVICES" not in env and "OLLAMA_MODELS" not in env
 
 
+def test_the_shared_ollama_takes_its_server_tuning_from_config():
+    svc = s.declared()["ollama"]
+    env = s.environment(svc)
+    # Defaults: Ollama's own keep-alive (left unset), flash attention on, the stock cache, Ollama's own model count.
+    assert "OLLAMA_KEEP_ALIVE" not in env
+    assert (env["OLLAMA_FLASH_ATTENTION"], env["OLLAMA_KV_CACHE_TYPE"], env["OLLAMA_MAX_LOADED_MODELS"]) == (
+        "True",
+        "f16",
+        "0",
+    )
+    tuned = {"keep_alive": "-1", "flash_attention": False, "kv_cache_type": "q8_0", "max_loaded_models": 2}
+    with cfg.override({"ollama": tuned}):
+        env = s.environment(svc)
+    assert (
+        env["OLLAMA_KEEP_ALIVE"],
+        env["OLLAMA_FLASH_ATTENTION"],
+        env["OLLAMA_KV_CACHE_TYPE"],
+        env["OLLAMA_MAX_LOADED_MODELS"],
+    ) == ("-1", "False", "q8_0", "2")
+
+
 def test_offline_dashboard_and_gateway_do_not_wait_for_the_broker():
     for name in ("dashboard", "continuum-gateway", "continuum-broker"):
         svc = s.declared()[name]
@@ -733,8 +797,8 @@ def test_tier_settings_reach_both_service_managers(monkeypatch):
         unit = s.render_systemd("continuum-tier-worker", service)["pack-continuum-tier-worker.service"]
         s.exec_service("continuum-tier-worker")
     command = next(line.removeprefix("ExecStart=:") for line in unit.splitlines() if line.startswith("ExecStart=:"))
-    expected = ["--state-dir", "/srv/pack/state-a", "--manifest", "config/devices.toml"]
-    launcher = [str(cfg.ROOT / ".venv/bin/python"), "-m", "liberational.services", "exec", "continuum-tier-worker"]
+    expected = ["--state-dir", "/srv/pack/state-a", "--manifest", str(cfg.devices_file())]
+    launcher = [sys.executable, "-m", "liberational.services", "exec", "continuum-tier-worker"]
     assert launch[-len(launcher) :] == launcher
     assert shlex.split(command)[-len(launcher) :] == launcher
     assert execute.call_args.args[1][-len(expected) :] == expected
@@ -760,14 +824,14 @@ def test_installed_tier_launcher_reads_settings_changes_on_each_start_without_re
         local.write_text('[paths]\nstate = "/srv/pack/state-b"\n')
         s.main()
         first = execute.call_args.args[1]
-        assert first[0] == str(cfg.ROOT / "continuum/target/release/continuum-tier-worker")
+        assert first[0] == str(cfg.program("continuum-tier-worker"))
         assert first[first.index("--state-dir") + 1] == "/srv/pack/state-b"
         assert "liberational.services" not in first, "the startup launcher must exec the worker without recursion"
         local.write_text('[paths]\nstate = "/srv/pack/state-c"\n')
         s.main()
         second = execute.call_args.args[1]
         assert second[second.index("--state-dir") + 1] == "/srv/pack/state-c"
-        directory.assert_called_with(cfg.ROOT)
+        directory.assert_called_with(cfg.workdir())
     finally:
         cfg.load.cache_clear()
 
@@ -1188,3 +1252,73 @@ def test_install_removes_the_logs_of_services_no_longer_declared(systemd, tmp_pa
         "listen.log.1",
         "profiles",
     ]
+
+
+# ---- a supervised service's environment: the session's variables, and nothing else of the launcher's (#183) ----
+
+# The application opened from a terminal inside an AppImage-based program.
+LAUNCHER = {
+    "PATH": "/tmp/.mount_editorAbC/usr/bin:/opt/editor/bin:/opt/tool/bin:/usr/bin",
+    "HOME": "/somewhere/else",
+    "LD_LIBRARY_PATH": "/tmp/.mount_editorAbC/usr/lib",
+    "LD_PRELOAD": "/tmp/.mount_editorAbC/usr/lib/hook.so",
+    "APPDIR": "/opt/editor",
+    "APPIMAGE": "/opt/Editor.AppImage",
+    "ARGV0": "editor",
+    "OWD": "/home",
+    "FLATPAK_ID": "org.example.Editor",
+    "SNAP_NAME": "editor",
+    "EDITOR_SESSION": "7",
+    "PYTHONPATH": "/opt/editor/python",
+    "XDG_RUNTIME_DIR": "/run/user/4242",
+    "DBUS_SESSION_BUS_ADDRESS": "unix:path=/run/user/4242/bus",
+    "WAYLAND_DISPLAY": "wayland-0",
+    "DISPLAY": ":0",
+    "XDG_SESSION_TYPE": "wayland",
+    "LOGNAME": "alice",
+    "USER": "alice",
+    "LANG": "en_US.UTF-8",
+    "LC_TIME": "en_GB.UTF-8",
+}
+
+
+def test_a_supervised_service_gets_the_session_and_nothing_else_from_the_launcher(monkeypatch):
+    monkeypatch.setattr(s, "DARWIN", False)
+    env = s.environment({}, "listen", launcher=LAUNCHER)
+    session = ("XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS", "WAYLAND_DISPLAY", "DISPLAY", "XDG_SESSION_TYPE")
+    session += ("USER", "LOGNAME", "LANG", "LC_TIME")
+    assert {k: env[k] for k in session} == {k: LAUNCHER[k] for k in session}
+    own = {"PATH", "HOME", "RUST_LOG", "HF_HUB_DISABLE_PROGRESS_BARS", "TQDM_DISABLE", "TRANSFORMERS_VERBOSITY"}
+    assert set(env) == set(session) | own | {"OPENCV_FFMPEG_LOGLEVEL", "OPENCV_LOG_LEVEL"}
+    assert env["HOME"] == str(pathlib.Path.home())
+    # the launcher's mount and its own tree are out of PATH; a tool directory of the owner's stays
+    assert env["PATH"].split(os.pathsep)[-5:] == ["/opt/tool/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"]
+    assert "editor" not in env["PATH"]
+
+
+def test_a_service_keeps_a_loader_variable_its_declaration_sets_on_purpose():
+    env = s.environment({"env": {"LD_LIBRARY_PATH": "/opt/vendor/lib"}}, launcher=LAUNCHER)
+    assert env["LD_LIBRARY_PATH"] == "/opt/vendor/lib"
+
+
+def test_what_was_dropped_names_the_launchers_variables_and_its_path_entries():
+    assert s.dropped(LAUNCHER) == [
+        "APPDIR",
+        "APPIMAGE",
+        "ARGV0",
+        "FLATPAK_ID",
+        "LD_LIBRARY_PATH",
+        "LD_PRELOAD",
+        "OWD",
+        "SNAP_NAME",
+        "PATH entry /tmp/.mount_editorAbC/usr/bin",
+        "PATH entry /opt/editor/bin",
+    ]
+    assert s.dropped({"PATH": "/usr/bin", "XDG_RUNTIME_DIR": "/run/user/4242"}) == []
+
+
+def test_a_unit_file_carries_no_session_variables(monkeypatch):
+    # The desktop's service manager supplies them to a unit; written into the file they would go stale.
+    monkeypatch.setenv("XDG_RUNTIME_DIR", "/run/user/4242")
+    monkeypatch.setenv("DISPLAY", ":0")
+    assert not {"XDG_RUNTIME_DIR", "DISPLAY"} & set(s.environment({}))

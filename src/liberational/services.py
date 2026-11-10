@@ -30,13 +30,13 @@ import tempfile
 import threading
 import time
 import tomllib
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from typing import Any, Literal, TypedDict
 
 from liberational import config as cfg
 from liberational import logs
 
-SPEC = cfg.ROOT / "services" / "services.toml"
+SPEC = cfg.RESOURCES / "services.toml"
 DARWIN = sys.platform == "darwin"
 
 # One [name] table from services.toml: command, args, env, default, platforms, schedule, and so on.
@@ -44,12 +44,24 @@ type Service = dict[str, Any]
 
 
 def declared() -> dict[str, Service]:
-    return tomllib.loads(SPEC.read_text())
+    """Every service services.toml declares that this install can run: one marked `source_build` runs a program a
+    checkout builds from source (whisper-server), so an installed package, which builds nothing, doesn't have it."""
+    services = tomllib.loads(SPEC.read_text())
+    if cfg.CHECKOUT is None:
+        services = {name: svc for name, svc in services.items() if not svc.get("source_build")}
+    return services
 
 
 def required() -> set[str]:
     """Services the current settings depend on, whether or not [services] enables them."""
-    return {"whisper"} if str(cfg.get("asr.engine")).lower() == "whisper" else set()
+    if str(cfg.get("asr.engine")).lower() != "whisper":
+        return set()
+    if "whisper" not in declared():
+        raise SystemExit(
+            "asr.engine is whisper, and whisper-server is built from source: it isn't in an installed package. "
+            "Set asr.engine to another engine, or run from a checkout."
+        )
+    return {"whisper"}
 
 
 def selected() -> dict[str, Service]:
@@ -69,6 +81,7 @@ def selected() -> dict[str, Service]:
 
 
 _TEMPLATE = re.compile(r"\{([^}]+)\}")
+OURS = ("pack-", "continuum-")  # commands installed with the package, in its environment's bin directory
 
 
 def _expand(arg: str) -> str:
@@ -77,7 +90,13 @@ def _expand(arg: str) -> str:
         if key.startswith("env:"):
             _, var, default = (key.split(":", 2) + [""])[:3]
             return os.environ.get(var) or default
-        return str(cfg.get(key))
+        if key == "file:devices":
+            return str(cfg.devices_file())
+        if key.startswith("owner:"):  # one of the owner's files by its checkout path, wherever this install has it
+            return str(cfg.owner_file(key.removeprefix("owner:")))
+        value = str(cfg.get(key))
+        # A path is given whole, so it means the same wherever the service's working directory is.
+        return str(cfg.owner_file(value)) if value and (key.startswith("paths.") or key.endswith(".path")) else value
 
     return os.path.expanduser(_TEMPLATE.sub(sub, arg))
 
@@ -86,16 +105,10 @@ def argv(svc: Service, *, startup: bool = False, name: str = "") -> list[str]:
     """Absolute command line for a service. At startup, its wrappers too: a service with `log_relay = true` (a
     program we don't own) runs under log_relay, tagged with its name, so its lines carry the one log format."""
     cmd = svc["command"]
-    if cmd.startswith("pack-"):
-        exe = [str(cfg.ROOT / ".venv" / "bin" / cmd)]
-    elif "/" in cmd:
-        path = cfg.ROOT / cmd
-        exe = ["/bin/bash", str(path)] if path.suffix == ".sh" else [str(path)]
-    else:
-        exe = [shutil.which(cmd) or cmd]
+    exe = [str(cfg.program(cmd))] if cmd.startswith(OURS) else [shutil.which(cmd) or cmd]
     if startup and svc.get("fresh_config"):
         command = [
-            str(cfg.ROOT / ".venv/bin/python"),
+            sys.executable,
             "-m",
             "liberational.services",
             "exec",
@@ -104,10 +117,10 @@ def argv(svc: Service, *, startup: bool = False, name: str = "") -> list[str]:
     else:
         command = exe + [_expand(a) for a in svc.get("args", [])]
     if startup and svc.get("wait_for_gpu"):
-        command = [str(cfg.ROOT / ".venv/bin/python"), "-m", "liberational.gpu_ready", "--", *command]
+        command = [sys.executable, "-m", "liberational.gpu_ready", "--", *command]
     if startup and svc.get("wait_for_broker"):
         command = [
-            str(cfg.ROOT / ".venv/bin/python"),
+            sys.executable,
             "-m",
             "liberational.continuum_ready",
             "--socket",
@@ -116,7 +129,7 @@ def argv(svc: Service, *, startup: bool = False, name: str = "") -> list[str]:
             *command,
         ]
     if startup and svc.get("log_relay"):
-        command = [str(cfg.ROOT / ".venv/bin/python"), "-m", "liberational.log_relay", "--tag", name, "--", *command]
+        command = [sys.executable, "-m", "liberational.log_relay", "--tag", name, "--", *command]
     return command
 
 
@@ -131,14 +144,80 @@ def _templated_env(svc: Service) -> dict[str, str]:
     return env
 
 
-def environment(svc: Service, name: str = "") -> dict[str, str]:
-    # The venv first, then mise's shims (tools like ffmpeg from mise.toml), then the installing shell's PATH, then the
-    # system directories whatever that shell had: capture runs sysctl, which is in /usr/sbin.
-    parts = [str(cfg.ROOT / ".venv" / "bin"), str(pathlib.Path.home() / ".local/share/mise/shims")]
-    parts += os.environ.get("PATH", "").split(os.pathsep)
+# What a service gets from whoever opened the application (#183): the variables that say which desktop session this
+# is, so PipeWire, D-Bus, and the display can be reached, and the locale. Nothing else is inherited. A unit got
+# these from the desktop's service manager; the supervisor's children get them here.
+SESSION = frozenset(
+    {
+        "XDG_RUNTIME_DIR",
+        "DBUS_SESSION_BUS_ADDRESS",
+        "WAYLAND_DISPLAY",
+        "DISPLAY",
+        "XAUTHORITY",
+        "XDG_SESSION_TYPE",
+        "PIPEWIRE_REMOTE",
+        "PIPEWIRE_RUNTIME_DIR",
+        "PULSE_SERVER",
+        "PULSE_RUNTIME_PATH",
+        "USER",
+        "LOGNAME",
+        "LANG",
+        "LANGUAGE",
+        "TZ",
+    }
+)
+# Variables a launcher sets for itself, which would change what a service loads: the dynamic loader's, and those of
+# an AppImage, a Flatpak, or a Snap whose terminal the application was opened from. Never inherited; a service
+# that needs one names it in services.toml's env. Listed only to say in the log what was dropped.
+LAUNCHER = frozenset({"LD_LIBRARY_PATH", "LD_PRELOAD", "LD_AUDIT", "APPDIR", "APPIMAGE", "ARGV0", "OWD", "SNAP"})
+LAUNCHER_PREFIXES = ("DYLD_", "APPIMAGE_", "FLATPAK_", "SNAP_")
+APPIMAGE_MOUNTS = "/tmp/.mount_"  # where an AppImage mounts itself; matched, never written
+
+
+def _launcher_roots(launcher: Mapping[str, str]) -> list[str]:
+    """The directories a launcher put itself in: its mount (AppImage), or its own tree (Snap)."""
+    return [launcher[key].rstrip("/") for key in ("APPDIR", "SNAP") if launcher.get(key, "").startswith("/")]
+
+
+def _from_launcher(directory: str, roots: Sequence[str]) -> bool:
+    return directory.startswith(APPIMAGE_MOUNTS) or any(directory == r or directory.startswith(r + "/") for r in roots)
+
+
+def dropped(launcher: Mapping[str, str]) -> list[str]:
+    """What of a launcher's environment `environment(..., launcher=...)` keeps from a service, for the log: its
+    loader and packaging variables by name, and the PATH directories inside the launcher."""
+    roots = _launcher_roots(launcher)
+    names = sorted(k for k in launcher if k in LAUNCHER or k.startswith(LAUNCHER_PREFIXES))
+    path = [d for d in launcher.get("PATH", "").split(os.pathsep) if d and _from_launcher(d, roots)]
+    return names + [f"PATH entry {d}" for d in dict.fromkeys(path)]
+
+
+def _session(launcher: Mapping[str, str]) -> dict[str, str]:
+    """The session variables in a launcher's environment (SESSION, and the locale's LC_*)."""
+    env = {k: v for k, v in launcher.items() if v and (k in SESSION or k.startswith("LC_"))}
+    runtime = pathlib.Path(f"/run/user/{os.getuid()}")
+    if "XDG_RUNTIME_DIR" not in env and not DARWIN and runtime.is_dir():
+        env["XDG_RUNTIME_DIR"] = str(runtime)  # opened from a shell with no session (cron, a bare ssh command)
+    return env
+
+
+def environment(svc: Service, name: str = "", *, launcher: Mapping[str, str] | None = None) -> dict[str, str]:
+    """A service's whole environment. For a unit (`launcher` None) it is what the unit file sets, and the desktop's
+    service manager adds the session's variables. For a child of the supervisor, `launcher` is the environment the
+    application was opened with: the child gets the session variables from it and nothing else (#183), so a
+    terminal's loader paths and packaging variables never reach a service."""
+    # The environment's own bin first; in a checkout, mise's shims next (tools like ffmpeg from mise.toml; an
+    # installed package has no mise and gets them from the system); then the starting shell's PATH; then the system
+    # directories whatever that shell had: capture runs sysctl, which is in /usr/sbin.
+    source = os.environ if launcher is None else launcher
+    roots = _launcher_roots(source)
+    parts = [str(cfg.BIN)]
+    parts += [str(pathlib.Path.home() / ".local/share/mise/shims")] if cfg.CHECKOUT is not None else []
+    parts += [d for d in source.get("PATH", "").split(os.pathsep) if not _from_launcher(d, roots)]
     parts += ["/usr/local/bin"] if DARWIN else []
     parts += ["/usr/bin", "/bin", "/usr/sbin", "/sbin"]
-    env = {"PATH": os.pathsep.join(dict.fromkeys(p for p in parts if p)), "HOME": str(pathlib.Path.home())}
+    env = _session(launcher) if launcher is not None else {}
+    env.update({"PATH": os.pathsep.join(dict.fromkeys(p for p in parts if p)), "HOME": str(pathlib.Path.home())})
     # No progress bars in a service log (Hugging Face downloads, transformers' "Loading weights", any tqdm): a bar
     # redraws itself, which a log file keeps as a pile of partial lines. A CLI run by hand still shows them. (tqdm
     # reads any non-empty TQDM_DISABLE as true, so "0" doesn't turn its bars back on; an empty value does.)
@@ -183,7 +262,7 @@ def render_launchd(name: str, svc: Service) -> dict[str, str]:
     d: dict[str, Any] = {
         "Label": f"pack.{name}",
         "ProgramArguments": argv(svc, startup=True, name=name),
-        "WorkingDirectory": str(cfg.ROOT),
+        "WorkingDirectory": str(cfg.workdir()),
         "EnvironmentVariables": environment(svc, name),
         "StandardOutPath": str(log_path(name)),
         "StandardErrorPath": str(log_path(name)),
@@ -222,7 +301,7 @@ def render_systemd(name: str, svc: Service) -> dict[str, str]:
         "[Service]",
         f"Type={'oneshot' if scheduled else 'simple'}",
         start,
-        f"WorkingDirectory={cfg.ROOT}",
+        f"WorkingDirectory={cfg.workdir()}",
         env,
         "StandardOutput=journal",
         "StandardError=journal",
@@ -295,7 +374,7 @@ def _systemctl(verb: Sequence[str], units: Sequence[str]) -> dict[str, str | Non
 def checkout_note() -> str:
     """Why services must not be installed from here: a git worktree or a temporary directory isn't the checkout they
     should run from (their units would point at files that go away). Empty for a real checkout."""
-    root = cfg.ROOT.resolve()
+    root = cfg.workdir().resolve()
     if (root / ".git").is_file():  # a linked worktree: .git is a pointer file, not the repository
         return f"{root} is a git worktree"
     tmp = pathlib.Path(tempfile.gettempdir()).resolve()
@@ -348,7 +427,40 @@ def _bootstrap(name: str) -> str | None:
     return (r.stderr or "").strip() if r else "not tried"
 
 
+def _supervised() -> dict[str, Any] | None:
+    """The running application's services (supervisor.py), or None when no supervisor runs here: the verbs below
+    then talk to it (#165) instead of the service manager."""
+    from liberational import supervisor
+
+    status = supervisor.read_status()
+    return status["services"] if status is not None else None
+
+
+def _ask_supervisor(op: str, names: Sequence[str] = (), timeout: float = 120.0) -> None:
+    """Send the running supervisor one request, and print a line a name as the unit verbs did. Exits nonzero with
+    its reason when it refuses or doesn't answer."""
+    from liberational import supervisor
+
+    said = {"start": "running", "stop": "stopped", "restart": "restarted", "reload": "reloaded"}[op]
+    try:
+        reply = supervisor.request({"op": op, "names": list(names)}, timeout=timeout)
+    except ConnectionError as error:
+        reply = {"ok": False, "error": str(error)}
+    for name in names or ["the application's services"]:
+        print(f"pack-{name}: {said if reply.get('ok') else 'FAILED ' + str(reply.get('error'))}")
+    if not reply.get("ok"):
+        raise SystemExit(1)
+
+
 def install(names: Sequence[str], anywhere: bool = False, *, cascade: bool = False) -> None:
+    if _supervised() is not None:
+        # Under the application there is nothing to install: follow pack.toml's selection, then (re)start what was
+        # named, or everything through the staged cascade with no names or --cascade.
+        from liberational import service_cascade
+
+        _ask_supervisor("reload")
+        _ask_supervisor("restart", [] if cascade else names, timeout=service_cascade.subprocess_timeout())
+        return
     _check_checkout(anywhere)
     log_path("x").parent.mkdir(parents=True, exist_ok=True)
     for gone in prune_logs():
@@ -390,11 +502,18 @@ def install(names: Sequence[str], anywhere: bool = False, *, cascade: bool = Fal
 
 
 def installed() -> list[str]:
+    supervised = _supervised()
+    if supervised is not None:
+        return list(supervised)  # what the application runs
     pat = "pack.*.plist" if DARWIN else "pack-*.service"
     return sorted(re.sub(r"^pack[.-]|\.(plist|service)$", "", p.name) for p in unit_dir().glob(pat))
 
 
 def uninstall(names: Sequence[str], anywhere: bool = False) -> None:
+    if _supervised() is not None:
+        if not names:
+            raise SystemExit("under the application, quit it to stop everything (pack-supervisor quit)")
+        return _ask_supervisor("stop", names)
     _check_checkout(anywhere)
     names = list(names) or installed()  # before any unit file goes
     for name in names:
@@ -432,6 +551,8 @@ def stop(names: Sequence[str], anywhere: bool = False) -> None:
     """Stop services now, leaving them installed and enabled: they start again when the computer restarts
     (systemd starts the user's units at boot with lingering on, else at the first login; launchd loads the kept plist
     at the next login), on Repair, or on `start`. `uninstall` is what keeps one off."""
+    if _supervised() is not None:
+        return _ask_supervisor("stop", names)
     _check_checkout(anywhere)
     names = _installed_only(names)
     if DARWIN:
@@ -451,6 +572,8 @@ def stop(names: Sequence[str], anywhere: bool = False) -> None:
 
 def start(names: Sequence[str], anywhere: bool = False) -> None:
     """Start installed services that were stopped (a scheduled job's timer starts its schedule)."""
+    if _supervised() is not None:
+        return _ask_supervisor("start", names)
     _check_checkout(anywhere)
     names = _installed_only(names)
     if DARWIN:
@@ -473,6 +596,10 @@ def start(names: Sequence[str], anywhere: bool = False) -> None:
 
 def restart(names: Sequence[str], anywhere: bool = False, *, cascade: bool = False) -> None:
     """Restart installed services. Core changes always use the same strict selected/installed cascade as install."""
+    if _supervised() is not None:
+        from liberational import service_cascade
+
+        return _ask_supervisor("restart", [] if cascade else names, timeout=service_cascade.subprocess_timeout())
     from liberational import service_cascade
 
     _check_checkout(anywhere)
@@ -508,6 +635,9 @@ def restart(names: Sequence[str], anywhere: bool = False, *, cascade: bool = Fal
 
 def states() -> dict[str, str]:
     """The service manager's state for each installed service (systemd: active, failed, ...; launchd: running, ...)."""
+    supervised = _supervised()
+    if supervised is not None:
+        return {name: str(service["state"]) for name, service in supervised.items()}
     names = installed()
     if DARWIN:
         out: dict[str, str] = {}
@@ -563,6 +693,11 @@ def runs() -> dict[str, dict[str, Any]]:
     systemd: NRestarts and ActiveEnterTimestampMonotonic for every unit in one systemctl call. launchd: its runs after
     the first, and the age of its pid. Scheduled jobs, and services with restart = false, are left out: their runs
     are by design."""
+    if _supervised() is not None:
+        from liberational import supervisor
+
+        status = supervisor.read_status()
+        return supervisor.managed(status, time.time())[1] if status is not None else {}
     spec = declared()
     names = [n for n in installed() if not spec.get(n, {}).get("schedule") and spec.get(n, {}).get("restart", True)]
     if not names:
@@ -861,6 +996,10 @@ def history(state: pathlib.Path, hours: int = 24) -> HistoryView:
             return _history_cache[key][1]
         end = time.time()
         start = end - hours * 3600
+        if _supervised() is not None:  # the application's own record of each start and exit (#165)
+            from liberational import supervisor
+
+            return supervisor.history(supervisor.home(), names, start, end)  # ty: ignore[invalid-return-type]
         try:
             if DARWIN or not names:
                 raise OSError("Exact lifecycle history is unavailable")
@@ -1053,9 +1192,9 @@ def _commands() -> tuple[dict[str, str], dict[str, str]]:
         cmd = svc["command"]
         if cmd.startswith("pack-"):
             by_name[cmd] = name
-        elif "/" in cmd:
-            by_path[str(cfg.ROOT / cmd)] = name
-            by_path[str((cfg.ROOT / cmd).resolve())] = name
+        elif cmd.startswith(OURS):
+            by_path[str(cfg.program(cmd))] = name
+            by_path[str(cfg.program(cmd).resolve())] = name  # a checkout links it there from its release build
     return by_name, by_path
 
 
@@ -1140,7 +1279,13 @@ _manager: dict[str, Any] = {"at": None, "states": {}, "runs": {}}
 def _managed(fresh: bool = False) -> tuple[dict[str, str], dict[str, dict[str, Any]]]:
     """(states(), runs()) for a status poll: the last answer when it is under MANAGER_TTL_S old, with each run's
     `up_s` moved on by the answer's age. fresh=True (an action's reply) asks the manager now. Polls that arrive
-    together wait for one read instead of each starting their own."""
+    together wait for one read instead of each starting their own. While a supervisor runs the services (#155), the
+    answer is its own record of them, not the service manager's."""
+    from liberational import supervisor
+
+    status = supervisor.read_status()
+    if status is not None:
+        return supervisor.managed(status, time.time())
     with _manager_lock:
         at = _manager["at"]
         if fresh or at is None or time.monotonic() - at >= MANAGER_TTL_S:
@@ -1220,7 +1365,7 @@ def exec_service(name: str) -> None:
         raise SystemExit(f"cannot launch unselected or unknown service: {name}")
     command = argv(services[name])
     try:
-        os.chdir(cfg.ROOT)
+        os.chdir(cfg.workdir())
         os.execve(command[0], command, {**os.environ, **_templated_env(services[name])})
     except OSError as error:
         raise SystemExit(f"cannot start {name}: {error}") from error
@@ -1247,12 +1392,19 @@ def main() -> None:
         if c in {"restart", "install"}:
             p.add_argument("--cascade", action="store_true", help="stage the whole selected installed set")
     sub.add_parser("status")
+    move = sub.add_parser("migrate", help="remove the per-service units of an earlier install (see MIGRATING.md)")
+    move.add_argument("--dry-run", action="store_true", help="print exactly what would be done, and do nothing")
+    move.add_argument("--disable-linger", action="store_true", help="also turn linger off for this user")
     sub.add_parser("trim-logs", help="rotate every log under paths.logs past its cap (the log-trim service)")
     a = ap.parse_args()
     if a.cmd == "trim-logs":
         for file, freed in logs.trim(log_path("x").parent).items():
             print(f"{file}: rotated, {freed / 1e6:.1f} MB freed")
         return
+    if a.cmd == "migrate":
+        from liberational import unit_migration
+
+        return unit_migration.main(a.dry_run, a.disable_linger)
     if a.cmd == "exec":
         exec_service(a.name)
     elif a.cmd == "installed":

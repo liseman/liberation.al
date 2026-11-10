@@ -1,12 +1,12 @@
 // Walk coverage on Known › Places (#3): a place registered only from fixed cameras has a sparse cloud and a rough
 // plan, and a LiDAR walkthrough gives it metric scale and full walls. GET /places says how many walks went into each
 // place (`walks`) and which of its plan's rooms no LiDAR walk covered (`unwalked_rooms`, null when it can't tell), so
-// the list marks a place that needs a walk, and the place's panel says which rooms and links to the steps.
-import { Anchor, Badge, Code, Text } from '@mantine/core';
+// the list marks a place that needs a walk, and the place's panel says which rooms, above where a walk is dropped to import it (WalkImport.tsx, #176).
+import { Badge, Text } from '@mantine/core';
 import { plural } from '../lib/format';
 import type { Place } from './examples';
 
-/** The how-to for recording and importing a walk (docs/WALKTHROUGH.md). */
+/** The how-to for recording a walk (docs/WALKTHROUGH.md). */
 export const WALKTHROUGH_DOC = 'https://github.com/liseman/liberation.al/blob/main/docs/WALKTHROUGH.md';
 
 /** What a place still needs walked: the whole place (never walked), some rooms, or nothing (null). The examples and
@@ -37,22 +37,17 @@ export function WalkBadge({ place }: { place: Place }) {
   );
 }
 
-/** The place panel's note: what isn't walked, the command that imports a walk into this place, and the steps. */
+/** The place panel's note: what isn't walked yet. The import itself, and the link to how to record a walk, are
+ *  WalkImport's, below it. */
 export function WalkNote({ place }: { place: Place }) {
   const need = walkNeed(place);
   if (!need) return null;
   return (
-    <div role="note" aria-label="Walkthrough" style={{ marginBottom: 12 }}>
+    <div role="note" aria-label="Walkthrough" style={{ marginBottom: 8 }}>
       <Text size="sm">
         {need.kind === 'place'
           ? 'This place has never been walked. A LiDAR walkthrough gives it metric scale and full walls.'
           : `Not walked yet: ${namesWords(need.rooms)}. A LiDAR walkthrough through ${need.rooms.length === 1 ? 'it' : 'them'} fills in the walls the cameras can't see.`}
-      </Text>
-      <Text size="sm" c="dimmed">
-        Import a walk into this place with <Code>uv run pack-walkthrough &lt;folder&gt; --place {place.id}</Code>.{' '}
-        <Anchor href={WALKTHROUGH_DOC} target="_blank" rel="noreferrer">
-          How to record and import a walk
-        </Anchor>
       </Text>
     </div>
   );

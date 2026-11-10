@@ -2,11 +2,13 @@
 
 import datetime as dt
 import gzip
+import json
 import math
 import sys
 import textwrap
 from zoneinfo import ZoneInfo
 
+import cv2
 import numpy as np
 import pytest
 from hypothesis import given, settings
@@ -259,6 +261,129 @@ def test_a_place_gets_one_splat_for_the_revision_the_view_shows(tmp_path, runtim
     assert len(decode(places.splat_path(tmp_path, placed, "spz").read_bytes())["xyz"]) == 2
     # Written once: a second pass finds it there and does nothing.
     assert splats.splat_place(tmp_path, placed.place, T, always_lit, runtime, None) is None
+
+
+def wall(depth, step=0.02):
+    """A wall `depth` in front of CAM, filling its view: points every `step` across it."""
+    xs, ys = np.meshgrid(np.arange(-2 * depth, 2 * depth, step), np.arange(-depth, depth, step))
+    return np.c_[xs.ravel(), ys.ravel(), np.full(xs.size, depth)]
+
+
+def test_a_cameras_depth_is_scaled_to_the_map_points_it_sees():
+    model = np.full((100, 200), 1.6)  # the model has the wall at 1.6 m; the map has it at 2 m
+    assert splats.map_scale(model, wall(2.0), CAM) == pytest.approx(1.25)
+
+
+def test_the_scale_ignores_what_the_room_gained_since_the_map_and_the_points_behind_a_wall():
+    model = np.full((100, 200), 1.6)
+    model[:, :60] = 0.4  # a box put down close to the camera after the map was made
+    behind = wall(6.0, step=0.3)  # another room's points, seen through the wall's gaps: nearer ones win a cell
+    assert splats.map_scale(model, np.r_[wall(2.0), behind], CAM) == pytest.approx(1.25)
+
+
+def test_a_camera_that_sees_too_few_map_points_keeps_the_models_metres():
+    assert splats.map_scale(np.full((100, 200), 1.6), wall(2.0)[:50], CAM) is None
+
+
+@pytest.fixture
+def depth_model(tmp_path, runtime, monkeypatch):
+    """Depth Anything 3's code and weights where splats looks for them, with the model itself faked at its
+    subprocess boundary: frame k of a camera is given depth 1.5 + 0.1 k everywhere, and the requests are kept."""
+    (runtime / splats.DEPTH_SOURCE).mkdir(parents=True)
+    weights = tmp_path / "model.safetensors"
+    weights.write_bytes(b"")
+    monkeypatch.setattr(splats, "depth_checkpoint", lambda: weights)
+    asked = []
+
+    def run(rt, job, gpu):
+        request = json.loads(job.read_text())
+        asked.append(request)
+        for k, view in enumerate(request["views"]):
+            np.save(view["out"], np.full((100, 200), 1.5 + 0.1 * k, np.float32))
+
+    monkeypatch.setattr(splats, "run_depth", run)
+    return asked
+
+
+@pytest.fixture
+def jobs(monkeypatch):
+    """The jobs the trainer is given, read while their folder is still there."""
+    seen = []
+    real = splats.run_runner
+
+    def run(rt, job, gpu, timeout_s=splats.RUN_TIMEOUT_S):
+        seen.append(json.loads(job.read_text()))
+        depth = seen[-1]["views"][0].get("depth")
+        seen[-1]["depth_image"] = None if depth is None else cv2.imread(depth, cv2.IMREAD_UNCHANGED)
+        return real(rt, job, gpu, timeout_s)
+
+    monkeypatch.setattr(splats, "run_runner", run)
+    return seen
+
+
+def test_a_fixed_cameras_views_train_against_its_median_depth_scaled_to_the_map(
+    tmp_path, runtime, depth_model, jobs, monkeypatch
+):
+    monkeypatch.setattr("liberational.memory.history_qa.local_zone", lambda: UTC)
+    rev = places.revise(
+        tmp_path, None, producer="tier1 fuse v1", map_bytes=ply.dumps(wall(2.0), None), map_format="ply",
+        cameras={"cam0": CAM}, now=T,
+    )  # fmt: skip
+    did = splats.splat_place(tmp_path, rev.place, T, always_lit, runtime, None)
+    (job,) = jobs
+    frames = len(job["views"])
+    assert frames == splats.FRAMES_PER_CAMERA and len(depth_model[0]["views"]) == frames
+    assert depth_model[0]["views"][0]["focal"] == CAM.focal
+    # The frames' depths are 1.5, 1.6, ... 2.6: their median, 2.05, is what the camera's one depth image holds,
+    # scaled so the wall is where the map has it, 2 m, in thousandths.
+    assert did is not None and did["depth_scales"] == {"cam0": pytest.approx(2.0 / 2.05, abs=1e-3)}
+    assert {v["depth"] for v in job["views"]} == {job["views"][0]["depth"]} and job["depth_unit"] == 0.001
+    assert job["depth_image"].dtype == np.uint16 and job["depth_image"].shape == (100, 200)
+    assert np.unique(job["depth_image"]).tolist() == [2000]
+
+
+def test_a_cameras_covered_pixels_have_no_depth(tmp_path, runtime, depth_model):
+    rev = places.revise(
+        tmp_path, None, producer="p", map_bytes=ply.dumps(wall(2.0), None), map_format="ply", cameras={"cam0": CAM},
+        now=T,
+    )  # fmt: skip
+    folder = tmp_path / "job"
+    folder.mkdir()
+    job = splats.write_job(folder, rev, {"cam0": [lit(), lit(1)]}, (np.zeros((1, 3)), np.zeros((1, 3))))
+    covered = np.zeros((100, 200), np.uint8)
+    covered[:10] = 255  # an overlay along the top
+    cv2.imwrite(str(folder / "overlay.png"), covered)
+    spec = json.loads(job.read_text())
+    for view in spec["views"]:
+        view["mask"] = str(folder / "overlay.png")
+    job.write_text(json.dumps(spec))
+    splats.depth_priors(job, rev, wall(2.0), runtime, None)
+    depth = cv2.imread(json.loads(job.read_text())["views"][0]["depth"], cv2.IMREAD_UNCHANGED)
+    assert depth is not None and not depth[:10].any() and depth[10:].all()
+
+
+def test_without_the_depth_models_code_a_splat_trains_on_its_frames_alone(
+    tmp_path, runtime, placed, jobs, monkeypatch, caplog
+):
+    monkeypatch.setattr("liberational.memory.history_qa.local_zone", lambda: UTC)
+    did = splats.splat_place(tmp_path, placed.place, T, always_lit, runtime, None)
+    assert did is not None and did["depth_scales"] is None and places.has_splat(tmp_path, placed)
+    assert all("depth" not in v for v in jobs[0]["views"]) and "depth_unit" not in jobs[0]
+    assert "without the depth prior" in caplog.text and "mise run gsplat" in caplog.text
+
+
+def test_a_failed_depth_model_leaves_the_splat_to_train_without_it(
+    tmp_path, runtime, placed, depth_model, jobs, monkeypatch, caplog
+):
+    monkeypatch.setattr("liberational.memory.history_qa.local_zone", lambda: UTC)
+
+    def fail(rt, job, gpu):
+        raise RuntimeError("the depth model failed (1): CUDA out of memory")
+
+    monkeypatch.setattr(splats, "run_depth", fail)
+    did = splats.splat_place(tmp_path, placed.place, T, always_lit, runtime, None)
+    assert did is not None and did["depth_scales"] is None
+    assert all("depth" not in v for v in jobs[0]["views"]) and "CUDA out of memory" in caplog.text
 
 
 def test_a_place_with_no_lit_frames_gets_no_splat(tmp_path, runtime, placed, monkeypatch):

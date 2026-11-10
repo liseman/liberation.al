@@ -36,7 +36,7 @@ from typing import Any, Protocol
 
 from liberational import config as cfg
 from liberational import json_state, logs, ollama
-from liberational.config import ROOT
+from liberational.config import workdir
 from liberational.vision import views
 
 LOG = logs.get("ask")
@@ -895,7 +895,7 @@ def _ask_result(
                     text=True,
                     capture_output=True,
                     timeout=deadline(mode),
-                    cwd=str(ROOT),
+                    cwd=str(workdir()),
                 )
                 stdout = proc.stdout
     except subprocess.TimeoutExpired:
@@ -960,7 +960,7 @@ def _spoken_worker(payload: Mapping[str, Any], timeout: float, on_short: Callabl
         short_path = Path(directory) / "short.json"
         data = {**payload, "spoken": str(short_path)}
         with subprocess.Popen(
-            command, stdin=subprocess.PIPE, stdout=output, stderr=errors, text=True, cwd=str(ROOT)
+            command, stdin=subprocess.PIPE, stdout=output, stderr=errors, text=True, cwd=str(workdir())
         ) as proc:
             expired = threading.Event()
 

@@ -1,0 +1,193 @@
+// A place's walk import (#176): drop the zip Stray Scanner exports (or choose it) and it's uploaded, then imported
+// into this place in the background (dashboard/walk_import.py), as `pack-walkthrough <folder> --place <id>` does by
+// hand. One import runs at a time, and the server keeps the newest one, so its progress and its result are still here
+// after a reload. When it finishes, the places are read again and the new walk shows.
+import { Alert, Anchor, Button, FileButton, Group, Progress, Text } from '@mantine/core';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { type DragEvent, useEffect, useRef, useState } from 'react';
+import { messageOf } from '../../shared/http';
+import { dismissWalk, retryWalk, uploadWalk, type WalkJob, walkActive, walkQuery } from './api';
+import type { Place } from './examples';
+import classes from './places.module.css';
+import { WALKTHROUGH_DOC } from './walks';
+
+const VIDEO = ['.mp4', '.mov', '.m4v'];
+
+/** Why a file can't be a walk, before any of it is sent; null when it can. */
+export function refusal(file: { name: string; size: number }, maxMb: number, video: boolean): string | null {
+  const name = file.name.toLowerCase();
+  const isVideo = VIDEO.some(s => name.endsWith(s));
+  if (!name.endsWith('.zip') && !isVideo)
+    return video
+      ? 'Drop the zip Stray Scanner exports, or a video of the walk.'
+      : 'Drop the zip Stray Scanner exports.';
+  if (isVideo && !video) return "A plain video can't be imported on this machine. Drop a Stray Scanner export's zip.";
+  if (!file.size) return 'That file is empty.';
+  if (file.size > maxMb * 2 ** 20) return `That file is larger than the ${maxMb} MB this takes.`;
+  return null;
+}
+
+/** What a running import is doing, in a few words. */
+export function stepText(job: WalkJob): string {
+  if (job.status === 'uploading') return `Uploading ${job.name}`;
+  if (job.status === 'extracting') return `Unpacking ${job.name}`;
+  return job.detail ? `Importing ${job.name}: ${job.detail}` : `Importing ${job.name}`;
+}
+
+/** What a finished import did, for the place it was dropped on. */
+export function resultText(job: WalkJob): string {
+  if (job.result.meant_for)
+    return `${job.name} didn't register against this place's map, so it was stored as a place of its own. This place is unchanged.`;
+  return `${job.name} was imported into this place.`;
+}
+
+const hasFiles = (e: DragEvent) => Array.from(e.dataTransfer.types).includes('Files');
+
+export function WalkImport({ place }: { place: Place }) {
+  const client = useQueryClient();
+  const walk = useQuery(walkQuery());
+  const [sent, setSent] = useState<{ name: string; share: number } | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [over, setOver] = useState(false);
+  const resetFile = useRef<() => void>(null);
+  const job = walk.data?.job ?? null;
+  const video = walk.data?.video ?? false;
+  const maxMb = walk.data?.max_mb ?? 4096;
+  const mine = job?.place === place.id ? job : null;
+  const elsewhere = !mine && walkActive(job);
+  const busy = sent !== null || walkActive(job);
+
+  // A finished import changed the places (a new revision here, or a new place): read them again, once per job.
+  const finished = job?.status === 'done' ? job.id : null;
+  const reread = useRef<string | null>(null);
+  useEffect(() => {
+    if (!finished || reread.current === finished) return;
+    reread.current = finished;
+    void client.invalidateQueries({ queryKey: ['places'] });
+  }, [finished, client]);
+
+  const setJob = (next: WalkJob | null) =>
+    client.setQueryData(walkQuery().queryKey, old => (old ? { ...old, job: next } : old));
+  const send = async (file: File | null | undefined) => {
+    if (!file || busy) return;
+    const why = refusal(file, maxMb, video);
+    setErr(why);
+    if (why) return;
+    setSent({ name: file.name, share: 0 });
+    try {
+      const reply = await uploadWalk(place.id, file, share => setSent({ name: file.name, share }));
+      setJob(reply.job);
+    } catch (e) {
+      setErr(messageOf(e));
+    } finally {
+      setSent(null);
+      void walk.refetch();
+    }
+  };
+  const act = async (what: () => Promise<{ job: WalkJob | null }>) => {
+    setErr(null);
+    try {
+      setJob((await what()).job);
+    } catch (e) {
+      setErr(messageOf(e));
+    }
+    void walk.refetch();
+  };
+
+  return (
+    <section
+      aria-label="Import a walk"
+      className={classes.walkDrop}
+      data-over={(over && !busy) || undefined}
+      onDragEnter={e => hasFiles(e) && setOver(true)}
+      onDragOver={e => {
+        if (hasFiles(e)) e.preventDefault(); // without this the browser opens the file instead
+      }}
+      onDragLeave={e => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOver(false);
+      }}
+      onDrop={e => {
+        if (!hasFiles(e)) return;
+        e.preventDefault();
+        setOver(false);
+        void send(e.dataTransfer.files[0]);
+      }}
+    >
+      <Text size="sm">
+        Drop the zip Stray Scanner exports here to import a walk into this place
+        {video ? ', or a plain video of the walk (less accurate, and it marks no room as walked).' : '.'}{' '}
+        <Anchor href={WALKTHROUGH_DOC} target="_blank" rel="noreferrer">
+          How to record a walk
+        </Anchor>
+      </Text>
+      <Group mt={6} gap="xs">
+        <FileButton
+          accept={['.zip', ...(video ? VIDEO : [])].join(',')}
+          inputProps={{ 'aria-label': 'Choose a walk to import' }}
+          resetRef={resetFile}
+          disabled={busy}
+          onChange={file => {
+            void send(file);
+            resetFile.current?.();
+          }}
+        >
+          {props => (
+            <Button {...props} variant="default" size="xs" disabled={busy}>
+              Choose file
+            </Button>
+          )}
+        </FileButton>
+        {elsewhere && (
+          <Text size="xs" c="dimmed">
+            A walk is being imported into another place. One runs at a time.
+          </Text>
+        )}
+      </Group>
+      {sent && (
+        <div role="status" className={classes.walkStatus}>
+          <Text size="sm">
+            Uploading {sent.name}: {Math.round(sent.share * 100)}%
+          </Text>
+          <Progress value={Math.round(sent.share * 100)} size="sm" aria-label="Uploaded so far" />
+        </div>
+      )}
+      {!sent && mine && walkActive(mine) && (
+        <div role="status" className={classes.walkStatus}>
+          <Text size="sm">{stepText(mine)}</Text>
+          <Progress value={100} striped animated size="sm" aria-label="Importing" />
+          <Text size="xs" c="dimmed">
+            This takes a few minutes. It keeps going if you leave the page.
+          </Text>
+        </div>
+      )}
+      {!sent && mine?.status === 'done' && (
+        <Alert mt={8} color={mine.result.meant_for ? 'yellow' : 'green'} title="Walk imported" role="status">
+          <Text size="sm">{resultText(mine)}</Text>
+          <Button mt={6} size="xs" variant="default" onClick={() => void act(dismissWalk)}>
+            Dismiss
+          </Button>
+        </Alert>
+      )}
+      {!sent && mine?.status === 'failed' && (
+        <Alert mt={8} color="red" title={`${mine.name} wasn't imported`} role="alert">
+          <Text size="sm">{mine.error}</Text>
+          <Group mt={6} gap="xs">
+            {mine.retry && (
+              <Button size="xs" variant="default" onClick={() => void act(retryWalk)}>
+                Try again
+              </Button>
+            )}
+            <Button size="xs" variant="default" onClick={() => void act(dismissWalk)}>
+              Dismiss
+            </Button>
+          </Group>
+        </Alert>
+      )}
+      {err && (
+        <Text size="sm" c="red" mt={6} role="alert">
+          {err}
+        </Text>
+      )}
+    </section>
+  );
+}

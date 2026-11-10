@@ -3,6 +3,7 @@
 import datetime as dt
 import importlib.util
 import json
+import pathlib
 from unittest.mock import create_autospec
 from zoneinfo import ZoneInfo
 
@@ -14,12 +15,14 @@ from liberational import segment_log
 from liberational.memory import ask, history_qa, question, recall
 from voices import write_voices
 
-_spec = importlib.util.spec_from_file_location("measure", cfg.ROOT / "tools" / "measure.py")
+_spec = importlib.util.spec_from_file_location(
+    "measure", pathlib.Path(__file__).resolve().parents[1] / "tools" / "measure.py"
+)
 assert _spec is not None and _spec.loader is not None
 measure = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(measure)
 
-FIXTURES = cfg.ROOT / "tests" / "data" / "measurement"
+FIXTURES = pathlib.Path(__file__).resolve().parents[1] / "tests" / "data" / "measurement"
 LA = ZoneInfo("America/Los_Angeles")
 COLLECT = history_qa.collect  # the real one, to spec the fakes by
 FAKE_MODELS = {"models": {"ollama": {"llm": "fake-llm", "embedding": "fake-embed"}}}

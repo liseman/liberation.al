@@ -57,7 +57,7 @@ def capture_ready() -> bool:
         if not getattr(continuum_py, "h264_decoder_available", lambda: False)():
             return False
         for name in ("continuum-capture", "continuum-broker", "continuum-tier-worker"):
-            binary = cfg.ROOT / "continuum" / "target" / "release" / name
+            binary = cfg.program(name)
             result = subprocess.run([str(binary), "--capabilities"], capture_output=True, timeout=3, check=False)
             if result.returncode != 0 or len(result.stdout) >= 4096:
                 return False
@@ -71,7 +71,7 @@ def capture_ready() -> bool:
 
 def controls_ready() -> bool:
     """An old capture rejects enabled fields; never write one before its binary supports them."""
-    binary = cfg.ROOT / "continuum" / "target" / "release" / "continuum-capture"
+    binary = cfg.program("continuum-capture")
     try:
         result = subprocess.run([str(binary), "--capabilities"], capture_output=True, timeout=3, check=False)
         if result.returncode != 0 or len(result.stdout) >= 4096:

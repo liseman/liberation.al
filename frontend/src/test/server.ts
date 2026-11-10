@@ -18,6 +18,8 @@ export const server = setupServer(
   research,
   // Activity clip cards ask for their start-frame still: none is kept unless a test serves one.
   http.get('/people/video-thumb.jpg', () => new HttpResponse(null, { status: 404 })),
+  // Known › Places' walk import: none running, unless a test serves its own.
+  http.get('/places/walk', () => HttpResponse.json({ job: null, max_mb: 4096, video: true })),
   http.get('/network-cameras', () => HttpResponse.json({ cameras: [], capture_ready: false })),
   // The header's privacy pauses: read only, nothing paused, unless a test serves its own.
   http.get('/devices/privacy', () => HttpResponse.json({ ok: true, control: false, ready: false, devices: [] })),

@@ -5,6 +5,7 @@ import datetime as dt
 import http.client
 import importlib.util
 import json
+import pathlib
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -15,7 +16,9 @@ from liberational.dashboard import marks
 from liberational.memory import history_qa
 from voices import write_voices
 
-_spec = importlib.util.spec_from_file_location("measure", cfg.ROOT / "tools" / "measure.py")
+_spec = importlib.util.spec_from_file_location(
+    "measure", pathlib.Path(__file__).resolve().parents[1] / "tools" / "measure.py"
+)
 assert _spec is not None and _spec.loader is not None
 measure = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(measure)

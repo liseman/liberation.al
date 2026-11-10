@@ -150,7 +150,7 @@ def manifest() -> Path:
     """Capture's device manifest, where each camera's `lens` and `masks` are."""
     from liberational import config as cfg
 
-    return cfg.ROOT / "config" / "devices.toml"
+    return cfg.devices_file()
 
 
 def as_registered(camera: str) -> tuple[float, ...] | None:

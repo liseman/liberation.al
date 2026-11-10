@@ -1,6 +1,7 @@
 """Final cascade checks use fake managers, clocks, and status subprocesses only."""
 
 import subprocess
+import sys
 from dataclasses import replace
 
 import pytest
@@ -177,7 +178,6 @@ def test_snapshot_that_exceeds_deadline_cannot_report_health(setup, monkeypatch)
 
 @pytest.mark.parametrize("full", [False, True])
 def test_vision_probe_exact_interpreter_deadline_and_selection(setup, status_probe, full):
-    import sys
 
     from liberational import config
     from liberational.continuum_status import VISION
@@ -192,7 +192,7 @@ def test_vision_probe_exact_interpreter_deadline_and_selection(setup, status_pro
     if not full:
         expected += ["--selected-only", "--expected-service", "listen", "--expected-service", "see-actions"]
     assert args == expected
-    assert kwargs == {"cwd": config.ROOT, "capture_output": True, "text": True, "timeout": 105 - clock.now}
+    assert kwargs == {"cwd": config.workdir(), "capture_output": True, "text": True, "timeout": 105 - clock.now}
 
 
 @pytest.mark.parametrize("failure", ["exit", "timeout"])

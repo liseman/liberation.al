@@ -33,7 +33,7 @@ def none_load(_name, _platform):
 def test_the_declared_packages_load_and_name_real_services():
     packages = system_packages.load()
     by_name = {p.name: p for p in packages}
-    declared = set(tomllib.loads((cfg.ROOT / "services" / "services.toml").read_text()))
+    declared = set(tomllib.loads((cfg.RESOURCES / "services.toml").read_text()))
     assert set(by_name) >= {"sox", "espeak-ng", "portaudio", "ffmpeg", "ffprobe", "pkg-config", "python3"}
     for required in ("pkg-config", "python3", "libavcodec-dev", "libpipewire"):
         assert not by_name[required].optional, required
@@ -41,18 +41,16 @@ def test_the_declared_packages_load_and_name_real_services():
         assert set(p.services) <= declared, p.name
 
 
-def test_default_manifest_follows_the_current_root_and_explicit_paths_stay_explicit(tmp_path, monkeypatch):
+def test_default_manifest_follows_the_current_resources_and_explicit_paths_stay_explicit(tmp_path, monkeypatch):
     first, second = tmp_path / "first", tmp_path / "second"
-    (first / "config").mkdir(parents=True)
-    (second / "config").mkdir(parents=True)
-    first_manifest = first / "config" / "system-packages.toml"
+    first.mkdir()
+    second.mkdir()
+    first_manifest = first / "system-packages.toml"
     first_manifest.write_text('[alpha]\nwhy = "test input"\ncommand = "alpha"\napt = "alpha"\n')
-    (second / "config" / "system-packages.toml").write_text(
-        '[beta]\nwhy = "other test input"\ncommand = "beta"\napt = "beta"\n'
-    )
-    monkeypatch.setattr(cfg, "ROOT", first)
+    (second / "system-packages.toml").write_text('[beta]\nwhy = "other test input"\ncommand = "beta"\napt = "beta"\n')
+    monkeypatch.setattr(cfg, "RESOURCES", first)
     assert [p.name for p in system_packages.load()] == ["alpha"]
-    monkeypatch.setattr(cfg, "ROOT", second)
+    monkeypatch.setattr(cfg, "RESOURCES", second)
     assert [p.name for p in system_packages.load()] == ["beta"]
     assert [p.name for p in system_packages.load(first_manifest)] == ["alpha"]
 
@@ -335,3 +333,45 @@ def test_a_package_names_exactly_one_way_to_check_it(tmp_path):
     one = tmp_path / "q.toml"
     one.write_text('[x]\nwhy = "y"\npkgconfig = "liba"\napt = "liba-dev"\n')
     assert system_packages.load(one)[0].pkgconfig == "liba"
+
+
+# ---- an installed package: no mise, and nothing built --------------------------------------------------------------
+
+COMPILER = Package("cxx", "builds whisper", command="c++", apt="build-essential", build=True)
+PACKAGED_FFMPEG = Package("ffmpeg", "video", command="ffmpeg", mise=True, apt="ffmpeg", brew="ffmpeg")
+OLLAMA = Package("ollama", "models", command="ollama", mise=True, brew="ollama")
+
+
+def test_an_installed_package_needs_no_build_package_and_takes_mises_from_the_system():
+    declared = [COMPILER, PACKAGED_FFMPEG, OLLAMA]
+
+    def gone(platform, checkout):
+        found = system_packages.missing(
+            declared, platform=platform, which=nothing, library=none_load, checkout=checkout
+        )
+        return [p.name for p in found]
+
+    assert gone("linux", True) == ["cxx", "ffmpeg", "ollama"]
+    assert gone("linux", False) == ["ffmpeg"]  # no compiler; Ollama has no apt package, so pack-setup says how
+    assert gone("darwin", False) == ["ffmpeg", "ollama"]
+
+
+def test_an_installed_package_installs_a_mise_tool_with_the_package_manager():
+    packages = [PACKAGED_FFMPEG, SOX]
+    assert system_packages.commands(packages, platform="linux", installer="apt", checkout=True) == [
+        "sudo apt-get update",
+        "sudo apt-get install -y sox",
+        "mise install",
+    ]
+    assert system_packages.commands(packages, platform="linux", installer="apt", checkout=False) == [
+        "sudo apt-get update",
+        "sudo apt-get install -y ffmpeg sox",
+    ]
+
+
+def test_the_declared_build_packages_are_the_ones_no_service_runs_with():
+    # A package a running service needs must not be marked build, or an installed machine would never be told.
+    # PipeWire's is the one build package a service is listed under: it is the headers the capture build needs.
+    build = {p.name: p.services for p in system_packages.load() if p.build}
+    assert {name for name, services in build.items() if services} == {"libpipewire"}
+    assert {"cxx", "cmake", "git", "pkg-config", "libavcodec-dev"} <= set(build)

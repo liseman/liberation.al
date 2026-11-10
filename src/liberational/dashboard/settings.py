@@ -30,12 +30,18 @@ from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Any
 
 from liberational import config as cfg
-from liberational import service_cascade, services
+from liberational import login_item, service_cascade, services
 from liberational.dashboard import routes
 from liberational.dashboard.context import LOG
 
 if TYPE_CHECKING:
     from liberational.dashboard.server import H
+
+
+def shown(path: pathlib.Path) -> str:
+    """A path as Settings shows it: relative to the owner's root in a checkout, absolute otherwise."""
+    root = cfg.OWNER_ROOT
+    return str(path.relative_to(root)) if root is not None and path.is_relative_to(root) else str(path)
 
 
 def view(control: bool) -> dict[str, Any]:
@@ -44,7 +50,7 @@ def view(control: bool) -> dict[str, Any]:
         "ok": True,
         "control": control,
         "needs_setup": not path.exists(),
-        "path": str(path.relative_to(cfg.ROOT)) if path.is_relative_to(cfg.ROOT) else str(path),
+        "path": shown(path),
         "sections": with_restarts(cfg.schema(), everything := restarts()),
         "restarts": everything,
     }
@@ -285,7 +291,7 @@ def voice_ref(handler: H) -> None:
             if not path.is_file():
                 return handler._json({"ok": False, "error": "no voice reference recorded yet"}, 404)
             return handler._media(path.read_bytes(), "audio/wav")
-        info = {"ok": True, "path": str(path.relative_to(cfg.ROOT)) if path.is_relative_to(cfg.ROOT) else str(path)}
+        info = {"ok": True, "path": shown(path)}
         info["problem"] = reference_problem(path)  # missing or unreadable: the voice speaks Kokoro meanwhile
         try:
             info.update(
@@ -326,7 +332,7 @@ def voice_ref(handler: H) -> None:
         name = cfg.owner_name() if cfg.owner_name().lower() == owner else owner
         state = cfg.path("paths.state")
         cmd = [sys.executable, "-m", "liberational.people.voice_edits", "--state-dir", str(state), "enroll"]
-        r = subprocess.run([*cmd, name, str(path)], cwd=str(cfg.ROOT), capture_output=True, text=True, timeout=120)
+        r = subprocess.run([*cmd, name, str(path)], cwd=str(cfg.workdir()), capture_output=True, text=True, timeout=120)
         enrolled = r.returncode == 0
         note = (
             f"Learned as {name}'s voice."
@@ -406,6 +412,11 @@ def handle(
         except SystemExit:  # an unknown service name in pack.toml: a save may be what fixes it
             selected_before = None
         written, overridden = cfg.save(values)
+        if login_item.KEY in values:  # the desktop's autostart entry follows the setting at once (#157)
+            try:
+                LOG.info(f"settings: {login_item.sync()}")
+            except OSError as ex:  # the setting is saved; the application applies it again when it next starts
+                LOG.warning(f"settings: start at login not applied: {ex}")
     except cfg.SettingError as ex:
         handler._json({"ok": False, "error": str(ex), "field": ex.key}, 400)
         return True

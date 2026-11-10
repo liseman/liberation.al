@@ -106,7 +106,7 @@ def web_candidates(rows: list[Any], provider: str, name: str, context: str) -> l
 def search_credentials() -> dict[str, str]:
     """Dedicated gitignored KEY=value file, matching the app's phone env convention."""
     values: dict[str, str] = {}
-    path = cfg.ROOT / ".env.search"
+    path = cfg.owner_file(".env.search")
     try:
         for line in path.read_text().splitlines():
             key, sep, value = line.strip().partition("=")

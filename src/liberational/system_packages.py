@@ -12,8 +12,9 @@ It never fails setup for something it can't install itself (an unknown package m
 returns 0. A package is found by its command on PATH, by its library loading (ctypes.util.find_library, plus
 Homebrew's folders on macOS, which find_library doesn't search), or by `pkg-config --exists` for a development
 package whose headers matter (a runtime library can load while its headers are missing). On Linux the installer is
-apt-get (through sudo, which asks for the password itself); on macOS it's Homebrew, when it's installed. Packages mise.toml provides are
-fixed with `mise install` instead.
+apt-get (through sudo, which asks for the password itself); on macOS it's Homebrew, when it's installed. In a checkout,
+packages mise.toml provides are fixed with `mise install` instead. An installed package (no checkout) has no mise
+and builds nothing: it leaves out the packages marked `build` and gets the mise ones from the package manager.
 """
 
 import argparse
@@ -48,6 +49,7 @@ class Package:
     services: tuple[str, ...] = ()
     optional: bool = False
     when: str | None = None  # a key of WHEN: only on machines where that holds
+    build: bool = False  # only building from source needs it: a checkout does, an installed package doesn't
 
 
 def _text(d: dict[str, Any], key: str) -> str | None:
@@ -60,11 +62,11 @@ def _text(d: dict[str, Any], key: str) -> str | None:
 def load(path: pathlib.Path | None = None) -> list[Package]:
     """The declared packages, resolving the current root on each call unless a path is supplied.
 
-    Raises ValueError naming the package when a table doesn't follow the format. Do not capture ROOT in a default:
-    importing this module while configuration is overridden must not pin later reads to that old checkout.
+    Raises ValueError naming the package when a table doesn't follow the format. Do not capture RESOURCES in a
+    default: importing this module while configuration is overridden must not pin later reads to that old path.
     """
     if path is None:
-        path = cfg.ROOT / "config" / "system-packages.toml"
+        path = cfg.RESOURCES / "system-packages.toml"
     known = {f.name for f in dataclasses.fields(Package)} - {"name"}
     out = []
     for name, d in tomllib.loads(path.read_text()).items():
@@ -77,12 +79,13 @@ def load(path: pathlib.Path | None = None) -> list[Package]:
             pkgconfig = _text(d, "pkgconfig")
             apt, brew, when = _text(d, "apt"), _text(d, "brew"), _text(d, "when")
             mise, optional, services = d.get("mise", False), d.get("optional", False), d.get("services", [])
+            build = d.get("build", False)
             if not why:
                 raise ValueError("say why it's needed")
             if int(bool(command)) + int(bool(library)) + int(bool(pkgconfig)) != 1:
                 raise ValueError("give one of a command, a library, or a pkg-config name to check")
-            if not isinstance(mise, bool) or not isinstance(optional, bool):
-                raise ValueError("mise and optional are true or false")
+            if not isinstance(mise, bool) or not isinstance(optional, bool) or not isinstance(build, bool):
+                raise ValueError("mise, optional, and build are true or false")
             if not (apt or brew or mise):
                 raise ValueError("say where it comes from (apt, brew, or mise)")
             if not isinstance(services, list) or not all(isinstance(s, str) for s in services):
@@ -91,7 +94,9 @@ def load(path: pathlib.Path | None = None) -> list[Package]:
                 raise ValueError(f"when must be one of {sorted(WHEN)}")
         except ValueError as e:
             raise ValueError(f"{name}: {e}") from None
-        out.append(Package(name, why, command, library, pkgconfig, apt, brew, mise, tuple(services), optional, when))
+        out.append(
+            Package(name, why, command, library, pkgconfig, apt, brew, mise, tuple(services), optional, when, build)
+        )
     return out
 
 
@@ -109,13 +114,22 @@ def manager(platform: str | None = None, which: Callable[[str], str | None] | No
     return None
 
 
-def applies(p: Package, platform: str | None = None) -> bool:
-    """Whether this machine needs the package: mise ones everywhere, others where they have a name for its installer,
-    and only where its `when` holds."""
-    platform = platform or _platform()
+def in_checkout() -> bool:
+    """Whether the code runs from a checkout (where mise provides tools and things are built from source), not
+    from an installed package."""
+    return cfg.CHECKOUT is not None
+
+
+def applies(p: Package, platform: str | None = None, checkout: bool | None = None) -> bool:
+    """Whether this machine needs the package: only where its `when` holds; in a checkout, mise ones everywhere and
+    others where they have a name for its installer; in an installed package, never a build one, and a mise one
+    only by its installer's name (Ollama has none for apt: pack-setup says how to get it)."""
+    platform, checkout = platform or _platform(), in_checkout() if checkout is None else checkout
     if p.when and not WHEN[p.when]():
         return False
-    return p.mise or bool(p.brew if platform == "darwin" else p.apt)
+    if p.build and not checkout:
+        return False
+    return (p.mise and checkout) or bool(p.brew if platform == "darwin" else p.apt)
 
 
 def _library(name: str, platform: str) -> bool:
@@ -152,24 +166,34 @@ def missing(
     library: Callable[[str, str], bool] | None = None,
     optional: bool = True,
     pkgconfig: Callable[[str], bool] | None = None,
+    checkout: bool | None = None,
 ) -> list[Package]:
     """The packages this machine needs and doesn't have: only those some of `services` use, when it's given, and
-    only the required ones unless optional."""
+    only the required ones unless optional. `checkout` says which install this is (applies()); None finds out."""
     return [
         p
         for p in packages
-        if applies(p, platform)
+        if applies(p, platform, checkout)
         and (optional or not p.optional)
         and (services is None or set(p.services) & set(services))
         and not present(p, platform, which, library, pkgconfig)
     ]
 
 
-def commands(packages: Sequence[Package], platform: str | None = None, installer: str | None = DETECT) -> list[str]:
+def commands(
+    packages: Sequence[Package],
+    platform: str | None = None,
+    installer: str | None = DETECT,
+    checkout: bool | None = None,
+) -> list[str]:
     """The commands that install these packages: for the package manager (the system's own, unless installer names
-    one, or None for none), and `mise install` for the ones mise provides."""
+    one, or None for none), and, in a checkout, `mise install` for the ones mise provides. An installed package has
+    no mise: those come from the package manager too."""
     installer = manager(platform) if installer == DETECT else installer
+    checkout = in_checkout() if checkout is None else checkout
     out = []
+    if not checkout:
+        packages = [dataclasses.replace(p, mise=False) for p in packages]
     names = [(p.brew if installer == "brew" else p.apt) for p in packages if not p.mise]
     names = [n for n in dict.fromkeys(names) if n]
     if names and installer == "apt":
@@ -181,13 +205,19 @@ def commands(packages: Sequence[Package], platform: str | None = None, installer
     return out
 
 
-def describe(packages: Sequence[Package], platform: str | None = None, installer: str | None = DETECT) -> str:
+def describe(
+    packages: Sequence[Package],
+    platform: str | None = None,
+    installer: str | None = DETECT,
+    checkout: bool | None = None,
+) -> str:
     """Lines naming each missing package and why, then the commands that install them."""
+    checkout = in_checkout() if checkout is None else checkout
     lines = [f"  {p.name}{' (optional)' if p.optional else ''}: {p.why}" for p in packages]
-    fix = commands(packages, platform, installer)
+    fix = commands(packages, platform, installer, checkout)
     if fix:
         lines.append("Install with: " + " && ".join(fix))
-    if any(not p.mise for p in packages) and not any(not c.startswith("mise") for c in fix):
+    if any(not (p.mise and checkout) for p in packages) and not any(not c.startswith("mise") for c in fix):
         lines.append("Install them with your system's package manager (Liberational knows apt-get and Homebrew).")
     return "\n".join(lines)
 

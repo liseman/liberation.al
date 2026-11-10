@@ -5,6 +5,100 @@ This guide covers the current Continuum installation. Fresh setup is in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). The old genericize and v1 import
 procedures are retired. Do not run an old catch-up script against current data.
 
+## Fixed-camera splats train against a depth model
+
+A fixed-camera place's splat now trains against a depth image per camera from Depth Anything 3's metric model, which
+runs in gsplat's runtime. On a machine that makes splats (CUDA), after the pull:
+
+```sh
+mise run gsplat   # rebuilds data/gsplat: the same gsplat, plus Depth Anything 3's pinned code
+mise run models   # fetches data/models/depth-anything-3-metric (1.3 GB)
+```
+
+`[models.hf.depth_anything]` is a new key in `config/defaults.toml`, so restart every config-reading service after
+the pull. Until both commands have run, splats train as before, without the depth, and the log says which is
+missing. Nothing is dropped.
+
+## One application instead of a service per daemon
+
+The system now runs as one application: `pack-app` (the window) or `pack-supervisor run` (no window) starts every
+selected service as its own child process, and quitting it drains and stops them. Earlier installs ran each service
+as a systemd user unit or a launchd agent. The application refuses to start while those run, so remove them once:
+
+```sh
+.venv/bin/python -m liberational.services migrate --dry-run   # prints every command and file; changes nothing
+.venv/bin/python -m liberational.services migrate             # stop the units in order, and remove them
+.venv/bin/pack-app                                            # open the application
+```
+
+What the migration does: stops the readers, then capture, waits up to 20 s for the tier worker to flush what capture
+left, stops it, the broker, and last the dashboard and the gateway; disables the units, deletes their files (and any
+`pack-<name>.service.d` override directories), and reloads the service manager. It knows the units by file name, so
+it works on any later checkout, and running it again does nothing.
+
+What it leaves alone: `pack.toml`, `config/devices.toml`, and everything under `data/`. The application runs from
+the same checkout and reads the same files; nothing has to move. `PACK_ROOT` still points a command at a checkout
+from anywhere.
+
+What changes for you:
+
+- **It runs while the application is open.** Nothing starts at boot or at login unless you turn on "Start at
+  login" in Settings (off by default). Recording, the scheduled jobs, and the dashboard stop when you quit or log
+  out. A machine that should record all day keeps the application open in a session that stays logged in.
+- **Linger.** The dry run says whether linger is on for your user (`loginctl enable-linger` made the units start at
+  boot). The application doesn't need it. `migrate --disable-linger` turns it off; leave it if other user services
+  of yours want it.
+- **`pack-services` talks to the application.** While it runs, `pack-services status`, `start`, `stop`, and
+  `restart` (and `restart --cascade`, the staged restart of everything) are requests to it, and so are Settings'
+  Services buttons. With the application closed they have nothing to act on.
+
+To go back: check out the commit you were on before the pull and run `pack-services install` there, which writes the
+units again.
+
+## `pack-setup` sets up an installed package; a checkout is unchanged
+
+`pack-setup` is new: the setup command for a package installed with no checkout (docs/ARCHITECTURE.md, "A checkout
+and an installed package"). `mise run setup` is still how a checkout is set up, and nothing in a checkout behaves
+differently: its services keep mise's shims on their `PATH`, `pack-system` lists the same packages, and the
+`whisper` service is declared as before (its server is now named by its whole path, the same file). No setting was
+added, nothing stored changes, and no service needs a restart.
+
+`config/system-packages.toml` has a new field, `build = true`, for a package only a build from source needs, and
+`services/services.toml` has `source_build = true`, for a service whose program a checkout builds. An installed
+package leaves both kinds out.
+
+## The model fetcher is a command: `pack-models`
+
+`tools/fetch_models.py` moved into the package as `pack-models`, so an installed package has it with no checkout.
+`mise run models` and `mise run setup` run it as before. Anything that ran the script by its path runs the module,
+which works straight after the pull:
+
+```sh
+.venv/bin/python -m liberational.fetch_models --list
+```
+
+The `pack-models` command itself appears in `.venv/bin` the next time the environment is synced (`mise run models`
+does it; so does the sync under "Build and restart matching components"). Nothing stored changes, and no service
+needs a restart.
+
+## Continuum's daemons are found in the environment, not the checkout
+
+Nothing builds a path from the checkout to a program any more. `services/services.toml` names the daemons by
+command (`continuum-broker`, not `continuum/target/release/continuum-broker`), and they are found where the `pack-*`
+commands are: the bin directory of the environment the services run in. In a checkout that is `.venv/bin`, and
+`mise run continuum-release` now links the daemons there after it builds them.
+
+After the pull, and before anything starts or restarts a Continuum service, link the daemons already built (no
+build, a second or two):
+
+```sh
+mise run continuum-link
+```
+
+Run it again whenever `.venv` is made from scratch. A daemon's `--state-dir` and `--manifest` arguments are now
+whole paths (they were relative to the checkout); they name the same files, and nothing stored changes or is
+dropped.
+
 ## The manifest import and its `[vision]` keys are gone
 
 `continuum-capture --from-v1` is removed, and so are the settings it read: `vision.cams`, `vision.width`,
@@ -25,24 +119,51 @@ The Python SDK's in-place registration calls are renamed (`register_v1_index` to
 restart matching components") and restart every service after the pull. Stream names (`<stream>.audio_v1`,
 `<stream>.video_v1`) and stored data are unchanged; nothing is dropped.
 
-## The pet embedding model is fetched from an ungated copy
+## Pet embeddings are DINOv2 (2026-11-09)
 
-`[models.hf.animal_embedding]` now names an ungated copy of the same DINOv3 ViT-S/16 files (`repo`, pinned by
-`revision`), the publisher's checksum of the weights (`sha256`), and the embedding space's name (`space`, still the
-publisher's repository name). The weights are byte for byte the same, and the space name stored in every animal
-embedding row and taught pet reference doesn't change, so nothing is re-embedded, reset, or taught again.
+The pet embedding model is now Meta's DINOv2 ViT-S/14 (`facebook/dinov2-small`, Apache-2.0, ungated) in place of
+DINOv3 ViT-S/16 and its DINOv3 License. `[models.hf.animal_embedding]` pins its revision and the checksum of its
+weights, and names a new embedding space (`space = "facebook/dinov2-small"`). Recognition's thresholds are set for
+it (`MATCH_SIM` 0.55, `GROUP_SIM` 0.65, `MIN_GALLERY_SIM` 0.60 in `people/pet_recognition.py`).
 
-The pet workers load the weights from the repository the config names, so fetch the copy (86 MB) before restarting
-them, or they start without pet embeddings and say the weights are missing:
+What it drops: every stored animal embedding and taught pet example (`pet.reference`) of the DINOv3 space stops being
+read. They stay on disk, and nothing is deleted. Pet profiles and the owner's labels are untouched. Until a species
+has examples in the new space, its pets aren't told apart by appearance.
+
+The examples taught so far are vectors with no photo kept, so they can't be embedded again. Instead, carry the pets
+over: the tool below takes the unlabeled sightings that still have a saved photo (`state/pet_shots`), names each by
+the old examples (embedding the photo with DINOv3, which must still be in the Hugging Face cache), and gives the ones
+it is sure of (0.75 or more alike, 0.10 clear of any other pet, where recognition itself asked 0.65 and 0.05) to that
+pet as new DINOv2 examples. In order:
 
 ```sh
-.venv/bin/python tools/fetch_models.py --no-ollama
+# 1. After the pull, before restarting anything: fetch DINOv2 (88 MB; its checksum is verified).
+.venv/bin/python -m liberational.fetch_models --no-ollama
+
+# 2. See what the carry-over would do (writes nothing), then do it. It takes a few minutes on the CPU.
+.venv/bin/python tools/restore_pet_references.py --carry-from facebook/dinov3-vits16-pretrain-lvd1689m:tight \
+    --old-model facebook/dinov3-vits16-pretrain-lvd1689m --dry-run
+.venv/bin/python tools/restore_pet_references.py --carry-from facebook/dinov3-vits16-pretrain-lvd1689m:tight \
+    --old-model facebook/dinov3-vits16-pretrain-lvd1689m
+
+# 3. Restart every config-reading service (the model entry changed), the dashboard and gateway included.
 ```
 
-Then restart every config-reading service (`space` and `sha256` are new keys). The old download in the Hugging Face
-cache (`models--facebook--dinov3-vits16-pretrain-lvd1689m`) is no longer read and can be deleted. A `pack.toml` that
-sets `models.hf.animal_embedding.repo` to another model must also set `space` to that model's own name, or its
-vectors would be stored under DINOv3's.
+`--old-model` is the DINOv3 repository in the cache: `facebook/dinov3-vits16-pretrain-lvd1689m`, or
+`computer-vision-ai-lab/dinov3-vits16-pretrain-lvd1689m` on an install that fetched the ungated copy. The tool prints
+how many examples each pet got and whether each species' held-out check passes. A pet it lists with fewer than 6
+needs teaching again on People's Pets page. The carried labels show there like any label (each records
+`carried_from`), and a wrong one can be cleared.
+
+From now on a label keeps its sighting's saved photo in the knowledge store (`pet.photo`), which a catalog reset and
+`pack-knowledge export` keep. A later model change is then
+`.venv/bin/python tools/restore_pet_references.py` with no arguments, which embeds every labeled sighting's kept
+photo again.
+
+DINOv3 is no longer in the model list, and nothing reads it after the carry-over: delete its download when you like
+(`models--facebook--dinov3-vits16-pretrain-lvd1689m` or `models--computer-vision-ai-lab--dinov3-vits16-pretrain-lvd1689m`
+under `~/.cache/huggingface/hub`). A `pack.toml` that sets `models.hf.animal_embedding.repo` to another model must
+also set `space` to that model's name and drop or replace `sha256`.
 
 ## The gateway's stream listing comes from the catalog
 
@@ -211,7 +332,46 @@ In `pack.toml`, under `[ollama]`, set `models = "/usr/share/ollama/.ollama/model
 to pin it, `gpu = "<UUID from nvidia-smi -L>"`, then `uv run --no-sync pack-services install`. The store's files are
 owned by the `ollama` user and readable by everyone, which is enough to serve them; pulling new models into it needs
 write access (`sudo chown -R $USER /usr/share/ollama/.ollama/models`). Every config-reading service needs a restart
-after the pull (new `ollama.gpu` and `ollama.models` keys). On macOS, quit the Ollama app instead.
+after the pull (new `ollama.gpu` and `ollama.models` keys). On macOS, the pack service replaces the Ollama app or
+Homebrew's Ollama too; see the next part.
+
+The service's server tuning is now settings under `[ollama]` (2026-11-09): `keep_alive` (`OLLAMA_KEEP_ALIVE`,
+default Ollama's own), `flash_attention` (on by default), `kv_cache_type` (default `f16`), and `max_loaded_models`
+(default 0, Ollama's own). `config/defaults.toml` says why each default is what it is. These are new keys, so every
+config-reading service needs a restart after the pull: quit the application and open it again.
+
+### A Mac that ran Homebrew's Ollama
+
+A Mac whose Ollama ran as Homebrew's launchd service (`brew services start ollama`) moves it to the pack's `ollama`
+service, keeping its tuning and its model store:
+
+1. Note the tuning and the store the old server used. Homebrew's service sets its variables in its plist
+   (`cat "$(brew --prefix)/opt/ollama/homebrew.mxcl.ollama.plist"`, under `EnvironmentVariables`), and some were set
+   with `launchctl setenv` instead (`launchctl getenv OLLAMA_KEEP_ALIVE`, and the same for `OLLAMA_FLASH_ATTENTION`,
+   `OLLAMA_KV_CACHE_TYPE`, `OLLAMA_MAX_LOADED_MODELS`, and `OLLAMA_MODELS`).
+2. Stop it and keep it from starting at login: `brew services stop ollama`. Quit the Ollama app too if it is running,
+   and turn off its own "launch at login". Leave the formula installed: the pack service runs that `ollama` binary.
+   Check nothing still listens with `lsof -iTCP:11434 -sTCP:LISTEN` (no output).
+3. In `pack.toml`, under `[ollama]`, put the tuning the defaults don't already give. For a server that ran with
+   `OLLAMA_KEEP_ALIVE=-1`, `OLLAMA_FLASH_ATTENTION=1`, and `OLLAMA_KV_CACHE_TYPE=q8_0`:
+
+   ```toml
+   [ollama]
+   keep_alive = "-1"      # a large model stays loaded until Ollama stops
+   kv_cache_type = "q8_0"
+   # flash_attention = true is already the default
+   ```
+
+   Keep the model store: if step 1 showed an `OLLAMA_MODELS`, set `models` to that path; with none, the old server
+   used `~/.ollama/models`, which is the service's default as well, so leave `models` unset. If the old server set
+   `OLLAMA_MAX_LOADED_MODELS`, set `max_loaded_models` to the same number.
+4. Turn the pack's service on: it is on by default, so remove `"ollama"` from `[services] disable` in `pack.toml` if
+   it is there. Then quit the application and open it again (`pack-app`), which also restarts every service for the
+   new keys.
+5. Check it: `.venv/bin/pack-services status` lists `ollama` as running, and `curl -s http://127.0.0.1:11434/api/tags`
+   lists the models the old server had. The first answers after the switch load their models, so they are slow once.
+
+To go back: quit the application, set `[services] disable = ["ollama"]`, and `brew services start ollama`.
 
 ## Prepare the upgrade
 
@@ -289,7 +449,7 @@ cannot reuse their predecessors' embeddings:
 |---|---|---|
 | Faces | AdaFace IR50 WebFace4M RGB | ArcFace/buffalo_l recognition vectors |
 | Voices | ReDimNet2 B3 VoxCeleb2 large-margin, 192 values | CAM++ vectors |
-| Pets | DINOv3 ViT-S/16 on tight box crops, 384 values | DINOv2 vectors, and DINOv3 on square crops, despite the same dimensions |
+| Pets | DINOv2 ViT-S/14 (`facebook/dinov2-small`) on tight box crops, 384 values | DINOv3 vectors, and any model's on square crops, despite the same dimensions |
 | Journal retrieval | Qwen3-Embedding 0.6B, 1024 values | Qwen3-Embedding 4B index and embeddings |
 
 Preserve owner names, profiles, photos, reference media, zones, and Objects while
@@ -308,9 +468,8 @@ vector-bearing teaching bundle wholesale afterward.
 
 AdaFace requires a local ONNX export after its declared source and checkpoint are
 fetched; follow `uv run tools/export_adaface.py --help` and use the configured model paths.
-Review the checkpoint's dataset-license conditions. DINOv3 is under the DINOv3
-License, fetched beside its weights; the operator reads and accepts those terms, and
-an agent does not accept them for them.
+Review the checkpoint's dataset-license conditions; the operator reads and accepts a
+model's terms, and an agent does not accept them for them.
 
 Deep transcription now uses Qwen3-ASR in the scheduled process and writes
 `transcript_revisions_qwen.sqlite3`; the old `transcript_revisions.sqlite3` is not

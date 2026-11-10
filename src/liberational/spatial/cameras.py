@@ -172,7 +172,7 @@ def daylight(pixels: np.ndarray) -> bool:
 #: SAMPLE_EVERY_S over MIDDAY (local minutes past midnight, [from, to)) of the last LOOKBACK_S. A splat is one fixed
 #: appearance, and the day's light changes it: on Place 1, 10:30 to 14:30 against 09:00 to 16:00 put held-out midday
 #: frames 2.0 to 2.5 dB closer (cam0 28.4 to 30.9, living-room 25.7 to 27.7) for 0.5 dB less on a 09:40 frame.
-#: Every 20 minutes keeps up to 12 tries a camera, well above the splat's 6-frame minimum.
+#: Every 20 minutes keeps up to 12 tries a camera, well above the splat's 3-frame minimum.
 LOOKBACK_S = 86400.0
 SAMPLE_EVERY_S = 1200.0
 MIDDAY = (10 * 60 + 30, 14 * 60 + 30)
@@ -461,7 +461,7 @@ def pick_gpu(setting: int, found: Sequence[Mapping[str, Any]] | None) -> str | N
 
 
 def checkpoint() -> Path:
-    return cfg.ROOT / str(cfg.load()["models"]["hf"]["mast3r"]["path"])
+    return cfg.owner_file(str(cfg.load()["models"]["hf"]["mast3r"]["path"]))
 
 
 def run_mast3r(
@@ -1298,7 +1298,7 @@ def _place_positions(state: Path, now: float) -> dict[str, int] | None:
 
 def _places_pass(state: Path, now: float) -> dict[str, Any]:
     """Footprints, frames, MASt3R, and places."""
-    cams = fixed_cameras(cfg.ROOT / "config" / "devices.toml")
+    cams = fixed_cameras(cfg.devices_file())
     # Footprints first: every fixed camera's, registered or not, so a place has them by the time it has poses.
     # The log's footprints_recorded is what this run added since each camera's mark (a day's backfill the first time,
     # then only the new rows), not what a plan reads: the walkable floor reads the last 14 days back on every run.

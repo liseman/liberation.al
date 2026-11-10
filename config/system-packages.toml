@@ -9,7 +9,10 @@
 #   library   a shared library that must load (as ctypes.util.find_library names it)
 #   apt       the Debian/Ubuntu package that provides it; leave it out when Linux doesn't need it
 #   brew      the Homebrew formula that provides it; leave it out when macOS doesn't need it
-#   mise      true when mise.toml's [tools] provides it (then `mise install` is the fix, whatever the OS)
+#   mise      true when mise.toml's [tools] provides it in a checkout (there `mise install` is the fix, whatever the
+#             OS); an installed package gets it by its apt or brew name instead, when it has one
+#   build     true for a package only building from source needs (a compiler, headers): a checkout needs it, an
+#             installed package doesn't, so pack-setup and the dashboard leave it out there
 #   services  the services in services/services.toml that use it ([] for setup only)
 #   optional  true for a package only some setups need: listed by `pack-system check`, installed only with
 #             `pack-system install --optional`, and left out of the dashboard
@@ -56,18 +59,23 @@ services = ["listen"]
 why = "Compresses recorded video, and cuts clips for the dashboard."
 command = "ffmpeg"
 mise = true
+apt = "ffmpeg"
+brew = "ffmpeg"
 services = ["continuum-tier-worker", "dashboard"]
 
 [ffprobe]
 why = "Reads how long each video recording is (it comes with ffmpeg)."
 command = "ffprobe"
 mise = true
+apt = "ffmpeg"
+brew = "ffmpeg"
 services = ["dashboard"]
 
 [ollama]
 why = "Runs the local language and vision models."
 command = "ollama"
 mise = true
+brew = "ollama"
 services = ["vlm", "voice", "see-captions", "dashboard"]
 
 [cmake]
@@ -75,12 +83,14 @@ why = "Builds whisper.cpp's speech recognizer during setup."
 command = "cmake"
 mise = true
 services = []
+build = true
 
 [cxx]
 why = "A C++ compiler, to build whisper.cpp during setup. On macOS it comes with the Xcode command line tools."
 command = "c++"
 apt = "build-essential"
 services = []
+build = true
 
 [git]
 why = "Fetches whisper.cpp's source during setup."
@@ -88,6 +98,7 @@ command = "git"
 apt = "git"
 brew = "git"
 services = []
+build = true
 
 [pkg-config]
 why = "Finds system C libraries and headers (PipeWire and FFmpeg) when building Continuum and checking header packages."
@@ -95,12 +106,14 @@ command = "pkg-config"
 apt = "pkg-config"
 brew = "pkgconf"
 services = []
+build = true
 
 [python3]
 why = "Runs the repository's Git hooks (tools/privacy_check.py) before commits and pushes."
 command = "python3"
 apt = "python3"
 services = []
+build = true
 
 [libusb]
 why = "Controls an XVF3800 microphone array's settings (only with that microphone)."
@@ -150,6 +163,7 @@ pkgconfig = "libavcodec"
 apt = "libavcodec-dev"
 brew = "ffmpeg"
 services = []
+build = true
 
 [libavformat-dev]
 why = "FFmpeg's avformat headers, to build Continuum RTSP capture, H.264 Python decoding, and Tier video codecs with the ffmpeg feature."
@@ -157,6 +171,7 @@ pkgconfig = "libavformat"
 apt = "libavformat-dev"
 brew = "ffmpeg"
 services = []
+build = true
 
 [libavutil-dev]
 why = "FFmpeg's avutil headers, to build Continuum RTSP capture, H.264 Python decoding, and Tier video codecs with the ffmpeg feature."
@@ -164,6 +179,7 @@ pkgconfig = "libavutil"
 apt = "libavutil-dev"
 brew = "ffmpeg"
 services = []
+build = true
 
 [libswscale-dev]
 why = "FFmpeg's swscale headers, to build Continuum RTSP capture, H.264 Python decoding, and Tier video codecs with the ffmpeg feature."
@@ -171,6 +187,7 @@ pkgconfig = "libswscale"
 apt = "libswscale-dev"
 brew = "ffmpeg"
 services = []
+build = true
 
 [libpipewire]
 # Checked by the headers' pkg-config module (the runtime library is there without them). libclang, which generates
@@ -179,3 +196,4 @@ why = "Building Continuum's capture supervisor needs PipeWire's headers, and lib
 pkgconfig = "libpipewire-0.3"
 apt = "libpipewire-0.3-dev libclang-dev"
 services = ["continuum-capture"]
+build = true

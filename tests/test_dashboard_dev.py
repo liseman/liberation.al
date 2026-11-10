@@ -5,6 +5,7 @@ import http.client
 import http.server
 import json
 import os
+import pathlib
 import shutil
 import socket
 import subprocess
@@ -68,7 +69,7 @@ def test_shell_uses_exact_native_camera_names(tmp_path, monkeypatch):
         '[[device]]\nname="CAM0"\nkind="camera"\n'
         '[[device]]\nname="mic"\nkind="microphone"\n'
     )
-    monkeypatch.setattr(cfg, "ROOT", tmp_path)
+    monkeypatch.setattr(cfg, "OWNER_ROOT", tmp_path)
     assert names(server.fill(INDEX))["cams"] == ["front-door", "CAM0"]
 
 
@@ -77,7 +78,7 @@ def test_shell_retains_disabled_camera_history_and_excludes_it_only_from_live(tm
     (tmp_path / "config" / "devices.toml").write_text(
         'device = [{name="front-door", kind="rtsp", enabled=false}, {name="desk", kind="camera"}]'
     )
-    monkeypatch.setattr(cfg, "ROOT", tmp_path)
+    monkeypatch.setattr(cfg, "OWNER_ROOT", tmp_path)
     data = names(server.fill(INDEX))
     assert data["cams"] == ["front-door", "desk"]
     assert data["activeCams"] == ["desk"]
@@ -86,7 +87,7 @@ def test_shell_retains_disabled_camera_history_and_excludes_it_only_from_live(tm
 def test_shell_has_no_phantom_camera_for_microphone_only_manifest(tmp_path, monkeypatch):
     (tmp_path / "config").mkdir()
     (tmp_path / "config" / "devices.toml").write_text('[[device]]\nname="mic"\nkind="microphone"\n')
-    monkeypatch.setattr(cfg, "ROOT", tmp_path)
+    monkeypatch.setattr(cfg, "OWNER_ROOT", tmp_path)
     assert names(server.fill(INDEX))["cams"] == []
 
 
@@ -98,7 +99,7 @@ def test_shell_serializes_prototype_named_cameras_and_aliases_as_literal_keys(tm
     (tmp_path / "config" / "devices.toml").write_text(
         'device=[{name="__proto__",kind="rtsp"},{name="constructor",kind="camera"},{name="toString",kind="camera"}]'
     )
-    monkeypatch.setattr(cfg, "ROOT", tmp_path)
+    monkeypatch.setattr(cfg, "OWNER_ROOT", tmp_path)
     with cfg.override({"vision": {"camera_names": ["__proto__: Front", "constructor: Rear", "toString: Side"]}}):
         script = server.fill(INDEX).split("<script>", 1)[1].split("</script>", 1)[0]
     result = subprocess.run(
@@ -113,7 +114,7 @@ def test_shell_serializes_prototype_named_cameras_and_aliases_as_literal_keys(tm
 
 
 def test_shell_has_no_cameras_without_a_manifest(tmp_path, monkeypatch):
-    monkeypatch.setattr(cfg, "ROOT", tmp_path)
+    monkeypatch.setattr(cfg, "OWNER_ROOT", tmp_path)
     assert names(server.fill(INDEX))["cams"] == []
 
 
@@ -345,7 +346,7 @@ def test_every_tab_the_app_routes_to_is_served_on_a_reload():
     # The app's tabs are real paths (frontend router.ts): a tab missing from APP_PATHS loads as a blank 404 page.
     import re
 
-    router = (cfg.ROOT / "frontend" / "src" / "dashboard" / "router.ts").read_text()
+    router = (pathlib.Path(__file__).resolve().parents[1] / "frontend" / "src" / "dashboard" / "router.ts").read_text()
     tabs = set(re.findall(r"\{ id: '\w+', path: '(/[\w-]*)'", router))
     assert tabs and "/inbox" in tabs
     assert tabs - {"/objects"} <= set(server.APP_PATHS)  # /objects has a page handler of its own

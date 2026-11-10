@@ -47,7 +47,8 @@ background_max_wait_s = 30.0
 [paths]
 # Runtime state, logs, and media live under data/ by default (gitignored), so the repo
 # root holds only code and config.
-# Relative paths are relative to the repo root; ~ is expanded.
+# Relative paths are relative to the repo root; ~ is expanded. In an installed package (no checkout), data/ is the
+# user's data directory, ~/.local/share/liberational (docs/ARCHITECTURE.md, Where data lives).
 state = "data/state"
 logs = "data/logs"
 faces = "data/faces"
@@ -76,6 +77,21 @@ url = "http://127.0.0.1:11434"
 # GPU. The service listens on Ollama's default 127.0.0.1:11434, which is url's default.
 gpu = ""
 models = ""
+# The ollama service's server tuning, passed to `ollama serve` as OLLAMA_KEEP_ALIVE, OLLAMA_FLASH_ATTENTION,
+# OLLAMA_KV_CACHE_TYPE, and OLLAMA_MAX_LOADED_MODELS. keep_alive is how long a model stays loaded after a request that
+# doesn't say ("-1" forever, "30m", "" Ollama's own 5 minutes). It stays Ollama's default because the callers already
+# ask for what they need: the always-loaded models pass -1 on every call and a big batch model passes its own, while a
+# model loaded once by hand or by another client unloads on its own instead of holding GPU memory beside them. A Mac
+# that kept one large model resident (Homebrew's Ollama with OLLAMA_KEEP_ALIVE=-1) sets "-1". flash_attention is on
+# everywhere: it uses less memory for the same context at no cost in quality, a quantized KV cache needs it, and Ollama
+# turns it back off for a model that can't use it. kv_cache_type stays f16 (stock) by default, as ask.kv_cache_type
+# does: q8_0 (about half the cache memory, with a small loss of precision) or q4_0 changes every shared model's
+# answers, so a machine opts in. max_loaded_models is how many models stay loaded at once; 0 is Ollama's own default
+# (3 per GPU; a Mac counts as one).
+keep_alive = ""
+flash_attention = true
+kv_cache_type = "f16"
+max_loaded_models = 0
 # When Ollama isn't running (or lacks a model), callers fail fast and try it again only every retry_s seconds,
 # logging a reminder at most every log_every_s seconds, instead of an error on every call (ollama_health.py).
 retry_s = 30
@@ -110,6 +126,12 @@ voice = 8776
 # Vite's dev server for the frontend (frontend/), in dev only: `mise run dev` starts it on this port, and
 # `pack-dashboard --dev` serves the pages from it.
 vite = 5173
+
+[app]
+# Start at login: open the application (pack-app), and so start recording, when you log in. Off by default: the
+# system runs only while the application is open. On Linux this is a desktop autostart entry
+# (~/.config/autostart/liberational.desktop); on a Mac it does nothing until there is an application bundle.
+start_at_login = false
 
 [dashboard]
 # Names the camera gateway (continuum-gateway) may be reached by besides this machine's own: a Tailscale MagicDNS
@@ -156,7 +178,7 @@ model = ""
 # The Ollama model that writes the settled day, week, and month pages (memory/journal_pages.py), once a day in one
 # batch at page_batch_at: loaded for the batch and unloaded right after, so it needs GPU memory only then. When it
 # doesn't fit beside Ollama's other models, the daily batch opens a sleep window (page_window_services). A
-# pack-journal --day rebuild never opens one. When it isn't pulled (tools/fetch_models.py, `mise run models`),
+# pack-journal --day rebuild never opens one. When it isn't pulled (`pack-models`, which `mise run models` runs),
 # won't fit even then, or fails to load, the pages are written with the entries' model (journal.model, else
 # models.ollama.llm), and that is logged once. Entries and today so far always use the entries' model. Empty: every
 # page is written with the entries' model, on every pass. On the Linux machine qwen3.8:27b (17 GB) writes the best
@@ -663,6 +685,16 @@ needs = "cuda"
 
 # EdgeTAM prompted/automatic image masks (Meta code/weights Apache-2.0), Transformers conversion by its contributor.
 # Fixed checkpoint revision and local directory keep on-demand requests entirely offline.
+[models.hf.depth_anything]
+# Fixed-camera splats' depth prior (spatial/splats.py `depth_priors`): Depth Anything 3's monocular metric model,
+# DA3METRIC-LARGE (ByteDance; code and these weights Apache-2.0). Only its safetensors and config. Without it a
+# splat trains on its frames alone and the log says so.
+repo = "depth-anything/DA3METRIC-LARGE"
+revision = "4010e39f3634a45bc60553321fb49fb760bd594e"
+path = "data/models/depth-anything-3-metric"
+allow_patterns = ["config.json", "model.safetensors"]
+needs = "cuda"
+
 [models.hf.mast3r]
 # Fixed-camera places: MASt3R ViT-L 512, metric (naver; code and weights CC BY-NC-SA 4.0, the weights also
 # under their training datasets' non-commercial terms; accepted for now). Only its safetensors and config.
@@ -684,19 +716,18 @@ allow_patterns = ["*.json", "*.safetensors", "*.txt"]
 repo = "google/siglip2-base-patch16-224"
 allow_patterns = ["config.json", "preprocessor_config.json", "tokenizer.json", "tokenizer.model", "tokenizer_config.json", "special_tokens_map.json", "model.safetensors"]
 
-# Pet embeddings for see-actions and caption-grounded sightings: DINOv3 ViT-S/16 (the DINOv3 License; its
-# LICENSE.md is fetched with the weights). The publisher's repository (facebook/dinov3-vits16-pretrain-lvd1689m) is
-# gated behind a manual approval, so `repo` is an ungated copy of the same files, pinned to one revision, and
-# `sha256` is the publisher's checksum of the weights: `mise run models` refuses a file that doesn't match it.
-# `space` names the embedding space in stored rows and taught pet references. It stays the publisher's name, so
-# the same weights from another source read the same data; change it only with the weights. DINOv2 and DINOv3 are
-# both 384-dimensional, but their vectors are incompatible; discard old pet vectors at a model cutover.
+# Pet embeddings for see-actions and caption-grounded sightings: Meta's DINOv2 ViT-S/14 (Apache-2.0, ungated),
+# pinned to one revision. `sha256` is the checksum of its weights: `mise run models` refuses a file that doesn't
+# match it. `space` names the embedding space in stored rows and taught pet references; change it only with the
+# weights. Recognition's thresholds (people/pet_recognition.py) were set for this model. Another model's vectors
+# don't compare, even at the same 384 dimensions: after a change, tools/restore_pet_references.py embeds the taught
+# references again from their kept photos.
 [models.hf.animal_embedding]
-repo = "computer-vision-ai-lab/dinov3-vits16-pretrain-lvd1689m"
-revision = "e2b5191960331471bf2734d372e6a7151a6079c5"
-space = "facebook/dinov3-vits16-pretrain-lvd1689m"
-allow_patterns = ["*.json", "*.safetensors", "LICENSE.md", "README.md"]
-sha256 = { "model.safetensors" = "4610ad75edef83e75afdebf162d148dc628045ea6cbb83d67d4708c709c4f91d" }
+repo = "facebook/dinov2-small"
+revision = "ed25f3a31f01632728cabb09d1542f84ab7b0056"
+space = "facebook/dinov2-small"
+allow_patterns = ["*.json", "*.safetensors"]
+sha256 = { "model.safetensors" = "ae1e99fcefd534ed978cdeb8326f08030c96e28b7a81ffcbc98a857c84d14be1" }
 
 [models.hf.vlm]
 repo = "mlx-community/Qwen3-VL-4B-Instruct-4bit"

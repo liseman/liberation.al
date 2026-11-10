@@ -23,6 +23,7 @@ audio.sensitivity when pack.toml changes), so it restarts nothing.
 
 import ast
 import functools
+import importlib.metadata
 import pathlib
 import re
 import threading
@@ -34,7 +35,7 @@ from typing import Any
 from liberational import config as cfg
 
 SRC = pathlib.Path(__file__).resolve().parent.parent  # src/, holding the liberational package
-PYPROJECT = cfg.ROOT / "pyproject.toml"
+PYPROJECT = cfg.CHECKOUT / "pyproject.toml" if cfg.CHECKOUT else None  # None when installed from a wheel
 _SKIPPED_HELPERS = {"get", "save", "main", "load", "schema", "labels", "override"}  # take a key, or read them all
 _TEMPLATE = re.compile(r"\{([a-z_][a-z0-9_.]*)\}")
 
@@ -178,7 +179,11 @@ def _closure(module: str) -> set[str]:
 
 @functools.cache
 def entry_points() -> dict[str, str]:
-    """Console script name -> the module it runs (pyproject.toml's [project.scripts])."""
+    """Console script name -> the module it runs: pyproject.toml's [project.scripts] in a checkout, the installed
+    package's console scripts otherwise."""
+    if PYPROJECT is None:
+        scripts = importlib.metadata.entry_points(group="console_scripts")
+        return {s.name: s.module for s in scripts if s.module.split(".")[0] == "liberational"}
     scripts = tomllib.loads(PYPROJECT.read_text())["project"]["scripts"]
     return {name: target.split(":")[0] for name, target in scripts.items()}
 

@@ -36,7 +36,7 @@ depends = ["system", "whisper", "frontend", "hooks"]
 # The voice-clone extra (CUDA PyTorch, a few GB) only where there's an NVIDIA GPU to run it.
 run = [
     "uv sync --extra faces --extra segmentation --extra deep-asr $(command -v nvidia-smi >/dev/null && echo --extra voice-clone)",
-    "uv run tools/fetch_models.py",
+    "uv run pack-models",
 ]
 
 [tasks.system]
@@ -132,25 +132,31 @@ echo "GeoCalib $C set up in $D"
 '''
 
 [tasks.gsplat]
-description = "Set up gsplat's runtime for place splats in data/gsplat: its own venv with a prebuilt gsplat (CUDA machines; safe to re-run)"
-env = { GSPLAT_VERSION = "1.5.3", GSPLAT_DIR = "data/gsplat" }
+description = "Set up gsplat's runtime for place splats in data/gsplat: its own venv with a prebuilt gsplat, and Depth Anything 3's pinned code for the depth prior (CUDA machines; safe to re-run)"
+env = { GSPLAT_VERSION = "1.5.3", DA3_COMMIT = "3d835ec1a5802d64a8b8b15f817a1ab54809bfe4", GSPLAT_DIR = "data/gsplat" }
 run = '''
 #!/usr/bin/env bash
 set -euo pipefail
-D="$GSPLAT_DIR"; V="$GSPLAT_VERSION"
+D="$GSPLAT_DIR"; V="$GSPLAT_VERSION+da3-$DA3_COMMIT"
 if ! command -v nvidia-smi >/dev/null; then echo "gsplat needs CUDA; skipped"; exit 0; fi
 if [ -x "$D/.venv/bin/python" ] && [ "$(cat "$D/VERSION" 2>/dev/null)" = "$V" ]; then
   echo "gsplat $V already set up in $D"; exit 0
 fi
-rm -rf "$D/.venv"
+rm -rf "$D/.venv" "$D/depth-anything-3"
 # Its own venv: gsplat needs torch with CUDA, which the pack's environment doesn't carry. gsplat's GitHub
 # releases have it prebuilt for Python 3.10, torch 2.4, and CUDA 12.4, so nothing is compiled here or on first use.
 uv venv -q --python 3.10 "$D/.venv"
 uv pip install -q --python "$D/.venv/bin/python" --index-url https://download.pytorch.org/whl/cu124 torch==2.4.1
-W="https://github.com/nerfstudio-project/gsplat/releases/download/v$V/gsplat-$V%2Bpt24cu124-cp310-cp310-linux_x86_64.whl"
+W="https://github.com/nerfstudio-project/gsplat/releases/download/v$GSPLAT_VERSION/gsplat-$GSPLAT_VERSION%2Bpt24cu124-cp310-cp310-linux_x86_64.whl"
 # packaging and setuptools: gsplat imports them (and torch.utils.cpp_extension) on its way to the prebuilt kernels
 # but does not declare them.
 uv pip install -q --python "$D/.venv/bin/python" "gsplat @ $W" packaging setuptools "numpy<2" pillow
+# Depth Anything 3 (Apache-2.0), for a fixed-camera splat's depth prior: its code only, read from its folder by
+# spatial/depth_runner.py, never installed. That runner builds the network itself, so of the package's long
+# dependency list (open3d, pycolmap, moviepy, and more, all for its exporters) only these few are needed.
+git clone --quiet https://github.com/ByteDance-Seed/Depth-Anything-3 "$D/depth-anything-3"
+git -C "$D/depth-anything-3" checkout --quiet "$DA3_COMMIT"
+uv pip install -q --python "$D/.venv/bin/python" einops omegaconf addict safetensors
 echo "$V" > "$D/VERSION"
 echo "gsplat $V set up in $D"
 '''
@@ -182,9 +188,17 @@ description = "Use the repo's git hooks in .githooks/ (pre-commit refuses gitign
 wait_for = ["system"]
 run = ["git config core.hooksPath .githooks", "python3 tools/privacy_check.py denylist"]
 
+[tasks.wheel]
+description = "Build the frontend, then the package's wheel into dist/, and check the wheel carries the settings, the service declarations, the frontend build, and the commands (tools/check_wheel.py)"
+depends = ["frontend"]
+run = [
+    "uv build --wheel --out-dir dist",
+    "python3 tools/check_wheel.py dist",
+]
+
 [tasks.models]
 description = "Fetch any missing models declared in config/defaults.toml (safe to re-run)"
-run = "uv run tools/fetch_models.py"
+run = "uv run pack-models"
 
 # The checks below run at the lowest CPU and disk priority (tools/niced.sh: nice and ionice on Linux, nice and
 # taskpolicy on macOS), so they never crowd out the live services or the person at the computer.
@@ -287,9 +301,16 @@ env = { PYO3_PYTHON = "{{config_root}}/continuum/.venv/bin/python" }
 run = "../tools/build-slot.sh cargo build --workspace --all-targets"
 
 [tasks.continuum-release]
-description = "Build the Continuum daemons in release mode, for the services (continuum/target/release/); capture and the tier worker with FFmpeg for RTSP and media encoding"
+description = "Build the Continuum daemons in release mode and link them into .venv/bin, where the services find them; capture and the tier worker with FFmpeg for RTSP and media encoding"
 dir = "continuum"
-run = "../tools/build-slot.sh cargo build --release --bins --features continuum-tier/ffmpeg,continuum-capture/ffmpeg"
+run = [
+    "../tools/build-slot.sh cargo build --release --bins --features continuum-tier/ffmpeg,continuum-capture/ffmpeg",
+    "../tools/link-daemons.sh",
+]
+
+[tasks.continuum-link]
+description = "Link the Continuum daemons already built (continuum/target/release/) into .venv/bin, without building: needed once after the environment is made again"
+run = "tools/link-daemons.sh"
 
 [tasks.continuum-wheels]
 description = "Build Continuum's wheels for this platform into continuum/dist/: the SDK and the daemons, with a private LGPL FFmpeg linked in (docs/CONTINUUM.md, Wheels). On Linux it builds in a Debian 12 container (needs Docker), so the wheels run on glibc 2.36 and later"

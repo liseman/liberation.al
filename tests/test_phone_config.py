@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 import os
+import pathlib
 import stat
 import threading
 import time
@@ -109,7 +110,9 @@ def test_hangup_invalid_sid_cannot_reach_provider(monkeypatch, sid):
 def test_hangup_cli_ends_one_call_without_placing_another(env_file, monkeypatch, capsys):
     import tomllib
 
-    scripts = tomllib.loads((cfg.ROOT / "pyproject.toml").read_text())["project"]["scripts"]
+    scripts = tomllib.loads((pathlib.Path(__file__).resolve().parents[1] / "pyproject.toml").read_text())["project"][
+        "scripts"
+    ]
     assert scripts["pack-phone-call"] == "liberational.phone.call:main"
     env_file.write_text("TWILIO_ACCOUNT_SID=ACfake\nTWILIO_AUTH_TOKEN=fake\n")
     post = create_autospec(
@@ -437,7 +440,7 @@ def test_an_owner_calling_in_is_named_on_the_live_mark(tmp_path):
 
 def test_tool_rule_uses_pack_services():
     rule = phone_bridge.phone_tool_rule()
-    assert str(cfg.ROOT / ".venv" / "bin" / "pack-services") + " status" in rule
+    assert str(cfg.program("pack-services")) + " status" in rule
     assert "launchctl" not in rule
 
 
