@@ -1,4 +1,4 @@
-"""see-actions (#1745): people, their skeletons, and their tracks at full frame rate on the main camera, for the
+"""see-actions: people, their skeletons, and their tracks at full frame rate on the main camera, for the
 action model.
 
 This module is the per-frame path, apart from where frames come from, what hardware runs the models, and where rows
@@ -11,7 +11,7 @@ people go through a `vision_backend.Backend`, and only NumPy crosses that seam.
   (the span of frames it analyzed) to the coverage sink.
 - `Scoring` keeps each track's last `stgcn.CLIP` frames of joints and has the backend's action model score them
   every SCORE_EVERY_NS. Each score is an `action.window` row (its top classes), and an owner's activity
-  (memory/activity_kinds.py, #3244) whose NTU classes add up to THRESHOLD or more over consecutive windows becomes
+  (memory/activity_kinds.py) whose NTU classes add up to THRESHOLD or more over consecutive windows becomes
   one `action.span`.
 - `action_clips.Clips`, when given, does the same with each track's person crops and MoViNet, for the still kinds
   a skeleton can't show (reading, watching TV, a phone, sleep).
@@ -19,7 +19,7 @@ people go through a `vision_backend.Backend`, and only NumPy crosses that seam.
   bridges frames that were never seen.
 
 The sinks take columns (NumPy arrays, or lists for ids and strings) as the segment store's `SegmentWriter.append`
-does (#1755), with the schemas below. Frame ids are the shared decode's UUIDs.
+does, with the schemas below. Frame ids are the shared decode's UUIDs.
 """
 
 import copy
@@ -41,7 +41,7 @@ from liberational.see.vision_backend import Backend, Frame
 from liberational.vision import crossings
 
 LOG = logs.get("see-actions")
-SCREEN_LOG_NS = 600 * 10**9  # how often each camera logs what its screen mask did (#2468)
+SCREEN_LOG_NS = 600 * 10**9  # how often each camera logs what its screen mask did
 
 if TYPE_CHECKING:
     from liberational.see.action_clips import Clips
@@ -55,21 +55,22 @@ MAX_PATH = 3000  # and at most this many: 10 min of path
 # A track counts once it has been matched in this many frames (SORT's min_hits): on cam0, 3 of 10 tracks in 30 s
 # were blips of 2 to 4 frames, false boxes at the detector's threshold. 5 frames is 0.17 s at 30 fps.
 MIN_HITS = 5
-# ByteTrack's thresholds (#1745): the detector keeps boxes down to DETECT_SCORE so the tracker's low-score pass can
+# ByteTrack's thresholds: the detector keeps boxes down to DETECT_SCORE so the tracker's low-score pass can
 # hold a dim person's track (a seated, back-turned person scores 0.1 to 0.5), only a box at the tracker's `high`
 # (0.5) starts one, and a track survives LOST_S unseen.
 LOST_S = 5.0
 SCORE_EVERY_NS = 500_000_000  # a track's latest window is scored this often
 THRESHOLD = 0.5  # a kind's probability that counts as seen in a window
 HOLD_NS = 5_000_000_000  # a span stays open this long after its last window that saw the kind, so a score
-# flickering around THRESHOLD stays one span: closing on the first miss gave one patio track 105 spans an hour (#1946)
+# flickering around THRESHOLD stays one span: closing on the first miss gave one patio track 105 spans an hour
 EDGE = 0.005  # a box this close to the frame's edge is cut off by it: its pose is a part of a body, and isn't scored
 STILL_NS = 120_000_000_000  # a box that stays within STILL_MOVE of where it was for this long isn't scored: an
 STILL_MOVE = 0.05  # object the detector takes for a person, or someone asleep (the move is a fraction of box height)
 MIN_JOINTS = 6  # a detection whose pose shows fewer of COCO's 17 joints than this above JOINT_SURE starts no track,
-JOINT_SURE = 0.5  # and a window whose median frame does isn't scored: objects taken for people show none, people 13 to 15 (#1959)
+# and a window whose median frame does isn't scored: objects taken for people show none, people 13 to 15
+JOINT_SURE = 0.5
 UNSURE_NS = 5_000_000_000  # a track whose detections have shown no confident pose for this long ends: an object at
-# the spot a person left kept their track for 20 minutes (#1996), while someone turned away is back within seconds
+# the spot a person left kept their track for 20 minutes, while someone turned away is back within seconds
 TOP = 5  # classes kept per window
 
 POSE_SCHEMA = [
@@ -394,9 +395,9 @@ class ActionPipeline:
         people)` gets each frame's tracked people as they are found, (track, box, joints normalized to the frame) each,
         for the Live overlay's `pose.boxes` ring (see/pose_boxes.py). `screen_zones()` gives the camera's zones of
         kind "screen": with the screens the detector saw, they keep the people a TV shows out of everything
-        (see/screens.py, #2468). `screens_on` gets when this camera's screens were on (their pictures moving), for
+        (see/screens.py). `screens_on` gets when this camera's screens were on (their pictures moving), for
         tagging what was heard then as a TV's. `kinds()` is the owner's activities as NTU class indices
-        (`activity_kinds.Live.ntu`, #3244); without it, the starting list."""
+        (`activity_kinds.Live.ntu`); without it, the starting list."""
         self.backend, self.poses, self.coverage, self.model = backend, poses, coverage, model
         self.windows, self.spans, self.movement, self.animals = windows, spans, movement, animals
         self.scoring = (
@@ -423,7 +424,7 @@ class ActionPipeline:
 
         A gap longer than LOST_S ends everything open. A shorter one, such as a frame lapped in the decoder's ring when
         a frame took long, only breaks the coverage run: the tracker already bridges a few missing frames. Ending
-        every track on each lapped frame gave a person sitting still 400 track IDs a minute on cam0 (#1745)."""
+        every track on each lapped frame gave a person sitting still 400 track IDs a minute on cam0."""
         if frame.gap_before:
             if self._last_ns is None or frame.capture_ns - self._last_ns > LOST_S * 1e9:
                 self.gap()
@@ -434,7 +435,7 @@ class ActionPipeline:
         image = self.backend.upload(frame)
         height, width = self.backend.size(image)
         people = self.backend.people(image)
-        # People a screen shows (#2468), by the screens found now and in the last moments, and the camera's zones.
+        # People a screen shows, by the screens found now and in the last moments, and the camera's zones.
         zones = self.screen_zones() if self.screen_zones is not None else ()
         held = self.held.update(people.screens, capture_ns)
         inside = screens.on_screen(people.boxes, held, zones)
@@ -442,8 +443,8 @@ class ActionPipeline:
             real = people.boxes[~inside] if len(people.boxes) else people.boxes
             self._sample_screens(image, width, height, capture_ns, screens.playing(zones), real)
         ts = capture_ns / 1e9
-        # Only a detection whose pose shows a person starts a track: objects taken for people show no confident joints
-        # (#1959). One that doesn't still carries an existing track, as a low-score detection, so a person turned away
+        # Only a detection whose pose shows a person starts a track: objects taken for people show no confident
+        # joints. One that doesn't still carries an existing track, as a low-score detection, so a person turned away
         # or behind something keeps theirs.
         sure_joints = (people.joints[:, :17, 2] > JOINT_SURE).sum(axis=1)
         sure = sure_joints >= MIN_JOINTS
@@ -462,7 +463,7 @@ class ActionPipeline:
             self.tracker.active = [t for t in self.tracker.active if t.id not in gone]
             self.tracker.assigned = {d: t for d, t in self.tracker.assigned.items() if t not in gone}
             ended = [*ended, *unsure]
-        # People a screen shows (#2468): their tracks run, so one found to be real is kept from then on, but none of
+        # People a screen shows: their tracks run, so one found to be real is kept from then on, but none of
         # their frames go past here.
         on_screen = self.screens.update(self.tracker.assigned, inside, capture_ns, known=bool(len(held)) or bool(zones))
         for track in ended:
@@ -476,7 +477,7 @@ class ActionPipeline:
                 if released is None:
                     self.movement.ended(track)
                 elif (after := since(track, released / 1e9)) is not None:
-                    self.movement.ended(after)  # only its path since it left the screen (Codex, #2489)
+                    self.movement.ended(after)  # only its path since it left the screen
             if self.faces is not None:
                 self.faces.end(track.id)
             self.screens.end(track.id)
@@ -489,7 +490,7 @@ class ActionPipeline:
         if counted:
             joints = quantize(people.joints, width, height)
             if self.scoring is not None:
-                # On a fisheye camera, each person's joints in their own perspective view (#1891), normalized per
+                # On a fisheye camera, each person's joints in their own perspective view, normalized per
                 # person and frame by the view's size: the action model was trained on perspective skeletons, and
                 # near the rim a fisheye bends them. Elsewhere, the frame's joints, normalized by the frame.
                 if people.view_joints is not None and people.view_size is not None:
@@ -514,7 +515,7 @@ class ActionPipeline:
                     int(frame.source_header.get("seq") or 0),
                 )
             # The Live overlay gets the people whose pose is confident on this frame, as a track starts on: a track
-            # carried by an unsure detection (up to UNSURE_NS) draws nothing (#2024). The rows' own numbers, so the
+            # carried by an unsure detection (up to UNSURE_NS) draws nothing. The rows' own numbers, so the
             # Live overlay and recorded video's draw the same skeleton.
             shown = [(det, track_id) for det, track_id in sorted(counted.items()) if sure[det]]
             if self.live is not None and shown:
@@ -571,7 +572,7 @@ class ActionPipeline:
             self.screens_on.add(self.camera, self.activity.spans(), flush=closed)
 
     def _log_screens(self, capture_ns: int) -> None:
-        """Every SCREEN_LOG_NS, what the screen mask did on this camera, when it did anything (#2468's measure)."""
+        """Every SCREEN_LOG_NS, what the screen mask did on this camera, when it did anything."""
         if self._screen_logged_ns is None:
             self._screen_logged_ns = capture_ns
         if capture_ns - self._screen_logged_ns < SCREEN_LOG_NS:

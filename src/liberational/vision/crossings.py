@@ -31,7 +31,7 @@ COCO_ANIMALS: dict[int, str] = {
 DEFAULT_LINE = dict(kind="vertical", position=0.5)
 # Expire before association: an old nearby box must not resurrect an ended track or a cached crossing.
 # 4: a same-direction window no longer merges two tracks that were on screen together.
-# 5: a restart inside max_gap is not a second person (#1239).
+# 5: a restart inside max_gap is not a second person.
 
 
 # ------------------------------------------------------------------ configuration
@@ -123,7 +123,7 @@ def line_description(line: Mapping[str, Any], is_default: bool) -> str:
 # RF-DETR's pretrained COCO head retains sparse category IDs; callers keep the existing internal IDs.
 ANIMAL_SCORE = 0.35  # Animal candidates retain their own floor independently of the person calibration.
 RF_CLASS_IDS: dict[int, int] = {COCO_PERSON: 1, **{class_id: class_id + 2 for class_id in COCO_ANIMALS}}
-# Screens a person can be shown on (#2468): COCO's tv and laptop, by internal ID (sparse ID in the RF-DETR head). Kept
+# Screens a person can be shown on: COCO's tv and laptop, by internal ID (sparse ID in the RF-DETR head). Kept
 # apart from RF_CLASS_IDS, whose classes other than person are animals. A phone is left out: one held to a real face
 # would take the face for a screen's.
 COCO_SCREENS: dict[int, str] = {62: "tv", 63: "laptop"}
@@ -214,7 +214,7 @@ class Tracker:
     chance with low-score detections, and only confident unmatched detections start tracks. A track ends after
     max_gap seconds unseen; update() and flush() return the tracks that ended so the caller can count them.
 
-    With `tentative`, an unmatched low-score detection starts a tentative track instead of being dropped (#1676): a
+    With `tentative`, an unmatched low-score detection starts a tentative track instead of being dropped: a
     person often scores under `high` for the first frames they're seen, so a track born on their first confident
     frame starts where they already were, and a line crossed in those frames was never seen crossed. A tentative
     track is matched like any other, so its frames are its history from its first one, but it isn't in `assigned`

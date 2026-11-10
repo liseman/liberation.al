@@ -1,4 +1,4 @@
-"""Animals from see-actions' detector pass (#1745): `animal.detection`, `animal.embedding`, and `animal.coverage`, in
+"""Animals from see-actions' detector pass: `animal.detection`, `animal.embedding`, and `animal.coverage`, in
 the segment store.
 
 The person detector's grid also scores the COCO animal classes (`vision_backend.People.animals`). About every
@@ -15,7 +15,7 @@ SAMPLE_NS, `Animals.sample` runs the old body worker's animal rules on them (car
 Each confirmed box is an `animal.detection` row and each embedding an `animal.embedding` row. `animal.coverage` rows
 are the spans of samples looked at, with how many, so a span with no detections means no animal was seen, not that
 nobody looked. A gap or a stop ends every track and the coverage run, so nothing bridges frames that were never seen.
-Animal movement tracks were removed with see-tracks (#1830) and aren't made here.
+Animal movement tracks were removed with see-tracks and aren't made here.
 
 Rows are buffered and written by `flush_coverage`, which see-actions calls about once a second, and by `gap`. A
 failing image check turns animals off for this stage (an unchecked box is most often a head); a failing embedder
@@ -44,7 +44,7 @@ EMBED_MAX_S = 300.0  # up to this, so a cat asleep in view all afternoon adds a 
 HEAD_SHARE = 0.35  # the top of a person box their head is in
 HEAD_INSIDE = 0.5  # an animal box this much inside a person's head region is that head
 MIN_EMBED_PX = 48  # and only when its box's shorter side has this many pixels
-DETECTOR = "rfdetr_small"  # [models.files.person_detector] (#2189)
+DETECTOR = "rfdetr_small"  # [models.files.person_detector]
 
 Write = Callable[[str, list[dict[str, Any]]], None]
 
@@ -91,12 +91,12 @@ class Animals:
         peak_score: float = PEAK_SCORE,
         shots: Any = None,
     ) -> None:
-        """`shots` (a `pet_shots.Writer`) is offered each embedded box, for Pets' photo of its track (#2038)."""
+        """`shots` (a `pet_shots.Writer`) is offered each embedded box, for Pets' photo of its track."""
         self.cam, self.write, self.backend, self.shots = cam, write, backend, shots
         self.verify, self.confirm_s, self.peak_score = verify, confirm_s, peak_score
         self.on, self.embedding = True, True
         self.max_gap = float(crossings.settings()["max_gap_seconds"])
-        self.embedding_model = animal_embedder.space()  # the model and its crop (#3024)
+        self.embedding_model = animal_embedder.space()  # the model and its crop
         self._rows: dict[str, list[dict[str, Any]]] = {}
         self._cover: list[int] | None = None  # the coverage being built: [start ns, end ns, samples]
         self._start()

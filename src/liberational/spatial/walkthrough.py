@@ -1,5 +1,5 @@
-"""`pack-walkthrough VIDEO`: a place's point cloud and rough floorplan from a phone video walking through it (#2787,
-part of the spatial memory goal #2794), its poses corrected where the walk passes the same place again (#2931).
+"""`pack-walkthrough VIDEO`: a place's point cloud and rough floorplan from a phone video walking through it (part
+of spatial memory), its poses corrected where the walk passes the same place again.
 
     pack-walkthrough walk.mp4                    # a new place
     pack-walkthrough walk.mp4 --place <id>       # a new revision of a place that's already there
@@ -22,7 +22,7 @@ By hand, once per video; no service runs it. Steps:
    view hasn't moved `STILL` since the last frame taken, at most `MAX_FRAMES` (the seconds widen to fit).
 2. **Poses: CUT3R.** The frames go through CUT3R in walk order (spatial/cut3r_runner.py, in CUT3R's own runtime from
    `mise run cut3r`, with the checkpoint `mise run models` fetches): each frame's camera pose and its points in that
-   camera's frame. On IMG_7676 (#2787, a 2 minute, 99 m walk through a home) CUT3R kept the walk level and one storey
+   camera's frame. On IMG_7676 (a 2 minute, 99 m walk through a home) CUT3R kept the walk level and one storey
    tall where MASt3R's global alignment bent it, but its heading drifts, so a wall the walk passes twice shows up
    twice, shifted and turned.
 3. **Steps and revisits: MASt3R pairs.** Every consecutive pair of frames is measured, to find where CUT3R broke.
@@ -47,8 +47,8 @@ By hand, once per video; no service runs it. Steps:
    (`level_floor`), and the plan comes from spatial/floorplan.py on it.
 6. **Place.** A new place (`place` not given) gets a revision (memory/places.py): the cloud as its `.map` (binary
    PLY), the plan with its map-to-plan transform, the floor plane, and the video's name in its `walkthrough` signal;
-   tier 1 (spatial/fuse.py, #2801) makes it the place's first fused map. A walk into a place already there
-   (`into_place`, #3252) is fused into that place's map in the place's frame, so its registered fixed cameras keep
+   tier 1 (spatial/fuse.py) makes it the place's first fused map. A walk into a place already there
+   (`into_place`) is fused into that place's map in the place's frame, so its registered fixed cameras keep
    their poses: tier 1 registers it against the map, and when that fails (a crisp LiDAR walk of two rooms against a
    whole home's soft MASt3R map can't score 0.35 anywhere), MASt3R seats the place in the walk by the fixed cameras
    both see (`seat_places`, the join's seats), polished against the map around there when that holds. Nothing is
@@ -84,7 +84,7 @@ plain walls and little texture. A plain video is for a short look at a place whe
 there. docs/WALKTHROUGH.md says how to record either.
 
 Both models run niced, on the GPU with the most free memory (`spatial.gpu`). Models: CUT3R and MASt3R (code and
-weights CC BY-NC-SA 4.0, non-commercial; MASt3R accepted by Joe for now on 2026-11-07, CUT3R on 2026-11-08), and
+weights CC BY-NC-SA 4.0, non-commercial; MASt3R and CUT3R accepted for now), and
 MegaLoc for the revisit proposals (MIT, an ONNX export run on the CPU).
 """
 
@@ -210,10 +210,10 @@ ICP_MIN_POINTS = 50  # pairs of points an ICP step needs
 # cloud (spatial/floorplan.py, up to 25 degrees off up, which fixed cameras' rough up needs) tilts with CUT3R's smear.
 # On IMG_7676 the fitted floor was 4.4 degrees off the cameras, 15% of the cloud more than 5 cm under it and the
 # cameras 0.5 to 1.3 m over it; the level one has 1% under it and the cameras 1.3 to 1.6 m over it, a phone's height.
-# Place 4 (IMG_7676 written by hand from a COLMAP cloud, #2931) got one 13.7 degrees off: levelled by it, the far side
+# Place 4 (IMG_7676 written by hand from a COLMAP cloud) got one 13.7 degrees off: levelled by it, the far side
 # of its 26 m map hung 3 m under the floor (43% of the points more than 5 cm under it; 8% under the level one).
 FLOOR_SUPPORT = 0.3  # a slab with this share of the best one's points can be the floor (floorplan.py's rule)
-# Joining places (#2997): a whole-home walk ties the fixed cameras' places together. MASt3R pairs each registered
+# Joining places: a whole-home walk ties the fixed cameras' places together. MASt3R pairs each registered
 # fixed camera's frame with every JOIN_STRIDE-th frame of the walk, then with the walk frames within JOIN_NEAR of each
 # that matched; a pair it is sure of (JOIN_MATCHES, MIN_INLIER_SHARE, its two directions agreeing) seats the camera's
 # place in the walk (`seat`), and a place is joined when at least JOIN_SEATS seats from different walk frames agree on
@@ -580,7 +580,7 @@ def close_loops(
     frame indices): its consecutive steps, and the `loops` (possible revisits).
 
     1. **Scale.** Each pair's translations go into CUT3R's scale by its own depths against CUT3R's (`depths`,
-       `frame_depths`, `pair_scale`): MASt3R's scale changes from pair to pair (#2787 found 0.41 to 1.0 between
+       `frame_depths`, `pair_scale`): MASt3R's scale changes from pair to pair (0.41 to 1.0 between
        segments), and on IMG_7676 consecutive pairs' translation lengths, the first way tried, spread 8.7x against
        CUT3R's, where the depths spread 1.4x. When even the depths spread more than `posegraph.SCALE_SPREAD`, the two
        models don't agree on the scene and MASt3R isn't used.
@@ -842,7 +842,7 @@ def write_place(
 ) -> places.Revision:
     """The cloud, its floor, and its plan as a revision of `place` (a new one when None), the recording's name
     (`label`) added to its `walkthrough` signal, and `looks` registered in it as cameras (a Stray walk's views to look
-    from, #2877), else none."""
+    from), else none."""
     known = places.get(state, place) if place else None
     title = (known.name if known else "") or "Walkthrough"
     g = np.asarray(up, dtype=np.float64)
@@ -969,7 +969,7 @@ def seat_places(
     frames: Callable[[Path, Sequence[str], Path, float], Mapping[str, Path]] | None = None,
 ) -> tuple[dict[str, np.ndarray], dict[str, Any]]:
     """Where each place of `held` (a place's fused revision, with its registered cameras) stands in the walk, by the
-    fixed cameras the walk sees (#2997, see JOIN_STRIDE): each camera's recorded frame (`frames`, by default
+    fixed cameras the walk sees (see JOIN_STRIDE): each camera's recorded frame (`frames`, by default
     spatial/cameras.py's) paired by MASt3R with the walk's frames, each sure pair a seat (`seat`), and a place seated
     where its seats agree (`agree`). `poses` are the walk's frames' poses in its levelled frame. Returns each seated
     place's transform (from its fused frame to the walk's levelled frame) and, per place, how many seats it had."""
@@ -1034,7 +1034,7 @@ def join_places(
     now: float | None = None,
     frames: Callable[[Path, Sequence[str], Path, float], Mapping[str, Path]] | None = None,
 ) -> dict[str, Any]:
-    """Merge the fixed cameras' places this walk passes through with it (#2997, see JOIN_STRIDE). `place` is the walk's
+    """Merge the fixed cameras' places this walk passes through with it (see JOIN_STRIDE). `place` is the walk's
     own new place, `level` takes the walk's poses into its fused frame, and `walk` still has its frames. Each other
     place with registered cameras is seated in the walk by its cameras (`seat_places`). With at least JOIN_PLACES
     places seated, they and the walk are merged (fuse.join) into `join_target`'s place. Returns what it did."""
@@ -1234,9 +1234,9 @@ def into_place(
 ) -> tuple[places.Revision | None, str | None]:
     """The walk's cloud (`points`, in the walk's frame, `up` its up) fused into `place`'s map as a tier 1 revision,
     with the recording's name (`label`) added to the place's `walkthrough` signal and `looks` registered in it: the
-    place's fixed cameras keep their poses, since the walk is moved into their frame (#3252). A LiDAR walk (a Stray
+    place's fixed cameras keep their poses, since the walk is moved into their frame. A LiDAR walk (a Stray
     Scanner export, `producer` PRODUCER_STRAY) into a place whose owner plan is drawn on its map registers by the plan
-    first ("plan": `fuse.by_plan`, polished against the map around there), and fuses as walked (#3286). It registers
+    first ("plan": `fuse.by_plan`, polished against the map around there), and fuses as walked. It registers
     against the map as tier 1 registers any cloud ("map"), else by the fixed cameras both see ("cameras": MASt3R seats the
     place in the walk, `seat_places`, polished against the map around there when that holds, fuse.fuse_in), when
     `out` is given and MASt3R can run. Nothing is written when it registers neither way: (None, None), and the
@@ -1257,7 +1257,7 @@ def into_place(
     was = held.signals.get("walkthrough", [])
     signals = {**held.signals, "walkthrough": [*(v for v in was if v != label), label]}
     cams = dict(looks or {})
-    walked = producer == PRODUCER_STRAY  # a LiDAR walk: sharper than the cameras' clouds (fuse.merge, #3286)
+    walked = producer == PRODUCER_STRAY  # a LiDAR walk: sharper than the cameras' clouds (fuse.merge)
     if walked:
         placed = fuse.by_plan(state, place, fuse.apply(fuse.leveller(floor), points))
         if placed is not None:
@@ -1340,7 +1340,7 @@ def run(
         if closed.why_no_scale:
             LOG.warning("no loops closed: %s", closed.why_no_scale)
         up = posegraph.world_up(closed.poses)
-        with places.writing(state):  # the nightly fixed-camera run waits for the join (#3173)
+        with places.writing(state):  # the nightly fixed-camera run waits for the join
             did = finish(state, place, video.name, walk, closed, PRODUCER, up, out=out)
             did["join"] = join_new(state, place, did, walk, closed, out)
         if poses_out is not None:
@@ -1444,7 +1444,7 @@ def run_stray(
         frames = [stray.saved_intrinsics(rows[i].k, size, FRAME_SIDE, code, turn) for i in picked]
         times = [rows[i].t for i in picked]
         looks = splats.look_from(closed.poses, frames, times)
-        with places.writing(state):  # the nightly fixed-camera run waits for the join (#3173)
+        with places.writing(state):  # the nightly fixed-camera run waits for the join
             did = finish(state, place, folder.name, walk, closed, PRODUCER_STRAY, stray.WORLD_UP, looks=looks, out=out)
             did["join"] = join_new(state, place, did, walk, closed, out)
         did["splat"] = splats.splat_walk(state, did["place"], did["revision"], paths, closed.poses, frames, looks)

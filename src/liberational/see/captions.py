@@ -1,4 +1,4 @@
-"""Captions on Continuum (#549): each camera's view described by the VLM when it has changed, as `camera.caption`
+"""Captions on Continuum: each camera's view described by the VLM when it has changed, as `camera.caption`
 records, and its notable objects grounded now and then, as `camera.objects` records.
 
 `CaptionPipeline` is one camera's path, synchronous so it tests without a broker, a camera, or a model: `feed` a frame
@@ -15,7 +15,7 @@ are (`vision/loop.py`, `vision/objects.py`):
   `objects.MAX_IDLE_S`, its boxes kept for `objects.TTL_S` and
   carried on the caption records in between.
 
-Animals (#1988): with `animals` set, each frame's fresh grounding gives its animal boxes, and a fresh caption that
+Animals: with `animals` set, each frame's fresh grounding gives its animal boxes, and a fresh caption that
 names an animal asks the VLM for them (see/caption_animals.py), for pet sightings.
 
 A caption the gate skipped is committed as a reference to the last real one (`unchanged`, `since`), and a failed VLM
@@ -168,7 +168,7 @@ class CaptionPipeline:
         animals: CaptionAnimals | None = None,
     ) -> None:
         self.cam, self.vlm, self.ground, self.animals = cam, vlm, ground, animals
-        # The camera's caption interval (#1641): a change within this long of the last VLM call is deferred until it
+        # The camera's caption interval: a change within this long of the last VLM call is deferred until it
         # passes. Grounding keeps its own cadence.
         self.caption_every_s = caption_every_s
         self.called_at = -float("inf")
@@ -266,7 +266,7 @@ class CaptionPipeline:
     def _ground_due(self, moved: bool, ts: float) -> bool:
         """Grounding is the VLM's costliest call (about 2 s), so a view is grounded when it first appears, when it
         moved (at most every `objects.MIN_S`), and otherwise every `objects.MAX_IDLE_S`. The change gate's idle
-        refresh isn't movement: counting it grounded still views every ~35 s, most of the VLM's time (#1935)."""
+        refresh isn't movement: counting it grounded still views every ~35 s, most of the VLM's time."""
         last = self.grounded_at
         return last is None or (moved and ts - last >= objects.MIN_S) or ts - last >= objects.MAX_IDLE_S
 
@@ -305,7 +305,7 @@ class CaptionPipeline:
             items = grounded_items(self.ground(frame))
         except Exception as error:  # Unknown observation: keep cached geometry and its original observation time.
             reason = getattr(error, "reason", "grounding_failed")
-            if reason not in self.grounding_warned:  # once per kind of failure, so a broken grounding is seen (#1454)
+            if reason not in self.grounding_warned:  # once per kind of failure, so a broken grounding is seen
                 self.grounding_warned.add(reason)
                 LOG.warning("%s: object grounding failed (%s): %s", self.cam, reason, error)
             return self._object_record(frame, ts, frame_seq, "failed", attempted_at=ts, reason=reason)
