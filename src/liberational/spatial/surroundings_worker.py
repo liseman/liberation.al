@@ -63,7 +63,7 @@ from liberational.spatial import surroundings_frames as frames
 
 LOG = logs.get("surroundings")
 
-SAMPLE_EVERY_S = 5.0
+SAMPLE_EVERY_S = 2.0
 SWITCH_EVERY_S = 1.0
 STATUS_EVERY_S = 5.0
 RETRY_S = 30.0

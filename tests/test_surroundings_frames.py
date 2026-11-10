@@ -144,3 +144,20 @@ def test_the_describer_feeds_the_model_a_normalized_rgb_square_and_returns_a_uni
 def test_the_describer_says_how_to_get_a_missing_model(tmp_path):
     with pytest.raises(RuntimeError, match="mise run models"):
         sf.Describer(model=tmp_path / "megaloc.onnx")(picture())
+
+
+def test_the_default_per_view_cap_keeps_distinct_viewpoints_across_one_room(tmp_path):
+    # Ten distinct viewpoints around one room: each is 0.55 to 0.78 alike to the room's centre (SAME_VIEW..COPY_ALIKE)
+    # and under COPY_ALIKE to every other viewpoint, so none is a copy and all ten stay kept.
+    room_store = sf.Store(tmp_path / "room")
+    centre = np.zeros(12, dtype=np.float32)
+    centre[0] = 1.0
+    kept_ids = []
+    for i in range(10):
+        vec = np.zeros(12, dtype=np.float32)
+        vec[0] = 0.65
+        vec[i + 1] = math.sqrt(1.0 - 0.65**2)  # 0.65 alike to centre, 0.4225 alike to every other viewpoint
+        decision, kept = room_store.offer("walk", picture(80 + i), vec, 100.0, now=float(i))
+        assert decision.keep and kept is not None
+        kept_ids.append(kept.id)
+    assert [f.id for f in room_store.kept] == kept_ids

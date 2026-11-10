@@ -757,3 +757,153 @@ def test_a_spot_view_whose_floor_is_far_off_is_parked_as_such(models, state):
     assert did["spots"]["front"]["why"] == "floor"
     summary = sm.summary(state, now=160.0, spotted={"front": spot(place)})
     assert (summary["parked"], summary["parked_cameras"]) == (1, {"front": "floor"})
+
+
+# ---- a camera that moves (#281)
+
+
+def turned_pose(yaw_deg: float, x: float = 0.0, y: float = 0.0, z: float = 0.0) -> np.ndarray:
+    a = math.radians(yaw_deg)
+    pose = np.eye(4, dtype=np.float64)
+    pose[:3, :3] = [[math.cos(a), 0.0, math.sin(a)], [0.0, 1.0, 0.0], [-math.sin(a), 0.0, math.cos(a)]]
+    pose[:3, 3] = (x, y, z)
+    return pose
+
+
+def test_camera_tracks_split_at_gaps_and_pairs_for_includes_fast_turns_and_placed_anchors(tmp_path):
+    store = frames.Store(tmp_path / "surroundings")
+    f0 = store.offer("walk", np.full((18, 32, 3), 80, np.uint8), unit(0), 100.0, now=0.0)[1]
+    f1 = store.offer("walk", np.full((18, 32, 3), 90, np.uint8), unit(95), 100.0, now=2.0)[1]  # < 0 alike: fast turn
+    f2 = store.offer("walk", np.full((18, 32, 3), 100, np.uint8), unit(190), 100.0, now=40.0)[1]  # after a long gap
+    assert f0 is not None and f1 is not None and f2 is not None
+    assert sm.camera_tracks(store.kept) == [[f0.id, f1.id]]
+
+    # Five new frames surround `n4` closely in descriptor space, while `p0` is already placed and still overlaps `n4`:
+    # `pairs_for` keeps both the fast-turn track step (`t0` -> `t1`, 0.0 alike) and the placed anchor `p0`.
+    ids = ["p0", "t0", "t1", "n1", "n2", "n3", "n4"]
+    desc = np.stack([unit(35), unit(0), unit(90), unit(2), unit(4), unit(6), unit(8)])
+    got = {
+        frozenset(p)
+        for p in sm.pairs_for(["t1", "n1", "n2", "n3", "n4"], ["p0", "t0"], ids, desc, most=3, tracks=[["t0", "t1"]])
+    }
+    assert frozenset(("t0", "t1")) in got  # 0.0 alike, kept by the walk track
+    assert frozenset(("p0", "n4")) in got  # 0.89 alike to placed `p0`, kept despite three closer `n1..n3`
+
+
+def test_edges_require_forward_backward_agreement_and_average_consistent_passes():
+    # True b_in_a is 1 m along +x at metric scale 2 (0.5 in pass-1 units); pass 2 has half the scale (s_fwd = 2,
+    # s_back = 0.5), so backward a_in_b has translation -0.25 along +x.
+    fwd = turned_pose(2.0, x=0.5)
+    back_pose = np.linalg.inv(turned_pose(-2.0, x=0.5))
+    back_pose[:3, 3] *= 0.5  # pass-2 units (s_back = 0.5)
+    good = {
+        **pair("a", "b", fwd, depths=(1.0, 1.0)),
+        "backward": [float(x) for x in back_pose.ravel()],
+        "scales": [2.0, 0.5],
+    }
+    flipped = {
+        **pair("a", "c", fwd, depths=(1.0, 1.0)),
+        "backward": [float(x) for x in turned_pose(175.0, x=-0.25).ravel()],
+        "scales": [2.0, 0.5],
+    }
+    bad_scale = {**good, "a": "a", "b": "d", "scales": [2.0, 2.0]}  # s_fwd * s_back = 4 > 2.0
+    too_far = pair("a", "e", shifted(x=5.0), depths=(1.0, 1.0))  # 10 m jump across 2 m rooms
+    got = sm.edges([good, flipped, bad_scale, too_far], {"a": 2.0, "b": 2.0, "c": 2.0, "d": 2.0, "e": 2.0})
+    assert [e.b for e in got] == ["b"]
+    # Forward yaw +2 deg and backward yaw -2 deg average to 0 deg, at 1.0 m along +x.
+    assert got[0].b_in_a[:3, :3] == pytest.approx(np.eye(3), abs=1e-2)
+    assert got[0].b_in_a[:3, 3] == pytest.approx([1.0, 0.0, 0.0], abs=1e-2)
+
+
+def test_refine_poses_closes_a_drifted_loop_and_downweights_an_outlier_chord():
+    # Eight views around a 2 m x 2 m square; each sequential pair drifts +2.5 deg and +0.06 m, leaving a loop gap at c7.
+    gt = {
+        "c0": turned_pose(0.0, 0.0, 0.0, 0.0),
+        "c1": turned_pose(0.0, 1.0, 0.0, 0.0),
+        "c2": turned_pose(90.0, 2.0, 0.0, 0.0),
+        "c3": turned_pose(90.0, 2.0, 0.0, 1.0),
+        "c4": turned_pose(180.0, 2.0, 0.0, 2.0),
+        "c5": turned_pose(180.0, 1.0, 0.0, 2.0),
+        "c6": turned_pose(270.0, 0.0, 0.0, 2.0),
+        "c7": turned_pose(270.0, 0.0, 0.0, 1.0),
+    }
+    names = list(gt)
+    drift = turned_pose(3.5, 0.08, 0.0, 0.03)
+    chain_edges = [
+        sm.Edge(names[i], names[i + 1], (np.linalg.inv(gt[names[i]]) @ gt[names[i + 1]]) @ drift, 400) for i in range(7)
+    ]
+    open_poses = {"c0": gt["c0"], **sm.grow({"c0": gt["c0"]}, chain_edges)}
+    before_gap = float(np.linalg.norm(open_poses["c7"][:3, 3] - gt["c7"][:3, 3]))
+    assert before_gap > 0.45
+
+    loop_edges = [
+        *chain_edges,
+        sm.Edge("c0", "c7", np.linalg.inv(gt["c0"]) @ gt["c7"], 600),  # loop closure back to start
+        sm.Edge("c0", "c6", np.linalg.inv(gt["c0"]) @ gt["c6"], 500),
+        sm.Edge("c2", "c4", np.linalg.inv(gt["c2"]) @ gt["c4"], 450),
+        sm.Edge("c4", "c6", np.linalg.inv(gt["c4"]) @ gt["c6"], 450),
+        sm.Edge("c1", "c5", shifted(x=6.0, z=-5.0), 200),  # isolated outlier chord
+    ]
+    closed = sm.refine_poses(open_poses, loop_edges, pinned={"c0"})
+    assert closed["c0"] == pytest.approx(gt["c0"])
+    after_gap = float(np.linalg.norm(closed["c7"][:3, 3] - gt["c7"][:3, 3]))
+    assert after_gap < 0.12
+    assert float(np.linalg.norm(closed["c5"][:3, 3] - gt["c5"][:3, 3])) < 0.25
+
+
+def test_a_broken_walk_chain_parks_instead_of_splitting_places_and_reattaches_when_bridged(models, state):
+    # Step 1: two frames found the walk's place.
+    f0 = keep(state, 0, t=0.0)
+    f1 = keep(state, 35, t=2.0)
+    models.pairs[frozenset((f0.id, f1.id))] = pair(f0.id, f1.id, shifted(x=0.4))
+    did1 = run(state, 60.0)
+    [place] = places.place_ids(state)
+    assert did1["places"][place]["views"] == 2
+
+    # Step 2: a blank doorway breaks f1 <-> f2, while f2, f3, f4 (>= FOUND_MIN) pair strongly with one another.
+    # Because camera "front" is already in `place` on this walk, they park instead of founding a second place.
+    f2 = keep(state, 95, t=6.0)
+    f3 = keep(state, 130, t=8.0)
+    f4 = keep(state, 165, t=10.0)
+    models.pairs[frozenset((f2.id, f3.id))] = pair(f2.id, f3.id, shifted(x=0.4))
+    models.pairs[frozenset((f3.id, f4.id))] = pair(f3.id, f4.id, shifted(x=0.4))
+    did2 = run(state, 120.0)
+    assert (did2["places"], did2["unplaced"]) == ({}, 3)
+    assert places.place_ids(state) == [place]
+
+    # Step 3: f5 sees both f4 and f0 again; f5 joins `place`, waking the parked segment, which re-attaches on Step 4.
+    f5 = keep(state, 200, t=12.0)
+    models.pairs[frozenset((f0.id, f5.id))] = pair(f0.id, f5.id, shifted(z=0.5))
+    models.pairs[frozenset((f4.id, f5.id))] = pair(f4.id, f5.id, shifted(x=0.4))
+    did3 = run(state, 180.0)
+    assert did3["places"][place]["views"] == 3
+    did4 = run(state, 240.0)
+    assert places.place_ids(state) == [place]
+    assert did4["places"][place]["views"] == 6
+    assert sm.summary(state, now=240.0)["parked"] == 0
+
+
+def test_accept_before_fit_and_warp_splat_guard_and_carry_resumed_gaussians():
+    assert splat_runner.accept_before_fit(0.95, 18.5, 22.0, 0.04, 0.8) is True
+    assert splat_runner.accept_before_fit(0.40, 14.0, 19.0, 0.04, 0.8) is False  # mostly uncovered new room
+    assert splat_runner.accept_before_fit(0.95, 20.0, 19.5, 0.04, 0.8) is False  # fit worsened PSNR
+    assert splat_runner.accept_before_fit(0.95, 18.0, 21.0, 0.40, 0.8) is False  # wandered too far
+    assert splat_runner.accept_before_fit(0.95, 18.0, 21.0, 0.04, 9.0) is False  # twisted too far
+
+    splat = {
+        "means": np.array([[0.1, 0.0, 0.0], [5.0, 0.0, 1.0]], dtype=np.float32),
+        "quats": np.array([[1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]], dtype=np.float32),
+        "scales": np.zeros((2, 3), dtype=np.float32),
+        "opacity": np.zeros(2, dtype=np.float32),
+        "sh0": np.zeros((2, 3), dtype=np.float32),
+        "rest": np.zeros((2, 3, 3), dtype=np.float32),
+    }
+    was = [np.eye(4), shifted(x=5.0)]
+    now = [np.eye(4), turned_pose(90.0, x=6.0)]  # camera 1 shifted +1 m in x and turned +90 deg about y
+    warped = splat_runner.warp_splat(splat, was, now, np)
+    assert warped["means"][0] == pytest.approx([0.1, 0.0, 0.0], abs=1e-5)  # near unmoved camera 0: stays put
+    # Point (5, 0, 1) sits +1 m along camera 1's +z; after camera 1 moves to (6, 0, 0) and turns +90 deg about y,
+    # camera +z points along world +x, so the point lands at (7, 0, 0).
+    assert warped["means"][1] == pytest.approx([7.0, 0.0, 0.0], abs=1e-5)
+    assert float(np.linalg.norm(warped["quats"][1])) == pytest.approx(1.0, abs=1e-5)
+    assert warped["quats"][1, 0] == pytest.approx(math.cos(math.radians(45.0)), abs=1e-4)

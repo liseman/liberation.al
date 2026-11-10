@@ -23,7 +23,7 @@ The map step measures a kept frame a second time, against the map itself, once i
 **The store** is `state/surroundings/`: `index.json` and, per frame, `<id>.jpg`, `<id>.npy` (its descriptor), and
 `<id>.covered.png` when someone was in view (the pixels the map step leaves out).
 It never holds more than `MAX_KEPT` frames, or more than `PER_VIEW` frames of one view (the frames at least
-`SAME_VIEW` alike): a fifth look at a view pushes out its oldest, so a view's kept frames follow how it looks now.
+`SAME_VIEW` alike): another look past that pushes out its oldest, so a view's kept frames follow how it looks now.
 At `MAX_KEPT` the frame most like another kept frame goes first, the older of a tie. All of it is machine-made:
 `pack-reset-catalog` deletes it (unless `--keep-places`), and `pack-reset-places` leaves it, so the next map is
 made from the same frames.
@@ -51,7 +51,7 @@ SAME_FRAME = 0.85  # at least this alike: a copy of a kept frame
 SAME_VIEW = 0.5  # at least this alike: the same view, though it may look different now
 SHARPER = 1.5  # times a kept frame's sharpness a copy needs to replace it
 MAX_KEPT = 300  # frames, about 45 MB of JPEGs at 960 x 540 and 10 MB of descriptors
-PER_VIEW = 4
+PER_VIEW = 16
 JPEG_QUALITY = 92
 
 SIDE = 322  # MegaLoc's input, square

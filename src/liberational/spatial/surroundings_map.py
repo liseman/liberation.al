@@ -66,7 +66,7 @@ import math
 import sys
 import tempfile
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -87,10 +87,19 @@ STATE = "map.json"  # under the kept frames' folder
 PROGRESS = "progress.json"  # what a running step is doing (`doing`), beside it
 TRAINING = "training.json"  # the trainer's own step count while it trains, beside it
 PHASES = ("pairing", "depth", "training", "writing")
-MAX_NEW = 12  # waiting frames a step takes
-NEIGHBOURS = 3  # frames a waiting frame is paired with
-MIN_ALIKE = 0.1  # a frame less alike than this isn't worth a pair
+MAX_NEW = 24  # waiting frames a step takes
+NEIGHBOURS = 4  # frames a waiting frame is paired with overall...
+PLACED_NEIGHBOURS = 2  # ...plus up to this many among the frames already placed, to anchor and close loops
+TRACK_OFFSETS = (-2, -1, 1, 2)  # steps along one camera's walk paired even across a fast turn
+CHAIN_GAP_S = 15.0  # seconds between a camera's kept frames beyond which they aren't one continuous turn
+SAME_WALK_S = 1800.0  # within this, an unanchored group of a camera already in a place parks to re-attach later
+MIN_ALIKE = 0.1  # a frame less alike than this isn't worth a descriptor pair
 MIN_INLIERS = 150  # matches that must agree with a pair's pose for it to place a frame
+PAIR_SCALE_RATIO = (0.5, 2.0)  # bounds on s_fwd * s_back between MASt3R's two passes of a pair
+PAIR_MAX_TURN_DEG = 15.0  # how far a pair's forward and backward rotations may disagree
+PAIR_MAX_SHIFT_M = 0.35  # floor on forward-backward translation disagreement (metres)...
+PAIR_MAX_SHIFT_REL = 0.5  # ...or as a share of the pair's baseline
+PAIR_MAX_BASELINE_FACTOR = 2.5  # max baseline over the deeper view's median depth (floor 4 m)
 PARK_S = 86400.0  # how long a frame nothing places stays parked before it's dropped
 SPOT_FLOOR_M = 0.05  # a spot view's floor this near the plan's (z = 0) is left as the depth model gave it
 SPOT_SCALE = (0.75, 1.35)  # how far a spot view's depth may be scaled to bring its floor to the plan's
@@ -125,6 +134,9 @@ class State:
     frames: dict[str, dict[str, Any]] = field(default_factory=dict)  # by kept frame id: place and pose, or parked
     drop: list[str] = field(default_factory=list)  # kept frames for the sampler to drop
     places: dict[str, dict[str, Any]] = field(default_factory=dict)  # by place id: frame, rounds, views, improved
+    edges: list[dict[str, Any]] = field(
+        default_factory=list
+    )  # measured metric pairs kept across steps for loop closure
     last: dict[str, Any] = field(default_factory=dict)  # the last step: when, and what it did
 
     @staticmethod
@@ -135,13 +147,21 @@ class State:
             frames={str(k): dict(v) for k, v in (raw.get("frames") or {}).items()},
             drop=[str(x) for x in raw.get("drop") or []],
             places={str(k): dict(v) for k, v in (raw.get("places") or {}).items()},
+            edges=[dict(e) for e in (raw.get("edges") or []) if isinstance(e, Mapping)],
             last=dict(raw.get("last") or {}),
         )
 
     def write(self, folder: Path) -> None:
         json_state.write(
             folder / STATE,
-            {"focals": self.focals, "frames": self.frames, "drop": self.drop, "places": self.places, "last": self.last},
+            {
+                "focals": self.focals,
+                "frames": self.frames,
+                "drop": self.drop,
+                "places": self.places,
+                "edges": self.edges,
+                "last": self.last,
+            },
         )
 
     def placed(self, place: str | None = None) -> dict[str, np.ndarray]:
@@ -351,26 +371,78 @@ def held_lens(undo: lens.Lens, width: int, height: int) -> lens.Lens:
     return lens.Lens(width, height, (focal, focal, width / 2 - 0.5, height / 2 - 0.5), undo.division)
 
 
+def camera_tracks(kept: Sequence[frames.Kept], gap_s: float = CHAIN_GAP_S) -> list[list[str]]:
+    """Each camera's kept frame ids ordered by capture time and split where consecutive kept frames are more than
+    `gap_s` apart: neighbours on a track are adjacent looks of one continuous walk."""
+    by_cam: dict[str, list[frames.Kept]] = {}
+    for f in sorted(kept, key=lambda x: x.t):
+        by_cam.setdefault(f.camera, []).append(f)
+    tracks: list[list[str]] = []
+    for seq in by_cam.values():
+        cur: list[str] = []
+        prev_t: float | None = None
+        for f in seq:
+            if prev_t is not None and f.t - prev_t > gap_s:
+                if len(cur) >= 2:
+                    tracks.append(cur)
+                cur = []
+            cur.append(f.id)
+            prev_t = f.t
+        if len(cur) >= 2:
+            tracks.append(cur)
+    return tracks
+
+
 def pairs_for(
-    new: Sequence[str], placed: Sequence[str], ids: Sequence[str], descriptors: np.ndarray, most: int = NEIGHBOURS
+    new: Sequence[str],
+    placed: Sequence[str],
+    ids: Sequence[str],
+    descriptors: np.ndarray,
+    most: int = NEIGHBOURS,
+    tracks: Sequence[Sequence[str]] = (),
 ) -> list[tuple[str, str]]:
-    """The pairs to measure: each of `new` with the `most` frames it's most alike, among `placed` and the other new
-    ones, that are at least MIN_ALIKE alike, as (the other frame, the new one); each pair once, whichever way round.
-    `descriptors` has a unit row per id in `ids`."""
+    """The pairs to measure: each of `new` with its adjacent track neighbours in `tracks` (even across a fast turn
+    whose descriptors fall below MIN_ALIKE), up to PLACED_NEIGHBOURS most-alike frames in `placed` (so a batch of new
+    frames still anchors to and closes loops with the existing map), and the `most` most-alike frames overall among
+    `placed` and `new` at least MIN_ALIKE alike, as (the other frame, the new one); each pair once, whichever way
+    round. `descriptors` has a unit row per id in `ids`."""
     row = {k: i for i, k in enumerate(ids)}
+    placed_pool = [k for k in placed if k in row]
     pool = [k for k in [*placed, *new] if k in row]
+    pool_set = set(pool)
+    track_peers: dict[str, list[str]] = {}
+    for track in tracks:
+        active = [k for k in track if k in pool_set]
+        for pos, fid in enumerate(active):
+            peers = track_peers.setdefault(fid, [])
+            for step in TRACK_OFFSETS:
+                if 0 <= pos + step < len(active):
+                    peers.append(active[pos + step])
     seen: set[frozenset[str]] = set()
     out: list[tuple[str, str]] = []
+
+    def add(other: str, frame: str) -> None:
+        key = frozenset((other, frame))
+        if other != frame and key not in seen:
+            seen.add(key)
+            out.append((other, frame))
+
     for frame in new:
         if frame not in row:
             continue
+        for peer in track_peers.get(frame, ()):
+            add(peer, frame)
+        placed_others = [k for k in placed_pool if k != frame]
+        if placed_others:
+            p_alike = descriptors[[row[k] for k in placed_others]] @ descriptors[row[frame]]
+            for j in np.argsort(-p_alike)[: min(most, PLACED_NEIGHBOURS)]:
+                if p_alike[j] >= MIN_ALIKE:
+                    add(placed_others[j], frame)
         others = [k for k in pool if k != frame]
         alike = descriptors[[row[k] for k in others]] @ descriptors[row[frame]] if others else np.zeros(0)
         for j in np.argsort(-alike)[:most]:
-            if alike[j] < MIN_ALIKE or frozenset((others[j], frame)) in seen:
-                continue
-            seen.add(frozenset((others[j], frame)))
-            out.append((others[j], frame))
+            if alike[j] >= MIN_ALIKE:
+                add(others[j], frame)
     return out
 
 
@@ -393,10 +465,34 @@ class Edge:
     b_in_a: np.ndarray
     inliers: int
 
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "a": self.a,
+            "b": self.b,
+            "b_in_a": [float(x) for x in np.asarray(self.b_in_a, dtype=np.float64).ravel()],
+            "inliers": int(self.inliers),
+        }
+
+    @staticmethod
+    def from_dict(raw: Mapping[str, Any]) -> Edge:
+        return Edge(
+            str(raw["a"]),
+            str(raw["b"]),
+            np.asarray(raw["b_in_a"], dtype=np.float64).reshape(4, 4),
+            int(raw["inliers"]),
+        )
+
+
+def _turn_deg(r_a: np.ndarray, r_b: np.ndarray) -> float:
+    cos_a = max(-1.0, min(1.0, float((np.trace(r_a.T @ r_b) - 1.0) / 2.0)))
+    return math.degrees(math.acos(cos_a))
+
 
 def edges(pairs: Sequence[Mapping[str, Any]], metric: Mapping[str, float]) -> list[Edge]:
-    """The pairs of MASt3R's answer that give a pose, each scaled to metres by the frames' metric depths (`metric`,
-    by frame id). A pair of a frame with itself, a pair with no pose, and one with no scale are left out."""
+    """The pairs of MASt3R's answer that give a consistent pose, each scaled to metres by the frames' metric depths
+    (`metric`, by frame id). A pair of a frame with itself, a pair with no pose or scale, one whose baseline exceeds
+    what the views' depths can overlap across, and (when both directions are given) one whose two passes disagree in
+    scale, rotation, or translation are left out; consistent two-pass poses are averaged on SE(3)."""
     out = []
     for p in pairs:
         a, b = str(p["a"]), str(p["b"])
@@ -405,8 +501,30 @@ def edges(pairs: Sequence[Mapping[str, Any]], metric: Mapping[str, float]) -> li
         scale = pair_scale(p["depths"], metric[a], metric[b])
         if scale is None:
             continue
-        pose = np.asarray(p["forward"], dtype=np.float64).reshape(4, 4).copy()
-        pose[:3, 3] *= scale
+        fwd = np.asarray(p["forward"], dtype=np.float64).reshape(4, 4)
+        r_fwd = fwd[:3, :3]
+        t_fwd = scale * fwd[:3, 3]
+        rot, shift = r_fwd.copy(), t_fwd.copy()
+        if p.get("backward") is not None and p.get("scales") is not None:
+            s_fwd, s_back = (float(x) for x in p["scales"])
+            if s_fwd <= 0 or s_back <= 0 or not (PAIR_SCALE_RATIO[0] <= s_fwd * s_back <= PAIR_SCALE_RATIO[1]):
+                continue
+            back = np.asarray(p["backward"], dtype=np.float64).reshape(4, 4)
+            r_back = back[:3, :3].T
+            t_back = -(scale / s_back) * (r_back @ back[:3, 3])
+            if _turn_deg(r_fwd, r_back) > PAIR_MAX_TURN_DEG:
+                continue
+            mean_norm = 0.5 * (float(np.linalg.norm(t_fwd)) + float(np.linalg.norm(t_back)))
+            if float(np.linalg.norm(t_fwd - t_back)) > max(PAIR_MAX_SHIFT_M, PAIR_MAX_SHIFT_REL * mean_norm):
+                continue
+            u, _, vt = np.linalg.svd(r_fwd + r_back)
+            rot = u @ np.diag([1.0, 1.0, float(np.sign(np.linalg.det(u @ vt)) or 1.0)]) @ vt
+            shift = 0.5 * (t_fwd + t_back)
+        max_baseline = max(4.0, PAIR_MAX_BASELINE_FACTOR * max(metric[a], metric[b]))
+        if float(np.linalg.norm(shift)) > max_baseline:
+            continue
+        pose = np.eye(4, dtype=np.float64)
+        pose[:3, :3], pose[:3, 3] = rot, shift
         out.append(Edge(a, b, pose, int(min(p["inliers"]))))
     return out
 
@@ -428,6 +546,84 @@ def grow(poses: Mapping[str, np.ndarray], found: Sequence[Edge], least: int = MI
                 break
         else:
             return new
+
+
+def refine_poses(
+    poses: Mapping[str, np.ndarray],
+    found: Sequence[Edge],
+    pinned: Collection[str] = (),
+    least: int = MIN_INLIERS,
+) -> dict[str, np.ndarray]:
+    """Optimize camera-to-world `poses` over all pairwise SE(3) constraints in `found` with at least `least` inliers,
+    holding `pinned` views (or the first view when none is pinned) fixed so loops close smoothly and isolated bad pairs
+    are downweighted."""
+    from scipy.optimize import least_squares
+    from scipy.sparse import lil_matrix
+    from scipy.spatial.transform import Rotation
+
+    order = list(poses)
+    cur = {k: np.asarray(poses[k], dtype=np.float64).reshape(4, 4).copy() for k in order}
+    usable = [e for e in found if e.inliers >= least and e.a in cur and e.b in cur and e.a != e.b]
+    fixed = set(pinned) & set(cur)
+    if not fixed and order:
+        fixed = {order[0]}
+    free = [k for k in order if k not in fixed]
+    if not free or (len(usable) <= len(free) and len(fixed) <= 1) or not usable:
+        return cur
+    idx = {k: i for i, k in enumerate(order)}
+    free_slot = {k: i for i, k in enumerate(free)}
+    free_idx = np.array([idx[k] for k in free], dtype=np.int64)
+    ia = np.array([idx[e.a] for e in usable], dtype=np.int64)
+    ib = np.array([idx[e.b] for e in usable], dtype=np.int64)
+    r_ab = np.stack([e.b_in_a[:3, :3] for e in usable])
+    t_ab = np.stack([e.b_in_a[:3, 3] for e in usable])
+    weights = np.array([math.sqrt(e.inliers / max(1, least)) for e in usable], dtype=np.float64)[:, None]
+
+    m, n_free = len(usable), len(free)
+    sparsity = lil_matrix((6 * m, 6 * n_free), dtype=int)
+    for row_e, e in enumerate(usable):
+        for endpoint in (e.a, e.b):
+            slot = free_slot.get(endpoint)
+            if slot is not None:
+                sparsity[6 * row_e : 6 * row_e + 6, 6 * slot : 6 * slot + 6] = 1
+
+    base_r = np.stack([cur[k][:3, :3] for k in order])
+    base_t = np.stack([cur[k][:3, 3] for k in order])
+
+    def unpack(x: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        dx = x.reshape(n_free, 6)
+        rots = base_r.copy()
+        shifts = base_t.copy()
+        rots[free_idx] = np.einsum("nij,njk->nik", base_r[free_idx], Rotation.from_rotvec(dx[:, 3:]).as_matrix())
+        shifts[free_idx] = base_t[free_idx] + dx[:, :3]
+        return rots, shifts
+
+    def residuals(x: np.ndarray) -> np.ndarray:
+        rots, shifts = unpack(x)
+        r_pred = np.einsum("mji,mjk->mik", rots[ia], rots[ib])
+        t_pred = np.einsum("mji,mj->mi", rots[ia], shifts[ib] - shifts[ia])
+        r_err = np.einsum("mji,mjk->mik", r_ab, r_pred)
+        res_t = weights * (t_pred - t_ab)
+        res_r = weights * Rotation.from_matrix(r_err).as_rotvec()
+        return np.hstack([res_t, res_r]).ravel()
+
+    for loss, f_scale in (("soft_l1", 1.0), ("cauchy", 0.2)):
+        sol = least_squares(
+            residuals,
+            np.zeros(6 * n_free, dtype=np.float64),
+            jac_sparsity=sparsity,
+            loss=loss,
+            f_scale=f_scale,
+            max_nfev=45,
+        )
+        base_r, base_t = unpack(sol.x)
+
+    out: dict[str, np.ndarray] = {}
+    for i, k in enumerate(order):
+        mat = np.eye(4, dtype=np.float64)
+        mat[:3, :3], mat[:3, 3] = base_r[i], base_t[i]
+        out[k] = cur[k] if k in fixed else mat
+    return out
 
 
 def lift(
@@ -500,7 +696,8 @@ def _prepare(store: frames.Store, frame: frames.Kept, folder: Path, optic: Optic
     undo, _ = _prepare_focal(frame, optic)
     height, width = image.shape[:2]
     image, covered = lens.prepare(image, undo, optic.masks)
-    people = cv2.imread(str(store.covered_path(frame)), cv2.IMREAD_GRAYSCALE)
+    covered_path = store.covered_path(frame)
+    people = cv2.imread(str(covered_path), cv2.IMREAD_GRAYSCALE) if covered_path.is_file() else None
     if people is not None and people.shape == (height, width):
         if undo is not None:  # moved as the picture was
             mx, my = lens.undistort_maps(undo, width, height)
@@ -586,6 +783,8 @@ def forget(state: State, kept: Sequence[frames.Kept]) -> None:
     have = {f.id for f in kept}
     state.frames = {k: v for k, v in state.frames.items() if k in have}
     state.drop = [k for k in state.drop if k in have]
+    live = have - set(state.drop)
+    state.edges = [e for e in state.edges if e.get("a") in live and e.get("b") in live]
 
 
 class Pictures:
@@ -698,6 +897,9 @@ def _step(
         LOG.info("a frame of %s was parked for a day with nothing to place it by: dropped", f.camera)
         state.drop.append(f.id)
         state.frames.pop(f.id, None)
+    if state.drop:
+        gone = set(state.drop)
+        state.edges = [e for e in state.edges if e.get("a") not in gone and e.get("b") not in gone]
     basis = bases(spotted)
     by_id = {f.id: f for f in store.kept}
     # A view placed from a spot stands where the spot says. When the owner moves the spot, or the tilt is fitted
@@ -729,8 +931,15 @@ def _step(
     at_spot = {f.id: spotted[f.camera] for f in todo if usable(spotted.get(f.camera)) and optic[f.camera].focal}
     pairing = [f for f in todo if f.id not in at_spot]
     placed_ids = [k for k in state.placed() if k in by_id]
-    # A frame that pairs is paired with the placed frames and with this step's spot views, which are about to be.
-    measure = pairs_for([f.id for f in pairing], [*placed_ids, *at_spot], [f.id for f in store.kept], store.descriptors)
+    tracks = camera_tracks(store.kept)
+    # A frame that pairs is paired with its walk neighbours, the placed frames, and this step's spot views.
+    measure = pairs_for(
+        [f.id for f in pairing],
+        [*placed_ids, *at_spot],
+        [f.id for f in store.kept],
+        store.descriptors,
+        tracks=tracks,
+    )
     unknown = {f.camera: f.id for f in reversed(pairing) if optic[f.camera].focal is None}
     measure += [(k, k) for k in unknown.values()]  # a camera's own focal, from a frame paired with itself
     gpu = cameras.pick_gpu(int(cfg.get("spatial.gpu")), nvml.gpus())
@@ -783,6 +992,7 @@ def _step(
                 continue
             if fit.scale != 1.0:
                 _scale_depth(_depth_path(store, f.id), fit.scale)
+                state.edges = [e for e in state.edges if e.get("a") != f.id and e.get("b") != f.id]
             spot_poses.setdefault(spot.place, {})[f.id] = pose
         # A place with a view at a spot stands in its plan's frame. A map learned in a frame of its own before (its
         # first camera the origin) can't take such a view: it's started again in the plan's, from the frames kept.
@@ -795,21 +1005,48 @@ def _step(
 
         depth = {k: _read_depth(_depth_path(store, k)) for k in involved if _depth_path(store, k).is_file()}
         found = edges(answer["pairs"], {k: _metric(d) for k, d in depth.items()})
-        # Place what joins a place (one that exists, or one a spot view founds now), then let what's left found new
-        # ones.
+        merged_edges: dict[frozenset[str], Edge] = {}
+        for raw_e in state.edges:
+            try:
+                edge = Edge.from_dict(raw_e)
+            except KeyError, TypeError, ValueError:
+                continue
+            if edge.a in by_id and edge.b in by_id and edge.a not in state.drop and edge.b not in state.drop:
+                merged_edges[frozenset((edge.a, edge.b))] = edge
+        for edge in found:
+            merged_edges[frozenset((edge.a, edge.b))] = edge
+        all_edges = list(merged_edges.values())
+        state.edges = [edge.as_dict() for edge in all_edges]
+
+        # Place what joins a place (one that exists, or one a spot view founds now). An unanchored group from a camera
+        # that already has a placed frame in the same walk (`SAME_WALK_S`) parks instead of founding a disconnected
+        # second place, so when the camera sees the room again `due` wakes the parked chain and `grow` re-attaches it.
         joined: dict[str, tuple[str, np.ndarray]] = {}  # frame id -> (place, pose)
         for place in dict.fromkeys([*state.places, *spot_poses]):
             anchored = {**state.placed(place), **spot_poses.get(place, {})}
-            for k, pose in grow(anchored, found).items():
+            for k, pose in grow(anchored, all_edges).items():
                 joined.setdefault(k, (place, pose))
+        placed_times: dict[str, list[float]] = {}
+        for k in [*state.placed(), *(k for m in spot_poses.values() for k in m), *joined]:
+            if k in by_id:
+                placed_times.setdefault(by_id[k].camera, []).append(by_id[k].t)
         groups: list[dict[str, np.ndarray]] = []
         for f in ready:
             if f.id in joined or f.id in at_spot or any(f.id in g for g in groups):
                 continue
-            free = [e for e in found if not {e.a, e.b} & (joined.keys() | at_spot.keys())]
+            free = [e for e in all_edges if not {e.a, e.b} & (joined.keys() | at_spot.keys())]
             group = {f.id: np.eye(4), **grow({f.id: np.eye(4)}, free)}
-            if (not state.places and not spot_poses and not groups) or len(group) >= FOUND_MIN:
+            same_walk = any(
+                abs(by_id[gk].t - pt) <= SAME_WALK_S
+                for gk in group
+                if gk in by_id
+                for pt in placed_times.get(by_id[gk].camera, ())
+            )
+            if (not state.places and not spot_poses and not groups) or (len(group) >= FOUND_MIN and not same_walk):
                 groups.append(group)
+                for gk in group:
+                    if gk in by_id:
+                        placed_times.setdefault(by_id[gk].camera, []).append(by_id[gk].t)
         targets: list[tuple[str | None, dict[str, np.ndarray]]] = []
         for place in dict.fromkeys([*state.places, *spot_poses]):
             mine = {**spot_poses.get(place, {}), **{k: pose for k, (p, pose) in joined.items() if p == place}}
@@ -818,7 +1055,9 @@ def _step(
         targets += [(None, g) for g in groups]
         for place, new_poses in targets:
             at = {k: at_spot[k] for k in new_poses if k in at_spot}
-            result = _train(state_dir, store, state, place, new_poses, pictures, gsplat, gpu, folder, now, at)
+            result = _train(
+                state_dir, store, state, place, new_poses, pictures, gsplat, gpu, folder, now, at, all_edges
+            )
             did["places"][result["place"]] = result
         taken = {k for _, g in targets for k in g}
         for f in todo:
@@ -867,6 +1106,7 @@ def _train(
     folder: Path,
     now: float,
     at_spot: Mapping[str, spots.Spot] | None = None,
+    place_edges: Sequence[Edge] = (),
 ) -> dict[str, Any]:
     """Continue `place`'s splat (or found a place's, when None) with the frames in `new_poses`, write the revision,
     and note the frames in `state`; what it did. `at_spot` are the new frames placed from their cameras' spots, by
@@ -880,7 +1120,17 @@ def _train(
     old_poses = state.placed(place) if place is not None else {}
     old_poses = {k: v for k, v in old_poses.items() if k in by_id and _depth_path(store, k).is_file()}
     order = [*old_poses, *new_poses]
-    poses = {**old_poses, **new_poses}
+    poses = refine_poses({**old_poses, **new_poses}, place_edges, held_views)
+    warped_old = any(
+        float(np.linalg.norm(old_poses[k][:3, 3] - poses[k][:3, 3])) > 0.02
+        or _turn_deg(old_poses[k][:3, :3], poses[k][:3, :3]) > 0.5
+        for k in old_poses
+    )
+    relift_old = any(
+        float(np.linalg.norm(old_poses[k][:3, 3] - poses[k][:3, 3])) > 0.05
+        or _turn_deg(old_poses[k][:3, :3], poses[k][:3, :3]) > 1.0
+        for k in old_poses
+    )
     views = []
     for k in order:
         mask = pictures.mask(k)
@@ -894,6 +1144,7 @@ def _train(
                 "depth": str(_depth_path(store, k)),
                 **({} if mask is None else {"mask": str(mask)}),
                 **({"fixed": True} if k in held_views else {}),
+                **({"moved_from": [float(x) for x in old_poses[k].ravel()]} if warped_old and k in old_poses else {}),
             }
         )
     points, colors = [], []
@@ -947,9 +1198,12 @@ def _train(
         raise RuntimeError("the splat trainer wrote a PLY this reader can't take")
     before = {order[int(b["view"])]: b for b in result.get("before") or []}
     dropped = [k for k in new_poses if k in before and well_drawn(before[k])]
+    if dropped:
+        gone = set(dropped)
+        state.edges = [e for e in state.edges if e.get("a") not in gone and e.get("b") not in gone]
     added = [k for k in new_poses if k not in dropped]
     refined = result.get("poses") or [None] * len(order)
-    # The cloud: the place's old points, then the points of the new frames that stay.
+    # The cloud: the place's old points (re-lifted when loop closure moved earlier cameras), then the new frames'.
     cloud_p = np.concatenate(
         [p for k, p in zip(new_poses, points, strict=True) if k in added] or [np.zeros((0, 3), np.float32)]
     )
@@ -957,9 +1211,25 @@ def _train(
         [c for k, c in zip(new_poses, colors, strict=True) if k in added] or [np.zeros((0, 3), np.uint8)]
     )
     if was is not None and was.map is not None:
-        old_p, old_c, _ = ply.read(places.root(state_dir) / was.place / was.map)
-        cloud_p = np.concatenate([old_p.astype(np.float32), cloud_p])
-        cloud_c = np.concatenate([old_c if old_c is not None else np.full((len(old_p), 3), 128, np.uint8), cloud_c])
+        if relift_old:
+            old_lifted = [
+                lift(
+                    _read_depth(_depth_path(store, k)),
+                    _read_rgb(pictures.image(k)),
+                    pictures.focal(k) or 1.0,
+                    poses[k],
+                )
+                for k in old_poses
+                if pictures.focal(k) is not None
+            ]
+            old_p = np.concatenate([p for p, _ in old_lifted] or [np.zeros((0, 3), np.float32)])
+            old_c = np.concatenate([c for _, c in old_lifted] or [np.zeros((0, 3), np.uint8)])
+        else:
+            old_p_raw, old_c_raw, _ = ply.read(places.root(state_dir) / was.place / was.map)
+            old_p = old_p_raw.astype(np.float32)
+            old_c = old_c_raw if old_c_raw is not None else np.full((len(old_p), 3), 128, np.uint8)
+        cloud_p = np.concatenate([old_p, cloud_p])
+        cloud_c = np.concatenate([old_c, cloud_c])
     cloud_p, cloud_c = thin(cloud_p, cloud_c)
     registered = {by_id[k].camera: spot.pose for k, spot in at_spot.items() if spot.pose is not None and k in added}
     with places.writing(state_dir):

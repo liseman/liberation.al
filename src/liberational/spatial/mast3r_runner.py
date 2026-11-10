@@ -488,8 +488,9 @@ def _pair_poses(
 
         h2, w2 = x22.shape[:2]
         h1, w1 = x11.shape[:2]
-        n_fwd = pnp_inliers(x11[xy1[:, 1], xy1[:, 0]], xy2, focal(x22), (w2 / 2, h2 / 2))
-        n_back = pnp_inliers(x22[xy2[:, 1], xy2[:, 0]], xy1, focal(x11), (w1 / 2, h1 / 2))
+        f1, f2 = focal(x11), focal(x22)
+        n_fwd = pnp_inliers(x11[xy1[:, 1], xy1[:, 0]], xy2, f2, (w2 / 2, h2 / 2))
+        n_back = pnp_inliers(x22[xy2[:, 1], xy2[:, 0]], xy1, f1, (w1 / 2, h1 / 2))
         out.append(
             {
                 "a": cams[i],
@@ -500,7 +501,7 @@ def _pair_poses(
                 "backward": [float(x) for x in backward.ravel()],
                 "scales": [s_fwd, s_back],
                 "inliers": [n_fwd, n_back],
-                "focals": [focal(x11), focal(x22)],
+                "focals": [f1, f2],
                 "sizes": [[w1, h1], [w2, h2]],
             }
         )

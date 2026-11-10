@@ -411,6 +411,20 @@ def test_a_blurred_frame_scores_less_sharp_than_the_frame_it_was_blurred_from():
     assert cameras.sharpness(np.full((72, 128, 3), 90, np.uint8)) == 0.0
 
 
+def test_a_crisp_low_texture_doorway_scores_comparable_to_a_cluttered_room():
+    cv2 = pytest.importorskip("cv2")
+    cluttered = np.full((180, 320, 3), 185, dtype=np.uint8)
+    for y in range(12, 168, 22):
+        for x in range(12, 308, 28):
+            cluttered[y : y + 10, x : x + 14] = (35, 45, 55)
+    doorway = np.full((180, 320, 3), 185, dtype=np.uint8)
+    doorway[:, 156:162] = (35, 45, 55)  # one crisp door jamb across an otherwise plain wall
+    cluttered_s = cameras.sharpness(cluttered)
+    doorway_s = cameras.sharpness(doorway)
+    assert doorway_s > cluttered_s * 0.5  # stays above the sampler's BLUR = 0.5 median check
+    assert cameras.sharpness(cv2.GaussianBlur(doorway, (9, 9), 3.0)) < doorway_s / 5
+
+
 def test_overlapping_people_cover_their_union_of_the_frame():
     left, across = (0.0, 0.0, 0.5, 1.0), (0.25, 0.0, 0.75, 1.0)
     assert cameras.covered_share([]) == 0.0

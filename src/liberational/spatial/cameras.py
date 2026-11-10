@@ -170,13 +170,25 @@ def recorded(cam: str, t: float) -> Any:
     return vision_log.at().frame(cam, t, RECORDED_WITHIN_S)
 
 
+SHARP_MIN_GRAD = 16.0  # a 3x3 Sobel gradient under this is flat surface or sensor noise, not an edge
+SHARP_MIN_EDGES = 0.002  # with fewer pixels than this on an edge, a frame is blank or fogged
+SHARP_EDGE_PCT = 95.0  # score the strongest twentieth of the frame's gradients, or all real edges when sparser
+
+
 def sharpness(pixels: np.ndarray) -> float:
-    """How sharp a BGR frame is: the variance of its grey image's Laplacian (higher is sharper; motion blur, a
-    smudged or fogged lens, and a refocusing camera all lower it)."""
+    """How sharp a BGR frame is: its Laplacian energy over Sobel gradient on its strongest edges (higher is sharper;
+    motion blur, a smudged or fogged lens, and a refocusing camera all lower it, while a crisp doorway or plain wall
+    after a cluttered room keeps its edges' sharpness)."""
     import cv2
 
     grey = cv2.cvtColor(np.asarray(pixels, dtype=np.uint8), cv2.COLOR_BGR2GRAY)
-    return float(cv2.Laplacian(grey, cv2.CV_64F).var())
+    grad = np.hypot(cv2.Sobel(grey, cv2.CV_64F, 1, 0, ksize=3), cv2.Sobel(grey, cv2.CV_64F, 0, 1, ksize=3))
+    if float((grad >= SHARP_MIN_GRAD).mean()) < SHARP_MIN_EDGES:
+        return 0.0
+    bar = max(SHARP_MIN_GRAD, float(np.percentile(grad, SHARP_EDGE_PCT)))
+    lap = cv2.Laplacian(grey, cv2.CV_64F)
+    edge = grad >= bar
+    return float((lap[edge] ** 2).mean() / grad[edge].mean())
 
 
 def person_boxes(

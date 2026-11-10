@@ -104,6 +104,7 @@ opacity as a logit, log scales, and a w, x, y, z rotation) and `out/result.json`
 from __future__ import annotations
 
 import json
+import math
 import sys
 import time
 from collections.abc import Sequence
@@ -129,6 +130,9 @@ DEPTH_WEIGHT = 0.2  # the depth loss (metres of mean error) beside the image los
 MAX_SCALE = 0.03  # of the box's diagonal: a Gaussian's largest axis (a 18 m home: about half a metre)
 DEAD_OPACITY = 0.005  # gsplat's MCMC `min_opacity`: at or under it a Gaussian is relocated, and dropped at the end
 COVERED_ALPHA = 0.5  # a pixel the starting splat draws at least this opaque is covered (`score`)
+FIT_MIN_COVERED = 0.65  # under this coverage, a new view sees mostly new room, so fitting to the old splat wanders
+FIT_MAX_SHIFT_M = 0.25  # a pre-training pose fit farther than this is a false alignment, not a few-centimetre nudge
+FIT_MAX_TURN_DEG = 6.0  # ...and likewise for a turn past this
 
 
 def read_splat(data: bytes, np: Any) -> dict[str, Any]:
@@ -161,6 +165,74 @@ def read_splat(data: bytes, np: Any) -> dict[str, Any]:
         }
     except KeyError as e:
         raise ValueError(f"the PLY has no {e.args[0]} property: not a Gaussian splat") from None
+
+
+def accept_before_fit(
+    covered_at_given: float, raw_psnr: float, fit_psnr: float | None, shift_m: float, turn_deg: float
+) -> bool:
+    """Whether a pre-training pose fit against the starting splat improved a sufficiently covered view without
+    dragging its pose away from its depth points."""
+    return (
+        covered_at_given >= FIT_MIN_COVERED
+        and fit_psnr is not None
+        and fit_psnr > raw_psnr
+        and shift_m <= FIT_MAX_SHIFT_M
+        and turn_deg <= FIT_MAX_TURN_DEG
+    )
+
+
+def _rot_quat_wxyz(r: Any) -> tuple[float, float, float, float]:
+    """Unit quaternion `(w, x, y, z)` of a 3 x 3 proper rotation matrix."""
+    t = float(r[0, 0] + r[1, 1] + r[2, 2])
+    if t > 0.0:
+        s = 2.0 * math.sqrt(max(1e-12, 1.0 + t))
+        return (0.25 * s, float(r[2, 1] - r[1, 2]) / s, float(r[0, 2] - r[2, 0]) / s, float(r[1, 0] - r[0, 1]) / s)
+    if r[0, 0] > r[1, 1] and r[0, 0] > r[2, 2]:
+        s = 2.0 * math.sqrt(max(1e-12, 1.0 + float(r[0, 0] - r[1, 1] - r[2, 2])))
+        return (float(r[2, 1] - r[1, 2]) / s, 0.25 * s, float(r[0, 1] + r[1, 0]) / s, float(r[0, 2] + r[2, 0]) / s)
+    if r[1, 1] > r[2, 2]:
+        s = 2.0 * math.sqrt(max(1e-12, 1.0 + float(r[1, 1] - r[0, 0] - r[2, 2])))
+        return (float(r[0, 2] - r[2, 0]) / s, float(r[0, 1] + r[1, 0]) / s, 0.25 * s, float(r[1, 2] + r[2, 1]) / s)
+    s = 2.0 * math.sqrt(max(1e-12, 1.0 + float(r[2, 2] - r[0, 0] - r[1, 1])))
+    return (float(r[1, 0] - r[0, 1]) / s, float(r[0, 2] + r[2, 0]) / s, float(r[1, 2] + r[2, 1]) / s, 0.25 * s)
+
+
+def warp_splat(splat: dict[str, Any], was_poses: Sequence[Any], now_poses: Sequence[Any], np: Any) -> dict[str, Any]:
+    """Carry a resumed splat's Gaussian centres and orientations along when loop closure moves earlier views from
+    `was_poses` to `now_poses` (each 4 x 4 camera-to-world): each Gaussian moves rigidly with its nearest earlier
+    camera."""
+    means = np.asarray(splat["means"], dtype=np.float64)
+    quats = np.asarray(splat["quats"], dtype=np.float64)
+    if not len(means) or not len(was_poses):
+        return splat
+    was = np.stack([np.asarray(p, dtype=np.float64).reshape(4, 4) for p in was_poses])
+    now = np.stack([np.asarray(p, dtype=np.float64).reshape(4, 4) for p in now_poses])
+    if np.allclose(was, now, atol=1e-5):
+        return splat
+    deltas = np.stack([n @ np.linalg.inv(w) for w, n in zip(was, now, strict=True)])
+    rots = deltas[:, :3, :3]
+    shifts = deltas[:, :3, 3]
+    q_rots = np.array([_rot_quat_wxyz(r) for r in rots], dtype=np.float64)
+    centres = was[:, :3, 3]
+    nearest = np.empty(len(means), dtype=np.int64)
+    step = 65536
+    for i in range(0, len(means), step):
+        d2 = ((means[i : i + step, None, :] - centres[None, :, :]) ** 2).sum(axis=2)
+        nearest[i : i + step] = d2.argmin(axis=1)
+    moved_means = np.einsum("nij,nj->ni", rots[nearest], means) + shifts[nearest]
+    q_norm = quats / np.maximum(np.linalg.norm(quats, axis=1, keepdims=True), 1e-12)
+    rw, rx, ry, rz = q_rots[nearest].T
+    qw, qx, qy, qz = q_norm.T
+    moved_quats = np.stack(
+        [
+            rw * qw - rx * qx - ry * qy - rz * qz,
+            rw * qx + rx * qw + ry * qz - rz * qy,
+            rw * qy - rx * qz + ry * qw + rz * qx,
+            rw * qz + rx * qy - ry * qx + rz * qw,
+        ],
+        axis=1,
+    )
+    return {**splat, "means": moved_means.astype(np.float32), "quats": moved_quats.astype(np.float32)}
 
 
 PROGRESS_EVERY = 50  # training steps between two writes of the job's `progress` file
@@ -203,10 +275,14 @@ def main(argv: Sequence[str]) -> int:
             y = np.clip(np.round((dv + 0.5) * h / d.shape[0] - 0.5), 0, h - 1).astype(np.int64)
             if len(dv):
                 at, metres = torch.from_numpy(y * w + x).to(dev), torch.from_numpy(d[dv, du]).to(dev)
+        moved_from = np.asarray(v["moved_from"], np.float64).reshape(4, 4) if v.get("moved_from") is not None else c2w
         views.append(
             {
                 "image": torch.from_numpy(pixels).to(dev),
                 "c2w": torch.from_numpy(c2w.astype(np.float32)).to(dev),
+                "pose_mat": c2w,
+                "moved_from": moved_from,
+                "moved": v.get("moved_from") is not None,
                 "K": torch.from_numpy(k).to(dev),
                 "w": w,
                 "h": h,
@@ -230,7 +306,12 @@ def main(argv: Sequence[str]) -> int:
         pts = np.asarray(init["points"], np.float32).reshape(-1, 3)
         rgb = np.asarray(init["colors"], np.float32).reshape(-1, 3) / 255.0
     # A resumed job starts from a trained splat's Gaussians as they are; its `init` points, if any, are added to them.
+    # When loop closure moved earlier cameras (`moved_from`), the resumed Gaussians move rigidly with their nearest one.
     old = read_splat(Path(job["resume"]).read_bytes(), np) if job.get("resume") else None
+    scored_set = {int(i) for i in job.get("score", [])}
+    old_views = [v for i, v in enumerate(views) if not v["test"] and i not in scored_set]
+    if old is not None and any(v["moved"] for v in old_views):
+        old = warp_splat(old, [v["moved_from"] for v in old_views], [v["pose_mat"] for v in old_views], np)
     if not len(pts) and (old is None or not len(old["means"])):
         raise ValueError("no starting points")
     # Each point's starting scale: the RMS distance to its 3 nearest neighbours, in chunks of at most CDIST_FLOATS
@@ -393,33 +474,48 @@ def main(argv: Sequence[str]) -> int:
             opt.zero_grad(set_to_none=True)
         return score(v, delta.detach()), delta.detach()
 
-    # What the starting splat already draws of the views in `score`. Each is first lined up with it: only that view's
-    # pose is fitted, the Gaussians frozen, as a held-out view's is (`aligned`), since a pose a few centimetres off
-    # draws a picture a few pixels off, which scores as if the splat had nothing of it. Then the share of the view the
-    # splat covers (alpha at least COVERED_ALPHA) and the PSNR of what it draws there are read, and the view trains
-    # from the pose that fit.
+    def covered_score(v: dict[str, Any], delta: Any) -> tuple[float, float | None]:
+        """Share of `v` the starting splat covers at `delta`, and the PSNR on those covered pixels."""
+        with torch.no_grad():
+            img, _, info = render(v, sh_degree, delta=delta)
+            counted = torch.ones_like(info["alpha"], dtype=torch.bool)
+            if v["covered"] is not None:  # an overlay, or the border a lens's undoing leaves, is no part of it
+                counted = ~v["covered"][..., 0]
+            drawn = (info["alpha"] >= COVERED_ALPHA) & counted
+            share = float(drawn.sum() / counted.sum().clamp_min(1))
+            err = ((img - truth(v)) ** 2)[drawn]
+            psnr = round(float(-10 * torch.log10(err.mean().clamp_min(1e-10))), 2) if err.numel() else None
+            return share, psnr
+
+    # What the starting splat already draws of the views in `score`. When a view is already mostly covered by the
+    # starting splat, its pose alone is first fitted (`aligned`), since a pose a few centimetres off draws a picture
+    # a few pixels off; a view looking mostly at new room, or a fit that wanders past FIT_MAX_SHIFT_M / FIT_MAX_TURN_DEG
+    # or lowers PSNR, keeps its given pose so its lifted depth points stay aligned with its camera.
     before = []
     if resumed:
         first[0] = resumed
+        zero = torch.zeros(9, device=dev)
         for i in job.get("score", []):
             v = views[int(i)]
-            raw = score(v, torch.zeros(9, device=dev))
-            delta = torch.zeros(9, device=dev) if v["fixed"] else aligned(v)[1]  # a held view is scored where it is
-            with torch.no_grad():
-                img, _, info = render(v, sh_degree, delta=delta)
-                counted = torch.ones_like(info["alpha"], dtype=torch.bool)
-                if v["covered"] is not None:  # an overlay, or the border a lens's undoing leaves, is no part of it
-                    counted = ~v["covered"][..., 0]
-                drawn = (info["alpha"] >= COVERED_ALPHA) & counted
-                share = float(drawn.sum() / counted.sum().clamp_min(1))
-                err = ((img - truth(v)) ** 2)[drawn]
-                psnr = round(float(-10 * torch.log10(err.mean().clamp_min(1e-10))), 2) if err.numel() else None
-                v["c2w"] = corrected(v["c2w"], delta)
+            raw = score(v, zero)
+            share, psnr = covered_score(v, zero)
+            if not v["fixed"] and share >= FIT_MIN_COVERED:
+                fit_full, delta = aligned(v)
+                with torch.no_grad():
+                    rel = corrected(torch.eye(4, device=dev), delta)
+                    shift_m = float(rel[:3, 3].norm())
+                    cos_a = float(((rel[:3, :3].trace() - 1.0) / 2.0).clamp(-1.0, 1.0))
+                    turn_deg = math.degrees(math.acos(cos_a))
+                if accept_before_fit(share, raw, fit_full, shift_m, turn_deg):
+                    share, psnr = covered_score(v, delta)
+                    with torch.no_grad():
+                        v["c2w"] = corrected(v["c2w"], delta)
             before.append({"view": int(i), "covered": round(share, 4), "psnr": psnr, "psnr_as_given": round(raw, 2)})
         first[0] = None
         for opt in optimizers.values():  # the fits ran gradients through the Gaussians too: none of it is theirs
             opt.zero_grad(set_to_none=True)
 
+    fresh = [views[int(i)] for i in sorted(scored_set) if not views[int(i)]["test"]]
     torch.cuda.reset_peak_memory_stats()
     began = time.perf_counter()
     rng = np.random.default_rng(0)
@@ -430,7 +526,8 @@ def main(argv: Sequence[str]) -> int:
             part = progress.with_name(progress.name + ".part")
             part.write_text(json.dumps({"step": step, "steps": steps}))
             part.replace(progress)
-        v = train[int(rng.integers(len(train)))]
+        pool = fresh if fresh and len(fresh) * 2 < len(train) and step % 2 == 1 else train
+        v = pool[int(rng.integers(len(pool)))]
         moving = refine and step >= pose_start
         still = None if moving or not refine else torch.zeros(9, device=dev)  # no gradient reaches the rows yet
         degree = sh_degree if old is not None else min(sh_degree, step // 1000)  # a resumed splat has its bands
