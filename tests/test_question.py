@@ -98,9 +98,9 @@ def test_time_values_the_question_doesnt_hold_are_dropped(asked, fields, kept):
             id="an-amount-nobody-said",
         ),
         pytest.param(
-            "did anyone mention the budget last month",
-            dict(time_phrase="last month", time_kind="other"),
-            "last month",
+            "did anyone mention the budget in March",
+            dict(time_phrase="in March", time_kind="other"),
+            "in March",
             id="a-time-the-form-cant-hold",
         ),
     ],
@@ -110,6 +110,17 @@ def test_a_time_left_with_nothing_is_refused_not_dropped(asked, fields, phrase):
     assert r.other_time == phrase
     with pytest.raises(ValueError, match="Unsupported time phrase"):
         history_qa.window_of(r, NOW)
+
+
+@pytest.mark.parametrize("kind", ["calendar", "other"])
+def test_time_words_that_are_one_of_the_forms_days_are_that_day(kind):
+    r = question.from_reply(reply(time_phrase="this year", time_kind=kind), "how many plants did Dana put in this year")
+    assert (r.day, r.other_time) == ("this year", "")
+
+
+def test_a_day_the_question_doesnt_say_is_still_refused():
+    r = question.from_reply(reply(time_phrase="this year", time_kind="other"), "how many plants did Dana put in")
+    assert (r.day, r.other_time) == ("", "this year")
 
 
 def test_fields_of_another_time_kind_cant_combine_into_a_window():
@@ -384,15 +395,15 @@ def test_people_named_leaves_out_the_asker(readings):
         pytest.param(
             question.Reading(part="this morning", clock="9"),
             "around 09:00",
-            "10-23 08:55",
-            "10-23 09:05",
+            "10-23 08:45",
+            "10-23 09:15",
             id="a-bare-clock-takes-its-part-of-the-days-half",
         ),
         pytest.param(
             question.Reading(day="yesterday", part="afternoon", clock="3"),
             "around 15:00",
-            "10-22 14:55",
-            "10-22 15:05",
+            "10-22 14:45",
+            "10-22 15:15",
             id="yesterday-afternoon-at-3",
         ),
         pytest.param(
@@ -412,6 +423,17 @@ def test_people_named_leaves_out_the_asker(readings):
             "10-23 12:00",
             id="who-is-home",
         ),
+        pytest.param(
+            question.Reading(source="people", measure="who", clock="9"),
+            "around 09:00",
+            "10-23 08:55",
+            "10-23 09:05",
+            id="who-at-a-clock-keeps-five-minutes",
+        ),
+        pytest.param(question.Reading(day="this month"), "this month", "10-01 00:00", "10-23 12:00", id="this-month"),
+        pytest.param(question.Reading(day="last month"), "last month", "09-01 00:00", "10-01 00:00", id="last-month"),
+        pytest.param(question.Reading(day="this year"), "this year", "01-01 00:00", "10-23 12:00", id="this-year"),
+        pytest.param(question.Reading(day="last year"), "last year", "01-01 00:00", "01-01 00:00", id="last-year"),
     ],
 )
 def test_a_readings_time_fields_give_one_window(reading, window, first, last):

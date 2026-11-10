@@ -13,6 +13,7 @@ import speech_fake
 from liberational import config as cfg
 from liberational import memory_log, vision_log
 from liberational.memory import history_qa as h
+from liberational.memory import question
 from liberational.people import registry
 from liberational.vision import sightings
 from vision_fake import FakeVisionLog
@@ -186,7 +187,7 @@ def test_since_a_clock_refuses_what_it_cannot_read(question, message):
 @pytest.mark.parametrize(
     "question",
     [
-        pytest.param("what did we talk about last month", id="last-month"),
+        pytest.param("what did we talk about in March", id="a-month-name"),
         pytest.param("what did Dana say since Monday", id="since-weekday"),
         pytest.param("what did Dana say before 5pm", id="before-clock"),
         pytest.param("what did Dana say two weeks ago", id="ago"),
@@ -726,6 +727,48 @@ def test_journal_stays_out_of_a_question_about_one_camera(state):
     assert r["evidence"][0]["kind"] == "journal"
 
 
+PILL = "what did Sam hide the pill in this morning"
+
+
+@pytest.mark.parametrize(
+    ("measure", "heard"),
+    [
+        pytest.param("describe", True, id="describe-reads-the-lines"),
+        pytest.param("count", False, id="a-count-keeps-to-the-cameras"),
+    ],
+)
+def test_a_question_read_as_seen_also_reads_what_was_said(state, readings, measure, heard):
+    # Whether "what did Sam hide the pill in" was seen or said is the reading's guess, so a question read as about
+    # the cameras still gets the lines said in its window.
+    readings[PILL] = question.Reading(source="cameras", measure=measure, people=("Sam",), part="this morning")
+    said = dt.datetime(2026, 10, 23, 7, 21, tzinfo=LA).timestamp()
+    transcripts(state, [dict(ts_start=said, speaker="Sam", text="I hid the pill in a piece of cheese.")])
+    camera(state, [dict(ts=said + 60, cam="cam0", caption="A kitchen counter with a bowl")])
+    quotes = [e["quote"] for e in h.collect(PILL, state, NOW)["evidence"]]
+    assert ("I hid the pill in a piece of cheese." in quotes) is heard
+    assert "A kitchen counter with a bowl" in quotes
+
+
+WEATHER = "what was the weather like around one"
+
+
+@pytest.mark.parametrize(
+    ("clock", "joined"),
+    [
+        pytest.param("1", True, id="a-moment-gets-the-entry-covering-it"),
+        pytest.param("", False, id="a-whole-day-does-not"),
+    ],
+)
+def test_a_short_windows_journal_entries_join_when_its_words_match_none(state, readings, clock, joined):
+    readings[WEATHER] = question.Reading(source="cameras", day="today", clock=clock)
+    one = dt.datetime(2026, 10, 23, 13, tzinfo=LA).timestamp()
+    # The entry runs past the question time, so no window holds all of it (an overview takes only entries that fit).
+    add_journal(state, "It had started to rain, and Rex came in soaked.", one - 600, 3600)
+    r = h.collect(WEATHER, state, one + 1800)
+    texts = [e["text"] for e in r["evidence"] if e["source"] == "journal"]
+    assert texts == (["It had started to rain, and Rex came in soaked."] if joined else [])
+
+
 def test_journal_never_moves_a_recorded_answers_citation(state):
     camera(state, [dict(ts=NOW - 5, cam="cam2", caption="A person", faces=[dict(name="Alex", sim=0.8)])])
     add_journal(state, "Alex came by camera2 and waved.", NOW - 60)
@@ -895,7 +938,7 @@ def test_camera_name_is_not_mistaken_for_an_unsupported_time_phrase(tmp_path, mo
     [
         ("who was here around 3 pm", (23, 14, 55), (23, 15, 5)),
         ("who was here about 3", (23, 14, 55), (23, 15, 5)),
-        ("what did Dana say around 3 pm", (23, 14, 55), (23, 15, 5)),
+        ("what did Dana say around 3 pm", (23, 14, 45), (23, 15, 15)),
         ("who was here this afternoon", (23, 12, 0), (23, 17, 0)),
         ("who was here this morning", (23, 5, 0), (23, 12, 0)),
         ("who was here last night", (22, 18, 0), (23, 5, 0)),

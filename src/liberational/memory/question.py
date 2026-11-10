@@ -112,7 +112,7 @@ USUAL_PHRASES = (
 # The animals the detector knows (COCO's): always on offer as names, so "the cat" can be picked before any pet is named.
 SPECIES = ("bird", "cat", "dog", "horse", "sheep", "cow", "elephant", "bear", "zebra", "giraffe")
 MOVEMENTS = ("", "walked_by", "came_in")
-DAYS = ("", "today", "yesterday", "this week", "last week")
+DAYS = ("", "today", "yesterday", "this week", "last week", "this month", "last month", "this year", "last year")
 TIME_KINDS = ("none", "calendar", "since", "last", "ago", "other")
 PARTS = (
     "",
@@ -353,7 +353,8 @@ _FIELDS: tuple[tuple[str, str], ...] = (
         (
             "what the camera model can see someone do, when the question asks about it: sit_down, stand_up (getting "
             "up), pick_up, put_down, fall, drink, eat, phone_call, phone_use; stillness or repeated_movement for "
-            'staying still or repeating a movement; else "". Never for what was said about it.'
+            'staying still or repeating a movement; else "". Never for what was said about it, and never for how many '
+            "things someone has, made, or planted, which is what was said."
         ),
     ),
     ("usual", "true when it asks what is typical (usually, generally, on average, per day or night), not one time."),
@@ -361,12 +362,18 @@ _FIELDS: tuple[tuple[str, str], ...] = (
     (
         "time_kind",
         (
-            "none (no time words); calendar (a day, a date, a week, a part of the day, or a clock time, in any mix); "
-            'since ("since ..."); last ("the last 2 hours", "the past hour"); ago ("ten minutes ago"); other (anything '
-            "else: last month, on Friday, before 5pm, two weeks ago, earlier, a year)."
+            "none (no time words); calendar (a day, a date, a week, a month, a year, a part of the day, or a clock "
+            'time, in any mix); since ("since ..."); last ("the last 2 hours", "the past hour"); ago ("ten minutes '
+            'ago"); other (anything else: on Friday, before 5pm, two weeks ago, earlier, in March).'
         ),
     ),
-    ("day", 'today, yesterday, this week, or last week, only when the question says so; else "".'),
+    (
+        "day",
+        (
+            "today, yesterday, this week, last week, this month, last month, this year, or last year, only when the "
+            'question says so; else "".'
+        ),
+    ),
     ("date", 'a date the question names, as YYYY-MM-DD, or MM-DD when no year is said; else "".'),
     (
         "part",
@@ -472,7 +479,7 @@ BRIEF: tuple[tuple[str, str], ...] = (
     _shot("what is the capital of France", history=False),
 )
 WHOLE: tuple[tuple[str, str], ...] = (
-    _shot("did anyone mention the budget last month", True, **_when("last month", "other")),
+    _shot("did anyone mention the budget last month", True, **_when("last month", day="last month")),
     _shot(
         "what was Sam wearing yesterday evening",
         True,
@@ -625,6 +632,11 @@ def from_reply(reply: object, question: str) -> Reading:
     day = text("date").lower() or one("day", DAYS)
     part, clock, clock_end, unit = one("part", PARTS), text("clock"), text("clock_end"), ""
     since, span_kind, other, amount = False, "", "", 0.0
+    named = " ".join(phrase.lower().removeprefix("in ").removeprefix("during ").split())
+    if kind in ("calendar", "other") and not (day or part or clock) and named in DAYS[1:] and named in question.lower():
+        # The time words are exactly one of the days the form offers ("this year"), copied but not filed: a small
+        # model leaves a day it has seen no example of empty. The words are the question's, so the day is too.
+        day, kind = named, "calendar"
     if kind == "none":
         day = part = clock = clock_end = ""
     elif kind in ("last", "ago"):
