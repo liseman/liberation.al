@@ -1,4 +1,4 @@
-"""Lines heard from a TV, tagged by ear (#2468): while a screen is on, a line no household voice said is scored by an
+"""Lines heard from a TV, tagged by ear: while a screen is on, a line no household voice said is scored by an
 AudioSet tagger and, when it sounds like a broadcast, marked as media (listen/revisions.py, source "classifier").
 
 The tagger is EfficientAT's mn10_as (MIT), exported to ONNX with tools/export_audio_tagger.py: 32 kHz mono in, 527
@@ -6,20 +6,20 @@ AudioSet probabilities out. It is optional ([models.audio_tagger]): without its 
 "This is TV" still marks lines by hand.
 
 A line is scored only when all of these hold: it has audio, it isn't the assistant's, a screen was on while it was
-heard (see/screens.py's screens_on.json: a screen zone the owner drew over the TV, #2669), the transcript doesn't give it a household person's voice, and it isn't
+heard (see/screens.py's screens_on.json: a screen zone the owner drew over the TV), the transcript doesn't give it a household person's voice, and it isn't
 marked or rejected already. Its audio is brought to AudioSet's loudness (RMS TARGET_RMS) and resampled to 32 kHz; a
 clip under MIN_S is repeated to that length. The model wants several seconds of context: under about 3 s it gives
-near-certain nonsense (every line under 2 s scored Television ~1.0 on Nov 5, conversation included), and upstream
+near-certain nonsense (every line under 2 s scored Television ~1.0, conversation included), and upstream
 torch does the same, so it isn't the export; by 5 s it is sane on silence, noise, and a tone. A clip mostly silence
 fill (audio not kept) is skipped.
 
-Media, by Nov 5's TV show (22:35 to 23:30, 440 lines) against two TV-off spans (286 lines), clips repeated to 5 s:
+Media, measured on a 55-minute TV show (440 lines) against two TV-off spans (286 lines), clips repeated to 5 s:
 Music at least MUSIC_MIN, or the broadcast score (Television + Radio + Music + Speech synthesizer, less Inside, small
 room and Conversation) at least BROADCAST_MIN. That first tagged 122 of the show's 440 lines (28%; 44% of those 4 s or
-longer) and none of the 286. Narration came out of the broadcast score on Nov 6 (#2669): one voice close to the desk
-microphone reads as "Narration, monologue" (0.34 to 0.39), and it marked live conversation. Fitted on these sets, with
-nothing held out: Nov 5's show 86 of its 403 scorable lines (111 before), its TV-off spans 0 of 93, and Nov 6's
-lines heard while a screen counted as on 4 of 147 (8 before; those 4 were music while the desk monitor counted as a
+longer) and none of the 286. Narration stays out of the broadcast score: one voice close to a desk
+microphone reads as "Narration, monologue" (0.34 to 0.39), and including it marked live conversation. Fitted on these sets, with
+nothing held out: the show tagged 86 of its 403 scorable lines (111 before), the TV-off spans 0 of 93, and
+lines heard while a screen counted as on 4 of 147 (8 before; those 4 were music while a desk monitor counted as a
 screen, which screen zones now rule out). The Television label alone barely moved on the show's dialogue (mean 0.027 against
 0.011).
 
@@ -58,7 +58,7 @@ POLL_S = 2.0
 TRIES = 3  # failed passes on one line before it's passed over
 # A line is judged once it ended this long ago: a show's screen-on span is written only after it has lasted
 # screens.MIN_ON_NS (30 s), and the file every 5 s, so a line from a show's first half minute wasn't covered yet when
-# it arrived (#2578). Judged later, it is.
+# it arrived. Judged later, it is.
 SETTLE_S = 45.0
 AUDIO_WAIT_S = 300.0  # a line whose audio can't be read yet is tried again for this long after it ended
 WAIT = "wait"  # _judge's answer for a line to try again on a later pass
@@ -220,7 +220,7 @@ class MediaTagger:
                     try:
                         key = self._judge(view, now)
                     except ImportError:
-                        # The environment's failure, not the line's (continuum_py being rebuilt in a deploy, #2899):
+                        # The environment's failure, not the line's (continuum_py being rebuilt in a deploy):
                         # it and the lines after it wait for a later pass, without counting against it.
                         raise
                     except Exception as ex:
@@ -286,7 +286,7 @@ class MediaTagger:
                 self.step()
             except Exception as ex:  # the broker or a model hiccup: the next pass tries again
                 failed += 1
-                # Said once per kind, not every POLL_S: a 38-minute outage was about 1,100 identical warnings (#2899).
+                # Said once per kind, not every POLL_S: a 38-minute outage was about 1,100 identical warnings.
                 # Keyed on the type, since a message that changes each pass (a count, a time) is still one outage.
                 if type(ex).__name__ != failing:
                     LOG.warning(f"media tag: {type(ex).__name__}: {ex}")

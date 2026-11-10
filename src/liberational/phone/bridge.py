@@ -101,8 +101,8 @@ def mission_system(say: str) -> str:
 
 # A goodbye at the end of what was said: "bye", "goodbye", "talk to you later", or "take care", followed by nothing,
 # by "now", "then", or "for now", or by the assistant's name (bye_re). A sentence that is only "bye <one word>" also
-# counts, since that word is usually the name misheard: "bye <name>" came out of speech recognition as "Bye bomb." in
-# calls/2026-10-29/214552_CA19dd6e4e144f397ef924cfaa80206a05. Any other trailing word ("Don't say bye yet.") is not a
+# counts, since that word is usually the name misheard: "bye <name>" can come out of speech recognition as "Bye bomb."
+# on a phone line. Any other trailing word ("Don't say bye yet.") is not a
 # goodbye.
 _BYE_WORDS = r"(?:good\s?)?bye|talk (?:to you )?later|take care"
 LONE_BYE_RE = re.compile(r"(?:^|[.!?]\s*)(?:good\s?)?bye,?\s+\w+[.!]?\s*$", re.I)
@@ -159,12 +159,12 @@ def owner_only() -> str:
     return f"That's only for {_owner()}, sorry. If you're {_owner()}, say the password."
 
 
-# Owner treatment on a call (#122). Caller ID can be spoofed, so the owner's number alone isn't enough: Twilio must also
+# Owner treatment on a call. Caller ID can be spoofed, so the owner's number alone isn't enough: Twilio must also
 # report the carrier's full STIR/SHAKEN attestation (StirVerstat grade A). Any other caller, the owner's number at a
 # lower grade or with none included, is a guest until they say the voice password (assistant/voice_auth.py, with the
 # same failure counts and lockouts as in person), which unlocks owner treatment for that call only.
 GRADE_A = "TN-Validation-Passed-A"
-LOCKED_OUT = "Too many wrong passwords. Try again later."  # a minute, or up to half an hour on the phone (#204)
+LOCKED_OUT = "Too many wrong passwords. Try again later."  # a minute, or up to half an hour on the phone
 _AUTH: dict[Path, voice_auth.Conversation] = {}
 
 
@@ -454,7 +454,7 @@ GREETING_ONCE = STATE_DIR / "greeting_once.json"  # written by phone_call.py --s
 PENDING: dict[str, dict[str, Any]] = {}  # token -> {callSid, remote, owner, say, t}
 PENDING_TTL_S = 180
 # Every call this bridge set up, so a captured, signed /bridge/voice request replayed later can't start a second
-# session for the same call (#205). On disk, so a restart doesn't forget them. A call lasts at most 4 hours and Twilio
+# session for the same call. On disk, so a restart doesn't forget them. A call lasts at most 4 hours and Twilio
 # retries a setup within seconds, so 30 days is long past any retry; SEEN_MAX bounds the file however busy the line.
 SEEN_CALLS = STATE_DIR / "phone_seen_calls.json"
 SEEN_KEEP_S = 30 * 86400
@@ -520,7 +520,7 @@ def take_greeting_once(max_age_s: float = 900) -> str | None:
     return " ".join(t for t in (say, take_lockout_notice()) if t) or None
 
 
-# Telling the owner when the phone locks out a password guesser (#204), through channels the pack already has: the
+# Telling the owner when the phone locks out a password guesser, through channels the pack already has: the
 # one-shot greeting of their next owner call (or the call they unlock with the password), a warning in this log
 # (the dashboard's Debug tab), and the agent when one is configured. The notice is one line that counts lockouts,
 # so a guessing spree can't pile up messages; the agent hears at most once per LOCKOUT_AGENT_EVERY_S.
@@ -626,7 +626,7 @@ SR_PHONE, SR_ASR, SR_TTS = 8000, 16000, 24000
 END_SILENCE_FRAMES = 20  # 400 ms of silence ends an utterance (was 500: felt laggy)
 WIRED_BYTES = 8 << 30  # the phone voice models' MLX memory, kept resident (load_models)
 BARGE_FRAMES = 15  # 300 ms of caller speech while Bob talks = interrupt
-BARGE_RMS = 1500.0  # measured 2026-10-22: the owner's voice over Bob 3500+, line echo of Bob's own audio peaks 2300-2800, so 900 was too high only because the first test never actually overlapped; 1500 clears echo with margin
+BARGE_RMS = 1500.0  # the owner's voice over Bob is 3500+, while line echo of Bob's own audio peaks at 2300-2800; 1500 clears echo with margin
 START_FRAMES = 3  # 60 ms above threshold starts one
 RESUME_FRAMES = 5  # 100 ms of speech while a reply is being made: the caller went on after a pause (see on_media)
 # A turn drops its reply because the caller went on (Call.went_on) at most this many times in a row, then answers what
@@ -695,7 +695,7 @@ def load_models() -> None:
         from mlx_audio.tts.utils import load as load_tts
 
         # Keep the voice models wired: under memory pressure macOS swapped them out between calls, and the next
-        # greeting's first audio took over 4 s (a Mac, 2026-11-06, 34 GB of swap in use).
+        # greeting's first audio took over 4 s (on the Mac, with 34 GB of swap in use).
         mx.set_wired_limit(min(WIRED_BYTES, int(mx.device_info()["max_recommended_working_set_size"])))
 
         if not VOICE_WAV.exists():
@@ -855,7 +855,7 @@ def bad_reply(reply: str | None) -> bool:
 
 
 # Owner turns that need the phone agent's tools (the web, this machine, an action). Everything else on an owner call is
-# answered by the fast local model (models.ollama.llm): a full agent turn took 4 to 13 s on live calls (2026-11-08),
+# answered by the fast local model (models.ollama.llm): a full agent turn takes 4 to 13 s on live calls,
 # the local model about half a second.
 NEEDS_AGENT = re.compile(
     r"\b(weather|forecast|rain(ing)?|snow|news|headlines?|search|google|look (it |that |this )?up|find out|prices?|"
@@ -875,8 +875,8 @@ DEFERS = re.compile(
 )
 
 
-# A fast-model reply that promises something it can't do from a phone line (go, bring, meet, end the call): seen in
-# simulated calls on 2026-11-09 ("I'll grab the map and meet you there", "I'll end the call" without ending it).
+# A fast-model reply that promises something it can't do from a phone line (go, bring, meet, end the call),
+# such as "I'll grab the map and meet you there" or "I'll end the call" without ending it.
 FAST_PROMISE = re.compile(
     r"\b((i'?ll|i will|i'?m going to|let me) (end|hang|grab|meet|come|go|head|bring|pick|drive|walk|get|send|check|"
     r"look|call|text|remind|book|order|set)|meet you|end (the|this) call|hang up)\b",
@@ -1132,9 +1132,8 @@ class Call:
     def went_on(self, frames: list[np.ndarray], *, decided: bool = False) -> bool:
         """Whether the caller went on talking while this turn was made (on_media keeps listening while thinking, and
         going_on decides). If so, the turn's frames go back in front of the new speech and the call listens again, so
-        the whole utterance is answered once they stop: in calls/2026-10-30/125036_CA037a13a30b1bbdb58883f99c2d096215
-        the owner paused 1.2 s inside "That was a very ridiculous ... limerick, Bob, I think you can do better" and got
-        a reply to the first half. On an owner call the agent may already have answered or acted on the first half;
+        the whole utterance is answered once they stop: a 1.2 s mid-sentence pause otherwise
+        gets a reply to the first half while the caller is still finishing. On an owner call the agent may already have answered or acted on the first half;
         only its reply is dropped. decided: going_on already said so (reply_turn returned None), so drop regardless."""
         if not decided and not self.going_on():
             return False
@@ -1572,7 +1571,7 @@ class Call:
                 await self.speak("You're already through.")
                 return
             if not self.owner and VOICEMAIL_RE.search(text):
-                # Voicemail/IVR, not a person (2026-10-22: Bob argued with a contact's voicemail for 80 s). Leave the message once
+                # Voicemail/IVR, not a person (without this check, Bob can argue with a contact's voicemail). Leave the message once
                 # after the prompt finishes, then hang up. Never answer menu prompts.
                 if self.voicemail:
                     self.state = "listening"
@@ -1598,12 +1597,11 @@ class Call:
                 return
             self.last_user = text
             if asks_to_hang_up(text) or said_goodbye(text):
-                # They said goodbye, so say it back now instead of asking the model: in
-                # calls/2026-10-29/214552_CA19dd6e4e144f397ef924cfaa80206a05 that reply waited 7 s behind other Ollama
-                # work and the caller hung up on the silence.
+                # They said goodbye, so say it back now instead of asking the model: waiting behind other Ollama
+                # work can stall the reply for seconds until the caller hangs up on the silence.
                 await self.say_and_hang_up("Okay, bye!")
                 return
-            # Off the event loop (#3126): placing a call waits on Twilio's API, and the approval and memory files are
+            # Off the event loop: placing a call waits on Twilio's API, and the approval and memory files are
             # blocking reads too. Every other call and this call's media stream keep going meanwhile.
             try:
                 direct, hint = await asyncio.wait_for(
@@ -1644,7 +1642,7 @@ class Call:
             self.speak_peak = max(self.speak_peak, rms)
             self.pre = (self.pre + [pcm])[-10:]
             # Before Bob's first audio goes out the caller hears silence and says "hello?": that isn't talking over
-            # Bob, and taking it as a barge-in dropped the whole greeting unheard (2026-11-06).
+            # Bob, and taking it as a barge-in drops the whole greeting unheard.
             loud = self.sent_audio and rms > max(thr, BARGE_RMS)
             self.barge_run = self.barge_run + 1 if loud else 0
             if self.barge_run >= BARGE_FRAMES and not self.interrupted:
@@ -1721,7 +1719,7 @@ class Call:
         meta = {
             "callSid": self.call_sid,
             "from": self.from_number,
-            # Which way it went, and for one we placed, whom and what for (the Calls notes, #2682). `from` stays the
+            # Which way it went, and for one we placed, whom and what for (the Calls notes). `from` stays the
             # other party's number either way, as before.
             "direction": self.direction,
             "to": {"name": self.to_name, "number": self.from_number} if self.direction == "out" else None,
@@ -1767,9 +1765,8 @@ MISSION_INSTR_RE = re.compile(r"^(?:please\s+)?(tell|ask|remind|let)\s+(?:him|he
 
 def mission_opener(say: str, *, prior_consent: bool = False) -> str:
     """Generate an opening from private task guidance instead of reading it verbatim."""
-    # The model hears the disclosure it follows. Told only to "start the conversation", it greeted and introduced itself
-    # a second time and ran long: calls/2026-11-06/155604_CAe3d02169546baf03ad1d37902ad83bf3 opened with 37 words and
-    # a second "it's <assistant>", like both 2026-10-30 calls. On the phone LLM, 31 sampled openers over 13 missions went
+    # The model hears the disclosure it follows. Told only to "start the conversation", it greets and introduces itself
+    # a second time and runs long (37 words and a second "it's <assistant>"). On the phone LLM, 31 sampled openers over 13 missions went
     # from 24 second introductions to 0, and from 13 over 30 words (disclosure included) to 0.
     lead = mission_disclosure(prior_consent=prior_consent)
     heard = lead.strip()
@@ -1832,7 +1829,7 @@ async def voice(request: Request) -> Response:
         PENDING.pop(old, None)
     # Twilio sends a setup again when the first went unanswered (a timeout, or its fallback URL), with the same
     # CallSid. While that call's media stream hasn't started, answer it the same way: the same token, and the message
-    # the first setup already took. Once it has started, or for a call set up before, it can only be a replay (#205).
+    # the first setup already took. Once it has started, or for a call set up before, it can only be a replay.
     retry = next((tok for tok, rec in PENDING.items() if rec["callSid"] == call_sid), None)
     if retry is not None:
         return Response(content=twiml_connect(retry), media_type="text/xml")
@@ -1841,10 +1838,10 @@ async def voice(request: Request) -> Response:
         return Response(status_code=403)
     remote, outbound, attested, is_owner = answer_call(form)
     token = secrets.token_urlsafe(24)
-    # A mission always wins on calls WE placed, including to the owner ("call <owner> and tell them a joke" 2026-10-22
-    # reached the owner and asked "what do you need?"). Owner mode = the owner calling in, not us calling the owner.
+    # A mission always wins on calls WE placed, including to the owner (otherwise "call <owner> and tell them a joke"
+    # reaches the owner and asks "what do you need?"). Owner mode = the owner calling in, not us calling the owner.
     # An inbound caller (calling back) gets a message left for their number only when it is vouched for: a spoofed
-    # number must not collect it (#122).
+    # number must not collect it.
     mission = take_mission(remote) if (outbound or (attested and not is_owner)) else None
     say = mission.get("say") if mission else None
     PENDING[token] = {
