@@ -47,12 +47,12 @@ A parked frame is kept but can't be placed in a map. Rest the pointer on the cam
 | The row says | Do this |
 |---|---|
 | No spot on the plan | Give the camera a spot (below), or also learn from a camera whose view overlaps this one's |
-| Needs a facing | Add `yaw` to the camera's spot |
-| Needs a height | Add `height` to the camera's spot |
-| Lens not known yet | Add `fov` to the camera's spot |
+| Needs a facing | Give the camera's spot a facing in the plan editor |
+| Needs a height | Give the camera's spot a height in the plan editor |
+| Lens not known yet | Give the camera's spot a view (its field of view) in the plan editor |
 | Working out its tilt | Wait: the tilt is fitted by a `pack-positions` run once enough people have walked through the view |
-| Setup doesn't fit | People come out the wrong height: check the spot's `height` and `fov` |
-| Floor doesn't match | The floor the camera sees isn't at the plan's floor: check the spot's `height` |
+| Setup doesn't fit | People come out the wrong height: check the spot's height and view |
+| Floor doesn't match | The floor the camera sees isn't at the plan's floor: check the spot's height |
 | Plan can't hold a map | The plan's frame is mirrored, and a view can't be placed in it from a spot |
 
 A step tries the frame again when a map gains a view or the camera's spot changes. A frame parked for a day is
@@ -60,34 +60,30 @@ dropped, and the camera's next frame takes its place.
 
 ## Give a camera a spot on the plan
 
-A spot is one line in the place's plan:
+A spot says where a camera is on the plan, how high, and which way it faces. Set it in the plan editor.
 
-```text
-x-camera <camera> at <x>,<y> height <m> yaw <deg> [fov <deg>]
-```
+1. On the Places page, pick the place and press **Edit plan**. Each camera with a spot is a dot, with its view drawn
+   as a cone.
+2. To add a camera, pick it under **Add a camera**, then click the plan where the camera is, or press
+   **Put it in the middle** and move it afterwards.
+3. Select the camera (its dot, or its button under the plan) and fill in the form:
 
-- `<camera>` is the camera's name in `config/devices.toml`.
-- `x,y` are metres in the plan's own coordinates: x grows to the right of the page and y grows down it.
-- `height` is the lens's height above the floor, in metres. Measure it with a tape.
-- `yaw` is the way the camera faces, in degrees clockwise from up the page (90 looks right).
-- `fov` is its horizontal field of view in degrees. Leave it out for a camera with a held lens.
+   | Field | Value |
+   |---|---|
+   | X, m and Y, m | Where the camera is on the plan. Dragging the dot sets them |
+   | Height, m | The lens's height above the floor. Measure it with a tape |
+   | Facing, ° | The way the camera looks, in degrees clockwise from up the page (90 looks right). Dragging the handle at the cone's tip sets it |
+   | View, ° | Its horizontal field of view. Leave it empty for a camera whose lens is already known |
 
-Spots go in with the plan, through `tools/import_owner_plan.py`. The place needs a map with a floor first, so let
-learning found one. The page's plan editor (Edit plan) keeps the spots a plan has, and has no control that adds or
-changes one.
+   With a dot or a handle focused, the arrow keys move or turn it in small steps, and larger ones with Shift.
+4. Press **Save my plan**.
 
-1. Write the plan in the floorplan DSL (the docstring of `src/liberational/spatial/plan_import.py` gives the
-   statements it reads), and the spots in the same file or in one of their own.
-2. Run the import as a dry run. It prints the fit, each camera, and a day's positions by room before and after:
+A camera places nobody until its spot has a facing. People are placed from a saved spot at the next hourly
+`pack-positions` run; the next section runs it at once.
 
-   ```sh
-   .venv/bin/python tools/import_owner_plan.py --place "Place 1" --plan home.floorplan --extra cameras.floorplan
-   ```
-
-3. When the fit looks right, run it again with `--write`.
-
-To change a spot, edit the file and import it again. The tool's docstring has the other options, and `--history` and
-`--restore` bring back an earlier plan.
+In the plan's text a spot is one line, `x-camera <camera> at <x>,<y> height <m> yaw <deg> fov <deg>`, where
+`<camera>` is the camera's name in `config/devices.toml`. `tools/import_owner_plan.py` brings in a plan drawn
+elsewhere, spots included; its docstring has the options.
 
 ## Check what each camera places
 
