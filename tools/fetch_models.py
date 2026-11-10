@@ -25,7 +25,7 @@ import zipfile
 from collections.abc import Mapping
 from typing import Any
 
-from liberational.config import ROOT, load, platform_key
+from liberational.config import load, owner_file, platform_key
 
 
 def wanted(entry: Mapping[str, Any], key: str) -> bool:
@@ -43,7 +43,7 @@ def sha256(path: pathlib.Path) -> str:
 
 
 def fetch_file(name: str, entry: Mapping[str, Any]) -> None:
-    dest = ROOT / entry["path"]
+    dest = owner_file(entry["path"])
     if dest.exists():
         print(f"  {name}: present ({entry['path']})")
         return
@@ -133,7 +133,7 @@ def fetch_hf(name: str, entry: Mapping[str, Any]) -> bool:
         return True
     patterns = {key: entry[key] for key in ("allow_patterns", "revision") if key in entry}
     if "path" in entry:  # a local copy under data/models, like the files above
-        dest = ROOT / entry["path"]
+        dest = owner_file(entry["path"])
         if (dest / "config.json").exists():
             print(f"  {name}: present ({entry['path']})")
             return True
@@ -199,13 +199,13 @@ def main() -> None:
             print(f"  ollama  {role}: {tag}")
         for name, e in models.get("hf", {}).items():
             state = (
-                f" -> {e['path']} [{'present' if (ROOT / e['path'] / 'config.json').exists() else 'missing'}]"
+                f" -> {e['path']} [{'present' if (owner_file(e['path']) / 'config.json').exists() else 'missing'}]"
                 if "path" in e
                 else ""
             )
             print(f"  hf      {name}: {e['repo']}{state}{'' if wanted(e, key) else '  (not for this platform)'}")
         for name, e in models.get("files", {}).items():
-            state = "present" if (ROOT / e["path"]).exists() else "missing"
+            state = "present" if owner_file(e["path"]).exists() else "missing"
             print(f"  file    {name}: {e['path']} [{state}]{'' if wanted(e, key) else '  (not for this platform)'}")
         return
 

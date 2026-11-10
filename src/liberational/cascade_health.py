@@ -123,7 +123,9 @@ def wait_for_health(
         # Check on both sides: a successful probe cannot conceal a daemon/worker restart.
         _snapshot(manager, names, baseline, deadline)
         try:
-            result = subprocess.run(args, cwd=cfg.ROOT, capture_output=True, text=True, timeout=_remaining(deadline))
+            result = subprocess.run(
+                args, cwd=cfg.workdir(), capture_output=True, text=True, timeout=_remaining(deadline)
+            )
         except subprocess.TimeoutExpired as error:
             raise TimeoutError(f"vision health probe timed out: {_diagnostic(error.stdout, error.stderr)}") from error
         if result.returncode != 0:

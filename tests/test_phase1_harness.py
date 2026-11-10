@@ -1,13 +1,14 @@
 """tools/phase1_harness.py: a turn the model leaves unanswered still reports its latencies."""
 
 import importlib.util
+import pathlib
 from unittest.mock import create_autospec
 
 import numpy as np
 
-from liberational import config as cfg
-
-_spec = importlib.util.spec_from_file_location("phase1_harness", cfg.ROOT / "tools" / "phase1_harness.py")
+_spec = importlib.util.spec_from_file_location(
+    "phase1_harness", pathlib.Path(__file__).resolve().parents[1] / "tools" / "phase1_harness.py"
+)
 assert _spec is not None and _spec.loader is not None
 harness = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(harness)

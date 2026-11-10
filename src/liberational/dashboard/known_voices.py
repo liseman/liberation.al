@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from typing import Any
 
 from liberational import speech_log
-from liberational.config import ROOT
+from liberational.config import workdir
 from liberational.dashboard import context
 from liberational.dashboard.context import LOG, PY
 from liberational.people import registry, voice_edits, voice_list
@@ -75,7 +75,7 @@ def _speaker_cmds(cmds: Sequence[Sequence[object]]) -> tuple[bool, str]:
     try:
         for c in cmds:
             r = subprocess.run(
-                [*base, *[str(x) for x in c]], cwd=str(ROOT), capture_output=True, text=True, timeout=120
+                [*base, *[str(x) for x in c]], cwd=str(workdir()), capture_output=True, text=True, timeout=120
             )
             outs.append((r.stdout + r.stderr).strip())
             if r.returncode:

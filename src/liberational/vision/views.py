@@ -25,7 +25,7 @@ def valid_camera_id(value: str) -> bool:
 
 def manifest_camera_names(path: Path | None = None, *, active_only: bool = False) -> list[str] | None:
     """Exact camera/RTSP names, including disabled history unless active_only; None only for an absent manifest."""
-    path = path if path is not None else cfg.ROOT / "config" / "devices.toml"
+    path = path if path is not None else cfg.devices_file()
     try:
         text = path.read_text()
     except FileNotFoundError:

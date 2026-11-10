@@ -118,14 +118,14 @@ def _child_setup(background: bool) -> Callable[[], None]:
 
 
 def spawn(name: str, svc: services.Service) -> subprocess.Popen[bytes]:
-    """Start a service as the units did: its startup command line (wrappers included), its environment, the repo as
-    its working directory, and its log file. It gets a process group of its own, so a stop reaches what it started."""
+    """Start a service as the units did: its startup command line (wrappers included), its environment, the owner's root
+    as its working directory, and its log file. It gets a process group of its own, so a stop reaches what it started."""
     log = services.log_path(name)
     log.parent.mkdir(parents=True, exist_ok=True)
     with log.open("ab") as out:
         return subprocess.Popen(
             services.argv(svc, startup=True, name=name),
-            cwd=cfg.ROOT,
+            cwd=cfg.workdir(),
             env=services.environment(svc, name),
             stdin=subprocess.DEVNULL,
             stdout=out,
@@ -664,9 +664,7 @@ def application() -> Generator[tuple[App, list[str]]]:
         )
     directory = home()
     with single(directory):
-        readiness = service_cascade.SDKReadiness(
-            cfg.ROOT / "config/devices.toml", cfg.path("paths.state") / "continuum/broker.sock"
-        )
+        readiness = service_cascade.SDKReadiness(cfg.devices_file(), cfg.path("paths.state") / "continuum/broker.sock")
         missed = missed_jobs(spec, last_starts(directory), time.time())
         app = App(Supervisor(spec, directory=directory, readiness=readiness))
         LOG.info(f"supervising {len(spec)} services" + (f"; catching up: {', '.join(missed)}" if missed else ""))

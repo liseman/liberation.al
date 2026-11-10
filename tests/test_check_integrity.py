@@ -2,16 +2,18 @@
 
 import importlib.util
 import json
+import pathlib
 import sqlite3
 
 import pytest
 
-from liberational import config as cfg
 from liberational.domain.identity import Basis
 from liberational.people import registry
 from voices import write_voices
 
-_spec = importlib.util.spec_from_file_location("check_integrity", cfg.ROOT / "tools" / "check_integrity.py")
+_spec = importlib.util.spec_from_file_location(
+    "check_integrity", pathlib.Path(__file__).resolve().parents[1] / "tools" / "check_integrity.py"
+)
 assert _spec and _spec.loader
 ci = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(ci)
