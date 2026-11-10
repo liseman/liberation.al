@@ -902,3 +902,13 @@ def test_a_sighting_exactly_as_like_two_groups_joins_the_later_one():
         s.vectors.append(np.asarray(v, dtype=np.float32))
         found.append(s)
     assert [[s.track_id for s in g] for g in R.groups(found)] == [["t1", "t2"], ["t0"]]
+
+
+def test_a_label_keeps_its_sightings_saved_photo_with_the_taught_state(log):
+    from liberational.people import face_shots, pet_shots
+
+    face_shots.write(log.state, "m0", "3", b"photo of m0", pet_shots.KIND)
+    R.label(log.state, ["m0", "m1"], MIA, PETS, now=T + 30000)
+    assert R.photos(log.state) == {"m0": b"photo of m0"}  # m1 had no saved photo: a label without one
+    R.label(log.state, ["m0"], POPPY, PETS, now=T + 30001)  # relabeled: its example and photo are already kept
+    assert len(knowledge.Store(log.state / "knowledge.sqlite3").query(R.PHOTOS)) == 1

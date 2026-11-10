@@ -79,11 +79,12 @@ def check_dir(root: Path) -> None:
 
 
 def broker_binary() -> Path:
-    """The continuum-broker build to run: CONTINUUM_BROKER, else the release build (mise run continuum-release)."""
+    """The continuum-broker to run: CONTINUUM_BROKER, else the one in this environment (in a checkout, where
+    `mise run continuum-release` links the release build)."""
     given = os.environ.get("CONTINUUM_BROKER")
-    found = Path(given) if given else cfg.workdir() / "continuum" / "target" / "release" / "continuum-broker"
+    found = Path(given) if given else cfg.program("continuum-broker")
     if not found.is_file():
-        raise SystemExit(f"pack-demo: no broker at {found}: build it with `mise run continuum-release`")
+        raise SystemExit(f"pack-demo: no broker at {found}: in a checkout, build it with `mise run continuum-release`")
     return found
 
 

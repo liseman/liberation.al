@@ -1065,7 +1065,7 @@ def face_visit(row: Mapping[str, Any], cam: str) -> Record:
 # see-actions' animals (see/action_animals.py): each confirmed box of a frame, and the embeddings its tracks
 # are due. Their coverage has walk-by coverage's shape. A record's `ts_ns`, when it has one, is kept exactly; else
 # its `ts_start` is converted.
-EMBEDDING_DIM = 384  # DINOv3 ViT-S/16 (vision/animal_embedder.py); old DINOv2 vectors remain incompatible
+EMBEDDING_DIM = 384  # DINOv2 ViT-S/14 (vision/animal_embedder.py); a row's `model` names its embedding space
 ANIMAL_DETECTION_SCHEMA = [
     ("ts_ns", "i64"),
     ("frame_id", "id"),

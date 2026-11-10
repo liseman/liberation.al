@@ -1,28 +1,27 @@
 """Appearance embeddings of animal crops, for telling pets of one species apart.
 
-Each confirmed animal track's box is cropped tight (`animal_verifier.tight`) and embedded by DINOv3 ViT-S/16
-([models.hf.animal_embedding], pinned revision): its 384-d CLS output, unit length. Self-supervised
-features keep instance detail (coat pattern, markings) that a text-aligned model tends to fold into "a cat".
+Each confirmed animal track's box is cropped tight (`animal_verifier.tight`) and embedded by Meta's DINOv2 ViT-S/14
+([models.hf.animal_embedding]: Apache-2.0, ungated, a pinned revision): its 384-d CLS output, unit length.
+Self-supervised features keep instance detail (coat pattern, markings) that a text-aligned model tends to fold into
+"a cat": SigLIP 2's image embeddings of two cats of a household were 0.91 alike where one cat's own were 0.94.
 
 The crop is the box itself, not `animal_verifier.square`'s square with 10% context: a 2:1 cat or dog's square
 is about 60% floor or couch, which pulls one pet's sightings on different backgrounds apart. On the owner's labeled
-photos, tight crops made about half the mistakes telling two cats apart at the same recall. Embeddings of
-the two crops don't compare, so `space()` names the crop with the model: every row and `pet.reference` records it as
-its `model`, and pet recognition ignores a reference of another space.
+photos, tight crops made about half the mistakes telling two cats apart at the same recall.
 
-The checkpoint's Transformers image processor owns preprocessing of RGB uint8 crops. DINOv3 rescales, bilinearly
-resizes to 224 x 224 with antialiasing, then applies ImageNet normalization. Its `pooler_output` is the final
-layer-normalized CLS token,
-not a mean of patch or register tokens (https://huggingface.co/docs/transformers/model_doc/dinov3).
-The 384 dimensions match DINOv2 S/14's width, but the feature spaces do not compare: old animal embedding streams
-and taught `pet.reference` vectors must be discarded when switching models, keeping owner pet profiles and
-historical labels in the export. Reset track IDs also require retiring old sighting bindings; see MIGRATING.md.
-Recognition needs new reference evidence after that reset.
+`space()` names the embedding space, the model and the crop: every row and `pet.reference` records it as its
+`model`, and pet recognition ignores a row or reference of another space, since vectors of two models or two crops
+don't compare (DINOv2 and DINOv3 both make 384 numbers, and they mean different things). After the model changes,
+tools/restore_pet_references.py embeds the taught references again from their kept photos (`pet.photo`), and
+recognition's thresholds (people/pet_recognition.py) need setting again.
 
-The weights are installed by `mise run models` and never downloaded here. The publisher's repository is gated
-behind a manual approval, so the default `repo` is an ungated copy of the same files, pinned to a revision and
-checked against the publisher's checksum when fetched (tools/fetch_models.py). The space keeps the publisher's name
-(`space` in the config), so rows and references made from either source compare. It runs where the animal check does
+The checkpoint's Transformers image processor owns preprocessing of RGB uint8 crops. DINOv2's resizes the shorter
+side to 256 (bicubic), takes the centre 224 x 224, and applies ImageNet normalization, so a long box loses its
+ends. The model's `pooler_output` is the final layer-normalized CLS token, not a mean of patch tokens
+(https://huggingface.co/docs/transformers/model_doc/dinov2).
+
+The weights are installed by `mise run models`, which checks them against the entry's `sha256`
+(tools/fetch_models.py), and are never downloaded here. It runs where the animal check does
 (`vision.animal_models_device`). Configured weights and preprocessing use the same revision; an explicitly
 supplied repository or local snapshot does not inherit the configured model's revision.
 """

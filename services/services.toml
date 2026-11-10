@@ -158,12 +158,13 @@ reads_settings = false
 log_relay = true  # as ollama's
 env = { LLAMA_ARG_LOG_VERBOSITY = "2", LLAMA_ARG_LOG_PREFIX = "1", OLLAMA_HOST = "127.0.0.1:{ports.ask_ollama}", CUDA_VISIBLE_DEVICES = "{ask.gpu}", OLLAMA_MODELS = "{ask.ollama_models}", OLLAMA_VULKAN = "0", GGML_VK_VISIBLE_DEVICES = "", OLLAMA_MAX_LOADED_MODELS = "{ask.max_loaded_models}", OLLAMA_KEEP_ALIVE = "-1", OLLAMA_NOPRUNE = "1", LLAMA_ARG_N_CPU_MOE = "{ask.cpu_expert_layers}", LLAMA_ARG_MOE_CACHE_MIB = "0", OLLAMA_KV_CACHE_TYPE = "{ask.kv_cache_type}", OLLAMA_FLASH_ATTENTION = "1", OLLAMA_NUM_PARALLEL = "1" }
 
-# Continuum's daemons (docs/CONTINUUM.md). Build them first with `mise run continuum-release`.
+# Continuum's daemons (docs/CONTINUUM.md), found like the pack-* commands in the bin directory of the environment
+# the services run in. In a checkout, `mise run continuum-release` builds them and links them there.
 [continuum-broker]
 description = "Keeps everything the system records and hands it to the other services."
 group = "core"
-command = "continuum/target/release/continuum-broker"
-args = ["--state-dir", "{paths.state}", "--manifest", "config/devices.toml"]
+command = "continuum-broker"
+args = ["--state-dir", "{paths.state}", "--manifest", "{file:devices}"]
 default = true
 throttle = 5
 reads_settings = false
@@ -176,9 +177,9 @@ stop_timeout = 75
 [continuum-capture]
 description = "Records from each camera and microphone."
 group = "core"
-command = "continuum/target/release/continuum-capture"
+command = "continuum-capture"
 wait_for_broker = true
-args = ["--state-dir", "{paths.state}", "--manifest", "config/devices.toml"]
+args = ["--state-dir", "{paths.state}", "--manifest", "{file:devices}"]
 default = true
 platforms = ["linux-x86_64", "linux-aarch64", "darwin-arm64"]
 throttle = 5
@@ -194,11 +195,11 @@ reads_settings = false
 [continuum-tier-worker]
 description = "Saves recordings to disk, with audio compressed as Opus."
 group = "core"
-command = "continuum/target/release/continuum-tier-worker"
+command = "continuum-tier-worker"
 # Expand settings when the process starts, including an ordinary restart after Settings changes.
 fresh_config = "continuum-tier-worker"
 wait_for_broker = true
-args = ["--state-dir", "{paths.state}", "--manifest", "config/devices.toml"]
+args = ["--state-dir", "{paths.state}", "--manifest", "{file:devices}"]
 env = { CONTINUUM_AV1_ARCHIVE = "{video_archive.av1}", CONTINUUM_AV1_AFTER_HOURS = "{video_archive.after_hours}", CONTINUUM_AV1_PRESET = "{video_archive.preset}", CONTINUUM_AV1_CRF = "{video_archive.crf}", CONTINUUM_AV1_THREADS = "{video_archive.threads}", CONTINUUM_VIDEO_WINDOW = "{video_window.enabled}", CONTINUUM_VIDEO_WINDOW_DAYS = "{video_window.days}", SVT_LOG = "1" }
 default = true
 throttle = 5
@@ -211,7 +212,7 @@ reads_settings = true
 [continuum-vector-worker]
 description = "Keeps the face and voice index used to recognize people and to search."
 group = "core"
-command = "continuum/target/release/continuum-vector-worker"
+command = "continuum-vector-worker"
 wait_for_broker = true
 # Follows face.embedding on the broker (--embeddings STREAM, repeated, chooses others) and voice.embedding in the
 # segment store under paths.state/segments.
@@ -225,7 +226,7 @@ reads_settings = false
 [continuum-gateway]
 description = "Streams live and recorded video, with labels, to the dashboard."
 group = "core"
-command = "continuum/target/release/continuum-gateway"
+command = "continuum-gateway"
 # dashboard.gateway_allow_host (comma-separated) names the gateway is reached by besides this machine's own name and
 # address, such as a Tailscale MagicDNS name; a browser request under any other name is refused (DNS rebinding).
 args = ["--state-dir", "{paths.state}", "--listen", "0.0.0.0:8766", "--allow-host", "{dashboard.gateway_allow_host}"]

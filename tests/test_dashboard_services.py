@@ -63,10 +63,10 @@ def test_processes_match_pack_commands_by_basename(monkeypatch):
 
 
 def test_processes_match_repo_commands_by_their_path_here_and_count_their_children(monkeypatch):
-    # The continuum-* daemons are programs in the repo, not pack-* commands, so they had no pids
-    broker = str(cfg.workdir() / "continuum/target/release/continuum-broker")
-    capture = str(cfg.workdir() / "continuum/target/release/continuum-capture")
-    gateway = str(cfg.workdir() / "continuum/target/release/continuum-gateway")
+    # The continuum-* daemons match by their whole path, so a build run from another checkout isn't counted
+    broker = str(cfg.program("continuum-broker"))
+    capture = str(cfg.program("continuum-capture"))
+    gateway = str(cfg.program("continuum-gateway"))
     procs = [
         SimpleNamespace(info={"pid": 1, "ppid": 0, "cmdline": [broker, "--state-dir", "data/state"]}),
         SimpleNamespace(info={"pid": 2, "ppid": 0, "cmdline": [capture, "--manifest", "config/devices.toml"]}),
@@ -78,6 +78,21 @@ def test_processes_match_repo_commands_by_their_path_here_and_count_their_childr
     ]
     monkeypatch.setattr(proc_table, "table", as_table(create_autospec(lambda: None, return_value=procs)))
     assert s.processes() == {"continuum-broker": [1], "continuum-capture": [2, 3], "continuum-gateway": [4]}
+
+
+def test_a_daemon_started_by_its_build_path_counts_when_the_environment_links_to_it(tmp_path, monkeypatch):
+    built = tmp_path / "target" / "continuum-broker"
+    built.parent.mkdir()
+    built.touch()
+    (tmp_path / "bin").mkdir()
+    (tmp_path / "bin" / "continuum-broker").symlink_to(built)
+    monkeypatch.setattr(cfg, "BIN", tmp_path / "bin")
+    procs = [
+        SimpleNamespace(info={"pid": 1, "ppid": 0, "cmdline": [str(built)]}),
+        SimpleNamespace(info={"pid": 2, "ppid": 0, "cmdline": [str(tmp_path / "other" / "continuum-broker")]}),
+    ]
+    monkeypatch.setattr(proc_table, "table", as_table(create_autospec(lambda: None, return_value=procs)))
+    assert s.processes() == {"continuum-broker": [1]}
 
 
 def test_processes_within_the_ttl_answer_without_scanning_again(monkeypatch):
