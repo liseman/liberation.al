@@ -70,51 +70,55 @@ one `<service>.log` each, trimmed hourly past 10 MB by the `log-trim` service. H
 
 | Path | Writer | Readers | Contents |
 |---|---|---|---|
-| `state/continuum/broker.sock`, `.lock`, `.arena` | `continuum-broker` | Continuum clients | Control socket, lifetime lock, and the last arena's generation |
+| `state/continuum/broker.sock`, `broker.sock.lock`, `broker.sock.arena` | `continuum-broker` | Continuum clients | Control socket, lifetime lock, and the last arena's generation |
 | `state/continuum/catalog.redb` | `continuum-broker` | The broker | Catalog rows, the memory log, and restart tables |
-| `state/continuum/capture.sock`, `capture_paused.json` | `continuum-capture` | Dashboard (`capture_control.py`, `privacy.py`) | Camera restart requests and the applied privacy pauses |
+| `state/continuum/capture.sock`, `capture.sock.lock`, `capture_paused.json` | `continuum-capture` | Dashboard (`capture_control.py`, `privacy.py`) | Control socket (camera restart requests), its lock, and the applied privacy pauses |
 | `state/continuum/service-cascade.lock` | `pack-services` | The same | Serializes cascades |
-| `state/continuum/tier/`, `tier2/` | `continuum-tier-worker` | Gateway, tier worker, `continuum-export` | Chunk files under `streams/<stream>/<YYYYMMDDHH>/`; `tier2/` holds older Opus chunks |
+| `state/continuum/tier/`, `tier2/` | `continuum-tier-worker` | Gateway, tier worker, `continuum-export` | Chunk files under `tier/streams/<stream>/<YYYYMMDDHH>/`. Nothing writes `tier2/`; Opus chunks in it are still read |
 | `state/continuum/vector/` | `continuum-vector-worker` | The same | LanceDB tables and segment intake cursors; rebuildable |
-| `state/supervisor/status.json`, `events.jsonl`, `control.sock`, `lock` | `pack-supervisor` | Settings' Services, `pack-services` | Each service's state, the start and exit history, and the control socket |
+| `state/supervisor/status.json`, `events.jsonl`, `control.sock`, `lock` | `pack-supervisor`, `pack-app` | Settings' Services, `pack-services` | Each service's state, the start and exit history, the control socket, and the one-supervisor lock |
 | `state/segments/<stream>/<slot>/`, `.deletions` | Segment writers (one per stream and slot) | `segment_log`, vector worker, gateway | Derived rows and the append-only forget log |
 | `paths.decoded/` (`/dev/shm` on Linux) | `pack-see-decode` | `see/shared_frames.py` | Socket, lock, and transient pixel mmaps; never recordings |
-| `state/see-zones.json`, `.lock` | `pack-see-zones` | The same | Input cursor, writers' next rows, and open visits |
+| `state/see-zones.json`, `see-zones.lock` | `pack-see-zones` | The same | Input cursor, writers' next rows, and open visits |
 | `state/screens_on.json` | `pack-see-actions` | `pack-identity` | When each drawn screen showed a moving picture |
-| `state/shots/`, `state/pet_shots/`, `state/video_thumbs/`, `state/shot_norms.json` | see-actions, see-captions, dashboard | Dashboard | Face and pet crops and scene thumbnails; 30 days, size-capped, safe to delete |
+| `state/shots/`, `state/pet_shots/`, `state/video_thumbs/`, `state/shot_norms.json` | see-actions, see-captions, dashboard; `tools/score_shot_crops.py` (`shot_norms.json`) | Dashboard | Face and pet crops and scene thumbnails (30 days, size-capped, safe to delete), and the norms of older shots |
 | `state/knowledge.sqlite3` | Registry, identity, dashboard, listen, `pack-knowledge import` | Most readers | What the owner taught; never copy it while open |
-| `state/knowledge_blobs/`, `state/person_references/` | Dashboard, `pack-knowledge` | The same | Taught file bytes and reference attachments |
+| `state/knowledge_blobs/` | `pack-knowledge import` | `pack-knowledge` | An imported bundle's file bytes, by hash |
+| `state/person_references/` | Dashboard (`people/references.py`), `pack-knowledge import` | Dashboard, `pack-knowledge export` | A person's reference attachments, each with its `meta.json` |
 | `faces/db.npz`, `nots.npz`, `learned.npz` | `vision/faces.py` (`pack-faces`, dashboard), see-actions | see-actions, dashboard | Owner face rows, negatives, and views learned from tracks |
 | `faces/unknown_clusters.npz`, `unknown_rejected.json`, `check.json` | see-actions, dashboard, `pack-faces check` | The same | Unnamed face groups, the pictures the owner took out of one or moved to another, and the held-out check |
 | `faces/<name>/`, `faces/_unknown/` | Dashboard | Dashboard | Face photos |
 | `faces/examples/` | `vision/faces.py` (dashboard, `pack-faces`) | Dashboard | Each owner face row's picture and source, by a hash of its vector (Training images) |
-| `state/voiceprints.json`, `voice_enrollments.json`, `clones/` | listen, `people/voice_edits.py`, `speech/clone_say.py`, dashboard | The same | Next voiceprint number, enrollments, and clone references |
+| `state/voiceprints.json`, `voice_enrollments.json`, `clones/` | listen, `pack-ingest-analyze`, `people/voice_edits.py`, `speech/clone_say.py`, dashboard | The same | Next voiceprint number, enrollments, and clone references |
 | `state/voice_tags.jsonl`, `voice_tags.offset` | Dashboard queues; listen consumes | listen | Owner voice-label requests and the cursor |
 | `state/listen.gain.json` | `pack-listen` | Dashboard | Each microphone's auto gain |
 | `state/identity.speech.cursor` | `pack-identity` | The same | Its place in `speech.utterance` |
-| `state/transcript_revisions_qwen.sqlite3` | `pack-deep-transcribe` | `people/transcript_view.py` | Overnight revisions; delete to return to live text |
+| `state/transcript_revisions_qwen.sqlite3` | `pack-deep-transcribe` | Transcript readers, through `listen/revisions.py` | Overnight revisions; without the file, readers show the live text |
 | `state/playback_windows.json` | `speech/playback_guard.py` | listen, voice auth, history readers | When the pack itself was speaking |
 | `state/voice_auth.json`, `state/dash_password` | Made by hand | `assistant/voice_auth.py`; dashboard | The password verifier; the dashboard password |
 | `state/voice_password_window.json` | `pack-voice` | `pack-listen` | When the spoken password may be said, so the line is blanked |
 | `state/voice_lockout.json`, `.lock` | `assistant/voice_auth.py` | The same | Wrong-password counts and cooldowns, shared by voice and phone |
-| `state/phone_seen_calls.json`, `phone_lockout_notice.json`, `greeting_once.json`, `outbound_missions.json`, `approvals.jsonl`, `call_reviews.jsonl` | `pack-phone-bridge`, `phone/` CLIs | The same | Replay guard, lockout notice, and call missions, approvals, and reviews |
-| `calls/<day>/<call>/` | `pack-phone-bridge` | Calls tab, call CLIs, profiles, history | Per-call audio, transcript, and metadata |
+| `state/phone_seen_calls.json`, `phone_lockout_notice.json`, `greeting_once.json`, `outbound_missions.json`, `approvals.jsonl`, `call_reviews.jsonl` | `pack-phone-bridge`, `phone/` CLIs | The same | Replay guard, lockout notice, the next call's one-time greeting, and call missions, approvals, and reviews |
+| `calls/<day>/<call>/` | `pack-phone-bridge`; `pack-call-eval` (`eval.json`), `pack-call-review` (`review.md`) | Calls tab, call CLIs, profiles, history | Per-call audio, transcript, and metadata, and its evaluation and review |
 | `state/memory.jsonl` | Phone bridge | `memory/remembered.py` readers | "Remember that" facts |
-| `state/people/<name>.md` | `pack-people`, dashboard | whisper-names, phone bridge, dashboard | People profiles |
+| `state/people/<name>.md`, `index.json` | `pack-people`, dashboard | whisper-names, phone bridge, dashboard | People profiles and their roster |
 | `state/contacts.json`, `people_added.json` | `people/contacts.py` | The same | Read models of numbers and added marks held in the knowledge store |
 | `state/card_prefs.json`, `inbox_skips.json`, `people_undo.json`, `refine_log.jsonl` | Dashboard | Dashboard | People card choices, inbox skips, and undo records |
 | `premove/` (beside `state/`) | Dashboard | Nobody | A deleted person's photos, notes, and references, moved instead of deleted |
 | `state/ask/busy/`, `state/ask/partial/` | `memory/ask.py` | `pack-research`; dashboard | Markers for running questions; the answer as it grows |
 | `state/research/` | `pack-research`, dashboard | The same | Research jobs and reports |
-| `state/review_video_cache/` | `memory/video_evidence.py` | Review Ask | Disposable frame observations |
-| `state/reports.sqlite3` | Dashboard (`memory/reports.py`, `dashboard/report_health.py`) | The same | Per-day report aggregates and health samples; disposable |
+| `state/review_video_cache/` | `memory/video_evidence.py` | The same | Disposable frame observations |
+| `state/reports.sqlite3` | Dashboard (`memory/reports.py`, `dashboard/report_health.py`) | The same | Per-day report aggregates (rebuildable), the Reports tab's layout, and health samples |
 | `state/journal_pages_window.json`, `journal_pages_batch.json` | `pack-journal` | The same | The page batch's sleep window and last finished day |
+| `state/journal.lock` | `pack-journal` | The same | The journal's one-writer lock |
 | `state/journal_evidence/<day>/` | `pack-video-window` | Dashboard | Clips and stills of moments day pages cite; durable |
 | `state/video_window.json`, `retention.json` | `pack-video-window` | The same | Age-out progress and finished retention days |
-| `state/places/<place>/`, `footprints.json`, `positions.json`, `aims.json`, `positions.run`, `<place>/positions.learned`, `state/places.lock` | Spatial jobs through `memory/places.py` | `memory/places.py`, `spatial/positions.py` | Place revisions, maps, plans, splats, placer progress, each spot camera's fitted tilt, what each learned map's floor and cameras came to, the positions job's lock, and each place's line-up with its owner's plan (`plan.lineup`, `spatial/plan_lineup.py`) |
-| `state/surroundings/` | The surroundings sampler (`spatial/surroundings_frames.py`: frames, `index.json`, `status.json`) and the map step (`spatial/surroundings_map.py`: `map.json`, `progress.json` and `training.json` while a step runs, depth images) | Each other, the Places page | The frames kept for learning a place's map, at most 300, with their descriptors and depth; what each step placed |
+| `state/places/<place>/`, `footprints.json`, `positions.json`, `aims.json`, `positions.run`, `<place>/positions.learned`, `state/places.lock` | Spatial jobs through `memory/places.py` | `memory/places.py`, `spatial/positions.py` | Place revisions, maps, plans, splats, how far each camera's footprints are recorded, placer progress, each spot camera's fitted tilt, what each learned map's floor and cameras came to, the positions job's lock, and each place's line-up with its owner's plan (`plan.lineup`, `spatial/plan_lineup.py`) |
+| `state/surroundings/` | The surroundings sampler (`pack-surroundings`: frames and `index.json` through `spatial/surroundings_frames.py`, and `status.json`) and the map step (`spatial/surroundings_map.py`: `map.json`, `progress.json` and `training.json` while a step runs, depth arrays, `map.lock`) | Each other, the Places page | The frames kept for learning a place's map, at most 300, with their descriptors and depth; what each step placed |
+| `state/lights/<day>.json` | `memory/lights_color.py` | The same | A finished day's lamps-on spans, measured from the recordings; rebuildable |
+| `state/continuum/pet-evidence.lock` | `people/pet_recognition.py` | The same | Serializes changes to pet evidence |
 | `state/cache/device_tallies.json` | `proximity/devices.py` | The same | Hourly device tallies; rebuildable |
 | `state/ingest.sqlite3`, `ingest-locks/`, `ingest-analyzed.json` | Dashboard, `pack-ingest`, `pack-ingest-analyze` | The same | Ingested items, per-item locks, and the analysis ledger |
-| `ingest/` (`paths.ingest`) | Dashboard, `pack-ingest` | The broker, the same | Originals, converted media, and source working files |
+| `ingest/` (`paths.ingest`) | Dashboard, `pack-ingest` | Continuum readers (gateway, tier worker), the same | Originals, converted media, and source working files |
 | `state/model_loads/<pid>.json` | Model-loading processes | Dashboard `/stats` | Which process loaded which model |
 | `state/whisper_names.json`, `friends_performance.json` | `pack-whisper-names`, `pack-ask-friends` | The same | Announcement times; panel model scores |
