@@ -25,6 +25,7 @@ import cv2
 import numpy as np
 
 from liberational import config as cfg
+from liberational.people import face_shots
 from liberational.vision import faces as face_identity
 from liberational.vision import sightings
 
@@ -60,7 +61,7 @@ def main() -> None:
             sid = str(r["id"])
             if sid in live:  # a signal's own norm, or scored already
                 continue
-            files = sorted((state / "shots").glob(f"{sid}-*.jpg"))
+            files = sorted(face_shots.directory(state, sid).glob(f"{sid}-*.jpg"))
             image = cv2.imread(str(files[0])) if files else None
             if image is None:
                 continue

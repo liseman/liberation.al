@@ -216,6 +216,7 @@ import urllib.parse
 import urllib.request
 import uuid
 from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
+from collections.abc import Set as AbstractSet
 from concurrent.futures import Executor, Future, ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass, field
@@ -868,7 +869,6 @@ CALLS_DIR = cfg.path("paths.calls")
 MEMORY_FILE = STATE / "memory.jsonl"
 
 
-SHOTS = face_shots.folder(STATE)  # face crops of sightings: see-actions writes them, the rest are cut on request
 SHOT_PX = face_shots.PX
 _shot_decode = threading.BoundedSemaphore(2)  # at most two frames read and decoded at once
 # A shot request with no crop on disk waits this long for a turn to look its sighting up and cut it, then is told to
@@ -1128,7 +1128,7 @@ def _ready_videos(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int
 
 
 def _ready_faces(
-    rows: list[dict[str, Any]], saved: frozenset[str] | None = None, *, grid: bool = False
+    rows: list[dict[str, Any]], saved: AbstractSet[str] | None = None, *, grid: bool = False
 ) -> tuple[list[dict[str, Any]], int, int]:
     """Saved face crops only; schedule missing IDs without reading video on this request."""
     revision = _shot_revision()
@@ -2111,7 +2111,7 @@ def people_roster(
     speakers: list[dict[str, Any]] | None = None,
     *,
     named_lines: list[dict[str, Any]] | None = None,
-    saved_shots: frozenset[str] | None = None,
+    saved_shots: AbstractSet[str] | None = None,
 ) -> list[dict[str, Any]]:
     """One entry per person, joining their voices (by person_of, through _speakers), tagged faces (the face
     database), the lines they said, and their record in the person registry: added by hand, phone, role,
@@ -3808,7 +3808,7 @@ def _shot(row: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def main_photo(
-    name: str, *, ready: list[dict[str, Any]] | None = None, saved_shots: frozenset[str] | None = None
+    name: str, *, ready: list[dict[str, Any]] | None = None, saved_shots: AbstractSet[str] | None = None
 ) -> dict[str, Any] | None:
     """A person's main photo as a Shot: their best-scoring recorded shot (sightings.best), else, for someone tagged
     live with no shot found yet, their newest saved crop (id, cam, and score None). A shot
@@ -5791,9 +5791,7 @@ def _delete_person_locked(name: object, control: bool) -> Reply:
     # A face crop of the current revision is served without a lookup, so a deleted person's own crops go now. Everyone
     # else's stay: clearing them all made the dashboard cut every face again from video, thousands of jobs that kept
     # the pets' photos waiting for hours (#2579).
-    for crop in SHOTS.glob("*.jpg"):
-        if their_shots is None or crop.name.split(f"-{face_shots.VERSION}", 1)[0] in their_shots:
-            crop.unlink(missing_ok=True)
+    face_shots.remove(STATE, their_shots)
     # PersonForgotten, and their events purged from the log (open decision 1). Last, so a failure anywhere before it
     # leaves them in the registry, and deleting them again finds everything still theirs; a failure here is said.
     try:
