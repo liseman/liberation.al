@@ -11,14 +11,21 @@
   file registered in place is one payload, the whole file.
 - Ring: a batch of ring records; use `Client.ring_reader` for those.
 
+A chunk locator names a file under the data root (the state directory that holds `continuum/`), relative to it, so
+`records` takes that root (`root=`) and joins the two; an absolute locator (an older catalog's, or a file outside the
+root) is used as it is.
+
 A locator can go stale between the query and the read: a flush frees a slot (the payload is in a chunk now), or a
 purge takes a whole chunk. Then the item is asked for again by id, once, over its own span, and read from where it is
-now. An item that's gone by then (purged) reads as None. Stale bytes are never returned.
+now. An item that's gone by then (purged) reads as None. Stale bytes are never returned. A chunk the catalog still
+names after that second ask, but whose file isn't there, raises `ChunkMissing` naming the path (logged once per
+file): the file was moved or deleted outside the broker, which no retry fixes.
 """
 
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, NamedTuple
@@ -30,6 +37,10 @@ if TYPE_CHECKING:
     from .schema import Item, Locator
 
 _NIL = "00000000-0000-0000-0000-000000000000"
+
+_LOG = logging.getLogger(__name__)
+# Chunk files already logged as missing, so a file that's gone logs once per process, not once per request.
+_REPORTED: set[str] = set()
 
 # A lease the broker refuses because the slot was freed, reused, or isn't a live slot: the payload moved on.
 _SLOT_MOVED = (StaleError, NotReadyError, ValueError)
@@ -58,17 +69,35 @@ class StaleLocator(LookupError):
     """An item's locator went stale twice running: it moved again between the second query and the read."""
 
 
+class ChunkMissing(FileNotFoundError):
+    """The catalog names a chunk file that doesn't exist: moved or deleted outside the broker, so asking again won't
+    find it. `filename` is the path looked for."""
+
+    def __init__(self, path: str, payload_id: str, stream: str) -> None:
+        super().__init__(2, f"chunk file is missing: {path} (payload {payload_id} on {stream})", path)
+        self.payload_id = payload_id
+        self.stream = stream
+
+
 async def records(
-    client: Client, stream: str, item: Item, *, start_ns: int = 0, end_ns: int = 2**63 - 1
+    client: Client,
+    stream: str,
+    item: Item,
+    *,
+    root: str | os.PathLike[str],
+    start_ns: int = 0,
+    end_ns: int = 2**63 - 1,
 ) -> list[Record] | None:
     """The payloads a query `item` on `stream` holds, oldest first: one for an inline or slot item, a chunk's
-    records for a chunk (only those overlapping [start_ns, end_ns)). An empty list for a header-only payload (no
-    bytes), and None when the item is gone (purged since the query). Raises ValueError for a locator this can't read
-    (a ring batch, a chunk that isn't a local file) and StaleLocator if the item moves again during the retry."""
+    records for a chunk (only those overlapping [start_ns, end_ns)). `root` is the data root, the state directory
+    that holds `continuum/`, which relative chunk locators name files under. An empty list for a header-only payload
+    (no bytes), and None when the item is gone (purged since the query). Raises ValueError for a locator this can't
+    read (a ring batch, a chunk that isn't a local file), ChunkMissing for a chunk the catalog still names whose file
+    isn't there, and StaleLocator if the item moves again during the retry."""
     header = decode_header(item["header"])
     if item["locator"] is None:
         return []
-    got = await _read(client, item, start_ns, end_ns)
+    got = await _read(client, item, start_ns, end_ns, root)
     if got is not None:
         return got
     # Stale: look again over the item's own span (a short ask). It's there under its own id, or, once a flush
@@ -80,22 +109,26 @@ async def records(
         if decode_header(again["header"])["id"] == want:
             if again["locator"] is None:
                 return []
-            got = await _read(client, again, start_ns, end_ns)
+            got = await _read(client, again, start_ns, end_ns, root)
             if got is None:
+                _raise_missing(again, root, want, stream)
                 raise StaleLocator(f"{want} on {stream} moved again while it was being read")
             return got
     for again in result["items"]:
         locator = again["locator"]
         if locator is not None and locator["kind"] == "Chunk":
-            got = await _read(client, again, *span)
+            got = await _read(client, again, *span, root)
             if got is None:
+                _raise_missing(again, root, want, stream)
                 raise StaleLocator(f"{want} on {stream} moved again while it was being read")
             if mine := [r for r in got if r.payload_id == want]:
                 return mine
     return None
 
 
-async def _read(client: Client, item: Item, start_ns: int, end_ns: int) -> list[Record] | None:
+async def _read(
+    client: Client, item: Item, start_ns: int, end_ns: int, root: str | os.PathLike[str]
+) -> list[Record] | None:
     """The records at `item`'s locator, or None when it went stale."""
     locator = item["locator"]
     assert locator is not None
@@ -109,7 +142,7 @@ async def _read(client: Client, item: Item, start_ns: int, end_ns: int) -> list[
         return None if data is None else [Record(*whole, data)]
     if kind == "Chunk":
         # File I/O (and LZ4 or FLAC for some streams): off the event loop.
-        found = await asyncio.to_thread(read_chunk_records, _local(locator["uri"]), start_ns, end_ns)
+        found = await asyncio.to_thread(read_chunk_records, _local(locator["uri"], root), start_ns, end_ns)
         if found is None:
             return None
         if len(found) == 1 and found[0][:3] == (_NIL, 0, 0):
@@ -122,13 +155,30 @@ async def _read(client: Client, item: Item, start_ns: int, end_ns: int) -> list[
     raise ValueError(f"a {kind} locator isn't a payload's bytes (read ring batches with Client.ring_reader)")
 
 
-def _local(uri: str) -> str:
-    """A chunk's uri as an absolute path. A tier worker given a relative directory wrote relative paths (before it
-    made them absolute): those are under the services' working directory, the checkout, which is this process's too."""
+def _local(uri: str, root: str | os.PathLike[str]) -> str:
+    """A chunk locator's file as an absolute path: a relative locator joined to the data root `root`, an absolute one
+    (with or without `file://`) as it is. Any other scheme is passed through for `read_chunk_records` to refuse."""
     path = uri.removeprefix("file://")
-    if "://" in path or os.path.isabs(path):
+    if "://" in path:
         return uri
-    return os.path.abspath(path)
+    if not os.path.isabs(path):
+        path = os.path.join(os.fspath(root), path)
+    return os.path.normpath(os.path.abspath(path))
+
+
+def _raise_missing(item: Item, root: str | os.PathLike[str], payload_id: str, stream: str) -> None:
+    """Raises ChunkMissing when `item`, which a fresh query just named, is a chunk whose file isn't there; logs that
+    once per file. Returns otherwise (the read failed for another reason: the chunk moved again)."""
+    locator = item["locator"]
+    if locator is None or locator["kind"] != "Chunk":
+        return
+    path = _local(locator["uri"], root)
+    if os.path.exists(path):
+        return
+    if path not in _REPORTED:
+        _REPORTED.add(path)
+        _LOG.error("chunk file is missing: %s (the catalog names it for %s on %s)", path, payload_id, stream)
+    raise ChunkMissing(path, payload_id, stream)
 
 
 def _read_slot(client: Client, locator: Locator) -> bytes | None:

@@ -284,7 +284,8 @@ impl Archive {
         Some(range)
     }
 
-    /// Queues the H.264 chunks among `items` (a scan's query result: each item's id and locator) newest first, and
+    /// Queues the H.264 chunks among `items` (a scan's query result: each item's id and locator, its uri resolved to the
+    /// file's path) newest first, and
     /// returns the AV1 ones whose catalog locator has another length than the file (a swap a crash interrupted
     /// before its `RewriteChunk`).
     pub fn take(&mut self, items: Vec<(Uuid, StorageLocator)>) -> Vec<Candidate> {

@@ -669,3 +669,97 @@ fn storage_stats_name_every_table_with_its_rows_and_pages() {
     assert!(stats.tables.windows(2).all(|w| pages(&w[0]) >= pages(&w[1])), "largest first");
     assert_eq!(MemoryCatalog::new().storage_stats().unwrap(), None, "no file, no stats");
 }
+
+#[test]
+fn relativize_rewrites_chunk_locators_under_any_data_root_once() {
+    use continuum_core::{StorageLocator, StorageTier};
+    let (_dir, file) = path();
+    let chunk =
+        |uri: &str| StorageLocator::Chunk { tier: StorageTier::Tier1Warm, uri: uri.into(), offset: 0, length: 9 };
+    let rows = [
+        ("/old/checkout/data/state/continuum/tier/1/h/a.cnk", "continuum/tier/1/h/a.cnk"),
+        ("file:///elsewhere/state/continuum/tier2/1/b.cnk", "continuum/tier2/1/b.cnk"),
+        ("data/state/continuum/tier/1/h/c.cnk", "continuum/tier/1/h/c.cnk"),
+        ("continuum/tier/1/h/d.cnk", "continuum/tier/1/h/d.cnk"),
+        ("/media/v1/clip.mp4", "/media/v1/clip.mp4"),
+    ];
+    let stream = {
+        let c = RedbCatalog::open(&file).unwrap();
+        let stream = c.register_stream(info("cam.video")).unwrap();
+        let payloads = rows.iter().enumerate().map(|(n, (old, _))| NewPayload {
+            location: Some(chunk(old)),
+            ..payload(n as u32 + 1, stream, 100 + n as u64, &[], &[])
+        });
+        c.insert(payloads.collect()).unwrap();
+        let mut after: Option<Vec<u8>> = None;
+        let (mut scanned, mut rewritten) = (0, 0);
+        loop {
+            // Two rows a transaction, so the run crosses batch boundaries.
+            let batch = c.relativize_chunk_locators(after.as_deref(), 2).unwrap();
+            scanned += batch.scanned;
+            rewritten += batch.rewritten;
+            match batch.next {
+                Some(next) => after = Some(next),
+                None => break,
+            }
+        }
+        assert_eq!((scanned, rewritten), (5, 3));
+        let again = c.relativize_chunk_locators(None, 100).unwrap();
+        assert_eq!((again.scanned, again.rewritten, again.next), (5, 0, None), "a second run changes nothing");
+        c.close(Duration::from_secs(5)).unwrap();
+        stream
+    };
+    let c = RedbCatalog::open(&file).unwrap();
+    for (n, (_, want)) in rows.iter().enumerate() {
+        let Some(Resolved::Payload(p)) = c.get(id(n as u32 + 1)).unwrap() else { panic!("payload {n} is gone") };
+        assert_eq!(p.header.stream(), stream);
+        assert_eq!(p.locations, vec![chunk(want)], "row {n}, after a reopen");
+    }
+}
+
+#[test]
+fn the_migration_tool_rewrites_a_stopped_catalog_and_refuses_while_the_broker_holds_it() {
+    use continuum_core::{StorageLocator, StorageTier};
+    let (dir, file) = path();
+    let old = "/old/checkout/data/state/continuum/tier/1/h/a.cnk";
+    {
+        let c = RedbCatalog::open(&file).unwrap();
+        let stream = c.register_stream(info("mic.audio")).unwrap();
+        let location = StorageLocator::Chunk { tier: StorageTier::Tier1Warm, uri: old.into(), offset: 0, length: 9 };
+        c.insert(vec![NewPayload { location: Some(location), ..payload(1, stream, 100, &[], &[]) }]).unwrap();
+        c.close(Duration::from_secs(5)).unwrap();
+    }
+    let tool = || {
+        std::process::Command::new(env!("CARGO_BIN_EXE_continuum-relative-locators"))
+            .arg("--catalog")
+            .arg(&file)
+            .output()
+            .unwrap()
+    };
+    let lock = std::fs::File::create(dir.path().join("broker.sock.lock")).unwrap();
+    lock.lock().unwrap();
+    let refused = tool();
+    assert!(!refused.status.success(), "a running broker's catalog is left alone");
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("stop it first"));
+    lock.unlock().unwrap();
+    let first = tool();
+    assert!(first.status.success(), "{}", String::from_utf8_lossy(&first.stderr));
+    assert!(
+        String::from_utf8_lossy(&first.stdout).starts_with("1 location rows looked at, 1 chunk locators rewritten")
+    );
+    let second = tool();
+    assert!(
+        String::from_utf8_lossy(&second.stdout).starts_with("1 location rows looked at, 0 chunk locators rewritten")
+    );
+    let c = RedbCatalog::open(&file).unwrap();
+    let Some(Resolved::Payload(p)) = c.get(id(1)).unwrap() else { panic!("the payload is gone") };
+    assert_eq!(
+        p.locations,
+        vec![StorageLocator::Chunk {
+            tier: StorageTier::Tier1Warm,
+            uri: "continuum/tier/1/h/a.cnk".into(),
+            offset: 0,
+            length: 9
+        }]
+    );
+}

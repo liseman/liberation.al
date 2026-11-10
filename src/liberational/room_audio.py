@@ -20,10 +20,9 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 from continuum_py import decode_flac, decode_header
-from continuum_py.read import PcmFormat, records
-from continuum_py.schema import Item, Locator
+from continuum_py.read import ChunkMissing, PcmFormat, records
 
-from liberational import config as cfg
+from liberational import continuum_link
 from liberational.listen.pcm import STAMP, Format
 
 if TYPE_CHECKING:
@@ -96,13 +95,13 @@ async def read(client: Client, stream: str, start_ns: int, end_ns: int, channel:
             continue  # still in the ring: not flushed yet
         header = decode_header(item["header"])
         shape = header["shape_name"]
-        uri = str(locator.get("uri") or "")
-        if uri and not uri.startswith("/") and "://" not in uri:
-            # A chunk the tier worker recorded before it wrote absolute paths: relative to the install's root, where
-            # the services run.
-            item = Item(header=item["header"], locator=Locator(**{**locator, "uri": str(cfg.ROOT / uri)}))
         try:
-            found = await records(client, stream, item, start_ns=start_ns, end_ns=end_ns) or []
+            found = await records(
+                client, stream, item, root=continuum_link.data_root(), start_ns=start_ns, end_ns=end_ns
+            )
+            found = found or []
+        except ChunkMissing:
+            raise  # the catalog names a file that isn't there: the caller says so, never as silence
         except ValueError, OSError:
             continue  # a chunk this machine can't read (not a local file, gone, corrupt): silence there
         for batch in found:

@@ -194,7 +194,7 @@ async def records_of(
     `ts_end`, and `id` from its own payload. None of them for a payload purged since, or one that isn't a record."""
     if stream not in STREAMS:
         return []
-    found = await read.records(client, stream, item, start_ns=start_ns, end_ns=end_ns)
+    found = await read.records(client, stream, item, root=continuum_link.data_root(), start_ns=start_ns, end_ns=end_ns)
     return _decode_records(found or [], keep_ns=keep_ns)
 
 
@@ -674,7 +674,9 @@ async def _h264_stretch(client: Client, stream: str, lo: int, hi: int) -> _Gop |
         capture = header.get("capture") or {}
         flip = flip or bool(capture.get("flip"))
         chunk = (item.get("locator") or {}).get("kind") == "Chunk"
-        records = await read.records(client, stream, item, start_ns=lo, end_ns=hi) or []
+        records = (
+            await read.records(client, stream, item, root=continuum_link.data_root(), start_ns=lo, end_ns=hi) or []
+        )
         for position, record in enumerate(records):
             got = (str(record.payload_id), record.start_ns, _unit(bytes(record.data)))
             if chunk:
@@ -847,7 +849,17 @@ async def frame_evidence_at(client: Client, cam: str, ts: float) -> FrameEvidenc
                 if len(matches) != 1:
                     continue
                 actual = matches[0]
-                records = await read.records(client, f"{cam}.video", item, start_ns=actual, end_ns=actual + 1) or []
+                records = (
+                    await read.records(
+                        client,
+                        f"{cam}.video",
+                        item,
+                        root=continuum_link.data_root(),
+                        start_ns=actual,
+                        end_ns=actual + 1,
+                    )
+                    or []
+                )
                 exact = [record for record in records if record.start_ns == actual]
                 if len(exact) != 1:
                     continue
@@ -874,7 +886,12 @@ async def frame_evidence_at(client: Client, cam: str, ts: float) -> FrameEvidenc
                 if source_content_rect(metadata) is not None:
                     found.append(FrameEvidence(image, at_ns, metadata))
                 continue
-            for record in await read.records(client, f"{cam}.video", item, start_ns=lo, end_ns=hi) or []:
+            for record in (
+                await read.records(
+                    client, f"{cam}.video", item, root=continuum_link.data_root(), start_ns=lo, end_ns=hi
+                )
+                or []
+            ):
                 if abs(record.start_ns - target) > 1000:
                     continue
                 image = decode_frame(header["shape_name"], record.data, header.get("capture"))
@@ -919,7 +936,9 @@ async def frame_at(client: Client, cam: str, ts: float, within_s: float = 0.001)
     best: tuple[int, bytes, PayloadHeader] | None = None
     for item in result["items"]:
         header = continuum_py.decode_header(item["header"])
-        for rec in await read.records(client, stream, item, start_ns=lo, end_ns=hi) or []:
+        for rec in (
+            await read.records(client, stream, item, root=continuum_link.data_root(), start_ns=lo, end_ns=hi) or []
+        ):
             off = abs(rec.start_ns - to_ns(ts))
             if best is None or off < best[0]:
                 best = (off, rec.data, header)

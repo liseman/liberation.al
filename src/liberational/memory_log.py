@@ -39,6 +39,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import continuum_py
 from continuum_py import Client, DomainLayer, Item, PayloadHeader, Producer, read
 
+from liberational import continuum_link
 from liberational.continuum import from_ns, to_ns
 from liberational.continuum_link import BrokerLink, until_not_busy
 from liberational.domain.kernel import PersonId
@@ -243,7 +244,7 @@ async def records_of(client: Client, stream: str, item: Item) -> list[dict[str, 
         return []
     header = continuum_py.decode_header(item["header"])
     out = []
-    for rec in await read.records(client, stream, item) or []:
+    for rec in await read.records(client, stream, item, root=continuum_link.data_root()) or []:
         try:
             record = json.loads(rec.data)
         except ValueError:

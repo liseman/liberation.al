@@ -305,8 +305,8 @@ fn chunk_entries(path: &Path, chunk: &HeaderBuf) -> Vec<Entry> {
         .collect()
 }
 
-fn chunk_path(uri: &str) -> PathBuf {
-    PathBuf::from(uri.strip_prefix("file://").unwrap_or(uri))
+fn chunk_path(root: &Path, uri: &str) -> PathBuf {
+    continuum_core::chunk_path::resolve(root, uri)
 }
 
 /// Puts entries in decode order: capture epochs by their first start, then device sequence. Entries without an
@@ -335,12 +335,15 @@ pub struct H264Window {
     sequencer: Sequencer,
     queued: Option<Au>,
     reader: Option<(PathBuf, Uuid, ChunkReader)>,
+    /// The data root relative chunk locators are read against.
+    root: PathBuf,
 }
 
 impl H264Window {
     /// Opens the window at `from_ns` (UTC ns), which must lie within `window` of now. `client` answers queries
     /// and maps the arena; `live` is a client of its own for the live subscription (connected with
-    /// `SubscriptionOverflow::Backpressure`, so reading history never overflows the live queue).
+    /// `SubscriptionOverflow::Backpressure`, so reading history never overflows the live queue). `root` is the data
+    /// root (the state directory that holds `continuum/`), which relative chunk locators are read against.
     ///
     /// # Errors
     ///
@@ -348,6 +351,7 @@ impl H264Window {
     pub async fn open(
         client: Arc<Client>,
         live: Arc<Client>,
+        root: &Path,
         stream: &str,
         from_ns: u64,
         window: Duration,
@@ -366,7 +370,7 @@ impl H264Window {
         let mut ids = HashSet::new();
         for item in history.items {
             let found = match &item.locator {
-                Some(StorageLocator::Chunk { uri, .. }) => chunk_entries(&chunk_path(uri), &item.header),
+                Some(StorageLocator::Chunk { uri, .. }) => chunk_entries(&chunk_path(root, uri), &item.header),
                 Some(locator @ (StorageLocator::Shm { .. } | StorageLocator::Inline { .. })) => {
                     vec![Entry { au: tier0_au(item.header.clone()), source: Source::Locator(locator.clone()) }]
                 }
@@ -384,6 +388,7 @@ impl H264Window {
             sequencer: Sequencer::new(from_ns),
             queued: None,
             reader: None,
+            root: root.to_path_buf(),
         };
         let start = window.start_index(&entries, from_ns);
         window.pending = entries.into_iter().skip(start).collect();
@@ -454,7 +459,7 @@ impl H264Window {
                     // and is dropped by the sequencer, unless it reaches past what was yielded.
                     let last_end = self.sequencer.last.map_or(0, |(_, _, end)| end);
                     if item.header.end_ns() > last_end {
-                        let mut found = chunk_entries(&chunk_path(uri), &item.header);
+                        let mut found = chunk_entries(&chunk_path(&self.root, uri), &item.header);
                         decode_order(&mut found);
                         self.pending.extend(found);
                     }
@@ -514,7 +519,7 @@ impl H264Window {
         for item in found.items {
             if let Some(StorageLocator::Chunk { uri, .. }) = &item.locator
                 && let Some(entry) =
-                    chunk_entries(&chunk_path(uri), &item.header).into_iter().find(|e| e.au.id == au.id)
+                    chunk_entries(&chunk_path(&self.root, uri), &item.header).into_iter().find(|e| e.au.id == au.id)
             {
                 return self.load(&entry);
             }

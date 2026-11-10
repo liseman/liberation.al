@@ -51,6 +51,8 @@ fn main() -> ExitCode {
             }
         }
     }
+    // Locators of the files under the state directory are stored relative to it (continuum_core::chunk_path).
+    let data_root = state_dir.as_ref().map(|d| std::path::absolute(d).unwrap_or_else(|_| d.clone()));
     let base = state_dir.map(|d| d.join("continuum"));
     let (Some(socket), Some(chunk_dir)) = (
         socket.or_else(|| base.as_ref().map(|b| b.join("broker.sock"))),
@@ -59,7 +61,7 @@ fn main() -> ExitCode {
         eprintln!("{USAGE}");
         return ExitCode::from(2);
     };
-    // Chunk locators are the paths written here, and readers in other directories open them: make them absolute.
+    // Without a state directory, locators are these paths, and readers in other directories open them: absolute.
     let chunk_dir = std::path::absolute(&chunk_dir).unwrap_or(chunk_dir);
     let manifest = manifest.unwrap_or_else(|| PathBuf::from("config/devices.toml"));
     match std::fs::read_to_string(&manifest) {
@@ -101,8 +103,14 @@ fn main() -> ExitCode {
         });
     }
     eprintln!("continuum-tier-worker: following {streams:?}, chunks in {}", chunk_dir.display());
-    let settings =
-        Settings { socket, chunk_dir, streams, flush: FlushSettings::default(), tick: Duration::from_millis(50) };
+    let settings = Settings {
+        socket,
+        chunk_dir,
+        data_root,
+        streams,
+        flush: FlushSettings::default(),
+        tick: Duration::from_millis(50),
+    };
     let archive = match continuum_tier::archive::ArchiveSettings::from_env(|key| std::env::var(key).ok()) {
         Ok(archive) => archive,
         // Recording never waits on an optional pass: a bad setting is said, and the pass stays off.

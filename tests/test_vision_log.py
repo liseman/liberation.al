@@ -169,9 +169,9 @@ def test_following_from_a_time_catches_up_then_yields_each_record_with_its_strea
     bounds = []
     original = read.records
 
-    async def spy(client, stream, item, *, start_ns=0, end_ns=2**63 - 1):
+    async def spy(client, stream, item, *, root, start_ns=0, end_ns=2**63 - 1):
         bounds.append(start_ns)
-        return await original(client, stream, item, start_ns=start_ns, end_ns=end_ns)
+        return await original(client, stream, item, root=root, start_ns=start_ns, end_ns=end_ns)
 
     monkeypatch.setattr(read, "records", spy)
     asyncio.run(
@@ -252,7 +252,7 @@ def test_a_flushed_chunks_records_each_read_back_with_their_own_id_and_time(monk
     ]
     asked = []
 
-    async def records(client, stream, item, *, start_ns=0, end_ns=2**63 - 1):
+    async def records(client, stream, item, *, root, start_ns=0, end_ns=2**63 - 1):
         asked.append((stream, start_ns, end_ns))
         return chunk
 
@@ -263,10 +263,13 @@ def test_a_flushed_chunks_records_each_read_back_with_their_own_id_and_time(monk
     assert asyncio.run(vision_log.records_of(None, "speech.utterance", {"header": b"", "locator": None})) == []  # ty: ignore[invalid-argument-type] - not a vision stream: nothing is read
 
 
-def test_a_chunk_at_a_relative_path_is_read_from_the_working_directory(monkeypatch, tmp_path) -> None:
-    # A tier worker given a relative directory wrote relative chunk paths; the reader (Rust) only opens absolute ones.
-    record = {"cam": "cam0", "objects": {}, "ts_start": 5e-9}
-    header, _ = vision_log.encode(vision_log.OBJECTS, 1, record, payload_id=PID)
+def test_a_relative_chunk_locator_is_read_under_the_data_root_and_an_absolute_one_as_it_is(
+    monkeypatch, tmp_path
+) -> None:
+    # Locators are stored relative to the data root (#62), so a moved install reads its chunks from where they are now.
+    header, _ = vision_log.encode(
+        vision_log.OBJECTS, 1, {"cam": "cam0", "objects": {}, "ts_start": 5e-9}, payload_id=PID
+    )
     opened = []
 
     def read_chunk_records(uri, start_ns, end_ns):
@@ -274,12 +277,52 @@ def test_a_chunk_at_a_relative_path_is_read_from_the_working_directory(monkeypat
         return [(PID, 5, 5, b"{}")]
 
     monkeypatch.setattr(read, "read_chunk_records", read_chunk_records)
-    monkeypatch.chdir(tmp_path)
-    item = {"header": header, "locator": {"kind": "Chunk", "uri": "data/state/continuum/tier/7-1-1.cnk"}}
-    assert asyncio.run(read.records(None, vision_log.OBJECTS, item)) == [read.Record(PID, 5, 5, b"{}")]  # ty: ignore[invalid-argument-type] - a chunk read needs no client
-    absolute = {"header": header, "locator": {"kind": "Chunk", "uri": "/elsewhere/7-1-1.cnk"}}
-    asyncio.run(read.records(None, vision_log.OBJECTS, absolute))  # ty: ignore[invalid-argument-type] - a chunk read needs no client
-    assert opened == [str(tmp_path / "data/state/continuum/tier/7-1-1.cnk"), "/elsewhere/7-1-1.cnk"]
+    relative = {"header": header, "locator": {"kind": "Chunk", "uri": "continuum/tier/7/h/7-1-1.cnk"}}
+    got = asyncio.run(read.records(None, vision_log.OBJECTS, relative, root=tmp_path / "moved"))  # ty: ignore[invalid-argument-type] - a chunk read needs no client
+    assert got == [read.Record(PID, 5, 5, b"{}")]
+    absolute = {"header": header, "locator": {"kind": "Chunk", "uri": "file:///elsewhere/7-1-1.cnk"}}
+    asyncio.run(read.records(None, vision_log.OBJECTS, absolute, root=tmp_path))  # ty: ignore[invalid-argument-type] - a chunk read needs no client
+    assert opened == [str(tmp_path / "moved/continuum/tier/7/h/7-1-1.cnk"), "/elsewhere/7-1-1.cnk"]
+
+
+class _SameItem:
+    """A client whose query names `item` again: the catalog still has the chunk when it's asked a second time."""
+
+    def __init__(self, item: dict) -> None:
+        self.item = item
+
+    async def query(self, stream, start_ns, end_ns, *, all=False):
+        return {"items": [self.item]}
+
+
+def _chunk_item(uri: str) -> dict:
+    header, _ = vision_log.encode(
+        vision_log.OBJECTS, 1, {"cam": "cam0", "objects": {}, "ts_start": 5e-9}, payload_id=PID
+    )
+    return {"header": header, "locator": {"kind": "Chunk", "uri": uri}}
+
+
+def test_a_chunk_file_the_catalog_still_names_but_that_isnt_there_is_missing_not_stale(
+    monkeypatch, tmp_path, caplog
+) -> None:
+    monkeypatch.setattr(read, "read_chunk_records", lambda uri, start_ns, end_ns: None)
+    monkeypatch.setattr(read, "_REPORTED", set())
+    item = _chunk_item("continuum/tier/7/h/gone.cnk")
+    for _ in range(2):
+        with pytest.raises(read.ChunkMissing) as missing:
+            asyncio.run(read.records(_SameItem(item), vision_log.OBJECTS, item, root=tmp_path))  # ty: ignore[invalid-argument-type] - a fake client with query only
+        assert missing.value.filename == str(tmp_path / "continuum/tier/7/h/gone.cnk")
+    assert [r.levelname for r in caplog.records if r.name == "continuum_py.read"] == ["ERROR"], (
+        "logged once per file, not once per request"
+    )
+
+
+def test_a_chunk_whose_file_is_there_but_moved_again_during_the_retry_is_stale(monkeypatch, tmp_path) -> None:
+    (tmp_path / "here.cnk").write_bytes(b"")
+    monkeypatch.setattr(read, "read_chunk_records", lambda uri, start_ns, end_ns: None)
+    item = _chunk_item("here.cnk")
+    with pytest.raises(read.StaleLocator):
+        asyncio.run(read.records(_SameItem(item), vision_log.OBJECTS, item, root=tmp_path))  # ty: ignore[invalid-argument-type] - a fake client with query only
 
 
 def test_video_days_asks_the_broker_for_one_frame_at_a_time() -> None:
@@ -390,14 +433,14 @@ def test_range_decodes_inline_headers_once_without_changing_mixed_locator_eviden
     }
     original_read = read.records
 
-    async def fallback(client, stream, selected, *, start_ns, end_ns):
+    async def fallback(client, stream, selected, *, root, start_ns, end_ns):
         if selected is chunk:
             return [
                 read.Record("chunk-child", 1_500_000_000, 1_500_000_200, b'{"cam":"cam0","bbox":[0.1,0.2,0.3,0.4]}')
             ]
         if selected is shm:
             return [read.Record("slot-child", 2_500_000_000, 2_500_000_300, b'{"cam":"cam1","boxes":[]}')]
-        return await original_read(client, stream, selected, start_ns=start_ns, end_ns=end_ns)
+        return await original_read(client, stream, selected, root=root, start_ns=start_ns, end_ns=end_ns)
 
     fallback_read = create_autospec(original_read, side_effect=fallback)
     decode = create_autospec(continuum_py.decode_header, side_effect=continuum_py.decode_header)
@@ -444,9 +487,9 @@ def test_range_decodes_inline_headers_once_without_changing_mixed_locator_eviden
     assert len(inline_decodes) == len(inline_headers)
     assert inline_decodes == inline_headers
     assert fallback_read.await_args_list == [
-        call(client, vision_log.OBJECTS, chunk, start_ns=0, end_ns=10_000_000_000),
-        call(client, vision_log.OBJECTS, shm, start_ns=0, end_ns=10_000_000_000),
-        call(client, vision_log.OBJECTS, empty, start_ns=0, end_ns=10_000_000_000),
+        call(client, vision_log.OBJECTS, chunk, root=continuum_link.data_root(), start_ns=0, end_ns=10_000_000_000),
+        call(client, vision_log.OBJECTS, shm, root=continuum_link.data_root(), start_ns=0, end_ns=10_000_000_000),
+        call(client, vision_log.OBJECTS, empty, root=continuum_link.data_root(), start_ns=0, end_ns=10_000_000_000),
     ]
 
 
@@ -501,12 +544,12 @@ def test_range_compact_batch_preserves_python_json_evidence_and_mixed_fallback(m
         monkeypatch.setattr(broker, "query_inline_records", batch)
     original_read = read.records
 
-    async def fallback(client, stream, selected, *, start_ns, end_ns):
+    async def fallback(client, stream, selected, *, root, start_ns, end_ns):
         if selected is chunk:
             return [read.Record("chunk-child", 500_000_000, 500_000_100, b'{"cam":"cam0","bbox":[0.1,0.2,0.3,0.4]}')]
         if selected is shm:
             return [read.Record("slot-child", 2_500_000_000, 2_500_000_100, b'{"cam":"cam1","boxes":[]}')]
-        return await original_read(client, stream, selected, start_ns=start_ns, end_ns=end_ns)
+        return await original_read(client, stream, selected, root=root, start_ns=start_ns, end_ns=end_ns)
 
     fallback_read = create_autospec(original_read, side_effect=fallback)
     monkeypatch.setattr(read, "records", fallback_read)
@@ -532,7 +575,7 @@ def test_range_compact_batch_preserves_python_json_evidence_and_mixed_fallback(m
         {"id": "slot-child", "ts_start": 2.5, "ts_end": 2.5000001, "cam": "cam1", "boxes": []},
     ]
     assert fallback_read.await_args_list == [
-        call(broker, vision_log.OBJECTS, selected, start_ns=0, end_ns=10_000_000_000)
+        call(broker, vision_log.OBJECTS, selected, root=continuum_link.data_root(), start_ns=0, end_ns=10_000_000_000)
         for selected in (chunk, shm, empty)
     ]
     if compact:

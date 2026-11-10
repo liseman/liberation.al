@@ -29,7 +29,7 @@ pub use worker_state::{MAX_WORKER_STATE_BYTES, MAX_WORKER_STATE_INPUTS, WorkerSt
 
 pub use coverage::CoverageSet;
 pub use memory::MemoryCatalog;
-pub use redb_catalog::{InstantOriginal, OpenTimings, RedbCatalog, SWAP_DELTA};
+pub use redb_catalog::{InstantOriginal, OpenTimings, RedbCatalog, RelativizeBatch, SWAP_DELTA};
 
 /// The most frames one chunk may absorb, so one commit stays short. Both catalogs refuse more.
 pub const MAX_CHUNK_FRAMES: usize = 4096;

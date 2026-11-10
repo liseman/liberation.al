@@ -91,7 +91,7 @@ def read_chunk_records(
 ) -> list[tuple[str, int, int, bytes, tuple[int, int, int] | None]] | None:
     """A chunk's live records overlapping [start_ns, end_ns), from a Chunk locator's local file: (payload_id,
     start_ns, end_ns, bytes) each, in the stream's native form. None when the file is gone. ValueError for a uri that
-    isn't a local file."""
+    isn't an absolute local path (resolve a relative locator against the data root first, as `read.records` does)."""
 
 def v1_gop_units(path: str | PathLike[str], start_ns: int, gop: int) -> list[dict[str, Any]]:
     """GOP `gop` of the v1 recording at `path` (starting at `start_ns`), in decode order: dicts of "bytes" (Annex
@@ -137,11 +137,19 @@ class H264Window:
     def __anext__(self) -> Awaitable[H264AccessUnit | H264Gap]: ...
 
 def open_h264_window(
-    client: Client, live: Client, stream: str, from_ns: int, window_s: float = 300.0, now_ns: int | None = None
+    client: Client,
+    live: Client,
+    stream: str,
+    from_ns: int,
+    window_s: float = 300.0,
+    now_ns: int | None = None,
+    data_root: str | PathLike[str] | None = None,
 ) -> Awaitable[H264Window]:
     """Opens `stream`'s recent window at `from_ns`, which must be within `window_s` of now: every access unit from the
     last IDR with SPS and PPS at or before it, in decode order, then live. `live` is a connection of its own, made
-    with subscription_overflow="backpressure". Raises ValueError for a start before the window."""
+    with subscription_overflow="backpressure". `data_root` is the state directory that holds `continuum/`, which
+    relative chunk locators name files under (the working directory when None). Raises ValueError for a start before
+    the window."""
 
 class WorkLease:
     """A granted lease. End it with commit, abort, or release; async with releases or aborts it."""

@@ -40,6 +40,12 @@ def socket_path() -> Path:
     return Path(env) if env else cfg.path("paths.state") / "continuum" / "broker.sock"
 
 
+def data_root() -> Path:
+    """The data root chunk locators are relative to (`continuum_py.read.records`'s `root`): the pack's state
+    directory, the one that holds `continuum/`, as the tier worker's `--state-dir` is."""
+    return cfg.path("paths.state")
+
+
 #: The exit code of a service the broker's going away stopped (EX_TEMPFAIL): try again later.
 EXIT_OUTAGE = 75
 #: While the broker stays away, a reminder this often, so a quiet log never hides a service stuck waiting.

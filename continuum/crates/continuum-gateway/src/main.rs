@@ -119,7 +119,12 @@ async fn main() -> std::process::ExitCode {
     // The link reconnects when the broker comes (back); until then the chunk directory serves alone.
     // Overlay streams in the segment store (camera.objects, #1791) are read from <state-dir>/segments.
     let segments = args.state_dir.join("segments");
-    let with_broker = |s: Session| s.with_broker(broker_socket.clone(), broker.clone()).with_segments(segments.clone());
+    let data_root = std::path::absolute(&args.state_dir).unwrap_or_else(|_| args.state_dir.clone());
+    let with_broker = |s: Session| {
+        s.with_broker(broker_socket.clone(), broker.clone())
+            .with_segments(segments.clone())
+            .with_data_root(data_root.clone())
+    };
     let origins = OriginPolicy::new(args.allow_origin.clone(), served_names(&args));
 
     let mut wt_task = None;
