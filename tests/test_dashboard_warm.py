@@ -837,7 +837,7 @@ def test_the_reply_leaves_the_patch_bookkeeping_out(monkeypatch):
     code, body = unnamed_groups._ready_face_groups(*FACE_ANSWER)
     assert code == 200
     assert "_counted" not in body
-    assert body["count"] == 3
+    assert body["count"] == 1  # Face 7, past the listed rows; 5 and 6 have no picture to show or cut, so leave it
 
 
 def _clip(line, ts):

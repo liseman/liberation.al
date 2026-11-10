@@ -101,7 +101,11 @@ def _video_status(row: Mapping[str, Any], revision: str, saved: frozenset[str]) 
 
 
 def _ready_face_groups(code: int, body: dict[str, Any]) -> Reply:
-    """Apply current crop availability after the slower identity snapshot, so progress updates on every poll."""
+    """Apply current crop availability after the slower identity snapshot, so progress updates on every poll.
+
+    A group with no saved picture and none still being cut is left out: the owner can't name a face they can't see.
+    One whose every crop failed (its video is gone: a catalog reset, or the video window passed) is also dropped from
+    the unnamed store (`_drop_face_groups`), so it doesn't come back. A group whose crops are still pending stays."""
     if code != 200:
         return code, body
     from liberational.vision import face_guess
@@ -109,10 +113,19 @@ def _ready_face_groups(code: int, body: dict[str, Any]) -> Reply:
     revision = photo_files._shot_revision()
     groups, pending, unavailable, saved = [], 0, 0, face_shots.saved(context.STATE, "shots_grid", revision)
     originals = face_shots.saved(context.STATE, revision=revision)
+    hidden: set[int] = set()
+    failed: list[dict[str, Any]] = []
     for group in body.get("groups", []):
         row = {k: v for k, v in group.items() if k != "_all_shots"}
         shots = group.get("_all_shots", group["shots"])
         ready, count, gone = people_list._ready_faces(shots, saved, grid=True)
+        pending += count
+        unavailable += gone
+        if not ready and not count:
+            hidden.add(row["id"])
+            if gone:
+                failed.append(row)
+            continue
         detail_count = sum(
             str(shot["id"]) in originals and face_shots.path(context.STATE, str(shot["id"]), revision).is_file()
             for shot in shots
@@ -121,15 +134,29 @@ def _ready_face_groups(code: int, body: dict[str, Any]) -> Reply:
             shots=ready[: face_guess.THUMBS], shot_count=detail_count, shots_pending=count, shots_unavailable=gone
         )
         groups.append(row)
-        pending += count
-        unavailable += gone
+    if failed:
+        _drop_face_groups(failed, "every picture of it failed to cut")
+    count_ = body.get("count")
     return code, {
         **{k: v for k, v in body.items() if not k.startswith("_")},
         "groups": groups,
+        **({"count": max(0, count_ - len(hidden))} if isinstance(count_, int) else {}),
         "shots_pending": pending,
         "shots_unavailable": unavailable,
-        "groups_without_shots": sum(not group["shots"] for group in groups),
     }
+
+
+def _drop_face_groups(rows: Iterable[Mapping[str, Any]], why: str) -> set[int]:
+    """Remove unnamed face groups that have no picture left from the store, as the machine data they are. Never one
+    the owner touched: marked not someone, a shot taken out, or a name undone (put-aside ones are never listed).
+    The groups removed."""
+    faces = people_list._faces_mod()
+    held = faces.unknown_held()
+    ids = {int(r["id"]) for r in rows if not r.get("not") and int(r["id"]) not in held}
+    if ids:
+        faces.drop_groups(ids)
+        LOG.info("who's this: dropped %d unnamed face group(s) with no picture left: %s", len(ids), why)
+    return ids
 
 
 def _ready_pet_view(code: int, body: dict[str, Any]) -> Reply:
@@ -159,9 +186,14 @@ def _ready_pet_view(code: int, body: dict[str, Any]) -> Reply:
             ).add(track)
         return {**row, "photo_ready": original_ready, "thumb_ready": ready}
 
-    groups = []
+    groups, dropped = [], 0
     for group in body.get("groups", []):
         rows = [item(row) for row in group["sightings"]]
+        if not any(r["photo_ready"] or r["thumb_ready"] or r["track_id"] in missing for r in rows):
+            # No picture saved and none can still be cut (its video is gone): nobody can name it, so it isn't listed.
+            # Pet groups are worked out from the sightings on every read, so there's no stored group to remove.
+            dropped += 1
+            continue
         groups.append(
             {
                 **group,
@@ -188,9 +220,11 @@ def _ready_pet_view(code: int, body: dict[str, Any]) -> Reply:
     seen_unavailable = {
         name: sum(r["track_id"] in unavailable and not r["photo_ready"] for r in rows) for name, rows in seen.items()
     }
+    count = body.get("count")
     return code, {
         **body,
         "groups": groups,
+        **({"count": max(0, count - dropped)} if isinstance(count, int) else {}),
         "seen": seen,
         "seen_pending": seen_pending,
         "seen_unavailable": seen_unavailable,
@@ -419,6 +453,40 @@ def _hide_resolved_face_groups(rows: list[dict[str, Any]], face_batch: FaceBatch
     return [row for row in rows if f"Face {row['id']}" not in resolved]
 
 
+NEW_GROUP_GRACE_S = 600.0  # a group a face started or joined this recently is kept while its sightings are written
+
+
+def _drop_sourceless_face_groups(
+    rows: list[dict[str, Any]], face_batch: FaceBatch | None, now: float
+) -> list[dict[str, Any]]:
+    """Drop the groups with no recorded sighting left in a complete shot-window snapshot (a catalog reset, or the
+    video window passed): with no sighting there is no video to cut a picture from, so nobody can name them. They
+    leave the store too (`_drop_face_groups`). A group a face started or joined in the last NEW_GROUP_GRACE_S stays,
+    as does one with any sighting at all (a low-confidence one included), and any the owner touched."""
+    if face_batch is None or face_batch.found is None or face_batch.matched is None:
+        return rows
+    faces = people_list._faces_mod()
+    aliases = faces.group_aliases()
+    detections = {r["id"] for r in face_batch.found.records}
+    present: set[int] = set()
+    for r in face_batch.matched.records:
+        found = re.fullmatch(r"Face (\d+)", str(r.get("cluster")))
+        if found and r.get("detection") in detections:
+            present.add(aliases.get(int(found[1]), int(found[1])))
+    stamped = faces.unknown_last_seen()
+    candidates = [
+        r
+        for r in rows
+        if not r.get("_all_shots", r.get("shots"))
+        and int(r["id"]) not in present
+        and stamped.get(int(r["id"]), -math.inf) < now - NEW_GROUP_GRACE_S
+    ]
+    if not candidates:
+        return rows
+    dropped = _drop_face_groups(candidates, "no sighting of it is left")
+    return [r for r in rows if int(r["id"]) not in dropped]
+
+
 def _unknown_groups() -> tuple[int, dict[str, Any]]:
     from liberational.people import face_nots
     from liberational.vision import face_guess, sightings
@@ -435,6 +503,7 @@ def _unknown_groups() -> tuple[int, dict[str, Any]]:
         )
         rows = _hide_emptied_face_groups(rows, face_batch)
         rows = _hide_resolved_face_groups(rows, face_batch)
+        rows = _drop_sourceless_face_groups(rows, face_batch, now)
         stamps = [t for ts in times.values() for t in ts]
         lines = _named_lines(min(stamps) - together.WINDOW_S) if stamps else []
         people = people_list._People()
