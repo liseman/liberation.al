@@ -6,7 +6,7 @@ takes each ingested item once it's `done`, decodes its converted files, and runs
 
 - video and photos: frames one a second (a photo: its one frame) through `CaptionPipeline` (captions and objects,
   committed by `CaptionWorker`'s own code). Faces in ingested items aren't analyzed while faces move to see-actions'
-  tracked heads (#1738); the worker says so when it loads its models;
+  tracked heads; the worker says so when it loads its models;
 - audio, and a video's sound: v1's VAD, then the listen worker's `Transcriber` (speech gate, ASR, ReDimNet2 B3), its voice
   matcher, and an utterance on `speech.utterance` in the segment store, under the item's own slot (`ingest-<item id>`).
 
@@ -487,7 +487,7 @@ class Analyzer:
             if self._halt():
                 return
             # Where this camera's segment rows stand before the pass: one that doesn't finish is rewound here, so
-            # its retry writes them again rather than twice (#1791). A crash mid-pass can still repeat them.
+            # its retry writes them again rather than twice. A crash mid-pass can still repeat them.
             from liberational import segment_log
 
             streams = (
@@ -856,7 +856,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         log.info("a done item is waiting; loading caption and speech models")
         transcriber: Any = None
         # Closed through `connected`, and run through `run_service`: the broker going away is one WARN and an exit the
-        # service manager restarts on, not a traceback (#2941).
+        # service manager restarts on, not a traceback.
         async with continuum_link.connected(client_name="ingest-analyze") as client:
             try:
                 async with Searcher(client) as search:
