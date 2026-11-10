@@ -80,3 +80,8 @@ def test_a_missing_model_fails_a_walk_that_needs_it_and_skips_one_that_doesnt(tm
     with pytest.raises(RuntimeError, match="mise run models"):
         R.proposals(paths, model=tmp_path / "missing.onnx")
     assert R.proposals(paths, required=False, model=tmp_path / "missing.onnx") == []
+
+
+@pytest.mark.parametrize(("frames", "pairs"), [(31, 25), (125, 25), (126, 25), (300, 60), (600, 120)])
+def test_a_walk_past_two_minutes_may_propose_a_revisit_for_every_five_frames(frames, pairs):
+    assert R.cap_for(frames) == pairs

@@ -87,7 +87,7 @@ beforeEach(() => {
     http.get('/people', () =>
       HttpResponse.json({
         people: [
-          { name: 'Dana', here_now: { cam: 'cam0', place: 'front camera', since: NOW - 600 } },
+          { name: 'Dana', here_now: { cam: 'cam0', camera_name: 'front camera', since: NOW - 600 } },
           { name: 'Luca' },
           { name: 'Eve' },
         ],
@@ -103,7 +103,7 @@ beforeEach(() => {
             text: 'Dana walked in',
             people: ['Dana'],
             cam: 'cam0',
-            place: null,
+            camera_name: null,
           },
           {
             id: 't:2',
@@ -112,7 +112,7 @@ beforeEach(() => {
             text: 'Dana asked Luca about dinner',
             people: ['Dana', 'Luca'],
             cam: null,
-            place: null,
+            camera_name: null,
           },
         ],
         updated: NOW - 60,

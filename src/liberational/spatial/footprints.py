@@ -13,9 +13,9 @@ again in a new map frame, so a footprint is projected through the place's curren
 (`project`, places.floor_point), and lands on the plan once the place has one (places.camera_to_plan).
 
 Recording: once a day, from `pack-spatial-cameras` (spatial/cameras.py), each fixed camera's footprints since the
-last run go into the position layer (spatial/positions.py) as `fixed-camera` rows, the observation as it is;
-`positions.positions` places them on the plan when read. `places/footprints.json` keeps how far each camera is
-recorded.
+last run are written raw (`positions.write_samples`), the observation as it is, and the position layer's placer
+(`positions.advance`) then puts them on the plan and writes them to the layer every view reads.
+`places/footprints.json` keeps how far each camera is recorded.
 
 Projected into the map frame, a place's people's footprints are where people walk: its walkable floor, which
 spatial/floorplan.py takes beside the place's point cloud (`walkable=`) to close rooms whose walls the fixed cameras
@@ -460,7 +460,7 @@ def _rows(feet: Iterable[Footprint]) -> list[dict[str, Any]]:
 
 def record(state: Path, cameras: Sequence[str], now: float) -> int:
     """Write each camera's footprints since it was last recorded (FIRST_S back the first time, at most MAX_BACKLOG_S)
-    up to FLUSH_S ago, into the position layer; how many. The mark stops at FLUSH_S ago too, so rows still being
+    up to FLUSH_S ago, raw, for the position layer's placer; how many. The mark stops at FLUSH_S ago too, so rows still being
     flushed are read by the next run rather than skipped."""
     from liberational.spatial import positions
 
@@ -476,7 +476,7 @@ def record(state: Path, cameras: Sequence[str], now: float) -> int:
         if start >= upto:
             continue
         feet = collect(state, start, upto, [camera])
-        positions.write_positions(state, _rows(feet))
+        positions.write_samples(state, _rows(feet))
         total += len(feet)
         marks[camera] = upto
         path.parent.mkdir(parents=True, exist_ok=True)

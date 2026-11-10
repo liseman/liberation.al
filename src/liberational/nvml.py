@@ -1,4 +1,4 @@
-"""NVIDIA GPUs' memory, utilization, and compute processes from NVML in this process (#2277), for the Resource monitor
+"""NVIDIA GPUs' memory, utilization, and compute processes from NVML in this process, for the Resource monitor
 (dashboard/machine_usage.py) and model status (model_runtime.py).
 
 Each nvidia-smi call costs 30 to 60 ms of CPU (a new process, and NVML's own start-up), and the dashboard made three of

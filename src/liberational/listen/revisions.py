@@ -20,7 +20,7 @@ from liberational import knowledge
 
 CORRECTIONS = "transcript.correction"
 _NS = 1_000_000_000
-# A line nobody in the room said: played back, synthetic, or heard from a TV or radio (`media`, #2468). Readers that
+# A line nobody in the room said: played back, synthetic, or heard from a TV or radio (`media`). Readers that
 # speak for people (the journal, Ask, the timeline) leave out a line with any of these set.
 NOT_SAID = ("playback", "is_playback", "cloned_playback", "synthetic", "is_synthetic", "media")
 MEDIA_SOURCES = ("owner", "classifier")
@@ -34,9 +34,9 @@ def _standing(records: Sequence[knowledge.Record], action: str) -> list[knowledg
 
 @dataclass(frozen=True)
 class Corrections:
-    """The corrections, read and worked out once per change of them. The audio tagger writes one per TV line (#2578),
+    """The corrections, read and worked out once per change of them. The audio tagger writes one per TV line,
     and readers on hot paths (filter_lines for every line read, review_revision polled by every Live page) asked for
-    all of them each time, each a query and a JSON parse per record (the review of #2578)."""
+    all of them each time, each a query and a JSON parse per record."""
 
     stored: tuple[knowledge.StoredRecord, ...] = ()
     rejected: tuple[knowledge.Record, ...] = ()
@@ -56,7 +56,7 @@ class Corrections:
         lo = 0 if start is None else int(max(0.0, start) * _NS)
         hi = 2**63 - 1 if end is None or not math.isfinite(end) else int(end * _NS)
         starts, ends, positions, longest = self._by_start
-        # Only a correction starting within `longest` before lo can reach past it (#3177: a journal pass asks this
+        # Only a correction starting within `longest` before lo can reach past it (a journal pass asks this
         # for every entry, and the audio tagger's corrections number in the thousands).
         first, last = bisect.bisect_left(starts, lo - longest), bisect.bisect_left(starts, hi)
         return max((positions[i] for i in range(first, last) if ends[i] > lo), default=0)
@@ -156,7 +156,7 @@ def review_revision(state: Path, start: float | None = None, end: float | None =
 
 def review_snapshot(state: Path) -> Corrections:
     """The corrections in one read, for a reader asking about many windows (its `revision` and `spans`). Each
-    `review_revision` call reads the knowledge store's generation again, a transaction apiece (#3174)."""
+    `review_revision` call reads the knowledge store's generation again, a transaction apiece."""
     return _index(state)
 
 
@@ -170,7 +170,7 @@ def _active(state: Path) -> list[knowledge.Record]:
 
 
 def _media(state: Path) -> list[knowledge.Record]:
-    """The standing marks of lines as a TV's or radio's (#2468)."""
+    """The standing marks of lines as a TV's or radio's."""
     return list(_index(state).media)
 
 
@@ -197,14 +197,14 @@ def _lines_of(records: Sequence[knowledge.Record]) -> tuple[set[str], set[str]]:
 
 
 def media_subjects(state: Path) -> frozenset[str]:
-    """Utterance subjects currently marked as a TV's or radio's (#2468)."""
+    """Utterance subjects currently marked as a TV's or radio's."""
     return frozenset(f"utterance:{key}" for key in _index(state).media_by_key)
 
 
 def filter_lines(state: Path, items: Iterable[Any]) -> list[Any]:
     """Every ordinary reader's lines: rejected speech hidden, and a line marked as a TV's or radio's kept with `media`
-    set, and `media_by` saying who marked it ("owner" or "classifier") (#2468), so the transcript shows it and readers that speak for people leave it out (NOT_SAID). Raw rows and
-    assistant replies are kept as they are."""
+    set, and `media_by` saying who marked it ("owner" or "classifier"), so the transcript shows it and readers that
+    speak for people leave it out (NOT_SAID). Raw rows and assistant replies are kept as they are."""
     index = _index(state)
     if not index.rejected and not index.media_by_key:
         return list(items)
@@ -275,8 +275,7 @@ def reject_lines(state: Path, entries: Sequence[Mapping[str, Any]]) -> str:
 
 def current_media(state: Path, keys: Sequence[str], source: str = "owner") -> str | None:
     """The standing token of `source`'s mark of exactly these lines while they're all still a TV's, so a request retry
-    is harmless. Another source's mark is not this one: the owner's Undo never takes back the tagger's mark (see
-    #2581)."""
+    is harmless. Another source's mark is not this one: the owner's Undo never takes back the tagger's mark."""
     wanted = set(keys)
     index = _index(state)
     if not wanted <= index.media_by_key.keys():
@@ -292,7 +291,7 @@ def current_media(state: Path, keys: Sequence[str], source: str = "owner") -> st
 
 
 def mark_media(state: Path, entries: Sequence[Mapping[str, Any]], source: str = "owner") -> str:
-    """Record one atomic mark of these lines as heard from a TV or radio (#2468): kept in the transcript, left out of
+    """Record one atomic mark of these lines as heard from a TV or radio: kept in the transcript, left out of
     people, voices, the journal, and Ask. Lines already marked are left as they are. Returns its durable Undo token."""
     from liberational.people import registry
 
@@ -327,8 +326,8 @@ def mark_media(state: Path, entries: Sequence[Mapping[str, Any]], source: str = 
 
 
 def unmark_media(state: Path, keys: Sequence[str]) -> tuple[str | None, list[str]]:
-    """The owner's Not TV (#2468): these lines, and no others, are a TV's no more, whoever marked them. One write, so a
-    double click or a race with an Undo finds nothing left to unmark instead of failing partway (#2578).
+    """The owner's Not TV: these lines, and no others, are a TV's no more, whoever marked them. One write, so a
+    double click or a race with an Undo finds nothing left to unmark instead of failing partway.
     Returns its Undo token and the lines unmarked; (None, []) when none of them is a TV's now."""
     wanted = list(dict.fromkeys(keys))
     with _review_lock:

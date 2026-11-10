@@ -28,7 +28,7 @@ from typing import Any
 from liberational import knowledge
 
 VERSION = 1
-# Sized for a real home's taught state (2026-11-03: the first live export passed 32 MiB of manifest).
+# Sized for a real home's taught state (a live export can pass 32 MiB of manifest).
 MAX_RECORDS = 2_000_000
 MAX_ATTACHMENTS = 4096
 MAX_TOTAL_BYTES = 4 * 1024 * 1024 * 1024

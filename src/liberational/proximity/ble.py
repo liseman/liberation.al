@@ -374,7 +374,7 @@ class Aggregator:
 
 def payload_fingerprint(record: dict[str, Any]) -> str | None:
     """The exact-payload fingerprint the candidate index groups sightings by, or None when the payload is too short,
-    too plain, truncated, malformed, or changed within the window to be one (#1329 links a device by it)."""
+    too plain, truncated, malformed, or changed within the window to be one (devices are linked by it)."""
     payload = CandidateIndex._eligible_payload(record)
     if payload is None:
         return None

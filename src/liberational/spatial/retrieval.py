@@ -7,7 +7,8 @@ whose cosine similarity says how much two views look like the same place. The pi
 memory from CUT3R, MASt3R, or the live services; nothing from MegaLoc's repository runs. Each frame is resized to
 322 x 322 and ImageNet-normalized, as its authors evaluate it.
 
-`proposals` keeps the `PROPOSALS` most similar pairs at least `LOOP_GAP` frames apart (`shortlist`). On IMG_7676 (125
+`proposals` keeps the most similar pairs at least `LOOP_GAP` frames apart (`shortlist`), `PROPOSALS` of them or more
+for a walk past two minutes (`cap_for`). On IMG_7676 (125
 frames at 1 fps) that replaced ORB matching plus pairs at fixed steps of 32 and 64 frames, which proposed 79 pairs:
 MegaLoc's best three of about 4,600 were exactly the three revisits whose near walls ICP fits, its 25 came within two
 frames of 10 of the 12 revisits MASt3R had been sure of, and 14 of the 20 pairs the old proposals never made had more
@@ -30,7 +31,11 @@ LOG = logs.get("walkthrough")
 # A pair is at least LOOP_GAP frames apart (30 s at one a second), so a walk's own neighbours aren't proposed as
 # revisits.
 LOOP_GAP = 30
-PROPOSALS = 25  # pairs over the whole walk at most (MASt3R checks each in a few seconds)
+PROPOSALS = 25  # pairs over a walk of up to two minutes at most (MASt3R checks each in a few seconds)
+# A longer walk gets one more for every PER_FRAMES frames past that (`cap_for`): 25 pairs left a simulated 10 minute
+# walk's last frames with no revisit of their own, and its start and end up to 13 m apart after the solve
+# (tools/walkthrough_closure.py). MASt3R already measures every consecutive step, so this adds a fifth to its pairs.
+PER_FRAMES = 5
 PARTNERS = 2  # proposals per frame at most
 SPREAD = 2  # a proposal within this many frames, at both ends, of a better one adds nothing new
 SIDE = 322  # MegaLoc's input, square
@@ -94,6 +99,12 @@ def shortlist(
     return sorted(taken)
 
 
+def cap_for(frames: int) -> int:
+    """How many revisits a walk of `frames` frames may propose: `PROPOSALS`, or one per `PER_FRAMES` frames when
+    that's more."""
+    return max(PROPOSALS, frames // PER_FRAMES)
+
+
 def proposals(images: Sequence[Path], required: bool = True, model: Path | None = None) -> list[tuple[int, int]]:
     """The possible revisits among a walk's frames (`images`, in walk order) for MASt3R to measure: `shortlist` of their
     MegaLoc `similarity`. A walk too short to hold a pair `LOOP_GAP` apart has none, and loads no model. When MegaLoc
@@ -107,4 +118,4 @@ def proposals(images: Sequence[Path], required: bool = True, model: Path | None 
             raise
         LOG.warning("no revisits proposed: %s", e)
         return []
-    return shortlist(scores, gap=LOOP_GAP)
+    return shortlist(scores, gap=LOOP_GAP, cap=cap_for(len(images)))

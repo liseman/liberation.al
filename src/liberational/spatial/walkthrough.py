@@ -27,7 +27,8 @@ By hand, once per video; no service runs it. Steps:
    twice, shifted and turned.
 3. **Steps and revisits: MASt3R pairs.** Every consecutive pair of frames is measured, to find where CUT3R broke.
    Pairs of frames that may see the same place again are proposed by how alike MegaLoc, a place-recognition model,
-   finds them (spatial/retrieval.py: the 25 most alike, at least 30 frames apart, on the CPU). MASt3R measures
+   finds them (spatial/retrieval.py: the 25 most alike, or one for every 5 frames of a walk past two minutes, at
+   least 30 frames apart, on the CPU). MASt3R measures
    each, both ways (spatial/mast3r_runner.py's pairs mode), and `posegraph.loop_refusal` keeps those whose two
    directions agree and that the drifted walk doesn't flatly contradict. Each pair's translations are put in CUT3R's
    scale by how much deeper CUT3R sees its two frames than the pair does (`pair_scale`); when the two models' depths
@@ -37,7 +38,10 @@ By hand, once per video; no service runs it. Steps:
    CUT3R's own world points) and at one height (one storey). Steps where CUT3R broke (a sure MASt3R measurement of
    the step turns more than `BREAK_DEG` differently) take MASt3R's measurement first (`close_loops`). A revisit whose
    two frames' near points can be fitted onto each other (point-to-plane `icp`, `fit_revisits`) is closed on that fit,
-   tightly, rather than on MASt3R's pose, so its near walls land on each other. Each frame's points within
+   tightly, rather than on MASt3R's pose, so its near walls land on each other. A walk of several minutes drifts
+   farther than any gate should allow, so revisits come in over rounds, each gated against the walk the last round
+   corrected, and a revisit still outside the gate comes in when a neighbouring one agrees with it (`LOOP_ROUNDS`,
+   `SUPPORT_FRAMES`; "Long walks" below). Each frame's points within
    `MAX_DEPTH` move with its corrected pose, and the cloud is thinned to one point per `VOXEL` cube.
 5. **Floorplan.** The floor is level with the corrected cameras, at the lowest well-held slab of the cloud
    (`level_floor`), and the plan comes from spatial/floorplan.py on it.
@@ -51,6 +55,33 @@ By hand, once per video; no service runs it. Steps:
    written to the place before it registers. A walk that registers neither way is stored as its own new place,
    and the run says so: the place it was meant for keeps its revision and its cameras. A video with fewer than
    `MIN_FRAMES` frames that move is refused.
+
+**Long walks.** A plain video has no tracked poses: CUT3R's heading drifts about half a degree a frame, so a walk of
+several minutes ends tens of metres and more than 90 degrees from where it should, and only its revisits pull it
+back. The closure tolerance is `CLOSE_M` and `CLOSE_DEG` (0.75 m and 10 degrees of heading): a walk that returns to
+its start, and walks on a few seconds past it so several frames see it again, ends within that of where its first
+frames put it. tools/walkthrough_closure.py measures it on simulated walks at IMG_7676's drift through this module's
+own closure (20 walks of 2.5 to 10 minutes and 110 to 440 m that cross their own path each lap: the return 7 to 15 m
+and 60 to 150 degrees off before, 0.2 to 0.3 m and 2 to 5 degrees at the median after, 0.6 m and 10 degrees at the
+worst, every frame within 0.6 to 0.8 m root mean square). Before the rounds and the support the same walks kept as
+few as 6 of 25 revisits and ended up to 15 m and 100 degrees open. `pack-walkthrough` prints `closed` and the worst
+revisit left after the solve (`loop_worst_m`, `loop_worst_deg`), with the drift the revisits closed (`loop_drift_m`,
+`loop_drift_deg`), and logs a walk that didn't close. One real recording has a reference: a 2 minute, 46 m LiDAR
+walk's video through CUT3R, against the ARKit poses recorded with it. As CUT3R gave them its 120 frames were 0.88 m
+from ARKit's at the root mean square (5.4 m at the worst, the last 50 frames turned about 180 degrees); closed, 0.35 m
+(1.0 m at the worst), its two nearest revisits (0.3 m apart) within 0.24 m and 2.3 degrees of ARKit's, and the worst
+revisit the solve left 0.48 m and 7.6 degrees off, inside the tolerance. No recording of several minutes was to hand.
+
+What the closure can't do: a walk that sees its start again only at the end closes there (0.2 to 0.3 m), but its
+middle has nothing to hold it, and a simulated 6 minute single loop was still 14 m off at the root mean square. A
+lone revisit past the gate, with no second one near it to agree, stays refused. The first frame keeps the tilt CUT3R
+gave it. And the doubled walls of step 4's note are CUT3R's depth, not its poses: closing the walk doesn't sharpen
+them. So prefer a recording that carries its own tracked poses (a Stray Scanner export: ARKit's visual-inertial
+poses are metric, gravity-aligned, and drift about 1% of the walk, and its LiDAR depth is the cloud) whenever a
+device that makes one is to hand, and always for a walk past about two minutes, a walk that can't cross its own path
+every half minute or so, a place whose map fixed cameras or an owner plan must register against, or a place with
+plain walls and little texture. A plain video is for a short look at a place when only a phone without LiDAR is
+there. docs/WALKTHROUGH.md says how to record either.
 
 Both models run niced, on the GPU with the most free memory (`spatial.gpu`). Models: CUT3R and MASt3R (code and
 weights CC BY-NC-SA 4.0, non-commercial; MASt3R and CUT3R accepted for now), and
@@ -141,6 +172,23 @@ MIN_INLIER_SHARE = 0.3
 # 12 m and 9 to 52 degrees off after 30 to 70 frames). The cap keeps a wrong match between far-apart frames out.
 GATE_PER_M, GATE_PER_FRAME_DEG = 0.35, 0.8
 GATE_MAX_M, GATE_MAX_DEG = 10.0, 60.0
+# A walk of several minutes drifts past that cap (a simulated 6 minute walk at IMG_7676's drift ends 12 to 17 m and 110
+# to 175 degrees off), so the revisits that would close it were refused and it stayed open. Two things let them in
+# without widening the gate (`close_loops` step 3). Rounds: the revisits the gate passes are solved, and the rest are
+# gated again against the corrected walk, at most LOOP_ROUNDS times, so a short loop's correction carries a longer one
+# inside the gate. Support: a sure revisit the gate still refuses is kept when another sure revisit, within
+# SUPPORT_FRAMES of it at both ends, says the same thing through the walk's own steps between them (within SUPPORT_M
+# and SUPPORT_DEG: ten steps' noise). Two wrong matches don't agree like that unless two parts of the place look alike
+# all the way along, and the solve can still drop them.
+LOOP_ROUNDS = 8
+SUPPORT_FRAMES = 10
+SUPPORT_M, SUPPORT_DEG = 1.5, 15.0
+# The closure tolerance: a walk that returns to its start (and walks on for a few seconds, so several frames see it
+# again) ends within this of where its first frames say it is, in position and in heading about up.
+# tools/walkthrough_closure.py measures it on simulated walks of 2 to 10 minutes at IMG_7676's drift (the module
+# docstring has the numbers). A run whose worst kept revisit is left farther off than this after the solve is logged:
+# the graph couldn't agree with its own loops, and the map shouldn't be trusted.
+CLOSE_M, CLOSE_DEG = 0.75, 10.0
 # Revisits fitted on the frames' own near points. MASt3R's pose for a revisit is satisfied by the solve, but on
 # IMG_7676 its sure revisits mostly tied views of distant walls, where CUT3R's depth smears, so the near walls a
 # floorplan needs stayed apart (3% of one frame's points within 5 cm of the other's after the solve). Point-to-plane
@@ -399,7 +447,9 @@ class Closure:
     frame of CUT3R's depth over MASt3R's; None when the two disagree too much for MASt3R to be used, `why_no_scale`
     says why), whether the gravity prior pulled, and the solution. `loop_deg` and `loop_m` are each final loop edge's
     residual, and `fitted` the revisits whose near points ICP fitted (`fit_revisits`), each with its fit, whether the
-    solve then kept it or not."""
+    solve then kept it or not. `drift_m` and `drift_deg` are how far each final loop edge was from the walk before any
+    correction (the drift it closed), `loop_pairs` those edges' frames (the four lists run alongside it), and `supported` how many
+    revisits came in by another's support, not the gate."""
 
     poses: np.ndarray
     repaired: list[int]
@@ -414,6 +464,10 @@ class Closure:
     loop_deg: list[float] = field(default_factory=list)
     loop_m: list[float] = field(default_factory=list)
     fitted: dict[tuple[int, int], float] = field(default_factory=dict)
+    loop_pairs: list[tuple[int, int]] = field(default_factory=list)
+    drift_m: list[float] = field(default_factory=list)
+    drift_deg: list[float] = field(default_factory=list)
+    supported: int = 0
 
 
 def _pose(m: Mapping[str, Any], key: str) -> np.ndarray:
@@ -538,7 +592,9 @@ def close_loops(
        CUT3R's (`step_deg`, `step_m`: `STEP_DEG`, `STEP_M` by default). `up` is the world's up for the priors (by
        default the cameras' mean -y).
     3. **Loops.** `posegraph.loop_refusal` against the walk as repaired or as CUT3R gave it, the gate growing with the
-       walk between the two frames up to `GATE_MAX_M` and `GATE_MAX_DEG`; then `posegraph.solve`.
+       walk between the two frames up to `GATE_MAX_M` and `GATE_MAX_DEG`; then `posegraph.solve`. The revisits the
+       gate refused are gated again against the solved walk, and solved again, up to `LOOP_ROUNDS` times; when a
+       round lets none in, those that support each other come in (`backed`).
     4. **Near walls.** With `clouds`, every revisit MASt3R measured surely (gate or no gate) is fitted by `icp` on the
        two frames' near points, from MASt3R's pose and from the first solve's (`fit_revisits`); a fit of at least
        `ICP_FIT` becomes its loop edge (`ICP_DEG`, `ICP_M`), in place of MASt3R's measurement when that was kept.
@@ -604,9 +660,11 @@ def close_loops(
     walks = [chain(c2w[0], [next((x for x in extra if x.i == e.i), e) for e in steps]), np.asarray(c2w, np.float64)]
     start = walks[0]
     walked = np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(start[:, :3, 3], axis=0), axis=1))]
+    first = len(steps) + len(extra)  # edges: the steps, the repairs, then the loops
     edges = [*steps, *extra]
-    kept: list[tuple[int, int]] = []
     refused: Counter[str] = Counter()
+    pending: list[posegraph.Edge] = []  # sure revisits not yet in the graph, with what MASt3R matched them on
+    checks: dict[tuple[int, int], tuple[np.ndarray, np.ndarray, int, float]] = {}
     for i, j in loops:
         if (i, j) not in by_pair:
             continue
@@ -615,21 +673,40 @@ def close_loops(
             refused[_kind(got)] += 1
             continue
         m, this = got
-        fwd, back = _pose(m, "forward"), _pose(m, "backward")
-        gate_m = min(GATE_MAX_M, max(posegraph.LOOP_GATE_M, GATE_PER_M * float(walked[j] - walked[i])))
-        gate_deg = min(GATE_MAX_DEG, max(posegraph.LOOP_GATE_DEG, GATE_PER_FRAME_DEG * (j - i)))
-        reasons = [
-            posegraph.loop_refusal(fwd, back, int(m["matches"]), posegraph.relative(w[i], w[j]), this, gate_m, gate_deg)
-            for w in walks
-        ]
-        if None in reasons:
-            edges.append(posegraph.loop_edge(fwd, i, j, this))
-            kept.append((i, j))
-        else:
-            refused[_kind(str(reasons[0]))] += 1
-    first = len(steps) + len(extra)  # edges: the steps, the repairs, then the loops
+        fwd = _pose(m, "forward")
+        checks[i, j] = (fwd, _pose(m, "backward"), int(m["matches"]), this)
+        pending.append(posegraph.loop_edge(fwd, i, j, this))
+
+    def gated(e: posegraph.Edge, walk: np.ndarray) -> str | None:
+        """Why the revisit isn't a loop of `walk` (`posegraph.loop_refusal`, the gate grown with the walk between)."""
+        fwd, back, matches, this = checks[e.i, e.j]
+        gate_m = min(GATE_MAX_M, max(posegraph.LOOP_GATE_M, GATE_PER_M * float(walked[e.j] - walked[e.i])))
+        gate_deg = min(GATE_MAX_DEG, max(posegraph.LOOP_GATE_DEG, GATE_PER_FRAME_DEG * (e.j - e.i)))
+        return posegraph.loop_refusal(
+            fwd, back, matches, posegraph.relative(walk[e.i], walk[e.j]), this, gate_m, gate_deg
+        )
+
     g = None if up is None else np.asarray(up, dtype=np.float64)
-    trial = posegraph.solve(start, edges, up=g, gravity=gravity)
+    trial: posegraph.Solution | None = None
+    supported = 0
+    for _ in range(LOOP_ROUNDS):
+        passed = [e for e in pending if any(gated(e, w) is None for w in walks)]
+        if not passed:
+            passed = backed(pending, checks, start)
+            supported += len(passed)
+        if not passed and trial is not None:
+            break
+        edges += passed
+        taken = {(e.i, e.j) for e in passed}
+        pending = [e for e in pending if (e.i, e.j) not in taken]
+        trial = posegraph.solve(start, edges, up=g, gravity=gravity)
+        walks = [trial.poses, start, np.asarray(c2w, np.float64)]
+        if not pending:
+            break
+    assert trial is not None
+    for e in pending:
+        refused[_kind(gated(e, start) or "not reached in the closing rounds")] += 1
+    kept = [(e.i, e.j) for e in edges[first:]]
     reverted = sorted(edges[k].i for k in trial.dropped if len(steps) <= k < first)
     dropped = [(edges[k].i, edges[k].j) for k in trial.dropped if k >= first]
     kept = [p for p in kept if p not in dropped]
@@ -651,6 +728,7 @@ def close_loops(
     loop_edges += [posegraph.Edge(i, j, pose, ICP_DEG, ICP_M, loop=True) for (i, j), (pose, _) in fitted.items()]
     solution = posegraph.solve(chain(c2w[0], final), [*final, *loop_edges], up=g, gravity=gravity)
     loop_k = range(len(final), len(final) + len(loop_edges))
+    drift = [posegraph.relative(e.measured, posegraph.relative(c2w[e.i], c2w[e.j])) for e in loop_edges]
     return Closure(
         poses=solution.poses,
         repaired=repaired,
@@ -665,7 +743,38 @@ def close_loops(
         loop_deg=[round(float(solution.edge_deg[k]), 2) for k in loop_k],
         loop_m=[round(float(solution.edge_m[k]), 3) for k in loop_k],
         fitted={p: round(fit, 3) for p, (_, fit) in fitted.items()},
+        loop_pairs=[(e.i, e.j) for e in loop_edges],
+        drift_m=[round(float(np.linalg.norm(d[:3, 3])), 2) for d in drift],
+        drift_deg=[round(posegraph.angle_deg(d[:3, :3]), 1) for d in drift],
+        supported=supported,
     )
+
+
+def backed(
+    pending: Sequence[posegraph.Edge],
+    checks: Mapping[tuple[int, int], tuple[np.ndarray, np.ndarray, int, float]],
+    walk: np.ndarray,
+) -> list[posegraph.Edge]:
+    """The revisits of `pending` that another of them supports: each passes every check of `posegraph.loop_refusal`
+    but the drift gate (`checks`: its two directions, matches, and scale), and some other one that does, within
+    `SUPPORT_FRAMES` of it at both ends, gives the same relative pose once carried over `walk`'s own steps between
+    their frames, within `SUPPORT_M` and `SUPPORT_DEG`."""
+    free = [
+        e
+        for e in pending
+        if posegraph.loop_refusal(*checks[e.i, e.j][:3], e.measured, checks[e.i, e.j][3], math.inf, math.inf) is None
+    ]
+    out = []
+    for e in free:
+        for o in free:
+            if o is e or abs(o.i - e.i) > SUPPORT_FRAMES or abs(o.j - e.j) > SUPPORT_FRAMES:
+                continue
+            carried = posegraph.relative(walk[e.i], walk[o.i]) @ o.measured @ posegraph.relative(walk[o.j], walk[e.j])
+            off = posegraph.relative(e.measured, carried)
+            if float(np.linalg.norm(off[:3, 3])) <= SUPPORT_M and posegraph.angle_deg(off[:3, :3]) <= SUPPORT_DEG:
+                out.append(e)
+                break
+    return out
 
 
 def fit_revisits(
@@ -1067,6 +1176,18 @@ def finish(
             )
     map_bytes = len(places.read_map(state, rev) or b"")
     before, after = spread(walk.c2w, g), spread(closed.poses, g)
+    live = [k for k, e in enumerate(closed.loop_pairs) if e in closed.loops]  # not the ones the solve dropped
+    worst_m = max((closed.loop_m[k] for k in live), default=None)
+    worst_deg = max((closed.loop_deg[k] for k in live), default=None)
+    if worst_m is not None and worst_deg is not None and (worst_m > CLOSE_M or worst_deg > CLOSE_DEG):
+        LOG.warning(
+            "the walk didn't close: a revisit is still %.2f m and %.1f degrees off after the solve (tolerance %.1f m "
+            "and %.0f degrees)",
+            worst_m,
+            worst_deg,
+            CLOSE_M,
+            CLOSE_DEG,
+        )
     return {
         "place": rev.place,
         "revision": rev.id,
@@ -1076,6 +1197,12 @@ def finish(
         "loops_kept": len(closed.loops),
         "loops_dropped": len(closed.dropped),
         "loops_fitted": len(closed.fitted),
+        "loops_supported": closed.supported,
+        "loop_drift_m": max(closed.drift_m, default=None),
+        "loop_drift_deg": max(closed.drift_deg, default=None),
+        "loop_worst_m": worst_m,
+        "loop_worst_deg": worst_deg,
+        "closed": None if worst_m is None or worst_deg is None else worst_m <= CLOSE_M and worst_deg <= CLOSE_DEG,
         "refused": closed.refused,
         "scale": None if closed.scale is None else round(closed.scale, 3),
         "loop_residual_deg": statistics.median(closed.loop_deg) if closed.loop_deg else None,
