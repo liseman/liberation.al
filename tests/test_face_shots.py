@@ -157,7 +157,7 @@ def test_saved_sees_an_external_write_to_a_settled_hour(tmp_path, monkeypatch):
 
 
 def test_a_read_after_one_new_crop_among_100000_lists_only_that_hour(tmp_path, monkeypatch):
-    # Every crop in one folder was listed whole after each new crop: 8.9 s a groups read (#51).
+    # Every crop in one folder was listed whole after each new crop: 8.9 s a groups read.
     start = NOW - 30 * 86400
     ids = [sid_at(start + k * 26, k) for k in range(100_000)]  # 30 days at about 140 crops an hour
     names: dict[str, list[str]] = {}

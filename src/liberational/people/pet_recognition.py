@@ -1,4 +1,4 @@
-"""Telling pets of one species apart by appearance (#1332), from the animal embeddings in the segment store: see-actions'
+"""Telling pets of one species apart by appearance, from the animal embeddings in the segment store: see-actions'
 `animal.embedding` rows (see/action_animals.py) and see-captions' `animal.grounding_embedding` rows
 (see/caption_animals.py), `segment_log.ANIMAL_EMBEDDING_STREAMS`.
 
@@ -9,7 +9,7 @@ sightings at once; they never say who an animal is.
 
 The owner **labels** sightings, a whole group at a time, on People's Pets section: as one of the named pets
 (people/pets.py), as "another animal" (a visiting cat, say), or clears a label. Each label is a `pet.sighting` record in the
-knowledge store (outside the broker's reset; #1755), keyed by the track it was judged from. The newest label of a
+knowledge store (outside the broker's reset), keyed by the track it was judged from. The newest label of a
 track wins. Labeling a sighting as a pet or "another animal" also writes its mean embedding there as a `pet.reference`
 record (`reference`), so the label keeps its example when a reset empties the segment store. Labels made before that
 was written get theirs from their saved photos (tools/restore_pet_references.py).
@@ -21,41 +21,41 @@ store still keeps.
 
 **Recognition** names an unlabeled sighting by its nearest labeled sighting's class (a pet, or "another animal"):
 the best class must reach `MATCH_SIM` and beat the next class by `MARGIN`, else it stays unknown. It must also beat
-every labeled sighting of the other species by `MARGIN` (#3062): the detector sometimes boxes the dog as a cat, and
+every labeled sighting of the other species by `MARGIN`: the detector sometimes boxes the dog as a cat, and
 such a box is more like the dog's labels than a cat's, so it stays unknown rather than take a cat's name. It is
 **off** for a species until the labels pass a **held-out check**: each labeled sighting is recognized from the others, leaving out
 every labeled sighting within `HOLD_OUT_S` of it (the same visit, re-tracked, would make the check too easy). It is on
 when there are at least `MIN_LABELED` labeled sightings of at least two classes (two pets, or a pet and another
 animal: with one class nothing could be got wrong), at most 1 in 10 decided ones are wrong, and at least half are
 decided. Until then a sighting's best match is shown as a suggestion only, and nothing answers for a pet by
-appearance. The single-named-pet assumption (#1339) is separate and unchanged.
+appearance. The single-named-pet assumption is separate and unchanged.
 
 A species with **exactly one** named pet (Bess, the only dog) can't pass that check: there is no second class to get
-wrong. Its labeled sightings are a **gallery** instead (#1995): an unlabeled sighting is that pet when its nearest
+wrong. Its labeled sightings are a **gallery** instead: an unlabeled sighting is that pet when its nearest
 labeled sighting is at least the gallery's own threshold, the `GALLERY_PERCENTILE`th percentile of how alike each
 labeled sighting is to its nearest labeled one from another visit (held out by `HOLD_OUT_S`), and never below
 `MIN_GALLERY_SIM`. It is on with `MIN_LABELED` labeled sightings, at least half of them with another visit to compare
 with. A sighting labeled "another animal" still has to be beaten by `MARGIN`.
 
-The owner can also say a sighting is **not** a pet (#2364): By pet's unchecked tiles, or a card's Not <name>…. Each is
+The owner can also say a sighting is **not** a pet: By pet's unchecked tiles, or a card's Not <name>…. Each is
 a `pet.not` record keyed by its track and pet, the newest of a pair winning. Recognition then never names or suggests
 that pet for that sighting (`recognize`'s `exclude`), and saying it of a sighting labeled as that pet clears the label.
 
-The thresholds were first guesses (#1435), then set from the owner's labels (#3018). The held-out check, not the
+The thresholds were first guesses, then set from the owner's labels. The held-out check, not the
 thresholds, is what decides whether recognition is used.
 
-**Reading the embeddings** (#2896): every recorded animal embedding is kept in this process an hour at a time
+**Reading the embeddings**: every recorded animal embedding is kept in this process an hour at a time
 (`embedding_rows`). Each read stats the store's files (milliseconds), and reads again only the hours whose files
 changed, which is a new hour or a row written late into an old one, and starts over when the deletions log moves.
 Re-reading everything took about half a second per label, under the evidence lock, so quick labels queued behind
-each other. The kept rows cost about 7 MB of vectors (4,590 embeddings of 384 float32s on 2026-11-08).
+each other. The kept rows cost about 7 MB of vectors (4,590 embeddings of 384 float32s).
 
-**One embedding space** (#3042): every reader (listing, labeling, photos, Review's boxes) takes only rows in the
-current space (`embedding_model`: the configured model and its crop), as references are. A row of another space (the
-square crop before #3024) doesn't compare with the rest, so it's no sighting, and a label can only keep an example of
+**One embedding space**: every reader (listing, labeling, photos, Review's boxes) takes only rows in the
+current space (`embedding_model`: the configured model and its crop), as references are. A row of another space (an
+earlier square crop) doesn't compare with the rest, so it's no sighting, and a label can only keep an example of
 the current space.
 
-**Review's pet boxes** (#2175) name a track by appearance through `resolve`, which never scans history. Its reference
+**Review's pet boxes** name a track by appearance through `resolve`, which never scans history. Its reference
 gallery is built from the owner's labels alone: each label records its sighting's camera, so the labeled tracks'
 embeddings are taken from the kept rows by track and camera, plus the imported `pet.reference` records. A label
 without a camera and start can't be found that way and isn't a reference. The gallery and its checks are cached per
@@ -83,15 +83,15 @@ import numpy as np
 from liberational import config, knowledge, locking, segment_log
 from liberational.people.pets import offered
 
-# Both measured on 2026-11-08 (#3018, #3024) against the owner's labeled photos cut tight to their box: 863 of two
+# Measured on the Linux machine against labeled photos cut tight to their box: 863 of two
 # cats and 773 of a dog. A labeled cat's nearest same-pet sighting from another visit was a median 0.74 alike. At
 # MATCH_SIM 0.70 (with MARGIN 0.05) the cats' held-out check had 574 right, 3 wrong, and 286 unknown; square crops at
 # 0.75 had 513, 5, and 403 of 921. At GROUP_SIM 0.75, 1,636 sightings made 557 groups, 1 sighting in a group led by
 # the other cat (square crops at 0.80: 810 groups, 2).
-# MATCH_SIM is 0.05 under what those photos supported (#3062): references are embedded from the 192 px saved photos,
+# MATCH_SIM is 0.05 under what those photos supported: references are embedded from the 192 px saved photos,
 # live sightings from full frames, and one track's photo was a median 0.85 alike to its own live sightings (cats; the
-# dog 0.88), so live sightings score lower against the references than the references do against each other. Live
-# on 2026-11-08, 0.70 named 17 of 36 cat sightings and held back 8 clear ones of Mae at 0.59 to 0.69; at 0.65 the
+# dog 0.88), so live sightings score lower against the references than the references do against each other. In live
+# sightings, 0.70 named 17 of 36 cat sightings and held back 8 clear ones at 0.59 to 0.69; at 0.65 the
 # cats' held-out check had 700 right, 5 wrong, and 157 unknown of 862.
 GROUP_SIM = 0.75  # a sighting joins a group whose centroid is at least this similar
 MATCH_SIM = 0.65  # recognition's nearest labeled sighting must be at least this similar
@@ -103,12 +103,12 @@ MIN_DECIDED = 0.5  # the least share of held-out answers that must be decided
 GALLERY_PERCENTILE = 10  # a one-pet species' threshold: this percentile of its labeled sightings' held-out similarity
 MIN_GALLERY_SIM = 0.7  # and never below this, since with one pet nothing measures how alike other animals look
 OTHER = "other"  # the label for an animal that is none of the named pets
-IGNORED = "ignored"  # put aside by the owner (#2035): off the list, and never an example for recognition
+IGNORED = "ignored"  # put aside by the owner: off the list, and never an example for recognition
 ANIMAL = "animal"  # a sighting the detector gave a species no pet here is (a "bear" that's the dog): any household one
 SEEN_MAX = 12  # a named pet's newest sightings the dashboard shows
 EVIDENCE_LOCK = Path("continuum/pet-evidence")
 LABELS = "pet.sighting"  # owner labels, in the knowledge store
-NOTS = "pet.not"  # the owner's "this sighting is not that pet" (#2364), in the knowledge store
+NOTS = "pet.not"  # the owner's "this sighting is not that pet", in the knowledge store
 REFERENCES = "pet.reference"  # labeled tracks' embeddings from before the reset
 GALLERY_TTL_S = 300.0  # the longest a cached reference gallery is used before it's read again
 
@@ -127,7 +127,7 @@ class Sighting:
 
     @functools.cached_property
     def mean(self) -> np.ndarray:
-        """The unit mean of its vectors, worked out once: /pets/sightings compares it about 70k times (#2312), and
+        """The unit mean of its vectors, worked out once: /pets/sightings compares it about 70k times, and
         vectors are only added while sightings() builds it, before anything reads this."""
         v = np.mean(self.vectors, axis=0)
         return v / max(float(np.linalg.norm(v)), 1e-9)
@@ -162,7 +162,7 @@ def groups(found: Sequence[Sighting]) -> list[list[Sighting]]:
 
     Each sighting joins the group of its species whose centroid it's most like (the latest of equals), if that's at
     least GROUP_SIM, else starts one. It's compared with all of them in one product with their unit centroids, kept up
-    to date as groups grow: one at a time, 1,000 groups made it about 480,000 norms and dots, 5 s of a request (#2883)."""
+    to date as groups grow: one at a time, 1,000 groups made it about 480,000 norms and dots, 5 s of a request."""
     created: list[list[Sighting]] = []  # every group, in the order it was made
     by_species: dict[str, _Centroids] = {}
     for s in found:
@@ -219,7 +219,7 @@ def recognize(
     """The class of the nearest labeled sighting of the query's species: (label, similarity, None) when it is clear
     (at least `min_sim`, and beating any other class, and every labeled sighting of another species, by `MARGIN`),
     else (None, best similarity, the nearest label as a suggestion). (None, None, None) with nothing to compare. The
-    classes in `exclude` (the pets the owner said it isn't, #2364) are left out, so the next class is the answer.
+    classes in `exclude` (the pets the owner said it isn't) are left out, so the next class is the answer.
     Asking about many sightings, pass `References` built once instead of the labeled list."""
     refs = labeled if isinstance(labeled, References) else References(labeled)
     found = refs.of(query.species)
@@ -299,7 +299,7 @@ _BLOCK = 1024  # rows of the similarity matrix worked out at a time, so a long r
 def _held_out_rows(mine: Sequence[Sighting]) -> Iterable[tuple[int, np.ndarray, np.ndarray]]:
     """Each sighting's index, its similarity to every one of `mine`, and which of them are from another visit (more
     than HOLD_OUT_S apart, which also leaves out itself): the pairs the held-out checks compare, as one matrix product
-    instead of a dot product a pair in Python (/pets/sightings took 1.8 s of CPU for 935 labeled sightings, #2418)."""
+    instead of a dot product a pair in Python (/pets/sightings took 1.8 s of CPU for 935 labeled sightings)."""
     means = _means(mine)
     starts = np.array([s.start for s in mine])
     for first in range(0, len(mine), _BLOCK):
@@ -416,7 +416,7 @@ def labels(state: Any) -> dict[str, dict[str, Any]]:
 
 
 def nots(state: Any) -> dict[str, set[str]]:
-    """Every track's pets the owner said it isn't (#2364), by track id."""
+    """Every track's pets the owner said it isn't, by track id."""
     return latest_nots({**r.value, "ts_start": r.start_ns / 1e9} for r in _query(state, NOTS))
 
 
@@ -543,8 +543,8 @@ def _teach(
 ) -> tuple[dict[str, str], dict[str, Mapping[str, Any]], set[str], list[tuple[Sighting, str]], dict[str, str | None]]:
     """What the owner's labels teach about these sightings: (pet names by id, the tracks labeled as a pet or "another
     animal", the ignored tracks, the labeled sightings with their class, and each species' one named pet or None).
-    Corrects each sighting's species in place: a label's species is the owner's correction of the detector's (#2019),
-    and a species no pet here is becomes any household animal (#2035)."""
+    Corrects each sighting's species in place: a label's species is the owner's correction of the detector's,
+    and a species no pet here is becomes any household animal."""
     household = set(offered(pets))
     for s in found:
         corrected = active.get(s.track_id, {}).get("species")
@@ -572,8 +572,8 @@ def _judge(
     exclude: Iterable[str] = (),
 ) -> dict[str, Any]:
     """{"recognized": ...} when recognition is on for the sighting's species and names it, {"suggestion": ...} for a
-    match it isn't trusted with yet (`clear`: true, #2291) or an unclear nearest one (`clear`: false), else {}. Never
-    a pet in `exclude` (#2364)."""
+    match it isn't trusted with yet (`clear`: true) or an unclear nearest one (`clear`: false), else {}. Never
+    a pet in `exclude`."""
     threshold = check.get("threshold")
     match, sim, suggestion = recognize(s, labeled, MATCH_SIM if threshold is None else threshold, exclude)
     if match is not None and check["on"]:
@@ -586,7 +586,7 @@ def _judge(
 
 
 def _guess(row: Mapping[str, Any], names: Mapping[str, str]) -> dict[str, Any] | None:
-    """A sighting's guess in the shape every naming list shares (#2366, as faces' and voices'): {id (the label to send
+    """A sighting's guess in the shape every naming list shares (as faces' and voices'): {id (the label to send
     back), name, score (0 to 100), band ("probable" for recognition's match or a clear suggestion, "maybe" for an
     unclear one), close (None: recognition gives no runner-up)}, or None."""
     found = row.get("recognized") or row.get("suggestion")
@@ -604,7 +604,7 @@ def _guess(row: Mapping[str, Any], names: Mapping[str, str]) -> dict[str, Any] |
 
 
 def group_guess(rows: Sequence[Mapping[str, Any]], names: Mapping[str, str]) -> dict[str, Any] | None:
-    """A group's guess (#2366), in the sightings' shape: the label its probable sightings name most (the first named on
+    """A group's guess, in the sightings' shape: the label its probable sightings name most (the first named on
     a tie), else the one its maybe sightings name most; its score is the mean of those sightings' scores. What Pets'
     inbox worked out for itself before (PetInbox's guessOf)."""
     for band in ("probable", "maybe"):
@@ -623,7 +623,7 @@ def group_guess(rows: Sequence[Mapping[str, Any]], names: Mapping[str, str]) -> 
 def view(state: Any, pets: Sequence[Mapping[str, Any]], now: float | None = None) -> dict[str, Any]:
     """Pets' sightings for the dashboard: the sightings still waiting for a label, in groups, each with what recognition
     says (a match when it is on for the species, else a suggestion), and each species' held-out check. A labeled
-    sighting leaves the groups (#2016) and serves as recognition's reference."""
+    sighting leaves the groups and serves as recognition's reference."""
     now = time.time() if now is None else now
     active, denied = labels(state), nots(state)
     found = _recorded(state, now, active)
@@ -647,7 +647,7 @@ def view(state: Any, pets: Sequence[Mapping[str, Any]], now: float | None = None
         row["not"] = sorted(denied.get(s.track_id, ()))
         return row
 
-    # Each named pet's newest sightings, labeled or recognized, for its card and its row's "last seen" (#2019).
+    # Each named pet's newest sightings, labeled or recognized, for its card and its row's "last seen".
     seen: dict[str, list[dict[str, Any]]] = {pid: [] for pid in names}
     for s in found:
         row = item(s)
@@ -669,14 +669,14 @@ def view(state: Any, pets: Sequence[Mapping[str, Any]], now: float | None = None
                 "species": members[0].species,
                 "sightings": rows,
                 "guess": group_guess(rows, names),
-                # The pets every sighting in it was said not to be: a group's own "not", as a face group's (#2366).
+                # The pets every sighting in it was said not to be: a group's own "not", as a face group's.
                 "not": sorted(set.intersection(*(set(r["not"]) for r in rows))) if rows else [],
             }
         )
     return {
         "seen": seen,
         "groups": listed,
-        "count": len(listed),  # the groups waiting, as /faces/unknown/groups counts (#2331's quick drop, #2366)
+        "count": len(listed),  # the groups waiting, as /faces/unknown/groups counts
         "recognition": [c for sp, c in checks.items() if sp != ANIMAL],
         "names": names,
         "label_days": label_days(),
@@ -687,7 +687,7 @@ def label(
     state: Any, track_ids: Sequence[str], value: str | None, pets: Sequence[Mapping[str, Any]], now: float | None = None
 ) -> int:
     """Label these sightings as a named pet's id, OTHER, or None (clear). Returns how many were labeled. A pet must
-    exist; one of another species corrects the sighting's species (the detector called a dog a cat, #2019), which the
+    exist; one of another species corrects the sighting's species (the detector called a dog a cat), which the
     label keeps. Expired unlabeled detail can't be labeled."""
     now = time.time() if now is None else now
     if not isinstance(track_ids, list) or not track_ids or len(track_ids) > 500:
@@ -695,8 +695,8 @@ def label(
     species_of = {str(p["id"]): str(p["species"]) for p in pets}
     if value is not None and value not in (OTHER, IGNORED) and value not in species_of:
         raise LookupError("pet not found")
-    # Read before the lock: it only finds the sightings' cameras and spans, and other labels shouldn't queue behind it
-    # (#2896). The lock keeps one label's write whole against another's.
+    # Read before the lock: it only finds the sightings' cameras and spans, and other labels shouldn't queue behind it.
+    # The lock keeps one label's write whole against another's.
     found = {s.track_id: s for s in _recorded(state, now, labels(state), set(track_ids))}
     missing = [t for t in track_ids if t not in found]
     if missing:
@@ -726,7 +726,7 @@ def label(
 
 
 def embedding_model() -> str:
-    """The embedding space references are in: the configured model and its crop (`animal_embedder.space`, #3024)."""
+    """The embedding space references are in: the configured model and its crop (`animal_embedder.space`)."""
     from liberational.vision import animal_embedder
 
     return animal_embedder.space()
@@ -734,13 +734,13 @@ def embedding_model() -> str:
 
 def _current_references(state: Any) -> list[dict[str, Any]]:
     """The `pet.reference` records in the current embedding space, as rows. One of another space (another model, or
-    the square crop before #3024) doesn't compare, so it's no example, and its label is stranded until restored."""
+    an earlier square crop) doesn't compare, so it's no example, and its label is stranded until restored."""
     space = embedding_model()
     return [r.value for r in _query(state, REFERENCES) if r.value.get("model") == space]
 
 
 def reference(vector: np.ndarray, owner_label: Mapping[str, Any], at: int) -> knowledge.Record:
-    """A labeled sighting's `pet.reference` (#3018): its unit embedding with the owner's label, keyed by its track, in
+    """A labeled sighting's `pet.reference`: its unit embedding with the owner's label, keyed by its track, in
     the shape `sightings` reads as one more embedding row (and `pack-knowledge` validates), so the label keeps its
     example after a reset empties the segment store. `at` is the label's time in nanoseconds."""
     unit = np.asarray(vector, dtype=np.float32)
@@ -797,14 +797,14 @@ def mark_not(
     active: bool = True,
     now: float | None = None,
 ) -> int:
-    """Say these sightings are not `pet` (a named pet's id), or take that back with `active` False (#2364). A sighting
+    """Say these sightings are not `pet` (a named pet's id), or take that back with `active` False. A sighting
     labeled as that pet loses the label in the same write. Returns how many were marked."""
     now = time.time() if now is None else now
     if not isinstance(track_ids, list) or not track_ids or len(track_ids) > 500:
         raise ValueError("send 1 to 500 sighting ids")
     if not isinstance(pet, str) or pet not in {str(p["id"]) for p in pets}:
         raise LookupError("pet not found")
-    found = {s.track_id: s for s in _recorded(state, now, labels(state), set(track_ids))}  # before the lock (#2896)
+    found = {s.track_id: s for s in _recorded(state, now, labels(state), set(track_ids))}  # before the lock
     missing = [t for t in track_ids if t not in found]
     if missing:
         raise LookupError(f"{len(missing)} sightings are no longer recorded")
@@ -843,7 +843,7 @@ class _Gallery:
     household: set[str]
     labeled: list[tuple[Sighting, str]]
     checks: dict[str, dict[str, Any]]
-    denied: dict[str, set[str]] = field(default_factory=dict)  # each track's pets the owner said it isn't (#2364)
+    denied: dict[str, set[str]] = field(default_factory=dict)  # each track's pets the owner said it isn't
 
     @functools.cached_property
     def references(self) -> References:

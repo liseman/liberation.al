@@ -1,4 +1,4 @@
-"""Face thumbnails: one small square JPEG per face sighting, in `state/shots/`, served as /faces/shot/<id>.jpg (#2018).
+"""Face thumbnails: one small square JPEG per face sighting, in `state/shots/`, served as /faces/shot/<id>.jpg.
 
 see-actions writes a sighting's crop when it writes its `face.match` row, from the frame it already has, so People's
 grids read files instead of decoding video. The dashboard cuts the crop from recorded video only for a sighting
@@ -9,7 +9,7 @@ the current revision as is; after a forget moves the revision, it checks each cr
 serving it, so a crop of a deleted sighting is never served. The cache follows the video's retention (`KEEP_DAYS`)
 and a byte cap, whichever is reached first.
 
-Crops are filed in a folder per UTC hour, taken from the UUIDv7 time in the crop's ID (#51): see-actions only adds to
+Crops are filed in a folder per UTC hour, taken from the UUIDv7 time in the crop's ID: see-actions only adds to
 the newest hours, so a reader lists an hour's folder once and again only after it changes, and pruning drops whole
 hours. Nothing lists every crop.
 """
@@ -39,8 +39,8 @@ PX = 160
 GRID_PX = 80  # forty-CSS-pixel naming tiles and 36px avatars, including high-density displays
 # Derived crops can be regenerated; salt pixel-geometry changes without replacing chosen identity photos.
 VERSION = "source-geometry-2"
-KEEP_DAYS = 30  # recorded video is kept 30 days (Joe, 2026-11-03): a crop of a sighting past it has no video either
-CAP_BYTES = 1536 * 1024 * 1024  # about 7 KB a crop: 30 days of 2026-11-03's 4,800 sightings a day, with room
+KEEP_DAYS = 30  # recorded video is kept 30 days: a crop of a sighting past it has no video either
+CAP_BYTES = 1536 * 1024 * 1024  # about 7 KB a crop: 30 days at 4,800 sightings a day, with room
 QUALITY = 82
 
 
@@ -139,7 +139,7 @@ def _forget(directory: Path) -> None:
 
 class Saved(collections.abc.Set[str]):
     """The saved crops of one kind and revision, read lazily: asking about an ID reads only its hour's folder, at most
-    once for this view and again only when that folder has changed since it was last listed (#51). Directory-indexed:
+    once for this view and again only when that folder has changed since it was last listed. Directory-indexed:
     own writes invalidate their folder, and external writes are seen within one second; callers also verify each
     returned current-revision file."""
 
@@ -197,7 +197,7 @@ class Pending:
     deletion revision. None means decode-slot contention; CropRetry means a transient frame/RPC failure, retried
     with exponential backoff from one to sixty seconds. Admission is capped per kind, and the kinds take turns, so a
     flood of one kind (thousands of face crops to cut after their cache was cleared) can't keep another kind's few
-    jobs (a pet's photo, a video's thumbnail) out of the queue or waiting behind it (#2579). The failure memo
+    jobs (a pet's photo, a video's thumbnail) out of the queue or waiting behind it. The failure memo
     lasts for the current revision so an unresolvable history cannot continually refill the queue.
     No queue or failure state is durable; a dashboard restart rechecks requested crops.
     """
@@ -366,8 +366,9 @@ def promote(previous: Path, current: Path) -> bool:
 
 def in_frame(box: Any) -> list[float] | None:
     """A face box (xyxy shares of the frame) clipped to the frame, or None when nothing of it is inside. A face at the
-    frame's edge has a box past it (the detector's box around a half-seen head): 1,524 of 2026-11-03's 7,468 face
-    rows did, and every crop of them was refused as out of range, so their shots 404ed."""
+    frame's edge has a box past it (the detector's box around a half-seen head): 1,524 of 7,468 face
+    rows in one day on the Linux machine did, and every crop of them was refused as out of range, so their shots
+    404ed."""
     x1, y1, x2, y2 = (min(1.0, max(0.0, float(v))) for v in box[:4])
     return [x1, y1, x2, y2] if x2 > x1 and y2 > y1 else None
 
@@ -493,7 +494,7 @@ class Writer:
     """see-actions' side: each sighting's square patch saved as its crop under the current deletion revision, and the
     cache pruned now and then, off the frame loop."""
 
-    PRUNE_EVERY = 500  # crops written between prunes: about 10 minutes at 2026-11-03's rate
+    PRUNE_EVERY = 500  # crops written between prunes: about 10 minutes at 4,800 sightings a day
 
     def __init__(self, state: Path) -> None:
         from liberational import segment_log
@@ -541,7 +542,7 @@ def cut(state: Path, row: Any) -> bytes | None:
 
 
 def backfill(state: Path, days: float = KEEP_DAYS, per_second: float = 8.0, now: float | None = None) -> dict[str, int]:
-    """Crops for the retained sightings that have none (#2018): a camera at a time, oldest first, so neighbouring frames
+    """Crops for the retained sightings that have none: a camera at a time, oldest first, so neighbouring frames
     share a decoded stretch of video, at most `per_second` cuts a second. Counts of what it did."""
     from continuum_py import segment_revision
 
@@ -573,7 +574,7 @@ def backfill(state: Path, days: float = KEEP_DAYS, per_second: float = 8.0, now:
 
 def main() -> None:
     """`python -m liberational.people.face_shots backfill [--days N] [--per-second N]`: crops for the retained
-    sightings that have none, once (#2018). Run it niced; it reads recorded video at the given rate."""
+    sightings that have none, once. Run it niced; it reads recorded video at the given rate."""
     import argparse
 
     from liberational import config as cfg

@@ -1,5 +1,5 @@
 """The "Who's this?" rows for unnamed voices ("Speaker N"), in the same shape as the face rows (vision/face_guess.py):
-a best guess at whose voice it is, its score and band, and why the guess is as sure as it is (issue #347).
+a best guess at whose voice it is, its score and band, and why the guess is as sure as it is.
 
 The guess compares the voice's centroid (the average of its stored ReDimNet2 embeddings) with every named person's
 voices, and takes each person's closest. The score is the lower of likeness and lead, as for faces. LOW and HIGH
@@ -118,7 +118,7 @@ def rows(
         mine = [c for c in clips if c["id"] == v["id"]]
         guess = best_guess(v.get("centroid"), names, prints)
         if guess is not None:
-            guess = {**guess, "id": guess["name"]}  # the name to send back, as faces' and pets' guesses (#2366)
+            guess = {**guess, "id": guess["name"]}  # the name to send back, as faces' and pets' guesses
         count = int(v.get("n") or 0)
         dur = statistics.median(float(c["dur"]) for c in mine) if mine else None
         heard = (sims or {}).get(v["id"]) or []
@@ -129,7 +129,7 @@ def rows(
                 "label": str(v["label"]),
                 "count": count,
                 "last_seen": v.get("last_seen"),
-                # each clip by its line's key (#247): two microphones can start lines in the same millisecond
+                # each clip by its line's key: two microphones can start lines in the same millisecond
                 "clips": [
                     {k: c[k] for k in ("ts", "line", "text", "dur")} | {"url": f"/clip?line={quote(c['line'])}"}
                     for c in mine
