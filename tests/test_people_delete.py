@@ -19,7 +19,6 @@ from liberational.dashboard import (
     live_status,
     people_list,
     people_writes,
-    server,
     speaker_lines,
 )
 from liberational.domain.identity import Basis
@@ -103,9 +102,6 @@ def world(tmp_path, monkeypatch):
     rollup = journal_entry(state, [entry], 1980, 2160, level=180)
     kept = journal_entry(state, [alices], 2010, 2040)
     faces = FakeFaces()
-    files = {}
-    for name, path in files.items():
-        monkeypatch.setattr(server, name, state / path)
     monkeypatch.setattr(speaker_lines, "VOICE_TAGS", state / "voice_tags.jsonl")
     monkeypatch.setattr(people_list, "PEOPLE_ADDED", state / "people_added.json")
     monkeypatch.setattr(people_list, "CONTACTS_FILE", state / "contacts.json")
@@ -317,7 +313,7 @@ def test_owner_and_remote_requests_are_refused(world):
     assert named_voices(world.state) == {1: "Alice", 3: "Dana Cole", 4: "Dana Cole"}
 
 
-def test_concurrent_reference_attach_cannot_survive_deletion(world, serve, monkeypatch):
+def test_concurrent_reference_attach_cannot_survive_deletion(world, serve_dashboard, monkeypatch):
     import concurrent.futures
     import threading
 
@@ -343,8 +339,7 @@ def test_concurrent_reference_attach_cannot_survive_deletion(world, serve, monke
         return result
 
     monkeypatch.setattr(references, "attach", paused_attach)
-    monkeypatch.setattr(server, "DASH_PASSWORD", "")
-    url = serve(server.H)
+    url = serve_dashboard()
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
         saving = pool.submit(
             http_requests.post,

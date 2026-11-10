@@ -2,7 +2,6 @@
 
 import http.client
 import json
-from pathlib import Path
 from urllib.parse import urlsplit
 
 import numpy as np
@@ -10,21 +9,16 @@ import pytest
 
 from liberational import config as cfg
 from liberational.assistant import voice
-from liberational.dashboard import context, server
 from liberational.memory import timeline
 from liberational.speech import clone_say
 
 
 @pytest.fixture
-def empty_api(tmp_path, monkeypatch, serve):
+def empty_api(tmp_path, monkeypatch, move_dashboard_state, serve_dashboard):
     state = tmp_path / "state"
-    old_state = context.STATE
-    for name, value in vars(server).copy().items():
-        if isinstance(value, Path) and value.is_relative_to(old_state):
-            monkeypatch.setattr(server, name, state / value.relative_to(old_state))
+    move_dashboard_state(state)
     monkeypatch.setattr(clone_say, "STATE", state)
     monkeypatch.setattr(clone_say, "OUT", state / "clones")
-    monkeypatch.setattr(server, "DASH_PASSWORD", "")
     # A stand-in for Kokoro's downloaded voices file (an .npz of one array per voice), so /config/voices never opens
     # the real one under data/models.
     kokoro_voices = tmp_path / "voices.npz"
@@ -35,7 +29,7 @@ def empty_api(tmp_path, monkeypatch, serve):
         "models": {"files": {"tts_kokoro_voices": {"path": str(kokoro_voices)}}},
     }
     with cfg.override(overrides):
-        port = urlsplit(serve(server.H)).port
+        port = urlsplit(serve_dashboard()).port
 
         def get(path):
             # Generous, so a loaded machine can't fail a request that is only slow; a hang still ends the test.

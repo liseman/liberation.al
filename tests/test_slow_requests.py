@@ -100,8 +100,7 @@ class Warnings:
         return lambda *a, **k: None
 
 
-def test_the_server_registers_a_request_while_it_runs(serve, monkeypatch):
-    monkeypatch.setattr(server, "DASH_PASSWORD", "")
+def test_the_server_registers_a_request_while_it_runs(serve_dashboard, monkeypatch):
     # The watch is process-wide: a fresh one keeps another test's request still winding down out of this count
     monkeypatch.setattr(slow, "WATCH", slow.Watch())
     inside, go = threading.Event(), threading.Event()
@@ -112,7 +111,7 @@ def test_the_server_registers_a_request_while_it_runs(serve, monkeypatch):
         self._json({"ok": True})
 
     monkeypatch.setattr(server.H, "do_GET", slow_get)
-    port = urlsplit(serve(server.H)).port
+    port = urlsplit(serve_dashboard()).port
     with socket.create_connection(("127.0.0.1", port), timeout=5) as s:
         s.sendall(b"GET /people/Alice?q=1 HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n")
         assert inside.wait(5)
@@ -125,11 +124,11 @@ def test_the_server_registers_a_request_while_it_runs(serve, monkeypatch):
     assert slow.WATCH.inflight == {}
 
 
-def test_an_early_connection_closed_unused_is_not_a_client_giving_up(serve, monkeypatch):
+def test_an_early_connection_closed_unused_is_not_a_client_giving_up(serve_dashboard, monkeypatch):
     log = Warnings()
     monkeypatch.setattr(server, "LOG", log)
     monkeypatch.setattr(server, "SLOW_REQUEST_S", 0.2)
-    port = urlsplit(serve(server.H)).port
+    port = urlsplit(serve_dashboard()).port
     s = socket.create_connection(("127.0.0.1", port), timeout=5)
     time.sleep(0.4)
     s.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, b"\x01\x00\x00\x00\x00\x00\x00\x00")  # reset, as a browser does
@@ -138,12 +137,11 @@ def test_an_early_connection_closed_unused_is_not_a_client_giving_up(serve, monk
     assert [line for line in log.errors if "gave up" in line] == []
 
 
-def test_a_request_counts_from_its_request_line_not_from_the_open_connection(serve, monkeypatch):
+def test_a_request_counts_from_its_request_line_not_from_the_open_connection(serve_dashboard, monkeypatch):
     log = Warnings()
     monkeypatch.setattr(server, "LOG", log)
     monkeypatch.setattr(server, "SLOW_REQUEST_S", 0.3)
-    monkeypatch.setattr(server, "DASH_PASSWORD", "")
-    port = urlsplit(serve(server.H)).port
+    port = urlsplit(serve_dashboard()).port
     with socket.create_connection(("127.0.0.1", port), timeout=5) as s:
         time.sleep(0.6)  # a browser's early connection, idle before it sends
         s.sendall(b"GET /health HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n")
@@ -162,19 +160,18 @@ def test_a_playing_video_is_long_on_purpose_once_its_headers_are_out():
     assert not h._long_on_purpose()
 
 
-def test_a_client_that_gave_up_on_a_slow_json_reply_is_still_named(serve, monkeypatch):
+def test_a_client_that_gave_up_on_a_slow_json_reply_is_still_named(serve_dashboard, monkeypatch):
     """_send takes a client leaving quietly, while a slow request it left is still logged as slow."""
     log = Warnings()
     monkeypatch.setattr(server, "LOG", log)
     monkeypatch.setattr(server, "SLOW_REQUEST_S", 0.2)
-    monkeypatch.setattr(server, "DASH_PASSWORD", "")
 
     def slow_get(self):
         time.sleep(0.5)
         self._json({"ok": True})
 
     monkeypatch.setattr(server.H, "do_GET", slow_get)
-    port = urlsplit(serve(server.H)).port
+    port = urlsplit(serve_dashboard()).port
     s = socket.create_connection(("127.0.0.1", port), timeout=5)
     s.sendall(b"GET /people HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n")
     time.sleep(0.1)

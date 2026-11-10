@@ -26,10 +26,9 @@ from liberational.dashboard import (
     people_list,
     photo_files,
     roster_read,
-    server,
 )
 from liberational.memory import clip_labels
-from liberational.people import face_shots, registry, video_thumbs
+from liberational.people import face_shots, registry, transcript_view, video_thumbs
 from liberational.vision import face_quality as fq
 from liberational.vision import sightings as st
 from vision_fake import FakeVisionLog
@@ -175,8 +174,6 @@ def card_state(tmp_path, monkeypatch, vision):
     cam1."""
     tmp = tmp_path
     (tmp / "speakers.json").write_text(json.dumps({"speakers": []}))
-    for name, path in {}.items():
-        monkeypatch.setattr(server, name, tmp / path)
     monkeypatch.setattr(people_list, "PEOPLE_ADDED", tmp / "people_added.json")
     monkeypatch.setattr(people_list, "CONTACTS_FILE", tmp / "contacts.json")
     monkeypatch.setattr(call_log, "CALLS_DIR", tmp / "calls")
@@ -432,13 +429,13 @@ def test_card_reads_retained_speech_once_and_reuses_it_between_requests(card_sta
 
 def test_card_names_the_retained_tail_once_without_losing_voice_samples(card_state, monkeypatch):
     batches = []
-    original = server.transcript_view.View.named
+    original = transcript_view.View.named
 
     def named(view, items):
         batches.append(list(items))
         return original(view, batches[-1])
 
-    monkeypatch.setattr(server.transcript_view.View, "named", named)
+    monkeypatch.setattr(transcript_view.View, "named", named)
     roster_read.people_view(wait_s=None)  # the list a person is opened from; its first read creates the registry,
     roster_read.people_view(wait_s=None)  # which moves the list's key once in a new state
     batches.clear()
@@ -561,7 +558,7 @@ def test_the_people_list_reads_ahead_only_cards_it_has_none_of_however_old_the_r
     cards = people_cards._CARD_READS
     assert cards.get("Alice") is not None
     reads = _counted_card(monkeypatch)
-    monkeypatch.setattr(server.time, "time", lambda: 1e12)  # every cached card is now very old
+    monkeypatch.setattr(time, "time", lambda: 1e12)  # every cached card is now very old
     cards.warm(["Alice", "Bob"])
     _settle(cards)
     assert reads == ["Bob"]  # Alice's open reads hers again behind it, marked refreshing
@@ -581,8 +578,8 @@ def test_a_card_read_that_began_before_an_edit_is_never_kept(card_state, monkeyp
     assert cards.last == {}
 
 
-def test_the_people_list_reads_cards_ahead_so_the_first_open_is_cached(card_state, monkeypatch, serve):
-    base = serve(server.H)
+def test_the_people_list_reads_cards_ahead_so_the_first_open_is_cached(card_state, monkeypatch, serve_dashboard):
+    base = serve_dashboard()
     c = http.client.HTTPConnection(base.removeprefix("http://"))
     c.request("GET", "/people", headers={"Accept": "application/json"})
     assert c.getresponse().status == 200
@@ -593,10 +590,12 @@ def test_the_people_list_reads_cards_ahead_so_the_first_open_is_cached(card_stat
     assert reads == []
 
 
-def test_a_photo_hidden_from_the_card_is_gone_from_the_next_open(card_state, monkeypatch, serve):
+def test_a_photo_hidden_from_the_card_is_gone_from_the_next_open(
+    dashboard_server, card_state, monkeypatch, serve_dashboard
+):
     monkeypatch.setattr(people_cards, "_card_key", lambda: ("unchanged",))  # only the POST's clear can show the change
-    monkeypatch.setattr(server.H, "_authed", lambda self: True)
-    base = serve(server.H)
+    monkeypatch.setattr(dashboard_server.H, "_authed", lambda self: True)
+    base = serve_dashboard()
 
     def request(method, path, body=None):
         c = http.client.HTTPConnection(base.removeprefix("http://"))

@@ -190,14 +190,11 @@ def test_the_sampler_samples_with_no_poll_survives_a_failed_sample_and_stops():
     assert len(h.view()["samples"]) >= 2
 
 
-def test_the_track_route_is_gone(serve, monkeypatch):
+def test_the_track_route_is_gone(serve_dashboard, monkeypatch):
     import http.client
     import urllib.parse
 
-    from liberational.dashboard import server
-
-    monkeypatch.setattr(server, "DASH_PASSWORD", "")
-    host = urllib.parse.urlsplit(serve(server.H)).netloc
+    host = urllib.parse.urlsplit(serve_dashboard()).netloc
     c = http.client.HTTPConnection(host, timeout=5)
     c.request("POST", "/stats/history/track", "{}", {"Content-Type": "application/json"})
     status = c.getresponse().status

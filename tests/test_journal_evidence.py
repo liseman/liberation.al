@@ -289,17 +289,16 @@ def test_each_clip_is_one_read_of_its_video(cited, tmp_path, vision):
     assert vision.clips == len(moments)
 
 
-def test_a_promoted_clip_is_served_in_byte_ranges(tmp_path, monkeypatch, serve):
+def test_a_promoted_clip_is_served_in_byte_ranges(tmp_path, monkeypatch, serve_dashboard):
     import http.client
     from urllib.parse import urlsplit
 
-    from liberational.dashboard import context, server
+    from liberational.dashboard import context
 
     monkeypatch.setattr(context, "STATE", tmp_path)
-    monkeypatch.setattr(server, "DASH_PASSWORD", "")
     E.folder(tmp_path, DAY).mkdir(parents=True)
     (E.folder(tmp_path, DAY) / "den-1.mp4").write_bytes(bytes(range(100)))
-    port = urlsplit(serve(server.H)).port
+    port = urlsplit(serve_dashboard()).port
     conn = http.client.HTTPConnection("127.0.0.1", port, timeout=120)
     conn.request("GET", f"/journal/evidence/{DAY}/den-1.mp4", headers={"Range": "bytes=10-19"})
     reply = conn.getresponse()

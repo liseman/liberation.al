@@ -24,6 +24,7 @@ import traceback
 from collections.abc import Callable, Iterable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from types import ModuleType
 from typing import Any, NoReturn
 
 import pytest
@@ -402,6 +403,49 @@ def serve() -> Iterator[Callable[[type[http.server.BaseHTTPRequestHandler]], str
     for srv in servers:
         srv.shutdown()
         srv.server_close()
+
+
+@pytest.fixture
+def dashboard_server() -> ModuleType:
+    """The dashboard's server module, for a test of one area that needs the request handler itself (to change who it
+    takes the viewer for, or to set a password): asked for by name, so the test file doesn't import the server and a
+    change to the server doesn't select it (#119)."""
+    from liberational.dashboard import server
+
+    return server
+
+
+@pytest.fixture
+def serve_dashboard(
+    serve: Callable[[type[http.server.BaseHTTPRequestHandler]], str], monkeypatch: pytest.MonkeyPatch
+) -> Callable[[], str]:
+    """Start the dashboard on a free local port and return its base URL, so a test of one area's routes names that
+    area's module, not the server (#119). It has no password from the start of the test; a test that wants one sets
+    it before or after starting."""
+    from liberational.dashboard import server
+
+    monkeypatch.setattr(server, "DASH_PASSWORD", "")
+    return lambda: serve(server.H)
+
+
+@pytest.fixture
+def move_dashboard_state(monkeypatch: pytest.MonkeyPatch) -> Callable[[Path], None]:
+    """Point the dashboard at another state directory: `context.STATE`, and every path a loaded dashboard module
+    keeps under the old one (the Inbox's skips, the voice tags, the clones folder)."""
+
+    def move(state: Path) -> None:
+        from liberational.dashboard import context
+
+        old = context.STATE
+        for name, module in list(sys.modules.items()):
+            if not name.startswith("liberational.dashboard."):
+                continue
+            for attr, value in list(vars(module).items()):
+                if isinstance(value, Path) and value != old and value.is_relative_to(old):
+                    monkeypatch.setattr(module, attr, state / value.relative_to(old))
+        monkeypatch.setattr(context, "STATE", state)
+
+    return move
 
 
 # ---- A real Continuum broker, for the ported readers' tests (speech_log, vision_log)

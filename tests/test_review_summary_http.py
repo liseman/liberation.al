@@ -3,21 +3,21 @@
 import datetime as dt
 import http.client
 import json
+import time
 import urllib.parse
 from unittest.mock import create_autospec
 from zoneinfo import ZoneInfo
 
 import pytest
 
-from liberational.dashboard import context, review_reads, server
+from liberational.dashboard import context, review_reads
 from liberational.memory import history_qa, recall, review_summary
 
 
 @pytest.fixture
-def request_(serve, monkeypatch, tmp_path):
+def request_(serve_dashboard, monkeypatch, tmp_path):
     monkeypatch.setattr(context, "STATE", tmp_path)
-    monkeypatch.setattr(server, "DASH_PASSWORD", "")
-    netloc = urllib.parse.urlsplit(serve(server.H)).netloc
+    netloc = urllib.parse.urlsplit(serve_dashboard()).netloc
 
     def send(method, path, body=None):
         conn = http.client.HTTPConnection(netloc, timeout=5)
@@ -175,7 +175,7 @@ def test_day_summary_rejects_invalid_or_noncanonical_day_without_reading(request
 def test_an_ended_stretchs_summary_is_kept_longest_once_ready(request_, monkeypatch, status, kept_s):
     """A day's summary read the journal off the broker every request (2 to 5 s); today's is always partial."""
     clock = {"now": 1_800_000_000.0}
-    monkeypatch.setattr(server.time, "time", lambda: clock["now"])
+    monkeypatch.setattr(time, "time", lambda: clock["now"])
     monkeypatch.setattr(review_reads, "_summaries", {})
     answer = {"start": 0, "end": 1, "level": 1, "status": status, "blocks": []}
     summary = create_autospec(review_summary.summary, return_value=answer)

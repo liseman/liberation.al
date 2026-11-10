@@ -1,6 +1,6 @@
 """The "Lines to check" list in People: a page of uncertain lines plus how many there are in all."""
 
-from liberational.dashboard import context, inbox_state, server, speaker_lines
+from liberational.dashboard import context, inbox_state, speaker_lines
 from liberational.people import voice_edits
 from speech_fake import fake
 from voices import write_voices
@@ -16,8 +16,6 @@ def test_counts_every_uncertain_line_but_sends_one_page(tmp_path, monkeypatch):
     lines = [_line(i, 1, 0.5) for i in range(5)]  # uncertain Sam lines
     lines += [_line(900, 1, 0.9), _line(901, 2, 0.4)]  # a confident one, and one from a voice that isn't enrolled
     fake().write(lines)
-    for name, value in {}.items():
-        monkeypatch.setattr(server, name, value)
     monkeypatch.setattr(speaker_lines, "REFINE_PAGE", 3)
     monkeypatch.setattr(inbox_state, "INBOX_SKIPS", tmp_path / "inbox_skips.json")
     monkeypatch.setattr(context, "STATE", tmp_path)

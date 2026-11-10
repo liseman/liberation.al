@@ -239,6 +239,7 @@ from liberational.dashboard import (
     assets,
     context,
     devreload,
+    feed_labels,
     inbox_state,
     live_status,
     machine_stats,
@@ -257,7 +258,6 @@ from liberational.dashboard import (
 )
 from liberational.dashboard.context import LOG, SSE_CLIENTS, SSE_LOCK, log
 from liberational.people import (
-    face_shots,
     registry,
     transcript_view,
 )
@@ -266,6 +266,7 @@ from liberational.vision import views
 # Every module that registers routes (dashboard/routes.py), named once so the table is whole however the server
 # is imported; this module registers its own few at its end.
 routes.load(
+    "liberational.dashboard.feed_labels",
     "liberational.dashboard.people_cards",
     "liberational.dashboard.roster_read",
     "liberational.dashboard.people_corrections",
@@ -344,54 +345,6 @@ def jdump(o: Any) -> bytes:
 
 
 # ---- the live feed's transcript: which lines a label changed ----
-LIVE_LINES = 300  # as many lines as the Live tab keeps (MAX_LINES in frontend/src/dashboard/live/reduce.ts)
-LABEL_FIELDS = ("speaker", "speaker_id", "speaker_sim", "tagged", "unlabeled", "multi_speaker")  # what a label changes
-
-
-def label_marks(lines: list[dict]) -> dict[str, tuple]:
-    """How each heard line reads, by its key (registry.key_of: two microphones' lines in one millisecond are
-    two lines): the fields a label changes."""
-    return {
-        registry.key_of(e): tuple(e.get(f) for f in LABEL_FIELDS)
-        for e in lines
-        if not e.get("assistant") and isinstance(e.get("ts_start"), int | float)
-    }
-
-
-def relabeled_tail(seen: dict[str, tuple], n: int = LIVE_LINES) -> tuple[list[dict], dict[str, tuple]]:
-    """The last n heard lines a client was sent (`seen`, from label_marks) that read differently now, as readers see
-    them, and how all n read now. A label is an event in the log; the line itself never changes."""
-    lines = transcript_lines._view().lines(transcript_lines.heard_tail(n))
-    now = label_marks(lines)
-    changed = [
-        e
-        for e in lines  # copies too: the client replaces only lines it has, and may show a copy from another batch
-        if isinstance(e.get("ts_start"), int | float) and (k := registry.key_of(e)) in seen and seen[k] != now.get(k)
-    ]
-    return changed, now
-
-
-SHOT_PX = face_shots.PX
-
-
-def _warm_devices() -> None:
-    """Read Known › Devices' device list once at start, at low priority, so its day of settled hours is tallied
-    (proximity/devices.py) before anyone opens the tab: the first read after a start is about 30 s, later ones about
-    a second."""
-    context.low_priority(19)
-    try:
-        from liberational.dashboard import device_links
-
-        device_links.listing("", state=context.STATE)
-    except Exception as error:  # the tab reads it itself, and says so if it can't
-        log("devices: warm-up failed:", repr(error), level=logs.WARN)
-
-
-def _shot_path(sid: str) -> pathlib.Path:
-    """Where sighting sid's crop is under the current deletion revision."""
-    return face_shots.path(context.STATE, sid, photo_files._shot_revision())
-
-
 AUTONAME_EVERY_S = 60.0  # how often clear face matches are named without a tag
 
 
@@ -1138,7 +1091,9 @@ class H(http.server.BaseHTTPRequestHandler):
             from liberational.listen import revisions
 
             review_mark = revisions.review_revision(context.STATE)
-            _, seen = relabeled_tail({})  # before the tail, so a label given in between is sent again, not missed
+            _, seen = feed_labels.relabeled_tail(
+                {}
+            )  # before the tail, so a label given in between is sent again, not missed
             # The speech log's position before the tail: a line committed in between is sent twice rather than missed.
             speech = speech_log.shared()
             streams = (speech_log.UTTERANCES, speech_log.REPLIES)
@@ -1170,7 +1125,7 @@ class H(http.server.BaseHTTPRequestHandler):
                     purge_at = time.monotonic()
                     if (now_purge := speech.newest_purge(purge)) != purge:
                         purge = now_purge
-                        _, seen = relabeled_tail({})
+                        _, seen = feed_labels.relabeled_tail({})
                         seq = speech.mark(streams)[0]
                         ev("transcript", {"entries": transcript_lines.merged_tail(80), "reset": True})
                         voices_due = True
@@ -1179,7 +1134,7 @@ class H(http.server.BaseHTTPRequestHandler):
                 if heard_now:
                     voices_due = True
                     heard_now = transcript_lines._view().lines(heard_now)
-                    seen.update(label_marks(heard_now))
+                    seen.update(feed_labels.label_marks(heard_now))
                     heard_now = transcript_view.once(heard_now)  # another mic's copy in the same batch shows once
                     ev("transcript", {"entries": heard_now, "reset": False})
                 if replies := [e for e in new if e.get("assistant")]:  # the assistant's replies, in the same feed
@@ -1190,10 +1145,13 @@ class H(http.server.BaseHTTPRequestHandler):
                     mark = m
                     if (review_now := revisions.review_revision(context.STATE)) != review_mark:
                         review_mark = review_now
-                        _, seen = relabeled_tail({})
-                        ev("transcript", {"entries": transcript_lines.merged_tail(LIVE_LINES), "reset": True})
+                        _, seen = feed_labels.relabeled_tail({})
+                        ev(
+                            "transcript",
+                            {"entries": transcript_lines.merged_tail(feed_labels.LIVE_LINES), "reset": True},
+                        )
                     else:
-                        changed, seen = relabeled_tail(seen)
+                        changed, seen = feed_labels.relabeled_tail(seen)
                         if changed:
                             ev("transcript", {"entries": changed, "reset": False, "replace": True})
                     if (now_voices := speaker_lines.speakers_public()) != voices:  # a voice's name lives in the log
@@ -1275,6 +1233,19 @@ def _post_objects(h: H) -> None:
 
 
 WARM_FIRST_MAX_S = 90.0  # the later warm-ups wait at most this long for it
+
+
+def _warm_devices() -> None:
+    """Read Known › Devices' device list once at start, at low priority, so its day of settled hours is tallied
+    (proximity/devices.py) before anyone opens the tab: the first read after a start is about 30 s, later ones about
+    a second."""
+    context.low_priority(19)
+    try:
+        from liberational.dashboard import device_links
+
+        device_links.listing("", state=context.STATE)
+    except Exception as error:  # the tab reads it itself, and says so if it can't
+        log("devices: warm-up failed:", repr(error), level=logs.WARN)
 
 
 def _after_people_warm(name: str, start: Callable[[], Any]) -> threading.Thread:

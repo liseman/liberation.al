@@ -21,7 +21,6 @@ from liberational.dashboard import (
     people_corrections,
     people_list,
     people_writes,
-    server,
 )
 from liberational.people import identity, registry, tags
 from speech_fake import fake
@@ -304,8 +303,6 @@ def test_a_spoken_tag_gives_the_person_attributes_only_with_the_flag_on(tmp_path
 @pytest.fixture
 def dash(tmp_path, monkeypatch):
     """The dashboard's people reads and writes on a temp state dir."""
-    for name, path in ():
-        monkeypatch.setattr(server, name, path)
     monkeypatch.setattr(people_list, "PEOPLE_ADDED", tmp_path / "people_added.json")
     monkeypatch.setattr(people_list, "CONTACTS_FILE", tmp_path / "contacts.json")
     monkeypatch.setattr(context, "STATE", tmp_path)
@@ -352,10 +349,9 @@ def test_describing_a_person_sets_and_clears_role_and_organization(dash):
     ("host", "code", "role"),
     [pytest.param("127.0.0.1", 200, "CTO", id="this-machine"), pytest.param("pack.example", 403, None, id="remote")],
 )
-def test_the_describe_route_writes_only_for_this_machine(dash, serve, monkeypatch, host, code, role):
-    monkeypatch.setattr(server, "DASH_PASSWORD", "")
+def test_the_describe_route_writes_only_for_this_machine(dash, serve_dashboard, monkeypatch, host, code, role):
     people_corrections.add_person("Dana")
-    c = http.client.HTTPConnection("127.0.0.1", urllib.parse.urlsplit(serve(server.H)).port, timeout=5)
+    c = http.client.HTTPConnection("127.0.0.1", urllib.parse.urlsplit(serve_dashboard()).port, timeout=5)
     body = json.dumps({"name": "Dana", "role": "CTO"})
     c.request("POST", "/people/describe", body, {"Content-Type": "application/json", "Host": host})
     r = c.getresponse()

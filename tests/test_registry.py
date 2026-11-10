@@ -19,7 +19,7 @@ import pytest
 
 from liberational import config as cfg
 from liberational import knowledge
-from liberational.dashboard import context, known_voices, server
+from liberational.dashboard import known_voices
 from liberational.domain import kernel
 from liberational.domain.eventlog import Selector
 from liberational.domain.identity import Basis, Decision, IdentityAssertion, SubjectKind, SubjectRef, decide
@@ -708,14 +708,10 @@ def test_an_identity_record_names_the_face_group_by_its_kind(tmp_path, reg, face
 
 # ---- the dashboard's writes, through its HTTP handler ----
 @pytest.fixture
-def dash(tmp_path, monkeypatch, serve, face_dbs):
+def dash(tmp_path, monkeypatch, move_dashboard_state, serve_dashboard, face_dbs):
     """The dashboard on tmp_path: every path it keeps under its state directory, and the face store, move there.
     Voice 1 is Alice's, and she said two lines. Returns post(path, body) -> (status, reply)."""
-    old = context.STATE
-    for name, value in list(vars(server).items()):
-        if isinstance(value, pathlib.Path) and value.is_relative_to(old):
-            monkeypatch.setattr(server, name, tmp_path / value.relative_to(old))
-    monkeypatch.setattr(context, "STATE", tmp_path)
+    move_dashboard_state(tmp_path)
     lines = [
         {"ts_start": 1000.0, "text": "one", "speaker": "Alice", "speaker_id": 1, "speaker_sim": 0.4},
         {"ts_start": 1001.0, "text": "two", "speaker": "Alice", "speaker_id": 1, "speaker_sim": 0.5},
@@ -723,7 +719,7 @@ def dash(tmp_path, monkeypatch, serve, face_dbs):
     (tmp_path / "transcript.jsonl").write_text("".join(json.dumps(e) + "\n" for e in lines))
     fake().write(lines)  # and on the speech log, for the dashboard
     write_voices(tmp_path, {1: "Alice"})
-    base = serve(server.H)
+    base = serve_dashboard()
 
     def post(path, body):
         req = urllib.request.Request(base + path, json.dumps(body).encode(), {"Content-Type": "application/json"})

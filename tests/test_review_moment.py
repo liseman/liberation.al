@@ -33,9 +33,8 @@ def test_window_is_bounded_and_nothing_in_it_is_empty(notes):
     assert live_status.history_at(NOW - 200, 20)["cams"] == {}
 
 
-def test_history_is_for_this_machine_only(serve, monkeypatch):
-    monkeypatch.setattr(server, "DASH_PASSWORD", "")
-    base = serve(server.H)
+def test_history_is_for_this_machine_only(serve_dashboard, monkeypatch):
+    base = serve_dashboard()
 
     def status(path, **headers):
         conn = http.client.HTTPConnection(urllib.parse.urlsplit(base).netloc, timeout=5)
@@ -49,10 +48,10 @@ def test_history_is_for_this_machine_only(serve, monkeypatch):
     assert status("/history/at?ts=x") == 400
 
 
-def test_remote_history_needs_the_setting_and_a_password(serve, monkeypatch):
+def test_remote_history_needs_the_setting_and_a_password(serve_dashboard, monkeypatch):
     import base64
 
-    base = serve(server.H)
+    base = serve_dashboard()
     auth = {"Authorization": "Basic " + base64.b64encode(b"luca:pw").decode(), "X-Forwarded-For": "100.64.0.9"}
 
     def status(**headers):

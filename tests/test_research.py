@@ -480,12 +480,10 @@ def test_a_job_that_raises_is_a_failed_report_and_the_worker_carries_on(tmp_path
 
 
 @pytest.fixture
-def http_(serve, monkeypatch, tmp_path):
-    from liberational.dashboard import server
+def http_(serve_dashboard, monkeypatch, tmp_path):
 
-    monkeypatch.setattr(server, "DASH_PASSWORD", "")
     monkeypatch.setattr(research, "root", lambda state=None: tmp_path / "research")
-    netloc = urllib.parse.urlsplit(serve(server.H)).netloc
+    netloc = urllib.parse.urlsplit(serve_dashboard()).netloc
 
     def send(method, path, body=None, origin=None):
         conn = http.client.HTTPConnection(netloc, timeout=5)

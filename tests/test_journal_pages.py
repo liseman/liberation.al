@@ -472,12 +472,11 @@ def test_a_failed_build_is_tried_again_only_after_a_while(env, inline):
     assert len(env.calls) == 2
 
 
-def test_the_journal_today_route_answers_json_and_refuses_a_bad_day(env, inline, serve, monkeypatch):
-    from liberational.dashboard import context, server
+def test_the_journal_today_route_answers_json_and_refuses_a_bad_day(env, inline, serve_dashboard, monkeypatch):
+    from liberational.dashboard import context
 
     monkeypatch.setattr(context, "STATE", env.state)
-    monkeypatch.setattr(server, "DASH_PASSWORD", "")
-    base = serve(server.H)
+    base = serve_dashboard()
     with urllib.request.urlopen(f"{base}/journal/today") as r:
         assert (r.status, json.loads(r.read())["status"]) == (200, "empty")  # nothing written yet today
     with pytest.raises(urllib.error.HTTPError) as bad:

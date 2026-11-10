@@ -11,7 +11,7 @@ import pytest
 
 import speech_fake
 from liberational import config as cfg
-from liberational.dashboard import marks, server
+from liberational.dashboard import marks
 from liberational.memory import history_qa
 from voices import write_voices
 
@@ -113,9 +113,8 @@ def test_marks_are_made_on_this_machine_only(folder):
     assert not (folder / marks.FILE).exists()
 
 
-def test_the_route_saves_a_mark_from_a_same_origin_page(folder, serve, monkeypatch):
-    monkeypatch.setattr(server, "DASH_PASSWORD", "")
-    host = serve(server.H).removeprefix("http://")
+def test_the_route_saves_a_mark_from_a_same_origin_page(folder, serve_dashboard, monkeypatch):
+    host = serve_dashboard().removeprefix("http://")
 
     def post(body, origin):
         c = http.client.HTTPConnection(host, timeout=5)

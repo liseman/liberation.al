@@ -339,13 +339,13 @@ def test_named_lines_start_with_who_and_never_say_i(text, ok):
     assert (plain_text.check_named(json.dumps({"text": text}))[0] is not None) == ok
 
 
-def test_the_route_answers_and_refuses_a_bad_since(state, rewrites, monkeypatch, serve):
-    from liberational.dashboard import context, server
+def test_the_route_answers_and_refuses_a_bad_since(state, rewrites, monkeypatch, serve_dashboard):
+    from liberational.dashboard import context
 
     monkeypatch.setattr(context, "STATE", state)
     _, rw = rewrites({})
     monkeypatch.setitem(happening._talk_lines, str(state), rw)  # never the model
-    base = urllib.parse.urlsplit(serve(server.H))
+    base = urllib.parse.urlsplit(serve_dashboard())
 
     def get(query):
         c = http.client.HTTPConnection("127.0.0.1", base.port, timeout=10)

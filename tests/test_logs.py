@@ -224,14 +224,13 @@ def test_another_media_write_failure_is_not_swallowed(captured):
     assert lines(captured) == []
 
 
-def test_a_failing_route_is_one_error_line_naming_it(captured, serve, monkeypatch, capsys):
-    monkeypatch.setattr(server, "DASH_PASSWORD", "")
+def test_a_failing_route_is_one_error_line_naming_it(captured, serve_dashboard, monkeypatch, capsys):
 
     def broken(*a: Any) -> dict:
         raise ValueError("boom")
 
     monkeypatch.setattr(live_status, "camera_status", broken)
-    url = serve(server.H).removeprefix("http://")
+    url = serve_dashboard().removeprefix("http://")
     c = http.client.HTTPConnection(url, timeout=5)
     c.request("GET", "/vision?who=Dana")  # a route whose own work raises
     with pytest.raises((http.client.RemoteDisconnected, ConnectionResetError)):
@@ -354,10 +353,9 @@ def test_a_reply_that_cant_be_recorded_is_one_error_line(captured, monkeypatch):
     ]
 
 
-def test_a_slow_request_is_a_warning_with_its_route_and_duration(captured, serve, monkeypatch):
-    monkeypatch.setattr(server, "DASH_PASSWORD", "")
+def test_a_slow_request_is_a_warning_with_its_route_and_duration(captured, serve_dashboard, monkeypatch):
     monkeypatch.setattr(server, "SLOW_REQUEST_S", 0.0)
-    url = serve(server.H).removeprefix("http://")
+    url = serve_dashboard().removeprefix("http://")
     c = http.client.HTTPConnection(url, timeout=5)
     c.request("GET", "/no/such/route?who=Dana")
     c.getresponse().read()
@@ -370,9 +368,8 @@ def test_a_slow_request_is_a_warning_with_its_route_and_duration(captured, serve
     assert re.search(r"\[dashboard\] WARN GET /no/such/route took \d+\.\d s$", slow[0])  # no query: it can hold names
 
 
-def test_a_fast_request_is_not_logged(captured, serve, monkeypatch):
-    monkeypatch.setattr(server, "DASH_PASSWORD", "")
-    url = serve(server.H).removeprefix("http://")
+def test_a_fast_request_is_not_logged(captured, serve_dashboard, monkeypatch):
+    url = serve_dashboard().removeprefix("http://")
     c = http.client.HTTPConnection(url, timeout=5)
     c.request("GET", "/no/such/route")
     c.getresponse().read()
