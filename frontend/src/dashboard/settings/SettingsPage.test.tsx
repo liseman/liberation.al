@@ -35,7 +35,7 @@ const VIEW: ConfigView = {
       settings: [
         row({
           key: 'owner.name',
-          value: 'Joe',
+          value: 'Sam',
           label: 'Your name',
           help: 'What the assistant calls you',
           section: 'you',
@@ -136,7 +136,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('the Settings page (#382)', () => {
+describe('the Settings page', () => {
   it('lists the sections, and shows a setting by its plain label and help', async () => {
     open();
     const items = within(await screen.findByRole('navigation', { name: 'Settings sections' })).getAllByRole('link');
@@ -152,7 +152,7 @@ describe('the Settings page (#382)', () => {
       'This machine',
       'Advanced',
     ]);
-    expect(screen.getByRole('textbox', { name: 'Your name' })).toHaveValue('Joe');
+    expect(screen.getByRole('textbox', { name: 'Your name' })).toHaveValue('Sam');
     expect(screen.getByText('What the assistant calls you')).toBeInTheDocument();
     expect(bar()).toBeNull(); // nothing changed yet
   });
@@ -177,7 +177,7 @@ describe('the Settings page (#382)', () => {
     expect(bar()).toHaveTextContent('1 unsaved change. Saving restarts: voice, dashboard');
     expect(within(nav()).getByRole('link', { name: /You and the assistant/ })).toHaveTextContent('1 unsaved');
     await userEvent.click(screen.getByRole('button', { name: 'Reset Your name' }));
-    expect(name).toHaveValue('Joe');
+    expect(name).toHaveValue('Sam');
     expect(bar()).toBeNull();
   });
 
@@ -232,7 +232,7 @@ describe('the Settings page (#382)', () => {
   });
 });
 
-describe('after the review of #382', () => {
+describe('review cases', () => {
   it('names a new feature by its name, says what it does (not its default), and finds it by name', async () => {
     open('#features');
     const journal = await screen.findByRole('switch', { name: 'The journal' });
@@ -293,7 +293,7 @@ describe('after the review of #382', () => {
   });
 });
 
-describe('You and the assistant (#383)', () => {
+describe('You and the assistant', () => {
   const YOU: ConfigView = {
     ...VIEW,
     sections: [
@@ -340,7 +340,7 @@ describe('You and the assistant (#383)', () => {
     expect(labels.slice(0, 2)).toEqual(['set-time.timezone-label', 'set-owner.name-label']);
   });
 
-  it('offers the fallback voice where it can clone one, saying it speaks in the clone (#2728)', async () => {
+  it('offers the fallback voice where it can clone one, saying it speaks in the clone', async () => {
     voices(true);
     open('', YOU);
     const pick = await screen.findByRole('combobox', { name: 'Fallback voice' });
@@ -434,7 +434,7 @@ describe('You and the assistant (#383)', () => {
   });
 });
 
-describe('restarting only what a change affects (#400)', () => {
+describe('restarting only what a change affects', () => {
   const TARGETED: ConfigView = structuredClone(VIEW);
   for (const sec of TARGETED.sections)
     for (const r of sec.settings) r.restarts = r.key === 'assistant.name' ? [] : ['voice', 'dashboard'];
@@ -509,7 +509,7 @@ describe('restarting only what a change affects (#400)', () => {
   });
 });
 
-describe('Features, People and privacy, and Phone (#385)', () => {
+describe('Features, People and privacy, and Phone', () => {
   const GROUPED: ConfigView = {
     ...VIEW,
     sections: [
@@ -591,7 +591,7 @@ describe('Features, People and privacy, and Phone (#385)', () => {
   });
 });
 
-describe('Advanced (#387)', () => {
+describe('Advanced', () => {
   const RAW: ConfigView = {
     ...VIEW,
     sections: [
@@ -636,7 +636,7 @@ describe('Advanced (#387)', () => {
     expect(screen.getByRole('region', { name: 'Timeline' })).toBeInTheDocument();
   });
 
-  it('folds each section until it is opened, a filter is on, or a link names a setting in it (#2728)', async () => {
+  it('folds each section until it is opened, a filter is on, or a link names a setting in it', async () => {
     open('#advanced', RAW);
     const toggle = await screen.findByRole('button', { name: 'Show Presence' });
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
@@ -696,7 +696,7 @@ describe('Advanced (#387)', () => {
   });
 });
 
-describe("Settings' sources (#1331)", () => {
+describe("Settings' sources", () => {
   it('opens Imported media from a link to its card, and focuses the card', async () => {
     open('#imported-media');
     expect(await screen.findByRole('heading', { name: 'Imported media', level: 2 })).toBeInTheDocument();
@@ -710,7 +710,7 @@ describe("Settings' sources (#1331)", () => {
     await waitFor(() => expect(screen.getByRole('region', { name: 'Network cameras' })).toHaveFocus());
   });
 
-  it('sends an old link to the phones, watches, and tags card (/settings#device-links, #1979) to Known › Devices', async () => {
+  it('sends an old link to the phones, watches, and tags card (/settings#device-links) to Known › Devices', async () => {
     open('#device-links');
     await waitFor(() => expect(location.pathname).toBe('/devices'));
     expect(location.hash).toBe('');

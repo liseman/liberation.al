@@ -30,7 +30,7 @@ describe('lookedLine', () => {
   });
 });
 
-describe('verdict (#2674)', () => {
+describe('verdict', () => {
   const ALWAYS = [
     'Recorded frames are sparse VLM observations, not verified events.',
     'Transcripts are sampled ASR, not a complete record.',

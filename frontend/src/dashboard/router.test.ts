@@ -46,7 +46,7 @@ describe('Known', () => {
   });
 });
 
-describe('Known under Settings (Codex on #1973)', () => {
+describe('Known under Settings', () => {
   it("takes the tab from Settings' return route after a reload", async () => {
     history.replaceState({ settingsReturnTo: '/objects#x', settingsFromApp: true }, '', '/settings');
     vi.resetModules(); // a reload: the router module starts over with no memory of the last tab

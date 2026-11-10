@@ -231,7 +231,7 @@ it('shows only the clips of the kind picked in the roster, and all of them again
   expect(screen.getByRole('heading', { name: 'Clips to check' })).toBeInTheDocument();
 });
 
-it("shows a counted kind's clips as a 1 in 10 spot check among all activities, and all of them when it's picked (#2441)", async () => {
+it("shows a counted kind's clips as a 1 in 10 spot check among all activities, and all of them when it's picked", async () => {
   // walked_past is counted in Ask (the server's promotion row); of walk-0 to walk-19, walk-7 and walk-14 are sampled.
   items = [
     clip('early', at(7, 22), 'drinking'),

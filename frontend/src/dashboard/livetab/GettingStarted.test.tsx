@@ -33,7 +33,7 @@ const READY: Stats = { system: { missing: [] }, ollama: { up: true, missing: [] 
 const ALL_DONE: Facts = {
   stats: READY,
   devices: devices({ cameras: [cam(0)], mics: [mic('USB Microphone')] }),
-  owner: 'Joe',
+  owner: 'Sam',
   voiceRef: true,
   ownerFaces: 3,
 };
@@ -99,7 +99,7 @@ describe('the steps', () => {
 
   it('need the owner named, their voice reference, and their face', () => {
     expect(step({ owner: '  ' }, 'name')?.done).toBe(false);
-    expect(step({ owner: 'Joe' }, 'name')?.note).toBe("You're Joe");
+    expect(step({ owner: 'Sam' }, 'name')?.note).toBe("You're Sam");
     expect(step({ voiceRef: true }, 'voice')?.done).toBe(true);
     expect(step({ ownerFaces: 0 }, 'face')?.done).toBe(false);
     expect(step({ ownerFaces: 2 }, 'face')?.done).toBe(true);
@@ -167,12 +167,12 @@ describe('Getting started on Live', () => {
   });
 
   it('ticks what is done, with no button, and counts it', async () => {
-    serve({ stats: READY, owner: 'Joe', voice: true });
+    serve({ stats: READY, owner: 'Sam', voice: true });
     renderPage(<GettingStarted />);
     const c = await card();
     expect(within(c).getByText('4 of 6 done. Live fills in as each one is ready.')).toBeInTheDocument();
     const item = (title: string) => within(c).getByText(title).closest('li') as HTMLElement;
-    expect(item('Name yourself')).toHaveTextContent("Name yourself (done)You're Joe");
+    expect(item('Name yourself')).toHaveTextContent("Name yourself (done)You're Sam");
     expect(within(c).queryByRole('link', { name: 'Set your name' })).not.toBeInTheDocument();
     expect(item('Tag your face')).toHaveTextContent('Tag your face (to do)Pick yourself in a camera view');
   });
@@ -181,9 +181,9 @@ describe('Getting started on Live', () => {
     serve({
       stats: READY,
       dev: devices({ cameras: [cam(0)], mics: [mic('USB Microphone')] }),
-      owner: 'Joe',
+      owner: 'Sam',
       voice: true,
-      people: [{ name: 'Joe', owner: true, faces: 4, voices: [1] }],
+      people: [{ name: 'Sam', owner: true, faces: 4, voices: [1] }],
     });
     const { client } = renderPage(<GettingStarted />);
     // Every read answered, and still no card.
@@ -217,9 +217,9 @@ describe('Getting started on Live', () => {
     serve({
       stats: READY,
       dev: devices({ cameras: [cam(0)], mics: [mic('USB Microphone')] }),
-      owner: 'Joe',
+      owner: 'Sam',
       voice: true,
-      people: [{ name: 'Joe', owner: true, faces: 4, voices: [1] }],
+      people: [{ name: 'Sam', owner: true, faces: 4, voices: [1] }],
     });
     const { client } = renderPage(<GettingStarted />);
     await waitFor(() => expect(usePrefs.getState().gettingStartedDone).toBe(true));

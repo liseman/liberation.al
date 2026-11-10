@@ -129,7 +129,7 @@ def test_cache_is_short_lived_detached_and_save_refreshes(discovery, monkeypatch
     assert camera_modes.validate_choice("/dev/video2", 640, 480, 30) == {"width": 640, "height": 480, "fps": 30}
     assert discovery.call_count == 2
     clock[0] = 16.0
-    assert camera_modes.modes("/dev/video2")["choices"], "stale: the last list, at once (#2568)"
+    assert camera_modes.modes("/dev/video2")["choices"], "stale: the last list, at once"
     for reading in list(camera_modes._reading.values()):
         reading.join(5)
     assert discovery.call_count == 3, "and read again behind it"

@@ -91,7 +91,7 @@ describe('lineHits', () => {
 });
 
 describe('turnKey', () => {
-  it('keeps two turns that start in the same millisecond on two microphones apart (#247)', () => {
+  it('keeps two turns that start in the same millisecond on two microphones apart', () => {
     const [a, b] = turnsOf(
       [line(0, { line: 'mic-a@0.000' }), line(0, { speaker_id: 2, line: 'mic-b@0.000' })],
       speakers,

@@ -3,7 +3,7 @@ import { matchesFilter, NOTE_MAX, sectionNote, sectionTitle } from './Advanced';
 import type { Setting } from './model';
 import { sameAsDefault } from './Row';
 
-describe("Advanced's cards (#387)", () => {
+describe("Advanced's cards", () => {
   it('titles a config section in words', () => {
     expect([sectionTitle('presence'), sectionTitle('models.files.vad_silero')]).toEqual([
       'Presence',
