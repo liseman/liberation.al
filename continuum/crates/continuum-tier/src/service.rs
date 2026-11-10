@@ -864,7 +864,7 @@ impl Service {
                 self.payload(sub, position, &item)?;
             }
             Incoming::Event(sub, SubEvent::CaughtUp { position }) => {
-                tracing::info!("{} caught up at {position}", self.settings.streams[sub]);
+                tracing::debug!("{} caught up at {position}", self.settings.streams[sub]);
             }
             Incoming::Event(sub, SubEvent::Undecodable { position, reason }) => {
                 // It can never be read, so it can't be archived: passed over, loudly.

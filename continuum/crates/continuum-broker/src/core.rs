@@ -3280,7 +3280,13 @@ mod tests {
             archive.slot_gap(StreamId(1), Interval::new(10, 20).unwrap(), "producer overwrite");
             archive.ring_gap(StreamId(2), Interval::new(20, 30).unwrap());
             let writer = writer_health::WriterHealth::default();
-            log_health_line(3, 0, &writer.snapshot(Instant::now(), 0), &archive, &mut continuum_log::Periodic::default());
+            log_health_line(
+                3,
+                0,
+                &writer.snapshot(Instant::now(), 0),
+                &archive,
+                &mut continuum_log::Periodic::default(),
+            );
         });
         assert_eq!(logs.matches("Tier 0 archive pressure:").count(), 3, "one warning per class/episode");
         assert_eq!(archive.pressure_classes.len(), 2);
