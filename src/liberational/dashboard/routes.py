@@ -22,7 +22,9 @@ What a handler is called with:
 - GET (and HEAD, which the server answers as GET): `handler(h)`, or `handler(h, match)` for a pattern.
 - POST with a JSON body (`post`, `post_when`): `handler(h, body)`. The server reads and parses the body first and
   answers 400 for one that isn't JSON, for an unknown path too, as it always has.
-- POST that reads its own body (`post_raw`, `post_raw_when`): `handler(h)`, before any body is read.
+- POST that reads its own body (`post_raw`, `post_raw_when`): `handler(h)`, before any body is read. A module that
+  checks who is asking before it reads anything (Settings, devices, Ask) registers its writes this way.
+- DELETE (`delete_when`): `handler(h)`.
 
 `h` is the request's handler (dashboard/server.py's `H`): `h._json`, `h._query()`, `h._can_teach()`, and `h.state`.
 """
@@ -41,7 +43,7 @@ type Test = Callable[[str], object]  # a path to something true (a regular expre
 
 @dataclass(frozen=True)
 class Route:
-    method: str  # GET or POST
+    method: str  # GET, POST, or DELETE
     shown: str  # the path, the pattern, or the words for a test
     handler: Handler
     kind: str  # "exact", "pattern", or "test"
@@ -100,6 +102,9 @@ class Table:
     def post_raw_when(self, shown: str, test: Test) -> Callable[[Handler], Handler]:
         return self._ordered("POST", shown, "test", test, True)
 
+    def delete_when(self, shown: str, test: Test) -> Callable[[Handler], Handler]:
+        return self._ordered("DELETE", shown, "test", test, True)
+
     def find(self, method: str, path: str) -> tuple[Route, object] | None:
         """The route for a request and what its test gave (a pattern's match), or None for a path nobody registered."""
         route = self.exact.get((method, path))
@@ -130,5 +135,6 @@ post = TABLE.post
 post_when = TABLE.post_when
 post_raw = TABLE.post_raw
 post_raw_when = TABLE.post_raw_when
+delete_when = TABLE.delete_when
 find = TABLE.find
 listing = TABLE.listing
