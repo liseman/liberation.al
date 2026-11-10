@@ -309,12 +309,30 @@ export interface Blocks {
 
 export const BLOCKS_POLL_MS = 5000; // while blocks are still being written
 
-/** The summary blocks of the timeline's visible range in one day. */
+/** The summary blocks of the timeline's visible range in one day. A range that is the whole day shares the day
+ *  summary's read (dayBlocksQuery), where there is one, instead of asking for the same blocks again (#92): opening
+ *  Review made both requests. The server works out the day's bounds in its own timezone, so the shared answer is used only when it
+ *  covers exactly the range asked for. */
 export const blocksQuery = (day: string, t0: number, t1: number) =>
   queryOptions({
     queryKey: reviewKey.blocks(day, t0, t1),
-    queryFn: ({ signal }) =>
-      request<Blocks>(`/review/summary?start=${Math.floor(t0)}&end=${Math.ceil(t1)}`, undefined, signal),
+    queryFn: async ({ signal, client }) => {
+      const start = Math.floor(t0);
+      const end = Math.ceil(t1);
+      const whole = dayBounds(day);
+      // Only where the day's summary is already being read (Review's own panel): alone, this would be a second
+      // request, not a shared one.
+      const dayRead = client.getQueryState(dayBlocksQuery(day).queryKey);
+      if (dayRead && start === Math.floor(whole.t0) && end === Math.ceil(whole.t1)) {
+        try {
+          const shared = await client.fetchQuery({ ...dayBlocksQuery(day), staleTime: BLOCKS_POLL_MS });
+          if (shared.start === start && shared.end === end) return shared;
+        } catch {
+          // the day's own read failed: this range asks for itself, and reports its own failure
+        }
+      }
+      return request<Blocks>(`/review/summary?start=${start}&end=${end}`, undefined, signal);
+    },
     refetchInterval: query => (query.state.data && query.state.data.status !== 'ready' ? BLOCKS_POLL_MS : false),
     placeholderData: keepPreviousData, // the last range's blocks stay while a zoom's load
   });
