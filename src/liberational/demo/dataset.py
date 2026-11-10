@@ -1,20 +1,25 @@
-"""The demo household (#17): made-up people, a pet, a place, and a day of journal entries, written through the same
-writers the real workers use.
+"""The demo household (#17): made-up people, a pet, a place, and a day of journal entries and of what the microphone
+heard, written through the same writers the real workers use.
 
 Everyone here is invented, per docs/CONVENTIONS.md: Alice (the owner), Dana, and Sam, and Rex the dog. The place is
 an invented two-bedroom-sized house with an invented floor plan, and the journal is one ordinary invented day. The day
 is yesterday, so the Journal tab opens near it, and its page is already written (no model runs in demo mode).
 
-`seed(state, mlog)` writes it all into the state directory `state` (people and pets into its knowledge store, the
-place under `places/`) and the journal into `mlog`, the memory log on the demo's own broker.
+`seed(state, mlog, say=...)` writes it all into the state directory `state` (people and pets into its knowledge store,
+the place under `places/`), the journal into `mlog`, the memory log on the demo's own broker, and the transcript
+through `say`, which writes one utterance (pack-demo's is a speech log writer on that broker). `tools/measure.py --demo`
+seeds it at a fixed day and scores the retrieval labels in tests/data/measurement/demo/ against it, which ask about
+this transcript and journal.
 """
 
 import datetime as dt
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from liberational.dashboard.journal import event_level
+from liberational.domain.identity import Basis
 from liberational.memory import history_qa, journal, journal_pages, places
 from liberational.memory_log import JOURNAL, PAGES, MemoryLog
 from liberational.people import pets, registry
@@ -24,6 +29,7 @@ PEOPLE = (OWNER, "Dana", "Sam")
 PET, PET_SPECIES = "Rex", "dog"
 PLACE = "Demo house"
 SOURCE = "demo"  # the source every demo record names
+MIC = "demo-mic"  # the microphone the demo's transcript was heard on
 
 # A made-up single-storey house, 9 m by 8.5 m, in the floorplan DSL (frontend/src/vendor/floorplan/): rooms on wall
 # centrelines that tile the footprint, and the doors and windows on the walls between them.
@@ -126,6 +132,38 @@ DAY_PAGE = {
 }
 
 
+@dataclass(frozen=True)
+class Line:
+    """One thing said in the room on the demo day: its local time, who said it, and the words."""
+
+    at: tuple[int, int, int]  # hour, minute, second
+    speaker: str
+    text: str
+
+
+# What the microphone heard on the demo day. The retrieval labels in tests/data/measurement/demo/ ask about these
+# lines and the journal above, so a change here needs those labels checked too.
+TRANSCRIPT: tuple[Line, ...] = (
+    Line((7, 21, 10), "Sam", "The forecast says rain after two, so can you take Rex out at lunch?"),
+    Line((7, 21, 20), "Alice", "Sure. Did you give Rex his heartworm pill?"),
+    Line((7, 21, 30), "Sam", "Yes, I hid it in a piece of cheese with his breakfast."),
+    Line((9, 5, 0), "Alice", "So the deadline moves to Friday, and Dana is helping me with the slides."),
+    Line((12, 4, 0), "Dana", "I got the apples from the farmers market by the library."),
+    Line((12, 10, 0), "Dana", "It came to eleven dollars for both bags, you can pay me later."),
+    Line((12, 25, 0), "Dana", "The tomatoes in my garden finally turned red."),
+    Line((12, 25, 20), "Alice", "How many plants did you put in this year?"),
+    Line((12, 25, 30), "Dana", "Six tomato plants and two rows of beans."),
+    Line((12, 44, 0), "Alice", "Grab the umbrella, it looks like rain."),
+    Line((13, 5, 0), "Dana", "It's pouring now, and Rex is soaked."),
+    Line((17, 10, 0), "Sam", "I signed up for the climbing trip in December."),
+    Line((17, 10, 15), "Alice", "Where is it this time?"),
+    Line((17, 10, 25), "Sam", "At the quarry up north. It's a two day trip."),
+    Line((18, 40, 0), "Dana", "I traded my old bike for a cargo bike last week."),
+    Line((19, 50, 0), "Sam", "That's three wins in a row for me."),
+    Line((22, 5, 0), "Alice", "Lights off. Come on, Rex."),
+)
+
+
 def demo_day(today: dt.date | None = None) -> dt.date:
     """The demo's day: yesterday, so it's the newest finished day the Journal tab shows."""
     return (today or dt.datetime.now(history_qa.TZ).date()) - dt.timedelta(days=1)
@@ -202,10 +240,39 @@ def seed_journal(mlog: MemoryLog, day: dt.date, ids: dict[str, str], hours: Sequ
     return written
 
 
-def seed(state: Path, mlog: MemoryLog, today: dt.date | None = None) -> dt.date:
-    """Writes the whole demo household into `state` and `mlog`; returns the demo day."""
+def seed_transcript(
+    state: Path, say: Callable[[dict[str, Any]], object], day: dt.date, lines: Sequence[Line] = TRANSCRIPT
+) -> None:
+    """Writes the demo day's room lines through `say` (one utterance dict each), each person's lines with a voice of
+    their own (voice n for the nth of PEOPLE), and tags those voices as the people, as the owner would in People."""
+    reg = registry.at(state)
+    voice = {name: n for n, name in enumerate(PEOPLE, start=1)}
+    for name, n in voice.items():
+        reg.claim(registry.voiceprint(n), name, Basis.OWNER_TAG, SOURCE)
+    for line in lines:
+        a = _local(day, line.at[0], line.at[1]) + line.at[2]
+        say(
+            {
+                "ts_start": a,
+                "ts_end": a + 3.0,
+                "device": MIC,
+                "speaker": line.speaker,
+                "speaker_id": voice[line.speaker],
+                "speaker_sim": 0.9,
+                "text": line.text,
+            }
+        )
+
+
+def seed(
+    state: Path, mlog: MemoryLog, today: dt.date | None = None, say: Callable[[dict[str, Any]], object] | None = None
+) -> dt.date:
+    """Writes the whole demo household into `state` and `mlog`, and its transcript through `say` when given (see
+    seed_transcript); returns the demo day."""
     day = demo_day(today)
     ids = seed_people(state)
     seed_place(state, _local(day, 6))
     seed_journal(mlog, day, ids)
+    if say is not None:
+        seed_transcript(state, say, day)
     return day

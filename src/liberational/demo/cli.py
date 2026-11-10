@@ -13,6 +13,7 @@ launcher refuses a DIR inside it.
 """
 
 import argparse
+import datetime as dt
 import os
 import shutil
 import signal
@@ -24,6 +25,7 @@ import time
 import tomllib
 from collections.abc import Mapping, Sequence
 from pathlib import Path
+from typing import IO
 
 from liberational import config as cfg
 
@@ -105,8 +107,9 @@ def wait_for_socket(path: Path, process: subprocess.Popen[bytes], timeout: float
         time.sleep(0.05)
 
 
-def start_broker(root: Path, env: Mapping[str, str]) -> subprocess.Popen[bytes]:
-    """Starts the demo's own broker on `root`'s state directory, its catalog there too."""
+def start_broker(root: Path, env: Mapping[str, str], output: IO[bytes] | None = None) -> subprocess.Popen[bytes]:
+    """Starts the demo's own broker on `root`'s state directory, its catalog there too, its log to `output` (by
+    default this process's)."""
     state = Path(env["PACK_PATHS_STATE"])
     sock = Path(env["CONTINUUM_SOCKET"])
     (state / "continuum").mkdir(parents=True, exist_ok=True)
@@ -124,7 +127,7 @@ def start_broker(root: Path, env: Mapping[str, str]) -> subprocess.Popen[bytes]:
         "--tier0-ring-mib",
         "1",
     ]
-    process = subprocess.Popen(command, cwd=root, env=dict(env))
+    process = subprocess.Popen(command, cwd=root, env=dict(env), stdout=output, stderr=output)
     try:
         wait_for_socket(sock, process)
     except BaseException:
@@ -133,14 +136,48 @@ def start_broker(root: Path, env: Mapping[str, str]) -> subprocess.Popen[bytes]:
     return process
 
 
-def seed_here() -> None:
-    """Seeds the demo into the configured state directory (run in the demo's environment, by `run`)."""
-    from liberational import memory_log
+def start_vector_worker(env: Mapping[str, str], output: IO[bytes] | None = None) -> subprocess.Popen[bytes]:
+    """Starts a vector worker on the demo's broker, which indexes the journal's text as it is written, so a journal
+    search finds the demo's entries (the meaning index needs embeddings, which the demo doesn't make)."""
+    worker = cfg.program("continuum-vector-worker")
+    if not worker.is_file():
+        raise SystemExit(f"pack-demo: no vector worker at {worker}: build it with `mise run continuum-release`")
+    command = [str(worker), "--socket", env["CONTINUUM_SOCKET"], "--state-dir", env["PACK_PATHS_STATE"]]
+    return subprocess.Popen(command, env=dict(env), stdout=output, stderr=output)
+
+
+def seed_here(today: dt.date | None = None) -> dt.date:
+    """Seeds the demo into the configured state directory (run in the demo's environment, by `run`), its day the one
+    before `today` (by default the real today)."""
+    from liberational import memory_log, speech_log
     from liberational.demo import dataset
 
     state = cfg.path("paths.state")
-    day = dataset.seed(state, memory_log.at(state))
-    print(f"pack-demo: seeded the demo household, with a journal for {day.isoformat()}")
+    mic = speech_log.Writer(dataset.MIC)
+    try:
+        day = dataset.seed(state, memory_log.at(state), today, say=lambda line: mic.write(speech_log.UTTERANCES, line))
+        mic.sync()
+    finally:
+        mic.close()
+    print(f"pack-demo: seeded the demo household, with a journal and a transcript for {day.isoformat()}")
+    return day
+
+
+def wait_for_index(day: dt.date, timeout: float = 60.0) -> None:
+    """Waits until a vector worker has indexed the demo journal's text: until a word search finds the day's last hour
+    entry, written after the rest. Raises SystemExit after `timeout` seconds."""
+    from liberational.demo import dataset
+    from liberational.memory import journal, recall
+
+    state = cfg.path("paths.state")
+    start, end = journal.day_bounds(day)
+    deadline = time.monotonic() + timeout
+    while not any(
+        r.get("text") == dataset.DAY[-1].text for r in recall.search("lights", start, end, None, state, rank=False)
+    ):
+        if time.monotonic() > deadline:
+            raise SystemExit(f"pack-demo: the journal wasn't indexed for search within {timeout:.0f} s")
+        time.sleep(0.2)
 
 
 def _interrupt(signum: int, frame: object) -> None:
@@ -195,9 +232,14 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument("--port", type=int, default=PORT, help=f"the dashboard's port (default {PORT})")
     parser.add_argument("--dev", action="store_true", help="run the dashboard with --dev (pages from Vite)")
     parser.add_argument("--seed-here", action="store_true", help=argparse.SUPPRESS)
+    # With --seed-here: the day after the demo's, and waiting for a vector worker to index it (tools/measure.py --demo)
+    parser.add_argument("--today", type=dt.date.fromisoformat, help=argparse.SUPPRESS)
+    parser.add_argument("--wait-index", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     if args.seed_here:
-        seed_here()
+        day = seed_here(args.today)
+        if args.wait_index:
+            wait_for_index(day)
         return
     root = args.dir or Path(tempfile.mkdtemp(prefix="pack-demo-"))
     sys.exit(run(root, args.port, ["--dev"] if args.dev else []))

@@ -302,6 +302,18 @@ def _cloud(state: Path, rev: places.Revision) -> ply.Cloud | None:
     return ply.read(path)
 
 
+def fit(state: Path, fused_rev: places.Revision, levelled: np.ndarray) -> Registration | None:
+    """How a levelled cloud (floor at z = 0, metres) registers on a place's fused map, without writing anything:
+    `fuse_in`'s own registration (`register`, kept when `Registration.ok`: MIN_FITNESS of the cloud over the map's
+    footprint within INLIER_M of it, and MIN_INLIERS points), for choosing which place a walk belongs to
+    (walkthrough.py `match_place`). It leaves out `fuse_in`'s metric rescale, which the fusion that follows applies.
+    None when the map can't be read."""
+    old = _cloud(state, fused_rev)
+    if old is None:
+        return None
+    return register(np.asarray(levelled, dtype=np.float64).reshape(-1, 3), _fused(old).points)
+
+
 def _floor(points: np.ndarray, rev: places.Revision) -> tuple[float, ...] | None:
     """The revision's floor plane, else one fitted to the cloud (up taken as MASt3R's -y), else None."""
     if rev.floor is not None:

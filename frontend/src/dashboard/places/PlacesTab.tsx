@@ -155,6 +155,7 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
       return null;
     }
   }, [place, showing, scheme]);
+  const names = useMemo(() => new Map(real.map(p => [p.id, p.name])), [real]);
   const drawing = place ? drawn.get(place.id) : null;
   const result = drawing?.result;
   return (
@@ -179,6 +180,14 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
               mapped.
             </Text>
           )}
+          <WalkImport
+            names={names}
+            onOpen={id => {
+              setPicked(id);
+              setEditing(null);
+              setShowing('mine');
+            }}
+          />
           <div className={classes.layout}>
             <nav aria-label="Places">
               <ul className={classes.list}>
@@ -241,7 +250,6 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
                   )}
                 </div>
                 {editing !== place.id && <WalkNote place={place} />}
-                {editing !== place.id && !place.example && <WalkImport place={place} />}
                 {!place.example && view === '3d' && editing !== place.id ? (
                   <Suspense
                     fallback={

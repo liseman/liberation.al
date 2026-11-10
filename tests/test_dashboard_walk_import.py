@@ -4,7 +4,9 @@ the one background job, with pack-walkthrough itself a fake (test_spatial_walkth
 import http.client
 import io
 import json
+import os
 import stat
+import subprocess
 import sys
 import tempfile
 import threading
@@ -18,9 +20,8 @@ from hypothesis import strategies as st
 
 from liberational import config as cfg
 from liberational.dashboard import context, walk_import
-from liberational.memory import places
 
-T = 1_762_500_000.0
+RESULT = {"place": "p1", "revision": "r1", "registered": "map", "final_place": "p1", "new_place": "False"}
 ODOMETRY = "timestamp, frame, x, y, z, qx, qy, qz, qw\n0.0, 0, 0, 0, 0, 0, 0, 0, 1\n"
 #: A whole export, as Stray Scanner zips one: every file is made up and a few bytes long.
 EXPORT = {
@@ -167,31 +168,70 @@ def test_whatever_a_zips_entries_are_called_nothing_is_written_outside_the_jobs_
 # ---- the routes and the job, on the real dashboard handler ----
 
 
+STEP = "2026-11-03T02:20:15-08:00 [walkthrough] INFO 12 frames from 40 posed frames"
+#: pack-walkthrough's place, as a real process (the import runs detached, so nothing less would do): it notes what
+#: it was asked to import, logs a step, waits while the test holds it, then fails or prints a result as told.
+CHILD = """
+import json, pathlib, sys, time
+source, ctl = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+inside = sorted(p.name for p in source.iterdir()) if source.is_dir() else None
+with (ctl / "calls").open("a") as f:
+    f.write(json.dumps([str(source), inside]) + "\\n")
+print(sys.argv[3], file=sys.stderr, flush=True)
+while (ctl / "hold").exists():
+    time.sleep(0.02)
+if (ctl / "fail").exists():
+    sys.exit("pack-walkthrough: " + (ctl / "fail").read_text())
+for key, value in json.loads(sys.argv[4]).items():
+    print(f"{key}: {value}")
+"""
+
+
+def until(done, what, seconds=30.0):
+    """Wait for `done()` to be true: another process or thread is getting there."""
+    waited = threading.Event()
+    for _ in range(int(seconds / 0.02)):
+        if done():
+            return
+        waited.wait(0.02)
+    pytest.fail(f"timed out waiting for {what}")
+
+
 class FakeImport:
-    """pack-walkthrough's place: records what it was asked to import, and answers or fails as told."""
+    """The test's hold on that process, through files in a folder of its own."""
 
-    def __init__(self):
-        self.calls = []
-        self.fail = ""
-        self.hold = threading.Event()
-        self.hold.set()
-        self.called = threading.Event()
+    def __init__(self, ctl):
+        self.ctl = ctl
+        ctl.mkdir()
 
-    def __call__(self, source, place, progress):
-        self.calls.append((source, place, sorted(p.name for p in source.iterdir()) if source.is_dir() else None))
-        progress("12 frames from 40 posed frames")
-        self.called.set()
-        assert self.hold.wait(30)
-        if self.fail:
-            raise RuntimeError(self.fail)
-        return {"place": place, "revision": "r1", "registered": "map"}
+    def command(self, source):
+        return [sys.executable, "-c", CHILD, str(source), str(self.ctl), STEP, json.dumps(RESULT)]
+
+    @property
+    def calls(self):
+        lines = (self.ctl / "calls").read_text().splitlines() if (self.ctl / "calls").exists() else []
+        return [(Path(source), inside) for source, inside in map(json.loads, lines)]
+
+    def fail(self, why):
+        (self.ctl / "fail").write_text(why) if why else (self.ctl / "fail").unlink()
+
+    def hold(self):
+        (self.ctl / "hold").touch()
+
+    def release(self):
+        (self.ctl / "hold").unlink(missing_ok=True)
+
+    def wait_called(self, times=1):
+        until(lambda: len(self.calls) >= times, "the import to start")
 
 
 @pytest.fixture
-def run(monkeypatch):
-    fake = FakeImport()
-    monkeypatch.setattr(walk_import, "run_import", fake)
-    return fake
+def run(monkeypatch, tmp_path):
+    fake = FakeImport(tmp_path / "ctl")
+    monkeypatch.setattr(walk_import, "command", fake.command)
+    monkeypatch.setattr(walk_import, "POLL_S", 0.02)
+    yield fake
+    fake.release()  # a child a test left held ends
 
 
 @pytest.fixture
@@ -199,12 +239,9 @@ def held(tmp_path, monkeypatch):
     """This test's importer, on its own state directory."""
     monkeypatch.setattr(context, "STATE", tmp_path)
     monkeypatch.setattr(walk_import, "_HELD", {})
-    return walk_import.importer(tmp_path)
-
-
-@pytest.fixture
-def home(tmp_path):
-    return places.revise(tmp_path, None, producer="cameras-v1", now=T).place
+    made = walk_import.importer(tmp_path)
+    yield made
+    made.close()
 
 
 @pytest.fixture
@@ -222,8 +259,8 @@ def request(base, method, path, body=b"", headers=None):
     return r.status, json.loads(data) if data else None
 
 
-def send(base, place, name, body, **headers):
-    path = f"/places/walk/upload?place={quote(place)}&name={quote(name)}"
+def send(base, name, body, **headers):
+    path = f"/places/walk/upload?name={quote(name)}"
     return request(base, "POST", path, body, {"Content-Type": "application/octet-stream", **headers})
 
 
@@ -237,68 +274,148 @@ def settled(held):
     return held.view()
 
 
-def test_a_dropped_export_is_unpacked_imported_into_its_place_and_then_removed(base, held, home, run, tmp_path):
-    code, reply = send(base, home, "my walk.zip", zipped(EXPORT, "71de12f9/"))
+def test_a_dropped_export_is_unpacked_imported_with_no_place_named_and_then_removed(base, held, run, tmp_path):
+    code, reply = send(base, "my walk.zip", zipped(EXPORT, "71de12f9/"))
     assert code == 202
-    assert (reply["job"]["place"], reply["job"]["name"], reply["job"]["kind"]) == (home, "my walk.zip", "stray")
+    assert (reply["job"]["name"], reply["job"]["kind"]) == ("my walk.zip", "stray")
+    assert "place" not in reply["job"]  # the import works out where the walk belongs
     job = settled(held)
     folder = tmp_path / "walk_imports" / job["id"]
     assert run.calls == [
         (
             folder / "71de12f9",
-            home,
             ["camera_matrix.csv", "confidence", "depth", "odometry.csv", "rgb.mp4"],
         )
     ]
     assert (job["status"], job["error"], job["retry"]) == ("done", "", False)
-    assert job["result"] == {"place": home, "revision": "r1", "registered": "map"}
+    assert job["result"] == RESULT
     assert not folder.exists()  # the zip and the unpacked recording are both gone once the place has the walk
     assert request(base, "GET", "/places/walk")[1]["job"] == job
 
 
-def test_a_finished_import_is_still_there_after_a_restart(base, held, home, run, tmp_path):
-    send(base, home, "walk.zip", zipped(EXPORT))
+def test_a_finished_import_is_still_there_after_a_restart(base, held, run, tmp_path):
+    send(base, "walk.zip", zipped(EXPORT))
     job = settled(held)
     assert walk_import.Importer(tmp_path).view() == job
 
 
-def test_an_import_cut_off_by_a_restart_reads_as_failed(held, home, tmp_path):
-    job = held.begin(home, "walk.zip", "stray")
-    held._set(job, status="importing")
+def saved_job(tmp_path, **fields):
+    """A job file as a dashboard before this one left it, with its recording kept."""
+    root = tmp_path / "walk_imports"
+    (root / "j1" / "walk").mkdir(parents=True)
+    job = {"id": "j1", "name": "walk.zip", "kind": "stray", "status": "importing", "source": "walk", **fields}
+    (root / "job.json").write_text(json.dumps(job))
+    return root / "j1"
+
+
+def ended_process():
+    """The pid and start time of a process that has ended."""
+    child = subprocess.Popen([sys.executable, "-c", "pass"])
+    started = walk_import.started_at(child.pid)
+    child.wait()
+    return {"pid": child.pid, "pid_started": started}
+
+
+def test_an_import_keeps_running_when_the_dashboard_that_started_it_stops(base, held, run, tmp_path):
+    run.hold()
+    send(base, "walk.zip", zipped(EXPORT))
+    run.wait_called()
+    held.close()  # the dashboard stops watching, as it does when it's restarted
+    again = walk_import.Importer(tmp_path)  # and the one started after it picks the import up
+    running = again.view()
+    assert running is not None and running["status"] == "importing"
+    run.release()
+    job = settled(again)
+    assert (job["status"], job["result"], job["id"]) == ("done", RESULT, running["id"])
+    assert len(run.calls) == 1, "the same import, not a second one"
+
+
+def test_the_import_isnt_in_the_dashboards_process_group(base, held, run):
+    # The supervisor stops the dashboard by signalling its process group: the import must not be in it.
+    run.hold()
+    send(base, "walk.zip", zipped(EXPORT))
+    run.wait_called()
+    assert held.job is not None and held.job.pid > 0
+    assert os.getpgid(held.job.pid) != os.getpgid(0)
+    assert walk_import.running(held.job)
+    run.release()
+    settled(held)
+
+
+def test_an_import_whose_process_is_gone_reads_as_interrupted_and_can_be_tried_again(tmp_path):
+    saved_job(tmp_path, **ended_process())
+    job = walk_import.Importer(tmp_path).view()
+    assert job is not None
+    assert (job["status"], job["error"], job["retry"]) == ("failed", walk_import.INTERRUPTED, True)
+
+
+def test_an_import_that_finished_while_the_dashboard_was_down_reads_as_done(tmp_path):
+    folder = saved_job(tmp_path, **ended_process())
+    (folder / "import.log").write_text(f"{STEP}\nplace: p1\nfinal_place: p1\nnew_place: False\n")
+    job = walk_import.Importer(tmp_path).view()
+    assert job is not None
+    assert (job["status"], job["result"]["final_place"], job["error"]) == ("done", "p1", "")
+    assert not folder.exists()
+
+
+def test_a_job_saved_in_the_earlier_shape_is_read_not_ignored(tmp_path):
+    # It had the place the walk was dropped on, and no process recorded.
+    saved_job(
+        tmp_path, place="p1", detail="placing the walk", started=1_762_500_000.0, finished=None, result={}, error=""
+    )
+    job = walk_import.Importer(tmp_path).view()
+    assert job is not None and "place" not in job
+    assert (job["name"], job["status"], job["error"], job["retry"]) == (
+        "walk.zip",
+        "failed",
+        walk_import.INTERRUPTED,
+        True,
+    )
+
+
+def test_a_pid_the_system_gave_to_another_process_isnt_taken_for_the_import(tmp_path):
+    saved_job(tmp_path, pid=os.getpid(), pid_started=1.0)  # this test's own process, started at another time
+    job = walk_import.Importer(tmp_path).view()
+    assert job is not None and job["status"] == "failed"
+
+
+def test_an_upload_a_restart_cut_off_reads_as_failed_with_nothing_to_try_again(held, tmp_path):
+    job = held.begin("walk.zip", "stray")
     again = walk_import.Importer(tmp_path).view()
     assert again is not None
-    assert (again["status"], again["id"]) == ("failed", job.id)
-    assert "restarted" in again["error"]
+    assert (again["status"], again["id"], again["retry"]) == ("failed", job.id, False)
+    assert "Drop it again" in again["error"]
 
 
-def test_the_page_sees_the_importers_newest_log_line_while_it_runs(base, held, home, run):
-    run.hold.clear()
-    send(base, home, "walk.zip", zipped(EXPORT))
-    assert run.called.wait(30)
+def test_the_page_sees_the_importers_newest_log_line_while_it_runs(base, held, run):
+    run.hold()
+    send(base, "walk.zip", zipped(EXPORT))
+    until(lambda: (held.view() or {}).get("detail") == "12 frames from 40 posed frames", "the step to show")
     job = request(base, "GET", "/places/walk")[1]["job"]
-    run.hold.set()
+    run.release()
     assert (job["status"], job["detail"]) == ("importing", "12 frames from 40 posed frames")
     settled(held)
 
 
-def test_a_second_upload_waits_for_the_first_import_to_finish(base, held, home, run):
-    run.hold.clear()
-    assert send(base, home, "one.zip", zipped(EXPORT))[0] == 202
-    code, reply = send(base, home, "two.zip", zipped(EXPORT))
-    run.hold.set()
+def test_a_second_upload_waits_for_the_first_import_to_finish(base, held, run):
+    run.hold()
+    assert send(base, "one.zip", zipped(EXPORT))[0] == 202
+    code, reply = send(base, "two.zip", zipped(EXPORT))
+    run.release()
     assert code == 409 and "Another walk" in reply["error"]
     assert settled(held)["name"] == "one.zip"
     assert len(run.calls) == 1
 
 
-def test_a_failed_import_keeps_its_recording_and_runs_again_without_a_second_upload(base, held, home, run, tmp_path):
-    run.fail = "the GPU has 1.0 GB free and the walkthrough needs 6; try later"
-    send(base, home, "walk.zip", zipped(EXPORT))
+def test_a_failed_import_keeps_its_recording_and_runs_again_without_a_second_upload(base, held, run, tmp_path):
+    why = "the GPU has 1.0 GB free and the walkthrough needs 6; try later"
+    run.fail(why)
+    send(base, "walk.zip", zipped(EXPORT))
     job = settled(held)
-    assert (job["status"], job["error"], job["retry"]) == ("failed", run.fail, True)
+    assert (job["status"], job["error"], job["retry"]) == ("failed", why, True)
     kept = tmp_path / "walk_imports" / job["id"]
     assert (kept / "walk" / "rgb.mp4").is_file() and not (kept / "upload.zip").exists()
-    run.fail = ""
+    run.fail("")
     code, reply = post(base, "/places/walk/retry")
     assert (code, reply["job"]["status"]) == (202, "importing")
     again = settled(held)
@@ -307,88 +424,93 @@ def test_a_failed_import_keeps_its_recording_and_runs_again_without_a_second_upl
     assert post(base, "/places/walk/retry")[0] == 409  # nothing failed is left to try
 
 
-def test_dismissing_a_failed_import_removes_what_it_kept(base, held, home, run, tmp_path):
-    run.fail = "no"
-    send(base, home, "walk.zip", zipped(EXPORT))
+def test_dismissing_a_failed_import_removes_what_it_kept(base, held, run, tmp_path):
+    run.fail("no")
+    send(base, "walk.zip", zipped(EXPORT))
     job = settled(held)
     assert post(base, "/places/walk/dismiss") == (200, {"job": None})
     assert not (tmp_path / "walk_imports" / job["id"]).exists()
     assert request(base, "GET", "/places/walk")[1]["job"] is None
 
 
-def test_an_upload_that_isnt_an_export_is_refused_and_leaves_nothing_behind(base, held, home, run, tmp_path):
-    code, reply = send(base, home, "walk.zip", zipped(without("depth/000000.png")))
+def test_an_upload_that_isnt_an_export_is_refused_and_leaves_nothing_behind(base, held, run, tmp_path):
+    code, reply = send(base, "walk.zip", zipped(without("depth/000000.png")))
     assert code == 400 and "depth/ (the LiDAR depth frames)" in reply["error"]
     assert run.calls == [] and held.view() is None
     assert [p for p in (tmp_path / "walk_imports").iterdir() if p.is_dir()] == []
 
 
 @pytest.mark.skipif(sys.platform == "darwin", reason="a plain video is refused on macOS")
-def test_a_plain_video_is_imported_as_it_is(base, held, home, run, tmp_path):
-    code, reply = send(base, home, "front hall.MOV", b"a made-up video")
+def test_a_plain_video_is_imported_as_it_is(base, held, run, tmp_path):
+    code, reply = send(base, "front hall.MOV", b"a made-up video")
     assert (code, reply["job"]["kind"]) == (202, "video")
     job = settled(held)
-    assert run.calls == [(tmp_path / "walk_imports" / job["id"] / "front-hall.MOV", home, None)]
+    assert run.calls == [(tmp_path / "walk_imports" / job["id"] / "front-hall.MOV", None)]
     assert job["status"] == "done"
 
 
-def test_a_plain_video_is_refused_where_pack_walkthrough_cant_take_one(base, held, home, run, monkeypatch):
+def test_a_plain_video_is_refused_where_pack_walkthrough_cant_take_one(base, held, run, monkeypatch):
     monkeypatch.setattr(walk_import, "takes_video", lambda: False)
-    code, reply = send(base, home, "walk.mp4", b"a made-up video")
+    code, reply = send(base, "walk.mp4", b"a made-up video")
     assert code == 415 and "Mac" in reply["error"]
     assert request(base, "GET", "/places/walk")[1]["video"] is False
 
 
 @pytest.mark.parametrize(
-    ("place", "name", "body", "headers", "code"),
+    ("name", "body", "headers", "code"),
     [
-        pytest.param(None, "walk.zip", b"x", {"Origin": "https://evil.example"}, 403, id="another-site"),
-        pytest.param(None, "walk.zip", b"x", {"Content-Type": "text/plain"}, 403, id="a-type-a-form-can-send"),
-        pytest.param("nowhere", "walk.zip", b"x", {}, 404, id="no-such-place"),
-        pytest.param(None, "notes.txt", b"x", {}, 415, id="not-a-zip-or-video"),
-        pytest.param(None, "walk.zip", b"", {}, 413, id="empty"),
+        pytest.param("walk.zip", b"x", {"Origin": "https://evil.example"}, 403, id="another-site"),
+        pytest.param("walk.zip", b"x", {"Content-Type": "text/plain"}, 403, id="a-type-a-form-can-send"),
+        pytest.param("notes.txt", b"x", {}, 415, id="not-a-zip-or-video"),
+        pytest.param("walk.zip", b"", {}, 413, id="empty"),
     ],
 )
-def test_an_upload_refused_before_its_body_is_read_starts_nothing(
-    base, held, home, run, place, name, body, headers, code
-):
-    assert send(base, place or home, name, body, **headers)[0] == code
+def test_an_upload_refused_before_its_body_is_read_starts_nothing(base, held, run, name, body, headers, code):
+    assert send(base, name, body, **headers)[0] == code
     assert held.view() is None and run.calls == []
 
 
-def test_an_upload_over_the_limit_is_refused(base, held, home, run):
+def test_an_upload_over_the_limit_is_refused(base, held, run):
     with cfg.override({"ingest": {"max_mb": 0}}):
-        code, reply = send(base, home, "walk.zip", zipped(EXPORT))
+        code, reply = send(base, "walk.zip", zipped(EXPORT))
     assert code == 413 and "up to 0 MB" in reply["error"]
 
 
-# ---- the child process ----
+# ---- what an import's output says ----
 
 
-def child(monkeypatch, script):
-    monkeypatch.setattr(walk_import, "command", lambda source, place: [sys.executable, "-c", script])
+def test_an_imports_log_gives_its_newest_step_and_its_printed_result(tmp_path):
+    log = tmp_path / "import.log"
+    log.write_text(f"{STEP}\n\nplace: abc\nfinal_place: abc\nnew_place: True\nregistered: None\n")
+    step, result, last = walk_import.read_log(log)
+    assert step == "12 frames from 40 posed frames"
+    assert result == {"place": "abc", "final_place": "abc", "new_place": "True", "registered": "None"}
+    assert last == "registered: None"
+    assert walk_import.outcome(log) == (result, "")
 
 
-def test_the_imports_printed_result_is_read_and_its_log_lines_are_its_progress(monkeypatch, tmp_path):
-    child(
-        monkeypatch,
-        "import sys\n"
-        "print('2026-11-03T02:20:15-08:00 [walkthrough] INFO 12 frames from 40 posed frames', file=sys.stderr)\n"
-        "print('place: abc')\nprint('revision: r9')\nprint('registered: plan')\n",
-    )
-    seen = []
-    result = walk_import.run_import(tmp_path, "abc", seen.append)
-    assert result == {"place": "abc", "revision": "r9", "registered": "plan"}
-    assert seen == ["12 frames from 40 posed frames"]
+@pytest.mark.parametrize(
+    ("text", "error"),
+    [
+        pytest.param(
+            f"{STEP}\npack-walkthrough: only 3 frames: the recording needs to move\n",
+            "only 3 frames: the recording needs to move",
+            id="pack-walkthrough-said-why",
+        ),
+        pytest.param(f"{STEP}\n", walk_import.INTERRUPTED, id="stopped-mid-run"),
+        pytest.param("frames: 12\nplace: abc\n", walk_import.INTERRUPTED, id="never-said-where-the-walk-went"),
+        pytest.param(None, walk_import.INTERRUPTED, id="no-log-at-all"),
+    ],
+)
+def test_an_import_that_ended_without_a_result_says_why(tmp_path, text, error):
+    log = tmp_path / "import.log"
+    if text is not None:
+        log.write_text(text)
+    assert walk_import.outcome(log) == ({}, error)
 
 
-def test_a_failed_import_raises_what_pack_walkthrough_said(monkeypatch, tmp_path):
-    child(monkeypatch, "import sys\nsys.exit('pack-walkthrough: only 3 frames: the recording needs to move')")
-    with pytest.raises(RuntimeError, match="^only 3 frames: the recording needs to move$"):
-        walk_import.run_import(tmp_path, "abc", lambda line: None)
-
-
-def test_the_import_runs_pack_walkthrough_on_the_recording_for_that_place(tmp_path):
-    command = walk_import.command(tmp_path / "71de12f9", "abc")
-    assert command[-3:] == [str(tmp_path / "71de12f9"), "--place", "abc"]
-    assert "liberational.spatial.walkthrough" in command[-4]
+def test_the_import_runs_pack_walkthrough_on_the_recording_and_lets_it_find_the_place(tmp_path):
+    command = walk_import.command(tmp_path / "71de12f9")
+    assert command[-2:] == [str(tmp_path / "71de12f9"), "--match"]
+    assert "--place" not in command
+    assert "liberational.spatial.walkthrough" in command[-3]

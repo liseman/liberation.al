@@ -3,6 +3,7 @@ of spatial memory), its poses corrected where the walk passes the same place aga
 
     pack-walkthrough walk.mp4                    # a new place
     pack-walkthrough walk.mp4 --place <id>       # a new revision of a place that's already there
+    pack-walkthrough walk.mp4 --match            # the place it registers in, else a new place (`match_place`)
     pack-walkthrough walk.mp4 --keyframes-only DIR   # pick and save the frames in DIR, and stop
     pack-walkthrough walk.mp4 --poses FILE       # also save the corrected camera poses (npz) for other tools
     pack-walkthrough 71de12f9/                   # a Stray Scanner export folder: ARKit's poses and LiDAR depth
@@ -171,6 +172,14 @@ PAIR_SCALE_AGREE = 1.3
 # measurements of the same steps differed by 3.5 degrees and 0.4 m at the median (posegraph.py's 2 degrees and 5 cm
 # were its untuned start).
 STEP_DEG, STEP_M = 4.0, 0.3
+# ARKit's steps (a Stray Scanner walk, `run_stray`), as noise for the pose graph: much tighter than CUT3R's, since
+# ARKit's consecutive poses agree with the frames to a few pixels and its error is slow drift. With posegraph.py's
+# 2 degrees and 5 cm, closing one walk's 17 revisits changed a step by a median 0.18 degrees and 0.5 cm (1.6 degrees
+# and 2.6 cm at the worst), and its frames then sat 4.8 px off each other through their LiDAR depth where ARKit's own
+# poses sit 3.3 px off; the splat's pose refinement was undoing that (#116). At these the same revisits close with a
+# step changed by 0.02 degrees and 0.2 cm and the frames 3.4 px off, and the revisits left 7 cm apart instead of 4.
+# Tighter (0.05 degrees and 0.5 cm) started dropping revisits and left them 11 cm apart.
+ARKIT_STEP_DEG, ARKIT_STEP_M = 0.3, 0.02
 # A step where a sure MASt3R measurement turns this differently from CUT3R is a CUT3R break, and takes MASt3R's
 # measurement instead. IMG_7676 had 13: at the worst, CUT3R turned 146 degrees and moved 4.7 m in one second, and
 # MASt3R's measurement of that step was 89 degrees from it. A repaired step is a loop edge, so the solve can still
@@ -1334,12 +1343,14 @@ def finish(
     up: np.ndarray | Sequence[float],
     looks: Mapping[str, places.CameraPose] | None = None,
     out: Path | None = None,
+    match: bool = False,
 ) -> dict[str, Any]:
     """The walk's points within `MAX_DEPTH`, moved by the corrected poses and thinned to `VOXEL`, as a place: a new
     one (`place` None), written with its floor and plan (and `looks` registered in it as cameras) and made its own
     first fused map (tier 1); or fused into `place`'s map (`into_place`). A walk that doesn't register in `place` is
-    stored as its own new place, and `place` keeps its revision and its cameras. `out` is a folder for MASt3R's work.
-    Returns what it did."""
+    stored as its own new place, and `place` keeps its revision and its cameras. With `match` and no `place`, the
+    walk goes into the place it registers in (`match_place`), and is a new place only when it registers in none.
+    `out` is a folder for MASt3R's work. Returns what it did."""
     pts = walk.points
     n = len(walk.counts)
     near = (pts[:, 2] > 0) & (pts[:, 2] <= MAX_DEPTH)
@@ -1351,11 +1362,17 @@ def finish(
     points = points.astype(np.float32)
     registered: str | None = None
     meant: str | None = None
+    matched: str | None = None
     rev: places.Revision | None = None
+    if place is None and match:
+        rev, registered, matched = match_place(state, label, points, colors, g, walk, closed, producer, looks, out)
+        if rev is None:
+            LOG.info("the walk registers in no place already there, so it's a new place")
     if place is not None:
         rev, registered = into_place(state, place, label, points, colors, g, walk, closed, producer, looks, out)
         if rev is None:
             meant = place
+    new_place = rev is None
     if rev is None:
         written = write_place(state, None, label, points, colors, (g[0], g[1], g[2]), producer=producer, looks=looks)
         rev = fuse.refine(state, written.place) or written  # its own first fused map
@@ -1409,6 +1426,8 @@ def finish(
         "fused": rev.producer == fuse.PRODUCER,
         "registered": registered,
         **({"meant_for": meant} if meant is not None else {}),
+        **({"matched": matched} if match else {}),
+        "new_place": new_place,
         "plan": rev.plan is not None,
         "floor": rev.floor is not None,
     }
@@ -1426,6 +1445,7 @@ def into_place(
     producer: str,
     looks: Mapping[str, places.CameraPose] | None,
     out: Path | None,
+    seat: np.ndarray | None = None,
 ) -> tuple[places.Revision | None, str | None]:
     """The walk's cloud (`points`, in the walk's frame, `up` its up) fused into `place`'s map as a tier 1 revision,
     with the recording's name (`label`) added to the place's `walkthrough` signal and `looks` registered in it: the
@@ -1436,7 +1456,9 @@ def into_place(
     place in the walk, `seat_places`, polished against the map around there when that holds, fuse.fuse_in), when
     `out` is given and MASt3R can run. Nothing is written when it registers neither way: (None, None), and the
     caller stores the walk as a place of its own. A place with no fused map yet takes the walk as its map, as
-    tier 1's first, unless it has cameras registered, whose frame the walk isn't in (None)."""
+    tier 1's first, unless it has cameras registered, whose frame the walk isn't in (None). `seat` is the place's
+    seat in the walk when the caller already found it (`match_place`, which seats every place at once): it stands in
+    for seating the place's cameras here."""
     held = fuse.fused_revision(state, place)
     latest = places.latest(state, place)
     if held is None:
@@ -1465,17 +1487,20 @@ def into_place(
     rev = fuse.fuse_in(state, place, points, colors, floor, cams, [], signals=signals, walked=walked)
     if rev is not None:
         return rev, "map"
-    if out is None or not held.cameras:
+    if seat is not None:
+        seated = {place: seat}
+    elif out is None or not held.cameras:
         return None, None
-    poses = np.einsum("ij,njk->nik", fuse.leveller(floor), closed.poses)
-    try:
-        seated, report = seat_places(state, {place: held}, walk, poses, out)
-    except (RuntimeError, OSError, subprocess.TimeoutExpired) as e:  # MASt3R, or a camera's recorded frames
-        LOG.warning("the place's cameras couldn't be seated in the walk: %s", e)
-        return None, None
-    LOG.info("seating %s's cameras in the walk: %s", place, report)
-    if place not in seated:
-        return None, None
+    else:
+        poses = np.einsum("ij,njk->nik", fuse.leveller(floor), closed.poses)
+        try:
+            seated, report = seat_places(state, {place: held}, walk, poses, out)
+        except (RuntimeError, OSError, subprocess.TimeoutExpired) as e:  # MASt3R, or a camera's recorded frames
+            LOG.warning("the place's cameras couldn't be seated in the walk: %s", e)
+            return None, None
+        LOG.info("seating %s's cameras in the walk: %s", place, report)
+        if place not in seated:
+            return None, None
     rev = fuse.fuse_in(
         state,
         place,
@@ -1491,19 +1516,97 @@ def into_place(
     return (rev, "cameras") if rev is not None else (None, None)
 
 
+def match_place(
+    state: Path,
+    label: str,
+    points: np.ndarray,
+    colors: np.ndarray,
+    up: np.ndarray,
+    walk: Walk,
+    closed: Closure,
+    producer: str,
+    looks: Mapping[str, places.CameraPose] | None,
+    out: Path | None,
+) -> tuple[places.Revision | None, str | None, str | None]:
+    """The walk fused into the place it belongs to, when nobody said which: the new revision, how it registered
+    (`into_place`'s "plan", "map", or "cameras"), and the place; (None, None, None) when it registers in no place,
+    and the caller makes it a new one. Every place with a fused map is a candidate, and a match is decided by the
+    checks a walk into a named place already passes, nothing looser:
+
+    1. **Its map.** The walk's levelled cloud is registered on each place's fused map (`fuse.fit`), and the places
+       are tried best fit first. A place fits when `fuse.MIN_FITNESS` (35%) of the walk's points over the map's
+       footprint land within `fuse.INLIER_M` (5 cm) of the map, and at least `fuse.MIN_INLIERS` (1,000) do.
+    2. **Its owner plan**, for a LiDAR walk: the walk's walls fit the plan the owner drew on the place's map
+       (`fuse.by_plan`: a median of 6 cm to a wall, 60% of them near one, and 90% of its floor inside the rooms).
+    3. **Its fixed cameras**, when neither fits anywhere and MASt3R can run: every place with cameras is seated in
+       the walk at once (`seat_places`: a camera's frame paired with the walk's, at least two walk frames agreeing).
+       Exactly one place seated is the match. Several seated means the walk passes through more than one place:
+       that's no match, and the new place it becomes is joined with them (`join_places`).
+
+    A place that fits by 1 or 2 takes the walk through `into_place`, which fuses it the same way a walk into a named
+    place is; one that then doesn't register is passed over for the next. Nothing is written to a place the walk
+    doesn't register in."""
+    g = up / np.linalg.norm(up)
+    floor = level_floor(points, g)
+    if floor is None:
+        return None, None, None
+    held = {p: rev for p in places.place_ids(state) if (rev := fuse.fused_revision(state, p)) is not None}
+    if not held:
+        return None, None, None
+    levelled = fuse.apply(fuse.leveller(floor), points)
+    fits = {p: fuse.fit(state, rev, levelled) for p, rev in held.items()}
+    fitness = {p: (reg.fitness if reg is not None else 0.0) for p, reg in fits.items()}
+    lidar = producer == PRODUCER_STRAY
+    for p in sorted(held, key=lambda p: -fitness[p]):
+        reg = fits[p]
+        by_map = reg is not None and reg.ok
+        if not by_map and not (lidar and fuse.by_plan(state, p, levelled) is not None):
+            continue
+        rev, how = into_place(state, p, label, points, colors, up, walk, closed, producer, looks, None)
+        if rev is not None:
+            LOG.info("the walk belongs to %s (by its %s; map fitness %.2f)", p, how, fitness[p])
+            return rev, how, p
+    seen = {p: rev for p, rev in held.items() if rev.cameras}
+    if out is None or not seen:
+        return None, None, None
+    poses = np.einsum("ij,njk->nik", fuse.leveller(floor), closed.poses)
+    try:
+        seated, report = seat_places(state, seen, walk, poses, out)
+    except (RuntimeError, OSError, subprocess.TimeoutExpired) as e:  # MASt3R, or a camera's recorded frames
+        LOG.warning("no place's cameras could be seated in the walk: %s", e)
+        return None, None, None
+    LOG.info("seating every place's cameras in the walk: %s", report)
+    if len(seated) != 1:
+        return None, None, None
+    p, seat_in_walk = next(iter(seated.items()))
+    rev, how = into_place(state, p, label, points, colors, up, walk, closed, producer, looks, out, seat=seat_in_walk)
+    return (rev, how, p) if rev is not None else (None, None, None)
+
+
+def settled(did: dict[str, Any]) -> dict[str, Any]:
+    """`did` with where the walk ended up, in two plain values a caller can read off the printed result:
+    `final_place` (the place its join merged it into, else the place it was written to) and `new_place` (whether
+    that place didn't exist before this walk)."""
+    join = did.get("join") or {}
+    into = join.get("into")
+    merged = into is not None and into != did["place"]  # the walk's own new place was merged into one already there
+    return {**did, "final_place": into or did["place"], "new_place": bool(did.get("new_place")) and not merged}
+
+
 def run(
     state: Path,
     video: Path,
     place: str | None = None,
     keyframes_only: Path | None = None,
     poses_out: Path | None = None,
+    match: bool = False,
 ) -> dict[str, Any]:
     """One video (or a Stray Scanner export folder, `run_stray`) through every step (see the module docstring);
     returns what it did."""
     if place is not None and places.latest(state, place) is None:
         raise RuntimeError(f"no place {place}")
     if stray.is_export(video):
-        return run_stray(state, video, place, keyframes_only, poses_out)
+        return run_stray(state, video, place, keyframes_only, poses_out, match)
     began = time.monotonic()
     scored = score(video)
     picked = pick(scored)
@@ -1543,8 +1646,9 @@ def run(
         times = [s.t for s in scored if s.index in chosen]
         looks = splats.look_from(closed.poses, frames, times)
         with places.writing(state):  # the nightly fixed-camera run waits for the join
-            did = finish(state, place, video.name, walk, closed, PRODUCER, up, looks=looks, out=out)
-            did["join"] = join_new(state, place, did, walk, closed, out)
+            did = finish(state, place, video.name, walk, closed, PRODUCER, up, looks=looks, out=out, match=match)
+            did["join"] = join_new(state, place or did.get("matched"), did, walk, closed, out)
+            did = settled(did)
         did["splat"] = splats.splat_walk(state, did["place"], did["revision"], paths, closed.poses, frames, looks)
         if poses_out is not None:
             np.savez(
@@ -1593,7 +1697,8 @@ def cut3r_intrinsics(
 
 def stray_depths(folder: Path, picked: Sequence[int], code: int | None, out: Path) -> list[Path | None]:
     """Each picked frame's LiDAR depth map (`stray.depth_map`, turned like its saved frame) as a 16-bit PNG under
-    `out`, for the splat to train against; None for a frame without one."""
+    `out`, for the splat to train against; None for a frame without one. `picked` are the frames' numbers in the
+    recording (`stray.Frame.frame`), which name the depth maps."""
     import cv2
 
     paths: list[Path | None] = []
@@ -1634,20 +1739,32 @@ def run_stray(
     place: str | None = None,
     keyframes_only: Path | None = None,
     poses_out: Path | None = None,
+    match: bool = False,
 ) -> dict[str, Any]:
     """A Stray Scanner export (spatial/stray.py) through the same steps, with ARKit's poses in CUT3R's place and the
     LiDAR's depth for the cloud: no pose model and no step repair (ARKit's poses don't break the way CUT3R's do), no
-    gravity prior (they're gravity-aligned already), and their own tight odometry noise (posegraph.py's defaults).
+    gravity prior (they're gravity-aligned already), and their own tight odometry noise (`ARKIT_STEP_DEG`,
+    `ARKIT_STEP_M`).
     Revisits are still closed with MASt3R where it can run, since ARKit's heading drifts too, about 1% of the walk."""
     began = time.monotonic()
     video = folder / "rgb.mp4"
-    rows = stray.read_odometry(folder)
-    scored = [s for s in score(video) if s.index in rows]
+    recorded = stray.read_odometry(folder)
+    scored = score(video)
+    # Each decoded frame's own row: a decoder can skip the recording's first frame (stray.py's docstring).
+    rows = stray.by_video_frame(recorded, [(s.index, s.t) for s in scored])
+    scored = [s for s in scored if s.index in rows]
     picked = pick(scored)
     if len(picked) < MIN_FRAMES:
         raise RuntimeError(f"only {len(picked)} frames: the recording needs to move through the place")
     turn, code = stray.upright(np.stack([rows[i].c2w for i in picked]))
-    LOG.info("%d frames from %d posed frames of %s", len(picked), len(scored), folder.name)
+    skipped = rows[picked[0]].frame - picked[0]
+    LOG.info(
+        "%d frames from %d posed frames of %s%s",
+        len(picked),
+        len(scored),
+        folder.name,
+        f" (the video starts {skipped} recorded frames in)" if skipped else "",
+    )
     if keyframes_only is not None:
         keyframes_only.mkdir(parents=True, exist_ok=True)
         images = save_frames(video, picked, keyframes_only, turn=code)
@@ -1659,7 +1776,7 @@ def run_stray(
         colours, size = _grab(video, picked)
         points, colors, counts = [], [], []
         for i in picked:
-            p, c = stray.points(folder, i, rows[i].k, size, colours.get(i))
+            p, c = stray.points(folder, rows[i].frame, rows[i].k, size, colours.get(i))
             points.append(p @ turn)  # the sensor camera's coordinates into the turned camera's: turn^T p, row by row
             colors.append(c)
             counts.append(len(p))
@@ -1676,16 +1793,28 @@ def run_stray(
             gravity=False,
             clouds=near_clouds(walk.points, counts),  # only revisits are measured, so this only fits them
             up=stray.WORLD_UP,
-            step_deg=posegraph.ODOMETRY_DEG,
-            step_m=posegraph.ODOMETRY_M,
+            step_deg=ARKIT_STEP_DEG,
+            step_m=ARKIT_STEP_M,
         )
         frames = [stray.saved_intrinsics(rows[i].k, size, FRAME_SIDE, code, turn) for i in picked]
         times = [rows[i].t for i in picked]
         looks = splats.look_from(closed.poses, frames, times)
         with places.writing(state):  # the nightly fixed-camera run waits for the join
-            did = finish(state, place, folder.name, walk, closed, PRODUCER_STRAY, stray.WORLD_UP, looks=looks, out=out)
-            did["join"] = join_new(state, place, did, walk, closed, out)
-        depths = stray_depths(folder, picked, code, out)
+            did = finish(
+                state,
+                place,
+                folder.name,
+                walk,
+                closed,
+                PRODUCER_STRAY,
+                stray.WORLD_UP,
+                looks=looks,
+                out=out,
+                match=match,
+            )
+            did["join"] = join_new(state, place or did.get("matched"), did, walk, closed, out)
+            did = settled(did)
+        depths = stray_depths(folder, [rows[i].frame for i in picked], code, out)
         did["splat"] = splats.splat_walk(
             state, did["place"], did["revision"], paths, closed.poses, frames, looks, depths
         )
@@ -1697,6 +1826,7 @@ def run_stray(
                 k=np.stack([rows[i].k for i in picked]),
                 turn=turn,
                 frame=np.array(picked),
+                row=np.array([rows[i].frame for i in picked]),
                 t=np.array([rows[i].t for i in picked]),
             )
     return {
@@ -1712,7 +1842,13 @@ def main(argv: Sequence[str] | None = None) -> None:
     folder (see the module docstring)."""
     parser = argparse.ArgumentParser(prog="pack-walkthrough", description=main.__doc__)
     parser.add_argument("video", type=Path, help="a video file, or a Stray Scanner export folder")
-    parser.add_argument("--place", help="the place this video walks through, when it's one already there")
+    where = parser.add_mutually_exclusive_group()
+    where.add_argument("--place", help="the place this video walks through, when it's one already there")
+    where.add_argument(
+        "--match",
+        action="store_true",
+        help="put the walk in the place it registers in, and make a new place only when it registers in none",
+    )
     parser.add_argument("--keyframes-only", type=Path, metavar="DIR", help="save the frames here and stop")
     parser.add_argument("--poses", type=Path, metavar="FILE", help="also save the corrected camera poses here (npz)")
     args = parser.parse_args(argv)
@@ -1723,7 +1859,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             "export or --keyframes-only works"
         )
     try:
-        did = run(cfg.path("paths.state"), args.video, args.place, args.keyframes_only, args.poses)
+        did = run(cfg.path("paths.state"), args.video, args.place, args.keyframes_only, args.poses, args.match)
     except (RuntimeError, OSError, ValueError, subprocess.TimeoutExpired) as e:
         sys.exit(f"pack-walkthrough: {e}")
     for k, v in did.items():

@@ -58,7 +58,9 @@ def frames(
     picked = [int(i) for i in got["frame"]]
     if stray.is_export(walk):
         video = walk / "rgb.mp4"
-        rows = stray.read_odometry(walk)
+        recorded = stray.read_odometry(walk)
+        # `frame` is each saved frame's index in the decoded video, `row` its number in the recording.
+        rows = {i: recorded[int(n)] for i, n in zip(picked, got["row"], strict=True)}
         turn, code = stray.upright(np.stack([rows[i].c2w for i in picked]))
         images = walkthrough.save_frames(video, picked, folder, turn=code)
         cap = cv2.VideoCapture(str(video))
@@ -66,7 +68,7 @@ def frames(
         cap.release()
         paths = [images[n] for n in sorted(images)]
         intr = [stray.saved_intrinsics(rows[i].k, size, walkthrough.FRAME_SIDE, code, turn) for i in picked]
-        depths = walkthrough.stray_depths(walk, picked, code, folder)
+        depths = walkthrough.stray_depths(walk, [rows[i].frame for i in picked], code, folder)
     else:
         images = walkthrough.save_frames(walk, picked, folder)
         paths = [images[n] for n in sorted(images)]

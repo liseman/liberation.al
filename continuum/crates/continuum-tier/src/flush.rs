@@ -330,6 +330,54 @@ impl Flusher {
         unreachable!("the second try returns")
     }
 
+    /// What [`Flusher::append`] does to a stream's open chunk ahead of a payload starting at `start_ns` (a keyframe
+    /// when `key`): closes one that is past its time, full, ahead of the payload in time, or due a part its records
+    /// since the last one can't be, or cuts a part that is due. Returns what it closed or cut.
+    ///
+    /// A caller that commits the result before it appends the payload keeps the payload out of a chunk the catalog
+    /// then refuses a part of: the worker closes that chunk and moves the part's records away, and a keyframe
+    /// appended first would go with them, leaving the frames after it nothing to decode from.
+    ///
+    /// # Errors
+    ///
+    /// [`TierError::UnknownStream`] for an undeclared stream, or a chunk or I/O error.
+    pub fn before(
+        &mut self,
+        stream: StreamId,
+        start_ns: u64,
+        key: bool,
+        now_ns: u64,
+    ) -> Result<Option<Closed>, TierError> {
+        let shape = self.shapes.get(&stream).ok_or(TierError::UnknownStream(stream))?.clone();
+        let mut closed = None;
+        if let Some(open) = self.open.get(&stream) {
+            // An H.264 stream's chunk closes only before a keyframe: its next chunk has to start on one.
+            let aged =
+                now_ns.saturating_sub(open.writer.created_ns()) >= self.settings.open_ns(shape.chunk_format) && key;
+            let full = open.writer.records().len() >= MAX_CHUNK_FRAMES;
+            // Native encoded cameras arrive in decode order; their B-frame PTS can legitimately regress.
+            let backwards = !(shape.chunk_format == ChunkFormat::H264Au && shape.shape_name == "H264AnnexB")
+                && open.writer.records().last().is_some_and(|last| start_ns < last.start_ns);
+            // A part is cut only before a keyframe, so its frames never present before the last part's (B-frames
+            // reorder only inside a GOP).
+            let part = self
+                .settings
+                .part_ns(shape.chunk_format)
+                .is_some_and(|every| now_ns.saturating_sub(open.part_ns) >= every)
+                && key
+                && open.writer.records().len() > open.committed;
+            // The records since the last part start before it: no part of this chunk can take them. The chunk
+            // closes here, on a keyframe, and the worker moves them to a chunk of their own.
+            let stepped = part && steps_back(open.writer.records(), open.committed);
+            if aged || full || backwards || stepped {
+                closed = self.close_stream(stream)?;
+            } else if part {
+                closed = Some(self.cut_part(stream, now_ns)?);
+            }
+        }
+        Ok(closed)
+    }
+
     /// Appends a payload to its stream's chunk, opening one if needed and first closing one that is past its time,
     /// full, ahead of this payload in time, or due a part its records since the last one can't be ([`steps_back`]). Returns the record and the chunk closed on the way, if any. The
     /// payload is in the file but not yet durable: its slot stays unflushed until [`Flusher::sync_due`] or a close
@@ -341,32 +389,7 @@ impl Flusher {
     /// created after an old one closed, the closed chunk is parked rather than lost: see [`Flusher::parked`].
     pub fn append(&mut self, p: Incoming<'_>, now_ns: u64) -> Result<(Record, Option<Closed>), TierError> {
         let shape = self.shapes.get(&p.stream).ok_or(TierError::UnknownStream(p.stream))?.clone();
-        let mut closed = None;
-        if let Some(open) = self.open.get(&p.stream) {
-            // An H.264 stream's chunk closes only before a keyframe: its next chunk has to start on one.
-            let aged =
-                now_ns.saturating_sub(open.writer.created_ns()) >= self.settings.open_ns(shape.chunk_format) && p.key;
-            let full = open.writer.records().len() >= MAX_CHUNK_FRAMES;
-            // Native encoded cameras arrive in decode order; their B-frame PTS can legitimately regress.
-            let backwards = !(shape.chunk_format == ChunkFormat::H264Au && shape.shape_name == "H264AnnexB")
-                && open.writer.records().last().is_some_and(|last| p.start_ns < last.start_ns);
-            // A part is cut only before a keyframe, so its frames never present before the last part's (B-frames
-            // reorder only inside a GOP).
-            let part = self
-                .settings
-                .part_ns(shape.chunk_format)
-                .is_some_and(|every| now_ns.saturating_sub(open.part_ns) >= every)
-                && p.key
-                && open.writer.records().len() > open.committed;
-            // The records since the last part start before it: no part of this chunk can take them. The chunk
-            // closes here, on a keyframe, and the worker moves them to a chunk of their own.
-            let stepped = part && steps_back(open.writer.records(), open.committed);
-            if aged || full || backwards || stepped {
-                closed = self.close_stream(p.stream)?;
-            } else if part {
-                closed = Some(self.cut_part(p.stream, now_ns)?);
-            }
-        }
+        let mut closed = self.before(p.stream, p.start_ns, p.key, now_ns)?;
         if !self.open.contains_key(&p.stream) {
             self.counter += 1;
             // In its stream's UTC-hour directory, named as before.
@@ -449,10 +472,10 @@ impl Flusher {
     pub fn due(&self, now_ns: u64) -> Vec<StreamId> {
         self.open
             .iter()
-            .filter(|(_, o)| self.closes(o, now_ns) || self.parts(o, now_ns))
             .filter(|(_, o)| {
                 o.writer.format() != ChunkFormat::H264Au || now_ns.saturating_sub(o.last_append_ns) >= QUIET_NS
             })
+            .filter(|(_, o)| self.closes(o, now_ns) || self.parts(o, now_ns))
             .map(|(s, _)| *s)
             .collect()
     }
@@ -461,9 +484,14 @@ impl Flusher {
         now_ns.saturating_sub(o.writer.created_ns()) >= self.settings.open_ns(o.writer.format())
     }
 
+    /// Whether a part is due from `o` on the timer. Not from records that stepped back ([`steps_back`]): the
+    /// catalog would refuse the part and the chunk would close wherever the stream then was. A quiet network camera
+    /// is often one whose link stalled, which is also when capture starts its clock fit over; those records wait for
+    /// the stream's next keyframe ([`Flusher::append`] closes the chunk there) or for the chunk's own close.
     fn parts(&self, o: &Open, now_ns: u64) -> bool {
         o.writer.records().len() > o.committed
             && self.settings.part_ns(o.writer.format()).is_some_and(|every| now_ns.saturating_sub(o.part_ns) >= every)
+            && !steps_back(o.writer.records(), o.committed)
     }
 
     /// Closes every chunk [`Flusher::due`] names that is open for `chunk_ns` or longer, and cuts a part from the
