@@ -15,7 +15,9 @@ const TURN_DEG = [5, 15] as const;
 /** Sizes on the plan, metres. */
 const DOT_M = 0.14;
 const HANDLE_M = 0.1;
-const ACCENT = '#3454d1';
+/** The dashboard's accent and the plan's ground (plan-editor.css), as styles: an SVG attribute can't name a variable. */
+const ACCENT = 'var(--plan-accent)';
+const GROUND = 'var(--plan-ground)';
 
 function arrow(event: KeyboardEvent): Pt | null {
   const d = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[event.key];
@@ -86,14 +88,14 @@ export function CameraMarks({ locked = false }: { locked?: boolean }) {
         const name = cameraName(cameras, camera);
         return (
           <g key={camera} data-camera={camera}>
-            {view && <path d={view} fill={ACCENT} fillOpacity={on ? 0.28 : 0.14} pointerEvents="none" />}
+            {view && <path d={view} style={{ fill: ACCENT }} fillOpacity={on ? 0.28 : 0.14} pointerEvents="none" />}
             {on && (
               <line
                 x1={spot.at[0]}
                 y1={spot.at[1]}
                 x2={tip[0]}
                 y2={tip[1]}
-                stroke={ACCENT}
+                style={{ stroke: ACCENT }}
                 strokeWidth={1.5}
                 strokeDasharray={spot.yaw === undefined ? '4 4' : undefined}
                 vectorEffect="non-scaling-stroke"
@@ -109,11 +111,9 @@ export function CameraMarks({ locked = false }: { locked?: boolean }) {
               cx={spot.at[0]}
               cy={spot.at[1]}
               r={DOT_M}
-              fill={ACCENT}
-              stroke="#fff"
               strokeWidth={on ? 3 : 1.5}
               vectorEffect="non-scaling-stroke"
-              style={{ cursor: 'move' }}
+              style={{ cursor: 'move', fill: ACCENT, stroke: GROUND }}
               onPointerDown={event => start(event, camera)}
               onPointerMove={event =>
                 move(event, camera, (at, was) => ({ ...was, at: [snapped(at[0]), snapped(at[1])] }))
@@ -143,11 +143,9 @@ export function CameraMarks({ locked = false }: { locked?: boolean }) {
                 cx={tip[0]}
                 cy={tip[1]}
                 r={HANDLE_M}
-                fill="#fff"
-                stroke={ACCENT}
                 strokeWidth={2}
                 vectorEffect="non-scaling-stroke"
-                style={{ cursor: 'grab' }}
+                style={{ cursor: 'grab', fill: GROUND, stroke: ACCENT }}
                 onPointerDown={event => start(event, camera)}
                 onPointerMove={event => move(event, camera, (at, was) => ({ ...was, yaw: bearing(was.at, at) }))}
                 onPointerUp={end}

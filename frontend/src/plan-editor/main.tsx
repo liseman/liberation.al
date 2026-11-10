@@ -15,15 +15,14 @@ import { createRoot } from 'react-dom/client';
 import { BuildTab, icon } from './BuildTab';
 import { CameraMarks } from './CameraMarks';
 import { CamerasTab } from './CamerasTab';
+import { framing } from './fit';
+import { installGridFade } from './gridFade';
 import { type Changed, fromHash, type Open, ours, type Ready, type Scene } from './protocol';
 import { useSpotsUi } from './spotsUi';
+import { installTheme, setChromeScheme } from './theme';
 
 const assets = `${location.origin}${import.meta.env.BASE_URL}pascal`;
 const { view, scheme, look } = fromHash(location.hash);
-
-// The editor's chrome follows a `dark` class, and its menus are added to <body>.
-document.documentElement.classList.toggle('dark', scheme === 'dark');
-document.body.classList.toggle('dark', scheme === 'dark');
 
 for (const collection of icons) addCollection(collection);
 configureViewer({
@@ -34,8 +33,17 @@ configureViewer({
 useGLTF.setDecoderPath(`${assets}/decoders/draco/`);
 registerBundledLocales();
 useViewer.getState().setUnit('metric');
-// the plan's canvas and the 3D scene follow the dashboard's scheme: the editor keeps that apart from its chrome
-useViewer.getState().setSceneTheme(scheme === 'dark' ? 'twilight' : 'studio');
+// The dashboard's theme and scheme (theme.ts), and the scheme again whenever the host changes it: it does that by
+// the page's address, which changes only after the `#`, so the page stays open with its unsaved edits.
+installTheme();
+/** The chrome, and the 3D scene and 2D plan, in a scheme: the editor keeps the scene's theme apart from its chrome. */
+function applyScheme(next: 'light' | 'dark'): void {
+  setChromeScheme(next);
+  useViewer.getState().setSceneTheme(next === 'dark' ? 'twilight' : 'studio');
+}
+applyScheme(scheme);
+addEventListener('hashchange', () => applyScheme(fromHash(location.hash).scheme));
+installGridFade();
 useAudio.getState().setMuted(true); // its interface sounds are files we don't ship
 await loadPlugin(builtinPlugin);
 
@@ -110,10 +118,23 @@ function show(): void {
     editor.showView('3d', { beside: true });
   } else editor.showView(view);
   // Fill the view with the plan itself: the editor's own first fit is to the whole site, which leaves a home small.
-  setTimeout(() => {
-    const bounds = planBounds();
-    if (bounds) emitter.emit('camera-controls:frame', { bounds });
-  }, FRAME_AFTER_MS);
+  setTimeout(frame, FRAME_AFTER_MS);
+  // and again once the frame stops changing size: it grows and shrinks with the dashboard's window
+  let resized: ReturnType<typeof setTimeout> | undefined;
+  addEventListener('resize', () => {
+    clearTimeout(resized);
+    resized = setTimeout(frame, FRAME_AFTER_MS);
+  });
+}
+
+/** Fit the views to the plan: the 2D editor alone clear of its floating controls (fit.ts); a 3D view frames the plan
+ *  itself, and the 2D one beside it follows that view. */
+function frame(): void {
+  const bounds = planBounds();
+  if (!bounds) return;
+  const canvas = document.querySelector('svg:has(> g[data-floorplan-scene])')?.getBoundingClientRect();
+  const clear = view === '2d' && canvas ? framing(bounds, canvas.width, canvas.height) : null;
+  emitter.emit('camera-controls:frame', { bounds: clear ?? bounds });
 }
 
 function App() {

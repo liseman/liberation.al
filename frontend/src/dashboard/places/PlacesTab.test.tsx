@@ -334,6 +334,8 @@ it("opens the plan editor from Edit plan, the one way in, and closes it back to 
   expect((await screen.findByTitle('Plan editor')).getAttribute('src')).toContain('#view=2d');
   expect(screen.getByRole('button', { name: 'Save plan' })).toBeTruthy();
   expect(screen.queryByRole('button', { name: 'Edit plan' })).toBeNull();
+  // and the view switch goes while it is open: Close editor is the one way out
+  expect(screen.queryByRole('radiogroup', { name: 'Show the place as' })).toBeNull();
   // the facts stay where they were, under the place's name
   expect(screen.getByText(/Machine-made plan.*2 rooms · 21.0 m²/)).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Close editor' }));
@@ -341,7 +343,7 @@ it("opens the plan editor from Edit plan, the one way in, and closes it back to 
   expect(container.querySelector('iframe')).toBeNull();
 });
 
-it('asks before leaving the editor with unsaved changes, for a view or for another place', async () => {
+it('asks before leaving the editor with unsaved changes, for another place or by Close editor', async () => {
   serve([SCENED, OFFICE]);
   server.use(http.get('/places/plan/scene', () => HttpResponse.json({ place: 'p1', scene: SCENE, base: 'r1' })));
   renderPage(<PlacesTab />);
@@ -362,7 +364,7 @@ it('asks before leaving the editor with unsaved changes, for a view or for anoth
   fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   expect(screen.getByTitle('Plan editor')).toBe(frame); // still editing, with the changes
-  fireEvent.click(screen.getByRole('radio', { name: '3D map' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Close editor' }));
   fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Discard changes' }));
   await waitFor(() => expect(screen.queryByTitle('Plan editor')).toBeNull());
 });
