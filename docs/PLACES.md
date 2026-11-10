@@ -59,6 +59,10 @@ A parked frame is kept but can't be placed in a map. Rest the pointer on the cam
 A step tries the frame again when a map gains a view or the camera's spot changes. A frame parked for a day is
 dropped, and the camera's next frame takes its place.
 
+A row that says "Check spot" or "Check facing", with a distance or an angle, is a suggestion: the camera's view fits
+the plan's walls better that far from its spot. Nothing was changed. Measure the spot again, and move or turn it in
+the plan editor if it was off ([steps](PLAN-EDITOR.md#give-a-camera-a-spot)).
+
 ## Give a camera a spot on the plan
 
 A spot says where a camera is on the plan, how high, which way it faces, and how wide it sees. Set it in the plan
