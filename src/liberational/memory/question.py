@@ -299,6 +299,7 @@ SHOTS: tuple[tuple[str, str], ...] = (
         **_when("around 11 last night", part="last night", clock="11"),
     ),
     _shot("remind me to call Dana tomorrow", history=False, people=["Dana"]),
+    _shot("what did Sam say before 5pm", people=["Sam"], **_when("before 5pm", "other")),
 )
 
 
@@ -407,11 +408,16 @@ def from_reply(reply: object, question: str) -> Reading:
     if kind == "other":
         day = part = clock = clock_end = span_kind = unit = ""
         since, amount, other = False, 0.0, phrase or "a time that can't be read"
+    # People walking by or coming in are counted from the cameras. A small model files "how many people came in"
+    # under people, and marks "who was here" as coming in: the first is a camera count, the second no movement.
+    source, measure, movement = one("source", SOURCES), one("measure", MEASURES), one("movement", MOVEMENTS)
+    if source == "people" and movement:
+        source, movement = ("cameras", movement) if measure == "count" else (source, "")
     return Reading(
         history=flag("history"),
-        source=one("source", SOURCES),
-        measure=one("measure", MEASURES),
-        movement=one("movement", MOVEMENTS),
+        source=source,
+        measure=measure,
+        movement=movement,
         direction=flag("direction"),
         intent=flag("intent"),
         now=flag("now"),
