@@ -3,8 +3,6 @@
 // transform, the cameras through their poses, and height is measured from the floor plane.
 
 import type { Scene } from '../../../plan-editor/protocol';
-import { floorplan, parseDsl } from '../../../vendor/floorplan/index.js';
-import { split } from '../edit/text';
 import { level, under } from '../scene/draw';
 
 export type V3 = [number, number, number];
@@ -95,10 +93,8 @@ export function robustRange(values: Float32Array | number[]): [number, number] {
   return [at(0.01), at(0.99)];
 }
 
-/** A stored plan's text as a Pascal scene, or null for one in the old DSL (a scene is JSON; DSL never starts with a
- *  brace). Throws for a scene that doesn't read, as the DSL reader does for its own. */
-function sceneOf(planText: string): Scene | null {
-  if (!planText.trimStart().startsWith('{')) return null;
+/** A stored plan's text as a Pascal scene. Throws for one that doesn't read (the caller draws the map without it). */
+function sceneOf(planText: string): Scene {
   const scene = JSON.parse(planText) as Partial<Scene> | null;
   if (!scene || typeof scene.nodes !== 'object' || scene.nodes === null || !Array.isArray(scene.rootNodeIds))
     throw new Error('the plan is not a scene');
@@ -144,13 +140,10 @@ function sceneLines(scene: Scene): { rooms: [number, number][][]; walls: [[numbe
 }
 
 /** The plan's rooms as outlines in the map frame, a little above the floor (`lift` metres), from its stored text: a
- *  Pascal scene's zones, or the rooms of a plan in the old DSL. */
+ *  Pascal scene's zones. */
 export function planOutline(planText: string, transform: readonly number[], lift = 0.02): V3[][] {
   const { toMap } = planFrame(transform);
-  const scene = sceneOf(planText);
-  if (scene) return sceneLines(scene).rooms.map(poly => poly.map(([x, y]) => toMap([x, y, lift])));
-  const { doc } = parseDsl(split(planText).base);
-  return floorplan(doc).model.rooms.map(r => (r.room.poly as [number, number][]).map(([x, y]) => toMap([x, y, lift])));
+  return sceneLines(sceneOf(planText)).rooms.map(poly => poly.map(([x, y]) => toMap([x, y, lift])));
 }
 
 /** The plan's walls as lines on the floor, in the map's frame, with its doorways cut out of them: what a walk
@@ -158,35 +151,7 @@ export function planOutline(planText: string, transform: readonly number[], lift
  *  curved one is left out, so it stops nothing. */
 export function planWalls(planText: string, transform: readonly number[], lift = 0): [V3, V3][] {
   const { toMap } = planFrame(transform);
-  const scene = sceneOf(planText);
-  if (scene) return sceneLines(scene).walls.map(([a, b]) => [toMap([a[0], a[1], lift]), toMap([b[0], b[1], lift])]);
-  const { doc } = parseDsl(split(planText).base);
-  const { walls, openings } = floorplan(doc).model;
-  const out: [V3, V3][] = [];
-  for (const wall of walls) {
-    if (wall.geometry.kind !== 'segment' || wall.to === wall.from) continue;
-    const [ax, ay] = wall.start;
-    const [bx, by] = wall.end;
-    // where along the wall (0 at its start, 1 at its end) each doorway begins and ends
-    const gaps = openings
-      .filter(o => o.wall === wall && o.spec.type !== 'window')
-      .map(
-        o => [o.from, o.to].map(v => (v - wall.from) / (wall.to - wall.from)).sort((p, q) => p - q) as [number, number],
-      )
-      .sort((p, q) => p[0] - q[0]);
-    const piece = (from: number, to: number) => {
-      if (to - from < 1e-6) return;
-      const at = (t: number) => toMap([ax + (bx - ax) * t, ay + (by - ay) * t, lift]);
-      out.push([at(from), at(to)]);
-    };
-    let done = 0;
-    for (const [from, to] of gaps) {
-      piece(done, Math.max(done, Math.min(1, from)));
-      done = Math.max(done, Math.min(1, to));
-    }
-    piece(done, 1);
-  }
-  return out;
+  return sceneLines(sceneOf(planText)).walls.map(([a, b]) => [toMap([a[0], a[1], lift]), toMap([b[0], b[1], lift])]);
 }
 
 /** The vertical field of view (degrees) that fills a view of `aspect` (width over height) with a fixed camera's own

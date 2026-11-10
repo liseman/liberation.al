@@ -4,12 +4,12 @@
 // (scene/Versions.tsx), from which any earlier version can be restored.
 import { Badge, Button, Group, SegmentedControl } from '@mantine/core';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { messageOf } from '../../../shared/http';
-import { confirm } from '../../lib/confirm';
-import { StatusLine } from '../../lib/message';
-import { savePlan } from '../api';
-import type { Place } from '../examples';
-import classes from '../places.module.css';
+import { messageOf } from '../../shared/http';
+import { confirm } from '../lib/confirm';
+import { StatusLine } from '../lib/message';
+import { savePlan } from './api';
+import type { Place } from './examples';
+import classes from './places.module.css';
 
 export type Showing = 'mine' | 'machine';
 
@@ -23,10 +23,10 @@ export function OwnerBar({ place, showing, onShow }: { place: Place; showing: Sh
     },
   });
   const o = place.origin;
-  if (place.example || !o || !place.planText) return null;
+  if (place.example || !o || !place.scene) return null;
   const mine = o.source === 'owner';
   // nothing to compare, nothing to say: the bar is only for a plan the machine has its own version of
-  if (!mine || (!o.machineNewer && !place.machinePlanText)) return null;
+  if (!mine || (!o.machineNewer && !place.machineScene)) return null;
   return (
     <div className={classes.ownerBar}>
       <Group gap="xs">
@@ -35,7 +35,7 @@ export function OwnerBar({ place, showing, onShow }: { place: Place; showing: Sh
             A newer machine plan exists
           </Badge>
         )}
-        {mine && place.machinePlanText && (
+        {mine && place.machineScene && (
           <SegmentedControl
             size="xs"
             value={showing}
