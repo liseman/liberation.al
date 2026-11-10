@@ -32,7 +32,7 @@ place's map), walk through the missing rooms, and come back.
 In Stray Scanner, share the recording: it exports a zip. On Known › Places, drop that zip on "Import a walk" at the
 top of the page (or choose it there). You don't pick a place: the import works out which place the walk belongs to,
 and the page says which it went into, or that it made a new one. It shows the upload's progress, then the import's;
-it takes a few minutes and keeps going if you leave the page. One import runs at a time.
+it takes a few minutes and keeps going if you leave the page or the dashboard restarts. One import runs at a time.
 
 The walk is registered against every place that has a map, and goes into the first of these that holds:
 

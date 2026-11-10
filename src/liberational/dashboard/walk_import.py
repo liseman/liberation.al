@@ -36,13 +36,23 @@ is kept:
   splat by then, and the phone still has the recording;
 - a failed import keeps it, so Try again needs no second upload, until the import is dismissed or the next upload
   starts, which removes it;
-- an import cut off by a dashboard restart reads as failed and keeps its files the same way.
+- an import that stopped without a result (its process was killed, or the machine restarted) reads as failed,
+  interrupted, and keeps its files the same way.
 
 All of that is the copy on this machine. The file the walk was uploaded from is never touched: the browser sends
 its bytes, and nothing here takes a local path, moves a file, or reaches back to where it came from.
 
-The import itself is `pack-walkthrough`'s `main` in a child process, niced (its model runs nice themselves further),
-so the dashboard holds none of its memory and a crash there is a failed job, not a dead dashboard.
+The import itself is `pack-walkthrough`'s `main` in a process of its own, niced (its model runs nice themselves
+further), so the dashboard holds none of its memory and a crash there is a failed job, not a dead dashboard. It
+doesn't depend on the dashboard that started it (#198): it runs in its own session, so stopping the dashboard's
+process group (as the supervisor does on a restart) leaves it running; its output goes to `<job id>/import.log`, not
+a pipe; and the job records its pid and when that process started. The dashboard only watches: it reads the log for
+the newest step and, once the process is gone, for the result (`outcome`). A dashboard that starts while an import
+runs picks it up from the job file and watches on; one that starts after the process went reads the log the same
+way, so an import that finished while the dashboard was down is done, and one that left no result is interrupted,
+with Try again. A dashboard restart during an import is therefore safe, and `pack-services` needs no guard for it.
+An upload or an unpacking that a restart cut off has no process to pick up: it reads as failed, and the walk is
+dropped again. A job file in an earlier shape is read by the fields it shares with this one.
 """
 
 from __future__ import annotations
@@ -51,6 +61,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -59,9 +70,11 @@ import time
 import uuid
 import zipfile
 from collections.abc import Callable, Iterable
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
+
+import psutil
 
 from liberational import config as cfg
 from liberational import logs
@@ -110,10 +123,24 @@ class Job:
     source: str = ""  # the extracted recording or the video, relative to the job's folder; "" before there is one
     started: float = field(default_factory=time.time)
     finished: float | None = None
+    pid: int = 0  # the import's process, and when it started (psutil's create_time): together they name one process
+    pid_started: float = 0.0
+
+    @classmethod
+    def read(cls, raw: Any) -> Job:
+        """A job from its saved form, by the fields this shape has: a file written by an earlier one (which had a
+        `place`, and no pid) is still a job. `ValueError` for anything that isn't one."""
+        if not isinstance(raw, dict):
+            raise ValueError("not a job")
+        known = {f.name for f in fields(cls)}
+        try:
+            return cls(**{k: v for k, v in raw.items() if k in known})
+        except TypeError as e:  # no id, name, or kind
+            raise ValueError(str(e)) from e
 
     def public(self, root: Path) -> dict[str, Any]:
         kept = bool(self.source) and (root / self.id / self.source).exists()
-        out = {k: v for k, v in asdict(self).items() if k != "source"}
+        out = {k: v for k, v in asdict(self).items() if k not in ("source", "pid", "pid_started")}
         return {**out, "retry": self.status == "failed" and kept}
 
 
@@ -235,62 +262,107 @@ def command(source: Path) -> list[str]:
     return [*([nice, "-n", str(NICE)] if nice else []), *run, "--match"]
 
 
-def run_import(source: Path, progress: Callable[[str], None]) -> dict[str, str]:
-    """Run the import as a child process and return what it printed (`key: value` lines); its log lines go to
-    `progress` as they come. `RuntimeError` with its own message when it fails."""
-    with subprocess.Popen(
-        command(source),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        stdin=subprocess.DEVNULL,
-        text=True,
-        errors="replace",
-    ) as child:
-        killer = threading.Timer(TIMEOUT_S, child.kill)
-        killer.daemon = True
-        killer.start()
-        result: dict[str, str] = {}
-        last = ""
-        try:
-            for raw in child.stdout or ():
-                line = raw.strip()
-                if not line:
-                    continue
-                last = line
-                if (m := _LOG_LINE.match(line)) is not None:
-                    progress(m[1])
-                elif (m := _RESULT_LINE.match(line)) is not None:
-                    result[m[1]] = m[2]
-            code = child.wait()
-        finally:
-            killer.cancel()
-    if code != 0:
-        raise RuntimeError(last.removeprefix("pack-walkthrough: ") or f"the import stopped (exit {code})")
-    if not result.get("final_place"):
-        raise RuntimeError("the import finished without saying which place it wrote")
-    return result
+LOG_NAME = "import.log"  # the import's output, in its job's folder
+POLL_S = 1.0  # how often a running import's log and process are looked at
+INTERRUPTED = "The import was interrupted before it finished."
+
+
+def launch(source: Path, log: Path) -> subprocess.Popen[bytes]:
+    """Start the import on `source` in a session of its own, its output written to `log`: nothing ties it to this
+    process, so it runs on when the dashboard stops (the supervisor signals the dashboard's process group, which a
+    new session isn't in)."""
+    with log.open("wb") as out:
+        return subprocess.Popen(
+            command(source), stdout=out, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, start_new_session=True
+        )
+
+
+def started_at(pid: int) -> float | None:
+    """When the process `pid` started, or None when there is no such process (or it has ended and waits to be
+    reaped)."""
+    try:
+        proc = psutil.Process(pid)
+        return None if proc.status() == psutil.STATUS_ZOMBIE else proc.create_time()
+    except psutil.Error, ValueError:
+        return None
+
+
+def running(job: Job) -> bool:
+    """Whether the job's import process is still there: its pid, started when the job says, so a pid the system has
+    since given to another process doesn't count."""
+    if job.pid <= 0:
+        return False
+    at = started_at(job.pid)
+    return at is not None and abs(at - job.pid_started) < 1.0
+
+
+def read_log(log: Path) -> tuple[str, dict[str, str], str]:
+    """An import's output so far: its newest log message (its step), the `key: value` lines it printed (its result),
+    and its last line of any kind."""
+    try:
+        text = log.read_text(errors="replace")
+    except OSError:
+        return "", {}, ""
+    step, result, last = "", {}, ""
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        last = line
+        if (m := _LOG_LINE.match(line)) is not None:
+            step = m[1]
+        elif (m := _RESULT_LINE.match(line)) is not None:
+            result[m[1]] = m[2]
+    return step, result, last
+
+
+def outcome(log: Path) -> tuple[dict[str, str], str]:
+    """What an import that is no longer running came to, by its output: its result and "" when it said where the walk
+    went; else {} and why not: pack-walkthrough's own error when it gave one, or that it was interrupted."""
+    _, result, last = read_log(log)
+    if result.get("final_place"):
+        return result, ""
+    if last.startswith("pack-walkthrough: "):
+        return {}, last.removeprefix("pack-walkthrough: ")
+    return {}, INTERRUPTED
 
 
 class Importer:
-    """One state directory's walk imports: the newest job, kept in `job.json`, and the thread running it."""
+    """One state directory's walk imports: the newest job, kept in `job.json`, and the thread watching it. Made when
+    the dashboard first asks (so at its start, for the page), it picks up the job a dashboard before it left."""
 
     def __init__(self, state: Path) -> None:
         self.root = state / ROOT
         self.lock = threading.Lock()
         self.thread: threading.Thread | None = None
-        self.job = self._load()
+        self.closed = threading.Event()  # set to stop watching (the import itself runs on)
+        self.job = job = self._load()
+        # An import a dashboard before this one started: watched on while its process runs, else settled now by
+        # what its log says, so it's done if it finished meanwhile and interrupted if it left no result.
+        if job is not None and job.status == "importing":
+            if running(job):
+                self.thread = threading.Thread(target=self._watch, args=(job, None), name="walk-import", daemon=True)
+                self.thread.start()
+            else:
+                self._settle(job)
 
     def _load(self) -> Job | None:
+        """The saved job. One cut off while uploading or unpacking has no process to pick up, so it has failed."""
         try:
-            raw = json.loads((self.root / "job.json").read_text())
-            job = Job(**raw)
-        except OSError, ValueError, TypeError:
+            job = Job.read(json.loads((self.root / "job.json").read_text()))
+        except OSError, ValueError:
             return None
-        if job.status in ACTIVE:  # nothing is running it any more: the dashboard restarted
+        if job.status in ACTIVE and job.status != "importing":
             job.status, job.finished = "failed", time.time()
-            job.error = "The dashboard restarted during this import."
+            job.error = "The dashboard restarted while this walk was being uploaded. Drop it again."
             self._save(job)
         return job
+
+    def close(self) -> None:
+        """Stop watching. The import, if one runs, runs on, and the next Importer picks it up."""
+        self.closed.set()
+        if self.thread is not None:
+            self.thread.join(30)
 
     def _save(self, job: Job | None) -> None:
         self.root.mkdir(parents=True, exist_ok=True)
@@ -350,10 +422,42 @@ class Importer:
             source = ready(job)
             self._set(job, status="importing", detail="Starting the import", source=str(source.relative_to(folder)))
             LOG.info("importing the walk %s", job.name)
-            result = run_import(source, lambda line: self._set(job, detail=line[:300]))
+            child = launch(source, folder / LOG_NAME)
+            self._set(job, pid=child.pid, pid_started=started_at(child.pid) or 0.0)
         except Exception as e:  # the job says what went wrong, whatever it was
             LOG.warning("walk import of %s failed: %s", job.name, e)
             self._set(job, status="failed", error=str(e) or type(e).__name__, finished=time.time())
+            return
+        self._watch(job, child)
+
+    def _watch(self, job: Job, child: subprocess.Popen[bytes] | None) -> None:
+        """Follow a running import to its end: its newest step from its log while its process is there, then what it
+        came to (`_settle`). `child` is the process when this dashboard started it (so it's reaped when it ends);
+        None for one a dashboard before this one started."""
+        log = self.root / job.id / LOG_NAME
+        while not self.closed.is_set():
+            gone = child.poll() is not None if child is not None else not running(job)
+            if gone:
+                return self._settle(job)
+            step = read_log(log)[0]
+            if step and step[:300] != job.detail:
+                self._set(job, detail=step[:300])
+            if job.pid > 0 and time.time() - job.started > TIMEOUT_S:
+                LOG.warning("walk import of %s is still going after %.0f h: stopping it", job.name, TIMEOUT_S / 3600)
+                try:
+                    os.killpg(job.pid, signal.SIGKILL)  # its own session, so its own group: it and its model runs
+                except OSError:
+                    pass
+            self.closed.wait(POLL_S)
+        return None
+
+    def _settle(self, job: Job) -> None:
+        """Finish a job whose import process is gone, by what its log says (`outcome`)."""
+        folder = self.root / job.id
+        result, error = outcome(folder / LOG_NAME)
+        if error:
+            LOG.warning("walk import of %s failed: %s", job.name, error)
+            self._set(job, status="failed", error=error, finished=time.time())
             return
         shutil.rmtree(folder, ignore_errors=True)  # the place has what it needs
         LOG.info(
