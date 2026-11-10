@@ -17,7 +17,11 @@ export DEBIAN_FRONTEND=noninteractive
 
 step() { printf '\n== %s (%ss)\n' "$*" "$SECONDS"; }
 fail() { echo "FAILED: $*" >&2; exit 1; }
-alice() { runuser -u alice -- env HOME=/home/alice USER=alice UV_CACHE_DIR="${UV_CACHE_DIR:-}" PATH=/usr/bin:/bin "$@"; }
+# UV_CACHE_DIR goes along only when a cache is mounted: uv refuses an empty one.
+alice() {
+  runuser -u alice -- env HOME=/home/alice USER=alice ${UV_CACHE_DIR:+UV_CACHE_DIR="$UV_CACHE_DIR"} \
+    PATH=/usr/bin:/bin "$@"
+}
 use_repo() {
   echo "deb [signed-by=/$1/liberational-archive-keyring.gpg] file:/$1 ./" > /etc/apt/sources.list.d/liberational.list
   apt-get update -q > /dev/null
