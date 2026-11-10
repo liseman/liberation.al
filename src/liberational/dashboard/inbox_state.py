@@ -100,3 +100,11 @@ def inbox_skip(kind: Any, ident: object, control: bool) -> Reply:
 def _get_inbox_skips(h: H) -> None:
     counts = skip_counts(inbox_skips())
     return h._json({k: counts[k] for k in ("face", "voice", "line")})
+
+
+@routes.post("/inbox/skip")
+def _post_inbox_skip(h: H, body: Any) -> None:
+    if not h._same_origin_json():
+        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
+    code, o = inbox_skip(body.get("kind"), body.get("id"), h._can_teach())
+    return h._json(o, code)

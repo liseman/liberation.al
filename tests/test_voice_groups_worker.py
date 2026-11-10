@@ -8,7 +8,7 @@ from unittest.mock import create_autospec
 import pytest
 
 from liberational import config
-from liberational.dashboard import machine_stats, photo_files, report_health, server, unnamed_groups
+from liberational.dashboard import context, machine_stats, report_health, server, unnamed_groups
 from liberational.memory import reports
 
 
@@ -99,10 +99,10 @@ def test_dashboard_start_activates_voice_worker_before_serving(worker, monkeypat
 
 def test_voice_worker_refreshes_settings_and_lowers_its_priority(monkeypatch):
     clear = create_autospec(server.cfg.load.cache_clear)
-    priority = create_autospec(photo_files._low_priority)
+    priority = create_autospec(context.low_priority)
     monkeypatch.setattr(unnamed_groups.multiprocessing, "parent_process", lambda: object())
     monkeypatch.setattr(server.cfg.load, "cache_clear", clear)
-    monkeypatch.setattr(photo_files, "_low_priority", priority)
+    monkeypatch.setattr(context, "low_priority", priority)
     monkeypatch.setattr(unnamed_groups, "_unknown_voices", lambda: (200, {"groups": [], "count": 0}))
     assert unnamed_groups._unknown_voices_job() == (200, {"groups": [], "count": 0})
     clear.assert_called_once_with()

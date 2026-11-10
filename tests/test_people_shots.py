@@ -12,7 +12,7 @@ import cv2
 import numpy as np
 import pytest
 
-from liberational.dashboard import context, people_reads, photo_files, server
+from liberational.dashboard import context, people_cards, photo_files, roster_read, server
 from liberational.people import face_shots, video_thumbs
 from liberational.vision import sightings
 from liberational.vision import sightings as st
@@ -137,7 +137,7 @@ def test_a_shot_whose_frame_has_no_geometry_is_404_and_not_cached(dashboard, unm
 
 def test_a_scene_photo_whose_frame_has_no_geometry_is_skipped(dashboard, unmappable, tmp_path):
     dest = tmp_path / "photo.jpg"
-    assert people_reads._crop("cam0", T + 0.5, BOX, dest) is False
+    assert roster_read._crop("cam0", T + 0.5, BOX, dest) is False
     assert not dest.exists()
 
 
@@ -327,13 +327,13 @@ def test_card_admits_video_jobs_but_lists_only_ready_thumbnails(dashboard, tmp_p
     face_shots.write(tmp_path, ids.gone, revision, b"face")
     jobs = face_shots.Pending(photo_files._crop_process)
     monkeypatch.setattr(photo_files, "_crop_jobs", jobs)
-    card = people_reads.person_card("Alice")
+    card = people_cards.person_card("Alice")
     assert card is not None
     assert card["videos"] == []
     assert card["videos_pending"] == 1
     assert not video_thumbs.folder(tmp_path).exists()  # listing never cuts recorded video
     assert jobs.one()
-    after = people_reads.person_card("Alice")
+    after = people_cards.person_card("Alice")
     assert after is not None and len(after["videos"]) == 1
     assert after.get("videos_pending", 0) == 0
     held = [photo_files._shot_decode.acquire(), photo_files._shot_decode.acquire()]
