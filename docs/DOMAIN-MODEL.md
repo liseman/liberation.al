@@ -228,8 +228,8 @@ Notes:
 
 Forgetting is different from recording retention and a catalog reset. It removes the person's identity and
 applicable derived evidence through the existing deletion paths, while age-out removes old footage and retains
-derived observations. See [Architecture](ARCHITECTURE.md#owner-knowledge) and
-[Continuum](CONTINUUM.md#forgetting) for the store boundaries.
+derived observations. See [People](PEOPLE.md#the-knowledge-store) and
+[Continuum](CONTINUUM-BROKER.md#forgetting) for the store boundaries.
 
 `PersonForgotten` outlives the person's purged events. Its opaque IDs, assertion supersessions, rematch times,
 and hashed name history prevent replay from reviving an old assertion or assigning the forgotten person's
@@ -361,7 +361,7 @@ identity precedence, and erasure behavior, not merely transport the same message
 | Places and visits | `memory/places.py`: machine revisions under `state/places/` (a point-cloud map, a floorplan, the floor plane, the map-to-plan transform, and registered cameras), plus a splat beside a revision (`<revision>.gs.ply`, `<revision>.sog`, and `<revision>.gs.from`); visits in the `place.visit` segment stream; the owner's names and plan corrections in the knowledge store's `place.named` and `place.plan` |
 | Calls | Per-call metadata, audio, and transcripts under `paths.calls` |
 
-[Architecture](ARCHITECTURE.md#where-data-lives) is the complete state contract.
+[Architecture](ARCHITECTURE.md#state) is the complete state contract.
 
 ## How the goals use the model
 

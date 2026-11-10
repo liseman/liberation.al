@@ -1,5 +1,4 @@
-//! The device manifest: which devices to capture, how to recognize each, and its settings (docs/CONTINUUM.md,
-//! "One process per physical device").
+//! The device manifest: which devices to capture, how to recognize each, and its settings (docs/CONTINUUM-CAPTURE.md).
 //!
 //! ```toml
 //! [supervisor]

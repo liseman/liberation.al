@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds the private FFmpeg the wheels link statically (docs/CONTINUUM.md, "Wheels"): an LGPL build with only what
+# Builds the private FFmpeg the wheels link statically (docs/CONTINUUM-SDK.md): an LGPL build with only what
 # the Rust code calls, so it carries no GPL part and nothing a distribution's FFmpeg would pull in.
 #
 #   packaging/ffmpeg.sh <prefix> <work directory>
@@ -65,6 +65,8 @@ case "$(uname -s)" in
       --enable-encoder=h264_nvenc --enable-decoder=h264_cuvid --enable-hwaccel=h264_nvdec)
     ;;
   Darwin)
+    # OpenH264's pkg-config file names GNU's C++ library; macOS has only libc++.
+    sed -i '' 's/-lstdc++/-lc++/g' "$prefix/lib/pkgconfig/openh264.pc"
     hardware=(--enable-videotoolbox --enable-encoder=h264_videotoolbox)
     ;;
 esac

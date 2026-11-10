@@ -1,7 +1,7 @@
-//! The tier worker program's connection to the broker (docs/CONTINUUM.md, "Storage tiers"): it registers as a
+//! The tier worker program's connection to the broker (docs/CONTINUUM-STORAGE.md): it registers as a
 //! worker, follows each of its streams with a durable, pinned subscription of its own, reads each payload's bytes
 //! from the broker's Tier 0 arena (mapped from `Welcome`), and runs them through the [`WorkerLoop`]. Chunks, and
-//! the parts of a camera's open chunk (docs/CONTINUUM.md, "Video chunks"), go to the broker with `CommitChunk`; once
+//! the parts of a camera's open chunk (docs/CONTINUUM-STORAGE.md), go to the broker with `CommitChunk`; once
 //! one is committed, its slots are marked `flushed` in the arena and each subscription's saved position moves past
 //! everything committed on it.
 //!
@@ -39,7 +39,7 @@
 //! doesn't keep the others from being archived: it's subscribed to again every [`RESUBSCRIBE`].
 //!
 //! Purges: the worker registers `keeps_copies`, so a purge isn't complete until it has removed its copies and
-//! answered (docs/CONTINUUM.md, "Forgetting"). On a `PurgeNotice` it first closes and commits its open chunks (so no
+//! answered (docs/CONTINUUM-BROKER.md). On a `PurgeNotice` it first closes and commits its open chunks (so no
 //! purged payload sits in a file still being written), merges the notice's spans per stream, and queues a purge job
 //! (a notice sent again for a queued purge is not queued twice, and purges arriving before the last queued job has
 //! begun join it, so they share one pass over the files).

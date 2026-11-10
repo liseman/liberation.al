@@ -1,5 +1,5 @@
-//! `CommitChunk` and `RewriteChunk`: the tier worker's chunks reaching the catalog (docs/CONTINUUM.md,
-//! "Storage tiers"). The worker never holds the catalog: it closes a chunk, and the broker commits it, which compacts
+//! `CommitChunk` and `RewriteChunk`: the tier worker's chunks reaching the catalog (docs/CONTINUUM-STORAGE.md).
+//! The worker never holds the catalog: it closes a chunk, and the broker commits it, which compacts
 //! the absorbed Tier 0 payloads' headers into the chunk, and records the Tier 1 copy in the availability index. After
 //! a purge cut frames from a chunk, the worker rewrites the file and the broker records its new frame index and
 //! location.

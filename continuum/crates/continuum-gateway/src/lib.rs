@@ -1,4 +1,4 @@
-//! Continuum's browser gateway (docs/CONTINUUM.md, "Browser gateway" and decision 12): a broker client of its own
+//! Continuum's browser gateway (docs/CONTINUUM-GATEWAY.md): a broker client of its own
 //! that serves the dashboard over WebSockets (the default) and WebTransport (opt-in, with a certificate), sending
 //! video as encoded access units or JPEG frames that the browser decodes with WebCodecs, and overlays that the
 //! browser draws over the frame with the same capture time. There is no WebRTC.

@@ -65,7 +65,7 @@ views keep their existing projection and crops.
 
 Person tracks born inside detected TV/laptop boxes or owner-drawn screen zones are withheld from these outputs
 until they leave the screen test. Real tracks that later overlap a screen remain real. The original recording is
-unchanged; see [Architecture](ARCHITECTURE.md#people-shown-on-screens) for the filter boundary.
+unchanged; see [Vision pipeline](VISION.md#people-on-screens) for the filter boundary.
 
 see-actions keeps no checkpoint: a restart starts new tracks from the live frames, as a gap would.
 
@@ -86,7 +86,7 @@ see-actions keeps no checkpoint: a restart starts new tracks from the live frame
 SCRFD detection and AdaFace IR50 RGB recognition on the crop. The track's name is what the gallery names the mean of its looks so far,
 so the pose track is the identity over time. A look with insufficient nose confidence or
 feature norm writes only `face.signal`: it does not name the track, update a face group, or save a face photo.
-The saved held-out check can disable automatic naming; see [Architecture](ARCHITECTURE.md#see-actions-the-vision-pipeline).
+The saved held-out check can disable automatic naming; see [People](PEOPLE.md#faces).
 
 | Stream | Fields |
 |---|---|

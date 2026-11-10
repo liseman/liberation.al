@@ -10,7 +10,7 @@ Every collection the knowledge store holds must be listed here (`_DOCUMENTS`, or
 export refuses a store with any other, naming every unknown collection at once, rather than leave out what
 the owner taught. Machine-made rows written into an owner collection stay out of the bundle (`_machine`). Owner state
 kept in files is the allowlist in `knowledge_attachments.collect_files`; what is deliberately left out (the face
-matcher's learned rows, place revisions and maps, hand-made measurements) is listed in docs/ARCHITECTURE.md.
+matcher's learned rows, place revisions and maps, hand-made measurements) is listed in docs/PEOPLE.md.
 """
 
 import argparse

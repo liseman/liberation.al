@@ -1,5 +1,4 @@
-//! What the vector worker does with a job, apart from talking to the broker (docs/CONTINUUM.md, "Vector
-//! worker").
+//! What the vector worker does with a job, apart from talking to the broker (docs/CONTINUUM-STORAGE.md).
 //!
 //! A search is a derived stream. A consumer commits a query payload, `vector.query` ([`VectorQuery`]) or `text.query`
 //! ([`TextQuery`]), and asks for `vector.search` or `text.search` at that instant; the broker dispatches a job whose

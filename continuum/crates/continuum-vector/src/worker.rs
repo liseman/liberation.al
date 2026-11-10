@@ -1,5 +1,5 @@
 //! The vector worker's loop: dispatched searches in, result payloads out, purge notices acknowledged
-//! (docs/CONTINUUM.md, "Vector worker").
+//! (docs/CONTINUUM-STORAGE.md).
 //!
 //! The worker registers two capabilities, [`VECTOR_SEARCH`] and [`TEXT_SEARCH`]. The broker dispatches a job whose
 //! one input is a query payload ([`VECTOR_QUERY`] or [`TEXT_QUERY`]); [`SearchWorker::handle`] answers it from the
@@ -199,7 +199,7 @@ impl SearchWorker {
     }
 
     /// Answers queries committed outside a dispatched job, until the subscription ends: the interim path while the
-    /// SDKs have no consumer promise calls (docs/CONTINUUM.md, "Vector worker"). Subscribe live and pinned to
+    /// SDKs have no consumer promise calls (docs/CONTINUUM-STORAGE.md). Subscribe live and pinned to
     /// [`VECTOR_QUERY`] and [`TEXT_QUERY`]. Each query is answered with one result payload on the matching result
     /// stream, its parent the query, committed by this worker; the consumer waits for the result whose parent is its
     /// query. A query that can't be answered (not inline, bad bytes, a space the store refuses) is passed to

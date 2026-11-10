@@ -1,4 +1,4 @@
-//! The consumer flow (docs/CONTINUUM.md, "Consumer flow: query, quote, and commit"): a `Query` answered from the
+//! The consumer flow (docs/CONTINUUM-BROKER.md): a `Query` answered from the
 //! scheduler's view with a `QueryResult` (what exists) and, when something is missing and the mode asks, a
 //! `PromiseQuote`; `CommitPromise` and `CancelPromise`; the `DispatchJob`s the scheduler's plans turn into, sent
 //! to the workers that hold the capabilities; `FulfillPromise` as outputs land; `PromiseFailed` when a step fails.

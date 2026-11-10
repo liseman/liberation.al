@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds Continuum's two wheels for the platform it runs on (docs/CONTINUUM.md, "Wheels"):
+# Builds Continuum's two wheels for the platform it runs on (docs/CONTINUUM-SDK.md):
 #
 #   continuum_py-<version>-cp314-cp314-<platform>.whl      the Python SDK, with the H.264 decoder
 #   continuum_daemons-<version>-py3-none-<platform>.whl    the daemons, installed onto the environment's PATH
@@ -31,6 +31,7 @@ case "$(uname -s)" in
   Darwin)
     export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-14.0}"
     platform="macosx_${MACOSX_DEPLOYMENT_TARGET//./_}_${arch}"
+    # macOS ships bash 3.2, where expanding an empty array is an error under set -u: see its use below.
     compatibility=()
     ;;
   *)
@@ -59,7 +60,7 @@ python="$(uv python find 3.14)"
 version=$("$python" -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["workspace"]["package"]["version"])')
 
 rm -f "$out"/continuum_py-*-"$platform".whl "$out"/continuum_daemons-*-"$platform".whl
-maturin build --release --features ffmpeg-static --interpreter "$python" "${compatibility[@]}" --out "$out"
+maturin build --release --features ffmpeg-static --interpreter "$python" ${compatibility[@]+"${compatibility[@]}"} --out "$out"
 sdk=("$out"/continuum_py-*.whl)
 "$python" packaging/pack_wheel.py licenses "${sdk[0]}" "$prefix/licenses"
 

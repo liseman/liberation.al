@@ -1,11 +1,11 @@
 //! The flush from Tier 0 to Tier 1: every payload is appended to its stream's open chunk as it lands. A camera's
 //! chunk is one file for `chunk_ns` (a minute), and the catalog hears about its new records every `part_ns` (2
-//! seconds), so the ring only has to cover that lag, never a chunk (docs/CONTINUUM.md, "Video chunks").
+//! seconds), so the ring only has to cover that lag, never a chunk (docs/CONTINUUM-STORAGE.md).
 //!
 //! The flusher knows nothing about sockets or shared memory. The worker feeds it each payload's header fields and
 //! bytes (read from the slot) and commits each [`Closed`] it hands back: a chunk's first part with
 //! [`continuum_catalog::Catalog::commit_chunk`], which compacts the absorbed frames' headers into the chunk's
-//! (docs/CONTINUUM.md, "Catalog"), and each later part with [`continuum_catalog::Catalog::extend_chunk`], which
+//! (docs/CONTINUUM-BROKER.md), and each later part with [`continuum_catalog::Catalog::extend_chunk`], which
 //! does the same for the frames the part adds. A part is cut on a keyframe, or once an H.264 stream has gone
 //! quiet, and after a sync, so the catalog never names bytes a power cut could drop.
 //! A microphone's chunk is committed once, when it closes, since it becomes Opus then.

@@ -1,5 +1,4 @@
-//! Subscriptions: `Subscribe`, `StreamEvent`, `CaughtUp`, `AckEvents`, and `Unsubscribe` (docs/CONTINUUM.md,
-//! "Subscriptions").
+//! Subscriptions: `Subscribe`, `StreamEvent`, `CaughtUp`, `AckEvents`, and `Unsubscribe` (docs/CONTINUUM-BROKER.md).
 //!
 //! A subscription follows one or more streams by commit sequence, the catalog's global order of everything ever
 //! committed (`Indexed::commit_seq`), which is what `StreamEvent.position`, `AckEvents.position`, and a durable

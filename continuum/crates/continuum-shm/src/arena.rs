@@ -14,7 +14,7 @@
 //! address (see `sys::map_aligned`). So a Metal worker can wrap a whole slot (its class size, not the payload
 //! length) with `makeBuffer(bytesNoCopy:length:)` in `storageModeShared`, and a CUDA worker can `cudaHostRegister`
 //! the whole mapping with the default flag. Registering faults in every page, so the first CUDA worker makes the
-//! arena resident. The design doc (docs/CONTINUUM.md) puts the directory inside a 64 KB superblock; it has its own region here
+//! arena resident. The directory has its own region here
 //! from the start, so slot counts never outgrow it.
 //!
 //! # Slot states

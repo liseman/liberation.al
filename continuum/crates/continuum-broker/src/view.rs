@@ -1,6 +1,6 @@
 //! The scheduler's view of the catalog ([`continuum_sched::CatalogView`]), answered from memory.
 //!
-//! The scheduler asks its questions on its own thread, which must never wait on disk (docs/CONTINUUM.md, the
+//! The scheduler asks its questions on its own thread, which must never wait on disk (docs/CONTINUUM-BROKER.md, the
 //! broker's no-stall rule), so [`IndexView`] answers them from the broker's [`AvailabilityIndex`] and its record of
 //! which streams are live, never from the catalog. Every method therefore succeeds; [`ViewError`] is for views that
 //! read storage, and this one doesn't.
