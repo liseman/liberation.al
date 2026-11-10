@@ -8,6 +8,14 @@ distortion centre), `camera_matrix.csv` (3 x 3 intrinsics, the last frame's: wha
 per-frame ones), `depth/000000.png` (16-bit millimetres, 256 x 192), and `confidence/000000.png` (0, 1, or 2). The
 intrinsics are for `rgb.mp4`'s size; a depth map is scaled from them.
 
+Which row goes with which decoded frame: the app writes one odometry row and one depth map per camera frame, numbered
+from 0, but a decoder doesn't always hand back the video's first frame. The app's encoder gives the first frame a
+time just before zero, the container's edit list starts the video at zero, and FFmpeg (so OpenCV) drops what comes
+before it, so decoded frame `i` is then recorded frame `i + 1`. Paired by number alone, every image got the pose and
+the depth of the frame before it, 17 to 33 ms earlier: a few centimetres and most of a degree at a walk (#116).
+`by_video_frame` finds the offset from the timing itself. The phone drops camera frames now and then, so both the
+video's frame times and the odometry's have the same irregular gaps, and only the right offset lines them up.
+
 Poses: ARKit's world is metric and gravity-aligned, +y up. The app writes each camera's rotation turned 180 degrees
 about its x axis (`OdometryEncoder.swift`), so a pose is camera to world with OpenCV camera axes (x right, y down, z
 forward), as the rest of spatial/ uses. ARKit records in the sensor's landscape orientation, so a phone held upright
@@ -21,7 +29,7 @@ Pure reading: numpy and OpenCV, no model, so it runs anywhere.
 from __future__ import annotations
 
 import csv
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -32,6 +40,11 @@ WORLD_UP = (0.0, 1.0, 0.0)  # ARKit's
 #: Depth pixels kept: the app's highest confidence (2), within this range of the camera (metres). LiDAR reaches about
 #: 5 m; nearer than 0.2 m is the phone's own hand or a doorframe brushed past.
 MIN_CONFIDENCE, NEAR_M, FAR_M = 2, 0.2, 5.0
+#: Pairing decoded video frames with odometry rows (`by_video_frame`): the offsets tried, how close two gaps between
+#: frames must be to count as the same (a quarter of a 60 Hz frame), and the share of gaps that must agree, and by how
+#: much more than at no offset, before an offset is believed. A recording at a steady rate agrees at every offset, so
+#: it keeps none.
+SHIFT_REACH, SHIFT_AGREE_S, SHIFT_SHARE, SHIFT_GAIN = 3, 0.004, 0.8, 0.1
 #: The quarter turns about the view axis, as (the matrix taking a turned camera's coordinates to the sensor's, the
 #: cv2.rotate code that turns a sensor image the same way, or None). A clockwise turn makes the sensor's -y (the top
 #: of a landscape frame) the turned camera's +x.
@@ -46,11 +59,12 @@ TURNS: tuple[tuple[tuple[tuple[float, ...], ...], int | None], ...] = (
 @dataclass(frozen=True)
 class Frame:
     """One recorded frame's pose (4 x 4, camera to world, OpenCV axes, the sensor's orientation) and intrinsics (3 x
-    3, at rgb.mp4's size)."""
+    3, at rgb.mp4's size), and its number in the recording, which names its depth and confidence maps."""
 
     t: float
     c2w: np.ndarray
     k: np.ndarray
+    frame: int
 
 
 def is_export(path: Path) -> bool:
@@ -82,8 +96,40 @@ def read_odometry(folder: Path) -> dict[int, Frame]:
                 k = fallback
             else:
                 raise ValueError(f"{folder}: no intrinsics (no fx column and no camera_matrix.csv)")
-            out[int(row["frame"])] = Frame(float(row["timestamp"]), c2w, k)
+            out[int(row["frame"])] = Frame(float(row["timestamp"]), c2w, k, int(row["frame"]))
     return out
+
+
+def video_shift(rows: Mapping[int, Frame], times: Sequence[tuple[int, float]]) -> int:
+    """How many recorded frames a decoder skipped at the start of `rgb.mp4`: decoded frame `i` is recorded frame `i`
+    plus this (see the module docstring). `times` is (decoded index, seconds) for some of the video's frames, in
+    order; a few a second are plenty. For each offset within `SHIFT_REACH`, it counts the gaps between consecutive
+    timed frames that match the gaps between their rows' timestamps, and takes the offset where most do. No offset is
+    taken unless it agrees on `SHIFT_SHARE` of the gaps and on `SHIFT_GAIN` more of them than no offset does, so a
+    recording whose frames all come at one rate, or a video with no usable frame times, is paired by number."""
+    if len(times) < 2:
+        return 0
+    index = np.array([i for i, _ in times])
+    seconds = np.array([t for _, t in times], dtype=np.float64)
+
+    def agreement(shift: int) -> float:
+        known = np.array([i + shift in rows for i in index])
+        both = known[:-1] & known[1:]
+        if not both.any():
+            return 0.0
+        row_t = np.array([rows[i + shift].t if ok else np.nan for i, ok in zip(index, known, strict=True)])
+        return float((np.abs(np.diff(seconds) - np.diff(row_t))[both] <= SHIFT_AGREE_S).mean())
+
+    shares = {shift: agreement(shift) for shift in range(-SHIFT_REACH, SHIFT_REACH + 1)}
+    best = max(shares, key=lambda shift: (shares[shift], -abs(shift)))
+    return best if shares[best] >= SHIFT_SHARE and shares[best] >= shares[0] + SHIFT_GAIN else 0
+
+
+def by_video_frame(rows: Mapping[int, Frame], times: Sequence[tuple[int, float]]) -> dict[int, Frame]:
+    """The odometry rows by the index of the decoded video frame each belongs to (`video_shift`); a row's own
+    `frame` still names its depth map."""
+    shift = video_shift(rows, times)
+    return {number - shift: row for number, row in rows.items() if number >= shift}
 
 
 def upright(c2ws: np.ndarray) -> tuple[np.ndarray, int | None]:
