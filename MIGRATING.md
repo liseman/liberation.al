@@ -318,7 +318,46 @@ In `pack.toml`, under `[ollama]`, set `models = "/usr/share/ollama/.ollama/model
 to pin it, `gpu = "<UUID from nvidia-smi -L>"`, then `uv run --no-sync pack-services install`. The store's files are
 owned by the `ollama` user and readable by everyone, which is enough to serve them; pulling new models into it needs
 write access (`sudo chown -R $USER /usr/share/ollama/.ollama/models`). Every config-reading service needs a restart
-after the pull (new `ollama.gpu` and `ollama.models` keys). On macOS, quit the Ollama app instead.
+after the pull (new `ollama.gpu` and `ollama.models` keys). On macOS, the pack service replaces the Ollama app or
+Homebrew's Ollama too; see the next part.
+
+The service's server tuning is now settings under `[ollama]` (2026-11-09): `keep_alive` (`OLLAMA_KEEP_ALIVE`,
+default Ollama's own), `flash_attention` (on by default), `kv_cache_type` (default `f16`), and `max_loaded_models`
+(default 0, Ollama's own). `config/defaults.toml` says why each default is what it is. These are new keys, so every
+config-reading service needs a restart after the pull: quit the application and open it again.
+
+### A Mac that ran Homebrew's Ollama
+
+A Mac whose Ollama ran as Homebrew's launchd service (`brew services start ollama`) moves it to the pack's `ollama`
+service, keeping its tuning and its model store:
+
+1. Note the tuning and the store the old server used. Homebrew's service sets its variables in its plist
+   (`cat "$(brew --prefix)/opt/ollama/homebrew.mxcl.ollama.plist"`, under `EnvironmentVariables`), and some were set
+   with `launchctl setenv` instead (`launchctl getenv OLLAMA_KEEP_ALIVE`, and the same for `OLLAMA_FLASH_ATTENTION`,
+   `OLLAMA_KV_CACHE_TYPE`, `OLLAMA_MAX_LOADED_MODELS`, and `OLLAMA_MODELS`).
+2. Stop it and keep it from starting at login: `brew services stop ollama`. Quit the Ollama app too if it is running,
+   and turn off its own "launch at login". Leave the formula installed: the pack service runs that `ollama` binary.
+   Check nothing still listens with `lsof -iTCP:11434 -sTCP:LISTEN` (no output).
+3. In `pack.toml`, under `[ollama]`, put the tuning the defaults don't already give. For a server that ran with
+   `OLLAMA_KEEP_ALIVE=-1`, `OLLAMA_FLASH_ATTENTION=1`, and `OLLAMA_KV_CACHE_TYPE=q8_0`:
+
+   ```toml
+   [ollama]
+   keep_alive = "-1"      # a large model stays loaded until Ollama stops
+   kv_cache_type = "q8_0"
+   # flash_attention = true is already the default
+   ```
+
+   Keep the model store: if step 1 showed an `OLLAMA_MODELS`, set `models` to that path; with none, the old server
+   used `~/.ollama/models`, which is the service's default as well, so leave `models` unset. If the old server set
+   `OLLAMA_MAX_LOADED_MODELS`, set `max_loaded_models` to the same number.
+4. Turn the pack's service on: it is on by default, so remove `"ollama"` from `[services] disable` in `pack.toml` if
+   it is there. Then quit the application and open it again (`pack-app`), which also restarts every service for the
+   new keys.
+5. Check it: `.venv/bin/pack-services status` lists `ollama` as running, and `curl -s http://127.0.0.1:11434/api/tags`
+   lists the models the old server had. The first answers after the switch load their models, so they are slow once.
+
+To go back: quit the application, set `[services] disable = ["ollama"]`, and `brew services start ollama`.
 
 ## Prepare the upgrade
 
