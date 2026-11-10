@@ -1,7 +1,7 @@
 """Face thumbnails on disk (#2018): written under the deletion revision, pruned by age and size."""
 
-import os
 import threading
+from pathlib import Path
 from unittest.mock import patch
 
 import cv2
@@ -13,28 +13,61 @@ from liberational.people import face_shots
 NOW = 1_800_000_000.0
 
 
-def crop_at(state, sid, age_days, size=1000):
-    p = face_shots.write(state, sid, "0", b"x" * size)
-    os.utime(p, (NOW - age_days * 86400, NOW - age_days * 86400))
-    return p
+def sid_at(t, n=0):
+    """A UUIDv7 sighting ID made at epoch second t, like see-actions' (uuid.uuid7)."""
+    h = f"{int(t * 1000):012x}7000{0x8000_0000_0000_0000 | n:016x}"
+    return f"{h[:8]}-{h[8:12]}-{h[12:16]}-{h[16:20]}-{h[20:]}"
 
 
-def test_prune_drops_crops_past_the_video_window_and_keeps_the_rest(tmp_path):
-    old = crop_at(tmp_path, "old", face_shots.KEEP_DAYS + 1)
-    kept = crop_at(tmp_path, "kept", face_shots.KEEP_DAYS - 1)
-    assert face_shots.prune(tmp_path, NOW) == 1
-    assert (old.exists(), kept.exists()) == (False, True)
+def crop_at(state, age_days, n=0, size=1000):
+    return face_shots.write(state, sid_at(NOW - age_days * 86400, n), "0", b"x" * size)
 
 
-def test_prune_drops_the_oldest_until_under_the_cap(tmp_path):
-    crops = [crop_at(tmp_path, f"s{k}", age_days=5 - k) for k in range(5)]  # 5000 bytes, oldest first
+@pytest.mark.parametrize(
+    ("sid", "expected"),
+    [
+        pytest.param(sid_at(NOW), "2027011508", id="face-sighting"),
+        pytest.param(sid_at(NOW + 3599.9), "2027011508", id="end-of-the-hour"),
+        pytest.param(sid_at(NOW + 3600), "2027011509", id="next-hour"),
+        pytest.param(sid_at(NOW).replace("-", "")[:20] + ":cat:3", "2027011508", id="animal-track"),
+        pytest.param("a893c5e7290e:dog:1", face_shots.UNDATED, id="old-animal-track"),
+        pytest.param("0b5e4c3a-1f2d-4e6b-9a8c-7d6e5f4a3b2c", face_shots.UNDATED, id="uuid4"),
+        pytest.param("abc", face_shots.UNDATED, id="short"),
+        pytest.param("zzzzzzzz-zzzz-7zzz", face_shots.UNDATED, id="not-hex"),
+    ],
+)
+def test_a_crop_is_filed_under_the_hour_its_id_was_made(sid, expected):
+    assert face_shots.hour(sid) == expected
+    assert face_shots.path(Path("/s"), sid, "0").parent == Path("/s/shots") / expected
+
+
+def test_prune_drops_whole_hours_past_the_video_window_and_keeps_the_rest(tmp_path):
+    old = [crop_at(tmp_path, face_shots.KEEP_DAYS + 1, n) for n in range(2)]
+    kept = crop_at(tmp_path, face_shots.KEEP_DAYS - 1)
+    assert face_shots.prune(tmp_path, NOW) == 2
+    assert [p.exists() for p in [*old, kept]] == [False, False, True]
+    assert not old[0].parent.exists()
+
+
+def test_prune_drops_the_oldest_hours_until_under_the_cap(tmp_path):
+    undated = face_shots.write(tmp_path, "abc", "0", b"x" * 1000)  # no time to keep it by: it goes first
+    crops = [crop_at(tmp_path, age_days=5 - k) for k in range(4)]  # 5000 bytes with it, oldest first
     assert face_shots.prune(tmp_path, NOW, cap_bytes=3000) == 3  # under 80% of 3000 leaves two
-    assert [p.exists() for p in crops] == [False, False, False, True, True]
+    assert [p.exists() for p in [undated, *crops]] == [False, False, False, True, True]
+
+
+def test_prune_sees_crops_added_to_an_hour_it_already_measured(tmp_path):
+    crop_at(tmp_path, 1, 0)
+    newest = crop_at(tmp_path, 0, 0, size=500)
+    assert face_shots.prune(tmp_path, NOW, cap_bytes=10_000) == 0
+    crop_at(tmp_path, 1, 1, size=7500)  # 9,000 bytes now: over 80% of the cap
+    assert face_shots.prune(tmp_path, NOW, cap_bytes=10_000) == 2
+    assert newest.exists()
 
 
 def test_the_writer_saves_a_square_jpeg_under_the_current_revision(tmp_path):
     face_shots.Writer(tmp_path)("abc", np.full((90, 90, 3), 200, np.uint8))
-    (saved,) = face_shots.folder(tmp_path).glob("*.jpg")
+    (saved,) = face_shots.folder(tmp_path).rglob("*.jpg")
     assert saved == face_shots.path(tmp_path, "abc", "0")
     img = cv2.imread(str(saved))
     assert img is not None
@@ -90,36 +123,67 @@ def test_background_jobs_deduplicate_until_a_saved_crop_is_visible(tmp_path, mon
     assert face_shots.saved(tmp_path) == set()
 
 
-def test_saved_reads_each_kind_and_revision_from_one_directory_listing(tmp_path):
-    shots = face_shots.folder(tmp_path)
-    shots.mkdir()
+def test_saved_reads_each_kind_and_revision_from_one_hour_listing(tmp_path):
+    a, b, c = (sid_at(NOW, n) for n in range(3))
+    shots = face_shots.folder(tmp_path) / "2027011508"
+    shots.mkdir(parents=True)
     v, grid = face_shots.VERSION, f"{face_shots.VERSION}-grid{face_shots.GRID_PX}"
     for name in [
-        f"a-{v}-r0.jpg",
-        f"b-{v}-r1.jpg",
-        f"a-{grid}-r0.jpg",
-        f"c-{grid}-r1.jpg",
-        f".d-{v}-r0.jpg.123.tmp",  # a write in progress
-        "e-old-geometry-r0.jpg",
-        f"f-{v}-r0.png",
+        f"{a}-{v}-r0.jpg",
+        f"{b}-{v}-r1.jpg",
+        f"{a}-{grid}-r0.jpg",
+        f"{c}-{grid}-r1.jpg",
+        f".{c}-{v}-r0.jpg.123.tmp",  # a write in progress
+        f"{c}-old-geometry-r0.jpg",
+        f"{c}-{v}-r0.png",
     ]:
         (shots / name).write_bytes(b"x")
-    assert face_shots.saved(tmp_path) == {"a", "b"}
-    assert face_shots.saved(tmp_path, revision="0") == {"a"}
-    assert face_shots.saved(tmp_path, "shots_grid") == {"a", "c"}
-    assert face_shots.saved(tmp_path, "shots_grid", "1") == {"c"}
+    assert face_shots.saved(tmp_path) == {a, b}
+    assert face_shots.saved(tmp_path, revision="0") == {a}
+    assert face_shots.saved(tmp_path, "shots_grid") == {a, c}
+    assert face_shots.saved(tmp_path, "shots_grid", "1") == {c}
     assert face_shots.saved(tmp_path, "pet_shots") == set()
+    assert c not in face_shots.saved(tmp_path) and None not in face_shots.saved(tmp_path)
 
 
-def test_saved_sees_an_external_write_to_a_settled_directory(tmp_path, monkeypatch):
-    shots = face_shots.folder(tmp_path)
-    shots.mkdir()
-    (shots / f"a-{face_shots.VERSION}-r0.jpg").write_bytes(b"x")
+def test_saved_sees_an_external_write_to_a_settled_hour(tmp_path, monkeypatch):
+    a, b = sid_at(NOW, 1), sid_at(NOW, 2)
+    face_shots.write(tmp_path, a, "0", b"x")
     later = face_shots.time.time_ns() + 60 * 10**9
     monkeypatch.setattr(face_shots.time, "time_ns", lambda: later)  # every change is a minute old: no per-second reads
-    assert face_shots.saved(tmp_path, revision="0") == {"a"}
-    (shots / f"b-{face_shots.VERSION}-r0.jpg").write_bytes(b"x")  # another process: no cache clear here
-    assert face_shots.saved(tmp_path, revision="0") == {"a", "b"}
+    assert b not in face_shots.saved(tmp_path, revision="0")
+    face_shots.path(tmp_path, b, "0").write_bytes(b"x")  # another process: no cache clear here
+    assert face_shots.saved(tmp_path, revision="0") == {a, b}
+
+
+def test_a_read_after_one_new_crop_among_100000_lists_only_that_hour(tmp_path, monkeypatch):
+    # Every crop in one folder was listed whole after each new crop: 8.9 s a groups read (#51).
+    start = NOW - 30 * 86400
+    ids = [sid_at(start + k * 26, k) for k in range(100_000)]  # 30 days at about 140 crops an hour
+    names: dict[str, list[str]] = {}
+    for sid in ids:
+        names.setdefault(face_shots.hour(sid), []).append(f"{sid}-{face_shots.VERSION}-r0.jpg")
+    for hour in names:
+        (face_shots.folder(tmp_path) / hour).mkdir(parents=True)
+    listed: list[int] = []
+
+    def listing(directory):
+        found = tuple(names.get(directory.name, [])) + tuple(p.name for p in directory.glob("*"))
+        listed.append(len(found))
+        return found
+
+    monkeypatch.setattr(face_shots, "_list", listing)
+    later = face_shots.time.time_ns() + 60 * 10**9
+    monkeypatch.setattr(face_shots.time, "time_ns", lambda: later)  # the folders have settled
+    asked = ids[::100]  # a groups read asks about the shots it shows, from every hour
+    assert all(sid in face_shots.saved(tmp_path, revision="0") for sid in asked)
+    assert len(listed) == len({face_shots.hour(sid) for sid in asked})  # the first read lists each hour once
+    listed.clear()
+    new = sid_at(start + 100_000 * 26)
+    face_shots.path(tmp_path, new, "0").write_bytes(b"x")  # see-actions' newest crop
+    saved = face_shots.saved(tmp_path, revision="0")
+    assert all(sid in saved for sid in [*asked, new])
+    assert len(listed) == 1 and listed[0] < 200  # only the newest hour, of about 140 crops
 
 
 def test_unavailable_crops_leave_processing_until_new_revision(tmp_path):

@@ -109,7 +109,7 @@ class CaptionAnimals:
         self.cam, self.find, self.embed, self.pet_names, self.every_s = cam, find, embed, pet_names, every_s
         self.shots = shots
         self.asked_at = -float("inf")
-        self.run = uuid.uuid7().hex[-12:]  # track ids no other run used
+        self.run = uuid.uuid7().hex[:20]  # track ids no other run used, starting with the run's time (face_shots.hour)
         self.count = 0
         self.tracks: dict[str, _Track] = {}  # each species' last track on this camera
         self.warned: set[str] = set()

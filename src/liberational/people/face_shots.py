@@ -8,17 +8,25 @@ A crop's file name carries the segment store's deletion revision it was checked 
 the current revision as is; after a forget moves the revision, it checks each crop's sighting once more before
 serving it, so a crop of a deleted sighting is never served. The cache follows the video's retention (`KEEP_DAYS`)
 and a byte cap, whichever is reached first.
+
+Crops are filed in a folder per UTC hour, taken from the UUIDv7 time in the crop's ID (#51): see-actions only adds to
+the newest hours, so a reader lists an hour's folder once and again only after it changes, and pruning drops whole
+hours. Nothing lists every crop.
 """
 
 from __future__ import annotations
 
+import calendar
 import collections
-import functools
+import collections.abc
 import os
+import re
+import shutil
+import string
 import tempfile
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -37,53 +45,133 @@ QUALITY = 82
 
 
 RACY_NS = 2_000_000_000  # a directory changed this recently may share its timestamps with its next change
+UNDATED = "undated"  # the folder of crops whose ID carries no time (tests' made-up IDs, or a hand-named crop)
+HOUR = re.compile(r"\d{10}")  # an hour's folder: YYYYMMDDHH in UTC
 
 
-def saved(state: Path, kind: str = "shots", revision: str | None = None) -> frozenset[str]:
-    """Directory-indexed crop IDs. Own writes invalidate it; external writes refresh within one second.
-
-    The directory is read once per change of its timestamps, shared by every kind and revision in it (#2312). A
-    timestamp can alias two quick changes, so a directory changed within RACY_NS is read again each second until it
-    settles; callers also verify each returned current-revision file.
-    """
-    directory = folder(state, kind.removesuffix("_grid"))
+def hour(sid: str) -> str:
+    """The UTC hour (YYYYMMDDHH) a crop is filed under: the time of the UUIDv7 its ID starts with. A face sighting's ID
+    is one, and an animal track's ID starts with its run's (see/action_animals.py); any other ID is UNDATED."""
+    head = sid.replace("-", "")[:13]
+    if len(head) < 13 or head[12] != "7" or not all(c in string.hexdigits for c in head):
+        return UNDATED
     try:
-        stat = directory.stat()
-    except FileNotFoundError:
-        return frozenset()
-    racy = time.time_ns() - max(stat.st_mtime_ns, stat.st_ctime_ns) < RACY_NS
-    second = int(time.monotonic()) if racy else None
-    return _saved(directory, revision, _version(kind), stat.st_mtime_ns, stat.st_ctime_ns, second)
+        return time.strftime("%Y%m%d%H", time.gmtime(int(head[:12], 16) / 1000))
+    except OverflowError, OSError, ValueError:
+        return UNDATED
 
 
-@functools.lru_cache(maxsize=8)
-def _saved(
-    directory: Path, revision: str | None, version: str, mtime: int, ctime: int, second: int | None
-) -> frozenset[str]:
-    # The same names glob("*-{version}-r{revision or *}.jpg") gives, without a Path per file.
-    tail = f"-{version}-r"
-    names = _names(directory, mtime, ctime, second)
-    if revision is None:
-        found = (n for n in names if n.endswith(".jpg") and tail in n[:-4])
-    else:
-        end = f"{tail}{revision}.jpg"
-        found = (n for n in names if n.endswith(end))
-    return frozenset(n.split(f"-{version}", 1)[0] for n in found)
+def _hour_end(name: str) -> float | None:
+    """When an hour's folder ends (epoch seconds), or None for UNDATED."""
+    return calendar.timegm(time.strptime(name, "%Y%m%d%H")) + 3600 if HOUR.fullmatch(name) else None
 
 
-@functools.lru_cache(maxsize=4)
-def _names(directory: Path, mtime: int, ctime: int, second: int | None) -> tuple[str, ...]:
-    """Every file name in the directory at these timestamps (the key; see saved)."""
+def hours(state: Path, kind: str = "shots") -> list[Path]:
+    """The kind's hour folders, oldest first, then UNDATED. One listing of at most an entry an hour."""
+    names = [n for n in _list(folder(state, kind)) if HOUR.fullmatch(n) or n == UNDATED]
+    return [folder(state, kind) / n for n in sorted(names, key=lambda n: (n == UNDATED, n))]
+
+
+def _list(directory: Path) -> tuple[str, ...]:
+    """Every entry name in one directory: the only directory read the index does."""
     try:
         with os.scandir(directory) as entries:
             return tuple(entry.name for entry in entries)
-    except FileNotFoundError:
+    except FileNotFoundError, NotADirectoryError:
         return ()
 
 
-def _forget_index() -> None:
-    _saved.cache_clear()
-    _names.cache_clear()
+Stamp = tuple[int, int, int | None]  # a directory's mtime and ctime, and the second while they may alias a change
+
+
+@dataclass
+class _Listing:
+    stamp: Stamp
+    names: tuple[str, ...]
+    ids: dict[tuple[str, str | None], frozenset[str]]  # crop IDs of each (geometry version, revision)
+
+
+_index: dict[Path, _Listing] = {}  # each hour folder's names, read again only when its timestamps change
+_index_lock = threading.Lock()
+
+
+def _stamp(directory: Path) -> Stamp | None:
+    try:
+        stat = directory.stat()
+    except FileNotFoundError, NotADirectoryError:
+        return None
+    racy = time.time_ns() - max(stat.st_mtime_ns, stat.st_ctime_ns) < RACY_NS
+    return stat.st_mtime_ns, stat.st_ctime_ns, int(time.monotonic()) if racy else None
+
+
+def _ids(directory: Path, version: str, revision: str | None) -> frozenset[str]:
+    """The IDs of one hour folder's crops of this geometry version and revision (any revision for None)."""
+    stamp = _stamp(directory)
+    if stamp is None:
+        with _index_lock:
+            _index.pop(directory, None)
+        return frozenset()
+    with _index_lock:
+        listing = _index.get(directory)
+        if listing is not None and listing.stamp == stamp and (version, revision) in listing.ids:
+            return listing.ids[version, revision]
+    if listing is None or listing.stamp != stamp:
+        listing = _Listing(stamp, _list(directory), {})
+    # The same names glob("*-{version}-r{revision or *}.jpg") gives, without a Path per file.
+    tail = f"-{version}-r"
+    if revision is None:
+        found = (n for n in listing.names if n.endswith(".jpg") and tail in n[:-4])
+    else:
+        end = f"{tail}{revision}.jpg"
+        found = (n for n in listing.names if n.endswith(end))
+    ids = frozenset(n.split(f"-{version}", 1)[0] for n in found)
+    with _index_lock:
+        listing.ids[version, revision] = ids
+        _index[directory] = listing
+    return ids
+
+
+def _forget(directory: Path) -> None:
+    """Drop one folder's listing after this process changed it, so the next read sees the change."""
+    with _index_lock:
+        _index.pop(directory, None)
+
+
+class Saved(collections.abc.Set[str]):
+    """The saved crops of one kind and revision, read lazily: asking about an ID reads only its hour's folder, at most
+    once for this view and again only when that folder has changed since it was last listed (#51). Directory-indexed:
+    own writes invalidate their folder, and external writes are seen within one second; callers also verify each
+    returned current-revision file."""
+
+    def __init__(self, state: Path, kind: str, revision: str | None) -> None:
+        self.state, self.kind, self.revision = state, kind, revision
+        self.version = _version(kind)
+        self.folder = folder(state, kind.removesuffix("_grid"))
+        self.seen: dict[str, frozenset[str]] = {}
+
+    @classmethod
+    def _from_iterable(cls, it: Iterable[str]) -> frozenset[str]:
+        return frozenset(it)  # set operations (`&`, `|`, `-`) give plain sets
+
+    def _hour(self, name: str) -> frozenset[str]:
+        if name not in self.seen:
+            self.seen[name] = _ids(self.folder / name, self.version, self.revision)
+        return self.seen[name]
+
+    def __contains__(self, sid: object) -> bool:
+        return isinstance(sid, str) and sid in self._hour(hour(sid))
+
+    def __iter__(self) -> Iterator[str]:
+        for directory in hours(self.state, self.kind.removesuffix("_grid")):
+            yield from self._hour(directory.name)
+
+    def __len__(self) -> int:
+        return sum(1 for _ in self)
+
+
+def saved(state: Path, kind: str = "shots", revision: str | None = None) -> Saved:
+    """Which crops of this kind and revision exist (any revision for None), as a lazy view (Saved)."""
+    return Saved(state, kind, revision)
 
 
 CropKey = tuple[Path, str, str, str]  # state, kind, ID, deletion revision
@@ -249,17 +337,20 @@ def _version(kind: str) -> str:
     return f"{VERSION}-grid{GRID_PX}" if kind.endswith("_grid") else VERSION
 
 
+def directory(state: Path, sid: str, kind: str = "shots") -> Path:
+    """The hour folder sid's crops are filed in (`hour`)."""
+    return folder(state, kind.removesuffix("_grid")) / hour(sid)
+
+
 def path(state: Path, sid: str, revision: str, kind: str = "shots") -> Path:
     """Where sighting sid's crop is, checked under deletion revision `revision`."""
-    return folder(state, kind.removesuffix("_grid")) / f"{sid}-{_version(kind)}-r{revision}.jpg"
+    return directory(state, sid, kind) / f"{sid}-{_version(kind)}-r{revision}.jpg"
 
 
 def others(state: Path, sid: str, revision: str, kind: str = "shots") -> list[Path]:
     """sid's crops of other revisions, keeping original and grid geometries separate for revalidation."""
     current = path(state, sid, revision, kind).name
-    return [
-        p for p in folder(state, kind.removesuffix("_grid")).glob(f"{sid}-{_version(kind)}-r*.jpg") if p.name != current
-    ]
+    return [p for p in directory(state, sid, kind).glob(f"{sid}-{_version(kind)}-r*.jpg") if p.name != current]
 
 
 def promote(previous: Path, current: Path) -> bool:
@@ -268,7 +359,8 @@ def promote(previous: Path, current: Path) -> bool:
         previous.replace(current)
     except FileNotFoundError:
         return current.is_file()
-    _forget_index()
+    _forget(previous.parent)
+    _forget(current.parent)
     return True
 
 
@@ -319,29 +411,81 @@ def write(state: Path, sid: str, revision: str, jpg: bytes, kind: str = "shots")
         tmp.unlink(missing_ok=True)
     if not kind.endswith("_grid"):
         path(state, sid, revision, kind + "_grid").unlink(missing_ok=True)
-    _forget_index()
+    _forget(out.parent)
     return out
 
 
 def prune(state: Path, now: float | None = None, cap_bytes: int = CAP_BYTES, kind: str = "shots") -> int:
-    """Drops crops older than KEEP_DAYS, then the oldest until the rest are under 80% of `cap_bytes`. Crops removed."""
+    """Drops whole hours: those past KEEP_DAYS, then the oldest (UNDATED first) until the rest are under 80% of
+    `cap_bytes`. Each hour's size is read once and again only when it changes, so a prune lists no settled hour twice
+    in a process. Crops removed."""
     now = time.time() if now is None else now
-    files = []
-    for f in folder(state, kind).glob("*.jpg"):
-        try:
-            st = f.stat()
-        except OSError:
-            continue  # another process pruned it
-        files.append((st.st_mtime, st.st_size, f))
-    files.sort()
-    total = sum(size for _, size, _ in files)
+    found = hours(state, kind)
     removed = 0
-    for mtime, size, f in files:
-        if mtime >= now - KEEP_DAYS * 86400 and total <= cap_bytes * 0.8:
+    for d in found:
+        end = _hour_end(d.name)
+        if end is not None and end <= now - KEEP_DAYS * 86400:
+            removed += _drop(d)
+    rest = [d for d in found if d.exists()]
+    total = sum(_size(d)[1] for d in rest)
+    for d in sorted(rest, key=lambda d: (d.name != UNDATED, d.name)):
+        if total <= cap_bytes * 0.8:
             break
-        f.unlink(missing_ok=True)
-        total -= size
-        removed += 1
+        total -= _size(d)[1]
+        removed += _drop(d)
+    return removed
+
+
+_sizes: dict[Path, tuple[Stamp, int, int]] = {}  # each hour folder's crop count and bytes at its timestamps
+
+
+def _size(directory: Path) -> tuple[int, int]:
+    """One hour folder's crop count and bytes."""
+    stamp = _stamp(directory)
+    hit = _sizes.get(directory)
+    if hit is not None and hit[0] == stamp:
+        return hit[1], hit[2]
+    count = size = 0
+    try:
+        with os.scandir(directory) as entries:
+            for entry in entries:
+                if entry.name.endswith(".jpg"):
+                    try:
+                        size += entry.stat().st_size
+                    except FileNotFoundError:
+                        continue  # another process pruned it
+                    count += 1
+    except FileNotFoundError:
+        pass
+    if stamp is not None:
+        _sizes[directory] = stamp, count, size
+    return count, size
+
+
+def _drop(directory: Path) -> int:
+    """Remove one hour folder; the crops it held."""
+    count = _size(directory)[0]
+    shutil.rmtree(directory, ignore_errors=True)
+    _sizes.pop(directory, None)
+    _forget(directory)
+    return count
+
+
+def remove(state: Path, sids: Iterable[str] | None, kind: str = "shots") -> int:
+    """Delete these sightings' crops of every geometry and revision (every crop of the kind for None), listing only
+    their hours' folders. Crops removed."""
+    if sids is None:
+        return sum(_drop(d) for d in hours(state, kind))
+    by_hour: dict[Path, set[str]] = {}
+    for sid in sids:
+        by_hour.setdefault(directory(state, sid, kind), set()).add(sid)
+    removed = 0
+    for d, wanted in by_hour.items():
+        for name in _list(d):
+            if name.endswith(".jpg") and name.split(f"-{VERSION}", 1)[0] in wanted:
+                (d / name).unlink(missing_ok=True)
+                removed += 1
+        _forget(d)
     return removed
 
 

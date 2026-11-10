@@ -100,7 +100,6 @@ def world(tmp_path, monkeypatch):
         "PEOPLE_ADDED": "people_added.json",
         "VOICE_TAGS": "voice_tags.jsonl",
         "CALLS_DIR": "calls",
-        "SHOTS": "shots",
     }
     for name, path in files.items():
         monkeypatch.setattr(server, name, state / path)
@@ -377,7 +376,7 @@ def test_deleting_someone_clears_their_face_crops_and_keeps_everyone_elses(world
         face_shots.write(world.state, sid, "0", b"jpg")
         face_shots.write(world.state, sid, "0", b"jpg", "shots_grid")
     assert server.delete_person("dana cole", control=True)[0] == 200
-    assert sorted(p.name for p in (world.state / "shots").glob("*.jpg")) == sorted(
+    assert sorted(p.name for p in (world.state / "shots").rglob("*.jpg")) == sorted(
         face_shots.path(world.state, alices, "0", kind).name for kind in ("shots", "shots_grid")
     )
 
