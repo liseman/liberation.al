@@ -135,15 +135,14 @@ def _reference(record: knowledge.Record) -> None:
 
 
 def _voice_reference() -> Path:
-    reference = Path(cfg.get("owner.voice_ref")).expanduser()
-    return reference if reference.is_absolute() else cfg.ROOT / reference
+    return cfg.path("owner.voice_ref")
 
 
 def _files(state: Path, faces: Path) -> dict[str, bytes]:
     """The taught files; settings and the owner's voice sample only when this install has them (a new one may not)."""
     from liberational import knowledge_attachments
 
-    config, devices, reference = cfg.local_config(), cfg.ROOT / "config" / "devices.toml", _voice_reference()
+    config, devices, reference = cfg.local_config(), cfg.devices_file(), _voice_reference()
     return knowledge_attachments.collect_files(
         state,
         faces,

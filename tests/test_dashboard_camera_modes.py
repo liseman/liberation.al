@@ -58,9 +58,9 @@ def inventory():
 def discovery(monkeypatch, inventory, tmp_path):
     monkeypatch.setattr(camera_modes, "_cache", {})
     monkeypatch.setattr(camera_modes, "_reading", {})
-    monkeypatch.setattr(services.cfg, "ROOT", tmp_path)
+    monkeypatch.setattr(services.cfg, "BIN", tmp_path / "bin")
     spec = tmp_path / "services.toml"
-    spec.write_text('[continuum-capture]\ncommand="continuum/target/release/continuum-capture"\n')
+    spec.write_text('[continuum-capture]\ncommand="continuum-capture"\n')
     monkeypatch.setattr(services, "SPEC", spec)
     with (
         patch.object(capture_control.shutil, "which", autospec=True, return_value="/bin/continuum-capture"),
@@ -74,8 +74,8 @@ def discovery(monkeypatch, inventory, tmp_path):
         yield run
 
 
-def test_repository_service_binary_is_used_without_a_path_install(discovery, tmp_path, monkeypatch):
-    binary = tmp_path / "continuum/target/release/continuum-capture"
+def test_the_environments_capture_is_used_without_a_path_install(discovery, tmp_path, monkeypatch):
+    binary = tmp_path / "bin/continuum-capture"
     binary.parent.mkdir(parents=True)
     binary.touch(mode=0o755)
     with monkeypatch.context() as local:
@@ -85,18 +85,9 @@ def test_repository_service_binary_is_used_without_a_path_install(discovery, tmp
     assert discovery.call_args.args[0] == [str(binary), "--list", "--json", "--format", "MJPEG"]
 
 
-def test_declared_service_path_is_resolved_instead_of_hardcoding_release(discovery, tmp_path):
-    services.SPEC.write_text('[continuum-capture]\ncommand="bin/capture-custom"\nargs=["--devices", "unused.toml"]\n')
-    binary = tmp_path / "bin/capture-custom"
-    binary.parent.mkdir()
-    binary.touch(mode=0o755)
-    assert camera_modes.modes("/dev/video2")["choices"]
-    assert discovery.call_args.args[0] == [str(binary), "--list", "--json", "--format", "MJPEG"]
-
-
 @pytest.mark.parametrize("kind", ["nonexecutable", "directory"])
 def test_unusable_service_binary_falls_back_to_path(discovery, tmp_path, kind):
-    binary = tmp_path / "continuum/target/release/continuum-capture"
+    binary = tmp_path / "bin/continuum-capture"
     binary.parent.mkdir(parents=True)
     if kind == "directory":
         binary.mkdir()

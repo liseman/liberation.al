@@ -2,13 +2,16 @@
 
 import importlib.util
 import json
+import pathlib
 
 import numpy as np
 import pytest
 
 from liberational import config as cfg
 
-_spec = importlib.util.spec_from_file_location("drop_side_faces", cfg.ROOT / "tools" / "drop_side_faces.py")
+_spec = importlib.util.spec_from_file_location(
+    "drop_side_faces", pathlib.Path(__file__).resolve().parents[1] / "tools" / "drop_side_faces.py"
+)
 assert _spec and _spec.loader
 tool = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(tool)

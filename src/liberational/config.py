@@ -1,9 +1,8 @@
-"""Central settings for the pack.
+"""Central settings for the pack, and where its files are.
 
-Values come from config/defaults.toml, then pack.toml at the repo root
-(gitignored; PACK_CONFIG points somewhere else), then environment variables.
-Every key has an environment variable: owner.name is PACK_OWNER_NAME,
-ports.dashboard is PACK_PORTS_DASHBOARD, and so on.
+Values come from defaults.toml, then the owner's pack.toml (PACK_CONFIG points somewhere else), then environment
+variables. Every key has an environment variable: owner.name is PACK_OWNER_NAME, ports.dashboard is
+PACK_PORTS_DASHBOARD, and so on.
 
   from liberational import config as cfg
   cfg.get("ports.dashboard")      # 8765
@@ -12,6 +11,27 @@ ports.dashboard is PACK_PORTS_DASHBOARD, and so on.
 
   uv run pack-config            # print the effective config
   uv run pack-config owner.name # print one value
+
+Two kinds of file, in separate places:
+
+- The code's resources (defaults.toml, labels.toml, system-packages.toml, and services.toml) are package data under
+  RESOURCES, the same path in a checkout and in an installed wheel. In the repository they are symlinks to config/
+  and services/, which the wheel build follows.
+- The owner's files (pack.toml, devices.toml, and everything under data/) are under OWNER_ROOT when there is one,
+  laid out as a checkout has them: pack.toml at the top, config/devices.toml, and data/. OWNER_ROOT is PACK_ROOT when
+  that is set, else the checkout the code runs from (CHECKOUT). The code runs from a checkout when this package's
+  directory is `src/liberational` beside a pyproject.toml; from a wheel in site-packages it isn't, and CHECKOUT is
+  None.
+- Installed with no PACK_ROOT, OWNER_ROOT is None and the owner's files go to the user's directories: pack.toml and
+  devices.toml in config_dir() (~/.config/liberational, or XDG_CONFIG_HOME), and state, logs, and models in
+  data_dir() (~/.local/share/liberational, or XDG_DATA_HOME). On macOS both are
+  ~/Library/Application Support/liberational. A relative path in a setting follows the same split (owner_file()):
+  "data/state" is data_dir()/state, and anything not under data/ is beside pack.toml.
+
+Nothing finds a program through the checkout. The pack-* commands, the interpreter, and Continuum's daemons are in
+the bin directory of the environment the process runs in (program()); in a checkout `mise run continuum-release`
+links the daemons it builds into .venv/bin. The only uses of CHECKOUT are the frontend sources and pyproject.toml's
+command list.
 """
 
 import contextlib
@@ -31,11 +51,29 @@ import tomllib
 from collections.abc import Generator, Iterable, Mapping
 from typing import Any, cast
 
-# The repo checkout (config/, state/, models/, and so on live here). PACK_ROOT overrides it.
-ROOT = pathlib.Path(os.environ.get("PACK_ROOT") or pathlib.Path(__file__).resolve().parents[2]).expanduser()
-DEFAULTS = ROOT / "config" / "defaults.toml"
+APP = "liberational"  # the directory name under the user's config and data directories
+PACKAGE = pathlib.Path(__file__).resolve().parent
+RESOURCES = PACKAGE / "resources"  # the code's own files, shipped in the wheel
+
+
+def _checkout() -> pathlib.Path | None:
+    root = PACKAGE.parents[1]
+    return root if PACKAGE.parent.name == "src" and (root / "pyproject.toml").is_file() else None
+
+
+# The repository the code runs from, or None when it is installed from a wheel. Only for what exists in a
+# repository alone (frontend sources, tools/, pyproject.toml); the owner's files go through OWNER_ROOT.
+CHECKOUT = _checkout()
+# The directory holding the owner's files in a checkout's layout, or None for the user's directories (the module
+# docstring). Read at call time by the functions below, so a test can point it at a temp directory.
+OWNER_ROOT: pathlib.Path | None = (
+    pathlib.Path(os.environ["PACK_ROOT"]).expanduser() if os.environ.get("PACK_ROOT") else CHECKOUT
+)
+# The bin directory of the environment this process runs in. Not resolved: a venv's python is a symlink out of it.
+BIN = pathlib.Path(sys.executable).parent
+DEFAULTS = RESOURCES / "defaults.toml"
 _LOG = logging.getLogger("liberational.config")
-LABELS = ROOT / "config" / "labels.toml"  # Settings' plain label, help, and section for each setting
+LABELS = RESOURCES / "labels.toml"  # Settings' plain label, help, and section for each setting
 SECTIONS = ("you", "devices", "features", "people", "phone", "services")  # Settings' menu, before Advanced
 
 # Older environment variable names that still work, checked after PACK_<SECTION>_<KEY>.
@@ -52,8 +90,57 @@ ALIASES = {
 _overrides: list[dict[str, Any]] = []  # dicts layered on top by override(), for tests
 
 
+def _user_dir(variable: str, fallback: str) -> pathlib.Path:
+    if sys.platform == "darwin":
+        return pathlib.Path.home() / "Library" / "Application Support" / APP
+    given = os.environ.get(variable, "")
+    return (pathlib.Path(given) if pathlib.Path(given).is_absolute() else pathlib.Path.home() / fallback) / APP
+
+
+def config_dir() -> pathlib.Path:
+    """Where pack.toml is: OWNER_ROOT, or the user's config directory when installed."""
+    return OWNER_ROOT if OWNER_ROOT is not None else _user_dir("XDG_CONFIG_HOME", ".config")
+
+
+def data_dir() -> pathlib.Path:
+    """Where state, logs, and models are: OWNER_ROOT/data, or the user's data directory when installed."""
+    return OWNER_ROOT / "data" if OWNER_ROOT is not None else _user_dir("XDG_DATA_HOME", ".local/share")
+
+
+def owner_file(relative: str | os.PathLike[str]) -> pathlib.Path:
+    """Absolute path of one of the owner's files, named as a checkout lays it out ("data/models/x.onnx",
+    ".env.phone"): ~ expanded, an absolute path as it is, and a relative one under OWNER_ROOT. Installed, a path
+    under data/ is in data_dir() (without the "data") and any other is in config_dir()."""
+    p = pathlib.Path(relative).expanduser()
+    if p.is_absolute():
+        return p
+    if OWNER_ROOT is not None:
+        return OWNER_ROOT / p
+    return data_dir().joinpath(*p.parts[1:]) if p.parts[:1] == ("data",) else config_dir() / p
+
+
+def devices_file() -> pathlib.Path:
+    """The device manifest: config/devices.toml under OWNER_ROOT, or devices.toml beside pack.toml when installed."""
+    return OWNER_ROOT / "config" / "devices.toml" if OWNER_ROOT is not None else config_dir() / "devices.toml"
+
+
+def workdir() -> pathlib.Path:
+    """The directory helper commands run in: OWNER_ROOT, or data_dir() (made if missing) when installed."""
+    if OWNER_ROOT is not None:
+        return OWNER_ROOT
+    data_dir().mkdir(parents=True, exist_ok=True)
+    return data_dir()
+
+
+def program(name: str) -> pathlib.Path:
+    """A command installed with this package (a pack-* console script or a Continuum daemon): beside the
+    interpreter this process runs, which is the environment's bin directory in a checkout's .venv and in an
+    installed one alike. A checkout's daemons are links there to its release build (mise run continuum-release)."""
+    return BIN / name
+
+
 def local_config() -> pathlib.Path:
-    return pathlib.Path(os.environ.get("PACK_CONFIG") or ROOT / "pack.toml").expanduser()
+    return pathlib.Path(os.environ.get("PACK_CONFIG") or config_dir() / "pack.toml").expanduser()
 
 
 def merge(base: Mapping[str, Any], over: Mapping[str, Any]) -> dict[str, Any]:
@@ -162,14 +249,13 @@ def _normalize_ollama(value: str) -> str:
 
 
 def path(key: str) -> pathlib.Path:
-    """Absolute path for a setting: ~ expanded, relative paths under the repo root."""
-    p = pathlib.Path(str(get(key))).expanduser()
-    return p if p.is_absolute() else ROOT / p
+    """Absolute path for a setting: ~ expanded, relative paths as owner_file() places them."""
+    return owner_file(str(get(key)))
 
 
 def model_path(name: str) -> pathlib.Path:
     """Absolute path of a file model declared under [models.files.<name>]."""
-    return ROOT / load()["models"]["files"][name]["path"]
+    return owner_file(load()["models"]["files"][name]["path"])
 
 
 def hf_repo(name: str) -> str:
@@ -225,7 +311,7 @@ def agent_configured() -> bool:
 def openclaw_config() -> dict[str, Any]:
     """Parsed OpenClaw config, or {} when it isn't there or agent.openclaw_config is empty."""
     if not str(get("agent.openclaw_config")).strip():
-        return {}  # path("") would be the repo root
+        return {}  # path("") would be the owner's root
     try:
         return json.loads(path("agent.openclaw_config").read_text())
     except OSError, ValueError:
@@ -535,6 +621,7 @@ LOCAL_WRITE = threading.Lock()  # held around each read-modify-write of pack.tom
 def write_local(text: str) -> None:
     """Replace pack.toml with text atomically, readable only by its owner (it may hold secrets)."""
     path = local_config()
+    path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".tmp")
     try:
         with os.fdopen(fd, "w") as f:
@@ -593,7 +680,7 @@ def check() -> int:
     # services/services.toml read here, not through liberational.services: every service imports this module, so
     # importing services would make the settings scanner (readers.py) count what services.py reads as read by all of
     # them, and a save would restart services that never read the setting.
-    declared = toml.loads((ROOT / "services" / "services.toml").read_text())
+    declared = toml.loads((RESOURCES / "services.toml").read_text())
     local = local_config()
     if not local.exists():
         print(f"no {local}: nothing to check")

@@ -873,7 +873,7 @@ def test_parse_preserves_explicit_configured_camera_names(tmp_path, monkeypatch,
         'device=[{name="entryway",kind="rtsp"},{name="0",kind="camera"},'
         '{name="cam00",kind="camera"},{name="CAM0",kind="rtsp"}]'
     )
-    monkeypatch.setattr(cfg, "ROOT", tmp_path)
+    monkeypatch.setattr(cfg, "OWNER_ROOT", tmp_path)
     result = h.parse(f"what did camera {camera_id} show yesterday", NOW)
     assert result["cameras"] == [camera_id]
     assert result["kind"] == "camera"
@@ -883,7 +883,7 @@ def test_parse_preserves_explicit_configured_camera_names(tmp_path, monkeypatch,
 def test_camera_name_is_not_mistaken_for_an_unsupported_time_phrase(tmp_path, monkeypatch, camera_id):
     (tmp_path / "config").mkdir()
     (tmp_path / "config" / "devices.toml").write_text(f'device=[{{name="{camera_id}",kind="rtsp"}}]')
-    monkeypatch.setattr(cfg, "ROOT", tmp_path)
+    monkeypatch.setattr(cfg, "OWNER_ROOT", tmp_path)
     question = f"what did camera {camera_id} show yesterday"
     result = h.parse(question, NOW)
     assert result["cameras"] == [camera_id]
@@ -1084,7 +1084,7 @@ def test_a_named_camera_request_is_scoped_and_cites_the_selected_angle(state, tm
         '{name="rear-left",kind="rtsp"},{name="side",kind="rtsp"},'
         '{name="upper",kind="rtsp"},{name="lower",kind="rtsp"}]'
     )
-    monkeypatch.setattr(cfg, "ROOT", tmp_path)
+    monkeypatch.setattr(cfg, "OWNER_ROOT", tmp_path)
     camera(
         state,
         [
@@ -1105,7 +1105,7 @@ def test_a_named_camera_request_is_scoped_and_cites_the_selected_angle(state, tm
 def test_in_a_room_does_not_scope_a_question_to_a_camera_named_like_it(state, tmp_path, monkeypatch):
     (tmp_path / "config").mkdir()
     (tmp_path / "config" / "devices.toml").write_text('device=[{name="cam0",kind="camera"},{name="study",kind="rtsp"}]')
-    monkeypatch.setattr(cfg, "ROOT", tmp_path)
+    monkeypatch.setattr(cfg, "OWNER_ROOT", tmp_path)
     camera(state, [dict(ts=NOW - 10, cam="study", caption="A violet mug.")])
     result = ask(state, "What happened in the study today?")
     assert result["query"]["cameras"] == []
@@ -1136,7 +1136,7 @@ def test_explicit_journal_request_does_not_mix_in_transcript_or_camera_topics(st
 def test_ambiguous_camera_name_returns_an_actionable_refusal(state, tmp_path, monkeypatch):
     (tmp_path / "config").mkdir()
     (tmp_path / "config" / "devices.toml").write_text('device=[{name="north",kind="rtsp"},{name="south",kind="rtsp"}]')
-    monkeypatch.setattr(cfg, "ROOT", tmp_path)
+    monkeypatch.setattr(cfg, "OWNER_ROOT", tmp_path)
     with cfg.override({"vision": {"camera_names": ["north: Side camera", "south: Side camera"]}}):
         result = ask(state, "What did the side camera see today?")
     assert result["is_history"]
@@ -1147,7 +1147,7 @@ def test_ambiguous_camera_name_returns_an_actionable_refusal(state, tmp_path, mo
 def test_discussion_of_a_room_or_journal_stays_a_transcript_question(state, tmp_path, monkeypatch):
     (tmp_path / "config").mkdir()
     (tmp_path / "config" / "devices.toml").write_text('device=[{name="garden",kind="rtsp"}]')
-    monkeypatch.setattr(cfg, "ROOT", tmp_path)
+    monkeypatch.setattr(cfg, "OWNER_ROOT", tmp_path)
     assert h.parse("What did Dana say about camping in the garden today?", NOW)["kind"] == "transcript"
     assert h.parse("What did Dana say about writing in the journal today?", NOW)["kind"] == "transcript"
 

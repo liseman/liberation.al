@@ -224,7 +224,7 @@ def test_configured_camera_names_are_kept_as_they_are(tmp_path, monkeypatch, cam
         'device=[{name="entryway",kind="rtsp"},{name="0",kind="camera"},'
         '{name="cam00",kind="camera"},{name="CAM0",kind="rtsp"}]'
     )
-    monkeypatch.setattr(cfg, "ROOT", tmp_path)
+    monkeypatch.setattr(cfg, "OWNER_ROOT", tmp_path)
     assert h.cameras(f"what's on camera {camera_id}") == [camera_id]
 
 
@@ -232,7 +232,7 @@ def test_a_question_that_names_no_camera_reads_the_manifests_cameras(tmp_path, m
     (tmp_path / "config").mkdir()
     path = tmp_path / "config" / "devices.toml"
     path.write_text('device=[{name="entryway",kind="rtsp"},{name="rear-2",kind="camera"}]')
-    monkeypatch.setattr(cfg, "ROOT", tmp_path)
+    monkeypatch.setattr(cfg, "OWNER_ROOT", tmp_path)
     assert h.cameras("what do the cameras see") == ["entryway", "rear-2"]
     path.write_text("device=[]")
     assert h.cameras("what do the cameras see") == []

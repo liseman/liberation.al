@@ -2,15 +2,17 @@
 stated tolerance (spatial/walkthrough.py `CLOSE_M`, `CLOSE_DEG`)."""
 
 import importlib.util
+import pathlib
 import sys
 
 import numpy as np
 import pytest
 
-from liberational import config as cfg
 from liberational.spatial import walkthrough as W
 
-_spec = importlib.util.spec_from_file_location("walkthrough_closure", cfg.ROOT / "tools" / "walkthrough_closure.py")
+_spec = importlib.util.spec_from_file_location(
+    "walkthrough_closure", pathlib.Path(__file__).resolve().parents[1] / "tools" / "walkthrough_closure.py"
+)
 assert _spec is not None and _spec.loader is not None
 wc = importlib.util.module_from_spec(_spec)
 sys.modules["walkthrough_closure"] = wc

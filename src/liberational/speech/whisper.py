@@ -18,7 +18,7 @@ import numpy as np
 
 from liberational import config as cfg
 
-WHISPER_CLI = cfg.ROOT / "data/whisper.cpp/build/bin/whisper-cli"  # where `mise run whisper` builds it
+WHISPER_CLI = cfg.owner_file("data/whisper.cpp/build/bin/whisper-cli")  # where `mise run whisper` builds it
 SERVER_URL = os.environ.get("WHISPER_SERVER", cfg.local_url("whisper", "/inference"))
 GGML_URL = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-{}.bin"
 SR = 16000

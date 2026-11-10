@@ -47,7 +47,8 @@ background_max_wait_s = 30.0
 [paths]
 # Runtime state, logs, and media live under data/ by default (gitignored), so the repo
 # root holds only code and config.
-# Relative paths are relative to the repo root; ~ is expanded.
+# Relative paths are relative to the repo root; ~ is expanded. In an installed package (no checkout), data/ is the
+# user's data directory, ~/.local/share/liberational (docs/ARCHITECTURE.md, Where data lives).
 state = "data/state"
 logs = "data/logs"
 faces = "data/faces"

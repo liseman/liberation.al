@@ -2,6 +2,7 @@
 stranded labels from their kept photos, and carrying pets over from an earlier embedding space."""
 
 import importlib.util
+import pathlib
 from types import SimpleNamespace
 
 import numpy as np
@@ -14,7 +15,7 @@ from liberational.people import pet_recognition as R
 from test_pet_recognition import MIA, PETS, POPPY, T, look, owner
 
 _spec = importlib.util.spec_from_file_location(
-    "restore_pet_references", cfg.ROOT / "tools" / "restore_pet_references.py"
+    "restore_pet_references", pathlib.Path(__file__).resolve().parents[1] / "tools" / "restore_pet_references.py"
 )
 assert _spec and _spec.loader
 tool = importlib.util.module_from_spec(_spec)
