@@ -1,6 +1,6 @@
 """Tiny localhost caption server: Qwen3-VL via mlx-vlm, one model, one thread. Apple Silicon (MLX) only.
 
-Why a separate process: in v1, running Metal/MLX in the camera process coincided with capture fps decaying to zero
+Why a separate process: running Metal/MLX in the camera process coincided with capture fps decaying to zero
 and AVFoundation re-opens hanging, while the out-of-process Ollama path had been stable for hours. This keeps the GPU
 work out of the caption worker (and lets other tools, e.g. identity.py, reuse the resident model).
 

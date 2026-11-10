@@ -1,5 +1,4 @@
-"""The Objects page and its API (frontend/src/objects/), served by the dashboard on Continuum: what v1's
-object memory server (port 8772) answered, from `memory.objects`.
+"""The Objects page and its API (frontend/src/objects/), served by the dashboard from `memory.objects`.
 
 GET  /objects                 the page
 GET  /objects/api/status      how many objects, which cameras have a fresh frame, and the worker's last sighting
@@ -101,7 +100,7 @@ def status() -> dict[str, Any]:
         "visual_objects": sum(o.get("mode") == "visual" for o in rows),
         "cameras": _cameras(now),
         # the object worker (pack-see-objects) commits sightings only: its newest one in the last hour stands in for
-        # the observer v1 ran in this server
+        # the time an observer pass last finished, which the page shows
         "observer": {"finished_at": max(r["ts_start"] for r in newest)} if newest else None,
         "observer_error": None,
         "recognition": "CPU SIFT + RANSAC; two distinct consistent frames; no person recognition",

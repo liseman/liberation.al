@@ -35,7 +35,7 @@ Subjects. Today's stores have no ids for prints, so a subject id is the store's 
 
     speaker:<id>        a voice cluster in speakers.json (its ids are never reused)
     face-group:<id>     an unnamed face group ("Face N") that someone named
-    identity:<path>     the face candidate of a v1 identity.jsonl record, by its saved embedding (history only)
+    identity:<path>     the face candidate of an imported identity record, by its saved embedding (history only)
     detection:<id>      one face observation, what a face match or correction is about: a `face.match` row's id in
                         the segment store (see-actions' head faces), or a `face.detection` payload before
     enroll:<uuid>       a face enrolled from images by `pack-faces enroll`
@@ -1554,9 +1554,8 @@ def backfill(
     photo. Copy each phone number in contacts.json to a person who has none, and mark each name in people_added.json
     as added by hand. Skips what the log already has, so a rerun writes nothing new.
 
-    Names come only from the stores that make up today's roster. v1's identity.jsonl is not read since the identity
-    worker moved its records to the broker: every named voice counts as an owner tag, and the faces its records
-    enrolled are the gallery's rows. (The paragraph below describes the stores that remain.) A name still on the
+    Names come only from the stores that make up today's roster: every named voice counts as an owner tag, and
+    enrolled faces are the gallery's rows. (The paragraph below describes the stores that remain.) A name still on the
     roster enrolled. Otherwise a rerun would bring a forgotten person back.
 
     Today's stores do not say how a voice got its name, so a voice named by an identity.jsonl record gets that
@@ -1565,7 +1564,7 @@ def backfill(
     faces_db = pathlib.Path(faces_db) if faces_db else cfg.path("paths.faces") / "db.npz"
     reg = at(state)
     before = len(reg.people())
-    # v1's voice list (voices.sqlite3) is gone: a voiceprint's name was always the log's, so there's none to
+    # A voiceprint's name is the log's, so there's none to
     # copy. A line keeps the name it was hand-tagged with.
     labels: dict[int, str] = {}
     merged: dict[str, int] = {}

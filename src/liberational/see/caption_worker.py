@@ -3,12 +3,12 @@ through the caption pipeline (`see.captions`), and written as `camera.caption` a
 segment store (segment_log.py), with `animal.grounding` and `animal.grounding_embedding` rows for the animals the
 captions name (see/caption_animals.py).
 
-Each camera is looked at most every `min_interval_s` (1 s, v1's `--interval`), newest frame first; the change gate
+Each camera is looked at most every `min_interval_s` (1 s), newest frame first; the change gate
 decides whether the VLM sees it, at most once per camera's caption interval (`caption_every_s`, 60 s for network
 cameras by default). Every row names its frame (`frame_id`), and a caption repeated for an unchanged view says
 since when (`since`). Segment rows are readable as soon as
 they're appended and synced at most SYNC_S apart, so a crash loses at most that much. The pipelines are made and run
-on one model thread shared by every camera: v1's in-process MLX backend answers only on the thread that loaded it.
+on one model thread shared by every camera: the in-process MLX backend answers only on the thread that loaded it.
 """
 
 import asyncio
@@ -160,8 +160,8 @@ def caption_every_s(cam: Camera, network_s: float, own: Mapping[str, Any]) -> fl
 @model_runtime.reporting("see-captions")
 def main(argv: Sequence[str] | None = None) -> None:
     """`pack-see-captions`: the caption worker as a service. It reads the cameras in capture's manifest from the broker
-    (run continuum-broker and continuum-capture with it), with v1's VLM backend (pack-vlm on Apple Silicon, else
-    Ollama) and, when [vision] objects is on and the backend is Ollama, v1's object grounding."""
+    (run continuum-broker and continuum-capture with it), with the VLM backend (pack-vlm on Apple Silicon, else
+    Ollama) and, when [vision] objects is on and the backend is Ollama, object grounding."""
     import argparse
 
     from liberational import config as cfg

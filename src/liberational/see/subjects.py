@@ -2,7 +2,7 @@
 
 A named face's subject is the person's `PersonId` from the people registry: names are only attributes, so a rename
 never changes it. A face nobody is named for carries its face group's id (`registry.subject_uuid` of
-`registry.face_group(n)` for v1's "Face N"), never a person; naming it later is a `person_of` decision, not a rewrite.
+`registry.face_group(n)` for "Face N"), never a person; naming it later is a `person_of` decision, not a rewrite.
 Forgetting a person purges every id that resolves to them (`Registry.forget_subjects`).
 """
 
@@ -28,7 +28,7 @@ class NoPeople:
 
 
 class RegistryPeople:
-    """The people registry under v1's state directory."""
+    """The people registry under the state directory."""
 
     def __init__(self, reg: registry.Registry) -> None:
         self.reg = reg
