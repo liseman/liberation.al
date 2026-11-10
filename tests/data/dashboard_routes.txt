@@ -1,3 +1,4 @@
+DELETE /pack-ask/history/...
 GET /activities
 GET /activity/kinds
 GET /ambient
@@ -13,10 +14,16 @@ GET /clones
 GET /clones/(\d{1,6})/lines
 GET /clones/audio
 GET /clones/render
+GET /config
+GET /config/voice_ref
+GET /config/voices
 GET /device-comings
 GET /device-links
 GET /device-presence
 GET /device-whereabouts
+GET /devices
+GET /devices/camera-controls
+GET /devices/privacy
 GET /events
 GET /faces/shot/([0-9A-Za-z-]{1,64})\.jpg
 GET /faces/shot/...
@@ -28,13 +35,16 @@ GET /history/at
 GET /identity/why
 GET /inbox/skips
 GET /inbox/unnamed
+GET /ingest/api/...
 GET /journal
 GET /journal/evidence
 GET /journal/evidence/(\d{4}-\d{2}-\d{2})/([0-9A-Za-z_.-]{1,96})
 GET /journal/today
 GET /live/happening
 GET /logs/stream
+GET /network-cameras
 GET /objects, /objects/...
+GET /pack-ask/jobs/<id>, /pack-ask/history, /pack-ask/history/...
 GET /people
 GET /people/([^/]+)/card
 GET /people/([^/]+)/photos/(\d{10,16})\.jpg
@@ -50,6 +60,8 @@ GET /places/plan/history
 GET /places/positions
 GET /places/scene
 GET /places/splat
+GET /reports/api/...
+GET /research/jobs, /research/jobs/<id>
 GET /review/boxes
 GET /review/days
 GET /review/presence
@@ -85,16 +97,31 @@ POST /clones/pick
 POST /clones/record
 POST /clones/remove
 POST /clones/say
+POST /config
+POST /config/voice_ref
 POST /device-access-point
 POST /device-links
 POST /device-links/remove
 POST /device-locations
 POST /device-locations/remove
+POST /devices/auto_gain
+POST /devices/camera
+POST /devices/camera-controls
+POST /devices/capture/restart
+POST /devices/mic
+POST /devices/privacy
+POST /devices/sensitivity
 POST /faces/not
 POST /faces/unknown/reject
+POST /frontend/log
 POST /inbox/skip
+POST /ingest/api/...
 POST /measurement/mark
+POST /network-cameras/add
+POST /network-cameras/discover
+POST /network-cameras/use
 POST /objects, /objects/...
+POST /pack-ask/jobs, /pack-ask/history/...
 POST /people/<name>/lookup
 POST /people/add
 POST /people/assign
@@ -121,6 +148,8 @@ POST /places/plan
 POST /places/plan/restore
 POST /playback/start
 POST /playback/stop
+POST /reports/api/...
+POST /research/jobs, /research/jobs/<id>, /research/jobs/<id>/read, /research/jobs/<id>/delete
 POST /services
 POST /speakers/label
 POST /speakers/refine

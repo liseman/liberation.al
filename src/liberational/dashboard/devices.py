@@ -40,8 +40,9 @@ from urllib.parse import parse_qs, urlsplit
 from liberational import config as cfg
 from liberational import logs
 from liberational.audio import gain, sensitivity
-from liberational.dashboard import camera_controls, camera_modes, capture_control, privacy
+from liberational.dashboard import camera_controls, camera_modes, capture_control, privacy, routes
 from liberational.dashboard import cameras as camera_manifest
+from liberational.dashboard.context import log
 
 if TYPE_CHECKING:
     from liberational.dashboard.server import H
@@ -661,3 +662,20 @@ def handle(handler: H, log: Callable[..., None] = print) -> bool:
         code, reply = save_sensitivity(body, log)
     handler._json(reply, code)
     return True
+
+
+# ---- routes (dashboard/routes.py) ----
+
+
+@routes.get("/devices", "/devices/privacy", "/devices/camera-controls")
+@routes.post_raw(
+    "/devices/sensitivity",
+    "/devices/auto_gain",
+    "/devices/camera",
+    "/devices/mic",
+    "/devices/capture/restart",
+    "/devices/camera-controls",
+    "/devices/privacy",
+)
+def _route(h: H) -> None:
+    handle(h, log)

@@ -153,15 +153,6 @@ QUESTION_WORDS = frozenset(
         "our",
     ]
 )
-WORDS = dict(
-    zip(
-        ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve"],
-        range(13),
-    )
-)
-# A camera is named by its ID, which is a lookup against configuration, never something to infer: "camera 3" and
-# "cam two" are cam3 and cam2 on any install, and views.configured_camera_mentions finds the configured IDs and names.
-CAM = re.compile(r"\bcam(?:era)?\s*(\d+|zero|one|two|three|four|five|six|seven|eight|nine|ten)\b", re.I)
 WHO_WINDOW_S = 300  # "who was here at 3pm": anyone seen within 5 minutes of it
 HOME_NOW_S = 3600  # "who's home": who was recognized in the last hour; cameras and microphones see who is around
 # The parts of a day, as local hours [start, end) of the day they belong to; night runs past midnight to 05:00 the next
@@ -182,9 +173,8 @@ def cameras_named(question: str) -> list[str]:
     """The cameras a question names: configured IDs and names (views.configured_camera_mentions, which refuses an
     ambiguous name and leaves a bare "in the kitchen" a place, #34), and numbered ones ("camera 3" is cam3). A
     camera word followed by something that is no camera is refused, since IDs are not renumbered. Raises ValueError."""
-    configured, remaining = views.configured_camera_mentions(question)
-    cameras = sorted(set(configured) | {"cam" + str(int(WORDS.get(x.lower(), x))) for x in CAM.findall(remaining)})
-    stripped = CAM.sub("", remaining.lower())
+    cameras, remaining = views.cameras_named(question)
+    stripped = views.NUMBERED.sub("", remaining.lower())
     if re.search(r"\bcam(?:era)?\s+\w+", stripped) and not re.search(r"\bcameras\b", stripped):
         raise ValueError("Specify the actual camera ID, for example camera3; IDs are not renumbered.")
     return cameras
@@ -210,6 +200,17 @@ def is_history_question(question: str, unreadable: bool = False) -> bool:
         except Exception:
             return False
     return r.history or (bool(r.action) and r.measure != "describe")
+
+
+def asks_about_the_past(question: str) -> bool:
+    """Whether a question about the cameras asks about the past, not what they show now: it is a history question
+    (is_history_question), or its reading has a time in it, read or refused. A question the model gives no reading
+    for counts as one, so the voice password check fails closed and a past question is never answered with the
+    current view."""
+    if is_history_question(question, unreadable=True):
+        return True
+    r = reader.read(question)  # read above, so kept
+    return bool(r.day or r.part or r.clock or r.since or r.span_kind or r.other_time)
 
 
 def _presence_known(what: Mapping[str, Any], state: pathlib.Path) -> bool:
