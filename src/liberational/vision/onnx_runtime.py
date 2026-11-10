@@ -21,7 +21,7 @@ def preload_gpu_libraries(ort: Any) -> None:
     own logger to errors only: its warnings bypass this package's format, and
     the only one the logs ever carried was "No registered plugin EP device
     found" once per CUDA session, about 30 raw lines per see-actions start
-    (#3147). Where a model runs is logged by its loader.
+    Where a model runs is logged by its loader.
     """
     if hasattr(ort, "set_default_logger_severity"):
         ort.set_default_logger_severity(3)  # 0 verbose, 1 info, 2 warning, 3 error, 4 fatal

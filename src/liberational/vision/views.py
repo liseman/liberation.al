@@ -1,6 +1,6 @@
 """Camera IDs and the owner's names for them (`vision.camera_names`), shared by camera consumers.
 
-A camera is a view, an angle on whatever holds it, not a room (#5): its name says which camera it is ("front
+A camera is a view, an angle on whatever holds it, not a room: its name says which camera it is ("front
 camera"), never where it is. Where a camera's pixel lands comes from its pose (spatial/rig.py, memory/places.py).
 Native manifest names are exact ASCII tokens. Name settings also accept legacy numbered aliases unless the literal
 token names a configured camera.

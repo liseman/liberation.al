@@ -1,5 +1,5 @@
-"""Who was seen, and when: the faces see-actions found on its tracked heads (#1738, see/head_faces.py), read from the
-segment store (#1846):
+"""Who was seen, and when: the faces see-actions found on its tracked heads (see/head_faces.py), read from the
+segment store:
 
   face.match  one look at a tracked head: its box (as a share of the frame), detector score, quality, its pose.track
               id, and who it is by the face database (its name and similarity), or which unknown face group
@@ -40,7 +40,7 @@ AUTO = re.compile(r"Speaker \d+", re.IGNORECASE)  # in any capitals, as names co
 SHOT_DAYS = 30  # how far back the readers that scan every sighting look
 SPREAD_GAP_S = 60.0  # a second shot from the same day must be this far from the others on its camera
 SPREAD_POOL = 500  # how many of the best shots best_spread chooses among
-SHOT_NORMS = "shot_norms.json"  # in the state directory: tools/score_shot_crops.py's norms of older shots (#2355)
+SHOT_NORMS = "shot_norms.json"  # in the state directory: tools/score_shot_crops.py's norms of older shots
 NORMS_TTL_S = 60.0  # how long the shots' face.signal norms are reused before they're read again
 
 type State = str | pathlib.Path | None
@@ -160,7 +160,7 @@ def _face_rows(
     out = []
     for r in found:
         m = matches.get(r["id"]) or {}
-        if r["id"] in rejected and m.get("cluster"):  # taken out of its face group by the owner (#2008)
+        if r["id"] in rejected and m.get("cluster"):  # taken out of its face group by the owner
             m = {**m, "cluster": None}
         name = who.detection(r["id"], r["ts_start"], m)
         out.append(
@@ -183,7 +183,7 @@ def _face_rows(
 
 
 class _Who:
-    """Who each face is, in the order agreed with the identity worker (#549): the registry's answer for the detection
+    """Who each face is, in the order agreed with the identity worker: the registry's answer for the detection
     (an owner correction, or a decision the identity worker claimed), nobody when the owner withdrew it, the match's
     name as the person who had it when it matched, by their name now (renames followed; nobody once that person is
     forgotten; a name the registry never had kept as it is), the person the match's face group was named since
@@ -276,12 +276,12 @@ def correct(ids: Sequence[str], name: str | None, state: State = None) -> list[d
     owner's word outranks the identity worker's). Saying someone else, or nobody, also withdraws the name it had
     without the owner (its match's, or its face group's), so it stays off that person even if the one named now is deleted later (as v1 kept it). Returns
     what each was, for uncorrect(): [{id, was}] (was: the name the registry gave it before, None for none; "not": the
-    person whose negative its face became, #3246)."""
+    person whose negative its face became)."""
     from liberational.vision import faces as face_db
 
     reg = registry.at(state)
     prior: list[dict[str, Any]] = []
-    denied: dict[str, str] = {}  # sighting -> the person it had and isn't: their negative in the matcher (#3246)
+    denied: dict[str, str] = {}  # sighting -> the person it had and isn't: their negative in the matcher
     for sid in dict.fromkeys(ids):
         subject = registry.detection(sid)
         decision = reg.person_of(subject)
@@ -301,7 +301,7 @@ def correct(ids: Sequence[str], name: str | None, state: State = None) -> list[d
         if name is not None:
             reg.claim(subject, name, Basis.OWNER_TAG, "dashboard")
     if name is not None and prior:
-        # The owner's word teaches the gallery too (#3013): the faces new to the person become their rows, and a
+        # The owner's word teaches the gallery too: the faces new to the person become their rows, and a
         # "not them" said of these faces before is taken back, so it can't hold the new rows' name off them
         for sid in dict.fromkeys(ids):
             face_db.remove_not(name, f"shot:{sid}")
@@ -309,7 +309,7 @@ def correct(ids: Sequence[str], name: str | None, state: State = None) -> list[d
         if rows:
             prior[0].update(rows=rows, rows_name=name)
     if denied:
-        # "Not <person>" teaches too (#3246): each face becomes one of their negatives, so the next look of it isn't
+        # "Not <person>" teaches too: each face becomes one of their negatives, so the next look of it isn't
         # named them (a run of near-identical faces adds one; see faces.add_not)
         found = _vector_ids(list(denied), state)
         for p in prior:
@@ -343,10 +343,10 @@ def uncorrect(prior: Sequence[Mapping[str, Any]], state: State = None) -> None:
 
     reg = registry.at(state)
     for p in prior:
-        if p.get("rows"):  # the rows the correction added to the gallery (#3013)
+        if p.get("rows"):  # the rows the correction added to the gallery
             for row in p["rows"]:
                 face_db.remove_row(str(p["rows_name"]), row["vec"], row["dropped"])
-        if p.get("not"):  # the negative it added (#3246)
+        if p.get("not"):  # the negative it added
             face_db.remove_not(str(p["not"]), f"shot:{p['id']}")
         subject = registry.detection(p["id"])
         if p.get("was"):
@@ -606,7 +606,7 @@ def _state_dir(state: State) -> pathlib.Path:
 
 
 def norms(state: State = None) -> dict[str, float]:
-    """How much each shot reads as a face, by its id (#2355): AdaFace's raw norm, 0 for one that doesn't (a back of
+    """How much each shot reads as a face, by its id: AdaFace's raw norm, 0 for one that doesn't (a back of
     the head, a blur). A look with a face.signal has its own (0 when it fails see.faces.readable); an older shot has
     the norm tools/score_shot_crops.py found on its saved crop, 0 when no face was found there; a shot with neither
     has none. Signals are reread every NORMS_TTL_S, and the crop scores whenever their file changes."""
@@ -644,7 +644,7 @@ def ranked(
 ) -> list[dict[str, Any]]:
     """`name`'s shots (case-insensitive), best first, optionally on one camera between start and end:
     [{id, ts, cam, score, norm}]. Best is the most face-like by `norms`, then the shots with no norm by quality (score).
-    Shots that score 0 (a profile, too small) or whose norm is 0 (a back of the head, #2355) are left out."""
+    Shots that score 0 (a profile, too small) or whose norm is 0 (a back of the head) are left out."""
     whole = cam is None and start is None and end is None
     found = _visit_shots(name, state) if whole else [f for f in _named(name, state, start, end) if f["cam"] == cam]
     by_id = norms(state)

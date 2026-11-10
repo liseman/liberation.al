@@ -43,8 +43,8 @@ if TYPE_CHECKING:
 DB = cfg.path("paths.faces") / "db.npz"
 # AdaFace name gate: the best person must clear THRESH and lead the second-best person by NAME_MARGIN, so two
 # enrolled people never trade a face; an unsure face stays unnamed. Gallery rows are member centroids, not single
-# faces (#2244): one face of a small, turned head is a noisy stand-in, and a centroid of many is not. Leave-one-out
-# over the owner's 49 tagged groups on the development install (2026-11-04, one mis-tagged group left out): same-person centroids
+# faces: one face of a small, turned head is a noisy stand-in, and a centroid of many is not. Leave-one-out
+# over the owner's 49 tagged groups on the development install (one mis-tagged group left out): same-person centroids
 # have a median cosine of 0.61, different people -0.04 and at most 0.34, and 0.45 with a 0.10 margin names 48 of 49
 # correctly and none wrongly. Single faces scored against the right person's centroid clear 0.45 98% of the time.
 THRESH = 0.45
@@ -123,7 +123,7 @@ class AdaFaceRecognition:
 
     def embed_with_norm(self, aligned: np.ndarray) -> tuple[np.ndarray, float]:
         """`embed`, with the raw feature's norm before it's made a unit vector: AdaFace's own quality signal, low for a
-        crop that hardly reads as a face (#2355)."""
+        crop that hardly reads as a face."""
         if aligned.shape != (112, 112, 3) or aligned.dtype != np.uint8:
             raise ValueError("AdaFace expects an aligned uint8 BGR image of shape [112, 112, 3].")
         tensor = np.ascontiguousarray((aligned[:, :, ::-1].astype(np.float32) / 127.5 - 1).transpose(2, 0, 1)[None])
@@ -198,7 +198,7 @@ def on_gpu() -> bool:
     return app().models["detection"].session.get_providers()[0] in GPU_PROVIDERS
 
 
-# ---- the two face files (#411): each written whole to a temp file and moved into place, so a reader never sees a
+# ---- the two face files: each written whole to a temp file and moved into place, so a reader never sees a
 # half-written one and a crash mid-write loses nothing; and each read-modify-write holds that file's lock, so the
 # writers (vision, identity, the dashboard's tags and corrections) never write over each other's change.
 READ_TRIES, READ_WAIT_S = 5, 0.05
@@ -340,7 +340,7 @@ def _file_key(path: pathlib.Path) -> tuple[Any, ...]:
 
 
 def load_learned() -> dict[str, Any]:
-    """The learned rows (#3013): {"names", "embs", "sources", "ts", "sims", "margins"}, one entry a row."""
+    """The learned rows: {"names", "embs", "sources", "ts", "sims", "margins"}, one entry a row."""
     d = _read(LEARNED_DB, allow_pickle=True)
     if d is None:
         return {
@@ -396,7 +396,7 @@ def gallery_rows() -> tuple[list[str], np.ndarray, int]:
 
 def _decide_learned(names: Sequence[str], sims: np.ndarray, owners: int) -> tuple[str | None, float]:
     """`_decide` over a gallery whose first `owners` rows are the owner's and the rest learned: a name the owner's
-    rows alone don't give also needs one of that person's learned rows at LEARNED_BAR (#3028)."""
+    rows alone don't give also needs one of that person's learned rows at LEARNED_BAR."""
     name, sim = _decide(names, sims)
     if name is None or owners >= len(names) or (owners and _decide(names[:owners], sims[:owners])[0] == name):
         return name, sim
@@ -405,7 +405,7 @@ def _decide_learned(names: Sequence[str], sims: np.ndarray, owners: int) -> tupl
 
 
 def gallery() -> tuple[list[str], np.ndarray]:
-    """Every row naming is matched against: the owner's (`load_db`) and the learned ones (#3013)."""
+    """Every row naming is matched against: the owner's (`load_db`) and the learned ones."""
     names, embs, _ = gallery_rows()
     return names, embs
 
@@ -420,7 +420,7 @@ def _per_person(names: Sequence[str], sims: np.ndarray) -> dict[str, float]:
 
 
 def learn_from_track(looks: Sequence[np.ndarray], names: Sequence[str | None], source: str) -> int:
-    """Teach the gallery from a track that ended (#3013): `looks` are its unit embeddings, `names` the person each
+    """Teach the gallery from a track that ended: `looks` are its unit embeddings, `names` the person each
     look alone matched (None for none), and `source` where it was ("<camera>:<track>"). Rows added; 0 unless
     `faces.learn` is on and the gallery is trusted (see the guards at LEARN_SIM)."""
     if not looks or not cfg.get("faces.learn") or not trusted():
@@ -460,7 +460,7 @@ def learn_from_track(looks: Sequence[np.ndarray], names: Sequence[str | None], s
             if float((own @ v).max()) >= LEARN_NOVEL or like < LEARN_FLOOR:
                 continue
             if len(rivals) and like - float((rivals @ v).max()) < LEARN_GAP:
-                close += 1  # nearly as like someone else, or an unnamed group: maybe a lookalike (#3044)
+                close += 1  # nearly as like someone else, or an unnamed group: maybe a lookalike
                 continue
             picked.append(v)
         if close:
@@ -484,7 +484,7 @@ def learn_from_track(looks: Sequence[np.ndarray], names: Sequence[str | None], s
     person = None
     with contextlib.suppress(Exception):  # the log line's person id is extra
         person = registry.at().person_id(name)
-    # One line for the track: a line per view repeated the same text (#3148).
+    # One line for the track: a line per view repeated the same text.
     LOG.info(
         "learned %d face row%s for person %s from track %s (similarity %.2f, margin %.2f)",
         len(picked),
@@ -497,12 +497,12 @@ def learn_from_track(looks: Sequence[np.ndarray], names: Sequence[str | None], s
     return len(picked)
 
 
-CORRECTION_ROWS = 3  # the most of an owner correction's faces that become the person's rows (#3013)
+CORRECTION_ROWS = 3  # the most of an owner correction's faces that become the person's rows
 
 
 @_edits_db
 def add_correction_rows(name: str, vecs: Sequence[np.ndarray]) -> list[dict[str, Any]]:
-    """The owner said these faces are `name` (a correction, #3013): the ones new to them (under LEARN_NOVEL against
+    """The owner said these faces are `name` (a correction): the ones new to them (under LEARN_NOVEL against
     their rows, owner's and learned), at most CORRECTION_ROWS, become owner rows (`add_row`). [{"vec", "dropped"}]
     for each, what `remove_row` needs to undo it."""
     g_names, g_embs = gallery()
@@ -522,7 +522,7 @@ def add_correction_rows(name: str, vecs: Sequence[np.ndarray]) -> list[dict[str,
 
 @_edits_db
 def unlearn_views(vecs: Iterable[np.ndarray]) -> int:
-    """Remove the learned rows that are these views (cosine 0.9999 or more), whoever they teach (#3155's cleanup of
+    """Remove the learned rows that are these views (cosine 0.9999 or more), whoever they teach (cleanup of
     rows learned from the side or back of a head). The owner's rows are never touched. Rows removed."""
     rows = load_learned()
     if not rows["names"]:
@@ -539,7 +539,7 @@ def unlearn_views(vecs: Iterable[np.ndarray]) -> int:
 
 @_edits_db
 def unlearn(name: str | None = None, source: str | None = None) -> int:
-    """Remove learned rows (#3013): a person's (any case), one source's, or with neither, all. Rows removed."""
+    """Remove learned rows: a person's (any case), one source's, or with neither, all. Rows removed."""
     rows = load_learned()
     keep = [
         k
@@ -571,7 +571,7 @@ def _save_nots(names: Sequence[str], embs: np.ndarray, keys: Sequence[str]) -> N
 
 @_edits_db
 def add_not(name: str, vec: np.ndarray, key: str) -> bool:
-    """The owner said face `vec` is not `name` (#3246): keep it as one of their negatives under `key` ("group:<n>" or
+    """The owner said face `vec` is not `name`: keep it as one of their negatives under `key` ("group:<n>" or
     "shot:<id>"; the same key again replaces its face). False when it adds nothing: a face within LEARN_NOVEL of one of
     their negatives already. Past NOT_MAX_PER_NAME the most redundant of theirs makes room."""
     v = np.asarray(vec, np.float32)
@@ -619,7 +619,7 @@ def group_vector(gid: int) -> np.ndarray | None:
 def match(e: np.ndarray) -> tuple[str | None, float]:
     """(name, sim) of the best known face for embedding e, or (None, best sim). The db is cached and reread when
     it changes (or DB is pointed elsewhere), so this is cheap enough to run on every frame. Nobody is named while
-    the held-out check says the gallery can't be trusted (`trusted`, #2274)."""
+    the held-out check says the gallery can't be trusted (`trusted`)."""
     key = (_file_key(DB), _file_key(LEARNED_DB), _file_key(NOTS_DB))
     if key != _known["key"]:
         _known["names"], _known["embs"], _known["owners"] = gallery_rows()
@@ -725,8 +725,8 @@ REFERENCE_SAME = 0.99  # a reference face this alike one of the person's rows is
 
 
 def enroll_reference(name: str, path: str | os.PathLike[str]) -> dict[str, Any]:
-    """A reference photo the owner attached to `name` on their card teaches their face (#3245, reversing #622's
-    "references are not enrollment"): with exactly one face in it, that face becomes one of their owner rows
+    """A reference photo the owner attached to `name` on their card teaches their face (replacing the earlier rule that
+    references are not enrollment): with exactly one face in it, that face becomes one of their owner rows
     (`add_row`, at most MAX_PER_NAME, the most redundant making room). A group photo never trains. What happened, for
     the reference's record and its Remove: {"faces", "result"} and, for an added row, "vec" and "dropped" (what
     `remove_row` takes back). "result" is "added", "same" (one of their rows already), "none", or "several"."""
@@ -745,47 +745,47 @@ def enroll_reference(name: str, path: str | os.PathLike[str]) -> dict[str, Any]:
 
 UNK_DB = cfg.path("paths.faces") / "unknown_clusters.npz"
 UNK_MAX = 200
-# Which groups make room when a new one takes the store past UNK_MAX (#3163). The least useful go first: a group People
+# Which groups make room when a new one takes the store past UNK_MAX. The least useful go first: a group People
 # no longer lists (no face started or joined it within faces.unnamed_days, or none since the store began dating them),
 # then one People doesn't list yet (seen once), then the rest, each by when a face last started or joined it, oldest
 # first (then fewer faces, then the lower number). Never the group just made, and never one the owner touched: put
-# aside on People, marked not someone (#2368), a shot taken out (`recenter`), or a name undone (`unname_cluster`).
+# aside on People, marked not someone, a shot taken out (`recenter`), or a name undone (`unname_cluster`).
 # Ranking by faces alone kept a full store of days-old groups seen twice or more and evicted each new stranger's
-# group, seen once, as soon as the next one came: on 2026-11-08, 167 of the 191 stored groups had no face in the 10
+# group, seen once, as soon as the next one came: in one day's check, 167 of the 191 stored groups had no face in the 10
 # hours of recorded looks, while 48 groups seen that day were gone without a name.
-# Folding near-duplicate groups (#3181): one stranger split across groups shows on People as several people. Two groups
+# Folding near-duplicate groups: one stranger split across groups shows on People as several people. Two groups
 # whose representatives are more alike than FOLD_SIM (and clear ANCHOR_FLOOR against the older one's anchor) are
 # folded, the younger into the older, by `fold_unknown` and whenever a face starts or joins a group. A folded group's
 # number stays an alias of the group it went into (`group_aliases`), and every recorded sighting is read through the
 # aliases (segment_log), so its looks stay with it. Never a group the owner touched (as eviction spares, above), and
 # `fold_unknown` never folds two groups seen in one frame. A group's anchor is the mean of the track's first face looks
-# (see/head_faces.py), so it was picked on track centroids: on 2026-11-08's 247 named tracks of 3 or more looks, same
+# (see/head_faces.py), so it was picked on track centroids: on 247 named tracks of 3 or more looks, same
 # person pairs had a median of 0.45 and 18% over 0.70; different people's pairs were over 0.70 only through one track
 # (likely misnamed), against 3 tracks over 0.65 and 5 over 0.60. UNKNOWN_JOIN's 0.45 between centroids would
 # fold 180 different-person pairs.
 FOLD_SIM = 0.70
-# Joining an unnamed group (#2244): a face joins the group whose representative is nearest, above UNKNOWN_JOIN. A
+# Joining an unnamed group: a face joins the group whose representative is nearest, above UNKNOWN_JOIN. A
 # group's representative is its first face (the anchor) until it has CENTROID_MIN members, then the centroid of its
 # members (their running sum, kept beside the anchor). One first face is a noisy stand-in: groups of one person
 # split while their anchors sat 0.31 apart and their centroids over 0.6. The anchor still guards the centroid: a
-# face must also clear ANCHOR_FLOOR against it, so a centroid can't wander off toward someone else (#2013). On the
+# face must also clear ANCHOR_FLOOR against it, so a centroid can't wander off toward someone else. On the
 # owner's tagged groups, a member clears 0.45 against its own group's leave-one-out centroid 98% of the time and
 # against another person's centroid never; no face is below 0.20 of its own anchor at the 10th percentile.
 UNKNOWN_JOIN = 0.45
 CENTROID_MIN = 3
 ANCHOR_FLOOR = 0.20
-# Bounded owner views a person; past it the most redundant goes, never simply the oldest. 32 until #3245's replay
-# (2026-11-09): both people on the development install were at 32 rows, so every new answer pushed one out. Their
+# Bounded owner views a person; past it the most redundant goes, never simply the oldest. Raised from 32 after
+# replay: both people on the development install were at 32 rows, so every new answer pushed one out. Their
 # 32 rows plus the older 70% of their owner-tagged photos (57 and 56 faces) as the gallery, inserted with this
 # eviction, named the newer 30% (23 held-out photos): 11 right and 12 unknown at 32, 16 right and 7 unknown at 64
 # (all of them kept), 0 wrong either way; 2 of 180 unnamed groups took a name at 64 (0 at 32), and a look's match went
 # from about 12 to 16 microseconds. 128 kept the same rows, since nobody had more than 64 examples to keep.
 MAX_PER_NAME = 64
-# Learning from confidently named tracks (#3013): a track teaches its person when its mean matches them at LEARN_SIM
+# Learning from confidently named tracks: a track teaches its person when its mean matches them at LEARN_SIM
 # or more, clear of everyone else by LEARN_MARGIN, and no look of it matched anyone else. It adds at most
 # LEARN_PER_TRACK of its looks: consistent with its mean (LEARN_CONSISTENT), new to the person (under LEARN_NOVEL
 # against their rows), and like no one else (LEARN_OTHERS at most). Learned rows are kept apart from the owner's, at
-# most LEARN_MAX_PER_NAME a person. Replayed on 2026-11-08's faces these named 26 more first looks and 44 of 56
+# most LEARN_MAX_PER_NAME a person. Replayed on a day's faces these named 26 more first looks and 44 of 56
 # unnamed tracks with no wrong name, where learning without the guards gave two.
 LEARNED_DB = cfg.path("paths.faces") / "learned.npz"
 LEARN_SIM = 0.55
@@ -795,17 +795,17 @@ LEARN_NOVEL = 0.85
 LEARN_OTHERS = 0.30
 LEARN_FLOOR = 0.40  # and a learned view must already look like the person alone: a new angle, not someone new
 # And it must be more like the person than like anyone else's rows or any unnamed group's representative, by LEARN_GAP
-# (#3044): a view about as like a "Face N" may be someone the gallery lacks. Against named people LEARN_OTHERS and
-# LEARN_FLOOR already leave a 0.10 gap, so it binds on the groups. Of 2026-11-08's 286 replayed learn events it
+#: a view about as like a "Face N" may be someone the gallery lacks. Against named people LEARN_OTHERS and
+# LEARN_FLOOR already leave a 0.10 gap, so it binds on the groups. Of 286 replayed learn events it
 # refuses 50 (0.10 would refuse 89); held out, naming the day's later tracks it changed little at either.
 LEARN_GAP = 0.05
 LEARN_PER_TRACK = 2
 LEARN_MAX_PER_NAME = 16
 # A name only learned rows give (the owner's rows alone name no one, or someone else) needs a learned row of that
-# person this alike (#3028): learned views widen a person, and on 2026-11-08 they reached a lookalike missing from the
+# person this alike: learned views widen a person, and in replay they reached a lookalike missing from the
 # gallery. At 0.55 the replay's added wrong names were 0 (3 without the bar), keeping half the first-look gain.
 LEARNED_BAR = 0.55
-# The owner's negatives (#3246): faces the owner said are not a person, "Not <guess>" on a Who's this? face group (its
+# The owner's negatives: faces the owner said are not a person, "Not <guess>" on a Who's this? face group (its
 # representative) or a card's "Not <name>" on a shot, video, or track (each sighting's face). `match` holds back a name
 # a look doesn't beat that person's nearest negative by NAME_MARGIN, so the next look of the same stranger isn't named
 # them. Kept apart from the rows (owner and learned), keyed so an undo takes its own back, at most NOT_MAX_PER_NAME a
@@ -833,7 +833,7 @@ def _unk_load() -> tuple[list[int], np.ndarray, list[int], int]:
 
 
 def _unk_load_sums() -> tuple[list[int], np.ndarray, list[int], int, np.ndarray]:
-    """The groups as _unk_load reads them, plus each one's member sum (#2244). A group saved before sums were kept, or
+    """The groups as _unk_load reads them, plus each one's member sum. A group saved before sums were kept, or
     without one, counts its anchor as its only member."""
     d = _read(UNK_DB)
     if d is None:
@@ -855,7 +855,7 @@ def _unk_save(
 ) -> None:
     """Write the groups whole. Without `sums`, each kept group keeps the member sum it had, and a new one starts from
     its anchor, so a writer that doesn't track members never loses them. Each group keeps when a face last started or
-    joined it (#3004), `last_seen` setting it for the groups it names; a group no face has started or joined since
+    joined it, `last_seen` setting it for the groups it names; a group no face has started or joined since
     the store began keeping it (one saved before, or made otherwise) has no such time (`unknown_last_seen`). The
     groups the owner touched stay held (`unknown_held`), and `held` adds to them. The folded groups' numbers stay
     aliases (`group_aliases`), and `aliases` adds to them: {folded group: the group it went into}."""
@@ -879,7 +879,7 @@ def _unk_save(
             next=np.int64(nxt),
             sums=np.asarray(sums, np.float32),
             last_seen=np.array([when.get(int(i), np.nan) for i in ids], np.float64),
-            seen_only=np.int64(1),  # only times a face started or joined a group (not #3006's save-time stamps)
+            seen_only=np.int64(1),  # only times a face started or joined a group (not earlier save-time stamps)
             held=np.array(kept, np.int64),
             alias_from=np.array(list(alias), np.int64),
             alias_to=np.array(list(alias.values()), np.int64),
@@ -887,7 +887,7 @@ def _unk_save(
 
 
 def unknown_held() -> set[int]:
-    """The groups the store keeps whatever their rank (#3163): ones the owner took a shot out of or undid a name of.
+    """The groups the store keeps whatever their rank: ones the owner took a shot out of or undid a name of.
     People's put-asides and not-marks are read where they're kept (`_owner_held`)."""
     return _held_of(_read(UNK_DB))
 
@@ -946,7 +946,7 @@ _aliases: dict[str, Any] = {"key": None, "map": {}, "subjects": {}}
 
 
 def group_aliases() -> dict[int, int]:
-    """{folded group number: the group it went into} (#3181), read again only when the store changes. A sighting
+    """{folded group number: the group it went into}, read again only when the store changes. A sighting
     recorded under a folded group belongs to the group it went into, whether that is still unnamed or named since."""
     return _alias_maps()[0]
 
@@ -972,7 +972,7 @@ def _alias_maps() -> tuple[dict[int, int], dict[str, str]]:
 
 def unknown_last_seen() -> dict[int, float]:
     """When a face last started or joined each unnamed group (seconds), for the groups one has since the store began
-    keeping it (#3004). The first stores to keep it gave every group their first save's time, which is no sighting:
+    keeping it. The first stores to keep it gave every group their first save's time, which is no sighting:
     there, only a time after the earliest counts."""
     return _last_seen_of(_read(UNK_DB))
 
@@ -981,7 +981,7 @@ def _last_seen_of(d: Mapping[str, np.ndarray] | None) -> dict[int, float]:
     if d is None or "last_seen" not in d or len(d["last_seen"]) != len(d["ids"]):
         return {}
     times = {int(i): float(t) for i, t in zip(d["ids"], d["last_seen"]) if np.isfinite(t)}
-    if "seen_only" not in d and times:  # #3006's store: its earliest time is its first save, not a sighting
+    if "seen_only" not in d and times:  # older store: its earliest time is its first save, not a sighting
         first = min(times.values())
         times = {i: t for i, t in times.items() if t > first}
     return times
@@ -1097,7 +1097,7 @@ def name_cluster(
     enroll: bool = True,
 ) -> str:
     """Tag a 'Face N' group once: enroll its face under NAME, and remove the group. Future sightings match by name.
-    With `enroll` False (an automatic name, #2244), the group is named and removed but its face never joins the
+    With `enroll` False (an automatic name), the group is named and removed but its face never joins the
     gallery, so a wrong automatic name can't teach the matcher; `enrolled` then says "enrolled": False.
     With `enrolled`, fills it in with what an undo needs: the row's vector as enrolled ("vec"), the group's count
     ("count"), and the row it pushed out past MAX_PER_NAME ("dropped", or None). The group's assertion in the event
@@ -1206,12 +1206,12 @@ def unname_cluster(cid: int, vec: Sequence[float] | np.ndarray, count: int) -> N
     ids.append(int(cid))
     counts_.append(int(count))
     vecs = np.vstack([vecs, np.asarray(vec, np.float32)[None]])
-    _unk_save(ids, vecs, counts_, max(nxt, int(cid) + 1), held=[int(cid)])  # the owner undid its name: kept (#3163)
+    _unk_save(ids, vecs, counts_, max(nxt, int(cid) + 1), held=[int(cid)])  # the owner undid its name: kept
 
 
 @_edits_unknown
 def drop_groups(ids: Iterable[int]) -> int:
-    """Remove unnamed groups by number, as the machine data they are (#3155's cleanup of groups made from the side or
+    """Remove unnamed groups by number, as the machine data they are (cleanup of groups made from the side or
     back of a head). Their members go with them, and `next` stays, so no number is reused. Groups removed."""
     have, vecs, counts_, nxt, sums = _unk_load_sums()
     gone = {int(i) for i in ids}
@@ -1224,7 +1224,7 @@ def drop_groups(ids: Iterable[int]) -> int:
 
 @_edits_unknown
 def recenter(cid: int, kept: np.ndarray, removed: int) -> bool:
-    """Shots were taken out of group cid ("Not this person", #2008): its embedding becomes the mean of `kept` (the
+    """Shots were taken out of group cid ("Not this person"): its embedding becomes the mean of `kept` (the
     unit embeddings of the shots it keeps, N x 512) and its count drops by `removed`, at least 1. With nothing kept,
     the embedding stays as it was. False when there's no such group."""
     ids, vecs, counts_, nxt = _unk_load()
@@ -1238,7 +1238,7 @@ def recenter(cid: int, kept: np.ndarray, removed: int) -> bool:
         vecs[i] = mean / (np.linalg.norm(mean) + 1e-9)
         sums[i] = np.asarray(kept, np.float32).sum(axis=0)  # the rejected shots leave the centroid too
     counts_[i] = max(1, int(counts_[i]) - int(removed))
-    _unk_save(ids, vecs, counts_, nxt, sums, held=[int(cid)])  # the owner took a shot out: kept (#3163)
+    _unk_save(ids, vecs, counts_, nxt, sums, held=[int(cid)])  # the owner took a shot out: kept
     return True
 
 
@@ -1347,7 +1347,7 @@ def _merged(
 
 @_edits_unknown
 def regroup_unknown(keep: Iterable[int] = (), apply: bool = True) -> list[tuple[int, int, float]]:
-    """Merge unnamed groups that the join gate split (#2236, #2244), by `_plan_merges`. Returns (merged id, into id,
+    """Merge unnamed groups that the join gate split, by `_plan_merges`. Returns (merged id, into id,
     similarity), oldest first; with `apply` False, changes nothing.
 
     A merged group's number stays an alias of the group it joined (`group_aliases`), so its recorded sightings are
@@ -1391,7 +1391,7 @@ def _seen_together(state: pathlib.Path) -> set[frozenset[int]]:
     return {frozenset(p) for groups in frames.values() if len(groups) > 1 for p in itertools.combinations(groups, 2)}
 
 
-AUTO_SOURCE = "faces-auto"  # the event log's source for automatic names (#2244)
+AUTO_SOURCE = "faces-auto"  # the event log's source for automatic names
 
 
 def _plan_names(
@@ -1421,24 +1421,24 @@ def _plan_names(
 
 def autoname(keep: Iterable[int] = (), apply: bool = True, state: pathlib.Path | None = None) -> list[dict[str, Any]]:
     """Name the waiting unnamed groups (seen at least twice, not in `keep`) whose member centroid clearly matches a
-    named person by match()'s gate (#2244): [{"gid", "name", "sim", "undo"}], most seen first. With `apply` False,
+    named person by match()'s gate: [{"gid", "name", "sim", "undo"}], most seen first. With `apply` False,
     names nothing.
 
     An automatic name is an embedding match (system tier, with the recognizer as producer), never an owner tag, and
     it never enrolls the group's face (`name_cluster(enroll=False)`): only owner-confirmed faces teach the gallery,
     so a wrong automatic name can't snowball. Each name gets its own undo token, as a tag does. A group whose name
-    was withdrawn before (an undone automatic name, or an owner's untag) is left for the owner, and one marked not that person (#2368) is never named them."""
+    was withdrawn before (an undone automatic name, or an owner's untag) is left for the owner, and one marked not that person is never named them."""
     from liberational.people import card_prefs
 
     state = state or cfg.path("paths.state")
     if not trusted():
-        return []  # the held-out check failed: nothing is named by appearance until it passes (#2274)
-    names, embs, owners = gallery_rows()  # the owner's rows and the learned ones (#3013)
+        return []  # the held-out check failed: nothing is named by appearance until it passes
+    names, embs, owners = gallery_rows()  # the owner's rows and the learned ones
     ids, vecs, counts, _, sums = _unk_load_sums()
     reg = registry.at(state)
     from liberational.people import face_nots
 
-    denied = face_nots.names(state)  # a group the owner said isn't someone is never named them (#2368)
+    denied = face_nots.names(state)  # a group the owner said isn't someone is never named them
     out: list[dict[str, Any]] = []
 
     def name_one(gid: int, name: str, sim: float, line: str) -> dict[str, Any] | None:
@@ -1472,7 +1472,7 @@ def autoname(keep: Iterable[int] = (), apply: bool = True, state: pathlib.Path |
     for gid, name, sim in _plan_names(names, embs, ids, counts, _representatives(vecs, counts, sums), held, owners):
         if row := name_one(gid, name, sim, f"face group {gid} named {name} automatically (similarity {sim:.3f})"):
             out.append(row)
-    # Then by its tracks (#3025): a group whose every track turned out to be one person is that person
+    # Then by its tracks: a group whose every track turned out to be one person is that person
     done = held | {r["gid"] for r in out}
     for gid, name, sim, tracks, looks in _plan_by_tracks(state, ids, counts, done):
         person = reg.person_id(name)
@@ -1482,19 +1482,19 @@ def autoname(keep: Iterable[int] = (), apply: bool = True, state: pathlib.Path |
     return out
 
 
-# A group's tracks name it (#3025) when every track with a face in it is one person by the owner's rows (each track's
+# A group's tracks name it when every track with a face in it is one person by the owner's rows (each track's
 # mean look, through match()'s gate), and there are TRACK_MIN_TRACKS of them or TRACK_MIN_LOOKS looks between them.
-# On 2026-11-08's 202 tracks a mean named, no half of a track named anyone else; at 8 looks both halves named the
+# Across 202 tracks a mean named, no half of a track named anyone else; at 8 looks both halves named the
 # same person 89% of the time (63 of 71), the rest naming no one.
 TRACK_MIN_TRACKS = 2
 TRACK_MIN_LOOKS = 8
 
 
-# Each ended hour's face looks by track, kept between autoname passes (#3140): (cam, track) -> (the sum of its looks'
+# Each ended hour's face looks by track, kept between autoname passes: (cam, track) -> (the sum of its looks'
 # unit vectors, how many looks, the face-group subjects among them). A pass reads only the window's partial first hour
 # and the hours not yet settled (segment_log.SETTLE_S); an ended hour is read again only when its files' stamp
 # (`segment_log.Log.stamp`) moves, so a late row or a purge shows at once, and hours that leave the window are dropped.
-# On devbox (2026-11-08: 7 days, 18,889 looks on 734 tracks) a pass read every look, about 0.66 s once the vectors stayed
+# On the Linux machine (7 days, 18,889 looks on 734 tracks) a pass read every look, about 0.66 s once the vectors stayed
 # numpy (2.3 s before); with the hours kept it reads one or two hours' looks and stamps the rest.
 TrackLooks = dict[tuple[str, str], tuple[np.ndarray, int, frozenset[str]]]
 _TRACK_HOURS: dict[tuple[str, float], tuple[Any, TrackLooks]] = {}
@@ -1591,8 +1591,8 @@ REBUILD_DAYS = 30.0  # how far back `rebuild` reads the groups' recorded faces (
 
 def _members(state: pathlib.Path, days: float) -> dict[str, np.ndarray]:
     """Each face group's recorded face vectors (segment_log.FACE_EMBEDDINGS), by its group subject. A look whose
-    face.signal says it hardly reads as a face (a head turned away, recorded before head_faces set such looks aside,
-    #2355) is left out."""
+    face.signal says it hardly reads as a face (a head turned away, recorded before head_faces set such looks aside)
+    is left out."""
     from liberational import segment_log
     from liberational.see.faces import readable
 
@@ -1634,13 +1634,13 @@ def _owner_tagged(
     return tagged
 
 
-# The held-out check (#2274), as pets' (people/pet_recognition.py): each owner-tagged group's centroid is named by
+# The held-out check, as pets' (people/pet_recognition.py): each owner-tagged group's centroid is named by
 # match()'s gate from the other tagged groups' centroids alone. Naming is trusted once there are CHECK_MIN_GROUPS
 # tagged groups of at least two people, at most CHECK_MAX_WRONG of the decided answers are wrong, and at least
 # CHECK_MIN_DECIDED of them are decided. With fewer tagged groups than that nothing can be checked, and the gate's
 # calibrated thresholds stand on their own ("unchecked"): a new install enrolled from photos still names people.
 # A failed check ("off") stops naming by appearance, live and automatic, until the tags pass again. On the
-# development install (2026-11-04): 76 tagged groups of two people, 65 right, 1 wrong (a 3-face group tagged as one
+# development install: 76 tagged groups of two people, 65 right, 1 wrong (a 3-face group tagged as one
 # of them that looks like the other at 0.68), 10 unknown: on. Where it is saved and who reads it: docs/ARCHITECTURE.md.
 CHECK = cfg.path("paths.faces") / "check.json"
 CHECK_MIN_GROUPS = 6
@@ -1739,7 +1739,7 @@ def trusted() -> bool:
 def rebuild(
     keep: Iterable[int] = (), apply: bool = True, state: pathlib.Path | None = None, days: float = REBUILD_DAYS
 ) -> dict[str, Any]:
-    """The one-off move to member centroids (#2244), from the faces the groups recorded:
+    """The one-off move to member centroids, from the faces the groups recorded:
 
     1. Seed each unnamed group's member sum from its recorded faces.
     2. Re-enroll each owner-tagged group's gallery row (its first face, as tags enrolled it) as the centroid of the
@@ -1889,7 +1889,7 @@ def main() -> None:
         _idle()
         print(json.dumps(refresh_check(a.state)))
         return
-    if a.cmd == "learned":  # what the gallery learned from tracks (#3013), per person
+    if a.cmd == "learned":  # what the gallery learned from tracks, per person
         rows = load_learned()
         for name in sorted(set(rows["names"])):
             mine = [k for k, n in enumerate(rows["names"]) if n == name]
