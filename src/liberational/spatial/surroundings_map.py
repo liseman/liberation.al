@@ -884,12 +884,14 @@ def summary(state_dir: Path, now: float | None = None) -> dict[str, Any]:
 
 
 def line_up(state_dir: Path) -> None:
-    """Find or check each place's line-up with its owner's plan (spatial/plan_lineup.py), now that a step may have
-    grown its map. It costs one small read for a place that didn't change, and a failure is logged, not raised: the
-    step itself is done."""
-    from liberational.spatial import plan_lineup
+    """Give each grown map its floor and fixed cameras (spatial/surroundings_positions.py), then find or check each
+    place's line-up with its owner's plan (spatial/plan_lineup.py), now that a step may have grown its map. It costs
+    one small read for a place that didn't change, and a failure is logged, not raised: the step itself is done."""
+    from liberational.spatial import plan_lineup, surroundings_positions
 
     try:
+        # the grown map's floor and fixed cameras first (#260): the line-up needs the floor
+        surroundings_positions.advance(state_dir)
         found = plan_lineup.advance(state_dir)
     except (OSError, ValueError) as error:
         LOG.warning("couldn't line the maps up with their plans: %s", error)

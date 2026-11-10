@@ -14,8 +14,8 @@ so a footprint is projected through the place's current camera pose when it is r
 
 Recording: `record` writes each fixed camera's footprints since it was last called raw
 (`positions.write_samples`), the observation as it is, and the position layer's placer (`positions.advance`) then puts
-them on the plan and writes them to the layer every view reads. Nothing calls `record` on a schedule at present
-(tools/place_positions.py does both by hand).
+them on the plan and writes them to the layer every view reads. `pack-positions` does both, every hour and by
+hand (`positions.run`).
 `places/footprints.json` keeps how far each camera is recorded.
 
 Projected into the map frame, a place's people's footprints are where people walk: its walkable floor, which
