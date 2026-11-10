@@ -16,7 +16,7 @@ from types import EllipsisType
 from typing import Any
 
 from liberational import config as cfg
-from liberational import logs, memtrim, speech_log, vision_log
+from liberational import logs, memtrim, proc_table, speech_log, vision_log
 from liberational.dashboard import (
     context,
     inbox_state,
@@ -203,7 +203,9 @@ def _people_view_worked_out() -> dict[str, Any]:
         return _people_view()
     with _people_lock:
         if _people_executor is None:
-            _people_executor = ProcessPoolExecutor(max_workers=1, mp_context=multiprocessing.get_context("spawn"))
+            _people_executor = ProcessPoolExecutor(
+                max_workers=1, mp_context=multiprocessing.get_context("spawn"), initializer=proc_table.ignore_interrupt
+            )
         executor = _people_executor
     try:
         return executor.submit(_people_view_job).result(timeout=unnamed_groups.GROUPS_WORKER_TIMEOUT_S)

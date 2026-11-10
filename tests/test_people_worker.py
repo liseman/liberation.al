@@ -8,6 +8,7 @@ from unittest.mock import create_autospec
 import pytest
 
 from liberational import config as cfg
+from liberational import proc_table
 from liberational.dashboard import context, roster_read, unnamed_groups
 
 
@@ -16,8 +17,9 @@ def worker(monkeypatch):
     answers, pools, contexts, futures = [], [], [], []
     executor_type = roster_read.ProcessPoolExecutor
 
-    def make_pool(*, max_workers, mp_context):
+    def make_pool(*, max_workers, mp_context, initializer):
         assert max_workers == 1
+        assert initializer is proc_table.ignore_interrupt, "a Ctrl-C in the terminal is the dashboard's to handle"
         contexts.append(mp_context.get_start_method())
         pool = create_autospec(executor_type, instance=True)
         pool._processes = {1: SimpleNamespace(terminate=create_autospec(lambda: None))}
