@@ -5,11 +5,11 @@ weights downloaded, each person's crops are scored too, for reading, watching TV
 
 It follows the shared decode (`shared_frames.decoded_frames`, NV12 on the host) at the camera's rate, which the
 decoder applies before it downloads a picture from the GPU (`shared_frames.Schedule`), and hands each frame to
-`actions.ActionPipeline` on this machine's vision backend (see/vision_backend.py: CUDA on the Linux machine, Core ML and MPS on
-the Mac, `--backend` to choose), whose tracked heads also give the faces (`see.head_faces`: `face.match`, `face.visit`,
-and `face.embedding`). The rows go to one `continuum_py.SegmentWriter` per stream under `paths.state/segments`,
-synced every SYNC_S and on stop. Once a minute it logs each camera's frames, frame rate, time per frame, and how far
-behind live it is.
+`actions.ActionPipeline` on this machine's vision backend (see/vision_backend.py: CUDA on the Linux machine, Core ML and
+MPS on the Mac, `--backend` to choose), whose tracked heads also give the faces (`see.head_faces`: `face.match`,
+`face.visit`, and `face.embedding`). The rows go to one `continuum_py.SegmentWriter` per stream under
+`paths.state/segments`, synced every SYNC_S and on stop. Once a minute it logs each camera's frames, frame rate, time
+per frame, and how far behind live it is.
 
 Each camera runs in its own thread, with its own backend (its own ONNX Runtime sessions and CUDA graphs) and its
 own CUDA stream: in one loop, every camera waited on every other's GPU work, and six cameras got 14 fps on cam0 and

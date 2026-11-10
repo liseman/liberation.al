@@ -916,7 +916,7 @@ def _mps_serialized(method: Any) -> Any:
 
 
 class AppleBackend(TorchBackend):
-    """On the Mac: the models on ONNX Runtime's Core ML provider, and the rest in
+    """On an Apple Silicon Mac (the rig's Mac mini): the models on ONNX Runtime's Core ML provider, and the rest in
     torch on MPS."""
 
     name = "apple"

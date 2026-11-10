@@ -82,8 +82,8 @@ REFERENCE_REACH_NS = 15_000_000_000
 PURGE_SETTLE_S = 1.0
 # After NVDEC fails, how long the camera decodes on the CPU before NVDEC is tried again: the next wait each time it
 # fails again, the last one repeating, and the first again once NVDEC has decoded steadily for the last wait (so one
-# that comes back, decodes a picture, and fails again doesn't flap every minute). One CUDA out-of-memory error (GPU memory
-# is shared with Ollama and the vision models) used to mean the CPU until a restart.
+# that comes back, decodes a picture, and fails again doesn't flap every minute). One CUDA out-of-memory error (GPU
+# memory is shared with Ollama and the vision models) used to mean the CPU until a restart (18 hours, once).
 NVDEC_RETRY_S = (60.0, 300.0, 900.0)
 _monotonic = time.monotonic  # a name of its own, so a test can stand in for the clock
 

@@ -1,4 +1,4 @@
-"""Who a face record is about, as Continuum subjects (the orchestrator's rule on person subjects).
+"""Who a face record is about, as Continuum subjects (the rule on person subjects).
 
 A named face's subject is the person's `PersonId` from the people registry: names are only attributes, so a rename
 never changes it. A face nobody is named for carries its face group's id (`registry.subject_uuid` of

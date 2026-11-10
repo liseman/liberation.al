@@ -1,6 +1,6 @@
 """The seam between see-actions and the hardware it runs on.
 
-see-actions runs on the Linux machine while it's developed on cam0, and on the Mac in the end. So
+see-actions runs on the Linux machine's RTX 3090s while it's developed on cam0, and on the rig's Mac mini in the end. So
 everything that depends on the accelerator sits behind `Backend`, and only NumPy arrays and plain values cross it:
 
 - `upload` takes a decoded frame (host NV12 with its signaled color range and matrix, and its capture header) and
@@ -21,7 +21,7 @@ species and not part of a person.
 
 Backends (`load` picks one): `gpu_pose.CudaBackend` (ONNX Runtime CUDA graphs and torch on CUDA, the Linux machine),
 `gpu_pose.AppleBackend` (the same ONNX models on ONNX Runtime's Core ML provider, and torch on MPS for the rest:
-the Mac), and `gpu_pose.CpuBackend` (everything on the CPU, only when asked for by name).
+the rig's Mac mini), and `gpu_pose.CpuBackend` (everything on the CPU, only when asked for by name).
 """
 
 from collections.abc import Mapping
