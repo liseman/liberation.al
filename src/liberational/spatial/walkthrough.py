@@ -172,6 +172,14 @@ PAIR_SCALE_AGREE = 1.3
 # measurements of the same steps differed by 3.5 degrees and 0.4 m at the median (posegraph.py's 2 degrees and 5 cm
 # were its untuned start).
 STEP_DEG, STEP_M = 4.0, 0.3
+# ARKit's steps (a Stray Scanner walk, `run_stray`), as noise for the pose graph: much tighter than CUT3R's, since
+# ARKit's consecutive poses agree with the frames to a few pixels and its error is slow drift. With posegraph.py's
+# 2 degrees and 5 cm, closing one walk's 17 revisits changed a step by a median 0.18 degrees and 0.5 cm (1.6 degrees
+# and 2.6 cm at the worst), and its frames then sat 4.8 px off each other through their LiDAR depth where ARKit's own
+# poses sit 3.3 px off; the splat's pose refinement was undoing that (#116). At these the same revisits close with a
+# step changed by 0.02 degrees and 0.2 cm and the frames 3.4 px off, and the revisits left 7 cm apart instead of 4.
+# Tighter (0.05 degrees and 0.5 cm) started dropping revisits and left them 11 cm apart.
+ARKIT_STEP_DEG, ARKIT_STEP_M = 0.3, 0.02
 # A step where a sure MASt3R measurement turns this differently from CUT3R is a CUT3R break, and takes MASt3R's
 # measurement instead. IMG_7676 had 13: at the worst, CUT3R turned 146 degrees and moved 4.7 m in one second, and
 # MASt3R's measurement of that step was 89 degrees from it. A repaired step is a loop edge, so the solve can still
@@ -1689,7 +1697,8 @@ def cut3r_intrinsics(
 
 def stray_depths(folder: Path, picked: Sequence[int], code: int | None, out: Path) -> list[Path | None]:
     """Each picked frame's LiDAR depth map (`stray.depth_map`, turned like its saved frame) as a 16-bit PNG under
-    `out`, for the splat to train against; None for a frame without one."""
+    `out`, for the splat to train against; None for a frame without one. `picked` are the frames' numbers in the
+    recording (`stray.Frame.frame`), which name the depth maps."""
     import cv2
 
     paths: list[Path | None] = []
@@ -1734,17 +1743,28 @@ def run_stray(
 ) -> dict[str, Any]:
     """A Stray Scanner export (spatial/stray.py) through the same steps, with ARKit's poses in CUT3R's place and the
     LiDAR's depth for the cloud: no pose model and no step repair (ARKit's poses don't break the way CUT3R's do), no
-    gravity prior (they're gravity-aligned already), and their own tight odometry noise (posegraph.py's defaults).
+    gravity prior (they're gravity-aligned already), and their own tight odometry noise (`ARKIT_STEP_DEG`,
+    `ARKIT_STEP_M`).
     Revisits are still closed with MASt3R where it can run, since ARKit's heading drifts too, about 1% of the walk."""
     began = time.monotonic()
     video = folder / "rgb.mp4"
-    rows = stray.read_odometry(folder)
-    scored = [s for s in score(video) if s.index in rows]
+    recorded = stray.read_odometry(folder)
+    scored = score(video)
+    # Each decoded frame's own row: a decoder can skip the recording's first frame (stray.py's docstring).
+    rows = stray.by_video_frame(recorded, [(s.index, s.t) for s in scored])
+    scored = [s for s in scored if s.index in rows]
     picked = pick(scored)
     if len(picked) < MIN_FRAMES:
         raise RuntimeError(f"only {len(picked)} frames: the recording needs to move through the place")
     turn, code = stray.upright(np.stack([rows[i].c2w for i in picked]))
-    LOG.info("%d frames from %d posed frames of %s", len(picked), len(scored), folder.name)
+    skipped = rows[picked[0]].frame - picked[0]
+    LOG.info(
+        "%d frames from %d posed frames of %s%s",
+        len(picked),
+        len(scored),
+        folder.name,
+        f" (the video starts {skipped} recorded frames in)" if skipped else "",
+    )
     if keyframes_only is not None:
         keyframes_only.mkdir(parents=True, exist_ok=True)
         images = save_frames(video, picked, keyframes_only, turn=code)
@@ -1756,7 +1776,7 @@ def run_stray(
         colours, size = _grab(video, picked)
         points, colors, counts = [], [], []
         for i in picked:
-            p, c = stray.points(folder, i, rows[i].k, size, colours.get(i))
+            p, c = stray.points(folder, rows[i].frame, rows[i].k, size, colours.get(i))
             points.append(p @ turn)  # the sensor camera's coordinates into the turned camera's: turn^T p, row by row
             colors.append(c)
             counts.append(len(p))
@@ -1773,8 +1793,8 @@ def run_stray(
             gravity=False,
             clouds=near_clouds(walk.points, counts),  # only revisits are measured, so this only fits them
             up=stray.WORLD_UP,
-            step_deg=posegraph.ODOMETRY_DEG,
-            step_m=posegraph.ODOMETRY_M,
+            step_deg=ARKIT_STEP_DEG,
+            step_m=ARKIT_STEP_M,
         )
         frames = [stray.saved_intrinsics(rows[i].k, size, FRAME_SIDE, code, turn) for i in picked]
         times = [rows[i].t for i in picked]
@@ -1794,7 +1814,7 @@ def run_stray(
             )
             did["join"] = join_new(state, place or did.get("matched"), did, walk, closed, out)
             did = settled(did)
-        depths = stray_depths(folder, picked, code, out)
+        depths = stray_depths(folder, [rows[i].frame for i in picked], code, out)
         did["splat"] = splats.splat_walk(
             state, did["place"], did["revision"], paths, closed.poses, frames, looks, depths
         )
@@ -1806,6 +1826,7 @@ def run_stray(
                 k=np.stack([rows[i].k for i in picked]),
                 turn=turn,
                 frame=np.array(picked),
+                row=np.array([rows[i].frame for i in picked]),
                 t=np.array([rows[i].t for i in picked]),
             )
     return {

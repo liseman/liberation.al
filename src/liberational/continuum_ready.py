@@ -221,8 +221,13 @@ MIN_REQUEST_S = 0.01  # continuum_py's least request_timeout_s
 
 
 def capture_needs(manifest: Path) -> tuple[CaptureNeed, ...]:
-    """Validate the configured manifest identities and require enabled cameras/microphones/arrays."""
-    data = tomllib.loads(manifest.read_text())
+    """Validate the configured manifest identities and require enabled cameras/microphones/arrays. No manifest
+    means no devices are set up yet (a new install, before Settings' Devices writes one): nothing is required."""
+    try:
+        text = manifest.read_text()
+    except FileNotFoundError:
+        return ()
+    data = tomllib.loads(text)
     devices = data.get("device", [])
     if not isinstance(devices, list):
         raise ValueError("capture manifest device must be an array of tables")

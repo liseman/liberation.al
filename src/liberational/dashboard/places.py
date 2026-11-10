@@ -28,7 +28,7 @@
                                        {revision: null} while the place has no map
     GET /places/map?place=&revision=   that revision's map file (a point cloud, PLY), with byte ranges, an ETag, and
                                        caching for good: a revision's files never change once written
-    GET /places/splat?place=&revision= that revision's 3D Gaussian splat (SPZ), served the same way; the
+    GET /places/splat?place=&revision= that revision's 3D Gaussian splat (SOG), served the same way; the
                                        scene names it (`splat`, null while the revision has none)
     GET /places/positions?place=&start=&end=[&entity=]
                                        {place, start, end, entities, tracks, rooms}: where each entity was on the
@@ -216,11 +216,11 @@ def map_file(state: Path, place: str, revision: str) -> Path | None:
 
 
 def splat_file(state: Path, place: str, revision: str) -> Path | None:
-    """GET /places/splat: `revision`'s splat (SPZ), or None (no such place or revision, or it has no splat)."""
+    """GET /places/splat: `revision`'s splat (SOG), or None (no such place or revision, or it has no splat)."""
     if places.get(state, place) is None:
         return None
     rev = next((r for r in places.revisions(state, place) if r.id == revision), None)
-    return places.splat_path(state, rev, "spz") if rev and places.has_splat(state, rev) else None
+    return places.splat_path(state, rev, "sog") if rev and places.has_splat(state, rev) else None
 
 
 WALK_PREFIX = "walk-"  # a walk's look-from views (spatial/splats.py LOOK_PREFIX), not fixed cameras
@@ -265,7 +265,7 @@ def scene(state: Path, place: str) -> Reply:
     fits = [r for r in with_splat if r.id == rev.id or (rev.frame is not None and r.frame == rev.frame)]
     shown = next((r for r in reversed(fits) if r.id == rev.id), fits[-1] if fits else None)
     try:
-        splat_size = places.splat_path(state, shown, "spz").stat().st_size if shown else None
+        splat_size = places.splat_path(state, shown, "sog").stat().st_size if shown else None
     except FileNotFoundError:  # pruned since it was found
         shown, splat_size = None, None
     stale = with_splat[-1] if shown is None and with_splat else None
@@ -280,7 +280,7 @@ def scene(state: Path, place: str) -> Reply:
         "map_format": rev.map_format,
         "map_bytes": size,
         "splat": None if shown is None else "/places/splat?" + urlencode({"place": place, "revision": shown.id}),
-        "splat_format": None if shown is None else "spz",
+        "splat_format": None if shown is None else "sog",
         "splat_bytes": splat_size,
         "splat_revision": None if shown is None else shown.id,
         "splat_stale": None if stale is None else {"revision": stale.id, "at": stale.at},

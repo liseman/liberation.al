@@ -133,7 +133,7 @@ POST /places/plan/restore    {place, record}: make that earlier owner plan hold 
 GET  /places/scene?place=     the Places 3D view's scene: the newest revision with a map, its floor, plan
                             transform, cameras, and plan in its frame; {revision: null} with no map
 GET  /places/map?place=&revision=  that revision's map (PLY), with byte ranges, an ETag, and immutable caching
-GET  /places/splat?place=&revision=  that revision's 3D Gaussian splat (SPZ), served like its map
+GET  /places/splat?place=&revision=  that revision's 3D Gaussian splat (SOG), served like its map
 GET  /places/positions?place=&start=&end=[&entity=]  where people and pets were on that place's plan:
                             {place, start, end, entities, tracks: [{entity, points}], rooms: [zone spans]}, at most
                             2,000 points an entity; 400 for no place or a bad window (at most 31 days)

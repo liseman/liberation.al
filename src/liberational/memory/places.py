@@ -21,7 +21,7 @@ Two layers, following docs/DOMAIN-MODEL.md:
   revision records stay as the audit trail. Visits are rows in the `place.visit` segment stream (`segment_log.py`).
 - **A revision's splat** is a 3D Gaussian splat trained on that revision's map, cameras, and their recorded
   frames (spatial/splats.py), in the map's frame: `<revision id>.gs.ply` (the standard 3DGS PLY, the master) and
-  `<revision id>.spz` (the compact copy the 3D view loads), with `<revision id>.gs.from` saying what it was trained
+  `<revision id>.sog` (the compact copy the 3D view loads, spatial/sog.py), with `<revision id>.gs.from` saying what it was trained
   from ("walk" or "cameras"). It's written once, after its revision, and isn't a
   revision of its own (a revision is a reconstruction; a splat is a rendering of one). The newest `SPLATS_KEPT`
   revisions' splats stay and older ones are pruned. A splat fits every revision of its map's `frame` (`Revision.frame`), so the 3D view can show
@@ -92,7 +92,7 @@ PLAN = "place.plan"  # owner plan corrections, in the knowledge store, keyed by 
 MAPS_KEPT = 2  # map files kept per place, newest first; older ones are pruned
 SPLATS_KEPT = 2  # revisions per place whose splat files are kept, newest first
 #: A splat's files beside its revision: the 3DGS master, the compact web copy, and a note of what it was trained from.
-SPLAT_FILES = ("gs.ply", "spz", "gs.from")
+SPLAT_FILES = ("gs.ply", "sog", "gs.from")
 # A producer's newest map is kept whatever its age only while that producer wrote one of the place's last this many
 # revisions: a retired producer version's last map then goes too (about ten days of daily runs). Tier 1 is no
 # exception: 20 fixed-camera snapshots in a row that don't fuse (about 20 days, as an unfused day writes only its
@@ -690,7 +690,7 @@ def splat_path(state: Path, rev: Revision, kind: str) -> Path:
 
 def has_splat(state: Path, rev: Revision) -> bool:
     """Whether `rev` has a splat: its compact copy, the file the 3D view loads, is there."""
-    return splat_path(state, rev, "spz").is_file()
+    return splat_path(state, rev, "sog").is_file()
 
 
 def splat_source(state: Path, rev: Revision) -> str | None:
@@ -703,7 +703,7 @@ def splat_source(state: Path, rev: Revision) -> str | None:
 
 
 def write_splat(state: Path, rev: Revision, master: bytes, web: bytes, source: str | None = None) -> None:
-    """Keep `rev`'s splat: the 3DGS PLY `master` and its SPZ copy `web`, each written whole, the copy last (it's
+    """Keep `rev`'s splat: the 3DGS PLY `master` and its SOG copy `web`, each written whole, the copy last (it's
     what says a splat is there), with `source` (what it was trained from: "walk" or "cameras") noted beside them. A
     revision's splat is written once: the dashboard serves it as never changing, so a second one for the same
     revision is refused. Older revisions' splats past SPLATS_KEPT are pruned."""
@@ -712,8 +712,16 @@ def write_splat(state: Path, rev: Revision, master: bytes, web: bytes, source: s
     _write(splat_path(state, rev, "gs.ply"), master)
     if source is not None:
         _write(splat_path(state, rev, "gs.from"), source.encode())
-    _write(splat_path(state, rev, "spz"), web)
+    _write(splat_path(state, rev, "sog"), web)
     _prune_splats(state, rev.place)
+
+
+def write_splat_copy(state: Path, rev: Revision, web: bytes) -> None:
+    """Give `rev`'s kept splat (its 3DGS PLY is there) the SOG copy it lacks; a revision with a copy, or without a
+    PLY, is refused."""
+    if has_splat(state, rev) or not splat_path(state, rev, "gs.ply").is_file():
+        raise ValueError(f"revision {rev.id} has its splat's copy already, or no splat to copy")
+    _write(splat_path(state, rev, "sog"), web)
 
 
 def _prune_splats(state: Path, place: str) -> None:

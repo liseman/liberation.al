@@ -308,6 +308,15 @@ pub fn slot_need(max_frame_bytes: u32, width: u32, height: u32, shape: &str) -> 
     continuum_core::camera_frame_bound(width, height, raw).unwrap_or(0).max(u64::from(max_frame_bytes))
 }
 
+/// Whether the driver's buffer puts this camera in a larger slot class than the one the broker reserved its ring
+/// in (the class of its planned frame): there it has only the profile's spare slots, so it may keep less than its
+/// `ring_seconds`.
+#[must_use]
+pub fn outgrew_plan(classes: &[continuum_client::SizeClass], max_frame_bytes: u32, planned: u64) -> bool {
+    let driver = u64::from(max_frame_bytes);
+    driver > planned && pick_class(classes, driver).map(|c| c.0) != pick_class(classes, planned).map(|c| c.0)
+}
+
 /// The slot class a frame of `need` bytes goes in: the smallest that holds it (the big ones stay free for big
 /// payloads), as its index and slot size. `None` when none is big enough.
 #[must_use]
@@ -364,6 +373,19 @@ pub fn camera(
         );
         return WorkerEnd::Memory;
     };
+    let planned = slot_need(0, opened.mode.width, opened.mode.height, &opened.shape);
+    if outgrew_plan(&mapped.info.classes, opened.max_frame_bytes, planned) {
+        tracing::warn!(
+            "{}: the driver's {} byte buffer is larger than the {planned} bytes planned for {}x{} {}, so its frames \
+             go in the {slot_bytes} byte Tier 0 class, where no ring was reserved for it: it may keep less than its \
+             ring_seconds",
+            device.name,
+            opened.max_frame_bytes,
+            opened.mode.width,
+            opened.mode.height,
+            opened.shape
+        );
+    }
     let arena = mapped.arena.clone();
     let slot_bytes = usize::try_from(slot_bytes).unwrap_or(usize::MAX);
     let stream_name = device.stream_name("video");
@@ -646,6 +668,16 @@ mod tests {
         let classes = [SizeClass { slab_bytes: 1 << 20, count: 245 }, SizeClass { slab_bytes: 2 << 20, count: 900 }];
         assert_eq!(pick_class(&classes, slot_need(1_036_800, 960, 540, "MJPEG")), Some((1, 2 << 20)));
         assert_eq!(pick_class(&classes, 1_036_800), Some((0, 1 << 20)), "by the driver's buffer alone, as before");
+    }
+
+    #[test]
+    fn a_driver_buffer_outgrows_the_plan_only_when_it_lands_in_a_larger_class() {
+        use continuum_client::SizeClass;
+        let classes = [SizeClass { slab_bytes: 2 << 20, count: 383 }, SizeClass { slab_bytes: 16 << 20, count: 4 }];
+        let planned = 2_092_544; // 1928x536 UYVY, just inside the 2 MiB class
+        assert!(!outgrew_plan(&classes, 2_000_000, planned), "a smaller buffer claims by the plan");
+        assert!(!outgrew_plan(&classes, 2_097_152, planned), "larger than planned, but the same class");
+        assert!(outgrew_plan(&classes, 2_126_848, planned), "padded past 2 MiB: the 16 MiB class");
     }
 
     #[test]
