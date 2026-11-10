@@ -138,7 +138,7 @@ def _counts(
 ) -> collections.Counter[str]:
     from liberational.spatial import positions
 
-    rows = positions.positions(state, start, end, place=place.id, frame_revision=frame)
+    rows = positions.derive(state, start, end, place=place.id, frame_revision=frame)
     out: collections.Counter[str] = collections.Counter()
     for r in rows:
         if r.x is None or r.y is None:

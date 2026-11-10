@@ -1,4 +1,4 @@
-"""Opt-in finite CPU profiles for existing pack console entry points (#1743).
+"""Opt-in finite CPU profiles for existing pack console entry points.
 
 PACK_PROFILE=1 profiles this process; a comma-separated service list selects console entry points by name.
 PACK_PROFILE_SERVICE supplies a name for a Python module entry point. CLI administration remains excluded.

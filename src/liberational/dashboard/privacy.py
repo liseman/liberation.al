@@ -1,4 +1,4 @@
-"""Pausing cameras and microphones for privacy from the header's status icons (#2260).
+"""Pausing cameras and microphones for privacy from the header's status icons.
 
 A pause is `paused = true` on the device's `[[device]]` entry in config/devices.toml, so it lasts across restarts
 (and state resets) until it's resumed. Capture's supervisor reads it about once a second and keeps no worker on a

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Refuse changes that add lines that look like leftover merge conflict markers (#566): lines of seven <, =, >, or |
-# that git diff --check calls "leftover conflict marker". 2026-10-29: a merge script kept going after a failed step
-# and committed unresolved markers into continuum/Cargo.toml on main, and every cargo command failed until the fix.
+# Refuse changes that add lines that look like leftover merge conflict markers: lines of seven <, =, >, or |
+# that git diff --check calls "leftover conflict marker". If a merge script keeps going after a failed step,
+# it can commit unresolved markers into Cargo.toml on main and break every cargo command until fixed.
 # Other --check findings (trailing whitespace and so on) are left alone.
 #
 #   check-conflict-markers <hook>               what's staged, against HEAD (pre-commit, pre-merge-commit)

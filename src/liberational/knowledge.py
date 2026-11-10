@@ -1,4 +1,4 @@
-"""Indexed, low-rate knowledge independent of the broker catalog (#1755).
+"""Indexed, low-rate knowledge independent of the broker catalog.
 
 Records are immutable. Exact retries retain their position; conflicting IDs and erased IDs cannot be reused.
 Every content write and erasure advances the durable change feed in the same transaction. This module stores
@@ -11,7 +11,7 @@ journals in WAL, so readers never block the writer, when SQLite is 3.51.3 or new
 defect (a checkpoint racing a writer can corrupt the file), so there it keeps rollback journaling. Both use FULL
 synchronization. A WAL store checkpoints and truncates its WAL after each write (`_fold`).
 A lock held by another process is waited out: SQLite's busy timeout, then retries with backoff for up to
-LOCK_WAIT_S, so a slow peer delays a service rather than stopping it (#2898). A COMMIT waits at most COMMIT_WAIT_S,
+LOCK_WAIT_S, so a slow peer delays a service rather than stopping it. A COMMIT waits at most COMMIT_WAIT_S,
 because a rollback-journal writer waiting to commit holds new readers out. `lock_wait` caps all of it for a context,
 so a dashboard request fails fast instead of piling up behind a lock.
 Thread-local holders close connections when their thread exits; the Store tracks holders weakly so short-lived
@@ -38,7 +38,7 @@ from typing import Any
 FORMAT = 1
 APPLICATION_ID = 0x4C504B4E
 BUSY_TIMEOUT_S = 30.0  # one wait inside SQLite for another connection's lock
-LOCK_WAIT_S = 300.0  # how long a locked open or BEGIN keeps retrying before it fails (#2898)
+LOCK_WAIT_S = 300.0  # how long a locked open or BEGIN keeps retrying before it fails
 REQUEST_WAIT_S = 10.0  # a dashboard request's whole wait (`lock_wait`): it answers with an error, not a queue
 COMMIT_WAIT_S = 60.0  # a COMMIT's whole wait: in rollback journaling, readers can't start while it waits
 FIRST_RETRY_S = 0.1  # the backoff doubles from here up to MAX_RETRY_S
@@ -72,7 +72,7 @@ _wait_cap: contextvars.ContextVar[float | None] = contextvars.ContextVar("knowle
 @contextmanager
 def lock_wait(seconds: float) -> Generator[None]:
     """Cap every knowledge lock wait in this context (busy timeout and retries together) at `seconds`. For request
-    threads, which should answer with an error rather than queue behind a lock (#2898)."""
+    threads, which should answer with an error rather than queue behind a lock."""
     token = _wait_cap.set(seconds)
     try:
         yield
@@ -218,6 +218,13 @@ _SCHEMA = (
 )
 
 
+# Every record read selects its subjects in the same statement, so a page of N rows is one statement, not N + 1.
+_RECORD = (
+    "SELECT r.*, (SELECT json_group_array(s.subject ORDER BY s.subject) FROM subjects s WHERE s.record_id=r.id) "
+    "AS subject_list FROM records r"
+)
+
+
 class _Handle:
     """TLS owns this holder; its finalizer retains only the connection, never the holder or its Store."""
 
@@ -243,7 +250,7 @@ class Store:
         self._handles: weakref.WeakSet[_Handle] = weakref.WeakSet()
         self._handles_lock = threading.Lock()
         # Threads inside a transaction, and closes waiting for them: closing a connection another thread is using
-        # crashes the process inside SQLite (#3161), so close waits for them and new transactions wait for close.
+        # crashes the process inside SQLite, so close waits for them and new transactions wait for close.
         self._use = threading.Condition()
         self._users = 0
         self._closing = 0
@@ -268,7 +275,7 @@ class Store:
                 db.execute("INSERT INTO metadata VALUES ('incarnation', ?)", (str(uuid.uuid4()),))
                 db.execute(f"PRAGMA application_id={APPLICATION_ID}")
                 db.execute(f"PRAGMA user_version={FORMAT}")
-        with _announced_lock:  # once a process per file: each Store opened said it again, 26 lines an hour (#3147)
+        with _announced_lock:  # once a process per file: each Store opened said it again, 26 lines an hour
             first = str(self.path) not in _announced
             _announced.add(str(self.path))
         if first:
@@ -448,10 +455,8 @@ class Store:
         return replace(record, value=json.loads(encoded), subjects=subjects), encoded
 
     @staticmethod
-    def _stored(db: sqlite3.Connection, row: sqlite3.Row) -> StoredRecord:
-        subjects = tuple(
-            r[0] for r in db.execute("SELECT subject FROM subjects WHERE record_id=? ORDER BY subject", (row["id"],))
-        )
+    def _stored(row: sqlite3.Row) -> StoredRecord:
+        """Decode one row read through `_RECORD`."""
         return StoredRecord(
             row["position"],
             Record(
@@ -462,16 +467,16 @@ class Store:
                 row["end_ns"],
                 row["recorded_ns"],
                 json.loads(row["value"]),
-                subjects,
+                tuple(json.loads(row["subject_list"])),
             ),
         )
 
     def _put(self, db: sqlite3.Connection, record: Record, encoded: str) -> int:
         if db.execute("SELECT 1 FROM erased WHERE id=?", (record.id,)).fetchone():
             raise Deleted("knowledge record was erased")
-        old = db.execute("SELECT * FROM records WHERE id=?", (record.id,)).fetchone()
+        old = db.execute(f"{_RECORD} WHERE r.id=?", (record.id,)).fetchone()
         if old is not None:
-            if old["value"] != encoded or self._stored(db, old).record != record:
+            if old["value"] != encoded or self._stored(old).record != record:
                 raise Conflict("knowledge ID already identifies different content")
             return old["position"]
         change = db.execute(
@@ -509,10 +514,10 @@ class Store:
         positions: list[int] = []
         with self._connection(write=True) as db:
             for record, encoded in prepared:
-                old = db.execute("SELECT * FROM records WHERE id=?", (record.id,)).fetchone()
+                old = db.execute(f"{_RECORD} WHERE r.id=?", (record.id,)).fetchone()
                 if old is None:
                     raise KeyError(f"no knowledge record {record.id}")
-                was = self._stored(db, old).record
+                was = self._stored(old).record
                 if (record.collection, record.start_ns, record.end_ns, record.recorded_ns, record.subjects) != (
                     was.collection,
                     was.start_ns,
@@ -534,16 +539,14 @@ class Store:
 
     def get(self, id: str) -> StoredRecord | None:
         with self._connection() as db:
-            row = db.execute("SELECT * FROM records WHERE id=?", (_text(id, "id"),)).fetchone()
-            return self._stored(db, row) if row is not None else None
+            row = db.execute(f"{_RECORD} WHERE r.id=?", (_text(id, "id"),)).fetchone()
+            return self._stored(row) if row is not None else None
 
     def snapshot(self) -> Snapshot:
         """One consistent low-rate record cut, including erasure barriers, for an explicit portable export."""
         with self._connection() as db:
             revision = int(db.execute("SELECT COALESCE(MAX(position),0) FROM changes").fetchone()[0])
-            records = tuple(
-                self._stored(db, row) for row in db.execute("SELECT * FROM records ORDER BY position").fetchall()
-            )
+            records = tuple(self._stored(row) for row in db.execute(f"{_RECORD} ORDER BY r.position").fetchall())
             erased = tuple(row[0] for row in db.execute("SELECT id FROM erased ORDER BY id"))
             return Snapshot(revision, records, erased)
 
@@ -596,12 +599,12 @@ class Store:
         if wanted:
             terms.append(f"r.id IN (SELECT record_id FROM subjects WHERE subject IN ({','.join('?' for _ in wanted)}))")
             parameters.extend(wanted)
-        sql = "SELECT r.* FROM records r WHERE " + " AND ".join(terms) + " ORDER BY r.position"
+        sql = f"{_RECORD} WHERE " + " AND ".join(terms) + " ORDER BY r.position"
         if limit is not None:
             sql += " LIMIT ?"
             parameters.append(limit)
         with self._connection() as db:
-            return [self._stored(db, row) for row in db.execute(sql, parameters).fetchall()]
+            return [self._stored(row) for row in db.execute(sql, parameters).fetchall()]
 
     def collections(self, prefix: str = "") -> list[str]:
         if not isinstance(prefix, str):
@@ -675,8 +678,8 @@ class Store:
             parameters.append(_integer(before_ns, "before_ns"))
         prepared = self._prepare(audit)[0] if audit is not None else None
         with self._connection(write=True) as db:
-            rows = db.execute("SELECT r.* FROM records r WHERE " + " AND ".join(terms), parameters).fetchall()
-            selected = [row["id"] for row in rows if predicate is None or predicate(self._stored(db, row).record)]
+            rows = db.execute(f"{_RECORD} WHERE " + " AND ".join(terms), parameters).fetchall()
+            selected = [row["id"] for row in rows if predicate is None or predicate(self._stored(row).record)]
             return self._remove(db, selected, prepared)
 
     def changes(self, after: int = 0, *, limit: int = 1000, collections: Iterable[str] = ()) -> list[Change]:
@@ -832,7 +835,7 @@ def _journal() -> str:
 
 
 # Strong, so a caller that drops its Store between calls still reuses it: a weak cache rebuilt it on every such call,
-# each rebuild taking the write lock to check the schema (#2940).
+# each rebuild taking the write lock to check the schema.
 _stores: dict[str, Store] = {}
 _stores_lock = threading.Lock()
 
@@ -841,7 +844,7 @@ def at(path: str | Path) -> Store:
     """Reuse the validated store for a database path for the life of the process; its connections and transactions
     remain thread-local. A store whose file was removed (a state reset) is rebuilt, which initializes a new file. The
     old one is closed after the lock is let go: its close waits for its transactions in progress, and one of those
-    may be opening another store here (#3176)."""
+    may be opening another store here."""
     key = str(Path(path).resolve())
     stale = None
     with _stores_lock:

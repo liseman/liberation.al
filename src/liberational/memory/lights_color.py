@@ -1,8 +1,8 @@
 """How long the room's electric lights were on, measured from the recorded video's colour cast (the cameras' frames on
-the broker, #549).
+the broker).
 
 The cameras adjust exposure automatically, so overall brightness hardly changes between night and evening, and a
-brightness threshold called the lights "on" all day (2026-10-29). The colour cast does change: the workshop's lamps
+brightness threshold called the lights "on" all day. The colour cast does change: the workshop's lamps
 are warm, so with them on the picture's blue channel drops well below green; at night the picture is neutral (only
 device LEDs), and daylight is neutral too but brighter. Checked by eye on cam0 frames at 10:00 and 14:00 (lamps lit,
 warm), 12:30 (daylight, neutral and bright) and 22:30 (dark, neutral).

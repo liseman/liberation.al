@@ -28,11 +28,11 @@ export interface Here {
 
 const capital = (s: string) => s.charAt(0).toLocaleUpperCase() + s.slice(1);
 const whereSeen = (
-  place: string | null | undefined,
+  cameraName: string | null | undefined,
   cam: string | null | undefined,
   since: number | null | undefined,
 ): string => {
-  const at = capital(place || cam || 'in view');
+  const at = capital(cameraName || cam || 'in view');
   return since ? `${at}, since ${hm(since)}` : at;
 };
 
@@ -55,7 +55,7 @@ export function hereNow(
       key: `person:${p.name}`,
       name: p.name,
       photo: p.photo ?? null,
-      where: whereSeen(p.here_now?.place, p.here_now?.cam, p.here_now?.since),
+      where: whereSeen(p.here_now?.camera_name, p.here_now?.cam, p.here_now?.since),
       href: cardHref(p.name),
       seen: true,
     }));
@@ -70,7 +70,7 @@ export function hereNow(
       name: p.name,
       // the photo chosen on its card, else a look at it now
       photo: photoUrl(p.photo || h.track, true),
-      where: whereSeen(h.place, h.cam, h.since),
+      where: whereSeen(h.camera_name, h.cam, h.since),
       href: petCard(p.name),
       seen: true,
     }));

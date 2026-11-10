@@ -1,0 +1,236 @@
+# Hosted checks, a backstop that never blocks a merge (CONTRIBUTING.md, "Checks before merging"). They check only
+# what a change touches, against the pull request's base or, for a push to main, the previous commit: Ruff and ty on
+# the changed Python and the tests that cover it (tools/test_changed.py, the mapping mise run test-changed uses), the
+# frontend build and the Vitest tests related to the changed files, and cargo test for the Continuum crates touched.
+# A change to nothing but docs runs none of it. Anything that needs a GPU, models, or Ollama stays local.
+name: checks
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "tools/**"
+      - "tests/**"
+      - "frontend/**"
+      - "continuum/**"
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - ".github/workflows/checks.yml"
+  pull_request:
+    paths:
+      - "src/**"
+      - "tools/**"
+      - "tests/**"
+      - "frontend/**"
+      - "continuum/**"
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - ".github/workflows/checks.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      base: ${{ steps.diff.outputs.base }}
+      python: ${{ steps.diff.outputs.python }}
+      frontend: ${{ steps.diff.outputs.frontend }}
+      crates: ${{ steps.diff.outputs.crates }}
+      cargo_workspace: ${{ steps.diff.outputs.cargo_workspace }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: List what changed
+        id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          # A pull request is checked out as GitHub's merge of it into its base, so the merge's first parent is the
+          # base it was built on (pull_request.base.sha can be older, after main moves). A push to main compares with
+          # what main was before it, or with the parent commit when that's unusable (a force push).
+          if [ "$EVENT" = pull_request ]; then
+            BASE=$(git rev-parse HEAD^1)
+          else
+            BASE=$BEFORE
+            if ! git cat-file -e "${BASE}^{commit}" 2>/dev/null; then BASE=$(git rev-parse HEAD^); fi
+          fi
+          git diff --name-only --diff-filter=d "$(git merge-base "$BASE" HEAD)" HEAD > "$RUNNER_TEMP/changed.txt"
+          cat "$RUNNER_TEMP/changed.txt"
+          has() { grep -qE "$1" "$RUNNER_TEMP/changed.txt" && echo true || echo false; }
+          # The Continuum crates a change touches, by directory (each crate's directory is its package name).
+          crates=$(sed -nE 's|^continuum/crates/([^/]+)/.*|\1|p' "$RUNNER_TEMP/changed.txt" | sort -u | tr '\n' ' ')
+          # Workspace files outside any crate (the root Cargo.toml and Cargo.lock, schemas) with no crate touched.
+          workspace=false
+          if [ -z "$crates" ] && grep -qE '^continuum/' "$RUNNER_TEMP/changed.txt"; then workspace=true; fi
+          {
+            echo "base=$BASE"
+            echo "python=$(has '^(src|tools|tests)/')"
+            echo "frontend=$(has '^frontend/')"
+            echo "crates=$crates"
+            echo "cargo_workspace=$workspace"
+          } >> "$GITHUB_OUTPUT"
+
+  python:
+    needs: changes
+    if: needs.changes.outputs.python == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      BASE: ${{ needs.changes.outputs.base }}
+      UV_FROZEN: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # PortAudio for sounddevice and FFmpeg for the media tests; OpenCV's wheels need libGL.
+      - name: Install system packages
+        run: sudo apt-get update -q && sudo apt-get install -yq --no-install-recommends libportaudio2 ffmpeg libgl1
+
+      # The cache keeps the continuum-py wheel that uv sync builds from continuum/ (maturin, with the runner's Rust).
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          python-version: "3.14"
+          enable-cache: true
+          cache-dependency-glob: |
+            uv.lock
+            continuum/Cargo.lock
+            continuum/crates/**/*.rs
+            continuum/python/**
+
+      # The vision modules import torch, which only the extras bring; the CPU build from PyTorch's own index is a
+      # fraction of the CUDA one. UV_NO_SYNC keeps uv run from syncing it away again.
+      - name: Install the Python dependencies (no extras, CPU torch)
+        run: |
+          set -euo pipefail
+          uv sync
+          uv pip install torch --index-url https://download.pytorch.org/whl/cpu
+          echo "UV_NO_SYNC=1" >> "$GITHUB_ENV"
+
+      - name: List the changed Python
+        run: |
+          set -euo pipefail
+          git diff --name-only --diff-filter=d "$(git merge-base "$BASE" HEAD)" HEAD -- '*.py' > "$RUNNER_TEMP/py.txt"
+          # ty checks only what [tool.ty.src] includes, so it gets the files under src/, tests/, and tools/.
+          grep -E '^(src|tests|tools)/' "$RUNNER_TEMP/py.txt" > "$RUNNER_TEMP/ty.txt" || true
+          cat "$RUNNER_TEMP/py.txt"
+
+      - name: Ruff
+        run: |
+          set -euo pipefail
+          [ -s "$RUNNER_TEMP/py.txt" ] || { echo "no changed Python"; exit 0; }
+          xargs -a "$RUNNER_TEMP/py.txt" uv run ruff check --force-exclude
+          xargs -a "$RUNNER_TEMP/py.txt" uv run ruff format --check --force-exclude
+
+      - name: ty
+        run: |
+          set -euo pipefail
+          [ -s "$RUNNER_TEMP/ty.txt" ] || { echo "no changed Python under src/, tests/, or tools/"; exit 0; }
+          xargs -a "$RUNNER_TEMP/ty.txt" uv run ty check
+
+      # test_changed.py runs nothing when no test covers the change; it never falls back to the full suite.
+      - name: Tests that cover the change
+        run: uv run tools/test_changed.py --base "$BASE" --only python
+
+  frontend:
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      BASE: ${{ needs.changes.outputs.base }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: node # the newest release, as mise.toml's node = "latest"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install the frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Production build
+        working-directory: frontend
+        run: npm run build
+
+      # vitest related on the changed files under frontend/src/ (nothing, and it says so, when there are none).
+      - name: Tests related to the change
+        run: python3 tools/test_changed.py --base "$BASE" --only frontend
+
+  rust:
+    needs: changes
+    if: needs.changes.outputs.crates != '' || needs.changes.outputs.cargo_workspace == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CRATES: ${{ needs.changes.outputs.crates }}
+    defaults:
+      run:
+        working-directory: continuum
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # protoc for LanceDB's build (continuum-vector); PipeWire's headers and libclang for continuum-capture.
+      - name: Install system packages
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq --no-install-recommends protobuf-compiler libpipewire-0.3-dev libclang-dev pkg-config
+
+      # continuum-py's PyO3 build needs a Python to build against.
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        id: python
+        with:
+          python-version: "3.14"
+
+      - name: Rust toolchain
+        run: rustup toolchain install stable --profile minimal -c rustfmt && rustup default stable
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: continuum
+
+      - name: rustfmt on the touched crates
+        if: env.CRATES != ''
+        run: |
+          set -euo pipefail
+          args=(); for c in $CRATES; do args+=(-p "$c"); done
+          cargo fmt "${args[@]}" --check
+
+      - name: cargo test on the touched crates
+        if: env.CRATES != ''
+        env:
+          PYO3_PYTHON: ${{ steps.python.outputs.python-path }}
+        run: |
+          set -euo pipefail
+          args=(); for c in $CRATES; do args+=(-p "$c"); done
+          cargo test "${args[@]}"
+
+      # A change to the workspace's own files (the root Cargo.toml, Cargo.lock, or the schemas) touches no one crate,
+      # so it gets a check of the whole workspace instead, without the tests.
+      - name: cargo check on the workspace
+        if: env.CRATES == ''
+        env:
+          PYO3_PYTHON: ${{ steps.python.outputs.python-path }}
+        run: cargo check --workspace --all-targets

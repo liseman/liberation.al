@@ -1,6 +1,6 @@
-"""MoViNet's classes (Kinetics-600) (#1951), apart from the model, so code that only reads its outputs never imports
+"""MoViNet's classes (Kinetics-600), apart from the model, so code that only reads its outputs never imports
 torch (see/movinet.py has the model). Which classes are which activity is the owner's list
-(memory/activity_kinds.py, #3244)."""
+(memory/activity_kinds.py)."""
 
 # Kinetics-600's classes, in the order of the model's outputs (TensorFlow's kinetics_600_labels.txt).
 CLASSES = (

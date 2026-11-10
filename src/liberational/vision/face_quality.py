@@ -1,4 +1,4 @@
-"""How good a face shot is, for picking a person's main photo and the shots on their contact card (#307).
+"""How good a face shot is, for picking a person's main photo and the shots on their contact card.
 
 Each sighting gets five factors, each from 0 to 1:
 
@@ -14,7 +14,7 @@ confident profile view still loses to a slightly softer face looking at the came
 frontal 0.3, size 0.25, sharp 0.2, det 0.1, sim 0.15. Frontalness and size carry the most because they are what makes a
 contact photo recognizable; confidence and similarity are already high for any named sighting.
 
-A sighting whose frontal or sharp hasn't been measured yet (stored before #307, until the backfill's catch-up reaches
+A sighting whose frontal or sharp hasn't been measured yet (until the backfill's catch-up reaches
 it) counts each unmeasured factor as 0.5 (UNMEASURED): a measured face looking at the camera beats it, and it beats
 a measured profile. The catch-up measures each person's best-ranked unmeasured shots first, so the ones that could
 be chosen are measured before they are shown.

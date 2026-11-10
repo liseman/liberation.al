@@ -1,13 +1,13 @@
-"""Wide-lens fixed cameras (#2998, part of the spatial memory goal #2794): a camera's radial distortion and the overlays
+"""Wide-lens fixed cameras (part of spatial memory): a camera's radial distortion and the overlays
 it burns into its frames, so MASt3R, the footprints, and the splats see it as the pinhole they assume.
 
 MASt3R, `places.CameraPose`, `places.floor_point`, and the splat trainer all take a camera as a pinhole with its
-principal point at the frame's centre. A wide lens (the Reolink cameras: bedroom and kitchen on devbox) bends straight
-lines towards the frame's edges, which bends its share of a place's cloud and misplaces foot points near the edges. So
-a camera with a `lens` calibration in its `config/devices.toml` entry has its frames undistorted before MASt3R and the
-splats see them, and its foot points undistorted before they're projected onto the floor. A camera registered with
-others (spatial/registration.py, #3069) can also carry a lens the registration fitted, kept the same way on its pose:
-its frames go to MASt3R as they are, and only its rays are undone.
+principal point at the frame's centre. A wide lens (the Reolink cameras: bedroom and kitchen on the Linux machine) bends
+straight lines towards the frame's edges, which bends its share of a place's cloud and misplaces foot points near the
+edges. So a camera with a `lens` calibration in its `config/devices.toml` entry has its frames undistorted before MASt3R
+and the splats see them, and its foot points undistorted before they're projected onto the floor. A camera registered
+with others (spatial/registration.py) can also carry a lens the registration fitted, kept the same way on its pose: its
+frames go to MASt3R as they are, and only its rays are undone.
 
 **The model** is the one-parameter division model (Fitzgibbon, 2001): a point seen at normalized position (x, y)
 (pixels from the principal point over the focal length) is really at (x, y) / (1 + lambda r^2), with r^2 = x^2 + y^2.
@@ -19,13 +19,13 @@ It's stored the way `tools/calibrate_lens.py` writes it, in the pixels of the fr
 fixes the distortion but not the focal length, so `k`'s focal is only the scale `division` is in: MASt3R finds the
 undistorted frame's own focal. Why not OpenCV's standard (Brown-Conrady) k1, k2: on the Reolinks the barrel needs a k1
 of about -0.15 at this scale, where the polynomial stops growing before the frame's edges (it folds), so the edges and
-corners would have no undistorted point; the division model never folds and undoes in closed form both ways (#2998
-compares the fits).
+corners would have no undistorted point; the division model never folds and undoes in closed form both ways (chosen
+after comparing the fits).
 
 **The undistorted frame** is the same size as the frame, its principal point where the calibration's is, and its scale
 `out_scale` times the calibration's, chosen so the whole frame stays in it, every edge and corner on both axes:
 undoing a barrel's squeeze pushes the frame's edges outwards, its corners furthest, and a frame cropped to its edges'
-middles lost its corners and, on the kitchen's camera, the floor strip along its bottom (#2998: a single camera's
+middles lost its corners and, on the kitchen's camera, the floor strip along its bottom (a single camera's
 floor is all a place has). Where the frame doesn't reach (the black around the barrel's undone outline) is in
 `prepare`'s mask with the overlays, so nothing uses it. `undistort_points` maps a pixel of the frame (as fractions of
 its width and height, so any resolution of the stream works) to where it is in the undistorted frame, and
@@ -33,8 +33,8 @@ its width and height, so any resolution of the stream works) to where it is in t
 
 A calibration is only good where the model is: the division model's undistortion runs to infinity where
 1 + lambda r^2 reaches 0, and past it gives nothing. A barrel fitted on edges near the middle of a frame can put that
-pole inside it (living-room's portrait frame on devbox, #2960: its top and bottom were past it), so `lens_of` refuses
-a calibration whose frame reaches past MIN_DENOMINATOR of it.
+pole inside it (living-room's portrait frame on the Linux machine: its top and bottom were past it), so `lens_of`
+refuses a calibration whose frame reaches past MIN_DENOMINATOR of it.
 
 **Overlays** (a timestamp, the camera's name, a logo) are rectangles of the frame, `masks = [[x1, y1, x2, y2], ...]`
 in fractions of its width and height, in the same manifest entry. They are painted over from their surroundings
@@ -180,7 +180,7 @@ def _distort(lens: Lens, xu: np.ndarray, yu: np.ndarray) -> tuple[np.ndarray, np
 def out_scale(lens: Lens) -> float:
     """The undistorted frame's scale over the calibration's: the largest that keeps the whole frame in it, each of its
     corners and edge middles (undone) inside on both axes; at most 1, so a pincushion's frame isn't enlarged. Worked out
-    once per lens: a positions read undistorts tens of thousands of foot points through a handful of lenses (#3293)."""
+    once per lens: a positions read undistorts tens of thousands of foot points through a handful of lenses."""
     fx, fy, cx, cy = lens.fractions()
     xd, yd = _boundary(lens)
     x, y = _undistort(lens, xd, yd)
@@ -237,7 +237,7 @@ def prepare(image: np.ndarray, lens: Lens | None, masks: Sequence[Sequence[float
     return out, covered
 
 
-# A camera's own intrinsics, held (#3289). A lens and a focal are properties of the camera, true wherever it stands,
+# A camera's own intrinsics, held. A lens and a focal are properties of the camera, true wherever it stands,
 # so they're fitted once (tools/fit_intrinsics.py: against a LiDAR walk's frames, else the median of the camera's
 # nightly fits) and every registration after keeps them, fitting only the camera's pose. Fitted afresh each night
 # they swung: Place 1's camera-b came out at division -0.18, -0.30, and -0.26 on three runs in one day, and

@@ -32,8 +32,8 @@ export interface Person {
   number?: string | null;
   last_heard?: number | null;
   last_seen_cam?: string | null; // the camera of last_seen
-  last_seen_place?: string | null; // that camera's place name (#313), when the server sends one
-  here_now?: { cam: string | null; place?: string | null; since?: number | null } | null; // their face in the live scene in the last 30 s, and since when
+  last_seen_camera_name?: string | null; // that camera's name (#313), when the server sends one
+  here_now?: { cam: string | null; camera_name?: string | null; since?: number | null } | null; // their face in the live scene in the last 30 s, and since when
 }
 
 export interface UnknownFace {
@@ -150,7 +150,7 @@ export interface CardShot {
 export interface CardVideo {
   id?: string; // "cam0@<start>", for corrections (#309)
   cam: string;
-  place?: string | null; // the camera's place name (#313), when the server sends one
+  camera_name?: string | null; // the camera's name (#313), when the server sends one
   start: number;
   end: number;
   duration_s: number;
@@ -175,8 +175,8 @@ export interface Card {
   videos_pending?: number;
   videos_unavailable?: number;
   voices: CardVoice[]; // up to 4, newest first
-  last_seen: { ts: number; cam: string | null; place?: string | null } | null; // the newest recorded sighting
-  here_now: { cam: string | null; place?: string | null; since?: number | null } | null; // their face in the live scene in the last 30 s, and since when
+  last_seen: { ts: number; cam: string | null; camera_name?: string | null } | null; // the newest recorded sighting
+  here_now: { cam: string | null; camera_name?: string | null; since?: number | null } | null; // their face in the live scene in the last 30 s, and since when
   refreshing?: boolean; // an older card, answered as is while the server reads it again: ask again shortly (#2415)
 }
 export const cardKey = (name: string) => ['people', 'card', name] as const;
@@ -194,7 +194,7 @@ export interface UnnamedFace {
   count: number;
   last_seen: number | null;
   cam: string | null;
-  place?: string | null; // that camera's place name (#313)
+  camera_name?: string | null; // that camera's name (#313)
 }
 /** An unnamed voice cluster, with one of its lines to play. */
 export interface UnnamedVoice {
@@ -208,7 +208,7 @@ export interface UnnamedVoice {
 export interface UnnamedVideo {
   id: string; // "cam0@<start>"
   cam: string;
-  place?: string | null; // the camera's place name (#313)
+  camera_name?: string | null; // the camera's name (#313)
   start: number;
   end: number;
   duration_s: number;

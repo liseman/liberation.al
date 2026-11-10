@@ -14,7 +14,7 @@ export interface Pet {
 /** A named pet a camera sees now (#2606): where, since when, and its newest track there (a photo of it now). */
 export interface PetHere {
   cam: string;
-  place: string;
+  camera_name: string; // the camera's name (vision.camera_names), else its id
   since: number;
   track: string;
 }
