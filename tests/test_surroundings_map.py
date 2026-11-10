@@ -914,10 +914,11 @@ def _setup_synthetic_place(
     pitch: float = 14.0,
     roll: float = -2.0,
     t: float = 1.0,
+    plan_text: str | None = None,
 ) -> tuple[str, frames.Kept]:
     import cv2
 
-    plan_text = _synthetic_plan(cx, cy, cz, yaw)
+    plan_text = plan_text or _synthetic_plan(cx, cy, cz, yaw)
     place = places.revise(state, None, producer="places reset v1", now=10.0).place
     places.correct_plan(
         state, place, plan_text, now=20.0, view={"plan": plan_text, "turn": 0.0, "shift": [0.0, 0.0], "mirror": True}
@@ -1116,3 +1117,182 @@ def test_a_cameras_spot_is_searched_once_and_its_views_share_that_pose_until_the
     assert did is not None
     assert did["spots"]["front"]["reused"] is False
     assert len(searched) == 2
+
+
+# ---- a spot view's depth fitted to the plan's walls and floor (#394)
+
+#: A 6 x 4 m room with 0.2 m outer walls and a door, and a camera 1.6 m up near its west wall looking east down its
+#: length (yaw 90), tilted 18 degrees down.
+_BOX = plans.scene(
+    'plan "Box" walls 0.2/0.1\n'
+    'room r1 "Main" living rect 0,0 6x4\n'
+    "door exterior>r1 at 3,4 w0.9\n"
+    "x-camera front at 0.6,2.0 height 1.6 yaw 90 fov 90\n"
+)
+# The room's inner wall faces (x1, y1, x2, y2), by hand: the centrelines moved in by half the 0.2 m wall. The door is
+# in the south wall at x 2.55 to 3.45, below 2.1 m.
+_BOX_FACES = np.array([[0.1, 0.1, 5.9, 0.1], [5.9, 0.1, 5.9, 3.9], [5.9, 3.9, 3.45, 3.9], [2.55, 3.9, 0.1, 3.9]])
+_BOX_HEADER = np.array([[3.45, 3.9, 2.55, 3.9]])
+_BOX_FOCAL = 160.0  # pixels, on a 320 x 180 view: 90 degrees across
+
+
+def _box_pose() -> np.ndarray:
+    from liberational.spatial import plan_import
+
+    up = tuple(float(v) for v in spots.up_at(18.0, 0.0))
+    aim = spots.Aim((up[0], up[1], up[2]), 320, 180, 30, 1.72, 50.0, "1.6|90.0|")
+    matrix = spots.pose(plan_import.Camera("front", (0.6, 2.0), 1.6, 90.0, 90.0), aim, mirrored=True)
+    assert matrix is not None
+    return np.asarray(matrix, dtype=np.float64).reshape(4, 4)
+
+
+def _box_depth(c2w: np.ndarray, boxes: Sequence[tuple[float, float, float, float, float]] = ()) -> np.ndarray:
+    """The true depth (metres along the view axis) of `_BOX` from `c2w`: floor, a 2.5 m ceiling, the walls, and
+    `boxes` of furniture (x0, y0, x1, y1, top)."""
+    uu, vv = np.meshgrid(np.arange(320) + 0.5, np.arange(180) + 0.5)
+    dirs = np.stack([(uu - 160) / _BOX_FOCAL, (vv - 90) / _BOX_FOCAL, np.ones_like(uu)], axis=-1) @ c2w[:3, :3].T
+    o = c2w[:3, 3]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        best = np.minimum(
+            np.where(dirs[..., 2] < 0, -o[2] / dirs[..., 2], np.inf),
+            np.where(dirs[..., 2] > 0, (2.5 - o[2]) / dirs[..., 2], np.inf),
+        )
+    surfaces = [(s, 2.5) for s in _BOX_FACES] + [(s, -1.0) for s in _BOX_HEADER]
+    for x0, y0, x1, y1, top in boxes:
+        surfaces += [
+            (np.array(s), top) for s in ([x0, y0, x1, y0], [x1, y0, x1, y1], [x1, y1, x0, y1], [x0, y1, x0, y0])
+        ]
+    for (ax, ay, bx, by), top in surfaces:
+        sx, sy = bx - ax, by - ay
+        den = dirs[..., 0] * sy - dirs[..., 1] * sx
+        with np.errstate(divide="ignore", invalid="ignore"):
+            t = ((ax - o[0]) * sy - (ay - o[1]) * sx) / den
+            u = ((ax - o[0]) * dirs[..., 1] - (ay - o[1]) * dirs[..., 0]) / den
+        z = o[2] + t * dirs[..., 2]
+        lo = 2.1 if top < 0 else 0.0  # a header runs from the door's top to the ceiling
+        ok = (np.abs(den) > 1e-9) & (t > 0.05) & (u >= 0) & (u <= 1) & (z >= lo) & (z <= (2.5 if top < 0 else top))
+        best = np.where(ok & (t < best), t, best)
+    return best
+
+
+def _as_the_model_reads(true: np.ndarray) -> np.ndarray:
+    """`true` as the depth model read the live views: a scale and shift in inverse depth, 1 / d = (1 / D + 0.037) /
+    1.108, so a floor 1.5 m off reads 5% long and a wall 4.7 m off 5.5% short (near floor about 11% too far against
+    far walls)."""
+    return (1.108 / (1.0 / true + 0.037)).astype(np.float32)
+
+
+def _box_geom():
+    from liberational.spatial import plan_lineup, spot_check
+
+    parsed = plan_lineup.read_plan(_BOX)
+    assert parsed is not None
+    return spot_check.prepare_plan(parsed)
+
+
+def test_a_view_whose_depth_reads_as_the_model_does_has_its_walls_put_back_on_the_plan():
+    from liberational.spatial import plan_depth
+
+    pose = _box_pose()
+    true = _box_depth(pose)
+    read = _as_the_model_reads(true)
+    far_wall = true > 5.0  # the east wall, 5.3 m off along the view at its nearest
+
+    today = read * sm.spot_fit(read, _BOX_FOCAL, pose, None).scale
+    fit = plan_depth.fit(read, plan_depth.expected(_box_geom(), pose, _BOX_FOCAL, 180, 320))
+    fixed = plan_depth.apply(read, fit.a, fit.b)
+
+    # Scaled by its floor alone, the far wall lands well short of the plan; fitted, on it.
+    assert np.median(today[far_wall] - true[far_wall]) < -0.25
+    assert fit.why is None
+    assert np.abs(fixed[far_wall] - true[far_wall]).max() < 0.02
+    assert (fit.a, fit.b) == (pytest.approx(1.108, abs=0.01), pytest.approx(-0.037, abs=0.005))
+
+
+def test_furniture_and_people_in_front_of_the_walls_do_not_drag_the_fit():
+    from liberational.spatial import plan_depth
+
+    pose = _box_pose()
+    # A tall cabinet 0.4 m in front of most of the far wall, a sofa along the north wall, and a person masked out.
+    true = _box_depth(pose, boxes=[(5.2, 0.6, 5.5, 3.4, 1.9), (1.5, 3.0, 3.5, 3.8, 0.9)])
+    read = _as_the_model_reads(true)
+    read[60:, 140:170] = 0.0
+    fit = plan_depth.fit(read, plan_depth.expected(_box_geom(), pose, _BOX_FOCAL, 180, 320))
+    fixed = plan_depth.apply(read, fit.a, fit.b)
+    far = (true > 4.5) & (read > 0)
+    assert fit.why is None
+    assert np.median(np.abs(fixed[far] - true[far])) < 0.02
+    assert (fit.a, fit.b) == (pytest.approx(1.108, abs=0.02), pytest.approx(-0.037, abs=0.01))
+
+
+@pytest.mark.parametrize(
+    ("covered", "why"),
+    [
+        pytest.param(np.s_[:, :300], "few", id="little-of-the-plan-in-sight"),
+        pytest.param(None, "bends", id="what-it-sees-isnt-the-plans-room"),
+    ],
+)
+def test_a_view_the_plan_cannot_fit_says_why(covered, why):
+    from liberational.spatial import plan_depth
+
+    pose = _box_pose()
+    if covered is None:  # a room full of clutter at depths the plan's room has nothing at
+        read = np.random.default_rng(1).uniform(0.5, 3.0, (180, 320)).astype(np.float32)
+    else:
+        read = _as_the_model_reads(_box_depth(pose))
+        read[covered] = 0.0
+    assert plan_depth.fit(read, plan_depth.expected(_box_geom(), pose, _BOX_FOCAL, 180, 320)).why == why
+
+
+def test_the_map_step_writes_a_spot_views_depth_fitted_to_the_plan(models, state):
+
+    models.depth = lambda h, w, f: _as_the_model_reads(_box_depth(_box_pose()))
+    rgb = np.full((180, 320, 3), 120, np.uint8)
+    place, kept = _setup_synthetic_place(state, rgb, 0.6, 2.0, cz=1.6, yaw=90.0, pitch=18.0, roll=0.0, plan_text=_BOX)
+    did = sm.step(state, now=100.0, held={})
+    assert did is not None and place in did["places"]
+    assert did["spots"]["front"]["depth"]["why"] is None
+    written = sm._read_depth(frames.root(state) / f"{kept.id}.depth.png")
+    # Lifted through the pose the view was placed at, the far wall's points stand on its face, x = 5.9 (within a few
+    # centimetres: on this flat grey picture the spot check moves the pose about 0.2 m inside its bound, which the
+    # true depth then fits a little less well). Scaled by its floor alone, they'd stand about 0.3 m short.
+    [view] = sm.views(state, place)
+    points, _ = sm.lift(written, rgb, _BOX_FOCAL, np.asarray(view.pose).reshape(4, 4), stride=1)
+    far_wall = points[(points[:, 0] > 5.0) & (points[:, 2] > 0.3) & (points[:, 2] < 2.0)]
+    assert len(far_wall) > 1000
+    assert np.median(far_wall[:, 0]) == pytest.approx(5.9, abs=0.05)
+
+
+def test_the_map_step_keeps_the_floor_scale_for_a_view_the_plan_cannot_fit(models, state):
+
+    pose = _box_pose()
+    read = _as_the_model_reads(_box_depth(pose))
+    read[:150] = 0.0  # only the near floor in sight: no wall to fit
+    models.depth = lambda h, w, f: read
+    rgb = np.full((180, 320, 3), 120, np.uint8)
+    _, kept = _setup_synthetic_place(state, rgb, 0.6, 2.0, cz=1.6, yaw=90.0, pitch=18.0, roll=0.0, plan_text=_BOX)
+    did = sm.step(state, now=100.0, held={})
+    assert did is not None
+    seen = did["spots"]["front"]
+    assert seen["depth"]["why"] == "few" and seen["scale"] != 1.0
+    written = sm._read_depth(frames.root(state) / f"{kept.id}.depth.png")
+    assert written[read > 0] == pytest.approx(read[read > 0] * seen["scale"], abs=0.003)
+
+
+def test_a_plan_frame_map_from_before_the_depth_fit_is_started_again(models, state):
+    pose = _box_pose()
+    models.depth = lambda h, w, f: _as_the_model_reads(_box_depth(pose))
+    rgb = np.full((180, 320, 3), 120, np.uint8)
+    place, kept = _setup_synthetic_place(state, rgb, 0.6, 2.0, cz=1.6, yaw=90.0, pitch=18.0, roll=0.0, plan_text=_BOX)
+    assert sm.step(state, now=100.0, held={}) is not None
+    assert sm.step(state, now=110.0, held={}) is None  # nothing waiting: the map stands
+    saved = sm.State.read(frames.root(state))
+    del saved.places[place]["depth_fit"]  # as a map learned before the fit left it
+    saved.write(frames.root(state))
+    # The sampler starts a step for it, as for a frame that waits.
+    assert [f.id for f in sm.due(frames.Store(frames.root(state)).kept, saved, 120.0)] == [kept.id]
+
+    did = sm.step(state, now=120.0, held={})
+    assert did is not None
+    assert (did["places"][place]["founded"], did["places"][place]["views"]) == (True, 1)
+    assert sm.State.read(frames.root(state)).frames[kept.id]["place"] == place

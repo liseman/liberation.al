@@ -33,7 +33,9 @@ A step takes up to `MAX_NEW` waiting frames (kept, and not yet in a place), olde
 kept frames placed at that pose, in the plan's own frame: x and y the plan's metres, z the height above its floor.
 Its depth is lifted through the pose and checked against the plan (`spot_fit`): the floor it shows must come out at
 the plan's, and its depth is scaled to put it there, since the camera's height is tape-measured and the depth
-model's metres aren't. A place with such a view stands in its plan's frame: its revisions carry the plan's floor
+model's metres aren't. The floor alone leaves far walls short (the model's scale drifts with range), so the depth is
+then fitted to the plan's walls and floor as seen from the pose, a scale and shift in inverse depth
+(spatial/plan_depth.py), and the floor's scale stays only for a view that fit doesn't hold for. A place with such a view stands in its plan's frame: its revisions carry the plan's floor
 (`spots.FLOOR`), the identity as their plan transform (`spots.PLAN`), and the cameras at their spots, and the
 owner's plan is saved as drawn in that frame, so the line-up (spatial/plan_lineup.py) finds it lined up and searches
 for nothing, and there's no floor to find in the map (spatial/surroundings_positions.py). A spot view's pose is held
@@ -76,7 +78,7 @@ import numpy as np
 from liberational import config as cfg
 from liberational import json_state, locking, logs, nvml
 from liberational.memory import places
-from liberational.spatial import cameras, lens, ply, sog, splats, spot_check, spots
+from liberational.spatial import cameras, lens, plan_depth, ply, sog, splats, spot_check, spots
 from liberational.spatial import surroundings_frames as frames
 
 LOG = logs.get("surroundings-map")
@@ -94,6 +96,9 @@ MIN_INLIERS = 150  # matches that must agree with a pair's pose for it to place 
 PARK_S = 86400.0  # how long a frame nothing places stays parked before it's dropped
 SPOT_FLOOR_M = 0.05  # a spot view's floor this near the plan's (z = 0) is left as the depth model gave it
 SPOT_SCALE = (0.75, 1.35)  # how far a spot view's depth may be scaled to bring its floor to the plan's
+# How a spot view's depth is fitted to its plan (`plan_depth`). A place in its plan's frame whose map was learned
+# with another is started again, so every view in it has its depth fitted the same way.
+DEPTH_FIT = 1
 SPOT_WALL_POINTS = 200  # band points near a wall a spot view needs before its wall fit says anything...
 SPOT_WALL_NEAR = 0.1  # ...and the share of its band on a wall under which the log warns
 #: Why a frame is parked, for a page to say (`summary`'s `parked_cameras`): it overlaps nothing in a map (`overlap`);
@@ -159,6 +164,12 @@ def waiting(kept: Sequence[frames.Kept], state: State) -> list[frames.Kept]:
     return sorted(out, key=lambda f: f.t)
 
 
+def unfitted(state: State) -> list[str]:
+    """The places in their plans' frames whose maps were learned before their views' depth was fitted to the plan
+    the way it is now (`DEPTH_FIT`): each is started again, its kept frames placed again."""
+    return [p for p, entry in state.places.items() if entry.get("plan_frame") and entry.get("depth_fit") != DEPTH_FIT]
+
+
 def expired(kept: Sequence[frames.Kept], state: State, now: float) -> list[frames.Kept]:
     """The parked frames that have been parked for PARK_S: nothing placed them in a day, and what they show has
     likely changed since."""
@@ -194,8 +205,8 @@ def due(
 ) -> list[frames.Kept]:
     """The waiting frames a step has something to do for, oldest first: the ones no step has tried, the parked ones
     the map has gained a view since (it may now reach them), the parked ones whose camera's spot has changed since
-    (`basis`, from `bases`: the owner gave it a facing, or its tilt was fitted), and the parked ones that have
-    expired (to drop them).
+    (`basis`, from `bases`: the owner gave it a facing, or its tilt was fitted), the parked ones that have
+    expired (to drop them), and the placed ones of a map that is to be started again (`unfitted`).
 
     A frame nothing places is **parked**: it stays kept, noted with how many views the maps had (`parked`), when it
     was first parked (`since`), what its camera had to be placed by (`basis`), and why it wasn't (`why`, one of
@@ -206,14 +217,15 @@ def due(
     camera then never kept a frame again."""
     views = len(state.placed())
     old = {f.id for f in expired(kept, state, now)}
-    out = []
+    again = set(unfitted(state))
+    out = [f for f in kept if state.frames.get(f.id, {}).get("place") in again]  # placed, but to be placed again
     for f in waiting(kept, state):
         entry = state.frames.get(f.id) or {}
         parked = entry.get("parked")
         moved = basis is not None and entry.get("basis") != basis.get(f.camera, NO_SPOT)
         if parked is None or views > int(parked) or moved or f.id in old:
             out.append(f)
-    return out
+    return sorted(out, key=lambda f: f.t)
 
 
 @dataclass(frozen=True)
@@ -242,6 +254,7 @@ class SpotFit:
     check: spot_check.SpotCheck | None = None  # the check this fit used, to keep for the camera's later views
     basis: str | None = None  # what `check` was made on (`_check_basis`)
     reused: bool = False  # whether `check` was a kept one (no search ran for this view)
+    depth: plan_depth.Fit | None = None  # the depth's fit to the plan (`_correct_depth`); None before it, or no plan
 
     def as_dict(self) -> dict[str, Any]:
         out: dict[str, Any] = {
@@ -265,6 +278,8 @@ class SpotFit:
                 out["turn_deg"] = round(self.turn_deg, 2)
             if self.suggestion is not None:
                 out["suggestion"] = dict(self.suggestion)
+        if self.depth is not None:
+            out["depth"] = self.depth.as_dict()
         return out
 
 
@@ -835,6 +850,13 @@ def _step(
         if entry.get("spot") and was_spot is not None and (not usable(spot) or not _at(was_spot, spot)):
             LOG.info("%s: its spot on the plan changed; its view is placed again", by_id[k].camera)
             del state.frames[k]
+    # A map in its plan's frame learned before its views' depth was fitted to the plan (`DEPTH_FIT`) has walls where
+    # the depth model's scale put them: it's started again from the frames kept, their depth fitted this time.
+    for place in unfitted(state):
+        LOG.info("%s: its map is started again, with its views' depth fitted to its plan", place)
+        del state.places[place]
+        for k in [k for k, frame in state.frames.items() if frame.get("place") == place]:
+            del state.frames[k]
     todo = due(store.kept, state, now, basis)[:MAX_NEW]
     if not todo:
         state.write(store.folder)
@@ -968,9 +990,15 @@ def _step(
             if fit.why is not None:
                 refused[f.id] = fit.why
                 continue
-            if fit.scale != 1.0:
-                _scale_depth(_depth_path(store, f.id), fit.scale)
             chosen_pose = np.asarray(fit.refined, dtype=np.float64).reshape(4, 4) if fit.refined is not None else pose
+            fit = replace(
+                fit,
+                depth=_correct_depth(
+                    _depth_path(store, f.id), depth_here, focal, chosen_pose, plan_here, fit.scale, f.camera
+                ),
+            )
+            spot_fits[f.id] = fit
+            did["spots"][f.camera] = fit.as_dict()
             spot_poses.setdefault(spot.place, {})[f.id] = chosen_pose
         # A place with a view at a spot stands in its plan's frame. A map learned in a frame of its own before (its
         # first camera the origin) can't take such a view: it's started again in the plan's, from the frames kept.
@@ -1034,6 +1062,44 @@ def _at(pose: Sequence[float], spot: spots.Spot | None) -> bool:
     return bool(
         np.allclose(np.asarray(pose, dtype=np.float64), np.asarray(spot.pose.pose, dtype=np.float64), atol=1e-6)
     )
+
+
+def _correct_depth(
+    path: Path, depth: np.ndarray, focal: float, pose: np.ndarray, plan: _PlanAt, scale: float, camera: str
+) -> plan_depth.Fit | None:
+    """Correct a spot view's depth PNG at `path` (`depth`, as the model gave it, in metres) against its plan, seen
+    from `pose` with `focal` (pixels), and say how (`plan_depth`): fitted to the plan's walls and floor when that fit
+    holds, else scaled by `scale` (`spot_fit`'s floor scale) as before, with the fit's reason logged. None when the
+    plan doesn't read."""
+    geom = plan.geom()
+    got = None if geom is None else plan_depth.fit(depth, plan_depth.expected(geom, pose, focal, *depth.shape))
+    if got is not None and got.why is None:
+        _write_depth(path, plan_depth.apply(depth, got.a, got.b))
+        LOG.info(
+            "%s: its depth fitted to the plan's walls and floor (walls %+.1f%% -> %+.1f%%, floor %+.1f%% -> %+.1f%%)",
+            camera,
+            100 * (got.wall_before or 0.0),
+            100 * (got.wall_after or 0.0),
+            100 * (got.floor_before or 0.0),
+            100 * (got.floor_after or 0.0),
+        )
+        return got
+    if scale != 1.0:
+        _scale_depth(path, scale)
+    LOG.info(
+        "%s: its depth doesn't fit the plan (%s): scaled by its floor alone (%.3f)",
+        camera,
+        "no plan" if got is None else got.why,
+        scale,
+    )
+    return got
+
+
+def _write_depth(path: Path, depth: np.ndarray) -> None:
+    """Write `depth` (metres, 0 where unknown) as a depth PNG (`_depths`), in place."""
+    import cv2
+
+    cv2.imwrite(str(path), np.clip(np.round(np.asarray(depth) / DEPTH_UNIT), 0, 65535).astype(np.uint16))
 
 
 def _scale_depth(path: Path, scale: float) -> None:
@@ -1226,6 +1292,7 @@ def _train(
     entry = state.places.setdefault(rev.place, {"frame": rev.frame, "rounds": 0})
     if in_plan:
         entry["plan_frame"] = True
+        entry["depth_fit"] = DEPTH_FIT
     entry["rounds"] = int(entry.get("rounds", 0)) + 1
     entry["views"] = len(order) - len(dropped)
     entry["revision"] = rev.id
