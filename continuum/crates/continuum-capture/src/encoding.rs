@@ -281,6 +281,8 @@ mod tests {
             interval_ns: 2_000_000_000,
             encoder: H264Encoder::open_with(&["libx264"], 64, 48, settings).unwrap(),
             previous: None,
+            decoder: JpegNv12::default(),
+            nv12: Vec::new(),
         }
     }
 
