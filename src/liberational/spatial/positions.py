@@ -354,6 +354,10 @@ class _Places:
         # pose's 16 numbers: one per still stretch, not per row
         self._at: dict[tuple[str, str, tuple[float, ...]], places.CameraPose] = {}
         self._views: dict[tuple[str, str, tuple[float, ...]], places.Revision] = {}
+        self._sights: dict[str, Callable[[tuple[float, float], tuple[float, float]], bool] | None] = {}
+        # The footprints left unplaced because their camera can't see their floor point by the plan (`place`), as
+        # (camera, track, time): a set, since a read places a row more than once
+        self.hidden: set[tuple[str, str | None, float]] = set()
 
     def revision(self, place: str, rev_id: str | None) -> places.Revision | None:
         """A place's revision by id (a rig row names the one whose frame its x and y are in)."""
@@ -493,6 +497,28 @@ class _Places:
             self._moves[key] = plan_move(src, dst) if same and src is not None and dst is not None else None
         return self._moves[key]
 
+    def sight(self, place: str) -> Callable[[tuple[float, float], tuple[float, float]], bool] | None:
+        """Whether a camera at a spot on `place`'s owner plan sees a floor point by the plan (`plan_scene.sight`), read
+        once; None for a place with no owner plan that reads."""
+        if place not in self._sights:
+            held = places.get(self.state, place)
+            found = None
+            if held is not None and held.plan_source == "owner" and held.plan:
+                try:
+                    found = plan_scene.sight(plan_scene.load(held.plan))
+                except plan_scene.SceneError:
+                    found = None
+            self._sights[place] = found
+        return self._sights[place]
+
+    def seen(self, camera: str, hit: tuple[float, float]) -> bool:
+        """Whether `camera`, read at its owner spot, can see plan point `hit` (in its spot's frame) by the plan. A
+        floor point behind a solid wall from the spot isn't where the subject stood: it is up on furniture (a pet
+        on a cabinet, cast to the floor as if it stood there, lands metres beyond the wall), or the pose is off."""
+        spot = self.spots.get(camera)
+        sees = self.sight(spot.place) if spot is not None else None
+        return sees is None or spot is None or sees(spot.at, hit)
+
     def place(self, sample: Sample, frame: places.Revision | None = None) -> Placed:
         """Where a sample is. With no `frame`: a row that gives its own place (a rig's) keeps its point, in the frame of
         the revision it names, and a camera's row is projected through the camera's current registration. With
@@ -528,6 +554,9 @@ class _Places:
         # A person's footprint is their heels or ankles, a few centimetres up; an animal's, its box's bottom
         height = 0.0 if animal_track(sample.track) is not None else footprints.FOOT_M
         hit = places.project(self.view(rev, sample.camera, sample.t), sample.camera, sample.u, sample.v, height)
+        if hit is not None and spotted is not None and rev.id == spotted.id and not self.seen(sample.camera, hit):
+            self.hidden.add((sample.camera, sample.track, sample.t))
+            hit = None  # behind a wall from the camera: not on the floor where it was seen, so given no point
         if move is not None and frame is not None:
             rev = frame
             if hit is not None:
@@ -1196,6 +1225,7 @@ def derive(
     entity: str | None = None,
     every: float | None = None,
     frame_revision: str | None = None,
+    hidden: set[tuple[str, str | None, float]] | None = None,
 ) -> list[Position]:
     """The raw footprints of [start, end) placed, named, joined, and fused, with the zone fallback, in time order
     (then by id) across every path: what the placer writes to the layer (`advance`). Its cost grows with every raw sample of the window, so no view calls
@@ -1211,7 +1241,10 @@ def derive(
     the map frame of the revision it's projected through (spatial/poses.py: its still stretches, smoothed, with its
     held focal and lens), so after a camera is moved or re-aimed its older rows land where it was then. Without a
     series (or one that gives no pose), it's placed through that revision's registration of the camera, whatever the
-    row's age, so its older rows land as if seen from where it is now."""
+    row's age, so its older rows land as if seen from where it is now.
+
+    A footprint its camera can't see by the plan (`_Places.seen`) gets no point; `hidden` collects which, as
+    (camera, track, time)."""
     where = _Places(state)
     frame: places.Revision | None = None
     if frame_revision is not None:
@@ -1355,6 +1388,8 @@ def derive(
         for z in zones
         if entity is None or z.entity == entity
     ]
+    if hidden is not None:
+        hidden.update(where.hidden)
     return sorted(out, key=lambda p: (p.t, p.id))
 
 
@@ -1470,15 +1505,36 @@ def write(state: Path, rows: Sequence[Position], resume: Mapping[str, Mapping[st
         writers.close()
 
 
-def _piece(state: Path, held: places.Place, lo: float, hi: float) -> list[Position]:
+def _piece(
+    state: Path, held: places.Place, lo: float, hi: float, behind: collections.Counter[tuple[str, str]] | None = None
+) -> list[Position]:
     """One place's records for [lo, hi): its raw footprints and zone visits placed in the frame its plan is drawn in
-    (`derive`), read with MARGIN_S of context either side."""
+    (`derive`), read with MARGIN_S of context either side. `behind` counts the footprints of [lo, hi) left unplaced
+    behind a wall from their camera (`_Places.seen`), by camera and kind ("person" or "animal")."""
+    hidden: set[tuple[str, str | None, float]] = set()
     try:
-        rows = derive(state, lo - MARGIN_S, hi + MARGIN_S, place=held.id, frame_revision=held.plan_revision)
+        rows = derive(
+            state, lo - MARGIN_S, hi + MARGIN_S, place=held.id, frame_revision=held.plan_revision, hidden=hidden
+        )
     except ValueError as e:  # the plan names a revision the place no longer has: its current frame, then
         LOG.warning("placing %s in its current frame: %s", held.id, e)
-        rows = derive(state, lo - MARGIN_S, hi + MARGIN_S, place=held.id)
+        rows = derive(state, lo - MARGIN_S, hi + MARGIN_S, place=held.id, hidden=hidden)
+    if behind is not None:
+        behind.update((camera, _kind_of(track)) for camera, track, t in hidden if lo <= t < hi)
     return [r for r in rows if lo <= r.t < hi]
+
+
+def _kind_of(track: str | None) -> str:
+    """A footprint's subject: "animal" for an animal's track, else "person"."""
+    return "animal" if animal_track(track) is not None else "person"
+
+
+def behind_walls(counts: Mapping[tuple[str, str], int]) -> str:
+    """Footprints left unplaced behind a wall, by camera, in words: "cam0 (people 3, animals 40)"."""
+    cams = sorted({c for c, _ in counts})
+    return "; ".join(
+        f"{c} (people {counts.get((c, 'person'), 0)}, animals {counts.get((c, 'animal'), 0)})" for c in cams
+    )
 
 
 Basis = dict[str, list[list[float] | None]]  # each camera's REFERENCE pixels' plan points; None for no floor point
@@ -1551,7 +1607,8 @@ def advance(state: Path, upto: float, chunk_s: float = CHUNK_S) -> dict[str, int
     Only time after the mark is placed: a footprint or a zone visit recorded later for a time before it (a camera
     that caught up after an outage, a visit that began before the mark and closed after) isn't in the layer until
     its place is placed again."""
-    counts = {"records": 0, "pieces": 0, "replaced": 0}
+    counts = {"records": 0, "pieces": 0, "replaced": 0, "behind_walls": 0}
+    behind_wall: collections.Counter[tuple[str, str]] = collections.Counter()
     held = {p.id: p for p in places.places(state)}
     lacking = {c: s.missing for c, s in spots.read(state).items() if s.missing}
     if lacking:
@@ -1590,7 +1647,7 @@ def advance(state: Path, upto: float, chunk_s: float = CHUNK_S) -> dict[str, int
         hi = min(end, (math.floor(at / chunk_s) + 1) * chunk_s)
         behind = marks.get("behind") or {}
         todo = [only] if only is not None else [p for p in held.values() if p.id not in behind]
-        rows = [r for p in todo for r in _piece(state, p, at, hi)]
+        rows = [r for p in todo for r in _piece(state, p, at, hi, behind_wall)]
         seq = write(state, rows, resume=seq)
         marks = {**marks, "seq": seq}
         if only is None:
@@ -1615,33 +1672,30 @@ def advance(state: Path, upto: float, chunk_s: float = CHUNK_S) -> dict[str, int
     at = placed_to
     while at < upto:
         at = piece(None, at, upto)
+    counts["behind_walls"] = sum(behind_wall.values())
+    if behind_wall:
+        LOG.info("left unplaced, behind a wall from their camera's spot: %s", behind_walls(behind_wall))
     return counts
 
 
 def dry_run(state: Path, cams: Sequence[str], now: float, hours: float) -> list[dict[str, Any]]:
     """What a run would place, changing nothing: for each of `cams`, the footprints its pose tracks hold over the
     last `hours` (read as `footprints.record` would record them), how many land on its place's floor, how many of
-    those in a room of the plan, how many of those a camera with a spot can see from it by the plan (`in_view`:
-    no wall between, `plan_scene.sight`; None for a camera with no spot), the aim it was read through (fitted now
-    when it has none stored, and not kept), and what the camera lacks. One row per camera, in order.
+    those in a room of the plan, how many a camera with a spot left unplaced because its spot can't see their floor
+    point by the plan (`behind_wall`, people and animals apart, `_Places.seen`; None for a camera with no spot), the
+    aim it was read through (fitted now when it has none stored, and not kept), and what the camera lacks. One row
+    per camera, in order.
 
-    `in_view` is the check that a camera's positions are at the plan's scale: rooms tile a home, so a point a pose
-    puts metres too far is still in a room, but in one behind a wall."""
+    `behind_wall` is the check that a camera's positions are at the plan's scale: rooms tile a home, so a point a
+    pose puts metres too far is still in a room, but in one behind a wall. People stand on the floor, so many of a
+    camera's people there means its pose or the plan is off; an animal there is mostly one up on furniture."""
     aims = spots.fit(state, now, save=False)
     where = _Places(state, aims)
     feet = footprints.collect(state, now - hours * 3600.0, now - footprints.FLUSH_S, list(cams))
-    sights: dict[str, Callable[[tuple[float, float], tuple[float, float]], bool] | None] = {}
     out = []
     for camera in cams:
-        rows = placed = roomed = seen = 0
+        rows = placed = roomed = people = 0
         spot = where.spots.get(camera)
-        if spot is not None and spot.place not in sights:
-            held = places.get(state, spot.place)
-            try:
-                sights[spot.place] = plan_scene.sight(plan_scene.load(held.plan)) if held and held.plan else None
-            except plan_scene.SceneError:
-                sights[spot.place] = None
-        sees = sights.get(spot.place) if spot is not None else None
         for f in feet:
             if f.camera != camera:
                 continue
@@ -1651,8 +1705,8 @@ def dry_run(state: Path, cams: Sequence[str], now: float, hours: float) -> list[
             found = where.place(sample)
             placed += found.x is not None
             roomed += found.room is not None
-            if sees is not None and spot is not None and found.x is not None and found.y is not None:
-                seen += sees(spot.at, (found.x, found.y))
+            people += found.x is not None and _kind_of(track) == "person"
+        behind: collections.Counter[str] = collections.Counter(_kind_of(t) for c, t, _ in where.hidden if c == camera)
         out.append(
             {
                 "camera": camera,
@@ -1661,7 +1715,10 @@ def dry_run(state: Path, cams: Sequence[str], now: float, hours: float) -> list[
                 "footprints": rows,
                 "placed": placed,
                 "in_a_room": roomed,
-                "in_view": seen if sees is not None else None,
+                "people_placed": people,
+                "behind_wall": {"person": behind["person"], "animal": behind["animal"]}
+                if spot is not None and where.sight(spot.place) is not None
+                else None,
                 "missing": list(spot.missing) if spot is not None else [],
                 "aim": spot.aim if spot is not None else None,
             }
@@ -1873,8 +1930,9 @@ def positions(
 # The job: `pack-positions`, hourly (services/services.toml) and by hand.
 
 RUN_LOCK = "positions.run"  # under the places folder: one run at a time
-# A dry run flags a camera with fewer of its placed points than this in view of its spot (`dry_run`). On the Linux
-# machine three cameras whose spots and tilts held put 94 to 98% in view; one read through the wrong focal put 27%.
+# A dry run flags a camera with more of its people than 1 - this behind a wall from its spot (`dry_run`).
+# On the Linux machine four cameras whose spots and tilts held put 2 to 8% of their people there; one read through
+# the wrong focal put 73% of all its points there.
 VIEW_SHARE = 0.9
 #: What a camera lacks before it can place anyone, in words (`placing`'s `missing`).
 LACKS = {
@@ -1915,10 +1973,13 @@ def _print_dry_run(state: Path, fixed: Sequence[str], hours: float) -> None:
         )
         lacks = "".join(f"; {LACKS[m]}" for m in row["missing"])
         view = ""
-        if row["in_view"] is not None and row["placed"]:
-            view = f", {row['in_view']:,} ({row['in_view'] / row['placed']:.0%}) in view of its spot"
-            if row["in_view"] < VIEW_SHARE * row["placed"]:
-                view += " (too few: its height, tilt, lens, or spot is off, or the plan is drawn at another scale)"
+        if row["behind_wall"] is not None:
+            people, animals = row["behind_wall"]["person"], row["behind_wall"]["animal"]
+            view = f"; left unplaced behind a wall from its spot: people {people:,}, animals {animals:,}"
+            if people > (1 - VIEW_SHARE) * (row["people_placed"] + people):
+                view += (
+                    " (too many people: its height, tilt, lens, or spot is off, or the plan is drawn at another scale)"
+                )
         print(
             f"  {row['camera']}: {row['footprints']:,} footprints, {row['placed']:,} placed on the floor, "
             f"{row['in_a_room']:,} in a room of the plan{view}; read through {by[row['by']]}{tilt}{lacks}"
@@ -1974,11 +2035,12 @@ def main(argv: Sequence[str] | None = None) -> None:
                 if note["missing"]:
                     LOG.info("%s places nobody yet: %s", note["camera"], "; ".join(LACKS[m] for m in note["missing"]))
         LOG.info(
-            "recorded %d raw footprints; placed %d records in %d pieces%s, %.0f s",
+            "recorded %d raw footprints; placed %d records in %d pieces%s%s, %.0f s",
             did["recorded"],
             did["records"],
             did["pieces"],
             f", {did['replaced']} places placed again after a camera moved" if did["replaced"] else "",
+            f", {did['behind_walls']} footprints left unplaced behind walls" if did["behind_walls"] else "",
             time.monotonic() - began,
         )
 
