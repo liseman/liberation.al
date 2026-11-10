@@ -15,7 +15,7 @@
 #   restart    keep it running (true) or run once / on a schedule (false)
 #   throttle   seconds to wait before restarting after a crash
 #   stop_timeout  seconds systemd waits after SIGTERM before killing it (default 20)
-#   schedule   "HH:MM" daily; makes it a scheduled job instead of a daemon
+#   schedule   "HH:MM" daily, or "*:MM" hourly; makes it a scheduled job instead of a daemon
 #   background lower CPU and IO priority
 #   env        extra environment variables
 #   reads_settings  false for a command that never reads pack.toml itself (whisper-server), so a settings save
@@ -243,6 +243,16 @@ command = "pack-video-window"
 restart = false
 schedule = "04:15"
 wait_for_broker = true
+default = true
+
+[log-trim]
+description = "Every hour, keeps each service's log under 10 MB, with one older 10 MB file beside it."
+group = "extras"
+command = "pack-services"
+args = ["trim-logs"]
+restart = false
+schedule = "*:07"
+background = true
 default = true
 
 [spatial-cameras]

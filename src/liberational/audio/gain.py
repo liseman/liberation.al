@@ -1,7 +1,7 @@
-"""Auto gain (#410, #798): steer a microphone's level so speech peaks sit near audio.auto_gain_target_dbfs.
+"""Auto gain: steer a microphone's level so speech peaks sit near audio.auto_gain_target_dbfs.
 
-Joe: "We need an option to auto adjust mic gain", and on a mic whose input volume can be set over USB (his Elgato
-Wave:3) it should move that, not scale samples. So each mic gets a gain stage: the mic's own capture volume when the
+On a mic whose input volume can be set over USB (such as an Elgato Wave:3) auto gain moves that control rather than
+scaling samples. Each mic gets a gain stage: the mic's own capture volume when the
 OS can set it (HardwareGain: on Linux the ALSA mixer control of the card PipeWire opened, through amixer), else a
 software gain applied to the samples before the VAD, the level log, and the speech gate (SoftwareGain).
 
@@ -12,7 +12,7 @@ as it is now (followed within about a second, no restart):
   name, as v1 keyed it), or by its name in config/devices.toml ("wave3"). The device name wins when both are set.
   The listen worker finds a mic's device name the way continuum-capture finds the device (device_name: the
   manifest entry's `match` against PipeWire's sources, or on macOS its `name` against the input devices).
-- A mic with no entry has auto gain when it has a hardware control (Joe, 2026-10-30: capture sets the gain, as v1
+- A mic with no entry has auto gain when it has a hardware control (capture sets the gain, as v1
   did with it turned on); software gain is off until turned on. `false` turns it off.
 
 AutoGain decides, from the utterances the VAD hands over:
@@ -156,8 +156,8 @@ class AutoGain:
         """The gain to set now, or None to leave it."""
         if in_speech or now - self.last_speech < QUIET_S or now - self.last_move < MIN_INTERVAL_S:
             return None
-        # A clip steps down only when that utterance was loud too: on devbox's Wave 3 a few clipped transients in
-        # speech at -42 dBFS stepped the gain down, the quiet speech raised it again, and it hunted (2026-10-30).
+        # A clip steps down only when that utterance was loud too: on the Linux machine's Wave 3 a few clipped
+        # transients in speech at -42 dBFS stepped the gain down, the quiet speech raised it again, and it hunted.
         clip = self.clip_peak is not None and self.clip_peak > target
         self.clip_peak = None
         if clip:
@@ -343,8 +343,9 @@ def pipewire_node(match: Mapping[str, Any], exclude: Sequence[str] = CAPTURE_EXC
 
 def hardware(device: str, run: Run = _run) -> HardwareGain | None:
     """The mic's own capture volume, when the OS lets us set it: on Linux, a capture-volume control with a dB range
-    on the ALSA card behind its PipeWire node (the Wave:3's "Mic", 0 to 40 dB; devbox's built-in "Capture", -17.25 to
-    +30 dB). None elsewhere (macOS, a mic with no such control, no PipeWire), where software gain stands in."""
+    on the ALSA card behind its PipeWire node (the Wave:3's "Mic", 0 to 40 dB; the Linux machine's built-in "Capture",
+    -17.25 to +30 dB). None elsewhere (macOS, a mic with no such control, no PipeWire), where software gain stands
+    in."""
     if sys.platform != "linux" or (run is _run and not shutil.which("amixer")):
         return None
     card = _alsa_card(device, run)
