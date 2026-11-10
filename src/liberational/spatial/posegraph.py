@@ -1,4 +1,4 @@
-"""The walkthrough's pose graph (#2931, part of the spatial memory goal #2794): a walk's camera poses, corrected so
+"""The walkthrough's pose graph (part of spatial memory): a walk's camera poses, corrected so
 the places it passes again line up.
 
 A streaming model (CUT3R) gives every frame a camera-to-world pose that holds locally but drifts in heading over a
@@ -173,7 +173,7 @@ def _minimize(graph: _Graph, poses: np.ndarray, level: float, iterations: int) -
 def loop_scale(odometry_m: Sequence[float], pair_m: Sequence[float]) -> float:
     """The factor that puts MASt3R's lengths into the odometry's scale: the median ratio of lengths the odometry
     gives to the lengths MASt3R gives for the same things (the walkthrough uses each frame's median depth; a first
-    try with short-baseline translations spread 8.7x on IMG_7676, #2931). Raises ValueError when those ratios spread
+    try with short-baseline translations spread 8.7x on IMG_7676). Raises ValueError when those ratios spread
     more than `SCALE_SPREAD` (10th to 90th percentile), since loops closed in a scale nobody believes would bend the
     walk."""
     odo, pair = np.asarray(odometry_m, dtype=np.float64), np.asarray(pair_m, dtype=np.float64)

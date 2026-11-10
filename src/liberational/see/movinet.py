@@ -1,5 +1,5 @@
 """MoViNet-A2 (Kondratyuk et al., 2021) trained on Kinetics-600, for actions an RGB clip shows better than a
-skeleton: eating, drinking, a phone, cooking, washing up, reading, TV, and cleaning (#1951).
+skeleton: eating, drinking, a phone, cooking, washing up, reading, TV, and cleaning.
 
 A port of the base (not streaming) model from Atze00/MoViNet-pytorch (MIT), itself a port of the authors' TensorFlow
 weights (Apache-2.0): 3D convolutions with TensorFlow's "same" padding. Only what those weights use is here, so the

@@ -1,4 +1,4 @@
-"""MASt3R over the fixed cameras' frames, run in MASt3R's own runtime (#2825). spatial/cameras.py runs it; it is not
+"""MASt3R over the fixed cameras' frames, run in MASt3R's own runtime. spatial/cameras.py runs it; it is not
 imported by anything that runs in the pack's environment, apart from the pure `groups` below.
 
     <runtime>/.venv/bin/python mast3r_runner.py job.json
@@ -15,20 +15,20 @@ optionally `window` or `offsets`: match only images at most `window` apart in na
 
 What it does:
 1. **Overlap.** Every pair of cameras through MASt3R, both ways, counting its reciprocal matches. The match count is
-   the overlap test: in the #2786 spike, two views of one room matched 3,528 times, a weak tie about 600, and views
+   the overlap test: in the initial spike, two views of one room matched 3,528 times, a weak tie about 600, and views
    of different spaces at most 187.
 2. **Groups.** Cameras joined by pairs with at least `min_matches` matches form a group (`groups`); each group of
    two or more is one place. With `lone_matches` in the job, a camera that sees no other camera's space (no pair
-   reaches that bar, `lone`) is a group of its own (#3000); one with a weaker tie than `min_matches` but at least
+   reaches that bar, `lone`) is a group of its own; one with a weaker tie than `min_matches` but at least
    `lone_matches` (a camera that shares only a sliver of view) is in no group.
 3. **Alignment.** Each group through MASt3R's sparse global alignment over its overlapping pairs only (the pair
    results are cached from step 1), for a joint, roughly metric point cloud and each camera's pose. A lone camera's
    group is its frame paired with itself (DUSt3R's monocular mode): its point map in its own frame, its focal
-   estimated from it, and the identity pose. In the #3000 prototype its depth was within 11.3% (median) of Place 1's
+   estimated from it, and the identity pose. In the prototype its depth was within 11.3% (median) of Place 1's
    fused map, against 10.0% for a two-view pair. A lone camera can be pitched far down, so its group also carries
    `up` (`up_from_normals`): the cloud's up, from its surfaces, in the camera's frame, and its `floor`
    (`floor_from_normals`: the lowest layer of horizontal surfaces). A lone camera whose view shows no floor (a
-   blocked lens: the kitchen camera's on devbox, 2026-11-08) is no place; it's listed in the answer's `floorless`.
+   blocked lens: the kitchen camera's on the Linux machine) is no place; it's listed in the answer's `floorless`.
 
 The answer is `out/result.json`: {"matches": [[a, b, n], ...], "groups": [{"cameras": [...], "cloud": "<npz>",
 "poses": {camera: 16 numbers, camera to world, row by row}, "focals": {camera: px}, "sizes": {camera: [w, h]}, and
@@ -36,7 +36,7 @@ for a lone camera "up": [x, y, z] and "floor": [nx, ny, nz, d]}], "floorless": [
 `lone_matches` only),
 and each group's cloud an npz of `points` (N x 3 float32, metres) and `colors` (N x 3 uint8).
 
-**Pairs mode** (a walkthrough's loop edges, #2931): with `pairs` ([[a, b], ...], image names) in the job, only those
+**Pairs mode** (a walkthrough's loop edges): with `pairs` ([[a, b], ...], image names) in the job, only those
 pairs go through MASt3R, nothing is grouped or aligned, and the answer is {"pairs": [{"a", "b", "matches",
 "depths", "forward", "backward", "scales", "inliers"}, ...]}. `depths` are a's and b's median depths over their
 confident pixels, both in the scale `forward` is in (b's own pointmap comes from the other pass, so its depth is
@@ -133,7 +133,7 @@ def floor_from_normals(
 ) -> tuple[float, float, float, float] | None:
     """A single camera's floor (nx, ny, nz, d: a point's height above it is n . p + d), from its point map's
     horizontal surfaces: the lowest layer of them along `up` that holds FLOOR_SHARE of them, a plane fitted to it.
-    Pitched down at a room, one camera can see more table, dresser, and bed top than floor (#3000: a bedroom camera's
+    Pitched down at a room, one camera can see more table, dresser, and bed top than floor (a bedroom camera's
     floor strip was 1.65 m under it, its furniture tops 1.13 and 0.75 m, and a RANSAC floor fit took a top), while
     the floor is still the lowest flat layer. None when too few horizontal surfaces are seen."""
     import numpy as np
@@ -349,7 +349,7 @@ def main(argv: Sequence[str]) -> int:
 def _pair_arrays(
     group: Sequence[str], paths: Sequence[str], found: Mapping[Any, Any], imgs: Any, torch: Any
 ) -> dict[str, Any]:
-    """A group's pair inferences for registration by reprojection (spatial/registration.py, #3069), as plain arrays:
+    """A group's pair inferences for registration by reprojection (spatial/registration.py), as plain arrays:
     for each ordered pair a, b of its cameras, `a__b__own` (a's point map in its own frame) and `__own_conf`,
     `__other` (b's point map in a's frame) and `__other_conf`, `__xy`, `__xy_other` (their matched pixels) and
     `__match_conf`; and each camera's image at MASt3R's size, `a__image`."""
@@ -386,7 +386,7 @@ def _pair_arrays(
 
 
 def overlay(image: str, height: int, width: int, size: int) -> Any:
-    """The pixels of `image` its camera burns overlays into (#2998), at MASt3R's input (`height` x `width`, bool), from
+    """The pixels of `image` its camera burns overlays into, at MASt3R's input (`height` x `width`, bool), from
     the `<name>.mask.png` beside it that spatial/cameras.py writes; None without one. The mask is resized and
     centre-cropped as dust3r's `load_images` does the image: its long side to `size`, then a crop to whole patches."""
     import numpy as np
@@ -503,7 +503,7 @@ def _pair_poses(
     answer: dict[str, Any] = {"pairs": out}
     if job.get("save_pairs"):
         # Each pair's inference as registration by reprojection reads it (`_pair_arrays`), for a fit of a camera's
-        # intrinsics against a walk's frames (#3289)
+        # intrinsics against a walk's frames
         arrays: dict[str, Any] = {}
         for i, j in wanted:
             pair_imgs = [((im["img"][0].permute(1, 2, 0).numpy() + 1) / 2).clip(0, 1) for im in (imgs[i], imgs[j])]

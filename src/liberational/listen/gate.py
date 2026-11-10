@@ -2,7 +2,7 @@
 non-speech before ASR. Per-mic tuning comes from audio/sensitivity.py. A rolling lower-decile level estimate keeps
 learning during an open candidate, so amplified room noise cannot freeze a low startup floor until every clip
 reaches the duration cap. The window spans syllables, and upward changes are bounded; ordinary speech modulation
-continues opening the gate while sentence pauses close it (#945)."""
+continues opening the gate while sentence pauses close it."""
 
 from __future__ import annotations
 
@@ -73,9 +73,9 @@ class VAD:
         self.margin, self.min_dbfs = float(margin_db), float(min_dbfs)
 
     def shift(self, db: float) -> None:
-        """The mic's gain changed by `db` (auto gain, #798): move what the VAD has learned of its levels with it. The
+        """The mic's gain changed by `db` (auto gain): move what the VAD has learned of its levels with it. The
         floor rises at most 0.05 dB a frame, and only while the VAD is closed, so after a gain jump every frame read
-        as loud and the VAD stayed open in max_s stretches (devbox, the Wave 3 from 0 to 30 dB)."""
+        as loud and the VAD stayed open in max_s stretches (on the Linux machine, the Wave 3 from 0 to 30 dB)."""
         self.floor += db
         self.level += db
         self.noise_levels = collections.deque((level + db for level in self.noise_levels), maxlen=NOISE_WINDOW)
@@ -141,7 +141,7 @@ class SpeechGate:
     utterances. Parakeet then often decodes them as "Yeah." or "Okay.", and CAM++ assigns those to the nearest
     voice (usually the owner's: noise clips scored 0.58-0.89 against it, the same range as their real speech), so
     the transcript fills with one-word lines nobody said. The gate drops an utterance when Silero finds less than
-    min_speech_s of speech in it. Measured 2026-10-28 on a private clip set (45 reSpeaker clips, 13 of them non-speech
+    min_speech_s of speech in it. Measured on a private clip set (45 reSpeaker clips, 13 of them non-speech
     that whisper had captioned "you" / "Thank you."): threshold 0.5 kept 32/32 speech clips (least speech found:
     0.46 s) and dropped 13/13 noise clips. On ESC-50 household sounds it dropped about 9 in 10 knocks, clicks, typing
     and pours; coughs, laughs, sneezes and breathing mostly pass. About 12 ms per utterance on one CPU thread, which

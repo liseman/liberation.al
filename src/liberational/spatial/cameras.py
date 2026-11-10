@@ -1,10 +1,10 @@
 """`pack-spatial-cameras`: the fixed cameras that see the same space become a place, with a map, a floorplan, and each
-camera's pose in it (#2825, part of the spatial memory goal #2794, after the #2786 spike).
+camera's pose in it (part of spatial memory, after the initial spike).
 
 Nightly at 01:00 (services/services.toml, niced, off-hours on the GPU) or by hand, never continuously. Fixed cameras
 don't move, so a run needs no current frame: each camera's frame is its best from the last day's recordings, and a
-run works at any hour (#3008).
-0. **Footprints** (#2800). Every fixed camera's tracked people's foot points since the last run go into the position
+run works at any hour.
+0. **Footprints**. Every fixed camera's tracked people's foot points since the last run go into the position
    layer (spatial/footprints.py, spatial/positions.py), whether or not the camera is registered yet.
 1. **Frames.** One frame of each indoor fixed camera (a manifest camera, `config/devices.toml`, not on a rig and with
    no `fisheye` calibration, `fixed_cameras`): its best recorded frame of the last day's daytime
@@ -15,18 +15,19 @@ run works at any hour (#3008).
    the match counts below came from lit frames. Of the rest, see-actions' person detector (RF-DETR, on the CPU,
    `detector`) picks one with nobody in it, else the one whose people cover least of it, and the sharpest wins; the
    people it found in the chosen frame go beside it in its mask (`<cam>.mask.png`, with the overlays), so they stay
-   out of the cloud and the camera's background (#3085: a man lying on Place 1's couch had become 0.77 m of furniture
+   out of the cloud and the camera's background (a man lying on Place 1's couch had become 0.77 m of furniture
    behind living-room's feet). The position layer's tracked people (`PERSON_NEAR_S`) stand in when the detector isn't
    installed; they missed him, his feet unplaced. A camera with no lit frame in the window is left out of this run.
 2. **MASt3R.** spatial/mast3r_runner.py, in MASt3R's own runtime (`mise run mast3r`, under `spatial.runtime`), on the
    GPU with the most free memory (`spatial.gpu` picks one). It matches every pair, groups the cameras joined by pairs
    with at least `MIN_MATCHES` matches, and aligns each group into one point cloud with every camera's pose. A camera
-   in no group (no pair reaching `LONE_MATCHES`) is a group of its own (#3000): its frame
+   in no group (no pair reaching `LONE_MATCHES`) is a group of its own: its frame
    paired with itself, with its up and floor found from its surfaces, since one camera can be pitched far down and
    see more furniture top than floor; one whose view shows no floor (a blocked lens) is left out. Outdoor cameras
    (`mount.outdoor` in the manifest, spatial/rig.py) take no part.
-2a. **Registration.** A group of two or more cameras is then registered again by reprojection (spatial/registration.py,
-   #3069): from MASt3R's matches and depths, each camera's pose, focal, and lens are fitted to one reference camera,
+2a. **Registration.** A group of two or more cameras is then registered again by reprojection
+   (spatial/registration.py): from MASt3R's matches and depths, each camera's pose, focal, and lens are fitted to one
+   reference camera,
    since MASt3R's alignment takes every camera as a pinhole and a wide one bends the whole group (Place 1: the same
    person 0.7 to 1.2 m apart across the room). The group's cloud is re-cast along the fitted rays, and its floor is the
    reference camera's lowest flat layer, tilted to keep the measured camera heights' ratios. A group that can't be
@@ -34,15 +35,15 @@ run works at any hour (#3008).
 2b. **Gravity.** GeoCalib (spatial/geocalib_runner.py, in its own runtime, `mise run geocalib`, on the CPU) reads
    each frame's gravity and focal. For a camera registered alone, where GeoCalib's pitch is within MAX_PITCH_UNC_DEG,
    it replaces MASt3R's pitch, roll, and focal, keeping MASt3R's yaw and position, and the camera then slides along
-   the floor so its walked footprints land where they did (`correct`, #2960); its floor is the lowest flat layer of
+   the floor so its walked footprints land where they did (`correct`); its floor is the lowest flat layer of
    its cloud along GeoCalib's up, when its pitch is within LONE_UP_UNC_DEG (`lone_floor`). Cameras MASt3R registered
    together keep its poses: their registration is what puts one floor point of the room in the same place through
-   each of them, and turning one camera about its own centre breaks that. On Place 1 (#2960), giving cam0 GeoCalib's
+   each of them, and turning one camera about its own centre breaks that. On Place 1, giving cam0 GeoCalib's
    pitch moved its share of the floor 0.4 to 0.5 m against living-room's at the floor landmarks both see (a lamp's
    base and a cat scratcher, 0.15 and 0.20 m apart as MASt3R registered them), and sliding it on its footprints
    another 0.5 m. A group seated into a place's map (step 3) keeps MASt3R's poses too: the seat places its cloud by
    them, and a pose turned and slid off its own cloud starts the seat that far off and is written that far off. On
-   the joined Place 1 (#3228), the one seat where GeoCalib was applied to the bedroom wrote it 0.45 m from the map's
+   the joined Place 1, the one seat where GeoCalib was applied to the bedroom wrote it 0.45 m from the map's
    bedroom. GeoCalib's numbers are logged beside MASt3R's for every camera either way.
 3. **Places.** Each group is written as a revision of a place (memory/places.py): the cloud as a `.map` (binary PLY),
    a floorplan from spatial/floorplan.py when the cloud has the floor and walls for one (the last 14 days of the
@@ -52,8 +53,8 @@ run works at any hour (#3008).
    Groups go to the places that already have most of their cameras, one group per place per run (a place that split
    keeps its larger part), else to a new place. A place whose group lost cameras only because they had no usable
    frame keeps its last map. A camera that left every group stays registered where it was last seen.
-   **A group of some of a place's cameras** (#3115), all registered in that one place, the place with a fused map and
-   other cameras besides, goes to it whatever other group does: a place joined from rooms seen apart (#2997, the
+   **A group of some of a place's cameras**, all registered in that one place, the place with a fused map and
+   other cameras besides, goes to it whatever other group does: a place joined from rooms seen apart (the
    bedroom with Place 1) comes back as one group a room each night. Each is fused straight into the place's map,
    started from where its cameras are registered in it (`fuse.seat`) rather than the wall search, which can't find
    one room in a home; the place's other cameras keep their poses. A group that doesn't seat (it moved, or tonight's
@@ -62,13 +63,13 @@ run works at any hour (#3008).
    other camera sees, so it becomes a new place of its own from that night's snapshot, and the old place is rewritten
    without it (`fuse.release`), so its new room's footprints aren't cast into the old one through its old pose. A
    group that was once one MASt3R group with the place's other cameras (`matched_before`) and doesn't seat has
-   moved out of their room, and splits off that night (#3146).
-4. **Fusion and splats.** Each place's newest revision is fused into its map (spatial/fuse.py, #2801), then the
+   moved out of their room, and splits off that night.
+4. **Fusion and splats.** Each place's newest revision is fused into its map (spatial/fuse.py), then the
    revision the 3D view shows gets a 3D Gaussian splat from a day of its cameras' recorded frames
-   (spatial/splats.py, #2877) when `spatial.splats_enabled` is on.
+   (spatial/splats.py) when `spatial.splats_enabled` is on.
 
 MASt3R (naver/mast3r, code and weights CC BY-NC-SA 4.0, the weights also under the non-commercial terms of the
-datasets they were trained on, see its CHECKPOINTS_NOTICE) is accepted by Joe for now (2026-11-07); docs/ARCHITECTURE.md
+datasets they were trained on, see its CHECKPOINTS_NOTICE) is accepted for now; docs/ARCHITECTURE.md
 says so where it lists the model.
 
 Its MIN_MATCHES of 1,000 comes from the spike: two views of one room matched 3,528 times, the kitchen camera's weak tie
@@ -106,10 +107,10 @@ LOG = logs.get("spatial-cameras")
 PRODUCER = "mast3r f5209afc fixed-cameras v1"
 MIN_MATCHES = 1000
 MAST3R_SIZE = 512  # the long side MASt3R sees a frame at
-#: A camera none of whose pairs reaches this many matches joins no group, and becomes a place of its own (#3000) when
+#: A camera none of whose pairs reaches this many matches joins no group, and becomes a place of its own when
 #: its view shows a floor. The same bar as a group's: a camera that shares only a sliver of another's view (the kitchen
 #: camera's 350 to 675 matches with Place 1's, against 3,600 within it) is its own room, not hung on that sliver,
-#: where it could bend the other place's map. Rooms seen apart are tied later by a walkthrough (#2997).
+#: where it could bend the other place's map. Rooms seen apart are tied later by a walkthrough.
 LONE_MATCHES = MIN_MATCHES
 #: A frame darker than this mean (0 to 255) is left out: MASt3R's matches, and the 1,000 bar, came from lit frames.
 MIN_BRIGHTNESS = 60.0
@@ -170,8 +171,8 @@ def daylight(pixels: np.ndarray) -> bool:
 #: The last day's midday, when each camera's frame is chosen (and spatial/splats.py's training frames): tried every
 #: SAMPLE_EVERY_S over MIDDAY (local minutes past midnight, [from, to)) of the last LOOKBACK_S. A splat is one fixed
 #: appearance, and the day's light changes it: on Place 1, 10:30 to 14:30 against 09:00 to 16:00 put held-out midday
-#: frames 2.0 to 2.5 dB closer (cam0 28.4 to 30.9, living-room 25.7 to 27.7) for 0.5 dB less on a 09:40 frame
-#: (#2877). Every 20 minutes keeps up to 12 tries a camera, well above the splat's 6-frame minimum.
+#: frames 2.0 to 2.5 dB closer (cam0 28.4 to 30.9, living-room 25.7 to 27.7) for 0.5 dB less on a 09:40 frame.
+#: Every 20 minutes keeps up to 12 tries a camera, well above the splat's 6-frame minimum.
 LOOKBACK_S = 86400.0
 SAMPLE_EVERY_S = 1200.0
 MIDDAY = (10 * 60 + 30, 14 * 60 + 30)
@@ -185,7 +186,7 @@ PERSON_NEAR_S = 10.0
 Reader = Callable[[str, float], Any]
 #: The people in a BGR frame: their boxes, (x1, y1, x2, y2) as fractions of its width and height (`detector`).
 Detector = Callable[[np.ndarray], list[tuple[float, float, float, float]]]
-#: RF-DETR's person score a box needs to count as someone in a frame chosen for registration (#3085). Lower than
+#: RF-DETR's person score a box needs to count as someone in a frame chosen for registration. Lower than
 #: see-actions' 0.6 tracking floor: a missed person ends up in the camera's cloud and background as furniture, an
 #: extra box only leaves a patch of them unknown.
 PERSON_SCORE = 0.5
@@ -196,7 +197,7 @@ PERSON_GROW = 0.1
 ALL_DAY = (0, 24 * 60)
 #: A camera's view has changed (it was moved, or something stood in front of its lens) when its frame's small grey
 #: picture correlates with its last lit frame's less than this (`view_match`: 1 for the same view at any brightness,
-#: about 0 for unrelated ones). On 2026-11-08 a bottle stood in front of the kitchen lens over midday, and the camera
+#: about 0 for unrelated ones). Once, a bottle stood in front of the kitchen lens over midday, and the camera
 #: was moved and cleared at 16:05: every midday frame showed no floor, while a 17:00 one gave a good one.
 VIEW_SAME = 0.5
 VIEW_SIZE = (32, 18)  # the small grey picture views are compared at, width by height
@@ -325,7 +326,7 @@ def best_frame(
     detect: Detector | None = None,
 ) -> tuple[float, np.ndarray, list[tuple[float, float, float, float]]] | None:
     """`cam`'s best frame of `times`, with its time and the people `detect` found in it: lit (`daylight`); with a
-    detector, one with nobody in it if any, else the one whose people cover the least of it (#3085: on Place 1 at
+    detector, one with nobody in it if any, else the one whose people cover the least of it (on Place 1 at
     midday someone was in every living-room frame, and one lying on the couch became 0.77 m of furniture in its
     background); without one, at a time in none of the `people` spans (when someone was tracked on it) if any is; and
     of those the sharpest. None when no frame is lit."""
@@ -427,7 +428,7 @@ def frames(
             note,
             f", {why}" if why else "",
         )
-        # A wide lens undone and its overlays painted over (#2998); the overlays' and people's pixels go beside the
+        # A wide lens undone and its overlays painted over; the overlays' and people's pixels go beside the
         # frame as `<cam>.mask.png`
         height, width = pixels.shape[:2]
         here = person_mask(people, width, height)
@@ -525,17 +526,17 @@ GEOCALIB_RUNNER = Path(__file__).with_name("geocalib_runner.py")
 GEOCALIB_TIMEOUT_S = 600.0
 #: GeoCalib's gravity and focal replace MASt3R's for a camera registered alone when its pitch is this sure (degrees,
 #: GeoCalib's own uncertainty): on Place 1 MASt3R's pitch was 4 to 14 degrees steeper than GeoCalib's on three of four
-#: cameras (#2960).
+#: cameras.
 MAX_PITCH_UNC_DEG = 3.0
 #: A single camera's floor is found along GeoCalib's up when its pitch is this sure (degrees). The up only picks which
 #: flat layer is the floor, and the plane is fitted to that layer, so it can be looser than MAX_PITCH_UNC_DEG. On Place
 #: 1's bedroom the runner's floor, from the cloud's own surfaces, cut through the room: 39% of the cloud lay under it
 #: and the camera stood 1.10 m above it against 1.52 measured. The lowest layer under GeoCalib's up put the camera
-#: 1.51 above it, with 0.3% of the cloud under it (#2960).
+#: 1.51 above it, with 0.3% of the cloud under it.
 LONE_UP_UNC_DEG = 5.0
-#: A lone camera found closer than this above its floor (in its cloud's units, about metres) has the wrong floor: on
-#: 2026-11-08 an undistorted kitchen frame gave a cloud whose floors put the camera 0.11 above one and 0.08 under the
-#: other, against 0.91 m measured, and the place was scaled by 8.3 (#2960).
+#: A lone camera found closer than this above its floor (in its cloud's units, about metres) has the wrong floor: an
+#: undistorted kitchen frame once gave a cloud whose floors put the camera 0.11 above one and 0.08 under the
+#: other, against 0.91 m measured, and the place was scaled by 8.3.
 MIN_LONE_HEIGHT = 0.3
 #: Measured over found camera height outside this range means the floor or the cloud is wrong, not MASt3R's scale,
 #: which has been within 0.7 to 1.4 of metric (fuse.py refuses such a scale too).
@@ -848,9 +849,9 @@ def layout(
     floor: Sequence[float] | None = None,
 ) -> Layout:
     """The cloud's floor and, when it has one, its floorplan. A few high cameras' views have the floor and furniture
-    but few walls, so where people walked on that floor (`walked`, spatial/footprints.py, #2800) closes the rooms
+    but few walls, so where people walked on that floor (`walked`, spatial/footprints.py) closes the rooms
     the walls alone don't. A `floor` given (nx, ny, nz, d: a lone camera's, which the runner finds from its
-    surfaces, #3000) is taken as it is; otherwise one is fitted to the cloud."""
+    surfaces) is taken as it is; otherwise one is fitted to the cloud."""
     settings = floorplan.Settings(up=up)
     floor = floor if floor is not None else fit_floor(points, up)
     if floor is None:
@@ -862,7 +863,7 @@ def layout(
     except ValueError as e:
         LOG.info("no floorplan for %s (%d footprints): %s", title, 0 if weights is None else int(weights.sum()), e)
         return Layout(None, None, floor)
-    # Through the tiling converter (#2803), so the library takes it as it is: rooms on shared centrelines, openings
+    # Through the tiling converter, so the library takes it as it is: rooms on shared centrelines, openings
     # clamped to their walls. Its squaring turn (none for the baseline's axis-aligned rooms) goes into the transform.
     rooms, openings = tiling.from_plan(plan)
     t = tiling.tile(rooms, openings, tiling.Settings(faces=False))
@@ -877,8 +878,8 @@ def layout(
 
 def owners(state: Path, groups: Sequence[Sequence[str]]) -> list[str | None]:
     """The place each group goes to, None for a group that gets a new place. A group whose cameras are all registered
-    in one place that has a fused map goes to that place, however many other groups do (#3115): a joined place
-    (#2997) holds rooms whose cameras never match each other, so it comes back as one group a room every night, and
+    in one place that has a fused map goes to that place, however many other groups do: a joined place
+    holds rooms whose cameras never match each other, so it comes back as one group a room every night, and
     each is seated into its map by its own cameras (`fuse.seat`). Every other group goes to the place sharing most of
     its cameras (by camera signal), best overlap first (then the more recently revised place), each of those places to
     at most one group: two groups that both came from one place (it split) don't both write into it in one run."""
@@ -941,7 +942,7 @@ def reproject(
     focals = {c: float(group["focals"][c]) for c in cams}
     from liberational.spatial import mast3r_runner
 
-    # The overlays and people frames() left out (#3085), as the runner leaves them out of its cloud
+    # The overlays and people frames() left out, as the runner leaves them out of its cloud
     folder = out / str(group.get("folder", ""))  # a retried camera's frames are in their own folder
     covered = {c: mast3r_runner.overlay(str(folder / f"{c}.png"), sizes[c][1], sizes[c][0], MAST3R_SIZE) for c in cams}
     kept = {c: (h.focal, h.division) for c, h in (held or {}).items() if c in cams}
@@ -991,9 +992,9 @@ def refused(seats: dict[str, dict[str, Any]], cams: Sequence[str], place: str, n
 
 def matched_before(state: Path, place: str, cams: Sequence[str], present: Iterable[str]) -> bool:
     """Whether `cams` were once one MASt3R group with other cameras of `place` that had a frame this run (`present`):
-    a fixed-camera snapshot of the place holds some of them beside such a camera. A room of a joined place (#2997)
+    a fixed-camera snapshot of the place holds some of them beside such a camera. A room of a joined place
     never was, since its cameras never matched the other rooms'; a camera of one room that stopped matching the rest
-    was (#3146). A partner with no frame tonight couldn't have been matched, so it says nothing (#3173)."""
+    was. A partner with no frame tonight couldn't have been matched, so it says nothing."""
     mine, here = set(cams), set(present)
     return any(
         r.producer == PRODUCER and mine & set(r.cameras) and (set(r.cameras) - mine) & here
@@ -1026,7 +1027,7 @@ def snapshot(
 ) -> Snapshot | None:
     """A group of the runner's answer as a snapshot (steps 2a and 2b): its cloud and poses registered again by
     reprojection when it has two or more cameras, its floor, and a lone camera corrected by GeoCalib's `gravity`
-    unless it is `seated` into its place's map. A camera's `held` intrinsics (spatial/lens.py, #3289) are kept: the
+    unless it is `seated` into its place's map. A camera's `held` intrinsics (spatial/lens.py) are kept: the
     reprojection fits only poses, and a lone camera takes its held focal and lens. None when a lone camera's floor is
     implausible (it keeps its last revision; `place` names it in the log)."""
     cams = [str(c) for c in group["cameras"]]
@@ -1039,11 +1040,11 @@ def snapshot(
             int(group["sizes"][c][0]),
             int(group["sizes"][c][1]),
             now,
-            lens.as_registered(c),  # the lens frames() undid before MASt3R saw the frame (#2998)
+            lens.as_registered(c),  # the lens frames() undid before MASt3R saw the frame
         )
         for c in cams
     }
-    # Cameras that see each other's space: registered by reprojection, each with its own lens (#3069), else as
+    # Cameras that see each other's space: registered by reprojection, each with its own lens, else as
     # MASt3R's alignment left them
     reg = reproject(out, group, held) if len(cams) > 1 and group.get("pairs") else None
     if reg is not None:
@@ -1063,11 +1064,11 @@ def snapshot(
         measured = rig.load().heights()
         heights = {c: measured[c] for c in cams if c in measured}
         floor = registration.floor(points[: reg.own], up3, reg.poses, heights)
-        if floor is not None:  # what each camera sees behind people, for footprints.at_edge (#3070)
+        if floor is not None:  # what each camera sees behind people, for footprints.at_edge
             poses = {c: replace(p, background=_background(reg, c, floor)) for c, p in poses.items()}
     else:
         floor = group.get("floor") or fit_floor(points, up3)
-    if "floor" in group and len(cams) == 1:  # a lone camera: its floor from GeoCalib's up (#2960)
+    if "floor" in group and len(cams) == 1:  # a lone camera: its floor from GeoCalib's up
         floor = lone_floor(cams[0], poses[cams[0]], points, floor, (gravity or {}).get(cams[0]))
         if floor is not None:
             up3 = (float(floor[0]), float(floor[1]), float(floor[2]))
@@ -1076,7 +1077,7 @@ def snapshot(
                 LOG.warning("%s: %s; %s keeps its last revision", cams[0], why, place or "its new place")
                 return None
     # GeoCalib corrects a lone camera written as its own place only: cameras registered together, and a group
-    # seated by its cloud, keep MASt3R's poses (step 2b, #2960, #3228)
+    # seated by its cloud, keep MASt3R's poses (step 2b)
     held_by = "registered with other cameras" if len(cams) > 1 else "seated by its cloud" if seated else None
     poses = correct(poses, floor, gravity or {}, seen, held_by)
     if reg is None:  # a lone camera, or a group MASt3R's alignment left: its held intrinsics replace tonight's
@@ -1086,7 +1087,7 @@ def snapshot(
 
 
 def with_held(camera: str, pose: places.CameraPose, held: lens.Held | None) -> places.CameraPose:
-    """`camera`'s `pose` with its `held` intrinsics in place of its own (#3289): the focal, and the lens unless its
+    """`camera`'s `pose` with its `held` intrinsics in place of its own: the focal, and the lens unless its
     frames are undone by its configured lens first (`lens.as_registered`; the undone frame is a pinhole)."""
     if held is None:
         return pose
@@ -1109,18 +1110,18 @@ def write_places(
     """Each group in the runner's answer as a revision of its place. A place keeps its last map when its group lost
     cameras only because they had no usable frame this run (`absent`): a poorer snapshot isn't a reason to replace a
     better one. A camera that had a frame and no longer matches has moved, so the place is rewritten without it.
-    GeoCalib's `gravity` corrects a lone camera's pitch, roll, and focal (`correct`, #2960)."""
+    GeoCalib's `gravity` corrects a lone camera's pitch, roll, and focal (`correct`)."""
     from liberational.spatial import fuse  # fuse uses this module's layout
 
     written = []
     groups = [[str(c) for c in g["cameras"]] for g in result.get("groups", [])]
     registered = places.camera_places(state)
-    holding = lens.held(state)  # each camera's own intrinsics, kept by every registration (#3289)
+    holding = lens.held(state)  # each camera's own intrinsics, kept by every registration
     seats = refused_seats(state)
     counted = dict(seats)
     for group, cams, place in zip(result.get("groups", []), groups, owners(state, groups), strict=True):
         was = places.latest(state, place) if place else None
-        # Some of a place's own cameras, the rest registered there too: seated into its map by their poses (#3115)
+        # Some of a place's own cameras, the rest registered there too: seated into its map by their poses
         home = {c for c, p in registered.items() if p == place}
         seated = place is not None and set(cams) < home and fuse.fused_revision(state, place) is not None
         missing = set(was.signals.get("camera", [])) - set(cams) if was else set()
@@ -1143,7 +1144,7 @@ def write_places(
                 for c in cams:
                     seats.pop(c, None)
                 continue
-            # Cameras that matched the place's others before and don't tonight have moved out of their room (#3146);
+            # Cameras that matched the place's others before and don't tonight have moved out of their room;
             # a room of a join that doesn't seat may be a bad snapshot, so it has MOVED_NIGHTS runs to seat again.
             split = floor is not None and matched_before(state, place, cams, (c for g in groups for c in g))
             nights = refused(seats, cams, place, now) if floor is not None and not split else 0
@@ -1191,7 +1192,7 @@ def write_places(
             )
         )
     # A run in which a camera was tried and not refused (its group seated another way, or had no floor) breaks its
-    # count: the refusals have to be in a row (#3173). A camera with no frame tonight keeps it.
+    # count: the refusals have to be in a row. A camera with no frame tonight keeps it.
     for c in {c for g in groups for c in g}:
         if c in seats and seats[c].get("at") != now:
             seats.pop(c)
@@ -1298,7 +1299,7 @@ def _place_positions(state: Path, now: float) -> dict[str, int] | None:
 def _places_pass(state: Path, now: float) -> dict[str, Any]:
     """Footprints, frames, MASt3R, and places."""
     cams = fixed_cameras(cfg.ROOT / "config" / "devices.toml")
-    # Footprints first (#2800): every fixed camera's, registered or not, so a place has them by the time it has poses.
+    # Footprints first: every fixed camera's, registered or not, so a place has them by the time it has poses.
     # The log's footprints_recorded is what this run added since each camera's mark (a day's backfill the first time,
     # then only the new rows), not what a plan reads: the walkable floor reads the last 14 days back on every run.
     recorded = footprints.record(state, cams, now)
@@ -1313,16 +1314,16 @@ def _places_pass(state: Path, now: float) -> dict[str, Any]:
             why = "no camera had a frame"
             return {"cameras": 0, "places": 0, "why": why, "footprints_recorded": recorded}
         result, gravity, absent = got.result, got.gravity, got.absent
-        # Places are written and fused under the lock a walkthrough's join holds too (#3173)
+        # Places are written and fused under the lock a walkthrough's join holds too
         with places.writing(state):
             revs = write_places(
                 state, result, out, now, absent, lambda group: footprints.walked(state, group, now), gravity
             )
-            # Tier 1 (#2801): each place's newest revision fused into its map, this run's and any missed before.
+            # Tier 1: each place's newest revision fused into its map, this run's and any missed before.
             from liberational.spatial import fuse  # fuse uses this module's layout
 
             fused = fuse.refine_all(state)
-    # A splat of each place's newest map (#2877), from a day of its cameras' recorded frames.
+    # A splat of each place's newest map, from a day of its cameras' recorded frames.
     from liberational.spatial import splats
 
     splatted = splats.splat_all(state, now) if cfg.get("spatial.splats_enabled") else []
