@@ -343,6 +343,11 @@ def _held_out_rows(mine: Sequence[Sighting]) -> Iterable[tuple[int, np.ndarray, 
             yield first + k, sims[k], far[k]
 
 
+def _needs_more(missing: int) -> str:
+    """Why recognition is off while `missing` more labeled sightings are needed."""
+    return f"needs {missing} more labeled sighting{'' if missing == 1 else 's'}"
+
+
 def held_out(labeled: Sequence[tuple[Sighting, str]], species: str) -> dict[str, Any]:
     """The held-out check for a species (see the module's docs): its counts, and whether recognition is on."""
     mine = [(s, label) for s, label in labeled if s.species == species]
@@ -363,7 +368,7 @@ def held_out(labeled: Sequence[tuple[Sighting, str]], species: str) -> dict[str,
     decided = right + wrong
     reason = None
     if len(mine) < MIN_LABELED:
-        reason = f"needs {MIN_LABELED - len(mine)} more labeled sightings"
+        reason = _needs_more(MIN_LABELED - len(mine))
     elif classes < 2:
         reason = "needs a labeled sighting of another animal of this species, so a mistake could show"
     elif decided < MIN_DECIDED * len(mine):
@@ -390,7 +395,7 @@ def gallery(labeled: Sequence[tuple[Sighting, str]], species: str, pet: str) -> 
     threshold = max(MIN_GALLERY_SIM, float(np.percentile(nearest, GALLERY_PERCENTILE))) if nearest else None
     reason = None
     if len(mine) < MIN_LABELED:
-        reason = f"needs {MIN_LABELED - len(mine)} more labeled sightings"
+        reason = _needs_more(MIN_LABELED - len(mine))
     elif len(nearest) < MIN_DECIDED * len(mine):
         reason = "needs labeled sightings from more separate visits"
     right = sum(1 for v in nearest if threshold is not None and v >= threshold)

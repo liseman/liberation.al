@@ -288,6 +288,18 @@ describe('Live: My recordings searches recordings, Friends and Everyone are gene
     expect(status()).toHaveTextContent(/^My recordings · failed$/);
   });
 
+  it("shows a failed job's own reason without the generic line", async () => {
+    const net = jobServer();
+    net.replies.push({ status: 'failed', result: { answer: 'No model answered.', status: 'error' } });
+    renderAsk();
+    await ask('Q');
+    await queued();
+    await wait(1000);
+    expect(await screen.findByText('No model answered.')).toBeInTheDocument();
+    expect(status()).toHaveTextContent(/^My recordings · failed$/);
+    expect(screen.queryByText(/without an error description/)).not.toBeInTheDocument();
+  });
+
   it('says so when a completed job has no result', async () => {
     const net = jobServer();
     net.replies.push({ status: 'completed' });

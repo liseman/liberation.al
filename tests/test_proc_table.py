@@ -57,3 +57,18 @@ def test_a_process_that_exits_is_dropped(child):
     child.kill()
     child.wait()
     assert child.pid not in proc_table.table()
+
+
+def test_a_pool_worker_leaves_ctrl_c_to_its_parent():
+    # In a child of its own: SIGINT to a process that ran the initializer neither stops it nor prints a traceback
+    code = (
+        "import os, signal, time\n"
+        "from liberational import proc_table\n"
+        "proc_table.ignore_interrupt()\n"
+        "os.kill(os.getpid(), signal.SIGINT)\n"
+        "time.sleep(0.1)\n"
+        "print('still here')\n"
+    )
+    done = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60)
+
+    assert (done.returncode, done.stdout, done.stderr) == (0, "still here\n", "")

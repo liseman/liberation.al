@@ -10,6 +10,7 @@ What this trades: a pid that disappears and comes back between two calls (Linux 
 whole cycle of the pid space) keeps the first process's entry, and a parent read once doesn't follow a reparenting.
 """
 
+import signal
 import threading
 import time
 from dataclasses import dataclass
@@ -83,3 +84,9 @@ def clear() -> None:
     """Forget every entry (tests)."""
     with _lock:
         _table.clear()
+
+
+def ignore_interrupt() -> None:
+    """A worker pool's initializer: the worker leaves Ctrl-C to the process that started it, which stops its pools, so
+    a Ctrl-C in a terminal (pack-demo's, or a dashboard run by hand) doesn't print a traceback from each worker."""
+    signal.signal(signal.SIGINT, signal.SIG_IGN)

@@ -195,7 +195,9 @@ def seed_people(state: Path) -> dict[str, str]:
     return ids
 
 
-EXAMPLES = 6  # training images seeded for the pet and for each person, the last of them unlike the rest
+# Training images seeded for the pet and for each person, the last of them unlike the rest: one more than pet
+# recognition needs (pet_recognition.MIN_LABELED), so removing the odd one, as the tutorial does, leaves it on.
+EXAMPLES = 7
 
 
 def _tile(letter: str, k: int, odd: bool) -> bytes:

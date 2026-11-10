@@ -1367,6 +1367,8 @@ def main() -> None:
     signal.signal(signal.SIGTERM, stop)
     try:
         srv.serve_forever()
+    except KeyboardInterrupt:
+        pass  # Ctrl-C in a terminal (pack-demo's, or a dashboard run by hand) stops it as quietly as SIGTERM does
     finally:
         srv.server_close()
         _stop_worker_pools()

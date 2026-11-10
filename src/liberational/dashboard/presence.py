@@ -36,7 +36,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from liberational import config as cfg
-from liberational import continuum_ready, logs, segment_log, speech_log
+from liberational import continuum_ready, logs, proc_table, segment_log, speech_log
 from liberational.dashboard import routes
 from liberational.intervals import interval_groups
 from liberational.memory import presence_counts
@@ -508,7 +508,9 @@ def _pool() -> Executor:
     waited behind it."""
     global _executor
     if _executor is None:
-        _executor = ProcessPoolExecutor(max_workers=1, mp_context=multiprocessing.get_context("spawn"))
+        _executor = ProcessPoolExecutor(
+            max_workers=1, mp_context=multiprocessing.get_context("spawn"), initializer=proc_table.ignore_interrupt
+        )
     return _executor
 
 
