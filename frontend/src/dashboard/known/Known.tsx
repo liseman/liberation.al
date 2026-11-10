@@ -74,11 +74,7 @@ export function Waiting({
 }) {
   return (
     <span className={classes.count}>
-      {loading ? (
-        <CountSkeleton chars={what.length + 3} />
-      ) : n ? (
-        `${n} ${what}`
-      ) : null}
+      {loading ? <CountSkeleton chars={what.length + 3} /> : n ? `${n} ${what}` : null}
     </span>
   );
 }
