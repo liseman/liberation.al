@@ -5,6 +5,7 @@ import itertools
 import json
 import math
 
+import cv2
 import numpy as np
 import pytest
 
@@ -12,6 +13,8 @@ from liberational.spatial import surroundings
 from liberational.spatial import surroundings_frames as frames
 from liberational.spatial import surroundings_worker as worker
 from liberational.vision import crossings
+
+PERSON = (0.4, 0.5, 0.6, 1.0)  # someone standing in the lower middle: a tenth of the frame
 
 
 def picture(seed: int, gain: float = 1.0) -> np.ndarray:
@@ -32,20 +35,20 @@ class Scene:
         self.angle: dict[int, float] = {}
         self.sharp: dict[int, float] = {}
         self.dark: set[int] = set()
-        self.living: set[int] = set()
+        self.living: dict[int, list[tuple[float, float, float, float]]] = {}  # the boxes the detector finds
         self.described = 0
 
     def key(self, pixels: np.ndarray) -> int:
         return int(pixels[0, 0, 0]) * 65536 + int(pixels[0, 0, 1]) * 256 + int(pixels[0, 0, 2])
 
-    def add(self, seed: int, angle: float = 0.0, sharp: float = 100.0, dark: bool = False, living: bool = False):
+    def add(self, seed: int, angle: float = 0.0, sharp: float = 100.0, dark: bool = False, living: str = ""):
         frame = picture(seed)
         k = self.key(frame)
         self.angle[k], self.sharp[k] = angle, sharp
         if dark:
             self.dark.add(k)
-        if living:
-            self.living.add(k)
+        if living:  # "one": someone in a tenth of the frame; "crowd": people over most of it
+            self.living[k] = [PERSON] if living == "one" else [(0.0, 0.0, 0.9, 1.0)]
         return frame
 
     def describe(self, pixels):
@@ -63,7 +66,7 @@ def sampler(tmp_path, scene):
     return worker.Sampler(
         frames.Store(tmp_path / "surroundings"),
         scene.describe,
-        lambda p: scene.key(p) in scene.living,
+        lambda p: scene.living.get(scene.key(p), []),
         lambda p: scene.key(p) not in scene.dark,
         lambda p: scene.sharp[scene.key(p)],
     )
@@ -79,11 +82,60 @@ def test_a_still_camera_keeps_its_first_frame_and_stops_at_the_thumbnail_after(s
 def test_each_check_skips_its_frame_before_the_gate_sees_it(sampler, scene):
     sampler.look("front", scene.add(1), 0.0)
     assert sampler.look("front", scene.add(2, dark=True), 5.0) == "dark"
-    assert sampler.look("front", scene.add(3, living=True), 10.0) == "person"
+    assert sampler.look("front", scene.add(3, living="crowd"), 10.0) == "person"
     assert sampler.look("front", scene.add(4, angle=5), 15.0) == "copy"
     assert sampler.look("front", scene.add(5, angle=90), 20.0) == "view"
     assert scene.described == 3  # the kept two and the copy: never the dark frame or the one with someone in it
     assert [f.reason for f in sampler.store.kept] == ["view", "view"]
+
+
+def test_a_look_skipped_for_the_people_in_it_is_not_what_later_looks_are_compared_with(sampler, scene):
+    # People fill the frame, then leave without the thumbnail moving much: three looks of one picture, of which
+    # the model says the first two are mostly people.
+    frame = scene.add(1, living="crowd")
+    assert [sampler.look("front", frame, float(t)) for t in range(2)] == ["person", "person"]
+    scene.living.clear()
+    assert sampler.look("front", frame, 10.0) == "view"
+    assert sampler.look("front", frame, 15.0) == "same"
+    assert [f.camera for f in sampler.store.kept] == ["front"]
+
+
+def test_a_frame_with_someone_in_a_small_part_of_it_is_kept_with_them_marked(sampler, scene):
+    frame = scene.add(1, living="one")
+    assert sampler.look("front", frame, 0.0) == "view"
+    [kept] = sampler.store.kept
+    read = cv2.imread(str(sampler.store.covered_path(kept)), cv2.IMREAD_GRAYSCALE)
+    assert read is not None
+    marked = read > 127
+    assert marked.shape == frame.shape[:2]
+    # The box spans x 0.40 to 0.60 and y 0.50 to 1.00 of a 64 x 36 frame; grown by 0.15 of its size each way that is
+    # x 0.37 to 0.63 (columns 23 to 40) and y 0.425 down (rows 15 on).
+    assert marked[20, 30] and marked[35, 24] and marked[16, 40]
+    assert not marked[20, 22] and not marked[20, 41] and not marked[14, 30]
+    sampler.store.remove(kept.id)
+    assert not sampler.store.covered_path(kept).exists()
+
+
+def test_a_frame_with_nobody_in_it_has_nothing_marked(sampler, scene):
+    sampler.look("front", scene.add(1), 0.0)
+    assert not sampler.store.covered_path(sampler.store.kept[0]).exists()
+
+
+def test_a_blurred_look_is_not_what_later_looks_are_compared_with(sampler, scene):
+    for i in range(5):
+        sampler.look("front", scene.add(10 + i, angle=72 * i, sharp=100.0), float(i))
+    soft = scene.add(20, angle=36, sharp=10.0)
+    assert sampler.look("front", soft, 30.0) == "blurred"
+    scene.sharp[scene.key(soft)] = 100.0  # the camera refocused on the same picture
+    assert sampler.look("front", soft, 35.0) == "changed"
+
+
+def test_when_the_kept_frame_of_a_view_is_dropped_the_view_is_kept_again(sampler, scene):
+    frame = scene.add(1)
+    assert [sampler.look("front", frame, float(t)) for t in range(2)] == ["view", "same"]
+    sampler.store.remove(sampler.store.kept[0].id)
+    assert sampler.look("front", frame, 10.0) == "view"
+    assert len(sampler.store.kept) == 1
 
 
 def test_a_frame_much_less_sharp_than_the_cameras_usual_is_skipped_once_there_is_a_usual(sampler, scene):
@@ -142,7 +194,14 @@ def logits(**scores: float) -> np.ndarray:
     ids=["nothing", "an unsure person", "a person", "an unsure cat", "a cat"],
 )
 def test_a_person_or_an_animal_sure_enough_is_someone_in_the_frame(scores, found):
-    assert worker.living(logits(**scores)) == found
+    box = np.array([[0.5, 0.75, 0.2, 0.5]])  # centre and size, as the detector gives it
+    got = worker.living(box, logits(**scores))
+    assert len(got) == found
+    assert got == [] or got[0] == pytest.approx(PERSON)
+
+
+def test_a_box_past_the_frames_edge_is_clipped_to_it():
+    assert worker.living(np.array([[0.05, 0.5, 0.3, 0.2]]), logits(person=0.9)) == [pytest.approx((0.0, 0.4, 0.2, 0.6))]
 
 
 class Cameras:

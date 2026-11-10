@@ -20,7 +20,8 @@ So `decide` reads a frame's highest likeness to the kept frames:
 
 The map step measures a kept frame a second time, against the map itself, once it has a pose (#258).
 
-**The store** is `state/surroundings/`: `index.json` and, per frame, `<id>.jpg` and `<id>.npy` (its descriptor).
+**The store** is `state/surroundings/`: `index.json` and, per frame, `<id>.jpg`, `<id>.npy` (its descriptor), and
+`<id>.covered.png` when someone was in view (the pixels the map step leaves out).
 It never holds more than `MAX_KEPT` frames, or more than `PER_VIEW` frames of one view (the frames at least
 `SAME_VIEW` alike): a fifth look at a view pushes out its oldest, so a view's kept frames follow how it looks now.
 At `MAX_KEPT` the frame most like another kept frame goes first, the older of a tie. All of it is machine-made, and
@@ -131,7 +132,7 @@ class Kept:
     height: int
 
 
-_FIELDS = tuple(f.name for f in fields(Kept))
+FIELDS = tuple(f.name for f in fields(Kept))
 
 
 def decide(descriptor: np.ndarray, sharp: float, kept: Sequence[Kept], descriptors: np.ndarray) -> Decision:
@@ -171,7 +172,7 @@ class Store:
         self._rows: list[np.ndarray] = []
         for row in json_state.read(folder / "index.json", []) or []:
             try:
-                frame = Kept(**{k: row[k] for k in _FIELDS})  # a field of an earlier version is passed by
+                frame = Kept(**{k: row[k] for k in FIELDS})  # a field of an earlier version is passed by
                 descriptor = np.load(folder / f"{frame.id}.npy")
             except TypeError, OSError, ValueError:
                 continue  # a row from another version, or a frame whose files are gone: not kept
@@ -186,13 +187,25 @@ class Store:
     def path(self, frame: Kept | str) -> Path:
         return self.folder / f"{frame if isinstance(frame, str) else frame.id}.jpg"
 
+    def covered_path(self, frame: Kept | str) -> Path:
+        """Where a kept frame's covered pixels are (a PNG its size, white where covered), when it has any."""
+        return self.folder / f"{frame if isinstance(frame, str) else frame.id}.covered.png"
+
     def decide(self, descriptor: np.ndarray, sharp: float) -> Decision:
         return decide(descriptor, sharp, self.kept, self.descriptors)
 
     def offer(
-        self, camera: str, pixels: np.ndarray, descriptor: np.ndarray, sharp: float, now: float | None = None
+        self,
+        camera: str,
+        pixels: np.ndarray,
+        descriptor: np.ndarray,
+        sharp: float,
+        now: float | None = None,
+        covered: np.ndarray | None = None,
     ) -> tuple[Decision, Kept | None]:
-        """Put a sampled frame through the gate, and store it when it's kept; the decision and the stored frame."""
+        """Put a sampled frame through the gate, and store it when it's kept; the decision and the stored frame.
+        `covered` (H x W bool) marks what in it isn't the place (someone in view): it's kept beside the frame
+        (`covered_path`), for the map step to leave out."""
         decision = self.decide(descriptor, sharp)
         if not decision.keep:
             return decision, None
@@ -205,6 +218,10 @@ class Store:
             view = sorted((f for f, a in zip(self.kept, alike, strict=True) if a >= SAME_VIEW), key=lambda f: f.t)
             gone.update(f.id for f in view[: max(0, len(view) + 1 - self.per_view)])
         frame = self._write(camera, pixels, descriptor, sharp, decision.reason, time.time() if now is None else now)
+        if covered is not None and covered.any():
+            import cv2
+
+            cv2.imwrite(str(self.covered_path(frame)), covered.astype(np.uint8) * 255)
         self._drop(gone)
         while len(self.kept) > self.most:
             evicted = self.kept[most_redundant(self.kept, self.descriptors)].id
@@ -244,7 +261,7 @@ class Store:
 
     def _unlink(self, ids: set[str]) -> None:
         for frame_id in ids:
-            for suffix in ("jpg", "npy"):
+            for suffix in ("jpg", "npy", "covered.png", "depth.png"):  # the last is the map step's, of this frame
                 (self.folder / f"{frame_id}.{suffix}").unlink(missing_ok=True)
 
     def _save(self) -> None:
