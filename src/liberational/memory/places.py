@@ -46,7 +46,9 @@ first made. A naming record keeps a copy of the place's signals, so a place dete
 again after its machine record is gone.
 
 Storage across a reset: `state/places/` and the segment store are machine-made, so a catalog reset deletes them
-(`reset_catalog.targets`); the owner's names and plan corrections are in the knowledge store and stay. Keyframes
+(`reset_catalog.targets`), unless it's run with `--keep-places`, which keeps `state/places/` (the revisions' visit
+`sources` then name visits that are gone, and nothing reads them; visits and positions start fresh). The owner's
+names and plan corrections are in the knowledge store and stay. Keyframes
 live with the video and follow the 30-day video window.
 
 This module is the schema and the read and write helpers. Its writers are `pack-walkthrough` (spatial/walkthrough.py:
