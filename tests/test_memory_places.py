@@ -473,10 +473,10 @@ def test_a_revisions_splat_is_written_once_and_only_the_newest_two_are_kept(tmp_
     place = revs[0].place
     revs += [places.revise(tmp_path, place, producer="p", now=T + i) for i in range(1, 3)]
     for i, rev in enumerate(revs):
-        places.write_splat(tmp_path, rev, master=b"ply%d" % i, web=b"spz%d" % i)
+        places.write_splat(tmp_path, rev, master=b"ply%d" % i, web=b"sog%d" % i)
     assert [places.has_splat(tmp_path, r) for r in revs] == [False, True, True]
     assert not places.splat_path(tmp_path, revs[0], "gs.ply").exists()
-    assert places.splat_path(tmp_path, revs[2], "spz").read_bytes() == b"spz2"
+    assert places.splat_path(tmp_path, revs[2], "sog").read_bytes() == b"sog2"
     with pytest.raises(ValueError, match="already has a splat"):
         places.write_splat(tmp_path, revs[2], master=b"again", web=b"again")
     assert places.splat_path(tmp_path, revs[2], "gs.ply").read_bytes() == b"ply2"
@@ -486,12 +486,12 @@ def test_a_splat_says_what_it_was_trained_from_when_told(tmp_path):
     told = places.revise(tmp_path, None, producer="p", now=T)
     untold = places.revise(tmp_path, told.place, producer="p", now=T + 1)
     bare = places.revise(tmp_path, told.place, producer="p", now=T + 2)
-    places.write_splat(tmp_path, told, master=b"ply", web=b"spz", source="walk")
-    places.write_splat(tmp_path, untold, master=b"ply", web=b"spz")
+    places.write_splat(tmp_path, told, master=b"ply", web=b"sog", source="walk")
+    places.write_splat(tmp_path, untold, master=b"ply", web=b"sog")
     assert places.splat_source(tmp_path, told) == "walk"
     assert places.splat_source(tmp_path, untold) is None and places.splat_source(tmp_path, bare) is None
     assert len(places.revisions(tmp_path, told.place)) == 3, "the note isn't read as a revision"
-    places.write_splat(tmp_path, bare, master=b"ply", web=b"spz", source="cameras")
+    places.write_splat(tmp_path, bare, master=b"ply", web=b"sog", source="cameras")
     assert not places.splat_path(tmp_path, told, "gs.from").exists(), "pruned with its splat"
 
 
