@@ -13,8 +13,9 @@ owner's plan for the learned revisions that carry the transform over. It never w
 floor comes from the map's own surfaces, and is read from the newest revision. What it found, or why it found
 nothing, is in `state/places/<place>/plan.lineup` (`status`).
 
-**Found once, then checked.** `advance` is called after a map step and after a floor is set. It does nothing unless a
-place's map, floor, cameras, or owner plan changed since it last looked.
+**Found once, then checked.** `advance` is called at the end of every map step (`surroundings_map.line_up`), and
+whoever sets a floor may call it too. It does nothing unless a place's map, floor, cameras, or owner plan changed
+since it last looked.
 
 - *Not lined up yet*: a fit is tried when the map could cover enough of the plan (below), and again only after the
   map's wall cells grew by GROWTH since the last try, so a map that stays as it is is never fitted twice.

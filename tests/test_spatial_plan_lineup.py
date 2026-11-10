@@ -10,7 +10,7 @@ from liberational import segment_log as S
 from liberational.memory import places
 from liberational.spatial import plan_import as pi
 from liberational.spatial import plan_lineup as L
-from liberational.spatial import ply
+from liberational.spatial import ply, surroundings_map
 from liberational.spatial import positions as P
 
 T = 1_800_000_000.0
@@ -294,3 +294,20 @@ def test_the_transform_takes_a_map_point_onto_the_plan_through_the_floors_frame(
     # plan (1, 0) is 2 m along the map's +y from (4, 2); 3 map metres up is 1.5 of the plan's
     assert pi.in_frame(np.array([4.0, 4.0, 3.0]), found)[0] == pytest.approx([1.0, 0.0, 1.5])
     assert L.to_plan(move, L.to_map(move, np.array([[0.3, -1.2]])))[0] == pytest.approx([0.3, -1.2])
+
+
+def test_the_map_step_lines_its_places_up_when_it_is_done(tmp_path):
+    place = kept_place(tmp_path, PLAN)
+    learn(tmp_path, place, cloud(PLAN), T + 10)
+    surroundings_map.line_up(tmp_path)
+    rev = places.latest(tmp_path, place)
+    assert rev is not None and rev.producer == L.PRODUCER
+
+
+def test_a_line_up_that_fails_is_logged_and_the_map_step_goes_on(tmp_path, monkeypatch, caplog):
+    def broken(state):
+        raise OSError("the disk is full")
+
+    monkeypatch.setattr(L, "advance", broken)
+    surroundings_map.line_up(tmp_path)
+    assert "the disk is full" in caplog.text

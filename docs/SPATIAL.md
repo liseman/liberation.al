@@ -161,9 +161,10 @@ revisions carry the transform over, so the 3D view, the plan, and the positions 
 - *Checked as it grows.* Each later map is measured on the plan through the transform it has, with no search. A map
   that left its plan is fitted once more; when that finds nothing the line-up stays and is flagged as drifted.
 
-`plan_lineup.advance(state)` does all of it and costs one small read when nothing changed; `plan_lineup.status(state,
-place)` is what a reader says. The made-up maps in its tests (noise of a few centimetres, a scale 8% to 17% off) line
-up within a centimetre or two at the rooms' corners, in under 4 s for a whole home on the Linux machine.
+`plan_lineup.advance(state)` does all of it, is called at the end of every map step, and costs one small read when
+nothing changed; `plan_lineup.status(state, place)` is what a reader says. The made-up maps in its tests (noise of a
+few centimetres, a scale 8% to 17% off) line up within a centimetre or two at the rooms' corners, in under 4 s for a
+whole home on the Linux machine.
 
 ## Model runtimes
 
