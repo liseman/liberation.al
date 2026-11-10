@@ -1,4 +1,4 @@
-"""The dashboard's voice edits on voiceprints (#772): what `python -m liberational.people.voice_edits` does.
+"""The dashboard's voice edits on voiceprints: what `python -m liberational.people.voice_edits` does.
 
 v1 ran these on its voice list (`audio/ambient.py speakers ...`, writing `voices.sqlite3`). A voice is now a
 voiceprint number (listen/voices.py): its name is a claim in the event log, and its prints are embeddings on the
@@ -6,7 +6,7 @@ broker. So:
 
 - `label <n> <name>` claims voiceprint n for the person called `name` (an owner tag). Its own automatic label
   ("Speaker n") withdraws whoever it named. Every line in that voice reads as the person from then on. Naming a
-  voice for someone who has one already is how two voices become one person: nothing is merged (#772).
+  voice for someone who has one already is how two voices become one person: nothing is merged.
 - `forget <n>` withdraws voiceprint n's person and forgets its embeddings in the segment store, so it's never matched
   again. Its lines stay, unnamed.
 - `enroll <name> <wav>` learns a person's voice from a recording (Settings' voice reference): the recording's
@@ -102,7 +102,7 @@ def _theirs(state: pathlib.Path, name: str, clone: bool) -> int | None:
         return None
     # Only a voiceprint an earlier enroll of this same person made (re-recording the reference replaces it), never
     # one that only reads as them: a guest's voice merged into the owner after an introduction would otherwise take
-    # the enroll's owner tag, and with it the owner's path (#30's hole, found again in #772's review).
+    # the enroll's owner tag, and with it the owner's path .
     reg = registry.at(state)
     pid = reg.person_id(name)
     if pid is None:

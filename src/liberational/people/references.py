@@ -1,6 +1,6 @@
 """Local reference attachments. A photo with exactly one face, once attached to a person, also teaches their face
 (one owner face row, `faces.enroll_reference`, recorded here as "face" and taken back on Remove); group photos, audio,
-and video never enroll (#3245, which reverses #622's reference-only rule for single-face photos).
+and video never enroll .
 
 Uploads are decoded locally. URL imports are direct media only, with pinned public
 DNS addresses and no redirects. Unconfirmed previews expire after one hour.

@@ -21,7 +21,7 @@ Transcript lines are different (step 4). A label given to one line is only an ev
   6, parsed in `people/tags.py`) or the dashboard. The log is where a person's attributes live; an identity
   record (`people/identity.py`, on the broker) also keeps what its tag said.
 - `contact(name, ...)` sets a person's phone number, or marks them as added by hand (People: Add). `contacts.json`
-  and `people_added.json` are read models of these, written beside the log by `people/contacts.py` (issue #28). A
+  and `people_added.json` are read models of these, written beside the log by `people/contacts.py`. A
   rename or a merge changes one `Person`, so the number, the mark, and the old names (`aliases`) go with it.
 - `backfill(...)` gives every name in today's stores a person id, records today's voice labels and hand-tagged
   lines as assertions, and copies phone numbers and added names in. Writing nothing that is already there makes it
@@ -37,10 +37,10 @@ Subjects. Today's stores have no ids for prints, so a subject id is the store's 
     face-group:<id>     an unnamed face group ("Face N") that someone named
     identity:<path>     the face candidate of a v1 identity.jsonl record, by its saved embedding (history only)
     detection:<id>      one face observation, what a face match or correction is about: a `face.match` row's id in
-                        the segment store (see-actions' head faces, #1738), or a `face.detection` payload before
+                        the segment store (see-actions' head faces), or a `face.detection` payload before
     enroll:<uuid>       a face enrolled from images by `pack-faces enroll`
     utterance:<key>     one transcript line, by `line_key`: `<device slug>@<ts_start to the millisecond>`, or the
-                        millisecond alone for a line with no device. Before #247 every line had the millisecond alone,
+                        millisecond alone for a line with no device. Earlier lines had the millisecond alone,
                         and what was said under that id still counts for each line it names (`legacy_of`), until
                         something said about one of them supersedes it for that line.
     sighting:<row id>   one face found in recorded video (sightings.sqlite3)
@@ -152,7 +152,7 @@ def slugify(s: str) -> str:
 
 
 def line_key(ts: float | str, device: object = None) -> str:
-    """The key of one transcript line (#247): `<device slug>@<ts_start to the millisecond>`. Two microphones can start
+    """The key of one transcript line: `<device slug>@<ts_start to the millisecond>`. Two microphones can start
     lines in the same millisecond, so the device is part of it. A line with no device has the millisecond alone, the
     key every line had before."""
     t = f"{float(ts):.3f}"
@@ -181,7 +181,7 @@ def utterance_of(e: Mapping[str, Any]) -> SubjectRef:
 
 
 def legacy_of(subject: SubjectRef) -> SubjectRef | None:
-    """The id a line keyed by its device had before #247 (the millisecond alone), or None for any other subject.
+    """The id a line keyed by its device had before device-prefixed keys (the millisecond alone), or None for any other subject.
     What was said under that id still counts for every line that starts in that millisecond, until something said
     about one of them supersedes it for that line."""
     if not subject.id.startswith("utterance:"):
@@ -195,7 +195,7 @@ def sighting(row: int | str) -> SubjectRef:
 
 
 def detection(payload_id: str) -> SubjectRef:
-    """One face observation (a `face.match` row's id, which is its own detection, #1738): what the identity worker's
+    """One face observation (a `face.match` row's id, which is its own detection): what the identity worker's
     claims and the owner's face corrections name, and what readers ask `person_of` about."""
     return SubjectRef(SubjectKind.OBSERVATION, f"detection:{payload_id}")
 
@@ -281,7 +281,7 @@ class Registry:
     def _reset(self) -> None:
         """Drop projection state after erasure, database replacement, or an aborted worker transaction."""
         self._pos = collections.defaultdict(int)
-        self._seen: dict[str, object] = {}  # per stream, the log's version when it was last read through (#441)
+        self._seen: dict[str, object] = {}  # per stream, the log's version when it was last read through
         self._generation: tuple[str, int] | None = None
         self._revision = 0
         self._voiceprints: set[int] = set()
@@ -305,20 +305,20 @@ class Registry:
         self._line_labels: dict[str, str] = {}  # utterance subject id -> a label that names nobody
         self._rematched: dict[tuple[str, str], float] = {}  # newest rematch per subject, kept past supersession
         # What was said under a line's legacy id counts for every line in that millisecond until one of them changes
-        # it: then it no longer counts for that line alone (#247). The legacy assertions each line superseded, and the
+        # it: then it no longer counts for that line alone. The legacy assertions each line superseded, and the
         # lines whose own label was cleared, so a legacy label doesn't show through.
         self._shadowed: dict[tuple[str, str], set[AssertionId]] = collections.defaultdict(set)
         self._unlabeled: set[str] = set()
         self._dead: set[AssertionId] = set()  # superseded by a forgotten person's assertion, whose purge outlived it
         self._raced: set[PersonId] = set()  # registrations that lost a race for their name (see _apply)
-        # `_decide`'s answers until the next event applies (#2440): a People read decides every retained line under
+        # `_decide`'s answers until the next event applies: a People read decides every retained line under
         # the lock, and request threads queued behind it. Everything a decision reads changes only in `_apply`.
         self._decided: dict[SubjectRef, Decision] = {}
 
     # ---- the projection ----
     def refresh(self, *streams: str) -> None:
         """Apply the events appended to these streams (people and identity by default) since the last refresh. A
-        stream is read only when the log has been written to since it was last read through (#441): a People request
+        stream is read only when the log has been written to since it was last read through: a People request
         refreshes about a hundred times, and reading found nothing new nearly every time."""
         probe = getattr(self.log, "identity_version", None) or getattr(self.log, "version", None)
         with self.lock:
@@ -471,7 +471,7 @@ class Registry:
 
     def _keys(self, subject: SubjectRef) -> list[tuple[str, str]]:
         """Where what was said about `subject` is kept: its own key, and for a line keyed by its device the key it had
-        before #247."""
+        before device-prefixed keys."""
         old = legacy_of(subject)
         return [_key(subject), *([_key(old)] if old else [])]
 
@@ -741,7 +741,7 @@ class Registry:
 
     def voice_names(self, sids: Iterable[int], refresh: bool = True) -> dict[int, str | None]:
         """The name each voice (a speakers.json id) goes by now: its person's name, or None while it names nobody.
-        speakers.json holds no names (issue #30), so this is where every voice's name comes from."""
+        speakers.json holds no names, so this is where every voice's name comes from."""
         with self.lock:
             out: dict[int, str | None] = {}
             for i, pid in self.voices(sids, refresh).items():
@@ -1180,7 +1180,7 @@ class Registry:
             self._append([_event(EventType.PERSON_FORGOTTEN, PEOPLE, source, payload, None)])
             removed = 0
             try:
-                # Them and everyone merged into them, in one purge with one record (#725).
+                # Them and everyone merged into them, in one purge with one record.
                 removed = self.log.purge(Selector(subjects=frozenset(group)), reason="PersonForgotten")
             except RuntimeError as e:
                 log(f"forget: {e}")
@@ -1432,7 +1432,7 @@ def owner_voice(state: str | pathlib.Path | None, sid: object) -> bool:
     from liberational.people import transcript_view
 
     if not isinstance(sid, int) or isinstance(sid, bool):
-        return False  # a real voice id only: "1", " 1", "+1", or "١" read as 1 would key apart from voice 1 (#175)
+        return False  # a real voice id only: "1", " 1", "+1", or "١" read as 1 would key apart from voice 1
     state = pathlib.Path(state if state is not None else cfg.path("paths.state"))
     try:
         if not 1 <= sid < handed_out(state):
@@ -1491,7 +1491,7 @@ class WriteFailed(RuntimeError):
 
 @contextlib.contextmanager
 def recorded(what: str) -> Generator[None]:
-    """Run a registry write that must stand: a failure is logged and raised as WriteFailed (#858)."""
+    """Run a registry write that must stand: a failure is logged and raised as WriteFailed."""
     try:
         yield
     except WriteFailed:
@@ -1552,10 +1552,10 @@ def backfill(
     """Give every person named in today's stores a person id, and record what today's stores already say as
     assertions: each named voice, each voice merged into one, each hand-labeled transcript line, and each saved face
     photo. Copy each phone number in contacts.json to a person who has none, and mark each name in people_added.json
-    as added by hand (issue #28). Skips what the log already has, so a rerun writes nothing new.
+    as added by hand. Skips what the log already has, so a rerun writes nothing new.
 
     Names come only from the stores that make up today's roster. v1's identity.jsonl is not read since the identity
-    worker moved its records to the broker (#776): every named voice counts as an owner tag, and the faces its records
+    worker moved its records to the broker: every named voice counts as an owner tag, and the faces its records
     enrolled are the gallery's rows. (The paragraph below describes the stores that remain.) A name still on the
     roster enrolled. Otherwise a rerun would bring a forgotten person back.
 
@@ -1565,7 +1565,7 @@ def backfill(
     faces_db = pathlib.Path(faces_db) if faces_db else cfg.path("paths.faces") / "db.npz"
     reg = at(state)
     before = len(reg.people())
-    # v1's voice list (voices.sqlite3) is gone (#772): a voiceprint's name was always the log's, so there's none to
+    # v1's voice list (voices.sqlite3) is gone: a voiceprint's name was always the log's, so there's none to
     # copy. A line keeps the name it was hand-tagged with.
     labels: dict[int, str] = {}
     merged: dict[str, int] = {}
@@ -1660,7 +1660,7 @@ def _phone(state: str | None, name: str, number: str | None, clear: bool) -> int
 
 def ambiguous(state: str | pathlib.Path | None = None) -> dict[str, list[str]]:
     """Each legacy (millisecond-only) line id anything was said under that more than one transcript line starts in,
-    from different devices, with those lines' keys. What was said under such an id counts for all of them (#247).
+    from different devices, with those lines' keys. What was said under such an id counts for all of them.
     Reads only; with no event log there is nothing to check."""
     state = pathlib.Path(state if state is not None else cfg.path("paths.state"))
     if not log_exists(state):
