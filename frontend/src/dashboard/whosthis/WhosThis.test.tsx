@@ -7,6 +7,7 @@ import { newQueryClient, Providers } from '../../shared/Providers';
 import { RETRY_MS } from '../../shared/SafeImage';
 import { renderPage } from '../../test/render';
 import { server } from '../../test/server';
+import { seenAt } from '../lib/format';
 import { SLOW_MS } from '../lib/loading';
 import { PAGE_SLOW_MS } from '../lib/page';
 import { getUnnamed } from '../people/api';
@@ -19,7 +20,6 @@ import {
   unknownVoicesQuery,
 } from './api';
 import { FacePictures } from './FacePictures';
-import { seenAt } from '../lib/format';
 import { guessText, shotSrc, togetherText, WhosThis } from './WhosThis';
 
 const NOW = new Date(2026, 9, 28, 20, 0).getTime() / 1000;
@@ -1578,9 +1578,11 @@ describe('Show ignored and blocked', () => {
     expect(within(ignored).getByRole('listitem', { name: `Ignored ${seenAt(NOW)}` })).toBeVisible();
     const blocked = screen.getByRole('region', { name: 'Blocked' });
     expect(within(blocked).getByRole('listitem', { name: 'Face 4, 3 pictures' })).toBeVisible();
-    await userEvent.click(within(ignored).getByRole('button', {
-      name: `Un-ignore the picture ignored ${seenAt(NOW)}`,
-    }));
+    await userEvent.click(
+      within(ignored).getByRole('button', {
+        name: `Un-ignore the picture ignored ${seenAt(NOW)}`,
+      }),
+    );
     await waitFor(() =>
       expect(posts).toEqual([{ url: '/faces/unknown/restore', body: { kind: 'ignored', keys: ['s1'] } }]),
     );

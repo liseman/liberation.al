@@ -506,7 +506,12 @@ describe('Sightings to name', () => {
     const order = async () =>
       within(await inbox())
         .getAllByRole('listitem')
-        .map(li => li.getAttribute('aria-label')?.replace(/^1 cat sighting: /, '').replace(/ \d+%$/, ''));
+        .map(li =>
+          li
+            .getAttribute('aria-label')
+            ?.replace(/^1 cat sighting: /, '')
+            .replace(/ \d+%$/, ''),
+        );
     const flip = (user: ReturnType<typeof userEvent.setup>, now: 'highest' | 'lowest') =>
       user.click(screen.getByRole('button', { name: `Sort sightings by certainty, ${now} first` }));
 

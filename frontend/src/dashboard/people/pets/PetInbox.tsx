@@ -221,7 +221,9 @@ function GroupRow({
       foldable={kept.length > 1}
       count={kept.length}
       note={
-        guessed ? undefined : 'Ignore skips the selected sightings. Block also hides any animal very like them from now on.'
+        guessed
+          ? undefined
+          : 'Ignore skips the selected sightings. Block also hides any animal very like them from now on.'
       }
       meta={
         <>
