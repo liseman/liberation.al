@@ -69,6 +69,13 @@ out at the plan's floor, and the depth is scaled to put it there, since the heig
 model's metres are not. A scale outside 0.75 to 1.35 refuses the view. A place with such a view stands in its
 plan's frame from then on, and a map learned earlier in a frame of its own is started again there.
 
+**A spot is checked against the plan, once** (`spatial/spot_check.py`). A view's depth is too rough to measure a spot
+by how near its points fall to the plan's walls, so the check uses what the picture and the plan agree on whatever
+the depth's scale: the directions straight edges vanish in, a floor that is flat and at the plan's level, rays that
+must not pass through a solid wall, the plan's wall-floor lines and door jambs drawn into the picture, and walls
+that face into the room. A fixed camera's views all stand at one pose, so the search runs once for a spot and its
+result is kept (`state/places/refined.json`) until the spot, the plan, or the camera's lens or focal changes.
+
 **A frame nothing places is parked.** It stays kept, with the reason: its view overlaps nothing in a map and its
 camera has no spot, the spot lacks something, or its floor doesn't fit the plan's. A step for it would find what the
 last one found, so none starts until a map gains a view or the camera's spot changes. After a day it is dropped and
@@ -90,8 +97,11 @@ of two things:
   spot's height (people must come out a person's height) and kept in `state/places/aims.json`.
 - **A map's registration** (a revision's `cameras`), for a camera with no spot.
 
-The owner measured the spot, so it outranks the map: a map may refine a spot's pose only within 0.3 m and 5 degrees,
-and past that the spot holds and the disagreement is logged. A camera with neither places nobody, and no position is
+The owner measured the spot, so it outranks what the machine works out. The check above may refine the pose a spot
+gives only within 0.3 m and 5 degrees, and it keeps that refinement beside the spot, which is never rewritten. When
+the view fits the plan clearly better beyond that bound, nothing is applied: the spot holds, and the Places page
+suggests checking it, with how far off the view wants to sit. A lens in the device manifest is part of the pose, so
+a changed lens calibration has the tilt fitted again. A camera with neither places nobody, and no position is
 guessed: the placer and the Places page say what each camera lacks.
 
 **A learned map's floor and fixed cameras** (`spatial/surroundings_positions.py`). A map founded on a camera frame
