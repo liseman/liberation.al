@@ -40,11 +40,14 @@
                                        name the format, so bytes a browser kept in an earlier encoding can't
                                        answer for it
     GET /places/positions?place=&start=&end=[&entity=]
-                                       {place, start, end, entities, tracks, rooms, cameras}: where each entity was
-                                       on the place's plan over [start, end), from the position layer's stored
-                                       records (spatial/positions.py), and how many cameras have a pose in the place's
-                                       map (`cameras`: with none, nobody can be placed there, and the page says so);
-                                       the read stops if the client hangs up
+                                       {place, start, end, entities, tracks, rooms, cameras, camera_notes}: where
+                                       each entity was on the place's plan over [start, end), from the position
+                                       layer's stored records (spatial/positions.py); how many cameras can place
+                                       people there (`cameras`: with none, nobody can be, and the page says so); and
+                                       each camera of the place with how it's posed and what it lacks
+                                       (`camera_notes`: [{camera, by: "spot" | "map", missing}], `missing` any of
+                                       "height", "facing", "lens", "tilt", "check", spatial/spots.py); the read
+                                       stops if the client hangs up
 
 The GETs only read state. The POSTs are teaching, so they follow dashboard.remote_teaching like the rest.
 
@@ -493,6 +496,7 @@ def positions_view(query: Mapping[str, str], state: Path, cancelled: Callable[[]
         )
     except ValueError as e:  # a frame the reader can't use: an unknown revision, or one of another place
         return 400, {"error": str(e)}
+    notes = positions.placing(state, place)
     entities: dict[str, dict[str, Any]] = {}
     tracks: dict[tuple[str, str], list[dict[str, Any]]] = {}  # (entity, its path's track) to the path's points
     rooms: list[dict[str, Any]] = []
@@ -538,8 +542,10 @@ def positions_view(query: Mapping[str, str], state: Path, cancelled: Callable[[]
         "entities": list(entities.values()),
         "tracks": [{"entity": k, "track": path, "points": thin(moved(v, every))} for (k, path), v in tracks.items()],
         "rooms": rooms,
-        # with no camera posed in the place's map, the placer has nothing to place a footprint by
-        "cameras": sum(1 for p in places.camera_places(state).values() if p == place),
+        # with no camera that has a pose (from its spot on the owner's plan, or in the place's map), the placer has
+        # nothing to place a footprint by; a camera whose spot lacks something says what
+        "cameras": sum(1 for c in notes if not c["missing"]),
+        "camera_notes": notes,
     }
 
 

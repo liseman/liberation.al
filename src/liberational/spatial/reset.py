@@ -4,7 +4,7 @@
   pack-reset-places --yes    # do it
 
 Everything the machine made about places goes: each place's revisions, maps, plans, and splats (`state/places/`),
-with the cameras' registrations they hold, the files of walks imported from the Places page (`state/walk_imports/`),
+with the cameras' registrations they hold and the tilts fitted for cameras with a spot on a plan (`aims.json`), the files of walks imported from the Places page (`state/walk_imports/`),
 and the position layer's stored records (the `position.sample`, `position.placed`, `position.path`, and `camera.pose`
 streams of the segment store, with their condensed history). The job that builds maps from what the cameras see
 writes all of it again.

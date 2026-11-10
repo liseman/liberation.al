@@ -1247,7 +1247,7 @@ def test_with_no_camera_posed_in_any_map_the_placer_places_nothing_and_says_so(t
     with caplog.at_level("INFO"):
         did = P.advance(tmp_path, T + 60, chunk_s=P.BACKFILL_S)
     assert did["records"] == 0
-    assert "no camera has a pose in any place's map" in caplog.text
+    assert "no camera has a spot on a plan or a pose in a map" in caplog.text
 
 
 def test_the_placer_writes_a_footprint_placed_and_a_read_gives_it_back(tmp_path, vision):
