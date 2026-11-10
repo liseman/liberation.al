@@ -198,7 +198,6 @@ import errno
 import html
 import http.server
 import io
-import itertools
 import json
 import math
 import multiprocessing
@@ -239,10 +238,8 @@ from liberational import (
     logs,
     memtrim,
     model_runtime,
-    ollama_health,
     readers,
     segment_log,
-    service_cascade,
     services,
     speech_log,
     vision_log,
@@ -252,19 +249,22 @@ from liberational.audio import gain, loudness
 from liberational.config import ROOT
 from liberational.dashboard import (
     assets,
+    call_log,
     context,
     devices,
     devreload,
     frontend_log,
     ingest,
-    machine_usage,
+    machine_stats,
     network_cameras,
     reports,
     routes,
+    service_control,
     settings,
     shell_status,
     slow,
 )
+from liberational.dashboard.context import LOG, PY, SSE_CLIENTS, SSE_LOCK, Reply, log
 from liberational.domain.identity import Basis, SubjectRef
 from liberational.domain.kernel import PersonId
 from liberational.memory import remembered
@@ -287,10 +287,12 @@ from liberational.vision import views
 if TYPE_CHECKING:
     from liberational.vision.sightings import FaceBatch
 
-type Reply = tuple[int, dict[str, Any]]  # (HTTP status, JSON body)
 
 # The areas whose modules register their own routes (dashboard/routes.py); the rest are still registered below.
 routes.load(
+    "call_log",
+    "service_control",
+    "machine_stats",
     "activities",
     "device_links",
     "happening",
@@ -316,7 +318,6 @@ def _scene_key(entries: list[dict[str, Any]]) -> tuple[Any, ...]:
 
 PAD_S, MAX_CLIP_S = 0.4, 60.0
 STATE_RESOLVED = context.STATE.resolve()
-PY = sys.executable
 PORT = cfg.get("ports.dashboard")  # main() takes an optional port argument
 APP_PATHS = (
     "/",
@@ -337,25 +338,6 @@ APP_PATHS = (
 )  # one page app; the tab comes from the path
 APP_PAGE = "index.html"  # the app (frontend/), built into static/app/
 DEV = False  # main() sets it for --dev: auto-reload (dashboard/devreload.py)
-# role by module; a daemon runs as `pack-<command>` or `python -m liberational.<module>`
-DAEMONS = {
-    "listen.worker": ("listen", "pack-listen"),
-    "dashboard.server": ("dashboard", "pack-dashboard"),
-}
-
-
-def daemon_role(cmd: list[str]) -> str | None:
-    for mod, (role, script) in DAEMONS.items():
-        if any(a == "liberational." + mod or a == script or a.endswith("/" + script) for a in cmd):
-            return role
-    return None
-
-
-LOG = logs.get("dashboard")
-
-
-def log(*a: object, level: int = logs.INFO) -> None:
-    LOG.log(level, " ".join(str(x) for x in a))
 
 
 def jdump(o: Any) -> bytes:
@@ -883,7 +865,6 @@ def speakers_public() -> dict[str, Any]:
 
 # ---------------------------------------------------------------- stats ----
 # ---- calls + people (read-only; built from transcripts, calls/, and memory) ----
-CALLS_DIR = cfg.path("paths.calls")
 MEMORY_FILE = context.STATE / "memory.jsonl"
 
 
@@ -1300,10 +1281,6 @@ def video_thumb_jpeg(
     return jpg.tobytes() if ok else None
 
 
-def _safe_name(n: str) -> bool:
-    return bool(n) and len(n) <= 80 and not re.search(r"[\\\\/\x00]", n)
-
-
 # ---------------------------------------------------------------- moments, clones ----
 def transcript_around(ts: float, n: int = 12) -> dict[str, Any]:
     """Utterances closest to ts (by ts_start), n in total, in time order, from the day around it."""
@@ -1505,184 +1482,6 @@ def clone_say(sid: int, text: str) -> Reply:
     )
 
 
-def services_view(control: bool, fresh: bool = False) -> dict[str, Any]:
-    """The admin sidebar's view: every service for this platform, and whether this viewer may switch them. The
-    actions ask for fresh pids, so a service started or stopped by hand a moment ago counts."""
-    try:
-        return {"ok": True, "control": control, "platform": cfg.platform_key(), "services": services.snapshot(fresh)}
-    except services.ProcessScanPending as ex:
-        return {"ok": False, "control": control, "error": str(ex), "services": []}
-    except SystemExit as ex:  # pack.toml names a service that doesn't exist
-        return {"ok": False, "control": control, "error": str(ex), "services": []}
-
-
-def service_history_view(hours: str = "24") -> Reply:
-    """Read-only lifecycle history, with one of the two bounded windows chosen by the UI."""
-    if hours not in {"24", "168"}:
-        return 400, {"error": "History must cover 24 hours or 7 days."}
-    try:
-        return 200, dict(services.history(context.STATE, int(hours)))
-    except (OSError, ValueError) as ex:
-        LOG.warning(f"Service history could not be read: {type(ex).__name__}")
-        return 503, {"error": "Could not read service history."}
-
-
-# What each action on one service does: its pack-services command, and the words its log line says it in.
-SERVICE_ACTIONS: dict[str, tuple[str, str]] = {
-    "on": ("install", "installed and started; runs at every login"),
-    "off": ("uninstall", "uninstalled; stays off until turned on"),
-    "stop": ("stop", "stopped now; starts again when the computer restarts"),
-    "start": ("start", "started"),
-}
-
-
-def _logged(action: str, what: str, why: str, ok: bool | None, out: str) -> None:
-    """One INFO line per service action from the dashboard, done or not, so the log says what changed."""
-    lines = out.strip().splitlines()
-    bad = next((line for line in lines if "FAILED" in line), lines[-1] if lines else "?")  # the error, not a note after
-    result = "done" if ok else "timed out" if ok is None else f"failed: {bad}"
-    log(f"services: {action} {what} ({why}): {result}")
-
-
-# Held around each POST /services action: Enable and Disable read and rewrite pack.toml in a pack-services process, and
-# two at once would lose one's change; the others mustn't race an install or uninstall of the same units either.
-SERVICES_LOCK = threading.Lock()
-
-# Enable and Disable: pack.toml's [services] lists first, so the choice outlasts a restart, then the service itself.
-SERVICE_CHOICES: dict[str, tuple[str, str]] = {
-    "enable": ("install", "enabled for this machine, installed, and started"),
-    "disable": ("uninstall", "disabled for this machine and stopped; stays off after a restart"),
-}
-
-
-def service_action(name: str, action: str) -> Reply:
-    """(code, body): one service's action: on (pack-services install), off (uninstall: stays off), stop (stopped now,
-    still installed, so it starts again when the computer restarts, or on Repair), start (an installed one that was
-    stopped), enable (one not enabled here: pack.toml's [services] names it, and it's installed), or disable (the
-    reverse: taken out of pack.toml's choice and uninstalled, so it stays off after a restart)."""
-    if action not in SERVICE_ACTIONS and action not in SERVICE_CHOICES:
-        return 400, {
-            "ok": False,
-            "error": 'send {"name": ..., "action": "on", "off", "stop", "start", "enable", or "disable"}',
-        }
-    svc = next((s for s in services_view(True, fresh=True)["services"] if s["name"] == name), None)
-    if svc is None or (not svc["selected"] and action != "enable"):
-        return 400, {
-            "ok": False,
-            "error": f"{name or '?'} is not enabled for this machine (see [services] in pack.toml)",
-        }
-    if name == "dashboard":
-        return 400, {"ok": False, "error": "this page is served by the dashboard; use pack-services in a terminal"}
-    if action == "enable" and svc["selected"]:
-        return 409, {"ok": False, "error": f"{name} is already enabled for this machine"}
-    if action == "disable" and svc.get("required"):
-        return 409, {"ok": False, "error": f"{name} is needed by another setting (asr.engine), so it stays on"}
-    if action in ("on", "enable") and not svc["installed"] and svc["pids"]:
-        return 409, {
-            "ok": False,
-            "error": f"{name} is already running outside the service manager (pid {svc['pids'][0]})",
-        }
-    if action in ("stop", "start") and not svc["installed"]:
-        return 409, {"ok": False, "error": f"{name} isn't installed: turn it on instead"}
-    if action in SERVICE_CHOICES:
-        command, why = SERVICE_CHOICES[action]
-        # Back to its default where that is the choice, so pack.toml names only what differs from services.toml.
-        default = bool(svc.get("default"))
-        listed = ("reset" if default else "enable") if action == "enable" else ("disable" if default else "reset")
-        steps = [[listed, name], [command, name]]
-    else:
-        command, why = SERVICE_ACTIONS[action]
-        steps = [[command, name]]
-    ok, outs = True, []
-    for step in steps:
-        # The outer process must outlive the cascade's own readiness and recovery deadlines.
-        timeout = (
-            service_cascade.subprocess_timeout()
-            if step[0] == "install" and name in {"continuum-broker", "continuum-capture"}
-            else 120
-        )
-        ok, out = _pack_services(step, timeout)
-        outs.append(out)
-        if step[0] in ("enable", "disable", "reset"):
-            cfg.load.cache_clear()  # pack-services wrote pack.toml; read it again here
-        if not ok:
-            break
-    out = "\n".join(outs)
-    _logged(action, name, why, ok, out)
-    if ok is None:
-        return 504, {
-            **services_view(True, fresh=True),
-            "ok": False,
-            "error": f"pack-services timed out: {action} {name}",
-        }
-    return (200 if ok else 500), {
-        **services_view(True, fresh=True),
-        "ok": ok,
-        "out": out[-2000:],
-        "error": None if ok else out[-500:],
-    }
-
-
-def _pack_services(args: list[str], timeout: float) -> tuple[bool | None, str]:
-    """Run `pack-services <args>` from this checkout: (worked, output), with worked None on a timeout."""
-    try:
-        r = subprocess.run(
-            [PY, "-m", "liberational.services", *args], capture_output=True, text=True, timeout=timeout, cwd=ROOT
-        )
-    except subprocess.TimeoutExpired:
-        return None, ""
-    out = (r.stdout + r.stderr).strip()
-    return r.returncode == 0 and "FAILED" not in out, out
-
-
-def all_services(action: str) -> Reply:
-    """(code, body): every service but the dashboard at once. "repair" reinstalls each service enabled for
-    this machine (units rendered fresh, enabled, and restarted), which also brings back one left installed but
-    stopped. "off" removes every installed one. The dashboard is left alone (this page runs on it), and so is a
-    service running by hand outside the service manager, which an install would start a second time."""
-    if action not in ("repair", "off"):
-        return 400, {"ok": False, "error": 'send {"all": "repair"} or {"all": "off"}'}
-    view = services_view(True, fresh=True)
-    if not view["ok"]:
-        return 500, view
-    rows = [r for r in view["services"] if r["name"] != "dashboard"]
-    by_hand = [r["name"] for r in rows if not r["installed"] and r["pids"]]
-    core = False
-    if action == "repair":
-        names = [r["name"] for r in rows if r["selected"] and r["name"] not in by_hand]
-        core = bool({"continuum-broker", "continuum-capture"}.intersection(names))
-        # The cascade must see the original PIDs before stopping anything. A separate uninstall would discard
-        # that evidence and bypass its reader-first shutdown, including capture-worker ownership checks.
-        steps = [["install", "--cascade", *names]] if core else [["uninstall", *names], ["install", *names]]
-    else:
-        names = [r["name"] for r in rows if r["installed"]]
-        steps = [["uninstall", *names]]
-    note = f"Left alone, running by hand: {', '.join(by_hand)}." if by_hand else None
-    if not names:  # `pack-services uninstall` with no names means every installed service, the dashboard included
-        return 200, {**services_view(True, fresh=True), "ok": True, "note": note or "Nothing to do."}
-    outs = []
-    why = "uninstalled and installed again" if action == "repair" else "every installed service but the dashboard"
-    if action == "repair" and core:
-        why = "units rendered and services restarted in dependency order"
-    for step in steps:
-        timeout = service_cascade.subprocess_timeout() if step[0] == "install" and core else 300
-        ok, out = _pack_services(step, timeout)
-        outs.append(out)
-        if not ok:
-            _logged(action, ", ".join(names), why, ok, out)
-            error = (
-                f"pack-services {step[0]} timed out" if ok is None else out[-500:] or f"pack-services {step[0]} failed"
-            )
-            return (504 if ok is None else 500), {
-                **services_view(True, fresh=True),
-                "ok": False,
-                "error": error,
-                "note": note,
-            }
-    _logged(action, ", ".join(names), why, True, "")
-    return 200, {**services_view(True, fresh=True), "ok": True, "out": "\n".join(outs)[-2000:], "note": note}
-
-
 def _research(handler: H) -> bool:
     """Delegate /research* (the Inbox's research jobs) to dashboard/research.py."""
     if not handler.path.startswith("/research"):
@@ -1707,106 +1506,6 @@ def _pack_ask(handler: H) -> bool:
         except Exception:
             pass
         return True
-
-
-def calls_list(limit: int = 100) -> list[dict[str, Any]]:
-    out = []
-    for meta in sorted(CALLS_DIR.glob("*/*/call.json"), reverse=True)[:limit]:
-        try:
-            m = json.loads(meta.read_text())
-        except Exception:
-            continue
-        m["day"], m["dir"] = meta.parent.parent.name, meta.parent.name
-        # A call saved before these were kept reads as unknown: no direction, nobody called, no instructions.
-        m["direction"] = m.get("direction") if m.get("direction") in ("in", "out") else "unknown"
-        for key in ("to", "instructions", "outcome"):
-            m.setdefault(key, None)
-        out.append(m)
-    return out
-
-
-LIVE_CALL_MAX_S = 6 * 3600  # a live mark older than this is a call a crash left behind, whatever its process
-
-
-def calls_live(now: float | None = None) -> dict[str, Any]:
-    """GET /calls/live: the call on now, from the phone bridge's `live.json` in its folder (phone/bridge.py
-    Call.mark_live): {"live": {"direction": "in" | "out", "number", "name" (or null), "since" (epoch seconds),
-    "day", "dir"} or null when idle, "count": calls on}. A mark whose bridge process is gone, or older than
-    LIVE_CALL_MAX_S, isn't on: a crash leaves its mark behind."""
-    now = time.time() if now is None else now
-    on: list[tuple[float, dict[str, Any]]] = []
-    for path in CALLS_DIR.glob("*/*/live.json"):
-        try:
-            m = json.loads(path.read_text())
-            since, pid = float(m["since"]), int(m["pid"])
-        except OSError, ValueError, KeyError, TypeError:
-            continue
-        if now - since > LIVE_CALL_MAX_S or not _running(pid):
-            continue
-        on.append(
-            (
-                since,
-                {
-                    "direction": m.get("direction") if m.get("direction") in ("in", "out") else "unknown",
-                    "number": m.get("number") or None,
-                    "name": m.get("name") or None,
-                    "since": since,
-                    "day": path.parent.parent.name,
-                    "dir": path.parent.name,
-                },
-            )
-        )
-    on.sort(key=lambda c: -c[0])
-    return {"live": on[0][1] if on else None, "count": len(on)}
-
-
-def calls_hangup(day: str, name: str) -> tuple[int, dict[str, Any]]:
-    """End the selected live call, not whichever one happens to be current after a stale click."""
-    if not day or not name:
-        return 400, {"ok": False, "error": "Choose the live call to end."}
-    live = calls_live()["live"]
-    if live is None or (live["day"], live["dir"]) != (day, name):
-        return 409, {"ok": False, "error": "That call is no longer the active call. Refresh before trying again."}
-    # These path components came from the live-call scan, not an unchecked request path.
-    try:
-        mark = json.loads((CALLS_DIR / live["day"] / live["dir"] / "live.json").read_text())
-    except OSError, ValueError:
-        return 409, {"ok": False, "error": "That call has already ended."}
-    from liberational.phone import outbound
-
-    try:
-        ok, detail = outbound.hangup(str(mark.get("callSid") or ""))
-    except OSError, ValueError, KeyError:
-        return 502, {"ok": False, "error": "Could not confirm hang-up with the phone provider. Try again."}
-    return (200 if ok else 409), {"ok": ok, "detail": detail, **({} if ok else {"error": detail})}
-
-
-def _running(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True  # someone else's process, but running
-    return pid > 0
-
-
-def call_transcript(day: str, name: str) -> dict[str, Any] | None:
-    d = CALLS_DIR / day / name
-    if not (_safe_name(day) and _safe_name(name)) or not d.is_dir():
-        return None
-    rows = []
-    tp = d / "transcript.jsonl"
-    if tp.exists():
-        for line in tp.read_text().splitlines():
-            try:
-                e = json.loads(line)
-                e["who"] = e.get("speaker_label") or (cfg.assistant_name() if e.get("speaker") == "bot" else "Caller")
-                rows.append(e)
-            except Exception:
-                pass
-    meta = json.loads((d / "call.json").read_text()) if (d / "call.json").exists() else {}
-    return {"meta": meta, "transcript": rows}
 
 
 ROOM_TAIL = 20000  # room lines read for People: the newest this many
@@ -1853,9 +1552,9 @@ def _call_lines(view: transcript_view.View | None = None) -> list[dict[str, Any]
     profile rebuilds read them (`profiles.call_name`): a renamed person keeps their calls under their new name, and a
     forgotten person's lines are left out, so neither leaves an entry in People under a name nobody has."""
     rows, view, memo = [], view if view is not None else _view(), {}
-    for c in calls_list(500):
-        t = call_transcript(c["day"], c["dir"]) or {"transcript": []}
-        start = profiles.call_start(CALLS_DIR / c["day"] / c["dir"])
+    for c in call_log.calls_list(500):
+        t = call_log.call_transcript(c["day"], c["dir"]) or {"transcript": []}
+        start = profiles.call_start(call_log.CALLS_DIR / c["day"] / c["dir"])
         for e in t["transcript"]:
             if e.get("speaker") == "bot" or not (e.get("text") or "").strip():
                 continue
@@ -3783,7 +3482,7 @@ def _roster_row(name: str) -> dict[str, Any] | None:
 def person_summary(name: str) -> dict[str, Any] | None:
     """GET /people/<name>: their row of the people list (voices, faces, number, role, last heard and seen), how many
     lines they said (in the room and on calls), and what memory notes say about them."""
-    if not _safe_name(name):
+    if not call_log._safe_name(name):
         return None
     me = _roster_row(name)
     who = {
@@ -4000,7 +3699,7 @@ def person_card(name: str) -> dict[str, Any] | None:
     for a name that can't be one."""
     from liberational.vision import sightings
 
-    if not _safe_name(name):
+    if not call_log._safe_name(name):
         return None
     # Share raw speech and one fresh identity snapshot across roster and media readers. Cache only raw rows:
     # retained() follows commits and purges, while a new View sees renames without waiting for new speech.
@@ -4086,7 +3785,7 @@ class _CardReads:
         self.warming = False
 
     def get(self, name: str) -> dict[str, Any] | None:
-        if not _safe_name(name):
+        if not call_log._safe_name(name):
             return None
         k, key, now = _norm(name), _card_key(), time.time()
         with self.lock:
@@ -4939,245 +4638,6 @@ def add_person(name: str, number: str = "", **attributes: str) -> None:
     """Add someone to the People list, with a phone number if one is given. Calls still need a number.
     `attributes` are a role and an organization typed with the name."""
     _book().add(name, number, "dashboard", **attributes)
-
-
-SYSTEM_S = 300.0  # how often /stats checks for missing system packages again
-# CPU is measured "since the last call", so two pages polling a moment apart read nearly nothing: a /stats within this
-# long of the last one gets that one again, and every measurement spans at least this long.
-STATS_MIN_S = 1.0
-OLLAMA_BLOB = re.compile(r"sha256-[0-9a-f]{64}")  # the file an Ollama model's weights are in, as a runner loads it
-
-
-def runner_blob(cmd: list[str]) -> str | None:
-    """The weights an Ollama runner process loaded ("sha256-<hex>"), from its --model argument, or None."""
-    for flag, value in itertools.pairwise(cmd):
-        if flag in ("--model", "-m") and (m := OLLAMA_BLOB.search(value)):
-            return m[0]
-    return None
-
-
-def ollama_blob(name: str) -> str | None:
-    """The weights a model loads from ("sha256-<hex>"): Ollama's /api/show names the file on its modelfile's FROM
-    line. None when it doesn't say."""
-    ask = urllib.request.Request(
-        cfg.ollama_url() + "/api/show",
-        data=json.dumps({"model": name}).encode(),
-        headers={"Content-Type": "application/json"},
-    )
-    with urllib.request.urlopen(ask, timeout=1.5) as r:
-        modelfile = json.loads(r.read()).get("modelfile") or ""
-    for line in modelfile.splitlines():
-        if line.startswith("FROM ") and (m := OLLAMA_BLOB.search(line)):
-            return m[0]
-    return None
-
-
-def cpu_busy(before: Any, after: Any) -> float:
-    """The busy share, in percent (one decimal), between two psutil.cpu_times() readings, as psutil.cpu_percent works
-    it out: guest time is already inside user time on Linux, and idle and I/O wait aren't busy. No time passed: 0."""
-
-    def split(t: Any) -> tuple[float, float]:
-        f = t._asdict()
-        total = sum(f.values()) - f.get("guest", 0.0) - f.get("guest_nice", 0.0)
-        return total, total - f.get("idle", 0.0) - f.get("iowait", 0.0)
-
-    total0, busy0 = split(before)
-    total1, busy1 = split(after)
-    if total1 <= total0:
-        return 0.0
-    return round(min(100.0, max(0.0, 100 * (busy1 - busy0) / (total1 - total0))), 1)
-
-
-class Stats:
-    """psutil per-daemon CPU/RSS (cpu_percent is 'since last call', so poll at a steady 2 s) + Ollama /api/ps (cached 2 s).
-    Each service's processes are named for it (services.processes()), and each Ollama runner for the model it runs."""
-
-    def __init__(self) -> None:
-        self.lock = threading.Lock()
-        self.model_scan_known = False
-        self.procs: dict[int, tuple[str, Any, str | None]] = {}  # pid: (role, psutil.Process, a runner's weights)
-        self.scan_t = 0
-        self.ollama = {"models": [], "error": None}
-        self.ollama_t = 0
-        self.blobs: dict[str, str | None] = {}  # a loaded model's digest: its weights, from /api/show, asked once
-        self.model_of: dict[str, str] = {}  # weights: the loaded model's name
-        self.last: dict[str, Any] | None = None  # the last snapshot, given again within STATS_MIN_S
-        self.system: dict[str, Any] = {}
-        self.system_t = 0.0
-        # The machine's CPU times at the last snapshot, for the busy share since. Kept here, not psutil.cpu_percent's own:
-        # psutil 7 keeps that per thread, and each /stats request is a new server thread, so it read 0%.
-        self.cpu_t: Any = psutil.cpu_times() if psutil else None
-
-    def cpu_since(self) -> float:
-        """The whole machine's busy share, in percent, since the last snapshot. Called under the lock."""
-        if psutil is None:
-            return 0.0
-        now = psutil.cpu_times()
-        before, self.cpu_t = self.cpu_t, now
-        return cpu_busy(before, now) if before is not None else 0.0
-
-    def scan(self) -> None:
-        if psutil is None or time.time() - self.scan_t < 10:
-            return
-        self.scan_t = time.time()
-        self.model_scan_known = True
-        try:
-            owner = {pid: name for name, pids in services.processes().items() for pid in pids}
-        except (Exception, SystemExit) as e:  # pack.toml names a service that doesn't exist: the other roles still show
-            log(f"stats: services' processes unreadable: {e}", level=logs.WARN)
-            owner = {}
-            self.model_scan_known = False
-        from liberational import proc_table  # psutil's, and psutil is optional here
-
-        found = {}
-        # Every process, each one's command line read once (proc_table); only the ones named here are measured.
-        for entry in proc_table.table().values():
-            cmd, name = list(entry.cmdline), entry.name
-            role = owner.get(entry.pid) or daemon_role(cmd)
-            if role is None and name == "ollama":
-                role = "ollama runner" if "runner" in cmd else "ollama"  # macOS runs `ollama runner --model ...`
-            elif role is None and (name == "llama-server" or (cmd and cmd[0].endswith("/llama-server"))):
-                role = "ollama runner"
-            if not role:
-                continue
-            blob = runner_blob(cmd) if role == "ollama runner" else None
-            known = self.procs.get(entry.pid)
-            if known is not None:
-                found[entry.pid] = (role, known[1], blob)
-                continue
-            try:
-                proc = psutil.Process(entry.pid)
-                proc.cpu_percent(None)  # its first reading, so the next one is a rate
-            except psutil.NoSuchProcess:
-                continue
-            except psutil.AccessDenied:
-                self.model_scan_known = False
-                continue
-            found[entry.pid] = (role, proc, blob)
-        self.procs = found
-
-    def ollama_ps(self) -> dict[str, Any]:
-        if time.time() - self.ollama_t < 2:
-            return self.ollama
-        self.ollama_t = time.time()
-        try:
-            with urllib.request.urlopen(cfg.ollama_url() + "/api/ps", timeout=1.5) as r:
-                d = json.loads(r.read())
-            self.ollama = {
-                "models": [
-                    {
-                        "name": m.get("name"),
-                        "purpose": model_runtime.ollama_purpose(str(m.get("name") or "")),
-                        "size": m.get("size"),
-                        "size_vram": m.get("size_vram"),
-                        "ctx": m.get("context_length"),
-                        "params": (m.get("details") or {}).get("parameter_size"),
-                        "expires_at": m.get("expires_at"),
-                    }
-                    for m in d.get("models", [])
-                ],
-                "error": None,
-            }
-            self.model_of = self.weights(d.get("models", []))
-        except Exception as e:
-            self.ollama = {"models": [], "error": str(e)[:120]}
-        # Up, and the configured models it lacks, in words the owner can act on. /api/tags is cached in
-        # ollama_health for 5 minutes while Ollama answers, and /api/ps failures force a fresh check.
-        health = ollama_health.status(refresh=bool(self.ollama["error"]))
-        self.ollama |= {"up": health["up"], "missing": health["missing"], "message": health["message"]}
-        return self.ollama
-
-    def weights(self, models: list[dict[str, Any]]) -> dict[str, str]:
-        """{weights: model name} for the models /api/ps lists, so each runner process can say which model it runs. A
-        model's weights are asked of /api/show once per digest (a pull that changes the model changes its digest)."""
-        out: dict[str, str] = {}
-        for m in models:
-            name = str(m.get("name") or "")
-            digest = str(m.get("digest") or name)
-            if not name:
-                continue
-            if digest not in self.blobs:
-                try:
-                    self.blobs[digest] = ollama_blob(name)
-                except Exception:  # an Ollama that doesn't say: its runners go by their pids
-                    self.blobs[digest] = None
-            if blob := self.blobs[digest]:
-                out[blob] = name
-        return out
-
-    def system_status(self) -> dict[str, Any]:
-        """The system packages missing here (config/system-packages.toml) and the commands that install them. Checked
-        every SYSTEM_S, since finding a library can run ldconfig or a compiler."""
-        if self.system and time.time() - self.system_t < SYSTEM_S:
-            return self.system
-        self.system_t = time.time()
-        from liberational import services, system_packages
-
-        try:
-            # Only what the services selected for this machine use: a package for a service it doesn't run, or an
-            # optional one, would show here forever.
-            self.system = system_packages.status(services=list(services.selected()))
-        except (Exception, SystemExit) as e:  # a bad declaration or [services] list mustn't break /stats
-            self.system = {"missing": [], "commands": [], "error": str(e)[:200]}
-        return self.system
-
-    def snapshot(self) -> dict[str, Any]:
-        with self.lock:
-            if self.last is not None and time.time() - self.last["ts"] < STATS_MIN_S:
-                return self.last
-            out = {
-                "ts": time.time(),
-                "procs": [],
-                "clients": SSE_CLIENTS[0],
-                "ollama": self.ollama_ps(),
-                "system": self.system_status(),
-                "model_runtime": {"processes": [], "configured": [], "errors": []},
-            }
-            if psutil is None:
-                out["model_runtime"] = model_runtime.snapshot(ollama=out["ollama"])
-                out["error"] = "psutil not installed"
-                return out
-            self.scan()
-            out["model_runtime"] = model_runtime.snapshot(
-                {pid: role for pid, (role, _process, _blob) in self.procs.items()} if self.model_scan_known else None,
-                out["ollama"],
-            )
-            vm = psutil.virtual_memory()
-            out.update(
-                {
-                    "cpu": self.cpu_since(),
-                    "cpu_count": psutil.cpu_count(),
-                    "mem_total": vm.total,
-                    "mem_used": vm.total - vm.available,
-                    "swap_used": psutil.swap_memory().used,
-                    "mem_pct": vm.percent,
-                    "load": list(os.getloadavg()),
-                }
-            )
-            for pid, (role, p, blob) in list(self.procs.items()):
-                try:
-                    out["procs"].append(
-                        {
-                            "pid": pid,
-                            "role": role,
-                            "model": self.model_of.get(blob) if blob else None,
-                            "cpu": p.cpu_percent(None),
-                            "rss": p.memory_info().rss,
-                            "threads": p.num_threads(),
-                            "uptime": time.time() - p.create_time(),
-                        }
-                    )
-                except psutil.NoSuchProcess, psutil.AccessDenied:
-                    self.procs.pop(pid, None)
-                    self.scan_t = 0
-            out["procs"].sort(key=lambda d: (d["role"] != "ambient", d["role"] != "vision", d["role"]))
-            self.last = out
-            return out
-
-
-STATS = Stats()
-USAGE = machine_usage.History()  # This machine's per-service usage over time
-SAMPLER = machine_usage.Sampler(USAGE, STATS.snapshot)  # the history's samples from dashboard start, always
 
 
 # ---------------------------------------------------------- summarize job ----
@@ -6442,8 +5902,6 @@ def speakers_refine_undo(body: dict[str, Any]) -> Reply:
 
 
 # ----------------------------------------------------------------- http ----
-SSE_CLIENTS = [0]
-SSE_LOCK = threading.Lock()
 LOG_POLL_S = 0.5  # how often the Debug tab's tail looks for new log lines (/logs/stream)
 LOG_BATCH = 500  # lines per "lines" event
 
@@ -7181,7 +6639,7 @@ class H(http.server.BaseHTTPRequestHandler):
         sources: dict[str, Callable[[], Any]] = {
             "privacy": lambda: privacy.view(control),
             "services": lambda: shell_status.shared(
-                ("services", control), periods["services"], lambda: services_view(control)
+                ("services", control), periods["services"], lambda: service_control.services_view(control)
             ),
         }
         # As ask._owner_http decides the route: this machine, or a viewer who passed the dashboard password.
@@ -7436,15 +6894,6 @@ def _get_clones_audio(h: H) -> None:
         return h._json({"error": "bad id"}, 400)
 
 
-@routes.get("/calls/audio")
-def _get_calls_audio(h: H) -> None:
-    q = h._query()
-    day, name, which = q.get("day", ""), q.get("dir", ""), q.get("which", "mixed")
-    if not (_safe_name(day) and _safe_name(name)) or which not in ("mixed", "bot", "caller"):
-        return h._json({"error": "bad call"}, 400)
-    return h._wav_file(CALLS_DIR / day / name / f"{which}.wav")
-
-
 @routes.get("/clip")
 def _get_clip(h: H) -> None:
     q = h._query()
@@ -7472,23 +6921,6 @@ def _get_speaker_x_x(h: H, m: re.Match[str]) -> None:
     if e is None:
         return h._json({"ok": False, "error": "no utterance with audio for that speaker"}, 404)
     return h._json(e) if m.group(2) == "latest" else h.clip(entry=e, info=h._query().get("info") in ("1", "true"))
-
-
-@routes.get("/calls")
-def _get_calls(h: H) -> None:
-    return h._json(calls_list())
-
-
-@routes.get("/calls/live")
-def _get_calls_live(h: H) -> None:
-    return h._json(calls_live())
-
-
-@routes.get("/calls/detail")
-def _get_calls_detail(h: H) -> None:
-    q = dict(kv.split("=", 1) for kv in (h.path.split("?", 1) + [""])[1].split("&") if "=" in kv)
-    t = call_transcript(q.get("day", ""), q.get("dir", ""))
-    return h._json(t or {"error": "not found"}, 200 if t else 404)
 
 
 # not under /people/, where it would be the page of someone named "unnamed"
@@ -7602,7 +7034,7 @@ def _get_faces_shot_missing(h: H) -> None:
 @routes.get_re(r"/people/([^/]+)/photos/(\d{10,16})\.jpg")
 def _get_people_x_photos_x_jpg(h: H, m: re.Match[str]) -> None:
     nm = urllib.parse.unquote(m.group(1))
-    if not _safe_name(nm):
+    if not call_log._safe_name(nm):
         return h._json({"error": "bad name"}, 400)
     pick = [f for f in _photos(nm) if f.stem == m.group(2)][:1]
     return h._send(200, "image/jpeg", pick[0].read_bytes()) if pick else h._send(404, "text/plain", b"")
@@ -7733,34 +7165,6 @@ def _get_audio_spans(h: H) -> None:
     return h._json({"day": day, "spans": spans})
 
 
-@routes.get("/stats")
-def _get_stats(h: H) -> None:
-    snapshot = STATS.snapshot()
-    USAGE.record(snapshot)
-    return h._json(snapshot)
-
-
-# SAMPLER keeps the history going from dashboard start
-@routes.get("/stats/history")
-def _get_stats_history(h: H) -> None:
-    try:
-        since = float(h._query().get("since") or 0)
-    except ValueError:
-        since = 0.0
-    return h._json(USAGE.view(since if math.isfinite(since) else 0.0))
-
-
-@routes.get("/services/history")
-def _get_services_history(h: H) -> None:
-    code, body = service_history_view(h._query().get("hours", "24"))
-    return h._json(body, code)
-
-
-@routes.get("/services")
-def _get_services(h: H) -> None:
-    return h._json(services_view(h._can_control()))
-
-
 @routes.get("/health")
 def _get_health(h: H) -> None:
     return h._json(
@@ -7825,23 +7229,6 @@ def _post_clones_record(h: H) -> None:
         return h._json(o, code)
     except Exception as ex:
         return h._json({"ok": False, "error": str(ex)}, 500)
-
-
-@routes.post("/services")
-def _post_services(h: H, body: Any) -> None:
-    origin = h.headers.get("Origin")
-    if not h._can_control():
-        return h._json({"ok": False, "error": "services can only be changed from this machine"}, 403)
-    if h.headers.get_content_type() != "application/json" or (
-        origin and origin != "http://" + (h.headers.get("Host") or "")
-    ):
-        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
-    with SERVICES_LOCK:  # one action at a time: two Disables at once would each rewrite pack.toml
-        if "all" in body:
-            code, o = all_services(str(body.get("all")))
-        else:
-            code, o = service_action(str(body.get("name", "")), str(body.get("action", "")))
-    return h._json(o, code)
 
 
 @routes.post("/speakers/tag")
@@ -8000,35 +7387,6 @@ def _post_clones_build(h: H, body: Any) -> None:
         return h._json({"error": "id required"}, 400)
     code, o = clone_build(sid)
     return h._json(o, code)
-
-
-@routes.post("/calls/hangup")
-def _post_calls_hangup(h: H, body: Any) -> None:
-    if not h._same_origin_json():
-        return h._json({"error": "same-origin JSON only"}, 403)
-    if body.get("confirmed") is not True:
-        return h._json({"error": "Confirm the selected call first"}, 400)
-    code, result = calls_hangup(str(body.get("day") or ""), str(body.get("dir") or ""))
-    return h._json(result, code)
-
-
-@routes.post("/calls/place")
-def _post_calls_place(h: H, body: Any) -> None:
-    if not h._same_origin_json():
-        return h._json({"error": "same-origin JSON only"}, 403)
-    if body.get("confirmed") is not True:
-        return h._json({"error": "Confirm the exact call target first"}, 400)
-    name, msg = str(body.get("name", "")).strip(), str(body.get("message", "")).strip()[:500]
-    number = str(body.get("number", "")).strip()
-    if not number:
-        return h._json({"error": "confirmed number required"}, 400)
-    try:
-        from liberational.phone import outbound as outbound_call
-
-        ok, detail = outbound_call.place(name, msg, number=number)
-        return h._json({"ok": ok, "detail": detail}, 200 if ok else 409)
-    except Exception as ex:
-        return h._json({"ok": False, "error": str(ex)}, 500)
 
 
 @routes.post("/faces/not", "/people/photo")
@@ -8281,7 +7639,7 @@ def main() -> None:
     report_health.start(context.STATE)  # System health's samples for the Reports tab
     memtrim.start()  # what requests and reads freed goes back to the system
     threading.Thread(target=_warm_devices, name="devices-warm", daemon=True).start()  # Known › Devices
-    SAMPLER.start()  # the Resource monitor's last half hour, always
+    machine_stats.SAMPLER.start()  # the Resource monitor's last half hour, always
     global _groups_in_worker
     _groups_in_worker = True  # face groups, voice groups, and the people list: a worker process each
     from liberational.memory import reports as report_days

@@ -22,7 +22,7 @@ from PIL import Image
 
 from liberational import config as cfg
 from liberational import segment_log, vision_log
-from liberational.dashboard import context, server
+from liberational.dashboard import call_log, context, server
 from liberational.domain.identity import Basis
 from liberational.people import registry, voice_edits
 from liberational.see import face_boxes
@@ -125,11 +125,11 @@ def state(tmp_path, monkeypatch, pack, faces, ran):
         "CONTACTS_FILE": "contacts.json",
         "PEOPLE_ADDED": "people_added.json",
         "INBOX_SKIPS": "inbox_skips.json",
-        "CALLS_DIR": "calls",
         "_clones_dir": "clones",
     }
     for name, path in files.items():
         monkeypatch.setattr(server, name, state / path)
+    monkeypatch.setattr(call_log, "CALLS_DIR", state / "calls")
     monkeypatch.setattr(context, "STATE", state)
     monkeypatch.setattr(server, "_face_last_seen_at", lambda: {"alice": (300.0, "cam0")})
     with cfg.override({"paths": {"state": str(state), "faces": str(tmp_path / "faces")}}):
