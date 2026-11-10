@@ -33,9 +33,7 @@ export function PetRoster({
   onRetry,
   only,
   onShowAll,
-  cursor,
   sel,
-  onPick,
   onOpen,
   onNew,
 }: {
@@ -49,10 +47,8 @@ export function PetRoster({
   onRetry: () => void;
   only?: string; // one species only (a link from an animal's box)
   onShowAll: () => void;
-  cursor: string | null; // the selected roster row
   sel: string | null; // a pet's id, '?' for the sightings waiting, or null
-  onPick: (sel: string) => void; // single-click selection
-  onOpen: (sel: string) => void; // Enter, I, or double-click
+  onOpen: (sel: string) => void; // a click, Enter, or I on a row
   onNew: () => void;
 }) {
   const [query, setQuery] = useState('');
@@ -109,8 +105,7 @@ export function PetRoster({
               avatar={<EntityAvatar name={p.name} photo={petAvatar(p, seen[p.id])} />}
               label={p.name}
               description={petMeta(p, seen[p.id])}
-              current={cursor === p.id}
-              onPick={() => onPick(p.id)}
+              current={sel === p.id}
               onOpen={() => onOpen(p.id)}
             />
           )),

@@ -59,13 +59,6 @@
 .name {
   font-weight: 600;
 }
-/* A roster card's name: a click on it opens the card (RosterRow), so it underlines like a link under the pointer. */
-.opens {
-  cursor: pointer;
-}
-.opens:hover {
-  text-decoration: underline;
-}
 .meta {
   color: var(--mantine-color-dimmed);
   font-size: var(--mantine-font-size-sm);

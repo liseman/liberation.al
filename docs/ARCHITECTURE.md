@@ -77,6 +77,17 @@ the wheel into `dist/`, and runs `tools/check_wheel.py`, which fails on a wheel 
 page or any file its manifest names, or a command. The hosted `wheel` check does the same and then reads the settings
 and the model list from the wheel installed alone, outside the checkout.
 
+An installed package is set up by `pack-setup` (`pack_setup.py`), which builds nothing: it lists the system packages
+the machine is missing and the command that installs them, installs this machine's Python extras with uv as the
+extras of the package already installed (pinned to `resources/constraints.txt` when the release build wrote one),
+says whether Continuum's SDK and daemons are in the environment, fetches the models (a file download that was cut
+off carries on from where it stopped), says whether Ollama is there and how to get it, and ends with how to open the
+application (`pack-app`). `mise run setup` stays the checkout's path. Three things differ in an installed package,
+each decided by `config.CHECKOUT`: a system package marked `build` (a compiler, headers) isn't needed and a tool mise
+provides in a checkout comes from apt or Homebrew (`system_packages.py`); a service marked `source_build`
+(`whisper`, whose server is built by `mise run whisper`) isn't declared; and services don't get mise's shims on
+their `PATH` (`services.py`).
+
 | Store | Path | What's in it | Kept |
 |---|---|---|---|
 | Recordings | `state/continuum/tier/`, `tier2/` | Camera video and microphone audio, as chunk files the broker catalogs | Video for 30 days (the video window, below), audio indefinitely less silent audio past 30 days, both until a reset |
@@ -143,6 +154,8 @@ Automatic cascades preserve intentionally stopped services. `pack-services resta
 `supervisor.py` (`pack-supervisor`) is the same services run by one process instead of the service manager (#155, part of #151: the system as one application). `pack-supervisor run` starts every selected service as its own child process in the cascade's order, restarts one that exits (its `throttle`, doubled for each failure in a row up to 5 minutes, and back to the plain throttle after a run of a minute), runs the scheduled jobs on its own clock (a daily job missed while it wasn't running runs once two minutes after the start; an hourly one waits), and on quit drains, then stops: readers, capture, the tier worker once Tier 0 is flushed, the broker, then the dashboard and the gateway. It is the cascade's `Manager`, so a restart with the broker or capture in it is `service_cascade.run` over its own children. It registers nothing with the OS and lands beside `pack-services`: an install that still has the per-service units keeps them until it is moved over, and the two never run the same services (`run` refuses while one is running outside it). While a supervisor runs, Settings' Services reads its record and its on, off, start, stop, enable, disable, Repair, and All off are messages to it.
 
 `app_window.py` (`pack-app`) is that supervisor with a window (#156): the application the user opens. The supervisor runs in a thread of the same process, so the services are the application's children, and a small Tk window (`tkinter`, which comes with the Python the project installs, so it adds no package) says "Running and recording", "Running, paused for privacy", "Running, not recording", "Starting...", "Stopping...", or "Stopped", counts the services that are up, opens the dashboard, and has Quit. Quit and closing the window are the same: the supervisor drains, then stops, everything, and the window stays until it has, so nothing records with no window. With no display it says so and starts no service; `pack-supervisor run` is the same thing without the window. What the window says comes from `app_window.summary()`, which knows nothing of Tk, so another front (a menu-bar item in the Mac bundle) can show the same.
+
+An install that still has the per-service units is moved once with `pack-services migrate` (`unit_migration.py`, #165; `--dry-run` prints every command and file first): it stops the units in the quit order, disables and deletes them, and touches nothing under the state directory. While a supervisor runs, `pack-services` is its client: `status`, `start`, `stop`, `restart` (the cascade with `--cascade` or no names), `install` (follow the selection and restart), and `uninstall` (stop) are requests over the control socket, and Settings' service history is the supervisor's own record (`events.jsonl`: up from a start to its exit, a crash when the exit wasn't asked for, and unknown across a supervisor that was killed).
 
 Nothing starts at login unless the owner asks (#157). `app.start_at_login` (off by default; "Start at login" in Settings and a checkbox in the window) is applied by `login_item.py`: on Linux it writes or deletes an XDG autostart entry, `~/.config/autostart/liberational.desktop`, that opens `pack-app`; nothing is registered with systemd. The setting is live: saving it restarts nothing. On a Mac it does nothing yet, since a login item belongs to an application bundle; with the bundle (#164) `login_item.sync()` is where `SMAppService.mainApp` registers and unregisters it.
 
