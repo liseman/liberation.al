@@ -21,6 +21,14 @@ pairs in inverse depth, then least squares on its inliers. The line must hold so
 floor, or the floor (most of a view's known pixels) would pick a line the walls disagree with. A view where too few
 pixels see the plan's walls or floor (`few`), too few agree with any one line (`disagrees`), or the line would bend
 the depth too far (`bends`) is not corrected (`Fit.why`): the caller keeps the floor scale it had and reports why.
+Nothing is seen through a wall, so a candidate line loses a pixel for each one it would put past the plan's surfaces,
+and a fit that puts more than BEYOND of them there is refused (`disagrees`): with a cabinet face across most of a
+lone wall, the line through the floor and the face holds more pixels than the true one, and the strip of real wall
+around the cabinet then reads past the plan.
+
+**Only over the fitted range** (`apply`). The line is applied between the nearest and farthest inliers' depths, and
+outside them the ratio at that end holds: a doorway, a window, or a hallway reads past the far wall, and the line
+extended there (with its usual negative `b`) would stretch it without bound.
 
 **Cost.** One fit a kept view: a ray cast of a strided pixel grid against the plan's wall segments, and a few hundred
 RANSAC samples. No per-frame or per-training-step work.
@@ -44,6 +52,7 @@ MIN_PIXELS = 400  # samples that must see a plan wall or floor
 MIN_EACH = 80  # inliers on the walls and on the floor each: both are needed to tell a shift from a scale
 MIN_SHARE = 0.12  # share of the samples that see the plan which must agree with the line
 MAX_CHANGE = 0.35  # how far the correction may change any inlier's depth, relative; past it the plan or pose is off
+BEYOND = 0.10  # share of the samples that see the plan which may read farther than it once corrected
 SLOPE = (0.5, 2.0)  # the fitted `a`: the model's depth has the room's shape, so a line far from 1 fits something else
 SEED = 394
 
@@ -129,6 +138,9 @@ class Fit:
     floor_before: float | None
     floor_after: float | None
     why: str | None
+    near: float = 0.0  # the model's depth at the nearest and farthest inliers: the range the line was fitted on
+    far: float = MAX_DEPTH_M
+    beyond: float = 0.0  # the share of the samples that see the plan which read farther than it once corrected
 
     def as_dict(self) -> dict[str, object]:
         def r(x: float | None) -> float | None:
@@ -146,17 +158,22 @@ class Fit:
             "floor_before": r(self.floor_before),
             "floor_after": r(self.floor_after),
             "why": self.why,
+            "near": round(self.near, 3),
+            "far": round(self.far, 3),
+            "beyond": round(self.beyond, 3),
         }
 
 
-def apply(depth: np.ndarray, a: float, b: float) -> np.ndarray:
-    """`depth` (metres, 0 where unknown) corrected by `1 / d' = a / d + b`; 0 stays 0, and a pixel the line would
-    send past infinity becomes 0."""
+def apply(depth: np.ndarray, a: float, b: float, near: float = 0.0, far: float = MAX_DEPTH_M) -> np.ndarray:
+    """`depth` (metres, 0 where unknown) corrected by `1 / d' = a / d + b` between `near` and `far` (the depths the
+    line was fitted on, `Fit.near` and `Fit.far`), and by the ratio the line gives at the nearer or farther end
+    outside them. The line is not extrapolated: with a negative `b` it would stretch a doorway or a window read past
+    the far wall without bound, and send it to infinity past `a / -b`. 0 stays 0."""
     d = np.asarray(depth, dtype=np.float64)
     out = np.zeros_like(d)
     seen = d > 0
-    inv = a / d[seen] + b
-    out[seen] = np.where(inv > 1e-6, 1.0 / np.maximum(inv, 1e-6), 0.0)
+    held = np.clip(d[seen], max(near, 1e-3), max(far, near, 1e-3))
+    out[seen] = d[seen] / (held * (a / held + b))  # d times the ratio d' / d at the held depth
     return out
 
 
@@ -179,12 +196,16 @@ def fit(depth: np.ndarray, exp: Expected) -> Fit:
     a_all = np.where(ok, (y[i] - y[j]) / np.where(ok, dx, 1.0), 0.0)
     b_all = y[i] - a_all * x[i]
     ok &= a_all > 0
-    # The line with the most pixels on it, among those that hold some of the walls and some of the floor: the floor
-    # is most of a view's known pixels, and on its own it would pick a line the walls disagree with.
+    # The line with the most pixels on it, less the pixels it would put past the plan's surfaces (nothing is seen
+    # through a wall, so those say the line is wrong), among the lines that hold some of the walls and some of the
+    # floor: the floor is most of a view's known pixels, and on its own it would pick a line the walls disagree with.
+    # Without the penalty, a cabinet face in front of most of a lone wall, with the floor, outvotes the strip of real
+    # wall around it.
     best, best_n = None, -1
     for a_c, b_c in zip(a_all[ok], b_all[ok], strict=True):
-        inl = np.abs((a_c * x + b_c) / y - 1.0) < INLIER  # relative depth error, to first order
-        n = int(inl.sum())
+        err = (a_c * x + b_c) / y - 1.0  # relative depth error, to first order: negative reads farther
+        inl = np.abs(err) < INLIER
+        n = int(inl.sum()) - int((err < -INLIER).sum())
         if n > best_n and int((inl & wall).sum()) >= MIN_EACH and int((inl & ~wall).sum()) >= MIN_EACH:
             best, best_n = inl, n
     if best is None or not best.any():
@@ -195,9 +216,12 @@ def fit(depth: np.ndarray, exp: Expected) -> Fit:
         wts = 1.0 / y[inl]
         a_ls, b_ls = np.linalg.lstsq(np.stack([x[inl] * wts, wts], axis=1), y[inl] * wts, rcond=None)[0]
         inl = np.abs((a_ls * x + b_ls) / y - 1.0) < INLIER
+        if not inl.any():
+            return Fit(1.0, 0.0, len(x), 0.0, 0, 0, None, None, None, None, "disagrees")
     a, b = float(a_ls), float(b_ls)
+    near, far = 1.0 / float(x[inl].max()), 1.0 / float(x[inl].min())
     before = y / x - 1.0  # (d - D) / D: positive reads farther than the plan
-    after = y / (a * x + b) - 1.0
+    after = apply(1.0 / x, a, b, near, far) * y - 1.0
     n_wall, n_floor = int((inl & wall).sum()), int((inl & ~wall).sum())
     out = Fit(
         a,
@@ -211,8 +235,11 @@ def fit(depth: np.ndarray, exp: Expected) -> Fit:
         _median(before[inl & ~wall]),
         _median(after[inl & ~wall]),
         None,
+        near,
+        far,
+        float((after > INLIER).mean()),
     )
-    if n_wall < MIN_EACH or n_floor < MIN_EACH or out.share < MIN_SHARE:
+    if n_wall < MIN_EACH or n_floor < MIN_EACH or out.share < MIN_SHARE or out.beyond > BEYOND:
         return _why(out, "disagrees")
     change = np.abs(x[inl] / (a * x[inl] + b) - 1.0)
     if not SLOPE[0] <= a <= SLOPE[1] or float(change.max()) > MAX_CHANGE:

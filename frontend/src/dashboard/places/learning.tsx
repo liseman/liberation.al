@@ -45,6 +45,14 @@ export interface SpotSuggestion {
   far_turn: boolean;
 }
 
+/** How a spot camera's placed views have their depth: fitted to the plan's walls and floor, or scaled by the floor
+ *  alone (`floor`), with why for the newest such view (a word of the map step's `plan_depth.Fit.why`). */
+export interface DepthFit {
+  fitted: number;
+  floor: number;
+  why: string | null;
+}
+
 export interface LearningStatus {
   on: boolean;
   /** The cameras sampled now; none while off. */
@@ -58,6 +66,8 @@ export interface LearningStatus {
   parked_cameras?: Record<string, string>;
   /** Placed spot cameras whose views fit the plan's walls better beyond the spot bound, while the owner's spot holds. */
   spot_suggestions?: Record<string, SpotSuggestion>;
+  /** Spot cameras by how their placed views' depth was lined up with the plan. */
+  depth_fit?: Record<string, DepthFit>;
   running: boolean;
   step: LearningStep | null;
   /** When the last step ended (epoch seconds), or null. */
@@ -223,6 +233,23 @@ const PARKED: Record<string, [label: string, full: string]> = {
   floor: ["Floor doesn't match", "The floor it sees doesn't sit on the plan's floor. Check its height on the plan."],
 };
 
+/** Why a view's depth couldn't be lined up with the plan, by the map step's word for it. */
+const UNFITTED: Record<string, string> = {
+  few: "too little of the plan's walls and floor is in view",
+  disagrees: "what it sees doesn't match the plan's walls",
+  bends: "what it sees doesn't match the plan's walls",
+  plan: "the plan doesn't read",
+};
+
+function depthFitWords(fit: DepthFit): [label: string, detail: string] {
+  const views = fit.fitted + fit.floor;
+  const why = UNFITTED[fit.why ?? ''] ?? "it doesn't fit the plan";
+  return [
+    fit.fitted === 0 ? 'Walls not lined up with the plan' : `Walls not lined up in ${fit.floor} of ${views} views`,
+    `The depth of ${fit.floor === 1 ? 'one of its pictures' : `${fit.floor} of its pictures`} couldn't be lined up with the plan (${why}), so its walls there may sit short of the plan's.`,
+  ];
+}
+
 function spotSuggestionWords(sug: SpotSuggestion): [label: string, detail: string] {
   const farShift = sug.far_shift;
   const farTurn = sug.far_turn;
@@ -267,13 +294,15 @@ export interface CameraRow {
   frame: string | null;
 }
 
-/** A row for each sampled camera, in the order sampled, then for any other camera with a parked frame or a spot
- *  suggestion. A parked frame or beyond-bound spot suggestion comes first (it's what the owner can act on), then that
+/** A row for each sampled camera, in the order sampled, then for any other camera with a parked frame, a spot
+ *  suggestion, or views whose depth couldn't be lined up with the plan. A parked frame, a beyond-bound spot
+ *  suggestion, or such views come first (it's what the owner can act on or should know), then that
  *  frames are being kept, then why none was lately, by what most of the camera's recent looks came to. */
 export function cameraRows(status: LearningStatus, now = Date.now() / 1000): CameraRow[] {
   const parked = status.parked_cameras ?? {};
   const suggestions = status.spot_suggestions ?? {};
-  const extra = new Set([...Object.keys(parked), ...Object.keys(suggestions)]);
+  const unfitted = Object.fromEntries(Object.entries(status.depth_fit ?? {}).filter(([, fit]) => fit.floor > 0));
+  const extra = new Set([...Object.keys(parked), ...Object.keys(suggestions), ...Object.keys(unfitted)]);
   const names = [...status.sampling, ...[...extra].filter(c => !status.sampling.includes(c)).sort()];
   return names.map(camera => {
     const seen = status.cameras[camera];
@@ -287,6 +316,11 @@ export function cameraRows(status: LearningStatus, now = Date.now() / 1000): Cam
     const suggestion = suggestions[camera];
     if (suggestion != null) {
       const [label, full] = spotSuggestionWords(suggestion);
+      return { camera, tone: 'warn', label, detail: full, frame };
+    }
+    const fit = unfitted[camera];
+    if (fit != null) {
+      const [label, full] = depthFitWords(fit);
       return { camera, tone: 'warn', label, detail: full, frame };
     }
     const recent = seen?.recent ?? {};

@@ -959,7 +959,7 @@ def test_spot_verification_tells_the_true_pose_from_shifted_and_turned_ones_desp
     assert (naive_wrong.wall_near or 0.0) > (naive_true.wall_near or 0.0) * 2
 
     # `spot_fit` given the parsed plan (`refine=False` to inspect the raw landscape) peaks clearly at the true pose
-    # across shifts and turns, and stays idempotent after `_scale_depth` scales the depth to the plan's floor.
+    # across shifts and turns, and stays idempotent once the depth is scaled to the plan's floor.
     at_true = sm.spot_fit(depth, focal, true_c2w, parsed, image=rgb, refine=False)
     assert at_true.score is not None
     for candidate in (
@@ -1204,16 +1204,19 @@ def test_a_view_whose_depth_reads_as_the_model_does_has_its_walls_put_back_on_th
     pose = _box_pose()
     true = _box_depth(pose)
     read = _as_the_model_reads(true)
-    far_wall = true > 5.0  # the east wall, 5.3 m off along the view at its nearest
+    far_wall = (true > 5.0) & (true < 7.0)  # the east wall, 5.3 m off along the view at its nearest
 
     today = read * sm.spot_fit(read, _BOX_FOCAL, pose, None).scale
     fit = plan_depth.fit(read, plan_depth.expected(_box_geom(), pose, _BOX_FOCAL, 180, 320))
-    fixed = plan_depth.apply(read, fit.a, fit.b)
+    fixed = plan_depth.apply(read, fit.a, fit.b, fit.near, fit.far)
 
-    # Scaled by its floor alone, the far wall lands well short of the plan; fitted, on it.
+    # Scaled by its floor alone, the far wall lands well short of the plan; fitted, on it, over the depths the fit
+    # saw (the wall below 2 m: above, the plan can't tell wall from ceiling, and the end ratio holds).
+    in_range = far_wall & (read <= fit.far)
     assert np.median(today[far_wall] - true[far_wall]) < -0.25
     assert fit.why is None
-    assert np.abs(fixed[far_wall] - true[far_wall]).max() < 0.02
+    assert in_range.sum() > 1000
+    assert np.abs(fixed[in_range] - true[in_range]).max() < 0.02
     assert (fit.a, fit.b) == (pytest.approx(1.108, abs=0.01), pytest.approx(-0.037, abs=0.005))
 
 
@@ -1226,7 +1229,7 @@ def test_furniture_and_people_in_front_of_the_walls_do_not_drag_the_fit():
     read = _as_the_model_reads(true)
     read[60:, 140:170] = 0.0
     fit = plan_depth.fit(read, plan_depth.expected(_box_geom(), pose, _BOX_FOCAL, 180, 320))
-    fixed = plan_depth.apply(read, fit.a, fit.b)
+    fixed = plan_depth.apply(read, fit.a, fit.b, fit.near, fit.far)
     far = (true > 4.5) & (read > 0)
     assert fit.why is None
     assert np.median(np.abs(fixed[far] - true[far])) < 0.02
@@ -1252,27 +1255,111 @@ def test_a_view_the_plan_cannot_fit_says_why(covered, why):
     assert plan_depth.fit(read, plan_depth.expected(_box_geom(), pose, _BOX_FOCAL, 180, 320)).why == why
 
 
-def test_the_map_step_writes_a_spot_views_depth_fitted_to_the_plan(models, state):
+def _box_pose_at(x: float, pitch: float) -> np.ndarray:
+    """A camera 1.6 m up at (`x`, 2) in `_BOX`, looking east, tilted `pitch` degrees down."""
+    from liberational.spatial import plan_import
 
-    models.depth = lambda h, w, f: _as_the_model_reads(_box_depth(_box_pose()))
+    up = tuple(float(v) for v in spots.up_at(pitch, 0.0))
+    aim = spots.Aim((up[0], up[1], up[2]), 320, 180, 30, 1.72, 50.0, "1.6|90.0|")
+    matrix = spots.pose(plan_import.Camera("front", (x, 2.0), 1.6, 90.0, 90.0), aim, mirrored=True)
+    assert matrix is not None
+    return np.asarray(matrix, dtype=np.float64).reshape(4, 4)
+
+
+def test_a_correction_holds_its_end_ratios_past_the_depths_it_was_fitted_on():
+    from liberational.spatial import plan_depth
+
+    # A live fit's line, fitted on depths from 1.2 to 4 m. Extended, it would send 8 m to 17.3 m and 14 m past
+    # infinity (a / -b is 13.2 m); held, past 4 m every depth takes the ratio at 4 m, 1 / (1.174 - 4 x 0.089) =
+    # 1.2225, and nearer than 1.2 m the ratio at 1.2 m, 1 / (1.174 - 1.2 x 0.089) = 0.9370.
+    read = np.array([[0.8, 1.2, 4.0, 6.0, 8.0, 14.0, 0.0]])
+    fixed = plan_depth.apply(read, 1.174, -0.089, near=1.2, far=4.0)
+    assert fixed[0] == pytest.approx([0.7496, 1.1244, 4.8900, 7.3350, 9.7800, 17.1150, 0.0], abs=1e-3)
+
+
+def test_a_doorway_seen_past_the_far_wall_is_not_stretched():
+    from liberational.spatial import plan_depth
+
+    # A door in the east wall, and through it a fence 3.5 m outside (x = 9.4): the model reads it at about 7.8 m, past
+    # anything the plan's room holds, so it keeps the ratio the line has at the farthest depth fitted.
+    plan = plans.scene(_BOX.notation + "door exterior>r1 at 6,2 w1.0\n")
+    from liberational.spatial import plan_lineup, spot_check
+
+    parsed = plan_lineup.read_plan(plan)
+    assert parsed is not None
+    pose = _box_pose()
+    true = _box_depth(pose)
+    fence = _box_depth(pose)  # the same room with the east wall's door cut, then the fence behind it
+    uu, vv = np.meshgrid(np.arange(320) + 0.5, np.arange(180) + 0.5)
+    dirs = np.stack([(uu - 160) / _BOX_FOCAL, (vv - 90) / _BOX_FOCAL, np.ones_like(uu)], axis=-1) @ pose[:3, :3].T
+    t_wall = (5.9 - pose[0, 3]) / dirs[..., 0]
+    y, z = pose[1, 3] + t_wall * dirs[..., 1], pose[2, 3] + t_wall * dirs[..., 2]
+    door = (np.abs(true - t_wall) < 1e-6) & (np.abs(y - 2.0) < 0.5) & (z < 2.1)
+    fence[door] = (9.4 - pose[0, 3]) / dirs[..., 0][door]
+    read = _as_the_model_reads(fence)
+    fit = plan_depth.fit(read, plan_depth.expected(spot_check.prepare_plan(parsed), pose, _BOX_FOCAL, 180, 320))
+    fixed = plan_depth.apply(read, fit.a, fit.b, fit.near, fit.far)
+    assert fit.why is None and door.sum() > 200
+    assert float(read[door].min()) > fit.far  # the doorway is read past every depth the line was fitted on
+    ratio = 1.0 / (1.108 / fit.far - 0.037) / fit.far  # the true depth over the read one at the far end
+    assert fixed[door] == pytest.approx(read[door] * ratio, rel=0.02)
+    assert np.all(fixed[door] < 12.0)
+
+
+def test_a_cabinet_face_across_a_lone_wall_does_not_pull_the_wall_to_it():
+    from liberational.spatial import plan_depth
+
+    # 2.3 m from the east wall, a cabinet 0.45 m in front of it fills most of its width up to 1.9 m. A line through the
+    # floor and the cabinet's face would hold more pixels than the true one; the wall showing above and beside the
+    # cabinet would then read past the plan, which nothing can.
+    pose = _box_pose_at(3.6, pitch=25.0)
+    true = _box_depth(pose, boxes=[(5.45, 0.3, 5.9, 3.7, 1.9)])
+    read = _as_the_model_reads(true)
+    fit = plan_depth.fit(read, plan_depth.expected(_box_geom(), pose, _BOX_FOCAL, 180, 320))
+    assert fit.why is None
+    assert (fit.a, fit.b) == (pytest.approx(1.108, abs=0.02), pytest.approx(-0.037, abs=0.01))
+
+
+def test_a_lone_wall_behind_a_cabinet_with_no_floor_in_sight_is_refused():
+    from liberational.spatial import plan_depth
+
+    # Looking almost level, the cabinet hides the floor in front of the wall: no line holds both the wall and the
+    # floor, and the cabinet's would put the wall above it past the plan.
+    pose = _box_pose_at(3.6, pitch=10.0)
+    read = _as_the_model_reads(_box_depth(pose, boxes=[(5.45, 0.3, 5.9, 3.7, 1.9)]))
+    assert plan_depth.fit(read, plan_depth.expected(_box_geom(), pose, _BOX_FOCAL, 180, 320)).why == "disagrees"
+
+
+def _map_far_wall(state: Path, place: str) -> np.ndarray:
+    """The x of the points of `place`'s newest map that stand on the east wall's height band."""
+    rev = newest(state, place)
+    assert rev.map is not None
+    points, _, _ = ply.read(places.root(state) / place / rev.map)
+    return points[(points[:, 0] > 5.0) & (points[:, 2] > 0.3) & (points[:, 2] < 2.0), 0]
+
+
+def test_the_map_step_maps_a_spot_view_with_its_depth_fitted_and_keeps_the_models(models, state):
+    model_read = _as_the_model_reads(_box_depth(_box_pose()))
+    models.depth = lambda h, w, f: model_read
     rgb = np.full((180, 320, 3), 120, np.uint8)
     place, kept = _setup_synthetic_place(state, rgb, 0.6, 2.0, cz=1.6, yaw=90.0, pitch=18.0, roll=0.0, plan_text=_BOX)
     did = sm.step(state, now=100.0, held={})
     assert did is not None and place in did["places"]
     assert did["spots"]["front"]["depth"]["why"] is None
-    written = sm._read_depth(frames.root(state) / f"{kept.id}.depth.png")
-    # Lifted through the pose the view was placed at, the far wall's points stand on its face, x = 5.9 (within a few
-    # centimetres: on this flat grey picture the spot check moves the pose about 0.2 m inside its bound, which the
-    # true depth then fits a little less well). Scaled by its floor alone, they'd stand about 0.3 m short.
-    [view] = sm.views(state, place)
-    points, _ = sm.lift(written, rgb, _BOX_FOCAL, np.asarray(view.pose).reshape(4, 4), stride=1)
-    far_wall = points[(points[:, 0] > 5.0) & (points[:, 2] > 0.3) & (points[:, 2] < 2.0)]
-    assert len(far_wall) > 1000
-    assert np.median(far_wall[:, 0]) == pytest.approx(5.9, abs=0.05)
+    # The map's far wall stands on its face, x = 5.9 (within a few centimetres: on this flat grey picture the spot
+    # check moves the pose about 0.2 m inside its bound, which the true depth then fits a little less well). Scaled
+    # by its floor alone, it would stand about 0.3 m short.
+    far_wall = _map_far_wall(state, place)
+    assert len(far_wall) > 100
+    assert np.median(far_wall) == pytest.approx(5.9, abs=0.05)
+    # The model's depth is kept as it gave it; the correction is the frame's.
+    kept_png = sm._read_depth(frames.root(state) / f"{kept.id}.depth.png")
+    assert kept_png == pytest.approx(model_read, abs=0.001)
+    assert sm.State.read(frames.root(state)).frames[kept.id]["depth"]["fit"] == "plan"
+    assert sm.summary(state, now=110.0)["depth_fit"] == {"front": {"fitted": 1, "floor": 0, "why": None}}
 
 
 def test_the_map_step_keeps_the_floor_scale_for_a_view_the_plan_cannot_fit(models, state):
-
     pose = _box_pose()
     read = _as_the_model_reads(_box_depth(pose))
     read[:150] = 0.0  # only the near floor in sight: no wall to fit
@@ -1283,16 +1370,18 @@ def test_the_map_step_keeps_the_floor_scale_for_a_view_the_plan_cannot_fit(model
     assert did is not None
     seen = did["spots"]["front"]
     assert seen["depth"]["why"] == "few" and seen["scale"] != 1.0
-    written = sm._read_depth(frames.root(state) / f"{kept.id}.depth.png")
-    assert written[read > 0] == pytest.approx(read[read > 0] * seen["scale"], abs=0.003)
+    record = sm.State.read(frames.root(state)).frames[kept.id]["depth"]
+    assert record == {"fit": "floor", "why": "few", "a": pytest.approx(1.0 / seen["scale"], abs=0.002), "b": 0.0}
+    assert sm.summary(state, now=110.0)["depth_fit"] == {"front": {"fitted": 0, "floor": 1, "why": "few"}}
 
 
-def test_a_plan_frame_map_from_before_the_depth_fit_is_started_again(models, state):
+def test_a_plan_frame_map_from_before_the_depth_fit_is_started_again_and_fitted_once(models, state):
     pose = _box_pose()
     models.depth = lambda h, w, f: _as_the_model_reads(_box_depth(pose))
     rgb = np.full((180, 320, 3), 120, np.uint8)
     place, kept = _setup_synthetic_place(state, rgb, 0.6, 2.0, cz=1.6, yaw=90.0, pitch=18.0, roll=0.0, plan_text=_BOX)
     assert sm.step(state, now=100.0, held={}) is not None
+    first = sm.State.read(frames.root(state)).frames[kept.id]["depth"]
     assert sm.step(state, now=110.0, held={}) is None  # nothing waiting: the map stands
     saved = sm.State.read(frames.root(state))
     del saved.places[place]["depth_fit"]  # as a map learned before the fit left it
@@ -1303,4 +1392,8 @@ def test_a_plan_frame_map_from_before_the_depth_fit_is_started_again(models, sta
     did = sm.step(state, now=120.0, held={})
     assert did is not None
     assert (did["places"][place]["founded"], did["places"][place]["views"]) == (True, 1)
-    assert sm.State.read(frames.root(state)).frames[kept.id]["place"] == place
+    again = sm.State.read(frames.root(state)).frames[kept.id]
+    assert again["place"] == place
+    # Fitted from the model's depth again, not from the first fit's output (which would give a = 1, b = 0).
+    assert (again["depth"]["a"], again["depth"]["b"]) == (pytest.approx(first["a"]), pytest.approx(first["b"]))
+    assert np.median(_map_far_wall(state, place)) == pytest.approx(5.9, abs=0.05)

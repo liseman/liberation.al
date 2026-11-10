@@ -342,6 +342,33 @@ it('gives each camera a row with its name, how it is doing, and its newest kept 
   expect(within(rows[0] as HTMLElement).queryByRole('img')).toBeNull();
 });
 
+it('says which spot cameras have views whose depth could not be lined up with the plan', () => {
+  const told = status({
+    sampling: ['front', 'hall'],
+    depth_fit: {
+      front: { fitted: 2, floor: 1, why: 'few' },
+      hall: { fitted: 3, floor: 0, why: null },
+      porch: { fitted: 0, floor: 2, why: 'disagrees' },
+    },
+    cameras: { hall: { recent: { view: 3 }, last_kept: 1.8e9 } },
+  });
+  expect(cameraRows(told, 1.8e9).map(r => [r.camera, r.tone, r.label, r.detail])).toEqual([
+    [
+      'front',
+      'warn',
+      'Walls not lined up in 1 of 3 views',
+      "The depth of one of its pictures couldn't be lined up with the plan (too little of the plan's walls and floor is in view), so its walls there may sit short of the plan's.",
+    ],
+    ['hall', 'ok', 'Keeping pictures', expect.any(String)],
+    [
+      'porch',
+      'warn',
+      'Walls not lined up with the plan',
+      "The depth of 2 of its pictures couldn't be lined up with the plan (what it sees doesn't match the plan's walls), so its walls there may sit short of the plan's.",
+    ],
+  ]);
+});
+
 it('flags a spot whose view fits the plan better past the spot bound while noting that the spot holds', async () => {
   const told = status({
     sampling: ['front', 'hall'],

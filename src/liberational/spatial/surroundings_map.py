@@ -35,7 +35,10 @@ Its depth is lifted through the pose and checked against the plan (`spot_fit`): 
 the plan's, and its depth is scaled to put it there, since the camera's height is tape-measured and the depth
 model's metres aren't. The floor alone leaves far walls short (the model's scale drifts with range), so the depth is
 then fitted to the plan's walls and floor as seen from the pose, a scale and shift in inverse depth
-(spatial/plan_depth.py), and the floor's scale stays only for a view that fit doesn't hold for. A place with such a view stands in its plan's frame: its revisions carry the plan's floor
+(spatial/plan_depth.py), and the floor's scale stays only for a view that fit doesn't hold for. The model's depth
+PNG is kept as it gave it, and the correction on the frame's entry (`"depth"`); each step writes the corrected depth
+it trains on into its own folder (`Pictures.depth`). A view placed by pairing keeps the model's depth even in a
+plan-frame place (#407). A place with such a view stands in its plan's frame: its revisions carry the plan's floor
 (`spots.FLOOR`), the identity as their plan transform (`spots.PLAN`), and the cameras at their spots, and the
 owner's plan is saved as drawn in that frame, so the line-up (spatial/plan_lineup.py) finds it lined up and searches
 for nothing, and there's no floor to find in the map (spatial/surroundings_positions.py). A spot view's pose is held
@@ -254,7 +257,7 @@ class SpotFit:
     check: spot_check.SpotCheck | None = None  # the check this fit used, to keep for the camera's later views
     basis: str | None = None  # what `check` was made on (`_check_basis`)
     reused: bool = False  # whether `check` was a kept one (no search ran for this view)
-    depth: plan_depth.Fit | None = None  # the depth's fit to the plan (`_correct_depth`); None before it, or no plan
+    depth: plan_depth.Fit | None = None  # the depth's fit to the plan (`_depth_correction`); None before it, or no plan
 
     def as_dict(self) -> dict[str, Any]:
         out: dict[str, Any] = {
@@ -690,6 +693,9 @@ class Pictures:
         self.by_id = {f.id: f for f in store.kept}
         self._image: dict[str, Path] = {}
         self._factor: dict[str, float] = {}  # a picture's focal in pixels over its camera's focal share
+        # Each spot view's depth correction (`_depth_correction`), as its frame's entry keeps it (`"depth"`).
+        self.corrections: dict[str, dict[str, Any]] = {}
+        self._depth: dict[str, Path] = {}
 
     def image(self, frame_id: str) -> Path:
         if frame_id not in self._image:
@@ -711,6 +717,21 @@ class Pictures:
     def size(self, frame_id: str) -> tuple[int, int]:
         frame = self.by_id[frame_id]
         return train_size(frame.width, frame.height)
+
+    def depth(self, frame_id: str) -> Path:
+        """The depth PNG the map takes for a frame: the model's (`_depth_path`), or, for a frame with a correction,
+        a copy in the step's folder corrected by it. The model's own PNG is never rewritten, so a view placed again
+        is corrected once, from what the model gave, and two corrections can't compound."""
+        raw = _depth_path(self.store, frame_id)
+        record = self.corrections.get(frame_id)
+        if record is None or (record.get("a") == 1.0 and record.get("b") == 0.0):
+            return raw
+        if frame_id not in self._depth:
+            out = self.folder / f"{frame_id}.depth.png"
+            near, far = float(record.get("near", 0.0)), float(record.get("far", plan_depth.MAX_DEPTH_M))
+            _write_depth(out, plan_depth.apply(_read_depth(raw), float(record["a"]), float(record["b"]), near, far))
+            self._depth[frame_id] = out
+        return self._depth[frame_id]
 
 
 def _prepare_focal(frame: frames.Kept, optic: Optics) -> tuple[lens.Lens | None, float]:
@@ -891,6 +912,7 @@ def _step(
     with tempfile.TemporaryDirectory(prefix="surroundings-map-") as tmp:
         folder = Path(tmp)
         pictures = Pictures(store, folder, optic)
+        pictures.corrections = {k: e["depth"] for k, e in state.frames.items() if isinstance(e.get("depth"), dict)}
         involved = sorted({k for pair in measure for k in pair} | {f.id for f in todo})
         answer: dict[str, Any] = {"pairs": []}
         if measure:
@@ -993,12 +1015,9 @@ def _step(
                 refused[f.id] = fit.why
                 continue
             chosen_pose = np.asarray(fit.refined, dtype=np.float64).reshape(4, 4) if fit.refined is not None else pose
-            fit = replace(
-                fit,
-                depth=_correct_depth(
-                    _depth_path(store, f.id), depth_here, focal, chosen_pose, plan_here, fit.scale, f.camera
-                ),
-            )
+            record, got = _depth_correction(depth_here, focal, chosen_pose, plan_here, fit.scale, f.camera)
+            pictures.corrections[f.id] = record
+            fit = replace(fit, depth=got)
             spot_fits[f.id] = fit
             did["spots"][f.camera] = fit.as_dict()
             spot_poses.setdefault(spot.place, {})[f.id] = chosen_pose
@@ -1011,7 +1030,7 @@ def _step(
                 for k in [k for k, entry in state.frames.items() if entry.get("place") == place]:
                     del state.frames[k]
 
-        depth = {k: _read_depth(_depth_path(store, k)) for k in involved if _depth_path(store, k).is_file()}
+        depth = {k: _read_depth(pictures.depth(k)) for k in involved if _depth_path(store, k).is_file()}
         found = edges(answer["pairs"], {k: _metric(d) for k, d in depth.items()})
         # Place what joins a place (one that exists, or one a spot view founds now), then let what's left found new
         # ones.
@@ -1066,17 +1085,16 @@ def _at(pose: Sequence[float], spot: spots.Spot | None) -> bool:
     )
 
 
-def _correct_depth(
-    path: Path, depth: np.ndarray, focal: float, pose: np.ndarray, plan: _PlanAt, scale: float, camera: str
-) -> plan_depth.Fit | None:
-    """Correct a spot view's depth PNG at `path` (`depth`, as the model gave it, in metres) against its plan, seen
-    from `pose` with `focal` (pixels), and say how (`plan_depth`): fitted to the plan's walls and floor when that fit
-    holds, else scaled by `scale` (`spot_fit`'s floor scale) as before, with the fit's reason logged. None when the
-    plan doesn't read."""
+def _depth_correction(
+    depth: np.ndarray, focal: float, pose: np.ndarray, plan: _PlanAt, scale: float, camera: str
+) -> tuple[dict[str, Any], plan_depth.Fit | None]:
+    """How a spot view's depth (`depth`, as the model gave it, in metres) is corrected, seen from `pose` with `focal`
+    (pixels), as its frame's entry keeps it, and the fit (None when the plan doesn't read): `1 / d' = a / d + b`
+    between `near` and `far` (`plan_depth.apply`), fitted to the plan's walls and floor (`fit` "plan") when that fit
+    holds, else `spot_fit`'s floor scale alone (`fit` "floor", with the fit's `why`), logged either way."""
     geom = plan.geom()
     got = None if geom is None else plan_depth.fit(depth, plan_depth.expected(geom, pose, focal, *depth.shape))
     if got is not None and got.why is None:
-        _write_depth(path, plan_depth.apply(depth, got.a, got.b))
         LOG.info(
             "%s: its depth fitted to the plan's walls and floor (walls %+.1f%% -> %+.1f%%, floor %+.1f%% -> %+.1f%%)",
             camera,
@@ -1085,33 +1103,18 @@ def _correct_depth(
             100 * (got.floor_before or 0.0),
             100 * (got.floor_after or 0.0),
         )
-        return got
-    if scale != 1.0:
-        _scale_depth(path, scale)
-    LOG.info(
-        "%s: its depth doesn't fit the plan (%s): scaled by its floor alone (%.3f)",
-        camera,
-        "no plan" if got is None else got.why,
-        scale,
-    )
-    return got
+        record = {"fit": "plan", "a": got.a, "b": got.b, "near": got.near, "far": got.far}
+        return record, got
+    why = "plan" if got is None else got.why
+    LOG.info("%s: its depth doesn't fit the plan (%s): scaled by its floor alone (%.3f)", camera, why, scale)
+    return {"fit": "floor", "why": why, "a": 1.0 / scale, "b": 0.0}, got
 
 
 def _write_depth(path: Path, depth: np.ndarray) -> None:
-    """Write `depth` (metres, 0 where unknown) as a depth PNG (`_depths`), in place."""
+    """Write `depth` (metres, 0 where unknown) as a depth PNG (`_depths`)."""
     import cv2
 
     cv2.imwrite(str(path), np.clip(np.round(np.asarray(depth) / DEPTH_UNIT), 0, 65535).astype(np.uint16))
-
-
-def _scale_depth(path: Path, scale: float) -> None:
-    """Multiply a depth PNG's metres by `scale`, in place."""
-    import cv2
-
-    counts = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
-    if counts is None:
-        raise RuntimeError(f"the depth image {path} doesn't read")
-    cv2.imwrite(str(path), np.clip(np.round(counts.astype(np.float64) * scale), 0, 65535).astype(np.uint16))
 
 
 def _train(
@@ -1153,7 +1156,7 @@ def _train(
                 "focal": pictures.focal(k),
                 "width": pictures.size(k)[0],
                 "height": pictures.size(k)[1],
-                "depth": str(_depth_path(store, k)),
+                "depth": str(pictures.depth(k)),
                 **({} if mask is None else {"mask": str(mask)}),
                 **({"fixed": True} if k in held_views else {}),
             }
@@ -1162,7 +1165,7 @@ def _train(
     for k in new_poses:
         focal = pictures.focal(k)
         assert focal is not None  # a frame is placed only once its camera's focal is known
-        p, c = lift(_read_depth(_depth_path(store, k)), _read_rgb(pictures.image(k)), focal, poses[k])
+        p, c = lift(_read_depth(pictures.depth(k)), _read_rgb(pictures.image(k)), focal, poses[k])
         points.append(p)
         colors.append(c)
     new_points, new_colors = thin(np.concatenate(points), np.concatenate(colors))
@@ -1279,6 +1282,8 @@ def _train(
         focal = pictures.focal(k)
         share = None if focal is None else focal / pictures.size(k)[0]
         state.frames[k] = {"place": rev.place, "pose": pose, "focal": share, "size": list(pictures.size(k))}
+        if k in pictures.corrections:
+            state.frames[k]["depth"] = dict(pictures.corrections[k])
         if k in held_views:
             state.frames[k]["spot"] = True
             prior = prior_entries.get(k) or {}
@@ -1433,7 +1438,9 @@ def summary(
     """What a page says about learning surroundings: whether it's on and which cameras are sampled now, how many
     frames are kept, how many of them a step is due for (`waiting`) and how many are parked until the map grows
     (`parked`, `due`; `parked_cameras` says why for each camera with one, a word of PARKED), any spot whose view fits
-    the plan better past `spots.within_bounds` while the owner's spot holds (`spot_suggestions`), whether a step is
+    the plan better past `spots.within_bounds` while the owner's spot holds (`spot_suggestions`), how many of each
+    spot camera's placed views have their depth fitted to the plan and how many kept the floor's scale, with why
+    (`depth_fit`), whether a step is
     running and what it's doing (`step`: `progress`, None while none runs), when the last step ended (`last_step`, Unix
     seconds, or None), each sampled camera's recent looks by outcome and when a frame of it was last kept (`cameras`,
     from the sampler's status), each learned place's newest revision, views, rounds, and when a step last added a view
@@ -1495,6 +1502,20 @@ def summary(
                     "far_shift": bool(sug.get("far_shift", shift > spots.REFINE_M)),
                     "far_turn": bool(sug.get("far_turn", turn > spots.REFINE_DEG)),
                 }
+    # How each camera's placed spot views have their depth: fitted to the plan, or scaled by the floor alone (and why,
+    # for the newest such view). A place mixing both has walls that disagree where the views overlap.
+    depth_fit: dict[str, dict[str, Any]] = {}
+    for kept in sorted(index, key=lambda f: f.t):
+        entry = state.frames.get(kept.id) or {}
+        record = entry.get("depth")
+        if entry.get("pose") is None or not entry.get("spot") or not isinstance(record, dict):
+            continue
+        row = depth_fit.setdefault(kept.camera, {"fitted": 0, "floor": 0, "why": None})
+        if record.get("fit") == "plan":
+            row["fitted"] += 1
+        else:
+            row["floor"] += 1
+            row["why"] = record.get("why")
     return {
         "on": switch.on,
         "sampling": sampling,
@@ -1503,6 +1524,7 @@ def summary(
         "parked": len(waiting(index, state)) - len(todo),
         "parked_cameras": dict(sorted(parked.items())),
         "spot_suggestions": suggestions,
+        "depth_fit": dict(sorted(depth_fit.items())),
         "running": is_running,
         "step": progress(folder) if is_running else None,
         "last_step": float(began) + float(took or 0.0) if isinstance(began, (int, float)) else None,
