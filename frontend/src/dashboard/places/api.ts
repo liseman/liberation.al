@@ -138,6 +138,16 @@ export const restorePlan = (place: string, record: string) =>
     record,
   });
 
+/** Why a map has no splat of its own. `reason`: the nightly pass hasn't run since the map was made ("pass"), it had too
+ *  few lit daytime frames ("few_frames"), the map has no fixed cameras ("no_cameras"), the trainer isn't installed
+ *  ("no_runtime"), training failed ("failed"), or splats are turned off in the settings ("off"). `tried` is when the pass last tried this map (epoch seconds), and
+ *  `pass_at` the time of day it runs ("HH:MM"). */
+export interface SplatWait {
+  reason: 'pass' | 'few_frames' | 'no_cameras' | 'no_runtime' | 'failed' | 'off';
+  tried: number | null;
+  pass_at: string | null;
+}
+
 /** What the 3D view draws for a place (GET /places/scene), all in its map's frame, or `revision: null` while it
  *  has no map. */
 export interface Scene {
@@ -159,6 +169,14 @@ export interface Scene {
   splat_stale?: { revision: string; at: number } | null;
   /** What the splat was trained from (#44): a walk's own frames, or the fixed cameras'. */
   splat_from?: 'walk' | 'cameras' | null;
+  /** Which state the splat is in, so the page doesn't guess: made for this map ("current"), made for an earlier map
+   *  in the same frame, so it still lines up ("earlier"), made in another frame and so not offered ("stale"), or
+   *  there is none. */
+  splat_state?: 'current' | 'earlier' | 'stale' | 'none';
+  /** When the map the offered splat was made for was built (epoch seconds). */
+  splat_at?: number | null;
+  /** While the map has no splat of its own: why, and when one is due. */
+  splat_wait?: SplatWait | null;
   /** The floor plane: a unit normal and its offset (a, b, c, d), in the map's frame. */
   floor?: number[] | null;
   /** Map to plan, 3x4 row by row. */

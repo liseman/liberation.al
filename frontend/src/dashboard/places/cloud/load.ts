@@ -98,6 +98,53 @@ export const SPLAT_FORMATS = ['sog'] as const;
 export const canDrawSplat = (format: string | null | undefined): boolean =>
   (SPLAT_FORMATS as readonly string[]).includes(format ?? '');
 
+/** Why `bytes` can't be the SOG the viewer is given, or null when they look like one. A SOG is a zip, which starts
+ *  with a local file header and ends with a directory record; checked here so a file that's cut short, or kept by
+ *  the browser from an earlier encoding of the same splat, is said on the page instead of failing in the engine. */
+export function splatFault(bytes: ArrayBuffer): string | null {
+  const b = new Uint8Array(bytes);
+  if (!b.length) return 'the file is empty';
+  const zip = b[0] === 0x50 && b[1] === 0x4b && b[2] === 0x03 && b[3] === 0x04;
+  if (!zip) return "the file isn't a splat this view can draw (it may be a copy the browser kept from an older format)";
+  // the directory's end record is in the last 22 bytes, or a comment's length (at most 65,535) before them
+  for (let i = b.length - 22, stop = Math.max(0, b.length - 22 - 0xffff); i >= stop; i--)
+    if (b[i] === 0x50 && b[i + 1] === 0x4b && b[i + 2] === 0x05 && b[i + 3] === 0x06) return null;
+  return 'the file is cut short';
+}
+
+/** A response's bytes, telling `progress` how many have come and of how many (the response's own length, else
+ *  `expected`, else 0 when nobody knows). */
+export async function readBytes(
+  response: Response,
+  expected: number | null | undefined,
+  progress: (received: number, total: number) => void,
+): Promise<ArrayBuffer> {
+  const total = Number(response.headers.get('content-length')) || expected || 0;
+  const reader = response.body?.getReader();
+  if (!reader) {
+    const whole = await response.arrayBuffer();
+    progress(whole.byteLength, total || whole.byteLength);
+    return whole;
+  }
+  const parts: Uint8Array[] = [];
+  let received = 0;
+  progress(0, total);
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    parts.push(value);
+    received += value.byteLength;
+    progress(received, Math.max(total, received));
+  }
+  const out = new Uint8Array(received);
+  let at = 0;
+  for (const part of parts) {
+    out.set(part, at);
+    at += part.byteLength;
+  }
+  return out.buffer;
+}
+
 /** A walk's look-from views (spatial/splats.py LOOK_PREFIX), as against the fixed cameras. */
 const WALK_PREFIX = 'walk-';
 

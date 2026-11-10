@@ -267,6 +267,8 @@ def test_a_place_with_no_lit_frames_gets_no_splat(tmp_path, runtime, placed, mon
     monkeypatch.setattr("liberational.memory.history_qa.local_zone", lambda: UTC)
     assert splats.splat_place(tmp_path, placed.place, T, lambda cam, t: None, runtime, None) is None
     assert not places.has_splat(tmp_path, placed)
+    # and leaves why, for the 3D view to say
+    assert places.splat_note(tmp_path, placed) == {"reason": "few_frames", "at": T}
 
 
 def test_a_day_with_too_few_lit_frames_makes_no_splat_yet(tmp_path, runtime, placed, monkeypatch):
@@ -280,6 +282,35 @@ def test_a_day_with_too_few_lit_frames_makes_no_splat_yet(tmp_path, runtime, pla
     enough = set(times[: splats.MIN_FRAMES_PER_CAMERA])
     did = splats.splat_place(tmp_path, placed.place, T, lambda cam, t: lit() if t in enough else None, runtime, None)
     assert did is not None and did["frames"] == {"cam0": splats.MIN_FRAMES_PER_CAMERA}
+
+
+def test_a_revision_with_only_a_walks_views_is_noted_as_having_no_fixed_cameras(tmp_path, runtime, placed):
+    walk_cam = placed.cameras["cam0"]
+    walk = places.revise(
+        tmp_path, placed.place, producer="walkthrough", map_bytes=ply.dumps(CLOUD), map_format="ply",
+        cameras={"walk-0m00s": walk_cam}, now=T + 10,
+    )  # fmt: skip
+    assert splats.splat_place(tmp_path, walk.place, T + 20, always_lit, runtime, None) is None
+    assert places.splat_note(tmp_path, walk) == {"reason": "no_cameras", "at": T + 20}
+    assert places.splat_note(tmp_path, placed) is None  # the note is about the revision the pass tried
+
+
+def test_a_run_without_the_trainer_or_whose_training_fails_notes_why(tmp_path, runtime, placed, monkeypatch):
+    monkeypatch.setattr("liberational.memory.history_qa.local_zone", lambda: UTC)
+    monkeypatch.setattr(splats.nvml, "gpus", list)
+    monkeypatch.setenv("FAIL_SPLAT", "1")
+    with cfg.override({"spatial": {"splat_runtime": str(runtime)}}):
+        assert splats.splat_all(tmp_path, now=T, read=always_lit) == []
+    assert places.splat_note(tmp_path, placed) == {"reason": "failed", "at": T}
+    with cfg.override({"spatial": {"splat_runtime": str(tmp_path / "not-installed")}}):
+        assert splats.splat_all(tmp_path, now=T + 60, read=always_lit) == []
+    assert places.splat_note(tmp_path, placed) == {"reason": "no_runtime", "at": T + 60}
+
+
+def test_a_splat_note_takes_only_a_known_reason(tmp_path, placed):
+    with pytest.raises(ValueError, match="reason"):
+        places.write_splat_note(tmp_path, placed, "because", T)
+    assert places.splat_note(tmp_path, placed) is None
 
 
 def test_the_newest_map_without_cameras_gets_no_splat(tmp_path, placed):
