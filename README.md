@@ -68,15 +68,29 @@ A successful install is not a hardware validation: check the service status and 
 
 ## Install
 
-1. **Install [mise](https://mise.jdx.dev)**, which installs the project's tools (uv, Node, Ollama, ffmpeg, and
-   the rest of `mise.toml`):
+1. **Install the base OS compiler, `curl`, `git`, and [mise](https://mise.jdx.dev)**, which installs the project's
+   tools (`uv`, `node`, `ollama`, `ffmpeg`, and the rest of `mise.toml`). On Ubuntu or Debian, install `curl`, `git`,
+   and `build-essential` first (`node` needs `libatomic1`, and `cargo` needs a C linker); on macOS, install the Xcode
+   Command Line Tools (`xcode-select --install`) and [Homebrew](https://brew.sh):
 
    ```bash
+   # Ubuntu or Debian:
+   sudo apt-get update && sudo apt-get install -y curl git build-essential
+
    curl -fsSL https://mise.run | sh
+   export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$PATH"
    ```
 
-2. **Install a Rust toolchain** with [rustup](https://rustup.rs). The Python environment builds Continuum's SDK
-   from source.
+   Add `eval "$(~/.local/bin/mise activate bash)"` (or `zsh`) to your shell rc file so new terminals have `mise` and
+   its tools (`uv`, `node`, `ollama`, and `ffmpeg`) on `PATH`.
+
+2. **Install a Rust toolchain** with [rustup](https://rustup.rs) and add Cargo to `PATH` in this terminal (`mise install`
+   compiles `cbindgen`, and the Python environment builds Continuum's SDK from source):
+
+   ```bash
+   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+   . "$HOME/.cargo/env"
+   ```
 
 3. **Clone and install the tools:**
 
@@ -94,8 +108,11 @@ A successful install is not a hardware validation: check the service status and 
    ```
 
 5. **Run setup.** It lists the system packages this machine is missing and asks before installing them, installs
-   the Python dependencies, builds whisper-server and the dashboard, turns on the Git hooks, and fetches the models
+   the Python dependencies, builds `whisper-server` and the dashboard, turns on the Git hooks, and fetches the models
    for your platform. The first run downloads several GB; later runs skip what's already there.
+
+   The pet embedding model (`facebook/dinov3-vits16-pretrain-lvd1689m`) is gated on Hugging Face: accept its license on
+   its model page and set `HF_TOKEN` (or sign in with `uvx --from huggingface_hub hf auth login`) before running setup.
 
    ```bash
    mise run setup
@@ -103,7 +120,18 @@ A successful install is not a hardware validation: check the service status and 
 
    To see what the model step will fetch before it does: `uv run tools/fetch_models.py --list`.
 
-6. **Build Continuum's services:**
+   After reviewing the AdaFace model card's dataset license (`config/defaults.toml` under `[models.adaface]`), export
+   the face recognition ONNX model from the downloaded source and checkpoint:
+
+   ```bash
+   uv run python tools/export_adaface.py \
+     --source data/models/adaface/model.py \
+     --checkpoint data/models/adaface/model.pt \
+     --output data/models/adaface/adaface_ir50_webface4m_rgb.onnx
+   ```
+
+6. **Build Continuum's services** (the first release build compiles LanceDB and DataFusion with LTO and takes several
+   minutes on a cold cache):
 
    ```bash
    mise run continuum-release
