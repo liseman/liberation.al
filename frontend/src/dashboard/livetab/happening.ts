@@ -11,7 +11,7 @@ export interface HappeningItem {
   text: string; // "Kara walked in and sat on the couch": third person, no trailing period
   people: string[]; // the known people in it
   cam: string | null;
-  place: string | null;
+  camera_name: string | null; // the camera's name (vision.camera_names)
 }
 
 export interface Happening {

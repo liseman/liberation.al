@@ -80,7 +80,7 @@ def rows(state: Path, place: str, start: float, end: float, frame: str | None = 
     if frame is None:
         held = places.get(state, place)
         frame = held.plan_revision if held is not None else None
-    return positions.positions(state, start, end, place=place, frame_revision=frame)
+    return positions.derive(state, start, end, place=place, frame_revision=frame)
 
 
 def rooms(found: Sequence[positions.Position]) -> collections.Counter[str]:

@@ -162,6 +162,15 @@ def test_the_height_prior_pulls_a_sinking_walk_level_and_can_be_turned_off():
     np.testing.assert_allclose(pg.solve(sag, edges, up=UP, height=False).poses, sag, atol=1e-9)
 
 
+def test_the_height_prior_levels_a_walk_at_its_own_height_not_where_the_drift_put_it():
+    true = rectangle(5.0, 3.0)
+    sag = true.copy()
+    sag[:, 2, 3] -= np.linspace(0.0, 3.0, len(true))  # the odometry sinks 3 m, so the drifted median is 1.5 m low
+    edges = [*pg.odometry(true), closing_loop(true)]
+    solved = pg.solve(sag, edges, up=UP).poses
+    assert np.abs(solved[:, 2, 3] - 1.5).max() < 0.05, "every camera at the first one's height, the first step too"
+
+
 def pair(back_rot_deg=0.0, back_dir_deg=0.0, tilt=0.0, shift=(1.0, 0.0, 0.5)):
     """A MASt3R pair: camera j 1.1 m from camera i and turned 30 degrees, both ways round, with the backward
     direction's rotation and translation direction knocked off by the given degrees."""

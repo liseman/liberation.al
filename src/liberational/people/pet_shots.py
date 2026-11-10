@@ -1,4 +1,4 @@
-"""Pet thumbnails: each animal track's photo as a file, served as /pets/sightings/photo?track= (#2038).
+"""Pet thumbnails: each animal track's photo as a file, served as /pets/sightings/photo?track=.
 
 A track's photo is its largest embedded box (`pet_recognition.sightings`' shot), cut square with a little context
 (`animal_verifier.square`). The workers that embed animal boxes (see-actions' detector, `see/action_animals.py`, and
@@ -108,7 +108,7 @@ class Writer:
 
 
 def backfill(state: Path, per_second: float = 8.0, now: float | None = None) -> dict[str, int]:
-    """Photos for the listed animal tracks that have none (#2038), a camera at a time, oldest first, at most
+    """Photos for the listed animal tracks that have none, a camera at a time, oldest first, at most
     `per_second` cuts a second. Counts of what it did."""
     from liberational.people import pet_recognition
 
@@ -134,7 +134,7 @@ def backfill(state: Path, per_second: float = 8.0, now: float | None = None) -> 
 
 def main() -> None:
     """`python -m liberational.people.pet_shots backfill [--per-second N]`: photos for the listed animal tracks that
-    have none, once (#2038). Run it niced."""
+    have none, once. Run it niced."""
     import argparse
 
     from liberational import config as cfg

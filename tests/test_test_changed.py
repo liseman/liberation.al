@@ -4,6 +4,8 @@ import importlib.util
 import pathlib
 import subprocess
 
+import pytest
+
 from liberational import config as cfg
 
 _spec = importlib.util.spec_from_file_location("test_changed", cfg.ROOT / "tools" / "test_changed.py")
@@ -70,6 +72,15 @@ def test_a_change_no_test_covers_runs_nothing(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: runs.append(a))
     assert tc.main(["--base", "origin/main"]) == 0
     assert runs == [] and "nothing to run" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(("only", "ran"), [("python", "pytest"), ("frontend", "vitest")])
+def test_only_runs_one_side(monkeypatch, only, ran):
+    monkeypatch.setattr(tc, "changed", lambda base: ["tests/test_x.py", "frontend/src/a.ts"])
+    runs = []
+    monkeypatch.setattr(subprocess, "run", lambda cmd, **k: runs.append(cmd) or subprocess.CompletedProcess(cmd, 0))
+    assert tc.main(["--only", only]) == 0
+    assert len(runs) == 1 and ran in runs[0]
 
 
 def test_it_lists_what_changed_since_the_branch_left_base(tmp_path):

@@ -1,5 +1,5 @@
 // Known › Places' reads: the places the house has (GET /places, memory/places.py) and where people and pets were in
-// one of them over a window of time (GET /places/positions, #2831; the stream is spatial/positions.py).
+// one of them over a window of time (GET /places/positions; the position layer is spatial/positions.py).
 import { queryOptions } from '@tanstack/react-query';
 import { request } from '../../shared/http';
 
@@ -89,9 +89,9 @@ export const positionsQuery = (place: string, start: number, end: number) =>
         signal,
       ),
     staleTime: 30_000,
-    // Seconds of server work for a day of a busy place, and the server finishes a read the page gave up on: a re-read
-    // on every return to the window stacked them past the read deadline, and the plan drew no paths (#3293). While the
-    // window follows now, PlacePaths moves it (a new read) every FOLLOW_NOW_MS anyway.
+    // A read of a busy place is about a second of server work, and the server stops one the page gave up on. A re-read
+    // on every return to the window is still work for nothing: while the window follows now, PlacePaths moves it (a
+    // new read) every FOLLOW_NOW_MS anyway.
     refetchOnWindowFocus: false,
   });
 
@@ -157,6 +157,8 @@ export interface Scene {
   splat_revision?: string | null;
   /** The newest splat when it was made in another map frame, so it would sit out of place: named, not drawn. */
   splat_stale?: { revision: string; at: number } | null;
+  /** What the splat was trained from (#44): a walk's own frames, or the fixed cameras'. */
+  splat_from?: 'walk' | 'cameras' | null;
   /** The floor plane: a unit normal and its offset (a, b, c, d), in the map's frame. */
   floor?: number[] | null;
   /** Map to plan, 3x4 row by row. */
