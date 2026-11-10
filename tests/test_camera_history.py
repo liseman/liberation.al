@@ -183,7 +183,7 @@ def test_the_owners_question_with_a_time_in_it_goes_to_ask_never_the_current_vie
             id="a-window",
         ),
         pytest.param(
-            question.Reading(history=False, source="cameras", other_time="last month"), True, id="a-refused-time"
+            question.Reading(history=False, source="cameras", other_time="in March"), True, id="a-refused-time"
         ),
     ],
 )

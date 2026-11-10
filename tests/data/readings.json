@@ -241,7 +241,7 @@
  "what did camzero show in the last 2 hours": {"history": false, "source": "cameras", "span": 2.0, "span_kind": "last", "span_unit": "hours"},
  "what did the cameras see in the kitchen today": {"day": "today", "source": "cameras"},
  "what did the scene look like?": {"history": false, "source": "cameras"},
- "what did we talk about last month": {"other_time": "last month"},
+ "what did we talk about in March": {"other_time": "in March"},
  "what did we want done": {"history": false, "intent": true},
  "what did will say yesterday": {"day": "yesterday", "people": ["will"]},
  "what do the cameras see": {"history": false, "source": "cameras"},

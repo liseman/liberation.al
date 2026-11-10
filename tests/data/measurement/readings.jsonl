@@ -25,7 +25,7 @@
 {"id": "seen-night-clock", "question": "what was on the shelf around 10 last night", "reading": {"source": "cameras", "part": "last night", "clock": "10"}}
 {"id": "seen-night-clock-reworded", "question": "last night around 10, what was on the shelf", "same_as": "seen-night-clock"}
 {"id": "journal-date", "question": "What does my journal say about the move on 2026-09-30?", "reading": {"source": "journal", "day": "2026-09-30"}}
-{"id": "refused-month", "question": "did anyone bring up the schedule last year", "reading": {"other_time": "last year"}}
+{"id": "last-year", "question": "did anyone bring up the schedule last year", "reading": {"day": "last year"}}
 {"id": "refused-weekday", "question": "what did Dana say on Friday", "reading": {"people": ["Dana"], "other_time": "on Friday"}}
 {"id": "refused-before", "question": "who was here after 6pm", "reading": {"source": "people", "measure": "who", "other_time": "after 6pm"}}
 {"id": "no-time", "question": "what did Dana say about the van", "reading": {"people": ["Dana"]}}
