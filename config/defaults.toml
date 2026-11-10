@@ -137,7 +137,7 @@ start_at_login = false
 
 [dashboard]
 # Names the camera gateway (continuum-gateway) may be reached by besides this machine's own: a Tailscale MagicDNS
-# name, comma-separated. Empty: local names only. See MIGRATING "Remote dashboard cameras".
+# name, comma-separated. Empty: local names only. See docs/DASHBOARD.md "Remote access".
 gateway_allow_host = ""
 # dashboard/presence.py: join a person's chip spans across gaps up to this many seconds.
 person_gap_s = 10.0
@@ -627,7 +627,7 @@ vlm = "qwen3-vl:8b-instruct-q4_K_M-t2"
 big_llm = "qwen3:4b-instruct-t2"
 # Embeddings for the semantic index (semantic.enabled), the same on Apple Silicon and Linux. Qwen3-Embedding
 # 0.6B (Apache 2.0, 1024 dimensions) pairs with LanceDB native full-text search for exact names and terms.
-# This model cutover discards the old index and rebuilds it; see MIGRATING.md.
+# This model cutover discards the old index and rebuilds it; see MIGRATING.md "Model changes".
 embedding = "qwen3-embedding:0.6b"
 
 # Face detection stays on SCRFD and five-point alignment; only the detector is installed from the pack.

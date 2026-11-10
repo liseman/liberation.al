@@ -1,7 +1,7 @@
 """One advisory lock per shared file, across processes.
 
 The transcript (state/transcript.jsonl) is appended by the microphone service and rewritten whole only when a person
-is forgotten (audio/ambient.py forget_lines); labels are events in the log since step 4. A rewrite that reads,
+is forgotten (audio/ambient.py forget_lines); labels are events in the log. A rewrite that reads,
 decides, and replaces while an append lands in between would drop that line, so the rewrite holds the file's lock
 from its read to its replace, and every append holds it too. A day's transcript/<day>.md is locked the same way,
 because a label writer rebuilds it (people/transcript_view.py) while the microphone service appends to it. fcntl.flock

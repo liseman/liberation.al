@@ -1,5 +1,5 @@
-"""The person registry and person_of (step 3 of docs/DOMAIN-MODEL.md): which assertion wins (open decision 2), the
-projection rebuilt from the log, forgetting (open decision 1), the backfill from today's stores, and each dual write
+"""The person registry and person_of (docs/DOMAIN-MODEL.md): which assertion wins ("Identity precedence"), the
+projection rebuilt from the log, forgetting ("Forgetting"), the backfill from today's stores, and each dual write
 beside today's label writes. Everything runs on temp dirs, with made-up people."""
 
 import json
@@ -106,7 +106,7 @@ def clock(monkeypatch):
     return c
 
 
-# ---- open decision 2: retraction, then owner tag, then confirmed, then system match by confidence; newer wins ties ----
+# ---- identity precedence: retraction, then owner tag, then confirmed, then system match by confidence; newer wins ties ----
 def test_owner_beats_confirmed_beats_system():
     system = assertion("a1", "p-sys", Basis.EMBEDDING_MATCH, 30.0, 0.99)
     confirmed = assertion("a2", "p-conf", Basis.INTRODUCTION, 20.0)
@@ -443,7 +443,7 @@ def assert_dates_names_alike(state, reg, names, times):
     }
 
 
-# ---- open decision 1: PersonForgotten, and the person's events purged from the log ----
+# ---- forgetting: PersonForgotten, and the person's events purged from the log ----
 def test_forgetting_purges_their_events_and_keeps_others(tmp_path, reg):
     reg.claim(VOICE, "Dana", Basis.OWNER_TAG, "test")
     reg.claim(registry.utterance(5.0), "Dana Cole", Basis.OWNER_TAG, "test")

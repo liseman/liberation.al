@@ -3,8 +3,8 @@
 A person's phone number, and whether the owner added them by hand (People: Add), are fields of their `Person` in the
 registry (`people/registry.py`). A rename or a merge changes that one record, so the number goes with the person.
 
-Two files are read models of these fields. Every change here writes the registry and the file (a dual write, as in
-step 3 of docs/DOMAIN-MODEL.md), so older readers and tools still find them:
+Two files are read models of these fields. Every change here writes the registry and the file (a dual write, as
+people/registry.py does for labels), so older readers and tools still find them:
 
     contacts.json       {name: number}, chmod 600
     people_added.json   [name]

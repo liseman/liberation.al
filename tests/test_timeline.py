@@ -1,4 +1,4 @@
-"""Step 7 of docs/DOMAIN-MODEL.md: encounters from face visits and transcript lines (memory/timeline.py), and the
+"""Encounters (docs/DOMAIN-MODEL.md, "Records"): encounters from face visits and transcript lines (memory/timeline.py), and the
 history answers and day summaries that use them. Everything runs on temp dirs, with made-up people."""
 
 import datetime as dt

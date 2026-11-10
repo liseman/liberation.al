@@ -1,4 +1,4 @@
-"""Timeline and encounters: who was seen or heard, and when (step 7 of docs/DOMAIN-MODEL.md).
+"""Timeline and encounters: who was seen or heard, and when (the encounter of docs/DOMAIN-MODEL.md, "Records").
 
 An encounter (`domain.memory.Encounter`) is a stretch of time in which one person was seen, heard, or both. It is a
 layer 2 projection: built from layer 1 and the identity assertions, never stored, and never entered by hand.
@@ -30,7 +30,7 @@ well under a millisecond. Ask answers each question in a fresh worker process (m
 always pays the full read; the cache serves the dashboard process, the journal's day pages, and repeated reads in one process.
 
 Switch: `timeline.enabled` (on by default). Off, nothing here runs, and "who was here" and summaries are exactly what
-they were before step 7. "Last seen" is the old answer only while `detections.last_seen` is off too, or there is no
+they were before encounters. "Last seen" is the old answer only while `detections.last_seen` is off too, or there is no
 detections.sqlite3: history_qa's detector path reads live face matches whatever this switch says. Without an event
 log there are no person ids, so `load` returns None and callers keep their old path too.
 """
@@ -259,7 +259,9 @@ class TodayStores:
         """(every visit and line that resolves to a person, the display name of every person), or None without an
         event log."""
         if not registry.log_exists(self.state):
-            return None  # nothing labeled since step 3, so no person ids; and a reader never creates the log
+            return (
+                None  # nothing labeled since the registry began, so no person ids; and a reader never creates the log
+            )
         from liberational.listen import revisions
 
         log = (registry.at(self.state).mark(), revisions.review_revision(self.state))

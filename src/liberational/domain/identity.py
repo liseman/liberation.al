@@ -7,7 +7,7 @@ the print. A correction supersedes an assertion; it never deletes one (rule 6).
 An assertion carries its own time and source (rule 4). People and prints are projections rebuilt from events (rule
 8), so they carry only an id, and the events that build them carry the rest.
 
-`decide` is the one written rule for choosing between assertions about one subject (rule 2, open decision 2).
+`decide` is the one written rule for choosing between assertions about one subject (rule 2, and "Identity precedence" in docs/DOMAIN-MODEL.md).
 """
 
 import dataclasses
@@ -124,7 +124,7 @@ class IdentityAssertion:
     `asserted_at` is when it was made and `source` is the device or process that made it, such as "dashboard" or
     "ambient". `producer` is the model behind it. It is required when a model decided (an embedding match or a
     backfill match), and optional otherwise (rule 4). These are on the record, not only on its event, because "newer
-    wins" breaks ties (open decision 2) and an audit of when and by what someone was identified should not need the
+    wins" breaks ties ("Identity precedence") and an audit of when and by what someone was identified should not need the
     envelope.
 
     A later assertion replaces this one by naming it in `supersedes`. A retraction is an assertion with `retracted`

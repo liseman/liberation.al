@@ -360,7 +360,7 @@ def _label_line(
     label: str | None = None,
     **kw: Any,
 ) -> None:
-    """Label the line (registry.utterance_of) in the event log; nothing rewrites the line (step 4). A person's name makes it theirs.
+    """Label the line (registry.utterance_of) in the event log; nothing rewrites the line. A person's name makes it theirs.
     Anything else takes it away from its voice `voice` and gives it `label` ("unknown", "multiple speakers"). Raises
     when the log can't be written, since the log is the only record of the label."""
     reg = registry.at(context.STATE)
@@ -395,7 +395,7 @@ def _restore(
     stored: dict[str, Any], old: dict[str, Any], was: str | None, view: transcript_view.View, at: float | None = None
 ) -> None:
     """Undo a label: make the line read as `old` again, with a superseding assertion, a line label, or a release.
-    `was` is None for a label logged before step 4, when the label was written onto the line itself. `at` is when
+    `was` is None for a label logged before labels became events, when the label was written onto the line itself. `at` is when
     the label was given; a person the old state named is looked up as of then (`_named_now`)."""
     line, name, voice = registry.utterance_of(stored), old.get("speaker"), view.canonical(stored.get("speaker_id"))
     legacy = was is None
