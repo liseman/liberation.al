@@ -2,6 +2,7 @@
 its durable name, consolidated per person, one record per hour behind a fact, folded with their support when read."""
 
 import json
+import logging
 import types
 
 import pytest
@@ -489,8 +490,15 @@ def ollama(env, monkeypatch, model_server):
     model_server.reply = fake.answer
     monkeypatch.setattr(voice_turn, "wait_quiet", lambda: None)
     monkeypatch.setattr(cfg, "ollama_url", lambda: "http://127.0.0.1:11434")
-    monkeypatch.setattr(facts, "log", lambda *a, level=0: fake.lines.append((level, " ".join(str(x) for x in a))))
-    return fake
+
+    class Lines(logging.Handler):
+        def emit(self, record):
+            fake.lines.append((record.levelno, record.getMessage()))
+
+    handler = Lines()
+    facts.LOG.addHandler(handler)
+    yield fake
+    facts.LOG.removeHandler(handler)
 
 
 def test_an_hour_whose_reply_stays_broken_is_skipped_and_the_next_hour_is_read(env, ollama):

@@ -29,7 +29,7 @@ import threading
 from collections.abc import Iterable
 
 from liberational import config as cfg
-from liberational import knowledge, logs
+from liberational import knowledge
 from liberational.people import registry
 
 LINE = "Doesn't look like anything to me."
@@ -167,5 +167,5 @@ def _living(name: str, state: str | pathlib.Path | None) -> bool:
     try:
         return registry.at(state).known_as(name) is not None
     except Exception as e:
-        registry.log(f"forgotten: registry lookup failed: {e!r}", level=logs.WARN)
+        registry.LOG.warning(f"forgotten: registry lookup failed: {e!r}")
         return False

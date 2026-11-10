@@ -10,9 +10,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from liberational import logs
 from liberational.dashboard import routes
-from liberational.dashboard.context import log
+from liberational.dashboard.context import LOG
 
 
 def _ours(path: str) -> bool:
@@ -29,7 +28,7 @@ def _route(h: Any) -> None:
 
         handle_http(h)
     except Exception as ex:
-        log("pack_ask failed:", ex, level=logs.ERROR)
+        LOG.error("pack_ask failed: %s", ex)
         try:
             h._json({"error": f"pack_ask unavailable: {ex}"}, 503)
         except Exception:

@@ -16,7 +16,7 @@ from collections.abc import Collection
 from typing import TYPE_CHECKING, Any
 
 from liberational import config as cfg
-from liberational import logs, speech_log
+from liberational import speech_log
 from liberational.dashboard import (
     call_log,
     context,
@@ -27,7 +27,7 @@ from liberational.dashboard import (
     transcript_lines,
     unnamed_groups,
 )
-from liberational.dashboard.context import log
+from liberational.dashboard.context import LOG
 from liberational.dashboard.unnamed_groups import CARD_SHOTS, CARD_VIDEOS, CARD_VOICES
 from liberational.memory import remembered
 from liberational.people import card_prefs, face_shots, registry, transcript_view, video_thumbs
@@ -116,7 +116,7 @@ def _what(cam: str, start: float, end: float, name: str | None = None) -> str | 
     try:
         return clip_labels.at(context.STATE).get(cam, start, end, name)
     except Exception as ex:  # a label is a nicety: the card shows the time and place without one
-        log("card: clip label failed:", repr(ex), level=logs.WARN)
+        LOG.warning("card: clip label failed: %s", repr(ex))
         return None
 
 
@@ -297,7 +297,7 @@ class _CardReads:
             try:
                 self._read(name)
             except Exception as ex:
-                log("card: background read failed:", repr(ex), level=logs.WARN)
+                LOG.warning("card: background read failed: %s", repr(ex))
             finally:
                 with self.lock:
                     self.reading.discard(k)
@@ -321,7 +321,7 @@ class _CardReads:
                     if hit is None or hit[0] != key:
                         self._read(name)
             except Exception as ex:
-                log("card: warm-up failed:", repr(ex), level=logs.WARN)
+                LOG.warning("card: warm-up failed: %s", repr(ex))
             finally:
                 with self.lock:
                     self.warming = False

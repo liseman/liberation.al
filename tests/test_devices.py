@@ -788,17 +788,14 @@ def test_the_dashboard_reads_the_device_list_once_at_start_at_low_priority(monke
     listing.assert_called_once_with("", state=context.STATE)
 
 
-def test_a_failed_device_warm_up_is_logged_not_raised(monkeypatch):
-    logged = []
-
+def test_a_failed_device_warm_up_is_logged_not_raised(monkeypatch, caplog):
     def unreachable(hours):
         raise RuntimeError("no broker")
 
     monkeypatch.setattr(device_links, "listing", unreachable)
     monkeypatch.setattr(context, "low_priority", lambda priority=15: None)
-    monkeypatch.setattr(server, "log", lambda *a, **k: logged.append(a))
     server._warm_devices()
-    assert logged and "warm-up failed" in logged[0][0]
+    assert [r.levelname for r in caplog.records if "warm-up failed" in r.getMessage()] == ["WARNING"]
 
 
 @pytest.fixture

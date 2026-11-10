@@ -35,7 +35,7 @@ from liberational.dashboard import (
     transcript_lines,
     voice_clones,
 )
-from liberational.dashboard.context import LOG, Reply, log
+from liberational.dashboard.context import LOG, Reply
 from liberational.people import face_shots, registry, together, transcript_view, video_thumbs
 
 if TYPE_CHECKING:
@@ -546,7 +546,7 @@ def _unknown_groups_worked_out() -> Reply:
         for process in list((getattr(executor, "_processes", None) or {}).values()):
             process.terminate()  # one still running past the timeout
         executor.shutdown(wait=False, cancel_futures=True)
-        log("who's this: the face groups worker stopped:", repr(error), level=logs.WARN)
+        LOG.warning("who's this: the face groups worker stopped: %s", repr(error))
         return 500, {"error": "Could not read the faces waiting for a name."}
 
 
@@ -720,14 +720,14 @@ def _patch_voice_groups(answer: Reply, before: Any, now: Any) -> Reply | None:
         try:
             kept_lines = revisions.filter_lines(context.STATE, speech_log.shared().all_lines())
         except Exception as e:
-            log("who's this (voices): lines unreadable, waiting for the full answer:", repr(e), level=logs.WARN)
+            LOG.warning("who's this (voices): lines unreadable, waiting for the full answer: %s", repr(e))
             return None
         alive = {registry.key_of(e) for e in kept_lines if isinstance(e.get("ts_start"), int | float)}
     skipped = {int(i) for i in inbox_state.inbox_skips()["voice"]}
     try:
         names = registry.voice_names(context.STATE, [g["id"] for g in body["groups"]])
     except Exception as e:
-        log("who's this (voices): names unreadable, waiting for the full answer:", repr(e), level=logs.WARN)
+        LOG.warning("who's this (voices): names unreadable, waiting for the full answer: %s", repr(e))
         return None
     # A clip answered "Nobody" (a line put aside) leaves its row at once too, and a row left with no clip goes, as the
     # full answer leaves out a voice with nothing to play.
@@ -748,7 +748,7 @@ def _patch_voice_groups(answer: Reply, before: Any, now: Any) -> Reply | None:
                 (registry.SubjectRef(registry.SubjectKind.OBSERVATION, f"utterance:{line}"), sid) for sid, line in shown
             )
         except Exception as e:
-            log("who's this (voices): lines unreadable, waiting for the full answer:", repr(e), level=logs.WARN)
+            LOG.warning("who's this (voices): lines unreadable, waiting for the full answer: %s", repr(e))
             return None
         taken = {line for (_, line), who in zip(shown, said, strict=True) if who.detached or who.own.person is not None}
     rows = []
@@ -801,7 +801,7 @@ def _unknown_voices_worked_out() -> Reply:
         for process in list((getattr(executor, "_processes", None) or {}).values()):
             process.terminate()
         executor.shutdown(wait=False, cancel_futures=True)
-        log("who's this: the voice groups worker stopped:", repr(error), level=logs.WARN)
+        LOG.warning("who's this: the voice groups worker stopped: %s", repr(error))
         return 500, {"error": "Could not read the voices waiting for a name."}
 
 

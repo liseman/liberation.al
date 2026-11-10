@@ -141,10 +141,6 @@ _TRIES: dict[str, int] = {}  # "level:period" -> failed model calls so far, in t
 _CLOUD_FELL_BACK: set[str] = set()  # why cloud pages fell back to local ("unset", "failed"), each logged once
 
 
-def log(*a: object, level: int = logs.INFO) -> None:
-    journal.log("pages:", *a, level=level)
-
-
 @dataclass(frozen=True)
 class Section:
     """One section the model writes: its JSON field, its heading, and whether it is a list of bullets."""
@@ -536,7 +532,7 @@ def fit(system: str, payload: dict[str, Any], reply_tokens: int, model: str, lim
         else:
             hi = mid - 1
     if best < THIN_CHARS:
-        log(f"inputs cut to {best} characters each to fit the prompt: a thin page", level=logs.WARN)
+        journal.LOG.warning(f"pages: inputs cut to {best} characters each to fit the prompt: a thin page")
     return at(best)
 
 
@@ -557,7 +553,7 @@ def _cloud_fell_back(kind: str, why: str) -> None:
     """Log once (until a cloud page is written again) that a page that could go to the cloud is written locally."""
     if kind not in _CLOUD_FELL_BACK:
         _CLOUD_FELL_BACK.add(kind)
-        log(f"cloud pages are on, but {why}: writing week and month pages locally", level=logs.WARN)
+        journal.LOG.warning(f"pages: cloud pages are on, but {why}: writing week and month pages locally")
 
 
 def cloud(system: str, payload: dict[str, Any], agent: str) -> dict[str, Any]:
@@ -738,7 +734,7 @@ def _always(model: Mapping[str, Any]) -> bool:
 def _page_model_fell_back(why: str) -> None:
     if why not in _PAGE_MODEL_FELL_BACK:
         _PAGE_MODEL_FELL_BACK.add(why)
-        log(f"journal.page_model: {why}; writing pages with {journal.model_name()}", level=logs.WARN)
+        journal.LOG.warning(f"pages: journal.page_model: {why}; writing pages with {journal.model_name()}")
 
 
 def _resolve(w: Writer) -> None:
@@ -754,7 +750,7 @@ def _resolve(w: Writer) -> None:
     try:
         why, memory = plan(model, num_ctx, w.state)
         if memory and w.may_sleep and w.state is not None:
-            log(f"{why}: opening the sleep window")
+            journal.LOG.info(f"pages: {why}: opening the sleep window")
             w.slept = True
             w.window = open_window(w.state)
             why, _ = plan(model, num_ctx, w.state, alone=True)
@@ -796,7 +792,7 @@ def window_services() -> list[str]:
 def _quietly(verb: str, names: list[str]) -> None:
     """pack-services stop or start on `names`, its per-unit lines (printed for a person at a terminal) logged."""
     for line in _pack_services(verb, *names).splitlines():
-        log(line, level=logs.WARN if "FAILED" in line else logs.INFO)
+        journal.LOG.log(logs.WARN if "FAILED" in line else logs.INFO, "pages: %s", line)
 
 
 def open_window(state: pathlib.Path) -> dict[str, Any]:
@@ -814,7 +810,9 @@ def open_window(state: pathlib.Path) -> dict[str, Any]:
         ],
     }
     json_state.write(state / WINDOW_FILE, window)
-    log(f"sleep window: stopping {', '.join(window['stopped']) or 'no services'}, unloading every Ollama model")
+    journal.LOG.info(
+        f"pages: sleep window: stopping {', '.join(window['stopped']) or 'no services'}, unloading every Ollama model"
+    )
     try:
         if window["stopped"]:
             _quietly("stop", window["stopped"])
@@ -838,9 +836,9 @@ def close_window(state: pathlib.Path, window: Mapping[str, Any]) -> None:
         if names:
             _quietly("start", names)
     except Exception as e:
-        log(f"sleep window: couldn't close it cleanly ({type(e).__name__}: {e})", level=logs.ERROR)
+        journal.LOG.error(f"pages: sleep window: couldn't close it cleanly ({type(e).__name__}: {e})")
     (state / WINDOW_FILE).unlink(missing_ok=True)
-    log("sleep window closed")
+    journal.LOG.info("pages: sleep window closed")
 
 
 def recover(state: pathlib.Path) -> None:
@@ -850,7 +848,7 @@ def recover(state: pathlib.Path) -> None:
     except OSError, ValueError:
         return
     if isinstance(window, dict):
-        log("sleep window: one was left open; closing it", level=logs.WARN)
+        journal.LOG.warning("pages: sleep window: one was left open; closing it")
         close_window(state, window)
     else:
         (state / WINDOW_FILE).unlink(missing_ok=True)
@@ -861,8 +859,8 @@ def unload(model: str) -> None:
     try:
         ollama.load(model, keep_alive=0, local=True)
     except Exception as e:
-        log(
-            f"couldn't unload {model} ({type(e).__name__}: {e}); Ollama drops it in {BATCH_KEEP_ALIVE}", level=logs.WARN
+        journal.LOG.warning(
+            f"pages: couldn't unload {model} ({type(e).__name__}: {e}); Ollama drops it in {BATCH_KEEP_ALIVE}"
         )
 
 
@@ -883,7 +881,9 @@ def reload(models: Sequence[Mapping[str, Any]]) -> None:
             else:
                 ollama.load(name, num_ctx=num_ctx, local=True)
         except Exception as e:
-            log(f"couldn't load {name} again ({type(e).__name__}: {e}); it loads on its next call", level=logs.WARN)
+            journal.LOG.warning(
+                f"pages: couldn't load {name} again ({type(e).__name__}: {e}); it loads on its next call"
+            )
 
 
 def _remember_size(w: Writer) -> None:
@@ -1052,7 +1052,7 @@ def _shared(lists: list[list[str]], heading: str) -> list[str]:
             else:
                 dropped += 1
     if dropped:
-        log(f"the day's {heading} kept {MAX_ITEMS} items of {MAX_ITEMS + dropped} across its parts")
+        journal.LOG.info(f"pages: the day's {heading} kept {MAX_ITEMS} items of {MAX_ITEMS + dropped} across its parts")
     return [item for part in kept for item in part]
 
 
@@ -1095,7 +1095,7 @@ def day_prose(payload: dict[str, Any]) -> tuple[dict[str, Any], Producer]:
         for field, heading in (("talked_about", "Talked about"), ("ate", "Ate")):
             items = _items(reply.get(field))
             if len(items) >= PART_ITEMS:  # the schema's cap: the model may have had more to say than fit
-                log(f"the {name}'s {heading} came back at its {PART_ITEMS} item cap", level=logs.WARN)
+                journal.LOG.warning(f"pages: the {name}'s {heading} came back at its {PART_ITEMS} item cap")
             lists[field].append(items)
         if data[name].strip():
             told.append({"part": name, "when": f"{a:02d}:00 to {b:02d}:00", "text": data[name]})
@@ -1141,7 +1141,7 @@ def clean(
             if (
                 len(items) >= MAX_ITEMS and level != DAY
             ):  # the schema's cap (a day's parts say so in `day_prose`): the model may have had more to say than fit
-                log(f"the {level} page's {s.heading} came back at its {MAX_ITEMS} item cap", level=logs.WARN)
+                journal.LOG.warning(f"pages: the {level} page's {s.heading} came back at its {MAX_ITEMS} item cap")
             cited[s.field] = [t for t in (one(x) for x in items[:MAX_ITEMS]) if t]
         else:  # a day's In short has a part's room: at 240 its one long sentence stopped mid-clause
             cited[s.field] = one(raw if isinstance(raw, str) else "", PART_CHARS if level == DAY else MAX_ITEM_CHARS)
@@ -1419,7 +1419,7 @@ def attempt(
 
 def log_failure(level: str, start: dt.date, failures: int, e: BaseException) -> None:
     gave_up = " and gave up until its inputs change" if failures >= MAX_TRIES else ""
-    log(f"the {level} page of {start.isoformat()} failed ({failures}){gave_up}: {e}", level=logs.WARN)
+    journal.LOG.warning(f"pages: the {level} page of {start.isoformat()} failed ({failures}){gave_up}: {e}")
 
 
 def pages_pass(state: pathlib.Path, now: float) -> dict[str, Any]:
@@ -1628,7 +1628,7 @@ def _build_so_far(state: pathlib.Path, day: dt.date, now: float, key: tuple[str,
     try:
         reply = so_far(state, day, now)
     except Exception as e:
-        log(f"today so far failed for {day.isoformat()}: {e}", level=logs.WARN)
+        journal.LOG.warning(f"pages: today so far failed for {day.isoformat()}: {e}")
         reply = {"day": day.isoformat(), "status": "error", "md": "", "error": str(e)[:300]}
     with _SO_FAR_LOCK:
         _SO_FAR[day.isoformat()] = _SoFar(key, now, reply)

@@ -194,7 +194,7 @@ def restarts(monkeypatch):
     monkeypatch.setattr(
         settings,
         "restart",
-        lambda log=print, names=(), dashboard=True, before=None: calls.put((list(names), dashboard)),
+        lambda names=(), dashboard=True, before=None: calls.put((list(names), dashboard)),
     )
     return calls
 
@@ -262,21 +262,22 @@ def test_restart_names_restarts_installed_services_and_starts_newly_required_one
         assert settings.restart_names() == ["listen", "voice", "whisper"]
 
 
-def test_a_save_installs_what_may_now_run_here_and_uninstalls_what_may_not(monkeypatch):
+def test_a_save_installs_what_may_now_run_here_and_uninstalls_what_may_not(monkeypatch, caplog):
     monkeypatch.setattr(services, "installed", lambda: ["listen", "dashboard", "notes"])
     monkeypatch.setattr(services, "selected", lambda: {"listen": {}, "dashboard": {}, "phone": {}})
     before = {"listen", "dashboard", "notes"}  # phone added under Also run, notes under Don't run
     assert settings.run_here_changes(before) == (["phone"], ["notes"])
     assert settings.run_here_changes({"listen", "dashboard", "phone"}) == ([], [])  # nothing changed: nothing to do
 
-    ran, said = [], []
+    ran = []
+    caplog.set_level("INFO")
     monkeypatch.setattr(
         settings, "_pack_services", lambda verb, names: ran.append([verb, *names]) or (0, "removed notes")
     )
-    assert settings.apply_run_here(before, said.append) == ["phone"]  # installed with the restart that follows
+    assert settings.apply_run_here(before) == ["phone"]  # installed with the restart that follows
     assert ran == [["uninstall", "notes"]]
-    assert said == ["services: off notes (no longer runs here after a Settings save; uninstalled): done"]
-    assert settings.apply_run_here(None, said.append) == []  # unknown before: never guesses
+    assert caplog.messages == ["services: off notes (no longer runs here after a Settings save; uninstalled): done"]
+    assert settings.apply_run_here(None) == []  # unknown before: never guesses
 
 
 @pytest.mark.parametrize(
@@ -292,18 +293,18 @@ def test_a_save_says_whether_each_service_change_worked(code, out, want):
     assert settings._outcome("notes", code, out) == want
 
 
-def test_the_restart_uninstalls_then_installs_then_restarts_the_dashboard_even_after_a_failure(monkeypatch):
+def test_the_restart_uninstalls_then_installs_then_restarts_the_dashboard_even_after_a_failure(monkeypatch, caplog):
     steps = []
     monkeypatch.setattr(settings.time, "sleep", lambda s: None)
     monkeypatch.setattr(settings.os, "execv", lambda *a: steps.append("exec"))
     monkeypatch.setattr(settings, "run_here_changes", lambda before: (["phone"], ["notes"]))
     monkeypatch.setattr(services, "states", lambda: {"listen": "active", "voice": "inactive"})
     monkeypatch.setattr(settings, "_pack_services", lambda verb, names: steps.append([verb, *names]) or (0, ""))
-    said = []
-    settings.restart(said.append, ["listen", "voice", "phone"], True, {"listen", "notes"}).join(5)
+    caplog.set_level("INFO")
+    settings.restart(["listen", "voice", "phone"], True, {"listen", "notes"}).join(5)
     # notes uninstalled; voice, stopped with Stop now, stays stopped; phone installed once; then the dashboard
     assert steps == [["uninstall", "notes"], ["install", "listen", "phone"], "exec"]
-    assert "services: on phone (runs here after a Settings save; installed and started): done" in said
+    assert "services: on phone (runs here after a Settings save; installed and started): done" in caplog.messages
 
     steps.clear()
 
@@ -311,14 +312,14 @@ def test_the_restart_uninstalls_then_installs_then_restarts_the_dashboard_even_a
         raise subprocess.TimeoutExpired(verb, 300)
 
     monkeypatch.setattr(settings, "_pack_services", timeout)
-    settings.restart(said.append, ["listen"], True, {"listen", "notes"}).join(5)
+    settings.restart(["listen"], True, {"listen", "notes"}).join(5)
     assert steps == ["exec"]  # the dashboard still comes back on the new settings
-    assert any(line.startswith("settings: services not restarted: TimeoutExpired") for line in said)
+    assert any(line.startswith("settings: services not restarted: TimeoutExpired") for line in caplog.messages)
 
 
 def test_a_save_passes_on_what_ran_here_before_it(config_url, pack_toml, monkeypatch):
     seen = queue.Queue()
-    monkeypatch.setattr(settings, "restart", lambda log=print, names=(), dashboard=True, before=None: seen.put(before))
+    monkeypatch.setattr(settings, "restart", lambda names=(), dashboard=True, before=None: seen.put(before))
     want = set(services.selected())
     assert "phone-bridge" not in want
     assert call(config_url, "POST", "/config", {"values": {"services.enable": "phone-bridge"}})[0] == 200

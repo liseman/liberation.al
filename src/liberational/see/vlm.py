@@ -55,10 +55,6 @@ def t() -> float:
 LOG = logs.get("see-vlm")
 
 
-def log(msg: str, level: int = logs.INFO) -> None:
-    LOG.log(level, msg)
-
-
 def downscale(img: np.ndarray, px: int = TILE_PX) -> np.ndarray:
     h, w = img.shape[:2]
     s = px / max(h, w)
@@ -107,7 +103,7 @@ class OllamaVLM:
         except ollama_health.Unavailable:
             return ""  # logged once by ollama_health, not on every frame
         except Exception as e:
-            log(f"  vlm error: {e}", level=logs.WARN)
+            LOG.warning(f"  vlm error: {e}")
             return ""
 
     def ground(self, img: np.ndarray, prompt: str = objects.PROMPT) -> str:
@@ -149,7 +145,7 @@ class MlxVLM:
         self.processor = loaded_processor(processor)
         self.cfg = load_config(repo)
         model_runtime.loaded("models.hf.vlm", repo, "camera descriptions", "Apple GPU", owner=self)
-        log(f"mlx-vlm: loaded {repo} in {t() - t0:.1f}s")
+        LOG.info(f"mlx-vlm: loaded {repo} in {t() - t0:.1f}s")
 
     def _prompt(self, memory: Sequence[str]) -> str:
         return chat_prompt(self._tmpl, self.processor, self.cfg, build_prompt(memory))
@@ -178,7 +174,7 @@ class MlxVLM:
             )
             return _clean(r.text)
         except Exception as e:
-            log(f"  vlm error: {e}", level=logs.WARN)
+            LOG.warning(f"  vlm error: {e}")
             return ""
 
 
@@ -192,7 +188,7 @@ class MlxServerVLM:
         self.url, self.timeout = f"http://127.0.0.1:{port}", timeout
         h = requests.get(f"{self.url}/health", timeout=5).json()  # raises if the server is down -> fallback
         self.repo = h.get("model", "?")
-        log(f"mlx-server: {self.url} serving {self.repo}")
+        LOG.info(f"mlx-server: {self.url} serving {self.repo}")
 
     def warm(self) -> None:
         pass  # the server warms itself
@@ -208,7 +204,7 @@ class MlxServerVLM:
             r.raise_for_status()
             return _clean(r.json()["caption"])
         except Exception as e:
-            log(f"  vlm error: {e}", level=logs.WARN)
+            LOG.warning(f"  vlm error: {e}")
             return ""
 
 
@@ -222,10 +218,10 @@ def make_vlm(backend: str, ollama_model: str = VLM, mlx_repo: str = MLX_VLM, px:
         try:
             return MlxServerVLM()
         except Exception as e:
-            log(f"mlx-server unavailable ({type(e).__name__}: {e}); trying in-process mlx", level=logs.WARN)
+            LOG.warning(f"mlx-server unavailable ({type(e).__name__}: {e}); trying in-process mlx")
     if backend in ("mlx-server", "mlx"):
         try:
             return MlxVLM(mlx_repo, px)
         except Exception as e:
-            log(f"mlx-vlm unavailable ({type(e).__name__}: {e}); falling back to ollama", level=logs.WARN)
+            LOG.warning(f"mlx-vlm unavailable ({type(e).__name__}: {e}); falling back to ollama")
     return OllamaVLM(ollama_model)

@@ -10,9 +10,9 @@ import threading
 import time
 from typing import TYPE_CHECKING, Any
 
-from liberational import logs, speech_log
+from liberational import speech_log
 from liberational.dashboard import context, routes
-from liberational.dashboard.context import Reply, log
+from liberational.dashboard.context import LOG, Reply
 
 if TYPE_CHECKING:
     from liberational.dashboard.server import H
@@ -38,10 +38,10 @@ def review_search(day: str, query: str) -> Reply:
             query.strip(), start, end, state=context.STATE, rank=False, limit=24, require_semantic=True
         )
     except recall.SemanticUnavailableError as error:
-        log("review meaning search unavailable:", type(error).__name__, level=logs.WARN)
+        LOG.warning("review meaning search unavailable: %s", type(error).__name__)
         return 503, {"error": str(error)}
     except Exception as error:
-        log("review meaning search failed:", type(error).__name__, level=logs.WARN)
+        LOG.warning("review meaning search failed: %s", type(error).__name__)
         return 503, {"error": "The local meaning index could not answer. Try again."}
     results = []
     seen: set[str] = set()
@@ -139,5 +139,5 @@ def _get_review_summary(h: H) -> None:
     try:
         return h._json(review_summary_kept(start, end))
     except Exception as ex:
-        log("review summary failed:", repr(ex), level=logs.ERROR)
+        LOG.error("review summary failed: %s", repr(ex))
         return h._json({"error": "Couldn't read the journal for that stretch."}, 500)

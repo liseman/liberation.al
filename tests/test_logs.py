@@ -19,7 +19,6 @@ from liberational import config as cfg
 from liberational import logs, ollama_health, phone
 from liberational.assistant import voice
 from liberational.dashboard import live_status, server
-from liberational.people import registry
 
 
 @pytest.fixture
@@ -66,15 +65,6 @@ def test_a_traceback_follows_its_line(captured):
     assert first.endswith("[journal] ERROR pass failed")
     assert rest[0] == "Traceback (most recent call last):"
     assert rest[-1] == "ValueError: boom"
-
-
-def test_a_modules_log_helper_writes_the_level_it_is_given(captured):
-    registry.log("video scan waits for retry:", "x.mp4", level=logs.WARN)
-    registry.log("segment done")
-    assert [line.split(" ", 2)[2] for line in lines(captured)] == [
-        "WARN video scan waits for retry: x.mp4",
-        "INFO segment done",
-    ]
 
 
 @pytest.mark.parametrize(

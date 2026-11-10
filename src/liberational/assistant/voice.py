@@ -116,12 +116,11 @@ def _turn(state: str) -> None:
         LOG.warning("could not set the voice turn to %s: %s", state, type(e).__name__)
 
 
-def log(*a: object, status: bool = True, level: int = logs.INFO) -> None:
-    """Print a log line; also record it as a status entry for the dashboard's live transcript, unless it only
-    describes a spoken reply (that detail is stored with the reply instead)."""
-    LOG.log(level, " ".join(str(x) for x in a))
-    if status:
-        _append({"ts_start": round(time.time(), 3), "text": " ".join(str(x) for x in a), "status": True})
+def status(text: str, level: int = logs.INFO) -> None:
+    """Log a line and record it as a status entry for the dashboard's live transcript. A line that only describes
+    a spoken reply goes to LOG alone (that detail is stored with the reply instead)."""
+    LOG.log(level, text)
+    _append({"ts_start": round(time.time(), 3), "text": text, "status": True})
 
 
 def answer(request: str) -> str:
@@ -257,7 +256,7 @@ def owner_answer(request: str, session_key: str, grant: Grant | None = None) -> 
         except ValueError as ex:
             return str(ex)
         except Exception as ex:
-            log("camera history unavailable:", ex, level=logs.WARN)
+            status(f"camera history unavailable: {ex}", level=logs.WARN)
             return "Camera history is unavailable right now; I cannot establish what changed."
     if not (grant and grant.route == "gateway" and grant.authorized_for(request)):
         raise VoiceAuthorizationError("Local authorization and confirmation required")
@@ -342,7 +341,7 @@ class Speaker:
         t0 = time.time()
         self.tts = tts.TTS(clone=True)
         self.tts.synth("Ready.")  # warm the selected voice without playing startup audio
-        log(f"voice ready in {time.time() - t0:.1f}s")
+        status(f"voice ready in {time.time() - t0:.1f}s")
 
     def speak(self, text: str) -> None:
         from liberational.speech.voice_clone import play_chunks
@@ -366,7 +365,7 @@ class _HistorySpeech:
             return
         self.prefix = pack_ask.spoken(result)
         self.started = time.time()
-        log("voice short answer ready", status=False)
+        LOG.info("voice short answer ready")
         _turn("Speaking")
         try:
             self.speaker.speak(self.prefix)
@@ -529,12 +528,12 @@ def _handle(text_line: str, speaker: Speaker | None = None, entry: Mapping[str, 
             # The local voice authorization didn't cover this exact request: nothing was sent to the agent.
             error = "not_authorized"
             reply = "I didn't send that because this request wasn't authorized. Please ask again."
-            log("request not authorized locally:", ex, level=logs.WARN)
+            status(f"request not authorized locally: {ex}", level=logs.WARN)
         except Exception as ex:
             # Log the cause even when a local failure kept the request from reaching the gateway.
             error = "gateway_error" if not friends and not call else "dispatch_failed"
             reply = "That request could not be completed. Native tool approval may still be needed."
-            log(f"{error}: {type(ex).__name__}: {str(ex)[:300]}", level=logs.WARN)
+            status(f"{error}: {type(ex).__name__}: {str(ex)[:300]}", level=logs.WARN)
     if isinstance(result, Grant) and result.owner and not result.needs_password and not result.needs_confirmation:
         try:
             if safe_question(result.request):
@@ -544,12 +543,8 @@ def _handle(text_line: str, speaker: Speaker | None = None, entry: Mapping[str, 
         except Exception:
             LAST_QUESTION = None
     route = result.route if isinstance(result, Grant) else "authorization"
-    log(
-        "voice reply ready",
-        "route=" + route,
-        f"dispatch_seconds={time.monotonic() - started:.3f}",
-        "error=" + str(error or "none"),
-        status=False,
+    LOG.info(
+        "voice reply ready route=%s dispatch_seconds=%.3f error=%s", route, time.monotonic() - started, error or "none"
     )
     if (
         isinstance(result, Grant)
@@ -560,7 +555,7 @@ def _handle(text_line: str, speaker: Speaker | None = None, entry: Mapping[str, 
     ):  # that has an answer
         # A question the owner asked without the wake phrase may well have been for someone else in the room: a
         # failure ("I can't do that without an agent") is never spoken over them.
-        log(f"not answering a line that didn't say {cfg.assistant_name()}'s name: error={error}", status=False)
+        LOG.info(f"not answering a line that didn't say {cfg.assistant_name()}'s name: error={error}")
         return None
     if speaker:
         start = history_speech.started if history_speech and history_speech.started is not None else time.time()
@@ -637,7 +632,7 @@ def run_continuum() -> None:
     clone_server.serve()
     CONTINUUM = speech_log.SpeechLog(client_name="voice")
     _turn("Idle")
-    log("listening on the speech log")
+    status("listening on the speech log")
     for entry in CONTINUUM.follow(idle_s=0.5):
         if entry is None:
             # Between lines: any clone speech the dashboard asked for, on this thread.
@@ -647,7 +642,7 @@ def run_continuum() -> None:
             handle(entry.get("text", ""), speaker, entry)
             CONVERSATION.share_pending()
         except Exception as ex:
-            log("error category:", type(ex).__name__, level=logs.ERROR)
+            status(f"error category: {type(ex).__name__}", level=logs.ERROR)
 
 
 def _voiceprints() -> list[int]:

@@ -77,7 +77,7 @@ def test_ready_server_starts_one_warm_up_without_blocking_requests(monkeypatch):
 
 
 @pytest.fixture
-def warm_sources(monkeypatch):
+def warm_sources(monkeypatch, caplog):
     calls, originals = [], {}
     original_wait = voice_turn.wait_quiet
     monkeypatch.setattr(context, "low_priority", lambda priority: calls.append(("priority", priority)))
@@ -106,10 +106,14 @@ def warm_sources(monkeypatch):
     )
     monkeypatch.setattr(unnamed_groups, "_VOICE_GROUPS", voices)
     monkeypatch.setattr(unnamed_groups, "_FACE_GROUPS", faces)
-    logged = create_autospec(people_reads.log)
-    monkeypatch.setattr(people_reads, "log", logged)
+    caplog.set_level("INFO")
+
+    def levels() -> list[int]:
+        """The level of each line the warm-up logged about itself."""
+        return [r.levelno for r in caplog.records if r.getMessage().startswith("people: warm")]
+
     return SimpleNamespace(
-        calls=calls, voices=voices, faces=faces, logged=logged, originals=originals, wait=original_wait
+        calls=calls, voices=voices, faces=faces, levels=levels, originals=originals, wait=original_wait
     )
 
 
@@ -132,8 +136,7 @@ def test_warm_up_admits_each_stage_at_low_priority_and_leaves_faces_last(warm_so
         "gate",
         "face groups",
     ]
-    warm_sources.logged.assert_called_once()
-    assert warm_sources.logged.call_args.kwargs["level"] == logs.INFO
+    assert warm_sources.levels() == [logs.INFO]
 
 
 def test_warm_up_logs_one_failure_and_still_warms_the_other_caches(monkeypatch, warm_sources):
@@ -160,8 +163,7 @@ def test_warm_up_logs_one_failure_and_still_warms_the_other_caches(monkeypatch, 
         "gate",
         "face groups",
     ]
-    warm_sources.logged.assert_called_once()
-    assert warm_sources.logged.call_args.kwargs["level"] == logs.WARN
+    assert warm_sources.levels() == [logs.WARN]
     status = people_reads._people_warm_status()
     assert status["state"] == "incomplete"
     assert len(status["errors"]) == 2
@@ -186,8 +188,7 @@ def test_unpublished_success_is_retried_once_then_reports_incomplete(monkeypatch
     assert faces.value is None
     assert people_reads._people_warm_status()["state"] == "incomplete"
     assert any("face groups" in error for error in people_reads._people_warm_status()["errors"])
-    warm_sources.logged.assert_called_once()
-    assert warm_sources.logged.call_args.kwargs["level"] == logs.WARN
+    assert warm_sources.levels() == [logs.WARN]
 
 
 def test_group_retry_can_publish_before_the_warm_up_reports_done(monkeypatch, warm_sources):
@@ -209,8 +210,7 @@ def test_group_retry_can_publish_before_the_warm_up_reports_done(monkeypatch, wa
     assert status["stage"] is None
     assert status["errors"] == []
     assert status["elapsed_s"] >= 0
-    warm_sources.logged.assert_called_once()
-    assert warm_sources.logged.call_args.kwargs["level"] == logs.INFO
+    assert warm_sources.levels() == [logs.INFO]
 
 
 def test_request_joins_the_in_flight_people_warm_up(monkeypatch):

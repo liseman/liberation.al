@@ -17,9 +17,9 @@ import urllib.request
 from typing import TYPE_CHECKING, Any
 
 from liberational import config as cfg
-from liberational import logs, model_runtime, ollama_health, services
+from liberational import model_runtime, ollama_health, services
 from liberational.dashboard import machine_usage, routes
-from liberational.dashboard.context import SSE_CLIENTS, log
+from liberational.dashboard.context import LOG, SSE_CLIENTS
 
 try:
     import psutil
@@ -131,7 +131,7 @@ class Stats:
         try:
             owner = {pid: name for name, pids in services.processes().items() for pid in pids}
         except (Exception, SystemExit) as e:  # pack.toml names a service that doesn't exist: the other roles still show
-            log(f"stats: services' processes unreadable: {e}", level=logs.WARN)
+            LOG.warning(f"stats: services' processes unreadable: {e}")
             owner = {}
             self.model_scan_known = False
         from liberational import proc_table  # psutil's, and psutil is optional here

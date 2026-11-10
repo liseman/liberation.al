@@ -6,10 +6,10 @@ import subprocess
 from collections.abc import Sequence
 from typing import Any
 
-from liberational import logs, speech_log
+from liberational import speech_log
 from liberational.config import ROOT
 from liberational.dashboard import context
-from liberational.dashboard.context import PY, log
+from liberational.dashboard.context import LOG, PY
 from liberational.people import registry, voice_edits, voice_list
 
 _VOICES = voice_list.VoiceList(lambda: speech_log.shared())
@@ -26,16 +26,16 @@ def _speakers() -> dict[str, Any]:
         if registry.log_exists(context.STATE):
             known = registry.at(context.STATE).voiceprints()
     except Exception as e:
-        log("speakers: the event log's voices can't be read:", repr(e), level=logs.WARN)
+        LOG.warning("speakers: the event log's voices can't be read: %s", repr(e))
     try:
         sp = _VOICES.voices(known)
     except Exception as e:
-        log("speakers: the voice list can't be read from the speech log:", repr(e), level=logs.ERROR)
+        LOG.error("speakers: the voice list can't be read from the speech log: %s", repr(e))
         sp = voice_list.Tally().rows(known)
     try:
         names = registry.voice_names(context.STATE, [s["id"] for s in sp])
     except Exception as e:
-        log("speakers: voices read as unnamed, the event log is unreadable:", repr(e), level=logs.WARN)
+        LOG.warning("speakers: voices read as unnamed, the event log is unreadable: %s", repr(e))
         names = {}
     enrolled = _enrolled_voices([s["id"] for s in sp])
     return {
@@ -58,7 +58,7 @@ def _enrolled_voices(sids: list[int]) -> set[int]:
             if any(a.source == voice_edits.ENROLL_SOURCE for a in reg.person_of(registry.voiceprint(n)).standing)
         }
     except Exception as e:
-        log("speakers: which voices are enrolled can't be read:", repr(e), level=logs.WARN)
+        LOG.warning("speakers: which voices are enrolled can't be read: %s", repr(e))
         return set()
 
 

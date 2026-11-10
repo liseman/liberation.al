@@ -42,10 +42,6 @@ _trouble: dict[str, Any] = {"why": None}
 LOG = logs.get("embedding")
 
 
-def log(*a: object, level: int = logs.INFO) -> None:
-    LOG.log(level, " ".join(str(x) for x in a))
-
-
 def enabled() -> bool:
     return bool(cfg.get("semantic.enabled"))
 
@@ -61,14 +57,14 @@ def settings() -> tuple[str, int]:
 def trouble(why: str) -> None:
     """Note that vectors can't be used right now, logging it once per kind of trouble."""
     if _trouble["why"] != why:
-        log(f"{why}; searching by words alone until it's fixed", level=logs.WARN)
+        LOG.warning(f"{why}; searching by words alone until it's fixed")
         _trouble["why"] = why
 
 
 def fine() -> None:
     """Vectors work: log it once if there was trouble before."""
     if _trouble["why"] is not None:
-        log("embeddings work again")
+        LOG.info("embeddings work again")
         _trouble["why"] = None
 
 
