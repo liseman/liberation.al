@@ -5,6 +5,7 @@ import { server } from '../../test/server';
 import { isoDay } from '../lib/format';
 import {
   activitiesQuery,
+  blocksQuery,
   chipsQuery,
   dayBlocksQuery,
   getActivities,
@@ -336,4 +337,101 @@ describe('getActivities (#52)', () => {
     await expect(dropped).rejects.toMatchObject({ name: 'AbortError' });
     expect((await kept).items[0]?.id).toBe('kept'); // the day left is asked for alone
   });
+});
+
+describe('blocksQuery (#92)', () => {
+  const DAY = '2026-10-27';
+  const t0 = new Date(`${DAY}T00:00:00`).getTime() / 1000;
+  const t1 = new Date('2026-10-28T00:00:00').getTime() / 1000;
+  const reply = (start: number, end: number, text: string) => ({
+    start,
+    end,
+    level: 3600,
+    status: 'ready',
+    blocks: [{ start, end, text }],
+  });
+  const asked: string[] = [];
+  const serve = (dayStart = t0, dayEnd = t1) =>
+    server.use(
+      http.get('/review/summary', ({ request }) => {
+        const query = new URL(request.url).searchParams;
+        asked.push(query.has('day') ? `day=${query.get('day')}` : `${query.get('start')}-${query.get('end')}`);
+        return query.has('day')
+          ? HttpResponse.json(reply(dayStart, dayEnd, 'the day'))
+          : HttpResponse.json(reply(Number(query.get('start')), Number(query.get('end')), 'the range'));
+      }),
+    );
+  afterEach(() => {
+    asked.length = 0;
+  });
+
+  it("shares the day summary's read when the range is the whole day", async () => {
+    serve();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const [day, range] = await Promise.all([
+      client.fetchQuery(dayBlocksQuery(DAY)),
+      client.fetchQuery(blocksQuery(DAY, t0, t1)),
+    ]);
+    expect(asked).toEqual([`day=${DAY}`]);
+    expect(range).toEqual(day);
+    client.clear();
+  });
+
+  it('asks for a narrower range itself', async () => {
+    serve();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    await client.fetchQuery(dayBlocksQuery(DAY));
+    const range = await client.fetchQuery(blocksQuery(DAY, t0 + 3600, t0 + 7200));
+    expect(asked).toEqual([`day=${DAY}`, `${t0 + 3600}-${t0 + 7200}`]);
+    expect(range.blocks[0]?.text).toBe('the range');
+    client.clear();
+  });
+
+  it("asks for the range itself when the server's day isn't the browser's (another timezone)", async () => {
+    serve(t0 + 3600, t1 + 3600);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const [, range] = await Promise.all([
+      client.fetchQuery(dayBlocksQuery(DAY)),
+      client.fetchQuery(blocksQuery(DAY, t0, t1)),
+    ]);
+    expect(asked).toEqual([`day=${DAY}`, `${t0}-${t1}`]);
+    expect(range.blocks[0]?.text).toBe('the range');
+    client.clear();
+  });
+
+  it("asks for the range itself when the day's read fails", async () => {
+    server.use(
+      http.get('/review/summary', ({ request }) => {
+        const query = new URL(request.url).searchParams;
+        asked.push(query.has('day') ? 'day' : 'range');
+        return query.has('day')
+          ? HttpResponse.json({ error: 'day must be YYYY-MM-DD' }, { status: 400 })
+          : HttpResponse.json(reply(t0, t1, 'the range'));
+      }),
+    );
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const [, range] = await Promise.all([
+      client.fetchQuery(dayBlocksQuery(DAY)).catch(() => null),
+      client.fetchQuery(blocksQuery(DAY, t0, t1)),
+    ]);
+    expect(asked).toEqual(['day', 'range']);
+    expect(range.blocks[0]?.text).toBe('the range');
+    client.clear();
+  });
+});
+
+it('asks for a whole-day range itself where nothing reads the day summary (#92)', async () => {
+  const asked: string[] = [];
+  server.use(
+    http.get('/review/summary', ({ request }) => {
+      asked.push(new URL(request.url).search);
+      return HttpResponse.json({ start: 0, end: 0, level: 3600, status: 'ready', blocks: [] });
+    }),
+  );
+  const t0 = new Date('2026-10-27T00:00:00').getTime() / 1000;
+  const t1 = new Date('2026-10-28T00:00:00').getTime() / 1000;
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  await client.fetchQuery(blocksQuery('2026-10-27', t0, t1));
+  expect(asked).toEqual([`?start=${t0}&end=${t1}`]);
+  client.clear();
 });
