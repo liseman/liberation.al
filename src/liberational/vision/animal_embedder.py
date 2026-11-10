@@ -19,7 +19,10 @@ and taught `pet.reference` vectors must be discarded when switching models, keep
 historical labels in the export. Reset track IDs also require retiring old sighting bindings; see MIGRATING.md.
 Recognition needs new reference evidence after that reset.
 
-The weights are installed by `mise run models` and never downloaded here. It runs where the animal check does
+The weights are installed by `mise run models` and never downloaded here. The publisher's repository is gated
+behind a manual approval, so the default `repo` is an ungated copy of the same files, pinned to a revision and
+checked against the publisher's checksum when fetched (tools/fetch_models.py). The space keeps the publisher's name
+(`space` in the config), so rows and references made from either source compare. It runs where the animal check does
 (`vision.animal_models_device`). Configured weights and preprocessing use the same revision; an explicitly
 supplied repository or local snapshot does not inherit the configured model's revision.
 """
@@ -38,8 +41,11 @@ CROP = "tight"  # how a box is cut before embedding; part of the embedding space
 
 
 def space() -> str:
-    """The embedding space animal embeddings are in: the configured model and the crop, as rows record it."""
-    return f"{cfg.hf_repo('animal_embedding')}:{CROP}"
+    """The embedding space animal embeddings are in: the model and the crop, as rows record it. The model is named
+    by `[models.hf.animal_embedding]`'s `space` (the weights' own name, whichever repository they're fetched from),
+    else by its `repo`."""
+    declared = str(cfg.get("models.hf.animal_embedding.space", "") or "").strip()
+    return f"{declared or cfg.hf_repo('animal_embedding')}:{CROP}"
 
 
 class DinoEmbedder:

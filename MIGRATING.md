@@ -25,6 +25,25 @@ The Python SDK's in-place registration calls are renamed (`register_v1_index` to
 restart matching components") and restart every service after the pull. Stream names (`<stream>.audio_v1`,
 `<stream>.video_v1`) and stored data are unchanged; nothing is dropped.
 
+## The pet embedding model is fetched from an ungated copy
+
+`[models.hf.animal_embedding]` now names an ungated copy of the same DINOv3 ViT-S/16 files (`repo`, pinned by
+`revision`), the publisher's checksum of the weights (`sha256`), and the embedding space's name (`space`, still the
+publisher's repository name). The weights are byte for byte the same, and the space name stored in every animal
+embedding row and taught pet reference doesn't change, so nothing is re-embedded, reset, or taught again.
+
+The pet workers load the weights from the repository the config names, so fetch the copy (86 MB) before restarting
+them, or they start without pet embeddings and say the weights are missing:
+
+```sh
+.venv/bin/python tools/fetch_models.py --no-ollama
+```
+
+Then restart every config-reading service (`space` and `sha256` are new keys). The old download in the Hugging Face
+cache (`models--facebook--dinov3-vits16-pretrain-lvd1689m`) is no longer read and can be deleted. A `pack.toml` that
+sets `models.hf.animal_embedding.repo` to another model must also set `space` to that model's own name, or its
+vectors would be stored under DINOv3's.
+
 ## The gateway's stream listing comes from the catalog
 
 The gateway no longer walks the chunk directory to list streams while the broker is up: the broker's listing carries
@@ -289,9 +308,9 @@ vector-bearing teaching bundle wholesale afterward.
 
 AdaFace requires a local ONNX export after its declared source and checkpoint are
 fetched; follow `uv run tools/export_adaface.py --help` and use the configured model paths.
-Review the checkpoint's dataset-license conditions. DINOv3 requires the operator's
-acceptance of its model terms and authenticated access before fetching; an agent
-does not accept those terms for them.
+Review the checkpoint's dataset-license conditions. DINOv3 is under the DINOv3
+License, fetched beside its weights; the operator reads and accepts those terms, and
+an agent does not accept them for them.
 
 Deep transcription now uses Qwen3-ASR in the scheduled process and writes
 `transcript_revisions_qwen.sqlite3`; the old `transcript_revisions.sqlite3` is not

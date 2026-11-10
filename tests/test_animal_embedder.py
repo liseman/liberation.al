@@ -84,6 +84,18 @@ def test_configured_model_and_processor_are_loaded_offline(adapter):
     assert embedder.name == REPO
 
 
+def test_the_space_is_named_by_the_weights_not_by_where_they_were_fetched_from():
+    entry = {"repo": "mirror/copy-of-weights", "space": "publisher/weights"}
+    with config.override({"models": {"hf": {"animal_embedding": entry}}}):
+        assert E.space() == "publisher/weights:tight"
+    with config.override({"models": {"hf": {"animal_embedding": {"repo": "publisher/other", "space": ""}}}}):
+        assert E.space() == "publisher/other:tight"  # no declared space: the repository names it
+
+
+def test_the_default_space_is_the_one_stored_rows_and_taught_references_carry():
+    assert E.space() == "facebook/dinov3-vits16-pretrain-lvd1689m:tight"
+
+
 def test_configured_revision_pins_both_weights_and_preprocessing(adapter):
     with config.override({"models": {"hf": {"animal_embedding": {"repo": REPO, "revision": "fixed-commit"}}}}):
         E.DinoEmbedder(device="cpu")
