@@ -454,8 +454,8 @@ refresh, with the normal unavailable response for the failed read. These are das
 new daemon, port, or state file. The dashboard and each of its worker processes (these, Reports' days, and Review's
 day history in `dashboard/presence.py`) return freed memory to the system every minute (`memtrim.py`, glibc's
 `malloc_trim`): glibc otherwise keeps a process at its peak, and decoding frames for face photos grew the People list
-worker past 1.6 GB. Review's day history worker also keeps today's ended hours of records on purpose
-(`segment_log.keep_hours`, at most `MAX_HOURS`, dropped when the day turns).
+worker past 1.6 GB. Review's day history worker keeps no decoded records between
+refreshes: its dense inputs are read as columns.
 
 People's unnamed-face picker and its face groups read `face.match` from the segment store over a rolling month,
 with a fresh identity view on every request, so corrections show at once.
