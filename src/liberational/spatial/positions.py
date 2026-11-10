@@ -458,15 +458,17 @@ class _Places:
         """The rooms of the plan drawn in `rev`'s frame. Plan frames aren't stable across revisions: each map is a new
         frame, and each floorplan is rotated and moved to start at 0,0. So it's the owner's correction when `rev` uses
         the very machine plan the owner corrected (the same plan file, so the same frame; for a plan drawn in a revision
-        with no plan file, the same map frame, `places.same_plan_frame`), else `rev`'s own machine plan."""
+        with no plan file, the same map frame, `places.same_plan_frame`), else `rev`'s own machine plan. A place
+        with an owner's plan has no other: a revision that isn't in its frame has no rooms, never a machine plan's."""
         if rev.id not in self._plans:
             text: str | None = None
             held = places.get(self.state, rev.place)
-            if held is not None and held.plan_source == "owner" and held.plan_revision is not None:
+            owned = held is not None and held.plan_source == "owner"
+            if held is not None and owned and held.plan_revision is not None:
                 corrected = self.revision(rev.place, held.plan_revision)
                 if corrected is not None and places.same_plan_frame(corrected, rev):
                     text = held.plan
-            if text is None:
+            if text is None and not owned:
                 text = places.machine_plan(self.state, rev)
             self._plans[rev.id] = floorplan.rooms_from_dsl(text or "")
         return self._plans[rev.id]
