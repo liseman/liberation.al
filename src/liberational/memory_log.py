@@ -1,4 +1,4 @@
-"""The memory log: the journal's interpretations on Continuum , the way `speech_log` and
+"""The memory log: the journal's interpretations on Continuum, the way `speech_log` and
 `vision_log` hold speech and vision. Layer 3 payloads with parents, where v1 kept `interpretations.sqlite3` and
 `summaries/`. B1 of the plan: the streams, their codecs, and the read API that `recall`, `history_qa`, the Review
 summary, and the dashboard code against; the journal worker writes them, its day, week, and month pages included

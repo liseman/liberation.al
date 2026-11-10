@@ -1,4 +1,4 @@
-"""The Wi-Fi access points this machine hears, as a place signal .
+"""The Wi-Fi access points this machine hears, as a place signal (part of the spatial-memory goal, #1).
 
 The same set of access points means the same place. Passive only: this reads the scan results the operating system
 already has and never connects, probes, or asks for a new scan.

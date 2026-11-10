@@ -854,8 +854,8 @@ CRASH_LOOP_RESTARTS = 3  # the frontend's CRASH_LOOP: fewer restarts don't estab
 
 def _dated(stamps: Sequence[str], end: float) -> list[float]:
     """Epoch seconds for a log's stamps, in file order. A dated stamp is its own time. A "HH:MM:SS" one, from
-    before stamps carried the date, carries no date, so it's dated backward from the next dated line, or the log's last write (end, its
-    mtime): a line later in the day than the one after it is from the day before."""
+    before stamps carried the date, has none, so it's dated backward from the next dated line, or the log's last write
+    (end, its mtime): a line later in the day than the one after it is from the day before."""
     last = datetime.datetime.fromtimestamp(end)
     day, bound = last.date(), last.hour * 3600 + last.minute * 60 + last.second + CLOCK_SLACK_S
     out: list[float] = []

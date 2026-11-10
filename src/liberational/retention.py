@@ -1,4 +1,4 @@
-"""Retention past the 30-day window : keep the meaning, drop the measurement.
+"""Retention past the 30-day window: keep the meaning, drop the measurement.
 
 Each night `pack-video-window` runs this after it ages out the video. It takes every ended local day older than the
 window (`video_window.days`) whose day page is written (a `journal.page` at level `day`, a quiet day's marker

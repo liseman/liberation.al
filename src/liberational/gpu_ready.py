@@ -2,8 +2,8 @@
 
 Service renderers opt in through services.toml's `wait_for_gpu`. A program that picks its device once at startup,
 like `ollama serve`, falls back to the CPU for good when it starts before the driver is up: on the Linux machine
-the user services can start at boot before the driver loads ten minutes later, leaving Ollama running every model on the CPU until
-it is restarted. This waits until `nvidia-smi -L` lists a GPU, then replaces itself with the service so signals and
+the user services started at boot and the driver loaded ten minutes later, so Ollama ran every model on the CPU until
+it was restarted. This waits until `nvidia-smi -L` lists a GPU, then replaces itself with the service so signals and
 exit status still belong to the service manager.
 
 A machine with no `nvidia-smi` (a Mac, a CPU-only box) execs at once: there's no driver to wait for. When the wait
