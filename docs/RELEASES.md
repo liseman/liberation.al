@@ -166,7 +166,6 @@ One section per version, newest last. The release workflow publishes a version's
 The first release: the application as wheels for Linux x86-64, Linux arm64, and macOS on Apple Silicon, installed
 with `uv tool install` and set up with `pack-setup`.
 
-The wheels' private FFmpeg has no AV1 encoder and no TLS, so an installed system can't run the opt-in AV1 archive
-pass or read `rtsps://` cameras; a checkout can.
+The wheels' private FFmpeg has no TLS, so an installed system can't read `rtsps://` cameras; a checkout can.
 
 An upgrade resets nothing: there is no earlier release to upgrade from.

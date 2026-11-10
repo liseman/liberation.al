@@ -75,6 +75,5 @@ Then restart the tier worker (`pack-services restart continuum-tier-worker`).
 - On a short sample, preset 8 and CRF 52 left about 44% of the H.264's bytes at about 0.04 core-seconds a frame.
 - Review plays AV1 where the browser decodes it (Chrome, Edge, Firefox, and Safari on recent Apple devices), and
   says so where it cannot. Exports re-encode to H.264.
-- A wheel install has no AV1 encoder ([CONTINUUM-SDK.md](CONTINUUM-SDK.md#wheels)).
 
 Settings under `[video_archive]`: `av1`, `after_hours`, `preset` (8), `crf` (52), and `threads` (4).
