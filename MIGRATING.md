@@ -41,7 +41,7 @@ Then `uv run --no-sync pack-services install continuum-gateway`, so the unit's `
 The process does not read `pack.toml` itself. Cameras then show for a dashboard opened on the tailnet. From outside
 the tailnet they stay unavailable.
 
-## Cameras are views: mounts and rigs in devices.toml (2026-11-09)
+## Cameras are views: mounts and rigs in devices.toml
 
 A camera is an angle on whatever holds it, not a room (#5). Its fixed-mount settings moved from `pack.toml` onto its
 own entry in `config/devices.toml`, as `mount`, and a camera on a moving rig now says where it sits on the rig
@@ -61,9 +61,9 @@ Delete the old keys from `pack.toml` after moving them. Capture refuses a `mount
 `mount.rig` with no `[[rig]]`, so restart `continuum-capture` once the manifest is edited, and then every
 config-reading service, dashboard included (the renamed `vision.camera_names` key). No machine-made data changes.
 
-## Pet embeddings are cut tight (2026-11-08)
+## Pet embeddings are cut tight
 
-Animal embeddings now crop the detector's box itself instead of a square with context (#3024), a new embedding space
+Animal embeddings now crop the detector's box itself instead of a square with context, a new embedding space
 (`<repo>:tight` in each row's and `pet.reference`'s `model`). References of the old space are ignored, so pet
 recognition is off until the owner's labels get new ones. After pulling, restart `see-actions`, `see-captions`, and the
 dashboard, then run once:
@@ -77,7 +77,7 @@ It finds each labeled track's animal in its saved photo (`state/pet_shots`, kept
 reference; a photo with no animal found leaves its label without one. Square-crop embeddings of unlabeled sightings
 age out with `pets.label_days`.
 
-## The shared Ollama is a pack service (2026-11-08)
+## The shared Ollama is a pack service
 
 The Ollama at `ollama.url` now runs as the `ollama` pack service, which waits for the NVIDIA driver before it starts.
 On Linux, stop and disable the system one so the two don't fight over port 11434, keep its model store, and install:
