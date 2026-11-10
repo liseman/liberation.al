@@ -65,3 +65,92 @@ undocumented_unsafe_blocks = "warn"
 
 [profile.release]
 lto = "thin"
+
+# continuum-vector-worker is nearly all LanceDB code, and most of that is code it runs rarely or never: the SQL
+# parser and DataFusion's planner and function library (a filter is parsed and planned once per query), the
+# namespace clients, and the dataset layer above the scan. Those packages are built for size, which took the
+# stripped worker from 243 MB to under 150 MB. The packages that do the work per row stay at the default level:
+# the arrow kernels, lance-linalg (distances), lance-index (search and the full-text index), lance-encoding, and
+# lance-file. Only the vector worker links any package named here; a package another daemon links stays out.
+#
+# Built for the smallest code ("z"): parsing, planning, catalogs, and clients.
+[profile.release.package.sqlparser]
+opt-level = "z"
+[profile.release.package.datafusion]
+opt-level = "z"
+[profile.release.package.datafusion-catalog]
+opt-level = "z"
+[profile.release.package.datafusion-catalog-listing]
+opt-level = "z"
+[profile.release.package.datafusion-common]
+opt-level = "z"
+[profile.release.package.datafusion-datasource]
+opt-level = "z"
+[profile.release.package.datafusion-datasource-arrow]
+opt-level = "z"
+[profile.release.package.datafusion-datasource-csv]
+opt-level = "z"
+[profile.release.package.datafusion-datasource-json]
+opt-level = "z"
+[profile.release.package.datafusion-expr]
+opt-level = "z"
+[profile.release.package.datafusion-expr-common]
+opt-level = "z"
+[profile.release.package.datafusion-functions]
+opt-level = "z"
+[profile.release.package.datafusion-functions-aggregate]
+opt-level = "z"
+[profile.release.package.datafusion-functions-aggregate-common]
+opt-level = "z"
+[profile.release.package.datafusion-functions-nested]
+opt-level = "z"
+[profile.release.package.datafusion-functions-table]
+opt-level = "z"
+[profile.release.package.datafusion-functions-window]
+opt-level = "z"
+[profile.release.package.datafusion-functions-window-common]
+opt-level = "z"
+[profile.release.package.datafusion-optimizer]
+opt-level = "z"
+[profile.release.package.datafusion-physical-optimizer]
+opt-level = "z"
+[profile.release.package.datafusion-pruning]
+opt-level = "z"
+[profile.release.package.datafusion-session]
+opt-level = "z"
+[profile.release.package.datafusion-sql]
+opt-level = "z"
+[profile.release.package.lance-namespace]
+opt-level = "z"
+[profile.release.package.lance-namespace-impls]
+opt-level = "z"
+[profile.release.package.lance-namespace-reqwest-client]
+opt-level = "z"
+[profile.release.package.prost]
+opt-level = "z"
+[profile.release.package.prost-types]
+opt-level = "z"
+
+# Built for size without giving up loop optimizations ("s"): what runs once per batch or per commit.
+[profile.release.package.datafusion-execution]
+opt-level = "s"
+[profile.release.package.datafusion-physical-expr]
+opt-level = "s"
+[profile.release.package.datafusion-physical-expr-adapter]
+opt-level = "s"
+[profile.release.package.datafusion-physical-expr-common]
+opt-level = "s"
+[profile.release.package.datafusion-physical-plan]
+opt-level = "s"
+[profile.release.package.lance]
+opt-level = "s"
+[profile.release.package.lancedb]
+opt-level = "s"
+[profile.release.package.lance-datafusion]
+opt-level = "s"
+[profile.release.package.lance-io]
+opt-level = "s"
+[profile.release.package.lance-table]
+opt-level = "s"
+[profile.release.package.moka]
+opt-level = "s"
