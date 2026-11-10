@@ -275,7 +275,8 @@ def promote(previous: Path, current: Path) -> bool:
 def in_frame(box: Any) -> list[float] | None:
     """A face box (xyxy shares of the frame) clipped to the frame, or None when nothing of it is inside. A face at the
     frame's edge has a box past it (the detector's box around a half-seen head): 1,524 of 7,468 face
-    rows in one day on the Linux machine did, and every crop of them was refused as out of range, so their shots 404ed."""
+    rows in one day on the Linux machine did, and every crop of them was refused as out of range, so their shots
+    404ed."""
     x1, y1, x2, y2 = (min(1.0, max(0.0, float(v))) for v in box[:4])
     return [x1, y1, x2, y2] if x2 > x1 and y2 > y1 else None
 

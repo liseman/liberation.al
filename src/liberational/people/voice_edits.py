@@ -102,7 +102,7 @@ def _theirs(state: pathlib.Path, name: str, clone: bool) -> int | None:
         return None
     # Only a voiceprint an earlier enroll of this same person made (re-recording the reference replaces it), never
     # one that only reads as them: a guest's voice merged into the owner after an introduction would otherwise take
-    # the enroll's owner tag, and with it the owner's path .
+    # the enroll's owner tag, and with it the owner's path.
     reg = registry.at(state)
     pid = reg.person_id(name)
     if pid is None:

@@ -181,9 +181,9 @@ def utterance_of(e: Mapping[str, Any]) -> SubjectRef:
 
 
 def legacy_of(subject: SubjectRef) -> SubjectRef | None:
-    """The id a line keyed by its device had before device-prefixed keys (the millisecond alone), or None for any other subject.
-    What was said under that id still counts for every line that starts in that millisecond, until something said
-    about one of them supersedes it for that line."""
+    """The id a line keyed by its device had before device-prefixed keys (the millisecond alone), or None for any other
+    subject. What was said under that id still counts for every line that starts in that millisecond, until something
+    said about one of them supersedes it for that line."""
     if not subject.id.startswith("utterance:"):
         return None
     slug, ts = split_key(subject.id)

@@ -1,4 +1,4 @@
-"""Identity linking on Continuum : learn people's names the way humans do (fully local, no face
+"""Identity linking on Continuum: learn people's names the way humans do (fully local, no face
 search).
 
 The worker (`pack-identity`) follows the broker's streams and names what they show:

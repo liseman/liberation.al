@@ -302,7 +302,7 @@ def ask_llm(name: str, lines: list[str]) -> Any:
                 # evicting it, reloading at the 262k default (32 GB) and flushing the agent's prompt cache.
                 # OpenClaw also sends truncate/shift=false; Ollama's default (shift=true) launches
                 # llama-server with --context-shift, a different runner, so omitting these restarted
-                # the 30B (and wiped its KV cache) on every call .
+                # the 30B (and wiped its KV cache) on every call.
                 "truncate": False,
                 # The big context only pays off on a separate big model; on the shared small one it forces a second
                 # load that never comes (num_ctx).
