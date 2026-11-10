@@ -3,6 +3,7 @@
 import asyncio
 import itertools
 import time
+import uuid
 from pathlib import Path
 
 import pytest
@@ -43,6 +44,56 @@ def worker(state: Path, clock: Clock, sets: dict[str, zones.Definition]) -> Z.Zo
     return Z.ZoneWorker(state, current=lambda _state: dict(sets), clock=clock)
 
 
+class AnimalRows:
+    """Writes `animal.detection` and `animal.coverage` the way see-actions does, one camera at a time."""
+
+    def __init__(self, root: Path, cam: str = "cam0") -> None:
+        self.cam = cam
+        self.writers = segment_log.Writers(root)
+
+    def animals(self, ts_ns: int, tracks: list[tuple[str, str, list[float]]]) -> None:
+        """One sample's confirmed animals: (track id, species, [x1, y1, x2, y2]) each."""
+        if not tracks:
+            return
+        frame = str(uuid.uuid7())
+        self.writers.append(
+            segment_log.ANIMAL_DETECTIONS,
+            self.cam,
+            [
+                {
+                    "ts_ns": ts_ns,
+                    "frame_id": frame,
+                    "track_id": track,
+                    "species": species,
+                    "box": [*box, 0.9],
+                    "verified": True,
+                    "model": "test",
+                }
+                for track, species, box in tracks
+            ],
+        )
+
+    def covered(self, start_ns: int, end_ns: int, frames: int = 5) -> None:
+        self.writers.append(
+            segment_log.ANIMAL_COVERAGE,
+            self.cam,
+            [
+                {
+                    "id": str(uuid.uuid7()),
+                    "ts_start": start_ns / 1e9,
+                    "ts_end": end_ns / 1e9,
+                    "frames": frames,
+                }
+            ],
+        )
+
+    def sync(self) -> None:
+        self.writers.sync()
+
+    def close(self) -> None:
+        self.writers.close()
+
+
 def walk(rows: ActionsRows, start_ns: int, xs: list[float | None], track: int = 7) -> int:
     """One frame every half second from `start_ns`, track `track` at each x (None: nobody), covered a second at a
     time. Returns the time after the last frame."""
@@ -66,6 +117,18 @@ def written(state: Path, stream: str) -> list[dict]:
     return segment_log.Log(segment_log.root(state)).range(stream, T / 1e9 - 10, T / 1e9 + 1000)
 
 
+def walk_animals(rows: AnimalRows, start_ns: int, xs: list[float | None], track: str, species: str) -> int:
+    """Like `walk`, for one animal track. Returns the time after the last sample."""
+    at = start_ns
+    for n, x in enumerate(xs):
+        rows.animals(at, [] if x is None else [(track, species, box(x))])
+        if n % 2 == 1:
+            rows.covered(at - STEP, at)
+        at += STEP
+    rows.sync()
+    return at
+
+
 def test_a_person_walking_through_a_zone_is_one_visit_with_its_dwell(state):
     clock, sets = Clock(), {"cam0": definition()}
     w = worker(state, clock, sets)
@@ -82,6 +145,41 @@ def test_a_person_walking_through_a_zone_is_one_visit_with_its_dwell(state):
     )
     assert visit["dwell_s"] == pytest.approx(4.5)  # inside from 1 s to 5.5 s
     assert visit["entry_seen"] is True
+    rows.close()
+
+
+def test_an_animal_in_a_zone_is_a_visit_in_its_species_under_its_track(state):
+    clock, sets = Clock(), {"cam0": definition()}
+    w = worker(state, clock, sets)
+    rows = AnimalRows(segment_log.root(state))
+    walk_animals(rows, T, [OUT, OUT, *[IN] * 10, *[OUT] * 6], "run1:cat:3", "cat")
+    run(w, clock)
+    w.checkpoint()
+    (visit,) = written(state, segment_log.ZONE_VISITS)
+    assert (visit["zone_name"], visit["subject_kind"], visit["label"], visit["track_id"], visit["ended"]) == (
+        "Litter box",
+        "animal",
+        "cat",
+        "run1:cat:3",
+        "left",
+    )
+    assert visit["dwell_s"] == pytest.approx(4.5)  # inside from 1 s to 5.5 s, same span a person gets
+    assert visit["entry_seen"] is True
+    assert written(state, segment_log.PRESENCE_SPANS) == []  # an animal in view is not someone present
+    rows.close()
+
+
+def test_a_covered_stretch_with_no_animal_is_animal_coverage_and_no_visit(state):
+    clock, sets = Clock(), {"cam0": definition()}
+    w = worker(state, clock, sets)
+    rows = AnimalRows(segment_log.root(state))
+    walk_animals(rows, T, [None] * 140, "run1:cat:3", "cat")
+    run(w, clock)
+    w.checkpoint()
+    assert written(state, segment_log.ZONE_VISITS) == []
+    (coverage,) = written(state, segment_log.ZONE_COVERAGE)
+    assert (coverage["subject_kind"], coverage["zones"]) == ("animal", ["zone-litter"])
+    assert coverage["ts_end"] - coverage["ts_start"] >= 60
     rows.close()
 
 
