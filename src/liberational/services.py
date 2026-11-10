@@ -31,10 +31,13 @@ import threading
 import time
 import tomllib
 from collections.abc import Iterator, Mapping, Sequence
-from typing import Any, Literal, TypedDict
+from typing import TYPE_CHECKING, Any, Literal, TypedDict
 
 from liberational import config as cfg
 from liberational import logs
+
+if TYPE_CHECKING:
+    from liberational import proc_table
 
 SPEC = cfg.RESOURCES / "services.toml"
 DARWIN = sys.platform == "darwin"
@@ -1198,6 +1201,37 @@ def _commands() -> tuple[dict[str, str], dict[str, str]]:
     return by_name, by_path
 
 
+DEMO_COMMANDS = frozenset({"pack-demo", "liberational.demo.cli"})
+"""How pack-demo shows in a command line (its script, or the module run with -m)."""
+
+
+def _demo_processes(table: Mapping[int, proc_table.Proc]) -> set[int]:
+    """Pids of pack-demo and everything under it: its own broker and dashboard run the services' programs on a made-up
+    household, apart from this install, and aren't its services (they would stop the application from starting)."""
+    roots = {p.pid for p in table.values() if any(arg.rsplit("/", 1)[-1] in DEMO_COMMANDS for arg in p.cmdline)}
+    found: dict[int, bool] = {}
+
+    def under_demo(pid: int) -> bool:
+        chain: list[int] = []
+        answer = False
+        while pid not in found:
+            if pid in roots:
+                answer = True
+                break
+            chain.append(pid)
+            p = table.get(pid)
+            if p is None or p.ppid is None or p.ppid in chain or len(chain) > 64:
+                break
+            pid = p.ppid
+        else:
+            answer = found[pid]
+        for seen in chain:
+            found[seen] = answer
+        return answer
+
+    return {pid for pid in table if under_demo(pid)}
+
+
 def _scan_processes() -> dict[str, list[int]]:
     """Pids of running services by name, from every process (proc_table, each one's command line read once): each
     service's own command, and the processes it started (continuum-capture runs one worker per device), which count as
@@ -1205,9 +1239,13 @@ def _scan_processes() -> dict[str, list[int]]:
     from liberational import proc_table
 
     by_name, by_path = _commands()
+    table = proc_table.table()
+    demo = _demo_processes(table)
     out: dict[str, list[int]] = {}
     others: list[tuple[int, int | None]] = []  # (pid, parent pid) of the processes no command matched
-    for p in proc_table.table().values():
+    for p in table.values():
+        if p.pid in demo:
+            continue
         name = next(
             (n for arg in p.cmdline if (n := by_name.get(arg.rsplit("/", 1)[-1]) or by_path.get(arg))),
             None,

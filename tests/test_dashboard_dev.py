@@ -188,6 +188,13 @@ def test_the_page_says_whether_hotkeys_are_on(tree):
         assert names(server.app_page()[1].decode())["hotkeys"] is True
 
 
+def test_the_page_is_told_the_gateways_port(tree):
+    # ports.gateway reaches the page as NAMES.gatewayPort; the demo moves it so its page never reaches a real gateway
+    tree.build()
+    with cfg.override({"ports": {"gateway": 9}}):
+        assert names(server.app_page()[1].decode())["gatewayPort"] == 9
+
+
 @pytest.mark.parametrize("path", server.APP_PATHS)
 def test_tab_paths_serve_the_built_app_filled_in(tree, dashboard, path):
     tree.build()

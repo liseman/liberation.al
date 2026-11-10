@@ -7,7 +7,7 @@ Continuum is the data layer: the processes every other process uses to record, f
 |---|---|
 | [CONTINUUM-BROKER.md](CONTINUUM-BROKER.md) | Shared memory, the socket protocol, the scheduler, the catalog, and forgetting |
 | [CONTINUUM-STORAGE.md](CONTINUUM-STORAGE.md) | Tiers, chunk files, the video window, the segment store, and the vector worker |
-| [CONTINUUM-CAPTURE.md](CONTINUUM-CAPTURE.md) | Devices, the capture supervisor, RTSP cameras, timestamps, and codecs |
+| [CONTINUUM-CAPTURE.md](CONTINUUM-CAPTURE.md) | Devices, the capture supervisor, RTSP and RTSPS cameras, timestamps, and codecs |
 | [CONTINUUM-GATEWAY.md](CONTINUUM-GATEWAY.md) | The browser gateway's wire format and requests |
 | [CONTINUUM-SDK.md](CONTINUUM-SDK.md) | The Rust, Python, and C clients, building, and the wheels |
 
@@ -66,7 +66,7 @@ A consumer asks for a stream and a time range. The broker works out where the by
 
 ## Decisions
 
-Each is a boundary of the design, with its reason. Record a change here in the PR that makes it.
+Each is a boundary of the design, with its reason.
 
 1. **Capture and encoding run outside the broker.** A driver fault or a codec crash kills one worker, not the
    catalog.
@@ -77,7 +77,7 @@ Each is a boundary of the design, with its reason. Record a change here in the P
 4. **LanceDB lives in the vector worker.** Its dependencies, compaction, and memory stay out of the process
    everything depends on.
 5. **Forgetting is a cascading purge.** A purge follows provenance forward, so everything derived from the removed
-   data goes too. Cryptographic shredding is later work.
+   data goes too.
 6. **Current dependency versions.** Pin only on breakage, with the reason in `Cargo.toml`.
 7. **Tasks run through mise** (`continuum-*`), like the rest of the repo.
 8. **Payload ids are UUIDv7**, 16 bytes on the wire. They sort by creation time and match the domain model's ids.
@@ -88,7 +88,9 @@ Each is a boundary of the design, with its reason. Record a change here in the P
     interpretations ([DOMAIN-MODEL.md](DOMAIN-MODEL.md)).
 11. **The voice turn is broker system state.** One writer, a broadcast to every reader, and the scheduler acts on
     it.
-12. **The gateway is its own process.** HTTP, TLS, and browsers that vanish stay out of the broker.
+12. **The gateway is its own process, and serves WebCodecs.** HTTP, TLS, and browsers that vanish stay out of the
+    broker. Video goes as encoded access units instead of WebRTC, which drops and rescales frames and desyncs
+    overlays.
 13. **FFmpeg for codecs, native APIs for devices.** V4L2, AVFoundation, PipeWire, and CoreAudio expose the device
     timestamps and controls that a generic layer hides. GStreamer's pipeline would duplicate the broker.
 
@@ -105,7 +107,7 @@ Each is a boundary of the design, with its reason. Record a change here in the P
 | Python SDK | PyO3, built by maturin |
 | C and C++ SDK | A C ABI from cbindgen |
 | Browser | Axum with WebSockets; WebTransport as an option |
-| Codecs | FFmpeg through `ffmpeg-next`, in the tier and capture workers only |
+| Codecs | FFmpeg through `ffmpeg-next`, in capture, the tier worker, `continuum-export`, and `continuum_py`; never in the broker |
 
 `continuum/Cargo.toml` is the source of truth for versions.
 
@@ -113,8 +115,10 @@ Each is a boundary of the design, with its reason. Record a change here in the P
 
 ```text
 continuum/
-  Cargo.toml              workspace and shared dependencies
+  Cargo.toml              workspace, shared dependencies, and release profile overrides
   pyproject.toml          maturin build for continuum_py
+  build_backend/          PEP 517 wrapper that probes FFmpeg headers and protoc
+  python/                 Python helpers and type stubs around continuum_py._native
   schemas/                FlatBuffers: the control plane, stored metadata, and overlays
   packaging/              wheel builds and the private FFmpeg recipe
   crates/
@@ -138,17 +142,27 @@ continuum/
 
 ## Running and checking it
 
-The five daemons are in the `core` group of `services/services.toml` and on by default.
-`config/devices.toml` names the cameras and microphones (`config/devices.example.toml` documents it), and
-`continuum-capture --list` lists local devices. [SERVICES.md](SERVICES.md) covers startup and restarts.
+The five daemons are in the `core` group of [`services/services.toml`](../services/services.toml) and on by default.
+`config/devices.toml` names the cameras and microphones ([`config/devices.example.toml`](../config/devices.example.toml)
+documents every key). [CONTINUUM-CAPTURE.md](CONTINUUM-CAPTURE.md#list-restart-and-recover-devices) covers listing and
+restarting devices, and [SERVICES.md](SERVICES.md) covers startup and restarts.
 
-`mise run continuum-status` only reads, and its exit code decides: 0 is healthy. It checks that every Continuum
-service runs, every manifest device has a stream newer than 10 seconds, under 90% of each Tier 0 class is held, the
-tier worker's flush lag is under 30 seconds, and the search streams are registered. `--settle 60` rechecks for up to
-a minute. `--port audio` or `--port vision` limits the check.
+```sh
+mise run continuum-status
+```
 
-`pack-reset-catalog --keep-taught` deletes the catalog, the recordings, the vector index, and the segment store, and
-keeps taught state. Its module docstring lists every step.
+`continuum-status` only reads, and exits 0 when healthy. It checks the services, the broker, stream freshness, Tier 0
+pressure, tier-worker flush lag, the search streams, and the gateway. Without `--port`, uninstalled services and
+unregistered search streams are only noted, and manifest devices are required only when `--port` (`audio` or `vision`)
+is given; [`src/liberational/continuum_status.py`](../src/liberational/continuum_status.py) documents its options and
+thresholds.
+
+```sh
+pack-reset-catalog --keep-taught
+```
+
+Deletes machine-made state (the catalog, the recordings, the vector index, and the segment store) and keeps taught
+state ([`src/liberational/reset_catalog.py`](../src/liberational/reset_catalog.py)).
 
 ## Guardrails
 

@@ -4,8 +4,9 @@
 
 Makes a demo directory (DIR, or a new one under the system's temporary directory), points every `paths.*` setting
 and the pack's config file into it, starts a private Continuum broker on its state directory, seeds the dataset in
-demo/dataset.py, and runs the dashboard on PORT (8766 by default, so it doesn't collide with a real dashboard on
-8765). Ctrl-C stops the dashboard and the broker. The demo runs no models: its Ollama URL points nowhere, so asking a
+demo/dataset.py, and runs the dashboard on PORT. Without --port it is 8780, a port no service of the pack uses, so the
+demo runs beside an open application; when 8780 is taken, a free port the pack doesn't use instead, and the address
+line says which. A --port that is taken is refused at once. Ctrl-C stops the dashboard and the broker. The demo runs no models: its Ollama URL points nowhere, so asking a
 question in it fails rather than reaching a real model.
 
 A DIR that already holds a seeded demo is reused as it is. The real `data/` directory is never read or written: the
@@ -29,11 +30,15 @@ from typing import IO
 
 from liberational import config as cfg
 
-PORT = 8766
+# The dashboard's default port: none of the pack's own ([ports] in config/defaults.toml, and the gateway's).
+PORT = 8780
 # The broker's Tier 0 arena, kept tiny: the demo has no video or audio, only the journal's text payloads.
 TIER0 = "16384x64"
 # Where Ollama would be: the discard port, which nothing listens on, so the demo can't reach a real model.
 NO_OLLAMA = "http://127.0.0.1:9"
+# Where the page looks for the camera gateway: the discard port too, which browsers refuse to open, so the demo's page
+# never reaches a real install's gateway on this machine (it would show that install's cameras and recordings).
+NO_GATEWAY = 9
 SEEDED = "seeded"  # the marker a seeded demo directory carries
 SOCKET_MAX = 100  # bytes a unix socket path may hold, with room to spare (108 on Linux, 104 on macOS)
 CONFIG = """# The demo household's settings (pack-demo, #17). Everyone here is made up.
@@ -53,13 +58,14 @@ def path_keys() -> list[str]:
 def environment(root: Path, port: int, base: Mapping[str, str] | None = None) -> dict[str, str]:
     """The environment the demo's broker, seeding, and dashboard run in: `base` (os.environ by default) with every
     `paths.*` setting under `root`, the config file `root/pack.toml`, the broker's socket in `root`'s state directory
-    (or a short temporary one when that path is too long for a socket), and Ollama nowhere."""
+    (or a short temporary one when that path is too long for a socket), and Ollama and the camera gateway nowhere."""
     env = dict(os.environ if base is None else base)
     for key in path_keys():
         env[f"PACK_PATHS_{key.upper()}"] = str(root / key)
     env["PACK_STATE"] = env["PACK_PATHS_STATE"]  # the older name, which a shell may still set
     env["PACK_CONFIG"] = str(root / "pack.toml")
     env["PACK_PORTS_DASHBOARD"] = str(port)
+    env["PACK_PORTS_GATEWAY"] = str(NO_GATEWAY)
     env["PACK_OLLAMA_URL"] = NO_OLLAMA
     env.pop("OLLAMA_URL", None)
     env.pop("OLLAMA_HOST", None)
@@ -78,6 +84,54 @@ def check_dir(root: Path) -> None:
         raise SystemExit(f"pack-demo: {root} is inside the real data directory ({real}); pick another --dir")
     if here.exists() and any(here.iterdir()) and not (here / SEEDED).exists():
         raise SystemExit(f"pack-demo: {root} isn't empty and isn't a demo directory; pick an empty or new --dir")
+
+
+def reserved_ports() -> set[int]:
+    """The ports the pack's own services use: every `ports.*` setting, as config/defaults.toml has it and as this
+    install sets it, and the one above the camera gateway's, where a TLS proxy may sit in front of it."""
+    defaults = tomllib.loads(cfg.DEFAULTS.read_text())["ports"]
+    here = cfg.load().get("ports", {})
+    taken = {v for v in (*defaults.values(), *here.values()) if isinstance(v, int)}
+    return taken | {port + 1 for port in (defaults["gateway"], here.get("gateway")) if isinstance(port, int)}
+
+
+def port_free(port: int) -> bool:
+    """Whether the dashboard could listen on `port` now, binding as it does (every address, address reuse on)."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            probe.bind(("0.0.0.0", port))
+        except OSError:
+            return False
+    return True
+
+
+def any_free_port(reserved: set[int]) -> int:
+    """A port the system says is free now and the pack doesn't use."""
+    while True:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            probe.bind(("0.0.0.0", 0))
+            port = probe.getsockname()[1]
+        if port not in reserved:
+            return port
+
+
+def choose_port(asked: int | None) -> int:
+    """The dashboard's port: `asked` when it is free (SystemExit when it isn't, before anything starts); without it,
+    PORT when it is free and this install hasn't given it to a service, else a free port the pack doesn't use."""
+    if asked is not None:
+        if not port_free(asked):
+            raise SystemExit(
+                f"pack-demo: port {asked} is in use by another program; pick another with --port, or leave --port out "
+                "for a free one"
+            )
+        return asked
+    reserved = reserved_ports()
+    if PORT not in reserved and port_free(PORT):
+        return PORT
+    port = any_free_port(reserved)
+    print(f"pack-demo: port {PORT} is taken, so the demo dashboard takes port {port}", flush=True)
+    return port
 
 
 def broker_binary() -> Path:
@@ -210,7 +264,7 @@ def run(root: Path, port: int, dashboard_args: Sequence[str] = ()) -> int:
         if not (root / SEEDED).exists():
             subprocess.run([sys.executable, "-m", "liberational.demo.cli", "--seed-here"], env=env, check=True)
             (root / SEEDED).write_text("pack-demo\n")
-        print(f"pack-demo: the demo dashboard is on http://localhost:{port}/ (its files are in {root})")
+        print(f"pack-demo: the demo dashboard is on http://localhost:{port}/ (its files are in {root})", flush=True)
         dashboard = subprocess.Popen(
             [sys.executable, "-m", "liberational.dashboard.server", str(port), *dashboard_args], env=env
         )
@@ -230,7 +284,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     """pack-demo [--dir DIR] [--port PORT]"""
     parser = argparse.ArgumentParser(prog="pack-demo", description=__doc__.split("\n\n")[0])
     parser.add_argument("--dir", type=Path, help="the demo directory (default: a new temporary one)")
-    parser.add_argument("--port", type=int, default=PORT, help=f"the dashboard's port (default {PORT})")
+    parser.add_argument(
+        "--port", type=int, help=f"the dashboard's port (default {PORT}, or a free one when {PORT} is taken)"
+    )
     parser.add_argument("--dev", action="store_true", help="run the dashboard with --dev (pages from Vite)")
     parser.add_argument("--seed-here", action="store_true", help=argparse.SUPPRESS)
     # With --seed-here: the day after the demo's, and waiting for a vector worker to index it (tools/measure.py --demo)
@@ -242,8 +298,9 @@ def main(argv: Sequence[str] | None = None) -> None:
         if args.wait_index:
             wait_for_index(day)
         return
+    port = choose_port(args.port)
     root = args.dir or Path(tempfile.mkdtemp(prefix="pack-demo-"))
-    sys.exit(run(root, args.port, ["--dev"] if args.dev else []))
+    sys.exit(run(root, port, ["--dev"] if args.dev else []))
 
 
 if __name__ == "__main__":

@@ -52,7 +52,6 @@ VISION = (*AUDIO, "see-decode", "see-actions", "see-captions", "continuum-gatewa
 PORTS = {"audio": AUDIO, "vision": VISION}
 SERVICES = VISION
 """Every Continuum service this checks."""
-GATEWAY_PORT = 8766
 
 
 @dataclass
@@ -387,10 +386,11 @@ async def check_streams(
 
 def check_gateway(report: Report) -> None:
     report.section("Gateway")
-    if accepts(("127.0.0.1", GATEWAY_PORT), py_socket.AF_INET):
-        report.ok(f"port {GATEWAY_PORT} accepts connections")
+    port = int(cfg.get("ports.gateway"))
+    if accepts(("127.0.0.1", port), py_socket.AF_INET):
+        report.ok(f"port {port} accepts connections")
     else:
-        report.bad(f"port {GATEWAY_PORT} doesn't accept connections")
+        report.bad(f"port {port} doesn't accept connections")
 
 
 def stage(port: str | None, through: str | None) -> tuple[str, ...]:
