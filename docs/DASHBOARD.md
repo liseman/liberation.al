@@ -30,7 +30,13 @@ The web app the owner uses: `pack-dashboard` (`src/liberational/dashboard/`, por
 TypeScript, React, and [Mantine](https://mantine.dev/). Vite builds `frontend/` into `dashboard/static/app/`, which is
 gitignored.
 
-- `mise run frontend` builds it. `mise run dev` runs Vite's dev server beside the dashboard with hot reload.
+- `mise run frontend` builds it, in two Vite builds: the dashboard, then the plan editor's page
+  (`frontend/plan-editor/`, `vite.plan-editor.config.ts`), which is a page of its own so that the dashboard loads it
+  only when it is opened. A bare `vite build` leaves the editor's page out; `npm run build` in `frontend/` runs both.
+  `mise run dev` runs Vite's dev server beside the dashboard with hot reload.
+- The plan editor's page is built on Pascal Editor, pinned to one version. Its static files are served by the
+  dashboard, so the page asks no other origin for anything.
+  [frontend/public/pascal/README.md](../frontend/public/pascal/README.md) says how to move the pin.
 - With no build, a page says how to make one. Hashed assets are cached for a year; pages are fetched fresh.
 - `mise run lint` runs Biome and `tsc`. Tests are Vitest files beside the code (Testing Library, jsdom, and MSW).
 
