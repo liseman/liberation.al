@@ -318,8 +318,8 @@ _FIELDS: tuple[tuple[str, str], ...] = (
             "where the answer is. speech: what someone said, asked, discussed, mentioned, wanted, or planned. cameras: "
             "what was seen (a scene, an object, clothing, what someone was doing, people walking by or coming in). "
             "both: what happened in general, a recap or summary of a time. people: who was here, around, or home, or "
-            "when someone was last seen or met. lights: the lights or lamps. journal: only when the question itself "
-            "names the journal."
+            "when someone was last seen or met (who is helping, joining, or doing something with someone is what was "
+            "said: speech). lights: the lights or lamps. journal: only when the question itself names the journal."
         ),
     ),
     (
@@ -476,6 +476,7 @@ BRIEF: tuple[tuple[str, str], ...] = (
         usual=True,
     ),
     _shot("who's home?", source="people", measure="who", now=True),
+    _shot("who is driving Sam to the airport", measure="who", people=["Sam"]),
     _shot("what is the capital of France", history=False),
 )
 WHOLE: tuple[tuple[str, str], ...] = (
