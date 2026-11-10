@@ -1,7 +1,7 @@
 """What an ingested file is, when it was made, and ffmpeg conversions to what Continuum's recording streams take.
 
-Continuum registers recordings in place on two kinds of stream (continuum-tier's v1audio and v1video, the kinds v1's
-importers used): FLAC files on `<name>.audio_v1`, all of one layout per stream,
+Continuum registers recordings in place on two kinds of stream (continuum-tier's inplace_audio and inplace_video):
+FLAC files on `<name>.audio_v1`, all of one layout per stream,
 and H.264 MP4 files (with their `moov`) on `<name>.video_v1`. So:
 
 - audio, and a video's sound, become 16 kHz mono 16-bit FLAC (`to_flac`), one layout for every ingest stream;

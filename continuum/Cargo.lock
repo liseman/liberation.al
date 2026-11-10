@@ -1195,6 +1195,7 @@ dependencies = [
  "continuum-catalog",
  "continuum-client",
  "continuum-core",
+ "continuum-log",
  "continuum-sched",
  "continuum-shm",
  "continuum-wire",
@@ -1223,6 +1224,7 @@ dependencies = [
  "continuum-catalog",
  "continuum-client",
  "continuum-core",
+ "continuum-log",
  "continuum-sched",
  "continuum-shm",
  "continuum-tier",
@@ -1245,6 +1247,7 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "toml",
+ "tracing",
  "uuid",
  "v4l",
  "zune-jpeg",
@@ -1259,6 +1262,7 @@ dependencies = [
  "redb",
  "tempfile",
  "uuid",
+ "zstd 0.13.4",
 ]
 
 [[package]]
@@ -1312,6 +1316,7 @@ dependencies = [
  "continuum-broker",
  "continuum-client",
  "continuum-core",
+ "continuum-log",
  "continuum-sched",
  "continuum-segments",
  "continuum-shm",
@@ -1329,9 +1334,17 @@ dependencies = [
  "tokio-tungstenite 0.30.0",
  "tower-http 0.7.1",
  "tracing",
- "tracing-subscriber",
  "uuid",
  "wtransport",
+]
+
+[[package]]
+name = "continuum-log"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -1414,6 +1427,7 @@ dependencies = [
  "continuum-catalog",
  "continuum-client",
  "continuum-core",
+ "continuum-log",
  "continuum-sched",
  "continuum-shm",
  "crc32fast",
@@ -1432,6 +1446,7 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "toml",
+ "tracing",
  "uuid",
  "zune-jpeg",
 ]
@@ -1446,6 +1461,7 @@ dependencies = [
  "continuum-broker",
  "continuum-client",
  "continuum-core",
+ "continuum-log",
  "continuum-search",
  "continuum-segments",
  "continuum-shm",
@@ -1460,6 +1476,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
+ "tracing",
  "uuid",
 ]
 

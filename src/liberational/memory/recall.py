@@ -706,10 +706,10 @@ def _camera_id(text: object) -> str:
     s = text.strip()
     if views.valid_camera_id(s):
         return s
-    m = history_qa.CAM.fullmatch(s)
+    m = views.NUMBERED.fullmatch(s)
     if not m:
         raise ValueError(f"not a camera id: {s!r}; use an exact ID or a form like camera 3")
-    return "cam" + str(int(history_qa.WORDS.get(m[1].lower(), m[1])))
+    return "cam" + str(int(views.NUMBER_WORDS.get(m[1].lower(), m[1])))
 
 
 def arguments(tool: str, raw: object, window: Sequence[float]) -> tuple[dict[str, Any], dict[str, str]]:
@@ -919,7 +919,7 @@ def loop(
     requested_cameras = tuple(dict.fromkeys(query.get("cameras") or []))
     # How the question was read (memory/question.py), so the planner searches for that reading, not one of its own.
     reading = query.get("reading") or {}
-    read_as = {key: reading[key] for key in ("source", "measure", "people") if reading.get(key)}
+    read_as = {key: reading[key] for key in ("source", "measure", "people", "action") if reading.get(key)}
     if journal_only:
         offered = [tool for tool in offered if tool == "journal"]
     if requested_cameras:

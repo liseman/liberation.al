@@ -372,13 +372,14 @@ def test_without_a_matching_plan_occupancy_alone_judges(plan: str | None) -> Non
 
 
 def test_ring_health_is_each_cameras_last_interval_and_restarts_on_reconnect() -> None:
+    at = "2026-11-09T18:00:00-08:00 [capture-worker] "
     lines = [
-        "capture worker patio: RTSP frames=2791 reader_dropped=2 pressure_dropped=4 unflushed_overwrites=0",
-        "capture worker kitchen: RTSP frames=900 reader_dropped=1 pressure_dropped=13 unflushed_overwrites=0",
-        "capture worker patio: RTSP frames=3091 reader_dropped=2 pressure_dropped=4 unflushed_overwrites=0 full_waited=2",
-        "capture worker kitchen: reconnecting RTSP after host sleep",
-        "capture worker kitchen: RTSP frames=40 reader_dropped=0 pressure_dropped=3 unflushed_overwrites=0",
-        "capture worker bedroom: RTSP frames=185 reader_dropped=1 pressure_dropped=17 unflushed_overwrites=1",
+        at + "INFO patio: RTSP frames=2791 reader_dropped=2 pressure_dropped=4 unflushed_overwrites=0",
+        at + "INFO kitchen: RTSP frames=900 reader_dropped=1 pressure_dropped=13 unflushed_overwrites=0",
+        at + "DEBUG patio: RTSP frames=3091 reader_dropped=2 pressure_dropped=4 unflushed_overwrites=0 full_waited=2",
+        at + "WARN kitchen: reconnecting RTSP after host sleep",
+        at + "INFO kitchen: RTSP frames=40 reader_dropped=0 pressure_dropped=3 unflushed_overwrites=0",
+        at + "INFO bedroom: RTSP frames=185 reader_dropped=1 pressure_dropped=17 unflushed_overwrites=1",
     ]
     assert cs.ring_health(lines) == {
         "patio": cs.RingHealth(300, 0, 0),

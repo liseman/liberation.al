@@ -58,18 +58,17 @@ def test_invalid_manifest_is_actionable(tmp_path, text):
         views.manifest_camera_names(path)
 
 
-def test_camera_ids_use_manifest_even_when_empty(tmp_path, monkeypatch):
+def test_camera_ids_come_only_from_the_manifest(tmp_path, monkeypatch):
     monkeypatch.setattr(cfg, "ROOT", tmp_path)
     (tmp_path / "config").mkdir()
     path = tmp_path / "config" / "devices.toml"
-    with cfg.override({"vision": {"cams": [2, 0]}}):
-        assert views.camera_ids() == ["cam2", "cam0"]
-        path.write_text("device = []")
-        assert views.camera_ids() == []
-        path.write_text('device = [{name="cam00", kind="rtsp"}]')
-        assert views.camera_ids() == ["cam00"]
-        with cfg.override({"vision": {"camera_names": ["cam00: Den"]}}):
-            assert views.names() == {"cam00": "Den"}
+    assert views.camera_ids() == []  # no manifest, no cameras
+    path.write_text("device = []")
+    assert views.camera_ids() == []
+    path.write_text('device = [{name="cam00", kind="rtsp"}]')
+    assert views.camera_ids() == ["cam00"]
+    with cfg.override({"vision": {"camera_names": ["cam00: Den"]}}):
+        assert views.names() == {"cam00": "Den"}
 
 
 @pytest.mark.parametrize("name", ["entryway", "rear-2", "0", "cam00", "CAM0", "__proto__"])

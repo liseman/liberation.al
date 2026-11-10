@@ -103,26 +103,26 @@ pub fn run(args: &WorkerArgs, stop: &AtomicBool) -> WorkerEnd {
     let text = match std::fs::read_to_string(&args.manifest) {
         Ok(t) => t,
         Err(e) => {
-            eprintln!("capture worker: can't read {}: {e}", args.manifest.display());
+            tracing::error!("can't read {}: {e}", args.manifest.display());
             return WorkerEnd::BadSetup;
         }
     };
     let manifest = match Manifest::parse(&text) {
         Ok(m) => m,
         Err(e) => {
-            eprintln!("capture worker: {e}");
+            tracing::error!("{e}");
             return WorkerEnd::BadSetup;
         }
     };
     let Some(device) = manifest.devices.iter().find(|d| d.enabled && d.name == args.device).cloned() else {
-        eprintln!("capture worker: no device {:?} in the manifest", args.device);
+        tracing::error!("no device {:?} in the manifest", args.device);
         return WorkerEnd::BadSetup;
     };
     #[cfg(target_os = "macos")]
     let (device, mac_raw_share) = match plan_mac_camera(args, &manifest, device) {
         Ok(planned) => planned,
         Err(error) => {
-            eprintln!("capture worker: macOS bandwidth admission: {error}");
+            tracing::error!("macOS bandwidth admission: {error}");
             return WorkerEnd::BadSetup;
         }
     };
@@ -131,7 +131,7 @@ pub fn run(args: &WorkerArgs, stop: &AtomicBool) -> WorkerEnd {
     let rt = match tokio::runtime::Builder::new_multi_thread().worker_threads(1).enable_all().build() {
         Ok(rt) => rt,
         Err(e) => {
-            eprintln!("capture worker: no runtime: {e}");
+            tracing::error!("no runtime: {e}");
             return WorkerEnd::BadSetup;
         }
     };
@@ -139,14 +139,14 @@ pub fn run(args: &WorkerArgs, stop: &AtomicBool) -> WorkerEnd {
         match rt.block_on(Client::connect(&args.socket, ClientOptions::new(format!("capture {}", device.name)))) {
             Ok(c) => c,
             Err(e) => {
-                eprintln!("capture worker: can't reach the broker at {}: {e}", args.socket.display());
+                tracing::warn!("can't reach the broker at {}: {e}", args.socket.display());
                 return WorkerEnd::Broker;
             }
         };
     let clocks = match SystemClocks::new() {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("capture worker: no boot id: {e}");
+            tracing::error!("no boot id: {e}");
             return WorkerEnd::BadSetup;
         }
     };
@@ -170,7 +170,7 @@ pub fn run(args: &WorkerArgs, stop: &AtomicBool) -> WorkerEnd {
                 end
             }
             Err(e) => {
-                eprintln!("capture worker {}: can't open {}: {e}", device.name, args.node);
+                tracing::warn!("{}: can't open {}: {e}", device.name, args.node);
                 WorkerEnd::Device
             }
         },
@@ -181,7 +181,7 @@ pub fn run(args: &WorkerArgs, stop: &AtomicBool) -> WorkerEnd {
             }
             #[cfg(not(feature = "ffmpeg"))]
             {
-                eprintln!("capture worker {}: RTSP requires the ffmpeg build feature", device.name);
+                tracing::error!("{}: RTSP requires the ffmpeg build feature", device.name);
                 WorkerEnd::BadSetup
             }
         }
@@ -193,12 +193,12 @@ pub fn run(args: &WorkerArgs, stop: &AtomicBool) -> WorkerEnd {
                 end
             }
             Err(e) => {
-                eprintln!("capture worker {}: can't open {}: {e}", device.name, args.node);
+                tracing::warn!("{}: can't open {}: {e}", device.name, args.node);
                 WorkerEnd::Device
             }
         },
         DeviceKind::Teensy => {
-            eprintln!("capture worker: the Teensy worker isn't built yet");
+            tracing::error!("the Teensy worker isn't built yet");
             WorkerEnd::BadSetup
         }
     };
@@ -219,8 +219,8 @@ fn plan_mac_camera(
     let inventory = crate::avfoundation::camera_inventory(&args.node).map_err(|error| error.to_string())?;
     let requested = device.video().ok_or("camera has no video settings")?;
     let chosen = crate::mac_bandwidth::plan_camera(&device.name, &requested, &inventory, share)?;
-    eprintln!(
-        "capture worker {}: macOS bandwidth choice asked={}x{}@{} chosen={}x{}@{} native={} estimated_raw_bytes_per_second={} share_bytes_per_second={} (fixed share of the unknown shared bus; dimensions/rate reduced only when inventory or budget requires it)",
+    tracing::info!(
+        "{}: macOS bandwidth choice asked={}x{}@{} chosen={}x{}@{} native={} estimated_raw_bytes_per_second={} share_bytes_per_second={} (fixed share of the unknown shared bus; dimensions/rate reduced only when inventory or budget requires it)",
         device.name,
         requested.width,
         requested.height,
@@ -340,8 +340,8 @@ pub fn camera(
     let Some(mut video) = device.video() else { return WorkerEnd::BadSetup };
     // The stream registers what the camera delivers (on macOS, UYVY whatever the manifest asked).
     video.format.clone_from(&opened.shape);
-    eprintln!(
-        "capture worker {}: {}x{} {} at {} ns a frame{}",
+    tracing::info!(
+        "{}: {}x{} {} at {} ns a frame{}",
         device.name,
         opened.mode.width,
         opened.mode.height,
@@ -351,14 +351,16 @@ pub fn camera(
     );
     // Frames go into the broker's arena (from Welcome), in the smallest slot class that fits one.
     let Some(mapped) = client.arenas().first() else {
-        eprintln!("capture worker {}: the broker described no Tier 0 arena", device.name);
+        tracing::error!("{}: the broker described no Tier 0 arena", device.name);
         return WorkerEnd::Memory;
     };
     let need = slot_need(opened.max_frame_bytes, opened.mode.width, opened.mode.height, &opened.shape);
     let Some((class, slot_bytes)) = pick_class(&mapped.info.classes, need) else {
-        eprintln!(
-            "capture worker {}: no Tier 0 slot class holds a {} byte frame (classes {:?})",
-            device.name, opened.max_frame_bytes, mapped.info.classes
+        tracing::error!(
+            "{}: no Tier 0 slot class holds a {} byte frame (classes {:?})",
+            device.name,
+            opened.max_frame_bytes,
+            mapped.info.classes
         );
         return WorkerEnd::Memory;
     };
@@ -370,7 +372,7 @@ pub fn camera(
         Ok(Some(spec)) => spec,
         Ok(None) => video_spec(device, &video, &anchor, class),
         Err(error) => {
-            eprintln!("capture worker {}: {error}", device.name);
+            tracing::error!("{}: {error}", device.name);
             return WorkerEnd::BadSetup;
         }
     };
@@ -381,7 +383,7 @@ pub fn camera(
             match crate::encoding::Pipeline::new(opened.mode.width, opened.mode.height, video.fps, settings.clone()) {
                 Ok(pipeline) => Some(pipeline),
                 Err(error) => {
-                    eprintln!("capture worker {}: cannot encode H.264: {error}", device.name);
+                    tracing::error!("{}: cannot encode H.264: {error}", device.name);
                     return WorkerEnd::BadSetup;
                 }
             }
@@ -390,16 +392,13 @@ pub fn camera(
     };
     #[cfg(not(feature = "ffmpeg"))]
     if encoding.is_some() {
-        eprintln!(
-            "capture worker {}: H.264 capture requires rebuilding continuum-capture with the ffmpeg feature",
-            device.name
-        );
+        tracing::error!("{}: H.264 capture requires rebuilding continuum-capture with the ffmpeg feature", device.name);
         return WorkerEnd::BadSetup;
     }
     let registered = match rt.block_on(client.register_stream(&spec)) {
         Ok(r) => r,
         Err(e) => {
-            eprintln!("capture worker {}: the broker refused {stream_name}: {e}", device.name);
+            tracing::warn!("{}: the broker refused {stream_name}: {e}", device.name);
             return WorkerEnd::Broker;
         }
     };
@@ -454,19 +453,21 @@ pub fn camera(
             s.offer(at, bytes);
         }
     };
+    // The counts every 10 s are DEBUG, and INFO once every few minutes (#59).
+    let mut clock = continuum_log::Periodic::default();
     loop {
         let name = &device.name;
-        let mut health = |c: &CameraCounts| eprintln!("capture worker {name}: {c:?}");
+        let mut health = |c: &CameraCounts| continuum_log::periodic!(clock, "{name}: {c:?}");
         let exit =
             run_camera(source, stream.as_mut(), client, clocks, &cfg, stop, &mut counts, &mut health, &mut offer);
-        eprintln!("capture worker {}: {counts:?}", device.name);
+        tracing::info!("{}: {counts:?}", device.name);
         match exit {
             CameraExit::Woke(new) => {
                 anchor = new;
                 let mut refreshed = spec.clone();
                 refreshed.anchor = Some(anchor.to_schema());
                 if let Err(e) = rt.block_on(client.register_stream(&refreshed)) {
-                    eprintln!("capture worker {}: re-registering after a wake failed: {e}", device.name);
+                    tracing::warn!("{}: re-registering after a wake failed: {e}", device.name);
                     return WorkerEnd::Broker;
                 }
                 stream.set_anchor(anchor);
@@ -474,11 +475,11 @@ pub fn camera(
             CameraExit::Stopped => return WorkerEnd::Stopped,
             CameraExit::Stalled => return WorkerEnd::Stalled,
             CameraExit::Source(e) => {
-                eprintln!("capture worker {}: {e}", device.name);
+                tracing::warn!("{}: {e}", device.name);
                 return WorkerEnd::Device;
             }
             CameraExit::Publish(e) => {
-                eprintln!("capture worker {}: {e}", device.name);
+                tracing::warn!("{}: {e}", device.name);
                 return WorkerEnd::Broker;
             }
         }
@@ -502,7 +503,7 @@ pub fn microphone(
     use crate::register::audio_spec;
 
     let Some(audio) = device.audio() else { return WorkerEnd::BadSetup };
-    eprintln!("capture worker {}: {} Hz, {} channels, {}", device.name, pcm.rate_hz, pcm.channels, pcm.shape_name());
+    tracing::info!("{}: {} Hz, {} channels, {}", device.name, pcm.rate_hz, pcm.channels, pcm.shape_name());
     let stream_name = device.stream_name("audio");
     // The broker carves the stream's ring at registration (stride, records, and generation in the lease), in its
     // Tier 0 arena; the worker writes it through the mapping Welcome gave.
@@ -510,16 +511,16 @@ pub fn microphone(
     let registered = match rt.block_on(client.register_stream(&audio_spec(device, &audio, pcm, &anchor))) {
         Ok(r) => r,
         Err(e) => {
-            eprintln!("capture worker {}: the broker refused {stream_name}: {e}", device.name);
+            tracing::warn!("{}: the broker refused {stream_name}: {e}", device.name);
             return WorkerEnd::Broker;
         }
     };
     let Some(lease) = registered.lease.clone() else {
-        eprintln!("capture worker {}: the broker gave {stream_name} no ring", device.name);
+        tracing::warn!("{}: the broker gave {stream_name} no ring", device.name);
         return WorkerEnd::Broker;
     };
     let (Some(carved), Some(arena)) = (lease.carved_ring(), client.arena(&lease.arena).cloned()) else {
-        eprintln!("capture worker {}: {stream_name}'s lease names no ring in a mapped arena: {lease:?}", device.name);
+        tracing::warn!("{}: {stream_name}'s lease names no ring in a mapped arena: {lease:?}", device.name);
         return WorkerEnd::Memory;
     };
     let meta = StreamMeta {
@@ -532,7 +533,7 @@ pub fn microphone(
     let ring = match arena.carved_ring_writer(&carved) {
         Ok(r) => r,
         Err(e) => {
-            eprintln!("capture worker {}: {e}", device.name);
+            tracing::warn!("{}: {e}", device.name);
             return WorkerEnd::Memory;
         }
     };
@@ -540,7 +541,7 @@ pub fn microphone(
     let mut stream = match AudioStream::new(meta, ring, pcm.rate_hz, block_frames, audio.batch_seconds) {
         Ok(s) => s.with_ring_locator(lease.arena.clone(), lease.arena_generation, lease.ring_index),
         Err(e) => {
-            eprintln!("capture worker {}: {e}", device.name);
+            tracing::warn!("{}: {e}", device.name);
             return WorkerEnd::BadSetup;
         }
     };
@@ -548,16 +549,18 @@ pub fn microphone(
     let mut reblocker = Reblocker::new(frame_bytes, block_frames as usize, pcm.rate_hz);
     // A microphone that sends nothing for this long has stalled (the manifest's stall time is for cameras).
     let stall_ns = 5_000_000_000;
+    // The counts every 10 s are DEBUG, and INFO once every few minutes (#59).
+    let mut clock = continuum_log::Periodic::default();
     loop {
         let name = &device.name;
         let mut health = |s: &AudioStream| {
             let (batches, gaps) = s.counts();
-            eprintln!("capture worker {name}: {batches} batches, {gaps} gaps, drift {:?} ppm", s.drift_ppm());
+            continuum_log::periodic!(clock, "{name}: {batches} batches, {gaps} gaps, drift {:?} ppm", s.drift_ppm());
         };
         let exit = run_microphone(source, &mut stream, &mut reblocker, client, clocks, stall_ns, stop, &mut health);
         let (batches, gaps) = stream.counts();
-        eprintln!(
-            "capture worker {}: {batches} batches, {gaps} gaps, {} chunks dropped, drift {:?} ppm",
+        tracing::info!(
+            "{}: {batches} batches, {gaps} gaps, {} chunks dropped, drift {:?} ppm",
             device.name,
             source.dropped(),
             stream.drift_ppm()
@@ -570,11 +573,11 @@ pub fn microphone(
                     // starting over on it, which the supervisor does.
                     Ok(again) if again.lease.as_ref().and_then(|l| l.carved_ring()) == Some(carved) => {}
                     Ok(_) => {
-                        eprintln!("capture worker {}: the stream's ring moved; restarting on the new one", device.name);
+                        tracing::warn!("{}: the stream's ring moved; restarting on the new one", device.name);
                         return WorkerEnd::Broker;
                     }
                     Err(e) => {
-                        eprintln!("capture worker {}: re-registering after a wake failed: {e}", device.name);
+                        tracing::warn!("{}: re-registering after a wake failed: {e}", device.name);
                         return WorkerEnd::Broker;
                     }
                 }
@@ -582,11 +585,11 @@ pub fn microphone(
             MicExit::Stopped => return WorkerEnd::Stopped,
             MicExit::Stalled => return WorkerEnd::Stalled,
             MicExit::Source(e) => {
-                eprintln!("capture worker {}: {e}", device.name);
+                tracing::warn!("{}: {e}", device.name);
                 return WorkerEnd::Device;
             }
             MicExit::Publish(e) => {
-                eprintln!("capture worker {}: {e}", device.name);
+                tracing::warn!("{}: {e}", device.name);
                 return WorkerEnd::Broker;
             }
         }

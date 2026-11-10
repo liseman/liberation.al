@@ -60,10 +60,24 @@ def manifest_camera_names(path: Path | None = None, *, active_only: bool = False
 def camera_ids(*, active_only: bool = False) -> list[str]:
     """Configured IDs, retaining disabled history by default; only Live requests active_only.
 
-    A present manifest, including an empty one, replaces legacy camera indices.
+    The manifest is the only source: no manifest, like an empty one, means no cameras.
     """
-    native = manifest_camera_names(active_only=active_only)
-    return native if native is not None else [f"cam{c}" for c in cfg.get("vision.cams")]
+    return manifest_camera_names(active_only=active_only) or []
+
+
+NUMBER_WORDS = dict(
+    zip(["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"], range(11))
+)
+# "camera 3" and "cam two" are cam3 and cam2 on any install: a camera's ID is looked up, never inferred.
+NUMBERED = re.compile(r"\bcam(?:era)?\s*(\d+|" + "|".join(NUMBER_WORDS) + r")\b", re.I)
+
+
+def cameras_named(text: str) -> tuple[list[str], str]:
+    """(the cameras the text names, the text with configured mentions masked): configured IDs and names
+    (configured_camera_mentions, which raises ValueError for an ambiguous name) and numbered ones."""
+    configured, remaining = configured_camera_mentions(text)
+    numbered = {"cam" + str(int(NUMBER_WORDS.get(n.lower(), n))) for n in NUMBERED.findall(remaining)}
+    return sorted(set(configured) | numbered), remaining
 
 
 def configured_camera_mentions(text: str) -> tuple[list[str], str]:

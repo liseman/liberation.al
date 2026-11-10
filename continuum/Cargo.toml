@@ -8,6 +8,7 @@ members = [
     "crates/continuum-core",
     "crates/continuum-ffi",
     "crates/continuum-gateway",
+    "crates/continuum-log",
     "crates/continuum-py",
     "crates/continuum-search",
     "crates/continuum-segments",
@@ -29,6 +30,7 @@ rust-version = "1.90"
 continuum-catalog = { path = "crates/continuum-catalog" }
 continuum-core = { path = "crates/continuum-core" }
 continuum-gateway = { path = "crates/continuum-gateway" }
+continuum-log = { path = "crates/continuum-log" }
 continuum-search = { path = "crates/continuum-search" }
 continuum-sched = { path = "crates/continuum-sched" }
 continuum-shm = { path = "crates/continuum-shm" }
@@ -52,6 +54,7 @@ tokio = { version = "1.54", features = ["io-util", "macros", "net", "rt-multi-th
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["env-filter", "fmt", "std"] }
 uuid = { version = "1.29", features = ["v7"] }
+zstd = { version = "0.13", default-features = false }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

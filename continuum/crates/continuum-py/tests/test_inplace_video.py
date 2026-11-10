@@ -1,7 +1,7 @@
-"""v1's recordings registered in place through continuum_py, against a real broker process, and read back by GOP
+"""MP4 files registered in place through continuum_py, against a real broker process, and read back by GOP
 for the vision port.
 
-Run with `mise run continuum-test`, which builds the broker first. `fixtures/v1_bframes.mp4` is 2 seconds at 10 fps,
+Run with `mise run continuum-test`, which builds the broker first. `fixtures/bframes.mp4` is 2 seconds at 10 fps,
 64x48, H.264 with B-frames and a keyframe every 10 frames (made with ffmpeg's testsrc and libx264 -bf 2 -g 10).
 """
 
@@ -12,11 +12,11 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
-from continuum_py import Client, ContinuumError, v1_gop_units
+from continuum_py import Client, ContinuumError, gop_units
 
 from conftest import spawn_broker, stop_broker
 
-RECORDING = Path(__file__).parent / "fixtures" / "v1_bframes.mp4"
+RECORDING = Path(__file__).parent / "fixtures" / "bframes.mp4"
 START = 1_793_300_000_250_000_000
 MS = 1_000_000
 
@@ -45,10 +45,10 @@ def test_recordings_register_once_and_a_second_run_is_a_repeat(socket: str, tmp_
     video = video_dir(tmp_path)
 
     async def run() -> tuple[list[dict], list[dict]]:
-        async with await Client.connect(socket, client_name="v1 video importer") as client:
-            await client.register_worker("v1-video-import", [])
-            first = await client.register_v1_video_index("cam0", str(video))
-            second = await client.register_v1_video_index("cam0", str(video))
+        async with await Client.connect(socket, client_name="video importer") as client:
+            await client.register_worker("video-import", [])
+            first = await client.register_video_index("cam0", str(video))
+            second = await client.register_video_index("cam0", str(video))
             return first, second
 
     first, second = asyncio.run(run())
@@ -59,11 +59,11 @@ def test_recordings_register_once_and_a_second_run_is_a_repeat(socket: str, tmp_
 
 
 def test_a_gop_reads_back_in_decode_order_with_its_times() -> None:
-    units = v1_gop_units(RECORDING, START, 1)
+    units = gop_units(RECORDING, START, 1)
     assert len(units) == 10
     assert [u["key"] for u in units] == [True] + [False] * 9
     assert units[0]["bytes"][:5] == b"\x00\x00\x00\x01\x67"
     assert sorted(u["pts_ns"] for u in units) == [START + (10 + k) * 100 * MS for k in range(10)]
     assert all(a["dts_ns"] < b["dts_ns"] for a, b in itertools.pairwise(units))
     with pytest.raises(ContinuumError):
-        v1_gop_units(RECORDING, START, 2)
+        gop_units(RECORDING, START, 2)

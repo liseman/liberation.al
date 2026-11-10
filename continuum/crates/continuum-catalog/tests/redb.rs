@@ -497,12 +497,12 @@ fn frame_provenance_survives_reopen_and_scrub() {
         commit_pair(&c, cam, 1, 100, None);
         cam
     };
-    assert_eq!(disk_format(&path), 7);
+    assert_eq!(disk_format(&path), 8);
     {
         let c = RedbCatalog::open(&path).unwrap();
         commit_pair(&c, cam, 3, 101, Some(&provenance));
     }
-    assert_eq!(disk_format(&path), 7);
+    assert_eq!(disk_format(&path), 8);
     {
         let c = RedbCatalog::open(&path).unwrap();
         assert_eq!(c.chunk_provenance(id(101)).unwrap(), Some(provenance.clone()));
@@ -511,7 +511,7 @@ fn frame_provenance_survives_reopen_and_scrub() {
         scrub_to_the_end(&c, 1);
         assert_eq!(c.chunk_provenance(id(101)).unwrap(), Some(provenance.clone()), "the scrub copied it");
     }
-    assert_eq!(disk_format(&path), 7);
+    assert_eq!(disk_format(&path), 8);
     assert_eq!(RedbCatalog::open(&path).unwrap().chunk_provenance(id(101)).unwrap(), Some(provenance));
 }
 
@@ -539,30 +539,30 @@ fn refusal(path: &std::path::Path) -> String {
 }
 
 #[test]
-fn a_new_catalog_is_created_at_format_7_and_reopens() {
+fn a_new_catalog_is_created_at_format_8_and_reopens() {
     let (_dir, file) = path();
     let cam = {
         let c = RedbCatalog::open(&file).unwrap();
         assert!(c.restart_stamp().unwrap().is_some(), "restart tracking starts with the file");
         c.register_stream(info("cam")).unwrap()
     };
-    assert_eq!(disk_format(&file), 7);
+    assert_eq!(disk_format(&file), 8);
     let c = RedbCatalog::open(&file).unwrap();
     assert_eq!(c.stream_id("cam").unwrap(), Some(cam));
     drop(c);
-    assert_eq!(disk_format(&file), 7);
+    assert_eq!(disk_format(&file), 8);
 }
 
 #[test]
 fn a_file_stamped_with_another_format_is_refused() {
-    for format in [1, 4, 6, 8] {
+    for format in [1, 4, 6, 7] {
         let (_dir, file) = path();
         drop(RedbCatalog::open(&file).unwrap());
         stamp(&file, Some(format));
         assert_eq!(
             refusal(&file),
             format!(
-                "the catalog file is format {format}; this code reads only format 7: create it again (pack-reset-catalog)"
+                "the catalog file is format {format}; this code reads only format 8: create it again (pack-reset-catalog)"
             )
         );
         assert_eq!(disk_format(&file), format, "a refused file is left as it was");
@@ -577,7 +577,7 @@ fn an_unstamped_file_with_a_stream_is_refused() {
         c.register_stream(info("cam")).unwrap();
     }
     stamp(&file, None);
-    assert!(refusal(&file).ends_with("this code reads only format 7: create it again (pack-reset-catalog)"));
+    assert!(refusal(&file).ends_with("this code reads only format 8: create it again (pack-reset-catalog)"));
 }
 
 /// Bytes per table: what one hour of a per-frame derived stream (`animal.detection`: about 31,000 inline instants
@@ -643,6 +643,100 @@ fn measure_the_catalog_bytes_an_aged_hour_leaves() {
             println!("  {name:24} {b:>10}");
         }
     }
+}
+
+/// Bytes per table that `minutes` of one 30 fps camera leave in the catalog once its `FRAMES` rows are pruned (the
+/// steady state an hour on), and the catalog writes it took: its frames ingested 2 seconds at a time, each batch
+/// then committed as a chunk of its own (`chunk_s` 2, how video was stored before #49) or as a part of a chunk
+/// `chunk_s` seconds long. Capture times jitter by up to 100 microseconds and access units are 300 to 3,300 bytes.
+fn camera_minutes(minutes: u32, chunk_s: u32) -> (BTreeMap<String, u64>, u32) {
+    const FPS: u32 = 30;
+    const PART_S: u32 = 2;
+    let (_dir, file) = path();
+    let c = RedbCatalog::open(&file).unwrap();
+    let cam = c.register_stream(info("cam0.video")).unwrap();
+    let empty: BTreeMap<String, u64> = c.table_bytes().unwrap().into_iter().collect();
+    let t0 = 1_800_000_000_000_000_000u64;
+    let mut noise = 0x9e37_79b9_7f4a_7c15u64;
+    let (mut chunk, mut start, mut held, mut at, mut writes) = (0u32, 0u64, 0u32, 0u64, 0u32);
+    for part in 0..minutes * 60 / PART_S {
+        if part % (chunk_s / PART_S) == 0 {
+            (chunk, held, at) = (20_000_000 + part, 0, 24);
+        }
+        let first = part * PART_S * FPS;
+        let mut tail = Vec::new();
+        let mut rows = Vec::new();
+        for n in first..first + PART_S * FPS {
+            noise ^= noise << 13;
+            noise ^= noise >> 7;
+            noise ^= noise << 17;
+            let t = t0 + u64::from(n) * 33_333_333 + (noise >> 40) % 100_000;
+            let length = 300 + noise % 3_000;
+            rows.push(payload(n + 1, cam, t, &[], &[]));
+            tail.push(ChunkFrame::new(t, at + 45, length));
+            at += 45 + length;
+        }
+        c.insert(rows).unwrap();
+        if held == 0 {
+            start = tail[0].start_ns;
+        }
+        let header = HeaderBuf::build(&HeaderSpec::raw(id(chunk), cam, start, tail[tail.len() - 1].start_ns + 1));
+        let payload = NewPayload {
+            header: header.unwrap(),
+            location: Some(continuum_core::StorageLocator::Chunk {
+                tier: continuum_core::StorageTier::Tier1Warm,
+                uri: format!("/srv/pack/data/state/continuum/tier/streams/7/2027011500/7-{start}-{chunk}.cnk"),
+                offset: 0,
+                length: at,
+            }),
+            coverage: None,
+        };
+        let ids: Vec<Uuid> = (first..first + PART_S * FPS).map(|n| id(n + 1)).collect();
+        let provenance = ChunkProvenance::new(
+            (first..first + PART_S * FPS)
+                .map(|n| FrameProvenance { device_seq: u64::from(n), epoch: 7, stamped_at_arrival: false })
+                .collect(),
+        );
+        if held == 0 {
+            c.commit_chunk_with_provenance(NewChunk { payload, frames: tail }, &ids, Some(&provenance)).unwrap();
+        } else {
+            c.extend_chunk(NewChunk { payload, frames: tail }, held, &ids, Some(&provenance)).unwrap();
+        }
+        held += PART_S * FPS;
+        writes += 2;
+    }
+    let mut after = None;
+    loop {
+        after = c.prune_frames(u64::MAX, after, 50_000).unwrap().next;
+        if after.is_none() {
+            break;
+        }
+    }
+    let left = c.table_bytes().unwrap().into_iter();
+    (left.map(|(name, b)| (name.clone(), b.saturating_sub(empty.get(&name).copied().unwrap_or(0)))).collect(), writes)
+}
+
+/// Not a check: prints what an hour of one camera leaves in the catalog as two-second chunks and as one-minute chunks
+/// committed in two-second parts (#49). Run with `--ignored --nocapture`.
+#[test]
+#[ignore = "a measurement"]
+fn measure_the_catalog_bytes_a_camera_hour_leaves() {
+    for (label, chunk_s) in [("2 s chunks", 2), ("60 s chunks in 2 s parts", 60)] {
+        let (left, writes) = camera_minutes(60, chunk_s);
+        println!("{label}: {} B in {writes} catalog writes", left.values().sum::<u64>());
+        for (name, b) in left.iter().filter(|(_, b)| **b > 0) {
+            println!("  {name:24} {b:>10}");
+        }
+    }
+}
+
+#[test]
+fn a_camera_minute_as_one_chunk_in_parts_leaves_a_fraction_of_what_two_second_chunks_do() {
+    let (short, _) = camera_minutes(2, 2);
+    let (long, writes) = camera_minutes(2, 60);
+    let (short, long): (u64, u64) = (short.values().sum(), long.values().sum());
+    assert!(long * 3 < short, "one row a minute, not thirty: {long} B against {short} B");
+    assert_eq!(writes, 2 * 60, "an ingest and a commit every two seconds, as before");
 }
 
 #[test]

@@ -1,12 +1,13 @@
-//! v1's video recordings registered as Tier 1 chunks in place, and read back by GOP, for the vision port.
+//! H.264 MP4 files registered as Tier 1 chunks in place, and read back by GOP: an imported recording is indexed
+//! where it lies. Ingest is the caller (docs/INGEST.md).
 //!
-//! v1 recorded each camera as H.264 MP4 segments of about five minutes (`video/<cam>/<day>/<HHMMSS>.mp4`, with
-//! B-frames and `+faststart`), each with its exact start in `video/index.jsonl` (`{"cam", "file", "start", "fps",
-//! "w", "h"}`). A segment becomes one header-only payload and one chunk on the camera's own v1 stream
-//! (`<cam>.video_v1`, encoded video, shape `H264`), the same way [`crate::v1audio`] registers audio: deterministic
-//! ids, idempotent, the file never moved or rewritten. The chunk's frame index has one frame per GOP: its earliest
-//! presented frame's time, and the byte range of its samples in the file's `mdat` ([`crate::mp4`]), so a time range
-//! maps to GOPs without opening the file. A segment v1 was still writing (no `moov`) is skipped with a reason.
+//! A directory holds MP4 files (with their `moov`; B-frames are fine) and an `index.jsonl` with each file's exact
+//! start (`{"cam", "file", "start", "fps"}`). A file becomes one header-only payload and one chunk on the stream
+//! named for its `cam` (`<cam>.video_v1`, encoded video, shape `H264`), the same way [`crate::inplace_audio`]
+//! registers audio: deterministic ids, idempotent, the file never moved or rewritten. The chunk's frame index has
+//! one frame per GOP: its earliest presented frame's time, and the byte range of its samples in the file's `mdat`
+//! ([`crate::mp4`]), so a time range maps to GOPs without opening the file. A file still being written (no `moov`)
+//! is skipped with a reason.
 //!
 //! Reading back, by the GOP's place in the frame index:
 //! - [`gop_units`] gives a GOP's access units in decode order as Annex B (the parameter sets on the keyframe), each
@@ -15,12 +16,12 @@
 //! - [`read_frames`] (the `ffmpeg` feature) decodes the frames in a time range to NV12, as
 //!   [`crate::tier2::read_frames`] does for a raw camera's chunks, for the vision workers' coverage.
 //!
-//! v1 rotated a flipped camera's pixels before encoding, so its recordings are upright: readers mustn't flip them.
+//! The files are stored upright (Ingest turns a rotated picture when it converts it): readers mustn't flip them.
 //!
-//! v1's encoders wrote closed GOPs (libx264's default), so a GOP decodes on its own. In an open-GOP file, a GOP's
-//! leading B-frames refer back to the GOP before, and decoding that GOP alone conceals them; and a sync sample may be
-//! a recovery-point I-frame rather than an IDR. Neither occurs in v1's recordings.
-//! Purges follow v1 audio's rule (docs/CONTINUUM.md, "Forgetting"): cut from the catalog, the files left alone.
+//! The files have closed GOPs (libx264's default, which Ingest's conversion uses), so a GOP decodes on its own. In
+//! an open-GOP file, a GOP's leading B-frames refer back to the GOP before, and decoding that GOP alone conceals
+//! them; and a sync sample may be a recovery-point I-frame rather than an IDR.
+//! Purges follow in-place audio's rule (docs/CONTINUUM.md, "Forgetting"): cut from the catalog, the files left alone.
 
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -30,10 +31,12 @@ use continuum_core::schema::continuum as fb;
 use continuum_core::{PayloadFormat, StreamId};
 
 use crate::TierError;
+use crate::inplace_audio::{
+    Absorbed, InPlace, InPlaceError, Registration, ids_seeded, register_in_place, seconds_to_ns,
+};
 use crate::mp4::{Mp4Video, read_video, to_annex_b};
-use crate::v1audio::{Absorbed, InPlace, V1Error, V1Registered, ids_seeded, register_in_place, seconds_to_ns};
 
-/// The shape name of a v1 recording stream.
+/// The shape name of a stream of MP4 files registered in place.
 pub const SHAPE: &str = "H264";
 
 /// A track time in the file's timescale as nanoseconds after its start (negative times, before the first edit, as
@@ -64,10 +67,10 @@ pub fn gop_frames(video: &Mp4Video, start_ns: u64) -> Vec<ChunkFrame> {
         .collect()
 }
 
-/// The stream a camera's v1 recordings go on: `<cam>.video_v1`, a sensor at layer 1, encoded H.264 at `fps`.
+/// The stream a camera's MP4 files are registered on: `<cam>.video_v1`, a sensor at layer 1, encoded H.264 at `fps`.
 /// Nothing is ever written to its Tier 0 storage; the smallest slab class is named because one has to be.
 #[must_use]
-pub fn v1_video_stream_spec(cam: &str, fps: f32) -> StreamSpec {
+pub fn video_stream_spec(cam: &str, fps: f32) -> StreamSpec {
     StreamSpec {
         name: format!("{cam}.video_v1"),
         kind: fb::StreamKind::Sensor,
@@ -81,40 +84,40 @@ pub fn v1_video_stream_spec(cam: &str, fps: f32) -> StreamSpec {
     }
 }
 
-/// Registers one v1 recording, which starts at `start_ns`, as a payload and a Tier 1 chunk on `stream` (registered
-/// by this session with [`v1_video_stream_spec`]). The session must have registered a worker, since only a worker
-/// commits chunks. Idempotent; the file's canonical path is its uri and part of its ids. A file v1 never finished,
-/// or that isn't a readable H.264 MP4, is skipped with a reason.
+/// Registers one MP4 file, which starts at `start_ns`, as a payload and a Tier 1 chunk on `stream` (registered
+/// by this session with [`video_stream_spec`]). The session must have registered a worker, since only a worker
+/// commits chunks. Idempotent; the file's canonical path is its uri and part of its ids. A file never finished,
+/// or one that isn't a readable H.264 MP4, is skipped with a reason.
 ///
 /// # Errors
 ///
-/// [`V1Error::Tier`] for an I/O error, [`V1Error::Client`] when the broker refuses, and [`V1Error::Refused`] when
+/// [`InPlaceError::Tier`] for an I/O error, [`InPlaceError::Client`] when the broker refuses, and [`InPlaceError::Refused`] when
 /// the catalog holds something else at the file's time.
-pub async fn register_v1_video(
+pub async fn register_mp4(
     client: &Client,
     stream: StreamId,
     path: &Path,
     start_ns: u64,
-) -> Result<V1Registered, V1Error> {
+) -> Result<Registration, InPlaceError> {
     let path = std::fs::canonicalize(path).map_err(TierError::from)?;
     let mut file = std::fs::File::open(&path).map_err(TierError::from)?;
     let length = file.metadata().map_err(TierError::from)?.len();
     let video = match read_video(&mut file) {
         Ok(v) => v,
-        Err(TierError::Codec(why)) => return Ok(V1Registered::Skipped(format!("{}: {why}", path.display()))),
+        Err(TierError::Codec(why)) => return Ok(Registration::Skipped(format!("{}: {why}", path.display()))),
         Err(e) => return Err(e.into()),
     };
     if !matches!(&video.codec, b"avc1" | b"avc3") {
-        return Ok(V1Registered::Skipped(format!("{}: not H.264", path.display())));
+        return Ok(Registration::Skipped(format!("{}: not H.264", path.display())));
     }
     let frames = gop_frames(&video, start_ns);
     if frames.is_empty() {
-        return Ok(V1Registered::Skipped(format!("{}: no keyframe", path.display())));
+        return Ok(Registration::Skipped(format!("{}: no keyframe", path.display())));
     }
     // A chunk holds at most this many frames, so a file with more GOPs (all-intra, say) would be refused after its
     // payloads were ingested, leaving them behind: it's skipped before anything is sent.
     if frames.len() > continuum_catalog::MAX_CHUNK_FRAMES {
-        return Ok(V1Registered::Skipped(format!(
+        return Ok(Registration::Skipped(format!(
             "{}: {} GOPs, more than a chunk's {} frames",
             path.display(),
             frames.len(),
@@ -148,10 +151,10 @@ pub async fn register_v1_video(
         frames,
         payloads,
     };
-    register_in_place(client, &path, &place, chunk_id, length, "v1 video").await
+    register_in_place(client, &path, &place, chunk_id, length, "in-place video").await
 }
 
-/// One line of v1's `video/index.jsonl`.
+/// One line of a directory's `index.jsonl`.
 #[derive(serde::Deserialize)]
 struct IndexLine {
     cam: String,
@@ -161,32 +164,33 @@ struct IndexLine {
     fps: Option<f32>,
 }
 
-/// Registers every recording of camera `cam` that v1's `video/index.jsonl` (in `video_dir`) lists, on
+/// Registers every file of camera `cam` that the `index.jsonl` in `video_dir` lists, on
 /// `<cam>.video_v1` (registered here). A file missing from disk, unfinished, or not H.264 is skipped with a reason;
 /// a file listed twice registers once, at its last start. A line that isn't JSON is an error.
 ///
 /// # Errors
 ///
-/// [`V1Error::Index`] for an unreadable index or line, and as [`register_v1_video`].
-pub async fn register_v1_video_index(
+/// [`InPlaceError::Index`] for an unreadable index or line, and as [`register_mp4`].
+pub async fn register_video_index(
     client: &Client,
     cam: &str,
     video_dir: &Path,
-) -> Result<Vec<(PathBuf, V1Registered)>, V1Error> {
+) -> Result<Vec<(PathBuf, Registration)>, InPlaceError> {
     let index_path = video_dir.join("index.jsonl");
-    let text =
-        std::fs::read_to_string(&index_path).map_err(|e| V1Error::Index(format!("{}: {e}", index_path.display())))?;
+    let text = std::fs::read_to_string(&index_path)
+        .map_err(|e| InPlaceError::Index(format!("{}: {e}", index_path.display())))?;
     let mut lines: Vec<(PathBuf, u64)> = Vec::new();
     let mut at = std::collections::HashMap::new();
     let mut fps = None;
     for (n, line) in text.lines().enumerate().filter(|(_, l)| !l.trim().is_empty()) {
         let l: IndexLine = serde_json::from_str(line)
-            .map_err(|e| V1Error::Index(format!("{} line {}: {e}", index_path.display(), n + 1)))?;
+            .map_err(|e| InPlaceError::Index(format!("{} line {}: {e}", index_path.display(), n + 1)))?;
         if l.cam != cam {
             continue;
         }
-        let start_ns = seconds_to_ns(l.start)
-            .ok_or_else(|| V1Error::Index(format!("{} line {}: start {}", index_path.display(), n + 1, l.start)))?;
+        let start_ns = seconds_to_ns(l.start).ok_or_else(|| {
+            InPlaceError::Index(format!("{} line {}: start {}", index_path.display(), n + 1, l.start))
+        })?;
         fps = fps.or(l.fps);
         let path = video_dir.join(&l.file);
         match at.get(&path) {
@@ -201,25 +205,25 @@ pub async fn register_v1_video_index(
     let mut out = Vec::with_capacity(lines.len());
     for (path, start_ns) in lines {
         if !path.is_file() {
-            out.push((path.clone(), V1Registered::Skipped(format!("{}: not on disk", path.display()))));
+            out.push((path.clone(), Registration::Skipped(format!("{}: not on disk", path.display()))));
             continue;
         }
         let id = match stream {
             Some(id) => id,
             None => {
-                let registered = client.register_stream(&v1_video_stream_spec(cam, fps.unwrap_or(0.0))).await?;
+                let registered = client.register_stream(&video_stream_spec(cam, fps.unwrap_or(0.0))).await?;
                 *stream.insert(StreamId(registered.stream_id))
             }
         };
-        let r = register_v1_video(client, id, &path, start_ns).await?;
+        let r = register_mp4(client, id, &path, start_ns).await?;
         out.push((path, r));
     }
     Ok(out)
 }
 
-/// One access unit of a v1 recording.
+/// One access unit of an MP4 file registered in place.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct V1Unit {
+pub struct GopUnit {
     /// Annex B; the keyframe's begins with the SPS and PPS.
     pub bytes: Vec<u8>,
     /// Its presentation time, UTC nanoseconds: what a decoder's output frame carries.
@@ -238,13 +242,13 @@ pub struct V1Unit {
 /// # Errors
 ///
 /// [`TierError::Codec`] for a file that isn't a readable MP4 or has no such GOP, and an I/O error as it comes.
-pub fn gop_units(path: &Path, start_ns: u64, gop: usize) -> Result<Vec<V1Unit>, TierError> {
+pub fn gop_units(path: &Path, start_ns: u64, gop: usize) -> Result<Vec<GopUnit>, TierError> {
     let mut file = std::fs::File::open(path)?;
     let video = read_video(&mut file)?;
     units_of(&mut file, &video, start_ns, gop)
 }
 
-fn units_of(file: &mut std::fs::File, video: &Mp4Video, start_ns: u64, gop: usize) -> Result<Vec<V1Unit>, TierError> {
+fn units_of(file: &mut std::fs::File, video: &Mp4Video, start_ns: u64, gop: usize) -> Result<Vec<GopUnit>, TierError> {
     let g = *video
         .gops()
         .get(gop)
@@ -263,7 +267,7 @@ fn units_of(file: &mut std::fs::File, video: &Mp4Video, start_ns: u64, gop: usiz
                 .get(at..at + s.size as usize)
                 .ok_or_else(|| TierError::Codec("a sample outside its GOP's bytes".to_owned()))?;
             let pts = start_ns.saturating_add(track_ns(s.pts, video.timescale));
-            Ok(V1Unit {
+            Ok(GopUnit {
                 bytes: to_annex_b(video, raw, s.key)?,
                 pts_ns: pts,
                 end_ns: pts.saturating_add(track_ns(i64::from(s.duration), video.timescale)),

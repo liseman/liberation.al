@@ -97,14 +97,6 @@ def merged(visits: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
-def _species(question: str, labels: set[str], content: Callable[[str], list[str]]) -> str | None:
-    """The species label the question names ("the cat"), when the visits have it."""
-    words = set(content(question))
-    known = (labels | ANIMALS) - {"person"}
-    hits = sorted({label for label in known if content(label) and content(label)[0] in words})
-    return hits[0] if len(hits) == 1 else None
-
-
 def _theirs(
     state: Path, visits: list[dict[str, Any]], person: Any
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -128,19 +120,6 @@ def _by_zone(visits: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
     return list(groups.values())
 
 
-def _pet(question: str, state: Path, content: Callable[[str], list[str]]) -> tuple[str, str] | None:
-    """(name, species) of the one named pet the question names ("did May use the litter box"), or None."""
-    from liberational.memory import subject_activity
-
-    words = set(content(question))
-    hits = [
-        p
-        for p in subject_activity._pets(state)
-        if content(str(p.get("name", "")))[:1] and set(content(str(p["name"]))) <= words
-    ]
-    return (str(hits[0]["name"]), str(hits[0]["species"])) if len(hits) == 1 else None
-
-
 def answer(
     asked: str,
     query: Mapping[str, Any],
@@ -149,14 +128,12 @@ def answer(
     tz: dt.tzinfo | None,
     *,
     same: Callable[[str | None, str], bool],
-    content: Callable[[str], list[str]],
     person: Any = None,
 ) -> dict[str, Any]:
     """{answer, evidence, coverage, warnings, count, dwell_s} for how many times the zone called `asked` was visited
-    in query's window; `dwell_s` is the counted visits' time inside the window. `same` and `content` are
+    in query's window; `dwell_s` is the counted visits' time inside the window. `same` is
     event_counts' name matching, so a zone is named the way an event is."""
     start, end, cameras = float(query["start"]), float(query["end"]), list(query.get("cameras") or [])
-    question = str(query.get("question") or asked)
     wanted = _matching(state, asked, same)
     if cameras:
         wanted = {z: cam for z, cam in wanted.items() if cam in cameras}
@@ -174,14 +151,15 @@ def answer(
         for v in log.range(segment_log.ZONE_VISITS, start, end)
         if v.get("zone") in wanted and start <= float(v["ts_start"]) < end
     ]
-    labels = {str(v.get("label")) for v in visits if v.get("label")}
-    species = _species(question, labels, content)
+    # The species or pet the reading picked (memory/question.py): "the cat" counts that species' visits, a pet's
+    # name the visits attributed to it.
+    subjects = query.get("subjects") or {}
+    species = subjects.get("species")
     whose = None
-    if species is None and (pet := _pet(question, state, content)) is not None:
+    if (pet := subjects.get("pet")) is not None and species is not None:
         from liberational.memory import subject_activity
 
-        species = pet[1]
-        whose = subject_activity.attribute(state, species, pet[0])
+        whose = subject_activity.attribute(state, species, pet)
     narrowed = person is not None and whose is None and species is None
     kinds = {"animal"} if species else {"person"} if narrowed else {"person", "animal"}
     if species:

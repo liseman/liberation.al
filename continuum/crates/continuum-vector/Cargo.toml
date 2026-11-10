@@ -8,6 +8,8 @@ publish.workspace = true
 rust-version = "1.94"
 
 [dependencies]
+continuum-log.workspace = true
+tracing.workspace = true
 # The segment store's batches are arrow 60; lancedb's are its own major (58), so the two never meet in one type.
 arrow-array = "60"
 chrono.workspace = true

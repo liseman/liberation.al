@@ -65,8 +65,13 @@ reason = "the microphone maker's direction-of-arrival diagram, no people or room
 
 [[allow]]
 rule = "media-file"
-path = "continuum/crates/continuum-*/tests/*/v1_*"
-reason = "generated test media: a tone and a synthetic B-frame clip"
+path = "continuum/crates/continuum-*/tests/*/bframes.mp4"
+reason = "generated test media: a synthetic B-frame clip"
+
+[[allow]]
+rule = "media-file"
+path = "continuum/crates/continuum-py/tests/fixtures/tone.flac"
+reason = "generated test media: a tone"
 
 [[allow]]
 rule = "media-file"

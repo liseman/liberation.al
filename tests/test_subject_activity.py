@@ -43,14 +43,6 @@ def test_without_a_zone_an_animal_question_says_tracking_was_removed_not_that_no
     assert reply["evidence"] == []
 
 
-@pytest.mark.parametrize(
-    "question",
-    ["what has Dana been doing lately?", "what has the team been up to this week?", "what is the plan?"],
-)
-def test_a_question_about_someone_else_is_left_to_the_other_paths(tmp_path, question):
-    assert subject_activity.asked(question, tmp_path) is None
-
-
 def recognition(
     monkeypatch, vision, *, on=False, sightings=(), pets=({"id": "p-may", "name": "May", "species": "cat"},)
 ):
@@ -119,11 +111,6 @@ def track(litter, track_id, hours_ago, species="cat"):
 LITTER = "when did May last use the litter box?"
 
 
-def test_a_person_s_last_seen_question_stays_with_the_timeline(tmp_path):
-    assert subject_activity.last_asked("when did I last see Dana?", tmp_path) is None
-    assert subject_activity.last_asked("where is the remote?", tmp_path) is None
-
-
 def test_with_two_named_cats_only_tracks_labeled_as_the_one_asked_about_count(tmp_path, litter, vision, monkeypatch):
     pets = ({"id": "p-may", "name": "May", "species": "cat"}, {"id": "p-tom", "name": "Tom", "species": "cat"})
     recognition(monkeypatch, vision, sightings=[("may-1", "p-may", None), ("tom-1", "p-tom", None)], pets=pets)
@@ -183,20 +170,6 @@ def test_voice_routes_animal_questions_to_history(tmp_path, monkeypatch, questio
         assert h.is_history_question(question) is routed
 
 
-@pytest.mark.parametrize(
-    "question",
-    [
-        "when did I last see the cat yesterday?",
-        "when did I last see the cat on camera 0?",
-        "where is May now?",
-        "when was the cat last seen this week",
-    ],
-)
-def test_time_and_camera_qualifiers_are_not_part_of_the_animal(tmp_path, question):
-    found = subject_activity.last_asked(question, tmp_path)
-    assert found is not None and found[:2] == ("cat", "May")
-
-
 def test_owner_labels_older_than_the_recognition_window_still_attribute_tracks(tmp_path, vision, monkeypatch):
     from liberational.people import pet_recognition
 
@@ -213,11 +186,34 @@ def test_owner_labels_older_than_the_recognition_window_still_attribute_tracks(t
     assert not subject_activity.keeps(whose, "someone-else")
 
 
+MAY = [{"name": "May", "species": "cat"}]
+TWO_CATS = [*MAY, {"name": "Tom", "species": "cat"}]
+
+
+def picked(measure, **subjects):
+    return {"measure": measure, "subjects": {"species": None, "pet": None, "zone": None, **subjects}}
+
+
 @pytest.mark.parametrize(
-    "question",
-    ["where is Friday?", "when did I last see Friday yesterday?", "what has Friday been doing on Sunday"],
+    ("roster", "query_", "found"),
+    [
+        pytest.param(MAY, picked("last_time", species="cat"), ("cat", "May", None), id="the-only-cat-is-that-pet"),
+        pytest.param(TWO_CATS, picked("last_time", species="cat"), ("cat", None, None), id="two-cats-name-none"),
+        pytest.param(TWO_CATS, picked("where", species="cat", pet="Tom"), ("cat", "Tom", None), id="a-pet-by-name"),
+        pytest.param(
+            MAY, picked("last_time", species="cat", zone="Litter box"), ("cat", "May", "Litter box"), id="in-a-zone"
+        ),
+        pytest.param(MAY, picked("last_time"), None, id="no-animal-picked"),
+        pytest.param(MAY, picked("count", species="cat"), None, id="a-count-is-not-last-seen"),
+    ],
 )
-def test_a_pet_named_like_a_time_qualifier_is_still_that_pet(tmp_path, monkeypatch, question):
-    monkeypatch.setattr(subject_activity, "_pets", lambda state: [{"name": "Friday", "species": "dog"}])
-    found = subject_activity.last_asked(question, tmp_path) or subject_activity.asked(question, tmp_path)
-    assert found is not None and found[:2] == ("dog", "Friday")
+def test_when_an_animal_was_last_seen_comes_from_the_picked_names(tmp_path, monkeypatch, roster, query_, found):
+    monkeypatch.setattr(subject_activity, "_pets", lambda state: roster)
+    assert subject_activity.last_asked(query_, tmp_path) == found
+
+
+def test_what_an_animal_has_been_doing_needs_an_animal_and_that_measure(tmp_path, monkeypatch):
+    monkeypatch.setattr(subject_activity, "_pets", lambda state: MAY)
+    assert subject_activity.asked(picked("doing", species="cat"), tmp_path) == ("cat", "May")
+    assert subject_activity.asked(picked("doing"), tmp_path) is None
+    assert subject_activity.asked(picked("last_time", species="cat"), tmp_path) is None

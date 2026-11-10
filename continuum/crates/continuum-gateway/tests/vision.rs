@@ -1,7 +1,7 @@
 //! The vision workers' records as overlays through the gateway, with the broker in the loop: a range asks for
 //! overlay groups and gets its frames; a live view follows a camera and draws the `face.boxes` ring's faces and the
 //! `pose.boxes` ring's skeletons for it;
-//! and a v1 recording registered in place plays by GOP.
+//! and an MP4 registered in place plays by GOP.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -300,27 +300,27 @@ async fn a_live_view_opened_before_the_pose_ring_exists_takes_it_when_it_appears
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_v1_recording_registered_in_place_plays_by_gop_in_decode_order() {
     let mut rig = rig().await;
-    // v1's video directory with one recording (2 s at 10 fps, H.264 with B-frames, a keyframe every 10 frames).
+    // A video directory with one recording (2 s at 10 fps, H.264 with B-frames, a keyframe every 10 frames).
     let video = rig._dir.path().join("video");
     std::fs::create_dir_all(video.join("cam0/2026-10-29")).expect("mkdir");
-    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../continuum-tier/tests/data/v1_bframes.mp4");
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../continuum-tier/tests/data/bframes.mp4");
     std::fs::copy(fixture, video.join("cam0/2026-10-29/140000.mp4")).expect("copy");
     std::fs::write(
         video.join("index.jsonl"),
         "{\"cam\": \"cam0\", \"file\": \"cam0/2026-10-29/140000.mp4\", \"start\": 2.0, \"fps\": 10.0}\n",
     )
     .expect("index");
-    let importer = Client::connect(&rig.socket, ClientOptions::new("v1 importer")).await.expect("connect");
+    let importer = Client::connect(&rig.socket, ClientOptions::new("importer")).await.expect("connect");
     let worker = WorkerSpec {
-        worker_id: "v1-video-import".into(),
+        worker_id: "video-import".into(),
         version_hash: "test".into(),
         capabilities: vec![],
         device_index: None,
         keeps_copies: false,
     };
     importer.register_worker(&worker).await.expect("worker");
-    let done = continuum_tier::v1video::register_v1_video_index(&importer, "cam0", &video).await.expect("register");
-    assert!(matches!(done[0].1, continuum_tier::v1audio::V1Registered::Registered { .. }), "{done:?}");
+    let done = continuum_tier::inplace_video::register_video_index(&importer, "cam0", &video).await.expect("register");
+    assert!(matches!(done[0].1, continuum_tier::inplace_audio::Registration::Registered { .. }), "{done:?}");
 
     let (_, listed) = rig.request(r#"{"type":"streams"}"#.to_owned()).await;
     let Ok(Reply::Streams { streams }) = serde_json::from_str::<Reply>(&listed) else { panic!("{listed}") };

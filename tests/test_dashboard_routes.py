@@ -146,3 +146,42 @@ def test_a_post_whose_body_is_not_json_is_refused_whether_or_not_its_path_is_kno
 def test_a_registered_pattern_reaches_its_handler_with_the_match(ask):
     status, _, body = ask("GET", "/speaker/7/latest")
     assert (status, json.loads(body)) == (404, {"ok": False, "error": "no utterance with audio for that speaker"})
+
+
+def test_a_delete_nobody_registered_is_refused(ask):
+    status, _, body = ask("DELETE", "/people")
+    assert (status, json.loads(body)) == (405, {"error": "Method not supported."})
+
+
+def test_a_delete_reaches_asks_own_answer_for_its_paths(ask):
+    status, _, body = ask("DELETE", "/pack-ask/jobs")
+    assert (status, json.loads(body)) == (405, {"error": "Method not supported."})
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "status", "reply"),
+    [
+        pytest.param(
+            "POST", "/config/voices", 404, {"ok": False, "error": "unknown endpoint"}, id="read-only-settings"
+        ),
+        pytest.param("POST", "/devices", 404, {"ok": False, "error": "unknown endpoint"}, id="read-only-devices"),
+        pytest.param(
+            "POST", "/network-cameras", 404, {"ok": False, "error": "unknown endpoint"}, id="read-only-cameras"
+        ),
+    ],
+)
+def test_a_method_a_module_does_not_take_for_its_path_is_an_unknown_route(ask, method, path, status, reply):
+    got, _, body = ask(method, path, b"{}")
+    assert (got, json.loads(body)) == (status, reply)
+
+
+def test_a_write_only_path_has_no_read(ask):
+    assert ask("GET", "/devices/sensitivity") == (404, "text/plain", b"")
+    assert ask("GET", "/frontend/log") == (404, "text/plain", b"")
+
+
+def test_every_module_that_registers_routes_is_loaded_with_the_server():
+    """A module the server no longer calls by name is still imported for its routes (routes.load)."""
+    areas = {area for _, _, area in routes.listing()}
+    assert {"settings", "devices", "network_cameras", "ingest", "reports", "frontend_log", "research"} <= areas
+    assert "ask_routes" in areas

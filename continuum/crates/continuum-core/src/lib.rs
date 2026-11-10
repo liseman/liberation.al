@@ -30,7 +30,7 @@ pub mod schema {
 /// any minor works with any other. Major 1 removed the copy-group and `RetireCopy` messages.
 pub const SCHEMA_MAJOR: u16 = 1;
 /// The control protocol's minor version; see [`SCHEMA_MAJOR`].
-pub const SCHEMA_MINOR: u16 = 34;
+pub const SCHEMA_MINOR: u16 = 35;
 
 /// The alignment of every slab, ring segment, and mmap offset, in bytes (the Apple Silicon page size).
 pub const PAGE_ALIGN: usize = 16 * 1024;
@@ -72,7 +72,7 @@ pub use schema::continuum::{
 pub struct StreamId(pub u32);
 
 /// A payload or producer id: a 128-bit UUIDv7, kept as its 16 bytes in RFC 9562 (big-endian) order, so ids sort by
-/// creation time. These are the same ids v1's `domain/kernel.py` uses (it stores them as strings).
+/// creation time. These are the same ids `domain/kernel.py` uses (it stores them as strings).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Uuid(pub [u8; 16]);
 

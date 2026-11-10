@@ -31,9 +31,12 @@ def local(ts):
 
 def test_the_forms_keys_sort_in_the_order_the_model_fills_them():
     # Ollama writes a constrained reply's keys alphabetically: the time's words and kind must come before its fields.
-    keys = sorted(question.SCHEMA["properties"])
-    assert keys == list(question.SCHEMA["required"])
-    assert keys.index("i_time_phrase") < keys.index("j_time_kind") < keys.index("k_day") < keys.index("n_clock")
+    form = question.SCHEMA
+    keys = sorted(form["properties"])
+    assert keys == list(form["required"])
+    order = [key.split("_", 1)[1] for key in keys]
+    assert order.index("time_phrase") < order.index("time_kind") < order.index("day") < order.index("clock")
+    assert order.index("people") < order.index("action") < order.index("time_phrase")
 
 
 def test_a_reply_becomes_a_reading():
@@ -141,7 +144,7 @@ def test_people_are_the_names_the_question_holds(asked, people, kept):
     ],
 )
 def test_people_coming_in_are_a_camera_count_and_who_was_here_is_no_movement(fields, source, movement):
-    r = question.from_reply(reply(**fields), "how many people came in")
+    r = question.from_reply(reply(**fields), "how many people came in or walked by")
     assert (r.source, r.movement) == (source, movement)
 
 
@@ -160,13 +163,114 @@ def test_a_reply_that_doesnt_fit_the_form_is_unreadable(bad):
         question.from_reply(bad, "who was here yesterday")
 
 
-def test_every_worked_example_is_a_whole_form_that_reads_cleanly():
+def test_every_worked_example_reads_cleanly_and_the_last_ones_show_the_whole_form():
+    assert question.SHOTS[-len(question.WHOLE) :] == question.WHOLE
+    for asked, answer in question.WHOLE:
+        assert list(json.loads(answer)) == list(question.KEY.values()), asked
     for asked, answer in question.SHOTS:
         filled = json.loads(answer)
-        assert list(filled) == list(question.KEY.values())
         r = question.from_reply(filled, asked)
         if filled[question.KEY["time_kind"]] not in ("none", "other"):
             assert not r.other_time, asked  # the example's own time fields are in its question's words
+        # and so are its action and its "usual"
+        assert (r.action, r.usual) == (filled.get(question.KEY["action"], ""), filled.get(question.KEY["usual"], False))
+
+
+@pytest.mark.parametrize(
+    ("asked", "fields", "action", "usual"),
+    [
+        pytest.param("how many times did I sit down today", dict(action="sit_down"), "sit_down", False, id="said"),
+        pytest.param(
+            "how many times did the dog go out", dict(action="pick_up"), "", False, id="an-action-nobody-said"
+        ),
+        pytest.param("what did we talk about most this week", dict(usual=True), "", False, id="a-usual-nobody-said"),
+        pytest.param(
+            "how often do I get up per night", dict(action="stand_up", usual=True), "stand_up", True, id="both-said"
+        ),
+    ],
+)
+def test_an_action_or_a_usual_the_question_doesnt_hold_is_dropped(asked, fields, action, usual):
+    r = question.from_reply(reply(**fields), asked)
+    assert (r.action, r.usual) == (action, usual)
+
+
+@pytest.mark.parametrize(
+    ("asked", "movement", "kept"),
+    [
+        ("how many people came in today", "came_in", "came_in"),
+        ("how often did the dog go to the front door", "came_in", ""),
+        ("how many people walked past", "walked_by", "walked_by"),
+        ("what was on the desk", "walked_by", ""),
+    ],
+)
+def test_a_movement_the_question_doesnt_hold_is_dropped(asked, movement, kept):
+    assert question.from_reply(reply(source="cameras", movement=movement), asked).movement == kept
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        pytest.param(dict(usual=True, time_kind="other"), id="marked-usual"),
+        pytest.param(dict(usual=False, time_kind="other"), id="only-the-phrase-says-so"),
+        pytest.param(dict(usual=True, time_kind="calendar", day="this week"), id="filed-as-a-day-nobody-said"),
+    ],
+)
+def test_a_usual_phrase_filed_as_a_time_is_no_window_and_not_a_refusal(fields):
+    r = question.from_reply(
+        reply(measure="count", time_phrase="per day", **fields),
+        "how often does the cat typically use the litter box per day",
+    )
+    assert (r.usual, r.other_time, r.day) == (True, "", "")
+    assert history_qa.window_of(r, NOW)[2] == "all available retained history"
+
+
+HOUSE = question.Vocabulary(
+    events=("fed the cat", "opened the fridge", "opened the fridge door"),
+    zones=("Litter box", "Kitchen"),
+    pets=(("Rex", "dog"), ("Mittens", "cat")),
+    things=("keys",),
+)
+
+
+@pytest.mark.parametrize(
+    ("asked", "found"),
+    [
+        pytest.param(
+            "how many times did Mittens use the litter box?",
+            dict(zone="Litter box", pet="Mittens", species="cat"),
+            id="a-pet-and-a-zone",
+        ),
+        pytest.param(
+            "how often was the fridge door opened",
+            dict(event="opened the fridge door"),
+            id="the-longest-name-any-order",
+        ),
+        pytest.param("what has the dog been doing", dict(species="dog"), id="a-species-names-no-pet"),
+        pytest.param(
+            "where are Rex's toys and my keys",
+            dict(pet="Rex", species="dog", thing="keys"),
+            id="possessive-and-a-thing",
+        ),
+        pytest.param("did the cats and dogs get along", {}, id="two-species-name-neither"),
+        pytest.param("what did Dana say about the garden", {}, id="none"),
+    ],
+)
+def test_the_owners_names_are_looked_up_in_the_questions_words(asked, found):
+    nothing = dict(event=None, zone=None, pet=None, species=None, thing=None)
+    assert HOUSE.subjects(asked) == {**nothing, **found}
+
+
+def test_brief_examples_are_dropped_from_the_front_when_the_context_leaves_less_room(monkeypatch):
+    from liberational.memory import recall, summarize
+
+    monkeypatch.setattr(recall, "settings", lambda: ("fake", 4096))
+    monkeypatch.setattr(summarize, "prompt_tokens", lambda system, user, model=None: len(system) // 4)
+    roomy = question._fitting("x" * 400, "who was here")
+    tight = question._fitting("x" * 11000, "who was here")
+    none = question._fitting("x" * 40000, "who was here")
+    assert roomy == question.SHOTS
+    assert len(question.WHOLE) < len(tight) < len(question.SHOTS) and tight == question.SHOTS[-len(tight) :]
+    assert none == question.WHOLE
 
 
 @pytest.fixture
@@ -191,7 +295,7 @@ def test_read_asks_the_model_once_with_the_form_and_its_examples(monkeypatch, re
     assert len(calls) == 1
     system, user, schema, shots = calls[0]
     assert (user, schema, shots) == ("who was here yesterday", question.SCHEMA, question.SHOTS)
-    assert "i_time_phrase" in system
+    assert question.KEY["time_phrase"] in system
 
 
 def test_no_reply_from_the_model_is_unreadable_and_not_kept(monkeypatch, read):

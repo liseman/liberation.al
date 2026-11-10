@@ -12,6 +12,7 @@ import re
 from typing import Any
 
 from liberational import logs
+from liberational.dashboard import routes
 from liberational.memory import ask, research
 
 LOG = logs.get("dashboard")
@@ -83,3 +84,18 @@ def handle(handler: Any) -> bool:
         LOG.warning("research jobs are unavailable", exc_info=True)
         handler._json({"error": "Research jobs are unavailable right now."}, 503)
     return True
+
+
+# ---- routes (dashboard/routes.py) ----
+
+
+def _ours(path: str) -> bool:
+    return path == "/research/jobs" or path.startswith("/research/jobs/")
+
+
+@routes.get_when("/research/jobs, /research/jobs/<id>", _ours)
+@routes.post_raw_when(
+    "/research/jobs, /research/jobs/<id>, /research/jobs/<id>/read, /research/jobs/<id>/delete", _ours
+)
+def _route(h: Any) -> None:
+    handle(h)
