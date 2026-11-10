@@ -174,7 +174,8 @@ def test_the_status_route_answers_with_the_map_steps_summary_for_a_fresh_install
     [(code, reply)] = h.sent
     assert code == 200
     assert reply == {
-        "on": False, "sampling": [], "kept": 0, "waiting": 0, "parked": 0, "running": False, "step": None,
+        "on": False, "sampling": [], "kept": 0, "waiting": 0, "parked": 0, "parked_cameras": {}, "running": False,
+        "step": None,
         "last_step": None,
         "cameras": {}, "places": {},
     }  # fmt: skip

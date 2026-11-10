@@ -245,6 +245,8 @@ def _advance(state: Path, place: str, on_a_mount: Sequence[str], now: float) -> 
     views = surroundings_map.views(state, place)
     if not views:
         return prior  # not a learned map
+    if surroundings_map.in_plan_frame(state, place):
+        return prior  # in its owner plan's frame: the floor is the plan's, and its cameras are at their spots
     try:
         points = ply.read(places.root(state) / place / rev.map)[0]
     except OSError, ply.PlyError:

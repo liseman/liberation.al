@@ -10,7 +10,8 @@ standard library at module level; numpy, torch, Pillow, and gsplat are imported 
 The job (JSON): `views` ([{"image": path, "pose": 16 numbers, camera to world row by row, the camera looking along
 its +z (OpenCV), "focal": px, "width": px, "height": px}], every image already that size, its principal point at its
 centre unless the view gives "fx", "fy", "cx", and "cy" (a camera's own intrinsics), and
-optionally "mask": a PNG the same size whose white pixels (a camera's burned-in overlays) are left
+optionally "fixed": true for a view whose pose is known and is held where it's given (a camera at a measured spot:
+neither `pose_opt` nor `score`'s fit moves it), "mask": a PNG the same size whose white pixels (a camera's burned-in overlays) are left
 out of the loss, and "depth": a 16-bit image of the view's measured depth along its axis, 0 where there's none, covering
 the same field of view at any size), `init` (an npz of `points`, N x 3 float32 metres, and `colors`, N x 3 uint8: the
 Gaussians' starting centres and colours), `steps`, `cap` (the most Gaussians), `sh_degree`, `out` (a directory), and
@@ -211,6 +212,7 @@ def main(argv: Sequence[str]) -> int:
                 "h": h,
                 "centre": c2w[:3, 3],
                 "test": i in held,
+                "fixed": bool(v.get("fixed")),
                 "covered": None if covered is None else torch.from_numpy(covered[..., None]).to(dev),
                 "depth_at": at,
                 "depth": metres,
@@ -313,7 +315,7 @@ def main(argv: Sequence[str]) -> int:
 
     def viewmat(v: dict[str, Any], delta: Any | None = None) -> Any:
         """`v`'s world-to-camera matrix: its pose, moved by `delta` when given, or by its trained correction."""
-        if delta is None and refine and not v["test"]:
+        if delta is None and refine and not v["test"] and not v["fixed"]:
             delta = poses(torch.tensor([index[id(v)]], device=dev))[0]
         return torch.linalg.inv(v["c2w"] if delta is None else corrected(v["c2w"], delta))
 
@@ -402,7 +404,7 @@ def main(argv: Sequence[str]) -> int:
         for i in job.get("score", []):
             v = views[int(i)]
             raw = score(v, torch.zeros(9, device=dev))
-            _, delta = aligned(v)
+            delta = torch.zeros(9, device=dev) if v["fixed"] else aligned(v)[1]  # a held view is scored where it is
             with torch.no_grad():
                 img, _, info = render(v, sh_degree, delta=delta)
                 counted = torch.ones_like(info["alpha"], dtype=torch.bool)
@@ -493,7 +495,8 @@ def main(argv: Sequence[str]) -> int:
     refined: list[list[float] | None] = [None] * len(views)
     for i, v in enumerate(views):
         if not v["test"]:
-            ended = corrected(v["c2w"], poses.weight.detach()[index[id(v)]]) if refine else v["c2w"]
+            moves = refine and not v["fixed"]
+            ended = corrected(v["c2w"], poses.weight.detach()[index[id(v)]]) if moves else v["c2w"]
             refined[i] = [float(x) for x in ended.reshape(-1).cpu()]
     if refine:
         moved = poses.weight.detach()

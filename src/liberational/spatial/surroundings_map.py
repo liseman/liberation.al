@@ -28,6 +28,23 @@ A step takes up to `MAX_NEW` waiting frames (kept, and not yet in a place), olde
 6. **A revision.** The place's point cloud (the old one and the new frames' points, thinned to a `VOXEL_M` grid) and
    the trained splat are written as one new revision (memory/places.py), in the place's frame.
 
+**A camera with a spot on the owner's plan needs no pair.** A fixed camera whose spot gives a pose
+(spatial/spots.py: where it is, its measured height, its facing, and the tilt fitted from people walking) has its
+kept frames placed at that pose, in the plan's own frame: x and y the plan's metres, z the height above its floor.
+Its depth is lifted through the pose and checked against the plan (`spot_fit`): the floor it shows must come out at
+the plan's, and its depth is scaled to put it there, since the camera's height is tape-measured and the depth
+model's metres aren't. A place with such a view stands in its plan's frame: its revisions carry the plan's floor
+(`spots.FLOOR`), the identity as their plan transform (`spots.PLAN`), and the cameras at their spots, and the
+owner's plan is saved as drawn in that frame, so the line-up (spatial/plan_lineup.py) finds it lined up and searches
+for nothing, and there's no floor to find in the map (spatial/surroundings_positions.py). A spot view's pose is held
+through training (`fixed`). This is what lets a house whose fixed cameras overlap nowhere have one map: on the Linux
+machine four such cameras kept a frame each, pairing placed none of the other three from the first, and the map
+could not grow. A map learned in a frame of its own before a spot view arrives is started again in the plan's frame.
+
+A camera with no spot, a spot that lacks something (its facing, say), and a camera that moves keep the pairing
+path: they join a place through a view that overlaps a placed one, a spot view included, and are parked with the
+reason until then (`due`, `PARKED`).
+
 What the step knows is in `state/surroundings/map.json` (`State`): each camera's focal, each placed frame's place,
 pose, or that it's parked, the frames to drop, and each place's rounds and when it last improved. The map step is that file's
 only writer, as the sampler is the kept frames' only writer: the sampler drops the frames listed in `drop`.
@@ -59,12 +76,13 @@ import numpy as np
 from liberational import config as cfg
 from liberational import json_state, locking, logs, nvml
 from liberational.memory import places
-from liberational.spatial import cameras, lens, ply, sog, splats
+from liberational.spatial import cameras, lens, ply, sog, splats, spots
 from liberational.spatial import surroundings_frames as frames
 
 LOG = logs.get("surroundings-map")
 
 PRODUCER = "surroundings v1"
+SOURCE = "surroundings"  # who saved the owner's plan again as drawn in a learned map's frame (`_train`)
 STATE = "map.json"  # under the kept frames' folder
 PROGRESS = "progress.json"  # what a running step is doing (`doing`), beside it
 TRAINING = "training.json"  # the trainer's own step count while it trains, beside it
@@ -74,6 +92,14 @@ NEIGHBOURS = 3  # frames a waiting frame is paired with
 MIN_ALIKE = 0.1  # a frame less alike than this isn't worth a pair
 MIN_INLIERS = 150  # matches that must agree with a pair's pose for it to place a frame
 PARK_S = 86400.0  # how long a frame nothing places stays parked before it's dropped
+SPOT_FLOOR_M = 0.05  # a spot view's floor this near the plan's (z = 0) is left as the depth model gave it
+SPOT_SCALE = (0.75, 1.35)  # how far a spot view's depth may be scaled to bring its floor to the plan's
+SPOT_WALL_POINTS = 200  # band points near a wall a spot view needs before its wall fit says anything...
+SPOT_WALL_NEAR = 0.1  # ...and the share of its band on a wall under which the log warns
+#: Why a frame is parked, for a page to say (`summary`'s `parked_cameras`): it overlaps nothing in a map (`overlap`);
+#: its camera's spot on the plan lacks something (spots.MISSING); the plan's frame is left-handed (`frame`); or the
+#: view placed from the spot doesn't sit on the plan's floor (`floor`).
+PARKED = ("overlap", "height", "facing", "lens", "tilt", "check", "frame", "floor")
 FOUND_MIN = 3  # waiting frames that pair only with each other found a new place when there are this many
 TRAIN_LONG = 640  # the long side a frame is trained at, px
 STRIDE = 4  # every this many pixels of a training frame is lifted to a point
@@ -144,24 +170,142 @@ def expired(kept: Sequence[frames.Kept], state: State, now: float) -> list[frame
     return out
 
 
-def due(kept: Sequence[frames.Kept], state: State, now: float) -> list[frames.Kept]:
-    """The waiting frames a step has something to do for, oldest first: the ones no step has tried, the parked ones
-    the map has gained a view since (it may now reach them), and the parked ones that have expired (to drop them).
+def bases(spotted: Mapping[str, spots.Spot]) -> dict[str, str]:
+    """What each camera with a spot has to be placed by, as a word that changes when the owner changes the spot or a
+    tilt is fitted: "spot" when the spot gives a pose, else "spot:" and what it lacks. A camera with no spot isn't
+    listed (`NO_SPOT`)."""
+    return {c: "spot" if usable(sp) else "spot:" + ",".join(sp.missing or ("frame",)) for c, sp in spotted.items()}
 
-    A frame no pair places is **parked**: it stays kept, noted with how many views the maps had (`parked`) and
-    when it was first parked (`since`). A step for it would find what the last one found, so none starts until a
-    map has more views than that. A camera that looks at nothing the map shows keeps one parked frame, renewed once
-    a day, and costs nothing between. On the Linux machine a second fixed camera's frame, unplaceable from the
-    first's, started a 0-second step every minute and was dropped after three; its camera then never kept a frame
-    again."""
+
+NO_SPOT = "none"
+
+
+def usable(spot: spots.Spot | None) -> bool:
+    """Whether a spot gives a pose a view can be placed at: nothing missing, and a right-handed plan frame (a splat
+    can't be drawn through a mirror; a plan read as the page drawn is left-handed, `Spot.mirrored`)."""
+    if spot is None or spot.pose is None:
+        return False
+    turn = np.asarray(spot.pose.pose, dtype=np.float64).reshape(4, 4)[:3, :3]
+    return float(np.linalg.det(turn)) > 0
+
+
+def due(
+    kept: Sequence[frames.Kept], state: State, now: float, basis: Mapping[str, str] | None = None
+) -> list[frames.Kept]:
+    """The waiting frames a step has something to do for, oldest first: the ones no step has tried, the parked ones
+    the map has gained a view since (it may now reach them), the parked ones whose camera's spot has changed since
+    (`basis`, from `bases`: the owner gave it a facing, or its tilt was fitted), and the parked ones that have
+    expired (to drop them).
+
+    A frame nothing places is **parked**: it stays kept, noted with how many views the maps had (`parked`), when it
+    was first parked (`since`), what its camera had to be placed by (`basis`), and why it wasn't (`why`, one of
+    PARKED). A step for it would find what the last one found, so none starts until a map has more views than
+    that, or its camera's basis changes. A camera that looks at nothing the map shows and has no spot keeps one
+    parked frame, renewed once a day, and costs nothing between. On the Linux machine a second fixed camera's
+    frame, unplaceable from the first's, started a 0-second step every minute and was dropped after three; its
+    camera then never kept a frame again."""
     views = len(state.placed())
     old = {f.id for f in expired(kept, state, now)}
     out = []
     for f in waiting(kept, state):
-        parked = (state.frames.get(f.id) or {}).get("parked")
-        if parked is None or views > int(parked) or f.id in old:
+        entry = state.frames.get(f.id) or {}
+        parked = entry.get("parked")
+        moved = basis is not None and entry.get("basis") != basis.get(f.camera, NO_SPOT)
+        if parked is None or views > int(parked) or moved or f.id in old:
             out.append(f)
     return out
+
+
+@dataclass(frozen=True)
+class SpotFit:
+    """How a view placed from its camera's spot sits on the plan: the floor its depth implies (metres above the
+    plan's, before any fix; None when it shows no floor), what its depth was multiplied by to bring that floor to
+    the plan's, its wall band against the plan's walls (how many band points are near one, their median distance
+    from a wall's face, and the share of the band over the plan that's on one), and why it's refused (`floor`), or
+    None."""
+
+    floor: float | None
+    scale: float
+    wall_points: int
+    wall_median: float | None
+    wall_near: float | None
+    why: str | None
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "floor": None if self.floor is None else round(self.floor, 3),
+            "scale": round(self.scale, 3),
+            "wall_points": self.wall_points,
+            "wall_median": None if self.wall_median is None else round(self.wall_median, 3),
+            "wall_near": None if self.wall_near is None else round(self.wall_near, 3),
+            "why": self.why,
+        }
+
+
+FLOOR_FLAT_DEG = 15.0  # a surface whose normal is this near straight up is level
+FLOOR_BIN_M = 0.04  # the height bins a view's level surfaces are counted in
+FLOOR_MIN = 50  # level points the fullest bin needs to be a floor
+
+
+def level_floor(points: np.ndarray, height: float) -> float | None:
+    """The height (z) of the floor in a view's `points`, lifted through a pose whose z is up, for a camera `height`
+    above the plan's floor: the level surface with the most points among those below half the camera's height (a
+    table is above that, and the floor is the largest thing under it). None when the view shows too little level
+    surface there. Surface normals come from each point's 16 nearest neighbours.
+
+    Not the lowest level layer (`cameras.floor_along`, right for a whole map): one fixed camera's depth has strays at
+    its depth edges, and on the Linux machine 50 of them 1.2 m under the floor read as one camera's floor."""
+    from scipy.spatial import KDTree
+
+    pts = np.asarray(points, dtype=np.float64).reshape(-1, 3)
+    if len(pts) < 100:
+        return None
+    _, idx = KDTree(pts).query(pts, k=16)
+    near = pts[idx] - pts[idx].mean(axis=1, keepdims=True)
+    values, vectors = np.linalg.eigh(np.einsum("nki,nkj->nij", near, near))
+    level = (np.abs(vectors[:, 2, 0]) > math.cos(math.radians(FLOOR_FLAT_DEG))) & (values[:, 0] < 0.05 * values[:, 1])
+    z = pts[level & (pts[:, 2] < height / 2), 2]
+    if len(z) < FLOOR_MIN:
+        return None
+    counts, edges = np.histogram(z, np.arange(z.min(), z.max() + 2 * FLOOR_BIN_M, FLOOR_BIN_M))
+    best = int(np.argmax(counts))
+    if counts[best] < FLOOR_MIN:
+        return None
+    middle = (edges[best] + edges[best + 1]) / 2
+    return float(np.median(z[np.abs(z - middle) < 1.5 * FLOOR_BIN_M]))
+
+
+def spot_fit(depth: np.ndarray, focal: float, pose: np.ndarray, walls: Any) -> SpotFit:
+    """Check a view at its spot's `pose` (camera to plan: x, y, and height above the floor) against the plan.
+
+    The camera's height is tape-measured, and the depth model's metres are only about right, so the floor says how
+    far off they are: lifted through the pose, the view's floor (`level_floor`) should be the plan's, z = 0. When it's more than SPOT_FLOOR_M off, the depth is scaled about the camera to put it there
+    (a camera h up that sees its floor at z0 needs h / (h - z0)); a scale outside SPOT_SCALE is no depth error, so
+    the view is refused (`floor`): the height, the tilt, or the lens is wrong. A view that shows no floor keeps the
+    model's metres.
+
+    Then the walls, which are measured and not judged: the scaled view's band 1.0 to 1.9 m up (`plan_import.band`)
+    against the plan's walls (`walls`, `plan_import.walls`; `plan_lineup.measure`). One view's band is furniture as
+    much as wall, and it can't tell a right spot from a wrong one: on three fixed cameras on the Linux machine the
+    spots as given put 1%, 9%, and 19% of the band on a wall (median 0.32, 0.37, and 0.23 m from a face), and poses
+    moved 0.5 to 1 m or turned 10 to 25 degrees did as well or better (up to 48%, median 0.04 m). So either those
+    spots or tilts are that far off, or the band says little; the numbers are kept with the step (`did["spots"]`)
+    and logged, with a warning under SPOT_WALL_NEAR, and the spot holds either way."""
+    from liberational.spatial import plan_import, plan_lineup
+
+    c2w = np.asarray(pose, dtype=np.float64).reshape(4, 4)
+    points, _ = lift(depth, np.zeros((*depth.shape, 3), np.uint8), focal, c2w, stride=STRIDE)
+    centre, height = c2w[:3, 3], float(c2w[2, 3])
+    level, scale = level_floor(points, height), 1.0
+    if level is not None and abs(level) > SPOT_FLOOR_M and height - level > 0.1:
+        scale = height / (height - level)
+    if not SPOT_SCALE[0] <= scale <= SPOT_SCALE[1]:
+        return SpotFit(level, scale, 0, None, None, "floor")
+    scaled = centre + scale * (points.astype(np.float64) - centre)
+    m = plan_lineup.measure(walls, plan_import.band(scaled, spots.PLAN)) if walls is not None else None
+    if m is None or not m.points:
+        return SpotFit(level, scale, 0, None, None, None)
+    return SpotFit(level, scale, m.points, float(m.median), float(m.near), None)
 
 
 @dataclass(frozen=True)
@@ -498,19 +642,55 @@ def doing(folder: Path, phase: str | None, **more: Any) -> None:
 
 
 def step(
-    state_dir: Path, now: float | None = None, held: Mapping[str, lens.Held] | None = None
+    state_dir: Path,
+    now: float | None = None,
+    held: Mapping[str, lens.Held] | None = None,
+    spotted: Mapping[str, spots.Spot] | None = None,
+    plans: Mapping[str, str] | None = None,
 ) -> dict[str, Any] | None:
     """One step (the module docstring); what it did, or None when no frame is waiting. `held` are the cameras' held
-    intrinsics (read from `state_dir`'s knowledge store by default). Raises RuntimeError when a runtime or a model is
-    missing or fails; the state file is then as it was."""
+    intrinsics, `spotted` their spots on the owners' plans (`spots.read`), and `plans` each place's owner plan text,
+    all read from `state_dir` by default. Raises RuntimeError when a runtime or a model is missing or fails; the
+    state file is then as it was."""
     with locking.locked(frames.root(state_dir) / "map"):  # one step at a time
         try:
-            return _step(state_dir, time.time() if now is None else now, lens.held(state_dir) if held is None else held)
+            return _step(
+                state_dir,
+                time.time() if now is None else now,
+                lens.held(state_dir) if held is None else held,
+                spots.read(state_dir) if spotted is None else spotted,
+                plans,
+            )
         finally:
             doing(frames.root(state_dir), None)
 
 
-def _step(state_dir: Path, now: float, held: Mapping[str, lens.Held]) -> dict[str, Any] | None:
+def _walls(state_dir: Path, place: str, plans: Mapping[str, str] | None) -> Any:
+    """The walls of `place`'s owner plan (`plan_import.walls`), or None when it has none that reads."""
+    from liberational.spatial import plan_import, plan_lineup
+
+    if plans is not None:
+        text = plans.get(place)
+    else:
+        held = places.get(state_dir, place)
+        text = held.plan if held is not None and held.plan_source == "owner" else None
+    plan = plan_lineup.read_plan(text) if text else None
+    return plan_import.walls(plan) if plan is not None else None
+
+
+def _park(state: State, frame: frames.Kept, now: float, basis: str, why: str) -> None:
+    """Park `frame` (`due`)."""
+    since = (state.frames.get(frame.id) or {}).get("since", now)
+    state.frames[frame.id] = {"parked": len(state.placed()), "since": since, "basis": basis, "why": why}
+
+
+def _step(
+    state_dir: Path,
+    now: float,
+    held: Mapping[str, lens.Held],
+    spotted: Mapping[str, spots.Spot],
+    plans: Mapping[str, str] | None,
+) -> dict[str, Any] | None:
     store = frames.Store(frames.root(state_dir))
     state = State.read(store.folder)
     forget(state, store.kept)
@@ -518,19 +698,40 @@ def _step(state_dir: Path, now: float, held: Mapping[str, lens.Held]) -> dict[st
         LOG.info("a frame of %s was parked for a day with nothing to place it by: dropped", f.camera)
         state.drop.append(f.id)
         state.frames.pop(f.id, None)
-    todo = due(store.kept, state, now)[:MAX_NEW]
+    basis = bases(spotted)
+    by_id = {f.id: f for f in store.kept}
+    # A view placed from a spot stands where the spot says. When the owner moves the spot, or the tilt is fitted
+    # again, the view is placed again from where the spot is now.
+    for k, entry in list(state.frames.items()):
+        spot = spotted.get(by_id[k].camera) if k in by_id else None
+        if entry.get("spot") and entry.get("pose") is not None and (not usable(spot) or not _at(entry["pose"], spot)):
+            LOG.info("%s: its spot on the plan changed; its view is placed again", by_id[k].camera)
+            del state.frames[k]
+    todo = due(store.kept, state, now, basis)[:MAX_NEW]
     if not todo:
         state.write(store.folder)
         return None
     manifest = lens.manifest()
+
+    def fov_focal(camera: str) -> float | None:
+        """A camera's focal as a share of its width from its spot's field of view, when nothing is held for it."""
+        spot = spotted.get(camera)
+        if spot is None or spot.pose is None or camera in held or spot.pose.lens is not None:
+            return None
+        return spot.pose.focal / spot.pose.width
+
     optic = {
-        camera: optics(*lens.for_camera(manifest, camera), held.get(camera), state.focals.get(camera))
+        camera: optics(
+            *lens.for_camera(manifest, camera), held.get(camera), state.focals.get(camera) or fov_focal(camera)
+        )
         for camera in {f.camera for f in store.kept}
     }
-    by_id = {f.id: f for f in store.kept}
+    at_spot = {f.id: spotted[f.camera] for f in todo if usable(spotted.get(f.camera)) and optic[f.camera].focal}
+    pairing = [f for f in todo if f.id not in at_spot]
     placed_ids = [k for k in state.placed() if k in by_id]
-    measure = pairs_for([f.id for f in todo], placed_ids, [f.id for f in store.kept], store.descriptors)
-    unknown = {f.camera: f.id for f in reversed(todo) if optic[f.camera].focal is None}
+    # A frame that pairs is paired with the placed frames and with this step's spot views, which are about to be.
+    measure = pairs_for([f.id for f in pairing], [*placed_ids, *at_spot], [f.id for f in store.kept], store.descriptors)
+    unknown = {f.camera: f.id for f in reversed(pairing) if optic[f.camera].focal is None}
     measure += [(k, k) for k in unknown.values()]  # a camera's own focal, from a frame paired with itself
     gpu = cameras.pick_gpu(int(cfg.get("spatial.gpu")), nvml.gpus())
     mast3r, gsplat = cfg.path("spatial.runtime"), cfg.path("spatial.splat_runtime")
@@ -542,7 +743,7 @@ def _step(state_dir: Path, now: float, held: Mapping[str, lens.Held]) -> dict[st
         answer: dict[str, Any] = {"pairs": []}
         if measure:
             doing(store.folder, "pairing", frames=len(todo))
-            images = {k: pictures.image(k) for k in involved}
+            images = {k: pictures.image(k) for k in sorted({k for pair in measure for k in pair})}
             answer = cameras.run_mast3r(mast3r, images, folder / "mast3r", gpu, pairs=measure, nice=NICE)
         for p in answer["pairs"]:
             for name, focal, size in zip((p["a"], p["b"]), p.get("focals") or (), p.get("sizes") or (), strict=False):
@@ -554,44 +755,104 @@ def _step(state_dir: Path, now: float, held: Mapping[str, lens.Held]) -> dict[st
         ready = [f for f in todo if optic[f.camera].focal is not None]
         doing(store.folder, "depth", frames=len(todo))
         _depths(store, [f for f in ready if not _depth_path(store, f.id).is_file()], pictures, gsplat, gpu, folder)
+
+        # The views placed from their cameras' spots: no pairing, only a check against the plan.
+        did: dict[str, Any] = {"at": now, "taken": len(todo), "places": {}, "spots": {}}
+        spot_poses: dict[str, dict[str, np.ndarray]] = {}  # place -> frame id -> pose
+        refused: dict[str, str] = {}  # frame id -> why
+        for f in todo:
+            spot = at_spot.get(f.id)
+            if spot is None or spot.pose is None or not _depth_path(store, f.id).is_file():
+                continue
+            pose = np.asarray(spot.pose.pose, dtype=np.float64).reshape(4, 4)
+            focal = pictures.focal(f.id)
+            assert focal is not None
+            fit = spot_fit(_read_depth(_depth_path(store, f.id)), focal, pose, _walls(state_dir, spot.place, plans))
+            did["spots"][f.camera] = fit.as_dict()
+            LOG.info("%s: its view at its spot on the plan: %s", f.camera, json.dumps(fit.as_dict()))
+            if fit.wall_points >= SPOT_WALL_POINTS and (fit.wall_near or 0.0) < SPOT_WALL_NEAR:
+                LOG.warning(
+                    "%s: only %.0f%% of its view's wall band is on a wall of the plan (median %.2f m off): its spot, "
+                    "facing, or tilt may be off; the spot holds",
+                    f.camera,
+                    100 * (fit.wall_near or 0.0),
+                    fit.wall_median or 0.0,
+                )
+            if fit.why is not None:
+                refused[f.id] = fit.why
+                continue
+            if fit.scale != 1.0:
+                _scale_depth(_depth_path(store, f.id), fit.scale)
+            spot_poses.setdefault(spot.place, {})[f.id] = pose
+        # A place with a view at a spot stands in its plan's frame. A map learned in a frame of its own before (its
+        # first camera the origin) can't take such a view: it's started again in the plan's, from the frames kept.
+        for place in spot_poses:
+            if place in state.places and not state.places[place].get("plan_frame"):
+                LOG.info("%s: its map is started again in its plan's frame, from its cameras' spots", place)
+                del state.places[place]
+                for k in [k for k, entry in state.frames.items() if entry.get("place") == place]:
+                    del state.frames[k]
+
         depth = {k: _read_depth(_depth_path(store, k)) for k in involved if _depth_path(store, k).is_file()}
         found = edges(answer["pairs"], {k: _metric(d) for k, d in depth.items()})
-
-        # Place what joins a place that exists, then let what's left found new ones.
+        # Place what joins a place (one that exists, or one a spot view founds now), then let what's left found new
+        # ones.
         joined: dict[str, tuple[str, np.ndarray]] = {}  # frame id -> (place, pose)
-        for place in state.places:
-            for k, pose in grow(state.placed(place), found).items():
+        for place in dict.fromkeys([*state.places, *spot_poses]):
+            anchored = {**state.placed(place), **spot_poses.get(place, {})}
+            for k, pose in grow(anchored, found).items():
                 joined.setdefault(k, (place, pose))
         groups: list[dict[str, np.ndarray]] = []
         for f in ready:
-            if f.id in joined or any(f.id in g for g in groups):
+            if f.id in joined or f.id in at_spot or any(f.id in g for g in groups):
                 continue
-            free = [e for e in found if e.a not in joined and e.b not in joined]
+            free = [e for e in found if not {e.a, e.b} & (joined.keys() | at_spot.keys())]
             group = {f.id: np.eye(4), **grow({f.id: np.eye(4)}, free)}
-            if (not state.places and not groups) or len(group) >= FOUND_MIN:
+            if (not state.places and not spot_poses and not groups) or len(group) >= FOUND_MIN:
                 groups.append(group)
         targets: list[tuple[str | None, dict[str, np.ndarray]]] = []
-        for place in state.places:
-            mine = {k: pose for k, (p, pose) in joined.items() if p == place}
+        for place in dict.fromkeys([*state.places, *spot_poses]):
+            mine = {**spot_poses.get(place, {}), **{k: pose for k, (p, pose) in joined.items() if p == place}}
             if mine:
                 targets.append((place, mine))
         targets += [(None, g) for g in groups]
-        did: dict[str, Any] = {"at": now, "taken": len(todo), "places": {}}
         for place, new_poses in targets:
-            result = _train(state_dir, store, state, place, new_poses, pictures, gsplat, gpu, folder, now)
+            at = {k: at_spot[k] for k in new_poses if k in at_spot}
+            result = _train(state_dir, store, state, place, new_poses, pictures, gsplat, gpu, folder, now, at)
             did["places"][result["place"]] = result
         taken = {k for _, g in targets for k in g}
         for f in todo:
             if f.id in taken:
                 continue
-            # Parked: no step starts for it again until a map has more views than now (`due`).
-            since = (state.frames.get(f.id) or {}).get("since", now)
-            state.frames[f.id] = {"parked": len(state.placed()), "since": since}
+            spot = spotted.get(f.camera)
+            why = refused.get(f.id) or (
+                "overlap" if spot is None or usable(spot) else (spot.missing[0] if spot.missing else "frame")
+            )
+            _park(state, f, now, basis.get(f.camera, NO_SPOT), why)
         did["unplaced"] = len([f for f in todo if f.id not in taken])
     did["seconds"] = round(time.monotonic() - began, 1)
     state.last = did
     state.write(store.folder)
     return did
+
+
+def _at(pose: Sequence[float], spot: spots.Spot | None) -> bool:
+    """Whether a view's stored `pose` is still where its camera's `spot` puts it."""
+    if spot is None or spot.pose is None:
+        return False
+    return bool(
+        np.allclose(np.asarray(pose, dtype=np.float64), np.asarray(spot.pose.pose, dtype=np.float64), atol=1e-6)
+    )
+
+
+def _scale_depth(path: Path, scale: float) -> None:
+    """Multiply a depth PNG's metres by `scale`, in place."""
+    import cv2
+
+    counts = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
+    if counts is None:
+        raise RuntimeError(f"the depth image {path} doesn't read")
+    cv2.imwrite(str(path), np.clip(np.round(counts.astype(np.float64) * scale), 0, 65535).astype(np.uint16))
 
 
 def _train(
@@ -605,9 +866,16 @@ def _train(
     gpu: str | None,
     folder: Path,
     now: float,
+    at_spot: Mapping[str, spots.Spot] | None = None,
 ) -> dict[str, Any]:
     """Continue `place`'s splat (or found a place's, when None) with the frames in `new_poses`, write the revision,
-    and note the frames in `state`; what it did."""
+    and note the frames in `state`; what it did. `at_spot` are the new frames placed from their cameras' spots, by
+    frame: the place then stands in its owner plan's frame (`spots.FLOOR`, `spots.PLAN`), its revision registers
+    those cameras at their spots, and those views' poses are held, not refined."""
+    at_spot = at_spot or {}
+    known = state.places.get(place) if place is not None else None
+    in_plan = bool(at_spot) or bool((known or {}).get("plan_frame"))
+    held_views = set(at_spot) | {k for k, entry in state.frames.items() if entry.get("spot")}
     by_id = {f.id: f for f in store.kept}
     old_poses = state.placed(place) if place is not None else {}
     old_poses = {k: v for k, v in old_poses.items() if k in by_id and _depth_path(store, k).is_file()}
@@ -625,6 +893,7 @@ def _train(
                 "height": pictures.size(k)[1],
                 "depth": str(_depth_path(store, k)),
                 **({} if mask is None else {"mask": str(mask)}),
+                **({"fixed": True} if k in held_views else {}),
             }
         )
     points, colors = [], []
@@ -635,11 +904,12 @@ def _train(
         points.append(p)
         colors.append(c)
     new_points, new_colors = thin(np.concatenate(points), np.concatenate(colors))
-    was = places.latest(state_dir, place) if place is not None else None
-    resume = None
-    if place is not None:
-        with_splat = [r for r in places.revisions(state_dir, place) if places.has_splat(state_dir, r)]
-        resume = places.splat_path(state_dir, with_splat[-1], "gs.ply") if with_splat else None
+    # What the place has in the frame this step adds to: nothing for a place being founded, or started again.
+    chain = places.revisions(state_dir, place) if place is not None and known is not None else []
+    chain = [r for r in chain if r.frame == known.get("frame")] if known is not None else []
+    was = chain[-1] if chain else None
+    with_splat = [r for r in chain if places.has_splat(state_dir, r)]
+    resume = places.splat_path(state_dir, with_splat[-1], "gs.ply") if with_splat else None
     out = folder / f"train-{len(order)}-{next(iter(new_poses))}"
     out.mkdir()
     steps = ROUND_STEPS if resume is not None else FOUND_STEPS
@@ -691,6 +961,7 @@ def _train(
         cloud_p = np.concatenate([old_p.astype(np.float32), cloud_p])
         cloud_c = np.concatenate([old_c if old_c is not None else np.full((len(old_p), 3), 128, np.uint8), cloud_c])
     cloud_p, cloud_c = thin(cloud_p, cloud_c)
+    registered = {by_id[k].camera: spot.pose for k, spot in at_spot.items() if spot.pose is not None and k in added}
     with places.writing(state_dir):
         target = place if place is not None else adopt(state_dir)
         rev = places.revise(
@@ -700,23 +971,38 @@ def _train(
             map_bytes=ply.dumps(cloud_p, cloud_c),
             map_format="ply",
             now=now,
-            frame=state.places.get(target or "", {}).get("frame"),
-            # The frame doesn't move, so what was set in it holds: the floor and the plan's transform (the cameras
-            # carry over by themselves).
-            floor=was.floor if was is not None and place in state.places else None,
-            plan_transform=was.plan_transform if was is not None and place in state.places else None,
+            frame=known.get("frame") if known is not None else None,
+            # The frame doesn't move, so what was set in it holds: the floor and the plan's transform. A place in
+            # its plan's frame has the plan's own floor and no transform to find.
+            floor=spots.FLOOR if in_plan else (was.floor if was is not None else None),
+            plan_transform=spots.PLAN if in_plan else (was.plan_transform if was is not None else None),
+            # The cameras carry over by themselves in a frame that holds; in a new one the old frame's don't.
+            cameras={**(was.cameras if was is not None else {}), **registered} if in_plan or was is None else None,
         )
         places.write_splat(state_dir, rev, master, sog.encode(rows), source="surroundings")
+        if in_plan and known is None:
+            # The owner's plan is drawn in this frame: say so, as a line-up would (`plan_lineup`), so every reader
+            # of the plan's frame takes this map's revisions, and the line-up has nothing to search for.
+            owned = places.get(state_dir, rev.place)
+            if owned is not None and owned.plan and owned.plan_source == "owner":
+                view = owned.view.as_dict() if owned.view is not None else None
+                places.correct_plan(state_dir, rev.place, owned.plan, now=now, base=rev.id, source=SOURCE, view=view)
     for i, k in enumerate(order):
         if k in dropped:
             state.drop.append(k)
             state.frames.pop(k, None)
             continue
         pose = refined[i] if refined[i] is not None else [float(x) for x in poses[k].ravel()]
+        if k in held_views:
+            pose = [float(x) for x in poses[k].ravel()]  # the spot's, to the digit (`_at`)
         focal = pictures.focal(k)
         share = None if focal is None else focal / pictures.size(k)[0]
         state.frames[k] = {"place": rev.place, "pose": pose, "focal": share, "size": list(pictures.size(k))}
+        if k in held_views:
+            state.frames[k]["spot"] = True
     entry = state.places.setdefault(rev.place, {"frame": rev.frame, "rounds": 0})
+    if in_plan:
+        entry["plan_frame"] = True
     entry["rounds"] = int(entry.get("rounds", 0)) + 1
     entry["views"] = len(order) - len(dropped)
     entry["revision"] = rev.id
@@ -781,6 +1067,23 @@ def views(state_dir: Path, place: str) -> list[View]:
     return out
 
 
+def spot_bases(state_dir: Path) -> dict[str, str] | None:
+    """`bases` of the spots as they read now, or None when they can't be read (then no parked frame is taken for
+    changed: a store that doesn't read must not start a step a minute)."""
+    try:
+        return bases(spots.read(state_dir))
+    except (OSError, ValueError, KeyError) as error:
+        LOG.warning("couldn't read the cameras' spots: %s", error)
+        return None
+
+
+def in_plan_frame(state_dir: Path, place: str) -> bool:
+    """Whether `place`'s learned map stands in its owner plan's own frame (it has a view placed from a camera's
+    spot): its floor is the plan's and its cameras are at their spots, so there's no floor to find in it and no
+    camera to register from its views."""
+    return bool(State.read(frames.root(state_dir)).places.get(place, {}).get("plan_frame"))
+
+
 def running(state_dir: Path) -> bool:
     """Whether a map step is running now (it holds the step's lock)."""
     import fcntl
@@ -827,10 +1130,12 @@ def progress(folder: Path) -> dict[str, Any]:
     return out
 
 
-def summary(state_dir: Path, now: float | None = None) -> dict[str, Any]:
+def summary(
+    state_dir: Path, now: float | None = None, spotted: Mapping[str, spots.Spot] | None = None
+) -> dict[str, Any]:
     """What a page says about learning surroundings: whether it's on and which cameras are sampled now, how many
     frames are kept, how many of them a step is due for (`waiting`) and how many are parked until the map grows
-    (`parked`, `due`), whether a step is running and what it's doing (`step`:
+    (`parked`, `due`; `parked_cameras` says why for each camera with one, a word of PARKED), whether a step is running and what it's doing (`step`:
     `progress`, None while none runs), when the last step ended (`last_step`, Unix seconds, or None), each sampled
     camera's recent looks by outcome and when a frame of it was last kept (`cameras`, from the sampler's status),
     and each learned place's newest revision, views, rounds, and when a step last added a view to it (Unix seconds,
@@ -847,7 +1152,14 @@ def summary(state_dir: Path, now: float | None = None) -> dict[str, Any]:
             continue
     state = State.read(folder)
     switch = surroundings.read()
-    todo = due(index, state, time.time() if now is None else now)
+    basis = spot_bases(state_dir) if spotted is None else bases(spotted)
+    todo = due(index, state, time.time() if now is None else now, basis)
+    due_ids = {f.id for f in todo}
+    parked = {
+        f.camera: str((state.frames.get(f.id) or {}).get("why") or "overlap")
+        for f in waiting(index, state)
+        if f.id not in due_ids
+    }
     is_running = running(state_dir)
     sampling = list(switch.cameras) if switch.on else []
     sampler = json_state.read(folder / "status.json", {}) or {}
@@ -860,6 +1172,7 @@ def summary(state_dir: Path, now: float | None = None) -> dict[str, Any]:
         "kept": len(index),
         "waiting": len(todo),
         "parked": len(waiting(index, state)) - len(todo),
+        "parked_cameras": dict(sorted(parked.items())),
         "running": is_running,
         "step": progress(folder) if is_running else None,
         "last_step": float(began) + float(took or 0.0) if isinstance(began, (int, float)) else None,
