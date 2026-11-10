@@ -3,6 +3,7 @@ import { HttpResponse, http } from 'msw';
 import { afterEach, expect, it, vi } from 'vitest';
 import { renderPage } from '../../../test/render';
 import { server } from '../../../test/server';
+import { buildScene } from '../scene/build';
 import CloudView from './CloudView';
 import { collisionMesh, glb, glbUrl } from './collision';
 import { toViewerUp, turned } from './frame';
@@ -369,6 +370,52 @@ it("stops a walk at the plan's walls and lets it through their doorways", () => 
   // the outside walls are whole: the two rooms' outline is 8 + 3 + 8 + 3 m
   const outside = walls.filter(w => !between.includes(w));
   expect(outside.reduce((sum, w) => sum + length(w), 0)).toBeCloseTo(22, 6);
+});
+
+it('outlines a plan stored as a scene and stops a walk at its walls, with its doorways open and its windows shut', () => {
+  const scene = JSON.stringify(
+    buildScene({
+      height: 2.4,
+      walls: [
+        { from: [0, 0], to: [8, 0], thickness: 0.3 },
+        { from: [4, 0], to: [4, 3], thickness: 0.1 },
+      ],
+      openings: [
+        { kind: 'window', at: [2, 0], width: 1.2 },
+        { kind: 'door', at: [4, 1], width: 0.9 },
+        { kind: 'cased', at: [4, 2.5], width: 1 },
+      ],
+      rooms: [
+        {
+          id: 'den',
+          name: 'Den',
+          outline: [
+            [0, 0],
+            [4, 0],
+            [4, 3],
+            [0, 3],
+          ],
+        },
+      ],
+    }),
+  );
+  const rings = planOutline(scene, TURN, 0.05);
+  expect(rings).toHaveLength(1);
+  const { toPlan } = planFrame(TURN);
+  const back = (rings[0] ?? []).map(p => toPlan(p).map(x => Math.round(x * 1000) / 1000));
+  expect(new Set(back.map(p => `${p[0]},${p[1]},${p[2]}`))).toEqual(
+    new Set(['0,0,0.05', '4,0,0.05', '4,3,0.05', '0,3,0.05']),
+  );
+  const walls = planWalls(scene, IDENTITY);
+  const spans = walls.map(([a, b]) => [a[0], a[1], b[0], b[1]].map(v => Math.round(v * 1000) / 1000));
+  // the outside wall is whole (its window is wall); the inner one is cut by the door (0.55 to 1.45) and the doorway
+  // (2 to 3, which reaches the wall's end)
+  expect(spans).toEqual([
+    [0, 0, 8, 0],
+    [4, 0, 4, 0.55],
+    [4, 1.45, 4, 2],
+  ]);
+  expect(() => planOutline('{"nodes": 3}', IDENTITY)).toThrow('the plan is not a scene');
 });
 
 it('builds the walk a floor to stand on and walls with two faces', () => {

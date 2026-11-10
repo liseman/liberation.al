@@ -1,8 +1,11 @@
 // The 3D view's geometry, apart from the engine so it's tested without WebGL. Everything is drawn in the
 // place map's frame (metres), where the cloud is: the plan comes in through the inverse of the revision's plan
 // transform, the cameras through their poses, and height is measured from the floor plane.
+
+import type { Scene } from '../../../plan-editor/protocol';
 import { floorplan, parseDsl } from '../../../vendor/floorplan/index.js';
 import { split } from '../edit/text';
+import { level, under } from '../scene/draw';
 
 export type V3 = [number, number, number];
 
@@ -92,10 +95,61 @@ export function robustRange(values: Float32Array | number[]): [number, number] {
   return [at(0.01), at(0.99)];
 }
 
-/** The plan's rooms as outlines in the map frame, a little above the floor (`lift` metres), from its DSL text. */
+/** A stored plan's text as a Pascal scene, or null for one in the old DSL (a scene is JSON; DSL never starts with a
+ *  brace). Throws for a scene that doesn't read, as the DSL reader does for its own. */
+function sceneOf(planText: string): Scene | null {
+  if (!planText.trimStart().startsWith('{')) return null;
+  const scene = JSON.parse(planText) as Partial<Scene> | null;
+  if (!scene || typeof scene.nodes !== 'object' || scene.nodes === null || !Array.isArray(scene.rootNodeIds))
+    throw new Error('the plan is not a scene');
+  return scene as Scene;
+}
+
+const pair = (v: unknown): [number, number] | null =>
+  Array.isArray(v) && typeof v[0] === 'number' && typeof v[1] === 'number' ? [v[0], v[1]] : null;
+
+/** A scene's rooms as outlines, and its walls as lines with their doorways cut out, in the plan frame. A window is
+ *  wall; a door or a doorway with no door is a gap, as wide as it is, about its place along the wall. */
+function sceneLines(scene: Scene): { rooms: [number, number][][]; walls: [[number, number], [number, number]][] } {
+  const storey = level(scene);
+  if (!storey) return { rooms: [], walls: [] };
+  const rooms = under(scene, storey, 'zone')
+    .map(zone => (Array.isArray(zone.polygon) ? zone.polygon.map(pair).filter(p => p !== null) : []))
+    .filter(poly => poly.length >= 3);
+  const walls: [[number, number], [number, number]][] = [];
+  for (const wall of under(scene, storey, 'wall')) {
+    const [a, b] = [pair(wall.start), pair(wall.end)];
+    if (!a || !b) continue;
+    const length = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    if (length === 0) continue;
+    const gaps = under(scene, wall, 'door')
+      .map(door => {
+        const at = Array.isArray(door.position) && typeof door.position[0] === 'number' ? door.position[0] : length / 2;
+        const half = (typeof door.width === 'number' ? door.width : 0.9) / 2;
+        return [Math.max(0, at - half), Math.min(length, at + half)] as [number, number];
+      })
+      .sort((p, q) => p[0] - q[0]);
+    const at = (d: number): [number, number] => [
+      a[0] + ((b[0] - a[0]) * d) / length,
+      a[1] + ((b[1] - a[1]) * d) / length,
+    ];
+    let done = 0;
+    for (const [from, to] of gaps) {
+      if (from - done > 1e-6) walls.push([at(done), at(from)]);
+      done = Math.max(done, to);
+    }
+    if (length - done > 1e-6) walls.push([at(done), at(length)]);
+  }
+  return { rooms, walls };
+}
+
+/** The plan's rooms as outlines in the map frame, a little above the floor (`lift` metres), from its stored text: a
+ *  Pascal scene's zones, or the rooms of a plan in the old DSL. */
 export function planOutline(planText: string, transform: readonly number[], lift = 0.02): V3[][] {
-  const { doc } = parseDsl(split(planText).base);
   const { toMap } = planFrame(transform);
+  const scene = sceneOf(planText);
+  if (scene) return sceneLines(scene).rooms.map(poly => poly.map(([x, y]) => toMap([x, y, lift])));
+  const { doc } = parseDsl(split(planText).base);
   return floorplan(doc).model.rooms.map(r => (r.room.poly as [number, number][]).map(([x, y]) => toMap([x, y, lift])));
 }
 
@@ -103,8 +157,10 @@ export function planOutline(planText: string, transform: readonly number[], lift
  *  through the place is stopped by. A door or a cased opening is a gap; a window is wall. Only straight walls: a
  *  curved one is left out, so it stops nothing. */
 export function planWalls(planText: string, transform: readonly number[], lift = 0): [V3, V3][] {
-  const { doc } = parseDsl(split(planText).base);
   const { toMap } = planFrame(transform);
+  const scene = sceneOf(planText);
+  if (scene) return sceneLines(scene).walls.map(([a, b]) => [toMap([a[0], a[1], lift]), toMap([b[0], b[1], lift])]);
+  const { doc } = parseDsl(split(planText).base);
   const { walls, openings } = floorplan(doc).model;
   const out: [V3, V3][] = [];
   for (const wall of walls) {
