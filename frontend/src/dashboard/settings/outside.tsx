@@ -1,4 +1,4 @@
-// What reaches outside this machine, for Settings (#2728, Joe's Settings board ideas 1 and 2): Phone's line saying
+// What reaches outside this machine, for Settings: Phone's line saying
 // whether calls work, and People and privacy's short list of what leaves. Both read what the page already has: the
 // services (is the phone bridge or the GitHub backup set to run), the config (an agent's address), and the imported
 // media sources (Google Photos signed in). Nothing here changes anything; a link goes to where it can be.

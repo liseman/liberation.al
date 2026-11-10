@@ -16,8 +16,8 @@ class LoadBoundary extends Component<
   }
 
   componentDidCatch(error: unknown) {
-    // A chunk a redeploy removed (#2005): reload once for the new build rather than show a failure. That reload is
-    // the recovery, not an error, so only a failure the page shows goes into its log (#2007).
+    // A chunk a redeploy removed: reload once for the new build rather than show a failure. That reload is
+    // the recovery, not an error, so only a failure the page shows goes into its log.
     if (reloadForNewBuild(error)) this.setState({ reloading: true });
     else reportError('boundary', error, this.props.name);
   }

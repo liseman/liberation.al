@@ -1,10 +1,10 @@
-// Pets' "Sightings to name" (#2019): every group of animal sightings nobody has named yet, in the shared naming
-// inbox (../../naming, #2366): sorted and sized there, one NamingRow each, with its newest picture large, when and
+// Pets' "Sightings to name": every group of animal sightings nobody has named yet, in the shared naming
+// inbox (../../naming): sorted and sized there, one NamingRow each, with its newest picture large, when and
 // where it was seen, the best guess, and the answers: "Yes, Mia" for a guess (filled for a Probably, outlined for a
-// Maybe, #2280, #2291, #2361), "Not Mia", which tells recognition that group isn't her (#2364), and the name picker,
+// Maybe), "Not Mia", which tells recognition that group isn't her, and the name picker,
 // a Cascader of a species (the detected one first), then that species' pets and Other… for a new pet (naming a pet of
 // another species corrects the sighting's). "Show all" opens every picture of the group; selecting some and "Not this
-// pet" leaves them out, so naming the group names only the rest (they wait again on their own). "By pet" (#2297)
+// pet" leaves them out, so naming the group names only the rest (they wait again on their own). "By pet"
 // labels one pet's guessed sightings in bulk.
 import { Button, Cascader, Group, Text } from '@mantine/core';
 import { IconPhotoMinus, IconPhotoX, IconUserMinus } from '@tabler/icons-react';
@@ -25,7 +25,7 @@ import { ByPet } from './ByPet';
 const title = capitalize;
 
 /** The group's best guess: the pet that clear matches (recognition's, or a clear suggestion while recognition is off
- *  for the species, #2291) name most often, else the one suggestions name most often. Its score is the mean
+ *  for the species) name most often, else the one suggestions name most often. Its score is the mean
  *  similarity of the sightings that name it, as a percentage: how alike they look, not how many agree. */
 export function guessOf(sightings: Sighting[]): { label: string; sure: boolean; score: number } | null {
   const tally = (pick: (s: Sighting) => Guess | undefined) => {
@@ -43,8 +43,8 @@ export function guessOf(sightings: Sighting[]): { label: string; sure: boolean; 
   return maybe ? { ...maybe, sure: false } : null;
 }
 
-/** A group's guess as the inbox shows it: the server's (#2366) for the whole group, else worked out here from the
- *  sightings left in it (after "Not this pet", or from a server before #2367). Only a named pet is a guess. */
+/** A group's guess as the inbox shows it: the server's for the whole group, else worked out here from the
+ *  sightings left in it (after "Not this pet", or when the response omits a group guess). Only a named pet is a guess. */
 export function groupGuess(
   group: SightingGroup,
   sightings: Sighting[],
@@ -65,7 +65,7 @@ export function groupGuess(
 
 const OTHER_PREFIX = 'other:'; // Other… under a species: a new pet of it
 
-/** "Who's this?", Mantine's Cascader (#2028): the species in the first column (the detected one on top), each
+/** "Who's this?", Mantine's Cascader: the species in the first column (the detected one on top), each
  *  opening its named pets and Other… for a new one in the next. Both columns show at once, so a group the detector
  *  got wrong is a different species away. Up and Down move, Right opens a species, Left goes back, Enter picks, and
  *  Esc closes, as the Cascader does. */
@@ -84,7 +84,7 @@ export function NamePicker({
   onPet: (pet: Pet) => void;
   onOther: (species: string) => void;
 }) {
-  // The detected species first when a pet can be one; a sighting of "some animal" (a zebra, #2035) gets the list.
+  // The detected species first when a pet can be one; a sighting of "some animal" (a zebra) gets the list.
   const first = speciesList.includes(detected) ? [detected] : [];
   const data = [...first, ...speciesList.filter(s => s !== detected)].map(s => ({
     value: s,
@@ -321,7 +321,7 @@ export function PetInbox({
   retrying?: boolean;
   onBack: () => void;
   onLabel: (tracks: string[], label: string) => void;
-  onNot?: (tracks: string[], pet: string) => void; // "Not Mia" (#2364)
+  onNot?: (tracks: string[], pet: string) => void; // "Not Mia"
   onBulk: (pet: string, checked: string[], unchecked: string[]) => void; // By pet's save
   onNewPet: (species: string, then: (pet: Pet) => void) => void;
 }) {

@@ -1,4 +1,4 @@
-// Known › Devices' two answers (#1326, Joe's first uses): where each linked thing and person was last seen ("where my
+// Known › Devices' two answers: where each linked thing and person was last seen ("where my
 // things are"), and what's on the home Wi-Fi today and when each device came and went. Both read what the router and
 // the Bluetooth sensors already recorded; nothing here contacts a device.
 import { Anchor, Badge, Group, Loader, Text } from '@mantine/core';

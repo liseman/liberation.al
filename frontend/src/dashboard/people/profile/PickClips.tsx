@@ -1,4 +1,4 @@
-// "Pick clips" on the contact card's Voice clone section (#312): hear the person's recent lines, tick the ones that
+// "Pick clips" on the contact card's Voice clone section: hear the person's recent lines, tick the ones that
 // are clearly them, and make their clone's reference from those. The picked lines count as theirs from then on.
 import { Button, Checkbox, Group, Modal, Stack, Text } from '@mantine/core';
 import { useQuery, useQueryClient } from '@tanstack/react-query';

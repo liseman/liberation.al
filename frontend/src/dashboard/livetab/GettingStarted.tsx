@@ -1,4 +1,4 @@
-// Live's "Getting started" (L5, #296): the six things a fresh install needs, each with its state and, while open, a
+// Live's "Getting started" (L5): the six things a fresh install needs, each with its state and, while open, a
 // button to the control that does it. A progress bar and a tick per finished step; the checklist goes away once all
 // six are done, and "Hide this for now" puts it away until a step that was done opens again.
 import { Button, Progress } from '@mantine/core';
@@ -46,7 +46,7 @@ export function steps(f: Facts, whosThis: 'here' | 'people' = 'people'): Step[] 
   const missingModels = ollama?.missing ?? [];
   const cam = f.devices?.cameras.find(c => c.selected && c.present);
   const mic = f.devices?.mics.find(m => m.selected && m.present);
-  const machine = { href: `${href('/settings')}#machine` }; // Settings' This machine (#386, #787)
+  const machine = { href: `${href('/settings')}#machine` }; // Settings' This machine
   return [
     {
       id: 'packages',
@@ -87,7 +87,7 @@ export function steps(f: Facts, whosThis: 'here' | 'people' = 'people'): Step[] 
               ? `${mic.name} is on; pick a camera`
               : 'Choose which camera and microphone Liberational uses',
       action: 'Choose them',
-      go: { href: `${href('/settings')}#devices` }, // Settings' Devices section (#384)
+      go: { href: `${href('/settings')}#devices` }, // Settings' Devices section
     },
     {
       id: 'name',
@@ -228,7 +228,7 @@ export function GettingStarted({
       >
         <Progress.Section value={Math.round((done / all.length) * 100)} color="var(--lib-ok)" withAria={false} />
       </Progress.Root>
-      {/* Only the next step to do is a Primary; the rest wait their turn as Default buttons (#2594). */}
+      {/* Only the next step to do is a Primary; the rest wait their turn as Default buttons. */}
       <ol className={classes.steps}>
         {all.map((s, i) => (
           <li

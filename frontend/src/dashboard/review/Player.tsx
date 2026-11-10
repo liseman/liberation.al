@@ -1,7 +1,7 @@
-// The Review player (R2, #327): one camera large with what it noticed as a caption, the others as tiles beside it
+// The Review player (R2): one camera large with what it noticed as a caption, the others as tiles beside it
 // (click one to swap it in), each named like "Front camera", and "No video now" on a camera with no video at the
-// playhead; then one control bar (play/pause, the time, the speed, the sound, the timeline's tools, and "?", #2454)
-// over the timeline (#2577). Each camera has two <video>s that the engine drives directly (one shows, the other holds the next segment). They mount once and never move: which camera is
+// playhead; then one control bar (play/pause, the time, the speed, the sound, the timeline's tools, and "?")
+// over the timeline. Each camera has two <video>s that the engine drives directly (one shows, the other holds the next segment). They mount once and never move: which camera is
 // large is only where the grid puts it.
 // A noninteractive hint for the engine's [ and ] moment keys floats at the large video's bottom center; captions
 // sit above it. The hint stays visible without hover or focus on every screen size.
@@ -78,7 +78,7 @@ export function seen(faces: Face[] | null): string | null {
   return parts.length ? parts.join(', ') : 'Nobody';
 }
 
-/** A camera note as /history/at sends it since #379 (types.ts's CamNote predates it). */
+/** A camera note as /history/at sends it (including unchanged and since fields). */
 type Note = Omit<CamNote, 'caption'> & { caption: string | null; unchanged?: boolean; since?: number | null };
 
 /** A time as HH:MM. */
@@ -105,7 +105,7 @@ export function Player({
   loading?: boolean;
   makeVideo?: MakeVideo;
   compact?: boolean;
-  timeline?: ReactNode; // Review's timeline, under the control bar, whose tools it gets (#2577)
+  timeline?: ReactNode; // Review's timeline, under the control bar, whose tools it gets
   inShowOnly?: boolean; // the page's Show only holds the video markers and Skip quiet time, so the bar leaves them out
   empty?: string | null; // the page's day has no video at all: this one line, and no tiles
 }) {
@@ -120,7 +120,7 @@ export function Player({
   const gap = useReview(s => s.gap);
   const unplayable = useReview(s => s.unplayable);
   const unplayableCodecs = useReview(s => s.unplayableCodecs);
-  const roomOnly = useReview(s => s.roomOnly); // no picture, but the room's kept audio plays (#196)
+  const roomOnly = useReview(s => s.roomOnly); // no picture, but the room's kept audio plays
   const notes = useReview(s => s.notes);
   const playing = useReview(s => s.playing);
   const speed = useReview(s => s.speed);
@@ -131,7 +131,7 @@ export function Player({
   const preferred = pick && pick.intent === cameraIntent ? pick.camera : linkedCamera;
   const big =
     preferred && shown.includes(preferred) ? preferred : (avail.find(c => shown.includes(c)) ?? shown[0] ?? '');
-  // A day with no video at all says so once, in the large camera, with no row of empty tiles beside it (#2454).
+  // A day with no video at all says so once, in the large camera, with no row of empty tiles beside it.
   const tiles = empty ? [] : shown.filter(c => c !== big);
   const canvases = useRef<Record<string, (HTMLCanvasElement | null)[]>>({});
   const [naming, setNaming] = useState<LiveFaceDraft | null>(null);
@@ -145,7 +145,7 @@ export function Player({
     return () => engine.setDisplayedCamera(null);
   }, [engine, big]);
   // Stable ref callbacks: React calls each once on mount, and its cleanup on unmount. Each canvas plays a camera's
-  // recorded video through Continuum's gateway (#549), standing in for the <video> the engine drives.
+  // recorded video through Continuum's gateway, standing in for the <video> the engine drives.
   const refs = useMemo(
     () =>
       Object.fromEntries(
@@ -167,7 +167,7 @@ export function Player({
       ),
     [engine, cams, makeVideo],
   );
-  // The camera's note (#379): its last real caption, with unchanged and since when the view hasn't changed; no caption
+  // The camera's note: its last real caption, with unchanged and since when the view hasn't changed; no caption
   // at all while the vision model warmed up. Who was seen still shows without one.
   const note = notes?.cams?.[big] as Note | undefined;
   const caption = note?.caption || null;
@@ -177,10 +177,10 @@ export function Player({
   const off =
     note && Math.abs(note.dt) >= 3 ? ` (${Math.round(Math.abs(note.dt))} s ${note.dt < 0 ? 'before' : 'after'})` : '';
   const who = note ? seen(note.faces) : null;
-  // Expiry is the shown camera's own (#1748): another camera's aged-out video says nothing about this one.
+  // Expiry is the shown camera's own: another camera's aged-out video says nothing about this one.
   const expired = t != null && segAt(engine.segs[big] ?? [], t)?.broken === 'expired';
-  // Once a camera's video has aged out, what the journal cited there is kept (#2808): a promoted clip or still plays in
-  // its place, or the citation says its footage expired, with what was seen (#2838). Read only once it's needed.
+  // Once a camera's video has aged out, what the journal cited there is kept: a promoted clip or still plays in
+  // its place, or the citation says its footage expired, with what was seen. Read only once it's needed.
   const day = useReview(s => s.day);
   const cited = useQuery({ ...journalEvidenceQuery(day ?? ''), enabled: expired && !!day });
   const kept = expired && t != null && cited.data ? evidenceAt(cited.data, big, t) : null;
@@ -274,7 +274,7 @@ export function Player({
                       <p className={classes.caption}>
                         {caption && (
                           // Two lines over the picture, the notes on the same line; a tap shows the rest. The button
-                          // keeps its identity as captions change, so keyboard focus stays on it (#2454 follow-up).
+                          // keeps its identity as captions change, so keyboard focus stays on it.
                           <span className={classes.captionLine} data-open={captionOpen || undefined}>
                             <UnstyledButton
                               className={classes.captionText}
@@ -360,7 +360,7 @@ function useMarkers(): ('people' | 'pets' | 'objects')[] {
 }
 
 /** The boxes to draw on the video (people, pets, objects) and, with objects, Known only. On Review's bar for an
- *  embedded clip; Review's own page puts them in Show only (#2454). */
+ *  embedded clip; Review's own page puts them in Show only. */
 export function VideoMarkers() {
   const markers = useMarkers();
   const knownOnly = usePrefs(s => s.reviewObjectsKnownOnly !== false);
@@ -422,7 +422,7 @@ export function SkipQuiet() {
   );
 }
 
-/** What Review plays aloud (#2041): the room's microphone, never a camera (the recordings carry no sound), with a
+/** What Review plays aloud: the room's microphone, never a camera (the recordings carry no sound), with a
  *  mute that keeps the video playing. */
 function RoomSound() {
   const engine = useEngine();

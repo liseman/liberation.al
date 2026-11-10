@@ -44,7 +44,7 @@ interface FrameEditorProps {
   disabled?: boolean;
   /** A new SAM job returns to pan/pick mode without discarding the crop or view. */
   selectRequest?: number;
-  /** Find objects in the region in view, as integer frame pixels [x, y, w, h] (#2020). */
+  /** Find objects in the region in view, as integer frame pixels [x, y, w, h]. */
   onFindObjects?: (region: Box) => void;
   /** Objects found: outlines (normalized polygons) a click inside picks, the smallest one under the pointer first. */
   found?: { id: string; outline: [number, number][][] }[];

@@ -1,7 +1,7 @@
-// Journal (#2811): the journal as a column view, like a Finder window. Months in the first column; picking one opens
+// Journal: the journal as a column view, like a Finder window. Months in the first column; picking one opens
 // its weeks to the right, then a week's days, a day's hours, and an hour's events. The pane at the far right shows
 // what's picked: a month's, week's, or day's page, or an hour's or event's text with what it cites, resolved as the
-// day page's citations are (#2808): the recording, a promoted clip or still, the audio, or why there's nothing left. Arrow keys move like Finder: up and down within a column,
+// day page's citations are: the recording, a promoted clip or still, the audio, or why there's nothing left. Arrow keys move like Finder: up and down within a column,
 // right into the next, left back out. On a phone it's one column at a time, with Back.
 import { Badge, Button, Text, UnstyledButton, VisuallyHidden } from '@mantine/core';
 import { useDebouncedValue, useMediaQuery } from '@mantine/hooks';

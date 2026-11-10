@@ -44,7 +44,7 @@ const SPEAKERS = {
 let posts: [string, unknown][];
 let asked: string[]; // the lines Why this name was asked about
 
-// Why the first line is Dana (#288): its voice was named in People, and it matched that voice at 0.71.
+// Why the first line is Dana: its voice was named in People, and it matched that voice at 0.71.
 const WHY = {
   name: 'Dana',
   subject: 'line',
@@ -103,7 +103,7 @@ beforeEach(() => {
   };
 });
 
-/** In Who is this?, which a Not <name> opens (#2605): just take it off the voice it was put down to. */
+/** In Who is this?, which a Not <name> opens: just take it off the voice it was put down to. */
 async function justRemove(from: string) {
   const who = await screen.findByRole('dialog', { name: 'Who is this?' });
   await userEvent.click(within(who).getByRole('button', { name: `Not sure, just remove it from ${from}` }));
@@ -112,7 +112,7 @@ const removed = (name: string, ...ids: string[]) =>
   ids.map(id => ['people/correct', { name, kind: 'voice', id, action: 'remove' }]);
 
 const badges = () => screen.getAllByRole('button', { name: /^(Rename|Why|.*: say who this is)/ });
-/** Rename turn i: a named voice's name opens Why this name (#288), and Rename this voice… is in it. */
+/** Rename turn i: a named voice's name opens Why this name, and Rename this voice… is in it. */
 async function rename(i: number, name: string) {
   const badge = badges()[i] as HTMLElement;
   await userEvent.click(badge);
@@ -122,7 +122,7 @@ async function rename(i: number, name: string) {
   expect(box).toHaveFocus();
   await userEvent.clear(box);
   await userEvent.type(box, `${name}{Enter}`);
-  // Naming a voice nobody has named with a new name asks to add them first (#2342).
+  // Naming a voice nobody has named with a new name asks to add them first.
   const add = screen.queryByRole('button', { name: 'Add' });
   if (add) await userEvent.click(add);
 }
@@ -381,7 +381,7 @@ describe('voices nobody has named (#357)', () => {
     }
     expect(within(turnOf('hello there')).getByRole('button', { name: 'Why Dana' })).toHaveTextContent('Dana');
     expect(turnOf('hello there')).not.toHaveAttribute('data-unmatched');
-    // A voice is named from its name: no separate Name this voice button (#2580).
+    // A voice is named from its name: no separate Name this voice button.
     expect(screen.queryByRole('button', { name: 'Name this voice' })).not.toBeInTheDocument();
   });
 
@@ -396,7 +396,7 @@ describe('voices nobody has named (#357)', () => {
     const unknown = within(turnOf('who is this')).getByRole('button', { name: 'Not transcribed correctly' });
     expect(unknown.previousElementSibling).toBeNull();
     await userEvent.click(not);
-    // The same Who is this? as a person's (#2605), by the voice's label, with an Undo.
+    // The same Who is this? as a person's, by the voice's label, with an Undo.
     const who = await screen.findByRole('dialog', { name: 'Who is this?' });
     expect(within(who).getByText("It's not the unmatched voice in this line. Who is it?")).toBeInTheDocument();
     await justRemove('the unmatched voice');
@@ -724,7 +724,7 @@ describe('incorrect transcript turns', () => {
     await userEvent.click(within(turn).getByRole('button', { name: 'This is TV' }));
     expect(posts).toEqual([['transcript/media', { lines: [`mic-a@${T0}.000`, `mic-a@${T0 + 2}.000`] }]]);
     const tvTurn = () => screen.getByText('first misheard line').closest('article') as HTMLElement;
-    // Two TV tags, and the turn goes by TV: every line a TV's, so there's no voice to name (#2545).
+    // Two TV tags, and the turn goes by TV: every line a TV's, so there's no voice to name.
     await vi.waitFor(() => expect(within(tvTurn()).getAllByText('TV')).toHaveLength(3));
     expect(within(tvTurn()).queryByRole('button', { name: /^Not Dana/ })).not.toBeInTheDocument();
     expect(within(tvTurn()).getByRole('button', { name: 'Not transcribed correctly' })).toBeInTheDocument();
@@ -755,7 +755,7 @@ describe('incorrect transcript turns', () => {
     expect(within(turn).getByTitle(/^Marked as TV\. /)).toHaveTextContent(/^TV$/);
     await userEvent.click(within(turn).getByRole('button', { name: 'Not TV' }));
     expect(posts).toEqual([['transcript/not-media', { lines: [`mic-a@${T0}.000`, `mic-a@${T0 + 2}.000`] }]]);
-    // Not TV has an Undo (#2643).
+    // Not TV has an Undo.
     await userEvent.click(await screen.findByRole('button', { name: 'Undo' }));
     await vi.waitFor(() => expect(posts.at(-1)).toEqual(['transcript/undo', { undo: 'off1' }]));
     // A line's Not TV is its TV tag, at the start of the line, not where Not <name> sits at its end.

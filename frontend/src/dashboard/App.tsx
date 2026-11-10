@@ -20,7 +20,7 @@ import { UsagePanel } from './usage/UsagePanel';
 
 // Live stays eager; every other pane loads on first visit and keeps its Activity state afterward.
 const ReportsTab = lazy(() => import('./reports/ReportsTab'));
-// The command palette (#2586) loads after the page, so its Settings and people reads don't hold the first view up.
+// The command palette loads after the page, so its Settings and people reads don't hold the first view up.
 const Palette = lazy(() => import('./palette/Palette').then(m => ({ default: m.Palette })));
 const Review = lazy(() => import('./review/Review').then(m => ({ default: m.Review })));
 const Known = lazy(() => import('./known/Known').then(m => ({ default: m.Known })));
@@ -48,10 +48,10 @@ const TITLES: Record<TabId, string> = {
 
 type Pane = Exclude<TabId, 'settings'>;
 
-/** The top bar's places: Debug is a developer page, reached from the menu (#2453), not a main place. */
+/** The top bar's places: Debug is a developer page, reached from the menu, not a main place. */
 const NAV = TABS.filter(t => t.id !== 'debug');
 
-/** A phone's bottom bar: the four places used most at the thumb, and the rest under More (#2453). */
+/** A phone's bottom bar: the four places used most at the thumb, and the rest under More. */
 const BOTTOM: { id: Pane; icon: TablerIcon }[] = [
   { id: 'live', icon: IconBroadcast },
   { id: 'review', icon: IconPlayerPlay },
@@ -164,7 +164,7 @@ const PANES: Record<Pane, ReactNode> = {
   ),
 };
 
-/** Each tab stays mounted once visited, so switching back shows it as it was instead of building it again (#330).
+/** Each tab stays mounted once visited, so switching back shows it as it was instead of building it again.
  *  A hidden tab is an Activity in hidden mode: display none, with its effects cleaned up until it shows again, so its
  *  streams, polling queries, animation frames, and key handlers stop while it's out of sight. */
 function Views({ tab: current }: { tab: Pane }): ReactNode {

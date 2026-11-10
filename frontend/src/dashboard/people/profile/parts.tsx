@@ -38,7 +38,7 @@ export function Empty({ children }: { children: ReactNode }) {
   );
 }
 
-/** Play one of their lines (the card's Recent voice, and a split's groups, #230). */
+/** Play one of their lines (the card's Recent voice, and a split's groups). */
 export function PlayLine({ v }: { v: CardVoice }) {
   return (
     <PlayClip
@@ -56,11 +56,11 @@ export interface MenuAction {
   label: string;
   onClick: () => void;
   color?: string;
-  icon?: ReactNode; // "Not <name>" has the person-minus icon, everywhere (#2605)
+  icon?: ReactNode; // "Not <name>" has the person-minus icon, everywhere
 }
 
 /** The ⋯ menu on one photo, video, or line of a card: People's (Not <name>…, Use as main photo, Hide from the card)
- *  and a pet's (#2363) use the same one. `label` names the item for the button ("More for <item>"); `ref` is the
+ *  and a pet's use the same one. `label` names the item for the button ("More for <item>"); `ref` is the
  *  button, for focus to go back to. */
 export function ItemActions({
   label,

@@ -1,4 +1,4 @@
-// Settings' sources (#1331), moved here from the Ingest tab, which keeps uploads, links, and what was brought in. Each
+// Settings' sources, moved here from the Ingest tab, which keeps uploads, links, and what was brought in. Each
 // source is shown by what it is (model.ts): camera sources (Wyze) on Cameras and microphones' Network cameras card,
 // and photo libraries and recorders (Google Photos, iCloud Photos, AllSound, Thinking Hat) under Imported media. Each
 // row says whether the source is set up and has its own options. It reads the same GET /ingest/api/items the tab
@@ -96,7 +96,7 @@ function GooglePhotos({ source, control }: { source: SourceInfo; control: boolea
           <Button
             size="xs"
             variant="default"
-            // While it needs a package installed (the source says so, #2695), signing in can only fail
+            // While it needs a package installed (the source says so), signing in can only fail
             disabled={!!source.blocked}
             onClick={async () => {
               try {
@@ -168,7 +168,7 @@ function GooglePhotos({ source, control }: { source: SourceInfo; control: boolea
   );
 }
 
-/** The Wyze bridge's sign-in and address. Folded behind a button (#2728 idea 3): while it isn't set up, the whole form
+/** The Wyze bridge's sign-in and address. Folded behind a button: while it isn't set up, the whole form
  *  took the card's room above the cameras that work. */
 function Wyze({ wyze, control, configured }: { wyze: WyzeSettings; control: boolean; configured: boolean }) {
   const [open, setOpen] = useState(false);
@@ -283,7 +283,7 @@ function Source({ source, view }: { source: SourceInfo; view: IngestView }) {
                   {source.configured ? 'Ready' : 'Not set up'}
                 </Badge>
                 {source.ongoing && (
-                  // Mantine's grey label read at 3.3:1 on white; the page's dimmed text reads at 4.5:1 or better (#2695)
+                  // Mantine's grey label read at 3.3:1 on white; the page's dimmed text reads at 4.5:1 or better
                   <Badge size="sm" variant="outline" color="gray" c="var(--mantine-color-dimmed)">
                     Ongoing
                   </Badge>
@@ -353,7 +353,7 @@ function SourcesCard({
   const query = useIngestView();
   const view = query.data;
   const all = view?.sources.filter(s => kindOf(s.name) === kind) ?? [];
-  // What can be connected now comes first; sources with no way in yet are one line under it (#2728)
+  // What can be connected now comes first; sources with no way in yet are one line under it
   const shown = all.filter(s => !s.later);
   const later = all.filter(s => s.later);
   return (

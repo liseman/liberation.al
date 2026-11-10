@@ -1,4 +1,4 @@
-/* A toast in Mantine's queue (#2596): the words, then Undo or another action on the same line. */
+/* A toast in Mantine's queue: the words, then Undo or another action on the same line. */
 .toast[data-error] {
   border: 1px solid var(--lib-bad);
 }

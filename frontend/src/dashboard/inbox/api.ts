@@ -1,4 +1,4 @@
-// Research jobs and their reports, for the Inbox (#1336, memory/research.py): Ask's questions taken slowly in the
+// Research jobs and their reports, for the Inbox (memory/research.py): Ask's questions taken slowly in the
 // background. The list polls while a job is waiting or running.
 import { type QueryClient, queryOptions } from '@tanstack/react-query';
 import { request } from '../../shared/http';
@@ -32,7 +32,7 @@ export interface Job {
   error?: string;
   read: boolean;
   result?: Report;
-  answer_status?: string | null; // how a finished report's answer came out ("ok", "partial"), for the list (#2674)
+  answer_status?: string | null; // how a finished report's answer came out ("ok", "partial"), for the list
 }
 
 export interface Jobs {

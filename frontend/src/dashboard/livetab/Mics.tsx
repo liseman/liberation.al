@@ -1,5 +1,5 @@
-// Live's microphones (#353): one chip per microphone the microphone service is listening to, with its level moving
-// live, a mark where speech has to reach (its sensitivity's threshold, #331), and whether the listen worker detects a sound candidate now.
+// Live's microphones: one chip per microphone the microphone service is listening to, with its level moving
+// live, a mark where speech has to reach (its sensitivity's threshold), and whether the listen worker detects a sound candidate now.
 import { VisuallyHidden } from '@mantine/core';
 import { IconMicrophoneFilled, IconMicrophoneOff } from '@tabler/icons-react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -50,8 +50,8 @@ function Chip({
   const level = typeof device.level_dbfs === 'number' ? device.level_dbfs : -120;
   const threshold = typeof device.threshold_dbfs === 'number' ? device.threshold_dbfs : null;
   const state = !healthy ? 'Not responding' : speech == null ? 'Unavailable' : speech ? 'Sound detected' : 'Quiet';
-  // Compact, in the conversation's header (#2456): what it is doing in words, with the name and gain on hover.
-  // No levels yet, or the feed stalled (useSpeech's undefined): say so rather than quiet (#2486).
+  // Compact, in the conversation's header: what it is doing in words, with the name and gain on hover.
+  // No levels yet, or the feed stalled (useSpeech's undefined): say so rather than quiet.
   const said = !healthy
     ? 'Not responding'
     : speech == null
@@ -149,7 +149,7 @@ export function Mics({ compact = false }: { compact?: boolean } = {}) {
   const picker = client.getQueryData<Devices>(DEVICES_KEY); // names the Sources drawer found, if it has been opened
   const known = new Map((picker?.mics ?? []).map(m => [m.id, m.name]));
   const paused = summary(usePrivacy(), 'microphone').paused;
-  // The header line keeps its place while no microphone has reported yet (#2485).
+  // The header line keeps its place while no microphone has reported yet.
   if (!devices.length && !paused.length)
     return compact ? <section className="mics mics-compact" aria-hidden="true" /> : null;
   return (

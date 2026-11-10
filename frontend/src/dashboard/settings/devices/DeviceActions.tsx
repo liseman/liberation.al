@@ -1,6 +1,6 @@
-// What a Known › Devices card does (#3274): its Link button, the picker it opens (whose a device is, what thing it is,
+// What a Known › Devices card does: its Link button, the picker it opens (whose a device is, what thing it is,
 // or where it lives), and the chips that show its link and location, each with a quick remove. The Link button is
-// laid out like the Who's this? cards' answers (#3266): an icon over its caption and key, with a popover saying what
+// laid out like the Who's this? cards' answers: an icon over its caption and key, with a popover saying what
 // it does on hover and on keyboard focus; L on a focused card opens the picker. A location is a place, or a room of
 // its plan (memory/places.py): a device that never moves (a TV, a plug, a speaker) then tells where the Pack is.
 import {

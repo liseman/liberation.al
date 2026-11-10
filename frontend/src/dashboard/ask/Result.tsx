@@ -178,7 +178,7 @@ export function Evidence({ item }: { item: unknown }) {
 
 /** The answer with each citation of recorded evidence ("C6", "J3") linked to that item's moment in Review, as the
  *  evidence list links it: a code no evidence item has stays text, and code spans and links already in the answer
- *  are left alone (#2661). */
+ *  are left alone. */
 export function citeLinks(text: string, evidence: readonly unknown[]): string {
   const to = new Map<string, string>();
   for (const e of evidence) {

@@ -1,7 +1,7 @@
-// Known › Devices (Joe 2026-11-06): the phones, watches, and tags the Bluetooth sensors heard and the router saw,
+// Known › Devices: the phones, watches, and tags the Bluetooth sensors heard and the router saw,
 // each linked to a person or named as a thing. It's the card Settings › Devices had (settings/devices/DeviceLinks.tsx),
 // moved here as it was, since linking a device is naming what the house knows, like People and Pets. Above it, who's
-// home by their devices, where each linked thing was last seen, and what's on the Wi-Fi today (#1326,
+// home by their devices, where each linked thing was last seen, and what's on the Wi-Fi today (
 // DeviceSections.tsx). Until a person has a linked phone, the Wi-Fi card leads as the starter ("Whose phones are
 // these?") in place of the two that would be empty. Whether changes are allowed (only from the machine Liberational runs on) comes from GET /config, as Settings reads it.
 import { Text } from '@mantine/core';
@@ -22,7 +22,7 @@ export function DevicesTab() {
   // The three sections show together, once each has answered (or failed): filling in one at a time, each pushed the
   // ones under it down (a load shift). These are the sections' own reads, shared by key, not extra ones. The device
   // list isn't waited for: it's the last card, so it fills in without moving anything, and on a fresh start its first
-  // read is the slowest by far (a day of Bluetooth rows, #2875).
+  // read is the slowest by far (a day of Bluetooth rows).
   const presence = useQuery(presenceQuery());
   const whereabouts = useQuery(whereaboutsQuery());
   const comings = useQuery(comingsQuery());

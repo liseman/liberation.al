@@ -265,7 +265,7 @@ it('unmounting one form leaves another task modal open', async () => {
   expect(screen.getByRole('dialog', { name: 'Other task' })).toBeInTheDocument();
 });
 
-// ---- the accordion (#262) ----
+// ---- the accordion ----
 
 const control = (name: RegExp) => screen.getByRole('button', { name });
 
@@ -342,7 +342,7 @@ it('marks a section with an unsaved change, and only that one', async () => {
   expect(control(/^Agent/)).not.toHaveTextContent('Unsaved');
 });
 
-// ---- from the local review of #262 ----
+// ---- closed-section and focus edge cases ----
 
 it('focuses a refused field even when its section was closed', async () => {
   localStorage.setItem(OPEN_KEY, JSON.stringify(['agent']));

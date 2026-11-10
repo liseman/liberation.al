@@ -1,4 +1,4 @@
-// The Resource monitor's chart (#2245, in UsagePanel.tsx, #2258): a stacked area over the last half hour, one band per busy service and
+// The Resource monitor's chart (in UsagePanel.tsx): a stacked area over the last half hour, one band per busy service and
 // one for everything else, for the processor, memory, or one GPU's memory. SVG drawn by React with D3's scales and
 // stack, like Reports. The hover (or arrow keys on the chart) shows every service's value at that moment; a table
 // under it gives the newest values, so nothing depends on telling colours apart.

@@ -1,4 +1,4 @@
-// Settings' Services data (#386, once the top bar's Services drawer; #787 drew it as cards), and the rules for what
+// Settings' Services data (once the top bar's Services drawer drew it as cards), and the rules for what
 // each row says.
 
 export const SERVICES_KEY = ['services'] as const;
@@ -15,7 +15,7 @@ export interface Service {
   selected: boolean; // enabled for this machine in pack.toml
   default?: boolean; // runs unless services.disable names it
   required?: boolean; // another setting needs it (Whisper for ASR), so it can't be turned off here
-  restarts?: number | null; // how often the service manager restarted it (#297); null when it didn't say
+  restarts?: number | null; // how often the service manager restarted it; null when it didn't say
   up_s?: number | null; // how long its current run has lasted, when the manager says
   run_id?: string | null; // stable across polls, changes on a new service-manager run
   issue_acknowledged?: boolean; // browser-local acknowledgement of this occurrence while the service runs
@@ -24,7 +24,7 @@ export interface Service {
   last_error?: { id?: string; at: string; ts?: number | null; text: string } | null;
 }
 
-/** A crash loop (#297): restarted at least CRASH_LOOP times, and up less than CRASH_RECENT_S since the last one.
+/** A crash loop: restarted at least CRASH_LOOP times, and up less than CRASH_RECENT_S since the last one.
  *  The count alone can't say it, since it only resets when the service is started by hand: a service that looped
  *  last week and has run since is fine. */
 export const CRASH_LOOP = 3;
@@ -64,7 +64,7 @@ export interface ServicesView {
   services: Service[];
 }
 
-/** What can be done to one service (#423). Its switch stops and starts it now (or turns on one that isn't installed):
+/** What can be done to one service. Its switch stops and starts it now (or turns on one that isn't installed):
  *  a stopped service starts again when the computer restarts. Disable takes it out of this machine's services in
  *  pack.toml and uninstalls it, so it stays off until Enable. */
 export type ServiceAction = 'on' | 'stop' | 'start' | 'enable' | 'disable';

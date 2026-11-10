@@ -1,7 +1,7 @@
 // A person's contact card, beside the People list: their main photo, name, where they are, and what's known; then
 // their clearest photos, recent video, recent voice, About (with the public lookup), and their voice clone. Rename
 // sits in the header, and Role, Phone number, Same person as, Pick what's theirs, and Delete in its "More" menu.
-// Each photo, video, and line has its own menu to correct it (#309): "Not Dana…", Use as main photo, and Hide.
+// Each photo, video, and line has its own menu to correct it: "Not Dana…", Use as main photo, and Hide.
 // A new person's card opens on "pick what's theirs" (Pickers.tsx) instead.
 import {
   ActionIcon,
@@ -101,7 +101,7 @@ type Fix = (t: Target, action: 'not' | 'main' | 'hide', from?: HTMLElement | nul
 
 const secs = (n: number | undefined) => `${Math.round(n ?? 0)} s`;
 
-/** "34 s heard, 6 s usable for cloning, needs 12 s." (#388) */
+/** "34 s heard, 6 s usable for cloning, needs 12 s." */
 export function cloneSpeech(c: Clone): string {
   return `${secs(c.clean_s)} heard, ${secs(c.usable_s)} usable for cloning, needs ${secs(c.needs_s ?? 12)}.`;
 }
@@ -116,14 +116,14 @@ export function cloneShort(c: Clone, name: string): string {
   return `${why.trim()} Name more of ${name}'s lines (in Live, Review, or here), pick clips, or record a reference.`.trim();
 }
 
-/** What explains a photo's or a line's name (#288): its sighting, or its line key. Videos have no one name. */
+/** What explains a photo's or a line's name: its sighting, or its line key. Videos have no one name. */
 function whyOf(t: Target): WhyTarget | null {
-  if (t.kind === 'shot' && typeof t.id === 'string') return { shot: t.id }; // a detection's payload id (#549)
+  if (t.kind === 'shot' && typeof t.id === 'string') return { shot: t.id }; // a detection's payload id
   if (t.kind === 'voice' && typeof t.id === 'string') return { line: t.id };
   return null;
 }
 
-/** The ⋯ menu on one photo, video, or line: Why this is <name> (photos and lines, #288), Not <name>…, Use as main
+/** The ⋯ menu on one photo, video, or line: Why this is <name> (photos and lines), Not <name>…, Use as main
  *  photo (photos only), and Hide from the card. Why opens beside the ⋯, with Not <name>… in it too. */
 function ItemMenu({ name, t, onFix, className }: { name: string; t: Target; onFix: Fix; className?: string }) {
   const button = useRef<HTMLButtonElement>(null); // where focus goes back to after Who is this?
@@ -221,7 +221,7 @@ function Videos({ card, onFix }: { card: Card; onFix: Fix }) {
       title="Recent video"
       aside={
         list[0] ? (
-          // On the day of their newest video, which Review's Show only can pick them on (#392)
+          // On the day of their newest video, which Review's Show only can pick them on
           <ReviewLink to={reviewURL({ person: card.name, day: isoDay(new Date(list[0].start * 1000)) })}>
             See all in Review
           </ReviewLink>
@@ -262,7 +262,7 @@ function Voices({ card, onFix }: { card: Card; onFix: Fix }) {
       title="Recent voice"
       aside={
         list[0] ? (
-          // On the day of the newest line they said (#392)
+          // On the day of the newest line they said
           <ReviewLink to={reviewURL({ person: card.name, day: isoDay(new Date(list[0].ts_start * 1000)) })}>
             Hear more in Review
           </ReviewLink>
@@ -428,7 +428,7 @@ function VoiceClone({ name, voices, owner = false }: { name: string; voices: num
     const r = await build(client, clone.id);
     if (!r.ok) setErr(r.error);
   };
-  // People's Voice clones sidebar could remove a clone; with it gone from People (#2455) the card does.
+  // People's Voice clones sidebar could remove a clone; with it gone from People the card does.
   const drop = async () => {
     if (!clone?.built) return;
     const sure = await confirm({
@@ -554,7 +554,7 @@ function fixedText(c: Correction, name: string, to: string | undefined): string 
 
 function Body({ name, person, people, onChanged, onDeleted, onBack, isNew = false, onPickDone }: ProfileProps) {
   const client = useQueryClient();
-  // The page shows at once from their row of the people list; GET /people/<name> fills in the rest (#2397).
+  // The page shows at once from their row of the people list; GET /people/<name> fills in the rest.
   const q = useQuery({
     queryKey: profileKey(name),
     queryFn: ({ signal }) => getProfile(name, { signal }),
@@ -566,7 +566,7 @@ function Body({ name, person, people, onChanged, onDeleted, onBack, isNew = fals
     queryKey: cardKey(name),
     queryFn: ({ signal }) => getCard(name, { signal }),
     retry: false,
-    // Poll while crops are being made, or while the server reads again an older card it answered (#2415).
+    // Poll while crops are being made, or while the server reads again an older card it answered.
     refetchInterval: query =>
       query.state.status !== 'error' &&
       (query.state.data?.shots_pending || query.state.data?.videos_pending || query.state.data?.refreshing)
@@ -1073,7 +1073,7 @@ function Body({ name, person, people, onChanged, onDeleted, onBack, isNew = fals
               <Voices card={card} onFix={fix} />
             </>
           ) : !c.isError ? (
-            // Shaped like the three sections coming (#2485), so About and Voice clone under them stay about where
+            // Shaped like the three sections coming, so About and Voice clone under them stay about where
             // they'll be, instead of starting high and dropping most of a screen when the sections land.
             <Stack gap="lg" aria-busy="true" aria-label={`Loading ${d.name}'s photos, video, and voice`}>
               <Skeleton height={372} radius="md" />

@@ -182,7 +182,7 @@ it('shows a neutral activity count in the hover title', () => {
   expect(screen.queryByText(/repetitions/)).not.toBeInTheDocument();
 });
 
-// From Joe's frontend log: a hover before the first paint measured the track threw "Invalid time value" in the clock.
+// A hover before the first paint measured the track used to throw "Invalid time value" in the clock.
 it('shows the hovered time when the pointer arrives before the first paint', () => {
   const { canvas } = setup();
   const track = canvas.closest('[role="slider"]');

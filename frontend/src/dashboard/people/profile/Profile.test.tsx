@@ -486,13 +486,13 @@ describe('recent video', () => {
     expect(hash.get('person')).toBe('Dana');
     expect(hash.get('cam')).toBe('cam0');
     expect(hash.get('play')).toBe('1');
-    expect(hash.get('t')).toBe(String(today(18, 41))); // a whole second, written without decimals (#2391)
+    expect(hash.get('t')).toBe(String(today(18, 41))); // a whole second, written without decimals
     expect(hash.get('day')).toBe(isoDay(new Date(today(18, 41) * 1000)));
     expect(within(first).getByText('0:55')).toBeInTheDocument();
     expect(within(box).getByText('Making coffee 1')).toBeInTheDocument();
     expect(within(box).getByText('today at 18:41, cam0')).toBeInTheDocument();
     const all = within(box).getByRole('link', { name: 'See all in Review' }) as HTMLAnchorElement;
-    expect(new URL(all.href).hash).toBe(`#person=Dana&day=${isoDay(new Date(today(18, 41) * 1000))}`); // the newest video's day (#392)
+    expect(new URL(all.href).hash).toBe(`#person=Dana&day=${isoDay(new Date(today(18, 41) * 1000))}`); // the newest video's day
   });
 
   it('omits null-thumbnail tiles and shows pending and unavailable video counts instead of an empty claim', async () => {

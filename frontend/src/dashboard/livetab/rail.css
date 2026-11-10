@@ -1,4 +1,4 @@
-/* Live's right rail (#356): What's happening, Here now, and Who's this?, as white cards (the Live design, #350). */
+/* Live's right rail: What's happening, Here now, and Who's this?, as white cards (the Live design). */
 .rail-card {
   padding: 16px;
   background: var(--lib-card);
@@ -10,7 +10,7 @@
   min-width: 0;
 }
 .rail-card h2 {
-  font: 600 18px / 1.45 var(--mantine-font-family); /* a section heading, as theme.ts h2 (#2594) */
+  font: 600 18px / 1.45 var(--mantine-font-family); /* a section heading, as theme.ts h2 */
   margin: 0;
 }
 .rail-head {
@@ -42,7 +42,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Side by side, wrapping to another row when there are many (#2606) */
+/* Side by side, wrapping to another row when there are many */
 .here-now {
   list-style: none;
   margin: 0;

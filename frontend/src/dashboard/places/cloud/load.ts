@@ -1,6 +1,6 @@
-// Loading what the 3D view draws (#2876), by format, so one viewer grows into whatever the maps become. A place map is
+// Loading what the 3D view draws, by format, so one viewer grows into whatever the maps become. A place map is
 // a point cloud in PLY (spatial/ply.py: x, y, z, red, green, blue, and its own counts, which the loader skips). A
-// revision of fixed cameras can also have a 3D Gaussian splat (#2877, spatial/splats.py), served as SPZ; Spark (MIT)
+// revision of fixed cameras can also have a 3D Gaussian splat (spatial/splats.py), served as SPZ; Spark (MIT)
 // draws it as a SplatMesh, a three.js object in the same scene, so there's never a second viewer.
 import type { BufferGeometry, WebGLRenderer } from 'three';
 import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';

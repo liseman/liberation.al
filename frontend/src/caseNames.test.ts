@@ -1,5 +1,5 @@
 // macOS checkouts are case-insensitive: './UsageChart' resolved to usageChart.ts there and the dashboard build
-// failed (#2184, and again for usage/). Two sources whose names differ only in case must not share a folder.
+// failed (and again for usage/). Two sources whose names differ only in case must not share a folder.
 import { readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';

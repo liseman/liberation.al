@@ -1,4 +1,4 @@
-// A bounded playback queue for one person's selected moments (#2057). Media and clocks stay in ReviewEngine;
+// A bounded playback queue for one person's selected moments. Media and clocks stay in ReviewEngine;
 // this controller owns only the immutable queue, its active step, and transitions at an exact endpoint.
 import { createStore } from 'zustand/vanilla';
 import type { PlaybackMoment } from './personMomentsModel';

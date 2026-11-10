@@ -36,7 +36,7 @@ export function windowDays(day: string | null, range: View | null, today = isoDa
   ];
 }
 
-/** Whether a window day's reads poll (#2414): only today, and only while it's the day picked or within the visible
+/** Whether a window day's reads poll: only today, and only while it's the day picked or within the visible
  *  range. As a neighbor kept for panning, today loads once like any other day: before, viewing yesterday still read
  *  today's lines, video, and audio every few seconds, and each read merged the whole window's video list again. An
  *  ended day never polls; its data stays fresh until a correction invalidates it (staleTime Infinity, perOpening). */
@@ -66,7 +66,7 @@ export function useReviewWindow(engine: ReviewEngine) {
   const chips = useQueries({ queries: wanted.map((d, i) => chipsQuery(d, live(d), i)) });
   const activities = useQueries({ queries: wanted.map((d, i) => activitiesQuery(d, live(d), i)) });
   // A day read before it ended (today kept as a neighbor, or shown until midnight) holds that snapshot forever once
-  // it's over, since an ended day never polls: it's read once more after its end, then it's settled (Codex on #2416).
+  // it's over, since an ended day never polls: it's read once more after its end, then it's settled.
   const client = useQueryClient();
   useEffect(() => {
     const all: [UseQueryResult<unknown>[], (d: string) => QueryKey][] = [

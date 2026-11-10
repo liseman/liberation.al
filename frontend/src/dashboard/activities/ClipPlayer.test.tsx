@@ -151,7 +151,7 @@ it('opens the playing clip bigger in a popup, and hands its time back to the car
   expect(within(popup).getByRole('img', { name: /video$/ })).toBeInTheDocument();
   const big = videos.filter(v => !card.includes(v));
   await waitFor(() => expect(big.some(v => !v.paused)).toBe(true));
-  // A click on the popup's own video leaves it playing where it is (#2302), not reopened at the paused card's time.
+  // A click on the popup's own video leaves it playing where it is, not reopened at the paused card's time.
   await userEvent.click(within(popup).getByRole('img', { name: /video$/ }));
   await new Promise(resolve => setTimeout(resolve, 50));
   expect(big.some(v => !v.paused)).toBe(true);

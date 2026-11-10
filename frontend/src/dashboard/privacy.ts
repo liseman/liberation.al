@@ -1,4 +1,4 @@
-// Pausing cameras and microphones for privacy (#2260): GET/POST /devices/privacy (dashboard/privacy.py). A paused
+// Pausing cameras and microphones for privacy: GET/POST /devices/privacy (dashboard/privacy.py). A paused
 // device's capture is stopped where it's owned, so nothing from it is recorded; the header icons toggle it and Live
 // says "Paused for privacy" in its place.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';

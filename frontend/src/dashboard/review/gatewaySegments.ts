@@ -1,4 +1,4 @@
-// A day's recorded video, as Review's segments, from Continuum's gateway (#549): every camera stream's stretches
+// A day's recorded video, as Review's segments, from Continuum's gateway: every camera stream's stretches
 // with frames (the gateway's `spans`), each a segment GatewayVideo plays. A camera's stream is `<cam>.video`, and on
 // a machine with v1's recordings imported, `<cam>.video_v1` too.
 
@@ -19,7 +19,7 @@ export function cameraOf(stream: string): string | null {
 }
 
 /** How long the connection stays open after its last listing: Review refreshes today's every few seconds, and a
- *  fresh connection each time cost a handshake and a hello (#917). */
+ *  fresh connection each time cost a handshake and a hello. */
 export const IDLE_CLOSE_MS = 30000;
 
 /** A day's listing is bounded independently of each gateway reply. */
@@ -30,7 +30,7 @@ export const MAX_DAY_SEGMENTS = 8192;
 /** How many unjoined segments a listing gathers before joining what it has (it joins once at the end otherwise). */
 const RAW_SEGMENTS = 4 * MAX_DAY_SEGMENTS;
 /** The gap the gateway may close when it joins a window's spans: a camera that records in short bursts (a few seconds
- *  apart) lists as one stretch to play through, not thousands of slivers (#2348). Longer gaps stay gaps. */
+ *  apart) lists as one stretch to play through, not thousands of slivers. Longer gaps stay gaps. */
 export const SPANS_GAP_US = 10_000_000;
 /** Ever wider gaps (seconds) a listing over MAX_DAY_SEGMENTS joins before it gives up, so a choppy day still plays. */
 const COALESCE_GAPS_S = [30, 120, 600, 3600];
@@ -82,7 +82,7 @@ function joinSegments(input: readonly RawSegment[], gapS: number): RawSegment[] 
   };
   for (const { segment, stream } of keyed) {
     // Rejoin a span that a split listing window cut in two. Spans further apart than gapS stay apart, and expired
-    // video joins only expired video: a purge can leave thousands of expired slivers on a day (#2348's follow-up).
+    // video joins only expired video: a purge can leave thousands of expired slivers on a day.
     if (
       last &&
       stream !== null &&
@@ -170,7 +170,7 @@ class Lister {
       let out: RawSegment[] = [];
       const abort = () => this.drop(new DOMException('aborted', 'AbortError'));
       /** `keep`: the listing failed on its own data (a bound, a malformed reply), not the connection, which stays
-       *  open for the next listing, another day's included (#2348). */
+       *  open for the next listing, another day's included. */
       const finish = (err?: Error, keep = false) => {
         if (finished) return;
         finished = true;
@@ -263,7 +263,7 @@ class Lister {
               )
             )
               throw new Error('The gateway returned invalid expired spans.');
-            // Video aged out past the history window (#1748) shows as expired, never as unrecorded time.
+            // Video aged out past the history window shows as expired, never as unrecorded time.
             const gone: RawSegment[] = (expired as [number, number][]).map(([a, b]) => ({
               cam: window.cam,
               start: a / 1e6,
@@ -302,7 +302,7 @@ function listerFor(connect: Connect, url: string): Lister {
 
 /** Every camera's video segments over `[startS, endS)` (Unix seconds), in no particular order, over one gateway
  *  connection per URL that stays open IDLE_CLOSE_MS after the last listing. `cams` lists only those cameras'
- *  streams (one clip's camera, #2552), rather than asking the gateway about every stream. */
+ *  streams (one clip's camera), rather than asking the gateway about every stream. */
 export function daySegments(
   startS: number,
   endS: number,

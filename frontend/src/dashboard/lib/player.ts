@@ -13,7 +13,7 @@ export interface PlayerState {
   ts: number | null;
   paused: boolean;
   status: string;
-  position: number; // seconds into what's playing, for a player that shows where it is (Calls, #2621 board)
+  position: number; // seconds into what's playing, for a player that shows where it is (Calls board)
   duration: number | null; // its length in seconds, once known
 }
 
@@ -81,7 +81,7 @@ const TYPED = new Set([
 const isSpace = (e: KeyboardEvent) => e.key === ' ' || e.code === 'Space';
 
 /** Text editing, modified/consumed keys, and visible modal dialogs own their keyboard input. With `spaceOverControls`
- *  (Review, #2352), Space belongs to playback from any focused control but a text field: a focused chip, switch, or
+ *  (Review), Space belongs to playback from any focused control but a text field: a focused chip, switch, or
  *  checkbox no longer toggles; only typing keeps it. */
 export function playbackKeyBlocked(e: KeyboardEvent, { spaceOverControls = false } = {}): boolean {
   if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return true;
@@ -90,7 +90,7 @@ export function playbackKeyBlocked(e: KeyboardEvent, { spaceOverControls = false
     'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [data-review-search]',
   );
   const control = field instanceof HTMLInputElement && !TYPED.has(field.type);
-  // A checkbox in a [data-review-keys] area (Show only's pills, #2287) keeps Space and Enter for itself and lets the
+  // A checkbox in a [data-review-keys] area (Show only's pills) keeps Space and Enter for itself and lets the
   // playback keys through, as that area's buttons do.
   const passes =
     (spaceOverControls && control && isSpace(e)) ||
@@ -198,7 +198,7 @@ export function play(url: string, key: string, ts: number | null = null): void {
   });
 }
 
-/** What playLine plays a line under: its key (#247), so the other microphone's line in that millisecond isn't it. */
+/** What playLine plays a line under: its key, so the other microphone's line in that millisecond isn't it. */
 export const lineKey = (e: TranscriptEntry): string => (e.line ? `line:${e.line}` : `ts:${e.ts_start}`);
 
 /** Play one transcript line's audio: by its key when it has one, else by its time as before keys. */

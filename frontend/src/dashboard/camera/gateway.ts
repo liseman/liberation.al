@@ -1,4 +1,4 @@
-// The Live tab's cameras through Continuum's gateway (#549): one live session per camera on screen, carrying the
+// The Live tab's cameras through Continuum's gateway: one live session per camera on screen, carrying the
 // camera's frames (drawn by mux.ts) and its vision overlays (drawn by boxes.ts as LiveFrames, the shape v1's
 // /video/live/boxes sent, so the box renderer, its smoothing, and its clicks are unchanged).
 //
@@ -44,7 +44,7 @@ export function setGatewayForTests(connect: Connect, url = 'ws://gateway/ws', wa
   useWatch = watch;
 }
 
-/** Each camera's session rides the page's one watch connection (player/watch.ts, #2387); off, or on a gateway
+/** Each camera's session rides the page's one watch connection (player/watch.ts); off, or on a gateway
  *  without `watch`, each camera has a connection of its own with a `live` on it. */
 let useWatch = true;
 

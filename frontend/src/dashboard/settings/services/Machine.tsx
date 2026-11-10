@@ -1,6 +1,6 @@
-// Settings' This machine (#386, drawn as cards in #787): what it is, a verdict on how it's doing, the models and system
+// Settings' This machine: what it is, a verdict on how it's doing, the models and system
 // packages it's missing (with the commands that add them), its processor, memory, and all reported models, plus
-// Liberational's own programs stacked over the last half hour (#2245). Polled while shown.
+// Liberational's own programs stacked over the last half hour. Polled while shown.
 import { Button, Code, ColorSwatch, CopyButton, Progress } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
 import { messageOf } from '../../../shared/http';
@@ -191,7 +191,7 @@ function LoadedSince({ since }: { since: number | null }) {
   if (!date || !Number.isFinite(date.getTime())) return <span>Load time unavailable</span>;
   return (
     <span>
-      {/* "Today, 13:22": the app's 24-hour words, not "Nov 6, 2026, 01:22 PM" (#2695) */}
+      {/* "Today, 13:22": the app's 24-hour words, not "Nov 6, 2026, 01:22 PM" */}
       Loaded since <time dateTime={date.toISOString()}>{momentWords(since as number)}</time>
     </span>
   );
@@ -230,7 +230,7 @@ function groupMemory(group: InventoryGroup): string {
   }`;
 }
 
-/** A process and its models, folded to one line (#2728, Joe's Settings board idea 5): "see-actions · 6 models · 12.0 GB
+/** A process and its models, folded to one line: "see-actions · 6 models · 12.0 GB
  *  VRAM, 5.8 GB RSS", opening to each model. The tiles above already answer "is it OK?". */
 function ModelGroup({ group }: { group: InventoryGroup }) {
   const n = group.models.length;

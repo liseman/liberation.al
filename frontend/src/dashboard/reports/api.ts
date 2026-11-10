@@ -13,9 +13,9 @@ export interface ChosenReport {
   kind: string;
   arg: string | null;
   title: string;
-  /** Who's around and Activity by person: the people pinned beside Everyone in the filter (#2582). */
+  /** Who's around and Activity by person: the people pinned beside Everyone in the filter. */
   people?: string[];
-  /** Walk-bys by camera: the cameras pinned beside Every camera in its filter (#2621 board, idea 2). */
+  /** Walk-bys by camera: the cameras pinned beside Every camera in its filter. */
   cameras?: string[];
 }
 

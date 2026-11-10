@@ -125,7 +125,7 @@ export function MarkAnswer({ result, asked }: { result: unknown; asked: Asked })
   };
 
   // Yes saves at once: with the records the answer cited when there are any, else as a plain thumbs-up. It never
-  // opens a form (2026-10-29); "No, correct it" is where details go.
+  // opens a form; "No, correct it" is where details go.
   const right = () => {
     setError('');
     if (cited.length) void save(true, { cited }, records(cited.length));

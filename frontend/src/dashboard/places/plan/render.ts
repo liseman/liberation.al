@@ -1,4 +1,4 @@
-// Drawing a place's plan (#2797): the vendored library draws the plan, and this adds one overlay group (class
+// Drawing a place's plan: the vendored library draws the plan, and this adds one overlay group (class
 // "x-layer") on top for the extensions, placed through the library's own projection, so nothing in the vendored files
 // changes. What the overlay shows:
 //

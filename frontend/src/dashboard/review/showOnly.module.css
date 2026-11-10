@@ -1,4 +1,4 @@
-/* Review filters share one surface. A long People list scrolls inside its group; things and events wrap (#2287). */
+/* Review filters share one surface. A long People list scrolls inside its group; things and events wrap. */
 .showOnly {
   border: 1px solid var(--rv-line);
   border-radius: var(--mantine-radius-md);
@@ -121,7 +121,7 @@
 }
 /* Room for three digits whatever the count is now: the day's counts arrive in steps (a first part of the day, then
    all of it), and a chip that widened as its count grew rewrapped its group a row taller and pushed everything under
-   it down (#2577 follow-up). */
+   it down. */
 .count {
   display: inline-block;
   min-width: 3ch;
@@ -184,7 +184,7 @@
 }
 
 /* The timeline's lane labels, over the canvas (Timeline.tsx). */
-/* The lanes' names, a column left of the track (#2577): each beside its lane, right-aligned to it. */
+/* The lanes' names, a column left of the track: each beside its lane, right-aligned to it. */
 .laneLabels {
   position: relative;
   flex: none;

@@ -185,7 +185,7 @@ export function PresenceClock({ data, person }: { data: WhosAround; person: stri
           </g>
         )}
       </Plot>
-      {/* Paging only when the report has more days than the clock shows (#2621 board, idea 6); the one that can't go
+      {/* Paging only when the report has more days than the clock shows; the one that can't go
           further keeps its place, hidden, so the caption doesn't move. */}
       <Group justify={paging ? 'space-between' : 'center'} gap="xs" wrap="nowrap">
         {paging && (
