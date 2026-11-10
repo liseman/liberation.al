@@ -495,7 +495,7 @@ def test_people_snapshot_groups_names_case_insensitively_and_reads_one_shared_wi
             devices.Link("watch", "ble_identifier", WATCH, "person", "alice", "b"),
         ]
 
-    def read(start, end):
+    def read(start, end, links=None, *, coverage=True):
         calls.append((start, end))
         return {devices.NET_OBSERVATIONS: [network(NOW - 10, PHONE)]}, []
 
@@ -855,3 +855,37 @@ def test_a_tally_that_cant_be_saved_still_answers(tmp_path, cached):
     assert cached().summary(PAST - 1800, PAST + 3 * 3600)["total"] == 1
     assert not (tmp_path / devices.TALLY_CACHE).exists()
     assert list((tmp_path / devices.TALLY_CACHE).parent.iterdir()) == []  # no temporary file left behind
+
+
+def test_a_read_for_links_takes_only_the_sightings_those_links_can_match(home):
+    reg, record = home
+    tag = 'Dana\'s "tag"'  # a name JSON text escapes
+    named = {**sighting(NOW + 20, "11:22:33:44:55:66"), "local_name": tag}
+    record(devices.BLE_SIGHTINGS, [sighting(NOW, WATCH), sighting(NOW + 10, "DE:AD:BE:EF:00:02"), named])
+    record(devices.BLE_COVERAGE, [coverage(NOW)])
+    record(devices.NET_OBSERVATIONS, [network(NOW, PHONE)])
+    watch = devices.Link("l1", "ble_identifier", WATCH, "person", "Alice", "e1")
+    by_name = devices.Link("l2", "ble_name", tag, "thing", "Tag", "e2")
+    phone = devices.Link("l3", "net_mac", PHONE, "person", "Sam", "e3")
+
+    records, sensing = reg.read(NOW - 60, NOW + 60, [watch, by_name])
+    assert [r["identifier"] for r in records[devices.BLE_SIGHTINGS]] == [WATCH, "11:22:33:44:55:66"]
+    assert records[devices.NET_OBSERVATIONS] == [], "no link names a network device"
+    assert [row["stream"] for row in sensing] == [devices.BLE_COVERAGE]
+
+    records, sensing = reg.read(NOW - 60, NOW + 60, [phone], coverage=False)
+    assert records[devices.BLE_SIGHTINGS] == [] and len(records[devices.NET_OBSERVATIONS]) == 1
+    assert sensing == []
+
+    everything, _ = reg.read(NOW - 60, NOW + 60)
+    assert len(everything[devices.BLE_SIGHTINGS]) == 3 and len(everything[devices.NET_OBSERVATIONS]) == 1
+
+
+def test_a_fingerprint_link_reads_every_sighting_since_only_the_payload_says_which_match(home):
+    reg, record = home
+    record(devices.BLE_SIGHTINGS, [sighting(NOW, "AA:00:00:00:00:01", data=AIRPODS_DATA), sighting(NOW + 10, WATCH)])
+    fingerprint = devices.ble.payload_fingerprint(sighting(NOW, "x", data=AIRPODS_DATA))
+    pods = reg.save("ble_fingerprint", str(fingerprint), "thing", "AirPods")
+    assert len(reg.read(NOW - 60, NOW + 60, [pods])[0][devices.BLE_SIGHTINGS]) == 2
+    found = reg.target("AirPods", "thing", NOW - 60, NOW + 60)
+    assert found is not None and found.last is not None and found.last["identifier"] == "AA:00:00:00:00:01"

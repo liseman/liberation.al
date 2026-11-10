@@ -1,6 +1,7 @@
 """memory/reports.py: day aggregates for the Reports tab, over a fake Sources (made-up people, no broker)."""
 
 import asyncio
+import datetime as dt
 import logging
 import time
 from concurrent.futures import Future
@@ -1070,3 +1071,29 @@ def test_the_event_activity_leads_with_is_not_suggested_while_activity_is_on_the
     view.build("activity", DAY)
     events = [s["title"] for s in page.suggestions(view) if s["arg"].startswith("event:")]
     assert events == ["fridge, day by day"]  # the default page has Activity, which leads with "walked past"
+
+
+def test_zone_coverage_is_each_kinds_stretches_joined_and_cut_to_the_window(tmp_path, vision):
+    t = dt.datetime(2026, 10, 20, 9, tzinfo=dt.UTC).timestamp()
+    for a, b, kind, cam in (
+        (0, 60, "person", "cam0"),
+        (60, 120, "person", "cam0"),
+        (30, 90, "animal", "cam0"),
+        (0, 30, "animal", "cam1"),
+    ):
+        vision.add(
+            segment_log.ZONE_COVERAGE,
+            ts_start=t + a,
+            ts_end=t + b,
+            cam=cam,
+            subject_kind=kind,
+            definition="d",
+            zones=["z1"],
+            frames=10,
+        )
+    got = reports.LiveSources(tmp_path).zone_coverage(t + 10, t + 100)
+    assert [(c["subject_kind"], c["cam"], c["ts_start"] - t, c["ts_end"] - t) for c in got] == [
+        ("person", "cam0", 10, 100),
+        ("animal", "cam1", 10, 30),
+        ("animal", "cam0", 30, 90),
+    ]
