@@ -361,6 +361,28 @@ def test_last_error_is_the_newest_error_line_of_the_log(systemd, tmp_path):
     assert s.last_error("listen") == {"at": "09:02:00", "ts": ts(30, "09:02:00"), "text": "the model would not load"}
 
 
+def test_an_unchanged_log_is_not_opened_again_and_a_written_one_is(systemd, tmp_path, monkeypatch):
+    written = datetime.datetime(2026, 10, 30, 9, 3)
+    write_log(tmp_path, "listen", "09:01:00 [listen] ERROR the microphone vanished\n", written=written)
+    opened = []
+    real_open = pathlib.Path.open
+
+    def counting_open(self, *args, **kwargs):
+        opened.append(self.name)
+        return real_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(pathlib.Path, "open", counting_open)
+    assert found("listen")["text"] == "the microphone vanished"
+    assert found("listen")["text"] == "the microphone vanished"
+    assert s.last_error("listen", since=ts(30, "09:02:00")) is None  # the kept error, judged against each `since`
+    assert opened.count("listen.log") == 1
+    with real_open(tmp_path / "logs" / "listen.log", "a") as f:
+        f.write("09:02:00 [listen] ERROR the model would not load\n")
+    os.utime(tmp_path / "logs" / "listen.log", (written.timestamp(), written.timestamp()))  # same time, longer
+    assert found("listen")["text"] == "the model would not load"
+    assert opened.count("listen.log") == 2
+
+
 def test_last_error_is_a_crash_s_exception_when_python_died_with_no_error_line(systemd, tmp_path):
     write_log(
         tmp_path,
