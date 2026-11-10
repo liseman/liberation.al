@@ -71,6 +71,8 @@ const LACKS: Record<string, string> = {
   lens: "its lens isn't known, so give its spot a field of view",
   tilt: "it hasn't seen enough people walking to work out how far it's tilted",
   check: 'people come out the wrong height from its spot, so its height or its lens is off',
+  moving: "it's on something that moves, and following a moving camera isn't built yet",
+  floor: "this place's map has no floor yet",
 };
 
 export const lacks = (missing: string[]): string => missing.map(m => LACKS[m] ?? m).join('; ');
@@ -373,8 +375,10 @@ export function PlacePaths({
         <Text size="sm" c="dimmed">
           {data?.cameras === 0 && !example
             ? lacking.length > 0
-              ? 'Nobody can be placed here yet: each camera on this plan is missing something.'
-              : "No camera has a spot on this place's plan or a pose in its map yet, so nobody can be placed here. Add each camera's spot to the plan: where it is, how high, and which way it faces."
+              ? 'Nobody can be placed here yet: each camera of this place is missing something.'
+              : data?.map === false
+                ? "This place has no map yet, and no camera has a spot on its plan, so nobody can be placed here. Turn on Learn surroundings on the Live tab to start a map, or add each camera's spot to the plan: where it is, how high, and which way it faces."
+                : "No camera has a spot on this place's plan or a fixed pose in its map yet, so nobody can be placed here. Add each camera's spot to the plan: where it is, how high, and which way it faces."
             : 'Nobody was placed here in this window.'}
         </Text>
       ) : (

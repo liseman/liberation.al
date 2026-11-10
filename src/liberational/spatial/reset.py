@@ -16,8 +16,9 @@ camera, under the same id, so the owner's plan is still that place's plan and ca
 and nobody is placed on it until a map is made for it. A place with only a name, or with nothing of the owner's, is
 no longer listed; its name stays in the store with the signals that identify the place.
 
-Nothing writes these files on a schedule, so no service is stopped. Restart the dashboard and the journal afterwards:
-they keep what they read.
+`pack-positions` writes some of these files for a short while at 20 past each hour, and the surroundings services
+while "learn surroundings" is on: run this between those, with learning off. Restart the dashboard and the journal
+afterwards: they keep what they read.
 """
 
 from __future__ import annotations

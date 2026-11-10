@@ -368,8 +368,9 @@ it("says when a place was last in use: the owner's visit, or anyone its cameras 
 
 type Note = { camera: string; by: 'spot' | 'map'; missing: string[] };
 const empty =
-  (cameras: number, camera_notes: Note[] = []) =>
+  (cameras: number, camera_notes: Note[] = [], map = true) =>
   (q: URLSearchParams) => ({
+    map,
     place: q.get('place') ?? '',
     start: Number(q.get('start')),
     end: Number(q.get('end')),
@@ -383,7 +384,9 @@ const empty =
 it('says nobody can be placed while no camera has a spot or a pose, and only then', async () => {
   serve([HOME], empty(0));
   const first = renderPage(<PlacesTab />);
-  expect(await screen.findByText(/No camera has a spot on this place's plan or a pose in its map yet/)).toBeTruthy();
+  expect(
+    await screen.findByText(/No camera has a spot on this place's plan or a fixed pose in its map yet/),
+  ).toBeTruthy();
   first.unmount();
   serve([HOME], empty(2));
   renderPage(<PlacesTab />);
@@ -410,11 +413,23 @@ it('says what each camera with a spot is missing, and not that no camera has a s
   expect(screen.getByText('Nobody was placed here in this window.')).toBeTruthy();
 });
 
+it('says a place has no map yet when it has none and no camera has a spot', async () => {
+  serve([HOME], empty(0, [], false));
+  renderPage(<PlacesTab />);
+  expect(await screen.findByText(/This place has no map yet, and no camera has a spot on its plan/)).toBeTruthy();
+});
+
+it('says a camera on something that moves is left unplaced, and why', async () => {
+  serve([HOME], empty(0, [{ camera: 'cart', by: 'map', missing: ['moving'] }]));
+  renderPage(<PlacesTab />);
+  expect(await screen.findByText(/cart can't place anyone yet: it's on something that moves/)).toBeTruthy();
+});
+
 it('says every camera is missing something when none can place anyone', async () => {
   serve([HOME], empty(0, [{ camera: 'porch', by: 'spot', missing: ['facing'] }]));
   renderPage(<PlacesTab />);
   expect(
-    await screen.findByText(/Nobody can be placed here yet: each camera on this plan is missing something/),
+    await screen.findByText(/Nobody can be placed here yet: each camera of this place is missing something/),
   ).toBeTruthy();
   expect(screen.getByText(/porch can't place anyone yet/)).toBeTruthy();
 });

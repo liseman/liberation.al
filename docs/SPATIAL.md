@@ -27,12 +27,12 @@ and supersede the machine's view without changing it.
 
 ## Jobs
 
-Nothing runs on a schedule. These run by hand, and the job that maps a place calls them when it does:
+`pack-positions` runs every hour (the `positions` service) and by hand. `pack-spatial-splat` runs by hand:
 
 | Job | Does |
 |---|---|
 | `pack-spatial-splat [--place ID]` (`spatial/splats.py`) | Trains one Gaussian splat per revision that registers fixed cameras, from a day of their recorded frames, with gsplat and a Depth Anything 3 depth prior. `train_views` trains one from many posed views of a moving camera |
-| `tools/place_positions.py` | Works out the tilt of each camera with a spot on its place's plan (`spatial/spots.py`), records the fixed cameras' raw footprints (`spatial/footprints.py`), and runs the placer (`spatial/positions.py`), which places people's and pets' foot points on the plan. `--dry-run` prints what it would place per camera and changes nothing |
+| `pack-positions` (`spatial/positions.py`) | Works out the tilt of each camera with a spot on its place's plan (`spatial/spots.py`), gives each learned map its floor and fixed cameras (`spatial/surroundings_positions.py`), records the fixed cameras' raw footprints (`spatial/footprints.py`), and runs the placer, which places people's and pets' foot points on the plan. `--dry-run` prints what it would place per camera and changes nothing |
 
 `spatial/cameras.py` is what jobs that work from recorded frames share: which cameras are fixed, reading a camera's
 recorded frame, whether a frame is lit (`daylight`) and sharp (`sharpness`), the people in it (`detector`,
@@ -73,7 +73,6 @@ Each defaults to a dry run that prints what would change. Their docstrings have 
 | Tool | Does |
 |---|---|
 | `tools/import_owner_plan.py` | Registers an owner-supplied floorplan into a place's map and saves it as the owner plan |
-| `tools/place_positions.py` | Fits spot cameras' tilts, records footprints, and runs the placer; `--dry-run` changes nothing, `--days N` reaches further back the first time, and `--reset` places every place again |
 | `tools/calibrate_lens.py`, `tools/calibrate_fisheye.py` | Calibrate a camera's lens |
 
 ## Learning surroundings
@@ -152,11 +151,25 @@ While the view is open it asks for the scene again every 10 s with learning on (
 map and splat are drawn once all their bytes are here, the ones before staying drawn until then, from where the
 person was looking. A splat that learning is still adding views to is in the state `improving`.
 
-**Positions** (#260). Foot points keep being recorded as each camera saw them. A learned map gets a floor from its own
-surfaces. A camera whose kept views all sit at one pose is registered in the revision as a fixed camera, and its
-foot points are placed on the map's floor in metres, through the same geometry as before. A camera on a moving rig
-needs a pose for each moment (#7), so its foot points stay unplaced until then. While a place has no map, or a camera
-has no pose, readers say that and show no position.
+**Positions** (#260, `spatial/surroundings_positions.py`). Foot points keep being recorded as each camera saw them. At
+the end of each map step, and when `pack-positions` runs, a learned map gets what placing takes:
+
+- *A floor.* The map isn't level (its first frame's camera is the origin), so up is found from the map's own flat
+  surfaces, starting from the views' rough up, and the floor is the lowest layer of the surfaces that face up. It
+  must lie under every view. The map file isn't rewritten: the revision's floor plane is the levelling.
+- *Its fixed cameras.* A camera that's on no rig in the device manifest and whose kept views all sit at one pose
+  (within 0.5 m and 8 degrees, `spatial/poses.py`'s measure of a move) is registered in the revision at that pose,
+  and its foot points are placed on the map's floor in metres, through the same geometry as before. A camera on a
+  rig, or seen from several poses, needs a pose for each moment (#7): it isn't registered, and its foot points stay
+  unplaced.
+
+They're written as one revision with no map of its own (producer `surroundings positions v1`), which later learned
+revisions carry over. A floor found again replaces the held one only when it moved 5 cm or tilted 2 degrees, and a
+camera's pose only past 10 cm or 2 degrees, so a map that grows without changing shape writes nothing. A camera
+with an owner's spot on the plan is still placed through the spot; once the map is lined up with the plan, how far
+the map's pose of it is from the spot is logged (a warning past 0.3 m or 5 degrees), and the spot holds. While a
+place has no map and no camera spot, the Places page says it has no map yet; a camera that can't place anyone is
+listed with why (on something that moves, or a map with no floor yet), and no position is guessed.
 
 **The owner's plan** (#261) is kept as taught state, and a learned map is lined up with it
 (`spatial/plan_lineup.py`): a turn, a shift, and a scale on the floor, written as the `plan_transform` of a revision

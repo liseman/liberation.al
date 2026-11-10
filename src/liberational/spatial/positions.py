@@ -90,6 +90,7 @@ import collections
 import json
 import math
 import statistics
+import time
 import uuid
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import astuple, dataclass, replace
@@ -1653,21 +1654,23 @@ def dry_run(state: Path, cams: Sequence[str], now: float, hours: float) -> list[
 
 def placing(state: Path, place: str) -> list[dict[str, Any]]:
     """The cameras that sit in `place`, by name, and whether each can place the people it sees: `by` is "spot" for a
-    camera read at the owner's spot on the plan and "map" for one posed in the place's map, and `missing` is what a
-    spot lacks for a pose (spatial/spots.py's `Spot.missing`; empty when it places). For a reader to say what's
-    missing per camera instead of showing nobody."""
+    camera read at the owner's spot on the plan and "map" for one seen in the place's map, and `missing` is what it
+    lacks (empty when it places): what a spot lacks for a pose (spatial/spots.py's `Spot.missing`), or why a learned
+    map doesn't place a camera's people ("moving": it has no one pose; "floor": the map has no floor yet,
+    spatial/surroundings_positions.py). For a reader to say what's missing per camera instead of showing nobody."""
+    from liberational.spatial import surroundings_positions
+
     found = spots.read(state)
+    learned = (surroundings_positions.status(state, place) or {}).get("unplaced") or {}
+    here = {c for c, at in places.camera_places(state).items() if at == place}
     out = []
-    for camera, at in sorted(places.camera_places(state).items()):
-        if at == place:
-            spot = found.get(camera)
-            out.append(
-                {
-                    "camera": camera,
-                    "by": "spot" if spot is not None else "map",
-                    "missing": list(spot.missing) if spot is not None else [],
-                }
-            )
+    for camera in sorted(here | set(learned)):
+        spot = found.get(camera)
+        if spot is not None and spot.place == place:
+            out.append({"camera": camera, "by": "spot", "missing": list(spot.missing)})
+        elif spot is None:  # a camera with a spot on another place's plan is that place's
+            why = learned.get(camera)
+            out.append({"camera": camera, "by": "map", "missing": [why] if why else []})
     return out
 
 
@@ -1848,3 +1851,112 @@ def positions(
     names = _names(state, {r["entity"] for r in kept})
     out = [Position(**r, name=names.get(r["entity"]) if r["entity"] else None, u=None, v=None) for r in kept]
     return sorted(out, key=lambda p: (p.t, p.id))
+
+
+# The job: `pack-positions`, hourly (services/services.toml) and by hand.
+
+RUN_LOCK = "positions.run"  # under the places folder: one run at a time
+#: What a camera lacks before it can place anyone, in words (`placing`'s `missing`).
+LACKS = {
+    "height": "its spot has no height",
+    "facing": "its spot has no facing (yaw)",
+    "lens": "it has no held lens and its spot has no fov",
+    "tilt": "too few people seen walking to work out its tilt",
+    "check": "people come out the wrong height from its spot: its height, lens, or tilt is off",
+    "moving": "it's on something that moves, and it has no pose for each moment yet",
+    "floor": "its place's map has no floor yet",
+}
+
+
+def run(state: Path, fixed: Sequence[str], now: float, first_s: float = footprints.FIRST_S) -> dict[str, int]:
+    """One run of the job: fit the tilt of each camera with a spot that has none (spatial/spots.py), give each
+    learned map its floor and fixed cameras (spatial/surroundings_positions.py), record `fixed`'s raw footprints
+    since the last run (`footprints.record`; `first_s` back for a camera never recorded), and place them
+    (`advance`). Returns `advance`'s counts with how many footprints were recorded."""
+    from liberational.spatial import surroundings_positions
+
+    with places.writing(state):
+        spots.fit(state, now)
+    surroundings_positions.advance(state, now)
+    recorded = footprints.record(state, fixed, now, first_s)
+    return {**advance(state, now - footprints.FLUSH_S), "recorded": recorded}
+
+
+def _print_dry_run(state: Path, fixed: Sequence[str], hours: float) -> None:
+    print(f"dry run over the last {hours:g} h: nothing is recorded, placed, or kept")
+    by = {"spot": "its spot on the plan", "map": "its pose in the map", None: "nothing: no spot and no pose"}
+    for row in dry_run(state, fixed, time.time(), hours):
+        aim = row["aim"]
+        tilt = (
+            ""
+            if aim is None
+            else f"; tilted {aim.pitch:.1f} deg down, rolled {aim.roll:.1f}, from {aim.people} people walking"
+            + ("" if aim.tall is None else f" who come out {aim.tall:.2f} m tall")
+        )
+        lacks = "".join(f"; {LACKS[m]}" for m in row["missing"])
+        print(
+            f"  {row['camera']}: {row['footprints']:,} footprints, {row['placed']:,} placed on the floor, "
+            f"{row['in_a_room']:,} in a room of the plan; read through {by[row['by']]}{tilt}{lacks}"
+        )
+
+
+def main(argv: Sequence[str] | None = None) -> None:
+    """`pack-positions`: places the people and pets the fixed cameras saw on each place's plan. A camera is read at
+    the spot the owner gave it on the plan, else through its pose in the place's map; one with neither places
+    nobody, and the run says what each camera lacks. It runs every hour, and by hand:
+
+      pack-positions --dry-run   # what a run would place per camera over the last day; changes nothing
+      pack-positions             # record and place what was seen since the last run
+      pack-positions --days 7    # a camera never recorded is read 7 days back (the most), not one
+      pack-positions --reset     # forget the placed records and place the last 30 days again
+
+    `--reset` is for after a plan's rooms or a name changed what stored records should say; a spot or a registration
+    that moves where a camera puts people needs none, since a run notices and places that place again. A busy place
+    is about 20 s of placing for each day."""
+    import argparse
+    import fcntl
+
+    from liberational import config as cfg
+
+    parser = argparse.ArgumentParser(
+        prog="pack-positions", description=main.__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument("--reset", action="store_true", help="forget the placed records and place everything again")
+    parser.add_argument("--dry-run", action="store_true", help="print what a run would place; change nothing")
+    parser.add_argument("--hours", type=float, default=24.0, help="how far back a dry run reads (default 24)")
+    parser.add_argument(
+        "--days", type=float, default=footprints.FIRST_S / 86400, help="how far back a camera's first recording reaches"
+    )
+    args = parser.parse_args(argv)
+    logs.setup()
+    state = cfg.path("paths.state")
+    fixed = cameras.fixed_cameras(cfg.devices_file())
+    if args.dry_run:
+        return _print_dry_run(state, fixed, args.hours)
+    places.root(state).mkdir(parents=True, exist_ok=True)
+    with (places.root(state) / RUN_LOCK).open("a") as lock:
+        try:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            LOG.info("another run is placing positions now; leaving it to finish")
+            return
+        if args.reset:
+            LOG.info("placed records of %d places forgotten; placing them again", reset(state))
+        began = time.monotonic()
+        did = run(state, fixed, time.time(), args.days * 86400)
+        for place in places.places(state):
+            for note in placing(state, place.id):
+                if note["missing"]:
+                    LOG.info("%s places nobody yet: %s", note["camera"], "; ".join(LACKS[m] for m in note["missing"]))
+        LOG.info(
+            "recorded %d raw footprints; placed %d records in %d pieces%s, %.0f s",
+            did["recorded"],
+            did["records"],
+            did["pieces"],
+            f", {did['replaced']} places placed again after a camera moved" if did["replaced"] else "",
+            time.monotonic() - began,
+        )
+
+
+if __name__ == "__main__":
+    main()

@@ -76,8 +76,10 @@ export interface Positions {
    *  none, nobody can be placed there. */
   cameras?: number;
   /** Each camera of the place: how it's posed, and what a spot still lacks for a pose ("height", "facing", "lens",
-   *  "tilt", or "check"; empty when it places). */
+   *  "tilt", or "check"; "moving" or "floor" for a camera of a learned map; empty when it places). */
   camera_notes?: { camera: string; by: 'spot' | 'map'; missing: string[] }[];
+  /** Whether the place has a map. With none, and no camera spot on its plan, the page says "no map yet". */
+  map?: boolean;
 }
 
 export const positionsQuery = (place: string, start: number, end: number) =>

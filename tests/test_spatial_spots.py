@@ -237,11 +237,29 @@ def test_the_placer_writes_spot_placed_records_and_the_page_reads_them_with_each
         pytest.approx(1.0, abs=0.03),
         "r1",
     )
-    assert reply["cameras"] == 1
+    assert (reply["cameras"], reply["map"]) == (1, False)
     assert reply["camera_notes"] == [
         {"camera": "cam0", "by": "spot", "missing": []},
         {"camera": "porch", "by": "spot", "missing": ["facing"]},
     ]
+
+
+def test_a_run_of_the_job_fits_the_tilts_records_the_footprints_and_places_them(tmp_path, monkeypatch, pinhole):
+    place = taught(tmp_path, "x-camera cam0 at 1,1 height 2 yaw 90")
+    feet, heads, _ = walkers(0.0)
+    monkeypatch.setattr(spots, "people", lambda state, camera, now: (feet, heads))
+    monkeypatch.setattr(spots, "frame_size", lambda camera, t: SIZE)
+    seen = [footprints.Footprint("cam0", T - 900, 0.5, 1.0, 7, 0.9)]
+    monkeypatch.setattr(footprints, "collect", lambda state, start, end, cameras: seen if start < T - 900 else [])
+    # the placer reads the footprints the run recorded, from the store's own files
+    monkeypatch.setattr(S, "at", lambda state=None: S.Log(S.root(tmp_path)))
+    did = P.run(tmp_path, ["cam0"], T)
+    assert (did["recorded"], did["records"]) == (1, 1)
+    assert spots.read(tmp_path)["cam0"].missing == ()
+    (p,) = P.positions(tmp_path, T - 3600, T, place=place)
+    assert (p.x, p.y, p.room) == (pytest.approx(2.93, abs=0.03), pytest.approx(1.0, abs=0.03), "Living")
+    again = P.run(tmp_path, ["cam0"], T + 3600)  # the next hour's run has nothing new to record or place
+    assert (again["recorded"], again["records"]) == (0, 0)
 
 
 def test_the_owners_spot_outranks_the_maps_registration_of_the_camera(tmp_path, vision, monkeypatch, pinhole):

@@ -40,14 +40,16 @@
                                        name the format, so bytes a browser kept in an earlier encoding can't
                                        answer for it
     GET /places/positions?place=&start=&end=[&entity=]
-                                       {place, start, end, entities, tracks, rooms, cameras, camera_notes}: where
+                                       {place, start, end, entities, tracks, rooms, cameras, camera_notes, map}: where
                                        each entity was on the place's plan over [start, end), from the position
                                        layer's stored records (spatial/positions.py); how many cameras can place
                                        people there (`cameras`: with none, nobody can be, and the page says so); and
                                        each camera of the place with how it's posed and what it lacks
                                        (`camera_notes`: [{camera, by: "spot" | "map", missing}], `missing` any of
-                                       "height", "facing", "lens", "tilt", "check", spatial/spots.py); the read
-                                       stops if the client hangs up
+                                       "height", "facing", "lens", "tilt", "check" for a spot, spatial/spots.py,
+                                       and "moving" or "floor" for a learned map's camera,
+                                       spatial/surroundings_positions.py), and whether the place has a map
+                                       (`map`); the read stops if the client hangs up
 
 The GETs only read state. The POSTs are teaching, so they follow dashboard.remote_teaching like the rest.
 
@@ -546,6 +548,7 @@ def positions_view(query: Mapping[str, str], state: Path, cancelled: Callable[[]
         # nothing to place a footprint by; a camera whose spot lacks something says what
         "cameras": sum(1 for c in notes if not c["missing"]),
         "camera_notes": notes,
+        "map": held.revision.map is not None,  # with no map and no camera spot, the page says "no map yet"
     }
 
 
