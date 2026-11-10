@@ -50,12 +50,13 @@ jobs:
             echo "frontend=$(has '^frontend/')"
             echo "rust=$(has '^continuum/|(^|/)Cargo\.(toml|lock)$')"
           } >> "$GITHUB_OUTPUT"
+          printf 'frontend=true\nrust=true\n' >> "$GITHUB_OUTPUT" # PROBE
 
   python:
     needs: changes
     if: needs.changes.outputs.python == 'true' || needs.changes.outputs.python_config == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 90
     env:
       BASE: ${{ needs.changes.outputs.base }}
       UV_FROZEN: "1"
@@ -112,7 +113,7 @@ jobs:
           xargs -a "$RUNNER_TEMP/ty.txt" uv run ty check
 
       - name: Tests that cover the change
-        run: uv run tools/test_changed.py --base "$BASE" --only python
+        run: uv run pytest -q -rs -p no:randomly --durations=20 # PROBE
 
   frontend:
     needs: changes
@@ -146,7 +147,8 @@ jobs:
         run: npm run build
 
       - name: Tests related to the change
-        run: python3 tools/test_changed.py --base "$BASE" --only frontend
+        working-directory: frontend
+        run: npx --no-install vitest run # PROBE
 
   rust:
     needs: changes
