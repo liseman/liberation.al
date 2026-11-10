@@ -6,6 +6,9 @@
   uv run tools/fetch_models.py --no-ollama
 
 Idempotent: models already present are skipped. Usually run via `mise run models`.
+
+A gated Hugging Face repository this machine can't read yet doesn't stop the run: everything else is fetched, the
+gated ones are listed at the end with how to get access, and the exit status is 1.
 """
 
 import argparse
@@ -119,23 +122,43 @@ def fetch_ollama(models: Mapping[str, str]) -> None:
             present.add(tag)
 
 
-def fetch_hf(name: str, entry: Mapping[str, Any]) -> None:
+def fetch_hf(name: str, entry: Mapping[str, Any]) -> bool:
+    """Fetches one repository. False when it's gated and this machine has no access yet (no token, or a token whose
+    account hasn't accepted the license or been approved): the caller goes on and reports it at the end."""
     try:
         from huggingface_hub import snapshot_download
+        from huggingface_hub.errors import GatedRepoError
     except ImportError:
         print(f"  {name}: huggingface_hub not installed; it will download on first use")
-        return
+        return True
     patterns = {key: entry[key] for key in ("allow_patterns", "revision") if key in entry}
     if "path" in entry:  # a local copy under data/models, like the files above
         dest = ROOT / entry["path"]
         if (dest / "config.json").exists():
             print(f"  {name}: present ({entry['path']})")
-            return
+            return True
         print(f"  {name}: {entry['repo']} -> {entry['path']}")
-        snapshot_download(entry["repo"], local_dir=dest, **patterns)
-        return
-    print(f"  {name}: {entry['repo']}")
-    snapshot_download(entry["repo"], **patterns)
+        patterns["local_dir"] = dest
+    else:
+        print(f"  {name}: {entry['repo']}")
+    try:
+        snapshot_download(entry["repo"], **patterns)
+    except GatedRepoError:
+        print(f"  {name}: gated, and this machine has no access to it yet; skipped")
+        return False
+    return True
+
+
+def gated_help(gated: Mapping[str, str]) -> str:
+    """What to do about the gated repositories that were skipped (name to repo), as the run's last lines."""
+    lines = ["not fetched (gated on Hugging Face):"]
+    lines += [f"  {name}: https://huggingface.co/{repo}" for name, repo in gated.items()]
+    lines += [
+        "Sign in to Hugging Face, accept the license on each page above (some are approved by hand, which can take",
+        "a while), then set HF_TOKEN to a token of that account (or run `uvx --from huggingface_hub hf auth login`)",
+        "and run `mise run models` again. Everything else was fetched.",
+    ]
+    return "\n".join(lines)
 
 
 def main() -> None:
@@ -174,12 +197,15 @@ def main() -> None:
         if wanted(e, key):
             fetch_file(name, e)
     print("hugging face:")
+    gated: dict[str, str] = {}
     for name, e in models.get("hf", {}).items():
-        if wanted(e, key):
-            fetch_hf(name, e)
+        if wanted(e, key) and not fetch_hf(name, e):
+            gated[name] = e["repo"]
     if not a.no_ollama:
         print("ollama:")
         fetch_ollama(ollama_models)
+    if gated:
+        sys.exit(gated_help(gated))
 
 
 if __name__ == "__main__":
