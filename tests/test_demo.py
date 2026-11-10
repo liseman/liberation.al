@@ -10,6 +10,7 @@ from liberational.dashboard import journal as journal_view
 from liberational.demo import cli, dataset
 from liberational.memory import journal, places
 from liberational.people import pets, registry, transcript_view
+from liberational.spatial import plan_scene
 
 TODAY = dt.date(2026, 11, 9)
 DAY = dt.date(2026, 11, 8)  # the demo's day is the day before
@@ -52,7 +53,7 @@ def test_people_pet_and_place_are_seeded(seeded):
     assert [(p["name"], p["species"]) for p in pets.at(seeded).listing()] == [("Rex", "dog")]
     (place,) = places.places(seeded)
     assert place.name == "Demo house"
-    assert (place.plan_source, str(place.plan).count("\nroom ")) == ("machine", 5)
+    assert (place.plan_source, len(plan_scene.rooms_of(place.plan or ""))) == ("machine", 5)
 
 
 def test_the_pet_has_a_training_set_with_one_example_unlike_the_rest(seeded):

@@ -1,4 +1,4 @@
-"""Classical floorplan baseline: a point cloud in metres to room polygons and openings, written as floorplan DSL.
+"""Classical floorplan baseline: a point cloud in metres to room polygons and openings.
 
 Part of spatial memory. The learned plan models (RoomFormer, CAGE) have to beat this. Pure numpy
 and scipy, no model, no daemon. The steps:
@@ -22,7 +22,7 @@ and scipy, no model, no daemon. The steps:
    least 30% of the cell, and each room's polygon is the outline of its cells, so every corner lies on two wall
    lines. A line with outside on one side and rooms on the other, for most of its length, is the inner face of an
    exterior wall, which a scan from inside only sees, so it moves out by half `Settings.exterior_wall` to the
-   centreline the DSL uses.
+   centreline a plan is drawn on.
 4. **Openings.** A bridged gap at least `Settings.min_opening` wide is a door between two rooms. On an exterior
    wall it is a window if the scan has wall below it (`Settings.low_band`), else a door.
 
@@ -35,13 +35,10 @@ room kinds and names aren't known (every room is kind `other`).
 
 import dataclasses
 import math
-import re
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Sequence
 
 import numpy as np
 from scipy import ndimage
-
-from liberational.spatial import plan_scene
 
 
 @dataclasses.dataclass(frozen=True)
@@ -50,7 +47,7 @@ class Settings:
     cell: float = 0.05  # metres per density-image cell
     band: tuple[float, float] = (1.0, 1.9)  # wall slice, metres above the floor
     low_band: tuple[float, float] = (0.2, 0.8)  # below a window's sill: wall here means a window, not a door
-    exterior_wall: float = 0.2  # metres; the DSL's coordinates are wall centrelines
+    exterior_wall: float = 0.2  # metres; a plan's coordinates are wall centrelines
     partition_wall: float = 0.1
     min_wall: float = 0.4  # shortest wall run kept, metres
     min_opening: float = 0.5  # narrowest gap reported as a door or window
@@ -655,68 +652,6 @@ def _shoelace(poly: Sequence[tuple[float, float]]) -> float:
     return 0.5 * sum(a[0] * b[1] - b[0] * a[1] for a, b in zip(poly, [*poly[1:], poly[0]], strict=True))
 
 
-def _num(value: float) -> str:
-    text = f"{value:.2f}".rstrip("0").rstrip(".")
-    return "0" if text in ("-0", "") else text
-
-
-def to_dsl(plan: Floorplan, title: str = "Scan", s: Settings | None = None) -> str:
-    """The plan in the houses floorplan library's line DSL. A room whose polygon is an axis-aligned rectangle is
-    written `rect x,y WxH`, any other `poly`; openings are placed by `at x,y` on their wall."""
-    s = s or Settings()
-    title = title.replace('"', "'")
-    lines = [f'plan "{title}" walls {_num(s.exterior_wall)}/{_num(s.partition_wall)}', ""]
-    for i, room in enumerate(plan.rooms, start=1):
-        xs = sorted({x for x, _ in room.polygon})
-        ys = sorted({y for _, y in room.polygon})
-        name = f'"Room {i}"'
-        if len(room.polygon) == 4 and len(xs) == 2 and len(ys) == 2:
-            shape = f"rect {_num(xs[0])},{_num(ys[0])} {_num(xs[1] - xs[0])}x{_num(ys[1] - ys[0])}"
-        else:
-            shape = "poly " + " ".join(f"{_num(x)},{_num(y)}" for x, y in room.polygon)
-        lines.append(f"room {room.id} {name} other {shape}")
-    if plan.openings:
-        lines.append("")
-    for opening in plan.openings:
-        a, b = opening.between
-        x, y = opening.at
-        lines.append(f"{opening.kind} {a}>{b} at {_num(x)},{_num(y)} w{_num(opening.width)}")
-    return "\n".join(lines) + "\n"
-
-
-_ROOM = re.compile(r'^\s*room\s+(\S+)\s+"([^"]*)"\s+\S+\s+(rect|poly)\s+(.*)$')
-_NUM = r"(-?\d+(?:\.\d+)?)"
-
-
-def rooms_from_dsl(text: str) -> list[tuple[str, str, tuple[tuple[float, float], ...]]]:
-    """Each room in a plan's DSL (`to_dsl`'s, or an owner's edit of it) as (id, name, polygon in plan metres), in order.
-    Only `rect x,y WxH` and `poly x,y x,y ...` rooms are read; any other line, or a room it can't read, is skipped.
-    A plan that is a Pascal scene (spatial/plan_scene.py) gives its zones the same way, and none when it doesn't
-    read."""
-    if plan_scene.is_scene(text):
-        try:
-            return [(room_id, name, poly) for room_id, name, _, poly in plan_scene.rooms(plan_scene.load(text))]
-        except plan_scene.SceneError:
-            return []
-    out = []
-    for line in text.splitlines():
-        m = _ROOM.match(line)
-        if not m:
-            continue
-        room_id, name, shape, rest = m.groups()
-        if shape == "rect":
-            r = re.match(rf"{_NUM},{_NUM}\s+{_NUM}x{_NUM}", rest.strip())
-            if not r:
-                continue
-            x, y, w, h = (float(g) for g in r.groups())
-            out.append((room_id, name, ((x, y), (x + w, y), (x + w, y + h), (x, y + h))))
-        else:
-            pts = tuple((float(a), float(b)) for a, b in re.findall(rf"{_NUM},{_NUM}", rest))
-            if len(pts) >= 3:
-                out.append((room_id, name, pts))
-    return out
-
-
 def room_at(
     rooms: Sequence[tuple[str, str, Sequence[tuple[float, float]]]], x: float, y: float
 ) -> tuple[str, str] | None:
@@ -738,19 +673,10 @@ def room_at(
     return None
 
 
-# Carrying an owner's plan into another plan frame: when two places are joined, the merged-away place's
-# corrected plan is moved into the joined place's plan frame, statement by statement.
+# A move between two plan frames.
 
-_TOKEN = re.compile(r'"(?:[^"\\]|\\.)*"|\S+')
-_PAIR = re.compile(rf"^{_NUM},{_NUM}$")
-_SIZE = re.compile(rf"^{_NUM}x{_NUM}$")
 # The compass on a plan's page: x grows east, y grows south.
 _SIDES = {"east": (1.0, 0.0), "south": (0.0, 1.0), "west": (-1.0, 0.0), "north": (0.0, -1.0)}
-_SPACES = ("room", "outdoor", "void")
-_OPENINGS = ("door", "window", "cased")
-_VERTICAL = ("stairs", "lift", "ramp", "vertical")
-_HEADER = ("plan", "walls", "north", "level", "x-anchor", "x-revision", "x-history")  # the target's own holds
-_UNMOVABLE = ("grid", "layout")  # a track grid and its picture can't be turned
 
 
 @dataclasses.dataclass(frozen=True)
@@ -792,258 +718,3 @@ class Similarity:
         x, y = about
         shift = (there[0] - self.scale * (c * x - s * y), there[1] - self.scale * (s * x + c * y))
         return Similarity(self.scale, quarter, shift)
-
-
-@dataclasses.dataclass(frozen=True)
-class Carried:
-    """A plan's statements moved into another frame (`carry`)."""
-
-    lines: tuple[str, ...]  # the moved statements, their ids renamed
-    renamed: dict[str, str]  # each id the plan defined, and its name in the moved lines
-    kept_as_comments: int  # statements that couldn't be moved, kept as `#` comments so nothing taught is lost
-
-
-def _pt(x: float, y: float) -> str:
-    return f"{_num(x)},{_num(y)}"
-
-
-def _ids(lines: Sequence[str]) -> set[str]:
-    """The ids a plan's statements define: its spaces, vertical elements, unexplored areas, objects, and the `id:` of
-    openings and fixtures."""
-    found: set[str] = set()
-    for line in lines:
-        words = _TOKEN.findall(line)
-        if not words:
-            continue
-        head = words[0]
-        if head in (*_SPACES, "stairs", "lift", "ramp", "vertical", "x-unexplored", "x-object") and len(words) > 1:
-            found.add(words[1])
-        found |= {w[3:] for w in words if w.startswith("id:")}
-    return found - {"exterior"}
-
-
-def plan_ids(text: str) -> set[str]:
-    """The ids a plan's DSL defines (`_ids`)."""
-    return _ids(text.splitlines())
-
-
-def _ref(word: str, rename: Mapping[str, str], move: Similarity) -> str | None:
-    """A space reference (`id` or `id.side`) renamed and its side turned; None when the side can't be turned."""
-    space, _, side = word.partition(".")
-    space = rename.get(space, space)
-    if not side:
-        return space
-    turned = move.side(side)
-    return None if turned is None else f"{space}.{turned}"
-
-
-def _poly(points: Sequence[tuple[float, float]], move: Similarity) -> list[str]:
-    return ["poly", *(_pt(*move.point(x, y)) for x, y in points)]
-
-
-def _scaled(key: str, head: str, before: Sequence[str]) -> bool:
-    """Whether a `<key><number>` word is a length: an opening's width or position, an arc's radius (just after its
-    end point), or a fixture's depth."""
-    if key == "r":
-        return len(before) >= 2 and before[-2] == "arc"
-    if key == "depth:":
-        return head == "fixture"
-    return head in _OPENINGS
-
-
-def _box(words: list[str], move: Similarity) -> tuple[list[str], int] | None:
-    """A fixture's `at x,y size wxh` box (x, y its top-left corner) moved, put first, and how many words it takes: still
-    a box, by its new top-left corner, under a quarter turn; else its four corners as a `poly`. The words as they are,
-    and 0, when there's no box; None for a size with no corner."""
-    at = next((i for i in range(len(words) - 1) if words[i] == "at" and _PAIR.match(words[i + 1])), None)
-    size = next((i for i in range(len(words) - 1) if words[i] == "size" and _SIZE.match(words[i + 1])), None)
-    if size is None:
-        return words, 0
-    if at is None:
-        return None
-    x, y = (float(v) for v in words[at + 1].split(","))
-    w, h = (float(v) for v in words[size + 1].split("x"))
-    corners = [move.point(px, py) for px, py in ((x, y), (x + w, y), (x + w, y + h), (x, y + h))]
-    rest = [word for i, word in enumerate(words) if i not in (at, at + 1, size, size + 1)]
-    if move.quarters is None:
-        box = ["poly", *(_pt(*c) for c in corners)]
-    else:
-        lo = (min(c[0] for c in corners), min(c[1] for c in corners))
-        hi = (max(c[0] for c in corners), max(c[1] for c in corners))
-        box = ["at", _pt(*lo), "size", f"{_num(hi[0] - lo[0])}x{_num(hi[1] - lo[1])}"]
-    return [*box, *rest], len(box)
-
-
-def _move_words(words: list[str], move: Similarity, rename: Mapping[str, str]) -> list[str] | None:
-    """One statement's words moved; None when something in it can't be."""
-    head = words[0]
-    if head == "fixture" and len(words) > 2:
-        boxed = _box(words[2:], move)
-        if boxed is None:
-            return None
-        rest, n = boxed
-        moved = _move_words([head, words[1], *rest[n:]], move, rename) if n else None
-        if moved is None:
-            return None if n else _each_word(words, move, rename)
-        spot = next((i + 1 for i, w in enumerate(moved) if w.startswith("in:")), 2)
-        return [*moved[:spot], *rest[:n], *moved[spot:]]
-    return _each_word(words, move, rename)
-
-
-def _each_word(words: list[str], move: Similarity, rename: Mapping[str, str]) -> list[str] | None:
-    """`_move_words` word by word: positions, lengths, turns, and references."""
-    head = words[0]
-    out: list[str] = []
-    i = 0
-    while i < len(words):
-        w = words[i]
-        nxt = words[i + 1] if i + 1 < len(words) else ""
-        if w == "rect" and _PAIR.match(nxt) and i + 2 < len(words) and _SIZE.match(words[i + 2]):
-            x, y = (float(v) for v in nxt.split(","))
-            sw, sh = (float(v) for v in words[i + 2].split("x"))
-            corners = [move.point(px, py) for px, py in ((x, y), (x + sw, y), (x + sw, y + sh), (x, y + sh))]
-            if move.quarters is None:
-                out += ["poly", *(_pt(*c) for c in corners)]
-            else:
-                lo = (min(c[0] for c in corners), min(c[1] for c in corners))
-                hi = (max(c[0] for c in corners), max(c[1] for c in corners))
-                out += ["rect", _pt(*lo), f"{_num(hi[0] - lo[0])}x{_num(hi[1] - lo[1])}"]
-            i += 3
-            continue
-        if w in ("at", "near") and _PAIR.match(nxt):
-            out += [w, _pt(*move.point(*(float(v) for v in nxt.split(","))))]
-            i += 2
-            continue
-        if w.startswith(("at:", "near:")) and _PAIR.match(w.partition(":")[2]):
-            key, _, pair = w.partition(":")
-            out.append(f"{key}:{_pt(*move.point(*(float(v) for v in pair.split(','))))}")
-            i += 1
-            continue
-        if _PAIR.match(w):  # a poly's corner, or an arc's end
-            out.append(_pt(*move.point(*(float(v) for v in w.split(",")))))
-            i += 1
-            continue
-        length = re.fullmatch(r"(w|r|@-|@|depth:)(\d+(?:\.\d+)?)", w)
-        if length and _scaled(length.group(1), head, out):
-            out.append(f"{length.group(1)}{_num(float(length.group(2)) * move.scale)}")
-            i += 1
-            continue
-        if w in ("thickness",) and re.fullmatch(_NUM, nxt):
-            out += [w, _num(float(nxt) * move.scale)]
-            i += 2
-            continue
-        if w in ("yaw",) and re.fullmatch(_NUM, nxt):  # degrees clockwise on the page, as the turn is
-            out += [w, _num((float(nxt) + math.degrees(move.turn)) % 360)]
-            i += 2
-            continue
-        if w.startswith("up:") and re.fullmatch(_NUM, w[3:]):
-            out.append(f"up:{_num((float(w[3:]) + math.degrees(move.turn)) % 360)}")
-            i += 1
-            continue
-        for key in ("in:", "swing:", "id:", "on:"):
-            if w.startswith(key):
-                ref = _ref(w[len(key) :], rename, move)
-                if ref is None:
-                    return None
-                out.append(key + ref)
-                break
-        else:
-            out.append(w)
-        i += 1
-    return out
-
-
-def carry(text: str, move: Similarity, prefix: str, title: str = "") -> Carried:
-    """An owner's plan (DSL text) moved into another plan's frame by `move`, ready to be added to that plan: every id
-    it defines renamed `<prefix>_<id>` (so it can't clash), every position and length moved, wall sides and bearings
-    turned. The header (plan, walls, north, level) and the frame's own `x-anchor` and revisions are left out, since
-    the target plan's hold. A statement that can't be moved (a track grid or its layout picture; a wall side, or a box
-    given by its size, under a turn that isn't a quarter) is kept as a comment naming `title`, so the owner still sees
-    what they taught."""
-    source = text.splitlines()
-    rename = {i: f"{prefix}_{i}" for i in sorted(_ids(source))}
-    out: list[str] = []
-    commented = 0
-    unmovable = False  # inside a layout picture's indented rows
-    for line in source:
-        words = _TOKEN.findall(line)
-        indented = line[:1].isspace()
-        if not words or words[0].startswith("#"):
-            if words:
-                out.append(line.strip())
-            unmovable = False if not indented else unmovable
-            continue
-        head = words[0]
-        if not indented:
-            unmovable = head in _UNMOVABLE
-        if head in _HEADER and not indented:
-            continue
-        moved = None if unmovable else _statement(words, move, rename)
-        if moved is None:
-            out.append(f"# from {title or prefix}: {line.strip()}")
-            commented += 1
-        else:
-            out.append(("  " if indented else "") + " ".join(moved))
-    return Carried(tuple(out), rename, commented)
-
-
-def _statement(words: list[str], move: Similarity, rename: Mapping[str, str]) -> list[str] | None:
-    head = words[0]
-    if head in (*_SPACES, *_VERTICAL, "x-unexplored", "x-object") and len(words) > 1:
-        words = [head, rename.get(words[1], words[1]), *words[2:]]
-    elif head in _OPENINGS and len(words) > 1:
-        between = words[1]
-        if ">" in between:
-            a, _, b = between.partition(">")
-            words = [head, f"{rename.get(a, a)}>{rename.get(b, b)}", *words[2:]]
-        else:
-            ref = _ref(between, rename, move)
-            if ref is None:
-                return None
-            words = [head, ref, *words[2:]]
-    elif head == "x-source" and len(words) > 1:
-        kind, _, ident = words[1].partition(":")
-        words = [head, f"{kind}:{rename.get(ident, ident)}", *words[2:]]
-    elif head not in ("fixture", "x-camera", "at"):
-        return None  # a statement this doesn't know how to move
-    return _move_words(words, move, rename)
-
-
-def without(text: str, ids: Iterable[str], commented: str | None = None) -> str:
-    """A plan's DSL with the spaces `ids` taken out, and every statement that names one of them (an opening into it, a
-    fixture in it, its provenance) with them; with `commented`, each is kept as a `# <commented>: ...` comment
-    instead, as `carry` keeps what it can't move."""
-    gone = set(ids)
-    kept = []
-    for line in text.splitlines():
-        words = _TOKEN.findall(line)
-        named: set[str] = set()
-        if words and words[0] in (*_SPACES, "x-unexplored") and len(words) > 1:
-            named.add(words[1])
-        if words and words[0] in _OPENINGS and len(words) > 1:
-            named |= {part.partition(".")[0] for part in words[1].split(">")}
-        if words and words[0] == "x-source" and len(words) > 1:
-            named.add(words[1].partition(":")[2])
-        named |= {w.partition(":")[2].partition(".")[0] for w in words if w.startswith(("in:", "on:", "swing:"))}
-        if not named & gone:
-            kept.append(line)
-        elif commented is not None:
-            kept.append(f"# {commented}: {line.strip()}")
-    return "\n".join(kept) + ("\n" if text.endswith("\n") else "")
-
-
-def covered(
-    poly: Sequence[tuple[float, float]], by: Sequence[tuple[str, str, Sequence[tuple[float, float]]]], step: float = 0.1
-) -> float:
-    """The share of `poly`'s area (plan metres) that lies in the rooms `by` (`rooms_from_dsl`'s), sampled every
-    `step` metres; 0 for a polygon with no sample inside it."""
-    xs, ys = [x for x, _ in poly], [y for _, y in poly]
-    own = [("p", "", poly)]
-    inside = hit = 0
-    for x in np.arange(min(xs) + step / 2, max(xs), step):
-        for y in np.arange(min(ys) + step / 2, max(ys), step):
-            if room_at(own, float(x), float(y)) is None:
-                continue
-            inside += 1
-            hit += room_at(by, float(x), float(y)) is not None
-    return hit / inside if inside else 0.0

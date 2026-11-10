@@ -11,7 +11,7 @@ Two layers, following docs/DOMAIN-MODEL.md:
   derived from, the signals that identify the place, which map and plan files it uses, the map's floor plane, the
   map-to-plan transform, and the fixed cameras registered in that frame), plus the files it adds: `<revision id>.map`
   (the point cloud, in the format its producer names; the current writers use binary PLY) and `<revision id>.plan`
-  (floorplan DSL text, a few hundred bytes). A re-derivation writes a new revision and never edits an old one; a
+  (a Pascal scene, spatial/plan_scene.py: JSON, a few kilobytes). A re-derivation writes a new revision and never edits an old one; a
   revision that doesn't change the map or the plan points at the earlier file. Plans are kept forever (they are
   small). Maps are
   replaced, not accumulated: the newest `MAPS_KEPT` map files stay, and so does each still-active producer's newest
@@ -77,7 +77,7 @@ import os
 import re
 import time
 import uuid
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -198,7 +198,7 @@ class Revision:
     # with the map: a new map without one has none.
     floor: tuple[float, ...] | None = None  # 4 numbers
     # Map to plan: (plan x, plan y, height above the floor) = this 3x4 matrix, row by row, times (x, y, z, 1): the
-    # frame the plan's DSL is drawn in (spatial/floorplan.py's `Floorplan.transform`). It goes with the plan.
+    # frame the plan is drawn in (spatial/floorplan.py's `Floorplan.transform`). It goes with the plan.
     plan_transform: tuple[float, ...] | None = None
     # The map's frame: the id of the revision whose map first stood in it. A writer carries it over while it
     # adds to the same map without moving it, so a splat made for one revision of that frame still fits a later
@@ -436,19 +436,15 @@ def camera_places(state: Path) -> dict[str, str]:
     return {**{cam: place for cam, (_, _, place) in newest.items()}, **spot_places(state)}
 
 
-_SPOT = re.compile(r"^x-camera[ \t]+(\S+)", re.MULTILINE)
-
-
 def _spot_cameras(plan: str) -> list[str]:
-    """The cameras with a spot on a plan: a scene's records (spatial/plan_scene.py), or a DSL plan's `x-camera`
-    lines."""
+    """The cameras with a spot on a stored plan (spatial/plan_scene.py)."""
     from liberational.spatial import plan_scene  # the standard library only, but spatial imports this module
 
-    return plan_scene.spot_names(plan) if plan_scene.is_scene(plan) else _SPOT.findall(plan)
+    return plan_scene.spot_names(plan)
 
 
 def spot_places(state: Path) -> dict[str, str]:
-    """Each camera the owner gave a spot on a place's plan (`x-camera <camera> ...` in an owner plan that holds),
+    """Each camera the owner gave a spot on a place's plan (among the records of an owner plan that holds, spatial/plan_scene.py),
     with that place. The owner said where the camera is, so it outranks a registration in any map
     (spatial/spots.py makes the camera's pose from the spot). A camera on two places' plans sits in the later place
     of `places`."""
@@ -519,7 +515,7 @@ def floor_point(
 
 def camera_to_plan(state: Path, camera: str, u: float, v: float) -> tuple[str, float, float] | None:
     """Where a pixel of a registered fixed camera lands on its place's floor, in the plan's frame: (place, x, y) in
-    metres, the frame the plan's DSL is drawn in, or the floor's own frame (`floor_frame`) while the place has no plan.
+    metres, the frame the plan is drawn in, or the floor's own frame (`floor_frame`) while the place has no plan.
     `u` and `v` are the pixel's position as fractions of the frame's width and height (0 to 1, from the top left, the
     frame as see-decode delivers it), so any resolution works; a foot point is the bottom middle of a person's box.
     None when the camera isn't registered, its place has no floor yet, or the pixel's ray doesn't reach the floor (it
@@ -853,7 +849,7 @@ def correct_plan(
     a newer revision moved the frame is still editing text in the old frame, and labelling it with the newest would
     put positions off it.
 
-    `view` is how the owner drew it, when that isn't the plan frame (an imported plan): `{"plan": <the DSL as
+    `view` is how the owner drew it, when that isn't the plan frame (an imported plan): `{"plan": <the plan as
     drawn on its page>, "turn": <radians>, "shift": [x, y], "mirror": <bool>}`, the move from the page into the
     plan frame (spatial/plan_import.py `Move`). The Places tab draws the page and turns positions onto it
     (`page_view`); `plan` stays in the plan frame for every other reader."""
@@ -873,7 +869,7 @@ def correct_plan(
 
 @dataclass(frozen=True)
 class PageView:
-    """An owner plan as drawn on its page (`correct_plan`'s `view`): the page's DSL, and the move from the page into
+    """An owner plan as drawn on its page (`correct_plan`'s `view`): the page's plan, and the move from the page into
     the plan frame, p = R(turn) F q + shift, F mirroring y when `mirror`."""
 
     plan: str
@@ -916,94 +912,13 @@ def plan_history(state: Path, place: str) -> list[knowledge.Record]:
     return sorted(found, key=lambda r: (r.start_ns, r.recorded_ns))
 
 
-def restore_plan(
-    state: Path,
-    place: str,
-    record: str,
-    now: float | None = None,
-    convert: Callable[[str], str] | None = None,
-) -> None:
+def restore_plan(state: Path, place: str, record: str, now: float | None = None) -> None:
     """Make an earlier owner plan of `place` hold again: its plan, frame (`base`), and source, written as the newest
-    record, so the plans in between stay in the history too and a restore can itself be undone. `convert` is applied
-    to the plan's text, and to its page's when it was drawn on one, on the way: the dashboard passes the converter
-    to a scene, so a version saved in the old DSL comes back in the format the editor works on. The old record is
-    never changed."""
+    record, so the plans in between stay in the history too and a restore can itself be undone."""
     was = next((r for r in plan_history(state, place) if r.id == record), None)
     if was is None:
         raise KeyError(f"no plan record {record} for {place}")
-    value = dict(was.value)
-    if convert is not None:
-        if isinstance(value.get("plan"), str) and value["plan"].strip():
-            value["plan"] = convert(value["plan"])
-        view = value.get("view")
-        if isinstance(view, Mapping) and isinstance(view.get("plan"), str):
-            value["view"] = {**view, "plan": convert(view["plan"])}
-    _put(state, PLAN, _place_id(place), value, now)
-
-
-CONVERTED_FROM = "converted_from"  # on a plan record: the id of the older record it is a converted copy of
-
-
-def superseded_plans(history: Sequence[knowledge.Record], is_old: Callable[[str], bool]) -> set[str]:
-    """The ids of the plan records in `history` (one place's, oldest first) that are in an old format (`is_old` of
-    their plan's text) and have a converted copy standing for them: a record that names them in `converted_from`, or
-    the very next record when the conversion command wrote it (source "convert"). The timeline shows the copy."""
-    copied = {r.value.get(CONVERTED_FROM) for r in history}
-    out = set()
-    for i, r in enumerate(history):
-        plan = r.value.get("plan")
-        if not isinstance(plan, str) or not plan.strip() or not is_old(plan):
-            continue
-        follows = history[i + 1] if i + 1 < len(history) else None
-        if r.id in copied or (follows is not None and follows.value.get("source") == "convert"):
-            out.add(r.id)
-    return out
-
-
-def convert_plan_history(
-    state: Path,
-    place: str,
-    is_old: Callable[[str], bool],
-    convert: Callable[[str], str],
-    write: bool = True,
-    skip_newest: bool = False,
-) -> tuple[int, list[str]]:
-    """Give each earlier version of `place`'s owner plan that is in an old format a converted copy, so the version
-    stays one that can be looked at and restored once the old format is no longer read. The store only appends, so
-    the old record stays as it was; the copy is a new record one nanosecond after it (so it sits right behind it in
-    the history and never becomes the newest over a later version), with the same frame, source, and page, and
-    `converted_from` naming the original. Returns how many were (or with `write` false, would be) copied, and why
-    each of the others wasn't: the converter refused it, or another record already sits in that nanosecond.
-    `skip_newest` leaves the newest record out: a caller about to convert the plan that holds counts that one
-    itself."""
-    place = _place_id(place)
-    history = plan_history(state, place)
-    done = superseded_plans(history, is_old)
-    taken = {r.start_ns for r in history}
-    made: list[knowledge.Record] = []
-    failed: list[str] = []
-    for r in history[:-1] if skip_newest else history:
-        plan = r.value.get("plan")
-        if not isinstance(plan, str) or not plan.strip() or not is_old(plan) or r.id in done:
-            continue
-        at = time.strftime("%Y-%m-%d %H:%M", time.localtime(r.start_ns / 1e9))
-        if r.start_ns + 1 in taken:
-            failed.append(f"the version saved {at}: another version was saved in the same instant")
-            continue
-        try:
-            value = {**r.value, "plan": convert(plan), CONVERTED_FROM: r.id}
-            view = r.value.get("view")
-            if isinstance(view, Mapping) and isinstance(view.get("plan"), str):
-                value["view"] = {**view, "plan": convert(view["plan"])}
-        except ValueError as e:
-            failed.append(f"the version saved {at}: {e}")
-            continue
-        made.append(
-            knowledge.Record(str(uuid.uuid7()), PLAN, place, r.start_ns + 1, r.start_ns + 1, time.time_ns(), value)
-        )
-    if write and made:
-        _store(state).put(made)
-    return len(made), failed
+    _put(state, PLAN, _place_id(place), dict(was.value), now)
 
 
 def same_plan_frame(a: Revision, b: Revision) -> bool:

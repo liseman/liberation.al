@@ -1,18 +1,18 @@
 """The position layer: raw footprints placed on the plan and named (`derive`), zone visits as the room-only
 fallback, the placer that writes them to the layer, the layer's read, and the 10 s paths kept past the window."""
 
-import math
 from dataclasses import replace
 
 import numpy as np
 import pytest
 
+import plans
 from liberational import retention
 from liberational import segment_log as S
 from liberational.domain.identity import Basis
 from liberational.memory import places
 from liberational.people import face_nots, pets, registry
-from liberational.spatial import floorplan, footprints, lens, poses
+from liberational.spatial import floorplan, footprints, lens, plan_scene, poses
 from liberational.spatial import positions as P
 from liberational.vision import animal_embedder
 
@@ -24,7 +24,9 @@ TO_PLAN = (1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, -1.0, 0.0, 0.0)
 # of its frame drops a metre a metre, so an animal's footprint there (on the floor) lands 2 m ahead, at plan (1, 2),
 # and a person's (their heels, footprints.FOOT_M = 0.07 up) 1.93 m ahead.
 LEVEL = places.CameraPose((1.0, 0, 0, 1.0, 0, 1.0, 0, -2.0, 0, 0, 1.0, 0.0, 0, 0, 0, 1.0), 144.0, 512, 288, T)
-PLAN = 'plan "Home" walls 0.2/0.1\nroom r1 "Living" other rect 0,0 4x3\nroom r2 "Hall" other rect 0,3 4x2\n'
+PLAN = plans.scene(
+    'plan "Home" walls 0.2/0.1\nroom r1 "Living" other rect 0,0 4x3\nroom r2 "Hall" other rect 0,3 4x2\n'
+)
 
 
 def home(tmp_path, *, plan=True):
@@ -261,15 +263,15 @@ def test_positions_are_condensed_like_the_other_dense_streams():
     assert S.condensed(S.POSITIONS) in S.STREAMS
 
 
-def test_rooms_are_read_from_rect_and_poly_lines_and_found_by_point():
-    text = PLAN + 'room r3 "Nook" other poly 4,0 6,0 4,2\ndoor r1>r2 at 2,3 w0.9\nroom bad "Odd" other rect x\n'
-    rooms = floorplan.rooms_from_dsl(text)
+def test_rooms_are_read_from_a_stored_plan_and_found_by_point():
+    text = PLAN + 'room r3 "Nook" other poly 4,0 6,0 4,2\ndoor r1>r2 at 2,3 w0.9\n'
+    rooms = plan_scene.rooms_of(text)
     assert [(i, n, len(poly)) for i, n, poly in rooms] == [("r1", "Living", 4), ("r2", "Hall", 4), ("r3", "Nook", 3)]
     assert floorplan.room_at(rooms, 1.0, 1.0) == ("r1", "Living")
     assert floorplan.room_at(rooms, 4.5, 0.5) == ("r3", "Nook")
     assert floorplan.room_at(rooms, 0.0, 1.0) == ("r1", "Living")  # on a wall line
     assert floorplan.room_at(rooms, 9.0, 9.0) is None
-    assert not math.isnan(rooms[0][2][2][0])
+    assert plan_scene.rooms_of("not a plan") == []
 
 
 def test_a_long_read_can_be_thinned_to_paths(tmp_path, vision):
@@ -297,7 +299,7 @@ def test_a_place_or_entity_read_places_only_its_own_rows(tmp_path, vision, monke
     assert projected == ["cam0"]
 
 
-PLAN_2 = 'plan "Home" walls 0.2/0.1\nroom d1 "Den" other rect 0,0 6x6\n'
+PLAN_2 = plans.scene('plan "Home" walls 0.2/0.1\nroom d1 "Den" other rect 0,0 6x6\n')
 
 
 def test_a_rig_rows_room_comes_from_the_plan_of_the_revision_its_point_is_in(tmp_path, vision):
@@ -312,7 +314,7 @@ def test_a_rig_rows_room_comes_from_the_plan_of_the_revision_its_point_is_in(tmp
     assert [(p.room, p.room_id) for p in got] == [("Living", "r1"), (None, None)]  # an unknown frame names no room
 
 
-OWNER_PLAN = 'plan "Home" walls 0.2/0.1\nroom r1 "Lounge" other rect 0,0 4x3\n'
+OWNER_PLAN = plans.scene('plan "Home" walls 0.2/0.1\nroom r1 "Lounge" other rect 0,0 4x3\n')
 
 
 def test_a_newer_machine_plan_never_names_rooms_on_a_place_with_an_owners_plan(tmp_path, vision):
@@ -385,7 +387,9 @@ def moved(pose, dx=0.0, dz=0.0):
     return places.CameraPose(tuple(m), pose.focal, pose.width, pose.height, pose.at)
 
 
-OWNER_ROOMS = 'plan "Home" walls 0.2/0.1\nroom r1 "Lounge" other rect 0,0 4x3\nroom r2 "Bedroom" other rect 0,3 4x3\n'
+OWNER_ROOMS = plans.scene(
+    'plan "Home" walls 0.2/0.1\nroom r1 "Lounge" other rect 0,0 4x3\nroom r2 "Bedroom" other rect 0,3 4x3\n'
+)
 
 
 @pytest.mark.parametrize(("place", "frame"), [(None, "any"), ("given", "no-such-revision")])

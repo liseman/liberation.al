@@ -69,6 +69,32 @@ credentials. Device names identify streams, so do not rename devices as part of 
 
 Newest first. Do each one your install has not had yet.
 
+### A place's plan is a scene, and the line DSL is no longer read
+
+A place's plan is stored as a Pascal Editor scene and edited in the plan editor on the Places page (Edit plan). The
+vendored floorplan library, the text plan editor, `tools/import_owner_plan.py`, and every reader and writer of the
+old line DSL are removed, with `pack-plan-convert`.
+
+An install with an owner plan saved before this change converts it first, at the last commit that has the
+converter. Skip this if the Places page already shows a Versions button in the plan editor and every version opens.
+
+1. **Convert at the commit before the removal.** The first command changes nothing: it prints what each plan holds
+   before and after, and names a page that draws both to look over. The second converts the plan that holds and
+   every earlier version; the old versions stay in the store untouched.
+
+   ```sh
+   git checkout add5028c
+   .venv/bin/python -m liberational.spatial.plan_convert
+   .venv/bin/python -m liberational.spatial.plan_convert --yes
+   git checkout main
+   ```
+
+2. **Upgrade as usual** ("Every upgrade"), then rebuild the dashboard (`mise run frontend`) and restart it.
+
+A plan left in the old format isn't lost, but it is no longer shown: the Places page says so, and Edit plan starts
+a new one. A machine-made plan in the old format is not converted: `pack-reset-places` clears it, or drawing the
+plan in the editor replaces it.
+
 ### Positions are placed every hour by `pack-positions`
 
 The `positions` service runs `pack-positions` every hour at 20 past. It replaces `tools/place_positions.py`.

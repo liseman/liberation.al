@@ -103,7 +103,7 @@ from liberational import json_state, logs
 from liberational import segment_log as S
 from liberational.memory import places
 from liberational.people import face_nots, pets
-from liberational.spatial import cameras, floorplan, footprints, lens, poses, spots
+from liberational.spatial import cameras, floorplan, footprints, lens, plan_scene, poses, spots
 
 LOG = logs.get("spatial-positions")
 
@@ -202,8 +202,8 @@ class Position:
     confidence: float
     place: str | None
     room: str | None  # the room's name: the plan's, or a zone row's drawn zone
-    room_id: str | None  # the plan's room id (`room <id>` in its DSL); None for a zone row or with no plan
-    x: float | None  # plan metres, in the frame the plan's DSL is written in; None when only the place or room is known
+    room_id: str | None  # the plan's room id (its zone's, spatial/plan_scene.py); None for a zone row or with no plan
+    x: float | None  # plan metres, in the frame the plan is drawn in; None when only the place or room is known
     y: float | None
     camera: str | None
     u: float | None
@@ -471,7 +471,7 @@ class _Places:
                     text = held.plan
             if text is None and not owned:
                 text = places.machine_plan(self.state, rev)
-            self._plans[rev.id] = floorplan.rooms_from_dsl(text or "")
+            self._plans[rev.id] = plan_scene.rooms_of(text or "")
         return self._plans[rev.id]
 
     def room(self, rev: places.Revision, x: float, y: float) -> tuple[str, str] | None:

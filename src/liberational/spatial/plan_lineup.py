@@ -26,7 +26,7 @@ since it last looked.
 
 **Evidence**, strongest first:
 
-1. *The cameras' spots.* The owner's plan can hold each fixed camera's measured spot (`x-camera <name> at x,y`). A
+1. *The cameras' spots.* The owner's plan can hold each fixed camera's measured spot (spatial/plan_scene.py). A
    camera registered in the map (the newest revision's `cameras`) should land on its spot, so two or more spots at
    least MIN_SPREAD apart give the turn, the shift, and the scale outright, and the walls only refine them. Every
    spot must end within ANCHOR_M of its camera.
@@ -143,14 +143,12 @@ def transform(floor: Sequence[float], move: floorplan.Similarity) -> tuple[float
 
 
 def read_plan(text: str) -> pi.Parsed | None:
-    """The owner's plan as the fit takes it: its rooms, wall thicknesses, and measured camera spots. A plan with a
-    statement the full reader refuses still gives its rooms (as positions read them, `floorplan.rooms_from_dsl`);
-    None for a plan with no room."""
+    """The owner's plan as the fit takes it: its rooms, wall thicknesses, and measured camera spots. None for a plan
+    that doesn't read or has no room."""
     try:
         return pi.parse(text)
     except pi.PlanError:
-        rooms = tuple(pi.Room(rid, name, "other", poly) for rid, name, poly in floorplan.rooms_from_dsl(text))
-        return pi.Parsed("", (0.2, 0.1), rooms, (), (), (), 0) if rooms else None
+        return None
 
 
 def wall_samples(w: pi.Walls, step: float) -> np.ndarray:
