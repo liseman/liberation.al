@@ -384,15 +384,15 @@ def test_people_named_leaves_out_the_asker(readings):
         pytest.param(
             question.Reading(part="this morning", clock="9"),
             "around 09:00",
-            "10-23 08:55",
-            "10-23 09:05",
+            "10-23 08:45",
+            "10-23 09:15",
             id="a-bare-clock-takes-its-part-of-the-days-half",
         ),
         pytest.param(
             question.Reading(day="yesterday", part="afternoon", clock="3"),
             "around 15:00",
-            "10-22 14:55",
-            "10-22 15:05",
+            "10-22 14:45",
+            "10-22 15:15",
             id="yesterday-afternoon-at-3",
         ),
         pytest.param(
@@ -411,6 +411,13 @@ def test_people_named_leaves_out_the_asker(readings):
             "10-23 11:00",
             "10-23 12:00",
             id="who-is-home",
+        ),
+        pytest.param(
+            question.Reading(source="people", measure="who", clock="9"),
+            "around 09:00",
+            "10-23 08:55",
+            "10-23 09:05",
+            id="who-at-a-clock-keeps-five-minutes",
         ),
     ],
 )

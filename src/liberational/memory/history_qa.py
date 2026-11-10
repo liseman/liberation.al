@@ -11,7 +11,8 @@ entries in the window, the result is exactly what it was before the journal exis
 
 A question read as about the cameras that names none, and asks to describe a scene or what someone was doing, also
 gets the transcript's lines in its window, best matches first: whether its answer was seen or said is the reading's
-guess.
+guess. A window of an hour or less whose words match no journal entry ("weather" against an entry that says
+"rain") gets the entries covering it instead.
 
 A transcript question that names nobody, and no topic or intent, keeps the lines that hold the question's words when
 the evidence budget (MAX_EVIDENCE, MAX_CHARS) cuts the window, the best matches first (rare words count most), each
@@ -39,9 +40,10 @@ owner's own names (activities, zones, pets, and linked things) are looked up in 
 (question.Vocabulary), and the modules that count and answer about them take the structured query: none of them
 reads the question's text.
 
-The window is worked out here from the reading's time fields (window_of), never by the model. Clock and
-relative-instant questions read a bounded five-minute neighborhood, clamped at question time; ranges read their
-stated interval. An unqualified 1 to 12 clock selects the most recent eligible half of the chosen local day, or the
+The window is worked out here from the reading's time fields (window_of), never by the model. A clock question
+about who was around reads five minutes each way, any other clock question ("what was the weather like around one")
+a quarter hour each way, and a relative instant ("ten minutes ago") five minutes each way, all clamped at question
+time; ranges read their stated interval. An unqualified 1 to 12 clock selects the most recent eligible half of the chosen local day, or the
 half its part of the day names ("3 this afternoon"), and an unqualified range prefers the shortest increasing span,
 then the latest start. Explicit AM/PM avoids this inference. Relative parts of the day use question time rather
 than the dashboard selection; an unqualified part uses the selected date. "Last night" spans the previous
@@ -103,6 +105,7 @@ MAX_EVIDENCE = 100
 MAX_CHARS = 18000
 JOURNAL_ITEMS = 3  # journal entries added to a transcript or camera question's evidence
 JOURNAL_TAIL_S = 180  # a question with no search words still gets entries from this long at the window's end
+JOURNAL_NEAR_S = 3600  # a window this short gets the entries covering it when its words match none
 NO_EVIDENCE = "No matching safe, timestamped evidence in the available history."
 CONTEXT_S = 60.0  # lines said this close to a matching line come with it (a reply is often within a minute)
 # Words a question is made of rather than about, left out when its words are matched against lines and captions.
@@ -158,6 +161,10 @@ QUESTION_WORDS = frozenset(
     ]
 )
 WHO_WINDOW_S = 300  # "who was here at 3pm": anyone seen within 5 minutes of it
+# "What was the weather like around one": what happened near a clock reads a quarter hour each way, since "around"
+# a clock time is looser than "who was here at 3pm".
+AROUND_S = 900
+PRESENCE_MEASURES = frozenset(["who", "home", "arrived", "last_time"])
 HOME_NOW_S = 3600  # "who's home": who was recognized in the last hour; cameras and microphones see who is around
 # The parts of a day, as local hours [start, end) of the day they belong to; night runs past midnight to 05:00 the next
 # morning. Defined once, so "in the evening" means the same hours wherever a question is read. A part resolves
@@ -493,7 +500,8 @@ def window_of(
             if not choices:
                 raise ValueError("That clock time is in the future.")
             at = max(c.timestamp() for c in choices)
-            start, end, window = at - WHO_WINDOW_S, at + WHO_WINDOW_S, "around " + _clock(at)
+            near = WHO_WINDOW_S if r.source == "people" or r.measure in PRESENCE_MEASURES else AROUND_S
+            start, end, window = at - near, at + near, "around " + _clock(at)
     if start > now:  # the end is clamped to now below, so a future window would read as one with no evidence
         raise ValueError("That date is in the future, so there's no history for it yet.")
     return start, min(end, now), window, at
@@ -749,6 +757,11 @@ def _journal(
     try:
         if recall.searchable(text, state):
             items = recall.search(text, query["start"], query["end"], query["person"], state, rank=False, limit=limit)
+            start, end = float(query["start"]), float(query["end"])
+            if not items and query["kind"] != "journal" and 0 < end - start <= JOURNAL_NEAR_S:
+                # The words matched nothing ("weather" against an entry that says "rain"), but the window is short
+                # enough that the entries covering it are about the moment asked about.
+                items = recall.latest(start, end, query["person"], state, limit)
         else:
             end = float(query["end"]) if math.isfinite(query["end"]) else time.time() + 1.0
             start = float(query["start"])

@@ -749,6 +749,26 @@ def test_a_question_read_as_seen_also_reads_what_was_said(state, readings, measu
     assert "A kitchen counter with a bowl" in quotes
 
 
+WEATHER = "what was the weather like around one"
+
+
+@pytest.mark.parametrize(
+    ("clock", "joined"),
+    [
+        pytest.param("1", True, id="a-moment-gets-the-entry-covering-it"),
+        pytest.param("", False, id="a-whole-day-does-not"),
+    ],
+)
+def test_a_short_windows_journal_entries_join_when_its_words_match_none(state, readings, clock, joined):
+    readings[WEATHER] = question.Reading(source="cameras", day="today", clock=clock)
+    one = dt.datetime(2026, 10, 23, 13, tzinfo=LA).timestamp()
+    # The entry runs past the question time, so no window holds all of it (an overview takes only entries that fit).
+    add_journal(state, "It had started to rain, and Rex came in soaked.", one - 600, 3600)
+    r = h.collect(WEATHER, state, one + 1800)
+    texts = [e["text"] for e in r["evidence"] if e["source"] == "journal"]
+    assert texts == (["It had started to rain, and Rex came in soaked."] if joined else [])
+
+
 def test_journal_never_moves_a_recorded_answers_citation(state):
     camera(state, [dict(ts=NOW - 5, cam="cam2", caption="A person", faces=[dict(name="Alex", sim=0.8)])])
     add_journal(state, "Alex came by camera2 and waved.", NOW - 60)
@@ -918,7 +938,7 @@ def test_camera_name_is_not_mistaken_for_an_unsupported_time_phrase(tmp_path, mo
     [
         ("who was here around 3 pm", (23, 14, 55), (23, 15, 5)),
         ("who was here about 3", (23, 14, 55), (23, 15, 5)),
-        ("what did Dana say around 3 pm", (23, 14, 55), (23, 15, 5)),
+        ("what did Dana say around 3 pm", (23, 14, 45), (23, 15, 15)),
         ("who was here this afternoon", (23, 12, 0), (23, 17, 0)),
         ("who was here this morning", (23, 5, 0), (23, 12, 0)),
         ("who was here last night", (22, 18, 0), (23, 5, 0)),
