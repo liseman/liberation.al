@@ -66,11 +66,20 @@ quit_applications() {
   fi
 }
 
-# as_user <name> <home> <command> ...: the command as that user, with a plain environment of their own.
+# as_user <name> <home> <command> ...: the command as that user, with a plain environment of their own, and its
+# exit status. What it runs may be the user's own code (their environment's pack-setup), so it gets none of root's
+# terminal: a session of its own (setsid), no input, and its output through a pipe. A process that shared the
+# terminal could type into it as root.
 as_user() {
   user="$1" home="$2"
   shift 2
-  runuser -u "$user" -- env -i HOME="$home" USER="$user" LOGNAME="$user" PATH=/usr/local/bin:/usr/bin:/bin \
-    LANG="${LANG:-C.UTF-8}" ${http_proxy:+http_proxy="$http_proxy"} ${https_proxy:+https_proxy="$https_proxy"} \
-    ${no_proxy:+no_proxy="$no_proxy"} "$@"
+  status="$({
+    {
+      setsid -w runuser -u "$user" -- env -i HOME="$home" USER="$user" LOGNAME="$user" \
+        PATH=/usr/local/bin:/usr/bin:/bin LANG="${LANG:-C.UTF-8}" ${http_proxy:+http_proxy="$http_proxy"} \
+        ${https_proxy:+https_proxy="$https_proxy"} ${no_proxy:+no_proxy="$no_proxy"} "$@" < /dev/null 2>&1 3>&- 4>&-
+      echo "$?" >&3
+    } | cat >&4
+  } 3>&1)" 4>&1
+  return "${status:-1}"
 }
