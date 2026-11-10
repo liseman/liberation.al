@@ -30,7 +30,7 @@ pub fn run(
     let source = match Reader::open(settings.clone(), &device.name) {
         Ok(source) => source,
         Err(error) => {
-            eprintln!("capture worker {}: {error}", device.name);
+            tracing::warn!("{}: {error}", device.name);
             return WorkerEnd::Device;
         }
     };
@@ -43,18 +43,18 @@ pub fn run(
             Ok(Some(picture)) => break picture,
             Ok(None) if Instant::now() < until => {}
             Ok(None) => {
-                eprintln!("capture worker {}: RTSP did not provide a decodable IDR before its deadline", device.name);
+                tracing::warn!("{}: RTSP did not provide a decodable IDR before its deadline", device.name);
                 return WorkerEnd::Stalled;
             }
             Err(error) => {
-                eprintln!("capture worker {}: {error}", device.name);
+                tracing::warn!("{}: {error}", device.name);
                 return WorkerEnd::Device;
             }
         }
     };
     let Some(mapped) = client.arenas().first() else { return WorkerEnd::Memory };
     let Some((class, slot_bytes)) = pick_class(&mapped.info.classes, u64::from(settings.max_access_unit_bytes)) else {
-        eprintln!("capture worker {}: no Tier 0 size class holds its configured RTSP access-unit bound", device.name);
+        tracing::error!("{}: no Tier 0 size class holds its configured RTSP access-unit bound", device.name);
         return WorkerEnd::Memory;
     };
     let arena = mapped.arena.clone();
@@ -75,7 +75,7 @@ pub fn run(
     let registered = match rt.block_on(client.register_stream(&spec)) {
         Ok(registered) => registered,
         Err(error) => {
-            eprintln!("capture worker {}: RTSP stream registration failed: {error}", device.name);
+            tracing::warn!("{}: RTSP stream registration failed: {error}", device.name);
             return WorkerEnd::Broker;
         }
     };
@@ -92,9 +92,12 @@ pub fn run(
         u64::from(std::process::id()),
         None,
     );
-    eprintln!(
-        "capture worker {}: H.264 RTSP {}x{} at {} Hz, recording encoded access units without transcoding",
-        device.name, source.info.width, source.info.height, source.info.nominal_rate_hz
+    tracing::info!(
+        "{}: H.264 RTSP {}x{} at {} Hz, recording encoded access units without transcoding",
+        device.name,
+        source.info.width,
+        source.info.height,
+        source.info.nominal_rate_hz
     );
     opened();
     // One connection is one capture session: a reconnect runs this again, with a new epoch.
@@ -114,18 +117,21 @@ pub fn run(
     let mut wait_for_idr = false;
     let mut last_packet = clocks.monotonic_ns();
     let mut last_health = last_packet;
+    // The health line every 10 s is DEBUG, and INFO once every few minutes (#59); continuum_status reads it.
+    let mut health = continuum_log::Periodic::default();
     loop {
         if stop.load(Ordering::Relaxed) {
             return WorkerEnd::Stopped;
         }
         if wake.woke(clocks) {
-            eprintln!("capture worker {}: reconnecting RTSP after host sleep", device.name);
+            tracing::warn!("{}: reconnecting RTSP after host sleep", device.name);
             return WorkerEnd::Device;
         }
         let now = clocks.monotonic_ns();
         if now.saturating_sub(last_health) >= crate::video::HEALTH_NS {
-            eprintln!(
-                "capture worker {}: RTSP frames={frames} reader_dropped={} pressure_dropped={pressure_dropped} unflushed_overwrites={overwritten} full_waited={full_waited} idr_skipped={idr_skipped} re_anchored={}",
+            continuum_log::periodic!(
+                health,
+                "{}: RTSP frames={frames} reader_dropped={} pressure_dropped={pressure_dropped} unflushed_overwrites={overwritten} full_waited={full_waited} idr_skipped={idr_skipped} re_anchored={}",
                 device.name,
                 source.dropped.load(Ordering::Relaxed),
                 clock.re_anchored()
@@ -138,7 +144,7 @@ pub fn run(
                 Ok(None) if now.saturating_sub(last_packet) < video.stall_ms.saturating_mul(1_000_000) => continue,
                 Ok(None) => return WorkerEnd::Stalled,
                 Err(error) => {
-                    eprintln!("capture worker {}: {error}", device.name);
+                    tracing::warn!("{}: {error}", device.name);
                     return WorkerEnd::Device;
                 }
             };
@@ -155,12 +161,12 @@ pub fn run(
         let mono_ns = match clock.observe(picture.pts_ns, picture.dts_ns, picture.arrival_ns) {
             Ok(mono_ns) => mono_ns,
             Err(error) => {
-                eprintln!("capture worker {}: {error}", device.name);
+                tracing::warn!("{}: {error}", device.name);
                 return WorkerEnd::Device;
             }
         };
         if let Some(note) = clock.take_note() {
-            eprintln!("capture worker {}: {note}", device.name);
+            tracing::info!("{}: {note}", device.name);
         }
         let Some((picture_class, allocated)) = pick_class(&classes, picture.bytes.len() as u64) else {
             pressure_dropped += 1;
@@ -208,7 +214,7 @@ pub fn run(
                 wait_for_idr = true;
             }
             Err(error) => {
-                eprintln!("capture worker {}: RTSP publish failed: {error}", device.name);
+                tracing::warn!("{}: RTSP publish failed: {error}", device.name);
                 return WorkerEnd::Broker;
             }
         }

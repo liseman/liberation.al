@@ -259,6 +259,15 @@ def test_services_run_without_progress_bars():
     assert (env["HF_HUB_DISABLE_PROGRESS_BARS"], env["TQDM_DISABLE"]) == ("1", "1")
 
 
+def test_a_services_unit_carries_its_own_rust_log_level():
+    svc = {"command": "continuum/target/release/continuum-gateway"}
+    with cfg.override({"logging": {"level": "info", "per_service": ["continuum-gateway=debug"]}}):
+        gateway = s.render_systemd("continuum-gateway", svc)
+        broker = s.render_systemd("continuum-broker", svc)
+    assert "RUST_LOG=debug" in "".join(gateway.values())
+    assert "RUST_LOG=info" in "".join(broker.values())
+
+
 # ---- crash loops: restart counts and each service's last error ----
 
 

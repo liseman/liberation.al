@@ -790,7 +790,8 @@ async fn handshake(stream: &mut UnixStream, timeout: Duration, core: &CoreHandle
                 }
                 let id = uuid::Uuid::now_v7();
                 let client = hello.client_name().unwrap_or("").to_owned();
-                info!(%client, pid = hello.pid(), session = %id, "session started");
+                // Readiness probes open a session every few seconds, so DEBUG (#59).
+                tracing::debug!(%client, pid = hello.pid(), session = %id, "session started");
                 let (tx, rx) = mpsc::channel(OUTBOUND);
                 let kicked = Arc::new(tokio::sync::Notify::new());
                 // The core learns of the session before the client can send anything that needs it (Open shares the
@@ -915,7 +916,7 @@ impl Session {
         if !std::mem::replace(&mut self.ended, true) {
             let id = self.id;
             let _ = self.core.send(Command::Close { session: id }).await;
-            info!(client = %self.client, session = %id, "session ended");
+            tracing::debug!(client = %self.client, session = %id, "session ended");
         }
     }
 

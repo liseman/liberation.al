@@ -14,6 +14,8 @@ default = []
 ffmpeg = ["dep:ffmpeg-next", "dep:clap"]
 
 [dependencies]
+continuum-log.workspace = true
+tracing.workspace = true
 chrono.workspace = true
 libc.workspace = true
 continuum-catalog.workspace = true

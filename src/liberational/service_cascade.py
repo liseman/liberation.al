@@ -22,6 +22,7 @@ from typing import Any, Protocol
 import psutil
 
 from liberational import config as cfg
+from liberational import logs
 
 type BrokerIdentity = frozenset[tuple[str, int]]
 
@@ -807,6 +808,14 @@ def _run_selected(
         )
 
 
+def disk_line(line: str, ts: float) -> str:
+    """A cascade line as cascade.log keeps it, in the one log format (logs.py): `<stamp> [cascade] LEVEL message`,
+    ERROR for a failure, else INFO."""
+    message = line.removeprefix("cascade: ")
+    level = "ERROR" if "failed" in message.lower() else "INFO"
+    return f"{logs.stamp(ts)} [cascade] {level} {message}"
+
+
 def _on_disk(line: str) -> None:
     """A cascade line in <paths.logs>/cascade.log, timestamped: the install's terminal is often gone when its failure
     is looked into (keeping only the "after failure" tail lost the stage that failed)."""
@@ -814,7 +823,7 @@ def _on_disk(line: str) -> None:
         path = cfg.path("paths.logs") / "cascade.log"
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a") as out:
-            out.write(f"{time.strftime('%Y-%m-%dT%H:%M:%S%z')} {line}\n")
+            out.write(disk_line(line, time.time()) + "\n")
     except OSError:
         pass  # the log is a convenience: a full or read-only disk never fails a cascade
 

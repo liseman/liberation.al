@@ -91,6 +91,7 @@ async def follow(
     captures a CUDA graph (the backend's `captures`, a camera's first frame) runs inside `alone()` instead."""
     seen = 0
     synced = reported = clock()
+    rate = logs.Periodic()  # the rate line each minute: INFO every 10 minutes, else DEBUG (#59)
     window = {"frames": 0, "busy": 0.0}
     schedule = Schedule(every_ns)
     try:
@@ -110,7 +111,8 @@ async def follow(
                     synced = now
             if now - reported >= REPORT_S:
                 lag = time.time() - frame.capture_ns / 1e9
-                log.info(
+                log.log(
+                    rate.level(),
                     "%s: %d frames in %.0f s (%.1f a second), %.1f ms a frame, %.1f s behind live",
                     camera or "camera",
                     window["frames"],

@@ -128,7 +128,7 @@ def _templated_env(svc: Service) -> dict[str, str]:
     return env
 
 
-def environment(svc: Service) -> dict[str, str]:
+def environment(svc: Service, name: str = "") -> dict[str, str]:
     # The venv first, then mise's shims (tools like ffmpeg from mise.toml), then the installing shell's PATH, then the
     # system directories whatever that shell had: capture runs sysctl, which is in /usr/sbin.
     parts = [str(cfg.ROOT / ".venv" / "bin"), str(pathlib.Path.home() / ".local/share/mise/shims")]
@@ -140,6 +140,13 @@ def environment(svc: Service) -> dict[str, str]:
     # redraws itself, which a log file keeps as a pile of partial lines. A CLI run by hand still shows them. (tqdm
     # reads any non-empty TQDM_DISABLE as true, so "0" doesn't turn its bars back on; an empty value does.)
     env.update({"HF_HUB_DISABLE_PROGRESS_BARS": "1", "TQDM_DISABLE": "1"})
+    # Native libraries' own logs at errors only (#59): they write to stderr with no stamp or level. transformers'
+    # handler prints its deprecation notes bare, and OpenCV's FFmpeg its decoder warnings (16 is AV_LOG_ERROR).
+    # FFmpeg inside continuum_py is set the same way where it initializes (continuum-tier's codec_open), and ONNX
+    # Runtime's where a session is built (vision/onnx_runtime.py). A Rust daemon's level is RUST_LOG, from the
+    # same logging.level and logging.per_service the Python services read, so it takes a reinstall to change.
+    env.update({"TRANSFORMERS_VERBOSITY": "error", "OPENCV_FFMPEG_LOGLEVEL": "16", "OPENCV_LOG_LEVEL": "ERROR"})
+    env["RUST_LOG"] = logs.rust_filter(name)
     env.update(_templated_env(svc))
     if int(env.get("LLAMA_ARG_N_CPU_MOE", "0")) > 0:
         # The runner's generic whole-model fitter cannot budget CPU experts separately. Let Ask's explicit
@@ -174,7 +181,7 @@ def render_launchd(name: str, svc: Service) -> dict[str, str]:
         "Label": f"pack.{name}",
         "ProgramArguments": argv(svc, startup=True),
         "WorkingDirectory": str(cfg.ROOT),
-        "EnvironmentVariables": environment(svc),
+        "EnvironmentVariables": environment(svc, name),
         "StandardOutPath": str(log_path(name)),
         "StandardErrorPath": str(log_path(name)),
         # Seconds after SIGTERM before launchd kills it, the same as systemd's TimeoutStopSec.
@@ -203,7 +210,7 @@ def render_systemd(name: str, svc: Service) -> dict[str, str]:
     command = ["/bin/sh", "-c", script, "pack-log", str(log.parent), str(log), *argv(svc, startup=True)]
     # ':' disables systemd's $ expansion; %% preserves literal % specifiers in paths/args.
     start = "ExecStart=:" + " ".join(shlex.quote(a).replace("%", "%%") for a in command)
-    env = "\n".join(f"Environment={shlex.quote(f'{k}={v}')}" for k, v in environment(svc).items())
+    env = "\n".join(f"Environment={shlex.quote(f'{k}={v}')}" for k, v in environment(svc, name).items())
     scheduled = bool(svc.get("schedule"))
     lines = [
         "[Unit]",
