@@ -10,6 +10,11 @@
 // why, one made for an earlier map, loading with how much has come, or a load that failed with its reason and a
 // Retry. The points are drawn in every one of them: the map shows as soon as its own bytes are here, and the splat
 // takes over once it has drawn.
+//
+// A map learned from the cameras changes while the view is open (#259): the scene is asked for again every few
+// seconds, and a newer map or splat is drawn once all of its bytes are here, the one before it staying drawn until
+// then, from where the person was looking. A line under the view says whether learning is on, how many views the
+// map was built from, and when it last improved (status.ts).
 import { Button, Checkbox, Group, Progress, SegmentedControl, Slider, Text } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -17,10 +22,39 @@ import { messageOf } from '../../../shared/http';
 import { type Scene, sceneQuery } from '../api';
 import classes from '../places.module.css';
 import { canDraw, canDrawSplat, openingCamera, parseCloud, readBytes, splatFault } from './load';
-import { type Built, build, type Colour } from './scene';
-import { loadingText, splatNote } from './status';
+import { type Built, build, type Colour, type View } from './scene';
+import { learningNote, loadingText, splatNote } from './status';
 
 type Draw = 'points' | 'splat';
+
+/** What's drawn: a scene with its map's bytes and its splat's (null with none, or one that can't be drawn). */
+interface Drawn {
+  scene: Scene;
+  map: ArrayBuffer;
+  file: ArrayBuffer | null;
+}
+
+/** The part of a scene the viewer is built from. What the scene says about learning and the splat's state changes
+ *  from one read to the next without anything to draw again, so it's left out; the same drawing is the same text. */
+function drawnPart(scene: Scene): string {
+  const { place, revision, map, map_format, map_bytes, splat, splat_format, splat_bytes, splat_revision } = scene;
+  const { floor, plan_transform, cameras, plan } = scene;
+  return JSON.stringify({
+    place,
+    revision,
+    map,
+    map_format,
+    map_bytes,
+    splat,
+    splat_format,
+    splat_bytes,
+    splat_revision,
+    floor,
+    plan_transform,
+    cameras,
+    plan,
+  });
+}
 
 /** Whether this browser can draw the view at all: WebGL2 (not jsdom, not a GPU-less fallback). A browser with
  *  WebGPU has WebGL2 too. */
@@ -74,7 +108,11 @@ function useSplatBytes(scene: Scene | undefined, wanted: boolean, attempt: numbe
 export default function CloudView({ place }: { place: string }) {
   const webgl = useMemo(hasWebGL, []);
   const scene = useQuery({ ...sceneQuery(place), enabled: webgl });
-  const data = scene.data;
+  const read = scene.data;
+  // The scene as far as drawing goes: the same object from one read to the next while nothing drawn changed.
+  const part = read ? drawnPart(read) : null;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `part` is what of `read` is drawn
+  const data = useMemo(() => read, [part]);
   const bytes = useMapBytes(data);
   const hasSplat = !!data?.splat && canDrawSplat(data.splat_format);
   const [chosen, setChosen] = useState<Draw | null>(null);
@@ -103,15 +141,34 @@ export default function CloudView({ place }: { place: string }) {
   // down when they change or the view closes.
   const [ready, setReady] = useState(0);
   const file = splatError ? null : (splatBytes.data ?? null);
+  // A newer scene (a learned map's next splat) takes the place of the one drawn only once all of it is here, its
+  // splat's bytes too, or the reason they can't be used: until then the one before it stays drawn.
+  const settled = !hasSplat || !!file || !!splatError;
+  const [drawn, setDrawn] = useState<Drawn | null>(null);
+  const mapBytes = bytes.data;
+  useEffect(() => {
+    if (!data || !mapBytes) return;
+    setDrawn(was => {
+      if (was && was.scene === data && was.map === mapBytes && was.file === file) return was;
+      if (was && was.scene !== data && !settled) return was;
+      return { scene: data, map: mapBytes, file };
+    });
+  }, [data, mapBytes, file, settled]);
+  const newer = !!drawn && !!data && drawn.scene !== data;
+  // Where the person was looking when a drawn splat was taken down for a newer one.
+  const carried = useRef<View | null>(null);
   useEffect(() => {
     const el = host.current;
-    if (!webgl || !el || !data || !bytes.data) return;
+    if (!webgl || !el || !drawn) return;
+    const { scene: data, map, file } = drawn;
     let gone = false;
     let made: Built | null = null;
     // A splat looks right from where its frames were taken, and like floaters from above: it opens from the first of
-    // the views it trained on ("Back to the start" goes to the overview).
-    const opening = file ? openingCamera(Object.keys(data.cameras ?? {})) : null;
-    (async () => build(el, data, parseCloud(bytes.data, 'ply'), file, opening))().then(
+    // the views it trained on ("Back to the start" goes to the overview). A newer splat of the same place opens
+    // from where the one before it was being looked at.
+    const opening = carried.current ?? (file ? openingCamera(Object.keys(data.cameras ?? {})) : null);
+    carried.current = null;
+    (async () => build(el, data, parseCloud(map, 'ply'), file, opening))().then(
       b => {
         if (gone) return b.dispose();
         made = b;
@@ -135,9 +192,11 @@ export default function CloudView({ place }: { place: string }) {
       gone = true;
       built.current = null;
       setSplatReady(false);
+      // only a splat's view is carried: the points drawn while a first splat loads give way to its opening view
+      carried.current = file && made ? made.view() : null;
       made?.dispose();
     };
-  }, [webgl, data, bytes.data, file]);
+  }, [webgl, drawn]);
 
   // Settings change what's drawn, then one frame is drawn.
   // biome-ignore lint/correctness/useExhaustiveDependencies: `ready` says the scene was rebuilt and wants its settings
@@ -165,7 +224,8 @@ export default function CloudView({ place }: { place: string }) {
         This browser can't draw 3D here (no WebGL), so the map can only be shown as the plan.
       </Text>
     );
-  if (scene.isError || bytes.isError || failed)
+  // A read that fails while a map is drawn leaves it drawn: the next read may well answer.
+  if ((scene.isError && !read) || (bytes.isError && !drawn) || failed)
     return (
       <Text size="sm" c="red">
         Couldn't show the map: {failed ?? messageOf(scene.error ?? bytes.error)}
@@ -174,7 +234,7 @@ export default function CloudView({ place }: { place: string }) {
   if (data && !data.revision)
     return (
       <Text size="sm" c="dimmed">
-        No 3D map of this place yet. It appears once the house has built one.
+        {(read && learningNote(read)) ?? 'No 3D map of this place yet. It appears once the house has built one.'}
       </Text>
     );
   if (data && !canDraw(data.map_format))
@@ -183,15 +243,16 @@ export default function CloudView({ place }: { place: string }) {
         This map is in a format the view can't draw yet ({data.map_format}).
       </Text>
     );
-  const loading = !data || bytes.isPending;
+  const loading = !drawn;
   // Loading is said whichever way the map is drawn meanwhile: the points show under it.
-  const splatLoading = hasSplat && !splatError && !splatReady;
-  const note = data ? splatNote(data) : null;
+  const splatLoading = hasSplat && !splatError && !splatReady && !newer;
+  const note = read ? splatNote(read) : null;
+  const learning = read ? learningNote(read) : null;
   const retry = () => {
     setDrawFault(null);
     setAttempt(n => n + 1);
   };
-  const cams = Object.keys(data?.cameras ?? {});
+  const cams = Object.keys((drawn?.scene ?? data)?.cameras ?? {});
   return (
     <div
       ref={frame}
@@ -290,6 +351,11 @@ export default function CloudView({ place }: { place: string }) {
           )}
         </Group>
       )}
+      {newer && (
+        <Text size="xs" c="dimmed" mt="xs" role="status">
+          A newer version of this map is loading. This one stays until it's ready.
+        </Text>
+      )}
       {splatError && (
         <Group gap="xs" mt="xs" role="alert">
           <Text size="xs" c="red">
@@ -303,6 +369,11 @@ export default function CloudView({ place }: { place: string }) {
       {note && (
         <Text size="xs" c="dimmed" mt="xs" role="status">
           {note}
+        </Text>
+      )}
+      {learning && (
+        <Text size="xs" c="dimmed" mt="xs">
+          {learning}
         </Text>
       )}
       {cams.length > 0 && (

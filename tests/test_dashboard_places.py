@@ -656,7 +656,8 @@ def test_an_owner_plan_drawn_on_a_map_with_no_plan_of_its_own_is_outlined_in_the
 
 
 def test_a_place_without_a_map_has_no_scene_and_an_unknown_one_is_a_404(tmp_path, home):
-    assert view.scene(tmp_path, home[0]) == (200, {"place": home[0], "revision": None})
+    code, reply = view.scene(tmp_path, home[0])
+    assert (code, reply["place"], reply["revision"]) == (200, home[0], None)
     assert view.scene(tmp_path, "no-such-place")[0] == 404
     assert view.map_file(tmp_path, home[0], home[1]) is None
 
@@ -761,3 +762,117 @@ def test_the_positions_reply_counts_the_cameras_with_a_pose_in_the_place(tmp_pat
     unposed, posed = home[0], mapped[0]
     assert view.positions_view(window(unposed), tmp_path)[1]["cameras"] == 0
     assert view.positions_view(window(posed), tmp_path)[1]["cameras"] == 1
+
+
+# ---- the learned map's state (#259): what the 3D view says about learning, from the map step's summary
+
+
+def told(monkeypatch, **summary):
+    """Stand in for the map step's summary (spatial/surroundings_map.py's `summary`), in the shape it gives."""
+    whole = {"on": False, "sampling": [], "kept": 0, "waiting": 0, "running": False, "places": {}, **summary}
+    monkeypatch.setattr(view, "_summary", lambda state: whole)
+
+
+def learned(state, place=None, now=T):
+    """A revision as the map step writes one, with its splat: (the place, the revision)."""
+    first = places.latest(state, place) if place else None
+    rev = places.revise(
+        state, place, producer="surroundings v1", map_bytes=CLOUD, map_format="ply",
+        frame=first.frame if first else None, now=now,
+    )  # fmt: skip
+    places.write_splat(state, rev, master=b"ply", web=b"sog-bytes", source="surroundings")
+    return rev.place, rev
+
+
+@pytest.mark.parametrize(
+    ("summary", "learning"),
+    [
+        pytest.param({}, {"on": False, "cameras": 0, "improving": False}, id="off"),
+        pytest.param(
+            {"on": True, "sampling": ["cam0", "cam1"]}, {"on": True, "cameras": 2, "improving": False}, id="on"
+        ),
+        pytest.param(
+            {"on": True, "sampling": ["cam0"], "waiting": 3},
+            {"on": True, "cameras": 1, "improving": True},
+            id="on-with-frames-waiting",
+        ),
+    ],
+)
+def test_a_place_with_no_map_still_says_whether_learning_is_on(tmp_path, vision, monkeypatch, summary, learning):
+    place = places.revise(tmp_path, None, producer="owner plan", plan=PLAN, now=T).place
+    told(monkeypatch, **summary)
+    reply = view.scene(tmp_path, place)[1]
+    assert reply == {"place": place, "revision": None, "learning": {**learning, "views": None, "improved": None}}
+
+
+def test_a_learned_map_says_its_views_and_when_it_last_improved_not_another_places(tmp_path, vision, monkeypatch):
+    place, rev = learned(tmp_path)
+    other = {"revision": "r-other", "views": 99, "rounds": 9, "improved": T + 500}
+    mine = {"revision": rev.id, "views": 42, "rounds": 3, "improved": T - 60}
+    told(monkeypatch, places={"another-place": other, place: mine})
+    reply = view.scene(tmp_path, place)[1]
+    assert reply["learning"] == {"on": False, "cameras": 0, "improving": False, "views": 42, "improved": T - 60}
+    # learning is off: the splat is this map's own, and nothing is being added to it
+    assert (reply["splat_state"], reply["splat_from"], reply["splat_wait"]) == ("current", "surroundings", None)
+
+
+@pytest.mark.parametrize(
+    ("summary", "state"),
+    [
+        pytest.param({"on": True, "running": True}, "improving", id="a-step-is-running"),
+        pytest.param({"on": True, "waiting": 2}, "improving", id="frames-are-waiting"),
+        pytest.param({"on": True}, "current", id="on-with-nothing-to-add"),
+        pytest.param({"on": False, "waiting": 2}, "current", id="off-with-frames-left-waiting"),
+    ],
+)
+def test_a_learned_splat_is_improving_only_while_learning_is_adding_to_it(
+    tmp_path, vision, monkeypatch, summary, state
+):
+    place, _ = learned(tmp_path)
+    told(monkeypatch, **summary)
+    assert view.scene(tmp_path, place)[1]["splat_state"] == state
+
+
+def test_a_splat_made_some_other_way_is_never_called_improving(tmp_path, mapped, monkeypatch):
+    place, _ = mapped
+    places.write_splat(tmp_path, places.revisions(tmp_path, place)[-1], master=b"ply", web=b"sog-bytes")
+    told(monkeypatch, on=True, running=True)
+    assert view.scene(tmp_path, place)[1]["splat_state"] == "current"
+
+
+def test_a_newer_learned_splat_is_the_one_the_scene_names(tmp_path, vision, monkeypatch):
+    told(monkeypatch, on=True)
+    place, first = learned(tmp_path)
+    assert view.scene(tmp_path, place)[1]["splat_revision"] == first.id
+    _, second = learned(tmp_path, place, now=T + 30)
+    reply = view.scene(tmp_path, place)[1]
+    assert (reply["revision"], reply["splat_revision"]) == (second.id, second.id)
+    assert reply["splat"] == f"/places/splat?place={place}&revision={second.id}&format=sog"
+
+
+def test_a_revision_that_kept_the_map_shows_that_maps_splat_as_its_own(tmp_path, vision, monkeypatch):
+    # the floor or a camera set on a learned map is a revision with no map of its own: the splat is still this map's
+    told(monkeypatch)
+    place, rev = learned(tmp_path)
+    floored = places.revise(tmp_path, place, producer="floor v1", floor=FLOOR, now=T + 10)
+    reply = view.scene(tmp_path, place)[1]
+    assert (reply["revision"], reply["splat_revision"]) == (floored.id, rev.id)
+    assert (reply["splat_state"], reply["splat_wait"]) == ("current", None)
+
+
+def test_a_learned_map_without_its_splat_yet_says_its_on_its_way(tmp_path, vision, monkeypatch):
+    told(monkeypatch, on=True, running=True)
+    rev = places.revise(tmp_path, None, producer="surroundings v1", map_bytes=CLOUD, map_format="ply", now=T)
+    reply = view.scene(tmp_path, rev.place)[1]
+    assert (reply["splat_state"], reply["splat_wait"]["reason"]) == ("none", "learned")
+
+
+def test_without_the_map_step_installed_the_scene_reads_the_switch_alone(tmp_path, mapped, monkeypatch):
+    def missing(name):
+        raise ImportError(name)
+
+    monkeypatch.setattr(view.importlib, "import_module", missing)
+    place, _ = mapped
+    assert view.scene(tmp_path, place)[1]["learning"] == {
+        "on": False, "cameras": 0, "improving": False, "views": None, "improved": None,
+    }  # fmt: skip

@@ -18,7 +18,7 @@ import {
   type V3,
 } from './geometry';
 import { canDraw, canDrawSplat, openingCamera, parseCloud, readBytes, splatFault } from './load';
-import { loadingText, splatNote } from './status';
+import { learningNote, loadingText, splatNote } from './status';
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -263,7 +263,8 @@ it("says nothing about a splat that is the map's own, and why there is none othe
   const scene = { place: 'p1', revision: 'r2' };
   const wait = { tried: null, pass_at: '01:00' };
   expect(splatNote({ ...scene, splat: '/s', splat_state: 'current' })).toBeNull();
-  expect(splatNote({ ...scene, splat: '/s', splat_state: 'improving' })).toMatch(/^This splat is still improving/);
+  // a splat still improving is the map's own too: the line about learning says it's improving
+  expect(splatNote({ ...scene, splat: '/s', splat_state: 'improving' })).toBeNull();
   expect(splatNote({ ...scene, splat_state: 'none', splat_wait: { ...wait, reason: 'pass' } })).toBe(
     "No splat of this place yet. It's made from the fixed cameras' daytime frames, by a pass that runs at 01:00.",
   );
@@ -422,4 +423,64 @@ it('writes the collision as a GLB the viewer will take for one: a data URL endin
   // what the viewer checks: the last piece of the URL's path after a dot
   expect(new URL(url).pathname.split('.').pop()).toBe('glb');
   expect(url.startsWith('data:model/gltf-binary,%67%6c%54%46')).toBe(true);
+});
+
+// The line about learning (#259), in each state a place can be in. Times are worded in the reader's own zone, so
+// only their presence is checked.
+const learning = (more: object = {}) => ({
+  on: false,
+  cameras: 0,
+  improving: false,
+  views: null,
+  improved: null,
+  ...more,
+});
+
+it.each([
+  [
+    'no map, learning off',
+    { revision: null, learning: learning() },
+    /^No 3D map of this place yet\. Learning is off\. Turn on Learn surroundings on the Live tab, and a map is built from what the cameras see\.$/,
+  ],
+  [
+    'no map, learning on',
+    { revision: null, learning: learning({ on: true, cameras: 1 }) },
+    /^No 3D map of this place yet\. Learning is on\. A map appears here once the cameras have seen enough to start one\.$/,
+  ],
+  [
+    'no map, learning on with first views waiting',
+    { revision: null, learning: learning({ on: true, cameras: 1, improving: true }) },
+    /^No 3D map of this place yet\. Learning is on, and the cameras' first views are being put together\./,
+  ],
+  [
+    'no map, learning on with no camera',
+    { revision: null, learning: learning({ on: true }) },
+    /^No 3D map of this place yet\. Learning is on, but no camera is chosen to learn from\. Choose one on the Live tab\.$/,
+  ],
+  [
+    'a map still improving',
+    { revision: 'r2', learning: learning({ on: true, cameras: 2, improving: true, views: 42, improved: 1.8e9 }) },
+    /^Learning is on, and this map is still improving: new views are being added to it\. Built from 42 views, last improved .+\.$/,
+  ],
+  [
+    'a map with learning on and nothing to add',
+    { revision: 'r2', learning: learning({ on: true, cameras: 2, views: 1, improved: 1.8e9 }) },
+    /^Learning is on\. This map improves when the cameras see something it doesn't have yet\. Built from 1 view, last improved .+\.$/,
+  ],
+  [
+    'a map with learning off',
+    { revision: 'r2', learning: learning({ views: 42, improved: 1.8e9 }) },
+    /^Learning is off, so this map stays as it is\. Built from 42 views, last improved .+\. Turn on Learn surroundings on the Live tab to keep improving it\.$/,
+  ],
+  [
+    'a map learning never built',
+    { revision: 'r2', learning: learning() },
+    /^Learning is off, so this map stays as it is\. Turn on Learn surroundings on the Live tab to keep improving it\.$/,
+  ],
+])('says how the map is learned: %s', (_, more, text) => {
+  expect(learningNote({ place: 'p1', ...more })).toMatch(text);
+});
+
+it("says nothing about learning when the scene doesn't", () => {
+  expect(learningNote({ place: 'p1', revision: 'r2' })).toBeNull();
 });

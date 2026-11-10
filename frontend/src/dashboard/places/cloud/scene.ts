@@ -43,8 +43,19 @@ import type { Cloud } from './load';
 
 export type Colour = 'rgb' | 'height';
 
+/** Where the view looks from, in the viewer's frame, and the viewer's camera mode: what a view built again around
+ *  a newer map of the same place opens with, so it stays where the person had it. */
+export interface View {
+  position: V3;
+  target: V3;
+  fov: number;
+  mode: string;
+}
+
 /** Everything the view draws, built once per map (and splat), and what the page asks of it. */
 export interface Built {
+  /** Where the view looks from now, or null before the viewer has drawn. */
+  view: () => View | null;
   /** The overview: the whole place in view, in the viewer's orbit mode. */
   home: () => void;
   /** Fly to where a camera stands, looking where it looks. */
@@ -284,7 +295,7 @@ export async function build(
   data: Scene,
   cloud: Cloud,
   splat: ArrayBuffer | null,
-  opening: string | null,
+  opening: string | View | null,
 ): Promise<Built> {
   const floorPlane = data.floor ?? [0, 0, 1, 0];
   const [nx = 0, ny = 0, nz = 1] = floorPlane;
@@ -378,8 +389,10 @@ export async function build(
     const pose = poseOf(name);
     return pose ? [{ position: pose.position, title: name, text: '', camera: { initial: pose } }] : [];
   });
-  const first = opening ? poseOf(opening) : null;
-  settings.cameras = first ? [{ initial: first }] : [];
+  const kept = typeof opening === 'string' ? null : opening;
+  const first = typeof opening === 'string' ? poseOf(opening) : null;
+  const initial = kept ? { position: kept.position, target: kept.target, fov: kept.fov } : first;
+  settings.cameras = initial ? [{ initial }] : [];
 
   // With its length, so the viewer's loading bar knows when it's done. The viewer gets the file only once we're
   // listening for its load to fail (`hand`), so a failure can't come before anyone hears it.
@@ -536,10 +549,39 @@ export async function build(
       viewer.state.cameraMode = viewer.state.walkAllowed ? 'walk' : 'fly';
       draw();
     });
+  else if (kept)
+    // A view kept from the map before this one: where it was, moving as it was (orbit is the viewer's own start).
+    ready(() => {
+      if (kept.mode === 'fly' || (kept.mode === 'walk' && viewer.state.walkAllowed))
+        viewer.state.cameraMode = kept.mode;
+      draw();
+    });
   else home();
 
   return {
     home,
+    view: () => {
+      // The viewer has no call for where its camera is, so it's read from the engine: the viewer's own camera
+      // entity. Anything unexpected there means no view is kept, and the next map opens as a first one does.
+      try {
+        const camera = app.root.findByName('camera') as Entity | null;
+        if (gone || !viewer.state.loaded || !camera?.camera) return null;
+        const at = camera.getPosition();
+        const ahead = camera.forward;
+        const centreNow = inViewer(centre);
+        // The target is the point ahead that orbiting turns about: as far off as the middle of the place.
+        const reach = Math.max(0.5, Math.hypot(at.x - centreNow[0], at.y - centreNow[1], at.z - centreNow[2]));
+        const view: View = {
+          position: [at.x, at.y, at.z],
+          target: [at.x + ahead.x * reach, at.y + ahead.y * reach, at.z + ahead.z * reach],
+          fov: camera.camera.fov,
+          mode: viewer.state.cameraMode,
+        };
+        return [...view.position, ...view.target, view.fov].every(Number.isFinite) ? view : null;
+      } catch {
+        return null;
+      }
+    },
     lookFrom: name =>
       ready(() => {
         const at = names.indexOf(name);
