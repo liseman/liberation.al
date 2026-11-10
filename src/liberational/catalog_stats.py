@@ -1,4 +1,4 @@
-"""`pack-catalog-stats`: where the catalog file's bytes go, read-only, from one broker read snapshot (#1536).
+"""`pack-catalog-stats`: where the catalog file's bytes go, read-only, from one broker read snapshot.
 
 For each table: its rows, its pages (leaf and branch, at the page size), what they store (keys and values), their
 metadata (page headers and per-entry offsets), and their unused space (fragmented). Then the file: its apparent size,

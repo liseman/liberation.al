@@ -1,4 +1,4 @@
-"""Rename cameras (#3277): `pack-rename-camera OLD=NEW [OLD=NEW ...] [--dry-run]`, with the services stopped.
+"""Rename cameras: `pack-rename-camera OLD=NEW [OLD=NEW ...] [--dry-run]`, with the services stopped.
 
 A camera's name is its id everywhere: the device manifest, Continuum's streams, the segment store's slots, places,
 zones, settings, and the owner's labels. This moves what the owner taught and the machine state that follows the

@@ -129,7 +129,7 @@ def _templated_env(svc: Service) -> dict[str, str]:
 
 def environment(svc: Service) -> dict[str, str]:
     # The venv first, then mise's shims (tools like ffmpeg from mise.toml), then the installing shell's PATH, then the
-    # system directories whatever that shell had (#1386): capture runs sysctl, which is in /usr/sbin.
+    # system directories whatever that shell had: capture runs sysctl, which is in /usr/sbin.
     parts = [str(cfg.ROOT / ".venv" / "bin"), str(pathlib.Path.home() / ".local/share/mise/shims")]
     parts += os.environ.get("PATH", "").split(os.pathsep)
     parts += ["/usr/local/bin"] if DARWIN else []
@@ -159,7 +159,7 @@ def render_launchd(name: str, svc: Service) -> dict[str, str]:
         "EnvironmentVariables": environment(svc),
         "StandardOutPath": str(log_path(name)),
         "StandardErrorPath": str(log_path(name)),
-        # Seconds after SIGTERM before launchd kills it, the same as systemd's TimeoutStopSec (#1388).
+        # Seconds after SIGTERM before launchd kills it, the same as systemd's TimeoutStopSec.
         "ExitTimeOut": int(svc.get("stop_timeout", 20)),
     }
     if svc.get("schedule"):
@@ -197,7 +197,7 @@ def render_systemd(name: str, svc: Service) -> dict[str, str]:
         env,
         "StandardOutput=journal",
         "StandardError=journal",
-        # Seconds after SIGTERM before systemd kills it; its 90 s default could hold a stop from Settings' Services (#252).
+        # Seconds after SIGTERM before systemd kills it; its 90 s default could hold a stop from Settings' Services.
         f"TimeoutStopSec={svc.get('stop_timeout', 20)}",
     ]
     if not scheduled and svc.get("restart", True):
@@ -246,7 +246,7 @@ def _systemctl(verb: Sequence[str], units: Sequence[str]) -> dict[str, str | Non
     restart ask whether it's running (running them again would restart the healthy ones twice), and the rest are
     tried one at a time.
     One call matters: enable and disable each reload the whole manager unless told not to (about 0.7 s apiece on
-    devbox), which per unit made All off take about 8 s for nine services (#252)."""
+    the Linux machine), which per unit made All off take about 8 s for nine services."""
     if not units:
         return {}
     batch = _run("systemctl", "--user", *verb, *units)
@@ -304,7 +304,7 @@ def preflight(names: Sequence[str]) -> None:
 def _bootstrap(name: str) -> str | None:
     """Load a launchd job from its plist: None, or the error. A bootout returns before the job is gone; a bootstrap in
     that window fails with "Input/output error" (5) and the service stays down (ambient died this way after an
-    owner-voice merge, 2026-10-24). So wait for the label to disappear, then retry the bootstrap a few times."""
+    owner-voice merge). So wait for the label to disappear, then retry the bootstrap a few times."""
     domain = f"gui/{os.getuid()}"
     for _ in range(40):
         if _run("launchctl", "print", f"{domain}/pack.{name}").returncode != 0:
@@ -371,7 +371,7 @@ def uninstall(names: Sequence[str], anywhere: bool = False) -> None:
             (unit_dir() / f"pack.{name}.plist").unlink(missing_ok=True)
             print(f"removed {name}")
     if not DARWIN:
-        # Every unit at once: one stop (in parallel), one disable without a reload, then one reload (#252).
+        # Every unit at once: one stop (in parallel), one disable without a reload, then one reload.
         units = [
             u for name in names for u in (f"pack-{name}.timer", f"pack-{name}.service") if (unit_dir() / u).exists()
         ]
@@ -397,7 +397,7 @@ def _installed_only(names: Sequence[str]) -> list[str]:
 
 
 def stop(names: Sequence[str], anywhere: bool = False) -> None:
-    """Stop services now, leaving them installed and enabled (#423): they start again when the computer restarts
+    """Stop services now, leaving them installed and enabled: they start again when the computer restarts
     (systemd starts the user's units at boot with lingering on, else at the first login; launchd loads the kept plist
     at the next login), on Repair, or on `start`. `uninstall` is what keeps one off."""
     _check_checkout(anywhere)
@@ -465,7 +465,7 @@ def restart(names: Sequence[str], anywhere: bool = False, *, cascade: bool = Fal
         manager.start(names, deadline)
         service_cascade.wait_running_snapshot(manager, names, deadline)
     except Exception as error:
-        # Start them again before failing, so a stop that half worked doesn't leave them unloaded (#1387).
+        # Start them again before failing, so a stop that half worked doesn't leave them unloaded.
         retry = time.monotonic() + service_cascade.RECOVERY_WAIT
         failures = service_cascade.start_each(manager, names, retry)
         detail = str(error) + "".join(f"; recovery start failed: {f}" for f in failures)
@@ -504,7 +504,7 @@ def states() -> dict[str, str]:
 
 
 LOG_TAIL_BYTES = 64 * 1024  # how much of the end of a service's log last_error reads
-# A line's stamp (#1696): an ISO local date and time with offset, or in lines written before it, the time alone.
+# A line's stamp: an ISO local date and time with offset, or in lines written before it, the time alone.
 STAMP = r"(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-]\d\d:\d\d|\d\d:\d\d:\d\d)"
 ERROR_LINE = re.compile(STAMP + r" \[[^\]]*\] ERROR (.*)")
 # Any line logs.py or the broker wrote, and the stamped free text continuum-capture and the tier worker write.
@@ -523,7 +523,7 @@ def _launchd(name: str) -> dict[str, str]:
 
 
 def runs() -> dict[str, dict[str, Any]]:
-    """How each installed daemon has run (#297): {"restarts": how often the service manager restarted it, "up_s": how
+    """How each installed daemon has run: {"restarts": how often the service manager restarted it, "up_s": how
     long its current run has lasted, or None}. A crash loop is restarts climbing with a short current run; restarts
     alone can't tell one, since systemd's count only resets when the unit is started by hand. run_id identifies the
     current run without changing as uptime advances, so acknowledging its history cannot hide a later run.
@@ -853,8 +853,8 @@ CRASH_LOOP_RESTARTS = 3  # the frontend's CRASH_LOOP: fewer restarts don't estab
 
 
 def _dated(stamps: Sequence[str], end: float) -> list[float]:
-    """Epoch seconds for a log's stamps, in file order. A dated stamp (#1696) is its own time. A "HH:MM:SS" one, from
-    before then, carries no date, so it's dated backward from the next dated line, or the log's last write (end, its
+    """Epoch seconds for a log's stamps, in file order. A dated stamp is its own time. A "HH:MM:SS" one, from
+    before stamps carried the date, carries no date, so it's dated backward from the next dated line, or the log's last write (end, its
     mtime): a line later in the day than the one after it is from the day before."""
     last = datetime.datetime.fromtimestamp(end)
     day, bound = last.date(), last.hour * 3600 + last.minute * 60 + last.second + CLOCK_SLACK_S
@@ -948,8 +948,8 @@ def _run_began(state: str | None, run: dict[str, Any] | None) -> float | None:
     return max(now - RESTARTED_RECENTLY_S, now - up if up is not None else 0.0)
 
 
-# The process scan reads every process's /proc entry, which takes seconds while the services restart and load models
-# (#433). Keep the last answer for PROCESS_SCAN_TTL_S, and while a rescan runs, answer with the last one instead of
+# The process scan reads every process's /proc entry, which takes seconds while the services restart and load models.
+# Keep the last answer for PROCESS_SCAN_TTL_S, and while a rescan runs, answer with the last one instead of
 # waiting.
 PROCESS_SCAN_TTL_S = 5.0
 _scan_lock = threading.Lock()
@@ -1104,7 +1104,7 @@ def exec_service(name: str) -> None:
     Installed units keep this launcher rather than a snapshot of policy flags. Use the ordinary command here,
     without startup wrappers, so this cannot recurse through fresh_config or repeat the readiness wait. The
     service's templated env is filled in again too, over what the unit was installed with (the tier worker's
-    video_archive settings, #1479).
+    video_archive settings).
     """
     cfg.load.cache_clear()
     services = selected()

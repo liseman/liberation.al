@@ -1,9 +1,9 @@
 """Wait for the NVIDIA driver before execing a GPU service: `python -m liberational.gpu_ready -- <command>`.
 
 Service renderers opt in through services.toml's `wait_for_gpu`. A program that picks its device once at startup,
-like `ollama serve`, falls back to the CPU for good when it starts before the driver is up: on devbox on 2026-11-08
-the user services started at boot and the driver loaded ten minutes later, so Ollama ran every model on the CPU until
-it was restarted. This waits until `nvidia-smi -L` lists a GPU, then replaces itself with the service so signals and
+like `ollama serve`, falls back to the CPU for good when it starts before the driver is up: on the Linux machine
+the user services can start at boot before the driver loads ten minutes later, leaving Ollama running every model on the CPU until
+it is restarted. This waits until `nvidia-smi -L` lists a GPU, then replaces itself with the service so signals and
 exit status still belong to the service manager.
 
 A machine with no `nvidia-smi` (a Mac, a CPU-only box) execs at once: there's no driver to wait for. When the wait
@@ -22,7 +22,7 @@ from collections.abc import Callable, Sequence
 from liberational import logs
 
 LOG = logs.get("gpu-ready")
-WAIT_S = 900.0  # the driver loaded 10 minutes after boot on 2026-11-08
+WAIT_S = 900.0  # the driver can take 10 minutes to load after boot on the Linux machine
 POLL_S = 5.0
 
 

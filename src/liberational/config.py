@@ -35,7 +35,7 @@ from typing import Any, cast
 ROOT = pathlib.Path(os.environ.get("PACK_ROOT") or pathlib.Path(__file__).resolve().parents[2]).expanduser()
 DEFAULTS = ROOT / "config" / "defaults.toml"
 _LOG = logging.getLogger("liberational.config")
-LABELS = ROOT / "config" / "labels.toml"  # Settings' plain label, help, and section for each setting (#382)
+LABELS = ROOT / "config" / "labels.toml"  # Settings' plain label, help, and section for each setting
 SECTIONS = ("you", "devices", "features", "people", "phone", "services")  # Settings' menu, before Advanced
 
 # Older environment variable names that still work, checked after PACK_<SECTION>_<KEY>.
@@ -334,7 +334,7 @@ def _settings_defaults() -> dict[str, dict[str, Any]]:
 def labels() -> dict[str, dict[str, str | bool]]:
     """{key: {"label", "help", "section", "group", "order", "live"}} from config/labels.toml, for the keys it names; {} without the
     file. A section that isn't one of SECTIONS is left out, so the setting shows in Advanced only. "live" is true for
-    a setting its services follow without a restart (#384), so a save of only those restarts nothing (#400)."""
+    a setting its services follow without a restart, so a save of only those restarts nothing."""
     try:
         raw = tomllib.loads(LABELS.read_text())
     except OSError, tomllib.TOMLDecodeError:  # a broken file costs the plain words, never the settings themselves
@@ -371,7 +371,7 @@ def schema() -> list[dict[str, Any]]:
             value = get(key, _MISSING_HERE)
             if value is _MISSING_HERE:
                 # defaults.toml is read fresh here, but this process's config was read when it started: a setting
-                # added since (a merge, then pack.toml setting it) shows at its default until a restart (#498).
+                # added since (a merge, then pack.toml setting it) shows at its default until a restart.
                 if key not in _STALE_WARNED:
                     _STALE_WARNED.add(key)
                     _LOG.warning("%s is newer than this process's config; restart it to use the setting", key)

@@ -1,8 +1,8 @@
-"""This machine's processes, each read once (#2277): pid, parent, name, and command line, for the scans that find which
+"""This machine's processes, each read once: pid, parent, name, and command line, for the scans that find which
 processes are Liberational's (services.processes) and name them (the dashboard's /stats).
 
 Reading every process's command line on each scan was most of the Resource monitor's cost (about 1,000 processes on
-devbox, 70 to 90 ms of CPU a scan). Listing the pids is nearly free, so `table()` lists them each time, drops the ones
+the Linux machine, 70 to 90 ms of CPU a scan). Listing the pids is nearly free, so `table()` lists them each time, drops the ones
 that are gone, and reads only the new ones. A process younger than SETTLE_S when it was read may not have exec'd its
 own program yet (a fork still shows its parent's command line), so it's read again on the next call until it's older.
 
