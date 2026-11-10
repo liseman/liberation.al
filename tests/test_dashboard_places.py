@@ -4,13 +4,14 @@ import http.client
 import json
 from urllib.parse import urlsplit
 
+import numpy as np
 import pytest
 
 from liberational import segment_log as S
 from liberational.dashboard import places as view
 from liberational.dashboard import server
 from liberational.memory import places
-from liberational.spatial import floorplan, positions
+from liberational.spatial import floorplan, ply, positions
 
 T = 1_762_500_000.0
 PLAN = 'plan "Home" walls 0.2/0.1\nroom den "Den" living rect 0,0 4x6\n'
@@ -657,3 +658,50 @@ def test_a_view_that_isnt_one_is_refused(tmp_path, home):
     place, frame = home
     with pytest.raises(ValueError, match="view"):
         places.correct_plan(tmp_path, place, IN_FRAME, base=frame, view={"plan": PAGE, "turn": "a quarter"})
+
+
+def floor_points(x0, x1, y0, y1, step=0.05):
+    """A floor of map points over plan [x0, x1) x [y0, y1) under TRANSFORM (plan = map + (2, 3))."""
+    xs, ys = np.meshgrid(np.arange(x0, x1, step), np.arange(y0, y1, step))
+    return np.c_[xs.ravel() - 2.0, ys.ravel() - 3.0, np.zeros(xs.size)]
+
+
+def walked_place(tmp_path, walked_den, walked_hall, *, producer="tier1 fuse v1", signals=None):
+    den, hall = floor_points(0, 4, 0, 6), floor_points(4, 6, 0, 6)
+    walks = np.r_[np.full(len(den), int(walked_den)), np.full(len(hall), int(walked_hall))]
+    cloud = ply.dumps(np.r_[den, hall], counts={"seen": np.ones(len(walks), np.int64), "walked": walks})
+    rev = places.revise(
+        tmp_path, None, producer=producer, plan=TWO_ROOMS, map_bytes=cloud, map_format="ply", floor=FLOOR,
+        plan_transform=TRANSFORM, signals={"walkthrough": ["walk-a"]} if signals is None else signals, now=T,
+    )  # fmt: skip
+    return rev.place
+
+
+def listed(tmp_path, place):
+    return {r["id"]: r for r in view.listing(tmp_path, now=T + 60)[1]["places"]}[place]
+
+
+def test_a_place_never_walked_lists_no_walks_and_every_room_unwalked(tmp_path, vision):
+    row = listed(tmp_path, walked_place(tmp_path, False, False, signals={}))
+    assert row["walks"] == 0
+    assert row["unwalked_rooms"] == [{"id": "den", "name": "Den"}, {"id": "hall", "name": "Hall"}]
+
+
+def test_a_walked_place_lists_the_rooms_its_walks_didnt_cover(tmp_path, vision):
+    row = listed(tmp_path, walked_place(tmp_path, True, False))
+    assert row["walks"] == 1
+    assert row["unwalked_rooms"] == [{"id": "hall", "name": "Hall"}]
+
+
+def test_a_place_walked_everywhere_has_no_unwalked_rooms(tmp_path, vision):
+    assert listed(tmp_path, walked_place(tmp_path, True, True))["unwalked_rooms"] == []
+
+
+def test_a_walked_place_without_a_fused_map_cant_say_which_rooms(tmp_path, vision):
+    row = listed(tmp_path, walked_place(tmp_path, True, False, producer="cut3r walkthrough"))
+    assert row["walks"] == 1 and row["unwalked_rooms"] is None
+
+
+def test_a_place_without_a_plan_cant_say_which_rooms(tmp_path, vision):
+    rev = places.revise(tmp_path, None, producer="cameras-v1", now=T)
+    assert listed(tmp_path, rev.place)["unwalked_rooms"] is None

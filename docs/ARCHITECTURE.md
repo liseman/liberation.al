@@ -690,21 +690,7 @@ Core means the pack is not useful without it. Optional means the rest keeps work
 
 ## Recording a walkthrough
 
-Record with the free Stray Scanner app on an iPhone Pro or iPad Pro that has LiDAR. Portrait and landscape both work. Hold the phone at chest height, roughly level (slightly down is fine), with the LiDAR window uncovered.
-
-Start in a well-lit, textured room and go room by room. Come back through a hallway or the living room at least once partway through, and end where the walk started. Those returns are the loop closures. Walk slowly, about 0.5 m/s, and turn slowly. Pause 1 to 2 seconds at each doorway. In each room, stay about 1 m from the walls and face them, so the LiDAR, which reaches about 5 m, sees every wall and corner. Look along hallways.
-
-Avoid mirrors and big windows, dark rooms, and people or pets walking through. Avoid a long stretch pointed at a blank wall up close, or only at the floor or the ceiling. Keep one recording to one storey, and to about 5 minutes.
-
-AirDrop or copy the export folder to this machine, somewhere outside the repo. Use the folder that contains `rgb.mp4` and `odometry.csv` (and its depth frames), not the video on its own. From the repo:
-
-```
-uv run pack-walkthrough <folder>
-```
-
-That starts a new place. Pass `--place ID` to add the walk to a place that is already there. An id that is not a place is refused.
-
-A plain phone video also works, as `uv run pack-walkthrough <video>`. That path uses CUT3R, needs CUDA, and drifts on a long walk. A Stray Scanner export gives metric, gravity-aligned poses. It needs CUDA only when a revisit is closed, and on a Mac it is the path that runs (`--keyframes-only` also runs there; a video does not).
+[WALKTHROUGH.md](WALKTHROUGH.md) has the steps to record a walk and import it, and how Known › Places marks the places and rooms that need one (#3).
 
 Paths in this document are relative to `src/liberational/` unless they start with `tools/` or `tests/`. Other modules are CLIs (`camera_rename.py` (`pack-rename-camera OLD=NEW ... [--dry-run]`: renames cameras across owner-taught and segment-store state with the services stopped, and prints the config edits; its docstring lists what moves and what ages out, #3277), `vision/faces.py` (`pack-faces`), `speech/voice_clone.py` (`pack-voice-clone`), `speech/clone_say.py` (`pack-clone-say`), `speech/clone_tts_cli.py` (`pack-clone-tts`), `phone/outbound.py`, `phone/call.py` (`pack-call`, `pack-phone-call`), `phone/eval.py` (`pack-call-eval`), `phone/review.py` (`pack-call-review`), `memory/ask.py` (`pack-ask`), `assistant/ask_friends.py` (`pack-ask-friends`), `config.py` (`pack-config`), `services.py` (`pack-services`), `continuum_status.py` (`pack-continuum-status`), `catalog_stats.py` (`pack-catalog-stats`), `system_packages.py` (`pack-system`), `knowledge_cli.py` (`pack-knowledge`), and `reset_catalog.py` (`pack-reset-catalog`)), benchmarks (`tools/phase0_check.py`, `tools/phase1_harness.py`, `tools/measure.py`, and `tools/measure_movement_entries.py`, which score identification, history answers, and entry and exit counters, against the hand-made labels in [MEASUREMENT.md](MEASUREMENT.md)), drivers (`audio/xvf3800.py` (`pack-xvf3800`) for the ReSpeaker mic array), demos (`tools/oakd_demo.py`). `domain/` holds the plain types of the domain model ([DOMAIN-MODEL.md](DOMAIN-MODEL.md)) and the event log port (`domain/eventlog.py`). `knowledge_eventlog.py` adapts the independent SQLite store to the event-log protocol, and `people/registry.py` writes identity events through it. `memory_log.py` stores interpretations on broker streams. Tests live in `tests/`.
 

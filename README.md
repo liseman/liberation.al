@@ -147,8 +147,9 @@ and `odometry.csv`) to this machine, outside the repository, then:
 uv run pack-walkthrough <folder>
 ```
 
-The place shows up under Known, in Places. [Recording a walkthrough](docs/ARCHITECTURE.md#recording-a-walkthrough)
-has the full advice, and the plain-video alternative.
+The place shows up under Known, in Places, which also marks the places and rooms no walk has covered yet.
+[Recording and importing a walkthrough](docs/WALKTHROUGH.md) has the full advice, adding a walk to a place that's
+already there, and the plain-video alternative.
 
 ## Name people
 
