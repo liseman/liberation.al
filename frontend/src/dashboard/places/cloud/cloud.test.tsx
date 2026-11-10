@@ -237,13 +237,9 @@ it('says when a place has no 3D map yet, or one in a format it cannot draw', asy
   expect(await screen.findByText(/format the view can't draw yet \(spz\)/)).toBeTruthy();
 });
 
-it('opens a splat from a view it trained on: a walk splat from the walk, else a fixed camera', () => {
-  const names = ['dining', 'walk-0m00s', 'porch', 'walk-0m11s'];
-  expect(openingCamera(names, 'walk')).toBe('walk-0m00s');
-  expect(openingCamera(names, 'cameras')).toBe('dining');
-  expect(openingCamera(names, null)).toBe('dining');
-  expect(openingCamera(['dining'], 'walk')).toBeNull();
-  expect(openingCamera([], 'cameras')).toBeNull();
+it('opens a splat from the first camera it trained on, and from the overview with none', () => {
+  expect(openingCamera(['dining', 'porch'])).toBe('dining');
+  expect(openingCamera([])).toBeNull();
 });
 
 it("turns the map so its floor's up is the viewer's up, by the smallest turn", () => {
