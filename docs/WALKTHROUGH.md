@@ -68,6 +68,12 @@ uv run pack-walkthrough <folder> --match
 doesn't register there is stored as a place of its own, and the run says so). With neither, the walk always starts a
 new place.
 
+The run prints how the cameras were held, each as before and after revisits were closed: `tilt_deg` (how far they
+tilt from upright, which for a phone looking slightly down is how far it looks down: 10 to 20 degrees is normal),
+`lean_deg` (how far they lean sideways: a few degrees at most, and more means the recording's up is wrong), and
+`height_span_m` (the range of their heights, which follows the hand and any step in the floor). A Stray Scanner
+walk keeps the heights ARKit recorded: only a revisit moves its frames.
+
 A plain phone video (.mp4, .mov, or .m4v) also works, dropped the same way or as
 `uv run pack-walkthrough <video>`. That path uses CUT3R, needs CUDA, and drifts on a long walk, and the page refuses
 a video on a Mac. A Stray Scanner export gives metric, gravity-aligned poses. It needs CUDA only when a revisit is
