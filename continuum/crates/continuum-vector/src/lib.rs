@@ -1,4 +1,4 @@
-//! LanceDB storage for Continuum's vector worker (#546, docs/CONTINUUM.md decisions 4 and 5, "Forgetting").
+//! LanceDB storage for Continuum's vector worker (docs/CONTINUUM.md decisions 4 and 5, "Forgetting").
 //!
 //! One table per embedding space (a model and its version), and one `texts` table with a full-text index over
 //! interpretation text. Every row is keyed by the payload id it came from, with an optional entity id (the person or

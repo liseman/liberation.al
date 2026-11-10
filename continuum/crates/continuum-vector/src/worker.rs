@@ -1,5 +1,4 @@
-//! The vector worker's loop: dispatched searches in, result payloads out, purge notices acknowledged (#546;
-//! docs/CONTINUUM.md, "Vector worker").
+//! The vector worker's loop: dispatched searches in, result payloads out, purge notices acknowledged (//! docs/CONTINUUM.md, "Vector worker").
 //!
 //! The worker registers two capabilities, [`VECTOR_SEARCH`] and [`TEXT_SEARCH`]. The broker dispatches a job whose
 //! one input is a query payload ([`VECTOR_QUERY`] or [`TEXT_QUERY`]); [`SearchWorker::handle`] answers it from the

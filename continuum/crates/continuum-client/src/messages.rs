@@ -324,7 +324,7 @@ pub(crate) fn ingest_numbered(
     ingest_depending(request_id, header, at, &[])
 }
 
-/// An `IngestNotice` with its dependencies (minor 31, #1535); none is the plain notice.
+/// An `IngestNotice` with its dependencies (minor 31); none is the plain notice.
 pub(crate) fn ingest_depending(
     request_id: u64,
     header: &continuum_core::HeaderBuf,

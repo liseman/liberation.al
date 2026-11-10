@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Import an owner-supplied floorplan as a place's owner plan (#3276; spatial/plan_import.py says how it registers).
+"""Import an owner-supplied floorplan as a place's owner plan (spatial/plan_import.py says how it registers).
 
 Dry run (the default) prints the fit, the cameras, and the day's position rows by room before and after; nothing is
 written. `--write` stores the registered plan as the place's owner plan (memory/places.py `correct_plan`, source

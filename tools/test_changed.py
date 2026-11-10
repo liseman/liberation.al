@@ -1,4 +1,4 @@
-"""Run the tests that cover what changed, and only those (#270; AGENTS.md, "Run only the tests you need").
+"""Run the tests that cover what changed, and only those (AGENTS.md, "Run only the tests you need").
 
     mise run test-changed                 # against origin/main: committed, staged, and unstaged changes
     mise run test-changed -- --base main  # against another ref

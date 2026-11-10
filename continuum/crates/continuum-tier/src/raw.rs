@@ -1,9 +1,9 @@
-//! A camera's raw video in Tier 1 (#900): short-GOP H.264 instead of LZ4.
+//! A camera's raw video in Tier 1: short-GOP H.264 instead of LZ4.
 //!
 //! A camera that can't send MJPEG (the Mac's, through AVFoundation, give UYVY) would otherwise fill Tier 1 with raw
 //! frames: 1280x720 UYVY at 30 fps is about 200 GB an hour, and LZ4 barely shrinks camera noise (about 120 GB). So the
 //! tier worker encodes each raw frame as it lands ([`RawEncoder`]): H.264 with a keyframe every second, low delay (no
-//! lookahead or B-frames holding frames back), hardware first (NVENC on devbox's GPU, VideoToolbox on the Mac, then
+//! lookahead or B-frames holding frames back), hardware first (NVENC on the Linux machine's GPU, VideoToolbox on the Mac, then
 //! libx264), about a gigabyte an hour. Each access unit is one record of a [`crate::ChunkFormat::H264Au`] chunk (see
 //! [`crate::worker`]). H.264 rather than HEVC so a browser plays it.
 //!

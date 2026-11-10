@@ -53,7 +53,7 @@ fn recording_meta(r: &impl Reader, stream: StreamId) -> Result<crate::recording:
     }
     Ok(crate::recording::Meta::default())
 }
-/// An instant audio original still holding its stream's history unknown (#1669).
+/// An instant audio original still holding its stream's history unknown.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct InstantOriginal {
     /// Its stream.
@@ -75,7 +75,7 @@ fn recording_reason(row: &crate::recording::Row, audio: bool) -> bool {
     !row.subjects_complete || (audio && !row.scope_only && !row.bound && row.input.spans.is_empty() && row.reach() <= 1)
 }
 
-/// Once, at open (#1669): a stream whose current-era history is marked unknown gets it back when none of its rows is
+/// Once, at open: a stream whose current-era history is marked unknown gets it back when none of its rows is
 /// still a reason (`recording_reason`). Nothing else ever resets the mark, so a stream stayed unknown after the
 /// original that caused it had gone, and with it every camera whose aging reads that microphone.
 ///
@@ -392,7 +392,7 @@ fn invalidation_key(stream: StreamId) -> Vec<u8> {
     Out::new().raw(b"invalidation:").u32(stream.0).done()
 }
 
-/// Where a stream's last forget left its revision (#1587). Absent until the first age-out after this was built: then
+/// Where a stream's last forget left its revision. Absent until the first age-out after this was built: then
 /// every earlier change counts as a forget, so the current revision is the mark.
 fn forgotten_key(stream: StreamId) -> Vec<u8> {
     Out::new().raw(b"forgotten_at:").u32(stream.0).done()
@@ -403,7 +403,7 @@ fn forgotten_key(stream: StreamId) -> Vec<u8> {
 fn invalidate(w: &mut W, stream: StreamId) -> Result<()> {
     let revision = bump(w, stream)?;
     w.put(META, &forgotten_key(stream), &revision.to_be_bytes())?;
-    // A worker's state built from this stream may hold what changed: it goes in the same transaction (#1547).
+    // A worker's state built from this stream may hold what changed: it goes in the same transaction.
     let mut workers = Vec::new();
     w.prefix(WORKER_STATE_INPUTS, &worker_state::input_prefix(stream), |k, _| {
         workers.push(k[4..].to_vec());
@@ -415,7 +415,7 @@ fn invalidate(w: &mut W, stream: StreamId) -> Result<()> {
     Ok(())
 }
 
-/// An age-out's change (#1587): readers' caches see it, but aging isn't forgetting, so what was built from the aged
+/// An age-out's change: readers' caches see it, but aging isn't forgetting, so what was built from the aged
 /// rows stays right: a dependency or worker state read before it is still good.
 fn invalidate_aged(w: &mut W, stream: StreamId) -> Result<()> {
     let key = forgotten_key(stream);
@@ -657,7 +657,7 @@ fn k_dep_of(id: Uuid, stream: u32, start: u64) -> Vec<u8> {
     Out::new().id(id).u32(stream).u64(start).done()
 }
 
-/// Stores `id`'s dependencies (#1535), each one row by (stream, start) for a purge's overlap scan and one by `id` to
+/// Stores `id`'s dependencies, each one row by (stream, start) for a purge's overlap scan and one by `id` to
 /// drop them when it goes.
 fn put_dependencies(w: &mut W, id: Uuid, deps: &[Dependency]) -> Result<()> {
     for d in deps {
@@ -995,7 +995,7 @@ fn cut(w: &mut W, purge: Uuid, job: &mut Job, chunk: Uuid, index: u32, delta: &m
             doom(w, purge, job, c, false, delta)?;
         }
     }
-    // What depended on the cut frame's stretch of the stream (#1535) goes too.
+    // What depended on the cut frame's stretch of the stream goes too.
     for d in dependents(w, stream.0, slot)? {
         doom(w, purge, job, d, false, delta)?;
     }
@@ -1004,7 +1004,7 @@ fn cut(w: &mut W, purge: Uuid, job: &mut Job, chunk: Uuid, index: u32, delta: &m
 
 /// `age_out`: an age-out's removal, which in place of taking the span out of coverage records it as aged out. Either
 /// way the children's `PROV_PARENTS` lists forget it, kept even when empty so a child still reads as derived; their
-/// headers still name it (#1576).
+/// headers still name it.
 /// `aged_gap` is `Some(merge_gap_ns)` for an age-out (its span is recorded as aged), `None` for any other purge.
 fn remove_one(w: &mut W, purge: Uuid, id: Uuid, aged_gap: Option<u64>, delta: &mut PurgeDelta) -> Result<()> {
     if let Some(entry) = doomed_entry(w, id)? {
@@ -1330,7 +1330,7 @@ fn expand(w: &mut W, purge: Uuid, job: &mut Job, id: Uuid, delta: &mut PurgeDelt
     for c in children(w, id)? {
         doom(w, purge, job, c, false, delta)?;
     }
-    // What depended on its stretch of its stream (#1535) goes too. An absorbed frame's are found through its cut.
+    // What depended on its stretch of its stream goes too. An absorbed frame's are found through its cut.
     if let Some(h) = header_of(w, id)?
         && let Some(span) = h.span()
     {
@@ -1599,14 +1599,14 @@ pub struct RedbCatalog {
     /// The native streams still marked unknown after `open`, each with why the repair held it back.
     recording_held: Vec<(u32, String)>,
     open_timings: OpenTimings,
-    /// When the last durable (fsynced) commit was, and whether commits since are waiting for one (#1958).
+    /// When the last durable (fsynced) commit was, and whether commits since are waiting for one.
     durable: Mutex<std::time::Instant>,
     undurable: AtomicBool,
 }
 
 /// How long ordinary commits go without an fsync. Each commit is atomic and consistent either way; a crash loses at most
-/// the commits of about this long. Fsyncing every writer tick was about 170 fsyncs a second on devbox, most of the
-/// disk's busy time (#1958).
+/// the commits of about this long. Fsyncing every writer tick was about 170 fsyncs a second on the Linux machine, most of the
+/// disk's busy time.
 pub const DURABLE_EVERY: std::time::Duration = std::time::Duration::from_secs(1);
 
 impl RedbCatalog {
@@ -1616,13 +1616,13 @@ impl RedbCatalog {
         self.open_timings
     }
 
-    /// The streams whose current-era recording history this open restored (#1669), for the broker to log.
+    /// The streams whose current-era recording history this open restored, for the broker to log.
     #[must_use]
     pub fn recording_restored(&self) -> &[u32] {
         &self.recording_restored
     }
 
-    /// The instant audio originals that still hold their stream's history unknown (#1669), each with the chunk and
+    /// The instant audio originals that still hold their stream's history unknown, each with the chunk and
     /// frame index that hold its samples once it has been flushed. Read-only.
     ///
     /// # Errors
@@ -1661,7 +1661,7 @@ impl RedbCatalog {
         })
     }
 
-    /// Gives an instant audio original the end its own samples bound (#1669): its row stays unknown, now over
+    /// Gives an instant audio original the end its own samples bound: its row stays unknown, now over
     /// `[start, end_ns)` instead of no extent, so it no longer holds the whole stream; then the stream is restored if
     /// nothing else holds it. The caller derives `end_ns` from the original's stored samples. Returns whether the
     /// stream's history is known after.
@@ -1701,7 +1701,7 @@ impl RedbCatalog {
         })
     }
 
-    /// The native streams this open left marked unknown, each with why (#1669), for the broker to log.
+    /// The native streams this open left marked unknown, each with why, for the broker to log.
     #[must_use]
     pub fn recording_held(&self) -> &[(u32, String)] {
         &self.recording_held
@@ -1769,7 +1769,7 @@ impl RedbCatalog {
     /// An open that redb refuses as corrupt leaves the marker `path.open-failed`, saying why, and every later open
     /// refuses at once while it is there, without touching the file: each attempt otherwise runs redb's repair again,
     /// which rewrites the file's header, so a supervisor restarting the broker would keep changing the evidence (and
-    /// possibly the file) every few seconds (#1383). Remove the marker to try again, after keeping a copy of the file.
+    /// possibly the file) every few seconds. Remove the marker to try again, after keeping a copy of the file.
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let opened_at = std::time::Instant::now();
         let path = path.as_ref().to_path_buf();
@@ -2098,7 +2098,7 @@ impl RedbCatalog {
     ) -> Result<Vec<Inserted>> {
         // Already indexed with identical header bytes (or earlier in this batch): its commit sequence, unwritten.
         // A frame a chunk absorbed since, sent again with the stream and start its frame index holds, is a repeat
-        // too, answering the chunk's sequence (#685): the frame's own header is gone, the chunk's stands for it.
+        // too, answering the chunk's sequence: the frame's own header is gone, the chunk's stands for it.
         // Each entry is (the payload's id, whether it is a repeat, the payload whose sequence answers).
         let mut fresh: Vec<NewPayload> = Vec::new();
         let mut first: std::collections::HashMap<Uuid, usize> = std::collections::HashMap::new();
@@ -3053,7 +3053,7 @@ impl Catalog for RedbCatalog {
                         "chunk {id} absorbs {f}, which has parents (not a raw frame)"
                     )));
                 }
-                // A payload with dependencies (#1535) is derived as much as one with parents: absorbing it would
+                // A payload with dependencies is derived as much as one with parents: absorbing it would
                 // drop its header and commit sequence, and its frame row is pruned an hour on.
                 let mut dependent = false;
                 w.prefix(DEPS_OF, &f.0, |_, _| {
@@ -3102,7 +3102,7 @@ impl Catalog for RedbCatalog {
             }
             Self::check(w, std::slice::from_ref(&chunk.payload))?;
             // Every absorbed frame keeps its row: a consumer slower than the tier worker (ASR, a VLM) commits a child a
-            // second or more after its parent frame was absorbed, and the parent must still resolve (#848's cause).
+            // second or more after its parent frame was absorbed, and the parent must still resolve.
             for (f, h, index) in frames_out {
                 let subjects = h.subjects();
                 let value =
@@ -4493,7 +4493,7 @@ mod scrub_tests {
         )
         .unwrap();
         c.purge(PurgeSelector::Entity(forget), "test", "", id(9_000_000), 1).unwrap();
-        // Commits fsync about once a second (#1958), so a crash may lose the last second of them by design. What
+        // Commits fsync about once a second, so a crash may lose the last second of them by design. What
         // this test pins is the scrub's own crash safety: every write made durable before the crash survives it.
         c.flush_durable().unwrap();
         let mut acked = std::fs::File::create(dir.join("acked")).unwrap();
@@ -4716,7 +4716,7 @@ mod close_tests {
         assert_eq!(reopened.load_cost_models().unwrap().as_deref(), Some(&b"costs"[..]));
     }
 
-    /// #1958: commits within DURABLE_EVERY of the last durable one skip the fsync; a flush or a clean close makes
+    /// Commits within DURABLE_EVERY of the last durable one skip the fsync; a flush or a clean close makes
     /// every one of them durable.
     #[test]
     fn commits_inside_the_durability_window_are_pending_until_a_flush_or_close() {

@@ -106,7 +106,7 @@ pub fn read_overlapping(root: &Path, stream: &str, cams: Option<&[&str]>, t0: u6
 }
 
 fn read_window(root: &Path, stream: &str, cams: Option<&[&str]>, t0: u64, t1: u64, overlap: bool) -> Result<Read> {
-    // The log read once for the revision and every camera's filters (#3210), so both come from the same snapshot.
+    // The log read once for the revision and every camera's filters, so both come from the same snapshot.
     let log = crate::deletions::all(root)?;
     let mut out = Read { revision: log.last().map_or(0, |d| d.revision), ..Read::default() };
     if t1 <= t0 {
@@ -297,7 +297,7 @@ impl Follower {
     }
 
     /// [`Follower::poll`], waiting up to `timeout` for rows when there are none yet, off any lock of the caller's.
-    /// On Linux it sleeps until a part in its directories is written, made, or renamed (#3211); elsewhere it checks
+    /// On Linux it sleeps until a part in its directories is written, made, or renamed; elsewhere it checks
     /// again every [`WAIT_STEP`].
     ///
     /// # Errors

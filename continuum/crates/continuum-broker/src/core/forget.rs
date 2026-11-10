@@ -332,7 +332,7 @@ impl Sched {
         }
         // At most MAX_IN_FLIGHT notices now: a keeper back from a long outage can be owed thousands, more than its
         // session's outbound queue holds, and sending them all at once got it closed for not reading before it
-        // could acknowledge any, so it never caught up (a Mac, 2026-11-02: 1541 owed, the tier worker
+        // could acknowledge any, so it never caught up (on the Mac: 1541 owed, the tier worker
         // reconnecting every 12 s). The rest are marked owed and go out at the tick as acknowledgements come in.
         let mut budget = MAX_IN_FLIGHT;
         let ids: Vec<Uuid> = self.forget.awaiting.keys().copied().collect();

@@ -1,4 +1,4 @@
-//! The segment store in Python (#1755, `continuum_segments`): `SegmentWriter(root, stream, camera, schema)` with
+//! The segment store in Python (`continuum_segments`): `SegmentWriter(root, stream, camera, schema)` with
 //! `append(columns)`, `read_segments(root, stream, t0, t1, cameras)`, and `SegmentFollower(...).poll()`.
 //!
 //! A schema is a list of `(name, type)` pairs. It must have `ts_ns` as `"i64"`; the store adds `row_seq`. Types:
