@@ -1,4 +1,4 @@
-"""Who made a device, and what kind it is, from public registries, offline (#3267).
+"""Who made a device, and what kind it is, from public registries, offline.
 
 Known › Devices names a device by what it calls itself; most Bluetooth devices call themselves nothing, so the card
 says who made it instead. The sources, in order of trust:

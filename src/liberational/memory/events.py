@@ -1,5 +1,5 @@
-"""Detected activity for count questions (#228): see-actions' walk-by spans (`walkby.span`) and model actions
-(`action.span`) in the segment store, as memory/event_counts.py reads them. Retired rules are excluded (#1742).
+"""Detected activity for count questions: see-actions' walk-by spans (`walkby.span`) and model actions
+(`action.span`) in the segment store, as memory/event_counts.py reads them. Retired rules are excluded.
 
 - events(state, start, end): the promoted spans as {id, camera, start, end, count, name, person, kind}. `count` is
   supplied only when the model measures repetitions. `name` is the owner's name for it (an `activity.named`
@@ -13,11 +13,11 @@ latest retained verdict per event. A camera angle with enough ratings overrides 
 sources are rejected, not unknown candidates. Non-crossing kinds require sufficient Right feedback; crossings keep
 their existing eligible default until sufficient feedback demotes them. Camera-motion exclusions remain per span.
 
-Owner names and ratings are what the owner taught, so they live in the knowledge store (knowledge.sqlite3,
-#1832), outside the catalog reset: `activity.named` and `activity.feedback` records keyed by the span's id, over its
-time, with its kind, camera, and source stream. A rating without its source stream is from the rule-based era, whose
-kinds the model reuses, so it is left out of calibration. promotion_measurements exposes the current
-owner-agreement aggregates; these are an owner-selected cohort, not held-out detector accuracy or recall.
+Owner names and ratings are what the owner taught, so they live in the knowledge store (knowledge.sqlite3), outside the
+catalog reset: `activity.named` and `activity.feedback` records keyed by the span's id, over its time, with its kind,
+camera, and source stream. A rating without its source stream is from the rule-based era, whose kinds the model reuses,
+so it is left out of calibration. promotion_measurements exposes the current owner-agreement aggregates; these are an
+owner-selected cohort, not held-out detector accuracy or recall.
 
 """
 
@@ -35,10 +35,10 @@ from liberational.memory import activity_kinds
 from liberational.people import registry
 
 JOIN_S = 1.0  # coverage stretches this close together are one
-# Kinds only the retired rules produced (#1742): never projected, rated, or annotated. see-actions' model reuses
+# Kinds only the retired rules produced: never projected, rated, or annotated. see-actions' model reuses
 # some of the old names (sit_down, stand_up, phone_use), so those count again.
 RETIRED_KINDS = frozenset({None, "still", "repeated_movement", "pickup", "putdown", "eating_or_drinking"})
-NAMED = "activity.named"  # knowledge-store collections (#1832)
+NAMED = "activity.named"  # knowledge-store collections
 FEEDBACK = "activity.feedback"
 MAX_ANNOTATIONS = 50_000  # owner names or ratings read at once; more is an error, never a truncated cohort
 _STORES: dict[Path, knowledge.Store] = {}
@@ -80,7 +80,7 @@ def _names(state: Any, start: float, end: float) -> dict[str, str]:
 
 def _votes(state: Any, *, deleted: bool = False) -> list[dict[str, Any]]:
     """The owner's latest Right or Wrong per span, with the span's kind and camera. A rating without its source
-    stream (the rule-based era's, imported by #1796) is left out, and so is a deleted activity's (#3244) unless
+    stream (the rule-based era's) is left out, and so is a deleted activity's unless
     `deleted`."""
     if not registry.knowledge_path(state).exists():
         return []
@@ -183,7 +183,7 @@ class _Promotion:
 
 def kind_answers(state: Any) -> tuple[dict[str, int], dict[str, dict[str, Any]]]:
     """Per activity kind, how many clips the owner answered (deleted activities' too, which a restore brings back),
-    and the live kinds' counting status in Ask, as promotion_measurements' kind-wide rows (#3244)."""
+    and the live kinds' counting status in Ask, as promotion_measurements' kind-wide rows."""
     answered: dict[str, int] = {}
     for vote in _votes(state, deleted=True):
         if isinstance(vote.get("kind"), str):
@@ -198,8 +198,8 @@ def promotion_measurements(state: Any) -> list[dict[str, Any]]:
 
 
 def _spans(state: Any, start: float, end: float) -> list[dict[str, Any]]:
-    """Every activity span overlapping [start, end), from the segment store (#1779): see-actions' walk-bys and model
-    actions, oldest first, with retired kinds and the owner's deleted activities (#3244) left out. Each carries its
+    """Every activity span overlapping [start, end), from the segment store: see-actions' walk-bys and model
+    actions, oldest first, with retired kinds and the owner's deleted activities left out. Each carries its
     `stream`."""
     log = segment_log.at(state)
     gone = RETIRED_KINDS | activity_kinds.deleted(state)
@@ -400,7 +400,7 @@ def _annotate_activity(
     }
     classes = _profile(state, source)
     if classes:
-        value["classes"] = classes  # what activity_kinds.learned learns from (#3244)
+        value["classes"] = classes  # what activity_kinds.learned learns from
     record = knowledge.Record(str(uuid.uuid7()), collection, source["id"], _ns(start), _ns(end), time.time_ns(), value)
     _store(state).put([record])
     return {**value, "ts_start": start, "ts_end": end}
@@ -410,7 +410,7 @@ PROFILE_TOP = 5  # classes an answer keeps per model
 
 
 def _profile(state: Any, source: dict[str, Any]) -> dict[str, list[list[Any]]]:
-    """What the models saw in a span, kept with each answer for activity_kinds.learned (#3244): per model ("ntu",
+    """What the models saw in a span, kept with each answer for activity_kinds.learned: per model ("ntu",
     "kinetics"), its PROFILE_TOP classes by mean score over the span's track's windows, [name, score] pairs, most
     first. A span with no track (a walk-by) or no windows left (a reset) keeps none."""
     from liberational.see import action_clips

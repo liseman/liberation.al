@@ -23,8 +23,8 @@
                                        one it replaces stays in the history (memory/places.py `restore_plan`)
     GET /places/scene?place=           the 3D view's scene: the newest revision with a map, its map's URL and
                                        size, its splat's when it has one (its own, else the newest made in the same
-                                       map frame; one from another frame is only named, `splat_stale`), its floor
-                                       plane, plan transform, registered cameras, and the plan in its frame;
+                                       map frame; one from another frame is only named, `splat_stale`) and what
+                                       it was trained from (`splat_from`: "walk" or "cameras"), its floor plane, plan transform, registered cameras, and the plan in its frame;
                                        {revision: null} while the place has no map
     GET /places/map?place=&revision=   that revision's map file (a point cloud, PLY), with byte ranges, an ETag, and
                                        caching for good: a revision's files never change once written
@@ -217,6 +217,19 @@ def splat_file(state: Path, place: str, revision: str) -> Path | None:
     return places.splat_path(state, rev, "spz") if rev and places.has_splat(state, rev) else None
 
 
+WALK_PREFIX = "walk-"  # a walk's look-from views (spatial/splats.py LOOK_PREFIX), not fixed cameras
+
+
+def _walk_splat(chain: Sequence[places.Revision], splatted: places.Revision) -> bool:
+    """Whether `splatted`'s splat was trained from a walk's frames rather than the fixed cameras' (#44): a walk's
+    splat is made for the revision its import wrote (spatial/splats.py `splat_walk`), the first to hold the walk's
+    look-from cameras, while the daily fixed-camera splat lands on a later revision, which inherits them. So it's a
+    walk's when `splatted` has walk cameras that the revision before it in `chain` lacks."""
+    at = next((i for i, r in enumerate(chain) if r.id == splatted.id), None)
+    before = set(chain[at - 1].cameras) if at else set()
+    return any(cam.startswith(WALK_PREFIX) and cam not in before for cam in splatted.cameras)
+
+
 def scene(state: Path, place: str) -> Reply:
     """GET /places/scene: what the 3D view draws for a place, all in its map's frame (metres). The plan is the one in
     that revision's frame: the owner's correction when it's drawn in this revision's frame (its plan_revision uses the
@@ -245,6 +258,7 @@ def scene(state: Path, place: str) -> Reply:
     except FileNotFoundError:  # pruned since it was found
         shown, splat_size = None, None
     stale = with_splat[-1] if shown is None and with_splat else None
+    walk_splat = shown is not None and _walk_splat(chain, shown)
     # an owner plan drawn in a revision with no plan file is in its floor's frame
     transform = places.plan_frame(rev) if owner else rev.plan_transform
     return 200, {
@@ -259,6 +273,7 @@ def scene(state: Path, place: str) -> Reply:
         "splat_bytes": splat_size,
         "splat_revision": None if shown is None else shown.id,
         "splat_stale": None if stale is None else {"revision": stale.id, "at": stale.at},
+        "splat_from": None if shown is None else ("walk" if walk_splat else "cameras"),
         "floor": list(rev.floor) if rev.floor else None,
         "plan_transform": list(transform) if transform else None,
         "cameras": {cam: pose.as_dict() for cam, pose in rev.cameras.items()},

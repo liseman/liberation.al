@@ -1,4 +1,4 @@
-"""Walk-bys as they happen, for the activity worker's "Walked past" spans (#1403): the same rules as
+"""Walk-bys as they happen, for the activity worker's "Walked past" spans: the same rules as
 memory/crossing_counts.py, which counts them over a window after the fact.
 
 A `crossing.event` is the moment one track's foot point got past the line; someone at the line makes one every few

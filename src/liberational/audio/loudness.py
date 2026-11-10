@@ -1,9 +1,9 @@
-"""Loudness for playback (#336): bring quiet room audio up to a normal listening level, with a limiter so a loud
+"""Loudness for playback: bring quiet room audio up to a normal listening level, with a limiter so a loud
 transient can't clip. Only what's served is changed; the archive stays as recorded.
 
-Some microphones record speech very quietly (devbox's Wave 3: speech peaks near -55 dBFS, chunks average -45 dB),
-so Review and the line clips played near silence. A single peak normalization doesn't help, since one door slam at
--2 dBFS sets the peak. Instead:
+Some microphones record speech very quietly (on the Linux machine's Wave 3, speech peaks near -55 dBFS and chunks
+average -45 dB), so Review and the line clips played near silence. A single peak normalization doesn't help, since one
+door slam at -2 dBFS sets the peak. Instead:
 
 1. The speech level is the median power of the 20 ms frames that stand clearly above the room's floor (ACTIVE_DB
    over its 10th percentile frame). The median, not the mean, so a loud stretch (a door slam, a vacuum cleaner) under

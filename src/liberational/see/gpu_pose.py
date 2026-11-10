@@ -35,7 +35,7 @@ _NORMS: dict[torch.device, tuple[torch.Tensor, torch.Tensor]] = {}
 
 def _norm(device: torch.device) -> tuple[torch.Tensor, torch.Tensor]:
     """The pose model's mean and std on `device`, uploaded once: a host-to-GPU copy per call waits for the GPU's
-    queue to drain, and these two were a fifth of a frame's time (#1745)."""
+    queue to drain, and these two were a fifth of a frame's time."""
     if device not in _NORMS:
         _NORMS[device] = (_MEAN.to(device)[None, :, None, None], _STD.to(device)[None, :, None, None])
     return _NORMS[device]
@@ -43,7 +43,7 @@ def _norm(device: torch.device) -> tuple[torch.Tensor, torch.Tensor]:
 
 def block_on_sync(devices: Sequence[int]) -> bool:
     """Make the host sleep, not spin, while it waits on these GPUs: CUDA's default spin-wait took most of a
-    30 fps frame loop's CPU (21% of a core against 13% blocking, #1745). It must run before torch or ONNX Runtime
+    30 fps frame loop's CPU (21% of a core against 13% blocking). It must run before torch or ONNX Runtime
     first touches a device, so a service calls it at startup. False when CUDA's runtime library can't be found or
     refuses, which leaves the default: correct, only busier."""
     libs = sorted((pathlib.Path(torch.__file__).parent.parent / "nvidia").glob("*/lib/libcudart.so*"))
@@ -70,8 +70,8 @@ class GraphSession:
 
     The graph replays on the torch stream that was current when the session was made, ordered after the torch work
     queued there before `run` and before the work queued after it, so on that stream `run` neither waits for the
-    input nor syncs at its end (#3209): the host waits once, when it reads what the frame found. On the legacy
-    default stream the replay is not ordered (#1754, a replay read a stale input), so a session made there, or run
+    input nor syncs at its end: the host waits once, when it reads what the frame found. On the legacy
+    default stream the replay is not ordered (a replay read a stale input), so a session made there, or run
     from another stream, waits for torch's work first and lets ONNX Runtime sync at the end, as before."""
 
     def __init__(self, path: pathlib.Path, device: torch.device, input_shape: Sequence[int]) -> None:
@@ -138,7 +138,7 @@ class GraphSession:
 class Replay:
     """Torch work over fixed buffers, captured once as a CUDA graph on the current stream's device and replayed: one
     launch, and one release of the GIL, in place of one per op. A frame's ~70 small ops, each releasing the GIL
-    around its launch, left six camera threads handing it back and forth, 15 to 45 sleeps and wakes a frame (#3209).
+    around its launch, left six camera threads handing it back and forth, 15 to 45 sleeps and wakes a frame.
 
     `work` reads only buffers that outlive the replay and returns its output, which every replay overwrites. It runs
     once eagerly first, so constants it makes on first use exist before the capture. The capture is thread-local,
@@ -284,7 +284,7 @@ def _detector_norm(device: torch.device) -> tuple[torch.Tensor, torch.Tensor]:
 
 
 CANDIDATES = 300  # RF-DETR's global query/class top-k, before selecting person and animal categories
-LOW_SCORE = 0.6  # RF-DETR person floor, measured through the six-joint birth gate on the retained stills (#2189)
+LOW_SCORE = 0.6  # RF-DETR person floor, measured through the six-joint birth gate on the retained stills
 ANIMAL_SCORE = crossings.ANIMAL_SCORE
 NEIGHBOR_SCORE = 0.5
 
@@ -324,7 +324,7 @@ def scene(
 
 
 def screens(cand: NDArray[np.float32], score: float = crossings.SCREEN_SCORE) -> NDArray[np.float32]:
-    """The screens among the same globally ranked candidates (#2468): N x 6, as `scene`'s animals."""
+    """The screens among the same globally ranked candidates: N x 6, as `scene`'s animals."""
     valid = (cand[:, 2] > cand[:, 0]) & (cand[:, 3] > cand[:, 1])
     return cand[valid & np.isin(cand[:, 5], list(crossings.COCO_SCREENS)) & (cand[:, 4] >= score)]
 
@@ -365,7 +365,7 @@ def crops(
     black out their pixels outside the target box; keep the target and all overlaps, plus one source pixel for
     bilinear boundary samples. The stock padding/aspect stays intact. People inside the target remain inseparable.
     `masked` (N booleans on the frame's device, every box when None) says which crops are masked: a host list would
-    be a host-to-GPU copy, and a wait, per index (#3209)."""
+    be a host-to-GPU copy, and a wait, per index."""
     h, w = frame.shape[:2]
     iw, ih = size
     x1, y1, x2, y2 = boxes[:, 0], boxes[:, 1], boxes[:, 2], boxes[:, 3]
@@ -439,8 +439,8 @@ class GpuPose:
         lens: Any = None,
     ) -> None:
         self.device = device
-        self.lens = lens  # a fisheye.Lens: each person is resampled into a virtual pinhole view before pose (#1891)
-        size = model_input(detector)[0]  # the detector's square input, as the model declares it (#2045)
+        self.lens = lens  # a fisheye.Lens: each person is resampled into a virtual pinhole view before pose
+        size = model_input(detector)[0]  # the detector's square input, as the model declares it
         self.detector = session_for(detector, device, (1, 3, size, size))
         self.size = int(self.detector.input.shape[2])
         if set(self.detector.output_names) != {"dets", "labels"}:
@@ -486,7 +486,7 @@ class GpuPose:
         """People and skeletons in one BGR frame (H x W x 3 uint8 on this device), its detector input already
         filled when `prepared` (`prepare`). The host waits twice: once for the globally ranked box candidates and
         once for the joints (only the first when nobody is there). Everything between, model runs included, is
-        queued on the frame's stream (#3209)."""
+        queued on the frame's stream."""
         h, w = frame.shape[:2]
         if not prepared:
             self.prepare(frame)
@@ -517,7 +517,7 @@ class GpuPose:
         their target; pass every strong box, including boxes in other pose batches. The host waits once."""
         masked = neighbor_targets(boxes, neighbors, self.pose_size) if neighbors is not None else []
         # The boxes, which of them are masked, and the strong neighbors, in one host-to-GPU copy: from pinned memory
-        # on CUDA it is queued, not waited for (#3209). Rows: N boxes (x1, y1, x2, y2, masked), then M neighbors.
+        # on CUDA it is queued, not waited for. Rows: N boxes (x1, y1, x2, y2, masked), then M neighbors.
         strong_rows = np.asarray(neighbors, np.float32).reshape(-1, 4) if masked else np.zeros((0, 4), np.float32)
         host = torch.empty((len(boxes) + len(strong_rows), 5), dtype=torch.float32, pin_memory=self._pinned)
         rows = host.numpy()
@@ -638,7 +638,7 @@ SHIFT_SIZE = (90, 160)  # the gray thumbnail the camera's shift is measured on, 
 def area_resize(x: torch.Tensor, size: Any) -> torch.Tensor:
     """F.interpolate(mode="area") of an NCHW tensor, kept on its device. MPS implements area only when the input
     divides evenly by the output, and a person's crop rarely does (see-actions' camera threads stopped on it on
-    the Mac, 2026-11-05), so there it runs on the CPU and comes back."""
+    the Mac), so there it runs on the CPU and comes back."""
     out = (size, size) if isinstance(size, int) else tuple(size)
     if x.device.type == "mps" and (x.shape[-2] % out[0] or x.shape[-1] % out[1]):
         return F.interpolate(x.cpu(), size=out, mode="area").to(x.device)
@@ -669,7 +669,7 @@ def phase_shift(frame: torch.Tensor, previous: torch.Tensor | None) -> tuple[tup
 
 
 class Shared:
-    """One copy of a model on a device for every camera on it (#2769), one call at a time. Each camera's backend loaded
+    """One copy of a model on a device for every camera on it, one call at a time. Each camera's backend loaded
     its own SigLIP 2, DINOv3, ST-GCN++, and MoViNet, about 4 GB on GPU 0 for six cameras, though they run rarely.
 
     A call runs on the calling camera's own CUDA stream (each camera thread sets one), and every method these models
@@ -902,7 +902,7 @@ class CudaBackend(TorchBackend):
 
 # torch has one MPS stream per process and it isn't thread-safe: see-actions runs one thread (and one backend) per
 # camera, and two of them encoding at once aborted the process in Metal ("commit command buffer with uncommitted
-# encoder", the Mac, 2026-11-05). Every Apple backend call holds this lock; the GPU is shared anyway.
+# encoder", on the Mac). Every Apple backend call holds this lock; the GPU is shared anyway.
 MPS_LOCK = threading.RLock()
 
 

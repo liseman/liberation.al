@@ -12,7 +12,7 @@ entries in the window, the result is exactly what it was before the journal exis
 A transcript question that names nobody, and no topic or intent, keeps the lines that hold the question's words when
 the evidence budget (MAX_EVIDENCE, MAX_CHARS) cuts the window, the best matches first (rare words count most), each
 with the lines said within CONTEXT_S of it, then fills what's left with the lines nearest the question time, and shows
-them in time order. A question about a busy Review day finds its lines that way (#1303: the day's last minutes used to
+them in time order. A question about a busy Review day finds its lines that way (the day's last minutes used to
 fill the budget), and a follow-up with no words to match ("where was it?") still gets the minute before it. Naming
 someone, a topic, or an intent still keeps the earliest lines.
 
@@ -24,7 +24,7 @@ also answers from that camera's face visits alone, since encounters mix every ca
 encounters carries "paths": ["timeline"], which the dashboard shows as a "New" tag linked to the switch.
 
 "Last seen" answers from the timeline (on) or the face worker's visits (off); v1's detector journal and its own path
-are gone (#549).
+are gone.
 
 Ask and voice share the temporal parser here. Clock and relative-instant questions read a bounded five-minute
 neighborhood, clamped at question time; ranges read their stated interval. An unqualified 1 to 12 clock selects the
@@ -162,8 +162,8 @@ HAPPENED = re.compile(r"\bwhat (?:all )?happened\b")
 CLOCK = r"\d{1,2}(?::\d{2})?\s*(?:am|pm)?(?![:\d])"
 AT = re.compile(r"\b(at|around|about)\s+(" + CLOCK + r")\b")
 CLOCK_RANGE = re.compile(r"\bbetween\s+(" + CLOCK + r")\s+and\s+(" + CLOCK + r")\b")
-# "since 1pm", "since 13:00 today", "since 9 this morning", "yesterday since noon": a clock anchor up to now (#2219).
-# "since yesterday", "since this morning", "since last night": the start of that day or part of the day up to now (#2228).
+# "since 1pm", "since 13:00 today", "since 9 this morning", "yesterday since noon": a clock anchor up to now.
+# "since yesterday", "since this morning", "since last night": the start of that day or part of the day up to now.
 _SINCE_DAY = r"(today|yesterday|this morning|this afternoon|this evening|last night)"
 SINCE = re.compile(
     r"\b(?:(today|yesterday)\s+)?since\s+(?:("
@@ -181,7 +181,7 @@ MONTHS = {name.lower(): i for i, name in enumerate(calendar.month_name) if name}
 MONTH_DATE = re.compile(r"\b(" + "|".join(MONTHS) + r")\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?\b")
 WHO_WINDOW_S = 300  # "who was here at 3pm": anyone seen within 5 minutes of it
 # The parts of a day, as local hours [start, end) of the day they belong to; night runs past midnight to 05:00 the next
-# morning. Defined once, so "in the evening" means the same hours wherever a question is read (#195). A part resolves
+# morning. Defined once, so "in the evening" means the same hours wherever a question is read. A part resolves
 # against the selected day, else a date or "yesterday" in the question, else today; "last night" is the night before.
 LAST_NIGHT_HOURS = (18, 29)  # previous evening through 05:00 on the question day, shared by Ask and voice
 PARTS_OF_DAY = {"morning": (5, 12), "afternoon": (12, 17), "evening": (17, 22), "night": (22, 29)}
@@ -193,7 +193,7 @@ TIME_WORDS = (
     r"today|yesterday|this|last|past|previous|ago|since|before|after|earlier|tonight|morning|afternoon|evening|week"
     r"|month|monday|tuesday|wednesday|thursday|friday|saturday|sunday"
 )
-# A part of the day ("during the night", "the afternoon") ends a name too, so it stays a time (Codex on #219).
+# A part of the day ("during the night", "the afternoon") ends a name too, so it stays a time.
 NAME_STOP = (
     r"\s+(?:(?:"
     + TIME_WORDS
@@ -212,7 +212,7 @@ NAME_STOP = (
 # A time word left over once parse() has read the windows it supports is refused only when it is part of a time
 # expression parse() can't read ("last month", "since Monday", "two weeks ago", "before 5pm"). The same words used
 # ordinarily ("the week of work", "since its last oil change", "the previous owner") leave the question's day or window
-# as it is (#1299). TIME_MARK stands in for a phrase parse() already read, so "since yesterday" still refuses.
+# as it is. TIME_MARK stands in for a phrase parse() already read, so "since yesterday" still refuses.
 TIME_MARK = "\x00"
 _UNIT = r"(?:seconds?|minutes?|hours?|days?|nights?|weeks?|weekends?|fortnights?|months?|years?)"
 _WEEKDAY = r"(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)s?"
@@ -229,7 +229,7 @@ ANYONE = frozenset(
     ["we", "us", "you", "they", "them", "someone", "somebody", "anyone", "anybody", "everyone", "everybody"]
 )
 # Passive-voice and filler words around a "what ... said" capture ("What was said", "what else was said", "What was
-# Dana told"): never a speaker's name (#2217).
+# Dana told"): never a speaker's name.
 NOT_A_SPEAKER = frozenset(["was", "were", "is", "are", "be", "been", "being", "has", "have", "had", "else"])
 LAST_MET = re.compile(r"\bwhen\s+did\s+(?:i|you|we)\s+last\s+see\s+(.+?)(?=" + NAME_STOP + r"|\s*[?.!]?\s*$)", re.I)
 
@@ -291,12 +291,12 @@ def is_history_question(question: str) -> bool:
         )
         or is_entry_count(q)
         or event_counts.retired_question(question)
-        or event_counts.asks(q)  # "how many times did I open the fridge today" (#290, #518)
+        or event_counts.asks(q)  # "how many times did I open the fridge today"
         or _asks_about_animal(question)  # "what has the cat been doing", "where is May"
         or HOME_NOW.search(q)
         or (HAPPENED.search(q) and temporal)
-        or _asks_about_device(question)  # "is Sam home", "where are my keys": collect() answers from devices (#1329)
-        or _asks_if_home(question)  # "is Carly home" with no linked device: camera and voice presence (#1596)
+        or _asks_about_device(question)  # "is Sam home", "where are my keys": collect() answers from devices
+        or _asks_if_home(question)  # "is Carly home" with no linked device: camera and voice presence
     )
 
 
@@ -818,8 +818,7 @@ def _json(path: pathlib.Path, default: Any) -> Any:
 
 def _has_text(text: Any) -> bool:
     """Whether text read from a record (a JSON line, a camera row, a cached caption) has anything to show. Nothing
-    is hidden for what it says: lines mentioning passwords, codes, or keys reach history answers too (Joe's
-    decision, #92)."""
+    is hidden for what it says: lines mentioning passwords, codes, or keys reach history answers too."""
     return isinstance(text, str) and bool(text.strip())
 
 
@@ -1039,7 +1038,7 @@ def _transcripts(
         for sid, name in view.names.items()
         if person and name and name.casefold() == person.casefold() and sid not in view.clones
     }
-    # A person may have several voices (#772: naming replaces merging); a name is ambiguous only when its voices are
+    # A person may have several voices (naming replaces merging); a name is ambiguous only when its voices are
     # different people's.
     owners = (
         set(view.reg.voices(sorted(i for i in ids if i is not None), refresh=False).values()) if view.reg else set()
@@ -1089,7 +1088,7 @@ def _transcripts(
     def read_room(batch: list[tuple[dict[str, Any], float, str, str]]) -> None:
         """Who said these room lines comes from the event log, as every reader sees it (step 4), shown under the
         current name of the person who said it. They're read together, so another mic's copy of a line is known
-        (#284) and counted once (#476)."""
+        and counted once."""
         if not batch:
             return
         original = {str(e.get("id") or registry.key_of(e)): (e, ts, txt, label) for e, ts, txt, label in batch}
@@ -1450,7 +1449,7 @@ def _last_met(
     return answer, evidence
 
 
-HOME_LOOKBACK_S = 86400.0  # "is X home" with no linked device reads X's last day of encounters (#1596)
+HOME_LOOKBACK_S = 86400.0  # "is X home" with no linked device reads X's last day of encounters
 
 
 def _minutes_ago(seconds: float) -> str:
@@ -1494,7 +1493,7 @@ def _watched_since(state: pathlib.Path, since: float, now: float) -> str:
 
 def _home_seen(state: pathlib.Path, name: str, now: float) -> tuple[str, list[dict[str, Any]]] | None:
     """(answer, evidence) for "is X home" when X has no linked device: when X was last seen or heard, and how much of
-    the time since the cameras watched (#1596). Never "home" or "away": the cameras and microphones only cover where
+    the time since the cameras watched. Never "home" or "away": the cameras and microphones only cover where
     they point. None with the timeline off or nobody called X (the question goes the way it did)."""
     tl = timeline.load(state) if timeline.enabled() else None
     who = timeline.person(name, state) if tl is not None else None
@@ -1711,7 +1710,7 @@ def _lights_by_colour(
 
 def _conversation_summary(state: pathlib.Path, query: Mapping[str, Any]) -> tuple[str, list[Any]] | None:
     """Two or more named people: their conversations, summarised by the local model, media playing in the room set
-    aside, ranked by time (word counts returned an audiobook's "khan, mongols", 2026-10-29). None when the local model
+    aside, ranked by time (word counts returned an audiobook's "khan, mongols"). None when the local model
     gave nothing (offline, tests): the lexical ranking below answers instead."""
     from liberational.memory import conversation_summary
 
@@ -1744,7 +1743,7 @@ def collect(
         and not any(event_counts.counts(question, name) for name in event_counts.zone_names(state))
         else None
     )
-    if activity is not None and activity.mode == "unsupported":  # stillness, repeated movement (#1863)
+    if activity is not None and activity.mode == "unsupported":  # stillness, repeated movement
         return dict(
             is_history=True,
             answer=event_counts.UNSUPPORTED,
@@ -1793,10 +1792,10 @@ def collect(
     try:
         from liberational.memory import presence_counts
 
-        # A count of a named event is answered from detected events, never from captions (#290, #518): the count
+        # A count of a named event is answered from detected events, never from captions: the count
         # per span, the recordings analyzed, and a Review link per span, or that nothing covers the window. People
         # coming into view stay with presence below.
-        # Who is home and where things are, from linked devices (#1329).
+        # Who is home and where things are, from linked devices.
         if query["kind"] == "journal":
             result["paths"] = ["journal"]
             selected = _journal(question, query, state, result, warnings)
@@ -1809,7 +1808,7 @@ def collect(
             result["coverage"]["devices"] = measured["coverage"]
             warnings.extend(measured["warnings"])
             selected = measured["evidence"]
-        # "Is X home" for someone with no linked device: when they were last seen or heard (#1596).
+        # "Is X home" for someone with no linked device: when they were last seen or heard.
         elif home is not None and (seen := _home_seen(state, home, now)) is not None:
             result["paths"] = ["timeline"]
             result["answer"], selected = seen
@@ -1821,7 +1820,7 @@ def collect(
             result["coverage"]["animal"] = measured["coverage"]
             warnings.extend(measured["warnings"])
             selected = measured["evidence"]
-        # What an animal has been doing (#1318): animal tracking was removed (#1808), and the answer says so.
+        # What an animal has been doing: animal tracking was removed, and the answer says so.
         elif animal is not None:
             result["paths"] = ["animal-activity"]
             measured = subject_activity.answer(animal[0], animal[1], state, now)
@@ -1829,7 +1828,7 @@ def collect(
             result["coverage"]["animal"] = measured["coverage"]
             warnings.extend(measured["warnings"])
             selected = measured["evidence"]
-        # When a model action happened, or what someone did in a zone (#1863): see-actions' spans and guesses.
+        # When a model action happened, or what someone did in a zone: see-actions' spans and guesses.
         elif activity is not None and activity.mode in ("when", "doing"):
             result["paths"] = ["activity"]
             measured = (
@@ -1848,7 +1847,7 @@ def collect(
             unchecked = (
                 asked in activity_kinds.model_kinds(state) and event_counts.uncalibrated(state, asked) is not None
             )
-            # What's usual per day or night (#1318), not one window's count; a model kind not yet checked by the
+            # What's usual per day or night, not one window's count; a model kind not yet checked by the
             # owner's ratings has no count to make typical, so it gets the plain answer saying so.
             if typical_counts.asks(question) and not unchecked:
                 result["paths"] = ["events", "typical"]
@@ -1861,7 +1860,7 @@ def collect(
             result["coverage"]["events"] = measured["coverage"]
             warnings.extend(measured["warnings"])
             selected = measured["evidence"]
-        # Walk-bys from the activity worker's spans and entries from movement tracks (#1591): a day reads in a few
+        # Walk-bys from the activity worker's spans and entries from movement tracks: a day reads in a few
         # seconds. The sampled presence visits (Review's chips) aren't read here: one missed
         # detection splits a visit, so their count is not a number to say.
         elif is_direction_question(question) and is_crossing_question(question, query):
@@ -1945,7 +1944,7 @@ def collect(
                     )
         # Otherwise a walk-by question is answered from the walk-by spans alone (crossing_paths), even with
         # recorded-frame analysis off: never from sampled captions, which the model would count ("3 times in 24
-        # hours", 2026-10-28).
+        # hours").
         elif query["kind"] == "light_duration":
             result["answer"], result["coverage"]["lights"] = _lights_by_colour(state, query, warnings)
             if result["coverage"]["lights"] is not None:
@@ -2119,7 +2118,7 @@ def collect(
         result["answer"] = "History source could not be read safely."
         warnings.append(type(e).__name__)
         result["coverage"]["read_error"] = True
-    counted = "events" in result.get("paths", [])  # an event count answers from its events alone (#290)
+    counted = "events" in result.get("paths", [])  # an event count answers from its events alone
     if cfg.get("review.recorded_frame_analysis") and query["kind"] == "camera" and not query["person"] and not counted:
         from liberational.memory import video_evidence
 

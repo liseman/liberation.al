@@ -111,6 +111,66 @@ def test_huggingface_local_checkpoint_honors_revision_without_fetching_other_fil
     ]
 
 
+def gated_error(repo):
+    import httpx
+    from huggingface_hub.errors import GatedRepoError
+
+    url = f"https://huggingface.co/{repo}/resolve/main/config.json"
+    response = httpx.Response(401, headers={"X-Error-Code": "GatedRepo"}, request=httpx.Request("GET", url))
+    return GatedRepoError(f"401 Client Error. Cannot access gated repo for url {url}.", response=response)
+
+
+def test_a_gated_repository_is_reported_after_everything_else_is_fetched(monkeypatch, capsys):
+    import huggingface_hub
+
+    fetched = []
+
+    def snapshot_download(repo, **kwargs):
+        if repo == "fixture/gated":
+            raise gated_error(repo)
+        fetched.append(repo)
+
+    ollama = FakeOllama()
+    monkeypatch.setattr(huggingface_hub, "snapshot_download", snapshot_download)
+    monkeypatch.setattr(fetch_models.shutil, "which", lambda name: "/usr/bin/ollama")
+    monkeypatch.setattr(fetch_models.subprocess, "run", ollama.run)
+    monkeypatch.setattr(sys, "argv", ["fetch_models"])
+    monkeypatch.setattr(
+        fetch_models,
+        "load",
+        lambda: {
+            "models": {
+                "hf": {
+                    "before": {"repo": "fixture/open-a"},
+                    "pets": {"repo": "fixture/gated"},
+                    "after": {"repo": "fixture/open-b"},
+                },
+                "ollama": {"llm": "fixture-small"},
+            }
+        },
+    )
+
+    with pytest.raises(SystemExit) as stopped:
+        fetch_models.main()
+
+    assert fetched == ["fixture/open-a", "fixture/open-b"]
+    assert ollama.calls == [["pull", "fixture-small"]]
+    message = str(stopped.value.code)  # a string exit code: printed to stderr, status 1
+    assert "pets: https://huggingface.co/fixture/gated" in message and "HF_TOKEN" in message
+    assert "fixture/open" not in message
+
+
+def test_another_download_failure_still_stops_the_run(monkeypatch):
+    import huggingface_hub
+
+    def snapshot_download(repo, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(huggingface_hub, "snapshot_download", snapshot_download)
+    with pytest.raises(OSError, match="disk full"):
+        fetch_models.fetch_hf("asr", {"repo": "fixture/open-a"})
+
+
 class FakeOllama:
     """`ollama list`, `pull`, and `create`, recorded; a create keeps its Modelfile's text."""
 

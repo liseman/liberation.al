@@ -29,7 +29,7 @@ MIN_SIDE = 12  # boxes (on the 0 to 1000 scale) narrower or shorter than this ar
 MAX_AREA = 0.9  # a box covering this much of the image is the whole scene, not an object
 MAX_PER_LABEL = 2  # the 4B model can list a wall of guitars and nothing else; keep the variety
 # Output tokens. qwen3-vl:4b spends a token per digit, so the 8 objects PROMPT asks for take 254 to 258 tokens
-# (measured on cam0, 2026-11-02); 240 cut every answer off mid-array, and a cut-off array is no observation (#1454).
+# (measured on cam0); 240 cut every answer off mid-array, and a cut-off array is no observation.
 # Left to itself the model sometimes runs on past 8 (3 of 8 replies), so Ollama is also given SCHEMA, which caps the
 # array at 8 (10 of 10 replies then stopped on their own at 256 to 260 tokens). A reply still cut off is truncated.
 NUM_PREDICT = 400
