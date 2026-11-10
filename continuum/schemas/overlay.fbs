@@ -1,5 +1,5 @@
-// The browser gateway's overlay payload (payload type 0x02 in the 16 byte frame header, docs/CONTINUUM.md "Browser
-// gateway"): what to draw over one video frame, in frame fractions (0 to 1 of width and height) so it fits any
+// The browser gateway's overlay payload (payload type 0x02 in the 16 byte frame header, docs/CONTINUUM-GATEWAY.md):
+// what to draw over one video frame, in frame fractions (0 to 1 of width and height) so it fits any
 // display size. One Overlay per capture time; the browser keeps them in a map keyed by the header's capture_us and
 // draws the one whose time matches the frame's.
 

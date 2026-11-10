@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds the private FFmpeg the wheels link statically (docs/CONTINUUM.md, "Wheels"): an LGPL build with only what
+# Builds the private FFmpeg the wheels link statically (docs/CONTINUUM-SDK.md): an LGPL build with only what
 # the Rust code calls, so it carries no GPL part and nothing a distribution's FFmpeg would pull in.
 #
 #   packaging/ffmpeg.sh <prefix> <work directory>

@@ -1,4 +1,4 @@
-//! The host's clocks and boot id, for the `CLOCK_MAP` sampler (docs/CONTINUUM.md, decision 9 and "Timestamps").
+//! The host's clocks and boot id, for the `CLOCK_MAP` sampler (docs/CONTINUUM.md, decision 9).
 //! The same readings as continuum-capture's `SystemClocks` (`continuum-capture/src/clock.rs`), kept here so the
 //! broker doesn't depend on the capture crate.
 

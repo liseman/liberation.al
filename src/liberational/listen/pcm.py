@@ -1,4 +1,4 @@
-"""PCM ring records from capture (docs/CONTINUUM.md, "Rings"), as the audio worker reads them.
+"""PCM ring records from capture (docs/CONTINUUM-BROKER.md), as the audio worker reads them.
 
 A microphone's ring holds one record per capture block: a 16-byte stamp (the block's capture time on the host
 monotonic clock, then the index of its first sample, both u64 little-endian), then the block's interleaved frames in

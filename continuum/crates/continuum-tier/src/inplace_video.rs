@@ -21,7 +21,7 @@
 //! The files have closed GOPs (libx264's default, which Ingest's conversion uses), so a GOP decodes on its own. In
 //! an open-GOP file, a GOP's leading B-frames refer back to the GOP before, and decoding that GOP alone conceals
 //! them; and a sync sample may be a recovery-point I-frame rather than an IDR.
-//! Purges follow in-place audio's rule (docs/CONTINUUM.md, "Forgetting"): cut from the catalog, the files left alone.
+//! Purges follow in-place audio's rule (docs/CONTINUUM-BROKER.md): cut from the catalog, the files left alone.
 
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};

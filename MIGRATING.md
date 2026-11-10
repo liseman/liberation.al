@@ -195,7 +195,7 @@ is deleted and the catalog's format is unchanged.
 ## Video chunks are a minute long (catalog format 8)
 
 A camera now writes one chunk file and one catalog row a minute, and the catalog stores each chunk's frame index
-compactly (docs/CONTINUUM.md, "Video chunks"). The catalog file's format changed with it, and the broker refuses a
+compactly (docs/CONTINUUM-STORAGE.md). The catalog file's format changed with it, and the broker refuses a
 format 7 file, so this upgrade needs a catalog reset. It deletes the catalog, the recorded video and audio it indexes,
 the worker state derived from it, and the segment store; what you taught the system (people, voices, faces, pets,
 zones, and settings) stays. After the pull, from the live checkout:

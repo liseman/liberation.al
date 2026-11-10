@@ -1,5 +1,5 @@
-//! `PurgeNotice` and `PurgeAck`: reaching the copies a purge can't remove itself (docs/CONTINUUM.md, "Forgetting",
-//! step 4).
+//! `PurgeNotice` and `PurgeAck`: reaching the copies a purge can't remove itself (docs/CONTINUUM-BROKER.md,
+//! "Forgetting", step 5).
 //!
 //! The catalog's purge job removes rows and hides payloads; a worker that keeps its own copies (the tier worker's chunk
 //! files, the vector worker's rows) says so with `RegisterWorker.keeps_copies`, and a purge is not complete until each

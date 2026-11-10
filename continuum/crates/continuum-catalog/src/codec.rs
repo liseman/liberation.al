@@ -206,7 +206,7 @@ const FRAMES_ZSTD: u8 = 1;
 /// The most a frame index's columns may take, compressed or not: far past any chunk the catalog accepts.
 const MAX_FRAME_COLUMNS: usize = 16 << 20;
 
-/// A chunk's frame index, delta-coded in columns (docs/CONTINUUM.md, "Video chunks"): the frame count; each frame's
+/// A chunk's frame index, delta-coded in columns (docs/CONTINUUM-STORAGE.md): the frame count; each frame's
 /// start as the change in its spacing from the previous frame's; each record's offset as the change in its distance
 /// past the previous record's end (a fixed record head apart: all zeros); each length as a varint; and the indexes
 /// of the cut frames. All differences wrap, so any index round-trips. The columns are then zstd-compressed when

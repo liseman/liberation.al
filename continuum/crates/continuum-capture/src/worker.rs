@@ -1,5 +1,5 @@
-//! One capture worker: one physical device, in its own process (docs/CONTINUUM.md, "One process per physical
-//! device"). It registers its stream with the broker, opens the device, says `opened` on stdout (the supervisor's
+//! One capture worker: one physical device, in its own process (docs/CONTINUUM-CAPTURE.md).
+//! It registers its stream with the broker, opens the device, says `opened` on stdout (the supervisor's
 //! cue to hand the open token on), and captures until it's told to stop, the device goes or stalls, or the broker
 //! goes. After a wake it registers again with a new anchor and carries on without closing the device.
 //!

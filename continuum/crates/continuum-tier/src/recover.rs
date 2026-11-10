@@ -8,7 +8,7 @@
 //! the broker still holds).
 //!
 //! Each stream's newest finished chunk comes back too. A camera's chunk is committed in parts while it is open
-//! (docs/CONTINUUM.md, "Video chunks"), so the run may have ended after the file got its footer and before its last
+//! (docs/CONTINUUM-STORAGE.md), so the run may have ended after the file got its footer and before its last
 //! part reached the catalog; the worker asks the catalog how many of a recovered chunk's frames it holds and commits
 //! the rest, which for a chunk it holds whole is nothing. When it lacks part of that one, commits were failing when the
 //! run ended, and parts of older files may have been waiting behind it: the worker then walks back through the
