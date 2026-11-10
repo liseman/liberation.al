@@ -637,7 +637,10 @@ DECIDE_SYSTEM = (
     'stop because the evidence so far is enough to answer ({{"decision": "answer"}}), or pick exactly one read-only '
     'tool and its arguments ({{"decision": "search", "tool": ..., "args": {{...}}}}). Tools:\n{tools}\n'
     "read_as, when given, is how the question was already read: where its answer is (speech, cameras, both, people, "
-    "lights, or journal), its measure, and the people it names. Search for that reading, not another one. "
+    "lights, or journal), its measure, and the people it names. Search for what that reading asks, not another "
+    "question. Its source is where the answer most likely is, so search there first; when that finds nothing, what "
+    "was said (transcript, journal) and what was seen (camera) can each hold it, so search the other before "
+    "concluding it wasn't recorded. "
     "Evidence is sufficient only if it supports the exact requested entity or relationship, not a nearby topic. "
     "If snippets do not identify the requested category, search alternative phrasings or concrete instances "
     "of that category before concluding it was not found. "
