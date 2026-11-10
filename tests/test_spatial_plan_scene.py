@@ -269,3 +269,55 @@ def test_a_scene_edited_on_its_page_is_moved_into_the_plan_frame(tmp_path, home,
     held = places.get(tmp_path, place)
     assert held is not None and held.plan is not None
     np.testing.assert_allclose(floorplan.rooms_from_dsl(held.plan)[0][2], [(10, 0), (10, 3), (6, 3), (6, 0)], atol=1e-9)
+
+
+def test_the_editor_gets_a_dsl_plan_converted_and_a_scene_as_it_is_stored(tmp_path, home, scene_text):
+    place, frame = home
+    code, reply = view.plan_as_scene(tmp_path, place)
+    assert (code, reply["converted"], reply["base"]) == (200, True, frame)
+    assert reply["left"] == ["x-anchor place:flat yaw 0 origin 0,0,0", "x-source wall:w3 machine 0.4"]
+    assert [r[:2] for r in plan_scene.rooms(reply["scene"])] == [("hall", "Hall"), ("den", 'The "den"')]
+    places.correct_plan(tmp_path, place, scene_text, now=T + 5)
+    code, reply = view.plan_as_scene(tmp_path, place)
+    assert (code, reply["converted"], reply["left"]) == (200, False, [])
+    assert reply["scene"] == json.loads(scene_text)
+    held = places.get(tmp_path, place)
+    assert held is not None and held.plan == scene_text, "opening a plan in the editor stores nothing"
+
+
+def test_an_earlier_version_of_the_plan_opens_by_its_record(tmp_path, home, scene_text):
+    place, _ = home
+    older = DSL.replace('"Hall"', '"Lobby"')
+    places.correct_plan(tmp_path, place, older, now=T + 5)
+    places.correct_plan(tmp_path, place, scene_text, now=T + 10)
+    first = places.plan_history(tmp_path, place)[0]
+    code, reply = view.plan_as_scene(tmp_path, place, first.id)
+    assert (code, reply["converted"]) == (200, True)
+    assert plan_scene.rooms(reply["scene"])[0][1] == "Lobby"
+
+
+def test_a_plan_drawn_on_its_own_page_opens_as_drawn(tmp_path, home, scene_text):
+    place, frame = home
+    in_frame = pi.moved(scene_text, pi.Move(math.pi / 2, (10.0, 0.0), False))
+    quarter = {"turn": math.pi / 2, "shift": [10.0, 0.0], "mirror": False}
+    places.correct_plan(tmp_path, place, in_frame, now=T + 1, base=frame, view={"plan": scene_text, **quarter})
+    assert view.plan_as_scene(tmp_path, place)[1]["scene"] == json.loads(scene_text)
+
+
+def test_what_cant_be_opened_in_the_editor_says_why(tmp_path, home):
+    place, _ = home
+    assert view.plan_as_scene(tmp_path, "no-such-place")[0] == 404
+    assert view.plan_as_scene(tmp_path, place, "no-such-record") == (
+        404,
+        {"error": "no such version of this place's plan"},
+    )
+    bare = places.revise(tmp_path, None, producer="cameras-v1", now=T + 1).place
+    assert view.plan_as_scene(tmp_path, bare) == (404, {"error": "this place has no plan"})
+    places.correct_plan(
+        tmp_path, place, 'plan "x"\nroom a "A" other rect 0,0 4x4\ndoor exterior>a at 9,9 w0.9\n', now=T + 5
+    )
+    code, reply = view.plan_as_scene(tmp_path, place)
+    assert code == 422 and "door at 9,9 is on no wall" in reply["error"]
+    places.correct_plan(tmp_path, place, "", now=T + 9)
+    withdrawn = places.plan_history(tmp_path, place)[-1]
+    assert view.plan_as_scene(tmp_path, place, withdrawn.id) == (404, {"error": "that version withdrew the plan"})
