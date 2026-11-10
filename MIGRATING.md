@@ -5,6 +5,12 @@ This guide covers the current Continuum installation. Fresh setup is in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). The old genericize and v1 import
 procedures are retired. Do not run an old catch-up script against current data.
 
+## The 3D view has the SuperSplat viewer's controls
+
+The Places 3D view is now PlayCanvas's SuperSplat viewer, embedded: orbit, fly, and walk modes, with its own help
+panel (H) and fullscreen. It is a frontend change only: after the pull, `mise run frontend` and restart the
+dashboard. Nothing is dropped.
+
 ## The 3D view draws with PlayCanvas, and splats are served as SOG
 
 The Places 3D view moved from three.js and Spark to PlayCanvas, which reads a splat as SOG, not SPZ. After the pull:
