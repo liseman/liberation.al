@@ -1057,7 +1057,7 @@ function Body({ name, person, people, onChanged, onDeleted, onBack, isNew = fals
       ) : (
         <>
           {c.isError && <LoadError message={cardError} onRetry={() => void c.refetch()} busy={c.isFetching} />}
-          {/* One line that's always there (#2485), empty when nothing loads: coming and going above the sections, it
+          {/* One line that's always there, empty when nothing loads: coming and going above the sections, it
               moved them a line down and back up on every read. */}
           <Text aria-live="polite" size="sm" c="dimmed" className={classes.loadLine}>
             {c.isFetching
