@@ -15,6 +15,7 @@ import { Evidence, Result } from '../ask/Result';
 import { confirm } from '../lib/confirm';
 import { Disclosure } from '../lib/Disclosure';
 import { dayWords, isoDay, momentWords } from '../lib/format';
+import { CountSkeleton } from '../lib/loading';
 import { PageEmpty, PageError, PageFrame, PageLoading } from '../lib/page';
 import { reviewURL } from '../review/url';
 import { href, linkClick, navigate } from '../router';
@@ -344,7 +345,13 @@ export function InboxTab() {
   return (
     <PageFrame
       title="Inbox"
-      meta={jobs.length ? plural(jobs.length, 'report') : undefined}
+      meta={
+        q.isPending ? (
+          <CountSkeleton chars={10} label="Loading how many reports" />
+        ) : jobs.length ? (
+          plural(jobs.length, 'report')
+        ) : undefined
+      }
       lede="Questions looked into slowly, in the background. Each report lands here when it's done."
       actions={
         // Research starts from Review's Ask, which has the day's recordings to look through

@@ -5,6 +5,7 @@ import { Box, Button, NavLink, TextInput, UnstyledButton } from '@mantine/core';
 import { IconPlus, IconSearch } from '@tabler/icons-react';
 import type { KeyboardEvent } from 'react';
 import { Fragment, type ReactNode } from 'react';
+import { CountSkeleton } from '../lib/loading';
 import { LoadError, PageEmpty, PageHeader, PageLoading } from '../lib/page';
 import classes from './people.module.css';
 
@@ -113,7 +114,11 @@ export function RosterColumn({
   const searched = count > 0 && !!query.trim();
   return (
     <section className={classes.roster} aria-labelledby={titleId}>
-      <PageHeader title={title} titleId={titleId} meta={loaded ? count : null} />
+      <PageHeader
+        title={title}
+        titleId={titleId}
+        meta={loaded ? count : error ? null : <CountSkeleton chars={2} label={`Loading how many ${noun}`} />}
+      />
       <TextInput
         aria-label={`Search ${noun}`}
         placeholder={`Search ${noun}`}
