@@ -1,65 +1,91 @@
-"""The position layer (#2831, part of the spatial memory goal #2794): where people, pets, and the rig wearer were, in
-one stream every source writes and one reader every view uses (the Places tab's paths, the journal's "where").
+"""The position layer: where people, pets, and the rig wearer were, in one stream every source writes and one
+reader every view uses (the Places tab's paths, a place's last activity).
 
-Raw on write, placed on read. A row is an observation as its source made it (`segment_log.POSITIONS`,
-`position.sample`):
-- **fixed-camera** (#2800's footprints): the foot point as the camera saw it, `camera`, `u`, `v` (fractions of the
-  frame, as `places.camera_to_plan` takes them), about one per track a second, for people and animals alike. A
-  person's `track` is "<camera>:<pose track number>", an animal's "<camera>:<run>:<species>:<n>" (`animal_track`).
-  It's put on the plan when read, through the camera's pose at the row's time (spatial/poses.py, #3289) when it has
-  a pose series, else its current registration in its place (memory/places.py, #2825): each pack-spatial-cameras run
-  makes a new map frame, and a place may have no plan yet, so coordinates stored at write time would go stale.
-- **rig-pose** (#2802, once there's a rig pose): `place`, `x`, `y` in the plan frame of the place revision it names.
-- **zone** (the coarse fallback): never written. A reader derives one from each person or animal visit to a drawn
-  area zone (`zone.visit`): the room only, no x and y, over the visit's span.
+Placed on write, read as stored. A record (`Position`, stored in `segment_log.PLACED`) is a subject at a time in a
+place: who or what (`entity`), the place, the room, plan coordinates (`x`, `y`, in the plan frame of the place
+revision `revision` names), how sure, and the source. Every source writes that shape through `write`:
+- **fixed-camera**: footprints (spatial/footprints.py) are recorded raw, the foot point as the camera saw it
+  (`Sample`, `segment_log.POSITIONS`: `camera`, `u`, `v`, about one per track a second, for people and animals
+  alike; a person's `track` is "<camera>:<pose track number>", an animal's "<camera>:<run>:<species>:<n>",
+  `animal_track`). The placer (`advance`, run after each recording) puts them on the plan, names them, joins and
+  fuses the cameras' tracks (`derive`, everything below), and writes the result.
+- **zone** (the coarse fallback): the placer writes each person or animal visit to a drawn area zone
+  (`zone.visit`) as a room-only record over the visit's span, with no x and y.
+- **rig-pose** (once there is a rig pose): the rig's writer gives `place`, `x`, `y`, and the revision whose plan
+  frame they are in, and calls `write` itself.
+
+A read (`positions`) decodes stored records and nothing else: it never projects, names tracks, or joins paths, so
+its cost is the rows of the window, thinned as they are scanned for a long one, and it stops between days when its
+caller says the client has gone (`Cancelled`). Before this, every read placed every raw sample of its window, and a
+week of a busy place passed the client's deadline.
+
+What placing on write costs: a record keeps the coordinates and the identity it was given when it was placed.
+- **Frames.** Records are placed in the frame of the plan the place draws (`Place.plan_revision`), through the
+  cameras' registration then, and say so (`revision`). When a later registration puts people somewhere else (a
+  camera registered again with another pose, or the plan moved to a new frame), the placer notices on its next
+  run (`_basis`: where a few fixed pixels of each camera land on the plan, against where they landed when the
+  place was last placed) and places that place's raw footprints again from scratch (`place_again`), so a path that
+  spans the registration is one line in one frame. Until that run, a read for another frame of the place moves
+  the points by the similarity between the two frames (`_Places.carried`, through the cameras both register),
+  and marks a record it can't move `in_frame` False. A place is placed again into a new generation of its slot:
+  the store hides rows appended into a forgotten range, so a generation is a new slot name, not a rewrite.
+- **Identity.** A track is named from the faces and labels known when it was placed (at most a day after it was
+  seen). A person named since then shows under their name (names are looked up on read), but a track nobody could
+  name then stays unnamed until the place is placed again (`place_again`, `reset`).
+- **Chunks.** The placer works through time in CHUNK_S pieces, each read with MARGIN_S of context either side, so
+  a track that spans a chunk's end is named and joined the same on both sides when its faces and partner are
+  within the margin; when they aren't, its path changes id there and a view draws two lines end to end.
+
+The rest of this docstring is how `derive` places and names the raw footprints.
 
 `entity` is an id ("person:<PersonId>", "pet:<pet id>", "face:<N>" for an unnamed face group, "rig"), or None until
 someone is identified; `track` ("<camera>:<track id>") still groups an unknown's samples into a path. A reader names
 an entity when it reads, as speaker tokens are, so renaming someone rewrites nothing stored.
 
-Who a camera track is, is worked out when it's read too (`identify`), so a correction or a new label since applies:
-a person's track by the faces see-actions matched on it (the name at least LOOK_S around the read that MIN_SHARE of
+Who a camera track is, is worked out when it's placed (`identify`): a person's track by the faces see-actions matched on it (the name at least LOOK_S around the read that MIN_SHARE of
 them agree on, as zone visits are named in memory/zone_people.py), or, for a track with no named face, by the
-unnamed face group ("Face 3") MIN_SHARE of its faces were put in (#2981): the same unnamed person's tracks share
+unnamed face group ("Face 3") MIN_SHARE of its faces were put in: the same unnamed person's tracks share
 "face:3", on every camera. Naming the group names its faces (vision/sightings.py), so its tracks become that
 person's when next read. Group ids are never reused, and a recenter keeps a group's id; a group folded or merged
-into another (vision/faces.py, #3197) is read as the group it went into (segment_log maps the old number on every
+into another (vision/faces.py) is read as the group it went into (segment_log maps the old number on every
 read). An
 animal's by the owner's label of that track, else by pet recognition where it's switched on
 (people/pet_recognition.py). A track nothing names that way takes the entity of the one track of its kind another
-camera of its place saw at the same time (`co_observed`, #2981): the only one in view then, or the only one beside it
+camera of its place saw at the same time (`co_observed`): the only one in view then, or the only one beside it
 on the plan, as when a person walks away from one camera while another sees their face. One entity's tracks on two
 cameras that were seen together close by on the plan are one path (`joined`, `Position.path`), with one fused point a
 second where both cameras saw them (see FUSE_M); tracks of one entity further apart stay their own paths, so a path
 never zig-zags between where two cameras put two people both named the same.
 
-A person's foot on an occluding edge (a couch's back, #3070) is put where another camera saw them that second
+A person's foot on an occluding edge (a couch's back) is put where another camera saw them that second
 (`_deferred`). A track whose rows went to one other track that way is that person drawn twice, one line over the other,
 though `joined` never joined them: it measures the two at the edge track's own far points. So it's drawn on that
-track's path, and the two take one entity (`_deferred_joins`, DEFER_SHARE). Over 2026-11-08's 7.7 h of Place 1 (its
-23:49 registration), named entity-seconds drawn on two paths at once went from 972 of 17,139 (5.7%) to 195 of 18,245
+track's path, and the two take one entity (`_deferred_joins`, DEFER_SHARE). Over 7.7 h of Place 1,
+named entity-seconds drawn on two paths at once went from 972 of 17,139 (5.7%) to 195 of 18,245
 (1.1%). With every name hidden, of the 20 such joins between two tracks faces named, 19 were one person; the other
 wasn't drawn joined, and no path held two people faces named apart.
 
-An unnamed face group is no one in particular, so it yields to a name (#2981, `_ungrouped`, `_named_apart`). A track
+An unnamed face group is no one in particular, so it yields to a name (`_ungrouped`, `_named_apart`). A track
 whose faces only made a group takes the one person whose faces named the tracks it partners with on other cameras
 (`_partners`, either way), and a group is never named apart from anyone but a person the owner said it isn't
-(people/face_nots.py, #3190): owner marks win. Living-room looks down on people from behind,
+(people/face_nots.py): owner marks win. Living-room looks down on people from behind,
 so a named person's track there often gets a fresh group from a few looks at the back of their head while cam0 sees
-their face. On 2026-11-08's 10 h, of the rows where the person on cam0's ray was named apart from cam0's track (504),
+their face. Over 10 h, of the rows where the person on cam0's ray was named apart from cam0's track (504),
 475 were a person against a group; of 8 such pairs checked in the frames, 7 were plainly one person and 1 was unclear.
 With named people's names hidden, their partners named them back rightly for 36 tracks and wrongly for 2 (one pair, a
 track named by 240 faces against one named by a single face). It renamed 4 group tracks, and cam0's uncertain rows went
 from 1,159 to 651.
 
 Retention: positions are dense (a tracked person or pet is a row a second), so past the 30-day window the nightly
-retention pass (retention.py, #2809) thins each track to one sample per 10 s and its last, kept like the other condensed streams.
+retention pass (retention.py) thins each track to one sample per 10 s and its last, kept like the other condensed
+streams.
 """
 
 from __future__ import annotations
 
 import bisect
 import collections
+import json
 import math
 import statistics
 import uuid
@@ -80,43 +106,44 @@ LOG = logs.get("spatial-positions")
 
 FIXED_CAMERA, RIG_POSE, ZONE = "fixed-camera", "rig-pose", "zone"
 RIG = "rig"  # the rig wearer's entity, and the rig's slot
-FACE = "face"  # an unnamed face group's entity: "face:3" for "Face 3" (#2981)
+FACE = "face"  # an unnamed face group's entity: "face:3" for "Face 3"
 LOOK_S = 120.0  # a face matched this long before or after the read, on the track, still says who it was
 MIN_SHARE = 0.75  # this share of a track's named faces must agree on one name
 # A track no face or label names takes the entity of a track of its kind another camera of its place saw at the same
-# time (#2981), in either of two ways, each needing CO_MIN_S seconds seen together:
+# time, in either of two ways, each needing CO_MIN_S seconds seen together:
 # - by time: it was the only such track in view, for CO_SHARE of the unnamed track's seconds;
 # - by where: over their seconds both were put on the plan, it was the only such track within JOIN_M (median
-#   distance) and no other was within RIVAL_M. Over 7.2 h of 2026-11-08's tracks, placed through #3080's
+#   distance) and no other was within RIVAL_M. Over 7.2 h of tracks, placed through reprojection
 #   registration, the two named 45 more tracks (23 by time alone); hiding named people's entities, the joins put back
-#   29 of 29 rightly (28 of 29 at 0.75 m and 1.25 m). Before #3080, plan distance couldn't tell two people apart.
+#   29 of 29 rightly (28 of 29 at 0.75 m and 1.25 m). Before reprojection registration, plan distance couldn't tell two
+# people apart.
 CO_MIN_S = 5
 CO_SHARE = 0.8
 JOIN_M = 0.9
 RIVAL_M = 1.4
-# One entity's tracks on two cameras of a place are one path (#2981) when they were seen together for CO_MIN_S seconds
-# at a median plan distance of FUSE_M or less (80 of 88 such pairs on 2026-11-08, whose median was 0.58 m). In each
-# second both cameras placed it, the path's point is their mean weighted by confidence times the squared sine of each
-# camera's ray to the floor: a steep ray's point moves less for a pixel's error than a grazing one's. Over those
+# One entity's tracks on two cameras of a place are one path when they were seen together for CO_MIN_S seconds
+# at a median plan distance of FUSE_M or less (80 of 88 such pairs in one day's tracks, whose median was 0.58 m). In
+# each second both cameras placed it, the path's point is their mean weighted by confidence times the squared sine of
+# each camera's ray to the floor: a steep ray's point moves less for a pixel's error than a grazing one's. Over those
 # seconds the fused point's step-to-step wobble (second difference) was 0.105 m against 0.155 m for one camera alone,
 # and the step where the path went from one camera to both was 0.22 m (0.34 m with equal weights). A camera whose foot
-# point sits on an occluding edge (#3070, `footprints.at_edge`) is left out of a second another camera's isn't.
+# point sits on an occluding edge (`footprints.at_edge`) is left out of a second another camera's isn't.
 FUSE_M = 1.4
 # A track that ended and one that started on the same camera soon after, where it could have walked to, are one
-# person's track broken in two (#2981, `handoffs`): the second started within HANDOFF_S of the first's end, within
-# HANDOFF_M plus WALK_MS a second of where it ended, and neither had another such partner. On 2026-11-08's tracks
-# (9 h), of 99 such pairs whose tracks faces named, 96 named one person; 73 more tracks would be named so. Between
+# person's track broken in two (`handoffs`): the second started within HANDOFF_S of the first's end, within
+# HANDOFF_M plus WALK_MS a second of where it ended, and neither had another such partner. Over 9 h of tracks,
+# of 99 such pairs whose tracks faces named, 96 named one person; 73 more tracks would be named so. Between
 # two cameras it didn't hold: cam0 and living-room see one room, so a track ending on one rarely starts on the other,
 # and of 7 such named pairs 2 agreed. A handoff names an unnamed track and joins the two into one path. People's
 # tracks only: an animal's handoffs weren't measured.
 HANDOFF_S = 10.0
 HANDOFF_M = 0.6
 WALK_MS = 1.0
-# A person's foot on an occluding edge is hidden behind it and guessed by pose, or just beyond it (#3070), so they
+# A person's foot on an occluding edge is hidden behind it and guessed by pose, or just beyond it, so they
 # stood somewhere on the floor the surface at that pixel hides along the camera's ray: from where the ray meets the
 # surface's height to the foot's point. Which way they were from the camera is still right. When the other camera
 # saw several people that second (`_deferred`), the one whose point is within RAY_M of that stretch of floor, with
-# every other more than RAY_GAP_M further, is the one. Over 10 h of 2026-11-08, on cam0's feet at an edge in seconds
+# every other more than RAY_GAP_M further, is the one. Over 10 h, on cam0's feet at an edge in seconds
 # living-room saw two or more people whose named one matched cam0's name (69 rows, 25 tracks, names hidden), it picked
 # 58 rightly and none wrongly (1.0 m picked 62, but 5 wrongly); on cam0's feet that were clear, with a made-up stretch
 # from 0.5 m short of the point to 1 m past it, 270 of 273 rightly and none wrongly. On the rows names or partners
@@ -124,9 +151,9 @@ WALK_MS = 1.0
 RAY_M = 0.7
 RAY_GAP_M = 0.5
 # A track whose foot rows were put on another camera's track's points (`_deferred`) is that person drawn twice, one
-# line over the other (#2981), so it's drawn on that track's path (`_deferred_joins`): when CO_MIN_S or more of its
+# line over the other, so it's drawn on that track's path (`_deferred_joins`): when CO_MIN_S or more of its
 # rows went to one track and DEFER_SHARE of all that went anywhere did, or (a short track) DEFER_SHARE of all its rows
-# did, and the two tracks' clear points, in the seconds both had one, are within FUSE_M (median). Over 2026-11-08's
+# did, and the two tracks' clear points, in the seconds both had one, are within FUSE_M (median). Over
 # 7.7 h of Place 1 (see the module docstring), 250 of the 268 tracks with a row put elsewhere put every one on one
 # track, and 260 put DEFER_SHARE or more there.
 DEFER_SHARE = 0.75
@@ -158,7 +185,9 @@ class Sample:
 
 @dataclass(frozen=True)
 class Position:
-    """Where an entity was, as a view uses it: placed on its place's plan, and named."""
+    """Where an entity was: the record every position source writes (`write`) and every view reads (`positions`),
+    placed on its place's plan. `name` is looked up on read and `in_frame` worked out then; `u` and `v` are only on a
+    row fresh from `derive`, and aren't stored."""
 
     id: str
     t: float
@@ -180,9 +209,9 @@ class Position:
     # x and y are in the frame asked for (`positions(frame_revision=)`); always True when none was asked for
     in_frame: bool = True
     # The path it's drawn on: its track's, or a joined path's id (its tracks, "+"-joined) when one entity's tracks on
-    # several cameras were fused into one (`joined`, #2981); a fused point's track and camera are None
+    # several cameras were fused into one (`joined`); a fused point's track and camera are None
     path: str | None = None
-    # A person's foot on an occluding edge (#3070, `footprints.at_edge`) that no other camera's point settled: hidden
+    # A person's foot on an occluding edge (`footprints.at_edge`) that no other camera's point settled: hidden
     # behind it and guessed by pose, or just beyond it, so it may be metres off. A view may leave it out of a path.
     uncertain: bool = False
 
@@ -198,8 +227,8 @@ def _slot(row: Mapping[str, Any]) -> str:
     return S.slot(str(row.get("camera") or (RIG if row.get("source") == RIG_POSE else row.get("source") or "unknown")))
 
 
-def write_positions(state: Path, rows: Sequence[Mapping[str, Any]]) -> None:
-    """Append observations (see the module docstring for the fields: `t`, `source`, `confidence`, and the optional
+def write_samples(state: Path, rows: Sequence[Mapping[str, Any]]) -> None:
+    """Append raw camera observations, for the placer (`advance`) to put on the plan (the fields: `t`, `source`, `confidence`, and the optional
     `end`, `id`, `entity`, `track`, `camera`, `u`, `v`, `place`, `room`, `x`, `y`, `revision`). Nothing to write is
     fine."""
     if not rows:
@@ -238,8 +267,8 @@ def _sample(r: Mapping[str, Any]) -> Sample:
 
 def samples(state: Path, start: float, end: float, cameras: Sequence[str] | None = None) -> list[Sample]:
     """Every stored observation overlapping [start, end), exactly as written, in time order (`cameras` keeps those
-    cameras' slots): the raw rows, for a job that projects them itself (#2800's walkable floor)."""
-    # The store reads only these slots' files: a filter applied after reading every slot saved nothing (#2912).
+    cameras' slots): the raw rows, for a job that projects them itself (the walkable floor)."""
+    # The store reads only these slots' files: a filter applied after reading every slot saved nothing.
     slots = sorted({S.slot(c) for c in cameras}) if cameras is not None else None
     if slots == []:
         return []
@@ -318,7 +347,7 @@ class _Places:
 
     def background(self, place: str, camera: str) -> places.Background | None:
         """What a camera sees with nobody in the way, by the place's current registration, with the cells it doesn't
-        know taken from earlier registrations of the same view (`footprints.filled`, #3168)."""
+        know taken from earlier registrations of the same view (`footprints.filled`)."""
         if (place, camera) not in self._backgrounds:
             now = self.revs.get(place)
             held = now.cameras.get(camera) if now is not None else None
@@ -332,9 +361,9 @@ class _Places:
     def camera(self, rev: places.Revision, camera: str | None) -> places.CameraPose | None:
         """`rev`'s pose of a camera, with the current revision's background for it (`background`, filled from earlier
         ones) when `rev` is the current one or has none: a plan the owner corrected stays in the frame of an older
-        revision, maybe from before backgrounds were kept (#3070), and a background (each pixel's surface height as a
+        revision, maybe from before backgrounds were kept, and a background (each pixel's surface height as a
         share of the camera's) doesn't depend on the map frame. An older revision's own background stays its own.
-        Made once per revision and camera: every sample of a read asks for it (#3293)."""
+        Made once per revision and camera: every sample of a read asks for it."""
         key = (rev.id, camera or "")
         if key in self._poses:
             return self._poses[key]
@@ -419,7 +448,7 @@ class _Places:
         """The move from `now`'s plan frame (its floor's own frame without a plan, `places.floor_frame`) onto
         `frame`'s, two revisions of one place: through the cameras both register (`fuse.frame_between`). A joined
         place's owner plan stays in the frame it was drawn in, which registers only the cameras its place had then;
-        its other rooms' cameras are placed through their poses now and moved onto it (#3196). None when the two
+        its other rooms' cameras are placed through their poses now and moved onto it. None when the two
         frames share no camera."""
         key = (now.id, frame.id)
         if key not in self._moves:
@@ -463,7 +492,7 @@ class _Places:
             in_frame = False
         if rev is None or sample.u is None or sample.v is None:
             return Placed(place, None, None, None, None, None, in_frame)
-        # A person's footprint is their heels or ankles, a few centimetres up; an animal's, its box's bottom (#3069)
+        # A person's footprint is their heels or ankles, a few centimetres up; an animal's, its box's bottom
         height = 0.0 if animal_track(sample.track) is not None else footprints.FOOT_M
         hit = places.project(self.view(rev, sample.camera, sample.t), sample.camera, sample.u, sample.v, height)
         if move is not None and frame is not None:
@@ -696,7 +725,7 @@ def _named_by_partners(
 def _named_apart(a: str | None, b: str | None, nots: Mapping[int, set[str]] | None = None) -> bool:
     """Whether two entities are two different people or animals. An unnamed face group is no one in particular (see
     the module docstring), so it's never apart from anyone, nor is an unnamed track, except from a person the owner
-    said the group isn't (`nots`, people/face_nots.py: each group's person ids, #3190)."""
+    said the group isn't (`nots`, people/face_nots.py: each group's person ids)."""
     if not a or not b or a == b:
         return False
     for group, other in ((a, b), (b, a)):
@@ -712,7 +741,7 @@ def _ungrouped(
 ) -> dict[str, str]:
     """The person each track named only by an unnamed face group is (see the module docstring): the one person whose
     faces named the tracks it partners with (`_partners`, either way), unless the owner said the group isn't them
-    (`nots`, #3190). `known` is who each track was (`identify`)."""
+    (`nots`). `known` is who each track was (`identify`)."""
     near: dict[str, set[str]] = {}
     for a, b in partner.items():
         near.setdefault(a, set()).add(b)
@@ -743,7 +772,7 @@ def co_observed(
 
 def pairs(partner: Mapping[str, str]) -> list[tuple[str, str]]:
     """The tracks that are each other's partner (`_partners`), once each: one person seen by two cameras, named or
-    not, which `joined` makes one path (#3070: so a foot on an occluding edge defers to the other camera's)."""
+    not, which `joined` makes one path (so a foot on an occluding edge defers to the other camera's)."""
     return sorted((a, b) for a, b in partner.items() if a < b and partner.get(b) == a)
 
 
@@ -842,7 +871,7 @@ class _Span:
 def handoffs(
     spans: Mapping[str, _Span], point: Callable[[Sample], tuple[float, float] | None]
 ) -> list[tuple[str, str]]:
-    """People's tracks broken in two on one camera (#2981): (a, b) where b started within HANDOFF_S after a ended, on
+    """People's tracks broken in two on one camera: (a, b) where b started within HANDOFF_S after a ended, on
     the same camera, its first point within HANDOFF_M plus WALK_MS a second of a's last, and neither has another such
     partner. `point` puts a row on the plan (None when it can't be); only the ends of tracks close enough in time are
     put there."""
@@ -886,9 +915,9 @@ def _steepness(where: _Places, s: Sample, at: Placed) -> float:
 def _at_edge(where: _Places, s: Sample, at: Placed) -> bool:
     """Whether the camera saw `s`'s foot point on an occluding edge (`footprints.at_edge`). It's judged through the
     place's current registration of the camera, whatever frame `at` is in: EDGE_M is metres, and a plan the owner
-    corrected may be in an older revision's frame, at another scale or with no background (#3070). A cell of the
+    corrected may be in an older revision's frame, at another scale or with no background. A cell of the
     background no registration saw (`_Places.background`) can't say the foot is clear: it's judged as if furniture
-    (`footprints.FURNITURE_M`) stood there, so it defers to a clear camera or is uncertain (#3168). False for a camera
+    (`footprints.FURNITURE_M`) stood there, so it defers to a clear camera or is uncertain. False for a camera
     with no background at all, no floor, or a foot outside the frame. A pixel whose background couldn't hide EDGE_M of
     floor however far off it lies is answered without casting its ray (most pixels see the floor)."""
     now = where.revs.get(at.place) if at.place is not None else None
@@ -965,7 +994,7 @@ def _deferred(
     nots: Mapping[int, set[str]] | None = None,
 ) -> dict[str, tuple[Sample, Sample]]:
     """A person's camera row whose foot is on an occluding edge (`edge`, by row id) put where another camera of the
-    place saw the same person that second (#3070), when exactly one did with its foot clear: a track of the same
+    place saw the same person that second, when exactly one did with its foot clear: a track of the same
     entity, or the row's track's partner (`_partners`, either way) when the two aren't named apart. Else, the one of
     those cameras' clear rows that second on the floor the edge hides along the row's ray (see RAY_M), when it isn't
     named apart from the row and no other row of the row's camera picked it too. {row id: (the row at that camera's
@@ -1090,7 +1119,7 @@ def _fuse(
         here = [(r, p) for r in rows if (p := place(r)).x is not None and p.y is not None and p.in_frame]
         if len({r.camera for r, _ in here}) < 2:
             continue
-        # A foot on an occluding edge (#3070) is hidden behind it and guessed, or just beyond it: the camera can't tell.
+        # A foot on an occluding edge is hidden behind it and guessed, or just beyond it: the camera can't tell.
         # Defer to the cameras whose foot isn't on one; when every camera's is, none is preferred.
         clear = [(r, p) for r, p in here if not _at_edge(where, r, p)]
         used = clear or here
@@ -1126,7 +1155,7 @@ def _fuse(
     return [s for s in stored if s.id not in gone] + made, fused, doubtful
 
 
-def positions(
+def derive(
     state: Path,
     start: float,
     end: float,
@@ -1135,24 +1164,22 @@ def positions(
     every: float | None = None,
     frame_revision: str | None = None,
 ) -> list[Position]:
-    """Where entities were in [start, end), in time order (then by id) across every path: each stored observation
-    placed on its place's plan (a fixed camera's through its pose at the row's time), plus the zone fallback, each
-    identified (`identify`) and named. `place` and `entity` keep only that place's or that entity's rows, and are
-    applied before anything is placed (a place reads only its cameras' and the rig's rows, and names only their
-    tracks). `every` thins a long read to one row per path per that many seconds, plus each path's last, which a
-    drawn path doesn't miss.
+    """The raw footprints of [start, end) placed, named, joined, and fused, with the zone fallback, in time order
+    (then by id) across every path: what the placer writes to the layer (`advance`), and what a tool that tries a
+    registration out reads (spatial/dryrun.py). Its cost grows with every raw sample of the window, so no view calls
+    it: views read `positions`. `place` and `entity` keep only that place's or that entity's rows, and are applied
+    before anything is placed (a place reads only its cameras' rows, and names only their tracks). `every` thins to
+    one row per path per that many seconds, plus each path's last.
 
-    For a view: group rows into paths by `path` (a track's, or a joined path's), else `entity`, and skip rows whose
-    `x` is None when drawing (zone rows, rows of a place with no plan yet, points above the horizon). `x` and `y` are in the plan frame of
-    `revision`. To draw on a plan, pass its frame as `frame_revision` (`places.Place.plan_revision`, with `place`):
-    every camera row is then projected from its raw `u`, `v` through that revision's poses, so it lands in that
-    plan's frame whatever night it was seen, and a row that can't be comes back `in_frame` False (skip or mark it).
+    `x` and `y` are in the plan frame of `revision`. With `frame_revision` (and `place`), every camera row is
+    projected from its raw `u`, `v` through that revision's poses, so it lands in that plan's frame whatever night
+    it was seen, and a row that can't be comes back `in_frame` False.
 
     A fixed camera's row is placed through the camera's pose at the row's time when the camera has a pose series in
-    the map frame of the revision it's projected through (spatial/poses.py, #3289: its still stretches, smoothed,
-    with its held focal and lens), so after a camera is moved or re-aimed its older rows land where it was then.
-    Without a series (or one that gives no pose), it's placed through that revision's registration of the camera,
-    whatever the row's age, so its older rows land as if seen from where it is now."""
+    the map frame of the revision it's projected through (spatial/poses.py: its still stretches, smoothed, with its
+    held focal and lens), so after a camera is moved or re-aimed its older rows land where it was then. Without a
+    series (or one that gives no pose), it's placed through that revision's registration of the camera, whatever the
+    row's age, so its older rows land as if seen from where it is now."""
     where = _Places(state)
     frame: places.Revision | None = None
     if frame_revision is not None:
@@ -1239,7 +1266,7 @@ def positions(
 
     settled, fused, doubtful, edge, moved = settle(stored, paths)
     # A track whose rows were put on another's is that person drawn twice: it joins that track's path, the two take one
-    # entity, and the seconds both saw are fused again (#2981)
+    # entity, and the seconds both saw are fused again
     if near := _deferred_joins(moved, settled, edge, placement):
         paths = joined(stored, placed, links, near, nots)
         drawn_as = _path_entities(paths, {s.track: s.entity for s in stored if s.track})
@@ -1296,4 +1323,438 @@ def positions(
         for z in zones
         if entity is None or z.entity == entity
     ]
+    return sorted(out, key=lambda p: (p.t, p.id))
+
+
+# The layer itself: stored records, the placer that writes the cameras' and the zones', and the read.
+
+CAMERAS_WRITER, RIG_WRITER = "cameras", "rig"  # the placer (fixed-camera and zone rows), and the rig's own writer
+LAYER_MARKS = "positions.json"  # under the places folder: how far the placer has placed, and each place's generation
+# The placer's piece of time, on the clock (so a rerun cuts where the last run did), and the context it reads either
+# side of one to name and join the tracks that cross its ends. A day of a busy place is a few seconds of placing, so
+# a piece is short enough to hold in memory and long enough that few tracks cross an end.
+CHUNK_S = 6 * 3600.0
+MARGIN_S = 600.0
+BACKFILL_S = 30 * 86400.0  # how far back the first run places: the raw footprints' history window
+# Each write also goes, thinned to one record per path per this long (and each path's last), to a second stream
+# (`segment_log.PLACED_PATHS`). A read thinning at least this much (the page's Week: 15 s) scans that one: a tenth of
+# the rows, since decoding rows is what a read costs. A day or less reads every record.
+COARSE_S = 10.0
+LAYER_STREAMS = (S.PLACED, S.PLACED_PATHS)
+READ_S = 86400.0  # a read scans this much at a time, and asks between scans whether anyone still wants it
+# A place is placed again when its cameras' registration now puts people somewhere else than when it was last
+# placed: when, for any of its cameras, the median move of the plan points REFERENCE pixels land on (`_basis`) is
+# over REPLACE_M, or a pixel that landed on the floor no longer does. The median, so a pixel whose ray grazes the
+# floor (a tenth of a degree moves it metres) doesn't decide. Paths are good to about half a metre between two
+# cameras (see FUSE_M), so a quarter of a metre is a move worth a night's re-placing and a nightly refit's few
+# centimetres isn't.
+REPLACE_M = 0.25
+REFERENCE = tuple((u, v) for v in (0.7, 0.85, 1.0) for u in (0.25, 0.5, 0.75))  # (u, v), the frame's lower part
+_ALWAYS = 4102444800.0  # 2100-01-01: past any record, for a forget of everything a slot holds
+
+
+class Cancelled(Exception):
+    """A read stopped because its caller said nobody is waiting for it any more."""
+
+
+def layer_slot(place: str, source: str, generation: int = 0) -> str:
+    """The store slot a place's records from `source` are in: one per writer, so a read of a place opens only that
+    place's files. The placer's (fixed-camera and zone) carries the place's generation (`place_again`); the rig's
+    doesn't, since nothing can make its records again."""
+    if source == RIG_POSE:
+        return S.slot(f"{place}.{RIG_WRITER}")
+    return S.slot(f"{place}.{CAMERAS_WRITER}.{generation}")
+
+
+def _marks(state: Path) -> dict[str, Any]:
+    try:
+        found = json.loads((places.root(state) / LAYER_MARKS).read_text())
+    except FileNotFoundError, ValueError:
+        return {}
+    return found if isinstance(found, dict) else {}
+
+
+def _generation(marks: Mapping[str, Any], place: str) -> int:
+    """How many times `place` has been placed again (`place_again`): its placer slot's generation."""
+    return int((marks.get("generations") or {}).get(place, 0))
+
+
+def _save_marks(state: Path, marks: Mapping[str, Any]) -> None:
+    path = places.root(state) / LAYER_MARKS
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(marks, indent=1, sort_keys=True))
+    tmp.replace(path)
+
+
+def _line(r: Mapping[str, Any]) -> str:
+    """What one drawn line is, for thinning: a record's path, else its track, else its entity; a zone record (a
+    visit's whole span) or one with none of those is its own."""
+    if r["source"] == ZONE:
+        return f"row:{r['id']}"
+    return r["path"] or r["track"] or r["entity"] or f"row:{r['id']}"
+
+
+Seqs = dict[str, dict[str, int]]  # each layer stream's slots' next row numbers
+
+
+def write(state: Path, rows: Sequence[Position], resume: Mapping[str, Mapping[str, int]] | None = None) -> Seqs:
+    """Append records to the layer: what every position source calls. A record with no place can't be read by place
+    or drawn, so it's left out. Each call's records also go thinned to the paths stream (see COARSE_S), so a source
+    writes a stretch of time at once, not a record at a time (a lone record is always its path's last, and kept).
+    `resume` is the placer's: each of its slots' next row number as its last finished piece left it, so rows a piece
+    wrote before it failed are dropped when it's written again. Returns each stream's slots' next row numbers."""
+    marks = _marks(state)
+    by_slot: dict[str, list[dict[str, Any]]] = {}
+    for p in rows:
+        if p.place is None:
+            continue
+        by_slot.setdefault(layer_slot(p.place, p.source, _generation(marks, p.place)), []).append(
+            {
+                "id": p.id.removeprefix("fused:"),  # a fused row stands in for the camera rows it was made from
+                "ts_start": p.t,
+                "ts_end": max(p.t, p.end),
+                "source": p.source,
+                "confidence": p.confidence,
+                "entity": p.entity,
+                "track": p.track,
+                "path": p.path,
+                "place": p.place,
+                "room": p.room,
+                "room_id": p.room_id,
+                "x": p.x,
+                "y": p.y,
+                "revision": p.revision,
+                "camera": p.camera,
+                "uncertain": p.uncertain,
+            }
+        )
+    if not by_slot:
+        return {s: dict(slots) for s, slots in (resume or {}).items()}
+    writers = S.Writers(S.root(state), resume)
+    try:
+        for slot, records in by_slot.items():
+            writers.append(S.PLACED, slot, records)
+            writers.append(S.PLACED_PATHS, slot, thin(records, _line, lambda r: r["ts_start"], COARSE_S))
+        return {s: slots for s, slots in writers.sync().items() if s in LAYER_STREAMS}
+    finally:
+        writers.close()
+
+
+def _piece(state: Path, held: places.Place, lo: float, hi: float) -> list[Position]:
+    """One place's records for [lo, hi): its raw footprints and zone visits placed in the frame its plan is drawn in
+    (`derive`), read with MARGIN_S of context either side."""
+    try:
+        rows = derive(state, lo - MARGIN_S, hi + MARGIN_S, place=held.id, frame_revision=held.plan_revision)
+    except ValueError as e:  # the plan names a revision the place no longer has: its current frame, then
+        LOG.warning("placing %s in its current frame: %s", held.id, e)
+        rows = derive(state, lo - MARGIN_S, hi + MARGIN_S, place=held.id)
+    return [r for r in rows if lo <= r.t < hi]
+
+
+Basis = dict[str, list[list[float] | None]]  # each camera's REFERENCE pixels' plan points; None for no floor point
+
+
+def _basis(state: Path, held: places.Place, at: float) -> Basis:
+    """Where `held`'s cameras put people at time `at`: the plan point each REFERENCE pixel of each camera lands on,
+    placed exactly as the placer places a person's footprint (`_Places.place`, in the frame the place's plan is drawn
+    in). It moves when a registration changes a camera's pose, its lens, the floor, or the plan's frame, and not when
+    a new revision only carries the same registration over."""
+    where = _Places(state)
+    frame = where.revision(held.id, held.plan_revision) if held.plan_revision is not None else None
+    out: Basis = {}
+    for camera in sorted(c for c, p in where.cams.items() if p == held.id):
+        points: list[list[float] | None] = []
+        for u, v in REFERENCE:
+            sample = Sample(
+                "", at, at, FIXED_CAMERA, 1.0, None, f"{camera}:0", camera, u, v, None, None, None, None, None
+            )
+            found = where.place(sample, frame)
+            points.append(None if found.x is None or found.y is None or not found.in_frame else [found.x, found.y])
+        out[camera] = points
+    return out
+
+
+def _moved(was: Basis, now: Basis) -> bool:
+    """Whether a registration moved where a place's cameras put people since `was` (see REPLACE_M). A camera only one
+    of the two has changes nothing already placed: a new camera has no records yet, and a camera gone has no new pose
+    to place its records through."""
+    for camera in was.keys() & now.keys():
+        pairs = list(zip(was[camera], now[camera]))
+        if any((a is None) != (b is None) for a, b in pairs):
+            return True
+        moves = [math.dist(a, b) for a, b in pairs if a is not None and b is not None]
+        if moves and statistics.median(moves) > REPLACE_M:
+            return True
+    return False
+
+
+def place_again(state: Path, place: str, upto: float) -> int:
+    """Have the placer place `place` again from its raw footprints: its records so far are forgotten, its slot moves
+    to a new generation (the store hides rows appended into a forgotten range), and it is marked BACKFILL_S behind
+    `upto`, which the next `advance` makes up before anything else. Other places, and the rig's records, are left as
+    they are. Returns the place's new generation."""
+    from continuum_py import forget_segments
+
+    marks = _marks(state)
+    generation = _generation(marks, place)
+    root = S.root(state)
+    old = layer_slot(place, FIXED_CAMERA, generation)
+    streams = [s for s in (*LAYER_STREAMS, *map(S.condensed, LAYER_STREAMS)) if (root / s / old).is_dir()]
+    if streams:
+        forget_segments(root, 0, S.ns(_ALWAYS), streams, [old], "reset")
+    marks["generations"] = {**(marks.get("generations") or {}), place: generation + 1}
+    marks["behind"] = {**(marks.get("behind") or {}), place: upto - BACKFILL_S}
+    _save_marks(state, marks)
+    return generation + 1
+
+
+def advance(state: Path, upto: float, chunk_s: float = CHUNK_S) -> dict[str, int]:
+    """Place what was recorded since the last run, up to `upto` (the time the raw footprints are recorded to), and
+    write it to the layer: every place's fixed-camera and zone records, a piece of `chunk_s` at a time, oldest first.
+    The first run goes BACKFILL_S back. It runs after each registration (the nightly camera pass), so it first
+    checks each place's registration against the one its records were placed through (`_basis`, `_moved`), and a
+    place whose cameras now put people somewhere else is placed again from scratch (`place_again`) before the new time
+    is placed. The mark moves after each piece is written, so a run that stops part way picks up at the piece it was
+    on, and that piece's rows aren't kept twice (`write`'s `resume`). Returns how many records and pieces it wrote
+    and how many places it placed again.
+
+    Only time after the mark is placed: a footprint or a zone visit recorded later for a time before it (a camera
+    that caught up after an outage, a visit that began before the mark and closed after) isn't in the layer until
+    its place is placed again."""
+    counts = {"records": 0, "pieces": 0, "replaced": 0}
+    held = {p.id: p for p in places.places(state)}
+    first = _marks(state).get("placed_to") is None
+    was: dict[str, Basis] = _marks(state).get("basis") or {}
+    now = {place: _basis(state, p, upto) for place, p in held.items()}
+    basis: dict[str, Basis] = {}
+    for place in sorted(now):
+        if not first and place in was and _moved(was[place], now[place]):
+            LOG.info("placing %s again: its cameras' registration moved where people land on the plan", place)
+            place_again(state, place, upto)
+            counts["replaced"] += 1
+            basis[place] = now[place]
+        else:
+            # What its records were placed through stays the measure (with any camera new since), so refits of a few
+            # centimetres a night add up to a move, where a basis renewed each night would never see one.
+            basis[place] = {**now[place], **was.get(place, {})} if not first else now[place]
+    marks = _marks(state)
+    # Once a place is marked behind (or there is nothing to redo), its records and its basis agree: a run that stops
+    # part way goes on from the mark, without finding the place moved again.
+    marks["basis"] = basis
+    _save_marks(state, marks)
+    seq: Seqs = {s: {str(k): int(v) for k, v in slots.items()} for s, slots in (marks.get("seq") or {}).items()}
+    placed_to = float(marks["placed_to"]) if marks.get("placed_to") is not None else upto - BACKFILL_S
+
+    def piece(only: places.Place | None, at: float, end: float) -> float:
+        """Place one piece from `at` (of `only`, a place being placed again, or of every place that isn't behind),
+        write it, and move the mark; returns where the piece ended, always past `at`."""
+        nonlocal seq, marks
+        hi = min(end, (math.floor(at / chunk_s) + 1) * chunk_s)
+        behind = marks.get("behind") or {}
+        todo = [only] if only is not None else [p for p in held.values() if p.id not in behind]
+        rows = [r for p in todo for r in _piece(state, p, at, hi)]
+        seq = write(state, rows, resume=seq)
+        marks = {**marks, "seq": seq}
+        if only is None:
+            marks["placed_to"] = hi
+        elif hi < end:
+            marks["behind"] = {**behind, only.id: hi}
+        else:
+            marks["behind"] = {k: v for k, v in behind.items() if k != only.id}
+        _save_marks(state, marks)
+        counts["records"] += len(rows)
+        counts["pieces"] += 1
+        return hi
+
+    for place, start in sorted((marks.get("behind") or {}).items()):
+        at = float(start)
+        if place not in held or at >= placed_to:  # a place since removed, or nothing placed yet to make up
+            marks["behind"] = {k: v for k, v in (marks.get("behind") or {}).items() if k != place}
+            _save_marks(state, marks)
+            continue
+        while at < placed_to:
+            at = piece(held[place], at, placed_to)
+    at = placed_to
+    while at < upto:
+        at = piece(None, at, upto)
+    return counts
+
+
+def reset(state: Path) -> int:
+    """Have the placer place every place again from the raw footprints (after a pose series, a plan, or a label
+    changed what the stored records should say; a registration that moves a camera is noticed by `advance` itself):
+    `place_again` for each place. The rig's records stay: nothing can make them again. Returns how many places."""
+    marks = _marks(state)
+    upto = float(marks["placed_to"]) if marks.get("placed_to") is not None else 0.0
+    ids = [p.id for p in places.places(state)]
+    for place in ids:
+        place_again(state, place, upto)
+    return len(ids)
+
+
+def _scan(state: Path, lo: float, hi: float, slots: Sequence[str] | None, paths: bool = False) -> list[dict[str, Any]]:
+    """The layer's rows whose span reaches into [lo, hi), as the store's columns: every record's stream (the thinned
+    paths' with `paths`) and its condensed history's (retention.py), for `slots` (every slot when None)."""
+    from continuum_py import read_segments
+
+    root = S.root(state)
+    out = []
+    held = S.PLACED_PATHS if paths else S.PLACED
+    for stream in (held, S.condensed(held)):
+        if (root / stream).is_dir():
+            cams = None if slots is None else list(slots)
+            out.append(read_segments(root, stream, S.PLACED_SCHEMA, S.ns(lo), S.ns(hi), cams, overlapping=True))
+    return out
+
+
+def _place_slots(state: Path, place: str) -> list[str]:
+    return [layer_slot(place, FIXED_CAMERA, _generation(_marks(state), place)), layer_slot(place, RIG_POSE)]
+
+
+def last_seen(state: Path, ids: Iterable[str], now: float, lookbacks: Sequence[float]) -> dict[str, float]:
+    """When anyone was last placed in each of the places `ids`, by the layer's newest record there. Read newest
+    first over the widening `lookbacks` (seconds before `now`), each place only until it's found: a place seen in the
+    last hour costs an hour's read, and one not seen in the longest is left out."""
+    found: dict[str, float] = {}
+    upto = now
+    for back in lookbacks:
+        lo = now - back
+        for place in ids:
+            if place in found:
+                continue
+            scans = _scan(state, lo, upto, _place_slots(state, place), paths=True)  # a path's last is always kept
+            ends = [got["end_ns"] for got in scans if len(got["end_ns"])]
+            if ends:
+                found[place] = min(max(float(np.max(e)) for e in ends) / S.NS, now)
+        upto = lo
+    return found
+
+
+_AS_STORED = {"camera": "seen_by", "revision": "place_revision"}  # the store keeps those two names for its own
+_TEXT = ("id", "entity", "track", "source", "place", "room", "room_id", "path")
+
+
+def _columns(got: Mapping[str, Any]) -> dict[str, list[Any]]:
+    """One scan's columns as lists, by `Position`'s field names: a read goes over every row of them, and a list is the
+    fastest thing to go over."""
+    cols: dict[str, list[Any]] = {name: got[name] for name in _TEXT}
+    cols |= {name: got[column] for name, column in _AS_STORED.items()}
+    cols["t"] = (np.asarray(got["ts_ns"], dtype=np.int64) / S.NS).tolist()
+    cols["end"] = (np.asarray(got["end_ns"], dtype=np.int64) / S.NS).tolist()
+    for name in ("x", "y", "confidence", "uncertain"):
+        cols[name] = np.asarray(got[name]).tolist()
+    return cols
+
+
+def _record(cols: Mapping[str, list[Any]], i: int) -> dict[str, Any]:
+    """Row `i` of a scan as `Position`'s fields (all but its name and its raw u and v)."""
+    row = {name: values[i] for name, values in cols.items()}
+    row["id"] = str(row["id"])
+    row["x"] = None if math.isnan(row["x"]) else row["x"]
+    row["y"] = None if math.isnan(row["y"]) else row["y"]
+    row["uncertain"] = bool(row["uncertain"])
+    return row
+
+
+def _to_frame(
+    where: _Places, frame: places.Revision, row: dict[str, Any], moves: dict[str | None, floorplan.Similarity | bool]
+) -> dict[str, Any]:
+    """A stored record as `frame` (a revision of its place) draws it: as it is when it was placed in that plan frame,
+    moved by the similarity between the two frames when it was placed in another (`_Places.carried`), and `in_frame`
+    False when nothing relates them. A room-only record has no point to move."""
+    if row["x"] is None or row["y"] is None or row["revision"] == frame.id:
+        return row
+    key = row["revision"]
+    if key not in moves:
+        rev = where.revision(frame.place, key)
+        if rev is None:
+            moves[key] = False
+        elif places.same_plan_frame(rev, frame):
+            moves[key] = True
+        else:
+            moves[key] = where.carried(rev, frame) or False
+    move = moves[key]
+    if move is True:
+        return row
+    if move is False:
+        return {**row, "in_frame": False}
+    x, y = move.point(row["x"], row["y"])
+    x, y = round(x, 3), round(y, 3)
+    room = where.room(frame, x, y)
+    moved = {"x": x, "y": y, "revision": frame.id, "room_id": room[0] if room else None}
+    return {**row, **moved, "room": room[1] if room else None}
+
+
+def positions(
+    state: Path,
+    start: float,
+    end: float,
+    place: str | None = None,
+    entity: str | None = None,
+    every: float | None = None,
+    frame_revision: str | None = None,
+    cancelled: Callable[[], bool] | None = None,
+) -> list[Position]:
+    """Where entities were in [start, end), in time order (then by id): the layer's records as they were stored,
+    named as people and pets are named now. `place` reads only that place's records and `entity` keeps only that
+    entity's. `every` thins a long read as it scans: one record per path per that many seconds, plus each path's
+    last (zone records, each a visit's whole span, are all kept), so a week of a busy place builds the few thousand
+    records a view draws, not one per second; from COARSE_S up it scans the stream thinned that much when written. `cancelled` is asked before each READ_S of the window is scanned; when
+    it says yes the read raises `Cancelled`.
+
+    For a view: group records into paths by `path`, else `entity`, and skip those whose `x` is None when drawing
+    (zone records, records of a place with no plan yet, points above the horizon). `x` and `y` are in the plan frame
+    of `revision`. To draw on a plan, pass its frame as `frame_revision` (`places.Place.plan_revision`, with
+    `place`): a record placed in another frame of the place is moved onto it (`_to_frame`), and one that can't be
+    comes back `in_frame` False (skip or mark it)."""
+    where: _Places | None = None
+    frame: places.Revision | None = None
+    if frame_revision is not None:
+        if place is None:
+            raise ValueError("frame_revision needs the place it's a revision of")
+        where = _Places(state)
+        frame = where.revision(place, frame_revision)
+        if frame is None:
+            raise ValueError(f"{place} has no revision {frame_revision}")
+    slots = _place_slots(state, place) if place is not None else None
+    kept: list[dict[str, Any]] = []
+    seen: set[tuple[str, int]] = set()  # (path, the `every` it's in) already kept
+    newest: dict[str, float] = {}  # each path's last record's time so far
+    tail: dict[str, dict[str, Any] | None] = {}  # each path's last record, when thinning left it out
+    at = start
+    while at < end:
+        if cancelled is not None and cancelled():
+            raise Cancelled
+        hi = min(end, at + READ_S)
+        for got in _scan(state, at, hi, slots, paths=bool(every and every >= COARSE_S)):
+            cols = _columns(got)
+            times, sources, entities = cols["t"], cols["source"], cols["entity"]
+            last: dict[str, int] = {}  # this scan's rows that are their path's last so far; -1 once kept
+            for i, t in enumerate(times):
+                # A span that began before this scan's piece of the window is the earlier piece's (or, begun before
+                # the window, the first's): each record is taken once.
+                if not at <= max(t, start) < hi or (entity is not None and entities[i] != entity):
+                    continue
+                if not every or sources[i] == ZONE:
+                    kept.append(_record(cols, i))
+                    continue
+                key = cols["path"][i] or cols["track"][i] or entities[i] or f"row:{cols['id'][i]}"
+                bucket = (key, int(t // every))
+                fresh = bucket not in seen
+                if fresh:
+                    seen.add(bucket)
+                    kept.append(_record(cols, i))
+                if t >= newest.get(key, -math.inf):
+                    newest[key] = t
+                    last[key] = -1 if fresh else i
+            for key, i in last.items():
+                tail[key] = None if i < 0 else _record(cols, i)
+        at = hi
+    kept += [r for r in tail.values() if r is not None]
+    if frame is not None and where is not None:
+        moves: dict[str | None, floorplan.Similarity | bool] = {}
+        kept = [_to_frame(where, frame, r, moves) for r in kept]
+    names = _names(state, {r["entity"] for r in kept})
+    out = [Position(**r, name=names.get(r["entity"]) if r["entity"] else None, u=None, v=None) for r in kept]
     return sorted(out, key=lambda p: (p.t, p.id))

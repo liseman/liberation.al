@@ -1,8 +1,8 @@
-"""Live's "What's happening" (#354): a plain log of the last few hours, newest at the bottom.
+"""Live's "What's happening": a plain log of the last few hours, newest at the bottom.
 
 GET /live/happening?since=&limit= gives {"items": [...], "updated": cursor}, items in time order:
 
-    {"id", "ts", "kind": "arrival" | "departure" | "talk", "text", "people": [names], "cam", "place"}
+    {"id", "ts", "kind": "arrival" | "departure" | "talk", "text", "people": [names], "cam", "camera_name"}
 
 - arrival and departure come from who the camera views saw (the face worker's visits on the vision log, and faces
   nobody has named): "Kara came in" when they show up after LEAVE_S unseen, "Kara left" once LEAVE_S have passed
@@ -17,7 +17,7 @@ GET /live/happening?since=&limit= gives {"items": [...], "updated": cursor}, ite
   newest; a poll with since=updated gets every row written or revised since (a revision keeps its id, so the page
   replaces it), however late its ts. Without since, the log as it is now. With since, limit gives the oldest rows
   written since, and updated is the last of them, so a tab far behind catches up without skipping any.
-- cam and place: the camera view an arrival or departure was seen on and its place name (vision.places), else
+- cam and camera_name: the camera view an arrival or departure was seen on and its name (vision.camera_names), else
   None.
 
 Rows and the cursor live in the dashboard process (_Rows): a journal with one entry for each row written or changed,
@@ -26,7 +26,7 @@ restart starts the journal and the cursor over: a tab whose cursor is past the n
 model is asked again for the talk lines. The log is built at most once every BUILD_S seconds (every open Live tab
 polls it), reads only the transcript's last LOOKBACK_S, and never waits on the model. Only the first build waits;
 after that a poll answers from the last build while one background build at a time brings it up to date (a build
-takes 1 to 5 s under load, #1458).
+takes 1 to 5 s under load).
 """
 
 import pathlib
@@ -40,7 +40,7 @@ from liberational.dashboard import presence
 from liberational.intervals import interval_groups
 from liberational.memory import plain_text
 from liberational.people import registry, transcript_view
-from liberational.vision import places, sightings
+from liberational.vision import sightings, views
 
 LOOKBACK_S = 6 * 3600
 EDGE_S = 3600  # read this much before the window too, so what is cut at its start never reads as new
@@ -51,7 +51,7 @@ BUILD_S = 8.0
 MAX_TALK_LINES, MAX_TALK_CHARS = 20, 1500
 # Face sightings older than SETTLED_S are read again only every SETTLED_REFRESH_S, or at once when a purge, a hidden
 # record, or a name given moves their key: rereading the window's seven hours each build was most of what the
-# dashboard decoded at idle, about 190,000 records a minute with Live open (#1516).
+# dashboard decoded at idle, about 190,000 records a minute with Live open.
 SETTLED_S = 900.0
 SETTLED_REFRESH_S = 300.0
 _built: dict[str, tuple[float, list[dict[str, Any]]]] = {}
@@ -138,7 +138,7 @@ def _faces(state: pathlib.Path, start: float, end: float) -> list[dict[str, Any]
 # ---- building ----
 def _comings(state: pathlib.Path, start: float, now: float, view: transcript_view.View) -> list[dict[str, Any]]:
     """Arrivals and departures over [start, now]."""
-    named, out = places.names(), []
+    named, out = views.names(), []
     for chip, (who, unknown, spans) in _seen(state, start, now, view).items():
         for group in interval_groups(sorted(spans), LEAVE_S, start=lambda r: r[0], end=lambda r: r[1]):
             first, last = group[0], max(group, key=lambda r: r[1])
@@ -150,7 +150,7 @@ def _comings(state: pathlib.Path, start: float, now: float, view: transcript_vie
                     "kind": "arrival",
                     "text": f"{who} came in",
                     "cam": first[2],
-                    "place": named.get(first[2]),
+                    "camera_name": named.get(first[2]),
                     **base,
                 }
             )
@@ -162,7 +162,7 @@ def _comings(state: pathlib.Path, start: float, now: float, view: transcript_vie
                         "kind": "departure",
                         "text": f"{who} left",
                         "cam": last[2],
-                        "place": named.get(last[2]),
+                        "camera_name": named.get(last[2]),
                         **base,
                     }
                 )
@@ -214,7 +214,7 @@ def _talks(
             continue  # give the model a moment before the plain line
         told = stage == "ready" and line
         row = {"id": f"t:{s0:.3f}", "ts": s0, "kind": "talk", "text": line["text"] if told else _fallback(who)}
-        row.update(people=who, cam=None, place=None)
+        row.update(people=who, cam=None, camera_name=None)
         rows.append(row)
     return rows
 
@@ -230,7 +230,7 @@ def _build(state: pathlib.Path, now: float, rewrites: plain_text.Rewrites) -> li
 
 
 # ---- the rows written so far, and the cursor ----
-FIELDS = ("kind", "text", "people", "cam", "place")
+FIELDS = ("kind", "text", "people", "cam", "camera_name")
 
 
 class _Rows:

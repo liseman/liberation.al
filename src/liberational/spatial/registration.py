@@ -1,4 +1,4 @@
-"""Fixed cameras registered by reprojection, each with its own lens (#3069, part of the spatial memory goal #2794).
+"""Fixed cameras registered by reprojection, each with its own lens (part of spatial memory).
 
 MASt3R's global alignment (spatial/mast3r_runner.py) takes every camera as a pinhole. A wide lens isn't one: Place
 1's living-room camera, a portrait frame from ceiling to floor with a strong barrel, was fitted as a 51 degree pinhole,
@@ -24,11 +24,11 @@ So a group is registered here instead, from what MASt3R does get right, its matc
 
 4. **Background.** Each camera's point map is kept on its pixel grid (`Registered.maps`), and `background` turns it
    into what the camera sees with nobody in the way, cell by cell (places.Background): what spatial/footprints.py's
-   `at_edge` reads to mark a foot point on an occluding edge, a couch's back, where pose guesses hidden feet (#3070).
+   `at_edge` reads to mark a foot point on an occluding edge, a couch's back, where pose guesses hidden feet.
    A fitted camera's map is from its own side of its pair with the reference (its own point map), scaled to the
    reference's by their matches (`_own_scale`): its map from the reference's side is sure only where the two views
-   overlap. On Place 1 on 2026-11-08, with living-room as the reference, that side was sure on 3% of cam0's pixels
-   and its own on 83%, and cam0's background knew 98 of its 2,304 cells (#3220); where both were sure they agreed
+   overlap. On Place 1, with living-room as the reference, that side was sure on 3% of cam0's pixels
+   and its own on 83%, and cam0's background knew 98 of its 2,304 cells; where both were sure they agreed
    within 2 cm. Without that side, or too few matches sure on it, the reference's side is used.
 
 A camera with no pair to the reference, or a fit that fails, leaves the group to MASt3R's alignment, as before.
@@ -169,7 +169,7 @@ def fit(
     """The other camera of `pair` fitted to the reference (see the module's step 2), from `start`, its rotation from
     the reference's frame as MASt3R had it, and `focals`, the reference's and the camera's as MASt3R had them (pixels
     at its size). `held` fixes the camera's focal (pixels at MASt3R's size) and lens division, and `ref_held` the
-    reference's focal, so only the pose is fitted (#3289: a camera's intrinsics are its own and don't change night to
+    reference's focal, so only the pose is fitted (a camera's intrinsics are its own and don't change night to
     night). None for too few matches or a fit worse than MAX_RESIDUAL_PX."""
     from scipy.optimize import least_squares
 
@@ -262,9 +262,9 @@ def register(
     """The group registered by reprojection (see the module's docstring), or None when no camera has a pair with every
     other one that fits. `pairs[a, b]` is the pair from a's side; `mast3r_poses` are MASt3R's (camera to world), which
     with its `mast3r_focals` give each fit its start. The `pinhole` cameras get no lens (their frames were undone already).
-    A camera's `covered` pixels (H x W at MASt3R's size: its overlays and the people in its frame, #3085) are left out of
+    A camera's `covered` pixels (H x W at MASt3R's size: its overlays and the people in its frame) are left out of
     the cloud and its point map, so its background is unknown there rather than a person. `held` gives a camera's own
-    intrinsics (#3289): its focal as a share of its frame's width and its lens division, which every fit keeps, so only
+    intrinsics: its focal as a share of its frame's width and its lens division, which every fit keeps, so only
     poses are fitted; a camera held with a lens isn't a reference (a reference is lifted as a pinhole)."""
     kept = {c: (f * float(sizes[c][0]), d) for c, (f, d) in (held or {}).items() if c in sizes}
     found: list[tuple[float, str, dict[str, Fit]]] = []
@@ -346,7 +346,7 @@ def register(
         colors.append(np.asarray(images[cam]).reshape(-1, 3)[ok])
         maps[cam] = _as_map(pair.other.shape, ok, cam_pts)
         # Its background from its own side of the pair, which is sure wherever it sees, where the reference's side is
-        # sure only where the two views overlap (#3220). The cloud keeps the reference's side: the map is mostly built
+        # sure only where the two views overlap. The cloud keeps the reference's side: the map is mostly built
         # from nights this camera was the reference, and with its whole view cast through tonight's lens fit, Place
         # 1's cam0 seated at fitness 0.36 (0.35 needed) and 0.21 m off its cameras' poses.
         mine = pairs.get((cam, ref))
@@ -440,7 +440,7 @@ def background(
     floor: Sequence[float],
     undo: Callable[[np.ndarray, np.ndarray], tuple[np.ndarray, np.ndarray]] | None = None,
 ) -> places.Background | None:
-    """A camera's background (places.Background, #3070) from its point map (`Registered.maps`): each BACKGROUND_CELL
+    """A camera's background (places.Background) from its point map (`Registered.maps`): each BACKGROUND_CELL
     cell's median surface height above `floor` over the camera's own height above it. `undo` maps fractions of the
     camera's frames to fractions of the point map's frame, for a camera whose frames were undistorted before MASt3R
     (a manifest lens): each cell then takes the map's cell its centre lands in. None when the camera isn't above the

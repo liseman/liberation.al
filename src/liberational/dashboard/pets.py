@@ -23,13 +23,13 @@ SINCE_LOOKBACK_S = 1800  # how far back "since" looks for the start of that visi
 
 
 def here(state: Path, now: float | None = None) -> dict[str, dict[str, Any]]:
-    """{pet id: {cam, place, since, track}} for each named pet a camera saw in the last HERE_NOW_S seconds (#2606), by the
+    """{pet id: {cam, camera_name, since, track}} for each named pet a camera saw in the last HERE_NOW_S seconds, by the
     same naming as Review's boxes: an owner label on the track, else recognition by appearance. The camera is the one
     that saw it last, and track its newest track there (a photo of it now); "since" is when that camera's run of its tracks began, with no gap longer than HERE_NOW_S. A
     failure says nobody: Here now is extra, and the roster still answers."""
     from liberational import segment_log
     from liberational.dashboard import review_boxes
-    from liberational.vision import places
+    from liberational.vision import views
 
     now = time.time() if now is None else now
     out: dict[str, dict[str, Any]] = {}
@@ -37,7 +37,7 @@ def here(state: Path, now: float | None = None) -> dict[str, dict[str, Any]]:
         latest: dict[
             str, tuple[float, str, set[str], str]
         ] = {}  # pet id: (last seen, camera, its tracks there, newest)
-        for cam in places.camera_ids(active_only=True):
+        for cam in views.camera_ids(active_only=True):
             for box in review_boxes.pet_boxes(state, cam, now - HERE_NOW_S, now + 1):
                 pet = box.get("pet_id")
                 if not pet:
@@ -51,7 +51,7 @@ def here(state: Path, now: float | None = None) -> dict[str, dict[str, Any]]:
         if not latest:
             return out
         log = segment_log.Log(segment_log.root(state))
-        named = places.names()
+        named = views.names()
         for pet, (seen, cam, tracks, newest) in latest.items():
             times = sorted(
                 (
@@ -66,7 +66,7 @@ def here(state: Path, now: float | None = None) -> dict[str, dict[str, Any]]:
                 if since - ts > HERE_NOW_S:
                     break
                 since = min(since, ts)
-            out[pet] = {"cam": cam, "place": named.get(cam, cam), "since": since, "track": newest}
+            out[pet] = {"cam": cam, "camera_name": named.get(cam, cam), "since": since, "track": newest}
     except Exception as error:
         LOG.warning("which pets are here now couldn't be read: %s", logs.reason(error))
         return {}
@@ -74,7 +74,7 @@ def here(state: Path, now: float | None = None) -> dict[str, dict[str, Any]]:
 
 
 def listing(state: Path) -> tuple[int, dict[str, Any]]:
-    """GET /pets, with `here` (#2606): the named pets a camera sees now. Unavailable broker evidence stays an error,
+    """GET /pets, with `here`: the named pets a camera sees now. Unavailable broker evidence stays an error,
     never an empty roster."""
     try:
         listing = pets.at(state).listing()
@@ -132,7 +132,7 @@ def sightings(state: Path) -> tuple[int, dict[str, Any]]:
 
 
 def card(body: object, control: bool, state: Path) -> tuple[int, dict[str, Any]]:
-    """POST /pets/photo {id, track, action} (#2363): a pet card's photo choices. `main` makes the sighting (its track)
+    """POST /pets/photo {id, track, action}: a pet card's photo choices. `main` makes the sighting (its track)
     the pet's photo, `newest` goes back to its newest sighting (no track), and `hide` and `show` take a sighting off
     its card or put it back. Answers the roster, as /pets/save does."""
     if not control:
@@ -183,7 +183,7 @@ def label(body: object, control: bool, state: Path) -> tuple[int, dict[str, Any]
 
 
 def deny(body: object, control: bool, state: Path) -> tuple[int, dict[str, Any]]:
-    """POST /pets/sightings/not {track_ids, pet, not} (#2364): these sightings are not `pet` (a named pet's id), or,
+    """POST /pets/sightings/not {track_ids, pet, not}: these sightings are not `pet` (a named pet's id), or,
     with `not` false, take that back. Recognition never names or suggests that pet for them again."""
     from liberational.people import pet_recognition
 

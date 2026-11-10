@@ -34,7 +34,7 @@ const config = (control = true, { cams = [0, 1] }: { cams?: number[] } = {}): Co
       description: '',
       settings: [
         row('vision.room', 'living room'),
-        row('vision.places', ['cam0: front camera']),
+        row('vision.camera_names', ['cam0: front camera']),
         row('vision.cams', cams),
       ],
     },
@@ -92,7 +92,7 @@ function Values() {
       <pre data-testid="draft">
         {JSON.stringify({
           room: d.value('vision.room'),
-          places: d.value('vision.places'),
+          places: d.value('vision.camera_names'),
           changedKeys: d.changedKeys,
         })}
       </pre>

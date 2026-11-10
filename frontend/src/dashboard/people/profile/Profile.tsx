@@ -528,7 +528,7 @@ function whereOf(person: Person | undefined, card: Card | undefined, d: ProfileD
       here_now: card.here_now,
       last_seen: card.last_seen?.ts,
       last_seen_cam: card.last_seen?.cam,
-      last_seen_place: card.last_seen?.place,
+      last_seen_camera_name: card.last_seen?.camera_name,
     };
   return d;
 }

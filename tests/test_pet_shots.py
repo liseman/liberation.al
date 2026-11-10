@@ -43,7 +43,7 @@ def test_a_track_is_rewritten_only_when_its_box_is_the_largest_yet(tmp_path):
     writer.offer(TRACK, [0.1, 0.1, 0.2, 0.2], 160, 120, crop)  # smaller: kept the first
     writer.offer(TRACK, BOX, 160, 120, crop)  # larger: rewritten
     assert len(cut) == 2
-    (saved,) = (tmp_path / pet_shots.KIND).glob("*.jpg")
+    (saved,) = (tmp_path / pet_shots.KIND).rglob("*.jpg")
     img = cv2.imread(str(saved))
     assert img is not None and img.shape == (pet_shots.PX, pet_shots.PX, 3)
     assert img[80:110, 80:110].mean() > 200  # the box in the middle

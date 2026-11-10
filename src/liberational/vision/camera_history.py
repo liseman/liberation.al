@@ -1,5 +1,5 @@
 """Questions about what the cameras saw: "what did cam0 see in the last hour", "what was on camera at 3pm". The
-captions come from the vision log (`camera.caption` on Continuum, #549); this reads them, it keeps nothing."""
+captions come from the vision log (`camera.caption` on Continuum); this reads them, it keeps nothing."""
 
 import argparse
 import dataclasses
@@ -12,7 +12,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from liberational import vision_log
-from liberational.vision import places
+from liberational.vision import views
 
 RETENTION = 7 * 86400
 GAP = 30
@@ -30,13 +30,13 @@ CLOCK = re.compile(
     re.I,
 )
 # Any other time word beside a clock time ("two days ago at 3pm", "at 3pm last week"): a clock time means today or
-# yesterday only, so the rest would be dropped and the answer would come from the wrong day (Codex on #212).
+# yesterday only, so the rest would be dropped and the answer would come from the wrong day.
 OTHER_TIME = re.compile(
     r"\b(?:last|past|previous|since|ago|earlier|days?|weeks?|months?|years?|tomorrow|tonight|morning|afternoon|"
     r"evening|night|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b|\d{4}-\d{2}-\d{2}",
     re.I,
 )
-# Parts of the day are refused until #195 defines their hours in one place.
+# Parts of the day are refused until their hours are defined in one place.
 PART_OF_DAY = re.compile(r"\b(?:this|in the)\s+(?:morning|afternoon|evening)\b", re.I)
 
 
@@ -93,10 +93,10 @@ def parse(request: str, now: float | None = None) -> tuple[list[str], float | At
     """The cameras a request names (all of them when it names none) and the time it asks about: a window of the
     last so many seconds ("in the last 2 hours"), a moment by its clock time ("at 3pm"), or None for now. A past
     time it can't read raises ValueError, so it is never answered with what the cameras show now."""
-    configured_cameras, remaining = places.configured_camera_mentions(request)
+    configured_cameras, remaining = views.configured_camera_mentions(request)
     q = remaining.lower()
     cams = re.findall(r"\bcam(?:era)?\s*(\d+|zero|one|two|three|four|five)\b", q)
-    cams = sorted(set(configured_cameras) | {"cam%d" % number(x) for x in cams}) or places.camera_ids()
+    cams = sorted(set(configured_cameras) | {"cam%d" % number(x) for x in cams}) or views.camera_ids()
     m = re.search(r"\b(?:last|past|previous)\s+(?:(\d+(?:\.\d+)?|[a-z]+)\s+)?(seconds?|minutes?|hours?|days?)\b", q)
     seconds = None
     if m:
@@ -169,7 +169,7 @@ def _last_seen(log: vision_log.VisionLog, cam: str, now: float) -> float | None:
 
 def moment_query(request: str, cams: list[str], at: At, log: vision_log.VisionLog, now: float) -> dict[str, Any]:
     """A clock-time question: each camera's caption nearest that moment, within NEAR seconds. Never the current view:
-    with nothing near it, the answer says so (#206)."""
+    with nothing near it, the answer says so."""
     result: dict[str, Any] = {"request": request, "at": at.ts, "window_seconds": None, "cameras": []}
     for cam in cams:
         rows = log.captions(at.ts - NEAR, min(at.ts + NEAR, now) + 0.001, [cam])

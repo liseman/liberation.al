@@ -64,7 +64,10 @@ graze the horizon are dropped. Tier 1 fuses a new visit into the
 place's map and derives the plan again. A reconstruction is tiled into
 a floorplan the library accepts.
 
-Each camera's track stays its own path (`spatial/positions.py`). Two fixed
+Every position source writes one record shape to the position layer, placed on
+the plan as it is written, and the Places tab reads only that layer
+(`spatial/positions.py`). Each camera's track stays its own path unless two
+cameras saw one person together. Two fixed
 cameras can put the same person about a metre apart. Registration scales each
 cloud from its cameras' mount heights, then shifts and turns the cameras that
 see the same person at once so they stand on one floor point. The rig

@@ -30,10 +30,11 @@ import tempfile
 import threading
 import time
 import tomllib
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from typing import Any, Literal, TypedDict
 
 from liberational import config as cfg
+from liberational import logs
 
 SPEC = cfg.ROOT / "services" / "services.toml"
 DARWIN = sys.platform == "darwin"
@@ -129,7 +130,7 @@ def _templated_env(svc: Service) -> dict[str, str]:
 
 def environment(svc: Service) -> dict[str, str]:
     # The venv first, then mise's shims (tools like ffmpeg from mise.toml), then the installing shell's PATH, then the
-    # system directories whatever that shell had (#1386): capture runs sysctl, which is in /usr/sbin.
+    # system directories whatever that shell had: capture runs sysctl, which is in /usr/sbin.
     parts = [str(cfg.ROOT / ".venv" / "bin"), str(pathlib.Path.home() / ".local/share/mise/shims")]
     parts += os.environ.get("PATH", "").split(os.pathsep)
     parts += ["/usr/local/bin"] if DARWIN else []
@@ -148,7 +149,24 @@ def environment(svc: Service) -> dict[str, str]:
 
 
 def log_path(name: str) -> pathlib.Path:
+    """A service's log. The log-trim service keeps it and its one older copy (logs.older) under logs.CAP_BYTES."""
     return cfg.path("paths.logs") / f"{name}.log"
+
+
+OWN_LOGS = frozenset({"cascade", "frontend"})  # logs under paths.logs that the pack writes but no service owns
+
+
+def prune_logs() -> list[str]:
+    """Delete the logs, and their older copies, of services services.toml no longer declares. Returns the file
+    names deleted."""
+    keep = set(declared()) | OWN_LOGS
+    directory = log_path("x").parent
+    gone = []
+    for path in sorted([*directory.glob("*.log"), *directory.glob("*.log" + logs.OLDER)]):
+        if path.name.removesuffix(logs.OLDER).removesuffix(".log") not in keep and path.is_file():
+            path.unlink()
+            gone.append(path.name)
+    return gone
 
 
 def render_launchd(name: str, svc: Service) -> dict[str, str]:
@@ -159,12 +177,13 @@ def render_launchd(name: str, svc: Service) -> dict[str, str]:
         "EnvironmentVariables": environment(svc),
         "StandardOutPath": str(log_path(name)),
         "StandardErrorPath": str(log_path(name)),
-        # Seconds after SIGTERM before launchd kills it, the same as systemd's TimeoutStopSec (#1388).
+        # Seconds after SIGTERM before launchd kills it, the same as systemd's TimeoutStopSec.
         "ExitTimeOut": int(svc.get("stop_timeout", 20)),
     }
     if svc.get("schedule"):
-        hour, minute = (int(x) for x in svc["schedule"].split(":"))
-        d["StartCalendarInterval"] = {"Hour": hour, "Minute": minute}
+        hour, minute = svc["schedule"].split(":")
+        # "*:MM" runs every hour, as systemd reads the same OnCalendar time.
+        d["StartCalendarInterval"] = {"Minute": int(minute)} | ({} if hour == "*" else {"Hour": int(hour)})
     else:
         d["RunAtLoad"] = True
         if svc.get("restart", True):
@@ -197,7 +216,7 @@ def render_systemd(name: str, svc: Service) -> dict[str, str]:
         env,
         "StandardOutput=journal",
         "StandardError=journal",
-        # Seconds after SIGTERM before systemd kills it; its 90 s default could hold a stop from Settings' Services (#252).
+        # Seconds after SIGTERM before systemd kills it; its 90 s default could hold a stop from Settings' Services.
         f"TimeoutStopSec={svc.get('stop_timeout', 20)}",
     ]
     if not scheduled and svc.get("restart", True):
@@ -246,7 +265,7 @@ def _systemctl(verb: Sequence[str], units: Sequence[str]) -> dict[str, str | Non
     restart ask whether it's running (running them again would restart the healthy ones twice), and the rest are
     tried one at a time.
     One call matters: enable and disable each reload the whole manager unless told not to (about 0.7 s apiece on
-    devbox), which per unit made All off take about 8 s for nine services (#252)."""
+    the Linux machine), which per unit made All off take about 8 s for nine services."""
     if not units:
         return {}
     batch = _run("systemctl", "--user", *verb, *units)
@@ -304,7 +323,7 @@ def preflight(names: Sequence[str]) -> None:
 def _bootstrap(name: str) -> str | None:
     """Load a launchd job from its plist: None, or the error. A bootout returns before the job is gone; a bootstrap in
     that window fails with "Input/output error" (5) and the service stays down (ambient died this way after an
-    owner-voice merge, 2026-10-24). So wait for the label to disappear, then retry the bootstrap a few times."""
+    owner-voice merge). So wait for the label to disappear, then retry the bootstrap a few times."""
     domain = f"gui/{os.getuid()}"
     for _ in range(40):
         if _run("launchctl", "print", f"{domain}/pack.{name}").returncode != 0:
@@ -321,6 +340,9 @@ def _bootstrap(name: str) -> str | None:
 
 def install(names: Sequence[str], anywhere: bool = False, *, cascade: bool = False) -> None:
     _check_checkout(anywhere)
+    log_path("x").parent.mkdir(parents=True, exist_ok=True)
+    for gone in prune_logs():
+        print(f"removed {gone}: no service by that name is declared")
     services = selected()
     full = not names
     names = names or list(services)
@@ -371,7 +393,7 @@ def uninstall(names: Sequence[str], anywhere: bool = False) -> None:
             (unit_dir() / f"pack.{name}.plist").unlink(missing_ok=True)
             print(f"removed {name}")
     if not DARWIN:
-        # Every unit at once: one stop (in parallel), one disable without a reload, then one reload (#252).
+        # Every unit at once: one stop (in parallel), one disable without a reload, then one reload.
         units = [
             u for name in names for u in (f"pack-{name}.timer", f"pack-{name}.service") if (unit_dir() / u).exists()
         ]
@@ -397,7 +419,7 @@ def _installed_only(names: Sequence[str]) -> list[str]:
 
 
 def stop(names: Sequence[str], anywhere: bool = False) -> None:
-    """Stop services now, leaving them installed and enabled (#423): they start again when the computer restarts
+    """Stop services now, leaving them installed and enabled: they start again when the computer restarts
     (systemd starts the user's units at boot with lingering on, else at the first login; launchd loads the kept plist
     at the next login), on Repair, or on `start`. `uninstall` is what keeps one off."""
     _check_checkout(anywhere)
@@ -465,7 +487,7 @@ def restart(names: Sequence[str], anywhere: bool = False, *, cascade: bool = Fal
         manager.start(names, deadline)
         service_cascade.wait_running_snapshot(manager, names, deadline)
     except Exception as error:
-        # Start them again before failing, so a stop that half worked doesn't leave them unloaded (#1387).
+        # Start them again before failing, so a stop that half worked doesn't leave them unloaded.
         retry = time.monotonic() + service_cascade.RECOVERY_WAIT
         failures = service_cascade.start_each(manager, names, retry)
         detail = str(error) + "".join(f"; recovery start failed: {f}" for f in failures)
@@ -504,7 +526,7 @@ def states() -> dict[str, str]:
 
 
 LOG_TAIL_BYTES = 64 * 1024  # how much of the end of a service's log last_error reads
-# A line's stamp (#1696): an ISO local date and time with offset, or in lines written before it, the time alone.
+# A line's stamp: an ISO local date and time with offset, or in lines written before it, the time alone.
 STAMP = r"(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-]\d\d:\d\d|\d\d:\d\d:\d\d)"
 ERROR_LINE = re.compile(STAMP + r" \[[^\]]*\] ERROR (.*)")
 # Any line logs.py or the broker wrote, and the stamped free text continuum-capture and the tier worker write.
@@ -523,7 +545,7 @@ def _launchd(name: str) -> dict[str, str]:
 
 
 def runs() -> dict[str, dict[str, Any]]:
-    """How each installed daemon has run (#297): {"restarts": how often the service manager restarted it, "up_s": how
+    """How each installed daemon has run: {"restarts": how often the service manager restarted it, "up_s": how
     long its current run has lasted, or None}. A crash loop is restarts climbing with a short current run; restarts
     alone can't tell one, since systemd's count only resets when the unit is started by hand. run_id identifies the
     current run without changing as uptime advances, so acknowledging its history cannot hide a later run.
@@ -853,9 +875,9 @@ CRASH_LOOP_RESTARTS = 3  # the frontend's CRASH_LOOP: fewer restarts don't estab
 
 
 def _dated(stamps: Sequence[str], end: float) -> list[float]:
-    """Epoch seconds for a log's stamps, in file order. A dated stamp (#1696) is its own time. A "HH:MM:SS" one, from
-    before then, carries no date, so it's dated backward from the next dated line, or the log's last write (end, its
-    mtime): a line later in the day than the one after it is from the day before."""
+    """Epoch seconds for a log's stamps, in file order. A dated stamp is its own time. A "HH:MM:SS" one, from
+    before stamps carried the date, has none, so it's dated backward from the next dated line, or the log's last write
+    (end, its mtime): a line later in the day than the one after it is from the day before."""
     last = datetime.datetime.fromtimestamp(end)
     day, bound = last.date(), last.hour * 3600 + last.minute * 60 + last.second + CLOCK_SLACK_S
     out: list[float] = []
@@ -875,32 +897,65 @@ def _dated(stamps: Sequence[str], end: float) -> list[float]:
     return out[::-1]
 
 
-def last_error(name: str, since: float | None = None, *, include_id: bool = False) -> dict[str, Any] | None:
-    """What last went wrong in a service, from the last LOG_TAIL_BYTES of its log (a long log is never read whole):
-    {"at": "HH:MM:SS", "ts": epoch seconds, "text"}, or None. That's its newest ERROR line, or a crash's exception
-    (the last line of a bare traceback, which an uncaught exception writes with no ERROR line; its time is the time
-    of the line before it, and "at" is "" and "ts" None when there's none).
+def _lines(parts: list[logs.Part]) -> Iterator[tuple[os.stat_result, int, bytes]]:
+    """Each line of a log's tail with the file it's in and its byte offset there."""
+    for part in parts:
+        offset = part.offset
+        for raw in part.data.splitlines(keepends=True):
+            yield part.stat, offset, raw
+            offset += len(raw)
 
-    since (epoch seconds) leaves out an error from before then: a running service's errors from before its current
-    start were fixed by that start, and only confuse the page. An error with no time counts as before. include_id
-    adds an opaque log occurrence id for dismissals: appending the same error in the same second is a new event,
-    while later unrelated log writes leave its id alone."""
-    try:
-        with log_path(name).open("rb") as f:
-            stat = os.fstat(f.fileno())
-            end = stat.st_mtime
-            f.seek(0, os.SEEK_END)
-            f.seek(max(0, f.tell() - LOG_TAIL_BYTES))
-            offset = f.tell()
-            tail = f.read()
-    except OSError:
+
+# Each log's newest error, kept with the files it was read from (the log and its older copy: device, inode, size,
+# and mtime of each): /services is polled every 15 s on every page, and reading the last 64 KiB of every service's
+# log each time was 28 opens a poll on the Linux machine. A log nobody wrote to since is not opened again.
+type _LogIdentity = tuple[tuple[int, int, int, int] | None, ...]
+_log_errors: dict[str, tuple[_LogIdentity, dict[str, Any] | None]] = {}
+_log_errors_lock = threading.Lock()
+
+
+def _log_identity(path: pathlib.Path) -> _LogIdentity:
+    """What tells a log and its older copy from the ones last read; None for one that isn't there."""
+    out: list[tuple[int, int, int, int] | None] = []
+    for file in (path, logs.older(path)):
+        try:
+            stat = file.stat()
+        except OSError:
+            out.append(None)
+        else:
+            out.append((stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns))
+    return tuple(out)
+
+
+def _newest_error(path: pathlib.Path) -> dict[str, Any] | None:
+    """The newest error in the last LOG_TAIL_BYTES of a log, its older file included just after a rotation: {"at",
+    "ts", "text", "id"}, or None. Read again only when either file's size or modification time changed, or it's
+    another file (rotated)."""
+    key = str(path)
+    identity = _log_identity(path)
+    with _log_errors_lock:
+        kept = _log_errors.get(key)
+    if kept is not None and kept[0] == identity:
+        return kept[1]
+    error = _parse_error(logs.tail(path, LOG_TAIL_BYTES))
+    with _log_errors_lock:
+        # Kept under what the files were before the read: a write during it is seen as a change by the next call.
+        _log_errors[key] = (identity, error)
+    return error
+
+
+def _parse_error(parts: list[logs.Part]) -> dict[str, Any] | None:
+    """_newest_error's answer from a log's tail."""
+    if not parts:
         return None
-    found: tuple[int, str, int] | None = None  # (stamp index, or -1; text; byte offset of its occurrence)
+    end = parts[-1].stat.st_mtime
+    # (stamp index, or -1; text; the file and byte offset of its occurrence)
+    found: tuple[int, str, tuple[os.stat_result, int]] | None = None
     stamps: list[str] = []  # every timestamped line's time, in file order
     in_trace = after_error = False
-    for raw in tail.splitlines(keepends=True):
+    for stat, at, raw in _lines(parts):
         line = raw.decode("utf-8", "replace").rstrip("\r\n")
-        position, offset = offset, offset + len(raw)
+        position = (stat, at)
         if line.startswith(TRACEBACK):
             in_trace = True
             continue
@@ -921,17 +976,34 @@ def last_error(name: str, since: float | None = None, *, include_id: bool = Fals
         return None
     i, text, position = found
     ts = _dated(stamps, end)[i] if i >= 0 else None
-    if since is not None and (ts is None or ts + 1 <= since):  # the log's seconds are whole; since isn't
-        return None
-    error = {
+    stat, at = position
+    occurrence = f"{stat.st_dev}:{stat.st_ino}:{at}:{ts}:{text}"
+    return {
         "at": stamps[i][-14:-6] if i >= 0 and "T" in stamps[i] else stamps[i] if i >= 0 else "",
         "ts": ts,
         "text": text,
+        "id": hashlib.sha256(occurrence.encode()).hexdigest(),
     }
-    if include_id:
-        occurrence = f"{stat.st_dev}:{stat.st_ino}:{position}:{ts}:{text}"
-        error["id"] = hashlib.sha256(occurrence.encode()).hexdigest()
-    return error
+
+
+def last_error(name: str, since: float | None = None, *, include_id: bool = False) -> dict[str, Any] | None:
+    """What last went wrong in a service, from the last LOG_TAIL_BYTES of its log, its older file included just after
+    a rotation (a long log is never read whole, and an unchanged one isn't read again: `_newest_error`):
+    {"at": "HH:MM:SS", "ts": epoch seconds, "text"}, or None. That's its newest ERROR line, or a crash's exception
+    (the last line of a bare traceback, which an uncaught exception writes with no ERROR line; its time is the time
+    of the line before it, and "at" is "" and "ts" None when there's none).
+
+    since (epoch seconds) leaves out an error from before then: a running service's errors from before its current
+    start were fixed by that start, and only confuse the page. An error with no time counts as before. include_id
+    adds an opaque log occurrence id for dismissals: appending the same error in the same second is a new event,
+    while later unrelated log writes leave its id alone."""
+    found = _newest_error(log_path(name))
+    if found is None:
+        return None
+    ts = found["ts"]
+    if since is not None and (ts is None or ts + 1 <= since):  # the log's seconds are whole; since isn't
+        return None
+    return {k: v for k, v in found.items() if include_id or k != "id"}
 
 
 def _run_began(state: str | None, run: dict[str, Any] | None) -> float | None:
@@ -948,8 +1020,8 @@ def _run_began(state: str | None, run: dict[str, Any] | None) -> float | None:
     return max(now - RESTARTED_RECENTLY_S, now - up if up is not None else 0.0)
 
 
-# The process scan reads every process's /proc entry, which takes seconds while the services restart and load models
-# (#433). Keep the last answer for PROCESS_SCAN_TTL_S, and while a rescan runs, answer with the last one instead of
+# The process scan reads every process's /proc entry, which takes seconds while the services restart and load models.
+# Keep the last answer for PROCESS_SCAN_TTL_S, and while a rescan runs, answer with the last one instead of
 # waiting.
 PROCESS_SCAN_TTL_S = 5.0
 _scan_lock = threading.Lock()
@@ -1048,12 +1120,38 @@ def processes(fresh: bool = False, *, nonblocking: bool = False) -> dict[str, li
         return {name: list(pids) for name, pids in _scan["pids"].items()}
 
 
+# What the service manager said of every unit (states() and runs(), one systemctl call each), kept for a few seconds:
+# several pages poll /services at once, and a state changes only when a service starts, stops, or fails.
+MANAGER_TTL_S = 5.0
+_manager_lock = threading.Lock()
+_manager: dict[str, Any] = {"at": None, "states": {}, "runs": {}}
+
+
+def _managed(fresh: bool = False) -> tuple[dict[str, str], dict[str, dict[str, Any]]]:
+    """(states(), runs()) for a status poll: the last answer when it is under MANAGER_TTL_S old, with each run's
+    `up_s` moved on by the answer's age. fresh=True (an action's reply) asks the manager now. Polls that arrive
+    together wait for one read instead of each starting their own."""
+    with _manager_lock:
+        at = _manager["at"]
+        if fresh or at is None or time.monotonic() - at >= MANAGER_TTL_S:
+            state, ran = states(), runs()
+            _manager.update(at=time.monotonic(), states=state, runs=ran)
+            return dict(state), {name: dict(run) for name, run in ran.items()}
+        age = time.monotonic() - at
+        return dict(_manager["states"]), {
+            name: {**run, "up_s": run["up_s"] + age} if run.get("up_s") is not None else dict(run)
+            for name, run in _manager["runs"].items()
+        }
+
+
 def snapshot(fresh: bool = False) -> list[dict[str, Any]]:
     """Every service declared for this platform: selected for this machine, installed, its state, and running pids
-    (fresh as in processes())."""
+    (fresh as in processes()). A poll reuses the service manager's last answer for MANAGER_TTL_S (`_managed`) and
+    opens only the logs written to since the last one (`_newest_error`)."""
     # A cold poll reports pending before asking the manager or reading logs; actions still get a fresh truth.
     procs = processes(fresh, nonblocking=not fresh)
-    chosen, state, need, ran = selected(), states(), required(), runs()
+    state, ran = _managed(fresh)
+    chosen, need = selected(), required()
     return [
         {
             "name": name,
@@ -1104,7 +1202,7 @@ def exec_service(name: str) -> None:
     Installed units keep this launcher rather than a snapshot of policy flags. Use the ordinary command here,
     without startup wrappers, so this cannot recurse through fresh_config or repeat the readiness wait. The
     service's templated env is filled in again too, over what the unit was installed with (the tier worker's
-    video_archive settings, #1479).
+    video_archive settings).
     """
     cfg.load.cache_clear()
     services = selected()
@@ -1139,7 +1237,12 @@ def main() -> None:
         if c in {"restart", "install"}:
             p.add_argument("--cascade", action="store_true", help="stage the whole selected installed set")
     sub.add_parser("status")
+    sub.add_parser("trim-logs", help="rotate every log under paths.logs past its cap (the log-trim service)")
     a = ap.parse_args()
+    if a.cmd == "trim-logs":
+        for file, freed in logs.trim(log_path("x").parent).items():
+            print(f"{file}: rotated, {freed / 1e6:.1f} MB freed")
+        return
     if a.cmd == "exec":
         exec_service(a.name)
     elif a.cmd == "installed":

@@ -1,4 +1,4 @@
-"""Who was seen while a voice spoke, and who was heard while a face was in view (#225): a suggestion for an unnamed
+"""Who was seen while a voice spoke, and who was heard while a face was in view: a suggestion for an unnamed
 face from the named voices heard while it was in view, and for an unnamed voice from the named faces in view while it
 spoke. A suggestion is only that: "Who's this?" shows it with its evidence, and the owner accepts it with the same
 owner tag a manual naming writes. Nothing here asserts who anyone is.

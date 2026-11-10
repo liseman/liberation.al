@@ -1,4 +1,4 @@
-"""Rename cameras (#3277): `pack-rename-camera OLD=NEW [OLD=NEW ...] [--dry-run]`, with the services stopped.
+"""Rename cameras: `pack-rename-camera OLD=NEW [OLD=NEW ...] [--dry-run]`, with the services stopped.
 
 A camera's name is its id everywhere: the device manifest, Continuum's streams, the segment store's slots, places,
 zones, settings, and the owner's labels. This moves what the owner taught and the machine state that follows the
@@ -24,9 +24,9 @@ What carries across, migrated in place:
   `continuum/capture_paused.json`. Cached report days that name an old camera are dropped and recompute.
 
 Printed for the owner to edit (`config_edits`): `config/devices.toml`'s `[[device]] name`, and every setting in the
-effective config (defaults.toml and pack.toml) keyed by a camera, listing one, or naming one (`camera_heights_m`,
-`actions_camera_gpus`, `actions_camera_fps`, `caption_every_s`, `vision.places`, and any added later). A camera's
-lens and masks sit under its `[[device]]`, so they move with the name.
+effective config (defaults.toml and pack.toml) keyed by a camera, listing one, or naming one (`actions_camera_gpus`,
+`actions_camera_fps`, `caption_every_s`, `vision.camera_names`, and any added later). A camera's lens, masks, and mount sit
+under its `[[device]]`, so they move with the name.
 
 Left under the old names to age out: Continuum's broker streams (`<name>.video` and the rest, in the catalog and
 the tier). Recordings stay readable as cameras of their old names until the 30-day video window purges them; a
@@ -111,7 +111,7 @@ def rename_plan(text: str, names: Mapping[str, str]) -> str:
 
 def rename_setting(value: Any, names: Mapping[str, str]) -> Any:
     """A setting with its cameras renamed: a table keyed by camera, a list of names or of `name: display name`
-    entries (`vision.places`), or a name."""
+    entries (`vision.camera_names`), or a name."""
     if isinstance(value, dict):
         return {names.get(k, k): rename_setting(v, names) for k, v in value.items()}
     if isinstance(value, list):
@@ -370,7 +370,7 @@ def _toml(value: Any) -> str:
 
 
 def _settings(table: Mapping[str, Any], names: Mapping[str, str], prefix: str = "") -> Iterator[tuple[str, Any]]:
-    """Every setting as (dotted path, value). A table keyed by an old camera is one setting (`camera_heights_m`,
+    """Every setting as (dotted path, value). A table keyed by an old camera is one setting (`actions_camera_gpus`,
     `[vision.actions_camera_fps]`); any other table is a section, walked into."""
     for key, value in table.items():
         path = f"{prefix}.{key}" if prefix else key

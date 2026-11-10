@@ -69,7 +69,7 @@ def check(ok: bool, message: str) -> None:
 
 
 # The checks below build their message only when they fail: a check runs millions of times in one presence read, and
-# formatting a message (a repr) every time was most of its cost (#437).
+# formatting a message (a repr) every time was most of its cost.
 
 
 def check_text(value: object, name: str) -> None:

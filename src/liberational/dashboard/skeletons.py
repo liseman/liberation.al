@@ -1,4 +1,4 @@
-"""The skeleton playback test page's reads (/skeletons, #1987): recent movement spans, and one span's poses.
+"""The skeleton playback test page's reads (/skeletons): recent movement spans, and one span's poses.
 
 `spans` lists see-actions' `action.span` and `walkby.span` rows, newest first. `poses` gives one track's `pose.track`
 rows in a window (the span plus its lead-in and lead-out) as frames of stick-figure keypoints. Pose rows outlive the

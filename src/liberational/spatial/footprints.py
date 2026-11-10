@@ -1,11 +1,11 @@
-"""Fixed-camera footprints (#2800, part of the spatial memory goal #2794): where people and animals stand on a place's
-floor, from see-actions' person and animal tracks on the cameras registered to the place (memory/places.py, #2825).
+"""Fixed-camera footprints (part of spatial memory): where people and animals stand on a place's
+floor, from see-actions' person and animal tracks on the cameras registered to the place (memory/places.py).
 
 A footprint is one tracked person's foot point in one camera's frame at one moment: the middle of their heels when
 pose placed them (halpe26 joints 24 and 25), else of their ankles (15 and 16); a person whose feet pose didn't
 place has no footprint. Their box's bottom isn't their feet when furniture hides their legs: on Place 1, 73 to 79% of
-such points fell off the map's floor, against 3 to 25% of placed feet's, and they were half of all footprints
-(#2960). An animal's is the bottom centre of its box (`animal.detection`, see/action_animals.py):
+such points fell off the map's floor, against 3 to 25% of placed feet's, and they were half of all footprints.
+An animal's is the bottom centre of its box (`animal.detection`, see/action_animals.py):
 a pet has no pose. Each track is sampled once per SAMPLE_S, so a person standing still for an hour is 3,600 points,
 not 30 a second. A footprint is kept as the camera observation it is (camera, u and v as fractions of the
 frame, time, track, confidence), not as a position on the floor: each pack-spatial-cameras run registers the cameras
@@ -13,17 +13,17 @@ again in a new map frame, so a footprint is projected through the place's curren
 (`project`, places.floor_point), and lands on the plan once the place has one (places.camera_to_plan).
 
 Recording: once a day, from `pack-spatial-cameras` (spatial/cameras.py), each fixed camera's footprints since the
-last run go into the position layer (spatial/positions.py, #2831) as `fixed-camera` rows, the observation as it is;
-`positions.positions` places them on the plan when read. `places/footprints.json` keeps how far each camera is
-recorded.
+last run are written raw (`positions.write_samples`), the observation as it is, and the position layer's placer
+(`positions.advance`) then puts them on the plan and writes them to the layer every view reads.
+`places/footprints.json` keeps how far each camera is recorded.
 
 Projected into the map frame, a place's people's footprints are where people walk: its walkable floor, which
 spatial/floorplan.py takes beside the place's point cloud (`walkable=`) to close rooms whose walls the fixed cameras
 don't see (they hang high and look down, so a camera cloud holds the floor and furniture, and walls only low down).
 Animals' footprints are left out of it: a cat on the sofa or a counter isn't standing on the floor. So is a foot on an
-occluding edge (`edges`, as positions judges one, #3070): pose guesses feet behind a couch's back on its top, and cast
-to the floor they land metres past the person, so the couch top and the floor beyond it were learned as walked. On
-Place 1's 14 days to 2026-11-09, through the 23:49 registration of 2026-11-08, that was 84% of cam0's walked footprints
+occluding edge (`edges`, as positions judges one): pose guesses feet behind a couch's back on its top, and cast
+to the floor they land metres past the person, so the couch top and the floor beyond it were learned as walked. Over
+14 days on Place 1, that was 84% of cam0's walked footprints
 (5,939 of 7,097) and 5% of living-room's; leaving them out took the walked cells (10 cm, two feet or more) from 747 to
 390, among them the long streaks along cam0's rays. Those feet that another camera settled had been a median 1.46 m
 from where that camera saw the person.
@@ -58,7 +58,7 @@ HOUR_S = 3600.0
 #: are a few centimetres up, not on the floor. Cast to the floor itself, a foot point lands too far by this height over
 #: its ray's slope, more from a low camera looking across a room than from a high one looking down: on Place 1, cam0
 #: (1.52 m up) put people about 0.3 m farther than living-room (2.29 m) at 4 to 6 m, and casting both to this height
-#: closed most of it (#3069). An animal's footprint (its box's bottom) is on the floor.
+#: closed most of it. An animal's footprint (its box's bottom) is on the floor.
 FOOT_M = 0.07
 #: How much floor, in metres along the ray, the surface a foot point's camera sees there with nobody in the way
 #: (`places.CameraPose.background`) must hide for the point to be at an occluding edge (`at_edge`): a foot guessed
@@ -67,12 +67,12 @@ FOOT_M = 0.07
 #: from living-room, high and looking down. Flagged by height (0.4 m and up), living-room was at an edge in 89% of the
 #: seconds both cameras placed one person, and still 0.24 m from cam0 where cam0 wasn't; by this, 0.4%, and cam0 in
 #: 79%, 0.89 m from living-room there. Of 48 feet pose guessed behind the couch it flags 90%, of living-room's 42
-#: hand-checked feet on the floor 2% (#3070).
+#: hand-checked feet on the floor 2%.
 EDGE_M = 1.0
 #: How high a surface people stand or sit behind may be (a couch's back, a counter, a table), in metres: a foot point
 #: whose background cell no registration saw (`filled` found it nowhere) is judged as if this stood there, so it's on
 #: an occluding edge when such a surface would hide EDGE_M of floor along its ray, and clear only when even that
-#: couldn't (#3168). On Place 1 on 2026-11-08, 0.8, 1.0, and 1.2 m all made the same 4 of cam0's and 253 of
+#: couldn't. On Place 1, 0.8, 1.0, and 1.2 m all made the same 4 of cam0's and 253 of
 #: living-room's 22,454 person rows doubtful.
 FURNITURE_M = 1.0
 #: Two backgrounds of one camera are one view (`same_view`) when this share of the cells both know agree to SAME_CELL
@@ -182,7 +182,7 @@ HEAD = 17  # halpe26's head (the top of it)
 HIPS = (11, 12)
 #: A sighting is upright when its legs, hips to feet, are at least this share of its head-to-feet height in the frame:
 #: someone sitting, bending, or behind furniture has shorter legs there. On Place 1's cam0, people counted as walking
-#: measured 1.2 m tall with their hips at 0.3 m; the upright ones 1.8 to 1.9 m with their hips at 0.9 m (#2960).
+#: measured 1.2 m tall with their hips at 0.3 m; the upright ones 1.8 to 1.9 m with their hips at 0.9 m.
 UPRIGHT_LEGS = 0.42
 
 
@@ -190,7 +190,7 @@ UPRIGHT_LEGS = 0.42
 class Sighting:
     """A person's feet, and the top of their head when pose placed it, in one camera's frame at one moment: what
     tier 1 calibrates the fixed cameras by (spatial/fuse.py: people's height fixes a map's metric scale, and one
-    person seen by two cameras at once aligns them, #2960). Fractions of the frame, as Footprint's."""
+    person seen by two cameras at once aligns them). Fractions of the frame, as Footprint's."""
 
     camera: str
     t: float
@@ -303,7 +303,7 @@ def project(
     occluding edge (`edges`): (points, an (N, 3) array in the map's frame; weights, the footprints each stands for).
     places.floor_point, a camera at a time over arrays, for people's foot points FOOT_M up. A foot on an edge is
     hidden behind a couch's back or a counter and guessed by pose, or just beyond it, so cast to the floor it lands
-    metres past the person, on the furniture's far side (#3070): it isn't where anyone walked."""
+    metres past the person, on the furniture's far side: it isn't where anyone walked."""
     empty = np.zeros((0, 3)), np.zeros(0)
     if floor is None:
         return empty
@@ -315,7 +315,7 @@ def project(
             continue
         m = np.asarray(cam.pose, dtype=np.float64).reshape(4, 4)
         a = np.asarray(c.uv, dtype=np.float64)
-        if cam.lens is not None:  # a wide lens undone first, as floor_point does (#2998)
+        if cam.lens is not None:  # a wide lens undone first, as floor_point does
             from liberational.spatial import lens
 
             a = np.column_stack(lens.undistort_points(lens.Lens.from_tuple(cam.lens), a[:, 0], a[:, 1]))
@@ -346,7 +346,7 @@ def project(
 def at_edge(
     cam: places.CameraPose, floor: Sequence[float] | None, u: float, v: float, surface: float | None = None
 ) -> bool | None:
-    """Whether a foot point (u, v, fractions of the camera's frame) sits on an occluding edge (#3070): what the camera
+    """Whether a foot point (u, v, fractions of the camera's frame) sits on an occluding edge: what the camera
     sees at that pixel with nobody in the way (a couch's back, a table, a bed) hides at least EDGE_M of floor along the
     ray, so the feet are either hidden behind it and guessed by pose, or just beyond it; from this camera alone the two
     look the same, and the guess can be off by up to the floor hidden. Another camera that sees that floor can tell.
@@ -379,7 +379,7 @@ def edges(
     """`at_edge` over arrays, for `project`: whether each foot point (uv, (K, 2) fractions of the camera's frame, raw
     as `Background.at` takes them) whose point on the floor is `feet` ((K, 3)) is on an occluding edge, for a camera
     `up` above the floor (unit normal `n`) at `origin`. A cell of the background no registration saw is judged as if
-    FURNITURE_M stood there, as positions does (#3168); a camera with no background has no edges."""
+    FURNITURE_M stood there, as positions does; a camera with no background has no edges."""
     out = np.zeros(len(uv), dtype=bool)
     bg = cam.background
     if bg is None or not len(uv) or up <= FOOT_M:
@@ -405,8 +405,8 @@ def same_view(a: places.Background, b: places.Background) -> bool:
 
 def filled(background: places.Background, earlier: Iterable[places.Background]) -> places.Background:
     """`background` with each cell it doesn't know taken from the first of `earlier` (newest first: the camera's
-    backgrounds from earlier registrations) of the same view (`same_view`) that knows it (#3168). A registration
-    leaves out the people in its frame (#3085), so a camera's background is unknown where someone sat then, which is
+    backgrounds from earlier registrations) of the same view (`same_view`) that knows it. A registration
+    leaves out the people in its frame, so a camera's background is unknown where someone sat then, which is
     where people sit and furniture hides their feet; people move and the couch doesn't, so another night's frame
     usually saw it."""
     heights = list(background.heights)
@@ -427,7 +427,7 @@ def known(background: places.Background) -> int:
 
 
 def kept(new: places.Background | None, old: places.Background | None) -> places.Background | None:
-    """The background a camera keeps when it is registered again where it was (`fuse.seat`, #3220): `new` with its
+    """The background a camera keeps when it is registered again where it was (`fuse.seat`): `new` with its
     unknown cells taken from `old` when the two are one view (`filled`), `new` alone when they are two views (the camera
     was re-aimed), and whichever knows more cells when they share too few to tell. So a sparse snapshot never replaces
     a fuller background of the same view, and a camera with none tonight keeps the one it had."""
@@ -460,7 +460,7 @@ def _rows(feet: Iterable[Footprint]) -> list[dict[str, Any]]:
 
 def record(state: Path, cameras: Sequence[str], now: float) -> int:
     """Write each camera's footprints since it was last recorded (FIRST_S back the first time, at most MAX_BACKLOG_S)
-    up to FLUSH_S ago, into the position layer; how many. The mark stops at FLUSH_S ago too, so rows still being
+    up to FLUSH_S ago, raw, for the position layer's placer; how many. The mark stops at FLUSH_S ago too, so rows still being
     flushed are read by the next run rather than skipped."""
     from liberational.spatial import positions
 
@@ -476,7 +476,7 @@ def record(state: Path, cameras: Sequence[str], now: float) -> int:
         if start >= upto:
             continue
         feet = collect(state, start, upto, [camera])
-        positions.write_positions(state, _rows(feet))
+        positions.write_samples(state, _rows(feet))
         total += len(feet)
         marks[camera] = upto
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -490,8 +490,9 @@ def walked(state: Path, cameras: Sequence[str], now: float, days: float = WALK_D
     """The `cameras`' recorded people's footprints over the last `days` as Cells (the walkable floor projects them;
     animals' are left out): read as columns a day at a time and quantized as they're read, never a record per
     footprint. A fortnight of two busy cameras is about 740,000 footprints, which made the nightly run build that
-    many objects (#2857). The store applies forgets as it reads, as `segment_log.Log` does. It reads the raw stream only, not retention's
-    `.condensed` companion, which holds rows past the 30-day window: WALK_DAYS must stay under that window."""
+    many objects. The store applies forgets as it reads, as `segment_log.Log` does. It reads the raw stream only, not
+    retention's `.condensed` companion, which holds rows past the 30-day window: WALK_DAYS must stay under that
+    window."""
     from continuum_py import read_segments
 
     from liberational.spatial import positions

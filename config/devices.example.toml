@@ -45,6 +45,21 @@ match = { usb = "0fd9:0078" }  # Elgato Facecam
 # the footprints, and the splats see the frame undistorted with the overlays left out (spatial/lens.py).
 # lens = { width = 896, height = 512, k = [448.0, 448.0, 447.5, 255.5], division = -0.31 }
 # masks = [[0.25, 0.0, 0.74, 0.09], [0.84, 0.92, 1.0, 1.0]]
+# How it's mounted (spatial/rig.py, #5). A fixed camera: its measured height from the floor to its lens, which puts
+# its place's map at metric scale, and whether it looks outdoors (then it's in no fixed-camera place).
+# mount = { height_m = 1.5, outdoor = false }
+
+# A rig carries cameras that move together, such as a backpack's. Its pose in a place comes from its pose track.
+# [[rig]]
+# name = "pack"
+
+# A camera on the rig: where its lens sits in the rig's frame (metres: x right, y down, z forward), which way it
+# looks (degrees: yaw right, pitch up, roll clockwise), and its horizontal field of view. Name the view, never a room.
+# [[device]]
+# name = "pack-front"
+# kind = "camera"
+# match = { usb = "1234:5678" }
+# mount = { rig = "pack", at = [0.0, -0.1, 0.05], turn = [0.0, -10.0, 0.0], hfov_deg = 110.0 }
 
 [[device]]
 name = "wave3"

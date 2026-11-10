@@ -1,4 +1,4 @@
-"""An owner-supplied floorplan, registered into a place's plan frame (#3276, part of spatial memory, goal #2794).
+"""An owner-supplied floorplan, registered into a place's plan frame (part of spatial memory).
 
 An owner may have an accurate plan of their home from elsewhere, such as a phone LiDAR scan app's export redrawn in
 the floorplan DSL. It becomes the place's owner plan (memory/places.py `correct_plan`), so positions name its rooms,
@@ -44,7 +44,7 @@ opening between, `in_sight`; a share inside any room let a view pass through the
 walls. The best turn is the view's own evidence of which way the camera looks, beside its registered yaw; the
 same fit against the view reflected across its line of sight (`mirrored`) says whether its video is mirrored, which
 makes its reconstruction a reflection no turn undoes. Fixed cameras mostly look down at floor and furniture, so the
-evidence is often broad (`View.spread`). On Place 1 (2026-11-09) it agreed with the registration within 2 degrees for
+evidence is often broad (`View.spread`). On Place 1 it agreed with the registration within 2 degrees for
 one camera and showed a 4 m misregistration as a view that fit no better at the measured spot, so it is a check on a
 registration, not a replacement for one.
 """
@@ -517,7 +517,7 @@ def register(
     from it is left out (`Fit.dropped`). `mirror` fixes whether the plan's page is mirrored into the frame (True for a
     right-handed frame seen from above, as every map here is: the page's y grows south); None tries both. `start`, when
     given, is where the fine fit starts instead of the coarse search or the spots (a map already near the plan, as a
-    walk placed in the plan's own frame is, #3286). See the module docstring."""
+    walk placed in the plan's own frame is). See the module docstring."""
     if not 0.0 <= anchor_share <= 1.0:
         raise ValueError("anchor_share is 0 to 1")
     seen = dict(seen or {})
@@ -786,6 +786,55 @@ def inside(plan: Parsed, q: np.ndarray) -> np.ndarray:
             with np.errstate(divide="ignore", invalid="ignore"):
                 hit ^= crosses & (x < ax + (y - ay) * (bx - ax) / (by - ay))
         out |= hit
+    return out
+
+
+# Walk coverage (#3): which rooms of a plan a LiDAR walk has seen. A room's floor is counted in COVER_CELL cells, and a
+# cell is walked when a voxel a walk saw (a fused map's `walked` count) lies over it, at any height.
+COVER_CELL = 0.1  # metres
+WALKED_SHARE = 0.3  # a room is walked when a walk saw at least this share of its cells
+MAPPED_SHARE = 0.2  # a room is mapped (by the cameras, if not walked) when the map has this share of its cells
+
+
+@dataclasses.dataclass(frozen=True)
+class RoomCoverage:
+    """How much of one room's floor a map covers: `walked` the share a LiDAR walk saw, `mapped` the share the map has
+    any point over."""
+
+    room: Room
+    walked: float
+    mapped: float
+
+    @property
+    def kind(self) -> str:
+        """ "walked", "cameras only", or "nothing"."""
+        if self.walked >= WALKED_SHARE:
+            return "walked"
+        return "cameras only" if self.mapped >= MAPPED_SHARE else "nothing"
+
+
+def room_coverage(points: np.ndarray, walks: np.ndarray, plan: Parsed, frame: Sequence[float]) -> list[RoomCoverage]:
+    """Each room of `plan` (in plan order, skipping a room too small for one cell) with how much of it the map's
+    `points` (N, 3, in the map's frame) cover, and how much the points with `walks` > 0 do (how many LiDAR walks saw
+    each one, `fuse.Fused.walks`). `frame` is the map-to-plan transform (`places.plan_frame`)."""
+    pts = in_frame(points, frame)[:, :2] if len(points) else np.zeros((0, 2))
+    walked_mask = np.asarray(walks) > 0
+    all_cells = {tuple(c) for c in np.floor(pts / COVER_CELL).astype(np.int64).tolist()}
+    walked_cells = {tuple(c) for c in np.floor(pts[walked_mask] / COVER_CELL).astype(np.int64).tolist()}
+    out: list[RoomCoverage] = []
+    for room in plan.rooms:
+        poly = np.asarray(room.polygon)
+        lo, hi = np.floor(poly.min(0) / COVER_CELL).astype(int), np.ceil(poly.max(0) / COVER_CELL).astype(int)
+        gx, gy = np.meshgrid(np.arange(lo[0], hi[0]), np.arange(lo[1], hi[1]))
+        cells = np.c_[gx.ravel(), gy.ravel()]
+        one = dataclasses.replace(plan, rooms=(room,))
+        cells = cells[inside(one, (cells + 0.5) * COVER_CELL)]
+        if not len(cells):
+            continue
+        keys = [tuple(c) for c in cells.tolist()]
+        walked = sum(k in walked_cells for k in keys) / len(keys)
+        mapped = sum(k in all_cells for k in keys) / len(keys)
+        out.append(RoomCoverage(room, walked, mapped))
     return out
 
 
