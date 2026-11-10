@@ -142,11 +142,28 @@ def fetch_hf(name: str, entry: Mapping[str, Any]) -> bool:
     else:
         print(f"  {name}: {entry['repo']}")
     try:
-        snapshot_download(entry["repo"], **patterns)
+        snapshot = snapshot_download(entry["repo"], **patterns)
     except GatedRepoError:
         print(f"  {name}: gated, and this machine has no access to it yet; skipped")
         return False
+    if entry.get("sha256"):
+        verify_hf(name, entry, pathlib.Path(snapshot))
     return True
+
+
+def verify_hf(name: str, entry: Mapping[str, Any], snapshot: pathlib.Path) -> None:
+    """Checks a fetched repository's files against the entry's `sha256` table (file name to digest). A file that
+    doesn't match is removed from the snapshot, so nothing loads it, and the run stops: a copy of a model from
+    another source than its publisher is only the same model while its weights are the same bytes."""
+    for file, expected in (entry.get("sha256") or {}).items():
+        path = snapshot / file
+        found = sha256(path) if path.is_file() else None
+        if found != expected:
+            path.unlink(missing_ok=True)
+            sys.exit(
+                f"{name}: {entry['repo']} {file} has checksum {found or 'none (the file is missing)'}, expected "
+                f"{expected}; removed it. The repository's content isn't what this configuration was written for."
+            )
 
 
 def gated_help(gated: Mapping[str, str]) -> str:

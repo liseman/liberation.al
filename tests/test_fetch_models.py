@@ -84,6 +84,35 @@ def test_huggingface_download_honors_declared_checkpoint_patterns(monkeypatch):
     assert calls == [("fixture/sam2", {"allow_patterns": ["*.json", "*.safetensors"]})]
 
 
+@pytest.fixture
+def snapshot(tmp_path, monkeypatch):
+    """A fetched repository with its weights file: `snapshot_download` hands back its folder."""
+    import huggingface_hub
+
+    folder = tmp_path / "snapshot"
+    folder.mkdir()
+    (folder / "model.safetensors").write_bytes(b"weights")
+    (folder / "config.json").write_text("{}")
+    monkeypatch.setattr(huggingface_hub, "snapshot_download", lambda repo, **kwargs: str(folder))
+    return folder
+
+
+def test_a_fetched_copy_whose_weights_match_the_declared_checksum_is_kept(snapshot):
+    digest = hashlib.sha256(b"weights").hexdigest()
+    assert fetch_models.fetch_hf("pets", {"repo": "fixture/copy", "sha256": {"model.safetensors": digest}})
+    assert (snapshot / "model.safetensors").read_bytes() == b"weights"
+
+
+@pytest.mark.parametrize("present", [True, False], ids=["other-weights", "no-weights"])
+def test_a_fetched_copy_with_other_weights_is_refused_and_its_file_removed(snapshot, present):
+    if not present:
+        (snapshot / "model.safetensors").unlink()
+    with pytest.raises(SystemExit, match=r"pets: fixture/copy model\.safetensors has checksum .* expected 0000"):
+        fetch_models.fetch_hf("pets", {"repo": "fixture/copy", "sha256": {"model.safetensors": "0" * 64}})
+    assert not (snapshot / "model.safetensors").exists()  # nothing can load it
+    assert (snapshot / "config.json").exists()
+
+
 def test_huggingface_local_checkpoint_honors_revision_without_fetching_other_files(tmp_path, monkeypatch):
     import huggingface_hub
 

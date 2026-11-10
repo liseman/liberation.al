@@ -335,8 +335,10 @@ missing/unexpected weights and differed by at most 0.000164 in boxes and 0.00086
   preprocessing; the verifier does not reuse CLIP's softmax or image normalization.
   Pet appearance uses the configured DINO model's CLS output, normalized to a unit 384-vector; register and patch
   tokens are not pooled into that vector. The checkpoint's processor owns RGB resize and normalization. DINOv3
-  ViT-S/16 is the default, pinned to the declared HF revision. DINOv3's custom
-  license and gated download require operator acceptance and HF authentication. DINOv2 vectors,
+  ViT-S/16 is the default, under the DINOv3 License. Its publisher's repository is gated, so the default `repo`
+  is an ungated copy of the same files, pinned to the declared HF revision; `mise run models` checks the weights
+  against the publisher's SHA-256 and refuses a mismatch. The embedding space keeps the publisher's name
+  (`space`), so rows and taught references read the same whichever source the weights came from. DINOv2 vectors,
   including taught `pet.reference` vectors, cannot be compared with the new space despite their equal dimension.
 
 Track ids are see-actions' own, unique across restarts, and every reader joins on them as strings: zone visits,
@@ -1203,7 +1205,7 @@ Model names, download revisions, and files are declared in `config/defaults.toml
 | Speaker identity | ReDimNet2 B3 VoxCeleb2 LM, 192 dimensions, ONNX Runtime |
 | Face detection and identity | SCRFD plus AdaFace IR50 WebFace4M RGB, 512 dimensions, ONNX Runtime with CUDA, CoreML, or CPU providers |
 | People and animals | RF-DETR Small boxes, RTMPose halpe26 poses, ST-GCN++ skeleton actions, and optional MoViNet-A2 crop actions |
-| Animal verification and appearance | SigLIP 2 verification and DINOv3 ViT-S/16 appearance vectors; checkpoint terms and access gates remain applicable |
+| Animal verification and appearance | SigLIP 2 verification and DINOv3 ViT-S/16 appearance vectors (the DINOv3 License; fetched ungated and checked by checksum) |
 
 Ask uses `ask.model` when set, otherwise the configured local OpenClaw default, otherwise `models.ollama.llm`
 (`memory/ask.py:local_settings`). Research's empty model/server settings inherit Ask's settings. The
