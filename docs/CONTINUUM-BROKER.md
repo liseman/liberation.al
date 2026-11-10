@@ -31,14 +31,19 @@ every payload. Any mismatch falls back to the full rebuild.
 never stalls a writer.
 
 - **Alignment.** `PAGE_ALIGN` (16 KB) satisfies Apple Silicon's 16 KB pages and Linux's 4 KB pages. It lets a Metal
-  worker wrap a slab without a copy and a CUDA worker register the whole mapping once.
-- **Layout.** One arena per broker, created at start: a superblock, a slot directory, slab size classes (64 KB,
-  2 MB, and 16 MB by default), and a ring region. The machine profile sets the counts.
-- **Sizing.** The arena is the profile's classes plus what the manifest's enabled cameras need. On Linux the broker
-  shrinks the profile's headroom to fit half of `/dev/shm` and refuses to start when even the smallest plan does not
-  fit, saying what to change. `continuum-broker --print-tier0-plan` prints the plan.
-- **Naming.** `/cnt.<hash>.<generation>`. The arena is never resized; a new size is a new generation. A killed broker
-  leaves its arena behind, and the next broker on that socket removes it.
+  worker wrap a whole slot without a copy and a CUDA worker register the whole mapping once.
+- **Layout.** One arena per broker, created at start: a superblock, a slot directory, slab size classes (`64 KB`,
+  `2 MB`, and `16 MB` in the baseline profiles), and a ring region (up to 256 carved rings).
+- **Sizing.** The daemon combines the machine profile's classes with reservations for the manifest's enabled cameras
+  (`ring_seconds`: 10 seconds by default for compressed and network cameras, 2 seconds for raw cameras and macOS USB
+  cameras). On Linux, unless `--profile` is passed explicitly, the daemon shrinks the profile's headroom to fit half of
+  `/dev/shm` and refuses to start when even the smallest camera plan does not fit, saying what to change. A broker
+  started through the library with default Tier 0 settings (`Config::tier0 = None`) fits its profile's slot classes and
+  ring region to half of `/dev/shm` by the same rule (halving slot counts up to 10 times, never below one slot).
+  `continuum-broker --print-tier0-plan` prints the daemon's plan.
+- **Naming.** `/cnt.<hash>.<generation>`, with the generation kept beside the socket in `<socket>.arena`. The arena is
+  never resized; a new size is a new generation. A killed broker leaves its arena behind, and the next broker on that
+  socket unlinks it.
 
 ### Slots
 
@@ -46,15 +51,18 @@ A producer claims a slot with a compare-and-swap, writes into the slab, marks it
 with the payload header. Claiming needs no message. Each slot has a generation, so a reader holding a stale
 reference detects reuse.
 
-A capture stream gets a ring of its own slots, 10 seconds long by default (`ring_seconds`), so capture never competes
-with derived data. Capture never waits: it overwrites the oldest unpinned slot, flushed or not. A loss that leaves a
-span with no other copy is logged and counted as an archive gap.
+The startup plan reserves each enabled camera's `ring_seconds` in the smallest 16 KB-aligned slab classes that fit its
+frames (and geometric classes up to `rtsp.ring_bytes` for network cameras). Capture claims slots in that class with
+`claim_overwriting` and never waits: when none is free, it overwrites the oldest unpinned ready slot, flushed or not.
+An unflushed overwrite that leaves a span with no other copy is logged and counted as an archive gap.
 
 ### Rings
 
-A fixed-stride stream (PCM audio) gets a ring: one producer, any number of readers, each with its own position.
+A fixed-stride stream (PCM audio) gets a ring carved from the ring region (`ring_seconds`, 10 seconds by default): one
+producer, any number of readers, each with its own position.
 
-- Records carry sequence numbers, so a reader that fell behind sees a gap and never reads torn data.
+- Records carry sequence numbers (`head` and `started` in the ring control block), so a reader copies under a seqlock,
+  sees any gap when lapped, and never reads torn data.
 - The catalog indexes a ring in batches (1 second by default), not per record.
 - A live reader follows the ring's sequence word and wakes on a futex (or the macOS equivalent), so it sees a block
   within about one block period. Nothing that answers in real time waits for a batch to close.
@@ -62,68 +70,76 @@ A fixed-stride stream (PCM audio) gets a ring: one producer, any number of reade
 
 ### Reading
 
-A query answered from Tier 0 pins the slot for 5 seconds and returns its locator. The reader maps the arena once and
-reads in place. Dropping the pin is a decrement in shared memory. A disconnected client's pins are dropped for it.
+A query answered from Tier 0 pins the slot for 5 seconds (`MAX_LEASE` is 60 seconds) and returns its locator. The
+reader maps the arena once and reads in place. Dropping the pin is a decrement in shared memory. A disconnected
+client's pins are dropped for it.
 
 When a size class runs out, the broker reclaims the oldest ready slots, flushed ones first. It never reclaims an
 unflushed slot of a stream the tier worker follows; it warns of pressure instead. A slot pinned past its lease is
-reclaimed once it is flushed, and the reader gets an error and can query again from Tier 1.
+reclaimed once it is flushed, and the reader detects the generation change and can query again from Tier 1.
 
 ## Payload headers
 
-Every payload has a `PayloadHeader`, stored in the catalog and sent in messages. The bytes sit in a slab or a chunk.
+Every payload has a `PayloadHeader` ([`continuum/schemas/continuum.fbs`](../continuum/schemas/continuum.fbs)), stored
+in the catalog and sent in messages. The bytes sit in a slab, inline in the catalog, or in a chunk.
 
 | Field | Meaning |
 |---|---|
-| `id` | UUIDv7 |
-| `stream_id` | The stream it belongs to |
-| `start_ns`, `end_ns` | The time it covers, UTC nanoseconds; equal for an instant |
-| `layer` | 1, 2, or 3 |
-| `format`, `shape` | The encoding, and a named shape with a version |
-| `producer` | Who made it: producer id, model, version, and hashes |
-| `parents` | The exact payloads it was computed from |
-| `evidence` | For layer 2 and 3 claims, the supporting records with time spans |
-| `subjects` | The people or things it is about, so a purge by entity finds it |
-| `source_tier` | The coldest tier any input came from; compressed inputs score lower |
-| `compute` | The measured cost of making it |
-| `capture` | For sensor payloads: raw device stamps, sequence, capture epoch, size, and flip |
+| `id` | 16-byte UUIDv7 |
+| `stream_id` | Stream id (`u32`) |
+| `seq` | Stream sequence number (`u32`) |
+| `start_ns`, `end_ns` | Span in UTC nanoseconds (`u64`); equal for an instant |
+| `layer` | `Layer1Raw`, `Layer2Projected`, or `Layer3Interpretive` |
+| `format` | `RawBytes`, `EncodedVideo`, `EncodedAudio`, `ArrowRecordBatch`, `DlpackTensor`, or `TextUtf8` |
+| `shape_name`, `shape_version` | Named shape and its version |
+| `producer` | `producer_id`, `model_name`, `model_version`, `weights_hash`, and `code_hash` |
+| `parents` | Exact parent payload ids |
+| `evidence` | Supporting records (`id`, `start_ns`, `end_ns`) for layer 2 and 3 claims |
+| `subjects` | Entity ids the payload is about, indexed for entity purges |
+| `confidence` | Optional detector or model score (`f32`) |
+| `source_tier` | Coldest tier any input came from; compressed inputs score lower |
+| `compute` | `wall_ns`, `gpu_ns`, `bytes_in`, and `bytes_out` |
+| `capture` | Sensor stamps (`mono_ns`, `device_ts`, `arrival_ns`, `device_seq`), layout (`stride`, `width`, `height`, `flip`, `sample_rate_hz`), `duration_ns`, and `capture_epoch` |
 
 A header is immutable. Where the bytes are is a separate catalog table, since bytes move between tiers. A payload of
-at most 64 KiB can be inline in the catalog. `src/liberational/continuum.py` converts the Python domain types to and
-from these.
+at most 64 KiB can be stored inline in the catalog. [`src/liberational/continuum.py`](../src/liberational/continuum.py)
+converts Python UUIDv7 strings and float epoch-second timestamps to and from Continuum's ids and `u64` nanoseconds.
 
-Two frames are continuous only within one nonzero capture epoch with consecutive device sequences. A frame's `end_ns`
-is extended only when its source attests a duration; it is never guessed from the nominal rate.
+Two frames are continuous only within one nonzero `capture_epoch` with consecutive `device_seq` values. A frame's
+`end_ns` is extended only when its source attests `duration_ns`; it is never guessed from the nominal rate.
 
 ## Protocol
 
-Control messages are FlatBuffers tables in a `ControlEnvelope { request_id, payload }`, one length-prefixed envelope
-at a time. A reply carries its request's id. Messages the broker sends on its own carry 0.
+Control messages are FlatBuffers tables in a `ControlEnvelope { request_id, payload }`, one `u32`-length-prefixed
+envelope at a time. A reply carries its request's id. Messages the broker sends on its own carry 0.
 
 | Group | Messages | Purpose |
 |---|---|---|
-| Connecting | `Hello`, `Welcome`, `Heartbeat`, `Goodbye`, `Error` | The handshake passes the arena's file descriptor and the current voice turn. A client with another major schema version is refused |
-| Registration | `RegisterStream`, `RegisterWorker` | Declare a stream (kind, format, shape, rate, and clock anchor) or a worker's capabilities. Grants belong to the connection: register again after reconnecting |
-| Ingest | `IngestNotice`, `Ingested`, `IngestRejected` | "I wrote this slot, here is its header." A repeat with identical bytes is idempotent; the same id with a different header is a conflict |
-| Query | `Query`, `QueryResult`, `ListStreams` | What a stream holds over a time range, or in commit order after a sequence |
-| Promises | `PromiseQuote`, `CommitPromise`, `CancelPromise`, `FulfillPromise`, `PromiseFailed` | Quote the missing part of a query, then run it on commit |
-| Jobs and leases | `DispatchJob`, `QuoteRequest`, `LeaseGrant`, `RenewLease`, `CommitLease`, `AbortLease`, `LeasePreempted` | A worker's output slots and compute share |
-| Subscriptions | `Subscribe`, `StreamEvent`, `CaughtUp`, `AckEvents`, `Unsubscribe` | Follow streams live, from a time, or from a durable saved position |
-| Coverage | `CoverageGapQuery` | Which ranges a stage has not processed |
-| System state | `SetSystemState`, `SystemStateChanged` | The voice turn |
-| Purge | `Purge`, `PurgeNotice`, `PurgeAck`, `PurgeResult`, `ListPurges`, `RememberForgotten`, `IsForgotten` | Forgetting (below) |
-| Chunks | `CommitChunk`, `RewriteChunk`, `CommitPayloadCopy`, `GetChunk`, `ResolveFrames` | The tier worker's commits |
-| Worker state | `SaveWorkerState`, `LoadWorkerState`, `ForgetWorkerState` | One durable checkpoint row per worker |
+| Connecting | `Hello`, `Welcome`, `Heartbeat`, `Goodbye`, `Error` | Handshake passes the arena file descriptor (`SCM_RIGHTS`) and current voice turn; mismatches in major schema version are refused |
+| Registration | `RegisterStream`, `StreamRegistered`, `RegisterWorker`, `WorkerRegistered` | Declare a stream or a worker's capabilities; grants belong to the connection |
+| Ingest | `IngestNotice`, `Ingested`, `IngestRejected` | Publish a written slot or inline payload; identical repeats are idempotent, and differing headers for one id conflict |
+| Query | `Query`, `QueryResult`, `ListStreams`, `StreamList` | Read a stream by time range or in commit order after a sequence, or list streams |
+| Promises | `PromiseQuote`, `CommitPromise`, `PromiseAccepted`, `CancelPromise`, `FulfillPromise`, `PromiseFailed` | Quote the missing part of a query, then dispatch jobs on commit |
+| Jobs and leases | `DispatchJob`, `JobRejected`, `QuoteRequest`, `LeaseGrant`, `RenewLease`, `LeaseReleased`, `CommitLease`, `AbortLease`, `LeasePreempted` | Allocate a worker's output slots and compute share |
+| Subscriptions | `Subscribe`, `Subscribed`, `StreamEvent`, `CaughtUp`, `AckEvents`, `Unsubscribe`, `Unsubscribed` | Follow streams live, from a time, or from a durable saved position |
+| Coverage | `CoverageGapQuery`, `CoverageGapResponse` | Ranges a stage has not processed |
+| System state | `SetSystemState`, `SystemStateChanged` | Read and broadcast the voice turn |
+| Purge and forgotten names | `Purge`, `PurgeNotice`, `PurgeAck`, `PurgeResult`, `ListPurges`, `PurgeList`, `GetPurge`, `PurgeRecord`, `ForgetKeeper`, `KeeperForgotten`, `RememberForgotten`, `ForgottenRemembered`, `IsForgotten`, `ForgottenStatus`, `ListForgotten`, `ForgottenList` | Cascading purges, keeper acknowledgements, and keyed hashes of forgotten names |
+| Chunks and copies | `CommitChunk`, `ChunkCommitted`, `RewriteChunk`, `ChunkRewritten`, `CommitPayloadCopy`, `PayloadCopyCommitted`, `GetChunk`, `ChunkInfo`, `ResolveFrames`, `FramesResolved` | Tier-worker chunk commits, rewrites, sidecar copies, and absorbed-frame lookups |
+| Worker state | `SaveWorkerState`, `WorkerStateSaved`, `LoadWorkerState`, `WorkerStateLoaded`, `ForgetWorkerState`, `WorkerStateForgotten` | One durable checkpoint row per worker |
+| Aging and retention | `AgeOutFrames`, `FramesAgedOut`, `ListAgedOut`, `AgedOutList`, `CommitSeqAt`, `CommitSeq`, `GetStreamGeneration`, `StreamGeneration`, `PrepareRetentionIndex`, `RetentionPrepared`, `ListRetention`, `RetentionList` | Video-window age-outs, commit-clock cutoffs, and retention indexing |
+| Recording applicability | `ListRecordingInputs`, `RecordingInputs` | Coherent pages of recording inputs for audio retention |
+| Stats | `GetCatalogStats`, `CatalogStats` | Per-table row and byte counts in the catalog |
 
 Rules a client relies on:
 
-- **Paging.** A query result holds at most `max_items` (1024 by default), 8 MiB of inline bytes, and one 16 MiB
-  frame. Check `truncated`, not `complete`: a sparse window has gaps and is still fully listed. For a sequence query,
-  keep following `next_after` until it is 0.
+- **Paging.** A query result holds at most `max_items` (1024 by default) and 8 MiB of inline bytes, inside one 16 MiB
+  socket frame (`MAX_FRAME`). Check `truncated`, not `complete`: a sparse window has gaps and is still fully listed. For
+  a sequence query, keep following `next_after` until it is 0.
 - **Positions.** A subscription position is a commit sequence, the catalog's order of everything committed. A
   subscription over several streams sends their payloads merged in that order.
-- **The live edge.** A query on a ring stream that reaches now also returns the unsealed tail as a ring position
-  range.
+- **The live edge.** A query on a ring stream that reaches the end of the stream also returns the unsealed tail as a
+  ring position range.
 - **Durable subscribers** resume from their last acknowledged position.
 
 ## Scheduler
@@ -152,16 +168,21 @@ stopped. Never copy a live catalog: the copy is torn.
 
 | Tables | Answer |
 |---|---|
-| `STREAMS`, `STREAM_NAMES` | What a stream is |
-| `TIME_INDEX`, `STREAM_SEQ`, `PAYLOAD_SEQ` | What a stream holds by time and by commit order |
+| `META` | Catalog format, next stream id and commit sequence, keepers, and recording era |
+| `STREAMS`, `STREAM_NAMES` | Registered streams and their revisions |
+| `TIME_INDEX`, `STREAM_LONGEST`, `STREAM_SEQ`, `PAYLOAD_SEQ` | What a stream holds by time and by commit order |
 | `PAYLOADS`, `LOCATIONS` | A payload's header and where its bytes are |
-| `CHUNKS`, `FRAMES`, `CHUNK_PROVENANCE` | Each chunk's frame index, and absorbed frames |
+| `CHUNKS`, `CHUNK_FRAMES`, `FRAMES`, `CHUNK_PROVENANCE` | Each chunk's frame index, absorbed frames, and capture provenance |
 | `PROV_PARENTS`, `PROV_CHILDREN`, `SUBJECTS` | Provenance and everything about an entity |
-| `DEPS`, `WORKER_STATE` | Dependencies on stretches of streams, and worker checkpoints |
+| `DEPS`, `DEPS_OF`, `DEPS_LONGEST` | Range dependencies on stretches of streams |
+| `WORKER_STATE`, `WORKER_STATE_INPUTS` | Worker checkpoints and the input streams each names |
 | `COVERAGE` | Which ranges a stage has processed |
 | `CURSORS` | Durable subscription positions |
-| `PURGES`, `FORGOTTEN`, `AGED_OUT` | Purge records, hashes of forgotten names, and aged-out spans |
-| `CLOCK_MAP`, `COMMIT_CLOCK` | Monotonic to UTC, and what was committed by when |
+| `PURGES`, `PURGE_ORDER`, `PURGE_JOBS`, `DOOMED`, `PURGE_WORK`, `PURGE_FRONTIER`, `PURGE_CUTS`, `PURGE_CUT_ORDER`, `PURGE_LATE`, `PURGE_LATE_CUTS`, `PURGE_IDS`, `PURGE_COUNTS`, `PURGE_REMOVED`, `PURGE_REMOVED_FRAMES` | Purge records and the step-by-step state of running purges |
+| `FORGOTTEN`, `AGED_OUT` | Keyed hashes of forgotten names, and aged-out spans |
+| `RECORDING_META`, `RECORDING_ROWS`, `RECORDING_IDS`, `RECORDING_SUBJECTS`, `RECORDING_PURGE` | Recording applicability ledger for audio retention |
+| `CLOCK_MAP`, `COMMIT_CLOCK` | Monotonic-to-UTC samples per boot, and commit sequence by UTC time |
+| `HOT_IDS`, `RESTART_PROJECTION` | Availability index saved on a clean stop |
 
 - **Frames are absorbed into chunks.** A raw frame's header exists while the frame is in Tier 0. When the tier worker
   commits the chunk, the chunk becomes the payload the catalog keeps. A frame keeps a small `FRAMES` row for an hour
@@ -192,7 +213,8 @@ segment store forgets its own rows (`continuum_py`'s `forget_segments`).
 5. Send `PurgeNotice` to every worker that keeps copies (the tier worker and the vector worker). The tier worker
    rewrites or deletes chunk files. The vector worker deletes rows, compacts, and prunes old table versions. Each
    answers `PurgeAck`.
-6. The purge is complete when every keeper has acknowledged. A keeper that is offline is told when it registers.
+6. The purge is complete when every keeper known to the catalog has acknowledged and the keeper grace period has
+   passed. A keeper that is offline is told when it registers; `ForgetKeeper` retires a keeper that will never return.
 
 Rules:
 
