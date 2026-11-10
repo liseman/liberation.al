@@ -460,6 +460,22 @@ it('draws a plan stored as a scene from the scene, with its rooms, area, and cam
   expect(within(screen.getByRole('list', { name: 'Key' })).getByText('Camera')).toBeTruthy();
 });
 
+it('says a failed positions read with a way to try again', async () => {
+  let reads = 0;
+  serve([HOME]);
+  server.use(
+    http.get('/places/positions', () => {
+      reads += 1;
+      return HttpResponse.json({ error: 'the reader is busy' }, { status: 503 });
+    }),
+  );
+  renderPage(<PlacesTab />);
+  expect(await screen.findByText("Couldn't load where people were")).toBeTruthy();
+  const before = reads;
+  fireEvent.click(screen.getByRole('button', { name: /Retry|Try again/ }));
+  await waitFor(() => expect(reads).toBeGreaterThan(before));
+});
+
 it('keeps the view switch for looking: the plan and the map in 3D, and nothing that edits', async () => {
   serve([HOME]);
   renderPage(<PlacesTab />);

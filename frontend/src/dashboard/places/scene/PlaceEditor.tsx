@@ -11,11 +11,12 @@ import { useEffect, useState } from 'react';
 import type { PlanView, Scene } from '../../../plan-editor/protocol';
 import { messageOf } from '../../../shared/http';
 import { confirm } from '../../lib/confirm';
-import { dateTime } from '../../lib/format';
+import { momentWords } from '../../lib/format';
 import { BlockSkeleton } from '../../lib/loading';
 import { shell } from '../../shell';
 import { type PlanVersion, planSceneQuery, restorePlan, savePlan } from '../api';
 import type { Place } from '../examples';
+import classes from '../places.module.css';
 import { PlanFrame } from './PlanFrame';
 import { Versions } from './Versions';
 
@@ -129,7 +130,7 @@ export function PlaceEditor({
               <Badge variant="light" color="gray" tt="none" fw={500} mr={6}>
                 Earlier version
               </Badge>
-              Saved {dateTime(viewing.at)}. Looking at it changes nothing.
+              Saved {momentWords(viewing.at)}. Looking at it changes nothing.
             </>
           ) : stored.data?.converted ? (
             'Saving here lets you edit this plan in 3D.'
@@ -140,7 +141,7 @@ export function PlaceEditor({
           )}
         </Text>
         {viewing ? (
-          <Group gap="xs">
+          <Group gap="xs" className={classes.editorActions}>
             {versions}
             <Button size="xs" variant="default" disabled={restore.isPending} onClick={() => view(null)}>
               Back to the current plan
@@ -151,7 +152,7 @@ export function PlaceEditor({
           </Group>
         ) : (
           !place.example && (
-            <Group gap="xs">
+            <Group gap="xs" className={classes.editorActions}>
               {edited && (
                 <Text size="sm" c="var(--lib-warn-text)" role="status">
                   Unsaved changes

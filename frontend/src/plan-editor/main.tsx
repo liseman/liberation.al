@@ -34,6 +34,8 @@ configureViewer({
 useGLTF.setDecoderPath(`${assets}/decoders/draco/`);
 registerBundledLocales();
 useViewer.getState().setUnit('metric');
+// the plan's canvas and the 3D scene follow the dashboard's scheme: the editor keeps that apart from its chrome
+useViewer.getState().setSceneTheme(scheme === 'dark' ? 'twilight' : 'studio');
 useAudio.getState().setMuted(true); // its interface sounds are files we don't ship
 await loadPlugin(builtinPlugin);
 

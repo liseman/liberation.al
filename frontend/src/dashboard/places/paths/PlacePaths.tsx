@@ -6,12 +6,15 @@
 //
 // The plan is the library's SVG string; the paths are a second SVG laid over it with the same viewBox, placed through
 // the library's projection, so scrubbing redraws only the paths.
+
 import { Button, Group, SegmentedControl, Slider, Text } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
+import { messageOf } from '../../../shared/http';
 import type { FloorplanResult, RenderOptions } from '../../../vendor/floorplan/index.js';
 import { projection } from '../../../vendor/floorplan/index.js';
 import { hm, plural } from '../../lib/format';
+import { LoadError } from '../../lib/page';
 import { type Point, type Positions, positionsQuery } from '../api';
 import classes from '../places.module.css';
 import type { Surface } from '../scene/draw';
@@ -382,9 +385,12 @@ export function PlacePaths({
         </ul>
       )}
       {query.isError && !example ? (
-        <Text size="sm" c="red">
-          Couldn't load where people were.
-        </Text>
+        <LoadError
+          message="Couldn't load where people were"
+          detail={messageOf(query.error)}
+          onRetry={() => query.refetch()}
+          busy={query.isFetching}
+        />
       ) : cannotPlace ? null : nobody ? (
         <Text size="sm" c="dimmed">
           Nobody was placed here in this window.
