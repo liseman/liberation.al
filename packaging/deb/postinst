@@ -1,0 +1,33 @@
+# After the package's files are in place. A new install only says what comes next: the environment is built by
+# pack-setup, by the person who will run the application, never here as root. An upgrade ($2 is the version that
+# was installed) rebuilds the environment of every user who has one, as that user, with the arguments they last
+# gave pack-setup, so the application runs the new release when it is opened again. A rebuild that fails (no
+# network) doesn't fail the upgrade: it says so, and the application refuses to open until pack-setup has run.
+[ "$1" = configure ] || exit 0
+
+if [ -z "$2" ]; then
+  echo
+  echo "Liberational is installed. To finish, run this as yourself (not with sudo):"
+  echo "    pack-setup"
+  echo "It builds the Python environment for this machine and fetches the models. Then open Liberational."
+  exit 0
+fi
+
+quit_applications # one opened between the old package's prerm and now
+failed=""
+for entry in $(users_with "$ENV_DIR"); do
+  user="${entry%%:*}" home="${entry#*:}"
+  echo "Rebuilding Liberational's environment for $user"
+  # --again: the launcher, as that user, reads the arguments it saved. Nothing in a home is read as root.
+  if ! as_user "$user" "$home" /usr/bin/pack-setup --again; then
+    failed="$failed $user"
+  fi
+done
+echo
+if [ -n "$failed" ]; then
+  echo "Liberational was upgraded, but setup did not finish for:$failed."
+  echo "Run pack-setup as that user to finish it, then open Liberational again."
+else
+  echo "Liberational was upgraded. Open it again."
+fi
+exit 0

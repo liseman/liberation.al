@@ -1,0 +1,74 @@
+#!/bin/sh
+# Every pack-* command the .deb puts in /usr/bin is a link to this (docs/RELEASES.md, "The apt repository").
+#
+# The package carries the release's wheels, its lock, and a uv (/usr/lib/liberational). The environment they are
+# installed into is each user's own, ~/.local/lib/liberational/liberational-pack, since it holds this machine's GPU
+# libraries and is several gigabytes: `pack-setup` builds it (as that user, never as root) and then goes on as the
+# installed pack-setup does. Every other command runs from that environment, and refuses while the environment isn't
+# the packaged release's (never built, or the package was upgraded and the rebuild didn't finish), saying to run
+# pack-setup.
+#
+# The environment is a uv tool environment, built by the command docs/RELEASES.md gives for an install by hand, so
+# both installs are the same thing. `--force` makes it again from nothing, which is what an upgrade wants: the new
+# lock decides every version. ENV/.release is a copy of the package's release file; it is written last and goes
+# with the environment when uv replaces it, so a build that was cut off is never taken for a finished one.
+set -eu
+
+LIB=/usr/lib/liberational
+HOME_DIR="$HOME/.local/lib/liberational"
+ENV="$HOME_DIR/liberational-pack"
+name="$(basename "$0")"
+
+if [ "$(id -u)" = 0 ]; then
+  echo "$name: run this as yourself, not as root: the environment, the settings, and the data are each user's own." >&2
+  exit 1
+fi
+
+current() {
+  [ -x "$ENV/bin/$name" ] && cmp -s "$LIB/release" "$ENV/.release"
+}
+
+build() {
+  version="$(sed -n 's/^wheel: //p' "$LIB/release")"
+  echo "Building Liberational $version's environment in $ENV (this downloads Python and its libraries)"
+  mkdir -p "$HOME_DIR"
+  rm -f "$ENV/.release"
+  UV_TOOL_DIR="$HOME_DIR" UV_TOOL_BIN_DIR="$HOME_DIR/bin" "$LIB/bin/uv" tool install --force --python 3.14 \
+    --find-links "$LIB/wheels" --constraints "$LIB/wheels/lock.txt" \
+    "liberational-pack==$version" --with continuum-daemons
+  ln -sf "$LIB/bin/uv" "$ENV/bin/uv" # where pack-setup looks for the uv that installs this machine's extras
+  cp "$LIB/release" "$ENV/.release"
+}
+
+if [ "$name" = pack-setup ]; then
+  if [ "${1:-}" = --again ]; then # an upgrade's rebuild: the arguments this user gave last time
+    set --
+    if [ -f "$HOME_DIR/setup-args" ]; then
+      while IFS= read -r arg; do set -- "$@" "$arg"; done < "$HOME_DIR/setup-args"
+    fi
+  fi
+  check=0
+  for arg in "$@"; do
+    case "$arg" in --check | -h | --help) check=1 ;; esac
+  done
+  if ! current; then
+    if [ "$check" = 1 ]; then
+      echo "The environment in $ENV isn't built for this release: pack-setup builds it first."
+      exit 1
+    fi
+    build
+  fi
+  # What an upgrade runs again for this user (the package's postinst), so a choice like --no-models holds.
+  [ "$check" = 1 ] || { for arg in "$@"; do printf '%s\n' "$arg"; done; } > "$HOME_DIR/setup-args"
+  exec "$ENV/bin/pack-setup" "$@"
+fi
+
+if ! current; then
+  message="Liberational isn't set up for this release yet. Run pack-setup in a terminal, then open it again."
+  echo "$name: $message" >&2
+  if [ "$name" = pack-app ] && [ ! -t 2 ] && command -v notify-send > /dev/null 2>&1; then
+    notify-send --app-name=Liberational --icon=liberational Liberational "$message" || true
+  fi
+  exit 1
+fi
+exec "$ENV/bin/$name" "$@"

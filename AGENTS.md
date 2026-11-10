@@ -36,6 +36,7 @@ This is research. Building the right thing, fast and directly, beats preserving 
 | `config/` | `defaults.toml` (every setting, documented), `pack.example.toml`, and `system-packages.toml` (what's needed from the operating system). |
 | `services/` | `services.toml`: every daemon, declared once and rendered to launchd or systemd by `pack-services`. |
 | `src/liberational/resources/` | Symlinks to the files in `config/` and `services/` that the code reads at run time, so they ship in the wheel. A new one gets a symlink here and is read through `config.RESOURCES`; the owner's files go through `config.owner_file()`, `config.devices_file()`, and `config.path()`, never a path built from the checkout. |
+| `packaging/` | What a platform's package is made of, beyond the wheels: `deb/` has the `.deb`'s launcher, maintainer scripts, desktop entry, icon, and container test ([docs/RELEASES.md](docs/RELEASES.md), "The apt repository"). `tools/apt_package.py` builds it. |
 | `docs/` | Architecture, roadmap, phase specs, hardware, history, and `notes/` (old per-feature session notes; don't add new ones). |
 | `.claude/skills/` | Skills that coding agents load for this repo: `python-tests` (how to write tests here) and `property-based-testing` (vendored unmodified from Trail of Bits, see its `NOTICE.md`). |
 

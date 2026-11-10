@@ -82,6 +82,14 @@ lock of every dependency for each platform, built and smoke-tested on hosted run
 (`.github/workflows/release.yml`). [RELEASES.md](RELEASES.md) says what a release holds, how to install one, how to
 make one, and what each version's upgrade resets.
 
+On Ubuntu and Debian the same release also installs with apt (`apt install liberational`, [RELEASES.md](RELEASES.md),
+"The apt repository"). The `.deb` (`tools/apt_package.py`, with its launcher and maintainer scripts in
+`packaging/deb/`) carries the wheels, the lock, a pinned uv, a desktop entry, and the `pack-*` commands as links to
+one launcher; it registers nothing with systemd. Each user's environment is built by `pack-setup` in
+`~/.local/lib/liberational`, and an upgrade has a running application drain and quit, rebuilds it, and says to open
+the application again. The signed repository is the assets of the `apt` GitHub Release, built and tested in clean
+containers by `.github/workflows/apt.yml`.
+
 An installed package is set up by `pack-setup` (`pack_setup.py`), which builds nothing: it lists the system packages
 the machine is missing and the command that installs them, installs this machine's Python extras with uv as the
 extras of the package already installed (pinned to `resources/constraints.txt` when the release build wrote one),

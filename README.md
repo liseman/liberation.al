@@ -68,6 +68,10 @@ A successful install is not a hardware validation: check the service status and 
 
 ## Install
 
+These steps install from a clone, which is also the development setup. To install a release instead, with no
+clone and nothing to compile, see [docs/RELEASES.md](docs/RELEASES.md): `apt install liberational` from the
+project's apt repository on Ubuntu and Debian, or `uv tool install` anywhere.
+
 1. **Install the base OS compiler, `curl`, `git`, and [mise](https://mise.jdx.dev)**, which installs the project's
    tools (`uv`, `node`, `ollama`, `ffmpeg`, and the rest of `mise.toml`). On Ubuntu or Debian, install `curl`, `git`,
    and `build-essential` first (`node` needs `libatomic1`, and `cargo` needs a C linker); on macOS, install the Xcode
