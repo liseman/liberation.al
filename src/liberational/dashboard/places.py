@@ -359,7 +359,10 @@ def plan_versions(state: Path, place: str) -> Reply:
     held = places.get(state, place)
     if held is None:
         return 404, {"error": "no such place"}
-    history = places.plan_history(state, place)
+    # a version in the old DSL that has a converted copy is shown as its copy (memory/places.py `superseded_plans`)
+    everything = places.plan_history(state, place)
+    hidden = places.superseded_plans(everything, lambda text: not plan_scene.is_scene(text))
+    history = [r for r in everything if r.id not in hidden]
     texts = [_plan_text(r.value) for r in history]
     owned = held.plan_source == "owner"
     versions = [
