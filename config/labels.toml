@@ -81,10 +81,10 @@ help = "Services that run by default, never to run here: uninstalled when you sa
 # Devices (#384): the panel (settings/devices/) draws these settings itself; catalog.ts's "drawn" keeps
 # them out of the section's standard rows, and Advanced and search still list them.
 
-["vision.places"]
+["vision.camera_names"]
 section = "devices"
 label = "Camera names"
-help = "One \"camera ID: display name\" entry per named camera"
+help = "One \"camera ID: name\" entry per named camera, naming the view (\"cam0: front camera\"), not a room"
 
 ["vision.cams"]
 section = "devices"

@@ -8,7 +8,7 @@ new revision:
 
 1. **Level.** The new cloud is turned so its floor (the revision's floor plane, else one fitted) is z = 0 with +z
    up. The fused map is kept in this levelled frame, so its floor is (0, 0, 1, 0).
-   **Metric scale.** The owner's measured camera heights (`spatial.camera_heights_m`, floor to lens) fix each
+   **Metric scale.** The owner's measured camera heights (each fixed camera's `mount.height_m` in `config/devices.toml`, floor to lens) fix each
    cloud's scale (`metric`): the median, over its cameras with a known height, of measured height over height above
    the cloud's floor. The new cloud is scaled by it, and so is the fused map when it is off by more than RESCALE_TOL,
    so registration meets two metric clouds. A cloud with no known camera (a walkthrough) keeps its scale. Walking
@@ -83,10 +83,9 @@ from pathlib import Path
 
 import numpy as np
 
-from liberational import config as cfg
 from liberational import logs
 from liberational.memory import places
-from liberational.spatial import cameras, floorplan, footprints, ply
+from liberational.spatial import cameras, floorplan, footprints, ply, rig
 from liberational.spatial import poses as poses_mod
 
 LOG = logs.get("spatial-fuse")
@@ -552,10 +551,10 @@ def metric(
     seen: Sequence[footprints.Sighting] = (),
 ) -> np.ndarray:
     """The 4x4 scale about the origin that puts `cams` (in a levelled cloud's frame, floor at z = 0) at the heights
-    the owner measured (`spatial.camera_heights_m`): the median of measured over found height across the cameras
+    the owner measured (each fixed camera's `mount.height_m`, spatial/rig.py): the median of measured over found height across the cameras
     with one. The identity with no such camera, or when the scale is within `tolerance` of 1. Logs each camera's own
     ratio, and walking people's height at the scale (`seen`), as checks."""
-    measured = cfg.get("spatial.camera_heights_m") or {}
+    measured = rig.load().heights()
     ratios = {
         c: float(measured[c]) / float(pose.pose[11])
         for c, pose in cams.items()

@@ -29,7 +29,7 @@ def here(state: Path, now: float | None = None) -> dict[str, dict[str, Any]]:
     failure says nobody: Here now is extra, and the roster still answers."""
     from liberational import segment_log
     from liberational.dashboard import review_boxes
-    from liberational.vision import places
+    from liberational.vision import views
 
     now = time.time() if now is None else now
     out: dict[str, dict[str, Any]] = {}
@@ -37,7 +37,7 @@ def here(state: Path, now: float | None = None) -> dict[str, dict[str, Any]]:
         latest: dict[
             str, tuple[float, str, set[str], str]
         ] = {}  # pet id: (last seen, camera, its tracks there, newest)
-        for cam in places.camera_ids(active_only=True):
+        for cam in views.camera_ids(active_only=True):
             for box in review_boxes.pet_boxes(state, cam, now - HERE_NOW_S, now + 1):
                 pet = box.get("pet_id")
                 if not pet:
@@ -51,7 +51,7 @@ def here(state: Path, now: float | None = None) -> dict[str, dict[str, Any]]:
         if not latest:
             return out
         log = segment_log.Log(segment_log.root(state))
-        named = places.names()
+        named = views.names()
         for pet, (seen, cam, tracks, newest) in latest.items():
             times = sorted(
                 (

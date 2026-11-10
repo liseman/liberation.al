@@ -17,7 +17,7 @@ GET /live/happening?since=&limit= gives {"items": [...], "updated": cursor}, ite
   newest; a poll with since=updated gets every row written or revised since (a revision keeps its id, so the page
   replaces it), however late its ts. Without since, the log as it is now. With since, limit gives the oldest rows
   written since, and updated is the last of them, so a tab far behind catches up without skipping any.
-- cam and place: the camera view an arrival or departure was seen on and its place name (vision.places), else
+- cam and place: the camera view an arrival or departure was seen on and its name (vision.camera_names), else
   None.
 
 Rows and the cursor live in the dashboard process (_Rows): a journal with one entry for each row written or changed,
@@ -40,7 +40,7 @@ from liberational.dashboard import presence
 from liberational.intervals import interval_groups
 from liberational.memory import plain_text
 from liberational.people import registry, transcript_view
-from liberational.vision import places, sightings
+from liberational.vision import sightings, views
 
 LOOKBACK_S = 6 * 3600
 EDGE_S = 3600  # read this much before the window too, so what is cut at its start never reads as new
@@ -138,7 +138,7 @@ def _faces(state: pathlib.Path, start: float, end: float) -> list[dict[str, Any]
 # ---- building ----
 def _comings(state: pathlib.Path, start: float, now: float, view: transcript_view.View) -> list[dict[str, Any]]:
     """Arrivals and departures over [start, now]."""
-    named, out = places.names(), []
+    named, out = views.names(), []
     for chip, (who, unknown, spans) in _seen(state, start, now, view).items():
         for group in interval_groups(sorted(spans), LEAVE_S, start=lambda r: r[0], end=lambda r: r[1]):
             first, last = group[0], max(group, key=lambda r: r[1])

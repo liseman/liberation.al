@@ -216,7 +216,7 @@ def test_the_card_has_the_best_shots_recent_video_and_voice(card_state):
         {
             "id": f"cam0@{DAY1:.2f}",  # for the card's menu (POST /people/correct)
             "cam": "cam0",
-            "place": "cam0",  # no vision.places: the id
+            "place": "cam0",  # no vision.camera_names: the id
             "start": DAY1,
             "end": DAY1 + 50,
             "duration_s": 50.0,
@@ -386,7 +386,7 @@ def test_nobody_gets_an_empty_card_and_a_bad_name_none(card_state):
 
 
 def test_the_card_and_the_roster_say_where_each_camera_is(card_state):
-    with cfg.override({"vision": {"places": ["cam0: living room"]}}):  # cam1 has no place: its id
+    with cfg.override({"vision": {"camera_names": ["cam0: living room"]}}):  # cam1 has no place: its id
         card = server.person_card("Alice")
         alice = next(p for p in server.people_roster() if p["name"] == "Alice")
     assert card is not None

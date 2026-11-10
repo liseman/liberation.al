@@ -1551,7 +1551,7 @@ def test_the_worker_subprocess_is_told_where_to_stream(monkeypatch, tmp_path):
 
 def test_camera_context_keeps_native_identity_and_human_place_name():
     history = {"evidence": [{"id": "C1", "camera": "cam0", "source": "camera", "text": "A violet mug."}]}
-    with cfg.override({"vision": {"places": ["cam0: Reading room"]}}):
+    with cfg.override({"vision": {"camera_names": ["cam0: Reading room"]}}):
         context, partial = p.evidence_context(history, 4000)
     assert not partial
     assert json.loads(context)["evidence"] == [
@@ -1566,7 +1566,7 @@ def test_named_camera_none_does_not_attribute_transcript_rows_to_that_camera():
             {"id": "T2", "source": "transcript", "text": "The parcel arrived."},
         ]
     }
-    with cfg.override({"vision": {"places": ["None: Vestibule"]}}):
+    with cfg.override({"vision": {"camera_names": ["None: Vestibule"]}}):
         context, partial = p.evidence_context(history, 4000)
     assert not partial
     camera, transcript = json.loads(context)["evidence"]

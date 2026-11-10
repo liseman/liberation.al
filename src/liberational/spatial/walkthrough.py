@@ -81,7 +81,7 @@ poses are metric, gravity-aligned, and drift about 1% of the walk, and its LiDAR
 device that makes one is to hand, and always for a walk past about two minutes, a walk that can't cross its own path
 every half minute or so, a place whose map fixed cameras or an owner plan must register against, or a place with
 plain walls and little texture. A plain video is for a short look at a place when only a phone without LiDAR is
-there. docs/ARCHITECTURE.md ("Recording a walkthrough") says how to record either.
+there. docs/WALKTHROUGH.md says how to record either.
 
 Both models run niced, on the GPU with the most free memory (`spatial.gpu`). Models: CUT3R and MASt3R (code and
 weights CC BY-NC-SA 4.0, non-commercial; MASt3R accepted by Joe for now on 2026-11-07, CUT3R on 2026-11-08), and

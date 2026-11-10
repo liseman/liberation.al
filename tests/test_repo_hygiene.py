@@ -8,6 +8,11 @@ pre-commit hook in .githooks/ that refuses to commit such a file.
 
 They also check the hooks that refuse leftover merge conflict markers (#566): pre-commit for ordinary commits and
 for finishing a conflicted merge, pre-merge-commit for a merge that had no conflicts.
+
+Every git command here runs without the user's global or system git config (#29), and each temporary repo has its own
+identity and this repository's hooks. The hooks also run tools/privacy_check.py from the top of the repo they're in:
+each temporary checkout gets a stand-in that passes (ignored, so it is never committed), since
+tests/test_privacy_check.py covers the real one.
 """
 
 import os
@@ -23,6 +28,22 @@ HOOK = ROOT / ".githooks" / "pre-commit"
 pytestmark = pytest.mark.skipif(
     shutil.which("git") is None or not (ROOT / ".git").exists(), reason="needs a git checkout"
 )
+
+
+PRIVACY_STUB = "import sys\n\nsys.exit(0)\n"
+
+
+@pytest.fixture(autouse=True)
+def isolated_git_config(monkeypatch):
+    """No global or system git config (a hooks path, signing, or a default branch there) reaches these tests."""
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+
+
+def _privacy_stub(checkout: pathlib.Path) -> None:
+    """The stand-in for tools/privacy_check.py that the hooks run in `checkout`."""
+    (checkout / "tools").mkdir(exist_ok=True)
+    (checkout / "tools" / "privacy_check.py").write_text(PRIVACY_STUB)
 
 
 def _git(*args: str, cwd: pathlib.Path = ROOT) -> str:
@@ -48,7 +69,8 @@ def _repo(tmp_path: pathlib.Path) -> pathlib.Path:
     _git("config", "user.name", "Dana", cwd=repo)
     _git("config", "user.email", "dana@example.com", cwd=repo)
     _git("config", "core.hooksPath", str(HOOK.parent), cwd=repo)
-    (repo / ".gitignore").write_text("data/*\n")
+    (repo / ".gitignore").write_text("data/*\ntools/\n")
+    _privacy_stub(repo)
     (repo / "data").mkdir()
     (repo / "data" / "transcript.jsonl").write_text("{}\n")
     (repo / "notes.txt").write_text("hello\n")
@@ -276,4 +298,5 @@ def test_a_worktree_never_rebuilds_the_frontend(frontend_change, tmp_path):
     repo, env = frontend_change
     worktree = tmp_path / "wt"
     _git("worktree", "add", "-q", "-b", "work", str(worktree), "main", cwd=repo)
+    _privacy_stub(worktree)
     assert "mise ran" not in _merge(worktree, env)
