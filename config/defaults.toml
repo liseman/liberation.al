@@ -663,6 +663,16 @@ needs = "cuda"
 
 # EdgeTAM prompted/automatic image masks (Meta code/weights Apache-2.0), Transformers conversion by its contributor.
 # Fixed checkpoint revision and local directory keep on-demand requests entirely offline.
+[models.hf.depth_anything]
+# Fixed-camera splats' depth prior (spatial/splats.py `depth_priors`): Depth Anything 3's monocular metric model,
+# DA3METRIC-LARGE (ByteDance; code and these weights Apache-2.0). Only its safetensors and config. Without it a
+# splat trains on its frames alone and the log says so.
+repo = "depth-anything/DA3METRIC-LARGE"
+revision = "4010e39f3634a45bc60553321fb49fb760bd594e"
+path = "data/models/depth-anything-3-metric"
+allow_patterns = ["config.json", "model.safetensors"]
+needs = "cuda"
+
 [models.hf.mast3r]
 # Fixed-camera places: MASt3R ViT-L 512, metric (naver; code and weights CC BY-NC-SA 4.0, the weights also
 # under their training datasets' non-commercial terms; accepted for now). Only its safetensors and config.

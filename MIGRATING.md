@@ -5,6 +5,20 @@ This guide covers the current Continuum installation. Fresh setup is in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). The old genericize and v1 import
 procedures are retired. Do not run an old catch-up script against current data.
 
+## Fixed-camera splats train against a depth model
+
+A fixed-camera place's splat now trains against a depth image per camera from Depth Anything 3's metric model, which
+runs in gsplat's runtime. On a machine that makes splats (CUDA), after the pull:
+
+```sh
+mise run gsplat   # rebuilds data/gsplat: the same gsplat, plus Depth Anything 3's pinned code
+mise run models   # fetches data/models/depth-anything-3-metric (1.3 GB)
+```
+
+`[models.hf.depth_anything]` is a new key in `config/defaults.toml`, so restart every config-reading service after
+the pull. Until both commands have run, splats train as before, without the depth, and the log says which is
+missing. Nothing is dropped.
+
 ## The manifest import and its `[vision]` keys are gone
 
 `continuum-capture --from-v1` is removed, and so are the settings it read: `vision.cams`, `vision.width`,

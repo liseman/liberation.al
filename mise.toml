@@ -132,25 +132,31 @@ echo "GeoCalib $C set up in $D"
 '''
 
 [tasks.gsplat]
-description = "Set up gsplat's runtime for place splats in data/gsplat: its own venv with a prebuilt gsplat (CUDA machines; safe to re-run)"
-env = { GSPLAT_VERSION = "1.5.3", GSPLAT_DIR = "data/gsplat" }
+description = "Set up gsplat's runtime for place splats in data/gsplat: its own venv with a prebuilt gsplat, and Depth Anything 3's pinned code for the depth prior (CUDA machines; safe to re-run)"
+env = { GSPLAT_VERSION = "1.5.3", DA3_COMMIT = "3d835ec1a5802d64a8b8b15f817a1ab54809bfe4", GSPLAT_DIR = "data/gsplat" }
 run = '''
 #!/usr/bin/env bash
 set -euo pipefail
-D="$GSPLAT_DIR"; V="$GSPLAT_VERSION"
+D="$GSPLAT_DIR"; V="$GSPLAT_VERSION+da3-$DA3_COMMIT"
 if ! command -v nvidia-smi >/dev/null; then echo "gsplat needs CUDA; skipped"; exit 0; fi
 if [ -x "$D/.venv/bin/python" ] && [ "$(cat "$D/VERSION" 2>/dev/null)" = "$V" ]; then
   echo "gsplat $V already set up in $D"; exit 0
 fi
-rm -rf "$D/.venv"
+rm -rf "$D/.venv" "$D/depth-anything-3"
 # Its own venv: gsplat needs torch with CUDA, which the pack's environment doesn't carry. gsplat's GitHub
 # releases have it prebuilt for Python 3.10, torch 2.4, and CUDA 12.4, so nothing is compiled here or on first use.
 uv venv -q --python 3.10 "$D/.venv"
 uv pip install -q --python "$D/.venv/bin/python" --index-url https://download.pytorch.org/whl/cu124 torch==2.4.1
-W="https://github.com/nerfstudio-project/gsplat/releases/download/v$V/gsplat-$V%2Bpt24cu124-cp310-cp310-linux_x86_64.whl"
+W="https://github.com/nerfstudio-project/gsplat/releases/download/v$GSPLAT_VERSION/gsplat-$GSPLAT_VERSION%2Bpt24cu124-cp310-cp310-linux_x86_64.whl"
 # packaging and setuptools: gsplat imports them (and torch.utils.cpp_extension) on its way to the prebuilt kernels
 # but does not declare them.
 uv pip install -q --python "$D/.venv/bin/python" "gsplat @ $W" packaging setuptools "numpy<2" pillow
+# Depth Anything 3 (Apache-2.0), for a fixed-camera splat's depth prior: its code only, read from its folder by
+# spatial/depth_runner.py, never installed. That runner builds the network itself, so of the package's long
+# dependency list (open3d, pycolmap, moviepy, and more, all for its exporters) only these few are needed.
+git clone --quiet https://github.com/ByteDance-Seed/Depth-Anything-3 "$D/depth-anything-3"
+git -C "$D/depth-anything-3" checkout --quiet "$DA3_COMMIT"
+uv pip install -q --python "$D/.venv/bin/python" einops omegaconf addict safetensors
 echo "$V" > "$D/VERSION"
 echo "gsplat $V set up in $D"
 '''

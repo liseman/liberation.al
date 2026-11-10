@@ -15,9 +15,13 @@ it registers fixed cameras:
    and centre-cropped to the size the camera was registered at (`fit`), as MASt3R saw it.
 2. **Start.** The revision's map points that some camera sees (`in_view`), at most `MAX_START_POINTS`, are the
    Gaussians' starting centres and colours; the revision's poses and focals are the cameras, taken as they are.
-3. **Train.** spatial/splat_runner.py in gsplat's own runtime (`mise run gsplat`, under `spatial.splat_runtime`),
+3. **Depth.** Each camera gets one depth image to train against (`depth_priors`, #20): Depth Anything 3's metric
+   model on each of its frames (spatial/depth_runner.py, in gsplat's runtime), their per-pixel median, scaled to the
+   map by the map points the camera sees (`map_scale`). Without the model's code or weights the splat trains on its
+   frames alone, and the log says so.
+4. **Train.** spatial/splat_runner.py in gsplat's own runtime (`mise run gsplat`, under `spatial.splat_runtime`),
    niced, on the GPU with the most free memory (`cameras.pick_gpu`): `STEPS` steps, at most `MAX_GAUSSIANS`.
-4. **Keep.** The trained 3DGS PLY and its SPZ copy (`spz`) are written beside the revision (memory/places.py
+5. **Keep.** The trained 3DGS PLY and its SPZ copy (`spz`) are written beside the revision (memory/places.py
    `write_splat`), and served by the dashboard's `GET /places/splat`. The PLY is in the map's frame, as is; the
    SPZ is a standard one, in SPZ's right-up-back frame (y and z negated, as Niantic's converter makes it from a PLY).
    Spark (the 3D view's renderer) reads an SPZ as it is, so the view turns the splat 180 degrees about x, which
@@ -28,6 +32,18 @@ Measured with these settings (Place 1: two fixed cameras, 10 daytime frames each
 PLY and a 4.4 MB SPZ, and 27.1 dB PSNR on a frame per camera held out from the same day. Two cameras with little overlap give no new views: the splat looks right from where the cameras
 stand, not from between them (6.6 dB from one camera's view trained on the other's). Nothing fills what no camera
 sees.
+
+**What the depth prior does** (#20; one place, four fixed cameras with a lens model each, 12 midday frames a camera,
+a LiDAR-walked map). Trained on its frames alone, a splat explains each camera's picture with haze: seen from its
+own camera its surfaces sit a median 0.36 m off the depth prior, and from a camera left out of training 1.6 to 1.9 m
+off. With the prior they sit under 1 cm off from its own cameras and 0.5 to 1.1 m off from a left-out one (what
+that camera sees and the others don't has no depth to go by). The picture from the cameras' own views keeps its
+score, 29.4 dB held out without and 29.1 dB with. The picture from a left-out camera does not score better (7.6 to
+11.7 dB without, 6.8 to 8.4 dB with, and 1 dB apart between two runs of the same settings): at that level PSNR counts
+how much of the unseen is filled, and haze fills more of it than surfaces with holes between them do. So the prior
+buys geometry, which is what the 3D view moves through, not a novel view's picture. The model's metres needed a
+scale of 0.95 to 1.06 to match the map, and the map is no ground truth for it: it has holes, and a room changes
+after a walk. The depth model adds about 6 s and 2 GiB of GPU memory to a place's splat.
 
 **A Stray Scanner walkthrough** (`splat_walk`) gets its splat when it's imported: `pack-walkthrough` calls it once the
 walk's revision is written and fused (spatial/walkthrough.py `run_stray`). Every saved frame trains, at its ARKit pose
@@ -75,9 +91,12 @@ LOG = logs.get("spatial-splat")
 RUNNER = Path(__file__).with_name("splat_runner.py")
 FRAMES_PER_CAMERA = 12
 #: A camera with fewer lit frames than this takes no part, and a place with no camera left gets no splat this run (the
-#: next run's day will have more): after a reset at midday, Place 1's splat trained on 4 frames a camera and showed
-#: in place of a 27 dB one from 10.
-MIN_FRAMES_PER_CAMERA = 6
+#: next run will have more). Three is enough: with one frame held out of 12 over the midday window, a splat from 3
+#: frames spread over it scored what one from 6 or 11 did (29.4, 29.3, and 29.4 dB), while 1 or 2 frames from its
+#: ends scored 22.8 dB: what counts is a frame lit like the one looked at, not how many there are. The bar was 6,
+#: which a place missed for a day after every reset or camera rename; at 3 it gets its splat within the first hour
+#: of the first midday recorded.
+MIN_FRAMES_PER_CAMERA = 3
 MAX_START_POINTS = 100_000
 STEPS = 7000
 MAX_GAUSSIANS = 300_000
@@ -196,6 +215,7 @@ def write_job(
             cv2.imwrite(str(path), fit(frame, pose.width, pose.height))
             views.append(
                 {
+                    "camera": cam,
                     "image": str(path),
                     "pose": list(pose.pose),
                     "focal": pose.focal,
@@ -220,6 +240,103 @@ def write_job(
         )
     )
     return job
+
+
+#: The depth prior (`depth_priors`): Depth Anything 3's metric model, run by spatial/depth_runner.py in gsplat's
+#: runtime from the pinned code `mise run gsplat` puts under it.
+DEPTH_RUNNER = Path(__file__).with_name("depth_runner.py")
+DEPTH_SOURCE = Path("depth-anything-3") / "src"
+DEPTH_TIMEOUT_S = 600.0
+#: A camera's depth is scaled to the map by the map points it sees, the nearest in each DEPTH_CELL-pixel cell (a
+#: coarse z-buffer, so a thin cloud isn't seen through); with fewer cells than this it keeps the model's own metres.
+DEPTH_CELL = 4
+MIN_DEPTH_CELLS = 200
+DEPTH_UNIT = 0.001  # a depth image's count, in the map's units
+
+
+def depth_checkpoint() -> Path:
+    """Where `mise run models` puts Depth Anything 3's metric weights ([models.hf.depth_anything])."""
+    return cfg.ROOT / str(cfg.load()["models"]["hf"]["depth_anything"]["path"]) / "model.safetensors"
+
+
+def map_scale(depth: np.ndarray, points: np.ndarray, cam: places.CameraPose) -> float | None:
+    """What a camera's model depth (`depth`, H x W along the view axis, the camera's registered size) is multiplied by
+    to agree with the map: the median, over the cells that hold a map point `cam` sees, of the nearest such point's
+    depth over the model's there. None with fewer than MIN_DEPTH_CELLS cells. The median shrugs off what the map
+    lacks or the room has since gained (a box put down in front of the camera) and the holes a z-buffer of points
+    sees through."""
+    c2w = np.asarray(cam.pose, dtype=np.float64).reshape(4, 4)
+    local = (np.asarray(points, dtype=np.float64).reshape(-1, 3) - c2w[:3, 3]) @ c2w[:3, :3]
+    local = local[local[:, 2] > MIN_DEPTH]
+    u = np.floor(cam.focal * local[:, 0] / local[:, 2] + cam.width / 2).astype(np.int64)
+    v = np.floor(cam.focal * local[:, 1] / local[:, 2] + cam.height / 2).astype(np.int64)
+    inside = (u >= 0) & (u < cam.width) & (v >= 0) & (v < cam.height)
+    rows, cols = -(-cam.height // DEPTH_CELL), -(-cam.width // DEPTH_CELL)
+    nearest = np.full((rows, cols), np.inf)
+    np.minimum.at(nearest, (v[inside] // DEPTH_CELL, u[inside] // DEPTH_CELL), local[inside, 2])
+    model = np.asarray(depth, dtype=np.float64)[DEPTH_CELL // 2 :: DEPTH_CELL, DEPTH_CELL // 2 :: DEPTH_CELL]
+    seen = np.isfinite(nearest[: model.shape[0], : model.shape[1]]) & (model > 0)
+    if int(seen.sum()) < MIN_DEPTH_CELLS:
+        return None
+    return float(np.median(nearest[: model.shape[0], : model.shape[1]][seen] / model[seen]))
+
+
+def run_depth(runtime: Path, job: Path, gpu: str | None) -> None:
+    """spatial/depth_runner.py on `job` in gsplat's runtime, niced, on `gpu`."""
+    env = dict(os.environ)
+    if gpu is not None:
+        env["CUDA_VISIBLE_DEVICES"] = gpu
+    command = ["nice", "-n", str(NICE), str(runtime / ".venv" / "bin" / "python"), str(DEPTH_RUNNER), str(job)]
+    done = subprocess.run(command, env=env, capture_output=True, text=True, timeout=DEPTH_TIMEOUT_S)
+    if done.returncode != 0:
+        tail = done.stderr.strip().splitlines()[-1:] or ["(no output)"]
+        raise RuntimeError(f"the depth model failed ({done.returncode}): {tail[0][:300]}")
+
+
+def depth_priors(
+    job: Path, rev: places.Revision, points: np.ndarray, runtime: Path, gpu: str | None
+) -> dict[str, float | None]:
+    """Give each view of `job` (`write_job`'s) a depth prior (#20) and return each camera's `map_scale` (None where
+    the model's own metres were kept). A fixed camera sees one scene, so it gets one depth image: the model's depth
+    of each of its frames (spatial/depth_runner.py), their per-pixel median (people passing and the light's changes
+    drop out), scaled to the map, and zeroed where the camera's frame is covered (its overlays, and the border a
+    lens's undoing leaves), as a 16-bit PNG in DEPTH_UNIT of the map's units. Raises RuntimeError when the model's
+    code or weights aren't there, or it fails; the job is then left as it was."""
+    import cv2
+
+    source, checkpoint = runtime / DEPTH_SOURCE, depth_checkpoint()
+    if not source.is_dir():
+        raise RuntimeError(f"Depth Anything 3's code isn't in {source.parent}; run `mise run gsplat`")
+    if not checkpoint.is_file():
+        raise RuntimeError(f"Depth Anything 3's weights aren't at {checkpoint}; run `mise run models`")
+    spec = json.loads(job.read_text())
+    views = spec["views"]
+    asked = [
+        {"image": v["image"], "focal": v["focal"], "out": str(Path(v["image"]).with_suffix(".depth.npy"))}
+        for v in views
+    ]
+    request = job.with_name("depth.json")
+    request.write_text(json.dumps({"source": str(source), "checkpoint": str(checkpoint), "views": asked}))
+    run_depth(runtime, request, gpu)
+    scales: dict[str, float | None] = {}
+    for cam in dict.fromkeys(v["camera"] for v in views):
+        mine = [i for i, v in enumerate(views) if v["camera"] == cam]
+        depth = np.median(np.stack([np.load(asked[i]["out"]) for i in mine]), axis=0)
+        scales[cam] = map_scale(depth, points, rev.cameras[cam])
+        if scales[cam] is None:
+            LOG.info("%s: too few map points in view to scale its depth by; kept the model's metres", cam)
+        counts = np.clip(np.round(depth * (scales[cam] or 1.0) / DEPTH_UNIT), 0, 65535).astype(np.uint16)
+        mask = views[mine[0]].get("mask")
+        covered = cv2.imread(mask, cv2.IMREAD_GRAYSCALE) if mask else None
+        if covered is not None:
+            counts[covered > 127] = 0
+        path = job.with_name(f"{cam}.depth.png")
+        cv2.imwrite(str(path), counts)
+        for i in mine:
+            views[i]["depth"] = str(path)
+    spec["depth_unit"] = DEPTH_UNIT
+    job.write_text(json.dumps(spec))
+    return scales
 
 
 def run_runner(runtime: Path, job: Path, gpu: str | None, timeout_s: float = RUN_TIMEOUT_S) -> dict[str, Any]:
@@ -554,6 +671,11 @@ def splat_place(
         return None
     with tempfile.TemporaryDirectory(prefix="spatial-splat-") as tmp:
         job = write_job(Path(tmp), rev, frames, start)
+        scales: dict[str, float | None] | None = None
+        try:
+            scales = depth_priors(job, rev, points, runtime, gpu)
+        except (RuntimeError, subprocess.TimeoutExpired, OSError, ValueError, KeyError) as e:
+            LOG.warning("%s: training without the depth prior: %s", place, e)
         result = run_runner(runtime, job, gpu)
         master = (Path(tmp) / "splat.ply").read_bytes()
     rows = ply.vertices(master)
@@ -566,6 +688,7 @@ def splat_place(
         "revision": rev.id,
         "frames": {c: len(f) for c, f in frames.items()},
         "start_points": len(start[0]),
+        "depth_scales": None if scales is None else {c: s and round(s, 3) for c, s in scales.items()},
         "gaussians": result.get("gaussians"),
         "train_psnr": result.get("train_psnr"),
         "seconds": result.get("seconds"),
