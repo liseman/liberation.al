@@ -705,7 +705,7 @@ def close_loops(
             break
     assert trial is not None
     for e in pending:
-        refused[_kind(str(gated(e, start)))] += 1
+        refused[_kind(gated(e, start) or "not reached in the closing rounds")] += 1
     kept = [(e.i, e.j) for e in edges[first:]]
     reverted = sorted(edges[k].i for k in trial.dropped if len(steps) <= k < first)
     dropped = [(edges[k].i, edges[k].j) for k in trial.dropped if k >= first]
