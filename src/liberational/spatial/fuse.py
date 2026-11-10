@@ -808,6 +808,36 @@ def owner_drawn(state: Path, place: str, fused_rev: places.Revision) -> bool:
 BACK_M = 0.25
 
 
+def _frame_hops(chain: Sequence[places.Revision], owned: str, fused_rev: places.Revision) -> list[float] | None:
+    """How far the fused map's frame moved between the owner's (`owned`) and `fused_rev`'s: for each change of frame
+    along the tier 1 revisions after the last one in the owner's frame, the farthest a fixed camera stands (metres)
+    from where the revision before had it. A frame moves only at the revision that starts it, so that is where it's
+    measured: later revisions in a frame add nothing, though a nightly seat re-poses the cameras in it by decimetres
+    of its own (#227). Each hop's figure includes what that fusion did to its own cameras, so the sum bounds the move
+    from above. None when a hop has no fixed camera on both sides."""
+    at = max((i for i, r in enumerate(chain) if r.frame == owned), default=None)
+    if at is None:
+        return None
+    hops: list[float] = []
+    before = chain[at]
+    for rev in chain[at + 1 :]:
+        if rev.producer != PRODUCER or rev.frame is None:
+            continue  # a snapshot or a walk's own revision: not the fused map
+        if rev.frame != before.frame:
+            shared = [c for c in set(before.cameras) & set(rev.cameras) if not c.startswith("walk-")]
+            if not shared:
+                return None
+            hops.append(max(float(np.linalg.norm(_centre(rev, c) - _centre(before, c))) for c in shared))
+        before = rev
+        if rev.id == fused_rev.id:
+            break
+    return hops
+
+
+def _centre(rev: places.Revision, cam: str) -> np.ndarray:
+    return np.asarray(rev.cameras[cam].pose, dtype=np.float64).reshape(4, 4)[:3, 3]
+
+
 def onto_owner_plan(
     state: Path, place: str, now: float | None = None, write: bool = True
 ) -> tuple[places.Revision | None, str]:
@@ -815,9 +845,10 @@ def onto_owner_plan(
     (#215): the newest fused map written again as a tier 1 revision in the frame the owner's plan is drawn in, with
     its cameras and signals as they are and no machine plan, so the owner's plan holds on the newest map again
     (`places.same_plan_frame`), unchanged. Everything a walk added to the map since stays. The map isn't moved back:
-    what moved it was a small levelling turn or rescale, so its fixed cameras must stand within `BACK_M` of where
-    they stood on the owner's frame (measured on the cameras both revisions hold), and a map that moved farther is
-    refused. `write` False only says what it would do. Returns the new revision (None when nothing was written) and
+    what moved it was a small levelling turn or rescale, so across each change of frame since the owner's the fixed
+    cameras must have moved no more than `BACK_M` in all (`_frame_hops`), and a map that moved farther is refused.
+    Fusions that kept a frame (a nightly seat, which re-poses its cameras) don't count: the newest cameras are
+    written as they are. `write` False only says what it would do. Returns the new revision (None when nothing was written) and
     what it found."""
     known = places.get(state, place)
     fused_rev = fused_revision(state, place)
@@ -833,17 +864,14 @@ def onto_owner_plan(
             None,
             "the owner's plan isn't drawn on a map frame (it corrects a machine plan), so there is no frame to restore",
         )
-    # The newest revision still in the owner's frame has the cameras as they stood on it
-    last = next((r for r in reversed(places.revisions(state, place)) if r.frame == drawn.frame), drawn)
-    shared = sorted(c for c in set(last.cameras) & set(fused_rev.cameras) if not c.startswith("walk-"))
-    if not shared:
-        return None, "no fixed camera is in both the owner's frame and the newest map, so the move can't be checked"
-
-    def centre(rev: places.Revision, cam: str) -> np.ndarray:
-        return np.asarray(rev.cameras[cam].pose, dtype=np.float64).reshape(4, 4)[:3, 3]
-
-    moved = max(float(np.linalg.norm(centre(fused_rev, c) - centre(last, c))) for c in shared)
-    found = f"{len(shared)} fixed cameras stand within {moved:.3f} m of where they stood on the owner's frame"
+    hops = _frame_hops(places.revisions(state, place), drawn.frame, fused_rev)
+    if hops is None:
+        return None, "no fixed camera is on both sides of a change of the map's frame, so the move can't be checked"
+    moved = sum(hops)
+    found = (
+        f"the map changed frame {len(hops)} time{'s' if len(hops) != 1 else ''} since the owner's, moving its fixed "
+        f"cameras {moved:.3f} m at most"
+    )
     if moved > BACK_M:
         return None, f"{found}, past the {BACK_M} m a levelling turn or rescale moves them: not restored"
     if not write:
