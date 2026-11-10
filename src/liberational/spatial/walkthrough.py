@@ -1368,6 +1368,21 @@ def run(
     }
 
 
+def stray_depths(folder: Path, picked: Sequence[int], code: int | None, out: Path) -> list[Path | None]:
+    """Each picked frame's LiDAR depth map (`stray.depth_map`, turned like its saved frame) as a 16-bit PNG under
+    `out`, for the splat to train against; None for a frame without one."""
+    import cv2
+
+    paths: list[Path | None] = []
+    for n, i in enumerate(picked):
+        depth = stray.depth_map(folder, i, code)
+        path = None if depth is None else out / f"d{n:03d}.png"
+        if depth is not None:
+            cv2.imwrite(str(path), depth)
+        paths.append(path)
+    return paths
+
+
 def _grab(
     video: Path, indices: Sequence[int], width: int = COLOR_WIDTH
 ) -> tuple[dict[int, np.ndarray], tuple[int, int]]:
@@ -1447,7 +1462,10 @@ def run_stray(
         with places.writing(state):  # the nightly fixed-camera run waits for the join
             did = finish(state, place, folder.name, walk, closed, PRODUCER_STRAY, stray.WORLD_UP, looks=looks, out=out)
             did["join"] = join_new(state, place, did, walk, closed, out)
-        did["splat"] = splats.splat_walk(state, did["place"], did["revision"], paths, closed.poses, frames, looks)
+        depths = stray_depths(folder, picked, code, out)
+        did["splat"] = splats.splat_walk(
+            state, did["place"], did["revision"], paths, closed.poses, frames, looks, depths
+        )
         if poses_out is not None:
             np.savez(
                 poses_out,

@@ -358,7 +358,7 @@ identity precedence, and erasure behavior, not merely transport the same message
 | Face enrollment | `paths.faces`, preserved with owner inputs |
 | Contacts and manually added names | Registry fields, with `contacts.json` and `people_added.json` read models |
 | Encounters | `memory/timeline.py`, projected from face visits and resolved speech rows |
-| Places and visits | `memory/places.py`: machine revisions under `state/places/` (a point-cloud map, a floorplan, the floor plane, the map-to-plan transform, and registered cameras), plus a splat beside a revision (`<revision>.gs.ply` and `<revision>.spz`); visits in the `place.visit` segment stream; the owner's names and plan corrections in the knowledge store's `place.named` and `place.plan` |
+| Places and visits | `memory/places.py`: machine revisions under `state/places/` (a point-cloud map, a floorplan, the floor plane, the map-to-plan transform, and registered cameras), plus a splat beside a revision (`<revision>.gs.ply`, `<revision>.spz`, and `<revision>.gs.from`); visits in the `place.visit` segment stream; the owner's names and plan corrections in the knowledge store's `place.named` and `place.plan` |
 | Calls | Per-call metadata, audio, and transcripts under `paths.calls` |
 
 [Architecture](ARCHITECTURE.md#where-data-lives) is the complete state contract.

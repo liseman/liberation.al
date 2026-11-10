@@ -9,6 +9,7 @@ import sys
 import textwrap
 from types import SimpleNamespace
 
+import cv2
 import numpy as np
 import pytest
 
@@ -717,9 +718,11 @@ def test_a_stray_walk_gets_a_splat_in_its_maps_frame_and_cameras_to_look_from(tm
     (runtime / ".venv" / "bin").mkdir(parents=True)
     (runtime / ".venv" / "bin" / "python").write_text("")
     jobs = []
+    depths = []
 
     def trained(rt, job, gpu, timeout_s=0.0):
         jobs.append(json.loads(job.read_text()))
+        depths.extend(cv2.imread(v["depth"], cv2.IMREAD_UNCHANGED) for v in jobs[-1]["views"])  # gone after the run
         n = 2
         names = ["x", "y", "z", "f_dc_0", "f_dc_1", "f_dc_2", *(f"f_rest_{i}" for i in range(9))]
         names += ["opacity", "scale_0", "scale_1", "scale_2", "rot_0", "rot_1", "rot_2", "rot_3"]
@@ -742,6 +745,11 @@ def test_a_stray_walk_gets_a_splat_in_its_maps_frame_and_cameras_to_look_from(tm
     (job,) = jobs
     assert len(job["views"]) == did["frames"] and job["reg"] == 0.0
     assert job["bound"] is True, "held inside the map's box: no regularizers to keep it there (#43)"
+    assert job["pose_opt"] is True, "each frame's pose is refined as the splat trains (#43)"
+    # Every frame trains against its LiDAR depth, turned upright like the frame, in the map's units (tier 1 moved
+    # the walk rigidly, so a millimetre is still a millimetre).
+    assert len(depths) == did["frames"] and job["depth_unit"] == pytest.approx(0.001)
+    assert all(d.dtype == np.uint16 and d.shape == (64, 48) and d.any() for d in depths)
     view = job["views"][0]
     assert (view["width"], view["height"]) == (stray_fake.RGB[1], stray_fake.RGB[0]), "the upright frame's size"
     assert (view["cx"], view["cy"]) == pytest.approx((stray_fake.RGB[1] - 1 - stray_fake.K[1, 2], stray_fake.K[0, 2]))

@@ -32,11 +32,14 @@ sees.
 **A Stray Scanner walkthrough** (`splat_walk`) gets its splat when it's imported: `pack-walkthrough` calls it once the
 walk's revision is written and fused (spatial/walkthrough.py `run_stray`). Every saved frame trains, at its ARKit pose
 and the phone's own intrinsics, starting from the revision's map points: `WALK_STEPS` steps, at most `WALK_GAUSSIANS`,
-and no opacity or scale regularizers, so the Gaussians are held inside the map's box and under a size instead
-(spatial/splat_runner.py `bound`, #43: without it one walk's splat streaked out to 1.9 km). The walk registers `LOOK_FROM` of its frames as cameras (`look_from`, named
-`walk-...`), for the 3D view to look from; tier 1 moves them with the walk's cloud into the fused map's frame, and the
-move they show (`carried`) brings every frame's pose along. The daily fixed-camera splat leaves those cameras out. A
-walk filmed with CUT3R's poses gets no splat: its poses didn't agree across the walk well enough for one.
+and no opacity or scale regularizers. In their place (#43, spatial/splat_runner.py has the measurements) the Gaussians
+are held inside the map's box and under a size, each frame's LiDAR depth (`stray.depth_map`) is a loss beside its
+image, and each frame's pose is refined as the splat trains. The walk registers `LOOK_FROM` of its frames as cameras
+(`look_from`, named `walk-...`), for the 3D view to look from; tier 1 moves them with the walk's cloud into the fused
+map's frame, and the move they show (`carried`) brings every frame's pose along. The daily fixed-camera splat leaves
+those cameras out. A splat is kept with what it was trained from ("walk" or "cameras", `places.write_splat`), so the
+3D view opens it from the right kind of view. A walk filmed with CUT3R's poses gets no splat: its poses didn't agree
+across the walk well enough for one.
 
 gsplat (nerfstudio-project/gsplat) is Apache-2.0; the trainer adds no model weights.
 """
@@ -373,13 +376,16 @@ def splat_walk(
     poses: np.ndarray,
     frames: Sequence[tuple[np.ndarray, tuple[int, int]]],
     looks: Mapping[str, places.CameraPose],
+    depths: Sequence[Path | None] = (),
 ) -> dict[str, Any] | None:
     """Train and keep a splat for a Stray walk's revision (`place`'s `revision`, what tier 1 made of it) from every
     saved frame (`images`) at its pose (`poses`, the walk's frame) and intrinsics and size (`frames`), moved into the
     revision's map frame by the similarity tier 1 moved the walk's `looks` by (`carried`), starting from the
-    revision's map points (at most WALK_START_POINTS); what it did. Every view trains, none held out. None (the log
-    says why) when splats are off, gsplat's runtime isn't installed, the frame can't be carried, or training fails.
-    ARKit's poses are metric and tracked, so unlike a CUT3R walk's they agree well enough across the walk."""
+    revision's map points (at most WALK_START_POINTS); what it did. Every view trains, none held out, each against
+    its LiDAR depth map when `depths` has one (16-bit millimetres, `stray.depth_map`), with its pose refined as it
+    trains. None (the log says why) when splats are off, gsplat's runtime isn't installed, the frame can't be carried,
+    or training fails. ARKit's poses are metric and tracked, so unlike a CUT3R walk's they agree well enough across
+    the walk for refinement to finish the job."""
     runtime = cfg.path("spatial.splat_runtime")
     if not cfg.get("spatial.splats_enabled") or not (runtime / ".venv" / "bin" / "python").exists():
         LOG.info("no splat of the walk: splats are off or gsplat's runtime isn't installed (`mise run gsplat`)")
@@ -391,7 +397,8 @@ def splat_walk(
         return None
     rot, shift, scale = moved
     views = []
-    for image, pose, (k, (w, h)) in zip(images, poses, frames, strict=True):
+    measured = list(depths) or [None] * len(images)
+    for image, pose, (k, (w, h)), depth in zip(images, poses, frames, measured, strict=True):
         c2w = np.asarray(pose, dtype=np.float64).reshape(4, 4)
         m = np.eye(4)
         m[:3, :3] = rot @ c2w[:3, :3]
@@ -407,6 +414,7 @@ def splat_walk(
                 "cy": float(k[1, 2]),
                 "width": int(w),
                 "height": int(h),
+                **({} if depth is None else {"depth": str(depth)}),
             }
         )
     points, colors, _ = ply.read(places.root(state) / rev.place / str(rev.map))
@@ -432,6 +440,8 @@ def splat_walk(
                         "out": str(folder),
                         "reg": 0.0,
                         "bound": True,
+                        "pose_opt": True,
+                        "depth_unit": 0.001 * scale,  # a depth map's millimetres in the map's units
                     }
                 )
             )
@@ -441,7 +451,7 @@ def splat_walk(
         if rows is None:
             raise RuntimeError("the splat trainer wrote a PLY this reader can't take")
         web = spz(rows)
-        places.write_splat(state, rev, master, web)
+        places.write_splat(state, rev, master, web, source="walk")
     except (RuntimeError, subprocess.TimeoutExpired, OSError, ValueError) as e:
         LOG.error("no splat of the walk: %s", e)
         return None
@@ -453,6 +463,8 @@ def splat_walk(
         "dropped": result.get("dropped"),
         "scale_p99": result.get("scale_p99"),
         "train_psnr": result.get("train_psnr"),
+        "pose_shift": result.get("pose_shift"),
+        "pose_turn_deg": result.get("pose_turn_deg"),
         "seconds": result.get("seconds"),
         "peak_vram_gib": result.get("peak_vram_gib"),
         "spz_mb": round(len(web) / 2**20, 1),
@@ -510,7 +522,7 @@ def splat_place(
     if rows is None:
         raise RuntimeError("the splat trainer wrote a PLY this reader can't take")
     web = spz(rows)
-    places.write_splat(state, rev, master, web)
+    places.write_splat(state, rev, master, web, source="cameras")
     return {
         "place": place,
         "revision": rev.id,
