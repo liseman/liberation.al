@@ -102,7 +102,7 @@ def read(stop_log: str, start_log: str, earlier: str = "") -> Report:
 def describe(report: Report) -> str:
     """The report as text, one block per device."""
     if not report.devices:
-        return "No teardown lines: capture didn't stop, or this build predates #1452's teardown log."
+        return "No teardown lines: capture didn't stop, or this build predates the teardown log."
     out = []
     for d in sorted(report.devices.values(), key=lambda d: d.name):
         steps = ", ".join(f"{name} {ms} ms" for name, ms in d.steps) or "no steps logged"

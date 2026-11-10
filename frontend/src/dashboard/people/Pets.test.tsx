@@ -262,7 +262,7 @@ it('counts pet video statuses only among the newest four and never requests unpr
   expect(within(videos).getByText("1 video can't be shown.")).toBeVisible();
 });
 
-describe("Pets in People's form (#2019)", () => {
+describe("Pets in People's form", () => {
   it('lists the named pets with where they were last seen, and opens a card for each', async () => {
     serve();
     const user = userEvent.setup();
@@ -396,7 +396,7 @@ describe('Sightings to name', () => {
     expect(labels()[1]).toEqual({ track_ids: ['a', 'b', 'c'], label: null });
   });
 
-  it('names a recognized group in one click with Yes (#2280)', async () => {
+  it('names a recognized group in one click with Yes', async () => {
     serve();
     const user = userEvent.setup();
     renderPage(<Pets />);
@@ -411,7 +411,7 @@ describe('Sightings to name', () => {
     expect(labels()).toEqual([{ track_ids: ['a', 'b', 'c'], label: MIA }]);
   });
 
-  it('offers Yes for a clear match while recognition is still off, and shows its match score (#2291)', async () => {
+  it('offers Yes for a clear match while recognition is still off, and shows its match score', async () => {
     view.recognition = [{ species: 'cat', labeled: 8, right: 2, wrong: 0, unknown: 6, on: false, reason: null }];
     view.groups = [
       {
@@ -429,7 +429,7 @@ describe('Sightings to name', () => {
     expect(labels()).toEqual([{ track_ids: ['z'], label: MIA }]);
   });
 
-  it('scores a lone unclear guess by how alike it looks, not as 100% of one sighting (#2291)', async () => {
+  it('scores a lone unclear guess by how alike it looks, not as 100% of one sighting', async () => {
     view.groups = [
       {
         id: 'cat:z',
@@ -446,7 +446,7 @@ describe('Sightings to name', () => {
   it.each([
     ['an unclear suggestion', { suggestion: { label: MIA, similarity: 0.7, clear: false } }],
     ['a suggestion from before clear was sent', { suggestion: { label: MIA, similarity: 0.7 } }],
-  ])('offers a quieter Yes for a Maybe: a group with %s (#2361)', async (_, extra) => {
+  ])('offers a quieter Yes for a Maybe: a group with %s', async (_, extra) => {
     view.groups = [{ id: 'cat:z', species: 'cat', sightings: [sighting('z', extra)] }];
     serve();
     const user = userEvent.setup();
@@ -460,7 +460,7 @@ describe('Sightings to name', () => {
     expect(screen.getByRole('button', { name: 'Undo' })).toBeVisible(); // the same toast as a Probably's Yes
   });
 
-  describe('sort and picture size (#2361)', () => {
+  describe('sort and picture size', () => {
     // As the server sends them, newest first: no guess, a weak Maybe, a strong Maybe, then a Probably.
     beforeEach(() => {
       const maybe = (track: string, similarity: number) =>
@@ -479,7 +479,7 @@ describe('Sightings to name', () => {
     const flip = (user: ReturnType<typeof userEvent.setup>, now: 'highest' | 'lowest') =>
       user.click(screen.getByRole('button', { name: `Sort sightings by certainty, ${now} first` }));
 
-    it('puts the most sure first by default, flips with the Certainty toggle, and remembers it (#3263)', async () => {
+    it('puts the most sure first by default, flips with the Certainty toggle, and remembers it', async () => {
       serve();
       const user = userEvent.setup();
       const page = renderPage(<Pets />);
@@ -562,7 +562,7 @@ describe('Sightings to name', () => {
     });
   });
 
-  describe('the shared naming row (#2366)', () => {
+  describe('the shared naming row', () => {
     const nots = () => writes.filter(w => w.url === '/pets/sightings/not').map(w => w.body);
     beforeEach(() => {
       server.use(
@@ -655,7 +655,7 @@ describe('Sightings to name', () => {
       await waitFor(() => expect(labels()).toEqual([{ track_ids: ['a'], label: 'ignored' }]));
     });
 
-    it('shows every picture with Space on the focused row, but a name box takes it as typing (#3241)', async () => {
+    it('shows every picture with Space on the focused row, but a name box takes it as typing', async () => {
       serve();
       const user = userEvent.setup();
       renderPage(<Pets />);
@@ -847,7 +847,7 @@ describe('Sightings to name', () => {
   });
 });
 
-describe('By pet (#2297)', () => {
+describe('By pet', () => {
   beforeEach(() => {
     view.groups.push(
       { id: 'cat:d', species: 'cat', sightings: [sighting('d', { suggestion: { label: MIA, similarity: 0.95 } })] },
@@ -954,7 +954,7 @@ describe('By pet (#2297)', () => {
   });
 });
 
-describe('Pets from a link (#1986)', () => {
+describe('Pets from a link', () => {
   it('lists only the linked species, until Show all', async () => {
     serve();
     history.replaceState(null, '', '/pets#species=dog');
@@ -979,7 +979,7 @@ describe('Pets from a link (#1986)', () => {
   });
 });
 
-describe('the waiting count (#2330)', () => {
+describe('the waiting count', () => {
   beforeEach(() => {
     view.groups.push(
       { id: 'cat:d', species: 'cat', sightings: [sighting('d', { suggestion: { label: MIA, similarity: 0.95 } })] },
@@ -1084,7 +1084,7 @@ it('keeps a ready main pet photo visible while its compact avatar and naming til
   expect(within(card).getByRole('img', { name: 'Mia' })).toHaveAttribute('src', '/pets/sightings/photo?track=m1');
 });
 
-describe("a pet card's photo menu (#2363, #2364)", () => {
+describe("a pet card's photo menu", () => {
   function serveCard() {
     serve();
     server.use(
@@ -1170,7 +1170,7 @@ function asPhone() {
   );
 }
 
-describe('Pets on a phone (#2584)', () => {
+describe('Pets on a phone', () => {
   afterEach(() => vi.restoreAllMocks());
 
   it('opens on the sightings waiting for a name, with the list one tap back', async () => {
@@ -1183,7 +1183,7 @@ describe('Pets on a phone (#2584)', () => {
     expect(document.querySelector(`.${classes.picked}`)).toBeNull();
   });
 
-  it("opens a pet's card on one tap (#3145)", async () => {
+  it("opens a pet's card on one tap", async () => {
     asPhone();
     serve();
     renderPage(<Pets />);

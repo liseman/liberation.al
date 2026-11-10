@@ -97,7 +97,7 @@ describe('reduce', () => {
   });
 });
 
-describe('two microphones in one millisecond (#247)', () => {
+describe('two microphones in one millisecond', () => {
   it("swaps in a relabelled line by its key, leaving the other microphone's line", () => {
     const a = { ts_start: 5, text: 'a', speaker: 'Joe', line: 'mic-a@5.000' };
     const b = { ts_start: 5, text: 'b', speaker: 'Joe', line: 'mic-b@5.000' };

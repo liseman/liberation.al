@@ -318,7 +318,7 @@ it('offers camera display names, filters timeline lanes, and clears cameras with
   }
 });
 
-describe('co-occurring filter alternatives (#2106)', () => {
+describe('co-occurring filter alternatives', () => {
   const timed = (kind: string, label: string, spans: [number, number][], more: Partial<Chip> = {}): Chip => ({
     ...chip(kind, label),
     spans: spans.map(([a, b]) => [D0 + a, D0 + b]),
@@ -451,7 +451,7 @@ it('keeps moment navigation buttons out of Show only', () => {
   expect(showOnly().queryByRole('button', { name: 'Next' })).not.toBeInTheDocument();
 });
 
-describe('a long group (#2454)', () => {
+describe('a long group', () => {
   // 13 things, counted 1 to 13: the 10 most common are Thing 4 to Thing 13. A chip's name is its label, then its
   // count ("Thing 33" is Thing 3, seen 3 times).
   const things = Array.from({ length: 13 }, (_, i) => ({ ...chip('object', `Thing ${i + 1}`), count: i + 1 }));

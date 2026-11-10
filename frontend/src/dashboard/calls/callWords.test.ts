@@ -8,7 +8,7 @@ const people: Person[] = [
 ];
 const call = (more: Partial<Call>): Call => ({ day: '2026-11-03', dir: 'c', ...more });
 
-describe('callTitle (#2684 fields)', () => {
+describe('callTitle', () => {
   it.each<[string, Partial<Call>, string]>([
     [
       'a placed call to someone by name',

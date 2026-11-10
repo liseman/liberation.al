@@ -35,7 +35,7 @@ describe('who is here now', () => {
     ]);
   });
 
-  it('puts the named pets a camera sees after the people, with a photo of them and a link to their card (#2606)', () => {
+  it('puts the named pets a camera sees after the people, with a photo of them and a link to their card', () => {
     const people: Person[] = [
       person({ name: 'Kara', here_now: { cam: 'cam0', since: NOW - 30 } }),
       person({ name: 'Luca' }),

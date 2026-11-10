@@ -348,7 +348,7 @@ describe('opening a day', () => {
     expect(screen.getByRole('button', { name: /Morning, Dana\./ })).toHaveAttribute('aria-current', 'time');
   });
 
-  it('shows what the large camera saw at the playhead as its caption (#327)', async () => {
+  it('shows what the large camera saw at the playhead as its caption', async () => {
     serve();
     open();
     const video = await screen.findByRole('region', { name: 'Video' });
@@ -535,7 +535,7 @@ describe('moving through the day', () => {
   });
 });
 
-describe('keyboard shortcuts (#2285)', () => {
+describe('keyboard shortcuts', () => {
   it('lists exactly the keys Review handles', async () => {
     serve();
     open();
@@ -574,7 +574,7 @@ describe('keyboard shortcuts (#2285)', () => {
   });
 });
 
-it("takes Review's keys from a focused transcript line too (Codex on #2516)", async () => {
+it("takes Review's keys from a focused transcript line too", async () => {
   serve();
   open();
   const line = await screen.findByRole('button', { name: /Where did the dog go\?/ });
@@ -605,7 +605,7 @@ describe('playing', () => {
 });
 
 describe('sound', () => {
-  it('says on the status line when the browser blocks the sound (#213)', async () => {
+  it('says on the status line when the browser blocks the sound', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(function (this: HTMLMediaElement) {
       // video is muted, so it may play; sound needs the browser's permission
@@ -651,7 +651,7 @@ describe('a person', () => {
     expect(await within(people).findByRole('button', { name: /Dana/ })).toHaveAttribute('aria-pressed', 'false');
   });
 
-  it("opens on the person's day: their visits, and a transcript of only their lines, the others a switch away (#2057)", async () => {
+  it("opens on the person's day: their visits, and a transcript of only their lines, the others a switch away", async () => {
     serve();
     open(`#person=Dana&day=${DAY}`);
     const tab = await screen.findByRole('tab', { name: 'Dana' });
@@ -969,7 +969,7 @@ describe('detector storage availability', () => {
   });
 });
 
-describe('loading and errors (#250)', () => {
+describe('loading and errors', () => {
   it('covers the player, the timeline, and the transcript with placeholders until the day loads', async () => {
     let answer: () => void = () => {};
     hold = new Promise(r => {
@@ -1019,7 +1019,7 @@ describe('loading and errors (#250)', () => {
     expect(await within(filters).findByRole('checkbox', { name: /dog/ })).toBeInTheDocument();
   });
 
-  it('keeps loading, not failing, while a proxy gives up on a long day (#334)', async () => {
+  it('keeps loading, not failing, while a proxy gives up on a long day', async () => {
     serve();
     stillComputing.retryMs = 20;
     let answered = 0;
@@ -1044,7 +1044,7 @@ describe('loading and errors (#250)', () => {
     }
   });
 
-  it('says how long an ended day has left while the server works through it, then shows its chips (#435)', async () => {
+  it('says how long an ended day has left while the server works through it, then shows its chips', async () => {
     serve();
     working.pollMs = 20;
     let asked = 0;
@@ -1171,7 +1171,7 @@ function Tabs() {
   );
 }
 
-describe('hidden behind another tab (#330)', () => {
+describe('hidden behind another tab', () => {
   /** Review as the dashboard shows it: its query defaults (fresh for 30 s), inside a tab that can be hidden. */
   function openTab(hash = `#day=${DAY}&t=${at(36011)}`) {
     history.replaceState(null, '', `/review${hash}`);
@@ -1227,7 +1227,7 @@ describe('hidden behind another tab (#330)', () => {
   });
 });
 
-describe('naming and correcting a speaker from the transcript (#300)', () => {
+describe('naming and correcting a speaker from the transcript', () => {
   const KEYED = [
     { ...ENTRIES[0], line: 'mic.36010000' },
     { ...ENTRIES[1], line: 'mic.36015000' },
@@ -1315,7 +1315,7 @@ describe('naming and correcting a speaker from the transcript (#300)', () => {
     ]);
   });
 
-  it('corrects only the line whose person-minus was picked and offers to retry a denied one (#2605)', async () => {
+  it('corrects only the line whose person-minus was picked and offers to retry a denied one', async () => {
     serve();
     lines(() => KEYED);
     const sent: unknown[] = [];
@@ -1477,7 +1477,7 @@ describe('naming and correcting a speaker from the transcript (#300)', () => {
     expect(await screen.findByText('Moved to Kara')).toBeInTheDocument();
   });
 
-  it('opens Why this name and keeps naming and correction in the turn header (#288)', async () => {
+  it('opens Why this name and keeps naming and correction in the turn header', async () => {
     serve();
     lines(() => KEYED);
     const asked: string[] = [];
@@ -1578,7 +1578,7 @@ describe('naming and correcting a speaker from the transcript (#300)', () => {
     expect(unknown).not.toHaveAttribute('data-unmatched');
   });
 
-  describe('a name that matches nobody (#2342)', () => {
+  describe('a name that matches nobody', () => {
     /** Speaker 1's turn, with what naming it posts recorded by route. */
     function numbered() {
       serve();
@@ -1661,7 +1661,7 @@ it('keeps Space playback available beside Ask while leaving Space in its input a
   expect(panel).toBeVisible();
 });
 
-describe('Space from a focused control (#2352)', () => {
+describe('Space from a focused control', () => {
   it('plays without clicking the focused button', async () => {
     serve();
     open();
@@ -1685,7 +1685,7 @@ describe('Space from a focused control (#2352)', () => {
     expect(dog).not.toBeChecked();
   });
 
-  it('lets go of a chip a click focused, so Space lights no focus ring (#2427)', async () => {
+  it('lets go of a chip a click focused, so Space lights no focus ring', async () => {
     serve();
     open();
     const filters = await screen.findByRole('group', { name: 'Show only' });
@@ -1744,7 +1744,7 @@ it('searches unseen full-day summary blocks from the transcript tab and seeks th
   expect(input).toHaveFocus();
 });
 
-it("keeps the day's transcript under the search results, dimmed to the matches and highlighted (#2593)", async () => {
+it("keeps the day's transcript under the search results, dimmed to the matches and highlighted", async () => {
   serve();
   open();
   const t = await screen.findByRole('region', { name: 'Transcript of the day' });

@@ -323,7 +323,7 @@ describe('Pipeline', () => {
     expect(FakeImageDecoder.made.every(b => b.closed)).toBe(true);
   });
 
-  it('draws the new window after a seek back past the picture on screen (#1997)', async () => {
+  it('draws the new window after a seek back past the picture on screen', async () => {
     const p = new Pipeline(m => posted.push(m));
     const { ctx } = fakeContext();
     p.setCanvas({ width: 0, height: 0, getContext: () => ctx } as unknown as OffscreenCanvas);
@@ -340,7 +340,7 @@ describe('Pipeline', () => {
     expect(posted.filter(m => m.type === 'drawn').at(-1)).toMatchObject({ frameUs: 9_900_000 + 33 * 33_000 });
   });
 
-  it('keeps the window at the playhead when stale frames ahead fill the buffer (#1997)', async () => {
+  it('keeps the window at the playhead when stale frames ahead fill the buffer', async () => {
     const p = new Pipeline(m => posted.push(m));
     const { ctx } = fakeContext();
     p.setCanvas({ width: 0, height: 0, getContext: () => ctx } as unknown as OffscreenCanvas);

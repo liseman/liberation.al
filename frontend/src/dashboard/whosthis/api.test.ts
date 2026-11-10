@@ -79,7 +79,7 @@ it.each(['faces', 'voices'] as const)('does not keep fast-polling %s after pendi
 });
 
 it.each(['face', 'voice'] as const)(
-  'reads the %s groups again in 2 s while the server is still working out a patched answer (#2332, #2346)',
+  'reads the %s groups again in 2 s while the server is still working out a patched answer',
   async kind => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
     const fetcher = vi

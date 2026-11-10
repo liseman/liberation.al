@@ -112,7 +112,7 @@ describe('layout', () => {
     expect(L.events[0] + L.events[1]).toBeLessThanOrEqual(L.height);
   });
 
-  it('packs the lanes a couple of pixels apart, each beside its label and as tall as one at least (#2577)', () => {
+  it('packs the lanes a couple of pixels apart, each beside its label and as tall as one at least', () => {
     const L = layout(['cam0', 'cam1'], {});
     for (const [a, b] of L.labels.slice(1).map((l, i) => [L.labels[i], l] as const))
       expect((b?.y ?? 0) - ((a?.y ?? 0) + (a?.h ?? 0))).toBe(2);
@@ -411,7 +411,7 @@ describe('what the pointer is over on the timeline', () => {
   });
 });
 
-describe('camAt (#287)', () => {
+describe('camAt', () => {
   it('finds the camera whose lane a height is in, and none in the gap between lanes', () => {
     const L = layout(['cam0', 'cam1'], {});
     const [c0, c1] = L.cams;

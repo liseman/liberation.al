@@ -205,7 +205,7 @@ def test_a_long_track_keeps_a_thinned_path_for_its_crossing_check():
 def test_rows_round_trip_through_the_segment_store(tmp_path):
     continuum_py = pytest.importorskip("continuum_py")
     if not hasattr(continuum_py, "SegmentWriter"):
-        pytest.skip("this continuum_py predates the segment store (#1777)")
+        pytest.skip("this continuum_py predates the segment store")
     poses = continuum_py.SegmentWriter(tmp_path, "pose.track", "cam0", actions.POSE_SCHEMA)
     coverage = continuum_py.SegmentWriter(tmp_path, "action.coverage", "cam0", actions.COVERAGE_SCHEMA)
     run([person(0.1 + i * 0.002) for i in range(30)], gaps=frozenset({20}), poses=poses, coverage=coverage)

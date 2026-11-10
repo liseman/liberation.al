@@ -268,7 +268,7 @@ describe('naming a voice from its badge', () => {
     expect(screen.getByRole('button', { name: 'Why Dana' })).toBeEnabled();
   });
 
-  it('asks who it is with Not <name>, as Review does (#300), and can take the turn off them', async () => {
+  it('asks who it is with Not <name>, as Review does, and can take the turn off them', async () => {
     const corrected: unknown[] = [];
     server.use(
       http.post('/people/correct', async ({ request }) => {
@@ -305,7 +305,7 @@ describe('naming a voice from its badge', () => {
   });
 });
 
-describe('why this name (#288)', () => {
+describe('why this name', () => {
   const TURN = [
     LINES[0] as TranscriptEntry,
     {
@@ -366,10 +366,10 @@ describe('why this name (#288)', () => {
   });
 });
 
-describe('voices nobody has named (#357)', () => {
+describe('voices nobody has named', () => {
   const turnOf = (text: string) => screen.getByText(text).closest('article') as HTMLElement;
 
-  it('shows a voice no person matched as Unmatched with "?", never its placeholder (#2580)', async () => {
+  it('shows a voice no person matched as Unmatched with "?", never its placeholder', async () => {
     renderTranscript();
     await screen.findByText('hello there');
     for (const text of ['sunny weather', 'who is this']) {
@@ -442,7 +442,7 @@ describe('voices nobody has named (#357)', () => {
     await vi.waitFor(() => expect(posts).toEqual(removed('Speaker 2', 'mic@first', 'mic@second')));
   });
 
-  it('takes only the selected line off an unmatched voice, as off a person, with the person-minus beside its time (#2605)', async () => {
+  it('takes only the selected line off an unmatched voice, as off a person, with the person-minus beside its time', async () => {
     renderTranscript([
       { ts_start: T0 + 10, ts_end: T0 + 11, text: 'first', speaker_id: 2, speaker: 'Speaker 2', line: 'mic@first' },
       { ts_start: T0 + 12, ts_end: T0 + 13, text: 'second', speaker_id: 2, speaker: 'Speaker 2', line: 'mic@second' },
@@ -477,7 +477,7 @@ describe('voices nobody has named (#357)', () => {
   });
 });
 
-describe('two microphones in one millisecond (#247)', () => {
+describe('two microphones in one millisecond', () => {
   const TWINS: TranscriptEntry[] = [
     { ts_start: T0, text: 'from a', speaker_id: 1, speaker: 'Dana', line: `mic-a@${T0}.000` },
     { ts_start: T0, text: 'from b', speaker_id: null, speaker: 'unknown', line: `mic-b@${T0}.000` },
@@ -506,7 +506,7 @@ describe('two microphones in one millisecond (#247)', () => {
 });
 
 describe('the feed', () => {
-  it('follows the newest lines again after its new-lines pill, as Jump to latest did (Codex on #2516)', async () => {
+  it('follows the newest lines again after its new-lines pill, as Jump to latest did', async () => {
     const { client } = renderTranscript();
     const feed = await screen.findByRole('region', { name: 'Recent conversation' });
     // jsdom has no layout: a list 1000 px tall in a 300 px box, read at its top, is away from the end
@@ -530,7 +530,7 @@ describe('the feed', () => {
     expect(screen.queryByRole('button', { name: '1 new line' })).not.toBeInTheDocument();
   });
 
-  it('dims the turns without a match, highlights the matches, and says how many match (#2580)', async () => {
+  it('dims the turns without a match, highlights the matches, and says how many match', async () => {
     renderTranscript();
     await userEvent.type(await screen.findByRole('searchbox', { name: 'Search recent conversation' }), 'SUNNY');
     expect(screen.getByRole('status')).toHaveTextContent(/^1 match$/);
@@ -546,7 +546,7 @@ describe('the feed', () => {
     expect(document.querySelector('mark')).toBeNull();
   });
 
-  it('matches the name a turn shows, and never a placeholder (#2580)', async () => {
+  it('matches the name a turn shows, and never a placeholder', async () => {
     renderTranscript();
     const box = await screen.findByRole('searchbox', { name: 'Search recent conversation' });
     await userEvent.type(box, 'unmatched');
@@ -589,7 +589,7 @@ describe('the feed', () => {
   });
 });
 
-describe('sameTurn (#440: a turn renders again only when its lines change)', () => {
+describe('sameTurn (a turn renders again only when its lines change)', () => {
   const a = LINES[0] as TranscriptEntry;
   const b = LINES[1] as TranscriptEntry;
   const turn = (lines: TranscriptEntry[], id: number | null = 1): Turn => ({
@@ -699,7 +699,7 @@ describe('incorrect transcript turns', () => {
     expect(posts.at(-1)).toEqual(['transcript/undo', { undo: 'batch-one' }]);
   });
 
-  it('marks the visible turn as TV, keeps it greyed with a TV tag, and offers an Undo (#2468)', async () => {
+  it('marks the visible turn as TV, keeps it greyed with a TV tag, and offers an Undo', async () => {
     let marked = false;
     server.use(
       http.post('/transcript/media', async ({ request }) => {

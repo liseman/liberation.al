@@ -800,7 +800,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         from liberational.see.captions import CaptionPipeline
         from liberational.speech.asr import ASR
 
-        log.info("faces in ingested items aren't analyzed while faces move to see-actions' tracked heads (#1738)")
+        log.info("faces in ingested items aren't analyzed while faces move to see-actions' tracked heads")
         backend = cfg.get("vision.backend")
         backend = backend if backend != "auto" else "mlx-server" if cfg.has_mlx() else "ollama"
         vlm = v1vlm.make_vlm(backend)

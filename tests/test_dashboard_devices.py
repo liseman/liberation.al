@@ -457,7 +457,7 @@ def test_a_stale_microphone_discovery_answers_at_once_and_scans_again_behind_it(
     assert devices._discover_mics()[0] == RAW
     assert scan.call_count == 1, "still fresh"
     now[0] = 102.0
-    assert devices._discover_mics()[0] == RAW, "stale: the last scan, at once (#2568)"
+    assert devices._discover_mics()[0] == RAW, "stale: the last scan, at once"
     rescanned()
     assert scan.call_count == 2
     assert devices._discover_mics()[0] == [], "the scan behind it"

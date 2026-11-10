@@ -45,7 +45,7 @@ describe('windowDays', () => {
   });
 });
 
-describe('pollsLive (#2414)', () => {
+describe('pollsLive', () => {
   const TODAY = '2026-10-28';
   it.each([
     ['today, picked', TODAY, TODAY, null, true],

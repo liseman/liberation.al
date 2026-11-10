@@ -30,7 +30,7 @@ describe('holdPeak', () => {
   });
 });
 
-describe('subscribeLevels (#353)', () => {
+describe('subscribeLevels', () => {
   afterEach(() => vi.unstubAllGlobals());
 
   it('shares one stream between listeners, and closes it with the last', () => {

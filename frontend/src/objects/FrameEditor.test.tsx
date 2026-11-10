@@ -237,7 +237,7 @@ function Found({ busy = false }: { busy?: boolean }) {
   );
 }
 
-describe('Find objects (#2020)', () => {
+describe('Find objects', () => {
   it('asks for the whole frame at 1x and only the region in view when zoomed', () => {
     renderEditor(<Found />);
     fireEvent.click(screen.getByRole('button', { name: 'Find objects' }));

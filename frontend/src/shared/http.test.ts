@@ -158,7 +158,7 @@ describe('request', () => {
     expect(await pending).toMatchObject({ message: 'The server took too long to answer' });
   });
 
-  it('times a read from when it gets a slot, not from when it was queued (#2022)', async () => {
+  it('times a read from when it gets a slot, not from when it was queued', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     const replies: ((r: Response) => void)[] = [];
     // Like a real fetch, an aborted one rejects: that's how the deadline ends it.
