@@ -26,6 +26,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import ModuleType
 from typing import Any, NoReturn
+from unittest.mock import create_autospec
 
 import pytest
 
@@ -288,6 +289,16 @@ def _ollama_health_starts_fresh():
     yield
     ollama_health.HEALTH.down = None
     ollama_health.HEALTH.missing.clear()
+
+
+@pytest.fixture
+def voice_quiet(monkeypatch):
+    """The voice gate always quiet, with no broker: for tests of background work that waits on the gate first but
+    isn't about it. Without this, the gate's first read starts a private broker (`_broker_on_first_use`), and where
+    there's no broker binary its skip is raised inside the background thread, which dies without doing the work."""
+    from liberational import voice_turn
+
+    monkeypatch.setattr(voice_turn, "wait_quiet", create_autospec(voice_turn.wait_quiet, return_value=None))
 
 
 @pytest.fixture
