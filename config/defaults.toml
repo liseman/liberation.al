@@ -267,7 +267,8 @@ max_rounds = 8
 enabled = true
 # Most search rounds before the answer (WorldMM used 5; a small local model does better with fewer).
 max_rounds = 3
-# Ollama model for the loop; empty means ask.model, else models.ollama.llm.
+# Ollama model for the loop, and for reading each question into its structured query (memory/question.py), which
+# every history question needs whether or not the loop is on; empty means ask.model, else models.ollama.llm.
 model = ""
 # Journal candidates taken from each level before one model call ranks them across levels.
 per_level = 5

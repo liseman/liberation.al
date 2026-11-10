@@ -27,7 +27,9 @@ docs/DOMAIN-MODEL.md, which steps 3, 7, and 8 need before they change what the u
   on see-actions' face matches (`face.match` in the segment store, read through vision/sightings.py) for a camera clip, and resolved speaker labels on transcript
   lines for a voice clip. It reports precision, recall, counts per person, and a confusion list (labeled name -> predicted name).
 - Retrieval asks each labeled question through memory/history_qa.collect(), the answering code the dashboard and the
-  voice loop use, at the question's own time, and checks the answer text and the evidence it returned. Recorded-frame
+  voice loop use, at the question's own time, and checks the answer text and the evidence it returned. collect()
+  has the local model read each question once (memory/question.py), so every run needs it, and each row keeps
+  the reading it got under query.reading. Recorded-frame
   analysis is turned off for the run, because that path writes caches and can queue scans; --as-configured keeps it.
   With --ask, each question goes through memory/ask.execute() in local mode instead, so the answer checks read the
   words the user hears, the evidence checks read the evidence Ask answered from (the search rounds' finds included),

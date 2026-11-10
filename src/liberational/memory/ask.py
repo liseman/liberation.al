@@ -886,6 +886,13 @@ def _ask_result(
         payload["partial"] = str(partial)
     if followup:
         payload["followup"] = dict(followup)
+    if scope == "history":
+        from liberational.memory import question as reader
+
+        # A caller that already read the question (the voice loop's routing) hands the reading to the worker, so
+        # the worker doesn't ask the model for it again.
+        if (reading := reader.kept(question)) is not None:
+            payload["reading"] = reading.as_dict()
     from liberational.memory import research
 
     try:
@@ -1521,6 +1528,11 @@ def main() -> None:
                 extra["partial"] = Path(str(data["partial"]))
             if data.get("spoken"):
                 extra["on_short"] = _short_writer(Path(str(data["spoken"])))
+            if data.get("reading"):
+                from liberational.memory import question as reader
+
+                if (reading := reader.handed(data["reading"])) is not None:
+                    reader.keep(str(data["question"]), reading)
             result = execute(
                 data["question"],
                 data["mode"],
