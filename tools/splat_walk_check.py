@@ -2,6 +2,7 @@
 against a Stray Scanner walk's.
 
     PYTHONPATH=src .venv/bin/python tools/splat_walk_check.py WALK --work DIR [--refine on|off|both] [--steps N]
+        [--jitter CM,DEG]
 
 WALK is a video or a Stray Scanner export folder, as `pack-walkthrough` takes it. A Stray export's `rgb.mp4` given
 as WALK is a plain video of the same walk, so the two poses (ARKit's and CUT3R's) compare on the same frames.
@@ -14,6 +15,11 @@ as WALK is a plain video of the same walk, so the two poses (ARKit's and CUT3R's
    JSON line: `test_psnr` (each held-out view's pose fitted to the frozen splat first) and `test_psnr_raw` (at the
    pose as given), the time, and the GPU memory.
 
+`--jitter CM,DEG` moves every view's pose by that much first, each in its own random direction and about its own
+random axis (`jittered`): a known error for the trainer's pose refinement to find (#197). Trained with refinement,
+the correction it reports (`pose_shift`, `pose_turn_deg`) should be near the jitter, and near what the walk's own
+poses need without it.
+
 It runs CUT3R or MASt3R and gsplat on the GPU, niced, so it's one run at a time, on a quiet GPU when its timings are
 to be compared. Nothing it writes leaves `--work`.
 """
@@ -24,8 +30,10 @@ import argparse
 import json
 import logging
 from pathlib import Path
+from typing import Any
 
 import numpy as np
+from scipy.spatial.transform import Rotation
 
 from liberational import config as cfg
 from liberational.memory import places
@@ -77,12 +85,28 @@ def frames(
     return paths, got["c2w"], intr, [float(t) for t in got["t"]], depths
 
 
+def jittered(views: list[dict[str, Any]], shift_m: float, turn_deg: float, seed: int = 0) -> list[dict[str, Any]]:
+    """`views` with every pose moved in its camera's own frame by `shift_m` in a random direction and turned by
+    `turn_deg` about a random axis, a different one for each view."""
+    rng = np.random.default_rng(seed)
+    out = []
+    for view in views:
+        direction, axis = (v / np.linalg.norm(v) for v in rng.normal(size=(2, 3)))
+        delta = np.eye(4)
+        delta[:3, :3] = Rotation.from_rotvec(axis * np.radians(turn_deg)).as_matrix()
+        delta[:3, 3] = direction * shift_m
+        pose = np.asarray(view["pose"], dtype=np.float64).reshape(4, 4) @ delta
+        out.append({**view, "pose": pose.ravel().tolist()})
+    return out
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("walk", type=Path, help="a video, or a Stray Scanner export folder")
     parser.add_argument("--work", type=Path, required=True, help="a scratch folder for the state, frames, and poses")
     parser.add_argument("--refine", choices=("on", "off", "both"), default="both")
     parser.add_argument("--steps", type=int, default=splats.WALK_STEPS)
+    parser.add_argument("--jitter", help="move every pose by CM,DEG first, e.g. 2,0.3")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
     args.work.mkdir(parents=True, exist_ok=True)
@@ -96,13 +120,17 @@ def main(argv: list[str] | None = None) -> None:
     if rev is None or rev.map is None or moved is None:
         raise SystemExit("the scratch place has no map or none of the walk's cameras")
     views = splats.walk_views(paths, c2w, intr, moved, depths)
+    if args.jitter:
+        cm, deg = (float(x) for x in args.jitter.split(","))
+        views = jittered(views, cm / 100.0, deg)
     points, colors, _ = ply.read(places.root(state) / rev.place / str(rev.map))
     holdout = list(range(FIRST, len(views), EVERY))
     for refine in {"on": [True], "off": [False], "both": [False, True]}[args.refine]:
         result, _ = splats.train_walk(
             views, points, colors, scale=moved[2], refine=refine, holdout=holdout, steps=args.steps
         )
-        print(json.dumps({"walk": args.walk.name, "views": len(views), "held_out": len(holdout), **result}))
+        said = {"walk": args.walk.name, "views": len(views), "held_out": len(holdout), "jitter": args.jitter}
+        print(json.dumps({**said, **result}), flush=True)
 
 
 if __name__ == "__main__":
