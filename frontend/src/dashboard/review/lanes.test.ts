@@ -336,7 +336,7 @@ describe('what the pointer is over on the timeline', () => {
     { ts_start: 100, ts_end: 103, who: 'Kara' },
     { ts_start: 108, ts_end: 110, who: 'Luca' }, // 5 s after: the same stretch of talk
     { ts_start: 112, ts_end: 113, who: 'Kara' },
-    { ts_start: 200, ts_end: 202, who: 'Joe' }, // long after: another
+    { ts_start: 200, ts_end: 202, who: 'Sam' }, // long after: another
   ];
   const mid = (band: readonly number[]) => (band[0] as number) + (band[1] as number) / 2;
 
@@ -366,9 +366,9 @@ describe('what the pointer is over on the timeline', () => {
   it('picks the nearest stretch of talk or bar, not the first one in reach (zoomed out, reach is wide)', () => {
     const far = [
       { ts_start: 100, ts_end: 102, who: 'Kara' },
-      { ts_start: 130, ts_end: 132, who: 'Joe' }, // 28 s later: another stretch
+      { ts_start: 130, ts_end: 132, who: 'Sam' }, // 28 s later: another stretch
     ];
-    expect(hitAt(L, mid(L.speech), 131, 40, chips, far)).toMatchObject({ names: ['Joe'], start: 130 });
+    expect(hitAt(L, mid(L.speech), 131, 40, chips, far)).toMatchObject({ names: ['Sam'], start: 130 });
     const twice = person('Eli', {
       cam0: [
         [500, 520],
@@ -404,8 +404,8 @@ describe('what the pointer is over on the timeline', () => {
   it('names what it picked', () => {
     expect(hitTitle({ kind: 'event', chip: lunch, start: 0, end: 1 })).toBe('Lunch');
     expect(hitTitle({ kind: 'presence', chip: dana, cam: 'cam0', start: 0, end: 1 })).toBe('Dana in view');
-    expect(hitTitle({ kind: 'speech', names: ['Kara', 'Luca', 'Joe'], start: 0, end: 1 })).toBe(
-      'Kara, Luca, and Joe talking',
+    expect(hitTitle({ kind: 'speech', names: ['Kara', 'Luca', 'Sam'], start: 0, end: 1 })).toBe(
+      'Kara, Luca, and Sam talking',
     );
     expect(nameList(['Kara', 'Luca'])).toBe('Kara and Luca');
   });

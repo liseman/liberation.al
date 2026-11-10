@@ -328,7 +328,7 @@ def taught_state(root: Path, state: Path) -> list[Path]:
         state / "transcript_revisions_qwen.sqlite3",
         state / "ingest.sqlite3",
         root / "faces/db.npz",
-        root / "faces/joe/1.jpg",
+        root / "faces/sam/1.jpg",
         root / "voices/owner_ref.wav",
         root / "premove/people/brandon/1.jpg",
         root / "taught-old.zip",
@@ -345,17 +345,17 @@ def test_a_fresh_reset_deletes_every_taught_store_but_not_the_settings(house):
     derived_state(plan.state)
     taught = taught_state(root, plan.state)
     settings = root / "pack.toml"
-    settings.write_text('[owner]\nname = "Joe"\n')
+    settings.write_text('[owner]\nname = "Sam"\n')
     log = root / "logs/listen.log"
     log.parent.mkdir()
-    log.write_text("Joe said hello\n")
+    log.write_text("Sam said hello\n")
     fresh = dataclasses.replace(plan, mode="fresh", voices=root / "voices", logs=root / "logs")
     reset_catalog.run(fresh, host, say=lambda line: None, socket_wait_s=10)
     assert [p for p in taught if p.exists()] == []
     assert log.exists() and log.read_text() == "", "logs are emptied, not removed, so open handles keep working"
     assert (root / "faces").is_dir() and not any((root / "faces").iterdir()), "the gallery is emptied, not removed"
     assert not (plan.state / "continuum/tier").exists() and not (plan.state / "segments").exists()
-    assert settings.read_text() == '[owner]\nname = "Joe"\n'
+    assert settings.read_text() == '[owner]\nname = "Sam"\n'
     # People's inbox put-asides name face and voice ids, which start over with the gallery and voices.
     assert not (plan.state / "inbox_skips.json").exists()
     assert host.states() == {"continuum-broker": "active", "dashboard": "active"}
@@ -386,6 +386,6 @@ def test_a_fresh_dry_run_names_each_taught_path(house, capsys, monkeypatch):
     monkeypatch.setattr(reset_catalog.cfg, "path", lambda key: paths[key])
     reset_catalog.main(["--fresh"])
     out = capsys.readouterr().out
-    for shown in ("knowledge.sqlite3", "voiceprints.json", "faces/db.npz", "faces/joe", "premove", "taught-old.zip"):
+    for shown in ("knowledge.sqlite3", "voiceprints.json", "faces/db.npz", "faces/sam", "premove", "taught-old.zip"):
         assert shown in out, shown
     assert (plan.state / "knowledge.sqlite3").exists(), "the dry run deletes nothing"

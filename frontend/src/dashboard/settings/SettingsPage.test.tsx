@@ -35,7 +35,7 @@ const VIEW: ConfigView = {
       settings: [
         row({
           key: 'owner.name',
-          value: 'Joe',
+          value: 'Sam',
           label: 'Your name',
           help: 'What the assistant calls you',
           section: 'you',
@@ -152,7 +152,7 @@ describe('the Settings page', () => {
       'This machine',
       'Advanced',
     ]);
-    expect(screen.getByRole('textbox', { name: 'Your name' })).toHaveValue('Joe');
+    expect(screen.getByRole('textbox', { name: 'Your name' })).toHaveValue('Sam');
     expect(screen.getByText('What the assistant calls you')).toBeInTheDocument();
     expect(bar()).toBeNull(); // nothing changed yet
   });
@@ -177,7 +177,7 @@ describe('the Settings page', () => {
     expect(bar()).toHaveTextContent('1 unsaved change. Saving restarts: voice, dashboard');
     expect(within(nav()).getByRole('link', { name: /You and the assistant/ })).toHaveTextContent('1 unsaved');
     await userEvent.click(screen.getByRole('button', { name: 'Reset Your name' }));
-    expect(name).toHaveValue('Joe');
+    expect(name).toHaveValue('Sam');
     expect(bar()).toBeNull();
   });
 

@@ -256,11 +256,11 @@ def test_the_route_says_when_the_groups_cannot_be_read(state, serve, monkeypatch
 
 
 def test_a_face_heard_with_a_named_voice_suggests_that_name_but_never_the_owners(state, monkeypatch, vision, ids):
-    """Face 6 is seen three times while Dana speaks; the owner, Joe, talks near Face 5 all the while."""
+    """Face 6 is seen three times while Dana speaks; the owner, Sam, talks near Face 5 all the while."""
     from voices import write_voices
 
     add_sightings(vision, ids, [(30, 400.0, 6, None, 0.9, 0.2), (31, 900.0, 6, None, 0.9, 0.2)])
-    write_voices(state, {1: "Dana", 2: "Joe"})
+    write_voices(state, {1: "Dana", 2: "Sam"})
     lines = [(49.0, 52.0, 1), (399.0, 402.0, 1), (899.0, 903.0, 1), (104.0, 106.0, 2), (106.5, 108.0, 2)]
     fake().write(
         [
@@ -269,7 +269,7 @@ def test_a_face_heard_with_a_named_voice_suggests_that_name_but_never_the_owners
         ]
     )
     monkeypatch.setattr(server, "STATE", state)
-    with cfg.override({"owner": {"name": "Joe"}}):
+    with cfg.override({"owner": {"name": "Sam"}}):
         code, body = server.unknown_groups_view()
     assert code == 200
     by = {g["id"]: g for g in body["groups"]}
@@ -294,7 +294,7 @@ def test_a_row_with_a_suggestion_sorts_with_the_maybes(monkeypatch):
 @pytest.fixture
 def heard(state, monkeypatch, vision, ids):
     """Face 6 seen at 50, 400, and 900 (plus Face 5's eight at 101 to 108), all after B, lines written by the test
-    (their times after B too), Joe the owner."""
+    (their times after B too), Sam the owner."""
     from voices import write_voices
 
     add_sightings(vision, ids, [(30, 400.0, 6, None, 0.9, 0.2), (31, 900.0, 6, None, 0.9, 0.2)])
@@ -309,7 +309,7 @@ def heard(state, monkeypatch, vision, ids):
             ]
         )
 
-    with cfg.override({"owner": {"name": "Joe"}}):
+    with cfg.override({"owner": {"name": "Sam"}}):
         yield lines
 
 
@@ -326,8 +326,8 @@ def test_a_suggestion_names_the_person_as_they_are_called_now(heard, state):
 
 
 def test_the_owner_is_left_out_by_who_they_are_not_how_a_name_is_spelled(heard, state):
-    heard({2: "Joe"}, [(49.0, 52.0, 2), (399.0, 402.0, 2), (899.0, 903.0, 2)])
-    registry.at(state).rename("Joe", "Jordan", "test")  # the owner's name in the config is still Joe
+    heard({2: "Sam"}, [(49.0, 52.0, 2), (399.0, 402.0, 2), (899.0, 903.0, 2)])
+    registry.at(state).rename("Sam", "Jordan", "test")  # the owner's name in the config is still Sam
     assert six(server.unknown_groups_view()) is None
 
 

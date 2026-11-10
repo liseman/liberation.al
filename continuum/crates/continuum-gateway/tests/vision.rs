@@ -134,7 +134,7 @@ fn face_record(json: &str) -> Vec<u8> {
     rec
 }
 
-const FACES: &str = r#"[{"bbox":[0.1,0.2,0.3,0.4],"det":0.9,"name":"Joe","sim":0.7,"cluster":null,"track_id":7}]"#;
+const FACES: &str = r#"[{"bbox":[0.1,0.2,0.3,0.4],"det":0.9,"name":"Sam","sim":0.7,"cluster":null,"track_id":7}]"#;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_range_sends_frames_and_no_face_overlay_since_the_face_ring_is_live_only() {
@@ -204,7 +204,7 @@ async fn a_live_view_draws_the_face_rings_boxes_for_its_camera() {
     assert_eq!((h1.stream_id, h1.capture_us, h1.live), (cam, T0 / 1_000, true));
     let ov = overlay::decode(b1).expect("overlay");
     assert_eq!(ov.boxes.len(), 1, "the other camera's face isn't drawn");
-    assert_eq!((ov.boxes[0].label.as_str(), ov.boxes[0].xyxy), ("Joe", [0.1, 0.2, 0.3, 0.4]));
+    assert_eq!((ov.boxes[0].label.as_str(), ov.boxes[0].xyxy), ("Sam", [0.1, 0.2, 0.3, 0.4]));
     rig.end().await;
 }
 

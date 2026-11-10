@@ -227,14 +227,14 @@ describe('draw', () => {
       captureUs: 1,
       boxes: [{ xyxy: [0.1, 0.1, 0.5, 0.5], score: 1, label: 'cat', hue: 30 }],
       skeletons: [{ box: { xyxy: [0, 0, 1, 1], score: 1, label: '', hue: null }, layout: 'halpe26', joints }],
-      captions: [{ text: 'hi', speaker: 'Joe' }],
+      captions: [{ text: 'hi', speaker: 'Sam' }],
     };
     draw(ctx, o, 100, 50);
     expect(calls).toContain('strokeRect(10,5,40,20)');
     expect(calls).toContain('fillText(cat,14,1)');
     expect(calls.filter(c => c.startsWith('lineTo'))).toEqual(['lineTo(30,20)']); // shoulder to elbow only
     expect(calls.filter(c => c.startsWith('arc('))).toHaveLength(2);
-    expect(calls.at(-1)).toMatch(/fillText\(Joe: hi/);
+    expect(calls.at(-1)).toMatch(/fillText\(Sam: hi/);
   });
 });
 

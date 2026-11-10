@@ -149,7 +149,7 @@
  "is Dana here?": {"history": false},
  "is Dana home?": {"history": false},
  "is Gus home": {"history": false},
- "is Joe home?": {},
+ "is Eli home?": {},
  "is Zed home": {"history": false},
  "read my medical records": {"history": false},
  "remind me who Dana is": {"history": false},

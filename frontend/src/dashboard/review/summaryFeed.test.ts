@@ -91,7 +91,7 @@ describe('activityWords', () => {
     ...more,
   });
   it.each([
-    ['who walked past', { person_name: 'Joe' }, 'Joe walked past'],
+    ['who walked past', { person_name: 'Sam' }, 'Sam walked past'],
     ['nobody known', { person_name: null }, 'Walked past'],
     ['a blank name', { person_name: '  ' }, 'Walked past'],
     ['an owner-named activity', { name: 'Squats', person_name: 'Dana' }, 'Dana squats'],

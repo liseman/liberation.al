@@ -31,7 +31,7 @@ function overlayBytes(captureUs: number, tracked = false): Uint8Array {
   const joints = b.endVector();
   const skeleton = Skeleton.createSkeleton(b, sbox, layout, joints);
   const skeletons = Overlay.createSkeletonsVector(b, [skeleton]);
-  const caption = Caption.createCaption(b, b.createString('hello'), b.createString('Joe'));
+  const caption = Caption.createCaption(b, b.createString('hello'), b.createString('Sam'));
   const captions = Overlay.createCaptionsVector(b, [caption]);
   Overlay.startOverlay(b);
   Overlay.addCaptureUs(b, BigInt(captureUs));
@@ -72,7 +72,7 @@ describe('sort', () => {
     ]);
     expect(got.overlay.skeletons[0]?.box.hue).toBeNull();
     expect(got.overlay.skeletons[0]?.box.kind).toBeUndefined();
-    expect(got.overlay.captions).toEqual([{ text: 'hello', speaker: 'Joe' }]);
+    expect(got.overlay.captions).toEqual([{ text: 'hello', speaker: 'Sam' }]);
   });
 
   it('retains a skeleton track and hue through real FlatBuffer bytes', () => {

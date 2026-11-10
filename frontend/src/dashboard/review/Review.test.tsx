@@ -1564,7 +1564,7 @@ describe('naming and correcting a speaker from the transcript', () => {
     expect(within(pop).getByRole('button', { name: 'Say who this is…' })).toBeInTheDocument();
   });
 
-  it('shows a name given to an unmatched turn at once, while its lines are still being relabelled (Joe 2026-11-06)', async () => {
+  it('shows a name given to an unmatched turn at once, while its lines are still being relabelled', async () => {
     serve();
     lines(() => KEYED); // the day's lines come back unchanged: the microphone service hasn't relabelled them yet
     server.use(http.post('/speakers/tag', () => HttpResponse.json({ ok: true })));

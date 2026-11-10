@@ -211,7 +211,7 @@ describe('naming a voice from its badge', () => {
     ).toHaveTextContent('Tagging as Dana');
   });
 
-  it('shows a name given to an unmatched turn at once, before its lines come back with it (Joe 2026-11-06)', async () => {
+  it('shows a name given to an unmatched turn at once, before its lines come back with it', async () => {
     // The microphone service relabels tagged lines a while later, and the voices are read again slower still.
     server.use(
       http.get('/people', () => HttpResponse.json({ people: [{ name: 'Dana' }, { name: 'Carly' }] })),

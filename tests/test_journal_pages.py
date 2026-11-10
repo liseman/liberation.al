@@ -631,9 +631,9 @@ def test_a_topic_or_meal_listed_by_more_than_one_part_is_listed_once(env):
         ),
         pytest.param("Alice read a long book by the window", 20, "Alice read a long", id="word"),
         pytest.param(
-            "Joe said 'Oh here they are.' [h4] Then he left the room and walked to the",
+            "Sam said 'Oh here they are.' [h4] Then he left the room and walked to the",
             50,
-            "Joe said 'Oh here they are.' [h4]",
+            "Sam said 'Oh here they are.' [h4]",
             id="quoted",
         ),
         pytest.param(
