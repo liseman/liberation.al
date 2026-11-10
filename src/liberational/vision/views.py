@@ -67,10 +67,11 @@ def camera_ids(*, active_only: bool = False) -> list[str]:
 
 
 def configured_camera_mentions(text: str) -> tuple[list[str], str]:
-    """Configured native IDs or unambiguous camera names in camera/locative context.
+    """Configured native IDs or unambiguous camera names where the question names a camera.
 
     Explicit, case-exact native IDs win over aliases. Spoken case and separators may vary, but ambiguous
-    aliases require an actual ID. Bare ordinary words, numeric times, and temporal dayparts remain text.
+    aliases require an actual ID. Bare ordinary words, numeric times, and temporal dayparts remain text, and so does
+    a bare "in the <name>": that is a place or a room, and only "in the <name> camera" names a camera (#34).
     The masked text retains its length for the history parser's positional time handling.
     """
     cameras = camera_ids()
@@ -108,22 +109,13 @@ def configured_camera_mentions(text: str) -> tuple[list[str], str]:
                     rf"(?:the\s+)?{token}\s+cam(?:era)?",
                     rf"(?:on|from)\s+(?:the\s+)?{token}(?:\s+cam(?:era)?)?",
                     rf"{token}(?=\s+(?:see|saw|show|showed|record|recorded|capture|captured)\b)",
+                    # "in the front camera" names the camera; a bare "in the kitchen" is a place or a room, never a
+                    # camera, since a camera is a view on what holds it, not a room (#34).
+                    rf"in\s+(?:the\s+)?{token}\s+cam(?:era)?",
                 ]
             )
-            if alias not in {"morning", "afternoon", "evening", "night", "dawn", "dusk"}:
-                contexts.append(rf"in\s+(?:the\s+)?{token}(?:\s+cam(?:era)?)?")
         pattern = rf"(?<![A-Za-z0-9_-])(?i:{'|'.join(contexts)})(?![A-Za-z0-9_-])"
-        for match in re.finditer(pattern, text):
-            # A room inside a speech topic describes the subject of speech, not its camera scope.
-            # Explicit camera prefixes/suffixes remain selectors even inside that same topic.
-            if re.fullmatch(rf"in\s+(?:the\s+)?{token}", match[0], re.I) and re.search(
-                r"\b(?:say|said|saying|tell|told|talk(?:ed|ing)?|speak|spoke|speaking|discuss(?:ed|ing)?)\b"
-                r"[^?.!;]*\babout\b[^?.!;]*$",
-                text[: match.start()],
-                re.I,
-            ):
-                continue
-            matches.append((match.start(), match.end(), alias, None))
+        matches.extend((match.start(), match.end(), alias, None) for match in re.finditer(pattern, text))
     # A longer camera name owns an overlapping mention, avoiding prefix-camera selections.
     for start, end, alias, exact in sorted(matches, key=lambda item: (-(item[1] - item[0]), item[3] is None, item[0])):
         if remaining[start:end] != text[start:end]:

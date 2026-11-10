@@ -2,7 +2,7 @@
 
 GET /live/happening?since=&limit= gives {"items": [...], "updated": cursor}, items in time order:
 
-    {"id", "ts", "kind": "arrival" | "departure" | "talk", "text", "people": [names], "cam", "place"}
+    {"id", "ts", "kind": "arrival" | "departure" | "talk", "text", "people": [names], "cam", "camera_name"}
 
 - arrival and departure come from who the camera views saw (the face worker's visits on the vision log, and faces
   nobody has named): "Kara came in" when they show up after LEAVE_S unseen, "Kara left" once LEAVE_S have passed
@@ -17,7 +17,7 @@ GET /live/happening?since=&limit= gives {"items": [...], "updated": cursor}, ite
   newest; a poll with since=updated gets every row written or revised since (a revision keeps its id, so the page
   replaces it), however late its ts. Without since, the log as it is now. With since, limit gives the oldest rows
   written since, and updated is the last of them, so a tab far behind catches up without skipping any.
-- cam and place: the camera view an arrival or departure was seen on and its name (vision.camera_names), else
+- cam and camera_name: the camera view an arrival or departure was seen on and its name (vision.camera_names), else
   None.
 
 Rows and the cursor live in the dashboard process (_Rows): a journal with one entry for each row written or changed,
@@ -150,7 +150,7 @@ def _comings(state: pathlib.Path, start: float, now: float, view: transcript_vie
                     "kind": "arrival",
                     "text": f"{who} came in",
                     "cam": first[2],
-                    "place": named.get(first[2]),
+                    "camera_name": named.get(first[2]),
                     **base,
                 }
             )
@@ -162,7 +162,7 @@ def _comings(state: pathlib.Path, start: float, now: float, view: transcript_vie
                         "kind": "departure",
                         "text": f"{who} left",
                         "cam": last[2],
-                        "place": named.get(last[2]),
+                        "camera_name": named.get(last[2]),
                         **base,
                     }
                 )
@@ -214,7 +214,7 @@ def _talks(
             continue  # give the model a moment before the plain line
         told = stage == "ready" and line
         row = {"id": f"t:{s0:.3f}", "ts": s0, "kind": "talk", "text": line["text"] if told else _fallback(who)}
-        row.update(people=who, cam=None, place=None)
+        row.update(people=who, cam=None, camera_name=None)
         rows.append(row)
     return rows
 
@@ -230,7 +230,7 @@ def _build(state: pathlib.Path, now: float, rewrites: plain_text.Rewrites) -> li
 
 
 # ---- the rows written so far, and the cursor ----
-FIELDS = ("kind", "text", "people", "cam", "place")
+FIELDS = ("kind", "text", "people", "cam", "camera_name")
 
 
 class _Rows:
