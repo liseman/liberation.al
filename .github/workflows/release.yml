@@ -1,0 +1,213 @@
+# Builds a release on free hosted runners, smoke-tests it, and publishes it (docs/RELEASES.md).
+#
+# Pushing a version tag (v0.2.0) builds everything, runs the smoke test on each platform, and only then publishes a
+# GitHub Release with the wheels, a lock of every dependency for each platform, and the notes from docs/RELEASES.md.
+# Run by hand (workflow_dispatch), it is a rehearsal: the same builds and smoke tests, with the files kept as the
+# run's artifacts and nothing published. It never runs for a pull request or a push to a branch.
+#
+#   package     the frontend, then the Python wheel with the lock inside it, and the three platforms' locks
+#   continuum   the SDK wheel and the daemons wheel, per platform (continuum/packaging/, docs/CONTINUUM.md "Wheels")
+#   smoke       tools/release_smoke.sh per platform: install from the files, pack-setup, demo mode, the supervisor
+#   release     the GitHub Release, when every smoke test passed and a tag started the run
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: node # the newest release, as mise.toml's node = "latest"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          python-version: "3.14"
+
+      # A tag has to name the version pyproject.toml declares, and docs/RELEASES.md has to have its notes, before
+      # anything is built. A rehearsal takes the version as it is and needs no notes.
+      - name: The version, and its notes
+        id: version
+        env:
+          EVENT: ${{ github.event_name }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          if [ "$EVENT" = push ]; then
+            version=$(uv run tools/release.py version "$TAG")
+            uv run tools/release.py notes "$version" > dist/notes.md
+          else
+            version=$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Build the frontend
+        working-directory: frontend
+        run: npm ci && npm run build
+
+      # uv.lock, with every extra, as one requirements file for all platforms. The package carries it without hashes
+      # (pack-setup pins the extras to it); each platform's lock, with hashes, is a release file.
+      - name: Write the locks
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          uv export --frozen --all-extras --no-dev --no-emit-project --no-emit-package continuum-py \
+            --format requirements-txt -o "$RUNNER_TEMP/universal.txt" > /dev/null
+          uv run tools/release.py constraints "$RUNNER_TEMP/universal.txt" src/liberational/resources/constraints.txt
+          for platform in linux-x86_64 linux-aarch64 macos-arm64; do
+            uv run tools/release.py lock "$RUNNER_TEMP/universal.txt" "$platform" \
+              "dist/liberational-pack-$VERSION-lock-$platform.txt"
+          done
+          wc -l src/liberational/resources/constraints.txt dist/*-lock-*.txt
+
+      - name: Build the wheel and check what it carries
+        run: |
+          set -euo pipefail
+          uv build --wheel --out-dir dist
+          python3 tools/check_wheel.py --lock dist
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: package
+          path: dist/
+          if-no-files-found: error
+
+  continuum:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x86_64
+            runner: ubuntu-24.04
+          - platform: linux-aarch64
+            runner: ubuntu-24.04-arm
+          - platform: macos-arm64
+            runner: macos-15
+    name: continuum (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    # A cold build of the workspace in release mode: 25 minutes at 8 jobs on the Linux machine, several times that on
+    # a hosted runner's 3 or 4 cores.
+    timeout-minutes: 240
+    env:
+      CARGO_BUILD_JOBS: "4"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Linux builds in packaging/Dockerfile's image, which has everything. macOS builds on the runner, which has
+      # rustup and a compiler; the rest comes from Homebrew and uv.
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        if: runner.os == 'macOS'
+        with:
+          python-version: "3.14"
+
+      - name: Build tools (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          brew install pkg-config protobuf
+          rustup toolchain install stable --profile minimal && rustup default stable
+          uv python install 3.14
+          uv tool install "maturin>=1.16,<2"
+
+      - name: Build the SDK wheel and the daemons wheel
+        run: continuum/packaging/wheels.sh
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: continuum-${{ matrix.platform }}
+          path: continuum/dist/*.whl
+          if-no-files-found: error
+
+  # A release is published only when this passes on every platform: the files install on a clean machine with no
+  # GPU, pack-setup finishes, demo mode answers, and the supervisor starts and stops the application.
+  smoke:
+    needs: [package, continuum]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x86_64
+            runner: ubuntu-24.04
+          - platform: linux-aarch64
+            runner: ubuntu-24.04-arm
+          - platform: macos-arm64
+            runner: macos-15
+    name: smoke (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: package
+          path: dist
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: continuum-${{ matrix.platform }}
+          path: dist
+
+      - name: Install, set up, and start it in a clean container
+        if: runner.os == 'Linux'
+        run: |
+          docker run --rm -v "$PWD/dist:/dist:ro" -v "$PWD/tools:/tools:ro" ubuntu:24.04 /tools/release_smoke.sh /dist
+
+      # There are no macOS containers: the runner itself is the clean machine, and it comes with a Rust toolchain.
+      - name: Install, set up, and start it on the runner
+        if: runner.os == 'macOS'
+        env:
+          SMOKE_ALLOW_TOOLCHAIN: "1"
+        run: tools/release_smoke.sh dist
+
+  release:
+    needs: [package, continuum, smoke]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum -- *.whl *-lock-*.txt > SHA256SUMS
+          cat SHA256SUMS
+          flags=()
+          case "$TAG" in *a[0-9]*|*b[0-9]*|*rc[0-9]*) flags+=(--prerelease) ;; esac
+          gh release create "$TAG" --verify-tag --title "$TAG" --notes-file notes.md "${flags[@]}" \
+            -- *.whl *-lock-*.txt SHA256SUMS

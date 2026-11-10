@@ -77,6 +77,11 @@ the wheel into `dist/`, and runs `tools/check_wheel.py`, which fails on a wheel 
 page or any file its manifest names, or a command. The hosted `wheel` check does the same and then reads the settings
 and the model list from the wheel installed alone, outside the checkout.
 
+A release is those wheels on a GitHub Release: this package's, Continuum's SDK and daemons for each platform, and a
+lock of every dependency for each platform, built and smoke-tested on hosted runners when a version tag is pushed
+(`.github/workflows/release.yml`). [RELEASES.md](RELEASES.md) says what a release holds, how to install one, how to
+make one, and what each version's upgrade resets.
+
 An installed package is set up by `pack-setup` (`pack_setup.py`), which builds nothing: it lists the system packages
 the machine is missing and the command that installs them, installs this machine's Python extras with uv as the
 extras of the package already installed (pinned to `resources/constraints.txt` when the release build wrote one),

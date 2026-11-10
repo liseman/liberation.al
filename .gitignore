@@ -45,3 +45,5 @@ continuum/target/
 continuum/dist/
 # continuum_py: maturin develop builds the extension into the package source (python/continuum_py/)
 continuum/python/continuum_py/*.so
+# The release build writes the lock into the package (tools/release.py); a checkout pins from uv.lock.
+src/liberational/resources/constraints.txt

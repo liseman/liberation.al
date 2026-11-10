@@ -3,6 +3,7 @@
 
   python3 tools/check_wheel.py dist                                   # the newest wheel in a directory
   python3 tools/check_wheel.py dist/liberational_pack-0.1.0-py3-none-any.whl
+  python3 tools/check_wheel.py --lock dist                            # a release's wheel: the lock too
 
 `mise run wheel` builds the frontend and the wheel and then runs this, and so does the hosted `wheel` check. It
 needs only the standard library, so it runs before anything is installed.
@@ -24,6 +25,8 @@ from typing import Any
 
 PACKAGE = "liberational"
 RESOURCES = ("defaults.toml", "labels.toml", "services.toml", "system-packages.toml")
+# Every dependency's pinned version, in a release's wheel only (--lock): pack-setup pins the extras to it.
+LOCK = "constraints.txt"
 APP = f"{PACKAGE}/dashboard/static/app"
 MANIFEST = f"{APP}/.vite/manifest.json"
 PAGES = ("index.html",)
@@ -61,10 +64,15 @@ def commands(entry_points: str) -> set[str]:
     return names
 
 
-def missing(names: Collection[str], manifest: Mapping[str, Any] | None, scripts: Collection[str]) -> list[str]:
+def missing(
+    names: Collection[str], manifest: Mapping[str, Any] | None, scripts: Collection[str], lock: bool = False
+) -> list[str]:
     """What a wheel with these file names, this frontend manifest (None when it has none), and these console
-    scripts lacks, one line each; empty when it is complete."""
+    scripts lacks, one line each; empty when it is complete. With `lock`, the wheel is a release's and must carry
+    the lock pack-setup pins the extras to."""
     out = [f"resource {name}" for name in RESOURCES if f"{PACKAGE}/resources/{name}" not in names]
+    if lock and f"{PACKAGE}/resources/{LOCK}" not in names:
+        out.append(f"the lock ({LOCK}): the release build writes it with tools/release.py before building the wheel")
     if manifest is None:
         out.append(f"the frontend build ({MANIFEST}): run `mise run frontend` before building the wheel")
     else:
@@ -84,20 +92,22 @@ def newest(path: pathlib.Path) -> pathlib.Path:
     return wheels[-1]
 
 
-def check(wheel: pathlib.Path) -> list[str]:
+def check(wheel: pathlib.Path, lock: bool = False) -> list[str]:
     with zipfile.ZipFile(wheel) as archive:
         names = set(archive.namelist())
         manifest = json.loads(archive.read(MANIFEST)) if MANIFEST in names else None
         points = next((name for name in names if name.endswith(".dist-info/entry_points.txt")), None)
         scripts = commands(archive.read(points).decode()) if points else set()
-    return missing(names, manifest, scripts)
+    return missing(names, manifest, scripts, lock)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
     parser.add_argument("wheel", type=pathlib.Path, help="a wheel, or a directory to take the newest wheel from")
-    wheel = newest(parser.parse_args().wheel)
-    lacking = check(wheel)
+    parser.add_argument("--lock", action="store_true", help="a release's wheel: it must carry the dependency lock too")
+    args = parser.parse_args()
+    wheel = newest(args.wheel)
+    lacking = check(wheel, args.lock)
     for line in lacking:
         print(f"missing from {wheel.name}: {line}")
     if lacking:
