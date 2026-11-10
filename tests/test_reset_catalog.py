@@ -187,10 +187,88 @@ def test_a_broker_that_wont_stop_means_nothing_is_deleted(tmp_path, house, monke
 
 def test_an_unknown_camera_refuses_before_stopping_anything(house):
     host, plan = house
-    plan = dataclasses.replace(plan, camera="cam9")
+    plan = dataclasses.replace(plan, cameras=("cam9",))
     with pytest.raises(reset_catalog.Refused, match="cam9 is not"):
         reset_catalog.run(plan, host, say=lambda line: None)
     assert host.calls == ["start continuum-broker", "start dashboard"], "only the fixture's own start"
+
+
+TWO_CAMERAS = """[[device]]
+name = "hall"
+kind = "camera"
+
+[[device]]
+name = "desk"
+kind = "camera"
+video = { format = "UYVY" }
+
+[[device]]
+name = "mic0"
+kind = "microphone"
+"""
+
+
+def test_with_no_camera_named_the_reset_encodes_every_camera_capture_can(house):
+    host, plan = house
+    plan.devices.write_text(TWO_CAMERAS)  # no cam0: the old default named a camera this file doesn't have
+    said: list[str] = []
+    reset_catalog.run(plan, host, say=said.append, socket_wait_s=10)
+    devices = tomlkit.parse(plan.devices.read_text())["device"]
+    assert devices[0]["video"].unwrap() == {"encoding": {"enabled": True}}
+    assert devices[1]["video"].unwrap() == {"format": "UYVY"}, "a raw camera is left alone"
+    assert "Turned on H.264 for hall" in said
+    assert "Left desk's encoding alone: it captures UYVY, and capture encodes only MJPEG" in said
+
+
+def test_a_named_camera_is_the_only_one_encoded(house):
+    host, plan = house
+    plan.devices.write_text(
+        '[[device]]\nname = "hall"\nkind = "camera"\n\n[[device]]\nname = "desk"\nkind = "camera"\n'
+    )
+    plan = dataclasses.replace(plan, cameras=("desk",))
+    reset_catalog.run(plan, host, say=lambda line: None, socket_wait_s=10)
+    devices = tomlkit.parse(plan.devices.read_text())["device"]
+    assert "video" not in devices[0] and devices[1]["video"].unwrap() == {"encoding": {"enabled": True}}
+
+
+def test_a_file_with_no_camera_turns_nothing_on(tmp_path):
+    devices = tmp_path / "devices.toml"
+    devices.write_text('[[device]]\nname = "mic0"\nkind = "microphone"\n')
+    plan = reset_catalog.Plan(tmp_path / "state", tmp_path / "faces", devices)
+    assert reset_catalog.cameras(plan) == []
+    assert any(line.endswith("has none") for line in reset_catalog.describe(plan, NoServices()))
+
+
+class NoServices:
+    """A machine with nothing installed, for a dry run's plan."""
+
+    def installed(self) -> list[str]:
+        return []
+
+    def core(self) -> set[str]:
+        return set()
+
+    def declared(self) -> set[str]:
+        return set()
+
+    def states(self) -> dict[str, str]:
+        return {}
+
+    def stop(self, names: Sequence[str]) -> None:
+        raise AssertionError("a dry run stops nothing")
+
+    def start(self, names: Sequence[str]) -> None:
+        raise AssertionError("a dry run starts nothing")
+
+
+def test_keep_places_keeps_the_places_and_resets_the_rest(house):
+    host, plan = house
+    derived_state(plan.state)
+    plan = dataclasses.replace(plan, keep_places=True)
+    assert plan.state / "places" not in reset_catalog.deleted(plan)
+    reset_catalog.run(plan, host, say=lambda line: None, socket_wait_s=10)
+    assert (plan.state / "places/p/r.map").read_bytes() == b"old"
+    assert not (plan.state / "segments").exists() and not (plan.state / "continuum/tier").exists()
 
 
 def test_turning_on_h264_twice_changes_the_file_once(tmp_path):

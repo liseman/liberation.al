@@ -2414,8 +2414,9 @@ seconds. The dashboard's Live tab plays from the gateway, and Review plays recor
 **The catalog reset** (`pack-reset-catalog --keep-taught`, then again with `--yes`) is a fresh start for
 the catalog: it deletes the catalog, the recorded video and audio (`tier`, `tier2`), the vector index, the shared
 decode's ring, the segment store, and the worker state derived from them, and starts everything again. The taught
-state in `state/knowledge.sqlite3` is never touched (`--fresh` deletes it too). The module docstring
-(`src/liberational/reset_catalog.py`) lists every step.
+state in `state/knowledge.sqlite3` is never touched (`--fresh` deletes it too), and `--keep-places` keeps
+`state/places` as well. It turns on H.264 for every camera in `config/devices.toml` that captures MJPEG (or only
+those named with `--camera`). The module docstring (`src/liberational/reset_catalog.py`) lists every step.
 
 ## Guardrails
 
