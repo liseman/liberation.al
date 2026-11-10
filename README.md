@@ -113,6 +113,8 @@ A successful install is not a hardware validation: check the service status and 
 
    The pet embedding model (`facebook/dinov3-vits16-pretrain-lvd1689m`) is gated on Hugging Face: accept its license on
    its model page and set `HF_TOKEN` (or sign in with `uvx --from huggingface_hub hf auth login`) before running setup.
+   Without access, setup still fetches every other model, then lists the gated ones and exits with an error; pets
+   aren't told apart until you have access and run `mise run models` again.
 
    ```bash
    mise run setup

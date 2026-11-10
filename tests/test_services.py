@@ -11,6 +11,7 @@ import psutil
 import pytest
 
 from liberational import config as cfg
+from liberational import logs
 from liberational import services as s
 
 
@@ -61,6 +62,7 @@ def test_launchd_daemon_schedule_and_background():
     assert (daemon["RunAtLoad"], daemon["KeepAlive"], daemon["ThrottleInterval"]) == (True, True, 10)
     assert sync["ProgramArguments"] == ["/bin/bash", str(cfg.ROOT / "tools/x.sh")]
     assert (sync["StartCalendarInterval"], "KeepAlive" in sync) == ({"Hour": 7, "Minute": 5}, False)
+    assert plist({**SCHEDULED, "schedule": "*:07"})["StartCalendarInterval"] == {"Minute": 7}
     bg = plist({**DAEMON, "background": True, "throttle": 60})
     assert (bg["ProcessType"], bg["ThrottleInterval"]) == ("Background", 60)
 
@@ -373,12 +375,12 @@ def test_an_unchanged_log_is_not_opened_again_and_a_written_one_is(systemd, tmp_
     assert found("listen")["text"] == "the microphone vanished"
     assert found("listen")["text"] == "the microphone vanished"
     assert s.last_error("listen", since=ts(30, "09:02:00")) is None  # the kept error, judged against each `since`
-    assert opened == ["listen.log"]
+    assert opened.count("listen.log") == 1
     with real_open(tmp_path / "logs" / "listen.log", "a") as f:
         f.write("09:02:00 [listen] ERROR the model would not load\n")
     os.utime(tmp_path / "logs" / "listen.log", (written.timestamp(), written.timestamp()))  # same time, longer
     assert found("listen")["text"] == "the model would not load"
-    assert opened == ["listen.log", "listen.log"]
+    assert opened.count("listen.log") == 2
 
 
 def test_last_error_is_a_crash_s_exception_when_python_died_with_no_error_line(systemd, tmp_path):
@@ -1136,4 +1138,35 @@ def test_stateful_transition_owned_by_a_different_invocation_leaves_unobserved_r
     assert view["services"][0]["spans"] == [
         {"start": 0, "end": 90, "state": "unknown"},
         {"start": 90, "end": 100, "state": "stopped"},
+    ]
+
+
+def test_last_error_still_reads_right_after_its_log_is_trimmed(systemd, tmp_path):
+    write_log(
+        tmp_path,
+        "listen",
+        "09:00:00 [listen] INFO started\n09:01:00 [listen] ERROR the microphone vanished\n",
+        written=datetime.datetime(2026, 10, 30, 9, 2),
+    )
+    log = tmp_path / "logs" / "listen.log"
+    assert logs.rotate(log, cap=50) > 0
+    with log.open("a") as f:
+        f.write("09:02:00 [listen] INFO retrying\n")
+    os.utime(log, (ts(30, "09:02:00"), ts(30, "09:02:00")))
+    assert found("listen") == {"at": "09:01:00", "ts": ts(30, "09:01:00"), "text": "the microphone vanished"}
+
+
+def test_install_removes_the_logs_of_services_no_longer_declared(systemd, tmp_path):
+    folder = tmp_path / "logs"
+    folder.mkdir()
+    for name in ("listen.log", "listen.log.1", "cascade.log", "frontend.log", "see-faces.log", "see-faces.log.1"):
+        (folder / name).write_text("x\n")
+    (folder / "profiles").mkdir()
+    s.install(["a"], anywhere=True)
+    assert sorted(p.name for p in folder.iterdir()) == [
+        "cascade.log",
+        "frontend.log",
+        "listen.log",
+        "listen.log.1",
+        "profiles",
     ]
