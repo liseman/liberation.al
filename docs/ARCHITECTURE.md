@@ -136,6 +136,8 @@ Automatic cascades preserve intentionally stopped services. `pack-services resta
 
 `app_window.py` (`pack-app`) is that supervisor with a window (#156): the application the user opens. The supervisor runs in a thread of the same process, so the services are the application's children, and a small Tk window (`tkinter`, which comes with the Python the project installs, so it adds no package) says "Running and recording", "Running, paused for privacy", "Running, not recording", "Starting...", "Stopping...", or "Stopped", counts the services that are up, opens the dashboard, and has Quit. Quit and closing the window are the same: the supervisor drains, then stops, everything, and the window stays until it has, so nothing records with no window. With no display it says so and starts no service; `pack-supervisor run` is the same thing without the window. What the window says comes from `app_window.summary()`, which knows nothing of Tk, so another front (a menu-bar item in the Mac bundle) can show the same.
 
+Nothing starts at login unless the owner asks (#157). `app.start_at_login` (off by default; "Start at login" in Settings and a checkbox in the window) is applied by `login_item.py`: on Linux it writes or deletes an XDG autostart entry, `~/.config/autostart/liberational.desktop`, that opens `pack-app`; nothing is registered with systemd. The setting is live: saving it restarts nothing. On a Mac it does nothing yet, since a login item belongs to an application bundle; with the bundle (#164) `login_item.sync()` is where `SMAppService.mainApp` registers and unregisters it.
+
 ## Optional service CPU profiles
 
 The package startup hook checks `PACK_PROFILE` only; the default-off path loads no profiler or configuration.

@@ -149,6 +149,12 @@ group = "Naming people"
 label = "Spoken name tags with a role"
 help = "Lets you say \"That's Alice, CEO of Acme\" to tag her with the role and the company. Overheard tags keep roles either way."
 
+["app.start_at_login"]
+section = "you"
+label = "Start at login"
+help = "Open the application, and start recording, when you log in. Off: it runs only while you have it open."
+live = true # the desktop's autostart entry is added or removed as it's saved; no service reads it
+
 ["dashboard.hotkeys"]
 section = "features"
 group = "Dashboard"

@@ -112,6 +112,12 @@ voice = 8776
 # `pack-dashboard --dev` serves the pages from it.
 vite = 5173
 
+[app]
+# Start at login: open the application (pack-app), and so start recording, when you log in. Off by default: the
+# system runs only while the application is open. On Linux this is a desktop autostart entry
+# (~/.config/autostart/liberational.desktop); on a Mac it does nothing until there is an application bundle.
+start_at_login = false
+
 [dashboard]
 # Names the camera gateway (continuum-gateway) may be reached by besides this machine's own: a Tailscale MagicDNS
 # name, comma-separated. Empty: local names only. See MIGRATING "Remote dashboard cameras".

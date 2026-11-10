@@ -15,7 +15,7 @@ import pytest
 import soundfile as sf
 
 from liberational import config as cfg
-from liberational import services
+from liberational import login_item, services
 from liberational.dashboard import settings
 
 
@@ -230,6 +230,20 @@ def test_save_writes_replies_and_restarts(config_url, pack_toml, restarts, monke
         call(config_url, "POST", "/config", {"values": {"tts.voice": "am_adam"}})[1]["url"] == "http://127.0.0.1:8831/"
     )
     restarts.get(timeout=5)
+
+
+def test_saving_start_at_login_adds_and_removes_the_desktop_entry_and_restarts_nothing(
+    config_url, pack_toml, restarts, tmp_path, monkeypatch
+):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    monkeypatch.setattr(login_item.sys, "platform", "linux")
+    entry = tmp_path / "xdg" / "autostart" / "liberational.desktop"
+    code, body = call(config_url, "POST", "/config", {"values": {"app.start_at_login": True}})
+    assert (code, body["written"], body["restarted"], body["restarting"]) == (200, ["app.start_at_login"], [], False)
+    assert entry.is_file()
+    code, body = call(config_url, "POST", "/config", {"values": {"app.start_at_login": False}})
+    assert code == 200 and not entry.exists()
+    assert restarts.empty()
 
 
 def test_bad_values_and_bodies_are_400_without_restart(config_url, pack_toml, restarts):
