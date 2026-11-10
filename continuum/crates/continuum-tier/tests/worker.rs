@@ -80,6 +80,8 @@ struct Broker {
     fail_commits: Rc<RefCell<u32>>,
     committed: Rc<RefCell<Vec<std::path::PathBuf>>>,
     rejected: Rc<RefCell<Vec<std::path::PathBuf>>>,
+    /// Commits the catalog refused for good.
+    refusals: Rc<RefCell<u32>>,
 }
 
 impl Outputs for Broker {
@@ -103,7 +105,10 @@ impl Outputs for Broker {
         } else {
             self.catalog.extend_chunk(closed.chunk.clone(), closed.first_frame, &closed.absorbed, provenance)
         };
-        done.map_err(|e| CommitFailure::Reject(e.to_string()))?;
+        done.map_err(|e| {
+            *self.refusals.borrow_mut() += 1;
+            CommitFailure::Reject(e.to_string())
+        })?;
         self.committed.borrow_mut().push(closed.path.clone());
         Ok(())
     }
@@ -1192,4 +1197,62 @@ fn a_chunk_recovered_after_a_forget_took_it_keeps_the_frames_that_came_later() {
     };
     assert_eq!(w.payload(&resent(33), T0 + 4 * S).expect("payload"), Appended::Recovered);
     assert!(!w.is_recovered(uuid(10)));
+}
+
+#[test]
+fn a_network_cameras_clock_stepping_back_mid_chunk_loses_no_frame() {
+    let dir = tempfile::tempdir().unwrap();
+    let broker = Broker::default();
+    let stream = rtsp_catalog(&broker.catalog);
+    // A GOP a second (30 frames) and a part a second, so a part is cut before every keyframe.
+    let settings = FlushSettings { chunk_ns: 60 * S, part_ns: S, audio_chunk_ns: 60 * S, sync_ns: 200 * MS };
+    let mut worker = WorkerLoop::new(dir.path(), settings, broker.clone()).unwrap();
+    worker.declare(stream, rtsp_shape());
+    // Frames arrive evenly. In the middle of the third GOP capture re-anchors the camera's clock: from frame 75 on
+    // every frame is stamped 3 seconds (90 frames) earlier than the frames before it were.
+    for sequence in 0..150u32 {
+        let presentation = if sequence < 75 { sequence + 300 } else { sequence + 210 };
+        let mut payload = rtsp_payload(&broker.catalog, stream, sequence, presentation);
+        payload.bytes = vec![0, 0, 0, 1, if sequence % 30 == 0 { 0x65 } else { 0x41 }, sequence as u8];
+        let now = T0 + u64::from(sequence) * FRAME_NS;
+        worker.payload(&payload, now).unwrap();
+        worker.tick(now).unwrap();
+    }
+    worker.shutdown().unwrap();
+
+    // The records since the last part (the third GOP) moved to a chunk of their own without being offered to the
+    // catalog as a part, and the keyframe after them opened the next chunk: nothing was refused or dropped.
+    let counts = worker.counts();
+    assert_eq!((counts.rehomed, counts.rejected, counts.undecodable, counts.appended), (1, 0, 0, 150));
+    assert_eq!(*broker.refusals.borrow(), 0);
+    assert_eq!(worker.uncommitted(), 0);
+    let mut held = BTreeMap::new();
+    for sequence in 0..150u32 {
+        let Some(continuum_catalog::Resolved::AbsorbedFrame { chunk, .. }) =
+            broker.catalog.get(uuid(sequence)).unwrap()
+        else {
+            panic!("frame {sequence} is in no chunk")
+        };
+        *held.entry(chunk.header.id()).or_insert(0usize) += 1;
+    }
+    let mut sizes: Vec<usize> = held.into_values().collect();
+    sizes.sort_unstable();
+    assert_eq!(sizes, [30, 60, 60], "two GOPs before the step, the GOP it fell in, and two after");
+}
+
+#[test]
+fn records_step_back_only_when_they_start_before_the_last_committed_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("a.cnk");
+    let mut writer = continuum_tier::ChunkWriter::create(&path, StreamId(1), ChunkFormat::H264Au, T0).unwrap();
+    // Decode order with a B-frame pair: starts 0, 3, 1, 2, then a later GOP at 4, and one stamped back at 2.
+    for (i, start) in [0u64, 3, 1, 2, 4, 2].into_iter().enumerate() {
+        writer.append_payload(uuid(i as u32), T0 + start, T0 + start, i as u32, b"x").unwrap();
+    }
+    let records = writer.records().to_vec();
+    assert!(!continuum_tier::flush::steps_back(&records[..5], 4), "a later GOP follows on");
+    assert!(continuum_tier::flush::steps_back(&records, 5), "a record starts before the committed latest");
+    assert!(!continuum_tier::flush::steps_back(&records, 0), "nothing committed: a whole chunk sorts itself");
+    assert!(!continuum_tier::flush::steps_back(&records, 6), "nothing new");
+    assert!(!continuum_tier::flush::steps_back(&records[..4], 1), "B-frames after their keyframe are not a step");
 }
