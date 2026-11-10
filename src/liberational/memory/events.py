@@ -312,26 +312,8 @@ def coverage(state: Any, start: float, end: float, *, kind: str | None = None) -
     `action.coverage` for a model activity, else (no kind, or the walk-by line's) `walkby.coverage`."""
     model = kind is not None and kind != activity_kinds.CROSSING
     stream = segment_log.ACTION_COVERAGE if model else segment_log.WALKBY_COVERAGE
-    rows = segment_log.at(state).range(stream, start, end)
-    return _joined(rows, start, end)
-
-
-def _joined(
-    records: list[dict[str, Any]], start: float, end: float, *, join_s: float = JOIN_S
-) -> list[tuple[str, float, float]]:
-    rows = sorted(
-        ((str(c.get("cam")), max(c["ts_start"], start), min(c["ts_end"], end)) for c in records),
-        key=lambda r: (r[0], r[1]),
-    )
-    out: list[tuple[str, float, float]] = []
-    for cam, a, b in rows:
-        if b <= a:
-            continue
-        if out and out[-1][0] == cam and a - out[-1][2] <= join_s:
-            out[-1] = (cam, out[-1][1], max(out[-1][2], b))
-        else:
-            out.append((cam, a, b))
-    return out
+    covered = segment_log.at(state).covered(stream, start, end, join_s=JOIN_S)
+    return [(cam, a, b) for cam in sorted(covered) for a, b in covered[cam].spans]
 
 
 @dataclasses.dataclass(frozen=True)

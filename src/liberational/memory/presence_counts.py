@@ -63,20 +63,6 @@ class Unavailable(RuntimeError):
         self.pending = pending
 
 
-def _watched(rows: Sequence[Mapping[str, Any]], start: float, end: float) -> list[tuple[float, float]]:
-    """see-actions' coverage spans clipped to [start, end) and joined where they meet."""
-    out: list[tuple[float, float]] = []
-    for r in sorted(rows, key=lambda r: r["ts_start"]):
-        lo, hi = max(start, r["ts_start"]), min(end, r["ts_end"])
-        if hi <= lo:
-            continue
-        if out and lo - out[-1][1] <= COVERED_GAP_S:
-            out[-1] = (out[-1][0], max(out[-1][1], hi))
-        else:
-            out.append((lo, hi))
-    return out
-
-
 def _unknown(watched: Sequence[tuple[float, float]], start: float, end: float) -> list[dict[str, Any]]:
     out, at = [], start
     for lo, hi in watched:
@@ -103,17 +89,17 @@ def collect(
     try:
         log = segment_log.at(state)
         spans = log.range(segment_log.PRESENCE_SPANS, start, end)
-        covered = log.range(segment_log.ACTION_COVERAGE, start, end)
+        covered = log.covered(segment_log.ACTION_COVERAGE, start, end, join_s=COVERED_GAP_S)
     except Exception as error:  # an unreadable store answers "can't say", never "nobody"; a file error may pass
         failed = {"start": start, "end": end, "cameras": {}, "partial": True, "error": str(error)}
         return {**failed, "retryable": isinstance(error, OSError)}
     wanted = set(cameras)
-    names = sorted({str(r["cam"]) for r in covered} | {str(s["cam"]) for s in spans})
+    names = sorted(set(covered) | {str(s["cam"]) for s in spans})
     out: dict[str, Any] = {"start": start, "end": end, "cameras": {}, "partial": False, "diagnostics": []}
     for cam in names:
         if wanted and cam not in wanted:
             continue
-        watched = _watched([r for r in covered if r["cam"] == cam], start, end)
+        watched = covered[cam].spans if cam in covered else []
         unknown = _unknown(watched, start, end)
         episodes = [
             {

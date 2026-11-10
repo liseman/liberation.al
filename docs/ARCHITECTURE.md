@@ -64,7 +64,12 @@ for the vision streams. Phone calls keep their own transcripts and media under `
 | Face gallery | `faces/db.npz`, `faces/learned.npz`, `faces/nots.npz`, `faces/<name>/` | Enrolled face embeddings, views learned from tracks (`learned.npz`), the owner's "not this person" faces (`nots.npz`), and photos | Preserved by `--keep-taught`; removed by `--fresh` |
 
 Segment rows have no broker parents. A forget or a compaction rewrites a closed part (`-v<n>`) rather than editing
-it. see-zones keeps a checkpoint holding each of its writers' next `row_seq` (`state/see-zones.json`, replaced by an
+it. An open part holds one record batch per append, so it can be followed as it grows; when it closes, its writer
+rewrites it as one batch (so a closed part normally ends `-v1`), which is what keeps a stream appended a row at a time,
+such as a coverage stream, small on disk and quick to read. `continuum_py.compact_segments(root)` does the same for
+closed parts written before that. Readers that show rows take records (`segment_log.Log.range`); readers that count,
+sum, or join spans over a window take columns (`Log.table`, and `Log.covered` for a coverage stream's watched
+stretches), and build no record per row. see-zones keeps a checkpoint holding each of its writers' next `row_seq` (`state/see-zones.json`, replaced by an
 atomic rename), so a restart reopens its writers there and never repeats an output; see-actions keeps none, and a
 restart starts new tracks.
 
