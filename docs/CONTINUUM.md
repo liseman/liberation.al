@@ -568,8 +568,14 @@ worker backpressure alongside this guard; it does not guarantee that archival wo
   `rm /dev/shm/cnt.*` on Linux; on macOS, `shm_unlink` each name from the `.arena` files, or reboot. A leftover costs
   only the pages that were touched, since the arena is sparse until slots are used.
 - **The arena's size** is the machine profile's slot classes (headroom for everything that isn't a configured
-  camera), with each class raised to what the device manifest's enabled cameras ask for (`capture_sizing.rs`:
-  their size, rate, and `ring_seconds`), plus the ring region. The devices always get what their settings ask
+  camera), with the classes the device manifest's enabled cameras use raised to what they ask for
+  (`capture_sizing.rs`: their size, rate, and `ring_seconds`), plus the ring region. A USB camera's ring is
+  reserved in the class its frames go in and no other: the smallest class that holds its planned frame
+  (`continuum_core::camera_frame_bound`: 4:2:2 rows for raw video, and the same plus 64 KiB for MJPEG, whose
+  driver buffer is that large whatever a frame compresses to), for the size it asks for and for each fallback
+  size. A default 720p MJPEG camera's ten seconds are 383 slots of 2 MiB, 766 MiB. A driver whose buffer is larger
+  than the plan lands in a larger class, with only the profile's headroom there, and capture warns of it at
+  start. The devices always get what their settings ask
   for. The profile's headroom is kept whole when the arena then takes no more than half of `/dev/shm`, the other
   half being see-decode's frame ring and other programs'. Otherwise its slot counts are halved until it does, up
   to ten times, never below one slot a class, and the class sizes and order stay, since a stream names its class
