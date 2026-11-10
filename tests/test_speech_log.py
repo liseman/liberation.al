@@ -482,7 +482,7 @@ async def _age_out_video(sock: Path) -> None:
 
 
 def test_a_purge_only_of_camera_video_is_news_to_readers_but_not_to_voice_ones(broker: Path, store: Path) -> None:
-    """The 15:14 video age-out (#2346's follow-up): voice groups kept their answer through it."""
+    """Voice groups keep their cached answer across a camera-video age-out."""
     payload = asyncio.run(_commit_other(broker))
     log = speech_log.SpeechLog(broker, segments=store)
     try:

@@ -1,4 +1,4 @@
-"""Reading a Stray Scanner export (#2931): ARKit's poses as OpenCV camera to world, the quarter turn that stands a
+"""Reading a Stray Scanner export: ARKit's poses as OpenCV camera to world, the quarter turn that stands a
 portrait recording upright, and the LiDAR depth as confident points."""
 
 import cv2

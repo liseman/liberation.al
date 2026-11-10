@@ -1,4 +1,4 @@
-"""Counting zone visits for Ask (#1316): "how many times did the cat use the litter box today"."""
+"""Counting zone visits for Ask: "how many times did the cat use the litter box today"."""
 
 import datetime as dt
 from zoneinfo import ZoneInfo

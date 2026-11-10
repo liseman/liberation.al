@@ -235,7 +235,7 @@ def test_cameras_waiting_for_the_decoder_say_so_once_until_it_connects(monkeypat
         monkeypatch.setattr(shared_frames.asyncio, "open_unix_connection", connect)
         monkeypatch.setattr(shared_frames.asyncio, "sleep", pause)
         monkeypatch.setattr(shared_frames, "_waiting_said", False)
-        # Two cameras wait through the same outage: one line, not one each (#3147).
+        # Two cameras wait through the same outage: one line, not one each.
         assert await asyncio.gather(*(shared_frames._connect(Path("fixture.sock")) for _ in range(2))) == [
             expected,
             expected,
@@ -436,7 +436,7 @@ def test_latest_gives_none_quickly_when_no_decoder_answers(tmp_path):
     [pytest.param(1, False, id="passed-over-for-another-reader"), pytest.param(0, True, id="lost")],
 )
 def test_a_serial_jump_is_a_gap_unless_the_decoder_passed_those_pictures_over_for_other_readers(tmp_path, skipped, gap):
-    # #3218: the decoder applies each reader's rate, so a reader's pictures skip serials published for others.
+    # The decoder applies each reader's rate, so a reader's pictures skip serials published for others.
     requests = []
 
     async def run():

@@ -126,7 +126,7 @@ def test_a_missing_model_names_it_and_the_pull_command_and_backs_off_only_that_m
 
 
 def test_a_404_while_down_means_ollama_is_back_for_the_other_models(health, clock, lines):
-    """Codex on #236: a restarted Ollama without one model must not keep the installed models blocked."""
+    """A restarted Ollama without one model must not keep the installed models blocked."""
     attempt(health, clock, 0, REFUSED)
     assert attempt(health, clock, 30, not_found("emb:4b"), model="emb:4b")  # the retry: Ollama answers, 404
     assert attempt(health, clock, 31, model="qwen3:4b-instruct")
@@ -137,7 +137,7 @@ def test_a_404_while_down_means_ollama_is_back_for_the_other_models(health, cloc
 
 
 def test_a_404_for_a_call_with_no_model_is_not_a_missing_model(health, lines):
-    """Local review of #249: ask_friends' /api/ps names no model, so its 404 must not log "pull it with `ollama pull `"."""
+    """ask_friends' /api/ps names no model, so its 404 must not log "pull it with `ollama pull `"."""
     with pytest.raises(requests.HTTPError), oh.call("", health):
         raise not_found("")
     assert lines == []
@@ -160,7 +160,7 @@ def test_other_errors_pass_through_without_a_line_or_a_backoff(health, clock, li
 
 
 def test_the_caption_vlm_logs_one_line_and_stops_posting_every_frame(capsys):
-    """The #221 log: one `vlm error` per second while Ollama was down."""
+    """Avoid logging one `vlm error` per second while Ollama is down."""
     frame = np.zeros((32, 32, 3), np.uint8)
     backend = vlm.OllamaVLM("qwen3-vl:4b-instruct")
     with (
@@ -199,7 +199,7 @@ def test_status_names_the_configured_models_ollama_lacks():
 
 
 def test_status_checks_the_model_an_environment_override_names(monkeypatch):
-    """Codex on #236: callers read models.ollama.<role> with its PACK_ override, so status must too."""
+    """Callers read models.ollama.<role> with its PACK_ override, so status must too."""
     monkeypatch.setenv("PACK_MODELS_OLLAMA_EMBEDDING", "other-emb:1b")
     with cfg.override({"ollama": {"url": URL}, **MODELS}):
         s = oh.status(lambda url, timeout: Tags(["qwen3:4b-instruct", "qwen3-vl:4b-instruct", "emb:4b"]))
@@ -225,7 +225,7 @@ def test_status_says_ollama_isnt_running():
 
 
 def test_status_counts_a_slow_answer_as_running():
-    # #3052: a busy Ollama took over 1.5 s to list its models 13% of the time, and that read as "isn't running".
+    # A busy Ollama took over 1.5 s to list its models 13% of the time, and that read as "isn't running".
     def slow(url, timeout):
         raise requests.exceptions.ReadTimeout("read timed out")
 
@@ -274,7 +274,7 @@ def polled(monkeypatch):
 
 
 def test_stats_polled_every_few_seconds_ask_ollama_for_its_models_once_in_five_minutes(polled):
-    # #3072: /api/tags took about a second on devbox, asked on every /stats poll (12 a minute).
+    # /api/tags took about a second on the Linux machine when asked on every /stats poll (12 a minute).
     stats, clock = polled
     for _ in range(140):  # 140 polls 2.1 s apart: 294 s, under the 300 s the answer stands
         assert stats.ollama_ps()["up"] is True
@@ -314,7 +314,7 @@ def test_the_dashboard_stats_carry_what_to_tell_the_owner():
     )
 
 
-# ---- every Ollama caller goes through the helper (#237): against a closed port, two calls make one connection ----
+# ---- every Ollama caller goes through the helper: against a closed port, two calls make one connection ----
 
 CONNECTS: list[object] = []  # [the closed port's address, then one entry per connection attempt to it]
 
@@ -410,7 +410,7 @@ class Reply:
 
 
 def test_every_vision_model_call_asks_for_the_same_context_so_ollama_never_reloads_it():
-    """#441: a warm-up with no num_ctx loaded the VLM at its 262k context (25.6 GB), then the first caption
+    """A warm-up with no num_ctx loaded the VLM at its 262k context (25.6 GB), then the first caption
     reloaded it at 4096."""
     frame = np.zeros((32, 32, 3), np.uint8)
     backend = vlm.OllamaVLM("qwen3-vl:4b-instruct")

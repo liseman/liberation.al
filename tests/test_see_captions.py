@@ -251,7 +251,7 @@ def test_a_caption_interval_that_isnt_a_nonnegative_number_is_refused(bad) -> No
 
 def test_a_still_view_is_grounded_every_max_idle_s_and_a_moved_view_after_min_s() -> None:
     # The change gate re-captions a still view every 30 s (its idle refresh); that alone used to ground it every
-    # ~35 s, most of the VLM's time (#1935). Only movement, or MAX_IDLE_S, asks for another grounding now.
+    # ~35 s, most of the VLM's time. Only movement, or MAX_IDLE_S, asks for another grounding now.
     asked: list[float] = []
 
     def ground(frame: np.ndarray) -> str:

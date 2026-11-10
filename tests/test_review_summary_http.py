@@ -173,7 +173,7 @@ def test_day_summary_rejects_invalid_or_noncanonical_day_without_reading(request
     [pytest.param("ready", server.ENDED_SUMMARY_KEEP_S, id="ready"), pytest.param("partial", 60, id="partial")],
 )
 def test_an_ended_stretchs_summary_is_kept_longest_once_ready(request_, monkeypatch, status, kept_s):
-    """#2398: a day's summary read the journal off the broker every request (2 to 5 s); today's is always partial."""
+    """A day's summary read the journal off the broker every request (2 to 5 s); today's is always partial."""
     clock = {"now": 1_800_000_000.0}
     monkeypatch.setattr(server.time, "time", lambda: clock["now"])
     monkeypatch.setattr(server, "_summaries", {})

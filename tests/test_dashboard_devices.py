@@ -1021,7 +1021,7 @@ def test_live_controls_network_and_unavailable_camera_explain_without_discovery(
     assert not report["available"] and "not adjustable" in report["note"]
 
 
-# Pausing devices for privacy from the header (#2260)
+# Pausing devices for privacy from the header
 
 PRIVACY_MANIFEST = """# capture's devices
 [[device]]

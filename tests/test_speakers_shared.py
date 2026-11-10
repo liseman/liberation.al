@@ -1,4 +1,4 @@
-"""The voice list is worked out once per change and shared by every page's event stream and GET /speakers (#2546)."""
+"""The voice list is worked out once per change and shared by every page's event stream and GET /speakers."""
 
 import threading
 import time

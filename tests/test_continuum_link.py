@@ -1,4 +1,4 @@
-"""The broker connection layer: busy waits, startup waits, and broker outages (#1355, #1357)."""
+"""The broker connection layer: busy waits, startup waits, and broker outages."""
 
 import logging
 
@@ -96,7 +96,7 @@ def test_a_stalled_startup_subscribe_is_bounded_and_cancelled():
     assert cancelled == [True]
 
 
-# -- broker outages (#1355, #1357)
+# -- broker outages
 
 
 def chained(outer: BaseException, cause: BaseException) -> BaseException:
@@ -244,7 +244,7 @@ async def stopped(_client):
 
 
 def test_a_reader_the_broker_stopping_ended_is_one_warning_and_an_exit_for_restart(outage, client):
-    # #2941: the reader notices first, then closing the dead client fails; that's the broker leaving, not a crash.
+    # The reader notices first, then closing the dead client fails; that's the broker leaving, not a crash.
     o, _now, caplog = outage
     client.broker_gone = True
     with pytest.raises(SystemExit) as exited:

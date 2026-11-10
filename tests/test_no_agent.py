@@ -89,7 +89,7 @@ def test_friends_mode_falls_back_to_local():
     ],
 )
 def test_a_failed_answer_is_spoken_only_to_a_line_that_called_the_assistant(monkeypatch, addressed, spoken):
-    """#480: with no agent, every question the owner asked someone else in the room got "I can't do that without an
+    """With no agent, every question the owner asked someone else in the room got "I can't do that without an
     agent" spoken over them."""
     request = "How many times has that happened?"
     grant = Grant(request, "gateway", False, False, False, False, owner=True, addressed=addressed)

@@ -35,4 +35,4 @@ def test_runtime_logger_is_set_to_errors_only_before_sessions_are_built():
     severities = []
     runtime = SimpleNamespace(set_default_logger_severity=severities.append)
     onnx_runtime.preload_gpu_libraries(runtime)
-    assert severities == [3]  # ONNX Runtime's ERROR: its per-session warnings stay out of the logs (#3147)
+    assert severities == [3]  # ONNX Runtime's ERROR: its per-session warnings stay out of the logs
