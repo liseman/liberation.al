@@ -30,6 +30,7 @@ import { VISION_FRESH_S } from '../status';
 import { WHOS_THIS } from '../whosthis/labels';
 import type { LiveScene } from './Rail';
 import { CAMERA_SERVICES, StartButton } from './Setup';
+import { LearnSurroundings } from './Surroundings';
 import './cameras.css';
 
 /** Mirror this camera's picture left to right, in this browser only (the boxes are drawn here, so they mirror
@@ -408,6 +409,7 @@ export function Stage({
         <h2>Cameras</h2>
         <span>{cams.length === 1 ? '1 camera' : `${cams.length} cameras`}</span>
         <NameNudge cams={cams} />
+        <LearnSurroundings />
         {large && shown.length > 1 && (
           <div className="cam-controls">
             <Button variant="default" size="xs" onClick={() => choose(null)}>

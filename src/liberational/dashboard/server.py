@@ -302,6 +302,7 @@ routes.load(
     "liberational.dashboard.settings",
     "liberational.dashboard.skeletons",
     "liberational.dashboard.speaker_lines",
+    "liberational.dashboard.surroundings",
     "liberational.dashboard.transcript_lines",
     "liberational.dashboard.unnamed_groups",
     "liberational.dashboard.voice_clones",
