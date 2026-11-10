@@ -1,4 +1,4 @@
-"""`pack-spatial-splat`: a 3D Gaussian splat of each fixed-camera place (#2877, part of the spatial memory goal #2794),
+"""`pack-spatial-splat`: a 3D Gaussian splat of each fixed-camera place (part of spatial memory),
 for the Places 3D view to draw beside, or instead of, the point cloud.
 
 Run by `pack-spatial-cameras` after its daily pass (spatial/cameras.py), or by hand (`pack-spatial-splat [--place
@@ -23,7 +23,7 @@ it registers fixed cameras:
    Spark (the 3D view's renderer) reads an SPZ as it is, so the view turns the splat 180 degrees about x, which
    undoes that negation exactly (positions, rotations, and SH), to put it back on the map.
 
-Measured on #2877 with these settings (Place 1: two fixed cameras, 10 daytime frames each, 21k start points, one RTX
+Measured with these settings (Place 1: two fixed cameras, 10 daytime frames each, 21k start points, one RTX
 3090 shared with the live services): about 2 to 2.5 minutes and 0.2 GiB of GPU memory a place, 244k Gaussians, a 24 MB
 PLY and a 4.4 MB SPZ, and 27.1 dB PSNR on a frame per camera held out from the same day. Two cameras with little overlap give no new views: the splat looks right from where the cameras
 stand, not from between them (6.6 dB from one camera's view trained on the other's). Nothing fills what no camera
@@ -35,7 +35,7 @@ and the phone's own intrinsics, starting from the revision's map points: `WALK_S
 and no opacity or scale regularizers. The walk registers `LOOK_FROM` of its frames as cameras (`look_from`, named
 `walk-...`), for the 3D view to look from; tier 1 moves them with the walk's cloud into the fused map's frame, and the
 move they show (`carried`) brings every frame's pose along. The daily fixed-camera splat leaves those cameras out. A
-walk filmed with CUT3R's poses gets no splat: on #2877 its poses didn't agree across the walk well enough for one.
+walk filmed with CUT3R's poses gets no splat: its poses didn't agree across the walk well enough for one.
 
 gsplat (nerfstudio-project/gsplat) is Apache-2.0; the trainer adds no model weights.
 """
@@ -176,7 +176,7 @@ def write_job(
     views = []
     for cam, shots in frames.items():
         pose = rev.cameras[cam]
-        # The lens the registration undid, and the camera's overlays, as MASt3R's frame had them (#2998).
+        # The lens the registration undid, and the camera's overlays, as MASt3R's frame had them.
         undo = lens.Lens.from_tuple(pose.lens) if pose.lens is not None else None
         _, masks = lens.for_camera(lens.manifest(), cam)
         for i, frame in enumerate(shots):
@@ -303,8 +303,8 @@ def spz(rows: np.ndarray) -> bytes:
 
 
 #: A walkthrough's splat (`splat_walk`): more views than a few fixed cameras, so more steps, a larger cap, and no
-#: opacity or scale regularizers (on a walk they let the Gaussians fade until the splat goes transparent, #2877).
-#: 15,000 steps is what #2877 measured walks with (about 6 minutes for 125 frames at 288 x 512); a phone's frames are
+#: opacity or scale regularizers (on a walk they let the Gaussians fade until the splat goes transparent).
+#: 15,000 steps is what walks were measured with (about 6 minutes for 125 frames at 288 x 512); a phone's frames are
 #: saved larger (1024 on the long side), so a real walk takes several times that, well inside WALK_TIMEOUT_S.
 WALK_STEPS = 15_000
 WALK_GAUSSIANS = 1_000_000
@@ -378,7 +378,7 @@ def splat_walk(
     revision's map frame by the similarity tier 1 moved the walk's `looks` by (`carried`), starting from the
     revision's map points (at most WALK_START_POINTS); what it did. Every view trains, none held out. None (the log
     says why) when splats are off, gsplat's runtime isn't installed, the frame can't be carried, or training fails.
-    ARKit's poses are metric and tracked, so unlike a CUT3R walk's they agree well enough across the walk (#2877)."""
+    ARKit's poses are metric and tracked, so unlike a CUT3R walk's they agree well enough across the walk."""
     runtime = cfg.path("spatial.splat_runtime")
     if not cfg.get("spatial.splats_enabled") or not (runtime / ".venv" / "bin" / "python").exists():
         LOG.info("no splat of the walk: splats are off or gsplat's runtime isn't installed (`mise run gsplat`)")

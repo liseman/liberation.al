@@ -1,9 +1,9 @@
-"""CUT3R over a walkthrough's frames, run in CUT3R's own runtime (#2931). spatial/walkthrough.py runs it; nothing in the
+"""CUT3R over a walkthrough's frames, run in CUT3R's own runtime. spatial/walkthrough.py runs it; nothing in the
 pack's environment imports it.
 
     <runtime>/.venv/bin/python cut3r_runner.py job.json
 
-CUT3R (CUT3R/CUT3R, pinned by `mise run cut3r`; code and weights CC BY-NC-SA 4.0, accepted by Joe on 2026-11-08) is a
+CUT3R (CUT3R/CUT3R, pinned by `mise run cut3r`; code and weights CC BY-NC-SA 4.0, accepted for now) is a
 recurrent model: it reads the frames in order, keeps a state of the scene so far, and gives each frame its camera's
 pose and a pointmap in that camera's frame. Over a long walk the poses hold locally and keep the walk level, but drift
 in heading; spatial/posegraph.py corrects that afterwards. Like mast3r_runner.py, this file imports nothing from the
@@ -20,7 +20,7 @@ Three choices that differ from CUT3R's demo:
   file can't run code. Every weight the model has must come from the checkpoint (a strict load), so none is left at
   its random start. It needs CUDA, and fails at once without it.
 - **Memory.** The demo encodes every frame at once and keeps every frame's output on the GPU (about 12 GB for 253
-  frames, which ran out of memory on a shared 24 GB GPU, #2787). This steps one frame at a time and moves each
+  frames, which ran out of memory on a shared 24 GB GPU). This steps one frame at a time and moves each
   frame's output to the CPU, so only the recurrent state stays on the GPU; the result is the same.
 - **RoPE.** CUT3R's CUDA RoPE kernel would need nvcc and an older host compiler to build. Its PyTorch fallback can't
   take the pose token's negative position (it looks positions up in a table), so `rope_forward` replaces the

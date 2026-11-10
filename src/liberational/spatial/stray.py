@@ -1,5 +1,5 @@
-"""A walkthrough recorded with Stray Scanner (iOS, MIT, github.com/strayrobots/scanner), read for pack-walkthrough
-(#2931): ARKit's camera poses and the phone's LiDAR depth, so the walk needs no pose model and its cloud no learned
+"""A walkthrough recorded with Stray Scanner (iOS, MIT, github.com/strayrobots/scanner), read for pack-walkthrough:
+ARKit's camera poses and the phone's LiDAR depth, so the walk needs no pose model and its cloud no learned
 depth.
 
 The export folder (the app's format, docs/format.md upstream): `rgb.mp4` (the camera's frames), `odometry.csv` (a
