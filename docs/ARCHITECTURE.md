@@ -374,6 +374,7 @@ one `<service>.log` each, trimmed hourly past 10 MB by the `log-trim` service. H
 | `state/journal_evidence/<day>/` | `pack-video-window` | Dashboard | Clips and stills of moments day pages cite; durable |
 | `state/video_window.json`, `retention.json` | `pack-video-window` | The same | Age-out progress and finished retention days |
 | `state/places/<place>/`, `footprints.json`, `seats.json`, `positions.json`, `state/places.lock` | Spatial jobs through `memory/places.py` | `memory/places.py`, `spatial/positions.py` | Place revisions, maps, plans, splats, and placer progress |
+| `state/surroundings/` | The surroundings sampler through `spatial/surroundings_frames.py` | The map step | The frames kept for learning a place's map, with their descriptors; at most 300 |
 | `state/walk_imports/` | Dashboard (`dashboard/walk_import.py`) | Dashboard, `pack-walkthrough` | The newest walk import's job and files |
 | `state/cache/device_tallies.json` | `proximity/devices.py` | The same | Hourly device tallies; rebuildable |
 | `state/ingest.sqlite3`, `ingest-locks/`, `ingest-analyzed.json` | Dashboard, `pack-ingest`, `pack-ingest-analyze` | The same | Ingested items, per-item locks, and the analysis ledger |

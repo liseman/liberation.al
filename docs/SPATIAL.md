@@ -80,15 +80,15 @@ finds a person or an animal in. Such a frame is skipped, not masked: the view co
    changing daylight 0.61 to 0.83 (9 pairs), and two different cameras at most 0.18 (15 pairs). So a frame under 0.85
    alike to every kept frame is kept: that takes a new viewpoint, an uncovered area, and a scene or light that
    changed, and drops the copies. A frame at least 0.85 alike to a kept one replaces it when it's 1.5 times as
-   sharp (better detail), and is dropped otherwise.
+   sharp (better detail), and is dropped otherwise (`spatial/surroundings_frames.py`).
 2. *Once it has a pose* (in the map step), by the map itself: the current splat is drawn from the frame's pose.
    The share of the frame the splat doesn't cover is the uncovered area, and the error of what it does draw is the
    change or the missing detail. A frame the splat already draws well is dropped. The map step's pull request sets
    those two thresholds from measurements.
 
 Kept frames are JPEGs with their descriptors under `state/surroundings/`, at most 300 in all and 4 per view (frames
-0.85 alike are one view). At the bound, the frame most like another kept frame goes first. They are machine-made: a
-reset deletes them.
+at least 0.5 alike are one view, and a fifth look at it pushes out its oldest). At the bound, the frame most like
+another kept frame goes first. They are machine-made: a reset deletes them with the places.
 
 **The map** (#258). One step at a time, niced, on the GPU with the most free memory, started by the sampler when
 new frames are waiting, never on a schedule.
