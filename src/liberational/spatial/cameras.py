@@ -381,7 +381,7 @@ def up_direction(
 
 @dataclass(frozen=True)
 class Layout:
-    """What the cloud says about its place's floor: the plan's DSL and its map-to-plan transform (12 numbers), when
+    """What the cloud says about its place's floor: the plan (a scene's text) and its map-to-plan transform (12 numbers), when
     the cloud has the walls for a plan, and the floor plane (nx, ny, nz, d), when it has a floor."""
 
     plan: str | None
@@ -439,7 +439,7 @@ def layout(
     turned = plan.transform.copy()
     turned[:2] = np.array([[c, -s], [s, c]]) @ plan.transform[:2]
     tr = tuple(float(x) for x in turned.ravel())
-    return Layout(tiling.to_dsl(t, title, tiling.Settings(faces=False)), tr, floor)
+    return Layout(tiling.to_scene(t, title, tiling.Settings(faces=False)), tr, floor)
 
 
 def camera_pose(pose: np.ndarray, focal: float, division: float, size: Sequence[int], at: float) -> places.CameraPose:
@@ -455,12 +455,13 @@ def camera_pose(pose: np.ndarray, focal: float, division: float, size: Sequence[
 
 
 def with_held(camera: str, pose: places.CameraPose, held: lens.Held | None) -> places.CameraPose:
-    """`camera`'s `pose` with its `held` intrinsics in place of its own: the focal, and the lens unless its
-    frames are undone by its configured lens first (`lens.as_registered`; the undone frame is a pinhole)."""
+    """`camera`'s `pose` with its `held` intrinsics in place of its own: the focal, and the lens (its configured one
+    when `lens.as_registered` has one, since `held.focal` is the undone frame's focal, else the held one)."""
     if held is None:
         return pose
-    if lens.as_registered(camera) is not None:
-        return replace(pose, focal=held.focal * pose.width)
+    configured = lens.as_registered(camera)
+    if configured is not None:
+        return replace(pose, focal=held.focal * pose.width, lens=configured)
     m = np.asarray(pose.pose, dtype=np.float64).reshape(4, 4)
     found = camera_pose(m, held.focal * pose.width, held.division, (pose.width, pose.height), pose.at)
     return replace(found, background=pose.background)

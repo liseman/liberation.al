@@ -1,8 +1,8 @@
-"""Reconstruction output to a plan the floorplan library accepts (part of spatial memory).
+"""Reconstruction output to a plan whose rooms tile (part of spatial memory).
 
-The library (frontend/src/vendor/floorplan) wants rooms that tile the footprint exactly on
-shared wall centrelines: it derives each wall from the edge two rooms share, and puts a door on the wall between the
-two spaces it names. Reconstruction gives rooms as it saw them: a room model's polygons (RoomFormer, SpatialLM) are
+A stored plan (a Pascal scene, spatial/plan_scene.py) has its walls on the edges its rooms share, so the rooms must
+tile the footprint exactly on shared wall centrelines, with each door on the wall between the two spaces either side
+of it. Reconstruction gives rooms as it saw them: a room model's polygons (RoomFormer, SpatialLM) are
 inner faces with a wall's width of gap between neighbours, edges a little skewed, small overlaps, and rooms only
 partly seen; the classical baseline (spatial/floorplan.py) is already on centrelines but can leave gaps. `tile` turns
 either into rooms that tile:
@@ -19,20 +19,18 @@ either into rooms that tile:
    the most wall with. A sliver that shares a wall with none is outside; a leftover piece that shares none stays a gap.
 4. **Gaps.** A gap the rooms enclose (not reaching outside) of up to Settings.absorb_m2 goes to the neighbour it shares
    the most wall with, when it has one; a larger one, or one with no neighbour, is a part nobody has seen (a closed
-   door, an unscanned room). It becomes a `void` named "Not seen yet", which the library accepts as a hole in the
-   floor. The JSON document lists the same areas under `x-unexplored` (`to_document`), the Places tab's not-seen-yet
-   layer (frontend/src/dashboard/places/plan/ext.ts); the DSL writer emits the void lines.
+   door, an unscanned room). It is kept as an area named "Not seen yet" (`Tiled.unexplored`), which `to_scene` writes
+   among the scene's own records for the Places tab to draw.
 5. **Openings.** Each detected door or window goes on the nearest wall between two spaces within Settings.reach,
    named by those two spaces ("exterior" first when one is outside), and is clamped to that wall: its width to the
-   wall's length less the library's CORNER_M clear at each end, and its centre slid inside that, so the library
-   finds no overflow or near-corner opening. One that fits no wall, or opens into a part not seen yet (the library
-   has no floor in a void, so nothing may open into one), is dropped and said so (`Tiled.notes`).
+   wall's length less CORNER_M clear at each end, and its centre slid inside that, so no opening overflows its wall
+   or sits in a corner. One that fits no wall, or opens into a part not seen yet (there is no floor there to open
+   onto), is dropped and said so (`Tiled.notes`).
 
 Everything is in the squared-up frame; `Tiled.angle` is the rotation from the input's (radians, anticlockwise).
 """
 
 import math
-import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -40,11 +38,11 @@ from typing import Any
 import numpy as np
 from scipy import ndimage
 
-from liberational.spatial import floorplan
+from liberational.spatial import floorplan, plan_scene
 
 SQUARE_DEG = 10.0  # an edge this close to an axis is made exactly axis-aligned
 MIN_ROOM_M2 = 1.0  # a room smaller than this after tiling is a sliver, given to a neighbour
-CORNER_M = 0.1  # wall the library wants left at each side of an opening (its opening.near_corner rule)
+CORNER_M = 0.1  # wall left at each side of an opening, so it never sits in a corner
 MIN_OPENING_M = 0.5  # an opening narrower than this after clamping is no opening
 EXTERIOR = "exterior"
 UNSEEN = "Not seen yet"
@@ -236,7 +234,7 @@ Run = tuple[bool, float, float, float, int, int]  # vertical, coord, lo, hi, own
 
 def _wall_runs(owner: np.ndarray, xs: Sequence[float], ys: Sequence[float]) -> list[Run]:
     """Every wall between two different owners as a run along one grid line: (vertical, coord, lo, hi, a, b) with a
-    on the low side. A run ends where either side's owner changes, as the library's derived walls do."""
+    on the low side. A run ends where either side's owner changes, as a wall does."""
     nx, ny = owner.shape
     padded = np.full((nx + 2, ny + 2), OUTSIDE)
     padded[1:-1, 1:-1] = owner
@@ -355,7 +353,7 @@ def _place(
         return f"{o.kind} at {o.at[0]:.2f},{o.at[1]:.2f} is on no wall within {s.reach} m: dropped"
     _, vertical, coord, lo, hi, a, b = best
     if EMPTY in (a, b):
-        # The library has no floor in a void, so nothing may open into one ("schema.reference").
+        # there is no floor in a part not seen yet, so nothing may open into one
         return f"{o.kind} at {o.at[0]:.2f},{o.at[1]:.2f} opens into a part not seen yet: dropped"
     width = min(o.width, hi - lo - 2 * CORNER_M)
     if width < MIN_OPENING_M:
@@ -368,50 +366,6 @@ def _place(
     return Opening(o.kind, (round(point[0], 3), round(point[1], 3)), round(width, 3), between)
 
 
-def to_document(t: Tiled, title: str, s: Settings | None = None) -> dict[str, Any]:
-    """The plan as the library's JSON document, with the not-seen-yet areas as voids and under `x-unexplored`."""
-    s = s or Settings()
-    doc: dict[str, Any] = {
-        "title": title,
-        "walls": {"exterior": s.exterior_wall, "partition": s.partition_wall},
-        "rooms": {
-            r.id: {"name": r.name or r.id, "kind": r.kind, "poly": [[round(x, 3), round(y, 3)] for x, y in r.polygon]}
-            for r in t.rooms
-        },
-        "openings": [
-            {"type": o.kind, "between": list(o.between or ()), "at": list(o.at), "width": o.width} for o in t.openings
-        ],
-    }
-    if t.unexplored:
-        areas = {f"u{i}": [[round(x, 3), round(y, 3)] for x, y in a] for i, a in enumerate(t.unexplored, start=1)}
-        doc["voids"] = {k: {"name": UNSEEN, "poly": v} for k, v in areas.items()}
-        doc["x-unexplored"] = {k: {"name": UNSEEN, "poly": v} for k, v in areas.items()}
-    return doc
-
-
-_ROOM = re.compile(r'^room\s+(\S+)\s+"([^"]*)"\s+(\S+)\s+(rect|poly)\s+(.*)$')
-_OPENING = re.compile(r"^(door|window)\s+(\S+)>(\S+)\s+at\s+(-?[\d.]+),(-?[\d.]+)\s+w([\d.]+)")
-
-
-def read_dsl(text: str) -> tuple[list[Room], list[Opening]]:
-    """The rooms (rect or poly) and the `at`-placed openings of a plan in the line DSL, as spatial/floorplan.py
-    writes it; any other line is skipped."""
-    rooms, openings = [], []
-    for line in text.splitlines():
-        if m := _ROOM.match(line.strip()):
-            numbers = [float(v) for v in re.findall(r"-?[\d.]+", m.group(5).replace("x", " "))]
-            if m.group(4) == "rect":
-                x, y, w, h = numbers[:4]
-                poly: tuple[Point, ...] = ((x, y), (x + w, y), (x + w, y + h), (x, y + h))
-            else:
-                poly = tuple(zip(numbers[0::2], numbers[1::2], strict=True))
-            rooms.append(Room(m.group(1), poly, m.group(2), m.group(3)))
-        elif m := _OPENING.match(line.strip()):
-            between = (m.group(2), m.group(3))
-            openings.append(Opening(m.group(1), (float(m.group(4)), float(m.group(5))), float(m.group(6)), between))
-    return rooms, openings
-
-
 def from_plan(plan: floorplan.Floorplan) -> tuple[list[Room], list[Opening]]:
     """The classical baseline's rooms and openings, as `tile` takes them (with Settings(faces=False): they are
     already on centrelines)."""
@@ -420,32 +374,29 @@ def from_plan(plan: floorplan.Floorplan) -> tuple[list[Room], list[Opening]]:
     return rooms, openings
 
 
-def _num(value: float) -> str:
-    text = f"{value:.3f}".rstrip("0").rstrip(".")
-    return "0" if text in ("-0", "") else text
-
-
-def _shape(poly: Sequence[Point]) -> str:
-    xs, ys = sorted({x for x, _ in poly}), sorted({y for _, y in poly})
-    if len(poly) == 4 and len(xs) == 2 and len(ys) == 2:
-        return f"rect {_num(xs[0])},{_num(ys[0])} {_num(xs[1] - xs[0])}x{_num(ys[1] - ys[0])}"
-    return "poly " + " ".join(f"{_num(x)},{_num(y)}" for x, y in poly)
-
-
-def to_dsl(t: Tiled, title: str, s: Settings | None = None) -> str:
-    """The plan in the library's line DSL: rooms, the not-seen-yet areas as voids, and the openings placed `at` on
-    their walls. `x-unexplored` is the JSON document's (`to_document`); this text writes those areas as `void` lines."""
+def to_scene(t: Tiled, title: str, s: Settings | None = None) -> str:
+    """The plan as a Pascal scene (spatial/plan_scene.py), the format a place's plan is stored in: the rooms as named
+    zones, a wall for each stretch of room edge (exterior where one room has it, a partition where two do), the
+    openings on the walls they were placed on, and the not-seen-yet areas among the scene's own records. An opening
+    that ended up on no wall is left out, with a note."""
     s = s or Settings()
-    name = title.replace('"', "'")
-    lines = [f'plan "{name}" walls {_num(s.exterior_wall)}/{_num(s.partition_wall)}', ""]
-    for r in t.rooms:
-        label = (r.name or r.id).replace('"', "'")
-        lines.append(f'room {r.id} "{label}" {r.kind} {_shape(r.polygon)}')
-    for i, area in enumerate(t.unexplored, start=1):
-        lines.append(f'void u{i} "{UNSEEN}" {_shape(area)}')
-    if t.openings:
-        lines.append("")
+    walls = plan_scene.cut_walls([r.polygon for r in t.rooms], s.exterior_wall, s.partition_wall)
+    openings = []
     for o in t.openings:
-        a, b = o.between or (EXTERIOR, EXTERIOR)
-        lines.append(f"{o.kind} {a}>{b} at {_num(o.at[0])},{_num(o.at[1])} w{_num(o.width)}")
-    return "\n".join(lines) + "\n"
+        if plan_scene.on_a_wall(walls, o.at):
+            openings.append((o.kind, o.at, o.width))
+        else:
+            t.notes.append(f"{o.kind} at {o.at[0]:.2f},{o.at[1]:.2f} is on no wall of the tiled rooms: dropped")
+    records: dict[str, Any] = {"title": title}
+    if t.unexplored:
+        records["unexplored"] = {
+            f"u{i}": {"name": UNSEEN, "poly": [[round(x, 3), round(y, 3)] for x, y in area]}
+            for i, area in enumerate(t.unexplored, start=1)
+        }
+    scene = plan_scene.build(
+        walls=walls,
+        openings=openings,
+        rooms=[(r.id, r.name or r.id, r.kind, r.polygon) for r in t.rooms],
+        records=records,
+    )
+    return plan_scene.dump(scene)

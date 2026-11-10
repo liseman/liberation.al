@@ -140,9 +140,9 @@ GET  /review/summary?start=&end=  what happened over that stretch, as timeline b
                             from the journal at the level that fits the stretch, each line plain and never first
                             person; 400 for a bad range (at most 31 days). ?day=YYYY-MM-DD instead uses the recording
                             timezone's midnight-to-midnight bounds, including 23/25-hour clock-change days.
-GET  /places                 Known › Places' places (dashboard/places.py): {places: [{id, name, named, plan (DSL),
+GET  /places                 Known › Places' places (dashboard/places.py): {places: [{id, name, named, plan (a scene),
                             plan_source, machine_newer, revision, last_visit}]}; a page load with text/html gets the app
-POST /places/plan            {place, plan}: the owner's corrected plan (DSL) as taught state, or "" to withdraw it; a teaching write, so it follows dashboard.remote_teaching; {ok, plan, plan_source}
+POST /places/plan            {place, plan}: the owner's plan (a scene) as taught state, or "" to withdraw it; a teaching write, so it follows dashboard.remote_teaching; {ok, plan, plan_source}
 GET  /places/plan/history?place=  the place's owner plans, oldest first ({id, at, rooms, source, withdrawn}), and
                             `previous`, the one Revert plan puts back (or null)
 POST /places/plan/restore    {place, record}: make that earlier owner plan hold again, as a new record (Revert plan);

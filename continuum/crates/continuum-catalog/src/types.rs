@@ -708,3 +708,56 @@ pub fn normalize_dependencies(deps: &[Dependency]) -> Result<Vec<Dependency>> {
     }
     Ok(out)
 }
+
+/// One non-cut payload's durable copies in Tiers 1 and 2, for [`AvailabilitySnapshot`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AvailabilityCopy {
+    /// The payload's covered span (`Interval::covering`).
+    pub span: Interval,
+    /// Order among payloads of the same stream with the same start (`PayloadHeader::seq`).
+    pub seq: u32,
+    /// Copies in `StorageTier::Tier1Warm` (0 or 1).
+    pub warm: u8,
+    /// Copies in `StorageTier::Tier2Cold` (0 or 1).
+    pub cold: u8,
+}
+
+/// A chunk with cut frames whose availability needs cut-slot subtraction during startup reconstruction.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AvailabilityCutChunk {
+    /// The chunk id.
+    pub id: Uuid,
+    /// Its stream.
+    pub stream: StreamId,
+    /// Its covered span.
+    pub span: Interval,
+    /// Order among payloads of the same stream with the same start (`PayloadHeader::seq`).
+    pub seq: u32,
+    /// Durable tiers holding a copy (excluding `StorageTier::Tier0Hot`).
+    pub tiers: Vec<StorageTier>,
+    /// Cut frame slots for this chunk.
+    pub cut_slots: Vec<Interval>,
+}
+
+/// Everything the broker's availability index needs from one atomic catalog snapshot.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct AvailabilitySnapshot {
+    /// Registered streams in id order.
+    pub streams: Vec<(StreamId, StreamInfo)>,
+    /// Visible payloads with a valid span.
+    pub payloads: usize,
+    /// Durable Tier 1 and Tier 2 copies per stream, indexed in the same order as `streams`.
+    pub stream_copies: Vec<Vec<AvailabilityCopy>>,
+    /// Chunks with cut frames, in id order.
+    pub cut_chunks: Vec<AvailabilityCutChunk>,
+    /// Visible payloads that still hold an obsolete `StorageTier::Tier0Hot` locator, in id order.
+    pub stale_tier0: Vec<Uuid>,
+    /// Stage coverage per `(source, stage)`, in key order.
+    pub coverage: Vec<((StreamId, StageId), crate::CoverageSet)>,
+    /// Time spent reading stream metadata.
+    pub stream_reads: std::time::Duration,
+    /// Time spent scanning payloads, locations, chunks, and doomed rows.
+    pub payload_reads: std::time::Duration,
+    /// Time spent scanning stage coverage.
+    pub coverage_reads: std::time::Duration,
+}

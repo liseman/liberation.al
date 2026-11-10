@@ -1,7 +1,7 @@
 """A camera's pose from the spot the owner gave it on the plan (part of spatial memory).
 
-The owner's plan of a place can hold each fixed camera's spot: `x-camera <camera> at x,y [height m] [yaw deg]
-[fov deg]` (spatial/plan_import.py reads them). A spot is taught state, and it is enough to place the people that
+The owner's plan of a place can hold each fixed camera's spot: where it is, with its height, its facing, and its
+field of view when the owner gave them (spatial/plan_scene.py holds them; spatial/plan_import.py reads them). A spot is taught state, and it is enough to place the people that
 camera sees on the plan's floor with no map at all: where the camera is, how high, and which way it faces come from
 the spot, its focal and lens are the held ones (spatial/lens.py `held`; the spot's `fov` when none is held), and the
 one thing a spot doesn't say, how far the camera is tilted, is worked out from the people it sees (`aim`).
@@ -61,6 +61,7 @@ from liberational.spatial import cameras, footprints, lens, plan_import
 LOG = logs.get("spatial-spots")
 
 AIMS = "aims.json"  # under the places folder: each camera's fitted aim
+REFINED = "refined.json"  # under the places folder: each camera's plan check of its spot, and any refinement in bound
 FLOOR = (0.0, 0.0, 1.0, 0.0)  # the plan's floor in the plan's own frame: height is the third axis
 PLAN = (1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0)  # and its map-to-plan transform: the identity
 MISSING = ("height", "facing", "lens", "tilt", "check")
@@ -122,6 +123,7 @@ class Spot:
     pose: places.CameraPose | None  # camera to plan (x, y, height above the floor); None while something is missing
     missing: tuple[str, ...]
     aim: Aim | None = None
+    refined: places.CameraPose | None = None  # a map's within-bound refinement of `pose`, when `pose` still matches
 
 
 def aims(state: Path) -> dict[str, Aim]:
@@ -151,19 +153,88 @@ def save_aims(state: Path, found: Mapping[str, Aim]) -> None:
     json_state.write(folder / AIMS, {c: asdict(a) for c, a in found.items()}, indent=1, sort_keys=True)
 
 
+def refined_poses(state: Path) -> dict[str, dict[str, Any]]:
+    """Every camera's stored within-bound spot refinement (`REFINED`); {} before any."""
+    raw = json_state.read(places.root(state) / REFINED, {}) or {}
+    if not isinstance(raw, dict):
+        return {}
+    out: dict[str, dict[str, Any]] = {}
+    for camera, row in raw.items():
+        try:
+            spot_p = tuple(float(v) for v in row["spot"])
+            pose_p = tuple(float(v) for v in row["pose"])
+            if len(spot_p) == 16 and len(pose_p) == 16:
+                out[str(camera)] = {
+                    "spot": spot_p,
+                    "pose": pose_p,
+                    "at": float(row["at"]),
+                    "basis": row.get("basis") if isinstance(row.get("basis"), str) else None,
+                    "check": row.get("check") if isinstance(row.get("check"), dict) else None,
+                }
+        except KeyError, TypeError, ValueError:
+            continue
+    return out
+
+
+def save_refined(
+    state: Path,
+    camera: str,
+    spot_pose: Sequence[float],
+    refined_pose: Sequence[float] | None,
+    now: float,
+    basis: str | None = None,
+    check: Mapping[str, Any] | None = None,
+) -> None:
+    """Save or clear `camera`'s refined pose against `spot_pose`, refusing anything outside `within_bounds`. With a
+    `check` (`spot_check.SpotCheck.as_dict`) and the `basis` it was made on, the row is kept even when nothing was
+    refined, so later views of the camera reuse the check instead of searching again."""
+    folder = places.root(state)
+    stored = {
+        c: {k: (list(v) if k in ("spot", "pose") else v) for k, v in r.items() if v is not None}
+        for c, r in refined_poses(state).items()
+    }
+    pose = list(spot_pose) if refined_pose is None else list(refined_pose)
+    if check is None and np.allclose(spot_pose, pose, atol=1e-6):
+        if camera not in stored:
+            return
+        del stored[camera]
+    else:
+        base = places.CameraPose(tuple(float(x) for x in spot_pose), 1.0, 1, 1)
+        cand = places.CameraPose(tuple(float(x) for x in pose), 1.0, 1, 1)
+        if not within_bounds(base, cand):
+            return
+        row: dict[str, Any] = {
+            "spot": [float(x) for x in spot_pose],
+            "pose": [float(x) for x in pose],
+            "at": float(now),
+        }
+        if check is not None:
+            row["check"] = dict(check)
+            if basis is not None:
+                row["basis"] = basis
+        stored[camera] = row
+    folder.mkdir(parents=True, exist_ok=True)
+    json_state.write(folder / REFINED, stored, indent=1, sort_keys=True)
+
+
 def _intrinsics(camera: str, fov: float | None, held: lens.Held | None, width: int, height: int) -> places.CameraPose:
-    """A camera's rays, as a pose at the origin: its held focal and lens (`cameras.with_held`), else a pinhole of the
-    spot's `fov`. The caller has checked one of the two is there."""
+    """A camera's rays, as a pose at the origin: its held focal and lens (`cameras.with_held`), else the spot's `fov`
+    as the focal, with the camera's configured lens when it has one (`lens.as_registered`: the `fov` is then the
+    undone frame's, as the map takes it). The caller has checked one of the two is there."""
     blank = places.CameraPose(tuple(float(x) for x in np.eye(4).ravel()), float(width), width, height)
     if held is not None:
         return cameras.with_held(camera, blank, held)
-    return replace(blank, focal=width / (2 * math.tan(math.radians(fov or 90.0) / 2)))
+    focal = width / (2 * math.tan(math.radians(fov or 90.0) / 2))
+    return replace(blank, focal=focal, lens=lens.as_registered(camera))
 
 
 def _basis(spot: plan_import.Camera, held: lens.Held | None) -> str:
-    """What an aim depends on besides the pictures: the spot's height and `fov`, and the held focal and lens."""
+    """What an aim depends on besides the pictures: the spot's height and `fov`, the camera's configured lens when it
+    has one, and the held focal and lens."""
+    configured = lens.as_registered(spot.id)
+    own = "" if configured is None else "/".join(f"{v:.5f}" for v in configured)
     lensed = "" if held is None else f"{held.focal:.5f}/{held.division:.5f}"
-    return f"{spot.height}|{spot.fov}|{lensed}"
+    return f"{spot.height}|{spot.fov}|{lensed}" + (f"|{own}" if own else "")
 
 
 def rays(cam: places.CameraPose, uv: np.ndarray) -> np.ndarray:
@@ -378,6 +449,7 @@ def read(state: Path, found: Mapping[str, Aim] | None = None) -> dict[str, Spot]
     plan's frame or what it lacks for one. `found` are the aims to use in place of the stored ones (a dry run's). A
     camera with spots on two places' plans is read at the plan saved last."""
     fitted = aims(state) if found is None else found
+    stored_refined = refined_poses(state) if found is None else {}
     intrinsics = lens.held(state)
     out: dict[str, Spot] = {}
     for held in places.places(state):
@@ -403,9 +475,19 @@ def read(state: Path, found: Mapping[str, Aim] | None = None) -> dict[str, Spot]
             if aimed is not None and not missing and matrix is None:
                 missing.append("facing")  # it looks straight down: a yaw says nothing of which way is up the frame
             posed = None
+            refined = None
             if matrix is not None and aimed is not None:
                 shape = _intrinsics(spot.id, spot.fov, own, aimed.width, aimed.height)
                 posed = replace(shape, pose=matrix, at=aimed.at)
+                row = stored_refined.get(spot.id)
+                if (
+                    row is not None
+                    and np.allclose(row["spot"], matrix, atol=1e-6)
+                    and not np.allclose(row["pose"], matrix, atol=1e-6)
+                ):
+                    cand = replace(posed, pose=row["pose"], at=row["at"])
+                    if within_bounds(posed, cand):
+                        refined = cand
             out[spot.id] = Spot(
                 spot.id,
                 held.id,
@@ -418,6 +500,7 @@ def read(state: Path, found: Mapping[str, Aim] | None = None) -> dict[str, Spot]
                 posed,
                 tuple(missing),
                 aimed,
+                refined,
             )
     return out
 
@@ -475,9 +558,10 @@ def fit(state: Path, now: float, sizes: Sizes | None = None, save: bool = True) 
 
 def overlay(rev: places.Revision, found: Mapping[str, Spot]) -> places.Revision:
     """`rev` as the placer reads it: when it's the revision an owner plan with spots is drawn in, each posed spot's
-    camera is in it at the spot's pose, over any registration a map gave that camera, and a revision with no floor
-    of its own takes the plan's (`FLOOR`, `PLAN`). The pose is moved from the plan's frame into the revision's map
-    frame through its map-to-plan transform, so the usual geometry (`places.project`) lands it back on the plan."""
+    camera is in it at the spot's pose (or its within-bound refinement `Spot.refined`), over any registration a map
+    gave that camera, and a revision with no floor of its own takes the plan's (`FLOOR`, `PLAN`). The pose is moved
+    from the plan's frame into the revision's map frame through its map-to-plan transform, so the usual geometry
+    (`places.project`) lands it back on the plan."""
     mine = {c: s for c, s in found.items() if s.place == rev.place and s.revision == rev.id}
     if not mine:
         return rev
@@ -488,9 +572,10 @@ def overlay(rev: places.Revision, found: Mapping[str, Spot]) -> places.Revision:
     to_map = np.linalg.inv(to_plan)
     held = {c: p for c, p in rev.cameras.items() if c not in mine}  # a spot outranks a map's registration
     for camera, spot in mine.items():
-        if spot.pose is not None:
-            moved = to_map @ np.asarray(spot.pose.pose, dtype=np.float64).reshape(4, 4)
-            held[camera] = replace(spot.pose, pose=tuple(float(x) for x in moved.ravel()))
+        chosen = spot.refined or spot.pose
+        if chosen is not None:
+            moved = to_map @ np.asarray(chosen.pose, dtype=np.float64).reshape(4, 4)
+            held[camera] = replace(chosen, pose=tuple(float(x) for x in moved.ravel()))
     return replace(rev, cameras=held, floor=floor, plan_transform=plan)
 
 

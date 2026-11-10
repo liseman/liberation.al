@@ -4,13 +4,16 @@ import json
 
 import pytest
 
+import plans
 from liberational import segment_log as S
 from liberational.memory import places
 from liberational.spatial import positions, reset
 
 T = 1_800_000_000.0
-PLAN = 'plan "Home" walls 0.2/0.1\nroom den "Den" other rect 0,0 4x3\n'
-OWNER_PLAN = 'plan "Home" walls 0.2/0.1\nroom den "Den" other rect 0,0 4x3\nroom hall "Hall" hall rect 4,0 2x3\n'
+PLAN = plans.scene('plan "Home" walls 0.2/0.1\nroom den "Den" other rect 0,0 4x3\n')
+OWNER_PLAN = plans.scene(
+    'plan "Home" walls 0.2/0.1\nroom den "Den" other rect 0,0 4x3\nroom hall "Hall" hall rect 4,0 2x3\n'
+)
 LEVEL = (1.0, 0, 0, 0, 0, 0, 1.0, 0, 0, -1.0, 0, 2.0, 0, 0, 0, 1.0)
 CAM = places.CameraPose(LEVEL, 300.0, 640, 360, T)
 

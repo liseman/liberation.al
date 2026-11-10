@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 import numpy as np
 import pytest
 
-from liberational.spatial import cameras, floorplan, rig
+from liberational.spatial import cameras, floorplan, plan_import, rig
 from liberational.spatial.mast3r_runner import (
     floor_from_normals,
     groups,
@@ -209,7 +209,7 @@ def test_a_frames_light_is_its_mean_brightness_and_channel_spread():
 
 def test_a_place_plan_goes_through_the_tiling_converter(monkeypatch):
     # The baseline found a door between two rooms wider than the 1.2 m wall they share; the plan the place gets is
-    # clamped to it, so the library takes it as it is.
+    # clamped to it, and written as a scene.
     rooms = (
         floorplan.Room("r1", ((0.0, 0.0), (4.0, 0.0), (4.0, 3.0), (0.0, 3.0))),
         floorplan.Room("r2", ((4.0, 0.0), (6.0, 0.0), (6.0, 1.2), (4.0, 1.2))),
@@ -219,7 +219,9 @@ def test_a_place_plan_goes_through_the_tiling_converter(monkeypatch):
     found = floorplan.Floorplan(rooms, (door,), np.eye(3, 4))
     monkeypatch.setattr(cameras.floorplan, "floorplan", lambda *a, **k: found)
     out = cameras.layout(room(), (0.0, -1.0, 0.0), "Den")
-    assert out.plan is not None and "door r1>r2 at 4,0.6 w1\n" in out.plan
+    assert out.plan is not None
+    (found_door,) = plan_import.parse(out.plan).openings
+    assert (found_door.kind, found_door.at, found_door.width) == ("door", pytest.approx((4.0, 0.6)), 1.0)
     assert out.transform == pytest.approx(np.eye(3, 4).ravel().tolist(), abs=1e-12)  # axis-aligned: no turn
 
 

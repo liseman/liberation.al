@@ -1,6 +1,7 @@
 """Spatial memory (goal #1): point clouds of indoor places and the floorplans derived from them.
 
-`floorplan` is the classical baseline: a point cloud to room polygons and openings, and its own DSL.
+`floorplan` is the classical baseline: a point cloud to room polygons and openings. `plan_scene` is a place's plan
+as it is stored (a Pascal scene), and `plan_import` the shapes the fitting code reads it into.
 `tiling` is what the writers run a plan through before saving it, so the rooms tile on shared centrelines.
 `ply` reads and writes the clouds. `cameras` is what the jobs that work from recorded frames share: reading and
 scoring frames, finding people in them, and running MASt3R, which runs in its own runtime through `mast3r_runner`.

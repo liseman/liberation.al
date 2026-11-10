@@ -90,15 +90,6 @@ it('ranges the colours over the middle of the heights, so a few strays do not fl
   expect(robustRange([])).toEqual([0, 1]);
 });
 
-it("outlines the plan's rooms in the map frame, just above the floor", () => {
-  const rings = planOutline('plan "Home" walls 0.2/0.1\nroom den "Den" living rect 0,0 2x1\n', TURN, 0.05);
-  expect(rings).toHaveLength(1);
-  const { toPlan } = planFrame(TURN);
-  const back = (rings[0] ?? []).map(p => toPlan(p).map(x => Math.round(x * 1000) / 1000));
-  expect(back.map(p => p[2])).toEqual(back.map(() => 0.05));
-  expect(new Set(back.map(p => `${p[0]},${p[1]}`))).toEqual(new Set(['0,0', '2,0', '2,1', '0,1']));
-});
-
 /** A two-point binary PLY as spatial/ply.py writes it: positions, colours, and a count the loader ignores. */
 function ply(): ArrayBuffer {
   const header =
@@ -352,27 +343,9 @@ it("turns the map so its floor's up is the viewer's up, by the smallest turn", (
 });
 
 // A two-room plan, 4 m by 3 m each, side by side, with a door in the wall between them.
-const TWO_ROOMS = [
-  'plan "Home" walls 0.2/0.1',
-  'room a "A" living rect 0,0 4x3',
-  'room b "B" living rect 4,0 4x3',
-  'door a>b w0.9',
-].join('\n');
 const IDENTITY = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0];
 
-it("stops a walk at the plan's walls and lets it through their doorways", () => {
-  const walls = planWalls(TWO_ROOMS, IDENTITY);
-  const length = ([a, b]: [V3, V3]) => Math.hypot(b[0] - a[0], b[1] - a[1]);
-  // the wall between the rooms (x = 4, 3 m long) is two pieces with a 0.9 m gap between them
-  const between = walls.filter(([a, b]) => Math.abs(a[0] - 4) < 1e-6 && Math.abs(b[0] - 4) < 1e-6);
-  expect(between).toHaveLength(2);
-  expect(between.reduce((sum, w) => sum + length(w), 0)).toBeCloseTo(3 - 0.9, 6);
-  // the outside walls are whole: the two rooms' outline is 8 + 3 + 8 + 3 m
-  const outside = walls.filter(w => !between.includes(w));
-  expect(outside.reduce((sum, w) => sum + length(w), 0)).toBeCloseTo(22, 6);
-});
-
-it('outlines a plan stored as a scene and stops a walk at its walls, with its doorways open and its windows shut', () => {
+it("outlines a plan's rooms and stops a walk at its walls, with its doorways open and its windows shut", () => {
   const scene = JSON.stringify(
     buildScene({
       height: 2.4,
@@ -416,6 +389,7 @@ it('outlines a plan stored as a scene and stops a walk at its walls, with its do
     [4, 1.45, 4, 2],
   ]);
   expect(() => planOutline('{"nodes": 3}', IDENTITY)).toThrow('the plan is not a scene');
+  expect(() => planWalls('plan "Home" walls 0.2/0.1', IDENTITY)).toThrow(); // the old format is not read
 });
 
 it('builds the walk a floor to stand on and walls with two faces', () => {

@@ -18,7 +18,7 @@ A place is an indoor place, such as a home. The machine's view of it is a chain 
 |---|---|
 | `<revision>.json` | Producer, source visits, identifying signals, the floor plane, the map-to-plan transform, and each registered fixed camera's pose |
 | `<revision>.map` | The point cloud (binary PLY) |
-| `<revision>.plan` | A machine-made plan, in the floorplan DSL |
+| `<revision>.plan` | A machine-made plan: a scene, as the plan editor loads and saves it (`spatial/plan_scene.py`) |
 | `<revision>.gs.ply`, `<revision>.sog` | A Gaussian splat of the map and its copy for the 3D view |
 
 A revision that changes only the floor, the cameras, or the transform points at the earlier map. The newest two maps
@@ -26,7 +26,7 @@ and splats are kept; plans and revision records stay.
 
 All of that is an interpretation, so it can be deleted and made again. What the owner taught is in the knowledge store
 and supersedes it without changing it: a place's name (`place.named`), its plan (`place.plan`, with every earlier
-version; floorplan DSL text, or a scene saved from the page's Editor view, `spatial/plan_scene.py`), and each camera's
+version: a scene saved from the plan editor), and each camera's
 held focal and lens. While a place has an owner's plan, that is its only plan: the Places page, the 3D view, and the
 position layer use it and no machine plan stands in for it.
 
@@ -69,6 +69,13 @@ out at the plan's floor, and the depth is scaled to put it there, since the heig
 model's metres are not. A scale outside 0.75 to 1.35 refuses the view. A place with such a view stands in its
 plan's frame from then on, and a map learned earlier in a frame of its own is started again there.
 
+**A spot is checked against the plan, once** (`spatial/spot_check.py`). A view's depth is too rough to measure a spot
+by how near its points fall to the plan's walls, so the check uses what the picture and the plan agree on whatever
+the depth's scale: the directions straight edges vanish in, a floor that is flat and at the plan's level, rays that
+must not pass through a solid wall, the plan's wall-floor lines and door jambs drawn into the picture, and walls
+that face into the room. A fixed camera's views all stand at one pose, so the search runs once for a spot and its
+result is kept (`state/places/refined.json`) until the spot, the plan, or the camera's lens or focal changes.
+
 **A frame nothing places is parked.** It stays kept, with the reason: its view overlaps nothing in a map and its
 camera has no spot, the spot lacks something, or its floor doesn't fit the plan's. A step for it would find what the
 last one found, so none starts until a map gains a view or the camera's spot changes. After a day it is dropped and
@@ -81,17 +88,20 @@ the camera's next frame takes its place.
 `position.path`: who or what, place, room, coordinates, time, confidence, and source. A camera's pose comes from one
 of two things:
 
-- **The owner's spot on the plan** (`spatial/spots.py`). A plan's `x-camera <camera> at x,y height <m> yaw <deg>`
-  line says where the camera is, how high, and which way it faces. With the camera's held focal and lens (or the
-  spot's `fov`) that is a pose in the plan's own frame, and its foot points land on the plan with no map at all. The
+- **The owner's spot on the plan** (`spatial/spots.py`). A camera's spot, set in the plan editor and kept in the
+  plan's scene, says where the camera is, how high, and which way it faces. With the camera's held focal and lens (or
+  the spot's `fov`) that is a pose in the plan's own frame, and its foot points land on the plan with no map at all. The
   one thing a spot doesn't say is how far the camera is tilted. That is fitted once per camera from the people it
   sees walking: someone walking is upright and as tall at the far end of the room as at the near end, and only one
   tilt makes them so. Nobody's height is assumed, and people sitting don't count. The fit is checked against the
   spot's height (people must come out a person's height) and kept in `state/places/aims.json`.
 - **A map's registration** (a revision's `cameras`), for a camera with no spot.
 
-The owner measured the spot, so it outranks the map: a map may refine a spot's pose only within 0.3 m and 5 degrees,
-and past that the spot holds and the disagreement is logged. A camera with neither places nobody, and no position is
+The owner measured the spot, so it outranks what the machine works out. The check above may refine the pose a spot
+gives only within 0.3 m and 5 degrees, and it keeps that refinement beside the spot, which is never rewritten. When
+the view fits the plan clearly better beyond that bound, nothing is applied: the spot holds, and the Places page
+suggests checking it, with how far off the view wants to sit. A lens in the device manifest is part of the pose, so
+a changed lens calibration has the tilt fitted again. A camera with neither places nobody, and no position is
 guessed: the placer and the Places page say what each camera lacks.
 
 **A learned map's floor and fixed cameras** (`spatial/surroundings_positions.py`). A map founded on a camera frame
@@ -133,9 +143,8 @@ is read at the pose its revision holds).
 
 ## Hand tools
 
-`tools/import_owner_plan.py` registers an owner-supplied floorplan into a place's map and saves it as the owner
-plan. `tools/calibrate_lens.py` and `tools/calibrate_fisheye.py` calibrate a camera's lens. Each prints what it found
-and writes only with `--write`; their docstrings have the options.
+`tools/calibrate_lens.py` and `tools/calibrate_fisheye.py` calibrate a camera's lens. Each prints what it found and
+writes only with `--write`; their docstrings have the options, and [Cameras](CAMERAS.md) has the steps.
 
 ## Model runtimes
 
