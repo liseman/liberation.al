@@ -741,6 +741,7 @@ def test_a_stray_walk_gets_a_splat_in_its_maps_frame_and_cameras_to_look_from(tm
     assert len(looks) == min(splats.LOOK_FROM, did["frames"])
     (job,) = jobs
     assert len(job["views"]) == did["frames"] and job["reg"] == 0.0
+    assert job["bound"] is True, "held inside the map's box: no regularizers to keep it there (#43)"
     view = job["views"][0]
     assert (view["width"], view["height"]) == (stray_fake.RGB[1], stray_fake.RGB[0]), "the upright frame's size"
     assert (view["cx"], view["cy"]) == pytest.approx((stray_fake.RGB[1] - 1 - stray_fake.K[1, 2], stray_fake.K[0, 2]))

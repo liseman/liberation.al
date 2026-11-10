@@ -14,16 +14,29 @@ optionally "mask": a PNG the same size whose white pixels (a camera's burned-in 
 out of the loss), `init` (an npz of `points`, N x 3 float32 metres, and `colors`, N x 3 uint8: the Gaussians' starting
 centres and colours), `steps`, `cap` (the most Gaussians), `sh_degree`, `out` (a directory), and optionally
 `holdout` (indices into `views` scored but not trained on, for measuring) and `reg` (the opacity and scale
-regularizers' weight, REG_WEIGHT by default: a walkthrough's many views train better without them, #2877).
+regularizers' weight, REG_WEIGHT by default: a walkthrough's many views train better without them, #2877), and
+`bound` (true to keep the Gaussians inside the start points' box, #43).
 
 The training is the minimal trainer measured on #2877 (on gsplat's `rasterization`): gsplat's MCMC
 strategy with a capped Gaussian count, an L1 plus 0.2 SSIM loss with small opacity and scale regularizers (none for a
 walk: `reg`), and SH
 degree raised one band every 1,000 steps. The poses are taken as they are (no pose refinement yet).
 
+**Bounds** (`bound`, #43): a walk trains without the regularizers, and its views look out of windows and through
+open doors, so nothing stops a Gaussian from sliding outward to paint what's far away: one LiDAR walk's splat had
+32% of its opaque Gaussians outside the place's box, out to 1.9 km, a smear of streaks in the 3D view. With
+`bound`, the box is the start points' (`BOX_PERCENTILE` to 100 minus it on each axis, so a few stray map points
+don't widen it), grown by `BOX_PAD` of its size on every side. Every `BOUND_EVERY` steps a Gaussian outside it is
+made transparent, which the MCMC strategy reads as dead and relocates onto a live one in the scene while it still
+refines; every step a Gaussian's scale is held under `MAX_SCALE` of the box's diagonal. At the end the Gaussians
+outside the box, and the transparent ones, are dropped. What's beyond the box is painted on its edge, not left
+out: the views still match.
+
 The answer is `out/splat.ply` (the standard 3DGS PLY: x, y, z, nx, ny, nz, f_dc_0..2, f_rest_* channel by channel,
 opacity as a logit, log scales, and a w, x, y, z rotation) and `out/result.json`: {"seconds", "peak_vram_gib",
-"gaussians", "init_points", "train_views", "train_psnr", "test_psnr" (null without a holdout), "gpu"}.
+"gaussians", "init_points", "train_views", "train_psnr", "test_psnr" (null without a holdout), "dropped" (Gaussians
+dropped at the end for being outside the box or transparent, 0 without `bound`), "scale_p99" (the 99th percentile
+of the Gaussians' largest scale), "gpu"}.
 """
 
 from __future__ import annotations
@@ -42,6 +55,11 @@ INIT_OPACITY = 0.1
 LR = {"scales": 5e-3, "quats": 1e-3, "opacities": 5e-2, "sh0": 2.5e-3, "shN": 2.5e-3 / 20}
 MEANS_LR = 1.6e-4  # times the scene's extent, decaying to 1% over the run
 CDIST_FLOATS = 2**26  # 256 MiB of float32 distances per chunk when the start points' scales are measured
+BOX_PERCENTILE = 0.5  # the box (`bound`) spans these percentiles of the start points on each axis...
+BOX_PAD = 0.1  # ...grown by this much of its size on every side
+BOUND_EVERY = 100  # steps between sending escaped Gaussians back (MCMC relocates every 100 steps)
+MAX_SCALE = 0.03  # of the box's diagonal: a Gaussian's largest axis (a 18 m home: about half a metre)
+DEAD_OPACITY = 0.005  # gsplat's MCMC `min_opacity`: at or under it a Gaussian is relocated, and dropped at the end
 
 
 def main(argv: Sequence[str]) -> int:
@@ -104,6 +122,20 @@ def main(argv: Sequence[str]) -> int:
         near.append((d**2).mean(1).sqrt() if d.shape[1] else torch.ones(len(d), device=dev))
     dist = torch.cat(near).clamp_min(1e-4)
     del p_t
+    bound = bool(job.get("bound", False))
+    lo, hi = np.percentile(pts, BOX_PERCENTILE, axis=0), np.percentile(pts, 100 - BOX_PERCENTILE, axis=0)
+    pad = BOX_PAD * (hi - lo)
+    box_lo = torch.tensor(lo - pad, dtype=torch.float32, device=dev)
+    box_hi = torch.tensor(hi + pad, dtype=torch.float32, device=dev)
+    max_log_scale = float(np.log(MAX_SCALE * np.linalg.norm(hi - lo + 2 * pad)))
+    if bound:
+        dist = dist.clamp_max(float(np.exp(max_log_scale)))
+
+    def outside() -> Any:
+        """Which Gaussians are outside the box."""
+        m = params["means"]
+        return ((m < box_lo) | (m > box_hi)).any(dim=1)
+
     n, k_sh = len(pts), (sh_degree + 1) ** 2
     params = torch.nn.ParameterDict(
         {
@@ -175,6 +207,11 @@ def main(argv: Sequence[str]) -> int:
             opt.zero_grad(set_to_none=True)
         optimizers["means"].param_groups[0]["lr"] *= decay
         strategy.step_post_backward(params, optimizers, state, step, info, lr=optimizers["means"].param_groups[0]["lr"])
+        if bound:
+            with torch.no_grad():
+                params["scales"].clamp_(max=max_log_scale)
+                if step % BOUND_EVERY == BOUND_EVERY - 1:
+                    params["opacities"][outside()] = float(np.log(DEAD_OPACITY / 2 / (1 - DEAD_OPACITY / 2)))
     torch.cuda.synchronize()
     seconds = time.perf_counter() - began
 
@@ -185,6 +222,13 @@ def main(argv: Sequence[str]) -> int:
             scores = [float(-10 * torch.log10(((render(v, sh_degree)[0] - truth(v)) ** 2).mean())) for v in group]
         return round(sum(scores) / len(scores), 2)
 
+    dropped = 0
+    if bound:
+        with torch.no_grad():
+            keep = ~outside() & (torch.sigmoid(params["opacities"]) > DEAD_OPACITY)
+        dropped = int((~keep).sum())
+        for k in list(params.keys()):
+            params[k] = torch.nn.Parameter(params[k].detach()[keep])
     m = len(params["means"])
     sh_rest = params["shN"].detach().transpose(1, 2).reshape(m, -1)  # channel by channel, as the 3DGS PLY has it
     cols = [
@@ -211,6 +255,8 @@ def main(argv: Sequence[str]) -> int:
         "train_views": len(train),
         "train_psnr": psnr(train),
         "test_psnr": psnr(test),
+        "dropped": dropped,
+        "scale_p99": round(float(torch.quantile(torch.exp(params["scales"].detach()).max(1).values, 0.99)), 4),
         "gpu": torch.cuda.get_device_name(),
     }
     (out / "result.json").write_text(json.dumps(result))

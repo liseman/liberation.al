@@ -32,7 +32,8 @@ sees.
 **A Stray Scanner walkthrough** (`splat_walk`) gets its splat when it's imported: `pack-walkthrough` calls it once the
 walk's revision is written and fused (spatial/walkthrough.py `run_stray`). Every saved frame trains, at its ARKit pose
 and the phone's own intrinsics, starting from the revision's map points: `WALK_STEPS` steps, at most `WALK_GAUSSIANS`,
-and no opacity or scale regularizers. The walk registers `LOOK_FROM` of its frames as cameras (`look_from`, named
+and no opacity or scale regularizers, so the Gaussians are held inside the map's box and under a size instead
+(spatial/splat_runner.py `bound`, #43: without it one walk's splat streaked out to 1.9 km). The walk registers `LOOK_FROM` of its frames as cameras (`look_from`, named
 `walk-...`), for the 3D view to look from; tier 1 moves them with the walk's cloud into the fused map's frame, and the
 move they show (`carried`) brings every frame's pose along. The daily fixed-camera splat leaves those cameras out. A
 walk filmed with CUT3R's poses gets no splat: on #2877 its poses didn't agree across the walk well enough for one.
@@ -430,6 +431,7 @@ def splat_walk(
                         "sh_degree": SH_DEGREE,
                         "out": str(folder),
                         "reg": 0.0,
+                        "bound": True,
                     }
                 )
             )
@@ -448,6 +450,8 @@ def splat_walk(
         "views": len(views),
         "start_points": len(pts),
         "gaussians": result.get("gaussians"),
+        "dropped": result.get("dropped"),
+        "scale_p99": result.get("scale_p99"),
         "train_psnr": result.get("train_psnr"),
         "seconds": result.get("seconds"),
         "peak_vram_gib": result.get("peak_vram_gib"),
