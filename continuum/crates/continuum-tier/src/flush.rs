@@ -165,6 +165,21 @@ pub struct Closed {
     /// What capture attested about each frame, in `chunk.frames` order ([`Flusher::attest`]); `None` when no
     /// frame's producer said, or for a chunk recovered from its file, which doesn't keep it.
     pub provenance: Option<continuum_catalog::ChunkProvenance>,
+    /// These records start before the chunk's last committed frame ([`steps_back`]): the catalog would refuse
+    /// them as a part, so they go to a chunk of their own instead. Never set for a whole chunk.
+    pub stepped_back: bool,
+}
+
+/// Whether a chunk's records from `committed` on start before the latest of the ones before them: the stream's
+/// times went back since the chunk's last part (capture started a network camera's clock fit over, say). The
+/// catalog keeps a chunk's frame index in time order across parts, so it refuses such a part for good. B-frames
+/// don't do this: they reorder inside a GOP, and a part is cut only before a keyframe.
+#[must_use]
+pub fn steps_back(records: &[Record], committed: usize) -> bool {
+    let committed = committed.min(records.len());
+    let latest = records[..committed].iter().map(|r| r.start_ns).max();
+    let earliest = records[committed..].iter().map(|r| r.start_ns).min();
+    latest.zip(earliest).is_some_and(|(latest, earliest)| earliest < latest)
 }
 
 impl Closed {
@@ -316,7 +331,7 @@ impl Flusher {
     }
 
     /// Appends a payload to its stream's chunk, opening one if needed and first closing one that is past its time,
-    /// full, or ahead of this payload in time. Returns the record and the chunk closed on the way, if any. The
+    /// full, ahead of this payload in time, or due a part its records since the last one can't be ([`steps_back`]). Returns the record and the chunk closed on the way, if any. The
     /// payload is in the file but not yet durable: its slot stays unflushed until [`Flusher::sync_due`] or a close
     /// reports its id.
     ///
@@ -343,7 +358,10 @@ impl Flusher {
                 .is_some_and(|every| now_ns.saturating_sub(open.part_ns) >= every)
                 && p.key
                 && open.writer.records().len() > open.committed;
-            if aged || full || backwards {
+            // The records since the last part start before it: no part of this chunk can take them. The chunk
+            // closes here, on a keyframe, and the worker moves them to a chunk of their own.
+            let stepped = part && steps_back(open.writer.records(), open.committed);
+            if aged || full || backwards || stepped {
                 closed = self.close_stream(p.stream)?;
             } else if part {
                 closed = Some(self.cut_part(p.stream, now_ns)?);
@@ -518,6 +536,7 @@ impl Flusher {
         let absorbed: Vec<Uuid> = catalog_records(&records).iter().map(|r| r.id).collect();
         let provenance = self.take_attested(stream, &absorbed);
         let first_frame = u32::try_from(open.committed).unwrap_or(u32::MAX);
+        let stepped_back = steps_back(&all, open.committed);
         Ok(Some(Closed {
             path,
             stream,
@@ -528,6 +547,7 @@ impl Flusher {
             absorbed,
             durable: open.pending,
             provenance,
+            stepped_back,
         }))
     }
 
@@ -548,7 +568,18 @@ impl Flusher {
         let absorbed: Vec<Uuid> = catalog_records(&records).iter().map(|r| r.id).collect();
         let provenance = self.take_attested(stream, &absorbed);
         let first_frame = u32::try_from(from).unwrap_or(u32::MAX);
-        Ok(Closed { path, stream, records, chunk, first_frame, more: true, absorbed, durable, provenance })
+        Ok(Closed {
+            path,
+            stream,
+            records,
+            chunk,
+            first_frame,
+            more: true,
+            absorbed,
+            durable,
+            provenance,
+            stepped_back: false,
+        })
     }
 
     /// The chunk's provenance, one per frame (unknown frames get epoch 0), or `None` when nothing was attested.
