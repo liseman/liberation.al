@@ -866,6 +866,10 @@ table StreamDesc {
   /// The invalidation revision as the stream's last forget (any change but an age-out's) left it (minor 33).
   /// A dependency or worker state read at any revision from this through invalidation_revision is still good.
   forget_revision: ulong = null;
+  /// Minor 36: the time the stream's payloads reach over, from the start of its earliest to the end of the one that
+  /// starts last (Tier 0 and chunks alike). Both absent for a stream that holds nothing.
+  extent_start_ns: ulong = null;
+  extent_end_ns: ulong = null;
 }
 
 /// Every registered stream, in id order. Answered with StreamList.

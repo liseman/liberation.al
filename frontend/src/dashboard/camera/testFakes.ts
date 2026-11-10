@@ -218,8 +218,6 @@ export class FakeGatewayConn {
       format: 'passthrough',
       start_us: 0,
       end_us: 0,
-      chunks: 0,
-      frames: 0,
     }));
     this.handlers.onReply({ type: 'streams', streams });
   }

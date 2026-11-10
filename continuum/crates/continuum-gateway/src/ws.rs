@@ -59,9 +59,11 @@ pub async fn serve(listener: TcpListener, router: Router) -> std::io::Result<()>
 }
 
 async fn streams(State(session): State<Arc<Session>>) -> Response {
-    match session.source().streams() {
+    // The listing asks the broker (or, without one, lists the chunk directory): off the async threads.
+    let listed = tokio::task::spawn_blocking(move || session.streams()).await;
+    match listed.unwrap_or_else(|e| Err(e.to_string())) {
         Ok(streams) => Json(streams).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(Reply::Error { message: e.to_string() })).into_response(),
+        Err(message) => (StatusCode::INTERNAL_SERVER_ERROR, Json(Reply::Error { message })).into_response(),
     }
 }
 

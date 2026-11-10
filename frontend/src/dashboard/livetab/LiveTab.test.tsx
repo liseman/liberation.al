@@ -288,8 +288,6 @@ describe('Live', () => {
             format: 'passthrough',
             start_us: 0,
             end_us: Date.now() * 1000,
-            chunks: 0,
-            frames: 30,
           },
         ],
       });

@@ -670,56 +670,49 @@ fn unreceived_frames(frames: Vec<Frame>, after_us: u64) -> Vec<Frame> {
 }
 
 impl Session {
-    /// The streams: the broker's registrations (with their names and liveness) merged with what the chunk directory
-    /// holds for each, or the chunk directory alone without a broker (or while it is unreachable).
-    fn streams(&self) -> Result<Vec<StreamSummary>, String> {
-        /// A listing slower than this says where its time went.
+    /// The streams. With the broker up, they are its registrations, each with its name, whether a producer is
+    /// connected, and the recorded extent the catalog holds for it (two reads of its time index, whatever the
+    /// video window holds), so no chunk file is opened and no chunk directory listed. Without a broker, or while
+    /// it is unreachable, they come from the chunk directory alone.
+    ///
+    /// # Errors
+    ///
+    /// The broker refusing the listing, or the chunk directory failing to list when it is the fallback.
+    pub fn streams(&self) -> Result<Vec<StreamSummary>, String> {
+        /// A listing slower than this is logged.
         const SLOW_LISTING: std::time::Duration = std::time::Duration::from_millis(250);
-        let Some(link) = &self.broker else { return self.source.streams().map_err(|e| e.to_string()) };
-        // Live needs only the broker's listing; recorded summaries join once the first full scan is done (main starts
-        // it), so a large chunk directory never holds a camera back.
-        let started = std::time::Instant::now();
-        let mut recorded =
-            if self.source.summaries_ready() { self.source.streams().map_err(|e| e.to_string())? } else { Vec::new() };
-        let chunks = started.elapsed();
-        let Some(client) = link.client_or_reconnect_blocking() else { return Ok(recorded) };
+        let from_chunks = || self.source.streams().map_err(|e| e.to_string());
+        let Some(link) = &self.broker else { return from_chunks() };
+        let Some(client) = link.client_or_reconnect_blocking() else { return from_chunks() };
         let asked = std::time::Instant::now();
         let listed = link.rt.block_on(client.list_streams());
-        // Which part a slow listing spent its time in, the chunk directory or the broker. DEBUG: a loaded machine
-        // makes most listings slow, and at INFO they were most of the gateway's log (#59).
-        if started.elapsed() > SLOW_LISTING {
-            tracing::debug!(chunks = ?chunks, broker = ?asked.elapsed(), "a slow stream listing");
+        // DEBUG: a loaded machine makes most listings slow, and at INFO they were most of the gateway's log (#59).
+        if asked.elapsed() > SLOW_LISTING {
+            tracing::debug!(broker = ?asked.elapsed(), "a slow stream listing");
         }
         let listed = match listed {
             Ok(l) => l,
             Err(e @ continuum_client::Error::Closed) => {
                 link.lost(&client, &e);
-                return Ok(recorded);
+                return from_chunks();
             }
             Err(e) => return Err(format!("the broker: {e}")),
         };
         link.remember(&listed);
-        let mut out = Vec::with_capacity(listed.len());
-        for s in listed {
-            let mut summary = match recorded.iter().position(|r| r.id == s.id.0) {
-                Some(i) => recorded.swap_remove(i),
-                None => StreamSummary {
+        let mut out: Vec<StreamSummary> = listed
+            .into_iter()
+            .map(|s| {
+                let (start_ns, end_ns) = s.extent.unwrap_or((0, 0));
+                StreamSummary {
                     id: s.id.0,
-                    name: String::new(),
-                    live: false,
                     format: s.shape_name.to_lowercase(),
-                    start_us: 0,
-                    end_us: 0,
-                    chunks: 0,
-                    frames: 0,
-                },
-            };
-            summary.name = s.name;
-            summary.live = s.live;
-            out.push(summary);
-        }
-        // Chunks of a stream the broker no longer knows (an older catalog) still play, from the chunk directory.
-        out.extend(recorded);
+                    name: s.name,
+                    live: s.live,
+                    start_us: start_ns / 1_000,
+                    end_us: end_ns.div_ceil(1_000),
+                }
+            })
+            .collect();
         out.sort_by_key(|s| s.id);
         Ok(out)
     }
@@ -755,9 +748,6 @@ impl Session {
         let chunks_only = || self.source.frames(stream, start_ns, end_ns, max, max_bytes).map_err(|e| e.to_string());
         let Some(client) = link.client_or_reconnect_blocking() else { return chunks_only() };
         let Some(name) = self.stream_name(link, &client, stream)? else {
-            if self.source.streams().map_err(|e| e.to_string())?.iter().any(|s| s.id == stream) {
-                return chunks_only();
-            }
             return Err(format!("no stream {stream}"));
         };
         if link.shape_of(stream).as_deref() == Some("H264AnnexB") {

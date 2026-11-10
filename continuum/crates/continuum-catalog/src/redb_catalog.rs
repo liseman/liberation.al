@@ -2823,6 +2823,27 @@ impl Catalog for RedbCatalog {
         self.read(|r| r.get(STREAMS, &k32(id.0))?.map(|b| codec::read_stream_info(&b)).transpose())
     }
 
+    fn stream_extent(&self, stream: StreamId) -> Result<Option<Interval>> {
+        self.read(|r| {
+            if !r.has(STREAMS, &k32(stream.0))? {
+                return Err(CatalogError::NotFound(format!("stream {}", stream.0)));
+            }
+            let (lo, hi) = (k_time(stream.0, 0, 0), k_time(stream.0, u64::MAX, u32::MAX));
+            let Some((first, _)) = r.rows(TIME_INDEX, &k32(stream.0), 1)?.into_iter().next() else { return Ok(None) };
+            // The inclusive upper key can only be a payload at u64::MAX with the last sequence: it is the last too.
+            let last = match r.get(TIME_INDEX, &hi)? {
+                Some(id) => Some(id),
+                None => r.last_below(TIME_INDEX, &lo, &hi)?.map(|(_, id)| id),
+            };
+            let start = codec::u64_at(&first, 4)?;
+            let end = match last.map(|id| codec::id_at(&id, 0)).transpose()?.map(|id| header_of(r, id)).transpose()? {
+                Some(Some(h)) => h.end_ns().max(h.start_ns().saturating_add(1)),
+                _ => start.saturating_add(1),
+            };
+            Ok(Interval::new(start, end.max(start.saturating_add(1))))
+        })
+    }
+
     fn invalidation_revision(&self, stream: StreamId) -> Result<Option<u64>> {
         self.read(|r| {
             if !r.has(STREAMS, &k32(stream.0))? {
