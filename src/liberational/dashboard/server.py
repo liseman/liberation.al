@@ -305,7 +305,6 @@ routes.load(
     "liberational.dashboard.transcript_lines",
     "liberational.dashboard.unnamed_groups",
     "liberational.dashboard.voice_clones",
-    "liberational.dashboard.walk_import",
     "liberational.dashboard.zones",
 )
 

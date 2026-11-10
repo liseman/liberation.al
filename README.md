@@ -19,8 +19,8 @@ edges, and expect a reset of recorded history now and then (what you taught it i
 - **The dashboard** has Live, Review, Journal, Known (people, pets, objects, activities, devices, and places),
   Calls, Inbox, Reports, Ingest, and Debug. Answers link to the recording they came from, and say so when there's
   a gap in coverage.
-- **Spatial memory** builds a point cloud and a floorplan of each indoor place from fixed cameras and phone
-  walkthroughs, and draws where people and pets were on the plan.
+- **Spatial memory** keeps a point cloud and a floorplan of each indoor place, from what the cameras see, and
+  draws where people and pets were on the plan.
 
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) describes the running system. The wearable hardware in
 [docs/history](docs/history/plan-2026-10.md) is the original idea, not a list of what's built.
@@ -62,7 +62,7 @@ Known, Places, with the house's floorplan:
 | **Cameras** | Any USB (UVC) webcam, or network cameras that serve H.264 over RTSP. The dashboard can discover UniFi Protect, ONVIF, and Wyze cameras. |
 | **Microphone** | Any USB or built-in microphone. A ReSpeaker XVF3800 array adds direction of arrival. |
 | **Disk** | Several GB for models on first setup, plus recordings: video is kept for a rolling window (30 days by default) and deleted after it. |
-| **Optional** | An iPhone or iPad with LiDAR for walkthroughs of a place, an ESP32-S3 for Bluetooth presence, a Twilio number for phone calls, and an agent gateway for requests that need tools. None is needed to start. |
+| **Optional** | An ESP32-S3 for Bluetooth presence, a Twilio number for phone calls, and an agent gateway for requests that need tools. None is needed to start. |
 
 A successful install is not a hardware validation: check the service status and the Live tab once it's up.
 
@@ -196,23 +196,6 @@ reference, and tag your face. Live fills in as each one is done.
 
 Each camera is a view, not a room: name it for what it sees. A camera can be paused from the header's camera icon,
 and nothing from it is recorded until it's resumed.
-
-## Walk a place
-
-A walkthrough gives a place its point cloud and floorplan. Record one with the free Stray Scanner app on an iPhone
-or iPad that has LiDAR: walk slowly, room by room, come back through a room you've already seen at least once, end
-where you started, and keep it to one storey and about five minutes. Copy the export folder (the one with `rgb.mp4`
-and `odometry.csv`) to this machine, outside the repository, then:
-
-```bash
-uv run pack-walkthrough <folder>
-```
-
-The place shows up under Known, in Places, which also marks the places and rooms no walk has covered yet.
-Or skip the copying and the command: drop the zip Stray Scanner exports on Places. The walk goes into the place it
-matches, or becomes a new one.
-[Recording and importing a walkthrough](docs/WALKTHROUGH.md) has the full advice, adding a walk to a place that's
-already there, and the plain-video alternative.
 
 ## Name people
 

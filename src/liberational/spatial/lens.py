@@ -5,8 +5,8 @@ MASt3R, `places.CameraPose`, `places.floor_point`, and the splat trainer all tak
 principal point at the frame's centre. A wide lens (the Reolink cameras: bedroom and kitchen on the Linux machine) bends
 straight lines towards the frame's edges, which bends its share of a place's cloud and misplaces foot points near the
 edges. So a camera with a `lens` calibration in its `config/devices.toml` entry has its frames undistorted before MASt3R
-and the splats see them, and its foot points undistorted before they're projected onto the floor. A camera registered
-with others (spatial/registration.py) can also carry a lens the registration fitted, kept the same way on its pose: its
+and the splats see them, and its foot points undistorted before they're projected onto the floor. A camera's
+registration can also carry a lens fitted with its pose, kept the same way on its pose: its
 frames go to MASt3R as they are, and only its rays are undone.
 
 **The model** is the one-parameter division model (Fitzgibbon, 2001): a point seen at normalized position (x, y)
@@ -238,8 +238,7 @@ def prepare(image: np.ndarray, lens: Lens | None, masks: Sequence[Sequence[float
 
 
 # A camera's own intrinsics, held. A lens and a focal are properties of the camera, true wherever it stands,
-# so they're fitted once (tools/fit_intrinsics.py: against a LiDAR walk's frames, else the median of the camera's
-# nightly fits) and every registration after keeps them, fitting only the camera's pose. Fitted afresh each night
+# so they're fitted once and every registration after keeps them, fitting only the camera's pose. Fitted afresh each night
 # they swung: Place 1's camera-b came out at division -0.18, -0.30, and -0.26 on three runs in one day, and
 # its far floor points moved by metres with them. They're owner-backed state, kept by the knowledge store (exported
 # with the rest) under `camera.intrinsics`, newest per camera; an earlier fit stays in its history.

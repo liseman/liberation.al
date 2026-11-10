@@ -1,7 +1,6 @@
 """Places and visits (part of spatial memory): the data model under maps and floorplans.
 
-A **place** is an indoor place, such as a home or an office. The machine makes one from a phone walkthrough
-(`pack-walkthrough`) or from fixed cameras that see the same space (`pack-spatial-cameras`). A
+A **place** is an indoor place, such as a home or an office. The machine makes one from what its cameras see. A
 **visit** is a span of time the rig spent in one place, derived from the place signals (the Wi-Fi access points it
 hears, GPS at the door, visual relocalization against the place's keyframes).
 
@@ -17,12 +16,12 @@ Two layers, following docs/DOMAIN-MODEL.md:
   small). Maps are
   replaced, not accumulated: the newest `MAPS_KEPT` map files stay, and so does each still-active producer's newest
   map, counting only a map that revision wrote itself. A producer is still active when it wrote one of the last
-  `PRODUCER_WINDOW` revisions (tier 1 fuses each new revision into its own last map). Older maps are pruned, and the
+  `PRODUCER_WINDOW` revisions. Older maps are pruned, and the
   revision records stay as the audit trail. Visits are rows in the `place.visit` segment stream (`segment_log.py`).
 - **A revision's splat** is a 3D Gaussian splat trained on that revision's map, cameras, and their recorded
   frames (spatial/splats.py), in the map's frame: `<revision id>.gs.ply` (the standard 3DGS PLY, the master) and
   `<revision id>.sog` (the compact copy the 3D view loads, spatial/sog.py), with `<revision id>.gs.from` saying what it was trained
-  from ("walk" or "cameras"). It's written once, after its revision, and isn't a
+  from (the fixed cameras' frames are "cameras"). It's written once, after its revision, and isn't a
   revision of its own (a revision is a reconstruction; a splat is a rendering of one). The newest `SPLATS_KEPT`
   revisions' splats stay and older ones are pruned. A splat fits every revision of its map's `frame` (`Revision.frame`), so the 3D view can show
   an earlier revision's splat while the frame holds.
@@ -35,11 +34,10 @@ Two layers, following docs/DOMAIN-MODEL.md:
   revision's frame (spatial/plan_import.py); a revision with no plan file draws in its floor's frame
   (`plan_frame`), shared by the revisions of the same map (`same_plan_frame`).
 
-**Merged places**: two places that turn out to be one home (a whole-home walkthrough passes through both) are
-merged by tier 1 (`fuse.join`): one place's newest revision brings in the other's map and cameras, and the other is
-retired (`retire`): its last revision names the place it went into (`merged_into`), so no reader lists it again. The
-other's owner plan correction is carried into the joined place's plan (`correct_plan` with source "merge"), moved into
-its frame; the joined place's own correction holds where both have rooms.
+**Merged places**: when two places turn out to be one home, one place's newest revision brings in the other's map
+and cameras, and the other is retired (`retire`): its last revision names the place it went into (`merged_into`), so
+no reader lists it again. Whoever merges them carries the other's owner plan correction into the joined place's plan
+(`correct_plan` with source "merge"), moved into its frame.
 
 Until the owner names a place it reads as a placeholder, "Place 1", "Place 2", ..., numbered by when each place was
 first made. A naming record keeps a copy of the place's signals, so a place detector can recognize a named place
@@ -48,22 +46,20 @@ again after its machine record is gone.
 Storage across a reset: `state/places/` and the segment store are machine-made, so a catalog reset deletes them
 (`reset_catalog.targets`), unless it's run with `--keep-places`, which keeps `state/places/` (the revisions' visit
 `sources` then name visits that are gone, and nothing reads them; visits and positions start fresh). The owner's
-names and plan corrections are in the knowledge store and stay. Keyframes
+names and plan corrections are in the knowledge store and stay. `pack-reset-places` (spatial/reset.py) deletes only
+the places' machine-made state and keeps a place whose owner plan holds, with that plan. Keyframes
 live with the video and follow the 30-day video window.
 
-This module is the schema and the read and write helpers. Its writers are `pack-walkthrough` (spatial/walkthrough.py:
-a phone video's cloud, floor, and plan), tier 1's fusion after each (spatial/fuse.py: the place's fused
-map), and `pack-spatial-cameras`
-(spatial/cameras.py), which makes a place of each group of fixed cameras that see the same space and registers
+This module is the schema and the read and write helpers. A writer is a job that builds a place's map and registers
 each camera in it: its pose in the map's frame, with the map's floor plane and the plan's frame, so `camera_to_plan`
-can put a pixel of that camera on the plan.
+can put a pixel of that camera on the plan. No such job runs at present: spatial memory is being built again from
+what the cameras see, and until it writes a revision no camera has a pose and nothing can be placed.
 
 **Places in the journal**: `places_for_span` is the one call the journal's pages make for a
 span: the places visited in it and the places a registered fixed camera only observed, each with the rooms seen
 there. The pages' Places line keeps the visited ones (`PlaceRef.visited`). Rooms are the owner's drawn area zones
 (`see/zones.py`) that a person was in, until a floorplan and a pose track in the place's frame can say which plan
-room the rig was in. A zone visit on a fixed camera registered to a place (a revision's `cameras`, written by
-spatial/cameras.py) is filed under that camera's place, wherever the rig was; any other is filed under the
+room the rig was in. A zone visit on a fixed camera registered to a place (a revision's `cameras`) is filed under that camera's place, wherever the rig was; any other is filed under the
 place the rig was in at the time. Rooms seen with no place known come back under a ref with no place, so a day
 without place visits still lists its rooms.
 """
@@ -94,10 +90,7 @@ SPLATS_KEPT = 2  # revisions per place whose splat files are kept, newest first
 #: A splat's files beside its revision: the 3DGS master, the compact web copy, and a note of what it was trained from.
 SPLAT_FILES = ("gs.ply", "sog", "gs.from")
 # A producer's newest map is kept whatever its age only while that producer wrote one of the place's last this many
-# revisions: a retired producer version's last map then goes too (about ten days of daily runs). Tier 1 is no
-# exception: 20 fixed-camera snapshots in a row that don't fuse (about 20 days, as an unfused day writes only its
-# snapshot) prune the fused map, and the next fusion founds the place's map afresh in a new frame, without the fused
-# cameras' registrations. After weeks of not registering, starting again is the better bet.
+# revisions: a retired producer version's last map then goes too.
 PRODUCER_WINDOW = 20
 MERGED = "places merge v1"  # the producer of a merged place's last revision (`retire`)
 MAX_NAME = 80
@@ -204,8 +197,8 @@ class Revision:
     # Map to plan: (plan x, plan y, height above the floor) = this 3x4 matrix, row by row, times (x, y, z, 1): the
     # frame the plan's DSL is drawn in (spatial/floorplan.py's `Floorplan.transform`). It goes with the plan.
     plan_transform: tuple[float, ...] | None = None
-    # The map's frame: the id of the revision whose map first stood in it. Tier 1 carries it over while it
-    # fuses into the same map without moving it, so a splat made for one revision of that frame still fits a later
+    # The map's frame: the id of the revision whose map first stood in it. A writer carries it over while it
+    # adds to the same map without moving it, so a splat made for one revision of that frame still fits a later
     # one's map. None for a revision written before frames were recorded.
     frame: str | None = None
     # The place this one was merged into (`retire`): set only on a merged place's last revision, which has no
@@ -353,10 +346,9 @@ def _write(path: Path, data: bytes) -> None:
 
 
 def writing(state: Path) -> contextlib.AbstractContextManager[None]:
-    """Held while a job writes places: `pack-spatial-cameras` from its first place write through its fusion,
-    and `pack-walkthrough` from its revision through its join, one at a time. A nightly run that seated a room into
-    a place while a join retired it would make that place's newest revision a live one again, and a revision it wrote
-    mid-join would be overwritten by the join's. The lock is `state/places.lock` (locking.py)."""
+    """Held while a job writes places, from its first place write to its last, one job at a time: two that revised
+    one place at once would each build on a revision the other replaced. The lock is `state/places.lock`
+    (locking.py)."""
     return locking.locked(root(state))
 
 
@@ -582,7 +574,7 @@ def revise(
     with its transform, and its registered cameras. A floor or transform given replaces the old one, with or without a
     new map or plan; a new map with no floor given has none, and a new plan with no transform given has none. A new
     map without a plan of its own has no plan (nor transform): a plan is drawn in its map's frame. A new map stands in
-    a `frame` of its own (its revision's id) unless one is given: tier 1 gives the frame it fused into. The map
+    a `frame` of its own (its revision's id) unless one is given: a writer that adds to a map gives that map's frame. The map
     and plan files are written before the revision that names them, so a reader never finds a revision whose files
     aren't there yet.
     """
@@ -624,7 +616,7 @@ def revise(
         if plan_transform is not None or plan is not None or map_bytes is not None or was is None
         else was.plan_transform
     )
-    # A new map stands in its own frame unless its writer says which it fused into; one that keeps its map keeps its frame.
+    # A new map stands in its own frame unless its writer says which it added to; one that keeps its map keeps its frame.
     kept_frame = (frame or rev_id) if map_bytes is not None else (frame or (was.frame if was is not None else None))
     rev = Revision(
         rev_id,
@@ -653,8 +645,8 @@ def _listed(value: Sequence[float] | None) -> list[float] | None:
 
 def _prune_maps(state: Path, place: str) -> None:
     """Keep the newest MAPS_KEPT map files (uuid7 names sort by time), and each producer's newest map whatever its
-    age: a producer that builds on its own last map (tier 1's fused map) must not lose it because other
-    producers wrote newer ones meanwhile, say a fixed-camera snapshot that didn't fuse and the next day's after it.
+    age: a producer that builds on its own last map must not lose it because other producers wrote newer ones
+    meanwhile.
     Only producers among the last PRODUCER_WINDOW revisions count, so a retired producer's map isn't kept forever."""
     folder = root(state) / place
     maps = sorted(folder.glob("*.map"), key=lambda p: p.name)
@@ -694,7 +686,7 @@ def has_splat(state: Path, rev: Revision) -> bool:
 
 
 def splat_source(state: Path, rev: Revision) -> str | None:
-    """What `rev`'s splat was trained from, as `write_splat` was told ("walk" or "cameras"); None when it wasn't
+    """What `rev`'s splat was trained from, as `write_splat` was told (such as "cameras"); None when it wasn't
     told, or there's no splat."""
     try:
         return splat_path(state, rev, "gs.from").read_text().strip() or None
@@ -704,7 +696,7 @@ def splat_source(state: Path, rev: Revision) -> str | None:
 
 def write_splat(state: Path, rev: Revision, master: bytes, web: bytes, source: str | None = None) -> None:
     """Keep `rev`'s splat: the 3DGS PLY `master` and its SOG copy `web`, each written whole, the copy last (it's
-    what says a splat is there), with `source` (what it was trained from: "walk" or "cameras") noted beside them. A
+    what says a splat is there), with `source` (what it was trained from, such as "cameras") noted beside them. A
     revision's splat is written once: the dashboard serves it as never changing, so a second one for the same
     revision is refused. Older revisions' splats past SPLATS_KEPT are pruned."""
     if has_splat(state, rev):
@@ -881,8 +873,8 @@ def restore_plan(state: Path, place: str, record: str, now: float | None = None)
 
 def same_plan_frame(a: Revision, b: Revision) -> bool:
     """Whether two revisions of a place draw their plans in one frame: the same plan file, or, for revisions with no
-    plan file, the same map frame (`Revision.frame`), floor, and plan transform, as tier 1's fused revisions of one map
-    are, whose plan frame is their floor's (`floor_frame`). An owner plan drawn in a revision with no plan file of its
+    plan file, the same map frame (`Revision.frame`), floor, and plan transform, whose plan frame is their floor's
+    (`floor_frame`). An owner plan drawn in a revision with no plan file of its
     own (an imported one) holds for every revision in its frame this way."""
     if a.id == b.id:
         return True

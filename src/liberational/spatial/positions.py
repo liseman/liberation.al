@@ -26,7 +26,7 @@ What placing on write costs: a record keeps the coordinates and the identity it 
   run (`_basis`: where a few fixed pixels of each camera land on the plan, against where they landed when the
   place was last placed) and places that place's raw footprints again from scratch (`place_again`), so a path that
   spans the registration is one line in one frame. Until that run, a read for another frame of the place moves
-  the points by the similarity between the two frames (`_Places.carried`, through the cameras both register),
+  the points by the similarity between the two frames (`_Places.carried`, for two revisions of one map frame),
   and marks a record it can't move `in_frame` False. A place is placed again into a new generation of its slot:
   the store hides rows appended into a forgotten range, so a generation is a new slot name, not a rewrite.
 - **Identity.** A track is named from the faces and labels known when it was placed (at most a day after it was
@@ -100,7 +100,7 @@ from liberational import json_state, logs
 from liberational import segment_log as S
 from liberational.memory import places
 from liberational.people import face_nots, pets
-from liberational.spatial import floorplan, footprints, lens, poses
+from liberational.spatial import cameras, floorplan, footprints, lens, poses
 
 LOG = logs.get("spatial-positions")
 
@@ -303,6 +303,26 @@ def path_key(track: str | None, entity: str | None, source: str | None, camera: 
 Plan = list[tuple[str, str, tuple[tuple[float, float], ...]]]
 
 
+def _plan_matrix(transform: Sequence[float]) -> np.ndarray:
+    """A revision's 12-number map-to-plan transform as a 4x4."""
+    out = np.eye(4)
+    out[:3] = np.asarray(transform, dtype=np.float64).reshape(3, 4)
+    return out
+
+
+def plan_move(src: Sequence[float], dst: Sequence[float]) -> floorplan.Similarity | None:
+    """The move from one plan frame to another of the same map, on the floor: a point of the plan drawn by map-to-plan
+    `src` back to the map, and onto the plan drawn there by `dst`. None when that mirrors the plan (it never should:
+    every frame here is right-handed)."""
+    full = _plan_matrix(dst) @ np.linalg.inv(_plan_matrix(src))
+    corners = np.array([[0.0, 0.0, 0.0, 1.0], [1.0, 0.0, 0.0, 1.0], [0.0, 1.0, 0.0, 1.0]]) @ full.T
+    o, ex, ey = corners[0, :2], corners[1, :2] - corners[0, :2], corners[2, :2] - corners[0, :2]
+    if ex[0] * ey[1] - ex[1] * ey[0] <= 0:
+        return None
+    scale = (float(np.linalg.norm(ex)) + float(np.linalg.norm(ey))) / 2
+    return floorplan.Similarity(scale, math.atan2(float(ex[1]), float(ex[0])), (float(o[0]), float(o[1])))
+
+
 class _Places:
     """One read of the places for a whole call: each camera's place and current revision, the plan rooms in each
     revision's frame, the rooms points fell in, and the cameras' pose series and held intrinsics, all read once."""
@@ -401,8 +421,6 @@ class _Places:
             return cam
         key = (rev.id, camera, flat)
         if key not in self._at:
-            from liberational.spatial import cameras  # cameras loads the fixed-camera pipeline; only this needs it
-
             if self._held is None:
                 self._held = lens.held(self.state)
             self._at[key] = cameras.with_held(camera, replace(cam, pose=flat), self._held.get(camera))
@@ -446,19 +464,14 @@ class _Places:
 
     def carried(self, now: places.Revision, frame: places.Revision) -> floorplan.Similarity | None:
         """The move from `now`'s plan frame (its floor's own frame without a plan, `places.floor_frame`) onto
-        `frame`'s, two revisions of one place: through the cameras both register (`fuse.frame_between`). A joined
-        place's owner plan stays in the frame it was drawn in, which registers only the cameras its place had then;
-        its other rooms' cameras are placed through their poses now and moved onto it. None when the two
-        frames share no camera."""
+        `frame`'s, two revisions of one place whose maps stand in one frame (`Revision.frame`): an owner plan stays in
+        the frame it was drawn in while later revisions of the same map draw theirs elsewhere. None when the two maps
+        are in different frames, or either has no plan frame: nothing relates them."""
         key = (now.id, frame.id)
         if key not in self._moves:
-            from liberational.spatial import fuse  # fuse loads the fixed-camera pipeline; only this needs it
-
             src, dst = places.plan_frame(now), places.plan_frame(frame)
-            move = None
-            if src is not None and dst is not None and (to_map := fuse.frame_between(now, frame)) is not None:
-                move = fuse.plan_move(src, to_map, dst)
-            self._moves[key] = move
+            same = now.id == frame.id or (now.frame is not None and now.frame == frame.frame)
+            self._moves[key] = plan_move(src, dst) if same and src is not None and dst is not None else None
         return self._moves[key]
 
     def place(self, sample: Sample, frame: places.Revision | None = None) -> Placed:
@@ -1165,8 +1178,7 @@ def derive(
     frame_revision: str | None = None,
 ) -> list[Position]:
     """The raw footprints of [start, end) placed, named, joined, and fused, with the zone fallback, in time order
-    (then by id) across every path: what the placer writes to the layer (`advance`), and what a tool that tries a
-    registration out reads (spatial/dryrun.py). Its cost grows with every raw sample of the window, so no view calls
+    (then by id) across every path: what the placer writes to the layer (`advance`). Its cost grows with every raw sample of the window, so no view calls
     it: views read `positions`. `place` and `entity` keep only that place's or that entity's rows, and are applied
     before anything is placed (a place reads only its cameras' rows, and names only their tracks). `every` thins to
     one row per path per that many seconds, plus each path's last.
@@ -1509,7 +1521,7 @@ def place_again(state: Path, place: str, upto: float) -> int:
 def advance(state: Path, upto: float, chunk_s: float = CHUNK_S) -> dict[str, int]:
     """Place what was recorded since the last run, up to `upto` (the time the raw footprints are recorded to), and
     write it to the layer: every place's fixed-camera and zone records, a piece of `chunk_s` at a time, oldest first.
-    The first run goes BACKFILL_S back. It runs after each registration (the nightly camera pass), so it first
+    The first run goes BACKFILL_S back. It runs after a place's cameras may have been registered again, so it first
     checks each place's registration against the one its records were placed through (`_basis`, `_moved`), and a
     place whose cameras now put people somewhere else is placed again from scratch (`place_again`) before the new time
     is placed. The mark moves after each piece is written, so a run that stops part way picks up at the piece it was
@@ -1521,6 +1533,8 @@ def advance(state: Path, upto: float, chunk_s: float = CHUNK_S) -> dict[str, int
     its place is placed again."""
     counts = {"records": 0, "pieces": 0, "replaced": 0}
     held = {p.id: p for p in places.places(state)}
+    if not places.camera_places(state):
+        LOG.info("no camera has a pose in any place's map: no footprint is placed until a map registers one")
     first = _marks(state).get("placed_to") is None
     was: dict[str, Basis] = _marks(state).get("basis") or {}
     now = {place: _basis(state, p, upto) for place, p in held.items()}

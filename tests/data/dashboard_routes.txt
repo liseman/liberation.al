@@ -60,7 +60,6 @@ GET /places/plan/history
 GET /places/positions
 GET /places/scene
 GET /places/splat
-GET /places/walk
 GET /reports/api/...
 GET /research/jobs, /research/jobs/<id>
 GET /review/boxes
@@ -147,9 +146,6 @@ POST /pets/sightings/label
 POST /pets/sightings/not
 POST /places/plan
 POST /places/plan/restore
-POST /places/walk/dismiss
-POST /places/walk/retry
-POST /places/walk/upload
 POST /playback/start
 POST /playback/stop
 POST /reports/api/...

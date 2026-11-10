@@ -3,7 +3,7 @@
 A camera is an angle on something that holds it. Some cameras sit on a **rig** that moves (a backpack, a cart): a
 rig carries its cameras together, each camera's pose is fixed relative to the rig, and the rig's own pose in a place
 changes as it moves. Other cameras are **fixed**: mounted on a wall or a shelf, each registered in its place on its
-own (spatial/cameras.py). Neither kind is a room: a camera's name says which camera it is, never where it is, and
+own. Neither kind is a room: a camera's name says which camera it is, never where it is, and
 where a camera's pixel lands comes from its pose, not from its name.
 
 Both are described on the camera's entry in capture's device manifest (`config/devices.toml`), as `mount`, beside its
@@ -31,15 +31,14 @@ lens calibration, and rigs are declared as `[[rig]]` tables:
   camera's horizontal field of view (its pinhole focal is worked out from it and the frame's width) and is required:
   a rig camera has no fixed registration to fit its focal from. A rig camera has no `height_m` or `outdoor`: how
   high it is and whether it's indoors depend on where the rig is, which its pose track says.
-- **Fixed** (no `rig`): `height_m` is the camera's measured height from the floor to its lens, which puts its place's
-  map at metric scale (spatial/fuse.py, `metric`) and checks a lone camera's floor (spatial/cameras.py,
-  `implausible`); `outdoor = true` keeps a camera that looks outdoors out of the fixed-camera places, where alone it
-  would only become a place of its own. A fixed camera with no `mount` has an unknown height and looks indoors. Its
+- **Fixed** (no `rig`): `height_m` is the camera's measured height from the floor to its lens, which can put its
+  place's map at metric scale and check its floor; `outdoor = true` keeps a camera that looks outdoors out of indoor
+  places (spatial/cameras.py `indoor_cameras`). A fixed camera with no `mount` has an unknown height and looks indoors. Its
   pose and focal come from its registration (`memory.places.Revision.cameras`), so `at`, `turn`, and `hfov_deg`
   aren't allowed on it.
 
 A rig's pose in a place is a 4x4 rig-to-map matrix in that place's map frame (16 numbers, row by row, as
-`CameraPose.pose` is). Whatever tracks the rig (a walkthrough's poses, the position layer's pose track) gives it;
+`CameraPose.pose` is). Whatever tracks the rig gives it;
 `camera_pose` turns it and a rig camera's mount into that camera's `CameraPose` at that moment, and `to_plan` puts one
 of the camera's pixels on the place's plan through the same floor and plan geometry as a fixed camera
 (`memory.places.project_pose`). That is all a position writer needs from this module: the camera's name, the rig's

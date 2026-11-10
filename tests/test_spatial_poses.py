@@ -1,5 +1,5 @@
 """Each fixed camera's pose over time: observations stored and read back, split into still stretches where the
-camera moved, smoothed within a stretch, the owner's measured spots, and the seats a place's revisions already hold."""
+camera moved, and smoothed within a stretch."""
 
 import math
 
@@ -7,8 +7,6 @@ import numpy as np
 import pytest
 
 from liberational import segment_log as S
-from liberational.memory import places
-from liberational.spatial import fuse, ply
 from liberational.spatial import poses as P
 
 T = 1_790_000_000.0  # before the test run's clock: `series` reads up to now
@@ -172,73 +170,3 @@ def test_a_series_keeps_only_its_place_and_frame(tmp_path, store):
     got = P.poses_at(found, "cam", T + 3 * DAY)
     assert got is not None
     assert got[:3, 3] == pytest.approx([1.0, 2.0, 1.5], abs=1e-6)
-
-
-def tier1(state, place, now, cameras, *, new_map=False):
-    """A tier 1 revision of `place` (a new place when None); `new_map` puts it in a frame of its own."""
-    cloud = ply.dumps(np.array([[0.0, 0.0, 0.0], [4.0, 0.0, 0.0], [0.0, 4.0, 0.0]])) if new_map else None
-    return places.revise(
-        state,
-        place,
-        producer=fuse.PRODUCER,
-        map_bytes=cloud,
-        map_format="ply" if new_map else None,
-        floor=fuse.LEVEL_FLOOR if new_map else None,
-        cameras=cameras,
-        now=now,
-    )
-
-
-def registered(xyz, at):
-    return places.CameraPose(tuple(float(v) for v in pose(xyz).ravel()), 300.0, 640, 360, at)
-
-
-def test_backfill_gives_each_fresh_registration_in_the_current_frame(tmp_path):
-    old = tier1(tmp_path, None, T - 2 * DAY, {"hall": registered((9.0, 9.0, 1.0), T - 2 * DAY)}, new_map=True)
-    hall, den = registered((1.0, 1.0, 1.6), T - 10), registered((3.0, 1.0, 1.4), 0.0)
-    now = tier1(tmp_path, old.place, T, {"hall": hall, "walk-0m00s": registered((2.0, 2.0, 1.4), T)}, new_map=True)
-    places.revise(
-        tmp_path, old.place, producer="walk", cameras={"hall": registered((7.0, 7.0, 1.0), T + DAY)}, now=T + DAY
-    )
-    tier1(
-        tmp_path, old.place, T + 2 * DAY, {"hall": hall, "den": den}
-    )  # den's registration has no time: the revision's
-    tier1(tmp_path, old.place, T + 3 * DAY, {"hall": registered((1.1, 1.0, 1.6), T + 3 * DAY - 5), "den": den})
-    got = P.backfill(tmp_path, old.place)
-    assert [(o.camera, o.t, o.source, o.frame, o.quality, o.pose[:3, 3].tolist()) for o in got] == [
-        ("hall", T - 10, "seat", now.frame, 1.0, [1.0, 1.0, 1.6]),
-        ("den", T + 2 * DAY, "seat", now.frame, 1.0, [3.0, 1.0, 1.4]),
-        ("hall", T + 3 * DAY - 5, "seat", now.frame, 1.0, [1.1, 1.0, 1.6]),
-    ]
-
-
-def test_backfill_of_a_place_without_a_fused_map_is_empty(tmp_path):
-    rev = places.revise(tmp_path, None, producer="walk", cameras={"hall": registered((1.0, 1.0, 1.6), T)}, now=T)
-    assert P.backfill(tmp_path, rev.place) == []
-
-
-def test_no_owner_plan_gives_no_owner_spots(tmp_path):
-    rev = tier1(tmp_path, None, T, {"hall": registered((1.0, 1.0, 1.6), T)}, new_map=True)
-    assert P.owner_spots(tmp_path, rev.place, rev.frame) == []
-
-
-OWNER_PLAN = 'plan "Home" walls 0.02/0.02\nroom r1 "Den" other rect 0,0 4x4\nx-camera hall at 1.2,1.0 height 1.6\n'
-
-
-def test_the_owners_spot_is_read_in_the_frame_its_plan_is_drawn_on_at_the_time_it_was_saved(tmp_path):
-    rev = tier1(tmp_path, None, T, {"hall": registered((1.0, 1.0, 1.5), T)}, new_map=True)
-    places.correct_plan(tmp_path, rev.place, OWNER_PLAN, now=T + DAY, base=rev.id)
-    (got,) = P.owner_spots(tmp_path, rev.place, rev.frame)
-    assert (got.t, got.camera, got.source, got.frame) == (T + DAY, "hall", "owner", rev.frame)
-    assert got.pose == pytest.approx(pose((1.2, 1.0, 1.6), np.eye(3)), abs=1e-9)
-    assert P.owner_spots(tmp_path, rev.place, "another-frame") == []
-
-
-def test_a_series_places_a_stored_seat_on_the_owners_spot(tmp_path, store):
-    rev = tier1(tmp_path, None, T, {"hall": registered((1.0, 1.0, 1.5), T)}, new_map=True)
-    places.correct_plan(tmp_path, rev.place, OWNER_PLAN, now=T + DAY, base=rev.id)
-    P.record(tmp_path, [seen(T, (1.0, 1.0, 1.5), camera="hall", place=rev.place, frame=rev.frame)])
-    got = P.series(tmp_path, rev.place, rev.frame, ["hall"])["hall"].at(T)
-    assert got is not None
-    assert got[:3, 3] == pytest.approx([1.2, 1.0, 1.6], abs=1e-9)
-    assert got[:3, :3] == pytest.approx(TRUE, abs=1e-6)

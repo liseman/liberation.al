@@ -265,16 +265,6 @@ schedule = "*:07"
 background = true
 default = true
 
-[spatial-cameras]
-description = "Each night, turns the fixed cameras that see the same space into a place, from each camera's best lit frame of the day, with a 3D map, a floorplan, and where each camera sits."
-group = "workers"
-command = "pack-spatial-cameras"
-restart = false
-# Off-hours on the GPU, after the day's last daytime frame and before the 03:00 journal page window.
-schedule = "01:00"
-background = true
-default = true
-
 [ingest-analyze]
 description = "Finds faces, captions, and speech in the photos, video, and audio you bring in, as it does for your own cameras and microphones."
 group = "workers"
