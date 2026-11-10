@@ -159,8 +159,7 @@ hotkeys = false
 
 # Journal (memory/journal.py, pack-journal): a first-person entry for every 30 s of the day, written by the local
 # model from what was said and what the cameras captioned, and rolled up into longer levels. Entries and rollups
-# are journal.entry records on the broker; source speech and captions are in the segment store. After WorldMM;
-# see docs/research/worldmm-long-video-memory.md.
+# are journal.entry records on the broker; source speech and captions are in the segment store. After WorldMM.
 [journal]
 # New feature: The journal
 # Write the journal, and use it in answers. Off stops both; forgetting a person still purges it.
