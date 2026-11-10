@@ -39,11 +39,15 @@ import pathlib
 import re
 from collections import Counter
 from collections.abc import Iterator
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from liberational import logs
+from liberational.dashboard import routes
 from liberational.people import registry, transcript_view
 from liberational.vision import sightings, views
+
+if TYPE_CHECKING:
+    from liberational.dashboard.server import H
 
 WINDOW_MAX_S = 120.0  # the longest stretch one request reads
 LIMIT = 5000  # rows a source, at most
@@ -324,3 +328,16 @@ def boxes(cam: str, start: float, end: float, state: str | pathlib.Path) -> dict
     out.sort(key=lambda b: (b["ts"], b["kind"], b["id"]))
     _track(out)
     return {"cam": cam, "start": start, "end": end, "boxes": out}
+
+
+# ---- routes (dashboard/routes.py): what the server answers for this area ----
+
+
+@routes.get("/review/boxes")
+def _get_review_boxes(h: H) -> None:
+    q = h._query()
+    try:
+        start, end = float(q.get("start") or ""), float(q.get("end") or "")
+        return h._json(boxes(q.get("cam", ""), start, end, h.state))
+    except (TypeError, ValueError) as ex:
+        return h._json({"error": str(ex)}, 400)

@@ -1,9 +1,13 @@
 """The zone editor's routes: read each camera's zones and their history, and save a camera's new set."""
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+from liberational.dashboard import routes
 from liberational.see import zones
+
+if TYPE_CHECKING:
+    from liberational.dashboard.server import H
 
 
 def listing(state: Path) -> tuple[int, dict[str, Any]]:
@@ -34,3 +38,24 @@ def save(body: object, control: bool, state: Path) -> tuple[int, dict[str, Any]]
     except ValueError as exc:
         return 400, {"ok": False, "error": str(exc)}
     return 200, {"ok": True, "definition": saved.as_dict()}
+
+
+# ---- routes (dashboard/routes.py): what the server answers for this area ----
+
+
+@routes.get("/zones", "/zones/history")
+def _get_zones(h: H) -> None:
+    p = h.path.split("?")[0]
+    if p == "/zones":
+        code, reply = listing(h.state)
+    else:
+        code, reply = history(h._query().get("cam", ""), h.state)
+    return h._json(reply, code)
+
+
+@routes.post("/zones")
+def _post_zones(h: H, body: Any) -> None:
+    if not h._same_origin_json():
+        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
+    code, reply = save(body, h._can_teach(), h.state)
+    return h._json(reply, code)
