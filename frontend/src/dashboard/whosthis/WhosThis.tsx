@@ -15,7 +15,7 @@
 // whole voice as a TV or radio. The guesses and reasons come from the server (vision/face_guess.py,
 // people/voice_guess.py); a score is how sure the guess is (likeness, held down by a close runner-up), not a
 // probability. Face rows need a saved thumbnail; live faces can still be named directly on the camera stage.
-import { Anchor, Button, Group, Skeleton, Stack, Text } from '@mantine/core';
+import { Anchor, Box, Button, Group, Skeleton, Stack, Text } from '@mantine/core';
 import { IconDeviceTv, IconMessageX, IconUsers } from '@tabler/icons-react';
 import { type QueryClient, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useId, useRef, useState } from 'react';
@@ -23,7 +23,6 @@ import { messageOf } from '../../shared/http';
 import { ProcessingImages } from '../../shared/ProcessingImages';
 import { capitalize, plural, seenAt } from '../lib/format';
 import { useSlow } from '../lib/loading';
-import whoClasses from './whosthis.module.css';
 import { PlayClip } from '../lib/PlayToggle';
 import { LoadError, PAGE_SLOW_MS } from '../lib/page';
 import { play } from '../lib/player';
@@ -541,11 +540,12 @@ function RowPlaceholders({ rows, height }: { rows: number; height: number }) {
   );
 }
 
-/** Wide pane: two naming cards with a picture block, while the lists load. */
+/** Wide pane: naming cards (a picture beside a guess and its lines) in the inbox's own grid and sizes, while the
+ *  lists load, so the cards replacing them move nothing on screen. */
 function CardPlaceholders({ count = 2 }: { count?: number }) {
   return (
-    <div
-      className={whoClasses.cardSkeletons}
+    <Box
+      className={playClasses.cardSkeletons}
       role="group"
       aria-busy="true"
       aria-label="Loading faces and voices"
@@ -553,13 +553,16 @@ function CardPlaceholders({ count = 2 }: { count?: number }) {
     >
       {Array.from({ length: count }, (_, i) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: identical placeholders with no identity of their own
-        <div key={i} className={whoClasses.cardSkeleton}>
-          <Skeleton className={whoClasses.cardSkeletonPic} radius="md" />
-          <Skeleton height={12} width="55%" radius="sm" mt="sm" />
-          <Skeleton height={8} width="35%" radius="sm" mt={6} />
+        <div key={i} className={playClasses.cardSkeleton}>
+          <Skeleton className={playClasses.cardSkeletonPic} radius="md" />
+          <Stack gap={6}>
+            <Skeleton height={16} width="55%" radius="sm" />
+            <Skeleton height={8} width="40%" radius="sm" />
+            <Skeleton height={8} width="35%" radius="sm" />
+          </Stack>
         </div>
       ))}
-    </div>
+    </Box>
   );
 }
 
@@ -979,8 +982,7 @@ export function WhosThis({
               busy={faces.isFetching}
             />
           )}
-          {holding &&
-            (wide ? <CardPlaceholders count={2} /> : <RowPlaceholders rows={3} height={72} />)}
+          {holding && (wide ? <CardPlaceholders count={2} /> : <RowPlaceholders rows={3} height={72} />)}
           {voices.isError && (
             <LoadError
               message="Couldn't load the voices waiting for a name"
