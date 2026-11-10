@@ -188,6 +188,17 @@ def test_saving_a_console_setting_restarts_what_reads_it(key):
     assert {"dashboard", "network-devices"} <= set(readers.affected([key]))
 
 
+def test_the_dashboard_reads_what_every_module_with_routes_reads():
+    # The server loads its route modules by name (routes.load): the scan must follow those names, or a setting only
+    # a route module reads restarts no dashboard.
+    root = pathlib.Path(readers.SRC) / "liberational" / "dashboard"
+    with_routes = {
+        f"liberational.dashboard.{path.stem}" for path in root.glob("*.py") if "@routes." in path.read_text()
+    }
+    assert "liberational.dashboard.network_cameras" in with_routes
+    assert with_routes <= readers._closure("liberational.dashboard.server")
+
+
 def test_every_setting_read_by_a_computed_key_was_checked_by_hand():
     root = pathlib.Path(readers.SRC) / "liberational"
     found = set()
