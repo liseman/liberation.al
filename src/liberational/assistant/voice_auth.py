@@ -74,7 +74,7 @@ def asks_about_the_past(req: str) -> bool:
     transcript and memory; a question the model gives no reading for counts as one about the past), or one
     the camera history reads a time window for (vision/camera_history.py parse), or one that parse refuses as a
     past time it can't read. Both, because their wordings differ: "camzero" is a camera to parse but not to the
-    history classifier (#174)."""
+    history classifier."""
     from liberational.memory import history_qa
     from liberational.vision import camera_history
 
@@ -141,7 +141,7 @@ class Grant:
     needs_confirmation: bool = True
     owner: bool = False
     # Whether the line called the assistant by name. The verified owner may skip the wake phrase for a question, so
-    # a question they ask someone else in the room reads as one too: a failed answer to it is never spoken (#480).
+    # a question they ask someone else in the room reads as one too: a failed answer to it is never spoken.
     addressed: bool = True
 
     def authorized_for(self, request: str) -> bool:
@@ -162,7 +162,7 @@ log = logging.getLogger(__name__)
 def speaker_key(entry: Mapping[str, Any]) -> str:
     """Who is speaking, for a pending request, its cancel, and wrong-password counts: the voice id (after merges, as
     voice.canonical_entry follows them) when the line has one, else its speaker label. Not the name alone: a name is
-    a person's, and a guest's voice can carry it through an introduction or a mistaken merge (#94)."""
+    a person's, and a guest's voice can carry it through an introduction or a mistaken merge."""
     sid = entry.get("speaker_id")
     if isinstance(sid, int) and not isinstance(sid, bool):
         return f"voice:{sid}"
@@ -172,7 +172,7 @@ def speaker_key(entry: Mapping[str, Any]) -> str:
 def anonymous(entry: Mapping[str, Any]) -> bool:
     """Whether a line says nothing about who spoke: no voice id, and no person's name, as the microphone service
     writes a clip too short to match any voice ("unknown"). All such lines would share one key, so different people
-    would count as one speaker (#94): such a line never answers, cancels, or makes a pending request."""
+    would count as one speaker: such a line never answers, cancels, or makes a pending request."""
     from liberational.people import registry
 
     sid = entry.get("speaker_id")
@@ -190,13 +190,13 @@ TRIES = 3  # wrong passwords one speaker gets before a cooldown
 EVERYONE_TRIES = 6  # wrong passwords from all speakers within WINDOW_S before everyone waits
 COOLDOWN_S = 60.0
 WINDOW_S = 60.0
-# Phone and room keep separate budgets (#204): wrong passwords over the phone ("phone:<E.164>" speakers) count toward
+# Phone and room keep separate budgets: wrong passwords over the phone ("phone:<E.164>" speakers) count toward
 # their own everyone-limit, never the room's, and the reverse. Phone cooldowns escalate, per number and for the
 # phone-wide limit (so rotating caller IDs doesn't reset them): 1 minute, then 5, then 30 for every lockout after.
 # The escalation starts over after that number's right password, or after PHONE_QUIET_S with no lockout. Guessing
 # slowly from a new number every couple of tries stays under both the per-number and the per-minute limit, so the
 # phone also has an hourly one: PHONE_HOUR_TRIES wrong passwords from any numbers within an hour lock the phone, and
-# escalate like the per-minute limit (adversarial review of #204).
+# escalate like the per-minute limit.
 PHONE_STEPS = (60.0, 300.0, 1800.0)
 PHONE_QUIET_S = 24 * 3600.0
 PHONE_HOUR_TRIES = 20
@@ -223,9 +223,9 @@ class Lockouts:
     a clock set back can't stretch a cooldown, and one set forward while the process was down can shorten it. A
     missing file is a fresh start; one that can't be read makes everyone wait COOLDOWN_S, never resets to zero.
 
-    The file is shared: the voice service and the phone bridge (#122) are separate processes. Each call takes an
+    The file is shared: the voice service and the phone bridge are separate processes. Each call takes an
     exclusive lock on <file>.lock and reads the file again first, so the read, the change, and the save happen as one
-    step and no process misses or overwrites another's wrong passwords (#191). When the file still holds what this
+    step and no process misses or overwrites another's wrong passwords. When the file still holds what this
     instance last wrote, the in-memory state (on monotonic time) is kept rather than read back from wall-clock
     deadlines. When a save fails, this instance keeps counting in memory instead of rereading the older file, so a
     full disk can't reset anyone's count.
@@ -395,7 +395,7 @@ class Lockouts:
         if any(not 0 <= v < TRIES for v in counts.values()):
             raise ValueError("count")
         until = {str(k): mono + left(v, budget(str(k))) for k, v in d["until"].items()}
-        if d["version"] == 1:  # one budget for everyone before #204: it holds for both now
+        if d["version"] == 1:  # one budget for everyone in version 1: it holds for both now
             recent = {b: d["recent"] for b in (PHONE, ROOM)}
             everyone_at = {b: d["everyone_until"] for b in (PHONE, ROOM)}
             strikes: dict[str, tuple[int, float]] = {}
@@ -494,9 +494,9 @@ def check_password(verifier: pathlib.Path, candidate: str) -> bool:
         return False
 
 
-# A spoken password is never written down as said (#122, #194): the line that matches it reads PASSWORD_SHOWN in the
+# A spoken password is never written down as said: the line that matches it reads PASSWORD_SHOWN in the
 # transcript and the logs, in person and on the phone. Only an actual match is blanked, never text that merely looks
-# secret (#166). Speech recognition capitalizes the first word, adds an end mark, and leads in several ways ("the
+# secret. Speech recognition capitalizes the first word, adds an end mark, and leads in several ways ("the
 # password's ..."), so those are read past before the hash.
 PASSWORD_SHOWN = "[password]"
 _LEAD = r"^\W*(?:(?:um|uh|so|ok|okay)\W+)*(?:(?:the|my)\s+)?password\b"
@@ -547,7 +547,7 @@ class Conversation:
         """clock is wall time (compared with transcript timestamps); cooldowns run on monotonic time. A test that
         passes only a clock drives both with it. Lockouts are kept beside the verifier, in voice_lockout.json.
         follow maps a speaker key to the one it is now (voice.follow_voice: a voice merged into another), so the
-        lockouts stay with the voice through a merge; a pending request ends there instead (#175)."""
+        lockouts stay with the voice through a merge; a pending request ends there instead."""
         self.verifier, self.clock, self.follow = verifier, clock, follow
         mono = monotonic or (time.monotonic if clock is time.time else clock)
         self.lockouts = Lockouts(verifier.with_name("voice_lockout.json"), mono, clock)
@@ -558,7 +558,7 @@ class Conversation:
         self.seen: dict[tuple[Any, str], float] = {}
         self.shared: tuple[float, float] | None = None  # the (asked, expires) last shared by share_pending
         # The password is blanked until 45 s after we last asked for it, whatever the request's own deadline: the
-        # cap on how long a request stays open (HOLD_S) must never leave a password said in time in plain text (#175).
+        # cap on how long a request stays open (HOLD_S) must never leave a password said in time in plain text.
         self.blank_until: float = 0.0
         self.told: set[str] = set()  # speakers told "someone else's request is waiting" for this request
 
@@ -566,7 +566,7 @@ class Conversation:
         self.suppress_until = end
         self.windows.append((start, end))
         self.windows = self.windows[-16:]
-        if self.pending:  # time to answer what was just said, but never past HOLD_S from the first ask (#175)
+        if self.pending:  # time to answer what was just said, but never past HOLD_S from the first ask
             p = self.pending
             p["expires"] = max(p["expires"], min(end + 45, p["opened"] + HOLD_S))
             if p["stage"] == "password":
@@ -584,12 +584,12 @@ class Conversation:
     def share_pending(self) -> None:
         """Tell the microphone service when a password may be said (password_window): from the end of the request to
         its deadline while one is awaited. When the ask ends, the window is kept, closed at that moment rather than
-        removed, so a copy of the password that another microphone transcribes late is still blanked (Codex, #218)."""
+        removed, so a copy of the password that another microphone transcribes late is still blanked."""
         window = password_window(self.verifier)
         p = self.pending
         if p is not None and p["stage"] == "password":
             span = self.shared = (p["asked"], max(p["expires"], self.blank_until))
-        elif self.shared is not None:  # closed now, but never before 45 s after the last ask for the password (#175)
+        elif self.shared is not None:  # closed now, but never before 45 s after the last ask for the password
             span, self.shared = (self.shared[0], min(self.shared[1], max(self.clock(), self.blank_until))), None
         else:
             return
@@ -613,7 +613,7 @@ class Conversation:
         if self.follow is not None:
             self.lockouts.follow(self.follow)
             # A merge may join the asker's voice to someone else's (a guest into the owner's): the pending request
-            # ends rather than passing to whoever the surviving voice is (#175). Its lockouts still follow the voice.
+            # ends rather than passing to whoever the surviving voice is. Its lockouts still follow the voice.
             if self.pending and (moved := self.follow(self.pending["speaker"])) != self.pending["speaker"]:
                 self.pending = None
                 self.share_pending()  # its password stays blanked as long as it would have been
@@ -634,7 +634,7 @@ class Conversation:
         ):
             return None
         # Our own reply heard back: the same words, captured as it ended (by capture time when the line has one, so
-        # "yes" said a while after the assistant said "Yes?" is the person's, #175), else arriving within 120 s.
+        # "yes" said a while after the assistant said "Yes?" is the person's), else arriving within 120 s.
         if any(
             norm == spoken and (float(ts) <= end + ECHO_S if ts is not None else now - end < 120)
             for spoken, end in self.spoken
@@ -652,25 +652,25 @@ class Conversation:
         if moved is not None and identity == moved and not anon:  # only the asker hears it ended, so they ask again
             return "That request ended. Please ask again."
         # Too late when the line began after the deadline, or ran on past it by more than LATE_S: a long line begun
-        # just in time no longer counts long after it (#175), while a reply begun in time still does.
+        # just in time no longer counts long after it, while a reply begun in time still does.
         began = float(ts) if ts is not None else now
         ended = float(entry.get("ts_end", ts)) if ts is not None else now
         if self.pending and (began > self.pending["expires"] or ended > self.pending["expires"] + LATE_S):
-            # Only the person who asked hears that it expired; anyone else's line goes on as their own (#94).
+            # Only the person who asked hears that it expired; anyone else's line goes on as their own.
             mine = identity == self.pending["speaker"] and not anon
             self.pending = None
             if mine:
                 return "That request expired. Please ask again."
         if self.pending:
             p = self.pending
-            # The owner's own request answers only to the owner (#94): a line from their voice that isn't the verified
+            # The owner's own request answers only to the owner: a line from their voice that isn't the verified
             # owner (owner_entry: heard too faintly, or no longer theirs) is treated as another voice. Today the owner is
             # never asked to confirm (request_policy), so this only holds if that ever changes. A line that says nothing
             # about who spoke (anonymous) is always another voice.
             if anon or identity != p["speaker"] or (p["owner"] and not owner):
                 # Another voice during someone's pending request is ignored, "cancel" too, so a guest can't clear
                 # it. The owner can: their "cancel" ends it, and their wake phrase replaces it with their request.
-                # A guest who asks with the wake phrase hears why there's no answer, rather than silence (#175).
+                # A guest who asks with the wake phrase hears why there's no answer, rather than silence.
                 if not owner:  # once per voice per request: a reply of ours mutes lines that overlap it
                     if not anon and identity not in self.told and re.match(r"^\W*" + wake_regex() + r"\b", text, re.I):
                         self.told.add(identity)
@@ -688,7 +688,7 @@ class Conversation:
             if re.match(r"^\W*" + wake_regex() + r"\b", text, re.I):
                 # A fresh wake phrase is a new request, never a password/confirmation attempt. It keeps the failure
                 # count: only a correct password or a lockout resets it, so asking again never buys more tries. The
-                # same request asked again keeps its deadline (below), so it can't hold the floor forever (#175).
+                # same request asked again keeps its deadline (below), so it can't hold the floor forever.
                 again = self.pending
                 self.pending = None
         if self.pending:
@@ -738,7 +738,7 @@ class Conversation:
         route = "camera" if camera_read(req, camera) else ("public" if PUBLIC.fullmatch(req) else "gateway")
         if route == "camera" and not owner and asks_about_the_past(req):
             # A camera question about the past is answered from the transcript and memory, not the live cameras, so
-            # anyone but the verified owner gives the password for it, as for any other non-public request (#174).
+            # anyone but the verified owner gives the password for it, as for any other non-public request.
             route = "gateway"
         if route == "camera":
             return Grant(req, route, False, False, False, False, owner, addressed)
@@ -746,7 +746,7 @@ class Conversation:
         before = again if again is not None and again["speaker"] == identity else None
         same = before is not None and self.normal(before["request"]) == self.normal(req)
         # The same speaker's next request, while their last still waits, keeps its start: asking something else, or
-        # rewording, buys no more than HOLD_S in all (#175).
+        # rewording, buys no more than HOLD_S in all.
         opened = before["opened"] if before is not None else now
         expires = before["expires"] if same and before is not None else min(now + 45, opened + HOLD_S)
         if expires <= now:

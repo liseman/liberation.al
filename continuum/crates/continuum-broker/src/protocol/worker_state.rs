@@ -1,4 +1,4 @@
-//! The worker state messages (minor 32, #1547): `SaveWorkerState`, `LoadWorkerState`, and `ForgetWorkerState`, a
+//! The worker state messages (minor 32): `SaveWorkerState`, `LoadWorkerState`, and `ForgetWorkerState`, a
 //! durable worker's checkpoint as one keyed catalog row (continuum-catalog's `worker_state`), read into owned asks
 //! and answered from what the catalog said.
 

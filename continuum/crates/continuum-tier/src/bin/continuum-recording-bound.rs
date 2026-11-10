@@ -1,5 +1,5 @@
 //! One-time repair, offline: give each instant audio original that holds its stream's recording history unknown the
-//! end its own samples bound (#1669). Run it from the repository root with the broker stopped, as
+//! end its own samples bound. Run it from the repository root with the broker stopped, as
 //! `continuum-recording-bound --catalog data/state/continuum/catalog.redb [--apply]`. It opens the catalog file
 //! directly, so it first takes the broker's own lock (`broker.sock.lock` beside the catalog) without waiting: it
 //! refuses while the broker runs, and a broker can't start while it works. Without `--apply` it only reports.

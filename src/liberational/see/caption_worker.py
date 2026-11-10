@@ -1,11 +1,11 @@
-"""The caption worker on Continuum (#549): each camera's frames followed live from the broker (`see.frames`), run
+"""The caption worker on Continuum: each camera's frames followed live from the broker (`see.frames`), run
 through the caption pipeline (`see.captions`), and written as `camera.caption` and `camera.objects` rows in the
-segment store (#1791, segment_log.py), with `animal.grounding` and `animal.grounding_embedding` rows for the animals the
-captions name (#1988, see/caption_animals.py).
+segment store (segment_log.py), with `animal.grounding` and `animal.grounding_embedding` rows for the animals the
+captions name (see/caption_animals.py).
 
 Each camera is looked at most every `min_interval_s` (1 s, v1's `--interval`), newest frame first; the change gate
 decides whether the VLM sees it, at most once per camera's caption interval (`caption_every_s`, 60 s for network
-cameras by default, #1641). Every row names its frame (`frame_id`), and a caption repeated for an unchanged view says
+cameras by default). Every row names its frame (`frame_id`), and a caption repeated for an unchanged view says
 since when (`since`). Segment rows are readable as soon as
 they're appended and synced at most SYNC_S apart, so a crash loses at most that much. The pipelines are made and run
 on one model thread shared by every camera: v1's in-process MLX backend answers only on the thread that loaded it.
@@ -67,7 +67,7 @@ class CaptionWorker:
 
     def _slotted(self, cam: Camera) -> Camera:
         """A network camera read in capture-time slots of `min_interval_s` (frames.newest's `every_ns`), so the
-        pictures it won't look at skip color conversion (#1656): converting every one of about 30 a second per
+        pictures it won't look at skip color conversion: converting every one of about 30 a second per
         stream cost about a core. The monotonic interval is then the slots' job."""
         if cam.kind != "rtsp" or cam.every_ns or self.min_interval_s <= 0:
             return cam
@@ -149,7 +149,7 @@ class CaptionWorker:
 
 
 def caption_every_s(cam: Camera, network_s: float, own: Mapping[str, Any]) -> float:
-    """How long a camera waits between VLM captions (#1641): its own `[vision.caption_every_s]` entry, else
+    """How long a camera waits between VLM captions: its own `[vision.caption_every_s]` entry, else
     `network_s` for a network (`rtsp`) camera, else 0 (no wait). Raises ValueError for a negative or non-number one."""
     value = own.get(cam.name, network_s if cam.kind == "rtsp" else 0.0)
     if isinstance(value, bool) or not isinstance(value, int | float) or not value >= 0:
@@ -193,7 +193,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     backend = args.backend if args.backend != "auto" else "mlx-server" if cfg.has_mlx() else "ollama"
     vlm: list[v1.Backend] = []  # made once, on the model thread
     embed = caption_animals.LazyEmbedder()  # shared by every camera, loaded on the first animal box
-    pet_photos = pet_shots.Writer(cfg.path("paths.state"))  # Pets' sighting photos, one a track (#2038)
+    pet_photos = pet_shots.Writer(cfg.path("paths.state"))  # Pets' sighting photos, one a track
     pets = PetRegistry(registry.knowledge_path(None))
 
     names: list[Any] = [-float("inf"), []]  # when the taught pets' names were read, and them

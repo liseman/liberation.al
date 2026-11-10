@@ -101,8 +101,8 @@ class PoseModel:
     ) -> None:
         self.session, self.input, self.name, self.version, self.provider = session, input_name, name, version, provider
         # A CPU session to fall back to when the accelerated one fails at run time. CoreML passed load's probe runs
-        # (batches of 1 and 2) but failed on live frames, which crashed see-bodies every ~20 s (the Mac,
-        # 2026-11-02: 23k failures).
+        # (batches of 1 and 2) but failed on live frames, which crashed see-bodies every ~20 s (the Mac:
+        # 23k failures).
         self.cpu = cpu
         self.size = size  # the input, width by height, read from the model when it's loaded
         self.batched = batched  # False for an export with a fixed batch of 1: each person is run alone

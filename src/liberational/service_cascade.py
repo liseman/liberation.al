@@ -29,14 +29,14 @@ BROKER = "continuum-broker"
 CAPTURE = "continuum-capture"
 TIER = "continuum-tier-worker"
 #: How long a cascade waits for the tier to drain Tier 0 once capture stopped. Past it the restart goes on: some
-#: frames strand (#1684), but a stuck tier never blocks a deploy.
+#: frames strand, but a stuck tier never blocks a deploy.
 DRAIN_TIMEOUT = 20.0
 DIAGNOSTICS = frozenset({"dashboard", "continuum-gateway"})
 # A cold broker may rebuild its entire availability index before accepting requests. Leave bounded room for
 # that work plus capture evidence and final health checks; callers can still request a shorter deadline.
 DEFAULT_TIMEOUT = 600.0
 RECOVERY_RESERVE = 10.0
-# After a failure, how long recovery waits for the services it started before reporting (#1387).
+# After a failure, how long recovery waits for the services it started before reporting.
 RECOVERY_WAIT = 15.0
 
 
@@ -65,7 +65,7 @@ class ServiceFact:
     scheduled: bool = False
     kept_stopped: bool = False
     # Children the service replaces by design while healthy: capture's RTSP workers, which its supervisor starts again
-    # whenever a network camera's clock fit fails or its stream stalls (#2360).
+    # whenever a network camera's clock fit fails or its stream stalls.
     replaceable: frozenset[ProcessIdentity] = frozenset()
 
 
@@ -147,7 +147,7 @@ def _same_runs(before: Mapping[str, ServiceFact], after: Mapping[str, ServiceFac
         elif new.state != "running" or new.pid != old.pid or new.restarts != old.restarts:
             raise RuntimeError(f"{name}: service identity/state/restart counter changed during cascade")
         # Capture's own PID and restart counter are held above. A USB camera or microphone worker that changed means a
-        # device failed to come up; an RTSP worker replaced is a network camera's reconnect, which isn't (#2360).
+        # device failed to come up; an RTSP worker replaced is a network camera's reconnect, which isn't.
         if name == CAPTURE and set(new.children) - new.replaceable != set(old.children) - old.replaceable:
             raise RuntimeError(f"{name}: capture worker identities changed during cascade")
 
@@ -300,7 +300,7 @@ def run(
             if name not in kept and _stopped(fact):
                 log(f"cascade: {name}: previously stopped; starting explicitly")
         # The tier worker stops after capture, once it has flushed what capture left in Tier 0: stopped first, the
-        # frames between it and capture would strand when the broker's arena goes (#1684).
+        # frames between it and capture would strand when the broker's arena goes.
         tier = TIER in readers
         for label, group in (
             ("stop readers", tuple(name for name in readers if name != TIER)),
@@ -332,7 +332,7 @@ def run(
         stage = "broker readiness"
         broker = readiness.broker(previous, deadline)
         # The tier worker starts before capture: until it subscribes, the broker owes capture's streams to no archive
-        # and may reclaim their first Tier 0 frames under pressure before anything reads them (#1726).
+        # and may reclaim their first Tier 0 frames under pressure before anything reads them.
         if tier:
             stage = "start tier"
             manager.start((TIER,), deadline)
@@ -384,7 +384,7 @@ def run(
     except BaseException as error:
         restore_error = None
         if changed:
-            # Never leave what this cascade stopped unloaded (#1387): launchd doesn't bring an unloaded job back, while
+            # Never leave what this cascade stopped unloaded: launchd doesn't bring an unloaded job back, while
             # a loaded one that fails keeps retrying. After a failed stop the core is left as it is, since an old
             # process may still hold the devices. The failure still exits nonzero.
             core_unsafe = stage.startswith("stop ")
@@ -663,7 +663,7 @@ class ServiceManager:
     def start(self, names: Sequence[str], deadline: float) -> None:
         if not names:
             return
-        # Every service is tried even when one fails (#1387); the failures are raised together after.
+        # Every service is tried even when one fails; the failures are raised together after.
         failures = []
         if self.darwin:
             facts = self.snapshot(names, deadline)
@@ -809,7 +809,7 @@ def _run_selected(
 
 def _on_disk(line: str) -> None:
     """A cascade line in <paths.logs>/cascade.log, timestamped: the install's terminal is often gone when its failure
-    is looked into (2026-11-06: only the "after failure" tail was kept, not the stage that failed)."""
+    is looked into (keeping only the "after failure" tail lost the stage that failed)."""
     try:
         path = cfg.path("paths.logs") / "cascade.log"
         path.parent.mkdir(parents=True, exist_ok=True)

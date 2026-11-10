@@ -1,6 +1,6 @@
-"""Reconstruction output to a plan the floorplan library accepts (#2803, part of the spatial memory goal #2794).
+"""Reconstruction output to a plan the floorplan library accepts (part of spatial memory).
 
-The library (frontend/src/vendor/floorplan, the notes on #2787) wants rooms that tile the footprint exactly on
+The library (frontend/src/vendor/floorplan) wants rooms that tile the footprint exactly on
 shared wall centrelines: it derives each wall from the edge two rooms share, and puts a door on the wall between the
 two spaces it names. Reconstruction gives rooms as it saw them: a room model's polygons (RoomFormer, SpatialLM) are
 inner faces with a wall's width of gap between neighbours, edges a little skewed, small overlaps, and rooms only
@@ -21,7 +21,7 @@ either into rooms that tile:
    the most wall with, when it has one; a larger one, or one with no neighbour, is a part nobody has seen (a closed
    door, an unscanned room). It becomes a `void` named "Not seen yet", which the library accepts as a hole in the
    floor. The JSON document lists the same areas under `x-unexplored` (`to_document`), the Places tab's not-seen-yet
-   layer (frontend/src/dashboard/places/plan/ext.ts, #2797); the DSL writer emits the void lines.
+   layer (frontend/src/dashboard/places/plan/ext.ts); the DSL writer emits the void lines.
 5. **Openings.** Each detected door or window goes on the nearest wall between two spaces within Settings.reach,
    named by those two spaces ("exterior" first when one is outside), and is clamped to that wall: its width to the
    wall's length less the library's CORNER_M clear at each end, and its centre slid inside that, so the library

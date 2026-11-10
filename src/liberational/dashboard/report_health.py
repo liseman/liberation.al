@@ -1,4 +1,4 @@
-"""System health for the Reports tab (#1340): storage against the plan, memory and GPU use, and service uptime.
+"""System health for the Reports tab: storage against the plan, memory and GPU use, and service uptime.
 
 Most of this has no history of its own on disk, so the dashboard keeps one: `Sampler` takes a sample every SAMPLE_S
 while the dashboard runs and adds it to `state/reports.sqlite3` (memory/reports.py's Store). A sample holds memory
@@ -100,7 +100,7 @@ def _size(path: Path) -> int:
 
 
 def _chunk_entries(tier: Path) -> list[os.DirEntry[str]]:
-    """The chunk files of a tier directory, all in `streams/<stream>/<hour>/` (#2908, #2929)."""
+    """The chunk files of a tier directory, all in `streams/<stream>/<hour>/`."""
     out: list[os.DirEntry[str]] = []
     dirs: list[Path] = []
     try:

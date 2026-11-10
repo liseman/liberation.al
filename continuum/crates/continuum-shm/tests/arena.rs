@@ -336,7 +336,7 @@ fn rings_wrap_and_report_what_a_slow_reader_missed() {
     a.ring_writer(0).unwrap();
 }
 
-/// #3210: a timeout past what an `Instant` holds (`Duration::MAX`, the usual "forever") panicked before the wait.
+/// A timeout past what an `Instant` holds (`Duration::MAX`, the usual "forever") panicked before the wait.
 #[test]
 fn a_ring_wait_without_end_answers_a_published_record() {
     let a = arena(&small());

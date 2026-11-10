@@ -1,7 +1,7 @@
-"""Give the memory a long-lived process has freed back to the system (#2850).
+"""Give the memory a long-lived process has freed back to the system.
 
 glibc's malloc keeps freed memory in its arenas for reuse rather than returning it, and a process that works with
-large short-lived buffers (decoded video frames, a full read of the speech history) holds on to its peak. On devbox the
+large short-lived buffers (decoded video frames, a full read of the speech history) holds on to its peak. On the Linux machine the
 dashboard grew from 0.46 to 1.09 GB over 3.5 hours, and its People list worker from 0.77 to 1.62 GB, with every byte
 private heap. In a probe, cutting face photos from camera frames took a process from 81 to 620 MB, where it stayed,
 and one malloc_trim(0) brought it back to 216 MB: the memory was free, just not returned.

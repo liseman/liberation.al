@@ -1,7 +1,7 @@
 """What two or more named people talked about most in a window: their conversations, each summarised by the local
 model, media playback set aside, topics ranked by time spent.
 
-The previous answer counted recurring words and returned "chinese, khan, mongols" for a two-person conversation on 2026-10-28.
+The previous answer counted recurring words and returned "chinese, khan, mongols" for a two-person conversation.
 Those were an audiobook about Genghis Khan playing in the room, which speaker identification attributed to them.
 Here each conversation (lines no more than GAP_S apart, where every named person speaks at least twice) is
 classified as conversation or media and given a short topic; media is reported but not ranked.

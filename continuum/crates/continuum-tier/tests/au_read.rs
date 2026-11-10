@@ -1,7 +1,7 @@
-//! Reading a raw camera's Tier 1 (`H264Au`, one access unit per record) as video (#900): a range that starts mid-GOP
+//! Reading a raw camera's Tier 1 (`H264Au`, one access unit per record) as video: a range that starts mid-GOP
 //! decodes from its keyframe, a purge's tombstone skips the rest of its GOP, and export copies from the keyframe. The chunk is
 //! made the way the tier worker makes it: 3 seconds of 320x240 UYVY at 30 fps through the worker loop. The opt-in
-//! AV1 archive pass (#1479) turns the same chunk into AV1 and it reads back the same way.
+//! AV1 archive pass turns the same chunk into AV1 and it reads back the same way.
 #![cfg(feature = "ffmpeg")]
 
 use std::collections::BTreeSet;
@@ -175,7 +175,7 @@ fn export_copies_from_the_keyframe_before_the_range_to_its_end() {
     assert_eq!(exact.frames, 25, "a re-encode is exactly the range");
 }
 
-// The opt-in AV1 archive pass (#1479): small, fast encoder settings, since the tests check the container, not quality.
+// The opt-in AV1 archive pass: small, fast encoder settings, since the tests check the container, not quality.
 const FAST: Av1Settings = Av1Settings { preset: 12, crf: 40, parallelism: 1 };
 
 fn ready(path: &Path) -> continuum_tier::av1::Ready {

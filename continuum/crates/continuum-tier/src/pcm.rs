@@ -130,7 +130,7 @@ pub fn format_of(record: &[u8]) -> Result<Option<PcmFormat>, TierError> {
 }
 
 /// How many sample frames a CPB2 batch record holds, with its format, read from its header alone: record count times
-/// the frames in one ring block. None for a legacy CPB1 record, which has no rate (#1669).
+/// the frames in one ring block. None for a legacy CPB1 record, which has no rate.
 ///
 /// # Errors
 /// A malformed header, or a stride that doesn't hold a stamp and whole frames.
@@ -337,7 +337,7 @@ mod tests {
 
     #[test]
     fn a_batch_header_says_how_many_frames_it_holds_whatever_its_codec() {
-        // 6 records of 480 frames, stereo: 2880 frames, in a FLAC batch and in an LZ4 one (#1669).
+        // 6 records of 480 frames, stereo: 2880 frames, in a FLAC batch and in an LZ4 one.
         for (raw, layout) in
             [batch(6, 480, 2, |r, i| sine(r, i, 16)), batch(6, 480, 2, |r, i| 0.1 + (r * 7 + i as u64) as f32 * 1e-7)]
         {

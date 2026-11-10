@@ -16,7 +16,7 @@
 //!   (its header needs the stream's shape, which the first payload brings), and a payload already in one is reported
 //!   back rather than appended twice.
 //! - On shutdown every open chunk is closed and committed.
-//! - A raw camera's frames (UYVY, YUYV, or NV12, #900) are encoded as they land, with the `ffmpeg` feature: low-delay
+//! - A raw camera's frames (UYVY, YUYV, or NV12) are encoded as they land, with the `ffmpeg` feature: low-delay
 //!   H.264 with a keyframe every second ([`crate::raw::RawEncoder`], hardware first), one access unit per record in a
 //!   [`ChunkFormat::H264Au`] chunk, so Tier 1 holds about a gigabyte an hour instead of LZ4's hundred. An access unit
 //!   is matched back to its frame by its start time (an encoder can hold the first few frames). A chunk starts on a
@@ -181,7 +181,7 @@ pub struct WorkerLoop<O: Outputs> {
     quarantined: BTreeSet<Uuid>,
     recovery_errors: BTreeMap<StreamId, String>,
     counts: Counts,
-    /// Each raw camera stream being encoded (#900).
+    /// Each raw camera stream being encoded.
     #[cfg(feature = "ffmpeg")]
     raw: BTreeMap<StreamId, RawStream>,
 }
@@ -202,7 +202,7 @@ struct RawStream {
     /// The next access unit's record seq. The H.264 this worker encodes decodes in its own output order, so its
     /// records count that order, consecutively; a camera's frame seq is 0 for a raw publish, and its jumps (driver
     /// drops) don't break this stream. Every record's seq was 0 on the Mac, so the gateway took each P-frame for a
-    /// gap and Review showed only keyframes (2026-11-05).
+    /// gap and Review showed only keyframes.
     next_seq: u32,
 }
 
@@ -759,7 +759,7 @@ impl<O: Outputs> WorkerLoop<O> {
         }
     }
 
-    /// A microphone's PCM batch chunk becomes Opus before it's committed (#1942): the same records, payload ids,
+    /// A microphone's PCM batch chunk becomes Opus before it's committed: the same records, payload ids,
     /// times, and frame order, in the same file ([`crate::opus::pcm_chunk_to_opus`]). One that can't (an unknown
     /// rate, a layout Opus can't keep, a codec error) is committed as PCM; the first for each stream is logged with
     /// why, and the rest are counted in [`Counts::opus_fallbacks`]. Every other chunk passes through.

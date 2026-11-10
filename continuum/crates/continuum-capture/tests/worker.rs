@@ -257,7 +257,7 @@ fn a_microphone_worker_publishes_batches_and_registers_again_after_a_wake() {
 
 /// A broker config with a small Tier 0 (the profile's arena is gigabytes): 32 slots of 64 KiB.
 fn small_tier0(mut config: Config) -> Config {
-    // A camera claims the class its planned frame size fits (#2001): 2 MiB for the scripted 1280x720 MJPEG camera.
+    // A camera claims the class its planned frame size fits: 2 MiB for the scripted 1280x720 MJPEG camera.
     config.tier0 = Some(vec![
         continuum_sched::SlotClass { size_bytes: 64 * 1024, count: 32 },
         continuum_sched::SlotClass { size_bytes: 2 << 20, count: 8 },

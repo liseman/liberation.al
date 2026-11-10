@@ -1,4 +1,4 @@
-//! Exporting a time range of a video stream as an ordinary MP4 (#553), behind the `ffmpeg` feature.
+//! Exporting a time range of a video stream as an ordinary MP4, behind the `ffmpeg` feature.
 //!
 //! Chunks are the tier worker's own container, which no video player or ffprobe opens (docs/CONTINUUM.md, "Storage
 //! tiers", says why). [`export`] writes a range of one stream's chunks as an MP4 that does open, for when a person

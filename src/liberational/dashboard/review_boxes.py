@@ -1,9 +1,9 @@
-"""Boxes for Review's large camera (#374): the people and things one camera saw during a short stretch, for drawing over
+"""Boxes for Review's large camera: the people and things one camera saw during a short stretch, for drawing over
 the recorded video at the playhead (GET /review/boxes?cam=&start=&end=).
 
 - Faces: the face worker's sightings with a box (vision/sightings.py, on the vision log), named by who they are now
   (the event log), else unknown.
-- People's bodies (#2257): see-actions' `pose.track` boxes, which it stores for every tracked person on every analyzed
+- People's bodies: see-actions' `pose.track` boxes, which it stores for every tracked person on every analyzed
   frame (cam0 at 30 fps, the others at 10), read at most one a track every BODY_STRIDE_S so a minute of a busy
   camera stays a small response. A body is named by the majority of the window's known face matches on its pose
   track (see/head_faces.py writes each look's `track_id` as the pose track), else unknown. Faces still come back as
@@ -11,7 +11,7 @@ the recorded video at the playhead (GET /review/boxes?cam=&start=&end=).
   crops the face of its track's latest look.
 - Pets: see-actions' `animal.detection` source-frame boxes, keyed by their original animal track. Exact owner
   `pet.sighting` labels supply the current pet profile's name/species. A track without one is named only when
-  appearance recognition (people/pet_recognition.py `resolve`, #2175) recognizes it as a pet from this window's own
+  appearance recognition (people/pet_recognition.py `resolve`) recognizes it as a pet from this window's own
   embeddings, with the Pets page's check and threshold; it never reads history. Other tracks keep the detected
   species.
 - Things: object memory sightings (the owner's crops and the object worker's matches, memory/objects.py), by name.
@@ -155,7 +155,7 @@ def _group(cluster: object) -> dict[str, int]:
 
 
 def _objects(state: pathlib.Path, cam: str, start: float, end: float) -> Iterator[dict[str, Any]]:
-    """The camera's object memory sightings in the window (#778, memory/objects.py), by the object's name."""
+    """The camera's object memory sightings in the window (memory/objects.py), by the object's name."""
     from liberational.memory import objects
 
     try:

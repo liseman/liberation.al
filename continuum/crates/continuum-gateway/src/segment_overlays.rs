@@ -1,4 +1,4 @@
-//! Overlay streams that live in the segment store (#1755, #1791), not the broker: their rows turned back into the
+//! Overlay streams that live in the segment store, not the broker: their rows turned back into the
 //! record JSON [`crate::vision::Overlays::apply`] already reads, a window read for recorded video and for what stands
 //! in view when a live page opens, and a follower for live pages.
 //!

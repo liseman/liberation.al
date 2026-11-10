@@ -1,4 +1,4 @@
-"""Reports (#1340): daily aggregates over the whole corpus, for the dashboard's Reports tab (dashboard/reports.py).
+"""Reports: daily aggregates over the whole corpus, for the dashboard's Reports tab (dashboard/reports.py).
 
 A report never ships raw rows. Each one turns a local day of records into one small aggregate (`Report.day`), and
 turns the stored aggregates of every day into the figures a chart draws (`Report.assemble`). Days are the unit
@@ -14,7 +14,7 @@ cached, so a year of data is read once and then only today, and days that change
   drops every day, so nothing forgotten lives on in a report. A range purge only of streams no report reads
   (`UNREAD_STREAM_PREFIXES`: the broker's worker checkpoints, which it purges every few seconds from 0 ns) is
   skipped, and the rest are clipped to the days reports cover and joined before they become days, so a batch of new
-  purges costs at most MAX_DAYS days however wide it is (#1443). The list
+  purges costs at most MAX_DAYS days however wide it is. The list
   is of streams no report reads rather than of those they do: a stream left off it costs a reread, never a report
   that keeps what was forgotten. If the saved purge cursor no longer exists (such as after a broker reset), its
   missing history cannot validate cached days: retire the cursor and invalidate every day once, then read from
@@ -1209,7 +1209,7 @@ class LiveSources:
 
     def activity_coverage(self, start: float, end: float) -> list[tuple[str, float, float]]:
         """The cameras' activity coverage, kept COVERAGE_KEEP_S: Activity and Walk-bys each read a day's, about 1.4
-        million spans and 10 s of Python a day, one right after the other (#2458)."""
+        million spans and 10 s of Python a day, one right after the other."""
         from liberational.memory import events
 
         now = time.monotonic()
@@ -1315,7 +1315,7 @@ def at(state: Path) -> Reports:
         return _shared[key]
 
 
-# ---- the worker process (#2458) ----
+# ---- the worker process ----
 
 COVERAGE_KEEP_S = 60.0  # a day's activity coverage is read once for the reports built one after another
 DAY_TIMEOUT_S = 900.0  # a worker that takes longer than this over one day is stopped, and the next read starts another
@@ -1332,13 +1332,13 @@ def _read_day(state: str, name: str, day: str) -> dict[str, Any]:
         cfg.load.cache_clear()  # a setting saved since: the dashboard rereads its pack.toml, and so does this
         from liberational import memtrim
 
-        memtrim.start()  # what a day's read freed goes back to the system (#2850)
+        memtrim.start()  # what a day's read freed goes back to the system
     reader = at(Path(state))
     return reader.reports[name].day(reader._read, day)
 
 
 def _in_worker(state: Path, name: str, day: str) -> dict[str, Any]:
-    """Read one day in one process of its own (#2458). A day of all six reports is about 35 s of pure Python, and on
+    """Read one day in one process of its own. A day of all six reports is about 35 s of pure Python, and on
     the dashboard's own thread it held the interpreter lock every request needs; today is read again every FRESH_S
     while Reports is open, and every day after a purge or a naming. A worker that died or ran past DAY_TIMEOUT_S is
     replaced, and this day raises (the builder logs it, and the next view asks for it again)."""

@@ -1,4 +1,4 @@
-"""Plain-language lines from the local model, cached (#404, and Live's "What's happening", #354).
+"""Plain-language lines from the local model, cached (including Live's "What's happening").
 
 A source text (a journal entry, a run of conversation) goes in; a short neutral line comes out, with topic tags:
 "Worked at the desk for about 3 hours" ["work"]. clean() checks every reply. It must be JSON with a text that has no
@@ -14,7 +14,7 @@ yields before each model call through the shared bounded voice gate, as the jour
 rewrite never delays a spoken reply. Lines are cached by their source text, so an entry rebuilt with the same words
 costs no new call. A model that is down is tried again after RETRY_S, not on every read. Rewrites keeps its lines
 in the process; a user can keep them elsewhere by overriding _rows, _save, and meta, as memory/review_summary.py
-keeps them as review.summary records on the memory log (#778).
+keeps them as review.summary records on the memory log.
 
 Named lines (check_named, NAMED_SYSTEM) are the other rule set, for Live's log: who did it
 comes first, by name ("Kara asked Luca about the couch"), never a pronoun, an automatic label, or "the owner".
@@ -113,7 +113,7 @@ def _json_in(reply: str) -> Any:
 def check(reply: str | None, max_chars: int = MAX_CHARS) -> tuple[dict[str, Any] | None, str]:
     """(the reply as {"text", "topics"}, "") or (None, the rule it broke). Topics not in TOPICS are dropped. The
     text gets a capital first letter and no full stop at the end (a timeline row). A longer line (a part of the day's
-    rollup, #2276) passes its own `max_chars`."""
+    rollup) passes its own `max_chars`."""
     d = _json_in(str(reply or ""))
     if not isinstance(d, dict) or not isinstance(d.get("text"), str):
         return None, 'reply with JSON: {"text": "...", "topics": [...]}'
@@ -136,7 +136,7 @@ def clean(reply: str | None) -> dict[str, Any] | None:
     return check(reply)[0]
 
 
-# ---- named lines (Live's What's happening, #354): who did it comes first, by name ----
+# ---- named lines (Live's What's happening): who did it comes first, by name ----
 NAMED_MAX_CHARS = 80
 NAMED_SYSTEM = (
     "You write one short line for a live log of a room, from a few lines of conversation, each given as "

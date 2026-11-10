@@ -60,10 +60,10 @@ pub fn recover(dir: &Path) -> Result<Vec<Recovered>, TierError> {
     if !dir.exists() {
         return Ok(out);
     }
-    // Every stream's hour directories (#2908), newest first: a run finishes a stream's chunk before it opens the
+    // Every stream's hour directories, newest first: a run finishes a stream's chunk before it opens the
     // next, so a stream's unfinished chunks are its newest, and past its first finished one nothing needs opening.
     // Opening every chunk in the archive to read its footer took minutes at each start, and the encoded cameras'
-    // Tier 0 rings filled with unflushed frames meanwhile (#2965). Leftovers are still deleted from the listing.
+    // Tier 0 rings filled with unflushed frames meanwhile. Leftovers are still deleted from the listing.
     let paths: Vec<PathBuf> = crate::layout::chunk_paths(dir, None)?;
     let mut settled: BTreeSet<PathBuf> = BTreeSet::new(); // stream directories with a finished chunk seen
     for path in paths.into_iter().rev() {

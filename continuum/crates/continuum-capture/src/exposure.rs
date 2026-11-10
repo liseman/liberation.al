@@ -1,4 +1,4 @@
-//! Steering a camera's exposure to the room (#535), the way the listen worker's auto gain steers a microphone.
+//! Steering a camera's exposure to the room, the way the listen worker's auto gain steers a microphone.
 //!
 //! [`AutoExposure`] is pure: no clock or device of its own. About once a second the capture worker measures a frame's
 //! brightness ([`luma`]: its mean 8-bit luma and the share of it clipped at white) and asks [`AutoExposure::step`]
@@ -16,7 +16,7 @@
 //!   far over the share it is, from [`Settings::fine_step`] just over it to `max_step` at twice it.
 //! - **Not back into the clip.** The value that clipped becomes a ceiling, and the exposure doesn't step up past
 //!   `fine_step` under it, even when the mean is below the target: a lamp in a 360 view can clip before the room
-//!   reaches the target, and without the ceiling the clip rule and the mean rule took turns every interval (#3149).
+//!   reaches the target, and without the ceiling the clip rule and the mean rule took turns every interval.
 //!   The ceiling relaxes by `fine_step` every [`Settings::relax_ns`], to find out whether the light changed, and
 //!   every interval while the frame clips under a quarter of `clip_share` (the lamp went off).
 //! - **Within the device's range, and the frame rate held.** Every value is clamped to the control's minimum,
@@ -408,7 +408,7 @@ mod tests {
         assert_eq!(a.step(0, 200, Luma { mean: 90.0, clipped: 0.2 }), Some(160));
     }
 
-    /// cam0 in #3149, from its log: brightness 125 gives luma 82 and 174 gives 113, and a lamp in the 360 view
+    /// cam0, from its log: brightness 125 gives luma 82 and 174 gives 113, and a lamp in the 360 view
     /// clips 2.7% of the frame at 128, passing 5% near 152. No brightness has the mean in the deadband (98 at 150)
     /// with under 5% clipped. `jitter` flutters the clipped share by a frame-to-frame 0.3%.
     fn cam0(brightness: i64, jitter: bool) -> Luma {

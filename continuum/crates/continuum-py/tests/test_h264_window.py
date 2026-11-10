@@ -1,4 +1,4 @@
-"""The recent H.264 window from Python (#1741), against a real broker and tier worker: frames that reached a Tier 1
+"""The recent H.264 window from Python, against a real broker and tier worker: frames that reached a Tier 1
 chunk, frames still in Tier 0, and frames written after the window opened come out in decode order from the keyframe
 before the start, with a lost frame reported as a gap until the next keyframe, and only attested values."""
 

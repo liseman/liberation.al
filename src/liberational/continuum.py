@@ -1,4 +1,4 @@
-"""Ids and times as Continuum keeps them (#547, docs/CONTINUUM.md). Pure functions, no I/O.
+"""Ids and times as Continuum keeps them (docs/CONTINUUM.md). Pure functions, no I/O.
 
 - Ids: canonical UUIDv7 strings, kept as 16 bytes on the wire and in the catalog (decision 8). `check_id` refuses
   anything else. `keyed_id` makes the same id from the same key in any process.
