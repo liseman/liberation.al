@@ -38,8 +38,6 @@ export function PeopleTab() {
   // A person's name, '?' for Who's this?, or null (Who's this? on wide windows). A link opens a card: /people#card=Kara.
   // On a phone, what waits for a name comes first, unless a link opened a card.
   const [sel, setSel] = useState<string | null>(() => cardInHash() ?? (oneColumn() ? '?' : null));
-  // The selected roster card (single-click). Enter, I, or a double-click opens it.
-  const [cursor, setCursor] = useState<string | null>(() => cardInHash() ?? (oneColumn() ? '?' : null));
   const [linked, setLinked] = useState<string | null>(() => cardInHash()); // the name the last link opened
   const [note, setNote] = useState<string | null>(null); // what the last delete removed
   const [fresh, setFresh] = useState<string | null>(null); // just added: their card opens on "pick what's theirs"
@@ -62,7 +60,6 @@ export function PeopleTab() {
     refresh(reply);
     if (name !== undefined) {
       setSel(name);
-      setCursor(name);
     }
   };
   const deleted = (reply: ViewReply, text: string) => {
@@ -70,19 +67,12 @@ export function PeopleTab() {
     // reload once that has happened.
     refresh(reply.people ? { ...reply, people: reply.people.filter(p => p.name !== reply.name) } : reply);
     setSel(null);
-    setCursor(null);
     setNote(text);
     setTimeout(() => void client.invalidateQueries({ queryKey: PEOPLE_KEY }), 3000);
-  };
-  const pick = (s: string) => {
-    setNote(null);
-    if (s !== fresh) setFresh(null);
-    setCursor(s);
   };
   const open = (s: string) => {
     setNote(null);
     if (s !== fresh) setFresh(null);
-    setCursor(s);
     setSel(s);
   };
   // Follow links in (Live's "Here now", and its Who's this? link) on any in-app hashchange: People stays mounted
@@ -100,7 +90,6 @@ export function PeopleTab() {
         // /#whos-this is its rail's section, and isn't People's to take.)
         setNote(null);
         setLinked(null);
-        setCursor('?');
         setSel('?');
         history.replaceState(history.state, '', location.pathname + location.search);
         return;
@@ -109,7 +98,6 @@ export function PeopleTab() {
       if (!name) return;
       setNote(null);
       setLinked(name);
-      setCursor(name);
       setSel(name);
     };
     follow();
@@ -120,9 +108,6 @@ export function PeopleTab() {
   // a card picked here (or just renamed) is never sent away while the list catches up.
   const match = linked && sel === linked && view ? list.find(p => p.name.toLowerCase() === linked.toLowerCase()) : null;
   const shown = linked && sel === linked && view ? (match?.name ?? null) : sel;
-  useEffect(() => {
-    if (linked && shown && shown !== '?') setCursor(shown);
-  }, [linked, shown]);
   useEffect(() => {
     if (knownTabOf(location.pathname) !== 'people') return;
     writeCard(shown && shown !== '?' ? shown : null);
@@ -145,7 +130,6 @@ export function PeopleTab() {
         onAdded={name => {
           setLinked(null);
           setFresh(null);
-          setCursor(name);
           setSel(name);
           refresh();
         }}
@@ -159,14 +143,11 @@ export function PeopleTab() {
             errorDetail={failedDetail}
             retrying={people.isFetching}
             onRetry={retry}
-            cursor={cursor}
             sel={shown}
-            onPick={pick}
             onOpen={open}
             onAdded={name => {
               setFresh(name);
               void client.invalidateQueries({ queryKey: PEOPLE_KEY }).then(() => {
-                setCursor(name);
                 setSel(name);
               });
             }}
