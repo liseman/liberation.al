@@ -8,7 +8,7 @@ import pytest
 import requests
 from PIL import Image
 
-from liberational.dashboard import server
+from liberational.dashboard import context, server
 from liberational.people import references
 from liberational.vision import faces
 
@@ -29,7 +29,7 @@ def found(monkeypatch):
 
 @pytest.fixture
 def base(serve, tmp_path, monkeypatch, found):
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     monkeypatch.setattr(server, "DASH_PASSWORD", "")
     monkeypatch.setattr(server, "people_view", lambda: {"people": [{"name": "Dana"}]})
     monkeypatch.setattr(faces, "DB", tmp_path / "db.npz")

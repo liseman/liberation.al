@@ -6,7 +6,7 @@ from typing import Any, cast
 
 import pytest
 
-from liberational.dashboard import server
+from liberational.dashboard import context, server
 from liberational.listen import revisions
 from liberational.people import registry
 
@@ -110,7 +110,7 @@ def test_a_voice_heard_only_from_the_tv_is_nobody_to_name():
 @pytest.fixture
 def heard(tmp_path, monkeypatch):
     rows = [line(T, "Tonight on the news", 9), line(T + 5, "and the weather", 9), line(T + 10, "Hi", 4)]
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     monkeypatch.setattr(server, "heard_lines", lambda *a, **k: revisions.filter_lines(tmp_path, rows))
     monkeypatch.setattr(server.speech_log, "retained", lambda: rows)
     monkeypatch.setattr(

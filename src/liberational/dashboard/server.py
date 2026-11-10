@@ -252,6 +252,7 @@ from liberational.audio import gain, loudness
 from liberational.config import ROOT
 from liberational.dashboard import (
     assets,
+    context,
     devices,
     devreload,
     frontend_log,
@@ -303,7 +304,6 @@ routes.load(
     "zones",
 )
 
-STATE = cfg.path("paths.state")  # PACK_STATE= for tests
 STATIC = assets.STATIC
 SCENE_POLL_S = 2.0  # how often the live feed asks the vision log for new captions
 PURGE_POLL_S = 5.0  # how often the live feed asks whether a purge took lines it showed
@@ -315,7 +315,7 @@ def _scene_key(entries: list[dict[str, Any]]) -> tuple[Any, ...]:
 
 
 PAD_S, MAX_CLIP_S = 0.4, 60.0
-STATE_RESOLVED = STATE.resolve()
+STATE_RESOLVED = context.STATE.resolve()
 PY = sys.executable
 PORT = cfg.get("ports.dashboard")  # main() takes an optional port argument
 APP_PATHS = (
@@ -388,7 +388,9 @@ def heard_lines(start: float = 0.0, end: float | None = None) -> list[dict[str, 
     """The utterances overlapping [start, end) (seconds; to the end by default), oldest first."""
     from liberational.listen import revisions
 
-    return revisions.filter_lines(STATE, speech_log.shared().range(start, end if end is not None else END_OF_TIME))
+    return revisions.filter_lines(
+        context.STATE, speech_log.shared().range(start, end if end is not None else END_OF_TIME)
+    )
 
 
 def reject_transcript(body: Mapping[str, Any]) -> Reply:
@@ -401,13 +403,13 @@ def reject_transcript(body: Mapping[str, Any]) -> Reply:
     if not isinstance(keys, list) or not 0 < len(keys) <= 1000 or any(not isinstance(k, str) or not k for k in keys):
         return 400, {"ok": False, "error": "Send 1 to 1000 exact transcript line keys."}
     keys = list(dict.fromkeys(keys))
-    if token := revisions.current_rejection(STATE, keys):
+    if token := revisions.current_rejection(context.STATE, keys):
         return 200, {"ok": True, "lines": keys, "undo": token}
     available = {registry.key_of(e): e for e in heard_lines() if isinstance(e.get("ts_start"), int | float)}
     if any(key not in available for key in keys):
         return 404, {"ok": False, "error": "One of those transcript lines is unavailable. Refresh the conversation."}
     try:
-        token = revisions.reject_lines(STATE, [available[key] for key in keys])
+        token = revisions.reject_lines(context.STATE, [available[key] for key in keys])
     except ValueError as error:
         return 409, {"ok": False, "error": str(error)}
     return 200, {"ok": True, "lines": keys, "undo": token}
@@ -421,13 +423,13 @@ def media_transcript(body: Mapping[str, Any]) -> Reply:
     if not isinstance(keys, list) or not 0 < len(keys) <= 1000 or any(not isinstance(k, str) or not k for k in keys):
         return 400, {"ok": False, "error": "Send 1 to 1000 exact transcript line keys."}
     keys = list(dict.fromkeys(keys))
-    if token := revisions.current_media(STATE, keys):
+    if token := revisions.current_media(context.STATE, keys):
         return 200, {"ok": True, "lines": keys, "undo": token}
     available = {registry.key_of(e): e for e in heard_lines() if isinstance(e.get("ts_start"), int | float)}
     if any(key not in available for key in keys):
         return 404, {"ok": False, "error": "One of those transcript lines is unavailable. Refresh the conversation."}
     try:
-        token = revisions.mark_media(STATE, [available[key] for key in keys])
+        token = revisions.mark_media(context.STATE, [available[key] for key in keys])
     except ValueError as error:
         return 409, {"ok": False, "error": str(error)}
     return 200, {"ok": True, "lines": keys, "undo": token}
@@ -440,7 +442,7 @@ def media_voice(body: Mapping[str, Any]) -> Reply:
     group = body.get("group")
     if isinstance(group, bool) or not isinstance(group, int):
         return 400, {"ok": False, "error": "Send the voice's group number."}
-    if registry.voice_names(STATE, [group]).get(group):
+    if registry.voice_names(context.STATE, [group]).get(group):
         return 409, {"ok": False, "error": "That voice has a name. Give its lines to someone else instead."}
     lines = [
         e
@@ -450,7 +452,7 @@ def media_voice(body: Mapping[str, Any]) -> Reply:
     if not lines:
         return 404, {"ok": False, "error": "That voice has no lines left to mark."}
     try:
-        token = revisions.mark_media(STATE, lines)
+        token = revisions.mark_media(context.STATE, lines)
     except ValueError as error:
         return 409, {"ok": False, "error": str(error)}
     return 200, {"ok": True, "lines": [registry.key_of(e) for e in lines], "undo": token}
@@ -463,7 +465,7 @@ def not_media(body: Mapping[str, Any]) -> Reply:
     keys = body.get("lines")
     if not isinstance(keys, list) or not 0 < len(keys) <= 1000 or any(not isinstance(k, str) or not k for k in keys):
         return 400, {"ok": False, "error": "Send 1 to 1000 exact transcript line keys."}
-    token, lines = revisions.unmark_media(STATE, keys)
+    token, lines = revisions.unmark_media(context.STATE, keys)
     if not lines:
         return 404, {"ok": False, "error": "None of those lines is marked as a TV's."}
     return 200, {"ok": True, "lines": lines, "undo": token}
@@ -477,7 +479,7 @@ def undo_transcript(body: Mapping[str, Any]) -> Reply:
     if not isinstance(token, str) or not token:
         return 400, {"ok": False, "error": "Send the correction's Undo token."}
     try:
-        lines = revisions.undo_correction(STATE, token)
+        lines = revisions.undo_correction(context.STATE, token)
     except KeyError:
         return 404, {"ok": False, "error": "Nothing to undo there."}
     except ValueError as error:
@@ -510,7 +512,7 @@ def speech_mark() -> int:
 def _view() -> transcript_view.View:
     """Who said each line: the speech log's lines through the event log (people/transcript_view.py). Every route that
     shows or uses a line's speaker reads lines through one of these, made per request."""
-    return transcript_view.View(STATE)
+    return transcript_view.View(context.STATE)
 
 
 def merged_tail(n: int = 80) -> list[dict[str, Any]]:
@@ -528,7 +530,7 @@ def log_mark() -> tuple[int, ...]:
     try:
         from liberational.listen import revisions
 
-        return (*registry.at(STATE).mark(), revisions.review_revision(STATE))
+        return (*registry.at(context.STATE).mark(), revisions.review_revision(context.STATE))
     except Exception as e:  # the broker is down: nothing changed that a client could be told of
         LOG.error(f"log_mark: {e!r}")
         return ()
@@ -811,8 +813,8 @@ def _speakers() -> dict[str, Any]:
     failures are logged, so the rest of the dashboard keeps working."""
     known: list[int] = []
     try:
-        if registry.log_exists(STATE):
-            known = registry.at(STATE).voiceprints()
+        if registry.log_exists(context.STATE):
+            known = registry.at(context.STATE).voiceprints()
     except Exception as e:
         log("speakers: the event log's voices can't be read:", repr(e), level=logs.WARN)
     try:
@@ -821,7 +823,7 @@ def _speakers() -> dict[str, Any]:
         log("speakers: the voice list can't be read from the speech log:", repr(e), level=logs.ERROR)
         sp = voice_list.Tally().rows(known)
     try:
-        names = registry.voice_names(STATE, [s["id"] for s in sp])
+        names = registry.voice_names(context.STATE, [s["id"] for s in sp])
     except Exception as e:
         log("speakers: voices read as unnamed, the event log is unreadable:", repr(e), level=logs.WARN)
         names = {}
@@ -837,9 +839,9 @@ def _speakers() -> dict[str, Any]:
 def _enrolled_voices(sids: list[int]) -> set[int]:
     """The voices learned from a recording: a claim from an enroll (people/voice_edits.py) stands on them."""
     try:
-        if not registry.log_exists(STATE):
+        if not registry.log_exists(context.STATE):
             return set()
-        reg = registry.at(STATE)
+        reg = registry.at(context.STATE)
         return {
             n
             for n in sids
@@ -860,8 +862,8 @@ def _speakers_key() -> tuple[Any, ...]:
     return (
         log_mark(),
         speech_log.shared().mark(),
-        mtime(STATE / "voiceprints.json"),
-        mtime(STATE / "speakers.json"),
+        mtime(context.STATE / "voiceprints.json"),
+        mtime(context.STATE / "speakers.json"),
     )
 
 
@@ -882,7 +884,7 @@ def speakers_public() -> dict[str, Any]:
 # ---------------------------------------------------------------- stats ----
 # ---- calls + people (read-only; built from transcripts, calls/, and memory) ----
 CALLS_DIR = cfg.path("paths.calls")
-MEMORY_FILE = STATE / "memory.jsonl"
+MEMORY_FILE = context.STATE / "memory.jsonl"
 
 
 SHOT_PX = face_shots.PX
@@ -911,7 +913,7 @@ def _warm_devices() -> None:
     try:
         from liberational.dashboard import device_links
 
-        device_links.listing("", state=STATE)
+        device_links.listing("", state=context.STATE)
     except Exception as error:  # the tab reads it itself, and says so if it can't
         log("devices: warm-up failed:", repr(error), level=logs.WARN)
 
@@ -934,12 +936,12 @@ def _shot_revision(state: pathlib.Path | None = None) -> str:
     """The segment store's deletion revision: a forget moves it (about 3 microseconds to read)."""
     from continuum_py import segment_revision
 
-    return str(segment_revision(segment_log.root(STATE if state is None else state)))
+    return str(segment_revision(segment_log.root(context.STATE if state is None else state)))
 
 
 def _shot_path(sid: str) -> pathlib.Path:
     """Where sighting sid's crop is under the current deletion revision."""
-    return face_shots.path(STATE, sid, _shot_revision())
+    return face_shots.path(context.STATE, sid, _shot_revision())
 
 
 def _shot_file(
@@ -956,7 +958,7 @@ def _shot_file(
 
     if not SIGHTING_ID.fullmatch(sid):
         return None, None
-    state = STATE if state is None else state
+    state = context.STATE if state is None else state
     revision = _shot_revision(state)
     out = face_shots.path(state, sid, revision)
     etag = '"' + hashlib.sha256(f"{face_shots.VERSION}:{sid}:{revision}".encode()).hexdigest() + '"'
@@ -1120,19 +1122,19 @@ _crop_jobs = face_shots.Pending(_crop_process)
 def _video_status(row: Mapping[str, Any], revision: str, saved: frozenset[str]) -> tuple[str, str | None]:
     """A listed video's current thumbnail readiness; a miss only queues work, never decodes on the request."""
     cam, start, end = str(row["cam"]), round(float(row["start"]), 3), round(float(row["end"]), 3)
-    path = video_thumbs.path(STATE, cam, start, revision)
+    path = video_thumbs.path(context.STATE, cam, start, revision)
     if path.name in saved and path.is_file():
         url = "/people/video-thumb.jpg?" + urllib.parse.urlencode(
             {"cam": cam, "start": f"{start:.3f}", "end": f"{end:.3f}"}
         )
         return "ready", url
     key = json.dumps([cam, start, end], separators=(",", ":"))
-    return ("pending" if _crop_jobs.offer(STATE, video_thumbs.KIND, key, revision) else "unavailable"), None
+    return ("pending" if _crop_jobs.offer(context.STATE, video_thumbs.KIND, key, revision) else "unavailable"), None
 
 
 def _ready_videos(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int, int]:
     revision = _shot_revision()
-    saved = video_thumbs.saved(STATE, revision)
+    saved = video_thumbs.saved(context.STATE, revision)
     ready, pending, unavailable = [], 0, 0
     for row in rows:
         status, thumb = _video_status(row, revision, saved)
@@ -1149,18 +1151,18 @@ def _ready_faces(
     """Saved face crops only; schedule missing IDs without reading video on this request."""
     revision = _shot_revision()
     kind = "shots_grid" if grid else "shots"
-    saved = face_shots.saved(STATE, kind, revision) if saved is None else saved
+    saved = face_shots.saved(context.STATE, kind, revision) if saved is None else saved
     ready, pending, unavailable = [], 0, 0
     for row in rows:
         sid = str(row["id"])
         if (
             sid in saved
-            and face_shots.path(STATE, sid, revision, kind).is_file()
-            and (not grid or face_shots.path(STATE, sid, revision).is_file())
+            and face_shots.path(context.STATE, sid, revision, kind).is_file()
+            and (not grid or face_shots.path(context.STATE, sid, revision).is_file())
         ):
             ready.append({**row, "url": f"/faces/shot/{sid}.jpg?size=80"} if grid else row)
         else:
-            queued = _crop_jobs.offer(STATE, kind, sid, revision)
+            queued = _crop_jobs.offer(context.STATE, kind, sid, revision)
             pending += queued
             unavailable += not queued
     return ready, pending, unavailable
@@ -1173,14 +1175,14 @@ def _ready_face_groups(code: int, body: dict[str, Any]) -> Reply:
     from liberational.vision import face_guess
 
     revision = _shot_revision()
-    groups, pending, unavailable, saved = [], 0, 0, face_shots.saved(STATE, "shots_grid", revision)
-    originals = face_shots.saved(STATE, revision=revision)
+    groups, pending, unavailable, saved = [], 0, 0, face_shots.saved(context.STATE, "shots_grid", revision)
+    originals = face_shots.saved(context.STATE, revision=revision)
     for group in body.get("groups", []):
         row = {k: v for k, v in group.items() if k != "_all_shots"}
         shots = group.get("_all_shots", group["shots"])
         ready, count, gone = _ready_faces(shots, saved, grid=True)
         detail_count = sum(
-            str(shot["id"]) in originals and face_shots.path(STATE, str(shot["id"]), revision).is_file()
+            str(shot["id"]) in originals and face_shots.path(context.STATE, str(shot["id"]), revision).is_file()
             for shot in shots
         )
         row.update(
@@ -1205,20 +1207,22 @@ def _ready_pet_view(code: int, body: dict[str, Any]) -> Reply:
     from liberational.people import pet_shots
 
     revision = _shot_revision()
-    saved = face_shots.saved(STATE, pet_shots.KIND + "_grid", revision)
+    saved = face_shots.saved(context.STATE, pet_shots.KIND + "_grid", revision)
     missing: set[str] = set()
     unavailable: set[str] = set()
 
     def item(row: dict[str, Any]) -> dict[str, Any]:
         track = str(row["track_id"])
-        original_ready = pet_shots.path(STATE, track, revision).is_file()
+        original_ready = pet_shots.path(context.STATE, track, revision).is_file()
         ready = (
             track in saved
-            and face_shots.path(STATE, track, revision, pet_shots.KIND + "_grid").is_file()
+            and face_shots.path(context.STATE, track, revision, pet_shots.KIND + "_grid").is_file()
             and original_ready
         )
         if not ready:
-            (missing if _crop_jobs.offer(STATE, pet_shots.KIND + "_grid", track, revision) else unavailable).add(track)
+            (
+                missing if _crop_jobs.offer(context.STATE, pet_shots.KIND + "_grid", track, revision) else unavailable
+            ).add(track)
         return {**row, "photo_ready": original_ready, "thumb_ready": ready}
 
     groups = []
@@ -1233,7 +1237,7 @@ def _ready_pet_view(code: int, body: dict[str, Any]) -> Reply:
             }
         )
     seen = {name: [item(row) for row in rows] for name, rows in body.get("seen", {}).items()}
-    saved_videos = video_thumbs.saved(STATE, revision)
+    saved_videos = video_thumbs.saved(context.STATE, revision)
     videos_pending = videos_unavailable = 0
     for rows in seen.values():
         for row in rows[:CARD_VIDEOS]:
@@ -1274,7 +1278,7 @@ def video_thumb_jpeg(
     import cv2
 
     _low_priority()
-    recording = vision_log.at(STATE if state is None else state)
+    recording = vision_log.at(context.STATE if state is None else state)
     with _shot_decode if turn else contextlib.nullcontext():
         frame = recording.frame(cam, start)
         if frame is None:
@@ -1311,7 +1315,7 @@ def transcript_around(ts: float, n: int = 12) -> dict[str, Any]:
     return {"entries": _view().lines(es[lo:hi]), "target": es[i].get("ts_start")}
 
 
-CLONES = STATE / "clones"
+CLONES = context.STATE / "clones"
 CLONE_LOCK = threading.Lock()
 REVIEW_SUMMARY_MAX_S = 31 * 86400
 
@@ -1387,10 +1391,10 @@ def _picked_clips(used: list[dict[str, Any]], name: str) -> None:
         fresh = [e for e in used if not e.get("confirmed")]
         claims = [registry.Claim(registry.utterance(e["ts_start"], e.get("device")), str(name)) for e in fresh]
         # As a voice tag (its source), so each line stays with the voice: it counts as theirs for a build too.
-        registry.at(STATE).claim_many(claims, Basis.OWNER_TAG, transcript_view.VOICE_TAG)
+        registry.at(context.STATE).claim_many(claims, Basis.OWNER_TAG, transcript_view.VOICE_TAG)
         from liberational.listen import voices
 
-        voices.confirm_lines(STATE, fresh)
+        voices.confirm_lines(context.STATE, fresh)
 
 
 def _speakers_by_id() -> dict[int, str]:
@@ -1405,7 +1409,9 @@ def clone_remove(sid: int) -> Reply:
     without the mark it would be matched to room speech. Recording it again restores the reference."""
     gone = []
     keep = {f"{sid}.json"} if sid in _clone_only_ids() else set()
-    for p in list((STATE / "clones").glob(f"{sid}.*")) + list((STATE / "clones").glob(f"say-{sid}-*.wav")):
+    for p in list((context.STATE / "clones").glob(f"{sid}.*")) + list(
+        (context.STATE / "clones").glob(f"say-{sid}-*.wav")
+    ):
         if p.name in keep:
             continue
         try:
@@ -1416,7 +1422,7 @@ def clone_remove(sid: int) -> Reply:
     return 200, {"ok": True, "id": sid, "removed": gone}
 
 
-_clones_dir = STATE / "clones"
+_clones_dir = context.STATE / "clones"
 
 
 def clone_record(raw_bytes: bytes, name: str) -> Reply:
@@ -1515,7 +1521,7 @@ def service_history_view(hours: str = "24") -> Reply:
     if hours not in {"24", "168"}:
         return 400, {"error": "History must cover 24 hours or 7 days."}
     try:
-        return 200, dict(services.history(STATE, int(hours)))
+        return 200, dict(services.history(context.STATE, int(hours)))
     except (OSError, ValueError) as ex:
         LOG.warning(f"Service history could not be read: {type(ex).__name__}")
         return 503, {"error": "Could not read service history."}
@@ -1884,7 +1890,7 @@ def scene_entries() -> list[dict[str, Any]]:
     Every open Live feed asks every SCENE_POLL_S, and each answer decodes the last hour of captions, so one read
     serves every caller for SCENE_POLL_S: more tabs no longer mean more decoding. A failed read isn't kept."""
     with _scene_lock:
-        source = vision_log.at(STATE)  # one per broker, shared: the answer kept is this log's
+        source = vision_log.at(context.STATE)  # one per broker, shared: the answer kept is this log's
         cached = _scene_cache["value"]
         if (
             cached is not None
@@ -1914,7 +1920,9 @@ def review_search(day: str, query: str) -> Reply:
     if not isinstance(query, str) or not query.strip() or len(query) > 500:
         return 400, {"error": "Search must be 1 to 500 characters."}
     try:
-        found = recall.search(query.strip(), start, end, state=STATE, rank=False, limit=24, require_semantic=True)
+        found = recall.search(
+            query.strip(), start, end, state=context.STATE, rank=False, limit=24, require_semantic=True
+        )
     except recall.SemanticUnavailableError as error:
         log("review meaning search unavailable:", type(error).__name__, level=logs.WARN)
         return 503, {"error": str(error)}
@@ -1956,7 +1964,7 @@ def history_at(ts: float, window: float = 30.0) -> dict[str, Any]:
     window = max(1.0, min(600.0, window))
     out: dict[str, Any] = {"ts": ts, "window": window, "cams": {}}
     try:
-        rows = vision_log.at(STATE).captions(ts - window, ts + window)
+        rows = vision_log.at(context.STATE).captions(ts - window, ts + window)
     except Exception as ex:
         out["error"] = str(ex)
         return out
@@ -1986,7 +1994,7 @@ def _with_recorded_people(out: dict[str, Any], ts: float, window: float) -> dict
     from liberational.vision import sightings
 
     by_cam = {}
-    for v in sightings.who_at(ts, min(window, 60.0), STATE):
+    for v in sightings.who_at(ts, min(window, 60.0), context.STATE):
         by_cam.setdefault(v["cam"], []).append(
             {"name": v["name"], "sim": round(v["best_sim"], 3), "bearing_deg": None, "source": "recordings"}
         )
@@ -2015,7 +2023,7 @@ AUTONAME_EVERY_S = 60.0  # how often clear face matches are named without a tag
 def autoname_faces_once() -> list[dict[str, Any]]:
     """One round of automatic face naming: the waiting groups that clearly match a named person, by the live
     match gate, are named as an embedding match, each with its own undo. Put-aside groups are left alone."""
-    named = _faces_mod().autoname(inbox_skips()["face"], state=STATE)
+    named = _faces_mod().autoname(inbox_skips()["face"], state=context.STATE)
     if named:
         log("faces: named automatically:", ", ".join(f"Face {r['gid']} as {r['name']}" for r in named))
     return named
@@ -2032,7 +2040,7 @@ def _run_check() -> dict[str, Any]:
     embeddings, and in the dashboard's own process that held every request up for seconds every CHECK_EVERY_S. The
     child saves faces/check.json for live naming and autoname, and prints the result."""
     done = subprocess.run(
-        [sys.executable, "-m", "liberational.vision.faces", "check", "--state", str(STATE)],
+        [sys.executable, "-m", "liberational.vision.faces", "check", "--state", str(context.STATE)],
         capture_output=True,
         text=True,
         timeout=CHECK_TIMEOUT_S,
@@ -2100,7 +2108,7 @@ def _face_last_seen_at() -> dict[str, tuple[float, str | None]]:
     registry (`people/face_identity.py`), so a rename or a deletion shows on the next read."""
     from liberational.people import face_identity
 
-    projection = face_identity.last_seen(STATE)
+    projection = face_identity.last_seen(context.STATE)
     _seen["identity"] = {"pending": False, "source": "face.visit"}
     by: dict[str, tuple[float, str | None]] = {}
     for row in projection["matches"]:
@@ -2118,7 +2126,7 @@ def _owner_keys() -> set[str]:
 
 def _clone_only_ids() -> set[int]:
     """Ids of voices enrolled from one uploaded recording (clones/<id>.json with source "recorded")."""
-    return set(transcript_view.clone_only_ids(STATE))
+    return set(transcript_view.clone_only_ids(context.STATE))
 
 
 def people_roster(
@@ -2180,7 +2188,7 @@ def people_roster(
         person(nm)["number"] = number
     seen, owner, described, here = _face_last_seen_at(), _owner_keys(), _attributes(), _here_now()
     named = views.names()  # each camera's name; a camera with no name goes by its id
-    saved_shots = face_shots.saved(STATE, revision=_shot_revision()) if saved_shots is None else saved_shots
+    saved_shots = face_shots.saved(context.STATE, revision=_shot_revision()) if saved_shots is None else saved_shots
     for key, b in by.items():
         cam = seen[key][1] if key in seen else None
         b.update(
@@ -2209,12 +2217,12 @@ def people_roster(
 def _attributes() -> dict[str, dict[str, Any]]:
     """{normalized name: {"role", "organization", "aliases"}} for each person who has one. They live in the event log
     (people/registry.py, step 6 of docs/DOMAIN-MODEL.md); with no log yet, nobody has one."""
-    if registry.log_exists(STATE):
+    if registry.log_exists(context.STATE):
         with registry.safely("roster attributes"):
             return {
                 _norm(p.display_name): {k: getattr(p, k) for k in registry.ATTRIBUTES if getattr(p, k)}
                 | ({"aliases": list(p.aliases)} if p.aliases else {})
-                for p in registry.at(STATE).people()
+                for p in registry.at(context.STATE).people()
             }
     return {}
 
@@ -2244,7 +2252,7 @@ def describe_person(name: object, role: object = None, organization: object = No
     if not me:
         return 404, {"ok": False, "error": f"Nobody called {str(name or '?').strip()} yet."}
     try:  # the log is where these live, so a failure is the answer, not a log line
-        registry.at(STATE).describe(me["name"], "dashboard", fields)
+        registry.at(context.STATE).describe(me["name"], "dashboard", fields)
     except Exception as e:
         log("people: describe failed:", repr(e), level=logs.ERROR)
         return 500, {"ok": False, "error": "Saving failed: " + str(e)}
@@ -2252,7 +2260,7 @@ def describe_person(name: object, role: object = None, organization: object = No
 
 
 INBOX_SKIPS = (
-    STATE / "inbox_skips.json"
+    context.STATE / "inbox_skips.json"
 )  # put aside for good in People's inbox: {"face": [ids], "voice": [ids], "line": [ts]}
 
 
@@ -2386,7 +2394,7 @@ def faces_not(body: Mapping[str, Any], control: bool) -> Reply:
     marked, undo = 0, []
     try:
         if groups:
-            marked += face_nots.mark(STATE, body.get("name"), groups, active=flag)
+            marked += face_nots.mark(context.STATE, body.get("name"), groups, active=flag)
     except ValueError as error:
         return 400, {"ok": False, "error": str(error)}
     except LookupError as error:
@@ -2416,11 +2424,11 @@ def people_photo(body: Mapping[str, Any], control: bool) -> Reply:
     if not me:
         return 404, {"ok": False, "error": f"Nobody called {str(name or '?').strip()} yet."}
     if action == "newest":
-        card_prefs.set_main(STATE, me["name"], None)
+        card_prefs.set_main(context.STATE, me["name"], None)
     else:
         if not isinstance(shot, str) or not SIGHTING_ID.fullmatch(shot):
             return 400, {"ok": False, "error": "bad shot id"}
-        card_prefs.hide(STATE, me["name"], "shot", shot, hidden=False)
+        card_prefs.hide(context.STATE, me["name"], "shot", shot, hidden=False)
     return 200, {"ok": True, "undo": None, "card": person_card(me["name"])}
 
 
@@ -2440,13 +2448,13 @@ def reject_shots(gid: Any, ids: Any, control: bool) -> Reply:
         return 400, {"ok": False, "error": f"send 1 to {REJECT_MAX} shot ids"}
     if not any(g["id"] == gid for g in _faces_mod().unknown_groups()):
         return 404, {"ok": False, "error": f"no face group {gid}"}
-    mine, _ = face_photos.page_of(gid, 0, 10**9, state=STATE)
+    mine, _ = face_photos.page_of(gid, 0, 10**9, state=context.STATE)
     theirs = {s["id"] for s in mine}
     take = [i for i in dict.fromkeys(ids) if i in theirs]
     if not take:
         return 400, {"ok": False, "error": f"none of those shots are in Face {gid}"}
     face_rejects.reject(take)
-    _faces_mod().recenter(gid, face_photos.kept_embeddings(gid, state=STATE), len(take))
+    _faces_mod().recenter(gid, face_photos.kept_embeddings(gid, state=context.STATE), len(take))
     _unknown_photo(gid).unlink(missing_ok=True)  # it may show a rejected shot; the next pass cuts one from the rest
     left = len(theirs) - len(take)
     if not left:
@@ -2476,7 +2484,7 @@ class _People:
         self.reg: registry.Registry | None = None
         if _has_log():
             with registry.safely("who's this suggestions"):
-                self.reg = registry.at(STATE)
+                self.reg = registry.at(context.STATE)
         self._names: dict[str, str | None] = {}
 
     def name(self, written: str) -> str | None:
@@ -2540,7 +2548,10 @@ def _named_sightings(
     batch = face_batch.faces([(a, b + 0.001) for a, b in merged]) if face_batch is not None else None
     if batch is None:
         rows = [
-            (f["ts"], f["name"]) for a, b in merged for f in sightings.faces(a, b + 0.001, state=STATE) if f["name"]
+            (f["ts"], f["name"])
+            for a, b in merged
+            for f in sightings.faces(a, b + 0.001, state=context.STATE)
+            if f["name"]
         ]
     else:
         rows = [(f["ts"], f["name"]) for f in batch if f["name"]]
@@ -2726,7 +2737,7 @@ def _faces_owner_key(groups: bool = True) -> tuple[Any, ...]:
     unknown face groups (merged, named, or cleared). A purge bypasses stale results immediately. Without `groups`,
     the groups are left out: the face worker also adds them and evicts the least seen, so the set moves with no
     owner change, and naming or undoing one writes the event log anyway (/people)."""
-    mark = registry.at(STATE).mark() if registry.log_exists(STATE) else None
+    mark = registry.at(context.STATE).mark() if registry.log_exists(context.STATE) else None
     try:
         st = INBOX_SKIPS.stat()
         skips = st.st_size, st.st_mtime_ns
@@ -2735,7 +2746,7 @@ def _faces_owner_key(groups: bool = True) -> tuple[Any, ...]:
     # Normal sightings rewrite counts and centroids. Only membership is an owner change; otherwise an active
     # camera can discard every warmed snapshot before it publishes and defeat the 30-second data refresh.
     if not groups:
-        return str(STATE), mark, skips, speech_log.shared().newest_voice_purge()
+        return str(context.STATE), mark, skips, speech_log.shared().newest_voice_purge()
     from liberational.vision import face_rejects
 
     try:
@@ -2747,7 +2758,7 @@ def _faces_owner_key(groups: bool = True) -> tuple[Any, ...]:
     # A purge only of camera video (the nightly window, an age-out) takes no sighting or face row: left out, as
     # the voice groups' key leaves it out, so the next read is patched rather than waiting for the full answer.
     purge = speech_log.shared().newest_voice_purge()
-    return str(STATE), mark, skips, ids, face_rejects.stamp(), purge, _face_nots_stamp()
+    return str(context.STATE), mark, skips, ids, face_rejects.stamp(), purge, _face_nots_stamp()
 
 
 def _face_nots_stamp() -> tuple[str, int, int] | None:
@@ -2755,9 +2766,9 @@ def _face_nots_stamp() -> tuple[str, int, int] | None:
     from liberational import knowledge
     from liberational.people import face_nots
 
-    if not registry.knowledge_path(STATE).exists():
+    if not registry.knowledge_path(context.STATE).exists():
         return None
-    return knowledge.at(registry.knowledge_path(STATE)).generation((face_nots.NOTS,))
+    return knowledge.at(registry.knowledge_path(context.STATE)).generation((face_nots.NOTS,))
 
 
 def unknown_groups_view() -> tuple[int, dict[str, Any]]:
@@ -2779,7 +2790,7 @@ def _hide_emptied_face_groups(rows: list[dict[str, Any]], face_batch: FaceBatch 
     """
     if face_batch is None or face_batch.found is None or face_batch.matched is None:
         return rows
-    state = str(STATE)
+    state = str(context.STATE)
     with _FACE_GROUPS.lock:
         for key, ts in list(_FACE_GROUP_LAST_SEEN.items()):
             if key[0] == state and ts < face_batch.start:
@@ -2840,9 +2851,9 @@ def _unknown_groups() -> tuple[int, dict[str, Any]]:
         waiting = faces_waiting(skipped)
         now = time.time()
         # One request's snapshot of the shot window, shared by the guesses and co-occurrence.
-        face_batch = sightings.FaceBatch(now - sightings.SHOT_DAYS * 86400, now + 1, STATE) if waiting else None
+        face_batch = sightings.FaceBatch(now - sightings.SHOT_DAYS * 86400, now + 1, context.STATE) if waiting else None
         rows = face_guess.groups(
-            waiting, times=times, face_batch=face_batch, all_shots=True, nots=face_nots.names(STATE)
+            waiting, times=times, face_batch=face_batch, all_shots=True, nots=face_nots.names(context.STATE)
         )
         rows = _hide_emptied_face_groups(rows, face_batch)
         rows = _hide_resolved_face_groups(rows, face_batch)
@@ -2904,7 +2915,7 @@ def _patch_face_groups(answer: Reply, before: Any, now: Any) -> Reply | None:
     ids = set(now[3])
     skipped = {int(i) for i in inbox_skips()["face"]}
     waiting = [i for i in body.get("_counted", []) if i in ids and i not in skipped]
-    denied = face_nots.names(STATE) if before[6] != now[6] else {}
+    denied = face_nots.names(context.STATE) if before[6] != now[6] else {}
 
     def marked(g: dict[str, Any]) -> dict[str, Any]:
         if before[6] == now[6]:
@@ -3018,22 +3029,22 @@ def _voices_key() -> tuple[Any, ...]:
             return None
 
     files = [
-        STATE / "voiceprints.json",
+        context.STATE / "voiceprints.json",
         INBOX_SKIPS,
-        STATE / "clones",
+        context.STATE / "clones",
     ]
     # A voice named or a line reassigned in the event log changes the rows without touching a file.
-    mark = registry.at(STATE).mark() if registry.log_exists(STATE) else None
+    mark = registry.at(context.STATE).mark() if registry.log_exists(context.STATE) else None
     from liberational.listen import revisions
 
     return (
-        str(STATE),
+        str(context.STATE),
         *(stamp(f) for f in files),
         mark,
         # Only a purge that can take a line or its audio: a video-only one (the nightly window, an age-out of
         # cameras' video) leaves every row as it was.
         speech_log.shared().newest_voice_purge(),
-        revisions.review_revision(STATE),
+        revisions.review_revision(context.STATE),
     )
 
 
@@ -3144,14 +3155,14 @@ def _patch_voice_groups(answer: Reply, before: Any, now: Any) -> Reply | None:
         from liberational.listen import revisions
 
         try:
-            kept_lines = revisions.filter_lines(STATE, speech_log.shared().all_lines())
+            kept_lines = revisions.filter_lines(context.STATE, speech_log.shared().all_lines())
         except Exception as e:
             log("who's this (voices): lines unreadable, waiting for the full answer:", repr(e), level=logs.WARN)
             return None
         alive = {registry.key_of(e) for e in kept_lines if isinstance(e.get("ts_start"), int | float)}
     skipped = {int(i) for i in inbox_skips()["voice"]}
     try:
-        names = registry.voice_names(STATE, [g["id"] for g in body["groups"]])
+        names = registry.voice_names(context.STATE, [g["id"] for g in body["groups"]])
     except Exception as e:
         log("who's this (voices): names unreadable, waiting for the full answer:", repr(e), level=logs.WARN)
         return None
@@ -3170,7 +3181,7 @@ def _patch_voice_groups(answer: Reply, before: Any, now: Any) -> Reply | None:
     shown = [(g["id"], c["line"]) for g in body["groups"] for c in g.get("clips", []) if isinstance(c.get("line"), str)]
     if shown:
         try:
-            said = registry.at(STATE).said(
+            said = registry.at(context.STATE).said(
                 (registry.SubjectRef(registry.SubjectKind.OBSERVATION, f"utterance:{line}"), sid) for sid, line in shown
             )
         except Exception as e:
@@ -3258,7 +3269,7 @@ def review_summary_kept(start: float, end: float) -> dict[str, Any]:
             (kept_purge, until), answer = hit
             if kept_purge == purge and now < until:
                 return answer
-    answer = review_summary.summary(start, end, STATE)
+    answer = review_summary.summary(start, end, context.STATE)
     keep = ENDED_SUMMARY_KEEP_S if end <= now and answer.get("status") == "ready" else SUMMARY_KEEP_S
     with _summaries_lock:
         if len(_summaries) >= 64:
@@ -3603,7 +3614,7 @@ def _live_faces(window: float, now: float | None = None) -> list[dict[str, Any]]
 
     now = time.time() if now is None else now
     try:
-        found = sightings.faces(now - window, now + 1, state=STATE)
+        found = sightings.faces(now - window, now + 1, state=context.STATE)
     except Exception as e:
         log("faces: the vision log couldn't be read:", e, level=logs.WARN)
         return []
@@ -3633,7 +3644,7 @@ def _crop(cam: str, ts: float, bbox_norm: Sequence[float], dest: pathlib.Path, s
     from PIL import Image
 
     try:
-        evidence = vision_log.at(STATE).frame_evidence(cam, ts)
+        evidence = vision_log.at(context.STATE).frame_evidence(cam, ts)
         frame = evidence.image if evidence is not None else None
     except Exception as e:
         log("faces: the frame couldn't be read:", e, level=logs.WARN)
@@ -3690,7 +3701,7 @@ def _record_person_photo(name: str, dest: pathlib.Path, *, prune: bool = True) -
     """Make a saved crop removable through the existing photo evidence controls."""
     try:
         with registry.recorded("photo saved"):
-            registry.at(STATE).claim(registry.photo(dest.stem), name, Basis.OWNER_TAG, "dashboard")
+            registry.at(context.STATE).claim(registry.photo(dest.stem), name, Basis.OWNER_TAG, "dashboard")
     except registry.WriteFailed:
         dest.unlink(missing_ok=True)
         raise
@@ -3831,13 +3842,13 @@ def main_photo(
     chosen on their card ("Use as main photo") comes first, and shots hidden from it are left out (card_prefs)."""
     from liberational.vision import sightings
 
-    prefs = card_prefs.get(STATE, name)
-    saved_shots = face_shots.saved(STATE, revision=_shot_revision()) if saved_shots is None else saved_shots
+    prefs = card_prefs.get(context.STATE, name)
+    saved_shots = face_shots.saved(context.STATE, revision=_shot_revision()) if saved_shots is None else saved_shots
     if ready is None:
         ready, _pending, _unavailable = _ready_faces(
-            [r for r in sightings.ranked(name, STATE) if r["id"] not in prefs["hidden"]["shot"]], saved_shots
+            [r for r in sightings.ranked(name, context.STATE) if r["id"] not in prefs["hidden"]["shot"]], saved_shots
         )
-    if prefs["main"] is not None and (pinned := sightings.ranked_shot(name, prefs["main"], STATE)):
+    if prefs["main"] is not None and (pinned := sightings.ranked_shot(name, prefs["main"], context.STATE)):
         selected, _pending, _unavailable = _ready_faces([pinned], saved_shots)
         if selected:
             return _shot(pinned)
@@ -3871,7 +3882,7 @@ def _run_began(key: str, cam: str, start: float) -> float:
     hi = first = start
     try:
         while first - hi < LOOK_BACK_S:
-            rows = sightings.faces(hi - RUN_STEP_S, hi, cam, state=STATE)
+            rows = sightings.faces(hi - RUN_STEP_S, hi, cam, state=context.STATE)
             for f in reversed(rows):
                 if start - f["ts"] > HERE_NOW_S:
                     return start
@@ -3932,7 +3943,7 @@ def _what(cam: str, start: float, end: float, name: str | None = None) -> str | 
     from liberational.memory import clip_labels
 
     try:
-        return clip_labels.at(STATE).get(cam, start, end, name)
+        return clip_labels.at(context.STATE).get(cam, start, end, name)
     except Exception as ex:  # a label is a nicety: the card shows the time and place without one
         log("card: clip label failed:", repr(ex), level=logs.WARN)
         return None
@@ -3995,17 +4006,17 @@ def person_card(name: str) -> dict[str, Any] | None:
     # retained() follows commits and purges, while a new View sees renames without waiting for new speech.
     raw, view = speech_log.retained(), _view()
     named_lines = view.named(raw[-ROOM_TAIL:])  # for recent voices
-    saved_shots = face_shots.saved(STATE, revision=_shot_revision())
+    saved_shots = face_shots.saved(context.STATE, revision=_shot_revision())
     me = _roster_row(name)
     name = me["name"] if me else name.strip()
-    prefs = card_prefs.get(STATE, name)
+    prefs = card_prefs.get(context.STATE, name)
     ready, shots_pending, shots_unavailable = _ready_faces(
-        [r for r in sightings.ranked(name, STATE) if r["id"] not in prefs["hidden"]["shot"]], saved_shots
+        [r for r in sightings.ranked(name, context.STATE) if r["id"] not in prefs["hidden"]["shot"]], saved_shots
     )
     hidden_videos = set(prefs["hidden"]["video"])
     named = views.names()
     videos = []
-    for v in sightings.recent_visits(name, CARD_VIDEOS + len(hidden_videos), STATE):
+    for v in sightings.recent_visits(name, CARD_VIDEOS + len(hidden_videos), context.STATE):
         if _video_id(v["cam"], v["start"]) in hidden_videos or len(videos) >= CARD_VIDEOS:
             continue
         thumb = "/people/video-thumb.jpg?" + urllib.parse.urlencode(
@@ -4033,7 +4044,7 @@ def person_card(name: str) -> dict[str, Any] | None:
         "shots": [
             _shot(r)
             for r in sightings.best_spread(
-                name, CARD_SHOTS, STATE, skip=prefs["hidden"]["shot"], ready={r["id"] for r in ready}
+                name, CARD_SHOTS, context.STATE, skip=prefs["hidden"]["shot"], ready={r["id"] for r in ready}
             )
         ],
         **({"shots_pending": shots_pending} if shots_pending else {}),
@@ -4154,7 +4165,7 @@ class _CardReads:
 
 def _card_key() -> tuple[Any, ...]:
     """What a cached card must still match to be answered from (_CardReads)."""
-    return (_people_fresh(speech_log.shared().mark()[1]), _shot_revision(), mtime(STATE / card_prefs.PREFS))
+    return (_people_fresh(speech_log.shared().mark()[1]), _shot_revision(), mtime(context.STATE / card_prefs.PREFS))
 
 
 _CARD_READS = _CardReads()
@@ -4187,13 +4198,13 @@ def why_name_view(q: Mapping[str, str]) -> tuple[dict[str, Any], int]:
     if (shot := q.get("shot")) is not None:
         if not SIGHTING_ID.fullmatch(shot):
             return {"error": "shot is a sighting id"}, 400
-        row = why_name.shot_row(STATE, shot)
+        row = why_name.shot_row(context.STATE, shot)
         if row is None:
             return {"error": "no such shot"}, 404
         reg = None
         if _has_log():
             with registry.safely("why this name"):
-                reg = registry.at(STATE)
+                reg = registry.at(context.STATE)
         return why_name.for_shot(row, reg), 200
     if q.get("line") is None and q.get("ts_start") is None:
         return {"error": "send line (a line key) or shot (a sighting id)"}, 400
@@ -4210,7 +4221,7 @@ def why_name_view(q: Mapping[str, str]) -> tuple[dict[str, Any], int]:
 
 def _has_log() -> bool:
     """Whether the event log exists. Opening the registry makes it, so a dual write checks first (as the backfill)."""
-    return registry.log_exists(STATE)
+    return registry.log_exists(context.STATE)
 
 
 def _newest_face(f: Mapping[str, Any]) -> tuple[float, int]:
@@ -4248,13 +4259,13 @@ def people_unnamed() -> dict[str, Any]:
     now = time.time()
     incomplete = None
     try:
-        rows = sightings.faces(now - sightings.SHOT_DAYS * 86400, now + 1, state=STATE)
+        rows = sightings.faces(now - sightings.SHOT_DAYS * 86400, now + 1, state=context.STATE)
     except Exception as ex:
         log("people: unnamed face history failed:", repr(ex), level=logs.WARN)
         rows = []
         incomplete = "Could not load face photos and video clips."
     try:
-        recent = face_photos.recent_by_group(state=STATE, rows=rows)
+        recent = face_photos.recent_by_group(state=context.STATE, rows=rows)
     except Exception as ex:
         log("people: unnamed face shots failed:", repr(ex), level=logs.WARN)
         recent = {}
@@ -4263,7 +4274,7 @@ def people_unnamed() -> dict[str, Any]:
         views.names(),
         0,
         0,
-        face_shots.saved(STATE, revision=_shot_revision()),
+        face_shots.saved(context.STATE, revision=_shot_revision()),
     )
     for g in groups:
         seen = recent.get(g["id"], [])
@@ -4308,7 +4319,7 @@ def people_unnamed() -> dict[str, Any]:
             }
         )
     try:
-        clips = sightings.unnamed_clips(VISIT_GAP_S, UNNAMED_VIDEOS, STATE, rows=rows)
+        clips = sightings.unnamed_clips(VISIT_GAP_S, UNNAMED_VIDEOS, context.STATE, rows=rows)
     except Exception as ex:
         log("people: unnamed clips failed:", repr(ex), level=logs.WARN)
         clips = []
@@ -4343,7 +4354,7 @@ def _rename_sightings(ids: Sequence[str], name: str | None, ops: list[dict[str, 
     undo op to `ops`."""
     from liberational.vision import sightings
 
-    prior = sightings.correct(ids, name, STATE)
+    prior = sightings.correct(ids, name, context.STATE)
     ops.append({"op": "sightings", "name": name, "prior": prior})
 
 
@@ -4403,7 +4414,7 @@ def _teach_voice(lines: list[dict[str, Any]], name: str) -> list[str]:
     if not lines:
         return []
     try:
-        voices.teach(STATE, lines, name)
+        voices.teach(context.STATE, lines, name)
     except Exception as e:
         log(f"teaching {name}'s voice from {len(lines)} line(s) failed:", repr(e), level=logs.ERROR)
         return []
@@ -4412,7 +4423,7 @@ def _teach_voice(lines: list[dict[str, Any]], name: str) -> list[str]:
 
 def _untaught(keys: Sequence[str]) -> None:
     """Undo `_teach_voice`: each line follows its voice again, so its reference no longer counts."""
-    reg = registry.at(STATE)
+    reg = registry.at(context.STATE)
     for key in keys:
         found = _line_at(None, key)
         if found is not None:
@@ -4451,7 +4462,7 @@ def _assign_video(name: str, vid: str, ops: list[dict[str, Any]]) -> None:
     them. Raises ValueError for a clip that isn't there now."""
     from liberational.vision import sightings
 
-    clips = sightings.unnamed_clips(VISIT_GAP_S, limit=10**6, state=STATE)
+    clips = sightings.unnamed_clips(VISIT_GAP_S, limit=10**6, state=context.STATE)
     clip = next((k for k in clips if k["id"] == vid), None)
     if clip is None:
         raise ValueError("That clip has changed since (someone in it was named, say).")
@@ -4463,7 +4474,7 @@ def _now_called(name: str | None) -> str | None:
     if not name or not _has_log():
         return name
     with registry.safely("current name"):
-        reg = registry.at(STATE)
+        reg = registry.at(context.STATE)
         if (pid := reg.person_id(name)) is not None and (p := reg.person(pid)) is not None:
             return p.display_name
     return name
@@ -4477,7 +4488,7 @@ def _undo_op(op: Mapping[str, Any]) -> str | None:
     name = _now_called(op.get("name"))
     try:
         if kind == "sightings":
-            sightings.uncorrect(op["prior"], STATE)
+            sightings.uncorrect(op["prior"], context.STATE)
         elif kind == "face_row":
             if not _faces_mod().remove_row(str(name), op["vec"], op.get("dropped")):
                 return f"{name}'s face row is gone already"
@@ -4494,10 +4505,10 @@ def _undo_op(op: Mapping[str, Any]) -> str | None:
                     p.unlink()
                 if _has_log():
                     with registry.recorded("photo undone"):
-                        registry.at(STATE).retract(registry.photo(p.stem), "dashboard")
+                        registry.at(context.STATE).retract(registry.photo(p.stem), "dashboard")
             if _has_log():
                 with registry.recorded("face group undone"):
-                    registry.at(STATE).retract(registry.face_group(op["gid"]), "dashboard")
+                    registry.at(context.STATE).retract(registry.face_group(op["gid"]), "dashboard")
             if not gone:
                 return f"Face {op['gid']} is back, but {name}'s face row from it was gone already"
         elif kind == "voice_label":
@@ -4519,9 +4530,9 @@ def _undo_op(op: Mapping[str, Any]) -> str | None:
         elif kind == "voice_split":  # voice split is gone: one made before can't be undone here
             return "a voice split can't be undone any more"
         elif kind == "main":
-            card_prefs.set_main(STATE, str(name), op["before"])
+            card_prefs.set_main(context.STATE, str(name), op["before"])
         elif kind == "hide":
-            card_prefs.hide(STATE, str(name), op["kind"], op["id"], hidden=False)
+            card_prefs.hide(context.STATE, str(name), op["kind"], op["id"], hidden=False)
         else:
             return f"unknown op {kind!r}"
     except Exception as ex:
@@ -4608,7 +4619,7 @@ def assign_to(body: Mapping[str, Any]) -> Reply:
     if not ops:
         return 400, {"ok": False, "error": "Nothing could be given to " + name + ".", "failed": failed}
     _ensure(name, new)
-    token = card_prefs.record(STATE, "assign", name, ops)
+    token = card_prefs.record(context.STATE, "assign", name, ops)
     return 200, {
         "ok": True,
         "name": name,
@@ -4644,7 +4655,7 @@ def assign_many(body: Mapping[str, Any]) -> Reply:
             assigned.append({"name": name, **counts})
     if not ops:
         return 400, {"ok": False, "error": "Nothing could be given.", "failed": failed}
-    token = card_prefs.record(STATE, "assign", ", ".join(a["name"] for a in assigned), ops)
+    token = card_prefs.record(context.STATE, "assign", ", ".join(a["name"] for a in assigned), ops)
     return 200, {
         "ok": True,
         "assigned": assigned,
@@ -4674,10 +4685,10 @@ def _shot_is(name: str, sid: str) -> bool:
     """Is sighting sid named `name` now (case-insensitive)?"""
     from liberational.vision import sightings
 
-    s = sightings.shot(sid, STATE)
+    s = sightings.shot(sid, context.STATE)
     if s is None:
         return False
-    found = sightings.faces(s["ts"], s["ts"] + 0.001, s["cam"], STATE)
+    found = sightings.faces(s["ts"], s["ts"] + 0.001, s["cam"], context.STATE)
     return any(f["id"] == sid and _norm(f["name"]) == _norm(name) for f in found)
 
 
@@ -4694,7 +4705,7 @@ def _track_sightings(name: str, cam: str, track: str, at: float) -> list[str]:
     view = _view()
     return [
         f["id"]
-        for f in sightings.faces(at - TRACK_REACH_S, at + TRACK_REACH_S, cam, STATE)
+        for f in sightings.faces(at - TRACK_REACH_S, at + TRACK_REACH_S, cam, context.STATE)
         if f.get("track_id") == track
         and isinstance(f["name"], str)
         and _norm(view.current(f["name"], float(f["ts"]))) == _norm(name)
@@ -4741,7 +4752,7 @@ def correct_card(body: Mapping[str, Any]) -> Reply:
             return 400, {"ok": False, "error": "bad shot id"}
         sid = ident
         if action == "main":
-            if sightings.ranked_shot(name, sid, STATE) is None:
+            if sightings.ranked_shot(name, sid, context.STATE) is None:
                 return 404, {"ok": False, "error": f"That shot isn't {name}'s, or its recording is gone."}
         elif action != "hide" and not _shot_is(name, sid):
             return 404, {"ok": False, "error": f"That shot isn't {name}'s."}
@@ -4750,7 +4761,7 @@ def correct_card(body: Mapping[str, Any]) -> Reply:
         visit = next(
             (
                 v
-                for v in sightings.recent_visits(name, 10**6, STATE)
+                for v in sightings.recent_visits(name, 10**6, context.STATE)
                 if m and v["cam"] == m[1] and abs(v["start"] - float(m[2])) < 0.01
             ),
             None,
@@ -4758,7 +4769,7 @@ def correct_card(body: Mapping[str, Any]) -> Reply:
         if visit is None:
             return 404, {"ok": False, "error": f"That clip isn't {name}'s."}
         if action != "hide":
-            ids = sightings.visit_ids(name, visit["cam"], visit["start"], visit["end"], STATE)
+            ids = sightings.visit_ids(name, visit["cam"], visit["start"], visit["end"], context.STATE)
     elif kind == "track":
         ref = TRACK_REF.fullmatch(ident) if isinstance(ident, str) else None
         if ref is None:
@@ -4776,16 +4787,16 @@ def correct_card(body: Mapping[str, Any]) -> Reply:
             _ensure(to, new)
         if kind == "shot" and sid is not None:
             if action == "main":
-                ops.append({"op": "main", "name": name, "before": card_prefs.set_main(STATE, name, sid)})
+                ops.append({"op": "main", "name": name, "before": card_prefs.set_main(context.STATE, name, sid)})
             elif action == "hide":
-                if not card_prefs.hide(STATE, name, "shot", sid):
+                if not card_prefs.hide(context.STATE, name, "shot", sid):
                     ops.append({"op": "hide", "name": name, "kind": "shot", "id": sid})
             else:
                 _rename_sightings([sid], to, ops)
         elif kind == "video" and visit is not None:
             vid = _video_id(visit["cam"], visit["start"])
             if action == "hide":
-                if not card_prefs.hide(STATE, name, "video", vid):
+                if not card_prefs.hide(context.STATE, name, "video", vid):
                     ops.append({"op": "hide", "name": name, "kind": "video", "id": vid})
             else:
                 _rename_sightings(ids, to, ops)
@@ -4793,7 +4804,7 @@ def correct_card(body: Mapping[str, Any]) -> Reply:
             _rename_sightings(ids, to, ops)
         elif line is not None:
             if action == "hide":
-                if not card_prefs.hide(STATE, name, "voice", registry.key_of(line)):
+                if not card_prefs.hide(context.STATE, name, "voice", registry.key_of(line)):
                     ops.append({"op": "hide", "name": name, "kind": "voice", "id": registry.key_of(line)})
             else:
                 key = registry.key_of(line)
@@ -4805,7 +4816,7 @@ def correct_card(body: Mapping[str, Any]) -> Reply:
         log("people: correction failed:", repr(ex), level=logs.ERROR)
         _rolled_back(ops)  # what went through goes back, so nothing is half done
         return 500, {"ok": False, "error": "That didn't work: " + str(ex)}
-    token = card_prefs.record(STATE, "correct", name, ops) if ops else None
+    token = card_prefs.record(context.STATE, "correct", name, ops) if ops else None
     return 200, {
         "ok": True,
         "undo": token,
@@ -4817,9 +4828,9 @@ def correct_card(body: Mapping[str, Any]) -> Reply:
 def undo_people(body: Mapping[str, Any]) -> Reply:
     """(code, body) for POST /people/undo: put back one claim, correction, or assignment, newest op first."""
     token = str(body.get("undo") or "")
-    r = card_prefs.take(STATE, token)
+    r = card_prefs.take(context.STATE, token)
     if r is None:
-        if card_prefs.known(STATE, token):
+        if card_prefs.known(context.STATE, token):
             return 409, {"ok": False, "error": "That was undone already."}
         return 404, {"ok": False, "error": "Nothing to undo there."}
     errors = []
@@ -4829,7 +4840,7 @@ def undo_people(body: Mapping[str, Any]) -> Reply:
             errors.append(err)
             failed.append(op)
     if failed:
-        card_prefs.retry_failed(STATE, token, list(reversed(failed)))
+        card_prefs.retry_failed(context.STATE, token, list(reversed(failed)))
     # An unmatched voice's correction has no card to give back.
     card = (
         person_card(_now_called(r["name"]) or r["name"])
@@ -4916,12 +4927,12 @@ def public_lookup(name: str, context: str = "", *, candidates: bool = False) -> 
     }
 
 
-PEOPLE_ADDED = STATE / contacts.ADDED  # read models of the person registry (people/contacts.py)
-CONTACTS_FILE = STATE / contacts.CONTACTS
+PEOPLE_ADDED = context.STATE / contacts.ADDED  # read models of the person registry (people/contacts.py)
+CONTACTS_FILE = context.STATE / contacts.CONTACTS
 
 
 def _book() -> contacts.Book:
-    return contacts.Book(STATE, CONTACTS_FILE, PEOPLE_ADDED)
+    return contacts.Book(context.STATE, CONTACTS_FILE, PEOPLE_ADDED)
 
 
 def add_person(name: str, number: str = "", **attributes: str) -> None:
@@ -5170,9 +5181,9 @@ SAMPLER = machine_usage.Sampler(USAGE, STATS.snapshot)  # the history's samples 
 
 
 # ---------------------------------------------------------- summarize job ----
-VOICE_TAGS = STATE / "voice_tags.jsonl"  # "this line was <name>" requests, handled by the microphone service
+VOICE_TAGS = context.STATE / "voice_tags.jsonl"  # "this line was <name>" requests, handled by the microphone service
 REFINE_LOG = (
-    STATE / "refine_log.jsonl"
+    context.STATE / "refine_log.jsonl"
 )  # every label given in "Lines to check", with what it replaced, so it can be undone
 
 
@@ -5287,7 +5298,9 @@ def label_speaker(sid: object, name: str, control: bool = False) -> Reply:
             "ok": False,
             "error": "To say a voice is yours, use \u201cThat voice is mine\u201d on this machine.",
         }
-    if not control and registry.owner_voice(STATE, int(str(sid))):  # sid is digits (checked above): as the voice id
+    if not control and registry.owner_voice(
+        context.STATE, int(str(sid))
+    ):  # sid is digits (checked above): as the voice id
         return 403, {"ok": False, "error": "That's your voice. Rename it from this machine."}
     # A person's name, as rename and claim take it (never "unknown", the assistant's name, or another automatic
     # label: the voice would leave People, and same-label voices merge), or the voice's own automatic label back.
@@ -5323,7 +5336,7 @@ def _teach_reference(token: str, data: dict[str, Any]) -> dict[str, Any]:
 
     if data.get("kind") != "image" or data.get("face") is not None or not data.get("person"):
         return data
-    image = references.entry(STATE, token) / str(data.get("file") or "media.jpg")
+    image = references.entry(context.STATE, token) / str(data.get("file") or "media.jpg")
     ok, out = _face_cmd(["reference", data["person"], image])
     try:
         face = json.loads(out.splitlines()[-1]) if ok and out else None
@@ -5332,7 +5345,7 @@ def _teach_reference(token: str, data: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(face, dict):
         log(f"reference photo for {data['person']}: its face couldn't be read:", out[-200:], level=logs.WARN)
         return data
-    return references.note_face(STATE, token, face)
+    return references.note_face(context.STATE, token, face)
 
 
 def _unteach_reference(token: str) -> None:
@@ -5340,7 +5353,7 @@ def _unteach_reference(token: str) -> None:
     from liberational.people import references
 
     try:
-        data = references.metadata(STATE, token)
+        data = references.metadata(context.STATE, token)
     except ValueError:
         return
     face = data.get("face") or {}
@@ -5351,7 +5364,7 @@ def _unteach_reference(token: str) -> None:
 def _speaker_cmds(cmds: Sequence[Sequence[object]]) -> tuple[bool, str]:
     """Run people/voice_edits.py commands in order (stopping at a failure), in a child process: an enroll loads the
     speaker model, which the dashboard never holds. Returns (ok, output)."""
-    base = [str(PY), "-m", "liberational.people.voice_edits", "--state-dir", str(STATE)]
+    base = [str(PY), "-m", "liberational.people.voice_edits", "--state-dir", str(context.STATE)]
     ok, outs = True, []
     try:
         for c in cmds:
@@ -5430,7 +5443,7 @@ def rename_owner(old: str, new: str) -> Reply:
     # when nobody is on People under the old name.
     taken = _norm(name) != _norm(old) and _norm(name) in roster
     try:
-        reg = registry.at(STATE)
+        reg = registry.at(context.STATE)
         taken = taken or reg.person_id(name) not in (None, reg.person_id(old))
     except Exception as e:
         log("owner rename lookup failed, so the name counts as taken:", repr(e), level=logs.WARN)
@@ -5468,7 +5481,7 @@ def merge_into_owner(old: object, confirmed_voices: object, *, control: bool) ->
         return 403, {"ok": False, "error": "This is me is available only from this machine."}
     with _PERSON_CHANGES:
         old = str(old or "").strip()
-        reg = registry.at(STATE)
+        reg = registry.at(context.STATE)
         with reg.lock:
             owner_id = reg.owner()
             owner_person = reg.person(owner_id) if owner_id is not None else None
@@ -5509,7 +5522,7 @@ def _rename_locked(old: str, new: str, *, owner_voices: list[int] | None = None)
     joining = target is not None
     if not same and not joining:
         with registry.safely("rename lookup"):
-            joining = registry.at(STATE).person_id(new) is not None
+            joining = registry.at(context.STATE).person_id(new) is not None
     notes = []
     if target:
         new = target["name"]  # join the existing person under their spelling
@@ -5521,16 +5534,16 @@ def _rename_locked(old: str, new: str, *, owner_voices: list[int] | None = None)
         with registry.recorded("merge numbers"):  # a number only contacts.json has goes in first, so the merge sees it
             for p in (roster[_norm(old)], target):
                 if p.get("number"):
-                    registry.at(STATE).contact(p["name"], "dashboard", phone=p["number"], fill=True)
+                    registry.at(context.STATE).contact(p["name"], "dashboard", phone=p["number"], fill=True)
     # A voice's name is its person's, so a rename, and the person merge below, rename every voice of
     # theirs with no voice command: after a merge, every voice of either reads as the one person.
     try:
         if owner_voices is not None:
-            registry.at(STATE).merge_as_owner(old, owner_voices, "dashboard")
+            registry.at(context.STATE).merge_as_owner(old, owner_voices, "dashboard")
         elif joining:
-            registry.at(STATE).merge(old, new, "dashboard")
+            registry.at(context.STATE).merge(old, new, "dashboard")
         else:
-            registry.at(STATE).rename(old, new, "dashboard")
+            registry.at(context.STATE).rename(old, new, "dashboard")
     except Exception as e:
         action = "Merging" if joining or owner_voices is not None else "Renaming"
         log(f"people: {action.lower()} failed:", repr(e), level=logs.ERROR)
@@ -5540,7 +5553,7 @@ def _rename_locked(old: str, new: str, *, owner_voices: list[int] | None = None)
     except Exception as e:
         log("people: face rename failed:", e, level=logs.ERROR)
     try:  # their card choices go with them; corrections are claims on their person, so they follow already
-        card_prefs.rename(STATE, old, new)
+        card_prefs.rename(context.STATE, old, new)
     except Exception as e:
         log("people: card prefs rename failed:", e, level=logs.ERROR)
     # The voices and the registry have moved, so a later failure is logged, never raised: the rename stands.
@@ -5557,7 +5570,7 @@ def _rename_locked(old: str, new: str, *, owner_voices: list[int] | None = None)
     except OSError as e:
         log("people: photo rename failed:", e, level=logs.ERROR)
     try:
-        folder = STATE / "people"
+        folder = context.STATE / "people"
         if not joining:  # a profile already under the new name is left over from whoever had that name before
             for f in profiles.files_of(folder, [new]):
                 if registry.norm(f.stem) != registry.norm(old):
@@ -5571,7 +5584,7 @@ def _rename_locked(old: str, new: str, *, owner_voices: list[int] | None = None)
         log("people: contacts rename failed:", e, level=logs.ERROR)
     from liberational.people import references
 
-    references.rename(STATE, old, new)
+    references.rename(context.STATE, old, new)
     for n in notes:
         log("people:", n)
     log(f"people: {old!r} -> {new!r}{' (merged)' if joining else ''}")
@@ -5633,7 +5646,7 @@ def _delete_person_locked(name: object, control: bool) -> Reply:
         # registry's forget last and not done). Deleting again finishes it.
         known = None
         with registry.safely("look the name up"):
-            reg = registry.at(STATE)
+            reg = registry.at(context.STATE)
             pid = reg.person_id(name)
             known = reg.person(pid) if pid is not None else None
         if known is None:
@@ -5648,7 +5661,7 @@ def _delete_person_locked(name: object, control: bool) -> Reply:
     # the name would purge their journal entries and clear their sightings, so it is refused.
     living = None
     with registry.safely("an old name"):
-        reg = registry.at(STATE)
+        reg = registry.at(context.STATE)
         if reg.person_id(name) is None and (pid := reg.known_as(name)) is not None:
             living = (now := reg.person(pid)) and now.display_name
     if living:
@@ -5665,7 +5678,7 @@ def _delete_person_locked(name: object, control: bool) -> Reply:
     try:  # before the voices are forgotten below, while they still resolve to the name
         from liberational.memory import journal
 
-        voice_ids = (journal.speaker_ids(name, STATE) - {str(i) for i in clones}) | {str(i) for i in ids}
+        voice_ids = (journal.speaker_ids(name, context.STATE) - {str(i) for i in clones}) | {str(i) for i in ids}
     except Exception as e:
         voice_ids = {str(i) for i in ids}
         log("people: journal speaker lookup failed:", e, level=logs.ERROR)
@@ -5673,7 +5686,7 @@ def _delete_person_locked(name: object, control: bool) -> Reply:
     # below retracts their voiceprints and they stop resolving to them. Purged near the end.
     subjects: set[str] = set()
     try:
-        subjects = registry.at(STATE).forget_subjects(name)
+        subjects = registry.at(context.STATE).forget_subjects(name)
     except Exception as e:
         log("people: reading their Continuum subjects failed:", e, level=logs.ERROR)
         notes.append("Their Continuum history couldn't be looked up, so it wasn't purged.")
@@ -5693,7 +5706,7 @@ def _delete_person_locked(name: object, control: bool) -> Reply:
     # person's, before someone new took the name) is not theirs, so the microphone service leaves it alone.
     lines: list[str] = []  # their keys (registry.line_key)
     try:  # without them their lines would stay theirs: stop, with them still in the registry to delete again
-        reg = registry.at(STATE)
+        reg = registry.at(context.STATE)
         group = reg.group(name)
         heard = heard_lines()
         mine = {
@@ -5726,7 +5739,7 @@ def _delete_person_locked(name: object, control: bool) -> Reply:
         from liberational.memory import journal
 
         # Entries written from her lines go when the speech log purges the lines (the broker's purge cascade).
-        removed["journal"] = journal.forget(name, voice_ids, STATE)
+        removed["journal"] = journal.forget(name, voice_ids, context.STATE)
     except Exception as e:
         log("people: journal forget failed:", e, level=logs.ERROR)
         return 500, {
@@ -5736,8 +5749,8 @@ def _delete_person_locked(name: object, control: bool) -> Reply:
         }
     from liberational.people import references
 
-    for item in references.listing(STATE, name):
-        _park(references.entry(STATE, item["id"]), "person_references")
+    for item in references.listing(context.STATE, name):
+        _park(references.entry(context.STATE, item["id"]), "person_references")
     if ids:
         ok, out = _speaker_cmds([["forget", i] for i in ids])
         if not ok:
@@ -5764,7 +5777,7 @@ def _delete_person_locked(name: object, control: bool) -> Reply:
     try:
         from liberational.vision import sightings
 
-        their_shots: set[str] | None = {str(f["id"]) for f in sightings._named(name, STATE)}
+        their_shots: set[str] | None = {str(f["id"]) for f in sightings._named(name, context.STATE)}
     except Exception as e:
         log("people: finding their face crops failed, so every crop is cleared:", repr(e), level=logs.WARN)
         their_shots = None
@@ -5777,7 +5790,7 @@ def _delete_person_locked(name: object, control: bool) -> Reply:
     names = [name]  # their name and the names they had, unless someone else has that name now
     had = {_norm(name)}  # and the names of anyone merged into them, normalized
     try:  # without them, the profiles and card choices under their other names would stay
-        reg = registry.at(STATE)
+        reg = registry.at(context.STATE)
         pid = reg.person_id(name)
         me = reg.person(pid) if pid else None
         names += [a for a in (me.aliases if me else ()) if reg.person_id(a) in (None, pid)]
@@ -5789,11 +5802,11 @@ def _delete_person_locked(name: object, control: bool) -> Reply:
             "error": f"{name}'s other names couldn't be read, so they're only partly deleted; delete them again to "
             "finish. The dashboard log says why.",
         }
-    for f in profiles.files_of(STATE / "people", names):
+    for f in profiles.files_of(context.STATE / "people", names):
         _park(f, "people")
     try:  # their sightings go with the Continuum purge below
         for n in sorted(had):
-            card_prefs.forget(STATE, n)
+            card_prefs.forget(context.STATE, n)
     except Exception as e:
         log("people: card prefs forget failed:", e, level=logs.ERROR)
     for n in names:
@@ -5801,17 +5814,17 @@ def _delete_person_locked(name: object, control: bool) -> Reply:
     try:  # fixed-key HMAC of every name they had (per-install salt is a follow-up), before the registry forgets them
         from liberational.people import forgotten
 
-        forgotten.remember({name, *registry.at(STATE).names(name)}, STATE)
+        forgotten.remember({name, *registry.at(context.STATE).names(name)}, context.STATE)
     except Exception as e:
         log("people: keeping the forgotten name's hash failed:", e, level=logs.ERROR)
     # A face crop of the current revision is served without a lookup, so a deleted person's own crops go now. Everyone
     # else's stay: clearing them all made the dashboard cut every face again from video, thousands of jobs that kept
     # the pets' photos waiting for hours.
-    face_shots.remove(STATE, their_shots)
+    face_shots.remove(context.STATE, their_shots)
     # PersonForgotten, and their events purged from the log (open decision 1). Last, so a failure anywhere before it
     # leaves them in the registry, and deleting them again finds everything still theirs; a failure here is said.
     try:
-        registry.at(STATE).forget(name, "dashboard")
+        registry.at(context.STATE).forget(name, "dashboard")
     except Exception as e:
         log(f"people: forgetting {name!r} in the registry failed:", repr(e), level=logs.ERROR)
         return 500, {
@@ -5835,7 +5848,7 @@ def _forget_voice_embeddings(subjects: set[str]) -> int:
     for s in sorted(subjects):
         try:
             for column in ("person", "voiceprint"):
-                forget_segments_where(segment_log.root(STATE), column, s, streams=[voices.EMBEDDINGS])
+                forget_segments_where(segment_log.root(context.STATE), column, s, streams=[voices.EMBEDDINGS])
         except Exception as e:
             log("people: forgetting voice embeddings failed:", e, level=logs.ERROR)
             failed += 1
@@ -5896,7 +5909,7 @@ def claim_identity(
         from liberational.see import face_boxes  # imports continuum_py
 
         at_ns = int(at * 1e9)
-        live = face_boxes.near(STATE, at_ns - 1_000_000, at_ns + 1_000_000)
+        live = face_boxes.near(context.STATE, at_ns - 1_000_000, at_ns + 1_000_000)
         selected = any(
             row.get("cam") == camera
             and face.get("track_id") == track
@@ -5909,7 +5922,7 @@ def claim_identity(
             # Live overlays are per frame and expire after a minute; persisted matches are one per second.
             # Resolve only the same track's latest recorded evidence at or before the selected frame, never a
             # later frame or another person that moved into the box. Two seconds allow the one-second cadence.
-            matches = segment_log.at(STATE).range(segment_log.FACE_MATCHES, at - 2.0, at + 0.001)
+            matches = segment_log.at(context.STATE).range(segment_log.FACE_MATCHES, at - 2.0, at + 0.001)
             candidates = [
                 row
                 for row in matches
@@ -5934,7 +5947,7 @@ def claim_identity(
     if tag and code == 200:
         try:  # the claim stands; a role or organization the registry couldn't record is said
             with registry.recorded("claim attributes"):
-                registry.at(STATE).describe(body["name"], "dashboard", tag.attributes())
+                registry.at(context.STATE).describe(body["name"], "dashboard", tag.attributes())
         except registry.WriteFailed as e:
             body = {**body, "note": f"{body['name']} is named, but the role and organization weren't recorded: {e}"}
     return code, body
@@ -5981,7 +5994,7 @@ def _claim(kind: object, gid: Any, name: object, control: bool, selected_image: 
             if selected_path is not None:
                 selected_path.unlink(missing_ok=True)
                 with registry.recorded("selected photo withdrawn"):
-                    registry.at(STATE).retract(registry.photo(selected_path.stem), "dashboard")
+                    registry.at(context.STATE).retract(registry.photo(selected_path.stem), "dashboard")
             if isinstance(exc, ValueError):
                 return 404, {"ok": False, "error": str(exc)}
             raise
@@ -5996,7 +6009,7 @@ def _claim(kind: object, gid: Any, name: object, control: bool, selected_image: 
             "photo": added[0] if added else None,
             "from_unknown": had_photo and not _unknown_photo(int(gid)).exists(),
         }
-        undo = card_prefs.record(STATE, "claim", name, [op])
+        undo = card_prefs.record(context.STATE, "claim", name, [op])
         return 200, {"ok": True, "name": name, "undo": undo, **people_view()}
     if kind != "voice":
         return 400, {"ok": False, "error": "kind must be voice or face"}
@@ -6014,7 +6027,10 @@ def _claim(kind: object, gid: Any, name: object, control: bool, selected_image: 
             body = {
                 **body,
                 "undo": card_prefs.record(
-                    STATE, "claim", name, [{"op": "voice_label", "sid": sid, "old": voice["label"], "lines": taught}]
+                    context.STATE,
+                    "claim",
+                    name,
+                    [{"op": "voice_label", "sid": sid, "old": voice["label"], "lines": taught}],
                 ),
             }
         return code, {**body, "name": name, **people_view()}
@@ -6041,7 +6057,7 @@ def _claim(kind: object, gid: Any, name: object, control: bool, selected_image: 
     taught = _teach_voice(teach, name)
     undo = (
         card_prefs.record(
-            STATE, "claim", name, [{"op": "voice_label", "sid": sid, "old": voice["label"], "lines": taught}]
+            context.STATE, "claim", name, [{"op": "voice_label", "sid": sid, "old": voice["label"], "lines": taught}]
         )
         if _norm(voice.get("label")) != _norm(name)
         else None
@@ -6063,7 +6079,9 @@ def confirm_owner_voice(sid: Any) -> Reply:
     clones = _clone_only_ids()  # a clone of the owner's voice is not the voice the room is matched against
     # The owner's voice is the one the owner check accepts, not one whose name only reads as theirs (a voice of
     # someone merged into them on People): that one is what this makes theirs.
-    me = next((s for s in voices.values() if s["id"] not in clones and registry.owner_voice(STATE, s["id"])), None)
+    me = next(
+        (s for s in voices.values() if s["id"] not in clones and registry.owner_voice(context.STATE, s["id"])), None
+    )
     if sid not in voices:
         return 404, {"ok": False, "error": "no such voice"}
     if me and me["id"] == sid:
@@ -6177,7 +6195,7 @@ def _label_line(
     """Label the line (registry.utterance_of) in the event log; nothing rewrites the line (step 4). A person's name makes it theirs.
     Anything else takes it away from its voice `voice` and gives it `label` ("unknown", "multiple speakers"). Raises
     when the log can't be written, since the log is the only record of the label."""
-    reg = registry.at(STATE)
+    reg = registry.at(context.STATE)
     if registry.is_name(name):
         reg.claim(line, name, basis, "dashboard", **kw)
     else:
@@ -6199,7 +6217,7 @@ def _named_now(name: str | None, at: float | None) -> str | None:
     brings back someone People: Delete forgot, nor gives their line to someone new who took the name since."""
     if not registry.is_name(name):
         return name
-    reg = registry.at(STATE)
+    reg = registry.at(context.STATE)
     pid = reg.known_as(name, at)
     person = reg.person(pid) if pid else None
     return person.display_name if person else transcript_view.UNKNOWN
@@ -6223,7 +6241,7 @@ def _restore(
     elif was == "own":  # the backfill had matched it: that match again, over the label
         sim = float(old["speaker_sim"])
         if (said := view.explain(stored)) is not None and said.detached:  # a match never outranks the owner's label
-            registry.at(STATE).release(line, "dashboard")
+            registry.at(context.STATE).release(line, "dashboard")
         _label_line(
             line,
             _named_now(name, at),
@@ -6234,7 +6252,7 @@ def _restore(
             replace=True,
         )
     else:
-        registry.at(STATE).release(line, "dashboard")
+        registry.at(context.STATE).release(line, "dashboard")
         v = _view()
         now = v.line(stored).get("speaker")
         if legacy and name and registry.norm(now) != registry.norm(name):  # the line still carries the old label
@@ -6327,7 +6345,7 @@ def speakers_refine(action: object, body: dict[str, Any]) -> Reply:
             **({"denied": denied} if denied else {}),
         }
     )
-    transcript_view.rebuild_quietly(STATE, [transcript_view.day_of(hit["ts_start"])])
+    transcript_view.rebuild_quietly(context.STATE, [transcript_view.day_of(hit["ts_start"])])
     return 200, {"ok": True, "action": action, "entry": hit}
 
 
@@ -6339,12 +6357,12 @@ def _deny_voice(line: dict[str, Any], was: PersonId | None, name: str) -> str | 
 
     if was is None:
         return None
-    reg = registry.at(STATE)
+    reg = registry.at(context.STATE)
     to = reg.person_id(name) if registry.is_name(name) else None
     if to is not None and reg.resolve(to) == reg.resolve(was):
         return None
     try:
-        return str(was) if voices.deny(STATE, [line], str(was)) else None
+        return str(was) if voices.deny(context.STATE, [line], str(was)) else None
     except Exception as e:
         log("keeping a voice line as not its person failed:", repr(e), level=logs.ERROR)
         return None
@@ -6408,7 +6426,7 @@ def speakers_refine_undo(body: dict[str, Any]) -> Reply:
             if e.get("denied"):  # the line's "not them" goes with its label
                 from liberational.listen import voices
 
-                voices.deny(STATE, [stored], str(e["denied"]), active=False)
+                voices.deny(context.STATE, [stored], str(e["denied"]), active=False)
             hit = _view().line(stored)
         except Exception as ex:
             errors.append(str(ex))
@@ -6418,7 +6436,7 @@ def speakers_refine_undo(body: dict[str, Any]) -> Reply:
         undone.append({"ts_start": e["ts_start"], "line": key, "text": e.get("text"), "speaker": hit.get("speaker")})
         days.add(transcript_view.day_of(hit["ts_start"]))
     if days:
-        transcript_view.rebuild_quietly(STATE, sorted(days))
+        transcript_view.rebuild_quietly(context.STATE, sorted(days))
     log(f"refine undo: {len(undone)} line(s) restored")
     return 200, {"ok": not errors, "undone": undone, "errors": errors}
 
@@ -6432,7 +6450,7 @@ LOG_BATCH = 500  # lines per "lines" event
 
 def _pw_file() -> str:
     try:
-        return (STATE / "dash_password").read_text().strip()
+        return (context.STATE / "dash_password").read_text().strip()
     except Exception:
         return ""
 
@@ -6636,7 +6654,7 @@ class H(http.server.BaseHTTPRequestHandler):
     @property
     def state(self) -> pathlib.Path:
         """The state directory, for a route registered by another module (dashboard/routes.py)."""
-        return STATE
+        return context.STATE
 
     def _local(self) -> bool:
         """A direct request from this machine, not one Tailscale proxied in."""
@@ -6722,12 +6740,12 @@ class H(http.server.BaseHTTPRequestHandler):
         except TypeError, ValueError:
             return self._send(400, "text/plain", b"Invalid video bounds.")
         revision = _shot_revision()
-        saved = video_thumbs.path(STATE, cam, start, revision)
+        saved = video_thumbs.path(context.STATE, cam, start, revision)
         try:
             data = saved.read_bytes()
         except FileNotFoundError:
             key = json.dumps([cam, round(start, 3), round(end, 3)], separators=(",", ":"))
-            pending = _crop_jobs.offer(STATE, video_thumbs.KIND, key, revision)
+            pending = _crop_jobs.offer(context.STATE, video_thumbs.KIND, key, revision)
             self.send_response(202 if pending else 404)
             self.send_header("Cache-Control", "no-store")
             if pending:
@@ -6745,8 +6763,8 @@ class H(http.server.BaseHTTPRequestHandler):
 
     def _grid_photo(self, sid: str, kind: str) -> None:
         revision = _shot_revision()
-        path = face_shots.path(STATE, sid, revision, kind)
-        original = face_shots.path(STATE, sid, revision, kind.removesuffix("_grid"))
+        path = face_shots.path(context.STATE, sid, revision, kind)
+        original = face_shots.path(context.STATE, sid, revision, kind.removesuffix("_grid"))
         if path.is_file() and original.is_file():
             import hashlib
 
@@ -6764,7 +6782,7 @@ class H(http.server.BaseHTTPRequestHandler):
             if not unchanged and self.command != "HEAD":
                 self.wfile.write(body)
             return
-        pending = _crop_jobs.offer(STATE, kind, sid, revision)
+        pending = _crop_jobs.offer(context.STATE, kind, sid, revision)
         self.send_response(202 if pending else 404)
         self.send_header("Cache-Control", "no-store")
         self.send_header("Retry-After", "2")
@@ -6779,7 +6797,7 @@ class H(http.server.BaseHTTPRequestHandler):
                 return self._send(404, "text/plain", b"")
             return self._grid_photo(track, "pet_shots_grid")
         try:
-            b = _pet_file(track, STATE)
+            b = _pet_file(track, context.STATE)
         except ShotsBusy:
             self.send_response(503)
             self.send_header("Retry-After", "2")
@@ -7189,7 +7207,7 @@ class H(http.server.BaseHTTPRequestHandler):
             mark = log_mark()
             from liberational.listen import revisions
 
-            review_mark = revisions.review_revision(STATE)
+            review_mark = revisions.review_revision(context.STATE)
             _, seen = relabeled_tail({})  # before the tail, so a label given in between is sent again, not missed
             # The speech log's position before the tail: a line committed in between is sent twice rather than missed.
             speech = speech_log.shared()
@@ -7238,7 +7256,7 @@ class H(http.server.BaseHTTPRequestHandler):
                     ev("transcript", {"entries": replies, "reset": False})
                 if (m := log_mark()) != mark:  # a label: send the lines it changed again, to replace the old ones
                     mark = m
-                    if (review_now := revisions.review_revision(STATE)) != review_mark:
+                    if (review_now := revisions.review_revision(context.STATE)) != review_mark:
                         review_mark = review_now
                         _, seen = relabeled_tail({})
                         ev("transcript", {"entries": merged_tail(LIVE_LINES), "reset": True})
@@ -7302,15 +7320,15 @@ def _get_people_references(h: H) -> None:
             return h._json(
                 {
                     "references": references.listing(
-                        STATE,
+                        context.STATE,
                         urllib.parse.parse_qs(urllib.parse.urlsplit(h.path).query).get("person", [""])[0],
                     )
                 }
             )
         token = p.removeprefix("/people/reference-media/")
-        meta = references.metadata(STATE, token)
+        meta = references.metadata(context.STATE, token)
         return h._media(
-            references.entry(STATE, token) / meta["file"], meta["mime"], {"X-Content-Type-Options": "nosniff"}
+            references.entry(context.STATE, token) / meta["file"], meta["mime"], {"X-Content-Type-Options": "nosniff"}
         )
     except (ValueError, OSError) as exc:
         return h._json({"error": str(exc)}, 400)
@@ -7514,7 +7532,7 @@ def _get_faces_unknown_x_sightings(h: H, m: re.Match[str]) -> None:
         limit = max(1, min(SIGHTINGS_PAGE_MAX, int(q.get("limit", str(face_photos.STRIP_MAX)))))
     except ValueError:
         return h._json({"error": "bad offset or limit"}, 400)
-    found = [f for f in face_photos._unnamed(STATE) if face_photos._group(f["cluster"]) == int(m.group(1))]
+    found = [f for f in face_photos._unnamed(context.STATE) if face_photos._group(f["cluster"]) == int(m.group(1))]
     ready, pending, unavailable = _ready_faces(found)
     page = ready[offset : offset + limit]
     return h._json(
@@ -7666,7 +7684,7 @@ def _get_review_summary(h: H) -> None:
 def _get_pets_sightings(h: H) -> None:
     from liberational.dashboard import pets
 
-    code, reply = _ready_pet_view(*pets.sightings(STATE))
+    code, reply = _ready_pet_view(*pets.sightings(context.STATE))
     return h._json(reply, code)
 
 
@@ -7677,7 +7695,7 @@ def _get_pets_sightings_photo(h: H) -> None:
 
 @routes.get("/review/days")
 def _get_review_days(h: H) -> None:
-    return h._json({"days": recorded_days(STATE), "today": time.strftime("%Y-%m-%d")})
+    return h._json({"days": recorded_days(context.STATE), "today": time.strftime("%Y-%m-%d")})
 
 
 @routes.get("/transcript/day")
@@ -7791,7 +7809,7 @@ def _post_people_reference_upload(h: H) -> None:
         raw = h.rfile.read(length)
         if len(raw) != length:
             raise ValueError("Upload interrupted. Please retry.")
-        return h._json(references.stage(STATE, raw, "Local upload"))
+        return h._json(references.stage(context.STATE, raw, "Local upload"))
     except (ValueError, OSError) as exc:
         return h._json({"error": str(exc)}, 400)
 
@@ -7921,7 +7939,7 @@ def _post_transcript_unlabel(h: H, body: Any) -> None:
         voice = view.canonical(stored.get("speaker_id"))
         _label_line(registry.utterance_of(stored), None, voice, label=transcript_view.UNKNOWN)
         hit = _view().line(stored)
-        transcript_view.rebuild_quietly(STATE, [transcript_view.day_of(hit["ts_start"])])
+        transcript_view.rebuild_quietly(context.STATE, [transcript_view.day_of(hit["ts_start"])])
         return h._json({"ok": True, "entry": hit})
     except AmbiguousLine as ex:
         return h._json({"error": str(ex)}, 409)
@@ -8087,17 +8105,17 @@ def _post_people_reference_url(h: H, body: Any) -> None:
     try:
         if p == "/people/reference-url":
             url = str(body.get("url", ""))
-            return h._json(references.stage(STATE, references.fetch_media(url), url))
+            return h._json(references.stage(context.STATE, references.fetch_media(url), url))
         token = str(body.get("id", ""))
         if p == "/people/reference-remove":
             _unteach_reference(token)
-            references.remove(STATE, token)
+            references.remove(context.STATE, token)
             return h._json({"ok": True})
         person = str(body.get("person", ""))
         with _PERSON_CHANGES:
             if not any(row["name"] == person for row in people_view()["people"]):
                 raise ValueError("Choose an existing target person before attaching.")
-            result = references.attach(STATE, token, person)
+            result = references.attach(context.STATE, token, person)
             # Under the same lock, so a delete of the person can't land between the attach and the row
             result = _teach_reference(token, result)
         return h._json(result)
@@ -8257,10 +8275,10 @@ def main() -> None:
     )
     from liberational.dashboard import presence as review_presence
 
-    _after_people_warm("review presence", lambda: review_presence.keep_warm(STATE))  # today's Review answer
+    _after_people_warm("review presence", lambda: review_presence.keep_warm(context.STATE))  # today's Review answer
     from liberational.dashboard import report_health
 
-    report_health.start(STATE)  # System health's samples for the Reports tab
+    report_health.start(context.STATE)  # System health's samples for the Reports tab
     memtrim.start()  # what requests and reads freed goes back to the system
     threading.Thread(target=_warm_devices, name="devices-warm", daemon=True).start()  # Known › Devices
     SAMPLER.start()  # the Resource monitor's last half hour, always

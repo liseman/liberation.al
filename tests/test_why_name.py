@@ -5,7 +5,7 @@ import time
 
 import pytest
 
-from liberational.dashboard import server
+from liberational.dashboard import context, server
 from liberational.domain.identity import Basis
 from liberational.listen import voices as live_voices
 from liberational.people import registry
@@ -31,7 +31,7 @@ def state(tmp_path, monkeypatch):
     """Voice 1, which the owner named Dana in People; three lines heard on it."""
     write_voices(tmp_path, {1: {"label": "Dana"}}, source="dashboard")
     fake().write(LINES)
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     return tmp_path
 
 
@@ -68,7 +68,7 @@ def test_a_line_the_owner_named_itself_is_explained_by_that_and_only_that_line(s
 
 def test_a_line_on_no_voice_with_no_name_says_nobody_named_it(tmp_path, monkeypatch):
     fake().write([line(1000.0, "Hi.", sid=None, sim=None)])
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     body, code = why(line="1000.000")
     assert (code, body["via"], body["basis"], body["similarity"], body["voice"]) == (200, "none", None, None, None)
 

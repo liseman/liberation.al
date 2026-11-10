@@ -15,7 +15,7 @@ from unittest.mock import create_autospec
 import pytest
 
 from liberational import config as cfg
-from liberational.dashboard import assets, devices, server
+from liberational.dashboard import assets, context, devices, server
 
 INDEX = (
     "<!doctype html><html><head><script>window.NAMES={{names_json}};</script><title>{{assistant}}</title></head>"
@@ -139,13 +139,13 @@ def isolated_paths(tmp_path, monkeypatch):
     state = tmp_path / "state"
     calls = tmp_path / "calls"
     for name, value in {
-        "STATE": state,
         "CALLS_DIR": calls,
         "PEOPLE_ADDED": state / "people_added.json",
         "CONTACTS_FILE": state / "contacts.json",
         "INBOX_SKIPS": state / "inbox_skips.json",
     }.items():
         monkeypatch.setattr(server, name, value)
+    monkeypatch.setattr(context, "STATE", state)
     with cfg.override(
         {
             "paths": {
