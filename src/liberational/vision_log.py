@@ -810,6 +810,26 @@ async def _h264_evidence(client: Client, cam: str, target_ns: int) -> FrameEvide
     )
 
 
+def _same_file(known: Mapping[str, Any], locator: Mapping[str, Any]) -> bool:
+    """Whether two locators name the same chunk file: its tier, path, and offset, with any length. A chunk still
+    being written is committed in parts (one every 2 s), and each part only makes the file longer."""
+    if known.get("kind") != "Chunk" or locator.get("kind") != "Chunk":
+        return known == locator
+    return all(known.get(key) == locator.get(key) for key in ("tier", "uri", "offset"))
+
+
+def _only_grew(before: Mapping[str, Any], after: Mapping[str, Any]) -> bool:
+    """Whether `after` is the chunk snapshot `before` with nothing changed but parts added: the same chunk, every
+    file it was in still there, and a frame index that starts with the earlier one, cut flags included. A chunk
+    rewritten, moved, or purged in between is not that, and neither is one with a frame cut."""
+    earlier = before["frames"]
+    return (
+        before["chunk_id"] == after["chunk_id"]
+        and all(any(_same_file(known, now) for now in after["locations"]) for known in before["locations"])
+        and list(after["frames"][: len(earlier)]) == list(earlier)
+    )
+
+
 async def frame_evidence_at(client: Client, cam: str, ts: float) -> FrameEvidence | None:
     """Exact source-crop evidence; at most one microsecond compensates float timestamp roundoff.
 
@@ -839,7 +859,7 @@ async def frame_evidence_at(client: Client, cam: str, ts: float) -> FrameEvidenc
                 if get_chunk is None:
                     continue
                 before = await get_chunk(header["id"])
-                if locator not in before["locations"]:
+                if not any(_same_file(known, locator) for known in before["locations"]):
                     continue
                 matches = [start for start, cut in before["frames"] if not cut and abs(start - target) <= 1000]
                 if len(matches) != 1:
@@ -856,7 +876,7 @@ async def frame_evidence_at(client: Client, cam: str, ts: float) -> FrameEvidenc
                 height, width = image.shape[:2]
                 flip = bool((header.get("capture") or {}).get("flip"))
                 after = await get_chunk(header["id"])
-                if before != after:
+                if not _only_grew(before, after):
                     continue
                 metadata = {
                     "capturedAtUs": at_ns // 1000,
