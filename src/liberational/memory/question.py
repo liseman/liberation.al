@@ -622,9 +622,6 @@ def from_reply(reply: object, question: str) -> Reading:
         raise Unreadable("span is not a number")
     phrase, kind = text("time_phrase"), one("time_kind", TIME_KINDS)
     usual = flag("usual")
-    if kind == "other" and (usual or phrase.lower() in USUAL_PHRASES or phrase.lower() in USUAL_WORDS):
-        # "per day", "on average": how the count is asked for, not a window to refuse
-        kind, usual = "none", True
     day = text("date").lower() or one("day", DAYS)
     part, clock, clock_end, unit = one("part", PARTS), text("clock"), text("clock_end"), ""
     since, span_kind, other, amount = False, "", "", 0.0
@@ -641,7 +638,13 @@ def from_reply(reply: object, question: str) -> Reading:
         since = kind == "since"
     if kind == "other":
         day = part = clock = clock_end = span_kind = unit = ""
-        since, amount, other = False, 0.0, phrase or "a time that can't be read"
+        since, amount = False, 0.0
+        if usual or phrase.lower() in USUAL_PHRASES or phrase.lower() in USUAL_WORDS:
+            # "per day", "on average": how the count is asked for, not a window to refuse. That holds when the
+            # model said "other", and when it filed the phrase as a time and the word check left nothing of it.
+            usual = True
+        else:
+            other = phrase or "a time that can't be read"
     # People walking by or coming in are counted from the cameras. A small model files "how many people came in"
     # under people, and marks "who was here" as coming in: the first is a camera count, the second no movement.
     source, measure, movement = one("source", SOURCES), one("measure", MEASURES), one("movement", MOVEMENTS)
