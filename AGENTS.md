@@ -72,7 +72,7 @@ This is research. Building the right thing directly beats preserving what exists
 | `src/liberational/resources/` | Symlinks to the `config/` and `services/` files the code reads at run time |
 | `packaging/` | What a platform's package holds beyond the wheels: `deb/` is the `.deb`'s launcher, maintainer scripts, desktop entry, icon, and container test ([docs/RELEASES.md](docs/RELEASES.md)) |
 | `docs/` | Documents ([docs/README.md](docs/README.md) is the map), written by the documentation maintainer |
-| `.claude/skills/` | Skills to load before a kind of work: `python-tests` and `property-based-testing` before tests, `diataxis` before documentation |
+| `.claude/skills/` | Skills to load before a kind of work: `python-tests` and `property-based-testing` before tests, `diataxis` before documentation, `mantine` before dashboard UI, `modern-web-guidance` before other frontend work |
 | `scratch/` | Gitignored: experiments you won't keep |
 
 - Extend an existing module before adding one. Search first.
@@ -97,6 +97,10 @@ This is research. Building the right thing directly beats preserving what exists
   System packages: `config/system-packages.toml`. Models: `[models]` in `config/defaults.toml`. No install scripts.
 - **Tests.** Add or update tests for behavior you change. Follow
   [.claude/skills/python-tests/SKILL.md](.claude/skills/python-tests/SKILL.md).
+- **Dashboard UI.** Before writing or reviewing it, load
+  [.claude/skills/mantine/SKILL.md](.claude/skills/mantine/SKILL.md) (our conventions, then Mantine's skills and docs).
+  For HTML, CSS, browser APIs, performance, or accessibility, also load `.claude/skills/modern-web-guidance`
+  (`SKILL.md`, then `PROJECT.md`); ours and Mantine's conventions win where they differ.
 
 ## Write things down in the right place
 
