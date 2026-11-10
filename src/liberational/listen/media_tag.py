@@ -17,11 +17,11 @@ Media, measured on a 55-minute TV show (440 lines) against two TV-off spans (286
 Music at least MUSIC_MIN, or the broadcast score (Television + Radio + Music + Speech synthesizer, less Inside, small
 room and Conversation) at least BROADCAST_MIN. That first tagged 122 of the show's 440 lines (28%; 44% of those 4 s or
 longer) and none of the 286. Narration stays out of the broadcast score: one voice close to a desk
-microphone reads as "Narration, monologue" (0.34 to 0.39), and including it marked live conversation. Fitted on these sets, with
-nothing held out: the show tagged 86 of its 403 scorable lines (111 before), the TV-off spans 0 of 93, and
+microphone reads as "Narration, monologue" (0.34 to 0.39), and including it marked live conversation. Fitted on these
+sets, with nothing held out: the show tagged 86 of its 403 scorable lines (111 before), the TV-off spans 0 of 93, and
 lines heard while a screen counted as on 4 of 147 (8 before; those 4 were music while a desk monitor counted as a
-screen, which screen zones now rule out). The Television label alone barely moved on the show's dialogue (mean 0.027 against
-0.011).
+screen, which screen zones now rule out). The Television label alone barely moved on the show's dialogue (mean 0.027
+against 0.011).
 
 The owner wins: "Not TV" (revisions.unmark_media) takes back exactly the lines it's given, and a line is looked at
 once, SETTLE_S after it ends (when its screen-on span has been written, and its audio can be read), so one taken

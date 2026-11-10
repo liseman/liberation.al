@@ -1175,9 +1175,9 @@ class VoiceTags:
     ) -> TurnPlan:
         """What a named turn does with its lines. Its lines' voices are grouped by likeness. The group that sounds
         like the person's voice (`known`, their confirmed vectors), else a majority group, takes the name and teaches
-        the voice; each other group splits off as a voice of its own, to be named later. With no two lines alike there is nothing to split
-        from: the owner's word names every line, and nothing is taught. Groups with no majority and none
-        that sounds like the person are left unknown."""
+        the voice; each other group splits off as a voice of its own, to be named later. With no two lines alike there
+        is nothing to split from: the owner's word names every line, and nothing is taught. Groups with no majority and
+        none that sounds like the person are left unknown."""
         if len(turn) < 2:
             return TurnPlan(set(lines), set(lines), [])
         keys = set()

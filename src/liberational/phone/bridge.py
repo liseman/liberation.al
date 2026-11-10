@@ -1133,8 +1133,9 @@ class Call:
         """Whether the caller went on talking while this turn was made (on_media keeps listening while thinking, and
         going_on decides). If so, the turn's frames go back in front of the new speech and the call listens again, so
         the whole utterance is answered once they stop: a 1.2 s mid-sentence pause otherwise
-        gets a reply to the first half while the caller is still finishing. On an owner call the agent may already have answered or acted on the first half;
-        only its reply is dropped. decided: going_on already said so (reply_turn returned None), so drop regardless."""
+        gets a reply to the first half while the caller is still finishing. On an owner call the agent may already have
+        answered or acted on the first half; only its reply is dropped. decided: going_on already said so (reply_turn
+        returned None), so drop regardless."""
         if not decided and not self.going_on():
             return False
         log.info("[%s] caller went on after a pause; listening for the rest", self.call_sid)
@@ -1571,8 +1572,8 @@ class Call:
                 await self.speak("You're already through.")
                 return
             if not self.owner and VOICEMAIL_RE.search(text):
-                # Voicemail/IVR, not a person (without this check, Bob can argue with a contact's voicemail). Leave the message once
-                # after the prompt finishes, then hang up. Never answer menu prompts.
+                # Voicemail/IVR, not a person (without this check, Bob can argue with a contact's voicemail). Leave the
+                # message once after the prompt finishes, then hang up. Never answer menu prompts.
                 if self.voicemail:
                     self.state = "listening"
                     return
@@ -1766,8 +1767,8 @@ MISSION_INSTR_RE = re.compile(r"^(?:please\s+)?(tell|ask|remind|let)\s+(?:him|he
 def mission_opener(say: str, *, prior_consent: bool = False) -> str:
     """Generate an opening from private task guidance instead of reading it verbatim."""
     # The model hears the disclosure it follows. Told only to "start the conversation", it greets and introduces itself
-    # a second time and runs long (37 words and a second "it's <assistant>"). On the phone LLM, 31 sampled openers over 13 missions went
-    # from 24 second introductions to 0, and from 13 over 30 words (disclosure included) to 0.
+    # a second time and runs long (37 words and a second "it's <assistant>"). On the phone LLM, 31 sampled openers over
+    # 13 missions went from 24 second introductions to 0, and from 13 over 30 words (disclosure included) to 0.
     lead = mission_disclosure(prior_consent=prior_consent)
     heard = lead.strip()
     opening = ask_llm(

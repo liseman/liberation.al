@@ -394,7 +394,7 @@ class Lockouts:
         if any(not 0 <= v < TRIES for v in counts.values()):
             raise ValueError("count")
         until = {str(k): mono + left(v, budget(str(k))) for k, v in d["until"].items()}
-        if d["version"] == 1:  # one budget for everyone in v1: it holds for both now
+        if d["version"] == 1:  # one budget for everyone in version 1: it holds for both now
             recent = {b: d["recent"] for b in (PHONE, ROOM)}
             everyone_at = {b: d["everyone_until"] for b in (PHONE, ROOM)}
             strikes: dict[str, tuple[int, float]] = {}

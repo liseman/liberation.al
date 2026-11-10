@@ -10,8 +10,8 @@ treat both engines alike:
         play(r.audio, r.sample_rate)
 
 Why faster-qwen3-tts and not the Qwen team's qwen-tts package: qwen-tts runs Hugging Face generate() eagerly, about
-540 small forward passes for 3 s of speech, and measured a real-time factor of 2.2 (slower than speech) on the Linux
-machine with no streaming output. faster-qwen3-tts captures CUDA graphs and streams. Measured on the Linux machine
+540 small forward passes for 3 s of speech, and measured a real-time factor of 2.2 (slower than speech) on an RTX
+3090 with no streaming output. faster-qwen3-tts captures CUDA graphs and streams. Measured on an RTX 3090
 (warm, about 3.4 s of speech): first audio about 230 ms, real-time factor about 0.55, 2.8 GB of VRAM.
 """
 

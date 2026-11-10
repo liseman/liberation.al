@@ -36,7 +36,7 @@ def _standing(records: Sequence[knowledge.Record], action: str) -> list[knowledg
 class Corrections:
     """The corrections, read and worked out once per change of them. The audio tagger writes one per TV line,
     and readers on hot paths (filter_lines for every line read, review_revision polled by every Live page) asked for
-    all of them each time, each a query and a JSON parse per record ."""
+    all of them each time, each a query and a JSON parse per record."""
 
     stored: tuple[knowledge.StoredRecord, ...] = ()
     rejected: tuple[knowledge.Record, ...] = ()
@@ -203,8 +203,8 @@ def media_subjects(state: Path) -> frozenset[str]:
 
 def filter_lines(state: Path, items: Iterable[Any]) -> list[Any]:
     """Every ordinary reader's lines: rejected speech hidden, and a line marked as a TV's or radio's kept with `media`
-    set, and `media_by` saying who marked it ("owner" or "classifier"), so the transcript shows it and readers that speak for people leave it out (NOT_SAID). Raw rows and
-    assistant replies are kept as they are."""
+    set, and `media_by` saying who marked it ("owner" or "classifier"), so the transcript shows it and readers that
+    speak for people leave it out (NOT_SAID). Raw rows and assistant replies are kept as they are."""
     index = _index(state)
     if not index.rejected and not index.media_by_key:
         return list(items)

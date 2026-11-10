@@ -3,8 +3,9 @@
 Two mics in one room both hear a sentence, so the transcriber gets it twice, once per device, a moment apart and
 transcribed almost alike. Two lines are the same speech when they come from different devices, overlap in time (an
 echo of one sentence does; two people saying "yes" a second apart don't), start within audio.dedup_window_s of each
-other, and their text is at least audio.dedup_similarity alike (difflib's ratio, 0 to 1, on lowercased words). The transcriber uses this to write only the first copy; a reader can use it to link the
-pairs written before that, or left when the rule was off, with pairs().
+other, and their text is at least audio.dedup_similarity alike (difflib's ratio, 0 to 1, on lowercased words). The
+transcriber uses this to write only the first copy; a reader can use it to link the pairs written before that, or left
+when the rule was off, with pairs().
 """
 
 import collections
