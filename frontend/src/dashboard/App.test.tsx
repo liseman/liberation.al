@@ -381,6 +381,8 @@ describe('theme', () => {
 });
 
 it('shows first-run setup instead of the tab content and hides the Settings opener', async () => {
+  // The server fills needsSetup into the page: the shell doesn't ask /config to know.
+  vi.stubGlobal('NAMES', { assistant: 'Bob', owner: 'Luca', cams: ['cam0', 'cam1'], hotkeys: false, needsSetup: true });
   server.use(
     http.get('/config', () =>
       HttpResponse.json({ ok: true, control: true, needs_setup: true, path: 'pack.toml', sections: [] }),

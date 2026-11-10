@@ -372,18 +372,68 @@ export interface ActivitiesResponse {
   promotion?: ActivityPromotion[];
 }
 
+// Every day's activities asked for in the same turn go out as one request (#52): Known's Activities reads a week,
+// which was seven requests on every Known page. A day asked for alone keeps the single-day form.
+interface DayAsk {
+  resolve: (reply: ActivitiesResponse) => void;
+  reject: (error: unknown) => void;
+}
+let asked = new Map<string, DayAsk[]>();
+let sendDue = false; // this turn's request is scheduled
+
+async function askDays(batch: Map<string, DayAsk[]>): Promise<void> {
+  const days = [...batch.keys()];
+  try {
+    const first = days[0] ?? '';
+    const replies =
+      days.length === 1
+        ? { [first]: await request<ActivitiesResponse>(`/activities?${q(first)}`) }
+        : (await request<{ days: Record<string, ActivitiesResponse> }>(`/activities?days=${days.join(',')}`)).days;
+    for (const [day, asks] of batch)
+      for (const ask of asks) {
+        const reply = Object.hasOwn(replies, day) ? replies[day] : undefined;
+        if (reply) ask.resolve(reply);
+        else ask.reject(new Error(`No activities came back for ${day}`));
+      }
+  } catch (error) {
+    for (const asks of batch.values()) for (const ask of asks) ask.reject(error);
+  }
+}
+
+/** One day's detected activities, sharing a request with the other days asked for this turn. */
+export function getActivities(day: string, signal?: AbortSignal): Promise<ActivitiesResponse> {
+  return new Promise<ActivitiesResponse>((resolve, reject) => {
+    if (signal?.aborted) return reject(new DOMException('aborted', 'AbortError'));
+    const ask: DayAsk = { resolve, reject };
+    const batch = asked;
+    signal?.addEventListener(
+      'abort',
+      () => {
+        // An ask cancelled before its request went out leaves it; a day nobody wants any more isn't asked for.
+        const left = (batch.get(day) ?? []).filter(other => other !== ask);
+        if (batch === asked && left.length) batch.set(day, left);
+        else if (batch === asked) batch.delete(day);
+        reject(new DOMException('aborted', 'AbortError'));
+      },
+      { once: true },
+    );
+    asked.set(day, [...(asked.get(day) ?? []), ask]);
+    if (sendDue) return;
+    sendDue = true;
+    setTimeout(() => {
+      const sending = asked;
+      asked = new Map();
+      sendDue = false;
+      if (sending.size) void askDays(sending);
+    }, 0);
+  });
+}
+
 /** Ended days stay cached; owner naming/feedback explicitly invalidates reviewKey.activities(day). */
-export const activitiesQuery = (day: string, today = false, priority = 0) =>
+export const activitiesQuery = (day: string, today = false) =>
   queryOptions({
     queryKey: reviewKey.activities(day),
-    queryFn: ({ signal }) =>
-      dayRead(
-        () => request<ActivitiesResponse>(`/activities?${q(day)}`, undefined, signal),
-        signal,
-        day,
-        priority,
-        1000,
-      ),
+    queryFn: ({ signal }) => getActivities(day, signal),
     ...perOpening,
     refetchInterval: today ? CHIPS_MS : false,
   });

@@ -3,7 +3,8 @@
 GET  / and each tab's path (APP_PATHS), with Accept text/html   the dashboard app (frontend/): static/app/index.html
                             from the Vite build, filled in; the tab comes from the path. In --dev, Vite's page
                             instead, with /static/app/* passed through to it
-GET  /events                server-sent events: hello, transcript, scene, speakers, ambient, vision, ping
+GET  /events                server-sent events: hello, transcript, scene, speakers, ambient, vision, ping, and the
+                            shell's status (privacy, services, research: dashboard/shell_status.py), then ready
 GET  /scene                 state/scene.json
 GET  /people/video-thumb.jpg?cam=&start=&end= prepared full-scene thumbnail; 202 queues background preparation
 GET  /transcript?n=80       the last N lines heard and said (the broker's speech log)
@@ -260,6 +261,7 @@ from liberational.dashboard import (
     network_cameras,
     reports,
     settings,
+    shell_status,
     slow,
 )
 from liberational.domain.identity import Basis, SubjectRef
@@ -6445,6 +6447,7 @@ def fill(s: str) -> str:
         "activeCams": views.camera_ids(active_only=True),
         "views": views.names(),
         "hotkeys": bool(cfg.get("dashboard.hotkeys")),
+        "needsSetup": not cfg.local_config().exists(),  # first run: the shell shows setup without asking /config
     }
     # JSON.parse retains literal __proto__ keys; a JavaScript object literal silently drops a string alias.
     shell_json = json.dumps(json.dumps(shell)).replace("<", "\\u003c")
@@ -7344,6 +7347,9 @@ class H(http.server.BaseHTTPRequestHandler):
             from liberational.dashboard import activities
 
             query = self._query()
+            if "days" in query:  # several days in one answer (#52)
+                code, reply = activities.listings(query["days"], STATE)
+                return self._json(reply, code)
             code, reply = activities.listing(
                 query.get("day", ""), STATE, kind=query.get("kind"), unrated=query.get("unrated") == "1"
             )
@@ -8006,6 +8012,25 @@ class H(http.server.BaseHTTPRequestHandler):
         finally:
             tail.close()
 
+    def _shell_status(self) -> shell_status.Status:
+        """This feed's shell status: what GET /devices/privacy, /services, and /research/jobs would answer this
+        viewer, each read once for every feed open at the same time. Research is the owner's alone, as its route is."""
+        from liberational.dashboard import privacy
+        from liberational.dashboard import research as research_routes
+
+        control = self._can_control()
+        periods = shell_status.PERIOD_S
+        sources: dict[str, Callable[[], Any]] = {
+            "privacy": lambda: privacy.view(control),
+            "services": lambda: shell_status.shared(
+                ("services", control), periods["services"], lambda: services_view(control)
+            ),
+        }
+        # As ask._owner_http decides the route: this machine, or a viewer who passed the dashboard password.
+        if self._local() or bool(DASH_PASSWORD):
+            sources["research"] = lambda: shell_status.shared("research", periods["research"], research_routes.view)
+        return shell_status.Status(sources)
+
     def sse(self) -> None:
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
@@ -8040,6 +8065,11 @@ class H(http.server.BaseHTTPRequestHandler):
             ev("ambient", mics)
             cams = camera_status()
             ev("vision", cams)
+            # The shell's status (#52): pauses, the services badge, and the Inbox's jobs, sent when they change.
+            status = self._shell_status()
+            for kind, value in status.changed():
+                ev(kind, value)
+            ev("ready", {"ts": time.time()})  # the opening snapshot is complete: a kind not sent yet won't be
             # The scene is asked of the vision log every SCENE_POLL_S, and sent when its newest captions change.
             scene_at, scene_seen = time.monotonic(), _scene_key(scene_entries())
             purge_at = time.monotonic()
@@ -8094,6 +8124,8 @@ class H(http.server.BaseHTTPRequestHandler):
                 if (now_cams := camera_status())["cameras"] != cams["cameras"] or now_cams["ts"] - cams["ts"] > 5:
                     cams = now_cams  # sent when it changes, and every 5 s so the page knows it's fresh
                     ev("vision", cams)
+                for kind, value in status.changed():
+                    ev(kind, value)
                 # An event, not a comment, so pages can tell a quiet stream from a dead one.
                 if time.time() - last_ping > 15:
                     last_ping = time.time()

@@ -1146,10 +1146,44 @@ def test_a_bad_pause_is_refused_and_changes_nothing(private, manifest, body, cod
         pytest.param(b'{"device_paused": true}', 2, False, id="failed"),
     ],
 )
-def test_pauses_are_offered_only_by_a_capture_that_says_it_follows_them(monkeypatch, stdout, returncode, ready):
+def test_pauses_are_offered_only_by_a_capture_that_says_it_follows_them(
+    monkeypatch, capture_binary, stdout, returncode, ready
+):
     monkeypatch.setattr(
         privacy.subprocess,
         "run",
         lambda *a, **k: subprocess.CompletedProcess(a[0], returncode, stdout=stdout, stderr=b""),
     )
     assert privacy.ready() is ready
+
+
+@pytest.fixture
+def capture_binary(tmp_path, monkeypatch):
+    """A built capture binary under a temporary root, which privacy.ready() asks for its capabilities."""
+    binary = tmp_path / "continuum" / "target" / "release" / "continuum-capture"
+    binary.parent.mkdir(parents=True)
+    binary.write_bytes(b"build one")
+    monkeypatch.setattr(privacy.cfg, "ROOT", tmp_path)
+    monkeypatch.setattr(privacy, "_ready", {})
+    return binary
+
+
+def test_capture_is_asked_once_per_build_not_once_per_read(monkeypatch, capture_binary):
+    asked = []
+
+    def run(command, **kwargs):
+        asked.append(command)
+        return subprocess.CompletedProcess(command, 0, stdout=b'{"device_paused": true}', stderr=b"")
+
+    monkeypatch.setattr(privacy.subprocess, "run", run)
+    assert [privacy.ready(), privacy.ready(), privacy.ready()] == [True, True, True]
+    assert len(asked) == 1
+    capture_binary.write_bytes(b"build two, rebuilt")
+    assert privacy.ready() is True
+    assert len(asked) == 2
+
+
+def test_no_built_capture_offers_no_pauses_and_runs_nothing(monkeypatch, capture_binary):
+    capture_binary.unlink()
+    monkeypatch.setattr(privacy.subprocess, "run", lambda *a, **k: pytest.fail("ran a binary that isn't there"))
+    assert privacy.ready() is False

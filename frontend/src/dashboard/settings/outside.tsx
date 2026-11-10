@@ -9,7 +9,7 @@ import { getIngest, INGEST_KEY } from '../ingest/api';
 import { useDraft } from './draft';
 import { SettingsRow, SettingsSection } from './layout';
 import layout from './layout.module.css';
-import { BADGE_POLL_MS, servicesQuery } from './services/api';
+import { servicesStatusQuery } from './services/api';
 import type { Service } from './services/model';
 import classes from './settings.module.css';
 
@@ -17,7 +17,7 @@ const RUNNING = new Set(['active', 'running', 'activating', 'reloading']);
 const running = (s: Service | undefined): boolean => !!s && RUNNING.has(s.state);
 
 function useServices() {
-  return useQuery(servicesQuery(BADGE_POLL_MS)).data?.services;
+  return useQuery(servicesStatusQuery()).data?.services;
 }
 
 /** Phone: whether calls work, from the phone bridge's state, with the way to turn it on when they don't. */

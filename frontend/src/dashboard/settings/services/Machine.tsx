@@ -10,7 +10,7 @@ import { PageError, PageLoading } from '../../lib/page';
 import { getStats, STATS_KEY, type Stats } from '../../sources/api';
 import { gb } from '../../sources/format';
 import { SettingsRow, SettingsSection } from '../layout';
-import { BADGE_POLL_MS, servicesQuery } from './api';
+import { servicesStatusQuery } from './api';
 import classes from './machine.module.css';
 import { BUSY_CPU, BUSY_SWAP, FULL_MEMORY, modelsWhere, platformLine, size, verdict } from './machineMeters';
 import { TONE_COLOR, TONE_TINT } from './model';
@@ -332,7 +332,7 @@ function Models({ s, inventory }: { s: Stats; inventory: ModelInventory }) {
 
 export function Machine() {
   const stats = useQuery({ queryKey: STATS_KEY, queryFn: getStats, refetchInterval: STATS_MS });
-  const services = useQuery(servicesQuery(BADGE_POLL_MS)); // for the platform: the same poll as the menu badge
+  const services = useQuery(servicesStatusQuery()); // for the platform: the same query as the menu badge
   const s = stats.data;
   if (!s)
     return stats.error ? (
