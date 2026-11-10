@@ -496,6 +496,15 @@ fn locations(rd: &impl Reader, id: Uuid) -> Result<Vec<StorageLocator>> {
     Ok(out)
 }
 
+fn has_any_location(rd: &impl Reader, id: Uuid) -> Result<bool> {
+    let mut found = false;
+    rd.prefix(LOCATIONS, &id.0, |_, _| {
+        found = true;
+        Ok(false)
+    })?;
+    Ok(found)
+}
+
 fn chunk_frames(rd: &impl Reader, chunk: Uuid) -> Result<Option<Vec<ChunkFrame>>> {
     rd.get(CHUNKS, &chunk.0)?.map(|b| codec::read_frames(&b)).transpose()
 }
@@ -2700,6 +2709,10 @@ impl Catalog for RedbCatalog {
         self.write_restart(false, |w| crate::restart::publish(w, expected, bytes))
     }
 
+    fn availability_snapshot(&self) -> Result<Option<AvailabilitySnapshot>> {
+        self.read(|r| crate::availability::snapshot(r).map(Some))
+    }
+
     fn recording_page(
         &self,
         stream: StreamId,
@@ -3112,7 +3125,7 @@ impl Catalog for RedbCatalog {
                 return Err(CatalogError::Invalid(format!("payload {id}'s inline bytes are never cleared")));
             }
             del_location(w, id, tier)?;
-            if locations(w, id)?.is_empty() {
+            if !has_any_location(w, id)? {
                 recording_unknown(w, id)?;
             }
             Ok(())
@@ -3127,7 +3140,7 @@ impl Catalog for RedbCatalog {
                     continue;
                 }
                 del_location(w, id, tier)?;
-                if locations(w, id)?.is_empty() {
+                if !has_any_location(w, id)? {
                     recording_unknown(w, id)?;
                 }
                 cleared += 1;
