@@ -468,10 +468,12 @@ def camera_pose(pose: np.ndarray, focal: float, division: float, size: Sequence[
 
 def with_held(camera: str, pose: places.CameraPose, held: lens.Held | None) -> places.CameraPose:
     """`camera`'s `pose` with its `held` intrinsics in place of its own: the focal, and the lens (its configured one
-    when `lens.as_registered` has one, since `held.focal` is the undone frame's focal, else the held one)."""
+    when `lens.as_registered` has one, since `held.focal` is the undone frame's focal, else the held one). Intrinsics
+    measured through another lens than the configured one (`lens.through`) aren't this frame's: `pose` stays as it is."""
+    configured = lens.as_registered(camera)
+    held = lens.through(held, configured)
     if held is None:
         return pose
-    configured = lens.as_registered(camera)
     if configured is not None:
         return replace(pose, focal=held.focal * pose.width, lens=configured)
     m = np.asarray(pose.pose, dtype=np.float64).reshape(4, 4)

@@ -306,3 +306,19 @@ def test_what_cant_be_opened_in_the_editor_says_why(tmp_path, home):
     places.correct_plan(tmp_path, place, "", now=T + 9)
     withdrawn = places.plan_history(tmp_path, place)[-1]
     assert view.plan_as_scene(tmp_path, place, withdrawn.id) == (404, {"error": "that version withdrew the plan"})
+
+
+@pytest.mark.parametrize(
+    ("point", "seen"),
+    [
+        pytest.param((2.0, 3.0), True, id="in-its-own-room"),
+        pytest.param((4.5, 1.0), True, id="through-the-doorway"),
+        pytest.param((4.5, 3.0), False, id="behind-the-partition"),
+        pytest.param((1.5, -1.0), False, id="outside-through-the-outer-wall"),
+    ],
+)
+def test_a_camera_sees_a_floor_point_unless_a_solid_wall_is_between(point, seen):
+    # The porch camera hangs on the hall's outer wall corner at (0.4, 0.5); the doorway to the den spans y 0.4 to 1.6
+    # of the partition at x = 3.
+    sees = plan_scene.sight(plan_scene.load(FLAT))
+    assert sees((0.4, 0.5), point) is seen

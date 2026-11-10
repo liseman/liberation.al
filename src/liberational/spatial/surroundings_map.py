@@ -416,11 +416,13 @@ def optics(
     learned: float | None,
 ) -> Optics:
     """A camera's optics, from the best it has. A lens in the device manifest (`configured`) is undone, and the
-    focal of the undone picture is the held one, else the one learned from MASt3R. With no such lens, held
+    focal of the undone picture is the held one when it was measured through that lens (`lens.through`), else the
+    one learned from MASt3R. With no such lens, held
     intrinsics (`lens.Held`, fitted once and kept as taught state) give the focal and, when they hold a division,
     the lens to undo: the undone picture's focal is then the held focal times `lens.out_scale`. With neither, the
     focal is the learned one, and nothing is undone."""
     covers = tuple(masks)
+    held = lens.through(held, None if configured is None else configured.as_tuple())
     if configured is not None:
         return Optics(held.focal if held is not None else learned, configured, covers)
     if held is None:

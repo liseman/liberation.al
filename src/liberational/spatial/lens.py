@@ -242,6 +242,13 @@ def prepare(image: np.ndarray, lens: Lens | None, masks: Sequence[Sequence[float
 # they swung: Place 1's camera-b came out at division -0.18, -0.30, and -0.26 on three runs in one day, and
 # its far floor points moved by metres with them. They're owner-backed state, kept by the knowledge store (exported
 # with the rest) under `camera.intrinsics`, newest per camera; an earlier fit stays in its history.
+#
+# A focal is the focal of the frame it was measured on. For a camera whose `devices.toml` lens undoes its frames
+# first, that is the undone frame, and a changed calibration (or a lens the manifest gained) makes another undone
+# frame: `undone_focal` times 1.5 apart for one lens on the Linux machine. So a held focal names the lens it was
+# measured through (`Held.lens`), and `through` drops one that names another (or none). Fitted on that camera's raw
+# frames while its lens setting wasn't read, its held focal was applied to the undone frame once it was, and its
+# floor hits came out 1.5 times too far: through walls into the next rooms.
 
 INTRINSICS = "camera.intrinsics"
 
@@ -249,12 +256,35 @@ INTRINSICS = "camera.intrinsics"
 @dataclass(frozen=True)
 class Held:
     """A camera's held intrinsics: its focal as a share of its frame's width, and its lens's division (0 for a
-    pinhole, or for a camera whose frames its `devices.toml` lens undoes first, whose undone frame is a pinhole)."""
+    pinhole, or for a camera whose frames its `devices.toml` lens undoes first, whose undone frame is a pinhole).
+    `lens` is the configured lens (`Lens.as_tuple`) whose undone frames the focal was measured on, None for raw
+    frames."""
 
     focal: float
     division: float
     source: str  # how it was fitted, for the record
     residual: float | None = None  # the fit's median reprojection error, pixels at MASt3R's size, when it had one
+    lens: tuple[float, ...] | None = None
+
+
+def same_lens(a: Sequence[float] | None, b: Sequence[float] | None) -> bool:
+    """Whether two lenses as `CameraPose.lens` keeps them are one (both None is one too)."""
+    if a is None or b is None:
+        return a is None and b is None
+    return len(a) == len(b) and all(math.isclose(x, y, abs_tol=1e-6) for x, y in zip(a, b, strict=True))
+
+
+def through(held: Held | None, configured: Sequence[float] | None) -> Held | None:
+    """`held` when its focal is the one of the frames a camera with the `configured` lens (None for none) is read
+    through: measured through that very lens, or on raw frames for a camera with none. None otherwise."""
+    return held if held is not None and same_lens(held.lens, configured) else None
+
+
+def undone_focal(lens: Lens) -> float:
+    """The undone frame's focal as a share of its width, at the calibration's own scale (`out_scale` times fx): what a
+    camera with a configured lens and no focal measured through it is read with. The plumb-line fit doesn't fix the
+    focal, so this is the calibration's, not a measurement."""
+    return out_scale(lens) * lens.fractions()[0]
 
 
 def held(state: Path) -> dict[str, Held]:
@@ -274,12 +304,18 @@ def held(state: Path) -> dict[str, Held]:
         v = r.value
         focal, division = v.get("focal"), v.get("division")
         if isinstance(focal, int | float) and isinstance(division, int | float) and focal > 0:
-            residual = v.get("residual")
+            residual, through_lens = v.get("residual"), v.get("lens")
+            measured_through = (
+                tuple(float(x) for x in through_lens)
+                if isinstance(through_lens, list) and all(isinstance(x, int | float) for x in through_lens)
+                else None
+            )
             out[cam] = Held(
                 float(focal),
                 float(division),
                 str(v.get("source") or ""),
                 float(residual) if isinstance(residual, int | float) else None,
+                measured_through,
             )
     return out
 
@@ -305,5 +341,6 @@ def hold(state: Path, camera: str, intrinsics: Held, now: float | None = None) -
         "division": intrinsics.division,
         "source": intrinsics.source,
         "residual": intrinsics.residual,
+        "lens": None if intrinsics.lens is None else list(intrinsics.lens),
     }
     store.put([knowledge.Record(str(uuid.uuid7()), INTRINSICS, camera, at_ns, at_ns, time.time_ns(), value)])

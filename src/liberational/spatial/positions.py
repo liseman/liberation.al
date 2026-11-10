@@ -1621,14 +1621,27 @@ def advance(state: Path, upto: float, chunk_s: float = CHUNK_S) -> dict[str, int
 def dry_run(state: Path, cams: Sequence[str], now: float, hours: float) -> list[dict[str, Any]]:
     """What a run would place, changing nothing: for each of `cams`, the footprints its pose tracks hold over the
     last `hours` (read as `footprints.record` would record them), how many land on its place's floor, how many of
-    those in a room of the plan, the aim it was read through (fitted now when it has none stored, and not kept), and
-    what the camera lacks. One row per camera, in order."""
+    those in a room of the plan, how many of those a camera with a spot can see from it by the plan (`in_view`:
+    no wall between, `plan_scene.sight`; None for a camera with no spot), the aim it was read through (fitted now
+    when it has none stored, and not kept), and what the camera lacks. One row per camera, in order.
+
+    `in_view` is the check that a camera's positions are at the plan's scale: rooms tile a home, so a point a pose
+    puts metres too far is still in a room, but in one behind a wall."""
     aims = spots.fit(state, now, save=False)
     where = _Places(state, aims)
     feet = footprints.collect(state, now - hours * 3600.0, now - footprints.FLUSH_S, list(cams))
+    sights: dict[str, Callable[[tuple[float, float], tuple[float, float]], bool] | None] = {}
     out = []
     for camera in cams:
-        rows = placed = roomed = 0
+        rows = placed = roomed = seen = 0
+        spot = where.spots.get(camera)
+        if spot is not None and spot.place not in sights:
+            held = places.get(state, spot.place)
+            try:
+                sights[spot.place] = plan_scene.sight(plan_scene.load(held.plan)) if held and held.plan else None
+            except plan_scene.SceneError:
+                sights[spot.place] = None
+        sees = sights.get(spot.place) if spot is not None else None
         for f in feet:
             if f.camera != camera:
                 continue
@@ -1638,7 +1651,8 @@ def dry_run(state: Path, cams: Sequence[str], now: float, hours: float) -> list[
             found = where.place(sample)
             placed += found.x is not None
             roomed += found.room is not None
-        spot = where.spots.get(camera)
+            if sees is not None and spot is not None and found.x is not None and found.y is not None:
+                seen += sees(spot.at, (found.x, found.y))
         out.append(
             {
                 "camera": camera,
@@ -1647,6 +1661,7 @@ def dry_run(state: Path, cams: Sequence[str], now: float, hours: float) -> list[
                 "footprints": rows,
                 "placed": placed,
                 "in_a_room": roomed,
+                "in_view": seen if sees is not None else None,
                 "missing": list(spot.missing) if spot is not None else [],
                 "aim": spot.aim if spot is not None else None,
             }
@@ -1858,6 +1873,9 @@ def positions(
 # The job: `pack-positions`, hourly (services/services.toml) and by hand.
 
 RUN_LOCK = "positions.run"  # under the places folder: one run at a time
+# A dry run flags a camera with fewer of its placed points than this in view of its spot (`dry_run`). On the Linux
+# machine three cameras whose spots and tilts held put 94 to 98% in view; one read through the wrong focal put 27%.
+VIEW_SHARE = 0.9
 #: What a camera lacks before it can place anyone, in words (`placing`'s `missing`).
 LACKS = {
     "height": "its spot has no height",
@@ -1896,9 +1914,14 @@ def _print_dry_run(state: Path, fixed: Sequence[str], hours: float) -> None:
             + ("" if aim.tall is None else f" who come out {aim.tall:.2f} m tall")
         )
         lacks = "".join(f"; {LACKS[m]}" for m in row["missing"])
+        view = ""
+        if row["in_view"] is not None and row["placed"]:
+            view = f", {row['in_view']:,} ({row['in_view'] / row['placed']:.0%}) in view of its spot"
+            if row["in_view"] < VIEW_SHARE * row["placed"]:
+                view += " (too few: its height, tilt, lens, or spot is off, or the plan is drawn at another scale)"
         print(
             f"  {row['camera']}: {row['footprints']:,} footprints, {row['placed']:,} placed on the floor, "
-            f"{row['in_a_room']:,} in a room of the plan; read through {by[row['by']]}{tilt}{lacks}"
+            f"{row['in_a_room']:,} in a room of the plan{view}; read through {by[row['by']]}{tilt}{lacks}"
         )
 
 
