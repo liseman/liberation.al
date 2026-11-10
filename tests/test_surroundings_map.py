@@ -401,3 +401,129 @@ def test_what_the_step_knew_of_frames_no_longer_kept_is_forgotten(models, state)
     frames.Store(frames.root(state)).remove(first.id)
     assert sm.step(state, now=200.0, held={}) is None
     assert sm.State.read(frames.root(state)).frames == {}
+
+
+# ---- what a running step says it's doing (#283), for the Places page
+
+
+class Watching(Models):
+    """The model runs, each noting what `summary` says while it runs; the trainer first says how far it is."""
+
+    def __init__(self, state: Path):
+        super().__init__()
+        self.state = state
+        self.seen: list[dict] = []
+
+    def note(self):
+        said = sm.summary(self.state)
+        self.seen.append({"running": said["running"], **(said["step"] or {})})
+
+    def run_mast3r(self, *args, **kwargs):
+        self.note()
+        return super().run_mast3r(*args, **kwargs)
+
+    def run_depth(self, *args, **kwargs):
+        self.note()
+        return super().run_depth(*args, **kwargs)
+
+    def run_runner(self, runtime, job, gpu, timeout_s=0.0):
+        self.note()  # training has begun, and the trainer hasn't said a step yet
+        spec = json.loads(Path(job).read_text())
+        Path(spec["progress"]).write_text(json.dumps({"step": 1200, "steps": spec["steps"]}))
+        self.note()
+        return super().run_runner(runtime, job, gpu, timeout_s)
+
+
+@pytest.fixture
+def watching(models, monkeypatch, state):
+    fake = Watching(state)
+    monkeypatch.setattr(cameras, "run_mast3r", fake.run_mast3r)
+    monkeypatch.setattr(splats, "run_depth", fake.run_depth)
+    monkeypatch.setattr(splats, "run_runner", fake.run_runner)
+    return fake
+
+
+def test_a_running_step_says_each_phase_and_how_far_the_training_is(watching, state):
+    keep(state, 0, t=1.0)
+    run(state, 100.0)
+    none = {"place": None, "views": None, "step": None, "steps": None}
+    assert watching.seen == [
+        {"running": True, **none, "phase": "pairing", "frames": 1},
+        {"running": True, **none, "phase": "depth", "frames": 1},
+        {"running": True, **none, "phase": "training", "frames": 1, "views": 1, "steps": sm.FOUND_STEPS},
+        {"running": True, **none, "phase": "training", "frames": 1, "views": 1, "step": 1200, "steps": sm.FOUND_STEPS},
+    ]
+
+
+def test_a_step_that_continues_a_place_names_it_and_an_earlier_trainings_count_is_not_shown(watching, state):
+    first = keep(state, 0, t=1.0)
+    run(state, 100.0)
+    [place] = places.place_ids(state)
+    second = keep(state, 40, t=2.0)
+    watching.pairs[frozenset((first.id, second.id))] = pair(first.id, second.id, shifted(x=0.5))
+    watching.seen.clear()
+    run(state, 200.0)
+    began, later = [s for s in watching.seen if s["phase"] == "training"]
+    assert (began["place"], began["step"], began["steps"]) == (place, None, sm.ROUND_STEPS)
+    assert (later["place"], later["step"]) == (place, 1200)
+
+
+def test_once_a_step_ends_nothing_is_running_and_the_summary_says_when_it_ended(watching, state):
+    keep(state, 0, t=1.0)
+    did = run(state, 100.0)
+    said = sm.summary(state)
+    assert (said["running"], said["step"]) == (False, None)
+    assert said["last_step"] == pytest.approx(100.0 + did["seconds"])
+    folder = frames.root(state)
+    assert not (folder / sm.PROGRESS).exists() and not (folder / sm.TRAINING).exists()
+
+
+def test_a_step_that_fails_leaves_no_progress_behind(models, monkeypatch, state):
+    def fails(runtime, job, gpu, timeout_s=0.0):
+        raise RuntimeError("the splat trainer failed")
+
+    monkeypatch.setattr(splats, "run_runner", fails)
+    keep(state, 0, t=1.0)
+    with pytest.raises(RuntimeError):
+        sm.step(state, now=100.0, held={})
+    assert not (frames.root(state) / sm.PROGRESS).exists()
+    assert sm.summary(state)["step"] is None
+
+
+def test_what_a_step_that_died_left_behind_is_not_shown_as_running(state):
+    folder = frames.root(state)
+    folder.mkdir(parents=True)
+    (folder / sm.PROGRESS).write_text(json.dumps({"phase": "training", "frames": 2, "steps": 1500}))
+    said = sm.summary(state)
+    assert (said["running"], said["step"], said["last_step"]) == (False, None, None)
+
+
+@pytest.mark.parametrize(
+    "written",
+    [
+        pytest.param("not json", id="not-json"),
+        pytest.param(json.dumps(["training"]), id="not-an-object"),
+        pytest.param(json.dumps({"phase": "dancing", "frames": -1, "place": 7, "views": True}), id="not-ours"),
+    ],
+)
+def test_progress_that_isnt_a_steps_says_nothing(tmp_path, written):
+    (tmp_path / sm.PROGRESS).write_text(written)
+    assert sm.progress(tmp_path) == {
+        "phase": None, "frames": None, "place": None, "views": None, "step": None, "steps": None,
+    }  # fmt: skip
+
+
+def test_the_summary_gives_the_sampled_cameras_recent_looks_from_the_samplers_status(monkeypatch, state):
+    from liberational.spatial import surroundings
+
+    folder = frames.root(state)
+    folder.mkdir(parents=True)
+    row = {"dark": 0, "same": 40, "person": 9, "view": 2, "last_kept": 50.0, "recent": {"same": 3, "person": 9}}
+    status = {"t": 90.0, "on": True, "sampling": ["front"], "kept": 2, "cameras": {"front": row, "attic": row}}
+    (folder / "status.json").write_text(json.dumps(status))
+    monkeypatch.setattr(surroundings, "read", lambda: surroundings.Switch(True, ("front", "hall"), (), "front"))
+    said = sm.summary(state)
+    # only the cameras sampled now, and one the sampler hasn't looked at yet has no row
+    assert said["cameras"] == {"front": {"recent": {"same": 3, "person": 9}, "last_kept": 50.0}}
+    monkeypatch.setattr(surroundings, "read", lambda: surroundings.Switch(False, ("front",), (), "front"))
+    assert sm.summary(state)["cameras"] == {}

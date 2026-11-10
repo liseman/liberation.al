@@ -139,6 +139,16 @@ While the view is open it asks for the scene again every 10 s with learning on (
 map and splat are drawn once all their bytes are here, the ones before staying drawn until then, from where the
 person was looking. A splat that learning is still adding views to is in the state `improving`.
 
+**What learning is doing** (#283). While the switch is on, the Places page marks each place "Learning" and says what
+is going on, from `GET /surroundings/status` (the map step's `summary`): the cameras sampled, the frames kept and
+waiting, what a running step is doing, and when the last one ended. A running step writes its phase (`pairing`,
+`depth`, `training`, `writing`) to `state/surroundings/progress.json`, and the trainer its step count to
+`training.json` beside it, so training shows a measured bar and the other phases an unmeasured one. Both are read
+only while a step holds its lock. The sampler's status carries each camera's last 12 looks by outcome, and the page
+says why a camera's frames aren't being kept (a person or an animal in view, nothing new, dark, or blurred) when
+none of them was. The page asks every 3 s while a step runs, every 10 s while learning is on, and every 60 s
+while it's off.
+
 **Positions** (#260). Foot points keep being recorded as each camera saw them. A learned map gets a floor from its own
 surfaces. A camera whose kept views all sit at one pose is registered in the revision as a fixed camera, and its
 foot points are placed on the map's floor in metres, through the same geometry as before. A camera on a moving rig

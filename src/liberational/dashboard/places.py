@@ -70,7 +70,6 @@ can't be put in that frame (`in_frame` false: a camera that revision doesn't reg
 it's left out; a room-only span is kept either way.
 """
 
-import importlib
 import math
 import re
 import time
@@ -177,16 +176,11 @@ LEARNED = "surroundings"  # what a learned map's producer starts with, and what 
 
 
 def _summary(state: Path) -> dict[str, Any]:
-    """What the map step knows (spatial/surroundings_map.py's `summary`, #258): the switch, the cameras sampled, the
-    kept frames waiting for a place, whether a step is running, and each place's views and when it last improved.
-    On an install without the map step, only the switch."""
-    try:
-        step = importlib.import_module("liberational.spatial.surroundings_map")
-    except ImportError:
-        from liberational.spatial import surroundings
+    """What the map step knows (spatial/surroundings_map.py's `summary`): the switch, the cameras sampled, the kept
+    frames waiting for a place, whether a step is running, and each place's views and when it last improved."""
+    from liberational.spatial import surroundings_map
 
-        return {"on": surroundings.read().on}
-    return step.summary(state)
+    return surroundings_map.summary(state)
 
 
 def _learning(state: Path, place: str) -> dict[str, Any]:
