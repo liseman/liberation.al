@@ -20,7 +20,3 @@ roles; [Architecture](../ARCHITECTURE.md) describes the running software.
 | Body sensing | IMU, temperature/humidity sensor, and light sensor | Electrical compatibility and useful sample rates |
 | Haptics | Small vibration motors and a suitable driver | Power budget and safe drive circuitry |
 | Structure | Frame, enclosures, cables, and powered USB hub | Weight, strain relief, cooling, and weather protection |
-
-Retained design sketches cover [ambient sensors](../phases/PHASE2_AMBIENT_SENSING.md),
-[projection](../phases/PHASE3_PROJECTION.md), and [SLAM](../phases/PHASE5_SLAM.md).
-Their original specifications and code examples are unvalidated.
