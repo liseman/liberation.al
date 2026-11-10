@@ -115,6 +115,16 @@ impl Outputs for Broker {
         }
     }
 
+    fn first_unabsorbed(&mut self, ids: &[Uuid]) -> Result<Option<usize>, String> {
+        for (i, id) in ids.iter().enumerate() {
+            let found = self.catalog.get(*id).map_err(|e| e.to_string())?;
+            if matches!(found, Some(continuum_catalog::Resolved::Payload(p)) if p.frames.is_none()) {
+                return Ok(Some(i));
+            }
+        }
+        Ok(None)
+    }
+
     fn rejected(&mut self, _closed: &Closed, aside: &std::path::Path) {
         self.rejected.borrow_mut().push(aside.to_path_buf());
     }
@@ -1115,4 +1125,71 @@ fn a_start_whose_newest_chunk_the_catalog_refuses_leaves_the_older_files_alone()
     let left = continuum_tier::layout::chunk_paths(dir.path(), None).expect("list");
     let kept = left.iter().filter(|p| p.extension().is_some_and(|e| e == "cnk")).count();
     assert_eq!((left.len(), kept), (3, 2), "{left:?}");
+}
+
+#[test]
+fn a_chunk_recovered_after_a_forget_took_it_keeps_the_frames_that_came_later() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let catalog = Rc::new(MemoryCatalog::new());
+    let cam = register_cam(&catalog);
+    // The first run commits three parts of its open chunk, has six more frames in the file, and is killed.
+    let (old_id, old_path, held) = {
+        let broker = Broker { catalog: Rc::clone(&catalog), ..Broker::default() };
+        let mut w = WorkerLoop::new(dir.path(), parts_settings(), broker).expect("loop");
+        w.declare(cam, shape(ChunkFormat::Passthrough));
+        feed(&mut w, &catalog, cam, 0..36);
+        std::mem::forget(w);
+        chunks(&catalog, cam, 5).remove(0)
+    };
+    assert_eq!(held, 30);
+    // A range forget covers frames 0 to 31 while the worker is down: the chunk and two frames after it are hidden.
+    let range = continuum_catalog::PurgeSelector::Range {
+        span: Interval::new(T0, T0 + 32 * TENTH).expect("span"),
+        streams: Some(vec![cam]),
+    };
+    catalog.start_purge(range, "privacy", "", uuid(9_000), 1).expect("start");
+    for _ in 0..8 {
+        if catalog.get(old_id).expect("get").is_none() && catalog.get(uuid(31)).expect("get").is_none() {
+            break;
+        }
+        catalog.purge_step(uuid(9_000), 1).expect("step");
+    }
+    assert!(catalog.get(old_id).expect("get").is_none() && catalog.get(uuid(31)).expect("get").is_none(), "hidden");
+
+    let broker = Broker { catalog: Rc::clone(&catalog), ..Broker::default() };
+    let mut w = WorkerLoop::new(dir.path(), parts_settings(), broker.clone()).expect("loop");
+    w.recovered(continuum_tier::recover(dir.path()).expect("recover"));
+    w.declare(cam, shape(ChunkFormat::Passthrough));
+    assert_eq!((w.counts().rehomed, w.counts().rejected, w.uncommitted()), (1, 0, 0));
+    assert_eq!(*broker.rejected.borrow(), Vec::<std::path::PathBuf>::new());
+    let on_disk = continuum_tier::layout::chunk_paths(dir.path(), None).expect("list");
+    assert!(on_disk.iter().all(|p| p.extension().is_some_and(|e| e == "cnk")), "nothing set aside: {on_disk:?}");
+    let old = continuum_tier::ChunkReader::open(&old_path).expect("the old file stays, for the purge");
+    assert_eq!(old.records().len(), 32, "it keeps the forgotten span and nothing after it");
+
+    // Frames 32 to 35, which nobody asked to forget, are in a chunk the catalog shows, and read back.
+    let after = chunks(&catalog, cam, 5);
+    assert_eq!(after.iter().map(|c| c.2).collect::<Vec<_>>(), [4]);
+    assert_ne!(after[0].0, old_id);
+    for i in 32..36u32 {
+        let t = T0 + u64::from(i) * TENTH;
+        assert_eq!(hydrate(&after[0].1, t, t + 1).expect("hydrate")[0].bytes, frame_bytes(i), "frame {i}");
+        assert!(
+            matches!(catalog.get(uuid(i)).expect("get"), Some(continuum_catalog::Resolved::AbsorbedFrame { .. })),
+            "frame {i} is in a chunk"
+        );
+    }
+    // A later frame the broker sends again is in that chunk already; a forgotten one is not held back as a repeat.
+    let resent = |i: u32| Payload {
+        pcm_rate_hz: 0,
+        id: uuid(i),
+        stream: cam,
+        start_ns: T0 + u64::from(i) * TENTH,
+        end_ns: T0 + u64::from(i) * TENTH,
+        seq: i,
+        bytes: frame_bytes(i),
+        provenance: None,
+    };
+    assert_eq!(w.payload(&resent(33), T0 + 4 * S).expect("payload"), Appended::Recovered);
+    assert!(!w.is_recovered(uuid(10)));
 }

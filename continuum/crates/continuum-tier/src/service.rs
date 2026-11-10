@@ -337,6 +337,17 @@ impl Outputs for BrokerOutputs {
         }
     }
 
+    fn first_unabsorbed(&mut self, ids: &[Uuid]) -> Result<Option<usize>, String> {
+        for (batch, asked) in ids.chunks(continuum_client::MAX_RESOLVE_IDS).enumerate() {
+            let found = self.rt.block_on(self.client.resolve_frames(asked)).map_err(|e| e.to_string())?;
+            let first = found.iter().position(|f| matches!(f.source, continuum_client::FrameSource::Payload { .. }));
+            if let Some(first) = first {
+                return Ok(Some(batch * continuum_client::MAX_RESOLVE_IDS + first));
+            }
+        }
+        Ok(None)
+    }
+
     fn settled(&mut self, ids: &[Uuid]) {
         for id in ids {
             if self.pending.contains_key(id) {
