@@ -8,7 +8,7 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from liberational.dashboard import context, server
+from liberational.dashboard import context, known_voices, server
 from liberational.people import registry
 from liberational.people import voice_guess as G
 from speech_fake import fake
@@ -196,7 +196,7 @@ def test_the_route_says_when_the_voices_cannot_be_read(state, monkeypatch):
     def broken():
         raise ValueError("a half-written file")
 
-    monkeypatch.setattr(server, "_speakers", broken)
+    monkeypatch.setattr(known_voices, "_speakers", broken)
     code, body = server.unknown_voices_view()
     assert (code, body) == (500, {"error": "Could not read the voices waiting for a name."})
 

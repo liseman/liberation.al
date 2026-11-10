@@ -14,7 +14,7 @@ import pytest
 from liberational import config as cfg
 from liberational.assistant import voice
 from liberational.assistant.voice_auth import Grant
-from liberational.dashboard import context, server
+from liberational.dashboard import context, known_voices, server
 from liberational.people import identity, registry, tags
 from speech_fake import fake
 from voices import write_voices
@@ -369,7 +369,7 @@ def test_a_failing_log_is_reported_when_describing(dash):
 def test_claiming_with_a_role_records_it_only_once_the_claim_stands(dash):
     write_voices(dash, {2: None})
     fake().say({"ts_start": 10.0, "text": "Hi.", "speaker_id": 2})  # heard, so on the voice list
-    with patch.object(server, "_speaker_cmds", autospec=True, return_value=(True, "")):
+    with patch.object(known_voices, "_speaker_cmds", autospec=True, return_value=(True, "")):
         assert server.claim_identity("voice", 9, "Erin, CEO of Acme", control=True)[0] == 404
         assert person(dash, "Erin") is None
         code, body = server.claim_identity("voice", 2, "Erin, CEO of Acme", control=True)

@@ -7,7 +7,7 @@ import json
 import pytest
 
 from liberational import speech_log
-from liberational.dashboard import context, server
+from liberational.dashboard import context, server, transcript_lines
 from liberational.people import registry, transcript_view
 from speech_fake import fake
 from voices import write_voices
@@ -207,7 +207,7 @@ def test_undo_by_line_key_finds_a_label_logged_before_keys(lines):
 
 
 def test_a_clip_by_line_key_is_that_microphones_line(twins):
-    text = {k: (e or {}).get("text") for k in (A, B, "mic-c@2000.000") for e in [server.find_line(k)]}
+    text = {k: (e or {}).get("text") for k in (A, B, "mic-c@2000.000") for e in [transcript_lines.find_line(k)]}
     assert text == {A: "from a", B: "from b", "mic-c@2000.000": None}
 
 

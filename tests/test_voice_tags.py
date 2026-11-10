@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 
 import speech_fake
-from liberational.dashboard import context, server
+from liberational.dashboard import context, server, transcript_lines
 from liberational.domain import kernel
 from liberational.listen import revisions
 from liberational.people import registry
@@ -31,11 +31,13 @@ def test_rejecting_a_turn_is_atomic_durable_and_undoes_together(tmp_path, monkey
     assert revisions.review_revision(tmp_path) == 0
     code, result = server.reject_transcript({"lines": keys})
     assert code == 200 and result["lines"] == keys
-    assert server.heard_lines() == []
+    assert transcript_lines.heard_lines() == []
     assert speech_fake.fake().all_lines() == before
     assert server.reject_transcript({"lines": keys})[1]["undo"] == result["undo"]
     assert server.undo_transcript({"undo": result["undo"]}) == (200, {"ok": True, "lines": keys})
-    assert [(row["id"], row["text"]) for row in server.heard_lines()] == [(row["id"], row["text"]) for row in before]
+    assert [(row["id"], row["text"]) for row in transcript_lines.heard_lines()] == [
+        (row["id"], row["text"]) for row in before
+    ]
     assert server.undo_transcript({"undo": result["undo"]})[0] == 409
 
 
@@ -88,13 +90,13 @@ def test_transcript_correction_routes_refuse_no_control_requests_without_changin
         return result
 
     assert post("/transcript/reject", {"lines": [key]}) == (403, {"ok": False, "error": "Controls unavailable"})
-    assert server.heard_lines() == [row]
+    assert transcript_lines.heard_lines() == [row]
     assert revisions.review_revision(tmp_path) == 0
     assert not (tmp_path / "knowledge.sqlite3").exists()
     _, result = server.reject_transcript({"lines": [key]})
     before = revisions.review_revision(tmp_path)
     assert post("/transcript/undo", {"undo": result["undo"]}) == (403, {"ok": False, "error": "Controls unavailable"})
-    assert server.heard_lines() == []
+    assert transcript_lines.heard_lines() == []
     assert revisions.review_revision(tmp_path) == before
     assert revisions.current_rejection(tmp_path, [key]) == result["undo"]
 

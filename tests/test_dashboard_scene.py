@@ -1,10 +1,10 @@
-"""Live's captions (server.scene_entries): one read of the vision log serves every open Live feed for SCENE_POLL_S."""
+"""Live's captions (live_status.scene_entries): one read of the vision log serves every open Live feed for SCENE_POLL_S."""
 
 import time
 
 import pytest
 
-from liberational.dashboard import server
+from liberational.dashboard import live_status, server
 
 
 @pytest.fixture
@@ -26,19 +26,19 @@ def reads(vision, monkeypatch):
 
 def test_feeds_asking_within_the_poll_share_one_read(reads):
     calls, clock = reads
-    first = server.scene_entries()
+    first = live_status.scene_entries()
     assert [e["caption"] for e in first] == ["a person at the desk"]
-    clock[0] += server.SCENE_POLL_S - 0.1
-    assert server.scene_entries() == first
+    clock[0] += live_status.SCENE_POLL_S - 0.1
+    assert live_status.scene_entries() == first
     assert len(calls) == 1
 
 
 def test_the_next_poll_reads_again_and_sees_new_captions(reads, vision):
     calls, clock = reads
-    server.scene_entries()
+    live_status.scene_entries()
     vision.caption(time.time() - 1, caption="nobody")
-    clock[0] += server.SCENE_POLL_S
-    assert [e["caption"] for e in server.scene_entries()] == ["a person at the desk", "nobody"]
+    clock[0] += live_status.SCENE_POLL_S
+    assert [e["caption"] for e in live_status.scene_entries()] == ["a person at the desk", "nobody"]
     assert len(calls) == 2
 
 
@@ -49,6 +49,6 @@ def test_a_failed_read_is_not_kept(reads, vision, monkeypatch):
         raise OSError("broker down")
 
     monkeypatch.setattr(vision, "scene", down)
-    assert server.scene_entries() == []
+    assert live_status.scene_entries() == []
     monkeypatch.setattr(vision, "scene", lambda now, *a, **k: calls.append(now) or [{"id": "x", "caption": "back"}])
-    assert server.scene_entries() == [{"id": "x", "caption": "back"}]
+    assert live_status.scene_entries() == [{"id": "x", "caption": "back"}]
