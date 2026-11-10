@@ -1,4 +1,4 @@
-"""The zone editor's routes (#1316): read each camera's zones and their history, and save a camera's new set."""
+"""The zone editor's routes: read each camera's zones and their history, and save a camera's new set."""
 
 from pathlib import Path
 from typing import Any

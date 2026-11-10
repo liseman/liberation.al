@@ -1,4 +1,4 @@
-"""The Objects page and its API (frontend/src/objects/), served by the dashboard on Continuum (#778): what v1's
+"""The Objects page and its API (frontend/src/objects/), served by the dashboard on Continuum: what v1's
 object memory server (port 8772) answered, from `memory.objects`.
 
 GET  /objects                 the page
@@ -11,8 +11,8 @@ POST /objects/api/capture     {camera, draft?, name?}: a snapshot of the camera'
 POST /objects/api/import      {camera, image, captured_at, kind?}: a Live crop or native Review full_frame JPEG
 POST /objects/api/segment     {snapshot, bbox|point, crop?, job?}: an EdgeTAM mask for the box or point the owner chose
 POST /objects/api/find        {snapshot, crop?, job?}: every object EdgeTAM finds in the crop (the view the owner is
-                              looking at), each a selection with its outline (#2020)
-                              (never an automatic pass over the frame, #1481) and a snapshot-bound selection token
+                              looking at), each a selection with its outline
+                              (never an automatic pass over the frame) and a snapshot-bound selection token
 POST /objects/api/cancel     {job}: stop only that owned EdgeTAM request before replacing the frozen view
 POST /objects/api/enroll      {name, camera, snapshot, selection?|full_crop?|direct_crop?, crop?, aliases, note}: remember explicitly
 """
