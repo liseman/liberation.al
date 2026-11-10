@@ -34,6 +34,60 @@ pub use redb_catalog::{InstantOriginal, OpenTimings, RedbCatalog, SWAP_DELTA};
 /// The most frames one chunk may absorb, so one commit stays short. Both catalogs refuse more.
 pub const MAX_CHUNK_FRAMES: usize = 4096;
 
+/// What both catalogs check of a part before they look at the chunk it joins (see [`Catalog::extend_chunk`]).
+fn check_part(part: &NewChunk, base: usize, absorbed: &[Uuid], provenance: Option<&ChunkProvenance>) -> Result<()> {
+    let id = part.payload.header.id();
+    if let Some(p) = provenance {
+        p.validate(part.frames.len())?;
+    }
+    if part.frames.len() != absorbed.len() {
+        return Err(CatalogError::Invalid(format!(
+            "chunk {id}'s part indexes {} frames but absorbs {}",
+            part.frames.len(),
+            absorbed.len()
+        )));
+    }
+    if base == 0 || part.frames.is_empty() {
+        return Err(CatalogError::Invalid(format!("chunk {id}'s part adds no frames after its first")));
+    }
+    if base + part.frames.len() > MAX_CHUNK_FRAMES {
+        return Err(CatalogError::Invalid(format!("chunk {id} would hold more than {MAX_CHUNK_FRAMES} frames")));
+    }
+    match &part.payload.location {
+        Some(l) if l.tier() != StorageTier::Tier0Hot && !matches!(l, StorageLocator::Inline { .. }) => {}
+        _ => return Err(CatalogError::Invalid(format!("chunk {id} must be placed in a chunk file, in Tier 1 or 2"))),
+    }
+    if absorbed.contains(&id) {
+        return Err(CatalogError::Invalid(format!("chunk {id} absorbs itself")));
+    }
+    if absorbed.iter().collect::<std::collections::BTreeSet<_>>().len() != absorbed.len() {
+        return Err(CatalogError::Invalid(format!("chunk {id} absorbs a frame twice")));
+    }
+    Ok(())
+}
+
+/// Whether `header` is chunk `known`'s own header grown, for a part starting at frame `base` of its `frames`.
+fn check_grows(
+    known: &continuum_core::HeaderBuf,
+    header: &continuum_core::HeaderBuf,
+    frames: usize,
+    base: usize,
+) -> Result<()> {
+    let id = known.id();
+    if frames != base {
+        return Err(CatalogError::Invalid(format!("chunk {id} holds {frames} frames; the part starts at {base}")));
+    }
+    if known.stream() != header.stream()
+        || known.start_ns() != header.start_ns()
+        || known.seq() != header.seq()
+        || header.end_ns() < known.end_ns()
+        || !header.parents().is_empty()
+    {
+        return Err(CatalogError::Invalid(format!("chunk {id}'s part carries another chunk's header")));
+    }
+    Ok(())
+}
+
 // Cooperative purge batches check their caller between small, resumable chunks of existing phase work.
 const PURGE_BATCH_ROWS: usize = 64;
 pub use types::*;
@@ -334,6 +388,33 @@ pub trait Catalog: Send + Sync {
     fn chunk_provenance(&self, chunk: Uuid) -> Result<Option<ChunkProvenance>> {
         let _ = chunk;
         Ok(None)
+    }
+
+    /// Adds a part to a chunk that is still being written (docs/CONTINUUM.md, "Video chunks"): `part.frames` are
+    /// the chunk's frames from index `first_frame` on, `absorbed` the Tier 0 payloads behind them, and `part`'s
+    /// header and location the chunk's own again, with its new end and length. In one transaction the frames join
+    /// the chunk's frame index (and `provenance` its provenance, a side that attested nothing reading as unknown),
+    /// the payloads are absorbed as [`Catalog::commit_chunk`] absorbs them (the same checks and cut rules, each
+    /// `FRAMES` row holding its index in the whole chunk), the header and location replace the chunk's, and the
+    /// chunk takes a new commit sequence. Its id, start, and time key never change.
+    ///
+    /// The same part again (the chunk already holds exactly these frames under this header) is a duplicate.
+    ///
+    /// # Errors
+    /// [`CatalogError::NotFound`] when `chunk` isn't a chunk; [`CatalogError::Conflict`] when a running purge has
+    /// hidden it; [`CatalogError::Invalid`] when `first_frame` is 0 or isn't the chunk's frame count, the part is
+    /// empty or would take the chunk past [`MAX_CHUNK_FRAMES`], its first frame starts before the chunk's last,
+    /// the header differs from the chunk's in its stream, start, or sequence, ends earlier, or names parents, and
+    /// for anything [`Catalog::commit_chunk`] refuses in a frame. [`Inserted::cut`] holds whole-chunk indexes.
+    fn extend_chunk(
+        &self,
+        part: NewChunk,
+        first_frame: u32,
+        absorbed: &[Uuid],
+        provenance: Option<&ChunkProvenance>,
+    ) -> Result<Inserted> {
+        let _ = (part, first_frame, absorbed, provenance);
+        Err(CatalogError::Invalid("this catalog can't extend a chunk".into()))
     }
 
     /// Records a chunk the tier worker rewrote (after a purge cut frames from it, or on recompression): its new frame
