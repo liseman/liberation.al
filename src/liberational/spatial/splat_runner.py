@@ -20,7 +20,8 @@ keep the Gaussians inside the start points' box), `depth_unit` (what one count o
 units, 0.001 by default: millimetres in a metric scene), `pose_opt` (true to refine every training view's pose
 while the splat trains), and `render` (a directory: every view as the trained splat draws it at its given pose,
 `f000.png` on, and for a view with a depth map its drawn depth, `d000.png` on, at that map's size and unit; frames
-that sit exactly at their poses, for checking what the refinement reports).
+that sit exactly at their poses, for checking what the refinement reports), and `progress` (a file: every
+PROGRESS_EVERY steps the training's {"step", "steps"} is written there whole, for whoever started it to show).
 
 **Resuming** (a place's splat refined as new frames are kept, spatial/surroundings_map.py): with `resume` (a 3DGS
 PLY this trainer wrote), training starts from that splat's Gaussians as they are, and the `init` points, which may
@@ -159,6 +160,9 @@ def read_splat(data: bytes, np: Any) -> dict[str, Any]:
         }
     except KeyError as e:
         raise ValueError(f"the PLY has no {e.args[0]} property: not a Gaussian splat") from None
+
+
+PROGRESS_EVERY = 50  # training steps between two writes of the job's `progress` file
 
 
 def main(argv: Sequence[str]) -> int:
@@ -417,7 +421,13 @@ def main(argv: Sequence[str]) -> int:
     torch.cuda.reset_peak_memory_stats()
     began = time.perf_counter()
     rng = np.random.default_rng(0)
+    progress = Path(job["progress"]) if job.get("progress") else None
     for step in range(steps):
+        if progress is not None and step % PROGRESS_EVERY == 0:
+            # How far the training is, for whoever started it to show; written whole, so a reader never sees half.
+            part = progress.with_name(progress.name + ".part")
+            part.write_text(json.dumps({"step": step, "steps": steps}))
+            part.replace(progress)
         v = train[int(rng.integers(len(train)))]
         moving = refine and step >= pose_start
         still = None if moving or not refine else torch.zeros(9, device=dev)  # no gradient reaches the rows yet

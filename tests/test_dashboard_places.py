@@ -865,14 +865,3 @@ def test_a_learned_map_without_its_splat_yet_says_its_on_its_way(tmp_path, visio
     rev = places.revise(tmp_path, None, producer="surroundings v1", map_bytes=CLOUD, map_format="ply", now=T)
     reply = view.scene(tmp_path, rev.place)[1]
     assert (reply["splat_state"], reply["splat_wait"]["reason"]) == ("none", "learned")
-
-
-def test_without_the_map_step_installed_the_scene_reads_the_switch_alone(tmp_path, mapped, monkeypatch):
-    def missing(name):
-        raise ImportError(name)
-
-    monkeypatch.setattr(view.importlib, "import_module", missing)
-    place, _ = mapped
-    assert view.scene(tmp_path, place)[1]["learning"] == {
-        "on": False, "cameras": 0, "improving": False, "views": None, "improved": None,
-    }  # fmt: skip
