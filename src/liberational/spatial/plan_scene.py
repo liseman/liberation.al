@@ -181,6 +181,47 @@ def openings(scene: Scene) -> list[tuple[str, str, Point, float]]:
     return out
 
 
+STANDOFF = 0.25  # metres off a camera's spot a sight line starts: a camera hangs on a wall, so its spot is on one
+
+
+def sight(scene: Scene) -> Callable[[Point, Point], bool]:
+    """Whether a camera at a spot can see a point on the floor by the plan: the straight line between them crosses no
+    wall, except through a door or a doorway (a window looks outside, where nobody is placed). The line starts
+    STANDOFF from the spot. What it answers is the check for placed positions: a point behind a solid wall was put
+    there by a pose, a lens, or a scale that is off."""
+    gaps: list[tuple[Point, Point, list[tuple[float, float]]]] = []
+    passable: dict[str, list[tuple[Point, float]]] = {}
+    for kind, wall_id, at, width in openings(scene):
+        if kind != "window":
+            passable.setdefault(wall_id, []).append((at, width))
+    for wall_id, a, b, _ in walls(scene):
+        middles = [(math.dist(a, at), width / 2) for at, width in passable.get(wall_id, [])]
+        gaps.append((a, b, [(d - half, d + half) for d, half in middles]))
+
+    def clear(spot: Point, point: Point) -> bool:
+        rx, ry = point[0] - spot[0], point[1] - spot[1]
+        far = math.hypot(rx, ry)
+        if far <= STANDOFF:
+            return True
+        start = (spot[0] + rx / far * STANDOFF, spot[1] + ry / far * STANDOFF)
+        rx, ry = point[0] - start[0], point[1] - start[1]
+        for a, b, through in gaps:
+            ex, ey = b[0] - a[0], b[1] - a[1]
+            cross = rx * ey - ry * ex
+            if abs(cross) < 1e-12:
+                continue  # along the wall: it doesn't pass through it
+            qx, qy = a[0] - start[0], a[1] - start[1]
+            s = (qx * ey - qy * ex) / cross  # how far along the sight line
+            t = (qx * ry - qy * rx) / cross  # and along the wall
+            if 0.0 < s < 1.0 and 0.0 <= t <= 1.0:
+                along = t * math.hypot(ex, ey)
+                if not any(lo <= along <= hi for lo, hi in through):
+                    return False
+        return True
+
+    return clear
+
+
 def room_at(found: Sequence[tuple[str, str, str, Sequence[Point]]], x: float, y: float) -> str | None:
     """The id of the first room whose polygon holds (x, y), or None."""
     for room_id, _, _, poly in found:
