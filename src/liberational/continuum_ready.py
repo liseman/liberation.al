@@ -255,6 +255,30 @@ def capture_needs(manifest: Path) -> tuple[CaptureNeed, ...]:
     return tuple(result)
 
 
+async def unregistered(
+    socket: Path, needs: Sequence[CaptureNeed], timeout: float = ATTEMPT_S
+) -> tuple[CaptureNeed, ...]:
+    """The needs with no live stream at the broker now: one bounded look, no wait. A broker that can't be asked
+    raises, so "nothing is missing" always means the broker said so."""
+    import continuum_py
+
+    if not needs:
+        return ()
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    client = None
+    try:
+        async with asyncio.timeout(max(0.0, timeout * 0.8)):
+            client = await continuum_py.Client.connect(
+                str(socket), client_name="device-check", request_timeout_s=min(timeout, ATTEMPT_S)
+            )
+            live = {row["name"] for row in await client.list_streams() if row.get("live")}
+    finally:
+        if client is not None:
+            await _close(client, deadline)
+    return tuple(need for need in needs if need.stream not in live)
+
+
 def _capture_fresh(header: PayloadHeader, barrier: int) -> bool:
     capture = header.get("capture")
     if capture is None:

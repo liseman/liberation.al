@@ -77,6 +77,34 @@ def test_unknown_pauses_say_nothing_about_them():
     assert (now.headline, now.detail) == ("Running and recording", "3 of 3 services running.")
 
 
+DEVICES = {"camera": ([], 2), "microphone": ([], 1)}
+
+
+def test_a_declared_microphone_that_never_registered_is_named():
+    # #183: capture ran on without its microphone, and the window said "Running and recording".
+    stuck = {**UP, "unregistered": [{"name": "desk", "kind": "microphone"}]}
+    now = app_window.summary(RUNNING, stuck, DEVICES)
+    assert (now.headline, now.recording) == ("Recording, but not from every device", True)
+    assert now.detail == "Nothing is coming from the microphone desk. 3 of 3 services running."
+    assert app_window.summary(RUNNING, {**UP, "unregistered": []}, DEVICES).headline == "Running and recording"
+
+
+def test_several_missing_devices_are_all_named():
+    gone = [{"name": n, "kind": k} for n, k in (("cam0", "camera"), ("cam1", "camera"), ("desk", "microphone"))]
+    now = app_window.summary(RUNNING, {**UP, "unregistered": gone[:2]}, DEVICES)
+    assert "the camera cam0 and camera cam1." in now.detail
+    assert (now.headline, now.recording) == ("Recording, but not from every device", True)
+    every = app_window.summary(RUNNING, {**UP, "unregistered": gone}, DEVICES)
+    assert (every.headline, every.recording) == ("Running, not recording", False)
+    assert "the camera cam0, camera cam1, and microphone desk." in every.detail
+
+
+def test_a_paused_device_is_paused_not_missing():
+    stuck = {**UP, "unregistered": [{"name": "desk", "kind": "microphone"}]}
+    now = app_window.summary(RUNNING, stuck, {"camera": ([], 2), "microphone": (["desk"], 1)})
+    assert (now.headline, now.detail) == ("Running and recording", "3 of 3 services running (microphone paused).")
+
+
 class Proc:
     def __init__(self, pid):
         self.pid, self.code = pid, None

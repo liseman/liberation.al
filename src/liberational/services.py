@@ -30,7 +30,7 @@ import tempfile
 import threading
 import time
 import tomllib
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from typing import Any, Literal, TypedDict
 
 from liberational import config as cfg
@@ -144,16 +144,80 @@ def _templated_env(svc: Service) -> dict[str, str]:
     return env
 
 
-def environment(svc: Service, name: str = "") -> dict[str, str]:
+# What a service gets from whoever opened the application (#183): the variables that say which desktop session this
+# is, so PipeWire, D-Bus, and the display can be reached, and the locale. Nothing else is inherited. A unit got
+# these from the desktop's service manager; the supervisor's children get them here.
+SESSION = frozenset(
+    {
+        "XDG_RUNTIME_DIR",
+        "DBUS_SESSION_BUS_ADDRESS",
+        "WAYLAND_DISPLAY",
+        "DISPLAY",
+        "XAUTHORITY",
+        "XDG_SESSION_TYPE",
+        "PIPEWIRE_REMOTE",
+        "PIPEWIRE_RUNTIME_DIR",
+        "PULSE_SERVER",
+        "PULSE_RUNTIME_PATH",
+        "USER",
+        "LOGNAME",
+        "LANG",
+        "LANGUAGE",
+        "TZ",
+    }
+)
+# Variables a launcher sets for itself, which would change what a service loads: the dynamic loader's, and those of
+# an AppImage, a Flatpak, or a Snap whose terminal the application was opened from. Never inherited; a service
+# that needs one names it in services.toml's env. Listed only to say in the log what was dropped.
+LAUNCHER = frozenset({"LD_LIBRARY_PATH", "LD_PRELOAD", "LD_AUDIT", "APPDIR", "APPIMAGE", "ARGV0", "OWD", "SNAP"})
+LAUNCHER_PREFIXES = ("DYLD_", "APPIMAGE_", "FLATPAK_", "SNAP_")
+APPIMAGE_MOUNTS = "/tmp/.mount_"  # where an AppImage mounts itself; matched, never written
+
+
+def _launcher_roots(launcher: Mapping[str, str]) -> list[str]:
+    """The directories a launcher put itself in: its mount (AppImage), or its own tree (Snap)."""
+    return [launcher[key].rstrip("/") for key in ("APPDIR", "SNAP") if launcher.get(key, "").startswith("/")]
+
+
+def _from_launcher(directory: str, roots: Sequence[str]) -> bool:
+    return directory.startswith(APPIMAGE_MOUNTS) or any(directory == r or directory.startswith(r + "/") for r in roots)
+
+
+def dropped(launcher: Mapping[str, str]) -> list[str]:
+    """What of a launcher's environment `environment(..., launcher=...)` keeps from a service, for the log: its
+    loader and packaging variables by name, and the PATH directories inside the launcher."""
+    roots = _launcher_roots(launcher)
+    names = sorted(k for k in launcher if k in LAUNCHER or k.startswith(LAUNCHER_PREFIXES))
+    path = [d for d in launcher.get("PATH", "").split(os.pathsep) if d and _from_launcher(d, roots)]
+    return names + [f"PATH entry {d}" for d in dict.fromkeys(path)]
+
+
+def _session(launcher: Mapping[str, str]) -> dict[str, str]:
+    """The session variables in a launcher's environment (SESSION, and the locale's LC_*)."""
+    env = {k: v for k, v in launcher.items() if v and (k in SESSION or k.startswith("LC_"))}
+    runtime = pathlib.Path(f"/run/user/{os.getuid()}")
+    if "XDG_RUNTIME_DIR" not in env and not DARWIN and runtime.is_dir():
+        env["XDG_RUNTIME_DIR"] = str(runtime)  # opened from a shell with no session (cron, a bare ssh command)
+    return env
+
+
+def environment(svc: Service, name: str = "", *, launcher: Mapping[str, str] | None = None) -> dict[str, str]:
+    """A service's whole environment. For a unit (`launcher` None) it is what the unit file sets, and the desktop's
+    service manager adds the session's variables. For a child of the supervisor, `launcher` is the environment the
+    application was opened with: the child gets the session variables from it and nothing else (#183), so a
+    terminal's loader paths and packaging variables never reach a service."""
     # The environment's own bin first; in a checkout, mise's shims next (tools like ffmpeg from mise.toml; an
     # installed package has no mise and gets them from the system); then the starting shell's PATH; then the system
     # directories whatever that shell had: capture runs sysctl, which is in /usr/sbin.
+    source = os.environ if launcher is None else launcher
+    roots = _launcher_roots(source)
     parts = [str(cfg.BIN)]
     parts += [str(pathlib.Path.home() / ".local/share/mise/shims")] if cfg.CHECKOUT is not None else []
-    parts += os.environ.get("PATH", "").split(os.pathsep)
+    parts += [d for d in source.get("PATH", "").split(os.pathsep) if not _from_launcher(d, roots)]
     parts += ["/usr/local/bin"] if DARWIN else []
     parts += ["/usr/bin", "/bin", "/usr/sbin", "/sbin"]
-    env = {"PATH": os.pathsep.join(dict.fromkeys(p for p in parts if p)), "HOME": str(pathlib.Path.home())}
+    env = _session(launcher) if launcher is not None else {}
+    env.update({"PATH": os.pathsep.join(dict.fromkeys(p for p in parts if p)), "HOME": str(pathlib.Path.home())})
     # No progress bars in a service log (Hugging Face downloads, transformers' "Loading weights", any tqdm): a bar
     # redraws itself, which a log file keeps as a pile of partial lines. A CLI run by hand still shows them. (tqdm
     # reads any non-empty TQDM_DISABLE as true, so "0" doesn't turn its bars back on; an empty value does.)
