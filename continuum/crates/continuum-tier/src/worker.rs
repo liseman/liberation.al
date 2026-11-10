@@ -319,7 +319,7 @@ impl<O: Outputs> WorkerLoop<O> {
                 None => 0,
                 Some(Err(e)) => {
                     let why = format!("asking the catalog about recovered chunk {} failed: {e}", r.path.display());
-                    eprintln!("tier worker: {why}");
+                    tracing::warn!("{why}");
                     self.recovery_errors.insert(stream, why);
                     continue;
                 }
@@ -859,12 +859,12 @@ impl<O: Outputs> WorkerLoop<O> {
             self.refused = Some(closed.path.clone());
             #[cfg(feature = "ffmpeg")]
             if let Err(e) = self.drain(closed.stream, crate::service::now_utc_ns()) {
-                eprintln!("tier worker: draining stream {}'s encoder failed: {e}", closed.stream.0);
+                tracing::warn!("draining stream {}'s encoder failed: {e}", closed.stream.0);
             }
             match self.flusher.close(closed.stream) {
                 Ok(Some(last)) => self.finish(last),
                 Ok(None) => {}
-                Err(e) => eprintln!("tier worker: closing {} failed: {e}", closed.path.display()),
+                Err(e) => tracing::warn!("closing {} failed: {e}", closed.path.display()),
             }
             self.refused = None;
             rest.append(&mut self.gathered);
@@ -873,8 +873,8 @@ impl<O: Outputs> WorkerLoop<O> {
             closed.absorbed.extend_from_slice(&c.absorbed);
         }
         if closed.first_frame > 0 {
-            eprintln!(
-                "tier worker: the broker refused a part of chunk {} for good ({why}); its {} uncommitted records \
+            tracing::warn!(
+                "the broker refused a part of chunk {} for good ({why}); its {} uncommitted records \
                  move to a new chunk",
                 closed.path.display(),
                 closed.absorbed.len()
@@ -884,7 +884,7 @@ impl<O: Outputs> WorkerLoop<O> {
                 Ok(Some(moved)) => self.finish(moved),
                 Ok(None) => self.out.rejected(&closed, &closed.path),
                 Err(e) => {
-                    eprintln!("tier worker: moving the records of {} failed: {e}", closed.path.display());
+                    tracing::warn!("moving the records of {} failed: {e}", closed.path.display());
                     self.out.rejected(&closed, &closed.path);
                 }
             }
