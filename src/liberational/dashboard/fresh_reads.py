@@ -8,7 +8,7 @@ from concurrent.futures import Future
 from typing import Any
 
 from liberational import logs, voice_turn
-from liberational.dashboard import photo_files
+from liberational.dashboard import context
 from liberational.dashboard.context import Reply, log
 
 
@@ -70,7 +70,7 @@ class _Fresh:
 
     def _cold(self, future: Future[Reply]) -> None:
         try:
-            photo_files._low_priority(19)
+            context.low_priority(19)
             voice_turn.wait_quiet()
             future.set_result(self.get())
         except BaseException as error:

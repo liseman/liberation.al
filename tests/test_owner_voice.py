@@ -19,8 +19,8 @@ from liberational.dashboard import (
     context,
     known_voices,
     people_list,
-    people_reads,
     people_writes,
+    roster_read,
     server,
     speaker_lines,
 )
@@ -308,7 +308,7 @@ def dash(tmp_path, monkeypatch):
         "DASH_PASSWORD": "",
     }.items():
         monkeypatch.setattr(server, name, value)
-    monkeypatch.setattr(people_reads, "people_view", lambda *a, **k: {})
+    monkeypatch.setattr(roster_read, "people_view", lambda *a, **k: {})
     monkeypatch.setattr(people_list, "_room_lines", lambda *a, **k: [])
     monkeypatch.setattr(people_list, "_faces_mod", lambda: Faces())
     monkeypatch.setattr(people_list, "_call_lines", lambda *a, **k: [])

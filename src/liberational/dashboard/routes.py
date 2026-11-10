@@ -12,9 +12,9 @@ A route is one of three kinds:
 - a test (`get_when("/people/<name>", lambda p: p.startswith("/people/"))`): any other rule, with the words the
   listing shows for it.
 
-An exact route is looked up first, then the patterns and tests in the order they were registered, so a catch-all
-(`/people/<name>`) is registered after the narrower routes it would otherwise take, and never takes an exact path
-(`/people/video-thumb.jpg`). Registering an exact path that an earlier pattern or test already matches is refused
+An exact route is looked up first, then the patterns and tests in the order they were registered, then the
+catch-alls (`get_last("/people/<name>", ...)`), so a catch-all never takes an exact path
+(`/people/video-thumb.jpg`) or a narrower pattern registered by another module, whichever was imported first. Registering an exact path that an earlier pattern or test already matches is refused
 when the modules load: which of the two answers would depend on the kind of route, not on the order written.
 
 What a handler is called with:
@@ -60,13 +60,14 @@ class Table:
     def __init__(self) -> None:
         self.exact: dict[tuple[str, str], Route] = {}
         self.ordered: list[Route] = []  # patterns and tests, in the order registered
+        self.last: list[Route] = []  # catch-alls, tried after every other route whatever order the modules loaded in
 
     def _exact(self, method: str, paths: tuple[str, ...], raw: bool) -> Callable[[Handler], Handler]:
         def register(handler: Handler) -> Handler:
             for path in paths:
                 if (method, path) in self.exact:
                     raise ValueError(f"{method} {path} is registered twice")
-                for route in self.ordered:
+                for route in self.ordered:  # a catch-all (self.last) is tried after the exact paths: no clash
                     if route.method == method and route.test is not None and route.test(path):
                         raise ValueError(f"{method} {path} would be taken by {route.shown}, registered before it")
                 self.exact[method, path] = Route(method, path, handler, "exact", raw)
@@ -90,6 +91,16 @@ class Table:
     def get_when(self, shown: str, test: Test) -> Callable[[Handler], Handler]:
         return self._ordered("GET", shown, "test", test, False)
 
+    def get_last(self, shown: str, test: Test) -> Callable[[Handler], Handler]:
+        """A catch-all (`/people/<name>`): tried only when no other GET route matches, in whichever module the
+        narrower ones (`/people/<name>/card`, `/people/reference-media/<id>`) are registered."""
+
+        def register(handler: Handler) -> Handler:
+            self.last.append(Route("GET", shown, handler, "test", False, test))
+            return handler
+
+        return register
+
     def post(self, *paths: str) -> Callable[[Handler], Handler]:
         return self._exact("POST", paths, False)
 
@@ -110,14 +121,14 @@ class Table:
         route = self.exact.get((method, path))
         if route is not None:
             return route, True
-        for route in self.ordered:
+        for route in (*self.ordered, *self.last):
             if route.method == method and route.test is not None and (found := route.test(path)):
                 return route, found
         return None
 
     def listing(self) -> list[tuple[str, str, str]]:
         """Every route as (method, path or pattern, area), sorted."""
-        routes = [*self.exact.values(), *self.ordered]
+        routes = [*self.exact.values(), *self.ordered, *self.last]
         return sorted((route.method, route.shown, route.area) for route in routes)
 
 
@@ -131,6 +142,7 @@ TABLE = Table()
 get = TABLE.get
 get_re = TABLE.get_re
 get_when = TABLE.get_when
+get_last = TABLE.get_last
 post = TABLE.post
 post_when = TABLE.post_when
 post_raw = TABLE.post_raw
