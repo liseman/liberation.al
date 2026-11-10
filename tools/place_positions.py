@@ -2,9 +2,10 @@
 
 The nightly `pack-spatial-cameras` run places each day's footprints (spatial/positions.py's `advance`). This does
 the same now: after an upgrade, so the Places page has paths before the next night, or with `--reset` after
-something changed what stored records should say (a camera registered again in a new frame, a pose series, a plan,
-or a name given to a track nobody could name when it was placed). `--reset` forgets the placer's records and places
-the last 30 days of raw footprints again; the rig's own records are kept.
+something changed what stored records should say (a pose series, a plan's rooms, or a name given to a track nobody
+could name when it was placed). A registration that moves where a camera puts people needs no `--reset`: the placer
+notices and places that place again by itself. `--reset` forgets the placer's records of every place and places the
+last 30 days of raw footprints again; the rig's own records are kept.
 
     .venv/bin/python tools/place_positions.py            # place what was recorded since the last run
     .venv/bin/python tools/place_positions.py --reset    # forget the placed records and place everything again
@@ -28,10 +29,11 @@ def main(argv: Sequence[str] | None = None) -> None:
     logs.setup()
     state = cfg.path("paths.state")
     if args.reset:
-        print(f"placed records forgotten; placing again as generation {positions.reset(state)}")
+        print(f"placed records of {positions.reset(state)} places forgotten; placing them again")
     began = time.monotonic()
     did = positions.advance(state, time.time() - footprints.FLUSH_S)
-    print(f"placed {did['records']:,} records in {did['pieces']} pieces, {time.monotonic() - began:.0f} s")
+    again = f", {did['replaced']} places placed again after a registration" if did["replaced"] else ""
+    print(f"placed {did['records']:,} records in {did['pieces']} pieces{again}, {time.monotonic() - began:.0f} s")
 
 
 if __name__ == "__main__":
