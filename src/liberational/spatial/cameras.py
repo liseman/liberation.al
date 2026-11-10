@@ -69,7 +69,7 @@ run works at any hour.
    (spatial/splats.py) when `spatial.splats_enabled` is on.
 
 MASt3R (naver/mast3r, code and weights CC BY-NC-SA 4.0, the weights also under the non-commercial terms of the
-datasets they were trained on, see its CHECKPOINTS_NOTICE) is accepted for now; docs/ARCHITECTURE.md
+datasets they were trained on, see its CHECKPOINTS_NOTICE) is accepted for now; docs/SPATIAL.md
 says so where it lists the model.
 
 Its MIN_MATCHES of 1,000 comes from the spike: two views of one room matched 3,528 times, the kitchen camera's weak tie

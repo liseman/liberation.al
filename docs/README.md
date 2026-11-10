@@ -9,7 +9,8 @@ current contract or procedure. Current-system documents describe `main`.
 |---|---|
 | [Contributing](../CONTRIBUTING.md) | Install the toolchain, run services, and validate changes |
 | [Upgrading](../MIGRATING.md) | Update an existing installation, handle model-space changes, and inspect reset scope |
-| [Architecture](ARCHITECTURE.md) | Find component ownership, state paths, workers, and dashboard behavior |
+| [Architecture](ARCHITECTURE.md) | Start here: the parts, how data flows, where code lives, components, and state paths |
+| [Services](SERVICES.md) | Understand startup, the supervisor, restarts, logs, and the install layout |
 | [Walkthrough](WALKTHROUGH.md) | Record a LiDAR walk, import it into a place, and see which places and rooms still need one |
 | [Storage](STORAGE.md) | Understand retention, owner knowledge, disposable history, and dated codec measurements |
 | [Ingest](INGEST.md) | Import media and understand analysis and deletion boundaries |
@@ -26,6 +27,12 @@ current contract or procedure. Current-system documents describe `main`.
 | [Releases](RELEASES.md) | Install a release, make one, or see what an upgrade resets |
 | [Domain model](DOMAIN-MODEL.md) | Understand identity, observations, evidence, correction, and forgetting |
 | [Continuum](CONTINUUM.md) | Look up broker, capture, SDK, storage, and gateway contracts |
+| [Vision pipeline](VISION.md) | Understand decoding, the person pipeline, captions, objects, and zones |
+| [People](PEOPLE.md) | Understand the knowledge store and how voices and faces are named |
+| [Answers](ANSWERS.md) | Understand Ask, counts, activities, the journal, and the voice turn |
+| [Dashboard](DASHBOARD.md) | Find where server routes and frontend code go |
+| [Spatial memory](SPATIAL.md) | Understand place maps, floorplans, and positions |
+| [Network](NETWORK.md) | Configure network inventory, device links, and network cameras |
 | [Vision streams](VISION-STREAMS.md) | Look up vision records, model producers, and coverage semantics |
 | [Firmware](../firmware/esp32-ble-scanner/README.md) | Build and flash the BLE scanner and understand its wire protocol |
 | [Font provenance](../frontend/src/shared/fonts/README.md) | Check bundled font sources and regeneration |

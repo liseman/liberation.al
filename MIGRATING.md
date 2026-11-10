@@ -69,8 +69,8 @@ units again.
 
 ## `pack-setup` sets up an installed package; a checkout is unchanged
 
-`pack-setup` is new: the setup command for a package installed with no checkout (docs/ARCHITECTURE.md, "A checkout
-and an installed package"). `mise run setup` is still how a checkout is set up, and nothing in a checkout behaves
+`pack-setup` is new: the setup command for a package installed with no checkout (docs/SERVICES.md, "Install layout").
+`mise run setup` is still how a checkout is set up, and nothing in a checkout behaves
 differently: its services keep mise's shims on their `PATH`, `pack-system` lists the same packages, and the
 `whisper` service is declared as before (its server is now named by its whole path, the same file). No setting was
 added, nothing stored changes, and no service needs a restart.
@@ -505,7 +505,7 @@ model spaces. Import restores knowledge and managed attachments, then puts the
 taught files (face gallery, voiceprints, clones, person references, the owner's
 voice sample) back where they live when nothing is there yet. It never overwrites
 a file, names any it left alone, and leaves configuration TOML in the bundle.
-docs/ARCHITECTURE.md lists what the bundle carries and what it leaves out.
+docs/PEOPLE.md lists what the bundle carries and what it leaves out.
 
 Preview the actual reset plan without changing anything:
 
