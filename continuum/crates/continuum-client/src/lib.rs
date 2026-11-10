@@ -113,6 +113,8 @@ pub enum PurgeKind {
 
 /// Minimum broker protocol version for opaque forgotten-hash enumeration.
 pub const LIST_FORGOTTEN_SCHEMA_MINOR: u16 = 34;
+/// The schema minor that commits a chunk in parts (`CommitChunk.first_frame`).
+pub const CHUNK_PARTS_SCHEMA_MINOR: u16 = 35;
 
 /// One read-only page of opaque forgotten-name hashes.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -777,7 +779,32 @@ impl Client {
         absorbed: &[Uuid],
         provenance: Option<&[FrameProvenance]>,
     ) -> Result<ChunkCommitted, Error> {
-        let reply = self.shared.request(|id| messages::commit_chunk(id, chunk, absorbed, provenance)).await?;
+        self.commit_chunk_part(chunk, 0, absorbed, provenance).await
+    }
+
+    /// Commits a part of a chunk that is still being written (schema minor 35; docs/CONTINUUM.md, "Video chunks"):
+    /// `chunk.frames` are the chunk's frames from index `first_frame` on, `absorbed` and `provenance` go with
+    /// them, and `chunk`'s header and location are the chunk's own, with its new end and length. A `first_frame` of
+    /// 0 commits a new chunk, as [`Client::commit_chunk_with_provenance`] does.
+    ///
+    /// # Errors
+    ///
+    /// As [`Client::commit_chunk_with_provenance`]; for a later part also NotFound when the broker doesn't know
+    /// the chunk, Conflict when a running purge has hidden it, and BadRequest when `first_frame` isn't the chunk's
+    /// frame count or the header isn't the chunk's own grown. A Protocol error for a later part and a broker below
+    /// minor 35, which would take it for a new chunk.
+    pub async fn commit_chunk_part(
+        &self,
+        chunk: &NewChunk,
+        first_frame: u32,
+        absorbed: &[Uuid],
+        provenance: Option<&[FrameProvenance]>,
+    ) -> Result<ChunkCommitted, Error> {
+        if first_frame > 0 && self.broker_schema().1 < CHUNK_PARTS_SCHEMA_MINOR {
+            return Err(Error::Protocol("a chunk part requires schema minor 35".into()));
+        }
+        let reply =
+            self.shared.request(|id| messages::commit_chunk(id, chunk, first_frame, absorbed, provenance)).await?;
         reply
             .envelope()
             .payload_as_chunk_committed()

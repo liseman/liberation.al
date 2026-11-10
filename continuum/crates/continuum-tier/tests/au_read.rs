@@ -87,7 +87,12 @@ impl Outputs for Kept {
 
 /// One `H264Au` chunk of frames `0..FRAMES` (chunks long enough not to rotate), and the indexes of its keyframes.
 fn chunk(dir: &Path) -> (PathBuf, Vec<u32>) {
-    let settings = FlushSettings { chunk_ns: 60_000_000_000, audio_chunk_ns: 60_000_000_000, sync_ns: 100_000_000 };
+    let settings = FlushSettings {
+        chunk_ns: 60_000_000_000,
+        part_ns: 60_000_000_000,
+        audio_chunk_ns: 60_000_000_000,
+        sync_ns: 100_000_000,
+    };
     let mut w = WorkerLoop::new(dir, settings, Kept::default()).unwrap();
     let shape = StreamShape {
         chunk_format: ChunkFormat::Lz4,

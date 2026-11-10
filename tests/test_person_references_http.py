@@ -8,7 +8,7 @@ import pytest
 import requests
 from PIL import Image
 
-from liberational.dashboard import context, server
+from liberational.dashboard import context, people_references, roster_read, server
 from liberational.people import references
 from liberational.vision import faces
 
@@ -23,7 +23,7 @@ def found(monkeypatch):
         with patch.object(faces, "embed", autospec=True, return_value=[(np.zeros(4), v) for v in faces_in]):
             return True, json.dumps(faces.enroll_reference(name, path))
 
-    monkeypatch.setattr(server, "_face_cmd", run)
+    monkeypatch.setattr(people_references, "_face_cmd", run)
     return faces_in
 
 
@@ -31,7 +31,7 @@ def found(monkeypatch):
 def base(serve, tmp_path, monkeypatch, found):
     monkeypatch.setattr(context, "STATE", tmp_path)
     monkeypatch.setattr(server, "DASH_PASSWORD", "")
-    monkeypatch.setattr(server, "people_view", lambda: {"people": [{"name": "Dana"}]})
+    monkeypatch.setattr(roster_read, "people_view", lambda: {"people": [{"name": "Dana"}]})
     monkeypatch.setattr(faces, "DB", tmp_path / "db.npz")
     return serve(server.H)
 
@@ -109,6 +109,6 @@ def test_candidate_lookup_uses_grounded_provider_without_agent(monkeypatch):
     post = create_autospec(requests.post)
     monkeypatch.setattr(name_lookup, "lookup", lookup)
     monkeypatch.setattr(requests, "post", post)
-    assert server.public_lookup("Dana", "Engineer", candidates=True) == result
+    assert people_references.public_lookup("Dana", "Engineer", candidates=True) == result
     lookup.assert_called_once_with("Dana", "Engineer")
     post.assert_not_called()

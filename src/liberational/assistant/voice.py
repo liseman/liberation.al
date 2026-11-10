@@ -85,7 +85,7 @@ def _with_names(request: str, *, owner: bool) -> str:
 
 
 from liberational import config as cfg
-from liberational import logs, model_runtime, ollama_health, vision_log
+from liberational import logs, model_runtime, ollama, vision_log
 from liberational.speech import clone_server
 
 STATE_DIR = cfg.path("paths.state")
@@ -128,31 +128,22 @@ def answer(request: str) -> str:
     from liberational.assistant.voice_auth import wake_phrase
 
     now = dt.datetime.now().strftime("%A %B %d %Y, %I:%M %p")
-    with ollama_health.call(cfg.get("models.ollama.llm")):
-        r = requests.post(
-            f"{cfg.ollama_url()}/api/chat",
-            timeout=60,
-            json={
-                "model": cfg.get("models.ollama.llm"),
-                "stream": False,
-                "think": False,
-                "keep_alive": -1,
-                "options": {"num_predict": 80, "temperature": 0.3, "num_ctx": 4096},
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": SYSTEM.format(name=cfg.assistant_name(), now=now),
-                    },
-                    {
-                        "role": "user",
-                        "content": request or f"{cfg.owner_or('Someone')} said {wake_phrase()} with no request.",
-                    },
-                ],
+    reply = ollama.chat(
+        cfg.get("models.ollama.llm"),
+        [
+            {"role": "system", "content": SYSTEM.format(name=cfg.assistant_name(), now=now)},
+            {
+                "role": "user",
+                "content": request or f"{cfg.owner_or('Someone')} said {wake_phrase()} with no request.",
             },
-        )
-        r.raise_for_status()
-    text = r.json()["message"]["content"].strip()
-    text = re.sub(r"<think>.*?</think>", "", text, flags=re.S).strip()
+        ],
+        num_ctx=4096,
+        num_predict=80,
+        temperature=0.3,
+        think=False,
+        timeout=60,
+    )
+    text = ollama.text(reply)
     return text.replace('"', "").replace("\n", " ") or "Yes?"
 
 
@@ -257,6 +248,11 @@ def owner_answer(request: str, session_key: str, grant: Grant | None = None) -> 
     camera = camera_read(request, CAMERA_Q.search)
     if camera:
         try:
+            from liberational.memory import ask as pack_ask
+            from liberational.memory import history_qa
+
+            if history_qa.asks_about_the_past(request):  # never the current view for a question with a time in it
+                return pack_ask.spoken(pack_ask.ask(request, mode="local"))
             return camera_query(request)["answer"]
         except ValueError as ex:
             return str(ex)
@@ -435,7 +431,8 @@ def _handle(text_line: str, speaker: Speaker | None = None, entry: Mapping[str, 
                 # accept() sends anyone else's question about the past to the password; never answer one here
                 reply = "That needs the voice password."
                 error = "unauthorized"
-            elif history_qa.is_history_question(_with_names(result.request, owner=result.owner)):
+            elif history_qa.asks_about_the_past(_with_names(result.request, owner=result.owner)):
+                # Anything with a time in it is Ask's: the camera answer below only knows what they show now.
                 reply = pack_ask.spoken(pack_ask.ask(result.request, **history_options))
             else:
                 reply = camera_query(result.request)["answer"]

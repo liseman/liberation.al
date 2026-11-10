@@ -35,7 +35,7 @@ export function gainText(g: MicGain | null | undefined): string {
   return g.db == null ? kind : `${kind} ${g.db > 0 ? '+' : ''}${g.db.toFixed(1)} dB`;
 }
 
-/** A camera, by its index (what vision.cams lists). */
+/** A camera the machine sees, by its OS index. */
 export interface CameraRow {
   flip?: boolean;
   index: number;

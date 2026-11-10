@@ -1,21 +1,21 @@
-//! v1's audio archive registered as Tier 1 chunks in place, for the speech importer.
+//! FLAC files registered as Tier 1 chunks in place: an imported recording is indexed where it lies. Ingest is the
+//! caller (docs/INGEST.md).
 //!
-//! v1 recorded each microphone as FLAC files of about five minutes (`audio/<device>/<day>/<HHMMSS>.flac`), with each
-//! file's exact start in the device's `index.jsonl` (`{"file", "start" (UTC seconds), "sr"}`). Each file becomes one
-//! payload and one chunk on its own stream (`<device>.audio_v1`, shape `PCM_S16LEx<channels>`), without being moved,
-//! copied, or re-encoded:
+//! A directory holds FLAC files and an `index.jsonl` with each file's exact start (`{"file", "start" (UTC
+//! seconds)}`). Each file becomes one payload and one chunk on the stream the caller names (`<stream>.audio_v1`,
+//! shape `PCM_S16LEx<channels>`), without being moved, copied, or re-encoded:
 //!
 //! 1. The file's STREAMINFO gives its rate, channels, depth, and sample count, so its span is
-//!    `[start, start + samples / rate)`. A file with no samples (v1 died while writing it) is skipped with a reason.
+//!    `[start, start + samples / rate)`. A file with no samples (its writer stopped before finishing it) is skipped with a reason.
 //! 2. One header-only payload is ingested for the file, then the file is committed as a chunk of one frame (offset
 //!    0, the whole file) absorbing that payload. Its uri is the file's path and its format FLAC.
-//! 3. Both ids are deterministic ([`v1_ids`]): a UUIDv7 whose time is the file's start and whose other bits hash
+//! 3. Both ids are deterministic ([`inplace_ids`]): a UUIDv7 whose time is the file's start and whose other bits hash
 //!    the path, the sample count, and the start. A second run sends identical headers, which the catalog takes as
 //!    repeats (the ingest returns the existing sequence, the commit answers `duplicate`).
 //!
 //! Reading back: [`crate::hydrate`] and [`crate::hydrate_frame`] recognize a raw FLAC file and return it whole as
 //! one record ([`crate::ChunkFormat::Flac`]), and [`decode_flac`] gives its samples as f32, scaled as capture's are.
-//! A v1 file isn't in the tier worker's chunk directory, so its purges don't rewrite it (see the module's PR).
+//! A file registered in place isn't in the tier worker's chunk directory, so its purges don't rewrite it.
 
 use std::path::{Path, PathBuf};
 
@@ -25,9 +25,9 @@ use continuum_core::{DomainLayer, HeaderBuf, HeaderSpec, PayloadFormat, StorageL
 
 use crate::TierError;
 
-/// What goes wrong registering v1 audio.
+/// What goes wrong registering a file in place.
 #[derive(Debug, thiserror::Error)]
-pub enum V1Error {
+pub enum InPlaceError {
     /// A file couldn't be read, or isn't FLAC.
     #[error(transparent)]
     Tier(#[from] TierError),
@@ -131,15 +131,15 @@ pub fn decode_flac(bytes: &[u8]) -> Result<(u32, u16, Vec<f32>), TierError> {
     Ok((info.sample_rate, u16::try_from(info.channels).unwrap_or(0), out))
 }
 
-/// The payload's and the chunk's ids for a v1 file: UUIDv7s whose 48 bit time is the file's start in milliseconds
+/// The payload's and the chunk's ids for a file registered in place: UUIDv7s whose 48 bit time is the file's start in milliseconds
 /// and whose other bits are an FNV-1a hash of the path, the frame count, and the start (a different seed for each),
 /// so the same file always gets the same ids.
 #[must_use]
-pub fn v1_ids(path: &Path, frames: u64, start_ns: u64) -> (Uuid, Uuid) {
+pub fn inplace_ids(path: &Path, frames: u64, start_ns: u64) -> (Uuid, Uuid) {
     ids_seeded("audio", path, frames, start_ns)
 }
 
-/// [`v1_ids`] with `kind` (`audio`, `video`) in the seeds, so each kind of v1 file has its own ids.
+/// [`inplace_ids`] with `kind` (`audio`, `video`) in the seeds, so each kind of file has its own ids.
 pub(crate) fn ids_seeded(kind: &str, path: &Path, frames: u64, start_ns: u64) -> (Uuid, Uuid) {
     let key = |seed: &[u8]| {
         let mut bytes = seed.to_vec();
@@ -149,6 +149,7 @@ pub(crate) fn ids_seeded(kind: &str, path: &Path, frames: u64, start_ns: u64) ->
         bytes.extend_from_slice(&start_ns.to_le_bytes());
         v7(start_ns, fnv1a(&bytes, 0xcbf2_9ce4_8422_2325), fnv1a(&bytes, 0x8422_2325_cbf2_9ce4))
     };
+    // The seed text is part of the ids of files already registered, so it stays as first written.
     let payload = format!("continuum v1 {kind} payload\0");
     let chunk = format!("continuum v1 {kind} chunk\0");
     (key(payload.as_bytes()), key(chunk.as_bytes()))
@@ -170,9 +171,9 @@ fn v7(start_ns: u64, a: u64, b: u64) -> Uuid {
     Uuid(u)
 }
 
-/// What registering one v1 file did.
+/// What registering one file did.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum V1Registered {
+pub enum Registration {
     /// The file is a chunk now (or was already: `duplicate`).
     Registered {
         /// Its payload.
@@ -188,10 +189,10 @@ pub enum V1Registered {
     Skipped(String),
 }
 
-/// The stream a v1 device's archive goes on: `<name>`, a sensor at layer 1, its files' FLAC as raw bytes. Nothing
+/// The stream FLAC files are registered on: `<name>`, a sensor at layer 1, its files' FLAC as raw bytes. Nothing
 /// is ever written to its Tier 0 storage; the smallest slab class is named because one has to be.
 #[must_use]
-pub fn v1_stream_spec(name: &str, info: &FlacInfo) -> StreamSpec {
+pub fn audio_stream_spec(name: &str, info: &FlacInfo) -> StreamSpec {
     StreamSpec {
         name: name.to_owned(),
         kind: fb::StreamKind::Sensor,
@@ -205,36 +206,36 @@ pub fn v1_stream_spec(name: &str, info: &FlacInfo) -> StreamSpec {
     }
 }
 
-/// Registers one v1 FLAC file, which starts at `start_ns`, as a payload and a Tier 1 chunk on `stream` (registered
-/// by this session with [`v1_stream_spec`]). The session must have registered a worker (`register_worker`), since
+/// Registers one FLAC file, which starts at `start_ns`, as a payload and a Tier 1 chunk on `stream` (registered
+/// by this session with [`audio_stream_spec`]). The session must have registered a worker (`register_worker`), since
 /// only a worker commits chunks. Idempotent: see the module doc. The file's canonical path (symlinks and `..`
 /// resolved) is its uri and part of its ids, so a run from another directory or through a symlink is still a repeat.
 /// A file that isn't readable FLAC, or has no samples, is skipped with a reason.
 ///
 /// # Errors
 ///
-/// [`V1Error::Tier`] for an I/O error, [`V1Error::Client`] when the broker refuses, and [`V1Error::Refused`] when
+/// [`InPlaceError::Tier`] for an I/O error, [`InPlaceError::Client`] when the broker refuses, and [`InPlaceError::Refused`] when
 /// the catalog holds something else at the file's time.
-pub async fn register_v1_flac(
+pub async fn register_flac(
     client: &Client,
     stream: StreamId,
     path: &Path,
     start_ns: u64,
-) -> Result<V1Registered, V1Error> {
+) -> Result<Registration, InPlaceError> {
     let path = std::fs::canonicalize(path).map_err(TierError::from)?;
     let info = match flac_info(&path) {
         Ok(info) => info,
-        Err(TierError::Codec(why)) => return Ok(V1Registered::Skipped(format!("not readable FLAC: {why}"))),
+        Err(TierError::Codec(why)) => return Ok(Registration::Skipped(format!("not readable FLAC: {why}"))),
         Err(e) => return Err(e.into()),
     };
     if info.frames == 0 || info.rate_hz == 0 {
-        return Ok(V1Registered::Skipped(format!(
-            "{}: no samples in its STREAMINFO (v1 stopped while writing it)",
+        return Ok(Registration::Skipped(format!(
+            "{}: no samples in its STREAMINFO (its writer stopped before finishing it)",
             path.display()
         )));
     }
     let end_ns = start_ns.saturating_add(info.duration_ns()).max(start_ns.saturating_add(1));
-    let (payload_id, chunk_id) = v1_ids(&path, info.frames, start_ns);
+    let (payload_id, chunk_id) = inplace_ids(&path, info.frames, start_ns);
     // Read before ingesting, so a file that vanished doesn't leave a header-only payload behind.
     let length = std::fs::metadata(&path).map_err(TierError::from)?.len();
     let shape = InPlace {
@@ -245,10 +246,10 @@ pub async fn register_v1_flac(
         frames: vec![ChunkFrame { start_ns, offset: 0, length, cut: false }],
         payloads: vec![Absorbed { id: payload_id, span: (start_ns, end_ns), seq: 0 }],
     };
-    register_in_place(client, &path, &shape, chunk_id, length, "v1 audio").await
+    register_in_place(client, &path, &shape, chunk_id, length, "in-place audio").await
 }
 
-/// A v1 file to register in place: its stream, span, payload format and shape, its chunk's frame index, and the
+/// A file to register in place: its stream, span, payload format and shape, its chunk's frame index, and the
 /// payloads the chunk absorbs, one per frame.
 pub(crate) struct InPlace {
     pub(crate) stream: StreamId,
@@ -275,7 +276,7 @@ pub(crate) async fn register_in_place(
     chunk_id: Uuid,
     length: u64,
     what: &str,
-) -> Result<V1Registered, V1Error> {
+) -> Result<Registration, InPlaceError> {
     let (start_ns, end_ns) = f.span;
     let header = |id: Uuid, span: (u64, u64), seq: u32, chunk: bool| -> Result<HeaderBuf, TierError> {
         let mut spec = HeaderSpec::raw(id, f.stream, span.0, span.1);
@@ -321,27 +322,27 @@ pub(crate) async fn register_in_place(
             if done.duplicate {
                 // The payload went in fresh but the chunk was there: only possible if the catalog stops refusing the
                 // repeat by some other route than taking it as one. The header-only payload is then an orphan.
-                eprintln!("{what}: {}: ingested again though its chunk was committed already", path.display());
+                tracing::warn!("{what}: {}: ingested again though its chunk was committed already", path.display());
             }
             done
         }
         (Ok(done), Some(e)) => {
             if !done.duplicate {
                 // Committed fresh after a refused ingest: a purge in flight over the span made the frame a cut one.
-                eprintln!("{what}: {}: committed with its frames cut ({e})", path.display());
+                tracing::warn!("{what}: {}: committed with its frames cut ({e})", path.display());
             }
             done
         }
         (Err(e), None) => return Err(e.into()),
         (Err(commit), Some(ingest)) => {
-            return Err(V1Error::Refused {
+            return Err(InPlaceError::Refused {
                 path: path.to_path_buf(),
                 ingest: ingest.to_string(),
                 commit: commit.to_string(),
             });
         }
     };
-    Ok(V1Registered::Registered {
+    Ok(Registration::Registered {
         payload_id: absorbed.first().copied().unwrap_or(Uuid([0; 16])),
         chunk_id: done.chunk_id,
         span: (start_ns, end_ns),
@@ -355,7 +356,7 @@ async fn committed_already(
     f: &InPlace,
     chunk_id: Uuid,
     path: &Path,
-) -> Result<Option<V1Registered>, V1Error> {
+) -> Result<Option<Registration>, InPlaceError> {
     let streams = client.list_streams().await?;
     let Some(name) = streams.iter().find(|s| s.id == f.stream).map(|s| s.name.clone()) else { return Ok(None) };
     let uri = path.to_string_lossy();
@@ -363,7 +364,7 @@ async fn committed_already(
     let known = found.items.iter().any(|i| {
         i.header.id() == chunk_id && matches!(&i.locator, Some(StorageLocator::Chunk { uri: u, .. }) if *u == uri)
     });
-    Ok(known.then(|| V1Registered::Registered {
+    Ok(known.then(|| Registration::Registered {
         payload_id: f.payloads.first().map_or(Uuid([0; 16]), |p| p.id),
         chunk_id,
         span: f.span,
@@ -371,7 +372,7 @@ async fn committed_already(
     }))
 }
 
-/// UTC seconds as a float (v1's `start`) to nanoseconds: the whole seconds and the fraction converted apart, since
+/// UTC seconds as a float (an index line's `start`) to nanoseconds: the whole seconds and the fraction converted apart, since
 /// `start * 1e9` rounds to a multiple of 256 ns at today's times. 1793300000.25 is 1793300000250000000. `None` for
 /// a negative, infinite, or NaN time, or one past what nanoseconds since 1970 hold in a u64 (the year 2554).
 #[must_use]
@@ -385,38 +386,39 @@ pub fn seconds_to_ns(seconds: f64) -> Option<u64> {
     s.checked_mul(1_000_000_000)?.checked_add(frac)
 }
 
-/// One line of v1's `index.jsonl`.
+/// One line of a directory's `index.jsonl`.
 #[derive(serde::Deserialize)]
 struct IndexLine {
     file: String,
     start: f64,
 }
 
-/// Registers every file a v1 device directory's `index.jsonl` lists, on stream `stream_name` (registered here from
+/// Registers every file a directory's `index.jsonl` lists, on stream `stream_name` (registered here from
 /// the first readable file's layout). A file missing from disk, not readable FLAC, with no samples, or with a
-/// different layout from the stream's is skipped with a reason; a file listed twice (v1 restarted within the second
-/// and reopened the same name) is registered once, at its last start. A line that isn't JSON is an error, since the
+/// different layout from the stream's is skipped with a reason; a file listed twice (its writer restarted within the
+/// second and reopened the same name) is registered once, at its last start. A line that isn't JSON is an error, since the
 /// index is the archive's only record of its starts.
 ///
 /// # Errors
 ///
-/// [`V1Error::Index`] for an unreadable index or line, and as [`register_v1_flac`].
-pub async fn register_v1_index(
+/// [`InPlaceError::Index`] for an unreadable index or line, and as [`register_flac`].
+pub async fn register_audio_index(
     client: &Client,
     stream_name: &str,
     device_dir: &Path,
-) -> Result<Vec<(PathBuf, V1Registered)>, V1Error> {
+) -> Result<Vec<(PathBuf, Registration)>, InPlaceError> {
     let index_path = device_dir.join("index.jsonl");
-    let text =
-        std::fs::read_to_string(&index_path).map_err(|e| V1Error::Index(format!("{}: {e}", index_path.display())))?;
+    let text = std::fs::read_to_string(&index_path)
+        .map_err(|e| InPlaceError::Index(format!("{}: {e}", index_path.display())))?;
     // In the order files first appear, each at its last start.
     let mut lines: Vec<(PathBuf, u64)> = Vec::new();
     let mut at: std::collections::HashMap<PathBuf, usize> = std::collections::HashMap::new();
     for (n, line) in text.lines().enumerate().filter(|(_, l)| !l.trim().is_empty()) {
         let l: IndexLine = serde_json::from_str(line)
-            .map_err(|e| V1Error::Index(format!("{} line {}: {e}", index_path.display(), n + 1)))?;
-        let start_ns = seconds_to_ns(l.start)
-            .ok_or_else(|| V1Error::Index(format!("{} line {}: start {}", index_path.display(), n + 1, l.start)))?;
+            .map_err(|e| InPlaceError::Index(format!("{} line {}: {e}", index_path.display(), n + 1)))?;
+        let start_ns = seconds_to_ns(l.start).ok_or_else(|| {
+            InPlaceError::Index(format!("{} line {}: start {}", index_path.display(), n + 1, l.start))
+        })?;
         let path = device_dir.join(&l.file);
         match at.get(&path) {
             Some(&i) => lines[i].1 = start_ns,
@@ -430,13 +432,13 @@ pub async fn register_v1_index(
     let mut out = Vec::with_capacity(lines.len());
     for (path, start_ns) in lines {
         if !path.is_file() {
-            out.push((path.clone(), V1Registered::Skipped(format!("{}: not on disk", path.display()))));
+            out.push((path.clone(), Registration::Skipped(format!("{}: not on disk", path.display()))));
             continue;
         }
         let info = match flac_info(&path) {
             Ok(info) => info,
             Err(TierError::Codec(why)) => {
-                out.push((path, V1Registered::Skipped(format!("not readable FLAC: {why}"))));
+                out.push((path, Registration::Skipped(format!("not readable FLAC: {why}"))));
                 continue;
             }
             Err(e) => return Err(e.into()),
@@ -444,7 +446,7 @@ pub async fn register_v1_index(
         let (id, shape) = match &stream {
             Some(s) => s.clone(),
             None => {
-                let registered = client.register_stream(&v1_stream_spec(stream_name, &info)).await?;
+                let registered = client.register_stream(&audio_stream_spec(stream_name, &info)).await?;
                 let s = (StreamId(registered.stream_id), info.shape_name());
                 stream = Some(s.clone());
                 s
@@ -452,10 +454,10 @@ pub async fn register_v1_index(
         };
         if info.shape_name() != shape {
             let why = format!("{}: {} on a {shape} stream", path.display(), info.shape_name());
-            out.push((path, V1Registered::Skipped(why)));
+            out.push((path, Registration::Skipped(why)));
             continue;
         }
-        let r = register_v1_flac(client, id, &path, start_ns).await?;
+        let r = register_flac(client, id, &path, start_ns).await?;
         out.push((path, r));
     }
     Ok(out)
@@ -469,11 +471,11 @@ mod tests {
     fn ids_are_stable_v7s_that_differ_by_file_and_between_payload_and_chunk() {
         let p = Path::new("/data/audio/wave3/2026-10-29/140000.flac");
         let t = 1_793_238_094_991_116_800;
-        let (a, b) = v1_ids(p, 14_400_000, t);
-        assert_eq!((a, b), v1_ids(p, 14_400_000, t), "the same file, the same ids");
+        let (a, b) = inplace_ids(p, 14_400_000, t);
+        assert_eq!((a, b), inplace_ids(p, 14_400_000, t), "the same file, the same ids");
         assert_ne!(a, b);
-        assert_ne!(a, v1_ids(p, 14_400_001, t).0);
-        assert_ne!(a, v1_ids(Path::new("/data/audio/wave3/2026-10-29/140500.flac"), 14_400_000, t).0);
+        assert_ne!(a, inplace_ids(p, 14_400_001, t).0);
+        assert_ne!(a, inplace_ids(Path::new("/data/audio/wave3/2026-10-29/140500.flac"), 14_400_000, t).0);
         let u = uuid::Uuid::from_bytes(a.0);
         assert_eq!(u.get_version_num(), 7);
         assert_eq!(u.get_variant(), uuid::Variant::RFC4122);
@@ -482,7 +484,7 @@ mod tests {
     }
 
     #[test]
-    fn v1_starts_convert_to_the_nanosecond_they_name() {
+    fn index_starts_convert_to_the_nanosecond_they_name() {
         assert_eq!(seconds_to_ns(1_793_300_000.25), Some(1_793_300_000_250_000_000));
         assert_eq!(seconds_to_ns(1_793_238_094.5), Some(1_793_238_094_500_000_000));
         assert_eq!(seconds_to_ns(0.0), Some(0));

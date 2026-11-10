@@ -941,6 +941,128 @@ fn a_chunk_landing_across_a_purge_window_between_its_frames_has_that_slot_cut<C:
     assert_eq!(flags, [false, true, true, false]);
 }
 
+/// The chunk [`chunked`] committed (frames at 0, 33, and 66), grown by a part: frames 4 and 5, at 99 and 132.
+fn part<C: Catalog>(c: &C, s: StreamId) -> NewChunk {
+    c.insert(vec![
+        NewPayload { header: header(4, s, 99, 99, 0, &[], &[]), location: Some(shm(4)), coverage: None },
+        NewPayload { header: header(5, s, 132, 132, 0, &[], &[]), location: Some(shm(5)), coverage: None },
+    ])
+    .unwrap();
+    NewChunk {
+        payload: NewPayload {
+            header: header(100, s, 0, 165, 0, &[], &[]),
+            location: Some(StorageLocator::Chunk {
+                tier: StorageTier::Tier1Warm,
+                uri: "file:///c/0".into(),
+                offset: 0,
+                length: 1700,
+            }),
+            coverage: None,
+        },
+        frames: [99, 132].map(|t| ChunkFrame::new(t, t * 10, 300)).to_vec(),
+    }
+}
+
+fn a_part_joins_its_chunk_absorbs_its_frames_and_moves_it_in_commit_order<C: Catalog>(c: C) {
+    let s = chunked(&c);
+    let Some(Resolved::Payload(before)) = c.get(id(100)).unwrap() else { panic!("the chunk") };
+    let part = part(&c, s);
+    let done = c.extend_chunk(part.clone(), 3, &[id(4), id(5)], None).unwrap();
+    assert!(!done.duplicate && !done.hidden && done.cut.is_empty());
+    assert!(done.seq > before.commit_seq, "a reader following commit order sees the chunk again");
+    let Some(Resolved::Payload(after)) = c.get(id(100)).unwrap() else { panic!("the chunk") };
+    assert_eq!(after.commit_seq, done.seq);
+    assert_eq!((after.header.start_ns(), after.header.end_ns()), (0, 165));
+    assert_eq!(after.locations, vec![part.payload.location.clone().unwrap()], "one Tier 1 copy, at its new length");
+    assert_eq!(
+        after.frames.unwrap().iter().map(|f| (f.start_ns, f.offset)).collect::<Vec<_>>(),
+        [(0, 0), (33, 330), (66, 660), (99, 990), (132, 1320)]
+    );
+    match c.get(id(5)).unwrap() {
+        Some(Resolved::AbsorbedFrame { chunk, frame_index }) => {
+            assert_eq!((chunk.header.id(), frame_index), (id(100), 4), "its index in the whole chunk");
+        }
+        other => panic!("frame 5 should resolve through FRAMES, got {other:?}"),
+    }
+    assert_eq!(ids(&c.range(s, iv(0, 200), None, 10).unwrap()), vec![id(100)], "one row for the file");
+    assert_eq!(ids(&c.range(s, iv(140, 150), None, 10).unwrap()), vec![id(100)], "found past its old end");
+    // The same part again, after a lost reply.
+    let again = c.extend_chunk(part, 3, &[id(4), id(5)], None).unwrap();
+    assert_eq!((again.seq, again.duplicate), (done.seq, true));
+    // A forget that cuts into the file cuts frames by their place in the whole chunk.
+    c.purge(PurgeSelector::Range { span: iv(132, 133), streams: Some(vec![s]) }, "privacy", "", id(700), 50).unwrap();
+    let Some(Resolved::Payload(cut)) = c.get(id(100)).unwrap() else { panic!("the chunk stays") };
+    assert_eq!(cut_indexes(&cut.frames.unwrap()), vec![4]);
+}
+
+fn a_part_that_isnt_its_chunks_next_is_refused_and_changes_nothing<C: Catalog>(c: C) {
+    let s = chunked(&c);
+    let part = part(&c, s);
+    let ids = [id(4), id(5)];
+    let invalid = |r: Result<Inserted>| assert!(matches!(r, Err(CatalogError::Invalid(_))), "{r:?}");
+    invalid(c.extend_chunk(part.clone(), 2, &ids, None)); // the chunk holds three frames
+    invalid(c.extend_chunk(part.clone(), 0, &ids, None)); // a part never starts a chunk
+    invalid(c.extend_chunk(part.clone(), 3, &ids[..1], None));
+    invalid(c.extend_chunk(NewChunk { frames: Vec::new(), ..part.clone() }, 3, &[], None));
+    invalid(c.extend_chunk(part.clone(), u32::try_from(MAX_CHUNK_FRAMES).unwrap() - 1, &ids, None));
+    let with = |h: HeaderBuf| NewChunk { payload: NewPayload { header: h, ..part.payload.clone() }, ..part.clone() };
+    invalid(c.extend_chunk(with(header(100, s, 1, 165, 0, &[], &[])), 3, &ids, None)); // another start
+    invalid(c.extend_chunk(with(header(100, s, 0, 98, 0, &[], &[])), 3, &ids, None)); // ends before it did
+    let mut backwards = part.clone();
+    backwards.frames[0].start_ns = 50; // before the chunk's last frame
+    invalid(c.extend_chunk(backwards, 3, &ids, None));
+    let unknown = c.extend_chunk(with(header(101, s, 0, 165, 0, &[], &[])), 3, &ids, None);
+    assert!(matches!(unknown, Err(CatalogError::NotFound(_))), "{unknown:?}");
+    let Some(Resolved::Payload(chunk)) = c.get(id(100)).unwrap() else { panic!("the chunk") };
+    assert_eq!((chunk.header.end_ns(), chunk.frames.unwrap().len()), (99, 3));
+    assert!(matches!(c.get(id(4)).unwrap(), Some(Resolved::Payload(_))), "the part's frames keep their rows");
+    // A purge that hid the whole chunk: the part's frames need another chunk.
+    c.start_purge(PurgeSelector::Range { span: iv(0, 99), streams: Some(vec![s]) }, "t", "", id(900), 1).unwrap();
+    assert!(matches!(c.purge_step(id(900), 1).unwrap(), PurgeProgress::Running { .. }));
+    let hidden = c.extend_chunk(part, 3, &ids, None);
+    assert!(matches!(hidden, Err(CatalogError::Conflict(_))), "{hidden:?}");
+}
+
+fn a_part_landing_under_a_purge_has_the_purged_frames_cut<C: Catalog>(c: C) {
+    let s = chunked(&c);
+    let part = part(&c, s);
+    // Frame 5 is purged before its part commits: the part lands with that frame cut, and absorbs frame 4.
+    c.purge(PurgeSelector::Ids(vec![id(5)]), "t", "", id(501), 50).unwrap();
+    let done = c.extend_chunk(part, 3, &[id(4), id(5)], None).unwrap();
+    assert_eq!(done.cut, vec![4], "the cut frame's index in the whole chunk");
+    let Some(Resolved::Payload(chunk)) = c.get(id(100)).unwrap() else { panic!("the chunk") };
+    assert_eq!(cut_indexes(&chunk.frames.unwrap()), vec![4]);
+    assert!(matches!(c.get(id(4)).unwrap(), Some(Resolved::AbsorbedFrame { frame_index: 3, .. })));
+    assert!(c.get(id(5)).unwrap().is_none());
+}
+
+fn a_parts_provenance_joins_the_chunks_and_a_silent_side_reads_as_unknown<C: Catalog>(c: C) {
+    let attested = |seq| FrameProvenance { device_seq: seq, epoch: 42, stamped_at_arrival: false };
+    let s = chunked(&c);
+    let tail = ChunkProvenance::new(vec![attested(10), attested(11)]);
+    c.extend_chunk(part(&c, s), 3, &[id(4), id(5)], Some(&tail)).unwrap();
+    let unknown = FrameProvenance::default();
+    assert_eq!(
+        c.chunk_provenance(id(100)).unwrap().unwrap().frames,
+        [unknown, unknown, unknown, attested(10), attested(11)],
+        "the chunk's first part attested nothing"
+    );
+    c.insert(vec![NewPayload { header: header(6, s, 165, 165, 0, &[], &[]), location: Some(shm(6)), coverage: None }])
+        .unwrap();
+    let last = NewChunk {
+        payload: NewPayload {
+            header: header(100, s, 0, 198, 0, &[], &[]),
+            location: Some(warm("file:///c/0")),
+            coverage: None,
+        },
+        frames: vec![ChunkFrame::new(165, 1650, 300)],
+    };
+    let short = ChunkProvenance::new(Vec::new());
+    assert!(matches!(c.extend_chunk(last.clone(), 5, &[id(6)], Some(&short)), Err(CatalogError::Invalid(_))));
+    c.extend_chunk(last, 5, &[id(6)], None).unwrap();
+    assert_eq!(c.chunk_provenance(id(100)).unwrap().unwrap().frames[3..], [attested(10), attested(11), unknown]);
+}
+
 fn a_chunk_commit_keeps_every_absorbed_frame_resolvable<C: Catalog>(c: C) {
     let s = chunked(&c);
     assert!(present(&c, 1) && present(&c, 3), "frames nothing came from yet keep their rows");
@@ -962,7 +1084,7 @@ fn a_chunk_commit_keeps_every_absorbed_frame_resolvable<C: Catalog>(c: C) {
 }
 
 fn an_identical_header_for_an_absorbed_frame_is_a_repeat_answering_the_chunks_sequence<C: Catalog>(c: C) {
-    // The tier worker registering v1 audio twice: the batches' headers again, after the chunk absorbed them.
+    // The tier worker registering audio in place twice: the batches' headers again, after the chunk absorbed them.
     let s = chunked(&c);
     let chunk_seq = match c.get(id(100)).unwrap() {
         Some(Resolved::Payload(p)) => p.commit_seq,
@@ -2176,6 +2298,10 @@ macro_rules! conformance {
                 frame_provenance_rides_with_its_chunk_through_a_rewrite_until_the_chunk_goes,
                 a_chunk_committed_without_provenance_has_none_rather_than_an_empty_claim,
                 a_repeated_chunk_commit_is_a_duplicate_with_its_sequence_and_a_changed_one_is_refused,
+                a_part_joins_its_chunk_absorbs_its_frames_and_moves_it_in_commit_order,
+                a_part_that_isnt_its_chunks_next_is_refused_and_changes_nothing,
+                a_part_landing_under_a_purge_has_the_purged_frames_cut,
+                a_parts_provenance_joins_the_chunks_and_a_silent_side_reads_as_unknown,
                 a_chunk_commit_meeting_a_purge_marks_the_purged_frames_cut_and_absorbs_the_rest,
                 a_chunk_whose_first_frame_a_purge_hid_commits_under_that_frames_key,
                 a_chunk_landing_across_a_purge_window_between_its_frames_has_that_slot_cut,

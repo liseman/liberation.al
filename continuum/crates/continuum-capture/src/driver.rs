@@ -65,15 +65,15 @@ impl<L: Launcher> Driver<L> {
         for action in actions {
             match action {
                 Action::Start { worker, device, info } => {
-                    eprintln!("capture supervisor: starting worker {} for {device} on {}", worker.0, info.node);
+                    tracing::info!("starting worker {} for {device} on {}", worker.0, info.node);
                     if let Err(e) = self.launcher.start(worker, &device, &info) {
-                        eprintln!("capture supervisor: worker {} for {device} didn't start: {e}", worker.0);
+                        tracing::warn!("worker {} for {device} didn't start: {e}", worker.0);
                         let _ = self.events.send(Event::Exited(worker));
                     }
                 }
                 Action::Stop(worker) => self.launcher.signal(worker, false),
                 Action::Kill(worker) => {
-                    eprintln!("capture supervisor: worker {} ignored the stop: killing it", worker.0);
+                    tracing::warn!("worker {} ignored the stop: killing it", worker.0);
                     self.launcher.signal(worker, true);
                 }
             }
@@ -124,7 +124,7 @@ impl<L: Launcher> Driver<L> {
         let tmp = path.with_extension("json.tmp");
         match std::fs::write(&tmp, &text).and_then(|()| std::fs::rename(&tmp, &*path)) {
             Ok(()) => *last = Some(text),
-            Err(error) => eprintln!("capture supervisor: WARN can't write {}: {error}", path.display()),
+            Err(error) => tracing::warn!("can't write {}: {error}", path.display()),
         }
     }
 
@@ -138,7 +138,7 @@ impl<L: Launcher> Driver<L> {
             Ok(fresh) => fresh,
             Err(error) => {
                 if !self.pause_read_failed {
-                    eprintln!("capture supervisor: WARN can't read pauses from the manifest: {error}");
+                    tracing::warn!("can't read pauses from the manifest: {error}");
                 }
                 self.pause_read_failed = true;
                 return;
@@ -152,10 +152,10 @@ impl<L: Launcher> Driver<L> {
         }
         let before = self.supervisor.paused().clone();
         for name in paused.difference(&before) {
-            eprintln!("capture supervisor: {name} paused for privacy: stopping its capture");
+            tracing::info!("{name} paused for privacy: stopping its capture");
         }
         for name in before.difference(&paused) {
-            eprintln!("capture supervisor: {name} resumed");
+            tracing::info!("{name} resumed");
         }
         let actions = self.supervisor.set_paused(paused, now_ms);
         self.actions(actions);
@@ -234,8 +234,8 @@ impl<L: Launcher> Driver<L> {
             }
         }
         if !running.is_empty() {
-            eprintln!(
-                "capture supervisor: ERROR workers did not exit after SIGKILL: {running:?}; check OS device state before restarting capture"
+            tracing::error!(
+                "workers did not exit after SIGKILL: {running:?}; check OS device state before restarting capture"
             );
         }
     }
@@ -304,7 +304,7 @@ impl Launcher for ProcessLauncher {
                 pids.remove(&worker);
                 status
             };
-            eprintln!("capture supervisor: worker {} ended: {status:?}", worker.0);
+            tracing::warn!("worker {} ended: {status:?}", worker.0);
             let _ = events.send(Event::Exited(worker));
         }) {
             let mut child = child.lock().unwrap_or_else(std::sync::PoisonError::into_inner);

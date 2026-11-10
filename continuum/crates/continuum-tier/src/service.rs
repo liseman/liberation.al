@@ -1,17 +1,19 @@
 //! The tier worker program's connection to the broker (docs/CONTINUUM.md, "Storage tiers"): it registers as a
 //! worker, follows each of its streams with a durable, pinned subscription of its own, reads each payload's bytes
-//! from the broker's Tier 0 arena (mapped from `Welcome`), and runs them through the [`WorkerLoop`]. Closed chunks go
-//! to the broker with `CommitChunk`; once one is committed, its slots are marked `flushed` in the arena and each
-//! subscription's saved position moves past everything committed on it.
+//! from the broker's Tier 0 arena (mapped from `Welcome`), and runs them through the [`WorkerLoop`]. Chunks, and
+//! the parts of a camera's open chunk (docs/CONTINUUM.md, "Video chunks"), go to the broker with `CommitChunk`; once
+//! one is committed, its slots are marked `flushed` in the arena and each subscription's saved position moves past
+//! everything committed on it.
 //!
 //! What keeps a crash from losing anything:
-//! - A slot is marked `flushed` only once its chunk is committed, so a slot the broker may reclaim is always in a
-//!   chunk the catalog knows, or was dropped on purpose (an undecodable or quarantined payload, counted as such):
-//!   nothing will ever copy that one, so holding its slot would only leak Tier 0.
-//! - A subscription's saved position stops before its oldest payload whose chunk isn't committed, so after a crash
+//! - A slot is marked `flushed` only once its chunk or part is committed, so a slot the broker may reclaim is
+//!   always in a chunk the catalog knows, or was dropped on purpose (an undecodable or quarantined payload, counted
+//!   as such): nothing will ever copy that one, so holding its slot would only leak Tier 0.
+//! - A subscription's saved position stops before its oldest payload whose commit hasn't happened, so after a crash
 //!   the broker sends again everything that isn't safe yet.
 //! - At start, [`crate::recover`] finalizes the chunks the last run left open; each is committed when its stream's
-//!   first payload comes, and the payloads already in it aren't appended again.
+//!   first payload comes (only its records past what the catalog holds of it, asked with `GetChunk`), and the
+//!   payloads already in it aren't appended again.
 //! - Anything the loop can't append (a disk error) ends the run, rather than being passed over, and the service
 //!   manager starts it again from the saved positions. So does the broker dropping a subscription or the connection.
 //!
@@ -227,12 +229,12 @@ impl Positions {
             if let Err(e) = self.handle.ack(safe) {
                 self.failures += 1;
                 if self.failures == 1 {
-                    eprintln!("tier worker: saving a subscription's position failed: {e}; retries are not logged");
+                    tracing::warn!("saving a subscription's position failed: {e}; retries are not logged");
                 }
                 return;
             }
             if self.failures > 1 {
-                eprintln!("tier worker: saving a subscription's position works again after {} failures", self.failures);
+                tracing::info!("saving a subscription's position works again after {} failures", self.failures);
             }
             self.failures = 0;
             self.acked = safe;
@@ -291,12 +293,12 @@ impl Outputs for BrokerOutputs {
     fn commit(&mut self, closed: &Closed) -> Result<(), CommitFailure> {
         let chunk = to_new_chunk(closed);
         let provenance = to_client_provenance(closed);
-        let commit = self.client.commit_chunk_with_provenance(&chunk, &closed.absorbed, provenance.as_deref());
+        let commit = self.client.commit_chunk_part(&chunk, closed.first_frame, &closed.absorbed, provenance.as_deref());
         let done = self.rt.block_on(commit).map_err(|e| {
             if is_final(&e) { CommitFailure::Reject(e.to_string()) } else { CommitFailure::Retry(e.to_string()) }
         })?;
         if done.hidden {
-            eprintln!("tier worker: chunk {} landed under a running purge", done.chunk_id);
+            tracing::info!("chunk {} landed under a running purge", done.chunk_id);
         }
         for id in &closed.absorbed {
             if self.pending.contains_key(id) {
@@ -316,6 +318,25 @@ impl Outputs for BrokerOutputs {
         // gap.
         for id in &closed.absorbed {
             self.settle(*id, false);
+        }
+        self.ack_all();
+    }
+
+    fn committed_frames(&mut self, chunk: Uuid) -> Result<Option<usize>, String> {
+        match self.rt.block_on(self.client.get_chunk(chunk)) {
+            Ok(info) => Ok(Some(info.frames.len())),
+            Err(e) if e.broker_code() == Some(ErrorCode::NotFound) => Ok(None),
+            Err(e) => Err(e.to_string()),
+        }
+    }
+
+    fn settled(&mut self, ids: &[Uuid]) {
+        for id in ids {
+            if self.pending.contains_key(id) {
+                self.settle(*id, true);
+            } else {
+                self.early.insert(*id);
+            }
         }
         self.ack_all();
     }
@@ -417,6 +438,8 @@ pub struct Service {
     epoch_ns: u64,
     next_resubscribe: Instant,
     last_report: Instant,
+    /// Which of the counters' reports (every 10 s) is written at INFO (#59).
+    report_clock: continuum_log::Periodic,
     /// Purges carried out and acknowledged.
     purges: u64,
     /// Purges being carried out, a few files a step, oldest first.
@@ -558,10 +581,10 @@ impl Service {
         phases.done("recovery");
         if began.elapsed() >= Duration::from_secs(1) {
             // Nothing is flushed until this is done, so the encoded cameras' Tier 0 rings fill meanwhile.
-            eprintln!("tier worker: startup recovery took {:.1} s", began.elapsed().as_secs_f64());
+            tracing::info!("startup recovery took {:.1} s", began.elapsed().as_secs_f64());
         }
         if !found.is_empty() {
-            eprintln!("tier worker: recovered {} chunks the last run left open", found.len());
+            tracing::info!("recovered {} chunks the last run left open", found.len());
         }
         let recovered_paths = found.iter().map(|r| r.path.clone()).collect();
         work.recovered(found);
@@ -581,6 +604,7 @@ impl Service {
             epoch_ns: now_utc_ns(),
             next_resubscribe: Instant::now(),
             last_report: Instant::now(),
+            report_clock: continuum_log::Periodic::default(),
             purges: 0,
             purge_jobs: std::collections::VecDeque::new(),
             recent_purges: Vec::new(),
@@ -599,7 +623,7 @@ impl Service {
         }
         phases.done("subscribe");
         if let Some(line) = phases.slow(Duration::from_secs(1)) {
-            eprintln!("tier worker: {line}");
+            tracing::info!("{line}");
         }
         Ok(service)
     }
@@ -664,7 +688,7 @@ impl Service {
                     }
                 }
             }
-            Err(error) => eprintln!("tier worker: discovering derived streams failed; retrying: {error}"),
+            Err(error) => tracing::warn!("discovering derived streams failed; retrying: {error}"),
         }
         for i in 0..self.settings.streams.len() {
             if self.work.outputs_mut().subs[i].is_some() {
@@ -681,7 +705,7 @@ impl Service {
             let client = match self.rt.block_on(Client::connect(&self.settings.socket, options)) {
                 Ok(client) => Arc::new(client),
                 Err(error) => {
-                    eprintln!("tier worker: connecting {name}'s reader failed; retrying: {error}");
+                    tracing::warn!("connecting {name}'s reader failed; retrying: {error}");
                     continue;
                 }
             };
@@ -708,7 +732,7 @@ impl Service {
                             Some(r) => {
                                 self.rings.insert(*stream, r);
                             }
-                            None => eprintln!("tier worker: can't open {name}'s ring ({lease:?})"),
+                            None => tracing::warn!("can't open {name}'s ring ({lease:?})"),
                         }
                     }
                     let positions = Positions {
@@ -720,7 +744,7 @@ impl Service {
                     };
                     self.work.outputs_mut().subs[i] = Some(positions);
                     let tx = self.events_tx.clone();
-                    eprintln!("tier worker: following {name} from position {start}");
+                    tracing::info!("following {name} from position {start}");
                     self.forwarding.push(self.rt.spawn(async move {
                         while let Some(e) = sub.next().await {
                             if tx.send(Incoming::Event(i, e)).await.is_err() {
@@ -732,11 +756,11 @@ impl Service {
                 }
                 Err(e) if e.broker_code() == Some(ErrorCode::NotFound) => {
                     let _ = self.rt.block_on(client.close("stream not registered"));
-                    eprintln!("tier worker: {name} isn't registered yet; trying again in {RESUBSCRIBE:?}");
+                    tracing::warn!("{name} isn't registered yet; trying again in {RESUBSCRIBE:?}");
                 }
                 Err(e) => {
                     let _ = self.rt.block_on(client.close("subscription failed"));
-                    eprintln!("tier worker: subscribing to {name} failed: {e}");
+                    tracing::warn!("subscribing to {name} failed: {e}");
                 }
             }
         }
@@ -758,7 +782,7 @@ impl Service {
                 self.derived.insert(copy.stream);
                 // So the next start doesn't commit it again; a mark that fails only costs that.
                 if let Err(error) = crate::copies::mark_committed(&copy.path) {
-                    eprintln!("tier worker: marking payload copy {} committed failed: {error}", copy.path.display());
+                    tracing::warn!("marking payload copy {} committed failed: {error}", copy.path.display());
                 }
                 if out.pending.contains_key(&copy.record.id) {
                     out.settle(copy.record.id, true);
@@ -774,8 +798,8 @@ impl Service {
             }
             Err(error) => {
                 // A Conflict can be another spelling of this very same file. It never authorizes deletion.
-                eprintln!(
-                    "tier worker: attaching payload {} at {} failed; file preserved: {error}",
+                tracing::warn!(
+                    "attaching payload {} at {} failed; file preserved: {error}",
                     copy.record.id,
                     copy.path.display()
                 );
@@ -814,7 +838,7 @@ impl Service {
             .then(|| read_slot(&out.arena, handle))
             .flatten();
         let Some(mut bytes) = bytes else {
-            eprintln!("tier worker: derived payload {} is gone from Tier 0", h.id());
+            tracing::warn!("derived payload {} is gone from Tier 0", h.id());
             out.settle(h.id(), false);
             out.ack_all();
             return Ok(());
@@ -861,14 +885,11 @@ impl Service {
                 self.payload(sub, position, &item)?;
             }
             Incoming::Event(sub, SubEvent::CaughtUp { position }) => {
-                eprintln!("tier worker: {} caught up at {position}", self.settings.streams[sub]);
+                tracing::debug!("{} caught up at {position}", self.settings.streams[sub]);
             }
             Incoming::Event(sub, SubEvent::Undecodable { position, reason }) => {
                 // It can never be read, so it can't be archived: passed over, loudly.
-                eprintln!(
-                    "tier worker: {} event {position} unreadable, passed over: {reason}",
-                    self.settings.streams[sub]
-                );
+                tracing::warn!("{} event {position} unreadable, passed over: {reason}", self.settings.streams[sub]);
                 if let Some(Some(s)) = self.work.outputs_mut().subs.get_mut(sub) {
                     s.seen = s.seen.max(position);
                 }
@@ -893,8 +914,9 @@ impl Service {
         }
         if self.last_report.elapsed() >= Duration::from_secs(10) {
             self.last_report = Instant::now();
-            eprintln!(
-                "tier worker: {:?}, {} pending, {} uncommitted",
+            continuum_log::periodic!(
+                self.report_clock,
+                "{:?}, {} pending, {} uncommitted",
                 self.work.counts(),
                 self.work.pending(),
                 self.work.uncommitted()
@@ -941,10 +963,10 @@ impl Service {
     pub fn with_archive(&mut self, settings: crate::archive::ArchiveSettings) {
         match crate::archive::Archive::start(settings) {
             Ok(archive) => {
-                eprintln!("tier worker: AV1 archive on: {settings:?}");
+                tracing::info!("AV1 archive on: {settings:?}");
                 self.archive = Some(archive);
             }
-            Err(e) => eprintln!("tier worker: AV1 archive off: {e}"),
+            Err(e) => tracing::warn!("AV1 archive off: {e}"),
         }
     }
 
@@ -983,15 +1005,12 @@ impl Service {
                 crate::archive::Outcome::Ready(_) => archive.counts.dropped += 1,
                 crate::archive::Outcome::Kept(_) => {}
                 crate::archive::Outcome::Failed(why) => {
-                    eprintln!("tier worker: AV1 archive: {}: {why}", candidate.path.display())
+                    tracing::warn!("AV1 archive: {}: {why}", candidate.path.display())
                 }
             }
         }
         if archive.failing() {
-            eprintln!(
-                "tier worker: AV1 archive off for this run: {} encodes failed in a row",
-                crate::archive::MAX_FAILURES
-            );
+            tracing::warn!("AV1 archive off for this run: {} encodes failed in a row", crate::archive::MAX_FAILURES);
             if let Some(mut off) = self.archive.take() {
                 off.stop();
             }
@@ -1029,7 +1048,7 @@ impl Service {
             archive.feed();
         }
         if let Some(line) = archive.report() {
-            eprintln!("{line}");
+            tracing::info!("{line}");
         }
         self.send_rewrites(&client, rewrites)
     }
@@ -1047,10 +1066,7 @@ impl Service {
                 Ok(()) => {}
                 // The chunk is gone or hidden since the scan: the file is what's left, and the next scan looks again.
                 Err(e) if e.broker_code().is_some() => {
-                    eprintln!(
-                        "tier worker: AV1 archive: chunk {} wasn't rewritten in the catalog: {e}",
-                        candidate.chunk
-                    );
+                    tracing::warn!("AV1 archive: chunk {} wasn't rewritten in the catalog: {e}", candidate.chunk);
                 }
                 Err(e) => return Err(e.into()),
             }
@@ -1184,8 +1200,8 @@ impl Service {
                 self.purge_jobs.back_mut().expect("just queued")
             }
         };
-        eprintln!(
-            "tier worker: purge {purge_id}: {} windows on {} streams, {} ids, {} files to look at{}",
+        tracing::info!(
+            "purge {purge_id}: {} windows on {} streams, {} ids, {} files to look at{}",
             shared.windows.values().map(Vec::len).sum::<usize>(),
             shared.windows.len(),
             shared.ids.len(),
@@ -1224,8 +1240,8 @@ impl Service {
             }
             sweep::sweep(&files, &named, dry_run, &mut report);
         }
-        eprintln!(
-            "tier worker: sweep{}: {} chunk files from before this run looked at, {} named by no catalog row, {} deleted, \
+        tracing::info!(
+            "sweep{}: {} chunk files from before this run looked at, {} named by no catalog row, {} deleted, \
              {} passed over",
             if dry_run { " (dry run)" } else { "" },
             report.checked,
@@ -1317,7 +1333,7 @@ impl Service {
                     // readers off the frames.
                     Err(e) if e.broker_code().is_some() => {
                         job.refused += 1;
-                        eprintln!("tier worker: chunk {chunk} wasn't rewritten in the catalog: {e}");
+                        tracing::warn!("chunk {chunk} wasn't rewritten in the catalog: {e}");
                     }
                     Err(e) => return Err(e.into()),
                 }
@@ -1327,8 +1343,8 @@ impl Service {
             for id in &job.purge_ids {
                 client.ack_purge(*id)?;
             }
-            eprintln!(
-                "tier worker: purge {}{}: {} chunk files removed, {} rewritten, {} rewrites refused",
+            tracing::info!(
+                "purge {}{}: {} chunk files removed, {} rewritten, {} rewrites refused",
                 job.purge_ids[0],
                 match job.purge_ids.len() {
                     1 => String::new(),
@@ -1408,7 +1424,7 @@ impl Service {
         }
         let Some((bytes, handle)) = read else {
             // Overwritten before the worker got to it: a gap in Tier 1, which the broker records.
-            eprintln!("tier worker: payload {} is gone from Tier 0", h.id());
+            tracing::warn!("payload {} is gone from Tier 0", h.id());
             if let Some(Some(s)) = self.work.outputs_mut().subs.get_mut(sub) {
                 s.seen = s.seen.max(position);
             }

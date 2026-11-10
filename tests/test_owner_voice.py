@@ -15,7 +15,15 @@ import soundfile as sf
 from liberational import config as cfg
 from liberational import segment_log
 from liberational.assistant import voice
-from liberational.dashboard import context, known_voices, server
+from liberational.dashboard import (
+    context,
+    known_voices,
+    people_list,
+    people_writes,
+    roster_read,
+    server,
+    speaker_lines,
+)
 from liberational.domain import kernel
 from liberational.domain.identity import MODEL_BASES, Basis, IdentityAssertion
 from liberational.domain.kernel import AssertionId, EventType, PersonId
@@ -297,14 +305,14 @@ def dash(tmp_path, monkeypatch):
             return 0
 
     for name, value in {
-        "VOICE_TAGS": tmp_path / "voice_tags.jsonl",
-        "_faces_mod": lambda: Faces(),
-        "_room_lines": lambda *a, **k: [],
-        "_call_lines": lambda *a, **k: [],
-        "people_view": lambda *a, **k: {},
         "DASH_PASSWORD": "",
     }.items():
         monkeypatch.setattr(server, name, value)
+    monkeypatch.setattr(roster_read, "people_view", lambda *a, **k: {})
+    monkeypatch.setattr(people_list, "_room_lines", lambda *a, **k: [])
+    monkeypatch.setattr(people_list, "_faces_mod", lambda: Faces())
+    monkeypatch.setattr(people_list, "_call_lines", lambda *a, **k: [])
+    monkeypatch.setattr(speaker_lines, "VOICE_TAGS", tmp_path / "voice_tags.jsonl")
     monkeypatch.setattr(known_voices, "_speaker_cmds", speaker_cmds)
     monkeypatch.setattr(context, "STATE", tmp_path)
     return ran
@@ -345,19 +353,19 @@ def test_the_dashboards_own_page_labels_a_voice_over_http_or_https(tmp_path, das
 def test_a_voice_is_never_labeled_with_the_owners_name(tmp_path, dash, control):
     ran = dash
     write_voices(tmp_path, {1: "Alice", 2: "Dana", 5: None})
-    assert server.label_speaker(5, "alice", control)[0] == 403
-    assert server.label_speaker(2, "ALICE", control)[0] == 403
+    assert speaker_lines.label_speaker(5, "alice", control)[0] == 403
+    assert speaker_lines.label_speaker(2, "ALICE", control)[0] == 403
     assert (ran, voice.owner_voice(5, tmp_path), voice.owner_voice(2, tmp_path)) == ([], False, False)
 
 
 def test_the_owners_voice_is_renamed_only_from_this_machine(tmp_path, dash):
     ran = dash
     write_voices(tmp_path, {1: "Alice", 2: "Dana"})
-    assert server.label_speaker(1, "Erin", control=False)[0] == 403
-    assert server.label_speaker("1", "Erin", control=False)[0] == 403  # the id as a request sends it
+    assert speaker_lines.label_speaker(1, "Erin", control=False)[0] == 403
+    assert speaker_lines.label_speaker("1", "Erin", control=False)[0] == 403  # the id as a request sends it
     assert voice.owner_voice(1, tmp_path)
     assert not any(registry.owner_voice(tmp_path, v) for v in ("1", " 1", "+1", "\u0661", True))  # only a real int
-    assert server.label_speaker(2, "Erin", control=False)[0] == 200  # anyone else's voice is fine
+    assert speaker_lines.label_speaker(2, "Erin", control=False)[0] == 200  # anyone else's voice is fine
     assert ran == [["label", "2", "Erin"]]
 
 
@@ -366,7 +374,7 @@ def test_nobody_is_renamed_or_merged_into_the_owner(tmp_path, dash, owner_regist
     write_voices(tmp_path, {2: "Dana"})
     if owner_registered:
         registry.at(tmp_path).ensure("Alice", "dashboard", added=True)
-    assert server.rename_person("Dana", "alice", control=True)[0] == 403
+    assert people_writes.rename_person("Dana", "alice", control=True)[0] == 403
     assert registry.voice_names(tmp_path, [2])[2] == "Dana"
     assert not voice.owner_voice(2, tmp_path)
 
@@ -375,22 +383,24 @@ def test_a_casefold_twin_of_the_owners_name_is_the_owners_name(tmp_path, dash):
     ran = dash
     with cfg.override({"owner": {"name": "Groß"}}):
         write_voices(tmp_path, {1: "Groß", 2: None})
-        assert server.claim_identity("voice", 2, "GROSS", control=False)[0] == 403
-        assert server.label_speaker(2, "gross", control=False)[0] == 403
+        assert people_writes.claim_identity("voice", 2, "GROSS", control=False)[0] == 403
+        assert speaker_lines.label_speaker(2, "gross", control=False)[0] == 403
         assert (ran, voice.owner_voice(2, tmp_path)) == ([], False)
 
 
 def test_lines_are_tagged_as_the_owner_only_from_this_machine(tmp_path, dash):
     write_voices(tmp_path, {1: "Alice"})
-    assert server.request_voice_tags([1000.0], "Alice", control=False)[0] == 403
+    assert speaker_lines.request_voice_tags([1000.0], "Alice", control=False)[0] == 403
     assert not (tmp_path / "voice_tags.jsonl").exists()
-    assert server.request_voice_tags([1000.0], "Alice", control=True)[0] == 200
-    assert server.request_voice_tags([1000.0], "Dana", control=False)[0] == 200
+    assert speaker_lines.request_voice_tags([1000.0], "Alice", control=True)[0] == 200
+    assert speaker_lines.request_voice_tags([1000.0], "Dana", control=False)[0] == 200
 
 
 def test_the_owners_name_in_settings_never_takes_someone_elses(tmp_path, dash):
     write_voices(tmp_path, {2: "Dana"})  # the owner (Alice) is not on People
-    assert server.rename_owner("Alice", "Dana")[0] == 409  # so owner.name stays Alice, and Dana's voice is Dana's
+    assert (
+        people_writes.rename_owner("Alice", "Dana")[0] == 409
+    )  # so owner.name stays Alice, and Dana's voice is Dana's
 
 
 @pytest.mark.parametrize("owner_voice_too", [False, True], ids=["no-owner-voice-yet", "with-an-owner-voice"])
@@ -402,7 +412,7 @@ def test_that_voice_is_mine_makes_a_voice_the_owners_when_its_name_only_looks_li
     write_voices(tmp_path, {1: "Alice" if owner_voice_too else None, 2: "Dana"})
     registry.at(tmp_path).merge("Dana", "Alice", "dashboard")
     assert not voice.owner_voice(2, tmp_path)
-    code, body = server.confirm_owner_voice(2)
+    code, body = people_writes.confirm_owner_voice(2)
     assert code == 200 and "already" not in body["note"]
     assert voice.owner_voice(2, tmp_path)
     assert voice.owner_voice(1, tmp_path) == owner_voice_too

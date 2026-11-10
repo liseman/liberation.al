@@ -136,7 +136,7 @@ pub struct AudioRules {
     /// phone's continuity microphone).
     pub exclude: Vec<String>,
     /// On Linux: take PipeWire's sources when PipeWire is running, else raw ALSA devices, never both (one microphone
-    /// opened through two aliases wedged PipeWire in v1).
+    /// opened through two aliases wedges PipeWire).
     pub prefer_pipewire: bool,
 }
 

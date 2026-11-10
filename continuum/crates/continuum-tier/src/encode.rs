@@ -37,12 +37,19 @@ use crate::TierError;
 
 /// Initializes FFmpeg once and serializes native opening and encoder closing within this process. Callers retain
 /// the guard through native lifecycle operations only, never frame processing, and must not acquire it recursively.
+///
+/// FFmpeg's own log is set to errors only first: it writes to stderr with no stamp or level, and its warnings (the
+/// H.264 parser's "Overread VUI by 8 bits" for every camera stream opened, swscaler's "deprecated pixel format")
+/// were most of see-decode's log (#59). A failure still comes back to the caller as an error.
 pub(crate) fn codec_open() -> Result<MutexGuard<'static, CodecLifecycle>, ff::Error> {
     static OPEN: Mutex<CodecLifecycle> = Mutex::new(CodecLifecycle { nvenc_live: 0, retired_first: None });
     static INITIALIZED: OnceLock<Result<(), ff::Error>> = OnceLock::new();
 
     let guard = OPEN.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    (*INITIALIZED.get_or_init(ff::init))?;
+    (*INITIALIZED.get_or_init(|| {
+        ff::util::log::set_level(ff::util::log::Level::Error);
+        ff::init()
+    }))?;
     Ok(guard)
 }
 
@@ -295,8 +302,8 @@ impl Encoder {
         Self::try_open(Codec::H264, "h264_nvenc", width, height, settings, Open::Nvenc { gpu, cq }, &mut lifecycle)
     }
 
-    /// An SVT-AV1 encoder for one archived chunk: `settings.gop_frames` frames per keyframe (the whole chunk, so it
-    /// opens on its only keyframe), constant quality, and the source's `colors`.
+    /// An SVT-AV1 encoder for one archived chunk: `settings.gop_frames` frames per keyframe, constant quality, and
+    /// the source's `colors`.
     pub(crate) fn open_av1(
         width: u32,
         height: u32,

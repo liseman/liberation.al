@@ -15,7 +15,19 @@ import pytest
 
 import liberational.vision
 from liberational import config, knowledge, voice_turn
-from liberational.dashboard import context, live_status, server, voice_clones
+from liberational.dashboard import (
+    context,
+    fresh_reads,
+    inbox_state,
+    live_status,
+    people_list,
+    people_reads,
+    photo_files,
+    roster_read,
+    server,
+    unnamed_groups,
+    voice_clones,
+)
 
 
 def test_the_faces_helpers_are_imported_before_the_first_people_request(monkeypatch):
@@ -38,7 +50,7 @@ def test_ready_server_starts_one_warm_up_without_blocking_requests(monkeypatch):
         finally:
             done.set()
 
-    monkeypatch.setattr(server, "_warm_people", warm)
+    monkeypatch.setattr(people_reads, "_warm_people", warm)
     with server.DashboardServer(("127.0.0.1", 0), server.H) as srv:
         serving = threading.Thread(target=lambda: srv.serve_forever(poll_interval=0.01), daemon=True)
         serving.start()
@@ -66,7 +78,7 @@ def test_ready_server_starts_one_warm_up_without_blocking_requests(monkeypatch):
 def warm_sources(monkeypatch):
     calls, originals = [], {}
     original_wait = voice_turn.wait_quiet
-    monkeypatch.setattr(server, "_low_priority", lambda priority: calls.append(("priority", priority)))
+    monkeypatch.setattr(context, "low_priority", lambda priority: calls.append(("priority", priority)))
     monkeypatch.setattr(
         voice_turn, "wait_quiet", create_autospec(voice_turn.wait_quiet, side_effect=lambda: calls.append("gate"))
     )
@@ -74,7 +86,7 @@ def warm_sources(monkeypatch):
         (live_status, "mic_status", "microphones", {"devices": {}}),
         (live_status, "scene_entries", "scene", []),
         (live_status, "camera_status", "cameras", {"cameras": {}}),
-        (server, "people_view", "roster", {"people": []}),
+        (roster_read, "people_view", "roster", {"people": []}),
         (voice_clones, "clones_list", "clones", {"clones": [], "error": None}),
     ):
         fn = getattr(module, attr)
@@ -84,23 +96,23 @@ def warm_sources(monkeypatch):
             attr,
             create_autospec(fn, side_effect=lambda *_, name=name, reply=reply, **__: calls.append(name) or reply),
         )
-    voices = server._Fresh(
+    voices = fresh_reads._Fresh(
         "voice test", lambda: calls.append("voice groups") or (200, {"groups": []}), lambda: 0, lambda: 0
     )
-    faces = server._Fresh(
+    faces = fresh_reads._Fresh(
         "face test", lambda: calls.append("face groups") or (200, {"groups": []}), lambda: 0, lambda: 0
     )
-    monkeypatch.setattr(server, "_VOICE_GROUPS", voices)
-    monkeypatch.setattr(server, "_FACE_GROUPS", faces)
-    logged = create_autospec(server.log)
-    monkeypatch.setattr(server, "log", logged)
+    monkeypatch.setattr(unnamed_groups, "_VOICE_GROUPS", voices)
+    monkeypatch.setattr(unnamed_groups, "_FACE_GROUPS", faces)
+    logged = create_autospec(people_reads.log)
+    monkeypatch.setattr(people_reads, "log", logged)
     return SimpleNamespace(
         calls=calls, voices=voices, faces=faces, logged=logged, originals=originals, wait=original_wait
     )
 
 
 def test_warm_up_admits_each_stage_at_low_priority_and_leaves_faces_last(warm_sources):
-    server._warm_people()
+    people_reads._warm_people()
     assert warm_sources.calls == [
         ("priority", 19),
         "gate",
@@ -124,12 +136,12 @@ def test_warm_up_admits_each_stage_at_low_priority_and_leaves_faces_last(warm_so
 
 def test_warm_up_logs_one_failure_and_still_warms_the_other_caches(monkeypatch, warm_sources):
     monkeypatch.setattr(
-        server,
+        roster_read,
         "people_view",
         create_autospec(warm_sources.originals["people_view"], side_effect=RuntimeError("broker not ready")),
     )
     warm_sources.voices.compute = lambda: warm_sources.calls.append("voice groups") or (500, {"error": "unavailable"})
-    server._warm_people()
+    people_reads._warm_people()
     assert warm_sources.calls == [
         ("priority", 19),
         "gate",
@@ -148,13 +160,13 @@ def test_warm_up_logs_one_failure_and_still_warms_the_other_caches(monkeypatch, 
     ]
     warm_sources.logged.assert_called_once()
     assert warm_sources.logged.call_args.kwargs["level"] == server.logs.WARN
-    status = server._people_warm_status()
+    status = people_reads._people_warm_status()
     assert status["state"] == "incomplete"
     assert len(status["errors"]) == 2
     assert "roster" in status["errors"][0]
     assert "voice groups" in status["errors"][1]
     status["errors"].append("caller must not mutate internal errors")
-    assert len(server._people_warm_status()["errors"]) == 2
+    assert len(people_reads._people_warm_status()["errors"]) == 2
 
 
 def test_unpublished_success_is_retried_once_then_reports_incomplete(monkeypatch, warm_sources):
@@ -165,13 +177,13 @@ def test_unpublished_success_is_retried_once_then_reports_incomplete(monkeypatch
         owner["revision"] += 1
         return 200, {"groups": []}
 
-    faces = server._Fresh("changing face owner", unpublished, lambda: owner["revision"], lambda: 0)
-    monkeypatch.setattr(server, "_FACE_GROUPS", faces)
-    server._warm_people()
+    faces = fresh_reads._Fresh("changing face owner", unpublished, lambda: owner["revision"], lambda: 0)
+    monkeypatch.setattr(unnamed_groups, "_FACE_GROUPS", faces)
+    people_reads._warm_people()
     assert warm_sources.calls.count("face groups") == 2
     assert faces.value is None
-    assert server._people_warm_status()["state"] == "incomplete"
-    assert any("face groups" in error for error in server._people_warm_status()["errors"])
+    assert people_reads._people_warm_status()["state"] == "incomplete"
+    assert any("face groups" in error for error in people_reads._people_warm_status()["errors"])
     warm_sources.logged.assert_called_once()
     assert warm_sources.logged.call_args.kwargs["level"] == server.logs.WARN
 
@@ -185,12 +197,12 @@ def test_group_retry_can_publish_before_the_warm_up_reports_done(monkeypatch, wa
             owner["revision"] += 1
         return 200, {"groups": []}
 
-    faces = server._Fresh("changing face owner", eventually_published, lambda: owner["revision"], lambda: 0)
-    monkeypatch.setattr(server, "_FACE_GROUPS", faces)
-    server._warm_people()
+    faces = fresh_reads._Fresh("changing face owner", eventually_published, lambda: owner["revision"], lambda: 0)
+    monkeypatch.setattr(unnamed_groups, "_FACE_GROUPS", faces)
+    people_reads._warm_people()
     assert attempts == ["face", "face"]
     assert faces.value == (200, {"groups": []})
-    status = server._people_warm_status()
+    status = people_reads._people_warm_status()
     assert status["state"] == "done"
     assert status["stage"] is None
     assert status["errors"] == []
@@ -201,7 +213,7 @@ def test_group_retry_can_publish_before_the_warm_up_reports_done(monkeypatch, wa
 
 def test_request_joins_the_in_flight_people_warm_up(monkeypatch):
     computing, release, joining = threading.Event(), threading.Event(), threading.Event()
-    reads = server._PeopleReads()
+    reads = roster_read._PeopleReads()
     calls = []
 
     def read():
@@ -210,12 +222,12 @@ def test_request_joins_the_in_flight_people_warm_up(monkeypatch):
         assert release.wait(5)
         return {"people": [{"name": "Alice"}]}
 
-    monkeypatch.setattr(server, "_PEOPLE_READS", reads)
-    monkeypatch.setattr(server, "_people_view", read)
-    monkeypatch.setattr(server, "_voices_key", lambda: 0)
-    monkeypatch.setattr(server, "_faces_owner_key", lambda **_: 0)
+    monkeypatch.setattr(roster_read, "_PEOPLE_READS", reads)
+    monkeypatch.setattr(roster_read, "_people_view", read)
+    monkeypatch.setattr(unnamed_groups, "_voices_key", lambda: 0)
+    monkeypatch.setattr(unnamed_groups, "_faces_owner_key", lambda **_: 0)
     with ThreadPoolExecutor(max_workers=2) as pool:
-        warm = pool.submit(server.people_view)
+        warm = pool.submit(roster_read.people_view)
         try:
             assert computing.wait(5)
             with reads.lock:
@@ -227,7 +239,7 @@ def test_request_joins_the_in_flight_people_warm_up(monkeypatch):
                 return result(timeout)
 
             monkeypatch.setattr(pending, "result", create_autospec(result, side_effect=waiting))
-            request = pool.submit(server.people_view)
+            request = pool.submit(roster_read.people_view)
             assert joining.wait(5)
             assert not request.done()
         finally:
@@ -235,7 +247,7 @@ def test_request_joins_the_in_flight_people_warm_up(monkeypatch):
         assert warm.result(timeout=5) == {"people": [{"name": "Alice"}]}
         assert request.result(timeout=5) == {"people": [{"name": "Alice"}]}
     assert calls == ["read"]
-    assert server.people_view() == {"people": [{"name": "Alice"}]}
+    assert roster_read.people_view() == {"people": [{"name": "Alice"}]}
     settle(reads)
     assert calls == ["read", "read"]  # no permanent roster snapshot: each answer from the last read refreshes it
 
@@ -273,64 +285,64 @@ def roster(monkeypatch):
         assert held.wait(5)
         return {"version": version}
 
-    reads = server._PeopleReads()
-    monkeypatch.setattr(server, "_PEOPLE_READS", reads)
-    monkeypatch.setattr(server, "_people_view", read)
-    monkeypatch.setattr(server, "_voices_key", lambda: state["voices"])
-    monkeypatch.setattr(server, "_faces_owner_key", lambda **_: 0)
+    reads = roster_read._PeopleReads()
+    monkeypatch.setattr(roster_read, "_PEOPLE_READS", reads)
+    monkeypatch.setattr(roster_read, "_people_view", read)
+    monkeypatch.setattr(unnamed_groups, "_voices_key", lambda: state["voices"])
+    monkeypatch.setattr(unnamed_groups, "_faces_owner_key", lambda **_: 0)
     monkeypatch.setattr(server.speech_log, "shared", lambda: speech)
     return state, held, speech, reads
 
 
 def test_new_speech_answers_from_the_last_read_and_refreshes_it_once_in_the_background(roster):
     state, held, speech, reads = roster
-    assert server.people_view() == {"version": 0}
+    assert roster_read.people_view() == {"version": 0}
     state["version"], speech.lines = 1, 1
     held.clear()  # the refresh can take as long as it likes: no request waits for it
-    assert server.people_view(wait_s=None) == {"version": 0}
+    assert roster_read.people_view(wait_s=None) == {"version": 0}
     speech.lines = 2
-    assert server.people_view(wait_s=None) == {"version": 0}
+    assert roster_read.people_view(wait_s=None) == {"version": 0}
     assert state["calls"] == 2, "one refresh at a time, however fast speech moves"
     held.set()
     settle(reads)
-    assert server.people_view() == {"version": 1}
+    assert roster_read.people_view() == {"version": 1}
 
 
 def test_new_speech_refreshes_the_last_read_at_most_once_per_refresh_interval(roster, monkeypatch):
     state, _held, speech, reads = roster
-    monkeypatch.setattr(server, "PEOPLE_REFRESH_S", 60.0)
-    assert server.people_view() == {"version": 0}
+    monkeypatch.setattr(roster_read, "PEOPLE_REFRESH_S", 60.0)
+    assert roster_read.people_view() == {"version": 0}
     state["version"], speech.lines = 1, 1
-    assert server.people_view(wait_s=None) == {"version": 0}
+    assert roster_read.people_view(wait_s=None) == {"version": 0}
     settle(reads)
     assert state["calls"] == 1, "speech alone, inside the interval: the last read answers and none starts"
     reads.last_at -= 61.0  # the interval has passed since that read
-    assert server.people_view(wait_s=None) == {"version": 0}
+    assert roster_read.people_view(wait_s=None) == {"version": 0}
     settle(reads)
     assert state["calls"] == 2
-    assert server.people_view(wait_s=None) == {"version": 1}
+    assert roster_read.people_view(wait_s=None) == {"version": 1}
 
 
 def test_a_changed_name_reads_at_once_inside_the_refresh_interval(roster, monkeypatch):
     state, _held, _speech, reads = roster
-    monkeypatch.setattr(server, "PEOPLE_REFRESH_S", 60.0)
-    assert server.people_view() == {"version": 0}
+    monkeypatch.setattr(roster_read, "PEOPLE_REFRESH_S", 60.0)
+    assert roster_read.people_view() == {"version": 0}
     state["voices"], state["version"] = 1, 1  # a voice was named
-    assert server.people_view(wait_s=None) == {"version": 1}
+    assert roster_read.people_view(wait_s=None) == {"version": 1}
     settle(reads)
 
 
 def test_a_changed_name_waits_for_its_own_read_instead_of_answering_from_the_last(roster):
     state, _held, _speech, reads = roster
-    assert server.people_view() == {"version": 0}
+    assert roster_read.people_view() == {"version": 0}
     state["voices"], state["version"] = 1, 1  # a voice was named
-    assert server.people_view(wait_s=None) == {"version": 1}
+    assert roster_read.people_view(wait_s=None) == {"version": 1}
     settle(reads)
 
 
 def test_a_failed_people_warm_up_leaves_the_next_read_working():
-    reads = server._PeopleReads()
-    read = create_autospec(server._people_view, side_effect=[RuntimeError("broker not ready"), {"people": []}])
+    reads = roster_read._PeopleReads()
+    read = create_autospec(roster_read._people_view, side_effect=[RuntimeError("broker not ready"), {"people": []}])
     with pytest.raises(RuntimeError, match="broker not ready"):
         reads.get((0,), read)
     assert reads.get((0,), read) == {"people": []}
@@ -347,16 +359,16 @@ def test_identity_corrections_do_not_join_an_older_people_warm_up(monkeypatch):
             assert release.wait(5)
         return {"revision": revision}
 
-    monkeypatch.setattr(server, "_PEOPLE_READS", server._PeopleReads())
-    monkeypatch.setattr(server, "_people_view", read)
-    monkeypatch.setattr(server, "_voices_key", lambda: owner["revision"])
-    monkeypatch.setattr(server, "_faces_owner_key", lambda **_: 0)
+    monkeypatch.setattr(roster_read, "_PEOPLE_READS", roster_read._PeopleReads())
+    monkeypatch.setattr(roster_read, "_people_view", read)
+    monkeypatch.setattr(unnamed_groups, "_voices_key", lambda: owner["revision"])
+    monkeypatch.setattr(unnamed_groups, "_faces_owner_key", lambda **_: 0)
     with ThreadPoolExecutor(max_workers=1) as pool:
-        warm = pool.submit(server.people_view)
+        warm = pool.submit(roster_read.people_view)
         try:
             assert computing.wait(5)
             owner["revision"] = 1
-            assert server.people_view() == {"revision": 1}
+            assert roster_read.people_view() == {"revision": 1}
         finally:
             release.set()
         assert warm.result(timeout=5) == {"revision": 0}
@@ -364,7 +376,7 @@ def test_identity_corrections_do_not_join_an_older_people_warm_up(monkeypatch):
 
 def test_health_reports_waiting_warm_up_without_waiting_for_the_voice_gate(monkeypatch, warm_sources):
     waiting, release, done = threading.Event(), threading.Event(), threading.Event()
-    real_warm = server._warm_people
+    real_warm = people_reads._warm_people
 
     def wait_for_voice():
         waiting.set()
@@ -377,7 +389,7 @@ def test_health_reports_waiting_warm_up_without_waiting_for_the_voice_gate(monke
             done.set()
 
     monkeypatch.setattr(voice_turn, "wait_quiet", create_autospec(warm_sources.wait, side_effect=wait_for_voice))
-    monkeypatch.setattr(server, "_warm_people", create_autospec(real_warm, side_effect=warm))
+    monkeypatch.setattr(people_reads, "_warm_people", create_autospec(real_warm, side_effect=warm))
     with server.DashboardServer(("127.0.0.1", 0), server.H) as srv:
         serving = threading.Thread(target=lambda: srv.serve_forever(poll_interval=0.01), daemon=True)
         serving.start()
@@ -401,7 +413,7 @@ def test_health_reports_waiting_warm_up_without_waiting_for_the_voice_gate(monke
             srv.shutdown()
             serving.join(5)
             assert done.wait(5)
-    assert server._people_warm_status()["state"] == "done"
+    assert people_reads._people_warm_status()["state"] == "done"
 
 
 def test_faces_import_is_low_priority_and_waits_for_voice_off_the_serving_thread(monkeypatch):
@@ -413,10 +425,12 @@ def test_faces_import_is_low_priority_and_waits_for_voice_off_the_serving_thread
         waiting.set()
         assert release.wait(5)
 
-    monkeypatch.setattr(server, "_low_priority", lambda priority: calls.append(("priority", priority)))
+    monkeypatch.setattr(context, "low_priority", lambda priority: calls.append(("priority", priority)))
     monkeypatch.setattr(voice_turn, "wait_quiet", create_autospec(voice_turn.wait_quiet, side_effect=wait_for_voice))
     monkeypatch.setattr(
-        server, "_faces_mod", create_autospec(server._faces_mod, side_effect=lambda: calls.append("faces imported"))
+        people_list,
+        "_faces_mod",
+        create_autospec(people_list._faces_mod, side_effect=lambda: calls.append("faces imported")),
     )
     worker = server._warm_faces()
     try:
@@ -447,8 +461,8 @@ def test_cold_group_http_releases_the_read_slot_before_sources_finish(monkeypatc
             source()
         return 200, {"groups": [], "count": 0, "skipped": []}
 
-    groups = server._Fresh("cold endpoint", compute, source if blocked == "owner" else lambda: 0, lambda: 0)
-    monkeypatch.setattr(server, cache, groups)
+    groups = fresh_reads._Fresh("cold endpoint", compute, source if blocked == "owner" else lambda: 0, lambda: 0)
+    monkeypatch.setattr(unnamed_groups, cache, groups)
     with server.DashboardServer(("127.0.0.1", 0), server.H) as srv:
         srv._people_warm_started = True
         serving = threading.Thread(target=srv.serve_forever, daemon=True)
@@ -490,7 +504,7 @@ def get(srv, path):
 
 @pytest.fixture
 def serving(monkeypatch):
-    monkeypatch.setattr(server, "_warm_people", lambda: None)
+    monkeypatch.setattr(people_reads, "_warm_people", lambda: None)
     with server.DashboardServer(("127.0.0.1", 0), server.H) as srv:
         thread = threading.Thread(target=lambda: srv.serve_forever(poll_interval=0.01), daemon=True)
         thread.start()
@@ -512,7 +526,7 @@ def test_a_route_the_broker_is_away_for_answers_503_starting_with_one_warning(mo
     def away(wait_s=None, cold=False):
         raise FileNotFoundError("No such file or directory (os error 2)")
 
-    monkeypatch.setattr(server, "people_view", away)
+    monkeypatch.setattr(roster_read, "people_view", away)
     for _ in range(3):
         status, headers, body = get(serving, "/people")
         assert status == 503 and headers["Retry-After"] == "1"
@@ -523,7 +537,9 @@ def test_a_route_the_broker_is_away_for_answers_503_starting_with_one_warning(mo
 def test_a_route_that_fails_otherwise_still_logs_its_traceback(monkeypatch, serving):
     exceptions = []
     monkeypatch.setattr(server.LOG, "exception", lambda *a, **k: exceptions.append(a))
-    monkeypatch.setattr(server, "people_view", create_autospec(server.people_view, side_effect=ValueError("bug")))
+    monkeypatch.setattr(
+        roster_read, "people_view", create_autospec(roster_read.people_view, side_effect=ValueError("bug"))
+    )
     connection = http.client.HTTPConnection("127.0.0.1", serving.server_port, timeout=5)
     try:
         connection.request("GET", "/people")
@@ -535,7 +551,7 @@ def test_a_route_that_fails_otherwise_still_logs_its_traceback(monkeypatch, serv
 
 
 def test_a_slow_people_read_answers_from_the_last_roster_marked_stale():
-    reads, release = server._PeopleReads(), threading.Event()
+    reads, release = roster_read._PeopleReads(), threading.Event()
     assert reads.get((0,), lambda: {"people": ["Alice"]}, wait_s=5) == {"people": ["Alice"]}
 
     def slow():
@@ -550,14 +566,14 @@ def test_a_slow_people_read_answers_from_the_last_roster_marked_stale():
 
 
 def test_a_cold_people_read_that_cant_wait_says_starting_and_goes_on():
-    reads, release, finished = server._PeopleReads(), threading.Event(), threading.Event()
+    reads, release, finished = roster_read._PeopleReads(), threading.Event(), threading.Event()
 
     def slow():
         assert release.wait(5)
         finished.set()
         return {"people": ["Alice"]}
 
-    with pytest.raises(server.Starting, match="still loading"):
+    with pytest.raises(roster_read.Starting, match="still loading"):
         reads.get((0,), slow, wait_s=0.05)
     release.set()
     assert finished.wait(5)
@@ -565,7 +581,7 @@ def test_a_cold_people_read_that_cant_wait_says_starting_and_goes_on():
 
 
 def test_a_people_read_that_times_out_itself_is_not_hidden_as_stale():
-    reads = server._PeopleReads()
+    reads = roster_read._PeopleReads()
     reads.get((0,), lambda: {"people": []}, wait_s=5)
 
     def broker_timeout():
@@ -578,34 +594,34 @@ def test_a_people_read_that_times_out_itself_is_not_hidden_as_stale():
 def test_a_cold_people_request_says_starting_without_waiting_on_a_busy_registry(monkeypatch):
     # After a start the warm-ups keep the registry busy, and working out /people's key reads it.
     busy = threading.Event()
-    monkeypatch.setattr(server, "_PEOPLE_READS", server._PeopleReads())
-    monkeypatch.setattr(server, "PEOPLE_WAIT_S", 0.05)
-    monkeypatch.setattr(server, "_people_view", lambda: {"people": ["Alice"]})
-    monkeypatch.setattr(server, "_voices_key", lambda: busy.wait(5))
-    monkeypatch.setattr(server, "_faces_owner_key", lambda **_: 0)
+    monkeypatch.setattr(roster_read, "_PEOPLE_READS", roster_read._PeopleReads())
+    monkeypatch.setattr(roster_read, "PEOPLE_WAIT_S", 0.05)
+    monkeypatch.setattr(roster_read, "_people_view", lambda: {"people": ["Alice"]})
+    monkeypatch.setattr(unnamed_groups, "_voices_key", lambda: busy.wait(5))
+    monkeypatch.setattr(unnamed_groups, "_faces_owner_key", lambda **_: 0)
     with ThreadPoolExecutor(max_workers=1) as pool:
-        request = pool.submit(server.people_view, cold=True)
+        request = pool.submit(roster_read.people_view, cold=True)
         try:
-            with pytest.raises(server.Starting, match="still loading"):
+            with pytest.raises(roster_read.Starting, match="still loading"):
                 request.result(timeout=1)
         finally:
             busy.set()
     for _ in range(100):  # the shared cold read goes on and publishes
-        if server._PEOPLE_READS.last is not None:
+        if roster_read._PEOPLE_READS.last is not None:
             break
         time.sleep(0.02)
-    assert server.people_view() == {"people": ["Alice"]}
+    assert roster_read.people_view() == {"people": ["Alice"]}
 
 
 @pytest.mark.parametrize("warmed", [True, False], ids=["after-the-people-warm-up", "or-at-most-the-cap"])
 def test_later_warm_ups_start_after_the_people_warm_up(monkeypatch, warmed):
     started = threading.Event()
-    monkeypatch.setattr(server, "_PEOPLE_WARMED", threading.Event())
+    monkeypatch.setattr(people_reads, "_PEOPLE_WARMED", threading.Event())
     monkeypatch.setattr(server, "WARM_FIRST_MAX_S", 5.0 if warmed else 0.05)
     thread = server._after_people_warm("test", started.set)
     if warmed:
         assert not started.wait(0.2), "nothing starts while the people warm-up runs"
-        server._PEOPLE_WARMED.set()
+        people_reads._PEOPLE_WARMED.set()
     thread.join(5)
     assert started.is_set()
 
@@ -613,10 +629,10 @@ def test_later_warm_ups_start_after_the_people_warm_up(monkeypatch, warmed):
 def test_a_change_made_during_a_cold_start_answers_with_its_own_read(roster, monkeypatch):
     # A name given while the first roster read is still out: its answer must not be that older read.
     state, held, _, _ = roster
-    monkeypatch.setattr(server, "PEOPLE_WAIT_S", 2.0)  # as served (the suite waits reads out)
+    monkeypatch.setattr(roster_read, "PEOPLE_WAIT_S", 2.0)  # as served (the suite waits reads out)
     held.clear()
-    with pytest.raises(server.Starting):
-        server.people_view(wait_s=0.05, cold=True)  # the page's GET starts the shared cold read of version 0
+    with pytest.raises(roster_read.Starting):
+        roster_read.people_view(wait_s=0.05, cold=True)  # the page's GET starts the shared cold read of version 0
     for _ in range(250):  # it is reading version 0
         if state["calls"]:
             break
@@ -624,7 +640,7 @@ def test_a_change_made_during_a_cold_start_answers_with_its_own_read(roster, mon
     assert state["calls"] == 1
     state["voices"], state["version"] = 1, 1  # then the owner names someone
     with ThreadPoolExecutor(max_workers=1) as pool:
-        change = pool.submit(server.people_view)  # the naming handler's answer, as it asks
+        change = pool.submit(roster_read.people_view)  # the naming handler's answer, as it asks
         time.sleep(0.3)  # long enough to join the cold read, if it would (nothing observable marks that it has)
         held.set()
         assert change.result(timeout=5) == {"version": 1}
@@ -669,7 +685,7 @@ def _slow_kept(patch):
             assert release.wait(5)
         return 200, {"for": computed[-1]}
 
-    kept = server._Fresh("patched", compute, lambda: owner["key"], lambda: 0, patch=patch)
+    kept = fresh_reads._Fresh("patched", compute, lambda: owner["key"], lambda: 0, patch=patch)
     assert kept.get() == (200, {"for": "a"})
     return kept, owner, computing, release, computed
 
@@ -739,7 +755,7 @@ def _face_key(ids=(5, 6, 7), mark=1, rejects=1, purge=1, state="s", nots=1):
 @pytest.fixture
 def face_skips(monkeypatch):
     skips = {"face": [9.0], "voice": [], "line": []}
-    monkeypatch.setattr(server, "inbox_skips", lambda: skips)
+    monkeypatch.setattr(inbox_state, "inbox_skips", lambda: skips)
     return skips
 
 
@@ -756,7 +772,7 @@ def test_face_patch_takes_named_and_put_aside_groups_out_of_the_rows_and_the_cou
     face_skips, now, skipped, groups, count
 ):
     face_skips["face"] = skipped
-    patched = server._patch_face_groups(FACE_ANSWER, _face_key(), now)
+    patched = unnamed_groups._patch_face_groups(FACE_ANSWER, _face_key(), now)
     assert patched is not None
     code, body = patched
     assert code == 200
@@ -776,7 +792,7 @@ def test_face_patch_takes_named_and_put_aside_groups_out_of_the_rows_and_the_cou
     ],
 )
 def test_face_patch_refuses_what_it_cannot_apply(face_skips, now):
-    assert server._patch_face_groups(FACE_ANSWER, _face_key(), now) is None
+    assert unnamed_groups._patch_face_groups(FACE_ANSWER, _face_key(), now) is None
 
 
 def test_face_patch_applies_a_not_mark_to_the_rows_at_once(face_skips, monkeypatch):
@@ -794,7 +810,7 @@ def test_face_patch_applies_a_not_mark_to_the_rows_at_once(face_skips, monkeypat
             ],
         },
     )
-    patched = server._patch_face_groups(answer, _face_key(), _face_key(nots=2))
+    patched = unnamed_groups._patch_face_groups(answer, _face_key(), _face_key(nots=2))
     assert patched is not None
     five, six = patched[1]["groups"]
     assert (five["guess"], five["band"], five["not"]) == (None, "none", ["Kara"])
@@ -802,21 +818,21 @@ def test_face_patch_applies_a_not_mark_to_the_rows_at_once(face_skips, monkeypat
 
 
 def test_face_patch_refuses_an_answer_that_failed(face_skips):
-    assert server._patch_face_groups((500, {"error": "x"}), _face_key(), _face_key(mark=2)) is None
+    assert unnamed_groups._patch_face_groups((500, {"error": "x"}), _face_key(), _face_key(mark=2)) is None
 
 
 def test_two_patches_in_a_row_count_from_the_kept_answer(face_skips):
-    once = server._patch_face_groups(FACE_ANSWER, _face_key(), _face_key(ids=(6, 7), mark=2))
+    once = unnamed_groups._patch_face_groups(FACE_ANSWER, _face_key(), _face_key(ids=(6, 7), mark=2))
     assert once is not None
-    twice = server._patch_face_groups(FACE_ANSWER, _face_key(), _face_key(ids=(7,), mark=3))
+    twice = unnamed_groups._patch_face_groups(FACE_ANSWER, _face_key(), _face_key(ids=(7,), mark=3))
     assert twice is not None
     assert (twice[1]["groups"], twice[1]["count"]) == ([], 1)
 
 
 def test_the_reply_leaves_the_patch_bookkeeping_out(monkeypatch):
-    monkeypatch.setattr(server, "_shot_revision", lambda: 0)
+    monkeypatch.setattr(photo_files, "_shot_revision", lambda: 0)
     monkeypatch.setattr(server.face_shots, "saved", lambda *a, **k: set())
-    code, body = server._ready_face_groups(*FACE_ANSWER)
+    code, body = unnamed_groups._ready_face_groups(*FACE_ANSWER)
     assert code == 200
     assert "_counted" not in body
     assert body["count"] == 3
@@ -850,7 +866,7 @@ def voice_state(monkeypatch, tmp_path):
 
     skips = {"face": [], "voice": [9.0], "line": []}
     monkeypatch.setattr(context, "STATE", tmp_path)
-    monkeypatch.setattr(server, "inbox_skips", lambda: skips)
+    monkeypatch.setattr(inbox_state, "inbox_skips", lambda: skips)
     yield registry.at(tmp_path), skips
     registry.close_all()
 
@@ -873,7 +889,7 @@ def test_voice_patch_takes_named_and_put_aside_voices_out_of_the_rows_and_the_co
     for n in named:
         reg.claim(registry.voiceprint(n), "Alice", registry.Basis.OWNER_TAG, "test")
     skips["voice"] = skipped
-    patched = server._patch_voice_groups(VOICE_ANSWER, _voice_key(), now)
+    patched = unnamed_groups._patch_voice_groups(VOICE_ANSWER, _voice_key(), now)
     assert patched is not None
     code, body = patched
     assert code == 200
@@ -884,7 +900,7 @@ def test_voice_patch_takes_named_and_put_aside_voices_out_of_the_rows_and_the_co
 
 
 def test_voice_patch_refuses_another_state(voice_state):
-    assert server._patch_voice_groups(VOICE_ANSWER, _voice_key(), _voice_key(state="other")) is None
+    assert unnamed_groups._patch_voice_groups(VOICE_ANSWER, _voice_key(), _voice_key(state="other")) is None
 
 
 @pytest.fixture
@@ -901,7 +917,7 @@ def test_after_a_purge_the_patch_drops_the_purged_lines_clips_at_once(voice_stat
     from liberational import speech_log
 
     voice_lines.purge(speech_log.UTTERANCES, lambda e: e["ts_start"] == 100.0)  # a forgotten person's line
-    patched = server._patch_voice_groups(VOICE_ANSWER, _voice_key(), _voice_key(purge=2))
+    patched = unnamed_groups._patch_voice_groups(VOICE_ANSWER, _voice_key(), _voice_key(purge=2))
     assert patched is not None
     code, body = patched
     assert code == 200
@@ -916,7 +932,7 @@ def test_after_a_correction_the_patch_drops_a_voice_whose_only_clip_it_took(voic
     from liberational.listen import revisions
 
     monkeypatch.setattr(revisions, "filter_lines", lambda state, rows: [r for r in rows if r["ts_start"] != 200.0])
-    patched = server._patch_voice_groups(VOICE_ANSWER, _voice_key(), _voice_key(review=2))
+    patched = unnamed_groups._patch_voice_groups(VOICE_ANSWER, _voice_key(), _voice_key(review=2))
     assert patched is not None
     assert ([g["id"] for g in patched[1]["groups"]], patched[1]["count"]) == ([5], 1)
 
@@ -928,7 +944,7 @@ def test_the_patch_waits_for_the_full_answer_when_the_kept_lines_cant_be_read(vo
         raise OSError("speech log unreadable")
 
     monkeypatch.setattr(speech_log.shared(), "all_lines", unreadable)
-    assert server._patch_voice_groups(VOICE_ANSWER, _voice_key(), _voice_key(purge=2)) is None
+    assert unnamed_groups._patch_voice_groups(VOICE_ANSWER, _voice_key(), _voice_key(purge=2)) is None
 
 
 def test_after_a_purge_who_s_this_answers_at_once_while_the_full_answer_is_worked_out(
@@ -938,21 +954,21 @@ def test_after_a_purge_who_s_this_answers_at_once_while_the_full_answer_is_worke
 
     voice_lines.purge(speech_log.UTTERANCES, lambda e: e["ts_start"] == 100.0)
     pending, submitted = Future(), threading.Event()
-    pool = create_autospec(server.ProcessPoolExecutor, instance=True)
+    pool = create_autospec(unnamed_groups.ProcessPoolExecutor, instance=True)
 
     def submit(fn):
         submitted.set()
         return pending  # the full answer, still being worked out
 
     pool.submit.side_effect = submit
-    monkeypatch.setattr(server, "_groups_in_worker", True)
-    monkeypatch.setattr(server, "_voices_executor", pool)
-    cache = server._Fresh(
+    monkeypatch.setattr(unnamed_groups, "_groups_in_worker", True)
+    monkeypatch.setattr(unnamed_groups, "_voices_executor", pool)
+    cache = fresh_reads._Fresh(
         "purged-voice-test",
-        server._VOICE_GROUPS.compute,
+        unnamed_groups._VOICE_GROUPS.compute,
         lambda: _voice_key(purge=2),
         lambda: 0,
-        patch=server._VOICE_GROUPS.patch,
+        patch=unnamed_groups._VOICE_GROUPS.patch,
     )
     cache.value, cache.keys = VOICE_ANSWER, (_voice_key(), 0)
     try:
@@ -969,7 +985,7 @@ def test_after_a_purge_who_s_this_answers_at_once_while_the_full_answer_is_worke
 
 
 def test_voice_patch_refuses_an_answer_that_failed(voice_state):
-    assert server._patch_voice_groups((500, {"error": "x"}), _voice_key(), _voice_key(mark=2)) is None
+    assert unnamed_groups._patch_voice_groups((500, {"error": "x"}), _voice_key(), _voice_key(mark=2)) is None
 
 
 @pytest.mark.parametrize(
@@ -984,7 +1000,7 @@ def test_voice_patch_drops_a_clip_answered_nobody(voice_state, aside, clips):
     """ "Nobody" on a clip puts its line aside; the patched answer must not play it again."""
     _, skips = voice_state
     skips["line"] = aside
-    patched = server._patch_voice_groups(VOICE_ANSWER, _voice_key(), _voice_key(skips=2))
+    patched = unnamed_groups._patch_voice_groups(VOICE_ANSWER, _voice_key(), _voice_key(skips=2))
     assert patched is not None
     _, body = patched
     assert {g["id"]: [c["line"] for c in g["clips"]] for g in body["groups"]} == clips
@@ -997,14 +1013,14 @@ def test_voice_patch_drops_a_clip_marked_multiple_speakers_or_given_to_someone(v
 
     reg, _ = voice_state
     reg.detach(registry.utterance(100.0, "mic"), "multiple speakers", "test")
-    patched = server._patch_voice_groups(VOICE_ANSWER, _voice_key(), _voice_key(mark=2))
+    patched = unnamed_groups._patch_voice_groups(VOICE_ANSWER, _voice_key(), _voice_key(mark=2))
     assert patched is not None
     assert {g["id"]: [c["line"] for c in g["clips"]] for g in patched[1]["groups"]} == {
         5: ["mic@101.000"],
         6: ["mic@200.000"],
     }
     reg.claim(registry.utterance(200.0, "mic"), "Alice", registry.Basis.OWNER_TAG, "test")
-    patched = server._patch_voice_groups(VOICE_ANSWER, _voice_key(), _voice_key(mark=3))
+    patched = unnamed_groups._patch_voice_groups(VOICE_ANSWER, _voice_key(), _voice_key(mark=3))
     assert patched is not None
     assert [g["id"] for g in patched[1]["groups"]] == [5], "its only clip was Alice's: the voice goes"
 
@@ -1016,7 +1032,7 @@ def test_voice_patch_waits_for_the_full_answer_when_the_names_cant_be_read(voice
     monkeypatch.setattr(
         server.registry, "voice_names", create_autospec(server.registry.voice_names, side_effect=unreadable)
     )
-    assert server._patch_voice_groups(VOICE_ANSWER, _voice_key(), _voice_key(mark=2)) is None
+    assert unnamed_groups._patch_voice_groups(VOICE_ANSWER, _voice_key(), _voice_key(mark=2)) is None
 
 
 @pytest.mark.parametrize("edit", ["nobody", "multiple", "assigned"])
@@ -1031,22 +1047,22 @@ def test_voice_clip_correction_applies_while_worker_recompute_is_blocked(voice_s
     }
     corrections[edit]()
     pending, submitted = Future(), threading.Event()
-    pool = create_autospec(server.ProcessPoolExecutor, instance=True)
+    pool = create_autospec(unnamed_groups.ProcessPoolExecutor, instance=True)
 
     def submit(fn):
-        assert fn is server._unknown_voices_job
+        assert fn is unnamed_groups._unknown_voices_job
         submitted.set()
         return pending
 
     pool.submit.side_effect = submit
-    monkeypatch.setattr(server, "_groups_in_worker", True)
-    monkeypatch.setattr(server, "_voices_executor", pool)
-    cache = server._Fresh(
+    monkeypatch.setattr(unnamed_groups, "_groups_in_worker", True)
+    monkeypatch.setattr(unnamed_groups, "_voices_executor", pool)
+    cache = fresh_reads._Fresh(
         "blocked-voice-test",
-        server._VOICE_GROUPS.compute,
+        unnamed_groups._VOICE_GROUPS.compute,
         lambda: _voice_key(mark=2, skips=2),
         lambda: 0,
-        patch=server._VOICE_GROUPS.patch,
+        patch=unnamed_groups._VOICE_GROUPS.patch,
     )
     cache.value, cache.keys = VOICE_ANSWER, (_voice_key(), 0)
     try:

@@ -26,7 +26,8 @@ from urllib.parse import quote, urlsplit, urlunsplit
 import tomlkit
 
 from liberational import config as cfg
-from liberational.dashboard import cameras, settings
+from liberational.dashboard import cameras, routes, settings
+from liberational.dashboard.context import log
 from liberational.proximity.network import ip_address
 from liberational.proximity.unifi_network import UniFiNetwork
 from liberational.unifi import UniFiError, configured_session, local_origin, protect_section, setting
@@ -392,3 +393,12 @@ def handle(handler: H, log: Callable[..., None]) -> bool:
     )
     handler._json(result, code)
     return True
+
+
+# ---- routes (dashboard/routes.py) ----
+
+
+@routes.get("/network-cameras")
+@routes.post_raw("/network-cameras/discover", "/network-cameras/add", "/network-cameras/use")
+def _route(h: H) -> None:
+    handle(h, log)

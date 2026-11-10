@@ -618,7 +618,7 @@ fn continuum_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(search::encode_hits, m)?)?;
     m.add_function(wrap_pyfunction!(client::decode_flac, m)?)?;
     m.add_function(wrap_pyfunction!(client::read_chunk_records, m)?)?;
-    m.add_function(wrap_pyfunction!(client::v1_gop_units, m)?)?;
+    m.add_function(wrap_pyfunction!(client::gop_units, m)?)?;
     m.add("BrokerError", py.get_type::<client::BrokerError>())?;
     m.add("ConnectionClosedError", py.get_type::<client::ConnectionClosedError>())?;
     m.add("PAGE_ALIGN", continuum_core::PAGE_ALIGN)?;

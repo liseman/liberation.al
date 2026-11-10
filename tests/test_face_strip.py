@@ -11,7 +11,7 @@ import pytest
 
 from liberational import config as cfg
 from liberational import segment_log
-from liberational.dashboard import context, server
+from liberational.dashboard import context, inbox_state, people_corrections, photo_files, server
 from liberational.people import face_photos, face_shots
 from liberational.vision import faces as fid
 
@@ -102,7 +102,7 @@ def strip(state, serve, monkeypatch, tmp_path):
     monkeypatch.setattr(server, "DASH_PASSWORD", "")
     monkeypatch.setattr(context, "STATE", tmp_path / "state")
     jobs = face_shots.Pending(lambda key: None)
-    monkeypatch.setattr(server, "_crop_jobs", jobs)
+    monkeypatch.setattr(photo_files, "_crop_jobs", jobs)
     base = serve(server.H)
 
     def get(gid):
@@ -149,7 +149,7 @@ def shots(state, vision, monkeypatch, tmp_path):
     for key, v in (("a", unit(1)), ("b", unit(0, 1))):
         match = next(r for r in vision.records[segment_log.FACE_MATCHES] if r["id"] == state[key])
         vision.add(segment_log.FACE_EMBEDDINGS, ts_start=match["ts_start"], cam="cam0", match_id=state[key], vector=v)
-    monkeypatch.setattr(server, "INBOX_SKIPS", tmp_path / "inbox_skips.json")
+    monkeypatch.setattr(inbox_state, "INBOX_SKIPS", tmp_path / "inbox_skips.json")
     return state
 
 
@@ -160,7 +160,7 @@ def group(gid):
 
 
 def test_a_rejected_shot_leaves_its_group_and_the_group_keeps_only_the_rest(shots):
-    code, reply = server.reject_shots(5, [shots["b"]], True)
+    code, reply = people_corrections.reject_shots(5, [shots["b"]], True)
     assert (code, reply) == (200, {"ok": True, "removed": 1, "left": 1, "ignored": False})
     assert [s["id"] for s in face_photos.sightings_of(5)] == [shots["a"]]
     vec, count = group(5)
@@ -175,9 +175,9 @@ def test_a_rejected_shot_leaves_its_group_and_the_group_keeps_only_the_rest(shot
 
 
 def test_rejecting_a_groups_last_shots_puts_it_aside(shots):
-    code, reply = server.reject_shots(5, [shots["a"], shots["b"]], True)
+    code, reply = people_corrections.reject_shots(5, [shots["a"], shots["b"]], True)
     assert (code, reply["left"], reply["ignored"]) == (200, 0, True)
-    assert 5 in server.inbox_skips()["face"]
+    assert 5 in inbox_state.inbox_skips()["face"]
 
 
 @pytest.mark.parametrize(
@@ -191,7 +191,7 @@ def test_rejecting_a_groups_last_shots_puts_it_aside(shots):
 )
 def test_a_reject_that_cant_apply_changes_nothing(shots, gid, ids, control, code):
     before = group(5)
-    got, reply = server.reject_shots(gid, [shots[k] for k in ids], control)
+    got, reply = people_corrections.reject_shots(gid, [shots[k] for k in ids], control)
     assert (got, reply["ok"]) == (code, False)
     assert [s["id"] for s in face_photos.sightings_of(5)] == [shots["b"], shots["a"]]
     assert group(5)[1] == before[1]

@@ -31,6 +31,8 @@ from typing import TYPE_CHECKING, Any
 
 from liberational import config as cfg
 from liberational import service_cascade, services
+from liberational.dashboard import routes
+from liberational.dashboard.context import log
 
 if TYPE_CHECKING:
     from liberational.dashboard.server import H
@@ -441,3 +443,20 @@ def handle(
     else:
         log("settings: saved live settings, nothing to restart")
     return True
+
+
+# ---- routes (dashboard/routes.py) ----
+
+
+def _carry_owner(old: str, new: str) -> tuple[int, dict[str, Any]]:
+    """Rename the owner in People when a save changes owner.name (imported when it's needed: People is built on a
+    great deal, and Settings is not)."""
+    from liberational.dashboard import people_writes
+
+    return people_writes.rename_owner(old, new)
+
+
+@routes.get("/config", "/config/voice_ref", "/config/voices")
+@routes.post_raw("/config", "/config/voice_ref")
+def _route(h: H) -> None:
+    handle(h, log, carry_owner=_carry_owner)

@@ -62,10 +62,10 @@ import time
 import urllib.parse
 import urllib.request
 from collections.abc import Iterable, Mapping, Sequence
-from typing import TYPE_CHECKING, Any, NoReturn
+from typing import TYPE_CHECKING, Any
 
 from liberational import config as cfg
-from liberational import ollama_health
+from liberational import ollama
 from liberational.domain.memory import Modality
 from liberational.memory import ask, embedding, history_qa, journal, summarize, timeline
 from liberational.people import transcript_view
@@ -154,22 +154,7 @@ def _post(payload: Mapping[str, Any]) -> Any:
         timeout = min(timeout, deadline - time.monotonic())
         if timeout <= 1:
             raise TimeoutError("out of time for searching")
-
-    class NoRedirect(urllib.request.HTTPRedirectHandler):
-        def redirect_request(self, *args: object, **kwargs: object) -> NoReturn:
-            raise ValueError("Redirect refused")
-
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
-    request = urllib.request.Request(
-        url(str(payload.get("model", ""))) + "/api/chat",
-        data=json.dumps(payload).encode(),
-        headers={"Content-Type": "application/json"},
-    )
-    with ollama_health.call(str(payload.get("model", ""))), opener.open(request, timeout=timeout) as response:
-        raw = response.read(2_000_001)
-    if len(raw) > 2_000_000:
-        raise ValueError("Model response too large")
-    return json.loads(raw)
+    return ollama.post("/api/chat", payload, timeout=timeout, url=url(str(payload.get("model", ""))))
 
 
 def _planner_input(system: str, user: Any, model: str, num_ctx: int, num_predict: int) -> str:
@@ -721,10 +706,10 @@ def _camera_id(text: object) -> str:
     s = text.strip()
     if views.valid_camera_id(s):
         return s
-    m = history_qa.CAM.fullmatch(s)
+    m = views.NUMBERED.fullmatch(s)
     if not m:
         raise ValueError(f"not a camera id: {s!r}; use an exact ID or a form like camera 3")
-    return "cam" + str(int(history_qa.WORDS.get(m[1].lower(), m[1])))
+    return "cam" + str(int(views.NUMBER_WORDS.get(m[1].lower(), m[1])))
 
 
 def arguments(tool: str, raw: object, window: Sequence[float]) -> tuple[dict[str, Any], dict[str, str]]:
@@ -934,7 +919,7 @@ def loop(
     requested_cameras = tuple(dict.fromkeys(query.get("cameras") or []))
     # How the question was read (memory/question.py), so the planner searches for that reading, not one of its own.
     reading = query.get("reading") or {}
-    read_as = {key: reading[key] for key in ("source", "measure", "people") if reading.get(key)}
+    read_as = {key: reading[key] for key in ("source", "measure", "people", "action") if reading.get(key)}
     if journal_only:
         offered = [tool for tool in offered if tool == "journal"]
     if requested_cameras:
