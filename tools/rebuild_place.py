@@ -6,8 +6,13 @@ The base is the place's LiDAR walks, each given one of two ways:
 
 - `--walk <folder>` (repeatable): the walk's Stray Scanner export folder, read with the current walkthrough code
   (`walkthrough.stray_piece`: its poses, LiDAR cloud, and views to look from; nothing is written) and placed on the
-  owner's plan as a LiDAR walk into the place is (`fuse.by_plan`: every turn and shift, kept when its walls fit the
-  plan). A walk that doesn't fit the plan is refused. This is the way for a walk that was fused straight into the
+  owner's plan as a LiDAR walk into the place is (`fuse.plan_fit`: every turn and shift, kept when its walls fit the
+  plan). A walk whose fit is a near miss (it passes the median and floor bars and has at least half its walls near
+  the plan's, short of the 60% bar: a walk through rooms the plan only sketches) is placed when the walks already
+  placed agree with where the plan put it (`fuse.agrees`: registered onto them from there, it fits them and stays
+  within 0.5 m and 10 degrees), and then stands where it fits them. Any other walk that doesn't fit is refused, and
+  nothing is rebuilt. A walk read once is kept under `--cache` (the system temp dir by default), keyed by its
+  recording's files, so a rerun reads only what changed; `--no-cache` reads them all again. This is the way for a walk that was fused straight into the
   place (it never had a revision of its own) or whose revision's map file has been pruned, and the way to drop
   earlier copies of a walk from the map: the rebuild holds only what it is given.
 - its own revision's map (a revision of the place by `walkthrough.PRODUCER_STRAY` whose map file is still there;
@@ -44,6 +49,7 @@ import argparse
 import collections
 import dataclasses
 import datetime as dt
+import hashlib
 import json
 import math
 import sys
@@ -51,6 +57,7 @@ import tempfile
 import time
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -178,13 +185,24 @@ def place_folder(
     piece: fuse.Piece,
     plan: pi.Parsed,
     frame: Sequence[float],
-) -> FolderPlaced | None:
+    built: np.ndarray | None = None,
+) -> FolderPlaced | str:
     """A walk read from its export folder (`piece`, in the walk's own frame) in `place`'s fused map's frame: levelled
     by its floor and its own cloud's floor plane (as `place_walk` levels a walk revision), then placed by the owner's
-    plan (`fuse.by_plan`, the placement a LiDAR walk into the place gets). None when it has no floor or doesn't fit
-    the plan."""
+    plan (`fuse.plan_fit`, the placement a LiDAR walk into the place gets, when it passes every bar).
+
+    A fit that is a near miss (`fuse.PlanFit.near_miss`: it passes the median and the floor share, and has at least
+    `fuse.PLAN_NEAR_MISS` of its walls near the plan's, short of the bar) is placed only when `built` agrees
+    (`fuse.agrees`): `built` is the walks this rebuild has already placed, as points in the fused map's frame, and the
+    walk, registered onto them from where the plan put it, must fit them and stay within half a metre and ten
+    degrees of that, at its own scale. It then stands where it fits them, which is sharper than a plan whose walls
+    there are a sketch, and there its walls must still be a near miss of the plan's at worst (the median bar, and
+    `fuse.PLAN_NEAR_MISS` of them near a wall).
+
+    Returns the placed walk, or, for one that can't be placed, why, in words.
+    """
     if piece.floor is None:
-        return None
+        return "it has no floor to level it by"
     level = fuse.leveller(piece.floor)
     try:
         normal, d = floorplan.floor_plane(
@@ -193,12 +211,115 @@ def place_folder(
         level = fuse.leveller((*(float(x) for x in normal), -float(d))) @ level
     except ValueError:
         pass
-    placed = fuse.by_plan(state, place, fuse.apply(level, piece.points))
-    if placed is None:
-        return None
-    transform = placed[0] @ level
+    levelled = fuse.apply(level, piece.points)
+    fit = fuse.plan_fit(state, place, levelled)
+    if fit is None:
+        return "no owner plan is drawn on the fused map's frame"
+    if fit.ok:
+        to_map, found = fit.transform, fit.found
+    elif fit.near_miss and built is not None and len(built):
+        confirmed = fuse.agrees(levelled, built, fit.transform)
+        if confirmed is None:
+            return f"{fit.found}: a near miss, and the walks already placed don't agree with where the plan put it"
+        to_map, found = confirmed[0], f"{fit.found}, a near miss; {confirmed[1]}"
+    elif fit.near_miss:
+        return f"{fit.found}: a near miss, with no walk placed yet to confirm it"
+    else:
+        return f"{fit.found}: not a fit"
+    transform = to_map @ level
     after = wall_stats(plan, pi.band(fuse.apply(transform, piece.points), frame))
-    return FolderPlaced(name, piece, transform, placed[1], after)
+    if not fit.ok and not (after.median <= fuse.PLAN_MEDIAN_M and after.near >= fuse.PLAN_NEAR_MISS):
+        # where the walks put it, the plan no longer agrees even as a near miss
+        return f"{found}; but there, {after.line('against the plan')}"
+    return FolderPlaced(name, piece, transform, found, after)
+
+
+#: What a walk read from its folder is kept as, so a rerun reads only what changed. Raise it when what
+#: `walkthrough.stray_piece` returns for the same folder changes.
+PIECE_VERSION = 1
+
+
+def piece_file(folder: Path, cache: Path) -> Path:
+    """Where `folder`'s read walk is kept under `cache`: named for the folder, its recording's files as they are now
+    (the size and time of rgb.mp4 and odometry.csv), and PIECE_VERSION, so another recording or a changed one is read
+    again."""
+    stamp = [PIECE_VERSION, str(folder.resolve())]
+    for name in ("rgb.mp4", "odometry.csv"):
+        st = (folder / name).stat()
+        stamp += [name, st.st_size, st.st_mtime_ns]
+    key = hashlib.sha256(json.dumps(stamp).encode()).hexdigest()[:16]
+    return cache / f"walk-{folder.name}-{key}.npz"
+
+
+def read_piece(
+    folder: Path, cache: Path | None, read: Callable[[Path], tuple[Any, Any, Any, Any]] | None = None
+) -> tuple[fuse.Piece, bool]:
+    """The walk in `folder` as a rebuild piece (`walkthrough.stray_piece`), and whether it came from `cache`: a piece
+    read before from the same recording is loaded from there, and one read now is kept there. None for `cache` reads
+    it every time. Raises SystemExit for a walk with no floor."""
+    kept = piece_file(folder, cache) if cache is not None else None
+    if kept is not None and kept.is_file():
+        with np.load(kept) as z:
+            looks = {
+                str(n): places.CameraPose(tuple(float(v) for v in pose), float(f), int(w), int(h))
+                for n, pose, f, (w, h) in zip(
+                    z["look_names"], z["look_poses"], z["look_focals"], z["look_sizes"], strict=True
+                )
+            }
+            return fuse.Piece(z["points"], z["colors"], tuple(float(v) for v in z["floor"]), looks), True
+    if read is None:
+        from liberational.spatial import walkthrough
+
+        read = walkthrough.stray_piece
+    points, colors, floor, looks = read(folder)
+    if floor is None:
+        sys.exit(f"walk {folder.name} has no floor to level it by")
+    if kept is not None:
+        kept.parent.mkdir(parents=True, exist_ok=True)
+        tmp = kept.with_suffix(".tmp.npz")
+        np.savez(
+            tmp,
+            points=points,
+            colors=colors,
+            floor=np.asarray(floor, dtype=np.float64),
+            look_names=np.array(list(looks), dtype=str),
+            look_poses=np.array([p.pose for p in looks.values()], dtype=np.float64).reshape(-1, 16),
+            look_focals=np.array([p.focal for p in looks.values()], dtype=np.float64),
+            look_sizes=np.array([(p.width, p.height) for p in looks.values()], dtype=np.int64).reshape(-1, 2),
+        )
+        tmp.replace(kept)
+    return fuse.Piece(points, colors, floor, looks), False
+
+
+def place_folders(
+    state: Path,
+    place: str,
+    read: Sequence[tuple[str, fuse.Piece]],
+    plan: pi.Parsed,
+    frame: Sequence[float],
+) -> tuple[list[FolderPlaced], dict[str, str]]:
+    """Each walk of `read` (its name and piece) placed (`place_folder`), and why each of the others couldn't be.
+    The walks the plan places on its own go first, whatever order they were given in; then each near miss is tried
+    against all that are placed by then, so one confirmed walk can confirm the next."""
+    placed: dict[str, FolderPlaced] = {}
+    left = list(read)
+    why: dict[str, str] = {}
+    progress = True
+    first = True
+    while left and progress:
+        progress = False
+        built = np.vstack([fuse.apply(f.transform, f.piece.points) for f in placed.values()]) if placed else None
+        for name, piece in list(left):
+            f = place_folder(state, place, name, piece, plan, frame, None if first else built)
+            if isinstance(f, str):
+                why[name] = f
+            else:
+                placed[name] = f
+                left.remove((name, piece))
+                progress = True
+        if first:
+            first, progress = False, True  # the near misses get their turn even when the plan placed nothing new
+    return [placed[name] for name, _ in read if name in placed], {name: why[name] for name, _ in left}
 
 
 def distinct(looks: Mapping[str, places.CameraPose], taken: set[str]) -> dict[str, places.CameraPose]:
@@ -445,6 +566,13 @@ def main() -> None:
     ap.add_argument("--place", required=True, help="place id or name")
     ap.add_argument("--walk", action="append", default=[], type=Path, help="a walk's Stray Scanner export folder")
     ap.add_argument(
+        "--cache",
+        type=Path,
+        default=Path(tempfile.gettempdir()) / "rebuild-place-walks",
+        help="where each walk read from its folder is kept, so a rerun reads only what changed",
+    )
+    ap.add_argument("--no-cache", action="store_true", help="read every --walk folder again")
+    ap.add_argument(
         "--walk-revision",
         action="append",
         default=[],
@@ -498,21 +626,27 @@ def main() -> None:
         sys.exit("no Stray walk revision with its map; give its export folder with --walk")
     pieces: list[tuple[fuse.Piece, np.ndarray]] = []
     names: set[str] = set()
+    read: list[tuple[str, fuse.Piece]] = []
     for folder in a.walk:
         from liberational.spatial import stray
 
         if not stray.is_export(folder):
             sys.exit(f"{folder} is not a Stray Scanner export folder (rgb.mp4 and odometry.csv)")
-        points, colors, floor, looks = walkthrough.stray_piece(folder)
-        if floor is None:
-            sys.exit(f"walk {folder.name} has no floor to level it by")
-        looks = distinct(looks, names)
-        f = place_folder(state, held.id, folder.name, fuse.Piece(points, colors, floor, looks), plan, frame)
-        if f is None:
-            sys.exit(f"walk {folder.name} doesn't fit the owner's plan, so it can't be placed; nothing is rebuilt")
-        print(f"walk {f.name}: {len(points)} points, {len(looks)} looks; {f.found}")
-        print("  " + f.after.line("placed by the plan"))
+        piece, cached = read_piece(folder, None if a.no_cache else a.cache)
+        print(
+            f"walk {folder.name}: {len(piece.points)} points, {len(piece.cameras)} looks"
+            + (" (read before: kept copy used; --no-cache reads it again)" if cached else "")
+        )
+        read.append((folder.name, dataclasses.replace(piece, cameras=distinct(piece.cameras, names))))
+    placed, refused = place_folders(state, held.id, read, plan, frame)
+    for f in placed:
+        print(f"walk {f.name}: {f.found}")
+        print("  " + f.after.line("as placed"))
         pieces.append((f.piece, f.transform))
+    if refused:
+        for name, reason in refused.items():
+            print(f"walk {name}: not placed. {reason}")
+        sys.exit(f"{', '.join(refused)} can't be placed, so nothing is rebuilt")
     walks = []
     for wid in wanted:
         rev = next((r for r in chain if r.id == wid), None)
