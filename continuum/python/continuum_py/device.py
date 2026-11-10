@@ -1,4 +1,4 @@
-"""Where a worker computes, and slab views as torch tensors on that device (docs/CONTINUUM-SDK.md and
+"""Where a worker computes, and slab views as torch tensors on that device (docs/CONTINUUM-SDK.md; docs/CONTINUUM.md
 "Guardrails": every worker picks cuda, mps, or cpu at start, from one setting, so the same code runs on the 3090s
 and on the Mac).
 
