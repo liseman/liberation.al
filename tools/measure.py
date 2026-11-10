@@ -12,6 +12,7 @@
   uv run tools/measure.py --part retrieval --ask --journal off --json  # Ask with the journal off
   uv run tools/measure.py --compare single.json loop.json    # retrieval in two --json results, side by side
   uv run tools/measure.py --part readings       # how well the model reads questions (calls the local model)
+  uv run tools/measure.py --demo --ask          # retrieval on a new made-up demo household, which never goes stale
 
 For entry/exit scoring, select a counter and tolerance explicitly. Run as a module
 so callbacks in the repository's tools namespace can be imported:
@@ -42,7 +43,11 @@ docs/DOMAIN-MODEL.md, which steps 3, 7, and 8 need before they change what the u
   search by words alone with search by words and meaning (the index itself has to be built already: the vector
   worker builds it as entries are written). --journal on or off sets journal.enabled for the run, for comparing
   answers with and without the journal. A question marked "draft" is scored like any other and counted apart, so
-  proposed questions can be run before someone confirms them.
+  proposed questions can be run before someone confirms them. A question whose cited transcript lines and journal
+  entries are all gone from the history (a state reset took them) is stale: it isn't asked, and is counted apart,
+  since it would fail on any code. --demo runs retrieval on a new made-up demo household instead (demo/dataset.py,
+  at the fixed day DEMO_DAY, with its own broker and vector worker in a temporary directory), scored against the
+  labels in tests/data/measurement/demo/, so a before-and-after comparison runs anywhere and survives resets.
 - Events (anything that happened on video: someone sat down, opened the fridge, or walked past, or the dog got on
   the couch) are loaded and checked, each with how many times it happened in its span. With an explicit
   --event-counter, each labeled span goes to the counter as a window around it (camera, what happened, and times
@@ -78,6 +83,18 @@ from liberational import config as cfg
 from liberational.domain import kernel
 
 PARTS = ("identification", "retrieval", "events")
+# --demo: the made-up demo household's day (demo/dataset.py), fixed so its labels' times hold, and its labels.
+DEMO_DAY = dt.date(2026, 10, 20)
+DEMO_LABELS = pathlib.Path(__file__).resolve().parent.parent / "tests" / "data" / "measurement" / "demo"
+# The demo's labels give times in this zone, and "yesterday" in a question has to mean the same day they do. The
+# meaning index is off: nothing in the demo makes embeddings, so a run would only spend an embedding call per question.
+DEMO_CONFIG = """
+[time]
+timezone = "America/Los_Angeles"
+
+[semantic]
+enabled = false
+"""
 MODALITIES = ("face", "voice")
 SOURCES = ("transcript", "camera", "call", "journal")
 # Segment streams an expected evidence item can name as its source: Ask's evidence items say which stream
@@ -976,6 +993,30 @@ def _cites(item: dict[str, Any], e: Expected) -> bool:
     )
 
 
+def _kept(e: Expected, state: pathlib.Path) -> bool:
+    """Whether the history still holds a record where e expects one: for a transcript or journal source, a line or an
+    entry of it within within_s of e.at, whatever it says. A label whose records were reset away has none, so it
+    can't tell a better retrieval from a worse one. Any other source, or none (a mark keeps a fact or a frame that
+    way, by time alone), isn't looked up and counts as kept, so a question citing only those is always scored."""
+    from liberational import memory_log, speech_log
+
+    lo, hi = e.at - e.within_s, e.at + e.within_s + 0.001  # the reads are [start, end): take a record at hi too
+    if e.source == "transcript":
+        return bool(speech_log.shared().range(lo, hi))
+    if e.source == "journal":
+        return bool(memory_log.at(state).entries(lo, hi))
+    return True
+
+
+def _stale(q: Question, state: pathlib.Path) -> bool:
+    """Whether every record q expects is gone from the history (_kept), so the question is set apart, not failed. A
+    question with no expected evidence is never stale."""
+    try:
+        return bool(q.evidence) and not any(_kept(e, state) for e in q.evidence)
+    except Exception:  # a store that can't be read is no proof the records are gone: score it, and let it fail
+        return False
+
+
 def _given(contexts: Sequence[str]) -> set[str] | None:
     """The ids of the evidence items the answering model received: the "evidence" rows of the first context
     ask.local_answer was given (ask.evidence_context's JSON), or None when no model was asked."""
@@ -1077,6 +1118,11 @@ def score_retrieval(
             row: dict[str, Any] = {"id": q.id, "question": q.question, "failures": []}
             if q.draft:
                 row["draft"] = True
+            if _stale(q, pathlib.Path(state)):
+                # Asked anyway it would find nothing, and score like a regression; it isn't asked at all.
+                row.update(stale=True, passed=False, evidence_expected=len(q.evidence), evidence_found=0)
+                rows.append(row)
+                continue
             r: dict[str, Any]
             given: set[str] | None = None
             try:
@@ -1133,14 +1179,16 @@ def score_retrieval(
                     row["failures"].append(f"no evidence within {e.within_s:g}s of {history_qa.stamp(e.at)}{what}")
             row["passed"] = not row["failures"]
             rows.append(row)
-    checked = [r for r in rows if r["answer_checked"]]
+    scored = [r for r in rows if not r.get("stale")]
+    checked = [r for r in scored if r["answer_checked"]]
     out: dict[str, Any] = {
-        "questions": len(rows),
-        "passed": sum(r["passed"] for r in rows),
+        "questions": len(scored),  # the stale ones apart: they aren't asked, so they can't pass or fail
+        "stale": len(rows) - len(scored),
+        "passed": sum(r["passed"] for r in scored),
         "answers_checked": len(checked),
         "answers_ok": sum(r["answer_ok"] for r in checked),
-        "evidence_expected": sum(r["evidence_expected"] for r in rows),
-        "evidence_found": sum(r["evidence_found"] for r in rows),
+        "evidence_expected": sum(r["evidence_expected"] for r in scored),
+        "evidence_found": sum(r["evidence_found"] for r in scored),
         "recorded_frame_analysis": frames,
         "timezone": str(history_qa.TZ),
         "per_question": rows,
@@ -1149,18 +1197,18 @@ def score_retrieval(
         out["vectors"] = bool(vectors)
     if journal is not None:
         out["journal"] = bool(journal)
-    if drafts := [r for r in rows if r.get("draft")]:
+    if drafts := [r for r in scored if r.get("draft")]:
         out["drafts"] = len(drafts)
         out["drafts_passed"] = sum(r["passed"] for r in drafts)
     if use_ask:  # a collect-only run keeps exactly the fields it always had
-        latencies = [r["latency_s"] for r in rows]
+        latencies = [r["latency_s"] for r in scored]
         out.update(
             through="ask.execute",
             settings=settings,
             latency_median_s=round(statistics.median(latencies), 3) if latencies else None,
             latency_max_s=max(latencies) if latencies else None,
-            rounds=sum(r.get("rounds", 0) for r in rows),
-            evidence_given=sum(r["evidence_given"] for r in rows),
+            rounds=sum(r.get("rounds", 0) for r in scored),
+            evidence_given=sum(r["evidence_given"] for r in scored),
         )
     return out
 
@@ -1472,6 +1520,12 @@ def report(results: dict[str, dict[str, Any]], directory: str | pathlib.Path, st
         )
         if r.get("through"):
             out.append("  " + _settings_line(r["settings"]))
+        if r.get("stale"):
+            stale = [q["id"] for q in r["per_question"] if q.get("stale")]
+            out.append(
+                f"  {r['stale']} stale, not asked: none of the records they cite is still kept "
+                "(relabel them from current history): " + ", ".join(stale)
+            )
         if r["questions"]:
             out.append(
                 f"  passed {r['passed']} of {r['questions']}; answers {r['answers_ok']} of {r['answers_checked']}; "
@@ -1486,7 +1540,7 @@ def report(results: dict[str, dict[str, Any]], directory: str | pathlib.Path, st
                     f"search rounds {r['rounds']} in all"
                 )
             for q in r["per_question"]:
-                if not q["passed"]:
+                if not q["passed"] and not q.get("stale"):
                     draft = " (draft)" if q.get("draft") else ""
                     out.append(f"  FAIL {q['id']}{draft}: " + "; ".join(q["failures"]))
         out.append("")
@@ -1554,7 +1608,11 @@ def report(results: dict[str, dict[str, Any]], directory: str | pathlib.Path, st
     ):
         out.append("These numbers describe these labels only. A small set gives unstable numbers.")
     if not any(
-        results[p].get("windows") or results[p].get("clips") or results[p].get("questions") or results[p].get("spans")
+        results[p].get("windows")
+        or results[p].get("clips")
+        or results[p].get("questions")
+        or results[p].get("stale")
+        or results[p].get("spans")
         for p in results
     ):
         out.append(f"No labels yet in {directory}. docs/MEASUREMENT.md says how to add them.")
@@ -1592,9 +1650,12 @@ def compare(path_a: str | pathlib.Path, path_b: str | pathlib.Path) -> str:
             f"{a['evidence_given']} of {a['evidence_expected']}  ->  {b['evidence_given']} of {b['evidence_expected']}"
         )
         out.append(f"{'given to model':<16}{given}")
+    if a.get("stale") or b.get("stale"):
+        out.append(f"{'stale':<16}{a.get('stale', 0)}  ->  {b.get('stale', 0)}")
     out.append(f"{'latency median':<16}{latency(a)}  ->  {latency(b)}")
-    rows_a = {q["id"]: q for q in a["per_question"]}
-    rows_b = {q["id"]: q for q in b["per_question"]}
+    # A stale question wasn't asked, so a run that has it stale counts as not having it.
+    rows_a = {q["id"]: q for q in a["per_question"] if not q.get("stale")}
+    rows_b = {q["id"]: q for q in b["per_question"] if not q.get("stale")}
     both = [i for i in rows_a if i in rows_b]
     for label, ids in (
         ("better (failed in A, passed in B)", [i for i in both if rows_b[i]["passed"] > rows_a[i]["passed"]]),
@@ -1651,6 +1712,58 @@ def run(
     return results
 
 
+def _without_demo(argv: Sequence[str]) -> list[str]:
+    """argv with --demo taken out, and --part retrieval added when no part is named, for the run inside the demo."""
+    out = [a for a in argv if a != "--demo"]
+    return out if any(a == "--part" or a.startswith("--part=") for a in out) else [*out, "--part", "retrieval"]
+
+
+def run_demo(argv: Sequence[str], labels: pathlib.Path | None) -> int:
+    """Scores retrieval on the made-up demo household instead of this install: seeds a new demo directory (its own
+    broker, and a vector worker for journal search) with the demo day DEMO_DAY, runs this tool there on `labels`
+    (DEMO_LABELS by default) with the rest of argv, and removes the directory. Ollama is the configured one, since
+    reading each question needs the model. The services' logs go to a file in the directory, kept only on failure."""
+    import shutil
+    import subprocess
+    import tempfile
+
+    from liberational.demo import cli as demo
+
+    root = pathlib.Path(tempfile.mkdtemp(prefix="measure-demo-"))
+    env = demo.environment(root, demo.PORT)
+    for key in ("PACK_OLLAMA_URL", "OLLAMA_URL", "OLLAMA_HOST"):
+        env.pop(key, None)
+        if key in os.environ:
+            env[key] = os.environ[key]
+    pathlib.Path(env["PACK_CONFIG"]).write_text(demo.CONFIG + DEMO_CONFIG)
+    log_path = root / "services.log"
+    status = 1
+    with log_path.open("wb") as log:
+        broker = demo.start_broker(root, env, log)
+        worker = None
+        try:
+            worker = demo.start_vector_worker(env, log)
+            seed = [sys.executable, "-m", "liberational.demo.cli", "--seed-here", "--wait-index"]
+            seed += ["--today", (DEMO_DAY + dt.timedelta(days=1)).isoformat()]
+            status = subprocess.run(seed, env=env, stdout=log, stderr=log).returncode
+            if status == 0:
+                command = [sys.executable, str(pathlib.Path(__file__).resolve()), *_without_demo(argv)]
+                command += ["--dir", str(labels or DEMO_LABELS), "--state-dir", env["PACK_PATHS_STATE"]]
+                status = subprocess.run(command, env=env).returncode
+        finally:
+            for process in (worker, broker):
+                if process is not None:
+                    demo.stop(process)
+            sock = pathlib.Path(env["CONTINUUM_SOCKET"])
+            if not sock.is_relative_to(root):
+                shutil.rmtree(sock.parent, ignore_errors=True)
+    if status == 0:
+        shutil.rmtree(root, ignore_errors=True)
+    else:
+        print(f"measure: the demo run failed; its directory and services.log are in {root}", file=sys.stderr)
+    return status
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--dir", help="label directory (default: paths.measurement)")
@@ -1678,6 +1791,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument(
         "--sweep", action="store_true", help="identification: precision and recall at thresholds from today's up"
     )
+    ap.add_argument(
+        "--demo",
+        action="store_true",
+        help="score retrieval on a new made-up demo household, with tests/data/measurement/demo's labels",
+    )
     a = ap.parse_args(argv)
     if not (math.isfinite(a.frame_window) and a.frame_window >= 0):
         ap.error("--frame-window must be a number of seconds, at least 0")
@@ -1703,6 +1821,12 @@ def main(argv: list[str] | None = None) -> int:
             print(f"measure: {e}", file=sys.stderr)
             return 2
         return 0
+    if a.demo:
+        if set(a.part or ()) - {"retrieval", "readings"}:
+            ap.error("--demo has a transcript and a journal only: use it with --part retrieval or readings")
+        if a.state_dir:
+            ap.error("--demo makes its own state: leave out --state-dir")
+        return run_demo(sys.argv[1:] if argv is None else argv, pathlib.Path(a.dir).resolve() if a.dir else None)
     directory = pathlib.Path(a.dir) if a.dir else cfg.path("paths.measurement")
     state = pathlib.Path(a.state_dir) if a.state_dir else cfg.path("paths.state")
     try:
