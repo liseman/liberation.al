@@ -260,10 +260,17 @@
 }
 
 /* The 3D view: a canvas that fills the panel's width, a little shorter than wide. */
+/* The 3D view and the row of our settings under it: as tall as the window has left (CloudView sets the height). */
+.cloudFrame {
+  display: flex;
+  flex-direction: column;
+  min-height: 360px;
+}
 .cloud {
   position: relative;
   width: 100%;
-  height: clamp(280px, 62vh, 640px);
+  flex: 1 1 auto;
+  min-height: 240px;
   border-radius: var(--mantine-radius-sm);
   overflow: hidden;
   background: var(--lib-card, transparent);

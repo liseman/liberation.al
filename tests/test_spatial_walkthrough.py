@@ -13,6 +13,7 @@ from types import SimpleNamespace
 import cv2
 import numpy as np
 import pytest
+from scipy.spatial.transform import Rotation
 
 import stray_fake
 from liberational import config as cfg
@@ -762,6 +763,35 @@ def test_a_stray_scanner_export_becomes_a_place_on_arkits_poses_and_lidar(tmp_pa
         assert len(frames) == did["frames"] >= W.MIN_FRAMES
         want = np.stack([upright[min(f // 5, 29)] for f in frames])[:, :3, :3]
         assert saved["c2w"][:, :3, :3] == pytest.approx(want, abs=1e-6), "upright cameras, whichever way it was held"
+
+
+def test_a_stray_walk_keeps_the_heights_arkit_recorded(tmp_path):
+    # The floor steps up 0.3 m halfway along: ARKit's heights are metric, so no prior may level them (#217).
+    walk = [stray_fake.upright_pose(0.5 + 0.05 * k) for k in range(60)]
+    for pose in walk[30:]:
+        pose[1, 3] += 0.3
+    W.run(tmp_path, stray_fake.write(tmp_path / "71de12f9", walk), poses_out=tmp_path / "poses.npz")
+    with np.load(tmp_path / "poses.npz") as saved:
+        heights = saved["arkit_c2w"][:, 1, 3]
+        assert heights.min() == pytest.approx(1.5) and heights.max() == pytest.approx(1.8)
+        assert saved["c2w"] == pytest.approx(saved["arkit_c2w"], abs=1e-6)
+
+
+def leaning(pitch_deg, roll_deg, height):
+    """A camera in `upright`'s y-down world, pitched up by `pitch_deg`, then rolled about its view axis, `height` up."""
+    pose = upright(0.3, 0.0, 0.0)
+    pitch = Rotation.from_euler("x", pitch_deg, degrees=True).as_matrix()
+    pose[:3, :3] = pose[:3, :3] @ pitch @ Rotation.from_euler("z", roll_deg, degrees=True).as_matrix()
+    pose[1, 3] = -height
+    return pose
+
+
+def test_a_walks_posture_tells_looking_down_from_leaning_sideways():
+    up = np.array([0.0, -1.0, 0.0])
+    looking_down = np.array([leaning(-15.0, 0.0, 1.4), leaning(-15.0, 0.0, 1.4), leaning(-15.0, 0.0, 1.6)])
+    assert W.posture(looking_down, up) == pytest.approx((15.0, 0.0, 0.18), abs=1e-6)  # 5th to 95th of 1.4, 1.4, 1.6
+    rolled = np.array([leaning(0.0, 10.0, 1.4)] * 3)
+    assert W.posture(rolled, up) == pytest.approx((10.0, 10.0, 0.0), abs=1e-6)
 
 
 def test_a_portrait_stray_export_saves_upright_frames(tmp_path):
