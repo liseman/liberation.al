@@ -1574,6 +1574,14 @@ The tier worker closes the file there, copies the uncommitted records (and their
 chunk file, and commits that as a chunk of its own. The old file keeps only what its chunk names, and the purge
 deals with it. If the new chunk is refused too, it is set aside as `.rejected`, as before.
 
+**When a camera's times step back.** Capture starts a network camera's clock fit over when the camera's timestamps
+run off it, and the frames that follow can be stamped seconds earlier than the ones before. A chunk's frame index
+is in time order across its parts, so the catalog would refuse the next part. The tier worker doesn't offer it: when
+the records since the last part start before the chunk's last committed frame, the flusher closes the chunk at the
+keyframe where the part was due, those records move to a chunk of their own (the same copy as above), and the
+keyframe opens the next chunk, so no frame is dropped waiting for one. B-frames don't trigger this: they reorder
+inside a GOP, and a part is cut only before a keyframe.
+
 **Purges, the archive, and age-outs** see closed files only, as before: the worker closes every open chunk (its
 last part) before it works on a purge, the AV1 archive waits an hour, and the video window ages out whole chunks 30
 days after their last part committed. A forget that cuts into a minute rewrites that one file without the cut

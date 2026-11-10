@@ -132,6 +132,7 @@ pack-phone-bridge = "liberational.phone.bridge:main"
 # Tools and CLIs
 pack-config = "liberational.config:main"
 pack-services = "liberational.services:main"
+pack-supervisor = "liberational.supervisor:main"
 pack-continuum-status = "liberational.continuum_status:main"
 pack-system = "liberational.system_packages:main"
 pack-camera-history = "liberational.vision.camera_history:main"
