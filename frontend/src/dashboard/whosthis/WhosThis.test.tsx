@@ -116,7 +116,7 @@ it('omits face groups without a ready picture instead of drawing blank naming ro
   expect(kara.querySelectorAll('img')).toHaveLength(1); // its newest picture
   expect(screen.queryByRole('listitem', { name: /^Face 77/ })).toBeNull();
   expect(screen.queryByRole('listitem', { name: /^Face 78/ })).toBeNull();
-  expect(screen.getByText('2 face groups have no showable picture.')).toBeVisible();
+  expect(screen.queryByText(/no showable picture/)).toBeNull(); // a group nobody can see isn't counted either
   expect(document.querySelector('img[src="/faces/unknown/77.jpg"]')).toBeNull();
 });
 
@@ -134,7 +134,6 @@ it('keeps the crop processing status without rendering a pending-only face group
   show();
   expect(await screen.findByText('Processing 3 detections in the background…')).toBeVisible();
   expect(screen.queryByRole('listitem', { name: /^Face 77/ })).toBeNull();
-  expect(screen.getByText('1 face group has no showable picture.')).toBeVisible();
   expect(screen.queryByText('Nobody is waiting for a name.')).toBeNull();
 });
 
@@ -485,8 +484,6 @@ describe("Who's this?", () => {
       }
       fireEvent.error(luca.querySelector('.who-shot img') as HTMLImageElement);
       expect(screen.queryByRole('listitem', { name: /^Face 6/ })).toBeNull();
-      expect(screen.getByText('1 face group has no showable picture.')).toBeVisible();
-      expect(screen.queryByText('Nobody is waiting for a name.')).toBeNull();
     } finally {
       vi.useRealTimers();
     }
@@ -496,7 +493,6 @@ describe("Who's this?", () => {
     });
     const restored = await row(/^Face 6/);
     fireEvent.load(restored.querySelector('.who-shot img') as HTMLImageElement);
-    expect(screen.queryByText('1 face group has no showable picture.')).toBeNull();
   });
 
   it('scrolls to itself when a link to #whos-this is followed, on opening and while Live stays open', async () => {

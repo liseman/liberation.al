@@ -416,6 +416,21 @@ def test_pet_photo_readiness_preserves_video_metadata_and_counts_each_track_once
     assert "video_status" not in b  # the cached metadata snapshot remains unchanged
 
 
+def test_a_pet_group_with_no_picture_left_is_not_listed_and_a_pending_one_is(tmp_path, monkeypatch):
+    from liberational.dashboard import context, photo_files, unnamed_groups
+
+    monkeypatch.setattr(context, "STATE", tmp_path)
+    jobs = face_shots.Pending(lambda key: face_shots.CropResult(False))  # the video to cut from is gone
+    monkeypatch.setattr(photo_files, "_crop_jobs", jobs)
+    gone = {"id": "dog:a", "sightings": [{"track_id": "a", "cam": "cam0", "start": 10, "end": 12}]}
+    queued = {"id": "dog:b", "sightings": [{"track_id": "b", "cam": "cam0", "start": 20, "end": 22}]}
+    view = unnamed_groups._ready_pet_view(200, {"groups": [gone], "seen": {}, "count": 1})[1]
+    assert ([g["id"] for g in view["groups"]], view["count"]) == (["dog:a"], 1)  # still being cut
+    assert jobs.one()
+    view = unnamed_groups._ready_pet_view(200, {"groups": [gone, queued], "seen": {}, "count": 2})[1]
+    assert ([g["id"] for g in view["groups"]], view["count"]) == (["dog:b"], 1)
+
+
 def test_pet_sighting_without_a_camera_gives_its_video_place_to_the_next_one(tmp_path, monkeypatch):
     from liberational.dashboard import context, photo_files, unnamed_groups
 
