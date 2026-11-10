@@ -32,7 +32,7 @@ from liberational.dashboard import (
 from liberational.people import face_shots, registry
 
 
-def test_the_faces_helpers_are_imported_before_the_first_people_request(monkeypatch):
+def test_the_faces_helpers_are_imported_before_the_first_people_request(monkeypatch, voice_quiet):
     # The first GET /people imported vision/faces.py and cv2 itself and waited 17 s after a start
     monkeypatch.delitem(sys.modules, "liberational.vision.faces", raising=False)
     monkeypatch.delattr(liberational.vision, "faces", raising=False)
@@ -450,7 +450,7 @@ def test_faces_import_is_low_priority_and_waits_for_voice_off_the_serving_thread
     "path, cache", [("/faces/unknown/groups", "_FACE_GROUPS"), ("/voices/unknown/groups", "_VOICE_GROUPS")]
 )
 @pytest.mark.parametrize("blocked", ["owner", "compute"])
-def test_cold_group_http_releases_the_read_slot_before_sources_finish(monkeypatch, path, cache, blocked):
+def test_cold_group_http_releases_the_read_slot_before_sources_finish(monkeypatch, voice_quiet, path, cache, blocked):
     entered, release = threading.Event(), threading.Event()
 
     def source():
