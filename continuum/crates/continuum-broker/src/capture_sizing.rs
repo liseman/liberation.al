@@ -307,7 +307,7 @@ pub fn plan(text: &str, baseline: &[SlotClass], mac: bool, budget: u64, ring_byt
 
 /// How many times the profile's headroom may be halved to fit a small `/dev/shm`: at 10 the Linux profile's 11 GB
 /// is under 20 MB, which a container's default 64 MB holds.
-pub const MAX_SHRINK: u32 = 10;
+pub const MAX_SHRINK: u32 = continuum_broker::tier0::MAX_SHRINK;
 /// The ring region is never shrunk below this: the memory log's and the demo's rings fit in it.
 const MIN_RING_BYTES: u64 = 1 << 20;
 
@@ -319,15 +319,6 @@ pub struct Fit {
     pub shrink: u32,
     /// The ring region the plan was laid out with: the caller's, or less when nothing captures and it was shrunk.
     pub ring_bytes: u64,
-}
-
-/// The profile's classes with each count halved `shrink` times, never below one slot: the sizes and their order
-/// stay, since a stream names its class by index.
-fn shrunk(baseline: &[SlotClass], shrink: u32) -> Vec<SlotClass> {
-    baseline
-        .iter()
-        .map(|class| SlotClass { size_bytes: class.size_bytes, count: (class.count >> shrink).max(1) })
-        .collect()
 }
 
 /// Whether the manifest has a device that captures: only then is the ring region (PCM, IMU) kept whole.
@@ -360,7 +351,7 @@ pub fn fit(
     let mut smallest = None;
     for shrink in 1..=MAX_SHRINK {
         let ring = if idle { (ring_bytes >> shrink).max(MIN_RING_BYTES.min(ring_bytes)) } else { ring_bytes };
-        let candidate = plan(text, &shrunk(baseline, shrink), mac, u64::MAX, ring)?;
+        let candidate = plan(text, &continuum_broker::tier0::halved(baseline, shrink), mac, u64::MAX, ring)?;
         if candidate.total_bytes <= room / 2 {
             return Ok(Fit { plan: candidate, shrink, ring_bytes: ring });
         }
@@ -685,7 +676,9 @@ mod fit_tests {
             assert_eq!(fit.shrink, shrink, "room {room}");
             assert!(fit.plan.total_bytes <= room / 2);
             // One step less would not have fit: it is the most headroom that does.
-            let larger = plan("", &shrunk(&linux(), shrink - 1), false, u64::MAX, RING >> (shrink - 1)).unwrap();
+            let larger =
+                plan("", &continuum_broker::tier0::halved(&linux(), shrink - 1), false, u64::MAX, RING >> (shrink - 1))
+                    .unwrap();
             assert!(larger.total_bytes > room / 2);
             // The classes keep their sizes and order (a stream names its class by index), and none is empty.
             assert_eq!(
@@ -713,7 +706,9 @@ mod fit_tests {
     #[test]
     fn more_than_half_but_within_shm_still_starts_on_the_smallest_headroom() {
         let text = "[[device]]\nname='cam'\nkind='camera'\nvideo={ring_seconds=1}";
-        let smallest = plan(text, &shrunk(&linux(), MAX_SHRINK), false, u64::MAX, RING).unwrap().total_bytes;
+        let smallest = plan(text, &continuum_broker::tier0::halved(&linux(), MAX_SHRINK), false, u64::MAX, RING)
+            .unwrap()
+            .total_bytes;
         let fit = fit(text, &linux(), false, DEFAULT_CAMERA_BYTES, RING, Some(smallest + 1)).unwrap();
         assert_eq!((fit.shrink, fit.plan.total_bytes), (MAX_SHRINK, smallest));
     }
