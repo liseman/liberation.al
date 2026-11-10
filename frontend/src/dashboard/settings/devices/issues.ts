@@ -21,7 +21,7 @@ export function useCameraStates() {
  *  page shell's. Reads the cache only; the badge never fetches. */
 function useSavedViews(): Readonly<Record<string, string>> {
   const { data } = useQuery<ConfigView>({ queryKey: CONFIG_KEY, enabled: false });
-  const row = data?.sections.flatMap(s => s.settings).find(r => r.key === 'vision.places');
+  const row = data?.sections.flatMap(s => s.settings).find(r => r.key === 'vision.camera_names');
   if (!row) return shell().views;
   return parsePlaces(Array.isArray(row.value) ? listText(row.value) : String(row.value ?? ''), shell().cams);
 }

@@ -175,7 +175,7 @@ def save(body: object, control: bool) -> tuple[int, dict[str, Any]]:
 
 def name_access_point(body: object, control: bool) -> tuple[int, dict[str, Any]]:
     """POST /device-access-point {mac, name}: name a Wi-Fi access point the router reports by MAC alone, for Known ›
-    Devices (devices.access_points in pack.toml, as camera names are in vision.places); an empty name clears it."""
+    Devices (devices.access_points in pack.toml, as camera names are in vision.camera_names); an empty name clears it."""
     if not control:
         return 403, {"ok": False, "error": "access points can only be named on this machine"}
     if not isinstance(body, dict):

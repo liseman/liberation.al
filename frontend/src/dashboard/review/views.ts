@@ -1,4 +1,4 @@
-// Each camera's lane label. The cameras are angles of one rig, named like "front camera" and "rear camera" (vision.places,
+// Each camera's lane label. The cameras are angles of one rig, named like "front camera" and "rear camera" (vision.camera_names,
 // #313, which the page shell carries as views); one with no name goes by its id.
 import { capitalize } from '../lib/format';
 import { shell } from '../shell';

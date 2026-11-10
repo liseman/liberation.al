@@ -69,7 +69,17 @@ path = "continuum/crates/continuum-*/tests/*/v1_*"
 reason = "generated test media: a tone and a synthetic B-frame clip"
 
 [[allow]]
+rule = "media-file"
+path = "docs/images/demo-*.png"
+reason = "the README's screenshots of demo mode (pack-demo, #17): made-up people, house, and journal, no real room or person"
+
+[[allow]]
 rule = "lan-ip"
 path = "config/devices.example.toml"
 match = '^192\.168\.1\.20$'
 reason = "the example network camera's address"
+
+[[allow]]
+rule = "media-file"
+path = "tools/asr_clips/*.ogg"
+reason = "synthetic speech from Kokoro's stock voices reading made-up sentences (tools/asr_clips/NOTICE.md); no real voice or recording"

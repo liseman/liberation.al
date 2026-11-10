@@ -72,10 +72,10 @@ QUALIFIERS = re.compile(
 
 def bare(phrase: str) -> str:
     """The phrase without time and camera qualifiers, or configured camera names said as cameras."""
-    from liberational.vision import places
+    from liberational.vision import views
 
     try:
-        phrase = places.configured_camera_mentions(phrase)[1]
+        phrase = views.configured_camera_mentions(phrase)[1]
     except Exception:
         pass
     return " ".join(QUALIFIERS.sub(" ", phrase).replace("?", " ").split())

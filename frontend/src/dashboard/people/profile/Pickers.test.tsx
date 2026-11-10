@@ -32,7 +32,7 @@ const UNNAMED: Unnamed = {
     {
       id: 'cam1@1793212400.00',
       cam: 'cam1',
-      place: 'rear camera',
+      camera_name: 'rear camera',
       start: t0 - 3600,
       end: t0 - 3570,
       duration_s: 30,

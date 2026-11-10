@@ -8,7 +8,7 @@ const item = (id: string, ts: number): HappeningItem => ({
   text: id,
   people: [],
   cam: null,
-  place: null,
+  camera_name: null,
 });
 
 describe("merging a poll of what's happening", () => {
