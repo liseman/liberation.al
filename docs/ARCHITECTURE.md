@@ -63,7 +63,7 @@ The code keeps two kinds of file apart (`config.py`, whose docstring is the full
 | The device manifest | `config/devices.toml` | `~/.config/liberational/devices.toml` |
 | State, logs, models, and the rest of `data/` | `data/` | `~/.local/share/liberational/` (`state/`, `logs/`, `models/`) |
 | Any other relative path in a setting (`.env.phone`) | Under the checkout | Beside `pack.toml` |
-| Programs: the `pack-*` commands and the interpreter | The bin directory of the environment the process runs in (`.venv/bin`) | The same rule |
+| Programs: the `pack-*` commands, the interpreter, and Continuum's daemons | The bin directory of the environment the process runs in (`.venv/bin`); `mise run continuum-release` links the daemons it builds there | The same rule |
 
 A process runs from a checkout when the package's directory is `src/liberational` beside a `pyproject.toml`; a wheel
 in site-packages isn't, and has no checkout. `PACK_ROOT` names a directory to use as a checkout's layout for the

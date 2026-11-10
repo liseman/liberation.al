@@ -5,6 +5,24 @@ This guide covers the current Continuum installation. Fresh setup is in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). The old genericize and v1 import
 procedures are retired. Do not run an old catch-up script against current data.
 
+## Continuum's daemons are found in the environment, not the checkout
+
+Nothing builds a path from the checkout to a program any more. `services/services.toml` names the daemons by
+command (`continuum-broker`, not `continuum/target/release/continuum-broker`), and they are found where the `pack-*`
+commands are: the bin directory of the environment the services run in. In a checkout that is `.venv/bin`, and
+`mise run continuum-release` now links the daemons there after it builds them.
+
+After the pull, and before anything starts or restarts a Continuum service, link the daemons already built (no
+build, a second or two):
+
+```sh
+mise run continuum-link
+```
+
+Run it again whenever `.venv` is made from scratch. A daemon's `--state-dir` and `--manifest` arguments are now
+whole paths (they were relative to the checkout); they name the same files, and nothing stored changes or is
+dropped.
+
 ## The manifest import and its `[vision]` keys are gone
 
 `continuum-capture --from-v1` is removed, and so are the settings it read: `vision.cams`, `vision.width`,

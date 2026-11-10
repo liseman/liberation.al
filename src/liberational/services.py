@@ -69,6 +69,7 @@ def selected() -> dict[str, Service]:
 
 
 _TEMPLATE = re.compile(r"\{([^}]+)\}")
+OURS = ("pack-", "continuum-")  # commands installed with the package, in its environment's bin directory
 
 
 def _expand(arg: str) -> str:
@@ -77,7 +78,11 @@ def _expand(arg: str) -> str:
         if key.startswith("env:"):
             _, var, default = (key.split(":", 2) + [""])[:3]
             return os.environ.get(var) or default
-        return str(cfg.get(key))
+        if key == "file:devices":
+            return str(cfg.devices_file())
+        value = str(cfg.get(key))
+        # A path is given whole, so it means the same wherever the service's working directory is.
+        return str(cfg.owner_file(value)) if value and (key.startswith("paths.") or key.endswith(".path")) else value
 
     return os.path.expanduser(_TEMPLATE.sub(sub, arg))
 
@@ -86,13 +91,7 @@ def argv(svc: Service, *, startup: bool = False, name: str = "") -> list[str]:
     """Absolute command line for a service. At startup, its wrappers too: a service with `log_relay = true` (a
     program we don't own) runs under log_relay, tagged with its name, so its lines carry the one log format."""
     cmd = svc["command"]
-    if cmd.startswith("pack-"):
-        exe = [str(cfg.program(cmd))]
-    elif "/" in cmd:
-        path = cfg.workdir() / cmd
-        exe = ["/bin/bash", str(path)] if path.suffix == ".sh" else [str(path)]
-    else:
-        exe = [shutil.which(cmd) or cmd]
+    exe = [str(cfg.program(cmd))] if cmd.startswith(OURS) else [shutil.which(cmd) or cmd]
     if startup and svc.get("fresh_config"):
         command = [
             sys.executable,
@@ -1053,9 +1052,9 @@ def _commands() -> tuple[dict[str, str], dict[str, str]]:
         cmd = svc["command"]
         if cmd.startswith("pack-"):
             by_name[cmd] = name
-        elif "/" in cmd:
-            by_path[str(cfg.workdir() / cmd)] = name
-            by_path[str((cfg.workdir() / cmd).resolve())] = name
+        elif cmd.startswith(OURS):
+            by_path[str(cfg.program(cmd))] = name
+            by_path[str(cfg.program(cmd).resolve())] = name  # a checkout links it there from its release build
     return by_name, by_path
 
 
