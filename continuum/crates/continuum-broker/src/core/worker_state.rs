@@ -1,4 +1,4 @@
-//! Worker checkpoints as one keyed catalog row (#1547): saves and deletes go through the writer, which checks the
+//! Worker checkpoints as one keyed catalog row: saves and deletes go through the writer, which checks the
 //! inputs' revisions in the same transaction that stores the row; loads are read on the reader pool.
 
 use continuum_core::schema::continuum::ErrorCode;

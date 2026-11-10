@@ -99,15 +99,11 @@ export function planOutline(planText: string, transform: readonly number[], lift
   return floorplan(doc).model.rooms.map(r => (r.room.poly as [number, number][]).map(([x, y]) => toMap([x, y, lift])));
 }
 
-/** The largest rectangle of `aspect` (width over height) centred in a `width` x `height` view: where a fixed camera's
- *  own frame is drawn when the view looks from it (#2877), with bars beside or above it, so nothing the camera never
- *  saw is drawn. */
-export function letterbox(
-  width: number,
-  height: number,
-  aspect: number,
-): { x: number; y: number; w: number; h: number } {
-  const w = Math.min(width, height * aspect);
-  const h = w / aspect;
-  return { x: (width - w) / 2, y: (height - h) / 2, w, h };
+/** The vertical field of view (degrees) that fills a view of `aspect` (width over height) with a fixed camera's own
+ *  frame (`width` x `height` pixels at `focal`): its frame covers the view, cropped to the view's shape, so the view
+ *  is filled and shows nothing past the frame's edges, nothing the camera never saw (#2877, #42). A view wider than
+ *  the frame keeps its full width, a taller one its full height. */
+export function coverFov(width: number, height: number, focal: number, aspect: number): number {
+  const halfTan = Math.min(height, width / aspect) / 2 / focal;
+  return (2 * Math.atan(halfTan) * 180) / Math.PI;
 }

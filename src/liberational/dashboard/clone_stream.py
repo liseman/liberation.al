@@ -1,4 +1,4 @@
-"""The dashboard's clone speech, streamed from the voice service's warm model (issue #333).
+"""The dashboard's clone speech, streamed from the voice service's warm model.
 
 POST /clones/say used to run clone_say.py in a new process for every line, which loaded the ~1.5 GB model each time
 (about 20 s). Now, when the voice service is running with its clone model (speech/clone_server.py), the line is made
@@ -8,8 +8,8 @@ length, so the browser starts playing at once; when it's done the file is writte
 voice service, or for a voice whose reference clip still has to be built, the old process runs instead.
 
 The stream is 32-bit float at twice the model's rate (48 kHz), not the file's 16-bit 24 kHz: Chrome starts playing a
-stream once it has about 200 KB, whatever its format. Measured on devbox with audio arriving like the warm model's
-(first half second at 1.5 s, then twice real time), playback started at 3.8 s for 16-bit 24 kHz, 2.7 s for float
+stream once it has about 200 KB, whatever its format. Measured on the Linux machine with audio arriving like the warm
+model's (first half second at 1.5 s, then twice real time), playback started at 3.8 s for 16-bit 24 kHz, 2.7 s for float
 24 kHz, and 2.1 s for float 48 kHz. Safari is sent the finished file instead (it doesn't play an open-length WAV).
 
 The browser can't tell how long an open-length line is, so the playback window (speech/playback_guard.py, which makes

@@ -1,4 +1,4 @@
-//! Worker checkpoints as one keyed row per worker (#1547).
+//! Worker checkpoints as one keyed row per worker.
 //!
 //! A durable worker's newest snapshot lives in `WORKER_STATE`, keyed by its owner and contract, and a save overwrites
 //! that row in place. Before, each save wrote a manifest and a few dozen parts as payloads and a trim purged the old

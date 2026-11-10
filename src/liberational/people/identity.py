@@ -1,4 +1,4 @@
-"""Identity linking on Continuum (#550 part A, #776): learn people's names the way humans do (fully local, no face
+"""Identity linking on Continuum: learn people's names the way humans do (fully local, no face
 search).
 
 The worker (`pack-identity`) follows the broker's streams and names what they show:
@@ -21,8 +21,7 @@ An unknown person is a face group: the face worker gives every unnamed face a st
 group (`faces.name_cluster`) enrolls its face under the name, so the face worker recognizes the person from then on,
 and claims the group in the event log (people/registry.py) with the record's basis; the detections seen in the
 introduction's window are claimed too (`registry.detection`), so a reader asking `person_of` about one of them is
-answered. A voice is named by a claim on its voiceprint in the event log (the only record of a voice's name, issue
-#30).
+answered. A voice is named by a claim on its voiceprint in the event log (the only record of a voice's name).
 
 A tag can carry a role and an organization ("that's Alice, CEO of Acme"), parsed by fixed rules in people/tags.py
 (step 6 of docs/DOMAIN-MODEL.md). They are kept on the record as "attributes" and given to the person in the event
@@ -121,7 +120,7 @@ class Paths:
 
 # ---------------------------------------------------------------- records ----
 class Records:
-    """The identity records in the knowledge store (`identity.record`, outside the broker's reset; #1755): one
+    """The identity records in the knowledge store (`identity.record`, outside the broker's reset): one
     record per version, keyed by the record's id, the latest per id winning, as v1's identity.jsonl lines did. These
     are the same records `pack-knowledge import` writes from the broker's old stream."""
 
@@ -166,7 +165,7 @@ def face_group_of(match: dict[str, Any]) -> int | None:
     """The unknown face group a `face.match` record joined ("Face N" -> N), or None for a named face."""
     from liberational.vision import face_rejects
 
-    if match.get("name") or str(match.get("id")) in face_rejects.rejected():  # rejected from its group (#2008)
+    if match.get("name") or str(match.get("id")) in face_rejects.rejected():  # rejected from its group
         return None
     m = FACE_GROUP.fullmatch(str(match.get("cluster") or ""))
     return int(m.group(1)) if m else None
@@ -459,7 +458,7 @@ def ollama_chat(model: str, messages: list[dict[str, Any]], timeout: float = 30,
                 "truncate": False,
                 **extra,
             },
-        )  # num_ctx on EVERY model: the VLM without it loads at 262k (24 GB) and evicts the agent brain (2026-10-22 14:05)
+        )  # num_ctx on EVERY model: the VLM without it loads at 262k (24 GB) and evicts the agent brain
         r.raise_for_status()
     out = r.json()["message"]["content"]
     return re.sub(r"<think>.*?</think>\s*", "", out, flags=re.S).strip()
@@ -506,7 +505,7 @@ def llm_confirm(
             "raw": json.dumps({k: d.get(k) for k in ("intro", "name", "named_thing", "reason")})[:300],
         }
     except ollama_health.Unavailable:
-        return None  # logged once by ollama_health (#221)
+        return None  # logged once by ollama_health
     except Exception as e:
         log(f"llm confirm failed: {e}", level=logs.WARN)
         return None
@@ -806,7 +805,7 @@ class Identity:
             asyncio.create_task(self._follow_speech(work, acked, stop)),
             asyncio.create_task(self._follow_faces(work, stop)),
         ]
-        # Lines heard from a TV while one is on, marked by ear (listen/media_tag.py, #2468), on a thread of its own.
+        # Lines heard from a TV while one is on, marked by ear (listen/media_tag.py), on a thread of its own.
         from liberational.listen import media_tag
 
         tagging = threading.Event()
@@ -910,7 +909,7 @@ class Identity:
                 await asyncio.sleep(POLL_S)
 
     async def _follow_faces(self, work: queue.Queue[tuple[str, Any] | None], stop: asyncio.Event) -> None:
-        """Face matches from now, from the segment store (see-actions' head faces, #1738); sightings are a short
+        """Face matches from now, from the segment store (see-actions' head faces); sightings are a short
         memory, so nothing is replayed."""
         while not stop.is_set():
             try:

@@ -400,7 +400,7 @@ def rig(monkeypatch):
     from liberational.vision import views
 
     monkeypatch.setattr(views, "camera_ids", lambda active_only=False: ["cam0", "cam1"])
-    monkeypatch.setattr(views, "names", lambda: {"cam1": "desk"})
+    monkeypatch.setattr(views, "names", lambda: {"cam1": "side camera"})
 
 
 def test_live_here_now_names_a_labeled_pet_in_view_with_its_camera_and_when_its_visit_began(animal_store, rig):
@@ -413,7 +413,7 @@ def test_live_here_now_names_a_labeled_pet_in_view_with_its_camera_and_when_its_
         animal(animal_store, t, cam="cam1")
     animal(animal_store, T0 - 6, track="run:cat:9")  # a stranger on the other camera
     assert routes.here(animal_store, now=T0) == {
-        mia["id"]: {"cam": "cam1", "place": "desk", "since": T0 - 100, "track": "run:cat:1"}
+        mia["id"]: {"cam": "cam1", "camera_name": "side camera", "since": T0 - 100, "track": "run:cat:1"}
     }
 
 

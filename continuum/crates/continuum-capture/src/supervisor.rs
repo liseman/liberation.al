@@ -16,7 +16,7 @@
 //! - A device that goes has its worker stopped and is not restarted, unless it comes back before the worker has
 //!   exited (a USB re-enumeration): then it's started again once the old worker is gone.
 //! - A manifest entry gets one worker at a time, whatever hotplug lists (a camera's metadata node, a second alias).
-//! - A paused device (#2260) has no worker: pausing stops its worker, and while paused it waits without opening.
+//! - A paused device has no worker: pausing stops its worker, and while paused it waits without opening.
 //!   Resuming starts it again right away, with the open token as usual.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -728,7 +728,7 @@ mod tests {
 
     #[test]
     fn a_network_camera_that_records_then_drops_restarts_at_the_first_step_each_time() {
-        // #2904: driveway and patio reconnected 45 times an hour, each run 30 to 60 s, and every restart waited 60 s.
+        // Driveway and patio reconnected 45 times an hour, each run 30 to 60 s, and every restart waited 60 s.
         let manifest = Manifest::parse(
             r#"
             [[device]]

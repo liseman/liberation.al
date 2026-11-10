@@ -45,6 +45,7 @@ def as_table(scan):
 @pytest.fixture(autouse=True)
 def no_saved_scan(monkeypatch):
     monkeypatch.setattr(s, "_scan", {"at": None, "pids": {}, "running": False, "thread": None}, raising=False)
+    monkeypatch.setattr(s, "_manager", {"at": None, "states": {}, "runs": {}})
 
 
 def test_processes_match_pack_commands_by_basename(monkeypatch):
@@ -297,6 +298,44 @@ def test_snapshot_lists_this_platform_with_selection_and_state(monkeypatch):
         None,
         None,
     )  # listen restarted 30 s ago: a crash loop's error shows
+
+
+@pytest.fixture
+def manager(monkeypatch):
+    """A service manager that counts how often it's asked, with one service that started 30 s before each answer."""
+    asked = {"states": 0, "runs": 0}
+
+    def states():
+        asked["states"] += 1
+        return {"listen": "active"}
+
+    def runs():
+        asked["runs"] += 1
+        return {"listen": {"restarts": 0, "up_s": 30.0, "run_id": "systemd:0:1:x"}}
+
+    monkeypatch.setattr(s, "states", states)
+    monkeypatch.setattr(s, "runs", runs)
+    monkeypatch.setattr(s, "processes", lambda fresh=False, **kw: {})
+    monkeypatch.setattr(s, "last_error", lambda *a, **kw: None)
+    return asked
+
+
+def test_polls_close_together_share_one_answer_from_the_service_manager(manager):
+    first = {r["name"]: r for r in s.snapshot()}
+    second = {r["name"]: r for r in s.snapshot()}
+    assert manager == {"states": 1, "runs": 1}
+    assert (first["listen"]["state"], second["listen"]["state"]) == ("active", "active")
+    assert first["listen"]["up_s"] == 30.0
+    assert 30.0 < second["listen"]["up_s"] < 35.0, "a reused answer's run has lasted that much longer"
+
+
+def test_an_action_s_reply_and_a_poll_after_the_wait_ask_the_service_manager_again(manager, monkeypatch):
+    s.snapshot()
+    s.snapshot(fresh=True)
+    assert manager == {"states": 2, "runs": 2}
+    monkeypatch.setattr(s, "MANAGER_TTL_S", 0.0)
+    s.snapshot()
+    assert manager == {"states": 3, "runs": 3}
 
 
 SNAPSHOT = [

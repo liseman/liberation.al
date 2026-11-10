@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
-# Before git commits a merge that had no conflicts: refuse it if it would bring in conflict markers (#566). A merge
+# Before git commits a merge that had no conflicts: refuse it if it would bring in conflict markers. A merge
 # that had conflicts is finished with git commit, which runs pre-commit instead. Turned on by `mise run hooks`.
 exec "$(dirname "$0")/check-conflict-markers" pre-merge-commit

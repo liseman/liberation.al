@@ -182,7 +182,7 @@ def _number(value: Any, name: str, *, positive: bool = False, signed: bool = Fal
 
 
 def _wait_summary(row: Mapping[str, Any], hz: float, elapsed: float) -> dict[str, Any] | str:
-    """Top wait sites and per-thread wakeup rates; captures from before #3180 have no wait table."""
+    """Top wait sites and per-thread wakeup rates; older captures without wait_sites have no wait table."""
     sites = row.get("wait_sites")
     if sites is None:
         return "unavailable"

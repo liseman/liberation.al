@@ -6,7 +6,19 @@ import uuid
 from collections.abc import Iterable, Sequence
 from typing import Any
 
+import numpy as np
+
 from liberational import segment_log, vision_log
+
+_DTYPES = {
+    "i64": np.int64,
+    "i32": np.int32,
+    "i16": np.int16,
+    "u8": np.uint8,
+    "f32": np.float32,
+    "f64": np.float64,
+    "bool": np.bool_,
+}
 
 
 def _uuid7(ts: float, n: int) -> str:
@@ -193,6 +205,37 @@ class FakeVisionLog:
             and (cameras is None or r.get("cam") in cameras)
         ]
         return sorted(found, key=lambda r: (r["ts_start"], r["id"]))
+
+    def table(
+        self, stream: str, start: float, end: float, names: Sequence[str], cameras: Sequence[str] | None = None
+    ) -> dict[str, dict[str, Any]]:
+        """As `segment_log.Log.table`: the window's columns by camera, typed as the store types them."""
+        spec = segment_log.STREAMS[stream]
+        kinds = dict(spec.schema)
+        by_cam: dict[str, list[dict[str, Any]]] = {}
+        for r in self.range(stream, start, end, cameras):
+            by_cam.setdefault(r["cam"], []).append(spec.to_row(r))
+        return {
+            cam: {
+                name: [row[name] for row in rows]
+                if kinds[name].startswith("str") or kinds[name].endswith("[]")
+                else np.asarray([row[name] for row in rows], dtype=_DTYPES[kinds[name].split("[")[0]])
+                for name in names
+            }
+            for cam, rows in by_cam.items()
+        }
+
+    def covered(
+        self,
+        stream: str,
+        start: float,
+        end: float,
+        cameras: Sequence[str] | None = None,
+        *,
+        join_s: float = 0.0,
+        instants: bool = False,
+    ) -> dict[str, segment_log.Covered]:
+        return segment_log.Log.covered(self, stream, start, end, cameras, join_s=join_s, instants=instants)  # ty: ignore[invalid-argument-type]  # the real join, over this log's table
 
     def captions(self, start: float, end: float, cams: Iterable[str] = ()) -> list[dict[str, Any]]:
         wanted = set(cams)

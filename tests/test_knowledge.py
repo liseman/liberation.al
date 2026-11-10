@@ -200,6 +200,46 @@ def test_subject_key_collection_and_position_filters_compose_without_duplicates(
     assert store.collections(prefix="fac") == ["facts"]
 
 
+@pytest.fixture
+def statements(monkeypatch):
+    seen = []
+    connect = sqlite3.connect
+
+    def traced(*args, **kwargs):
+        db = connect(*args, **kwargs)
+        db.set_trace_callback(seen.append)
+        return db
+
+    monkeypatch.setattr(sqlite3, "connect", traced)
+    return seen
+
+
+def test_a_thousand_row_query_reads_subjects_in_a_constant_number_of_statements(statements, tmp_path):
+    store = Store(tmp_path / "knowledge.sqlite3")  # opened after the trace is installed
+    store.put(
+        [record("lone", subjects=())]
+        + [record(f"r{i:04}", subjects=("zed", f"pet{i % 3}", "alice")) for i in range(1000)]
+    )
+    store.query("notes", limit=1)
+    statements.clear()
+    one = store.query("notes", limit=1)
+    small = len(statements)
+    statements.clear()
+    rows = store.query("notes")
+    assert 0 < len(statements) == small
+    assert one[0].record.subjects == ()
+    assert len(rows) == 1001
+    assert rows[1].record.subjects == ("alice", "pet0", "zed")
+    assert rows[1000].record == record("r0999", subjects=("alice", "pet0", "zed"))
+
+
+def test_get_snapshot_and_a_subject_filter_return_every_subject_of_each_record(store):
+    store.put([record("one", subjects=("dana", "alice")), record("two", subjects=())])
+    assert store.get("one").record.subjects == ("alice", "dana")
+    assert [s.record.subjects for s in store.snapshot().records] == [("alice", "dana"), ()]
+    assert [s.record.subjects for s in store.query("notes", subjects=("dana",))] == [("alice", "dana")]
+
+
 def test_erasure_changes_survive_reopen_and_ids_cannot_resurrect(store):
     (position,) = store.put([record()])
     assert store.remove(["one"]) == 1

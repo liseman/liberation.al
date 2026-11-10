@@ -32,8 +32,11 @@ def none_load(_name, _platform):
 
 def test_the_declared_packages_load_and_name_real_services():
     packages = system_packages.load()
+    by_name = {p.name: p for p in packages}
     declared = set(tomllib.loads((cfg.ROOT / "services" / "services.toml").read_text()))
-    assert {p.name for p in packages} >= {"sox", "espeak-ng", "portaudio", "ffmpeg", "ffprobe"}
+    assert set(by_name) >= {"sox", "espeak-ng", "portaudio", "ffmpeg", "ffprobe", "pkg-config", "python3"}
+    for required in ("pkg-config", "python3", "libavcodec-dev", "libpipewire"):
+        assert not by_name[required].optional, required
     for p in packages:
         assert set(p.services) <= declared, p.name
 

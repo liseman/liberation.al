@@ -1,4 +1,4 @@
-//! A durable worker's checkpoint as one keyed row in the broker's catalog (#1547): [`Client::save_worker_state`],
+//! A durable worker's checkpoint as one keyed row in the broker's catalog: [`Client::save_worker_state`],
 //! [`Client::load_worker_state`], and [`Client::forget_worker_state`]. They need broker schema minor
 //! [`WORKER_STATE_SCHEMA_MINOR`].
 

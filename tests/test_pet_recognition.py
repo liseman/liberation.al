@@ -1,6 +1,8 @@
 """Telling pets apart (people/pet_recognition.py): sightings, groups, owner labels, and the held-out check that
 keeps recognition off until the labels show it works."""
 
+from unittest.mock import create_autospec
+
 import numpy as np
 import pytest
 from hypothesis import given, settings
@@ -198,6 +200,65 @@ def test_labeling_groups_turns_recognition_on_and_names_new_sightings(log):
     rows = {s["track_id"]: s for g in after["groups"] for s in g["sightings"]}
     assert (rows["m-new"]["recognized"]["label"], rows["p-new"]["recognized"]["label"]) == (MIA, POPPY)
     assert "recognized" not in rows["dog"] and "suggestion" not in rows["dog"], "no dog labels to compare with"
+
+
+def labeled_cats(state, now):
+    R.label(state, [f"m{k}" for k in range(4)], MIA, PETS, now=now)
+    R.label(state, [f"p{k}" for k in range(4)], POPPY, PETS, now=now + 1)
+
+
+def test_a_read_with_no_new_label_runs_no_check_and_a_new_label_runs_them_again(log, monkeypatch):
+    now = T + 30000
+    labeled_cats(log.state, now)
+    held_out = create_autospec(R.held_out, side_effect=R.held_out)
+    monkeypatch.setattr(R, "held_out", held_out)
+    first = R.view(log.state, PETS, now=now + 2)
+    assert [c.args[1] for c in held_out.call_args_list] == ["cat", "dog"]
+    again = R.view(log.state, PETS, now=now + 3)
+    assert held_out.call_count == 2, "nothing was labeled since: the kept checks answer"
+    assert again["recognition"] == first["recognition"]
+    R.label(log.state, ["m-new"], MIA, PETS, now=now + 4)
+    after = R.view(log.state, PETS, now=now + 5)
+    assert [c.args[1] for c in held_out.call_args_list] == ["cat", "dog", "cat", "dog"]
+    (cat,) = [c for c in after["recognition"] if c["species"] == "cat"]
+    assert (first["recognition"][0]["labeled"], cat["labeled"]) == (8, 9)
+
+
+def test_a_labeled_track_s_new_embedding_runs_its_species_check_again(log, monkeypatch):
+    now = T + 30000
+    labeled_cats(log.state, now)
+    held_out = create_autospec(R.held_out, side_effect=R.held_out)
+    monkeypatch.setattr(R, "held_out", held_out)
+    R.view(log.state, PETS, now=now + 2)
+    store(log.state, [row("m3", 0, 30, T + 3 * 3600 + 5)])  # Mia's last labeled visit, seen a little longer
+    R.view(log.state, PETS, now=now + 3)
+    assert [c.args[1] for c in held_out.call_args_list] == ["cat", "dog", "cat"], "the dog's inputs did not change"
+
+
+def polled(state):
+    return {s["track_id"] for g in R.view(state, PETS)["groups"] for s in g["sightings"]}
+
+
+def test_a_poll_gets_the_kept_answer_until_a_label_or_a_new_sighting_changes_it(log, monkeypatch):
+    now = T + 30000
+    monkeypatch.setattr(R.time, "time", lambda: now)
+    first = R.view(log.state, PETS)
+    assert R.view(log.state, PETS) is first
+    assert polled(log.state) >= {"m-new", "p-new"}
+    R.label(log.state, ["m-new"], MIA, PETS, now=now)
+    assert "m-new" not in polled(log.state)
+    store(log.state, [row("m-later", 0, 31, T + 25000)])
+    assert "m-later" in polled(log.state)
+    renamed = R.view(log.state, [{**PETS[0], "name": "Mittens"}, PETS[1]])
+    assert renamed["names"][MIA] == "Mittens"
+
+
+def test_a_kept_answer_is_given_again_only_for_a_while(log, monkeypatch):
+    monkeypatch.setattr(R.time, "time", lambda: T + 30000)
+    monkeypatch.setattr(R, "VIEW_TTL_S", 0.0)  # its label_days cutoff moves with time, so it's worked out again
+    first = R.view(log.state, PETS)
+    again = R.view(log.state, PETS)
+    assert again is not first and again == first
 
 
 def test_until_the_check_passes_a_match_is_only_a_suggestion(log):

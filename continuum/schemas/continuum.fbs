@@ -1,5 +1,5 @@
-// Continuum Broker schema: ids, enums, the payload header and its provenance, and storage locators (Phase 1, #530),
-// then the control plane: the ControlEnvelope and every message in its ControlPayload union (#542).
+// Continuum Broker schema: ids, enums, the payload header and its provenance, and storage locators (Phase 1),
+// then the control plane: the ControlEnvelope and every message in its ControlPayload union.
 //
 // Follows docs/CONTINUUM.md ("Envelope and provenance", "Request flows", and "Schema notes for Phase 1"). Tables and
 // the union only grow at the end: appending is compatible, reordering or removing isn't.
@@ -214,7 +214,7 @@ table StorageLocator {
   location: Location;
 }
 
-// ---- Control plane (#542): the ControlEnvelope and every message in docs/CONTINUUM.md "Request flows" ----
+// ---- Control plane: the ControlEnvelope and every message in docs/CONTINUUM.md "Request flows" ----
 //
 // One length-prefixed ControlEnvelope at a time over the broker's Unix socket. A reply carries its request's
 // request_id; a message the broker sends on its own (a dispatch, a preemption, a stream event) uses request_id 0.
@@ -420,7 +420,7 @@ table WorkerRegistered {
 
 // ---- Ingest ----
 
-/// A derived payload's dependency on a stretch of a stream (minor 31, #1535): a purge that removes anything on that
+/// A derived payload's dependency on a stretch of a stream (minor 31): a purge that removes anything on that
 /// stream overlapping range (a payload, or frames cut from a chunk) takes the dependent too, and what derives from it;
 /// an age-out doesn't. revision is the stream's invalidation revision the producer read before checking what it used:
 /// the broker refuses the notice (Conflict) if it moved since, so a purge in between can't be missed.
@@ -863,7 +863,7 @@ table StreamDesc {
   live: bool;
   /// Monotone deletion revision; absent when the broker cannot provide it.
   invalidation_revision: ulong = null;
-  /// The invalidation revision as the stream's last forget (any change but an age-out's) left it (minor 33, #1587).
+  /// The invalidation revision as the stream's last forget (any change but an age-out's) left it (minor 33).
   /// A dependency or worker state read at any revision from this through invalidation_revision is still good.
   forget_revision: ulong = null;
 }
@@ -1061,7 +1061,7 @@ table WorkerStateInput {
   revision: ulong;
 }
 
-/// A durable worker's checkpoint (minor 32, #1547), stored in place of its last one: one row per (owner, contract).
+/// A durable worker's checkpoint (minor 32), stored in place of its last one: one row per (owner, contract).
 /// Kept only if every input's revision still equals the one given, checked in the write that stores it; refused with
 /// Conflict when one has moved or an input isn't registered, BadRequest when out of bounds (inputs sorted, unique,
 /// 1 to 64; a body of at most 8 MiB). A purge that later advances one of the inputs' revisions deletes the row in its
@@ -1188,7 +1188,7 @@ table RetentionList {
   index_ready: bool;
 }
 
-// ---- Source identity (#1394), schema minor 26: which chunk holds each raw frame a producer observed, so an
+// ---- Source identity, schema minor 26: which chunk holds each raw frame a producer observed, so an
 // analysis receipt can name its actual inputs rather than whatever shares its time span. ----
 
 enum FrameState: ubyte {
@@ -1225,7 +1225,7 @@ table FramesResolved {
   frames: [ResolvedFrame];
 }
 
-// ---- Recording applicability (#1408), schema minor 28. Minor27 is capture provenance; these variants
+// ---- Recording applicability, schema minor 28. Minor27 is capture provenance; these variants
 // append after it without adding authority to a generic age-out. Original inputs still need analysis receipts.
 table RecordingInput {
   /// Immutable original temporal key; never a claim of continuous coverage.
@@ -1364,7 +1364,7 @@ union ControlPayload {
   ForgottenList
 }
 
-// ---- Tier 1 chunks (#552): the tier worker hands each chunk it closes, or rewrote after a purge, to the broker,
+// ---- Tier 1 chunks: the tier worker hands each chunk it closes, or rewrote after a purge, to the broker,
 // which commits it to the catalog (the worker never holds the catalog) and records the Tier 1 copy. ----
 
 /// One frame of a chunk: where its bytes are in the chunk, and whether a purge cut it (the place is kept, so frame

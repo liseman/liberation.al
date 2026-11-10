@@ -1304,16 +1304,29 @@ def test_each_run_places_only_what_came_since_the_last(tmp_path, vision):
     assert [p.t for p in P.positions(tmp_path, T - 1, T + 200, place=place)] == [T, T + 100]
 
 
+def failing_save(monkeypatch, nth):
+    """`P._save_marks` failing on its `nth` call from now, as a full disk would; returns a function that mends it."""
+    save, calls = P._save_marks, []
+
+    def flaky(state, marks):
+        calls.append(marks)
+        if len(calls) == nth:
+            raise OSError("no space left on device")
+        save(state, marks)
+
+    monkeypatch.setattr(P, "_save_marks", flaky)
+    return lambda: monkeypatch.setattr(P, "_save_marks", save)
+
+
 def test_a_piece_that_failed_after_its_rows_were_written_isnt_kept_twice(tmp_path, vision, monkeypatch):
     place = home(tmp_path)
     foot(vision, T - 50)
     P.advance(tmp_path, T - 10, chunk_s=P.BACKFILL_S)
     foot(vision, T)
-    save = P._save_marks
-    monkeypatch.setattr(P, "_save_marks", lambda *a: pytest.fail("the disk filled before the mark moved"))
-    with pytest.raises(pytest.fail.Exception):
+    mend = failing_save(monkeypatch, 2)  # the first save is of the registration checked; the second moves the mark
+    with pytest.raises(OSError, match="no space"):
         P.advance(tmp_path, T + 60, chunk_s=P.BACKFILL_S)
-    monkeypatch.setattr(P, "_save_marks", save)
+    mend()
     P.advance(tmp_path, T + 60, chunk_s=P.BACKFILL_S)
     assert [p.t for p in P.positions(tmp_path, T - 100, T + 200, place=place)] == [T - 50, T]
 
@@ -1427,10 +1440,90 @@ def test_a_reset_has_the_placer_place_everything_again_once(tmp_path, vision):
     foot(vision, T)
     P.advance(tmp_path, T + 60, chunk_s=P.BACKFILL_S)
     P.write(tmp_path, [record(T + 1, place)])  # the rig's own record: nothing can make it again
-    P.reset(tmp_path)
+    assert P.reset(tmp_path) == 1
     assert [p.source for p in P.positions(tmp_path, T - 1, T + 5, place=place)] == [P.RIG_POSE]
     P.advance(tmp_path, T + 60, chunk_s=P.BACKFILL_S)
     assert [p.source for p in P.positions(tmp_path, T - 1, T + 5, place=place)] == [P.FIXED_CAMERA, P.RIG_POSE]
+
+
+def registered_again(tmp_path, place, dx, at):
+    """`place`'s camera registered again `dx` metres along x from where LEVEL has it."""
+    cam = places.CameraPose(LEVEL.pose[:3] + (LEVEL.pose[3] + dx,) + LEVEL.pose[4:], 144.0, 512, 288, at)
+    return places.revise(tmp_path, place, producer="test", cameras={"cam0": cam}, now=at)
+
+
+def test_a_path_that_spans_a_re_registration_is_placed_again_in_one_frame(tmp_path, vision):
+    place = home(tmp_path)
+    foot(vision, T, v=0.75)  # the feet's plane 3.86 m ahead of the camera, which stands at x = 1
+    P.advance(tmp_path, T + 60, chunk_s=P.BACKFILL_S)
+    assert [(p.x, p.y) for p in P.positions(tmp_path, T - 1, T + 200, place=place)] == [(1.0, 3.86)]
+    newest = registered_again(tmp_path, place, 1.0, T + 80)  # the camera was a metre further along x all along
+    foot(vision, T + 100, v=0.75)
+    assert P.advance(tmp_path, T + 160, chunk_s=P.BACKFILL_S)["replaced"] == 1
+    got = P.positions(tmp_path, T - 1, T + 200, place=place, frame_revision=newest.id)
+    assert [(p.t - T, p.x, p.y, p.revision, p.in_frame) for p in got] == [
+        (0, 2.0, 3.86, newest.id, True),
+        (100, 2.0, 3.86, newest.id, True),
+    ]
+
+
+@pytest.mark.parametrize("dx", [0.0, 0.1], ids=["carried-over-as-it-was", "a-refit-of-centimetres"])
+def test_a_registration_that_puts_people_where_it_did_leaves_the_records_alone(tmp_path, vision, dx):
+    place = home(tmp_path)
+    foot(vision, T, v=0.75)
+    P.advance(tmp_path, T + 60, chunk_s=P.BACKFILL_S)
+    registered_again(tmp_path, place, dx, T + 80)
+    did = P.advance(tmp_path, T + 160, chunk_s=P.BACKFILL_S)
+    assert (did["replaced"], did["records"]) == (0, 0)
+    assert [(p.x, p.y) for p in P.positions(tmp_path, T - 1, T + 200, place=place)] == [(1.0, 3.86)]
+
+
+def test_refits_that_add_up_to_a_move_have_the_place_placed_again(tmp_path, vision):
+    place = home(tmp_path)
+    foot(vision, T, v=0.75)
+    P.advance(tmp_path, T + 60, chunk_s=P.BACKFILL_S)
+    registered_again(tmp_path, place, 0.15, T + 80)
+    assert P.advance(tmp_path, T + 160, chunk_s=P.BACKFILL_S)["replaced"] == 0
+    registered_again(tmp_path, place, 0.3, T + 180)  # 0.15 m from last night, 0.3 m from where its records are
+    assert P.advance(tmp_path, T + 260, chunk_s=P.BACKFILL_S)["replaced"] == 1
+    assert [(p.x, p.y) for p in P.positions(tmp_path, T - 1, T + 300, place=place)] == [(1.3, 3.86)]
+
+
+def test_only_the_place_whose_camera_was_registered_again_is_placed_again(tmp_path, vision):
+    place = home(tmp_path)
+    other = places.revise(
+        tmp_path, None, producer="test", cameras={"porch": LEVEL}, floor=FLOOR, map_bytes=b"x", map_format="ply",
+        plan=PLAN, plan_transform=TO_PLAN, now=T - 100,
+    ).place  # fmt: skip
+    foot(vision, T, v=0.75)
+    foot(vision, T + 1, v=0.75, cam="porch")
+    P.advance(tmp_path, T + 60, chunk_s=P.BACKFILL_S)
+    P.write(tmp_path, [record(T + 2, place)])  # the rig's own record there
+    registered_again(tmp_path, place, 1.0, T + 80)
+    did = P.advance(tmp_path, T + 160, chunk_s=P.BACKFILL_S)
+    assert (did["replaced"], did["records"]) == (1, 1)  # the porch's record wasn't placed again
+    assert [(p.source, p.x) for p in P.positions(tmp_path, T - 1, T + 200, place=place)] == [
+        (P.FIXED_CAMERA, 2.0),
+        (P.RIG_POSE, 1.0),
+    ]
+    assert [(p.t - T, p.x) for p in P.positions(tmp_path, T - 1, T + 200, place=other)] == [(1, 1.0)]
+
+
+def test_placing_a_place_again_picks_up_where_a_failed_run_stopped(tmp_path, vision, monkeypatch):
+    place = home(tmp_path)
+    half = P.BACKFILL_S / 2
+    cut = (T // half) * half  # the placer cuts on the clock: a footprint either side of a cut, in two pieces
+    for t in (cut - 100, cut + 100):
+        foot(vision, t, v=0.75)
+    P.advance(tmp_path, cut + 200, chunk_s=half)
+    registered_again(tmp_path, place, 1.0, cut + 300)
+    mend = failing_save(monkeypatch, 3)  # after the place is marked and the registration saved: the first piece's
+    with pytest.raises(OSError, match="no space"):
+        P.advance(tmp_path, cut + 400, chunk_s=half)
+    mend()
+    assert P.advance(tmp_path, cut + 400, chunk_s=half)["replaced"] == 0  # it goes on; it doesn't start over
+    got = P.positions(tmp_path, cut - 200, cut + 200, place=place)
+    assert [(p.t - cut, p.x) for p in got] == [(-100, 2.0), (100, 2.0)]
 
 
 def test_retention_thins_placed_records_by_path_and_keeps_every_zone_visit():

@@ -18,7 +18,7 @@ flatc = "25.12.19"
 # The protobuf compiler, which LanceDB (continuum-vector) runs while it builds.
 protoc = "latest"
 # A compile cache shared by every worktree: each one otherwise compiles the whole Continuum dependency tree into its
-# own target dir (#617). Used through RUSTC_WRAPPER below.
+# own target dir. Used through RUSTC_WRAPPER below.
 sccache = "latest"
 
 [env]
@@ -42,7 +42,8 @@ run = [
 [tasks.system]
 description = "Install the system packages config/system-packages.toml declares and this machine is missing (shows the command and asks first)"
 raw = true  # it asks before running sudo apt-get or brew, so it needs the terminal
-run = "uv run pack-system install"
+# --no-project runs pack-system before uv sync builds continuum-py, so the FFmpeg and PipeWire headers are installed first.
+run = "PYTHONPATH=src uv run --no-project python -m liberational.system_packages install"
 
 [tasks.whisper]
 description = "Build whisper.cpp's whisper-server into data/whisper.cpp (CUDA with nvcc, Metal on Apple Silicon, else CPU; safe to re-run)"
@@ -156,6 +157,7 @@ echo "gsplat $V set up in $D"
 
 [tasks.frontend-deps]
 description = "Install the frontend's npm packages from frontend/package-lock.json (skipped while they're current)"
+wait_for = ["system"]
 dir = "frontend"
 sources = ["package.json", "package-lock.json"]
 outputs = ["node_modules/.package-lock.json"]
@@ -177,6 +179,7 @@ run = "../tools/niced.sh npx --no-install playwright install --only-shell chromi
 
 [tasks.hooks]
 description = "Use the repo's git hooks in .githooks/ (pre-commit refuses gitignored files, such as runtime data under data/, leftover conflict markers, and private data (tools/privacy_check.py, which also checks commit messages and pushes); pre-merge-commit refuses conflict markers a merge would bring in, and pre-push those in the commits being pushed; post-merge, post-checkout, and post-rewrite rebuild the frontend when frontend/ changed)"
+wait_for = ["system"]
 run = ["git config core.hooksPath .githooks", "python3 tools/privacy_check.py denylist"]
 
 [tasks.models]
@@ -184,7 +187,7 @@ description = "Fetch any missing models declared in config/defaults.toml (safe t
 run = "uv run tools/fetch_models.py"
 
 # The checks below run at the lowest CPU and disk priority (tools/niced.sh: nice and ionice on Linux, nice and
-# taskpolicy on macOS), so they never crowd out the live services or the person at the computer (#270).
+# taskpolicy on macOS), so they never crowd out the live services or the person at the computer.
 
 [tasks.test]
 description = "Run the whole Python and JS test suites (only when a person asks: mise run test-changed is the usual check)"
@@ -239,8 +242,8 @@ uv run pack-dashboard --dev
 """
 
 # Continuum Broker (continuum/, docs/CONTINUUM.md): Rust commands keep standard priority and share one machine-wide
-# build lock across the repository's worktrees (tools/build-slot.sh), with CARGO_BUILD_JOBS defaulting to 8 (#1097).
-# Full gates additionally share tools/gated.sh's gate lock (#611); Python and other non-Rust checks stay niced.
+# build lock across the repository's worktrees (tools/build-slot.sh), with CARGO_BUILD_JOBS defaulting to 8.
+# Full gates additionally share tools/gated.sh's gate lock; Python and other non-Rust checks stay niced.
 # continuum-py's build needs a Python (PYO3_PYTHON); the tasks use continuum/.venv, a small venv of their own with
 # maturin, NumPy, pytest, ruff, and ty, so they never touch the repo's .venv.
 
@@ -293,9 +296,9 @@ description = "Check the Continuum workspace: rustfmt, clippy with warnings as e
 dir = "continuum"
 depends = ["continuum-venv"]
 env = { PYO3_PYTHON = "{{config_root}}/continuum/.venv/bin/python" }
-# One full gate and one Rust command at a time per machine, shared by every worktree (#1097). The outer build lock
+# One full gate and one Rust command at a time per machine, shared by every worktree. The outer build lock
 # covers all Rust steps at standard priority, with CARGO_BUILD_JOBS defaulting to 8. The shared target directory
-# remains protected by the gate lock (#623); non-Rust steps apply their own low priority in the script.
+# remains protected by the gate lock; non-Rust steps apply their own low priority in the script.
 run = "GATE_PYTHON=.venv/bin/python ../tools/gated.sh ../tools/build-slot.sh ../tools/continuum-check.sh"
 
 [tasks.continuum-status]
@@ -307,13 +310,13 @@ description = "Run the Continuum workspace's tests: the Rust tests, the Python b
 dir = "continuum"
 depends = ["continuum-venv"]
 env = { PYO3_PYTHON = "{{config_root}}/continuum/.venv/bin/python" }
-# One full gate and one Rust command at a time per machine, shared by every worktree (#1097). The outer build lock
+# One full gate and one Rust command at a time per machine, shared by every worktree. The outer build lock
 # covers all Rust steps at standard priority, with CARGO_BUILD_JOBS defaulting to 8. The shared target directory
-# remains protected by the gate lock (#623); non-Rust steps apply their own low priority in the script.
+# remains protected by the gate lock; non-Rust steps apply their own low priority in the script.
 run = "GATE_PYTHON=.venv/bin/python ../tools/gated.sh ../tools/build-slot.sh ../tools/continuum-test.sh"
 
 [tasks.continuum-py]
-description = "Rebuild continuum_py (release) into the repo's .venv now, without a uv sync (uv sync builds and installs it too, since it's a path dependency); with the ffmpeg feature when pkg-config finds FFmpeg's development libraries, as the package build does (#1626)"
+description = "Rebuild continuum_py (release) into the repo's .venv now, without a uv sync (uv sync builds and installs it too, since it's a path dependency); with the ffmpeg feature when pkg-config finds FFmpeg's development libraries, as the package build does"
 dir = "continuum"
 depends = ["continuum-venv"]
 env = { VIRTUAL_ENV = "{{config_root}}/.venv", PYO3_PYTHON = "{{config_root}}/.venv/bin/python" }

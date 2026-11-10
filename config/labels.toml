@@ -1,4 +1,4 @@
-# Plain labels for Settings (#382): for each setting, the words Settings shows instead of its raw key, one line of
+# Plain labels for Settings: for each setting, the words Settings shows instead of its raw key, one line of
 # help, and the menu section it belongs to. defaults.toml stays the source of every setting and its default; this
 # file only names them for people. A setting not listed here still shows in Advanced, by its key and its comment
 # in defaults.toml. New-feature switches (the "New feature:" comment in defaults.toml) show under Features.
@@ -78,7 +78,7 @@ section = "services"
 label = "Don't run"
 help = "Services that run by default, never to run here: uninstalled when you save, and they stay off"
 
-# Devices (#384): the panel (settings/devices/) draws these settings itself; catalog.ts's "drawn" keeps
+# Devices: the panel (settings/devices/) draws these settings itself; catalog.ts's "drawn" keeps
 # them out of the section's standard rows, and Advanced and search still list them.
 
 ["vision.camera_names"]
@@ -98,7 +98,7 @@ help = "0 to 100, for a microphone without its own. Higher hears quieter speech 
 live = true # the microphone service follows it without a restart (Devices saves it at once)
 
 
-# ---- Features (#385): the switches, in plain words; a new feature also says whether it's on by default ----
+# ---- Features: the switches, in plain words; a new feature also says whether it's on by default ----
 
 ["journal.enabled"]
 section = "features"
@@ -160,7 +160,7 @@ group = "Dashboard"
 label = "Keyboard shortcuts"
 help = "/ opens Ask. On face and voice naming lists, Y takes the guess, S focuses the name field, I ignores, M is several people, N is nobody, and P plays."
 
-# ---- People and privacy (#385) ----
+# ---- People and privacy ----
 
 ["dashboard.password"]
 section = "people"

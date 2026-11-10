@@ -1172,13 +1172,13 @@ def test_a_past_direction_request_without_the_word_walk_reaches_video():
     assert h.parse(question, NOW)["kind"] == "video"
 
 
-@pytest.mark.parametrize("camera_id", ["study", "entry-hall", "porch", "studio", "workshop"])
-def test_room_camera_request_is_scoped_and_cites_the_selected_angle(state, tmp_path, monkeypatch, camera_id):
+@pytest.mark.parametrize("camera_id", ["front", "rear-left", "side", "upper", "lower"])
+def test_a_named_camera_request_is_scoped_and_cites_the_selected_angle(state, tmp_path, monkeypatch, camera_id):
     (tmp_path / "config").mkdir()
     (tmp_path / "config" / "devices.toml").write_text(
-        'device=[{name="cam0",kind="camera"},{name="study",kind="rtsp"},'
-        '{name="entry-hall",kind="rtsp"},{name="porch",kind="rtsp"},'
-        '{name="studio",kind="rtsp"},{name="workshop",kind="rtsp"}]'
+        'device=[{name="cam0",kind="camera"},{name="front",kind="rtsp"},'
+        '{name="rear-left",kind="rtsp"},{name="side",kind="rtsp"},'
+        '{name="upper",kind="rtsp"},{name="lower",kind="rtsp"}]'
     )
     monkeypatch.setattr(cfg, "ROOT", tmp_path)
     camera(
@@ -1189,13 +1189,22 @@ def test_room_camera_request_is_scoped_and_cites_the_selected_angle(state, tmp_p
         ],
     )
     add_journal(state, "A yellow umbrella appeared on another camera.", NOW - 30)
-    result = ask(state, f"What happened in the {camera_id.replace('-', ' ')} today?")
+    result = ask(state, f"What did the {camera_id.replace('-', ' ')} camera show today?")
     assert result["query"]["cameras"] == [camera_id]
     assert [(item["source"], item["camera"], item["text"]) for item in result["evidence"]] == [
         ("camera", camera_id, "A violet mug.")
     ]
     assert result["evidence"][0]["href"].endswith(f"&cam={camera_id}")
     assert "journal" not in result["coverage"]
+
+
+def test_in_a_room_does_not_scope_a_question_to_a_camera_named_like_it(state, tmp_path, monkeypatch):
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "devices.toml").write_text('device=[{name="cam0",kind="camera"},{name="study",kind="rtsp"}]')
+    monkeypatch.setattr(cfg, "ROOT", tmp_path)
+    camera(state, [dict(ts=NOW - 10, cam="study", caption="A violet mug.")])
+    result = ask(state, "What happened in the study today?")
+    assert result["query"]["cameras"] == []
 
 
 def test_camera_caption_citation_seeks_the_actual_camera_angle():
@@ -1220,12 +1229,12 @@ def test_explicit_journal_request_does_not_mix_in_transcript_or_camera_topics(st
     assert "transcript" not in result["coverage"]
 
 
-def test_ambiguous_room_selector_returns_an_actionable_refusal(state, tmp_path, monkeypatch):
+def test_ambiguous_camera_name_returns_an_actionable_refusal(state, tmp_path, monkeypatch):
     (tmp_path / "config").mkdir()
     (tmp_path / "config" / "devices.toml").write_text('device=[{name="north",kind="rtsp"},{name="south",kind="rtsp"}]')
     monkeypatch.setattr(cfg, "ROOT", tmp_path)
-    with cfg.override({"vision": {"camera_names": ["north: Study", "south: Study"]}}):
-        result = ask(state, "What happened in the study today?")
+    with cfg.override({"vision": {"camera_names": ["north: Side camera", "south: Side camera"]}}):
+        result = ask(state, "What did the side camera see today?")
     assert result["is_history"]
     assert "Ambiguous camera name" in result["answer"]
     assert result["evidence"] == []

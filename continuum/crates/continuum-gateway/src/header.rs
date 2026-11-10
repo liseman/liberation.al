@@ -4,7 +4,7 @@
 //! |---|---|---|
 //! | 0 to 3 | `stream_id: u32` | Which stream |
 //! | 4 | `payload_type: u8` | `0x01` H.264 or HEVC access unit (Annex B), `0x02` FlatBuffer overlay, `0x03` Arrow table, `0x04` JPEG frame |
-//! | 5 | `flags: u8` | Bit 0: keyframe, bit 1: live, bit 2: rotate camera pixels 180 degrees, bit 3: a media context id follows, bit 4: from the `watch` set, bit 5: a request id follows (#2380) |
+//! | 5 | `flags: u8` | Bit 0: keyframe, bit 1: live, bit 2: rotate camera pixels 180 degrees, bit 3: a media context id follows, bit 4: from the `watch` set, bit 5: a request id follows |
 //! | 6 to 7 | reserved | Zero, so `capture_us` stays 8 byte aligned |
 //! | 8 to 15 | `capture_us: u64` | Capture time in microseconds UTC (the payload's `start_ns` divided by 1000) |
 //!
@@ -27,9 +27,9 @@ pub const FLAG_LIVE: u8 = 0x02;
 pub const FLAG_FLIP: u8 = 0x04;
 /// Bit 3: a little-endian media context ID follows the ordinary header.
 pub const FLAG_MEDIA_CONTEXT: u8 = 0x08;
-/// Bit 4: the frame comes from the connection's `watch` set, not its `live` feed (both set the live bit, #2380).
+/// Bit 4: the frame comes from the connection's `watch` set, not its `live` feed (both set the live bit).
 pub const FLAG_WATCH: u8 = 0x10;
-/// Bit 5: a little-endian request ID (the request's `req`) follows the header, after any media context ID (#2380).
+/// Bit 5: a little-endian request ID (the request's `req`) follows the header, after any media context ID.
 pub const FLAG_REQUEST: u8 = 0x20;
 
 /// What a binary message carries after its header.
@@ -321,7 +321,7 @@ fn extensions_end(message: &[u8]) -> usize {
     HEADER_LEN + if flags & FLAG_MEDIA_CONTEXT != 0 { 4 } else { 0 } + if flags & FLAG_REQUEST != 0 { 4 } else { 0 }
 }
 
-/// A whole message tagged with the request that sent it (#2380): the request flag set and `req` placed after the
+/// A whole message tagged with the request that sent it: the request flag set and `req` placed after the
 /// header and any media context ID. A message already tagged, or too short to be one, comes back unchanged.
 #[must_use]
 pub fn with_request(message: &[u8], req: u32) -> Vec<u8> {
@@ -340,7 +340,7 @@ pub fn with_request(message: &[u8], req: u32) -> Vec<u8> {
     out
 }
 
-/// A whole message marked as one of the `watch` set's (#2380): the live and watch flags, including on the stream's
+/// A whole message marked as one of the `watch` set's: the live and watch flags, including on the stream's
 /// first frame, which comes from the recording.
 #[must_use]
 pub fn watched(mut message: Vec<u8>) -> Vec<u8> {

@@ -642,7 +642,7 @@ impl PyClient {
 
     /// As ingest, but waits for the broker's answer and returns the payload's commit sequence (its position in
     /// commit order). Sending the same header again returns the same sequence; a different header under the same
-    /// id raises BrokerError (Conflict). `dependencies` (minor 31, #1535): (stream_id, start_ns, end_ns, revision)
+    /// id raises BrokerError (Conflict). `dependencies` (minor 31): (stream_id, start_ns, end_ns, revision)
     /// stretches the payload was made from, each with the stream's invalidation_revision read before checking what was
     /// used; stored with it in one commit, refused (Conflict) if a revision moved, and a later purge removing anything
     /// on such a stream inside the stretch takes the payload too. An awaitable.
@@ -909,7 +909,7 @@ impl PyClient {
 
     /// Which chunk holds each of `ids` (canonical UUID strings, at most 256), in the asked order: [{"id", "state"
     /// ("unknown", "payload", or "absorbed"), "stream_id", "seq", "chunk_id", "frame_index", "start_ns"}], with
-    /// chunk_id None unless absorbed. What an analysis receipt names as its sources (#1394). An awaitable.
+    /// chunk_id None unless absorbed. What an analysis receipt names as its sources. An awaitable.
     fn resolve_frames<'py>(&self, py: Python<'py>, ids: Vec<String>) -> PyResult<Bound<'py, PyAny>> {
         let ids = ids
             .iter()
@@ -960,7 +960,7 @@ impl PyClient {
         })
     }
 
-    /// Stores a durable worker's checkpoint in place of its last (#1547): `inputs` is each input stream's name and the
+    /// Stores a durable worker's checkpoint in place of its last: `inputs` is each input stream's name and the
     /// invalidation revision the state was read under (sorted, unique, 1 to 64), `body` the encoded state (at most
     /// 8 MiB). Refused with a Conflict BrokerError when an input's revision has moved or it isn't registered. A purge
     /// that later advances one of them deletes it. Needs broker schema minor 32. An awaitable.

@@ -826,3 +826,69 @@ def test_without_a_fold_sightings_read_as_recorded(store, tmp_path, monkeypatch)
     monkeypatch.setattr(faces, "UNK_DB", tmp_path / "unknown_clusters.npz")  # no group store at all
     write(store, [sighting(S.FACE_MATCHES, 5, T + 1)], S.FACE_MATCHES)
     assert [r["cluster"] for r in S.Log(store).range(S.FACE_MATCHES, T, T + 60)] == ["Face 5"]
+
+
+def watched(store, stream, cam, spans, frames=30):
+    """Coverage rows as see-actions writes them: one append a row."""
+    writers = S.Writers(store)
+    for a, b in spans:
+        row = {"id": S.new_id(), "ts_start": a, "ts_end": b, "frames": frames, "model": "test"}
+        writers.append(stream, cam, [row])
+    writers.close()
+
+
+def test_covered_joins_each_cameras_spans_and_cuts_them_to_the_window(store):
+    # T is on an hour boundary: the first two rows are the hour before, in a part that closed when the next began.
+    watched(store, S.ACTION_COVERAGE, "cam0", [(T - 2, T - 1), (T - 1, T + 1), (T + 1, T + 2), (T + 2.5, T + 3)])
+    watched(store, S.ACTION_COVERAGE, "cam1", [(T + 1, T + 4)])
+    watched(store, S.condensed(S.ACTION_COVERAGE), "cam0", [(T + 10, T + 11)], frames=7)
+    got = S.Log(store).covered(S.ACTION_COVERAGE, T - 1.5, T + 10.5)
+    assert got == {
+        "cam0": S.Covered([(T - 1.5, T + 2), (T + 2.5, T + 3), (T + 10, T + 10.5)], frames=127),
+        "cam1": S.Covered([(T + 1, T + 4)], frames=30),
+    }
+    assert got["cam0"].seconds == 4.5
+
+
+def test_covered_joins_spans_no_further_apart_than_join_s(store):
+    watched(store, S.ACTION_COVERAGE, "cam0", [(T, T + 1), (T + 2, T + 3), (T + 4.5, T + 5)])
+    log = S.Log(store)
+    assert log.covered(S.ACTION_COVERAGE, T, T + 10, join_s=1.0)["cam0"].spans == [(T, T + 3), (T + 4.5, T + 5)]
+    assert log.covered(S.ACTION_COVERAGE, T, T + 10, ["cam9"]) == {}
+    assert log.covered(S.ACTION_COVERAGE, T + 20, T + 30) == {}, "a camera with no row in the window isn't listed"
+
+
+def test_a_span_inside_an_earlier_longer_one_does_not_end_the_stretch_early(store):
+    watched(store, S.ACTION_COVERAGE, "cam0", [(T, T + 10), (T + 1, T + 2), (T + 9, T + 12)])
+    assert S.Log(store).covered(S.ACTION_COVERAGE, T, T + 20)["cam0"].spans == [(T, T + 12)]
+
+
+def test_table_gives_a_windows_columns_by_camera_without_building_a_record(store, monkeypatch):
+    rows = [
+        {"ts_start": T + n, "ts_end": T + n + 4, "track_id": n % 2, "classes": [n, 1, 2, 3, 4], "scores": [0.5] * 5}
+        for n in range(3)
+    ]
+    writers = S.Writers(store)
+    writers.append(S.ACTION_WINDOWS, "cam0", [{**r, "model": "stgcnpp"} for r in rows])
+    writers.append(S.ACTION_WINDOWS, "cam1", [{**rows[0], "model": "movinet"}])
+    writers.close()
+    monkeypatch.setattr(S, "records", None)  # a record built for a row would call it
+    got = S.Log(store).table(S.ACTION_WINDOWS, T + 1, T + 100, ("ts_ns", "track_id", "classes", "model"))
+    assert sorted(got) == ["cam0", "cam1"]
+    assert got["cam0"]["ts_ns"].tolist() == [S.ns(T), S.ns(T + 1), S.ns(T + 2)], "a span reaching into the window too"
+    assert got["cam0"]["track_id"].tolist() == [0, 1, 0]
+    assert got["cam0"]["classes"].tolist() == [[0, 1, 2, 3, 4], [1, 1, 2, 3, 4], [2, 1, 2, 3, 4]]
+    assert got["cam1"]["model"] == ["movinet"]
+    assert sorted(got["cam0"]) == ["classes", "model", "track_id", "ts_ns"], "only the columns asked for"
+
+
+def test_a_row_of_no_length_joins_nothing_unless_instants_are_kept(store):
+    watched(store, S.WALKBY_COVERAGE, "cam0", [(T, T + 1), (T + 1.8, T + 1.8), (T + 2.6, T + 3), (T + 9, T + 9)])
+    log = S.Log(store)
+    assert log.covered(S.WALKBY_COVERAGE, T, T + 20, join_s=1.0)["cam0"] == S.Covered(
+        [(T, T + 1), (T + 2.6, T + 3)], frames=120
+    )
+    assert log.covered(S.WALKBY_COVERAGE, T, T + 20, join_s=1.0, instants=True)["cam0"].spans == [
+        (T, T + 3),
+        (T + 9, T + 9),
+    ]

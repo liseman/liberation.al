@@ -1,7 +1,7 @@
 """On-demand EdgeTAM object masks for the Objects page.
 
-Each mask is asked for: a box or point the owner chose prompts the EdgeTAM image model once (#1481), or the owner's
-"Find objects" asks for every object in the region they're looking at (`find_all`, #2020): one image embedding and a
+Each mask is asked for: a box or point the owner chose prompts the EdgeTAM image model once, or the owner's
+"Find objects" asks for every object in the region they're looking at (`find_all`): one image embedding and a
 grid of point prompts, the masks kept by predicted IoU and stability, tiny, whole-view, and duplicate ones dropped,
 at most `FIND_MAX`. Nothing runs without the owner asking. Inference runs in one child process, with a
 deadline, so a model fault cannot take the dashboard down. The child stays warm between requests with the model loaded
@@ -277,7 +277,7 @@ FAILED = "EdgeTAM could not load or run. Check model access and installed weight
 @model_runtime.reporting("objects")
 def _serve(conn: Connection) -> None:
     """The warm child: runs each `(target, args)` it is sent and answers `(True, *result)` or `(False, why)`, until
-    its pipe closes. `_load` is cached here, so the model loads once per child (#2033)."""
+    its pipe closes. `_load` is cached here, so the model loads once per child."""
     if hasattr(os, "nice"):
         os.nice(19)
     while True:

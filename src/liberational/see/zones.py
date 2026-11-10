@@ -1,8 +1,8 @@
-"""Named zones on a camera's view (#1316): the litter box, the bathroom door, the food bowl.
+"""Named zones on a camera's view: the litter box, the bathroom door, the food bowl.
 
 The owner draws a zone as a polygon on one camera's picture, in normalized frame coordinates (0 to 1, x right, y
 down). A camera's zones are saved together as one `zone.defined` record in the knowledge store (taught state, kept
-across a catalog reset: #1755), the camera's whole current set, so the newest record per camera is what holds now and
+across a catalog reset), the camera's whole current set, so the newest record per camera is what holds now and
 the older ones are the audit trail: who changed what, and when. A zone keeps its `id` through renames and reshapes,
 so its visits count as the same zone across edits.
 
@@ -34,7 +34,7 @@ Point = tuple[float, float]
 
 @dataclass(frozen=True)
 class Zone:
-    """One named polygon on a camera's view. A zone of kind "screen" marks a TV or monitor the detector misses (#2468):
+    """One named polygon on a camera's view. A zone of kind "screen" marks a TV or monitor the detector misses:
     nobody is counted in it, and the people it shows are kept out of everything (see/screens.py)."""
 
     id: str
@@ -53,7 +53,7 @@ ZONE_KINDS = ("area", "screen")
 
 
 def screen_polygons(definition: Definition | None) -> list[tuple[Point, ...]]:
-    """A camera's zones of kind "screen" (#2468)."""
+    """A camera's zones of kind "screen"."""
     return [z.polygon for z in definition.zones if z.kind == "screen"] if definition is not None else []
 
 
@@ -233,10 +233,10 @@ def define(state: Path, cam: str, zones: Sequence[Zone], base: str | None, now: 
     return saved
 
 
-# Visits: who was in which zone, and for how long (#1316). Pure bookkeeping over a camera's detection frames, like
+# Visits: who was in which zone, and for how long. Pure bookkeeping over a camera's detection frames, like
 # see/tracks.py: no broker, clock, or model here; see/zones_worker.py feeds it and writes what it returns.
 #
-# A subject is a tracked box: a person from see-actions' `pose.track` (#1825), or an animal (#1315), keyed by
+# A subject is a tracked box: a person from see-actions' `pose.track`, or an animal, keyed by
 # its track id (opaque, camera- and run-local, so never an identity). Its position is the bottom centre of its box
 # (feet or paws, crossings.anchor), so a cat in the litter box is in it while its head is over the edge.
 #

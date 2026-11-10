@@ -75,7 +75,7 @@ scoped cleanup. See `ingest/pipeline.py` and `ingest/broker.py` for the deletion
 
 A source is an adapter behind one small interface (`ingest/sources/__init__.py`): `status()`, `list_new(state)`
 (what it has that its state hasn't seen), and `fetch(item, into)`. Its state, the keys it has handed over plus a
-JSON blob of its own, is in the ingest database. Each source's settings are in Settings, by what it is (#1331): camera
+JSON blob of its own, is in the ingest database. Each source's settings are in Settings, by what it is: camera
 sources (Wyze) on Cameras and microphones' Network cameras card, and photo libraries and recorders (Google Photos,
 iCloud Photos, AllSound, and Thinking Hat) under Imported media; `settings/sources/model.ts` says which is which. The
 Ingest tab keeps uploads, links, and what was brought in. One-off sources are driven from Settings; ongoing ones are polled
@@ -91,7 +91,7 @@ remain available. Stopping the poll, including after a fatal store error, stops 
 | `wyze` | ongoing | Works once docker-wyze-bridge runs (below) |
 | `google_photos` | one-off | Works once signed in (below); reads Google's pages, so it can break when they change |
 | `icloud_photos` | stub | "Not yet": export from Photos and upload |
-| `allsound` | stub | Not configured: no known way to read its recordings (nothing in this repo or on GitHub, 2026-10-31) |
+| `allsound` | stub | Not configured: no known way to read its recordings (nothing in this repo or on GitHub) |
 | `thinking_hat` | stub | Not configured: the same |
 
 `uv run pack-ingest sources` lists them with their status.
