@@ -342,3 +342,17 @@ def test_a_map_step_starts_while_learning_is_on_and_frames_wait_and_what_it_drop
         await service.run(stop)
 
     asyncio.run(run())
+
+
+def test_the_status_says_what_a_cameras_last_looks_came_to_and_forgets_older_ones(sampler, scene):
+    frame = scene.add(1)
+    assert sampler.look("front", frame, 0.0) == "view"
+    for t in range(1, worker.RECENT):
+        sampler.look("front", frame, float(t))
+    switch = surroundings.Switch(True, ("front",), (), "front")
+    assert sampler.status(switch, now=20.0)["cameras"]["front"]["recent"] == {"view": 1, "same": worker.RECENT - 1}
+    # one more look pushes the kept one out of the window: the camera has kept nothing lately
+    sampler.look("front", scene.add(2, living=True), 30.0)
+    front = sampler.status(switch, now=31.0)["cameras"]["front"]
+    assert front["recent"] == {"same": worker.RECENT - 1, "person": 1}
+    assert (front["view"], front["same"]) == (1, worker.RECENT - 1)  # the counts since the start keep it

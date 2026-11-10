@@ -28,7 +28,8 @@ cheapest check first:
 The looks run on one worker thread, so the models never take more than their own threads of CPU, and a camera whose
 look is still running when its next picture comes passes that picture by. What it's doing is in
 `state/surroundings/status.json` (`STATUS`), rewritten every `STATUS_EVERY_S` while it changes: whether learning is
-on, and per camera the counts of each outcome since the service started and when a frame was last kept.
+on, and per camera the counts of each outcome since the service started, when a frame was last kept, and the
+outcomes of its last `RECENT` looks (`recent`), which is how a page says why a camera's frames aren't being kept now.
 
 A camera the decoder refuses or stops serving is logged and tried again after `RETRY_S`; the other cameras carry on.
 
@@ -74,6 +75,7 @@ BLUR = 0.5
 SHARP_WINDOW = 20
 MIN_SHARP_HISTORY = 5  # looked-at frames a camera needs before one can be called blurred
 STATUS = "status.json"  # under the store's folder
+RECENT = 12  # looks a camera's "recent" outcomes cover: a minute of samples
 OUTCOMES = ("dark", "same", "blurred", "person", "copy", "view", "changed", "sharper")
 
 #: The people and animals in a BGR frame, as boxes (`Living`).
@@ -198,6 +200,7 @@ class Sampler:
         self.lit = lit
         self.sharpness = sharpness
         self.counts: dict[str, collections.Counter[str]] = {}
+        self.recent: dict[str, collections.deque[str]] = {}  # each camera's last RECENT outcomes
         self.last_kept: dict[str, float] = {}
         #: Each camera's last look the gate judged: its thumbnail, and the kept frame that stands for that view.
         self._judged: dict[str, tuple[np.ndarray, str]] = {}
@@ -207,6 +210,7 @@ class Sampler:
         """Look at one sampled frame of `camera`; the outcome, one of OUTCOMES."""
         outcome = self._look(camera, pixels, now)
         self.counts.setdefault(camera, collections.Counter())[outcome] += 1
+        self.recent.setdefault(camera, collections.deque(maxlen=RECENT)).append(outcome)
         return outcome
 
     def _look(self, camera: str, pixels: np.ndarray, now: float) -> str:
@@ -259,7 +263,12 @@ class Sampler:
             "sampling": list(switch.cameras) if switch.on else [],
             "kept": len(self.store.kept),
             "cameras": {
-                camera: {**{o: counts.get(o, 0) for o in OUTCOMES}, "last_kept": self.last_kept.get(camera)}
+                camera: {
+                    **{o: counts.get(o, 0) for o in OUTCOMES},
+                    "last_kept": self.last_kept.get(camera),
+                    # what the last looks came to, so a page can say why a camera's frames aren't being kept now
+                    "recent": dict(collections.Counter(self.recent.get(camera, ()))),
+                }
                 for camera, counts in sorted(self.counts.items())
             },
         }

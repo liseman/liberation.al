@@ -165,3 +165,16 @@ def test_a_viewer_without_control_sees_the_switch_but_cannot_change_it(pack_toml
     route._get(handler)
     assert handler.sent[1][1]["on"] is False
     assert handler.sent[1][1]["control"] is handler.control
+
+
+def test_the_status_route_answers_with_the_map_steps_summary_for_a_fresh_install(pack_toml, tmp_path):
+    h = Handler()
+    h.state = tmp_path / "state"  # ty: ignore[unresolved-attribute]  # the handler's state directory
+    route._get_status(h)
+    [(code, reply)] = h.sent
+    assert code == 200
+    assert reply == {
+        "on": False, "sampling": [], "kept": 0, "waiting": 0, "parked": 0, "running": False, "step": None,
+        "last_step": None,
+        "cameras": {}, "places": {},
+    }  # fmt: skip

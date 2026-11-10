@@ -32,6 +32,11 @@ What the step knows is in `state/surroundings/map.json` (`State`): each camera's
 pose, or that it's parked, the frames to drop, and each place's rounds and when it last improved. The map step is that file's
 only writer, as the sampler is the kept frames' only writer: the sampler drops the frames listed in `drop`.
 
+While a step runs it says what it's doing in `state/surroundings/progress.json` (`doing`: the phase, how many frames
+it took, and in training the place and its new views), and the trainer writes its step count beside it
+(`training.json`). `summary` gives both as `step` only while a step holds the lock, so what a step that died left
+behind is never shown.
+
 A camera's pictures go to the models as a pinhole's (`optics`): a lens in the device manifest, or the lens of its
 held intrinsics, is undone first, and its overlays are painted over and left out of the losses.
 """
@@ -61,6 +66,9 @@ LOG = logs.get("surroundings-map")
 
 PRODUCER = "surroundings v1"
 STATE = "map.json"  # under the kept frames' folder
+PROGRESS = "progress.json"  # what a running step is doing (`doing`), beside it
+TRAINING = "training.json"  # the trainer's own step count while it trains, beside it
+PHASES = ("pairing", "depth", "training", "writing")
 MAX_NEW = 12  # waiting frames a step takes
 NEIGHBOURS = 3  # frames a waiting frame is paired with
 MIN_ALIKE = 0.1  # a frame less alike than this isn't worth a pair
@@ -476,6 +484,19 @@ def _prepare_focal(frame: frames.Kept, optic: Optics) -> tuple[lens.Lens | None,
     return undo, scale * train_size(frame.width, frame.height)[0]
 
 
+def doing(folder: Path, phase: str | None, **more: Any) -> None:
+    """Say what the running step is doing (one of PHASES, with what's known of it), or with None that it's done.
+    Only for a page to show: a failure to write it never stops a step."""
+    try:
+        if phase is None:
+            (folder / PROGRESS).unlink(missing_ok=True)
+            (folder / TRAINING).unlink(missing_ok=True)
+        else:
+            json_state.write(folder / PROGRESS, {"phase": phase, "t": time.time(), **more})
+    except OSError as error:
+        LOG.debug("couldn't write the step's progress: %s", error)
+
+
 def step(
     state_dir: Path, now: float | None = None, held: Mapping[str, lens.Held] | None = None
 ) -> dict[str, Any] | None:
@@ -483,7 +504,10 @@ def step(
     intrinsics (read from `state_dir`'s knowledge store by default). Raises RuntimeError when a runtime or a model is
     missing or fails; the state file is then as it was."""
     with locking.locked(frames.root(state_dir) / "map"):  # one step at a time
-        return _step(state_dir, time.time() if now is None else now, lens.held(state_dir) if held is None else held)
+        try:
+            return _step(state_dir, time.time() if now is None else now, lens.held(state_dir) if held is None else held)
+        finally:
+            doing(frames.root(state_dir), None)
 
 
 def _step(state_dir: Path, now: float, held: Mapping[str, lens.Held]) -> dict[str, Any] | None:
@@ -517,6 +541,7 @@ def _step(state_dir: Path, now: float, held: Mapping[str, lens.Held]) -> dict[st
         involved = sorted({k for pair in measure for k in pair} | {f.id for f in todo})
         answer: dict[str, Any] = {"pairs": []}
         if measure:
+            doing(store.folder, "pairing", frames=len(todo))
             images = {k: pictures.image(k) for k in involved}
             answer = cameras.run_mast3r(mast3r, images, folder / "mast3r", gpu, pairs=measure, nice=NICE)
         for p in answer["pairs"]:
@@ -527,6 +552,7 @@ def _step(state_dir: Path, now: float, held: Mapping[str, lens.Held]) -> dict[st
                     optic[camera] = Optics(state.focals[camera], optic[camera].undo, optic[camera].masks)
                     LOG.info("%s: its focal is %.3f of its picture's width, from MASt3R", camera, state.focals[camera])
         ready = [f for f in todo if optic[f.camera].focal is not None]
+        doing(store.folder, "depth", frames=len(todo))
         _depths(store, [f for f in ready if not _depth_path(store, f.id).is_file()], pictures, gsplat, gpu, folder)
         depth = {k: _read_depth(_depth_path(store, k)) for k in involved if _depth_path(store, k).is_file()}
         found = edges(answer["pairs"], {k: _metric(d) for k, d in depth.items()})
@@ -616,6 +642,9 @@ def _train(
         resume = places.splat_path(state_dir, with_splat[-1], "gs.ply") if with_splat else None
     out = folder / f"train-{len(order)}-{next(iter(new_poses))}"
     out.mkdir()
+    steps = ROUND_STEPS if resume is not None else FOUND_STEPS
+    (store.folder / TRAINING).unlink(missing_ok=True)  # the training before this one's
+    doing(store.folder, "training", frames=len(new_poses), place=place, views=len(new_poses), steps=steps)
     np.savez(out / "start.npz", points=new_points, colors=new_colors)
     job = out / "job.json"
     job.write_text(
@@ -623,7 +652,8 @@ def _train(
             {
                 "views": views,
                 "init": str(out / "start.npz"),
-                "steps": ROUND_STEPS if resume is not None else FOUND_STEPS,
+                "steps": steps,
+                "progress": str(store.folder / TRAINING),
                 "cap": MAX_GAUSSIANS,
                 "sh_degree": splats.SH_DEGREE,
                 "out": str(out),
@@ -640,6 +670,7 @@ def _train(
         )
     )
     result = splats.run_runner(runtime, job, gpu)
+    doing(store.folder, "writing", frames=len(new_poses), place=place, views=len(new_poses))
     master = (out / "splat.ply").read_bytes()
     rows = ply.vertices(master)
     if rows is None:
@@ -767,11 +798,43 @@ def running(state_dir: Path) -> bool:
     return False
 
 
+def _count(value: object) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
+
+
+def progress(folder: Path) -> dict[str, Any]:
+    """What the running step last said it's doing (`doing`): its `phase` (one of PHASES, or None when it hasn't
+    said), `frames` (the waiting frames it took), `place` (the place being trained; None for one being founded, and
+    before training), `views` (the new views going into it), and in training `step` of `steps`, each None when
+    unknown. Read whole or not at all: a file that isn't one of ours says nothing."""
+    said = json_state.read(folder / PROGRESS, {}) or {}
+    said = said if isinstance(said, dict) else {}
+    phase = said.get("phase") if said.get("phase") in PHASES else None
+    place = said.get("place")
+    out: dict[str, Any] = {
+        "phase": phase,
+        "frames": _count(said.get("frames")),
+        "place": place if isinstance(place, str) else None,
+        "views": _count(said.get("views")),
+        "step": None,
+        "steps": None,
+    }
+    if phase == "training":
+        trained = json_state.read(folder / TRAINING, {}) or {}
+        trained = trained if isinstance(trained, dict) else {}
+        out["steps"] = _count(trained.get("steps")) or _count(said.get("steps"))
+        out["step"] = _count(trained.get("step"))
+    return out
+
+
 def summary(state_dir: Path, now: float | None = None) -> dict[str, Any]:
     """What a page says about learning surroundings: whether it's on and which cameras are sampled now, how many
-    frames are kept, how many of them wait for a step (`waiting`) and how many are parked until the map grows
-    (`parked`, `due`), whether a step is running, and each learned place's newest revision, views, rounds, and when
-    a step last added a view to it (Unix seconds, or None)."""
+    frames are kept, how many of them a step is due for (`waiting`) and how many are parked until the map grows
+    (`parked`, `due`), whether a step is running and what it's doing (`step`:
+    `progress`, None while none runs), when the last step ended (`last_step`, Unix seconds, or None), each sampled
+    camera's recent looks by outcome and when a frame of it was last kept (`cameras`, from the sampler's status),
+    and each learned place's newest revision, views, rounds, and when a step last added a view to it (Unix seconds,
+    or None)."""
     from liberational.spatial import surroundings
 
     folder = frames.root(state_dir)
@@ -785,13 +848,29 @@ def summary(state_dir: Path, now: float | None = None) -> dict[str, Any]:
     state = State.read(folder)
     switch = surroundings.read()
     todo = due(index, state, time.time() if now is None else now)
+    is_running = running(state_dir)
+    sampling = list(switch.cameras) if switch.on else []
+    sampler = json_state.read(folder / "status.json", {}) or {}
+    looked = sampler.get("cameras") if isinstance(sampler, dict) else None
+    looked = looked if isinstance(looked, dict) else {}
+    began, took = state.last.get("at"), state.last.get("seconds")
     return {
         "on": switch.on,
-        "sampling": list(switch.cameras) if switch.on else [],
+        "sampling": sampling,
         "kept": len(index),
         "waiting": len(todo),
         "parked": len(waiting(index, state)) - len(todo),
-        "running": running(state_dir),
+        "running": is_running,
+        "step": progress(folder) if is_running else None,
+        "last_step": float(began) + float(took or 0.0) if isinstance(began, (int, float)) else None,
+        "cameras": {
+            camera: {
+                "recent": {str(k): n for k, n in ((looked[camera].get("recent") or {}).items()) if _count(n)},
+                "last_kept": looked[camera].get("last_kept"),
+            }
+            for camera in sampling
+            if isinstance(looked.get(camera), dict)
+        },
         "places": {
             place: {
                 "revision": entry.get("revision"),
