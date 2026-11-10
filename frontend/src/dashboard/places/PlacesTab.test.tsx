@@ -365,3 +365,23 @@ it("says when a place was last in use: the owner's visit, or anyone its cameras 
   expect(at(now - 120, now - 3 * 86400)).toBe('Visited 2 min ago');
   expect(at(null, null)).toBe('Nothing seen yet');
 });
+
+it('says nobody can be placed while no camera has a spot on the map, and only then', async () => {
+  const empty = (cameras: number) => (q: URLSearchParams) => ({
+    place: q.get('place') ?? '',
+    start: Number(q.get('start')),
+    end: Number(q.get('end')),
+    entities: [],
+    tracks: [],
+    rooms: [],
+    cameras,
+  });
+  serve([HOME], empty(0));
+  const first = renderPage(<PlacesTab />);
+  expect(await screen.findByText(/No camera has a spot on this place's map yet/)).toBeTruthy();
+  first.unmount();
+  serve([HOME], empty(2));
+  renderPage(<PlacesTab />);
+  expect(await screen.findByText('Nobody was placed here in this window.')).toBeTruthy();
+  expect(screen.queryByText(/No camera has a spot/)).toBeNull();
+});

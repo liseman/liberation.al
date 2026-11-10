@@ -1,6 +1,6 @@
 """The classical floorplan baseline against synthetic scans of known layouts.
 
-Each synthetic cloud is what a walkthrough would see: wall faces from inside each room (an exterior wall only on
+Each synthetic cloud is what a camera carried through the place would see: wall faces from inside each room (an exterior wall only on
 its inner face, a partition on both), floor and ceiling, door and window gaps at their heights, Gaussian noise,
 furniture below the wall band, stray outliers, and a random rigid pose. The truth is the layout's centreline
 polygons; a recovered plan matches when, up to a quarter turn (the Manhattan frame is only known modulo 90 degrees)

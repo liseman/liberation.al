@@ -347,7 +347,9 @@ export function PlacePaths({
         </Text>
       ) : nobody ? (
         <Text size="sm" c="dimmed">
-          Nobody was placed here in this window.
+          {data?.cameras === 0 && !example
+            ? "No camera has a spot on this place's map yet, so nobody can be placed here. That starts once the place is mapped again."
+            : 'Nobody was placed here in this window.'}
         </Text>
       ) : (
         data && (

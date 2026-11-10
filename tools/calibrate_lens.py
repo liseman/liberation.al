@@ -26,7 +26,7 @@ Each model's focal is half the frame's width (the fisheye's is fitted): a plumb-
 focal, which MASt3R finds on the undistorted frame. `--write` puts the division calibration, and any `--mask` overlay
 rectangles (x1, y1, x2, y2 in fractions of the frame), on each `--camera`'s `[[device]]` entry in the manifest, keeping
 the rest of the file as it is. Capture ignores both (restart it so it reads the manifest again); the next
-pack-spatial-cameras run uses them.
+job that builds a map from that camera uses them.
 """
 
 from __future__ import annotations
@@ -323,7 +323,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             raise SystemExit("--write needs at least one --camera")
         masks = [tuple(float(v) for v in m.split(",")) for m in args.mask]
         write(args.write, args.camera, lens, masks)
-        print(f"wrote it to {', '.join(args.camera)} in {args.write}; the next pack-spatial-cameras run uses it")
+        print(f"wrote it to {', '.join(args.camera)} in {args.write}; the next job that builds a map from it uses it")
     return 0
 
 

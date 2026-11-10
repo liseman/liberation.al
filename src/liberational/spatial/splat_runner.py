@@ -9,29 +9,29 @@ standard library at module level; numpy, torch, Pillow, and gsplat are imported 
 
 The job (JSON): `views` ([{"image": path, "pose": 16 numbers, camera to world row by row, the camera looking along
 its +z (OpenCV), "focal": px, "width": px, "height": px}], every image already that size, its principal point at its
-centre unless the view gives "fx", "fy", "cx", and "cy" (a phone's own intrinsics: a Stray Scanner walk's), and
+centre unless the view gives "fx", "fy", "cx", and "cy" (a camera's own intrinsics), and
 optionally "mask": a PNG the same size whose white pixels (a camera's burned-in overlays) are left
 out of the loss, and "depth": a 16-bit image of the view's measured depth along its axis, 0 where there's none, covering
 the same field of view at any size), `init` (an npz of `points`, N x 3 float32 metres, and `colors`, N x 3 uint8: the
 Gaussians' starting centres and colours), `steps`, `cap` (the most Gaussians), `sh_degree`, `out` (a directory), and
 optionally `holdout` (indices into `views` scored but not trained on, for measuring), `reg` (the opacity and scale
-regularizers' weight, REG_WEIGHT by default: a walkthrough's many views train better without them), `bound` (true to
+regularizers' weight, REG_WEIGHT by default: many views from a moving camera train better without them), `bound` (true to
 keep the Gaussians inside the start points' box), `depth_unit` (what one count of a depth image is in the poses'
 units, 0.001 by default: millimetres in a metric scene), `pose_opt` (true to refine every training view's pose
 while the splat trains), and `render` (a directory: every view as the trained splat draws it at its given pose,
-`f000.png` on, and for a view with a depth map its drawn depth, `d000.png` on, at that map's size and unit; a walk
-whose frames sit exactly at their poses, for checking what the refinement reports).
+`f000.png` on, and for a view with a depth map its drawn depth, `d000.png` on, at that map's size and unit; frames
+that sit exactly at their poses, for checking what the refinement reports).
 
 The training is the minimal trainer on gsplat's `rasterization`: gsplat's MCMC strategy with a capped Gaussian count,
-an L1 plus 0.2 SSIM loss with small opacity and scale regularizers (none for a walk: `reg`), and SH degree raised one
+an L1 plus 0.2 SSIM loss with small opacity and scale regularizers (none for many moving views: `reg`), and SH degree raised one
 band every 1,000 steps.
 
-A walkthrough's job sets `bound` and `pose_opt` and gives its LiDAR depth (#43). Trained without them, one LiDAR walk
-of a home (120 frames) put 10% of its Gaussians outside the map's box, the farthest 985 m away,
+A job of many moving views sets `bound` and `pose_opt` and gives measured depth when it has it (#43). Trained without
+them, one pass through a home with LiDAR depth (120 frames) put 10% of its Gaussians outside the map's box, the farthest 985 m away,
 and scored 18.8 dB on held-out frames; with them 0.2% end outside, the farthest 8.7 m from the box's centre, at 21.6
 dB, in about the same time and GPU memory (10 minutes, 1.1 GiB).
 
-**Bounds** (`bound`): a walk trains without the regularizers, and its views look out of windows and through open
+**Bounds** (`bound`): such a job trains without the regularizers, and its views look out of windows and through open
 doors, so nothing stops a Gaussian from sliding outward to paint what's far away. And MCMC's position noise is a
 Gaussian's covariance times the means' learning rate, which is itself scaled by the scene's extent: at an extent of
 E metres the noise is E squared too large for the scene, so a large, faint Gaussian is thrown tens of metres a step.
@@ -43,12 +43,12 @@ Gaussian's scale is held under `MAX_SCALE` of the box's diagonal. At the end the
 transparent ones, are dropped. What's beyond the box is painted on its edge, not left out: the views still match.
 
 **Depth** (a view's "depth"): the rendered expected depth at each measured pixel is pulled to the measurement (L1 in
-metres, `DEPTH_WEIGHT` beside the image loss), which keeps surfaces where the LiDAR saw them: 2 cm median error on
-held-out frames. On its own it didn't change the held-out image score (the map the Gaussians start from is the
-same LiDAR's); it holds the geometry in place while the poses move.
+metres, `DEPTH_WEIGHT` beside the image loss), which keeps surfaces where they were measured: 2 cm median error on
+held-out frames. On its own it didn't change the held-out image score (the map the Gaussians start from came from the
+same depth); it holds the geometry in place while the poses move.
 
-**Pose refinement** (`pose_opt`): a walk's frames don't sit exactly at their poses (the LiDAR walk's needed a median
-4 cm and 0.8 degrees each, several pixels; a plain video's are worse), and a splat trained at them blurs: every
+**Pose refinement** (`pose_opt`): a moving camera's frames don't sit exactly at their poses (one pass with phone odometry
+needed a median 4 cm and 0.8 degrees each, several pixels; poses estimated from video alone are worse), and a splat trained at them blurs: every
 frame fits on its own, and a view between them doesn't. With `pose_opt` each training view gets its own small
 correction, as gsplat's `simple_trainer --pose_opt` does: a translation (in units of the scene's extent) and a
 rotation (the 6D form, from identity), applied in the camera's own frame (c2w @ delta), from `POSE_START` steps on,
@@ -58,10 +58,10 @@ to 1% over the run like the means'. Without it the poses are taken as they are. 
 frames at 7,000 steps (21.3 against 20.0).
 
 The correction it reports (`pose_shift`, `pose_turn_deg`) is what the frames need, not the step's own wandering
-(#197; one LiDAR walk, 105 training views, 7,000 steps, `tools/splat_walk_check.py`). A copy of the walk drawn from
+(#197; one pass, 105 training views, 7,000 steps). A copy of it drawn from
 its trained splat, so every frame sits exactly at its pose (`render`), reports 0.3 cm and 0.04 degrees; with every
 pose then moved 2 cm and 0.3 degrees in its own direction it reports 1.9 cm and 0.29 degrees, and the refined poses
-end a median 0.5 cm and 0.09 degrees from the truth. On the walk's own frames it reports 2.4 cm and 0.38 degrees
+end a median 0.5 cm and 0.09 degrees from the truth. On the pass's own frames it reports 2.4 cm and 0.38 degrees
 (4.7 px for a point 2.5 m away), and two runs with different seeds agree view by view: the part they share is 3.0 cm
 and 0.56 degrees RMS, the part they don't 0.45 cm and 0.10 degrees. So the reading's floor is about half a
 centimetre and a tenth of a degree, and what's above it is in the poses (or in what a pose can stand in for: a
