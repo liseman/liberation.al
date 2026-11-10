@@ -115,7 +115,7 @@ def manifest() -> Path:
     """Capture's device manifest, where the rigs and each camera's mount are."""
     from liberational import config as cfg
 
-    return cfg.ROOT / "config" / "devices.toml"
+    return cfg.devices_file()
 
 
 def load(path: Path | None = None) -> Mounts:

@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 from liberational import config as cfg
 from liberational import service_cascade, services, supervisor
-from liberational.config import ROOT
+from liberational.config import workdir
 from liberational.dashboard import context, routes
 from liberational.dashboard.context import LOG, PY, Reply
 
@@ -173,7 +173,7 @@ def _pack_services(args: list[str], timeout: float) -> tuple[bool | None, str]:
     """Run `pack-services <args>` from this checkout: (worked, output), with worked None on a timeout."""
     try:
         r = subprocess.run(
-            [PY, "-m", "liberational.services", *args], capture_output=True, text=True, timeout=timeout, cwd=ROOT
+            [PY, "-m", "liberational.services", *args], capture_output=True, text=True, timeout=timeout, cwd=workdir()
         )
     except subprocess.TimeoutExpired:
         return None, ""

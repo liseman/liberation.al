@@ -2,16 +2,18 @@
 
 import importlib.util
 import math
+import pathlib
 import sys
 
 import numpy as np
 import pytest
 
-from liberational import config as cfg
 from liberational.memory import places
 from liberational.spatial import plan_import as pi
 
-_spec = importlib.util.spec_from_file_location("rebuild_place", cfg.ROOT / "tools" / "rebuild_place.py")
+_spec = importlib.util.spec_from_file_location(
+    "rebuild_place", pathlib.Path(__file__).resolve().parents[1] / "tools" / "rebuild_place.py"
+)
 assert _spec is not None and _spec.loader is not None
 rp = importlib.util.module_from_spec(_spec)
 sys.modules["rebuild_place"] = rp  # its dataclasses look their module up

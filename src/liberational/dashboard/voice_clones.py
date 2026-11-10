@@ -18,7 +18,7 @@ import urllib.parse
 import urllib.request
 from typing import TYPE_CHECKING, Any
 
-from liberational.config import ROOT
+from liberational.config import workdir
 from liberational.dashboard import context, known_voices, routes
 from liberational.dashboard.context import LOG, PY, Reply
 from liberational.domain.identity import Basis
@@ -42,7 +42,7 @@ def _clone_run(args: list[str], timeout: float) -> tuple[int, Any, list[str]]:
             capture_output=True,
             text=True,
             timeout=timeout,
-            cwd=str(ROOT),
+            cwd=str(workdir()),
         )
     out = [l for l in r.stdout.splitlines() if l[:1] in "{["]
     try:

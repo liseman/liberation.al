@@ -115,10 +115,10 @@ def test_symlink_escape_is_rejected(labels, tmp_path):
 
 def test_source_directory_remains_forbidden_even_if_configured_as_measurement(monkeypatch):
     with (
-        cfg.override({"paths": {"measurement": str(cfg.ROOT / "src")}}),
+        cfg.override({"paths": {"measurement": str(cfg.workdir() / "src")}}),
         pytest.raises(ValueError, match="source directories"),
     ):
-        export.output_path(cfg.ROOT / "src" / "retrieval.jsonl")
+        export.output_path(cfg.workdir() / "src" / "retrieval.jsonl")
 
 
 def test_tracked_file_is_refused_before_read_or_replace(monkeypatch):
@@ -127,10 +127,10 @@ def test_tracked_file_is_refused_before_read_or_replace(monkeypatch):
     )
     monkeypatch.setattr(export.subprocess, "run", run)
     with (
-        cfg.override({"paths": {"measurement": str(cfg.ROOT / "data" / "measurement")}}),
+        cfg.override({"paths": {"measurement": str(cfg.workdir() / "data" / "measurement")}}),
         pytest.raises(ValueError, match="tracked file"),
     ):
-        export.output_path(cfg.ROOT / "data" / "measurement" / "retrieval.jsonl")
+        export.output_path(cfg.workdir() / "data" / "measurement" / "retrieval.jsonl")
 
 
 def test_cli_reports_storage_failure_and_does_not_claim_an_export(monkeypatch, capsys):

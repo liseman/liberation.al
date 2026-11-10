@@ -2,15 +2,15 @@
 the detector's animals in it is the track's."""
 
 import importlib.util
+import pathlib
 
 import numpy as np
 import pytest
 
-from liberational import config as cfg
 from liberational.people import face_shots, pet_shots
 
 _spec = importlib.util.spec_from_file_location(
-    "restore_pet_references", cfg.ROOT / "tools" / "restore_pet_references.py"
+    "restore_pet_references", pathlib.Path(__file__).resolve().parents[1] / "tools" / "restore_pet_references.py"
 )
 assert _spec and _spec.loader
 tool = importlib.util.module_from_spec(_spec)

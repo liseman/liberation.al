@@ -30,7 +30,7 @@ def entry(z, **more):
 
 
 def test_a_zip_model_installs_the_one_file_it_names(tmp_path, archive, monkeypatch):
-    monkeypatch.setattr(fetch_models, "ROOT", tmp_path)
+    monkeypatch.setattr("liberational.config.OWNER_ROOT", tmp_path)
     digest = hashlib.sha256(archive.read_bytes()).hexdigest()
     fetch_models.fetch_file("pose", entry(archive, member="2023/rtmpose/end2end.onnx", sha256=digest))
     assert (tmp_path / "models" / "pose.onnx").read_bytes() == b"weights"
@@ -48,7 +48,7 @@ def test_a_zip_model_installs_the_one_file_it_names(tmp_path, archive, monkeypat
     ],
 )
 def test_a_zip_model_that_cannot_be_trusted_or_found_is_not_installed(tmp_path, archive, monkeypatch, more, why):
-    monkeypatch.setattr(fetch_models, "ROOT", tmp_path)
+    monkeypatch.setattr("liberational.config.OWNER_ROOT", tmp_path)
     with pytest.raises(SystemExit, match=why):
         fetch_models.fetch_file("pose", entry(archive, **more))
     assert not (tmp_path / "models" / "pose.onnx").exists()
@@ -61,7 +61,7 @@ def test_a_file_named_tar_that_isnt_an_archive_is_kept_as_it_is(tmp_path, monkey
     src.parent.mkdir()
     with zipfile.ZipFile(src, "w") as f:
         f.writestr("archive/data.pkl", b"weights")
-    monkeypatch.setattr(fetch_models, "ROOT", tmp_path)
+    monkeypatch.setattr("liberational.config.OWNER_ROOT", tmp_path)
     digest = hashlib.sha256(src.read_bytes()).hexdigest() if digest_ok else "0" * 64
     spec = {"url": src.as_uri(), "path": "models/geocalib/geocalib-pinhole.tar", "sha256": digest}
     if digest_ok:
@@ -117,7 +117,7 @@ def test_huggingface_local_checkpoint_honors_revision_without_fetching_other_fil
     import huggingface_hub
 
     calls = []
-    monkeypatch.setattr(fetch_models, "ROOT", tmp_path)
+    monkeypatch.setattr("liberational.config.OWNER_ROOT", tmp_path)
     monkeypatch.setattr(huggingface_hub, "snapshot_download", lambda repo, **kwargs: calls.append((repo, kwargs)))
     fetch_models.fetch_hf(
         "object_segmentation",

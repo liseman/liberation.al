@@ -60,11 +60,11 @@ def _text(d: dict[str, Any], key: str) -> str | None:
 def load(path: pathlib.Path | None = None) -> list[Package]:
     """The declared packages, resolving the current root on each call unless a path is supplied.
 
-    Raises ValueError naming the package when a table doesn't follow the format. Do not capture ROOT in a default:
-    importing this module while configuration is overridden must not pin later reads to that old checkout.
+    Raises ValueError naming the package when a table doesn't follow the format. Do not capture RESOURCES in a
+    default: importing this module while configuration is overridden must not pin later reads to that old path.
     """
     if path is None:
-        path = cfg.ROOT / "config" / "system-packages.toml"
+        path = cfg.RESOURCES / "system-packages.toml"
     known = {f.name for f in dataclasses.fields(Package)} - {"name"}
     out = []
     for name, d in tomllib.loads(path.read_text()).items():

@@ -36,7 +36,7 @@ from typing import Any, Literal, TypedDict
 from liberational import config as cfg
 from liberational import logs
 
-SPEC = cfg.ROOT / "services" / "services.toml"
+SPEC = cfg.RESOURCES / "services.toml"
 DARWIN = sys.platform == "darwin"
 
 # One [name] table from services.toml: command, args, env, default, platforms, schedule, and so on.
@@ -87,15 +87,15 @@ def argv(svc: Service, *, startup: bool = False, name: str = "") -> list[str]:
     program we don't own) runs under log_relay, tagged with its name, so its lines carry the one log format."""
     cmd = svc["command"]
     if cmd.startswith("pack-"):
-        exe = [str(cfg.ROOT / ".venv" / "bin" / cmd)]
+        exe = [str(cfg.program(cmd))]
     elif "/" in cmd:
-        path = cfg.ROOT / cmd
+        path = cfg.workdir() / cmd
         exe = ["/bin/bash", str(path)] if path.suffix == ".sh" else [str(path)]
     else:
         exe = [shutil.which(cmd) or cmd]
     if startup and svc.get("fresh_config"):
         command = [
-            str(cfg.ROOT / ".venv/bin/python"),
+            sys.executable,
             "-m",
             "liberational.services",
             "exec",
@@ -104,10 +104,10 @@ def argv(svc: Service, *, startup: bool = False, name: str = "") -> list[str]:
     else:
         command = exe + [_expand(a) for a in svc.get("args", [])]
     if startup and svc.get("wait_for_gpu"):
-        command = [str(cfg.ROOT / ".venv/bin/python"), "-m", "liberational.gpu_ready", "--", *command]
+        command = [sys.executable, "-m", "liberational.gpu_ready", "--", *command]
     if startup and svc.get("wait_for_broker"):
         command = [
-            str(cfg.ROOT / ".venv/bin/python"),
+            sys.executable,
             "-m",
             "liberational.continuum_ready",
             "--socket",
@@ -116,7 +116,7 @@ def argv(svc: Service, *, startup: bool = False, name: str = "") -> list[str]:
             *command,
         ]
     if startup and svc.get("log_relay"):
-        command = [str(cfg.ROOT / ".venv/bin/python"), "-m", "liberational.log_relay", "--tag", name, "--", *command]
+        command = [sys.executable, "-m", "liberational.log_relay", "--tag", name, "--", *command]
     return command
 
 
@@ -134,7 +134,7 @@ def _templated_env(svc: Service) -> dict[str, str]:
 def environment(svc: Service, name: str = "") -> dict[str, str]:
     # The venv first, then mise's shims (tools like ffmpeg from mise.toml), then the installing shell's PATH, then the
     # system directories whatever that shell had: capture runs sysctl, which is in /usr/sbin.
-    parts = [str(cfg.ROOT / ".venv" / "bin"), str(pathlib.Path.home() / ".local/share/mise/shims")]
+    parts = [str(cfg.BIN), str(pathlib.Path.home() / ".local/share/mise/shims")]
     parts += os.environ.get("PATH", "").split(os.pathsep)
     parts += ["/usr/local/bin"] if DARWIN else []
     parts += ["/usr/bin", "/bin", "/usr/sbin", "/sbin"]
@@ -183,7 +183,7 @@ def render_launchd(name: str, svc: Service) -> dict[str, str]:
     d: dict[str, Any] = {
         "Label": f"pack.{name}",
         "ProgramArguments": argv(svc, startup=True, name=name),
-        "WorkingDirectory": str(cfg.ROOT),
+        "WorkingDirectory": str(cfg.workdir()),
         "EnvironmentVariables": environment(svc, name),
         "StandardOutPath": str(log_path(name)),
         "StandardErrorPath": str(log_path(name)),
@@ -222,7 +222,7 @@ def render_systemd(name: str, svc: Service) -> dict[str, str]:
         "[Service]",
         f"Type={'oneshot' if scheduled else 'simple'}",
         start,
-        f"WorkingDirectory={cfg.ROOT}",
+        f"WorkingDirectory={cfg.workdir()}",
         env,
         "StandardOutput=journal",
         "StandardError=journal",
@@ -295,7 +295,7 @@ def _systemctl(verb: Sequence[str], units: Sequence[str]) -> dict[str, str | Non
 def checkout_note() -> str:
     """Why services must not be installed from here: a git worktree or a temporary directory isn't the checkout they
     should run from (their units would point at files that go away). Empty for a real checkout."""
-    root = cfg.ROOT.resolve()
+    root = cfg.workdir().resolve()
     if (root / ".git").is_file():  # a linked worktree: .git is a pointer file, not the repository
         return f"{root} is a git worktree"
     tmp = pathlib.Path(tempfile.gettempdir()).resolve()
@@ -1054,8 +1054,8 @@ def _commands() -> tuple[dict[str, str], dict[str, str]]:
         if cmd.startswith("pack-"):
             by_name[cmd] = name
         elif "/" in cmd:
-            by_path[str(cfg.ROOT / cmd)] = name
-            by_path[str((cfg.ROOT / cmd).resolve())] = name
+            by_path[str(cfg.workdir() / cmd)] = name
+            by_path[str((cfg.workdir() / cmd).resolve())] = name
     return by_name, by_path
 
 
@@ -1226,7 +1226,7 @@ def exec_service(name: str) -> None:
         raise SystemExit(f"cannot launch unselected or unknown service: {name}")
     command = argv(services[name])
     try:
-        os.chdir(cfg.ROOT)
+        os.chdir(cfg.workdir())
         os.execve(command[0], command, {**os.environ, **_templated_env(services[name])})
     except OSError as error:
         raise SystemExit(f"cannot start {name}: {error}") from error

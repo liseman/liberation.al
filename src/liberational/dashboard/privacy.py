@@ -35,7 +35,7 @@ def ready() -> bool:
     """Whether the built capture follows pauses: an older one rejects the manifest's paused field outright, so it is
     never written before the binary supports it. The binary is asked once per build, not once per read: the live
     feed reads this view every second (#52)."""
-    binary = cfg.ROOT / "continuum" / "target" / "release" / "continuum-capture"
+    binary = cfg.workdir() / "continuum" / "target" / "release" / "continuum-capture"
     try:
         stat = binary.stat()
     except OSError:

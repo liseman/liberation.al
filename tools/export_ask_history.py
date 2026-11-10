@@ -28,33 +28,34 @@ def output_path(path: Path) -> Path:
     measurement = cfg.path("paths.measurement").resolve()
     if target.suffix != ".jsonl" or not target.is_relative_to(measurement) or target == measurement:
         raise ValueError("output must be a .jsonl file under paths.measurement")
-    root = cfg.ROOT.resolve()
-    if any(
-        target.is_relative_to(root / name)
-        for name in (
-            "src",
-            "tests",
-            "tools",
-            "frontend",
-            "continuum",
-            "docs",
-            "config",
-            ".git",
-        )
-    ):
-        raise ValueError("output cannot be in tracked or source directories")
-    if target.is_relative_to(root):
-        checked = subprocess.run(
-            ["git", "ls-files", "--error-unmatch", "--", str(target.relative_to(root))],
-            cwd=root,
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        if checked.returncode == 0:
-            raise ValueError("output cannot overwrite a tracked file")
-        if checked.returncode != 1:
-            raise RuntimeError("could not verify that output is untracked")
+    if cfg.OWNER_ROOT is not None:  # in a checkout's layout, keep the labels out of the tracked tree
+        root = cfg.OWNER_ROOT.resolve()
+        if any(
+            target.is_relative_to(root / name)
+            for name in (
+                "src",
+                "tests",
+                "tools",
+                "frontend",
+                "continuum",
+                "docs",
+                "config",
+                ".git",
+            )
+        ):
+            raise ValueError("output cannot be in tracked or source directories")
+        if target.is_relative_to(root):
+            checked = subprocess.run(
+                ["git", "ls-files", "--error-unmatch", "--", str(target.relative_to(root))],
+                cwd=root,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if checked.returncode == 0:
+                raise ValueError("output cannot overwrite a tracked file")
+            if checked.returncode != 1:
+                raise RuntimeError("could not verify that output is untracked")
     return target
 
 

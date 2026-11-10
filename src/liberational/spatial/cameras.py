@@ -461,7 +461,7 @@ def pick_gpu(setting: int, found: Sequence[Mapping[str, Any]] | None) -> str | N
 
 
 def checkpoint() -> Path:
-    return cfg.ROOT / str(cfg.load()["models"]["hf"]["mast3r"]["path"])
+    return cfg.owner_file(str(cfg.load()["models"]["hf"]["mast3r"]["path"]))
 
 
 def run_mast3r(
@@ -1298,7 +1298,7 @@ def _place_positions(state: Path, now: float) -> dict[str, int] | None:
 
 def _places_pass(state: Path, now: float) -> dict[str, Any]:
     """Footprints, frames, MASt3R, and places."""
-    cams = fixed_cameras(cfg.ROOT / "config" / "devices.toml")
+    cams = fixed_cameras(cfg.devices_file())
     # Footprints first: every fixed camera's, registered or not, so a place has them by the time it has poses.
     # The log's footprints_recorded is what this run added since each camera's mark (a day's backfill the first time,
     # then only the new rows), not what a plan reads: the walkable floor reads the last 14 days back on every run.
