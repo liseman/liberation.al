@@ -440,3 +440,14 @@ def test_a_walks_failed_training_leaves_the_walk_without_a_splat_and_says_why(tm
     assert did is None
     assert not places.has_splat(tmp_path, rev)
     assert "CUDA out of memory" in caplog.text
+
+
+def test_a_walk_is_only_drawn_at_its_poses_when_asked(tmp_path, runtime, monkeypatch):
+    monkeypatch.setattr(splats.nvml, "gpus", list)
+    views = [{"image": str(tmp_path / "f000.jpg"), "pose": np.eye(4).ravel().tolist(), "focal": 100.0}]
+    with cfg.override({"spatial": {"splat_runtime": str(runtime), "gpu": -1}}):
+        plain, _ = splats.train_walk(views, CLOUD, None)
+        drawn, _ = splats.train_walk(views, CLOUD, None, render=tmp_path / "exact")
+    assert "render" not in plain["job"], "a walk's own splat draws nothing"
+    assert drawn["job"]["render"] == str(tmp_path / "exact")
+    assert drawn["job"]["holdout"] == [] and drawn["job"]["pose_opt"] is True

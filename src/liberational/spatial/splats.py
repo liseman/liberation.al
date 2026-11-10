@@ -459,13 +459,15 @@ def train_walk(
     refine: bool = True,
     holdout: Sequence[int] = (),
     steps: int = WALK_STEPS,
+    render: Path | None = None,
 ) -> tuple[dict[str, Any], bytes]:
     """Train a walk's splat from `views` (`walk_views`), starting from `points` and `colors` (at most
     WALK_START_POINTS of them, picked with a fixed seed), the Gaussians held inside the points' box, with each
     training view's pose refined while it trains unless `refine` is off (spatial/splat_runner.py's `pose_opt`; off
     is for measuring what it gains) and the views at `holdout` scored, not trained on. `scale` is the map's units to
-    a metre (`carried`'s), for the views' depth maps. Returns the runner's result and the trained PLY. Raises
-    RuntimeError when training fails."""
+    a metre (`carried`'s), for the views' depth maps. With `render`, every view as the trained splat draws it at its
+    given pose is written there (the runner's `render`: a walk whose frames sit exactly at their poses). Returns the
+    runner's result and the trained PLY. Raises RuntimeError when training fails."""
     runtime = cfg.path("spatial.splat_runtime")
     pts = np.asarray(points, dtype=np.float32).reshape(-1, 3)
     rgb = np.full((len(pts), 3), 128, np.uint8) if colors is None else np.asarray(colors, np.uint8)
@@ -491,6 +493,7 @@ def train_walk(
                     "pose_opt": refine,
                     "depth_unit": 0.001 * scale,  # a depth map's millimetres in the map's units
                     "holdout": list(holdout),
+                    **({} if render is None else {"render": str(render)}),
                 }
             )
         )
@@ -514,7 +517,8 @@ def splat_walk(
     revision's map points (at most WALK_START_POINTS); what it did. Every view trains, none held out, each against
     its LiDAR depth map when `depths` has one (a Stray walk's; a plain video has none), with its pose refined as it
     trains: that takes up the last few centimetres of a Stray walk's ARKit poses and the larger errors of a plain
-    video's CUT3R and pose-graph poses (#21). None (the log says why) when splats are off, gsplat's runtime isn't
+    video's CUT3R and pose-graph poses (#21). The median correction it logs (`pose_shift`, `pose_turn_deg`) reads
+    what the frames need to within half a centimetre and a tenth of a degree (#197, spatial/splat_runner.py). None (the log says why) when splats are off, gsplat's runtime isn't
     installed, the frame can't be carried, or training fails."""
     runtime = cfg.path("spatial.splat_runtime")
     if not cfg.get("spatial.splats_enabled") or not (runtime / ".venv" / "bin" / "python").exists():
