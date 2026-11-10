@@ -1022,3 +1022,97 @@ fn a_crash_between_parts_commits_only_what_the_catalog_lacks() {
     assert_eq!((w.counts().recovered, w.counts().committed), (0, 0));
     assert_eq!(chunks(&catalog, cam, 5).len(), 1);
 }
+
+#[test]
+fn parts_queued_for_an_older_chunk_file_are_committed_after_a_restart() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let catalog = Rc::new(MemoryCatalog::new());
+    let cam = register_cam(&catalog);
+    // The first run commits four seconds of its first chunk, and then every commit fails for now: the first file
+    // closes at ten seconds, a second opens, and the run ends with parts of both still queued.
+    let held = {
+        let broker = Broker { catalog: Rc::clone(&catalog), ..Broker::default() };
+        let mut w = WorkerLoop::new(dir.path(), parts_settings(), broker.clone()).expect("loop");
+        w.declare(cam, shape(ChunkFormat::Passthrough));
+        feed(&mut w, &catalog, cam, 0..50);
+        let held = chunks(&catalog, cam, 5).remove(0);
+        *broker.fail_commits.borrow_mut() = u32::MAX;
+        feed(&mut w, &catalog, cam, 50..160);
+        w.shutdown().expect("shutdown");
+        assert!(w.uncommitted() > 1, "parts of both files wait: {}", w.uncommitted());
+        held
+    };
+    assert_eq!(held.2, 40, "parts at 1, 2, 3, and 4 seconds");
+    assert_eq!(chunks(&catalog, cam, 20), std::slice::from_ref(&held), "the catalog knows nothing of the second file");
+
+    // The next start is handed the second file only. The catalog lacks all of it, so the first is looked at too.
+    let broker = Broker { catalog: Rc::clone(&catalog), ..Broker::default() };
+    let mut w = WorkerLoop::new(dir.path(), parts_settings(), broker.clone()).expect("loop");
+    let found = continuum_tier::recover(dir.path()).expect("recover");
+    assert_eq!(found.len(), 1, "only the stream's newest finished chunk: {found:?}");
+    w.recovered(found);
+    w.declare(cam, shape(ChunkFormat::Passthrough));
+    assert_eq!((w.counts().walked_back, w.counts().recovered, w.counts().rejected), (1, 2, 0));
+    assert_eq!(w.uncommitted(), 0);
+    let both = chunks(&catalog, cam, 20);
+    assert_eq!(both.iter().map(|c| c.2).collect::<Vec<_>>(), [100, 60], "each row names what its file holds");
+    assert_eq!((both[0].0, &both[0].1), (held.0, &held.1), "the first chunk's row took the frames it lacked");
+    for i in [40u32, 99, 100, 159] {
+        let t = T0 + u64::from(i) * TENTH;
+        let got: Vec<Vec<u8>> =
+            both.iter().flat_map(|c| hydrate(&c.1, t, t + 1).expect("hydrate")).map(|h| h.bytes).collect();
+        assert_eq!(got, [frame_bytes(i)], "frame {i}");
+        assert!(
+            matches!(catalog.get(uuid(i)).expect("get"), Some(continuum_catalog::Resolved::AbsorbedFrame { .. })),
+            "frame {i} is in a chunk"
+        );
+    }
+    // A frame of the older file the broker sends again is in a chunk already, not appended twice.
+    let again = Payload {
+        pcm_rate_hz: 0,
+        id: uuid(70),
+        stream: cam,
+        start_ns: T0 + 70 * TENTH,
+        end_ns: T0 + 70 * TENTH,
+        seq: 70,
+        bytes: frame_bytes(70),
+        provenance: None,
+    };
+    assert_eq!(w.payload(&again, T0 + 16 * S).expect("payload"), Appended::Recovered);
+    w.shutdown().expect("shutdown");
+
+    // A start with nothing queued rechecks the newest finished file and opens no older one.
+    let broker = Broker { catalog: Rc::clone(&catalog), ..Broker::default() };
+    let mut w = WorkerLoop::new(dir.path(), parts_settings(), broker).expect("loop");
+    w.recovered(continuum_tier::recover(dir.path()).expect("recover"));
+    w.declare(cam, shape(ChunkFormat::Passthrough));
+    assert_eq!((w.counts().walked_back, w.counts().recovered, w.counts().committed), (0, 0, 0));
+}
+
+#[test]
+fn a_start_whose_newest_chunk_the_catalog_refuses_leaves_the_older_files_alone() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let catalog = Rc::new(MemoryCatalog::new());
+    let cam = register_cam(&catalog);
+    {
+        let broker = Broker { catalog: Rc::clone(&catalog), ..Broker::default() };
+        let mut w = WorkerLoop::new(dir.path(), parts_settings(), broker).expect("loop");
+        w.declare(cam, shape(ChunkFormat::Passthrough));
+        feed(&mut w, &catalog, cam, 0..250);
+        w.shutdown().expect("shutdown");
+    }
+    assert_eq!(continuum_tier::layout::chunk_paths(dir.path(), None).expect("list").len(), 3);
+
+    // A catalog that was reset knows none of the three files or their frames. The newest is refused and set aside,
+    // as before; the two older ones are not opened, committed, or renamed.
+    let fresh = Rc::new(MemoryCatalog::new());
+    let cam = register_cam(&fresh);
+    let broker = Broker { catalog: Rc::clone(&fresh), ..Broker::default() };
+    let mut w = WorkerLoop::new(dir.path(), parts_settings(), broker.clone()).expect("loop");
+    w.recovered(continuum_tier::recover(dir.path()).expect("recover"));
+    w.declare(cam, shape(ChunkFormat::Passthrough));
+    assert_eq!((w.counts().walked_back, w.counts().rejected), (0, 1));
+    let left = continuum_tier::layout::chunk_paths(dir.path(), None).expect("list");
+    let kept = left.iter().filter(|p| p.extension().is_some_and(|e| e == "cnk")).count();
+    assert_eq!((left.len(), kept), (3, 2), "{left:?}");
+}

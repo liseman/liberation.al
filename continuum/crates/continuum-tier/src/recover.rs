@@ -10,7 +10,9 @@
 //! Each stream's newest finished chunk comes back too. A camera's chunk is committed in parts while it is open
 //! (docs/CONTINUUM.md, "Video chunks"), so the run may have ended after the file got its footer and before its last
 //! part reached the catalog; the worker asks the catalog how many of a recovered chunk's frames it holds and commits
-//! the rest, which for a chunk it holds whole is nothing.
+//! the rest, which for a chunk it holds whole is nothing. When it lacks part of that one, commits were failing when the
+//! run ended, and parts of older files may have been waiting behind it: the worker then walks back through the
+//! stream's older finished chunks ([`older_chunks`], [`finished`]) until it reaches one the catalog holds whole.
 //!
 //! Derived `*-copy-*.cnk` sidecars are recovered by `copies`, never absorbed as raw chunks.
 //!
@@ -115,4 +117,44 @@ pub fn recover(dir: &Path) -> Result<Vec<Recovered>, TierError> {
     }
     out.reverse(); // oldest first, as the listing is
     Ok(out)
+}
+
+/// `stream`'s chunk files older than `before` (one of its chunk files), newest first: the candidates for
+/// [`finished`] when the catalog lacks part of `before`. Copies and files that aren't `.cnk` are left out.
+///
+/// # Errors
+///
+/// An I/O error listing the stream's directories.
+pub fn older_chunks(dir: &Path, stream: StreamId, before: &Path) -> Result<Vec<PathBuf>, TierError> {
+    let mut paths = crate::layout::chunk_paths(dir, Some(stream))?;
+    paths.retain(|path| {
+        path.as_path() < before
+            && path.extension().and_then(|e| e.to_str()) == Some("cnk")
+            && !crate::copies::is_copy(path)
+    });
+    paths.reverse();
+    Ok(paths)
+}
+
+/// The finished chunk at `path`, as [`recover`] hands back a stream's newest: `None` for a file that isn't a chunk,
+/// has no footer, or holds no record. Nothing is finalized or deleted here: a run's unfinished chunks are its
+/// newest, and [`recover`] has dealt with those.
+///
+/// # Errors
+///
+/// An I/O error reading the chunk.
+pub fn finished(path: &Path) -> Result<Option<Recovered>, TierError> {
+    let reader = match ChunkReader::open(path) {
+        Ok(r) => r,
+        Err(crate::chunk::ChunkError::NotAChunk(_)) => return Ok(None),
+        Err(e) => return Err(e.into()),
+    };
+    if !reader.finalized() || reader.records().is_empty() {
+        return Ok(None);
+    }
+    let (stream, format, created_ns) = (reader.stream(), reader.format(), reader.created_ns());
+    let records = reader.records().to_vec();
+    drop(reader);
+    let provenance = read_provenance(path)?;
+    Ok(Some(Recovered { path: path.to_path_buf(), stream, format, created_ns, records, skipped: 0, provenance }))
 }
