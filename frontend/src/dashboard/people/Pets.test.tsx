@@ -433,7 +433,7 @@ describe('Sightings to name', () => {
     view.groups = [{ id: 'cat:z', species: 'cat', sightings: [sighting('z')] }];
     serve();
     renderPage(<Pets />);
-    const row = await within(await inbox()).findByRole('listitem', { name: /^1 cat sighting: No guess yet/ });
+    const row = await within(await inbox()).findByRole('listitem', { name: /^1 cat sighting: No good guess/ });
     expect(answers(row)).toEqual(['Ignore', 'Block']); // one picture: nothing to open, so they show at once
     expect(within(row).getByRole('textbox', { name: /Which pet is this\?/ })).toHaveAttribute(
       'placeholder',
@@ -506,7 +506,7 @@ describe('Sightings to name', () => {
     const order = async () =>
       within(await inbox())
         .getAllByRole('listitem')
-        .map(li => li.getAttribute('aria-label')?.replace(/^1 cat sighting: /, ''));
+        .map(li => li.getAttribute('aria-label')?.replace(/^1 cat sighting: /, '').replace(/ \d+%$/, ''));
     const flip = (user: ReturnType<typeof userEvent.setup>, now: 'highest' | 'lowest') =>
       user.click(screen.getByRole('button', { name: `Sort sightings by certainty, ${now} first` }));
 
@@ -515,21 +515,21 @@ describe('Sightings to name', () => {
       const user = userEvent.setup();
       const page = renderPage(<Pets />);
       await within(await inbox()).findAllByRole('listitem');
-      expect(await order()).toEqual(['Probably Mia', 'Maybe Mia', 'Maybe Mia', 'No guess yet']);
+      expect(await order()).toEqual(['Probably Mia', 'Maybe Mia', 'Maybe Mia', 'No good guess']);
       expect(
         within(await inbox())
           .getAllByRole('progressbar')
           .map(b => b.getAttribute('aria-label')),
       ).toEqual(['Match score 90%', 'Match score 70%', 'Match score 40%']);
       await flip(user, 'highest');
-      expect(await order()).toEqual(['No guess yet', 'Maybe Mia', 'Maybe Mia', 'Probably Mia']);
+      expect(await order()).toEqual(['No good guess', 'Maybe Mia', 'Maybe Mia', 'Probably Mia']);
       expect(within(await inbox()).getAllByRole('progressbar')[0]).toHaveAccessibleName('Match score 40%');
       page.unmount();
       renderPage(<Pets />);
       await within(await inbox()).findAllByRole('listitem');
-      expect(await order()).toEqual(['No guess yet', 'Maybe Mia', 'Maybe Mia', 'Probably Mia']);
+      expect(await order()).toEqual(['No good guess', 'Maybe Mia', 'Maybe Mia', 'Probably Mia']);
       await flip(user, 'lowest');
-      expect(await order()).toEqual(['Probably Mia', 'Maybe Mia', 'Maybe Mia', 'No guess yet']);
+      expect(await order()).toEqual(['Probably Mia', 'Maybe Mia', 'Maybe Mia', 'No good guess']);
     });
 
     it('starts at highest first in a browser that remembered the old Newest order', async () => {
@@ -538,7 +538,7 @@ describe('Sightings to name', () => {
       renderPage(<Pets />);
       await within(await inbox()).findAllByRole('listitem');
       expect(screen.getByRole('button', { name: 'Sort sightings by certainty, highest first' })).toBeInTheDocument();
-      expect(await order()).toEqual(['Probably Mia', 'Maybe Mia', 'Maybe Mia', 'No guess yet']);
+      expect(await order()).toEqual(['Probably Mia', 'Maybe Mia', 'Maybe Mia', 'No good guess']);
     });
 
     it('on a phone, folds the sort, size, and view into one View menu, and remembers a pick', async () => {
@@ -564,7 +564,7 @@ describe('Sightings to name', () => {
       await user.click(screen.getByRole('button', { name: 'View' }));
       expect(await screen.findByRole('menuitem', { name: 'Highest certainty first, chosen' })).toBeInTheDocument();
       await user.click(screen.getByRole('menuitem', { name: 'Lowest certainty first' }));
-      expect(await order()).toEqual(['No guess yet', 'Maybe Mia', 'Maybe Mia', 'Probably Mia']);
+      expect(await order()).toEqual(['No good guess', 'Maybe Mia', 'Maybe Mia', 'Probably Mia']);
       expect(screen.getByRole('menuitem', { name: 'Lowest certainty first, chosen' })).toBeInTheDocument();
       page.unmount();
       vi.restoreAllMocks();
@@ -706,7 +706,7 @@ describe('Sightings to name', () => {
     view.groups = [{ id: 'cat:z', species: 'cat', sightings: [sighting('z')] }];
     serve();
     renderPage(<Pets />);
-    const row = await within(await inbox()).findByRole('listitem', { name: /^1 cat sighting: No guess yet/ });
+    const row = await within(await inbox()).findByRole('listitem', { name: /^1 cat sighting: No good guess/ });
     expect(picker(row)).toBeVisible();
     expect(within(row).queryByRole('button', { name: /Mia|Rex|^Yes/ })).toBeNull();
   });
@@ -730,7 +730,7 @@ describe('Sightings to name', () => {
     await user.click(within(row).getByRole('button', { name: 'Mia' }));
     await waitFor(() => expect(labels()).toEqual([{ track_ids: ['a', 'b'], label: MIA }]));
     // The one left out stays unnamed, waiting on its own.
-    expect(await screen.findByRole('listitem', { name: /^1 cat sighting: No guess yet/ })).toBeVisible();
+    expect(await screen.findByRole('listitem', { name: /^1 cat sighting: No good guess/ })).toBeVisible();
   });
 
   it('says only the selected sightings are not the guess', async () => {
@@ -783,7 +783,7 @@ describe('Sightings to name', () => {
     serve();
     const user = userEvent.setup();
     renderPage(<Pets />);
-    const row = await within(await inbox()).findByRole('listitem', { name: /^1 cat sighting: No guess yet/ });
+    const row = await within(await inbox()).findByRole('listitem', { name: /^1 cat sighting: No good guess/ });
     expect(within(row).queryByRole('button', { name: 'Another animal' })).toBeNull();
     await user.click(picker(row));
     await user.click(await screen.findByRole('option', { name: 'Dog' }));

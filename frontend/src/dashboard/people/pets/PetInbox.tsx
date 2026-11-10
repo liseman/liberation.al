@@ -219,6 +219,10 @@ function GroupRow({
       choices={choices}
       choicesDisabled={!tracks.length}
       foldable={kept.length > 1}
+      count={kept.length}
+      note={
+        guessed ? undefined : 'Ignore skips the selected sightings. Block also hides any animal very like them from now on.'
+      }
       meta={
         <>
           <ProcessingImages count={pending} unavailable={unavailable} />
