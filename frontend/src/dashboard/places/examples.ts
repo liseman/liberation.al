@@ -3,6 +3,9 @@
 // tile the footprint, openings on the walls between them. The flat also carries one of each of spatial memory's
 // extensions (plan/ext.ts) to show how they draw. Both lint clean (plan/lint.ts).
 
+import type { Scene } from '../../plan-editor/protocol';
+import { EXAMPLE_SCENE } from './scene/example';
+
 /** A place the tab lists: its name, when it was last visited (null: not yet), and its plan document. */
 export interface Place {
   id: string;
@@ -24,6 +27,8 @@ export interface Place {
   machinePlanText?: string | null;
   /** Whose plan it is: the machine's (with when its revision was made) or the owner's correction. */
   origin?: { source: 'owner' | 'machine'; at: number | null; machineNewer: boolean };
+  /** The plan as a Pascal scene, for the new plan editor and its 3D view (scene/): the example flat only, for now. */
+  scene?: Scene;
   /** Shown as an example, not something the house mapped. */
   example: boolean;
 }
@@ -121,6 +126,6 @@ const CABIN = {
 };
 
 export const EXAMPLE_PLACES: Place[] = [
-  { id: 'example-flat', name: 'Example flat', lastVisit: null, plan: FLAT, example: true },
+  { id: 'example-flat', name: 'Example flat', lastVisit: null, plan: FLAT, scene: EXAMPLE_SCENE, example: true },
   { id: 'example-cabin', name: 'Example cabin', lastVisit: null, plan: CABIN, example: true },
 ];

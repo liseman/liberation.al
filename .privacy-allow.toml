@@ -19,6 +19,11 @@ path = "tests/test_privacy_check.py"
 reason = "made-up seeds, one per category, that the check must catch"
 
 [[allow]]
+rule = "media-file"
+path = "frontend/public/pascal/*"
+reason = "Pascal Editor's own interface icons and two stock wall and floor textures, copied from its public repository"
+
+[[allow]]
 rule = "lan-ip"
 path = "tests/*"
 match = '^(192\.168\.(0|1|40|50)\.\d+|100\.64\.0\.9|10\.0\.0\.[15])$'

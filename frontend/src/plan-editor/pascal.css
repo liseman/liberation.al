@@ -1,0 +1,552 @@
+/* The Pascal host app's own stylesheet, which its editor's classes rely on: apps/editor/app/globals.css (from its
+   dark variant on) and styles/elevation.css, from github.com/pascalorg/editor at the commit public/pascal/README.md
+   names (MIT). Copied unchanged; plan-editor.css sets Tailwind up before it. */
+
+/*
+ * Shared Elevation System & Corner Smoothing
+ *
+ * Natural shadow stacking with light/dark mode adaptation.
+ * Import from any app: @import "../../../styles/elevation.css";
+ *
+ * Shadows:
+ *   shadow-elevation-0  Flat — ambient ring only
+ *   shadow-elevation-1  Subtle lift — inner cards, inset panels
+ *   shadow-elevation-2  Card / surface
+ *   shadow-elevation-3  Popover / dropdown
+ *   shadow-elevation-4  Sticky / floating bar
+ *   shadow-elevation-5  Modal / dialog
+ *   shadow-elevation-6  Full overlay — maximum depth
+ *
+ * Corner smoothing:
+ *   corner-smooth        Composable — pair with any rounded-* class
+ */
+
+/* ── Register tokens so Tailwind generates shadow-elevation-* utilities ── */
+@theme inline {
+  --shadow-elevation-0: var(--shadow-elevation-0);
+  --shadow-elevation-1: var(--shadow-elevation-1);
+  --shadow-elevation-2: var(--shadow-elevation-2);
+  --shadow-elevation-3: var(--shadow-elevation-3);
+  --shadow-elevation-4: var(--shadow-elevation-4);
+  --shadow-elevation-5: var(--shadow-elevation-5);
+  --shadow-elevation-6: var(--shadow-elevation-6);
+}
+
+/* ════════════════════════════════════════
+   Light mode — Stacked Elevation
+   Base ambient ring + diffusion layers using the
+   1 → 3 → 6 → 12 → 24 → 48 doubling sequence.
+   Spread = -(blur / 2) keeps each layer tight.
+   ════════════════════════════════════════ */
+:root {
+  --shadow-color: rgb(0 0 0 / 0.06);
+
+  --shadow-elevation-0: 0 0 0 1px var(--shadow-color);
+
+  --shadow-elevation-1:
+    0 0 0 1px var(--shadow-color), 0 1px 1px -0.5px var(--shadow-color);
+
+  --shadow-elevation-2:
+    0 0 0 1px var(--shadow-color), 0 1px 1px -0.5px var(--shadow-color),
+    0 3px 3px -1.5px var(--shadow-color);
+
+  --shadow-elevation-3:
+    0 0 0 1px var(--shadow-color),
+    0 1px 1px -0.5px var(--shadow-color),
+    0 3px 3px -1.5px var(--shadow-color),
+    0 6px 6px -3px var(--shadow-color);
+
+  --shadow-elevation-4:
+    0 0 0 1px var(--shadow-color),
+    0 1px 1px -0.5px var(--shadow-color),
+    0 3px 3px -1.5px var(--shadow-color),
+    0 6px 6px -3px var(--shadow-color),
+    0 12px 12px -6px var(--shadow-color);
+
+  --shadow-elevation-5:
+    0 0 0 1px var(--shadow-color),
+    0 1px 1px -0.5px var(--shadow-color),
+    0 3px 3px -1.5px var(--shadow-color),
+    0 6px 6px -3px var(--shadow-color),
+    0 12px 12px -6px var(--shadow-color),
+    0 24px 24px -12px var(--shadow-color);
+
+  --shadow-elevation-6:
+    0 0 0 1px var(--shadow-color),
+    0 1px 1px -0.5px var(--shadow-color),
+    0 3px 3px -1.5px var(--shadow-color),
+    0 6px 6px -3px var(--shadow-color),
+    0 12px 12px -6px var(--shadow-color),
+    0 24px 24px -12px var(--shadow-color),
+    0 48px 48px -24px var(--shadow-color);
+}
+
+/* ════════════════════════════════════════
+   Dark mode — Inset Light Illusion
+   Simulates elevation by painting light on raised surfaces.
+   Top-edge highlight + perimeter ring (both inset) increase
+   in intensity as the card "lifts" toward the light source.
+   Drop shadow stack grounds the elevation.
+   ════════════════════════════════════════ */
+.dark {
+  --shadow-color: rgba(0, 0, 0, 0.18);
+
+  /* Highlight intensity (inset top edge) */
+  --dm-hi-base: rgba(255, 255, 255, 0.02);
+  --dm-hi-mid: rgba(255, 255, 255, 0.05);
+  --dm-hi-high: rgba(255, 255, 255, 0.08);
+  --dm-hi-peak: rgba(255, 255, 255, 0.11);
+
+  /* Ring intensity (inset perimeter) */
+  --dm-ring-base: rgba(255, 255, 255, 0.02);
+  --dm-ring-mid: rgba(255, 255, 255, 0.04);
+  --dm-ring-high: rgba(255, 255, 255, 0.06);
+
+  --shadow-elevation-0: inset 0 0 0 1px var(--dm-ring-base);
+
+  --shadow-elevation-1:
+    inset 0 1px 0 0 var(--dm-hi-base), inset 0 0 0 1px var(--dm-ring-base),
+    0 1px 1px -0.5px var(--shadow-color);
+
+  --shadow-elevation-2:
+    inset 0 1px 0 0 var(--dm-hi-mid),
+    inset 0 0 0 1px var(--dm-ring-base),
+    0 0 0 1px rgba(0, 0, 0, 0.12),
+    0 1px 1px -0.5px var(--shadow-color),
+    0 3px 3px -1.5px var(--shadow-color);
+
+  --shadow-elevation-3:
+    inset 0 1px 0 0 var(--dm-hi-mid),
+    inset 0 0 0 1px var(--dm-ring-mid),
+    0 0 0 1px rgba(0, 0, 0, 0.14),
+    0 1px 1px -0.5px var(--shadow-color),
+    0 3px 3px -1.5px var(--shadow-color),
+    0 6px 6px -3px var(--shadow-color);
+
+  --shadow-elevation-4:
+    inset 0 1px 0 0 var(--dm-hi-high),
+    inset 0 0 0 1px var(--dm-ring-mid),
+    0 0 0 1px rgba(0, 0, 0, 0.16),
+    0 1px 1px -0.5px var(--shadow-color),
+    0 3px 3px -1.5px var(--shadow-color),
+    0 6px 6px -3px var(--shadow-color),
+    0 12px 12px -6px var(--shadow-color);
+
+  --shadow-elevation-5:
+    inset 0 1px 0 0 var(--dm-hi-high),
+    inset 0 0 0 1px var(--dm-ring-high),
+    0 0 0 1px rgba(0, 0, 0, 0.18),
+    0 1px 1px -0.5px var(--shadow-color),
+    0 3px 3px -1.5px var(--shadow-color),
+    0 6px 6px -3px var(--shadow-color),
+    0 12px 12px -6px var(--shadow-color),
+    0 24px 24px -12px var(--shadow-color);
+
+  --shadow-elevation-6:
+    inset 0 1px 0 0 var(--dm-hi-peak),
+    inset 0 0 0 1px var(--dm-ring-high),
+    0 0 0 1px rgba(0, 0, 0, 0.2),
+    0 1px 1px -0.5px var(--shadow-color),
+    0 3px 3px -1.5px var(--shadow-color),
+    0 6px 6px -3px var(--shadow-color),
+    0 12px 12px -6px var(--shadow-color),
+    0 24px 24px -12px var(--shadow-color),
+    0 48px 48px -24px var(--shadow-color);
+}
+
+/* ════════════════════════════════════════
+   Corner Smoothing — Progressive Enhancement
+   Composable: pair with any rounded-* class.
+   Usage: class="rounded-2xl corner-smooth"
+   ════════════════════════════════════════ */
+@layer utilities {
+  .corner-smooth {
+    corner-shape: squircle;
+  }
+}
+
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+  --font-sans:
+    var(--font-barlow), var(--font-geist-sans), ui-sans-serif, system-ui,
+    sans-serif;
+  --font-mono:
+    var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Monaco,
+    Consolas, monospace;
+  --font-pixel:
+    var(--font-geist-pixel-square), var(--font-geist-mono), ui-monospace,
+    SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-barlow:
+    var(--font-barlow), var(--font-geist-sans), ui-sans-serif, system-ui,
+    sans-serif;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-barlow), sans-serif;
+  --font-mono: var(--font-geist-mono), monospace;
+  --font-pixel:
+    var(--font-geist-pixel-square), var(--font-geist-mono), monospace;
+  --font-barlow: var(--font-barlow), sans-serif;
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+:root {
+  --radius: 0.625rem;
+  --background: oklch(0.998 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(0.998 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(0.998 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+}
+
+.dark {
+  --background: oklch(0.205 0 0); /* ~171717 */
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(
+    0.235 0 0
+  ); /* slightly lighter than background (0.205) but darker than previous (0.269) */
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.235 0 0); /* matching accent */
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  button,
+  [role="button"],
+  a {
+    cursor: pointer;
+  }
+}
+
+/* Apple-style smooth corners (squircle) — progressive enhancement */
+.rounded-smooth {
+  border-radius: var(--radius-lg);
+  corner-shape: squircle;
+}
+.rounded-smooth-xl {
+  border-radius: var(--radius-xl);
+  corner-shape: squircle;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none; /* IE and Edge */
+  scrollbar-width: none; /* Firefox */
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: gray transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+  background: transparent;
+}
+
+*::-webkit-scrollbar-track,
+*::-webkit-scrollbar-track-piece,
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: gray;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Loaders */
+.pascal-loader-1 {
+  width: 45px;
+  aspect-ratio: 1;
+  --c: no-repeat linear-gradient(currentColor 0 0);
+  background: var(--c), var(--c), var(--c);
+  animation:
+    pascal-l1-1 1s infinite,
+    pascal-l1-2 1s infinite;
+}
+@keyframes pascal-l1-1 {
+  0%,
+  100% {
+    background-size: 20% 100%;
+  }
+  33%,
+  66% {
+    background-size: 20% 20%;
+  }
+}
+@keyframes pascal-l1-2 {
+  0%,
+  33% {
+    background-position:
+      0 0,
+      50% 50%,
+      100% 100%;
+  }
+  66%,
+  100% {
+    background-position:
+      100% 0,
+      50% 50%,
+      0 100%;
+  }
+}
+
+.pascal-loader-2 {
+  width: 45px;
+  aspect-ratio: 0.75;
+  --c: no-repeat linear-gradient(currentColor 0 0);
+  background:
+    var(--c) 0% 50%,
+    var(--c) 50% 50%,
+    var(--c) 100% 50%;
+  background-size: 20% 50%;
+  animation: pascal-l2 1s infinite linear;
+}
+@keyframes pascal-l2 {
+  20% {
+    background-position:
+      0% 0%,
+      50% 50%,
+      100% 50%;
+  }
+  40% {
+    background-position:
+      0% 100%,
+      50% 0%,
+      100% 50%;
+  }
+  60% {
+    background-position:
+      0% 50%,
+      50% 100%,
+      100% 0%;
+  }
+  80% {
+    background-position:
+      0% 50%,
+      50% 50%,
+      100% 100%;
+  }
+}
+
+.pascal-loader-3 {
+  width: 45px;
+  aspect-ratio: 0.75;
+  --c: no-repeat linear-gradient(currentColor 0 0);
+  background:
+    var(--c) 0% 100%,
+    var(--c) 50% 100%,
+    var(--c) 100% 100%;
+  background-size: 20% 65%;
+  animation: pascal-l3 1s infinite linear;
+}
+@keyframes pascal-l3 {
+  16.67% {
+    background-position:
+      0% 0%,
+      50% 100%,
+      100% 100%;
+  }
+  33.33% {
+    background-position:
+      0% 0%,
+      50% 0%,
+      100% 100%;
+  }
+  50% {
+    background-position:
+      0% 0%,
+      50% 0%,
+      100% 0%;
+  }
+  66.67% {
+    background-position:
+      0% 100%,
+      50% 0%,
+      100% 0%;
+  }
+  83.33% {
+    background-position:
+      0% 100%,
+      50% 100%,
+      100% 0%;
+  }
+}
+
+.pascal-loader-4 {
+  width: 45px;
+  aspect-ratio: 1;
+  --c: no-repeat linear-gradient(currentColor 0 0);
+  background: var(--c), var(--c), var(--c);
+  animation:
+    pascal-l4-1 1s infinite,
+    pascal-l4-2 1s infinite;
+}
+@keyframes pascal-l4-1 {
+  0%,
+  100% {
+    background-size: 20% 100%;
+  }
+  33%,
+  66% {
+    background-size: 20% 40%;
+  }
+}
+@keyframes pascal-l4-2 {
+  0%,
+  33% {
+    background-position:
+      0 0,
+      50% 100%,
+      100% 100%;
+  }
+  66%,
+  100% {
+    background-position:
+      100% 0,
+      0 100%,
+      50% 100%;
+  }
+}
+
+.pascal-loader-5 {
+  width: 45px;
+  aspect-ratio: 1;
+  --c: no-repeat linear-gradient(currentColor 0 0);
+  background: var(--c), var(--c), var(--c);
+  animation:
+    pascal-l5-1 1s infinite,
+    pascal-l5-2 1s infinite;
+}
+@keyframes pascal-l5-1 {
+  0%,
+  100% {
+    background-size: 20% 100%;
+  }
+  33%,
+  66% {
+    background-size: 20% 40%;
+  }
+}
+@keyframes pascal-l5-2 {
+  0%,
+  33% {
+    background-position:
+      0 0,
+      50% 100%,
+      100% 0;
+  }
+  66%,
+  100% {
+    background-position:
+      0 100%,
+      50% 0,
+      100% 100%;
+  }
+}

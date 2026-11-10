@@ -7,13 +7,27 @@
     "root": ".."
   },
   "files": {
-    "includes": ["**", "!**/node_modules", "!index.html", "!**/player/generated", "!**/vendor"]
+    "includes": [
+      "**",
+      "!**/node_modules",
+      "!index.html",
+      "!**/player/generated",
+      "!**/vendor",
+      "!**/plan-editor/pascal.css",
+      "!public/pascal"
+    ]
   },
   "formatter": {
     "enabled": true,
     "indentStyle": "space",
     "indentWidth": 2,
     "lineWidth": 120
+  },
+  "css": {
+    "parser": {
+      "cssModules": true,
+      "tailwindDirectives": true
+    }
   },
   "javascript": {
     "formatter": {

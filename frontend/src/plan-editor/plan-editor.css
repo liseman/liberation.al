@@ -1,0 +1,16 @@
+/* The plan editor page's styles: Tailwind, built only from Pascal's own code and this folder, then the Pascal host
+   app's stylesheet. This page is shown in an iframe, so its reset and its :root variables never reach the dashboard. */
+@import "tailwindcss" source(none);
+@import "tw-animate-css";
+@import "./pascal.css";
+@source "../../node_modules/@pascal-app/editor/src";
+@source "../../node_modules/@pascal-app/nodes/dist";
+@source "../../node_modules/@pascal-app/viewer/dist";
+@source "./";
+
+html,
+body,
+#plan-editor {
+  height: 100%;
+  margin: 0;
+}
