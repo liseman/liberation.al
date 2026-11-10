@@ -1,4 +1,4 @@
-"""Step 4 of docs/DOMAIN-MODEL.md: relabels and merges are assertions, transcript.jsonl is never rewritten for them,
+"""Rules 1 and 2 of docs/DOMAIN-MODEL.md: relabels and merges are assertions, transcript.jsonl is never rewritten for them,
 and every reader resolves a line's speaker through the projection (people/transcript_view.py).
 
 The migration test builds a transcript the way the old rewriting code left it, with relabels and merges, and checks
@@ -286,7 +286,7 @@ def test_the_live_feed_sends_a_line_again_when_a_label_changes_it(written, monke
 # ------------------------------------------------------- forget and the feed ----
 @pytest.fixture
 def forgetting(tmp_path, dashboard):
-    """Forgetting a person is the one rewrite of transcript.jsonl left (open decision 1). The rewrite usually makes
+    """Forgetting a person is the one rewrite of transcript.jsonl left ("Forgetting" in docs/DOMAIN-MODEL.md). The rewrite usually makes
     the file larger ("Dana" becomes "Speaker 4"), so the live feed must notice a new file, not only a smaller one."""
     write_voices(tmp_path, {4: {"label": "Dana", "centroid": unit(1, 0), "n": 6}, 9: {"centroid": unit(0, 1), "n": 6}})
     write_lines(tmp_path, [line(i, *(("Dana", 4) if i % 2 == 0 else ("Speaker 9", 9)), 0.8) for i in range(6)])

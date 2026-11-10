@@ -1,7 +1,8 @@
 """Animals the captions name: the caption VLM is the animal detector at home.
 
-see-actions' YOLOX-nano scores the COCO animals too, but on the Linux machine it gave the household dog
-0.04 to 0.11 (its threshold is 0.35) while about one caption in six named the dog. So the caption pipeline finds them:
+see-actions' detector (RF-DETR Small, see/gpu_pose.py) boxes animals too. This path was added when that detector was
+YOLOX-nano, which on the Linux machine gave the household dog 0.04 to 0.11 (its threshold was 0.35) while about one
+caption in six named the dog. So the caption pipeline finds them:
 
 - Any grounding of the frame (the scheduled one, `see/captions.py`) that boxes an animal species gives its boxes.
 - Otherwise, a fresh caption that names an animal (a species word such as "dog" or "kittens", "pet" or "animal", or a

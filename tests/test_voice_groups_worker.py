@@ -8,7 +8,7 @@ from unittest.mock import create_autospec
 
 import pytest
 
-from liberational import config, memtrim
+from liberational import config, memtrim, proc_table
 from liberational import config as cfg
 from liberational.dashboard import assets, context, machine_stats, report_health, server, settings, slow, unnamed_groups
 from liberational.memory import reports
@@ -19,8 +19,9 @@ def worker(monkeypatch):
     answers, pools, contexts, futures = [], [], [], []
     executor_type = unnamed_groups.ProcessPoolExecutor
 
-    def make_pool(*, max_workers, mp_context):
+    def make_pool(*, max_workers, mp_context, initializer):
         assert max_workers == 1
+        assert initializer is proc_table.ignore_interrupt
         contexts.append(mp_context.get_start_method())
         pool = create_autospec(executor_type, instance=True)
         process = SimpleNamespace(terminate=create_autospec(lambda: None))

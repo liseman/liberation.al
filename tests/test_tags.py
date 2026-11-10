@@ -1,4 +1,4 @@
-"""Attributes from tags (step 6 of docs/DOMAIN-MODEL.md): "that's Alice, CEO of Acme" parsed into a name, a role,
+"""Attributes from tags (a person's attributes, "Records" in docs/DOMAIN-MODEL.md): "that's Alice, CEO of Acme" parsed into a name, a role,
 and an organization by fixed rules (people/tags.py), from speech and from the dashboard, and kept as person events.
 Everything runs on temp dirs, with made-up people. No model is called."""
 

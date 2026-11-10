@@ -53,8 +53,7 @@ def _git(*args: str, cwd: pathlib.Path = ROOT) -> str:
 def test_no_ignored_file_is_tracked():
     tracked_but_ignored = _git("ls-files", "--cached", "--ignored", "--exclude-standard").split()
     assert tracked_but_ignored == [], (
-        "these files are gitignored but tracked; untrack them with `git rm --cached` "
-        f"(see MIGRATING.md section 27): {tracked_but_ignored}"
+        f"these files are gitignored but tracked; untrack them with `git rm --cached` : {tracked_but_ignored}"
     )
 
 

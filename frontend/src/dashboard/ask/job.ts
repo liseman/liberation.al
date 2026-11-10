@@ -214,7 +214,9 @@ export function useAskJob(day: string | null, showModes: boolean) {
         writingNow.current = writing !== '';
         setPartial(writing);
         if (done) {
-          if (j.status === 'failed') setError(reason(j.error || 'Job failed without an error description.'));
+          // A failed job whose result says why (the answer's own failure) needs no second, emptier line.
+          if (j.status === 'failed' && (j.error || !j.result))
+            setError(reason(j.error || 'Job failed without an error description.'));
           if (j.status === 'completed' && !j.result) setError('Job completed without a result.');
           finish();
           return;

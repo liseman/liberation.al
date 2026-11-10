@@ -1,4 +1,5 @@
-"""Who said each transcript line: transcript.jsonl read through the person_of projection (step 4 of DOMAIN-MODEL.md).
+"""Who said each transcript line: transcript.jsonl read through the person_of projection (docs/DOMAIN-MODEL.md,
+rules 1 and 2).
 
 transcript.jsonl is layer 1. The microphone service appends each line with the voice it matched, and nothing
 rewrites a line to relabel it. A hand label, an unlabel, a "multiple speakers", a voice merge, and a backfill voice
@@ -30,7 +31,8 @@ gives each line its person's current name.
 A line goes to the person person_of names when it reads as one of their names, so a renamed person keeps their old
 lines even after someone new takes the old name.
 
-Forgetting a person still rewrites the lines that carry them (open decision 1, audio/ambient.py forget_lines).
+Forgetting a person still rewrites the lines that carry them ("Forgetting" in docs/DOMAIN-MODEL.md, audio/ambient.py
+forget_lines).
 
 `rebuild_markdown` rebuilds transcript/<day>.md, the human-readable copy, from transcript.jsonl and the projection.
 The microphone service appends a day's file live, and the label writers rebuild the days they touch. A line in the
@@ -155,7 +157,7 @@ class View:
         # reads the same retained lines through `lines` and `named`, deciding thousands of lines twice.
         self._last_read: tuple[bool, list[Any], list[tuple[Any, registry.Said | None]]] | None = None
         if not registry.log_exists(self.state):
-            return  # nothing labeled since step 3: lines read as stored, and a reader never creates the log
+            return  # nothing labeled since the registry began: lines read as stored, and a reader never creates the log
         try:
             reg = registry.at(self.state)
             reg.refresh()

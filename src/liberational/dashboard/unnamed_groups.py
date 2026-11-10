@@ -23,7 +23,7 @@ from concurrent.futures.process import BrokenProcessPool
 from typing import TYPE_CHECKING, Any
 
 from liberational import config as cfg
-from liberational import logs, memtrim, speech_log
+from liberational import logs, memtrim, proc_table, speech_log
 from liberational.dashboard import (
     context,
     fresh_reads,
@@ -652,7 +652,9 @@ def _unknown_groups_worked_out() -> Reply:
         return _unknown_groups()
     with _groups_lock:
         if _groups_executor is None:
-            _groups_executor = ProcessPoolExecutor(max_workers=1, mp_context=multiprocessing.get_context("spawn"))
+            _groups_executor = ProcessPoolExecutor(
+                max_workers=1, mp_context=multiprocessing.get_context("spawn"), initializer=proc_table.ignore_interrupt
+            )
         executor = _groups_executor
     try:
         return executor.submit(_unknown_groups_job).result(timeout=GROUPS_WORKER_TIMEOUT_S)
@@ -907,7 +909,9 @@ def _unknown_voices_worked_out() -> Reply:
         return _unknown_voices()
     with _voices_lock:
         if _voices_executor is None:
-            _voices_executor = ProcessPoolExecutor(max_workers=1, mp_context=multiprocessing.get_context("spawn"))
+            _voices_executor = ProcessPoolExecutor(
+                max_workers=1, mp_context=multiprocessing.get_context("spawn"), initializer=proc_table.ignore_interrupt
+            )
         executor = _voices_executor
     try:
         return executor.submit(_unknown_voices_job).result(timeout=GROUPS_WORKER_TIMEOUT_S)

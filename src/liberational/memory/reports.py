@@ -48,7 +48,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
-from liberational import logs
+from liberational import logs, proc_table
 from liberational.memory.conversation_topics import STOP
 
 LOG = logs.get("reports")
@@ -1362,7 +1362,9 @@ def _in_worker(state: Path, name: str, day: str) -> dict[str, Any]:
     global _executor
     with _executor_lock:
         if _executor is None:
-            _executor = ProcessPoolExecutor(max_workers=1, mp_context=multiprocessing.get_context("spawn"))
+            _executor = ProcessPoolExecutor(
+                max_workers=1, mp_context=multiprocessing.get_context("spawn"), initializer=proc_table.ignore_interrupt
+            )
         executor = _executor
     try:
         return executor.submit(_read_day, str(state), name, day).result(timeout=DAY_TIMEOUT_S)

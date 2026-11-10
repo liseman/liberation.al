@@ -717,7 +717,8 @@ def test_a_one_pet_gallery_never_accepts_less_alike_than_its_floor():
 
 
 def test_a_one_pet_gallery_needs_enough_labels_from_separate_visits():
-    assert R.gallery(visits(0, BESS, T, 5), "cat", BESS)["reason"] == "needs 1 more labeled sightings"
+    assert R.gallery(visits(0, BESS, T, 5), "cat", BESS)["reason"] == "needs 1 more labeled sighting"
+    assert R.gallery(visits(0, BESS, T, 4), "cat", BESS)["reason"] == "needs 2 more labeled sightings"
     one_visit = R.gallery(visits(0, BESS, T, 6, gap=60.0), "cat", BESS)
     assert (one_visit["on"], one_visit["reason"]) == (False, "needs labeled sightings from more separate visits")
 

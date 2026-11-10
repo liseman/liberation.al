@@ -65,6 +65,18 @@ def test_the_pet_has_a_training_set_with_one_example_unlike_the_rest(seeded):
     assert rows[0]["similarity"] < 0.3 < rows[1]["similarity"]
 
 
+def test_removing_the_odd_example_leaves_the_pet_recognized(seeded):
+    # The tutorial's correction: taking out the one unlike the rest must not drop the pet below what recognition needs
+    from liberational.people import pet_recognition
+
+    listing = pets.at(seeded).listing()
+    rows = pet_recognition.examples(seeded, listing[0]["id"], listing)
+    assert pet_recognition.remove_examples(seeded, [rows[0]["track_id"]], listing[0]["id"], listing, NOW) == 1
+
+    (dog,) = pet_recognition.view(seeded, listing, NOW)["recognition"]
+    assert dog["on"], dog["reason"]
+
+
 def test_face_rows_are_seeded_only_into_the_gallery_this_process_writes(tmp_path, monkeypatch):
     from liberational.vision import faces
 

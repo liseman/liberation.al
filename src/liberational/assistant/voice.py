@@ -494,7 +494,7 @@ def _handle(text_line: str, speaker: Speaker | None = None, entry: Mapping[str, 
                 # Introductions are handled here, with the faces and voices Liberational already has; no agent needed.
                 reply = identity.collar_intro(intro.group(1))["reply"]
             elif cfg.get("identity.command_attributes") and (tag := identity.tag_command(result.request)):
-                # "that's Alice, CEO of Acme": the same introduction, with a role and organization (step 6)
+                # "that's Alice, CEO of Acme": the same introduction, with a role and organization (people/tags.py)
                 reply = identity.collar_intro(tag.name, attributes=tag.attributes())["reply"]
             elif asks_about_forgotten(result.request):
                 from liberational.people import forgotten
