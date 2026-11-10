@@ -205,8 +205,9 @@ def readings(monkeypatch):
             raise LookupError(
                 f"no reading for {asked!r}: set readings[question], or add it to tests/data/readings.json"
             )
-        fields = dict(_READINGS[key])
-        return question.Reading(**{**fields, "people": tuple(fields.get("people", ()))})
+        fields: dict[str, Any] = dict(_READINGS[key])
+        fields["people"] = tuple(fields.get("people", ()))
+        return question.Reading(**fields)
 
     monkeypatch.setattr(question, "read", read)
     return given
