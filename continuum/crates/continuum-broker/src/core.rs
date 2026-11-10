@@ -3441,6 +3441,9 @@ mod tests {
             fn stream(&self, id: StreamId) -> Result<Option<StreamInfo>> {
                 self.inner.stream(id)
             }
+            fn stream_extent(&self, stream: StreamId) -> Result<Option<Interval>> {
+                self.inner.stream_extent(stream)
+            }
             fn streams(&self, after: Option<StreamId>, limit: usize) -> Result<Vec<(StreamId, StreamInfo)>> {
                 self.inner.streams(after, limit)
             }

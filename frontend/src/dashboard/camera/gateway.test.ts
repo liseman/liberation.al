@@ -313,15 +313,13 @@ describe('frames and boxes', () => {
 });
 
 describe('which cameras are live at the gateway', () => {
-  const stream = (name: string, ageS: number, frames = 10) => ({
+  const stream = (name: string, ageS: number | null) => ({
     id: 1,
     name,
     live: true,
     format: 'passthrough',
     start_us: 0,
-    end_us: (1000 - ageS) * 1e6,
-    chunks: 1,
-    frames,
+    end_us: ageS === null ? 0 : (1000 - ageS) * 1e6,
   });
 
   it("takes a camera's live video with a recent frame, and nothing else", () => {
@@ -329,7 +327,7 @@ describe('which cameras are live at the gateway', () => {
       stream('cam1.video', 5),
       stream('cam0.video', 0.1),
       stream('cam2.video', 31), // too old
-      stream('cam3.video', 1, 0), // no frames yet
+      stream('cam3.video', null), // holds nothing yet
       stream('cam4.video_v1', 1), // v1's recordings, not live
       stream('face.detection', 1),
     ];

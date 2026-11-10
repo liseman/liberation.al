@@ -436,7 +436,7 @@ export function liveCamsOf(streams: StreamSummary[], now: number, freshS: number
   const out: string[] = [];
   for (const s of streams) {
     const m = s.name ? /^(.+)\.video$/.exec(s.name) : null;
-    if (m?.[1] && s.frames > 0 && now - s.end_us / 1e6 <= freshS) out.push(m[1]);
+    if (m?.[1] && s.end_us > 0 && now - s.end_us / 1e6 <= freshS) out.push(m[1]);
   }
   return out.sort();
 }

@@ -251,6 +251,9 @@ pub struct StreamDesc {
     /// The invalidation revision as the stream's last forget left it (minor 33): what changes only when something is
     /// forgotten, not aged. None from an older broker.
     pub forget_revision: Option<u64>,
+    /// The time its payloads reach over, UTC nanoseconds `[start, end)`, from the start of its earliest to the end
+    /// of the one that starts last (minor 36). None for a stream that holds nothing, and from an older broker.
+    pub extent: Option<(u64, u64)>,
 }
 
 /// What went wrong.
@@ -1009,6 +1012,7 @@ impl Client {
                 live: s.live(),
                 invalidation_revision: s.invalidation_revision(),
                 forget_revision: s.forget_revision(),
+                extent: s.extent_start_ns().zip(s.extent_end_ns()),
             })
             .collect())
     }

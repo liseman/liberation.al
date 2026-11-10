@@ -1,5 +1,6 @@
-//! Recorded frames straight from the tier worker's chunk files, for a time range, until the broker's `Query` is
-//! wired (then the catalog says where every frame is; this module keeps reading the bytes).
+//! Recorded frames straight from the tier worker's chunk files, for a time range. With the broker up, the catalog
+//! says which chunks hold a range and what each stream's extent is, and this module reads the bytes; its own
+//! listing of the chunk directory ([`ChunkSource::streams`]) is the fallback while the broker is unreachable.
 //!
 //! A chunk file (`continuum-tier`'s container) holds one stream's payloads as the producer wrote them. The gateway
 //! finds a stream's chunks by their file names (`<stream>-<created_ns>-<n>.cnk`), reads the records whose time
@@ -34,14 +35,10 @@ pub struct StreamSummary {
     /// How its chunks store payloads (`passthrough`, `lz4`, `flac`, `arrow`, `h264_au`, `opus`); for a stream the
     /// broker lists but no chunk holds yet, its registered shape name in lower case (`mjpeg`, say).
     pub format: String,
-    /// The earliest record, microseconds UTC.
+    /// The earliest record, microseconds UTC; 0 for a stream that holds nothing.
     pub start_us: u64,
-    /// Past the latest record, microseconds UTC.
+    /// Past the latest record, microseconds UTC; 0 for a stream that holds nothing.
     pub end_us: u64,
-    /// Chunk files found.
-    pub chunks: usize,
-    /// Records across them.
-    pub frames: usize,
 }
 
 /// One frame ready to send: its header and the bytes after it.
@@ -188,7 +185,6 @@ struct FileSummary {
     format: String,
     first_us: u64,
     last_us: u64,
-    frames: usize,
 }
 
 /// Per-file summaries by path, with the size and modification time they were read at, and the last full listing.
@@ -231,9 +227,6 @@ pub struct ChunkSource {
     /// Each chunk directory's files as last read (see `continuum_tier::layout`): one whose modification time hasn't
     /// moved since isn't read again, so a listing reads only the hours still being written.
     listed: Arc<std::sync::Mutex<std::collections::HashMap<PathBuf, Listed>>>,
-    /// A full listing has been made. Outside the lock, which a listing holds while it runs (the first one, minutes
-    /// over a large directory): asking must never wait on it.
-    ready: Arc<std::sync::atomic::AtomicBool>,
     /// Tests: how long a listing takes, to show a slow one holds nothing else back.
     #[cfg(test)]
     listing_delay: Option<std::time::Duration>,
@@ -247,7 +240,6 @@ impl ChunkSource {
             dir: dir.to_path_buf(),
             summaries: Arc::default(),
             listed: Arc::default(),
-            ready: Arc::default(),
             #[cfg(test)]
             listing_delay: None,
         }
@@ -258,12 +250,6 @@ impl ChunkSource {
     #[must_use]
     pub(crate) fn slow_listing(dir: &Path, delay: std::time::Duration) -> Self {
         Self { listing_delay: Some(delay), ..Self::new(dir) }
-    }
-
-    /// Whether a full listing has been made, so `streams` answers from the cache.
-    #[must_use]
-    pub fn summaries_ready(&self) -> bool {
-        self.ready.load(std::sync::atomic::Ordering::Acquire)
     }
 
     /// The directory.
@@ -471,7 +457,6 @@ impl ChunkSource {
         let listing: Vec<StreamSummary> = by_id.into_values().collect();
         cache.files = files; // chunks gone from the directory are left behind in `known`
         cache.last = Some((std::time::Instant::now(), listing.clone()));
-        self.ready.store(true, std::sync::atomic::Ordering::Release);
         Ok(listing)
     }
 
@@ -507,13 +492,9 @@ impl ChunkSource {
                 format: f.format.clone(),
                 start_us: f.first_us,
                 end_us: f.last_us,
-                chunks: 0,
-                frames: 0,
             });
             s.start_us = s.start_us.min(f.first_us);
             s.end_us = s.end_us.max(f.last_us);
-            s.chunks += 1;
-            s.frames += f.frames;
         }
         Ok(by_id)
     }
@@ -542,7 +523,6 @@ impl ChunkSource {
                     .max()
                     .unwrap_or(l.end_exclusive())
                     .div_ceil(1_000),
-                frames: reader.records().len(),
             })),
             resume,
         ))
@@ -565,7 +545,6 @@ impl ChunkSource {
             sum.first_us = sum.first_us.min(r.start_ns / 1_000);
             sum.last_us = sum.last_us.max(r.end_exclusive().div_ceil(1_000));
         }
-        sum.frames += added.len();
         Ok((Some(Arc::new(sum)), next)) // no offset once it's finished: then it's left alone, like any finished chunk
     }
 
@@ -1423,9 +1402,13 @@ pub(crate) mod tests {
         w.close().unwrap();
     }
 
+    /// A fresh listing's streams, each with how many chunk files the listing holds for it.
     fn listed_ids(src: &ChunkSource) -> Vec<(u32, usize)> {
         src.summaries.lock().expect("lock").last = None; // past LISTING_REUSE
-        src.streams().expect("streams").iter().map(|s| (s.id, s.chunks)).collect()
+        let streams = src.streams().expect("streams");
+        let cache = src.summaries.lock().expect("lock");
+        let files = |id: u32| cache.files.values().filter(|f| f.2.as_ref().is_some_and(|sum| sum.id == id)).count();
+        streams.iter().map(|s| (s.id, files(s.id))).collect()
     }
 
     /// Where a test's chunk of `stream` created at `t` goes (`continuum_tier::layout`), its hour directory made.
@@ -1465,15 +1448,6 @@ pub(crate) mod tests {
         assert_eq!(listed_ids(&src), vec![(4, 2)], "its time moved: read again");
     }
 
-    #[test]
-    fn a_listing_is_cached_and_marks_the_source_ready() {
-        let dir = tempfile::tempdir().unwrap();
-        let src = ChunkSource::new(dir.path());
-        assert!(!src.summaries_ready(), "nothing listed yet");
-        assert!(src.streams().expect("streams").is_empty());
-        assert!(src.summaries_ready(), "a full listing marks it ready, so sessions use it");
-    }
-
     /// A live chunk grows between listings. Only its new records are read, and the listing matches one made
     /// by reading it whole.
     #[test]
@@ -1490,9 +1464,9 @@ pub(crate) mod tests {
         let src = ChunkSource::new(dir.path());
         let listed = |src: &ChunkSource| {
             src.summaries.lock().expect("lock").last = None; // past LISTING_REUSE
-            src.streams().expect("streams").iter().map(|s| (s.id, s.frames, s.start_us, s.end_us)).collect::<Vec<_>>()
+            src.streams().expect("streams").iter().map(|s| (s.id, s.start_us, s.end_us)).collect::<Vec<_>>()
         };
-        assert_eq!(listed(&src), vec![(4, 3, 1_000, 3_001)]);
+        assert_eq!(listed(&src), vec![(4, 1_000, 3_001)]);
         let resume = |src: &ChunkSource| src.summaries.lock().expect("lock").files.get(&path).and_then(|f| f.3);
         let before = resume(&src).expect("still being written: where its next records start");
         for i in 3..5u32 {
@@ -1500,11 +1474,11 @@ pub(crate) mod tests {
             w.append(t, t, i, &[0xff, 0xd8, i as u8]).expect("append");
         }
         w.sync().expect("sync");
-        assert_eq!(listed(&src), vec![(4, 5, 1_000, 5_001)]);
+        assert_eq!(listed(&src), vec![(4, 1_000, 5_001)]);
         assert!(resume(&src).expect("still growing") > before, "read on from where it stopped");
         assert_eq!(listed(&ChunkSource::new(dir.path())), listed(&src), "the same as reading it whole");
         w.close().expect("close");
-        assert_eq!(listed(&src), vec![(4, 5, 1_000, 5_001)], "finished: its footer doesn't count as frames");
+        assert_eq!(listed(&src), vec![(4, 1_000, 5_001)], "finished: its footer isn't a record");
         assert_eq!(resume(&src), None, "finished: nothing more to follow, so it isn't looked at again");
     }
 
@@ -1518,36 +1492,33 @@ pub(crate) mod tests {
         write(dir.path(), 3, "3-2-2.cnk", ChunkFormat::Passthrough, &[(2_000_000, jpeg(1))]);
         let src = ChunkSource::new(dir.path());
         let listed = |src: &ChunkSource| {
-            src.summaries.lock().expect("lock").last = None; // past LISTING_REUSE
-            src.streams().expect("streams").iter().map(|s| (s.id, s.chunks, s.frames, s.end_us)).collect::<Vec<_>>()
+            let files = listed_ids(src);
+            let streams = src.streams().expect("streams");
+            files.into_iter().zip(streams).map(|((id, files), s)| (id, files, s.start_us, s.end_us)).collect::<Vec<_>>()
         };
-        assert_eq!(listed(&src), vec![(3, 2, 2, 2_001)]);
+        assert_eq!(listed(&src), vec![(3, 2, 1_000, 2_001)]);
         fs::remove_file(cnk(dir.path(), "3-1-1.cnk")).expect("delete");
         write(dir.path(), 3, "3-3-3.cnk", ChunkFormat::Passthrough, &[(3_000_000, jpeg(2))]);
-        assert_eq!(listed(&src), vec![(3, 2, 2, 3_001)]);
+        assert_eq!(listed(&src), vec![(3, 2, 2_000, 3_001)]);
     }
 
-    /// A listing holds the cache while it runs (the first one, minutes over a large directory). Asking whether a full
-    /// listing has been made never waits on it, and a listing that waited answers from the one it waited for.
+    /// A listing holds the cache while it runs (the first one, minutes over a large directory), and a listing that
+    /// waited for it answers from it rather than listing again.
     #[test]
-    fn a_running_listing_holds_up_neither_the_ready_check_nor_a_second_listing_s_answer() {
+    fn a_listing_that_waited_for_a_running_one_answers_from_it() {
         let dir = tempfile::tempdir().expect("tempdir");
         write(dir.path(), 3, "3-1-1.cnk", ChunkFormat::Passthrough, &[(1_000_000, vec![0xff, 0xd8, 0, 0xff, 0xd9])]);
         let delay = std::time::Duration::from_millis(600);
         let src = ChunkSource::slow_listing(dir.path(), delay);
-        assert!(!src.summaries_ready());
         let first = {
             let src = src.clone();
             std::thread::spawn(move || src.streams().expect("streams"))
         };
         std::thread::sleep(delay / 6); // the first listing has the cache now
         let asked = std::time::Instant::now();
-        assert!(!src.summaries_ready());
-        assert!(asked.elapsed() < delay / 6, "the ready check didn't wait for the listing");
         let second = src.streams().expect("streams"); // waits for the first, then answers from it
         assert!(asked.elapsed() < delay * 3 / 2, "it didn't list again");
         assert_eq!(second, first.join().expect("first"));
-        assert!(src.summaries_ready());
     }
 
     #[test]
@@ -1568,8 +1539,8 @@ pub(crate) mod tests {
         let src = ChunkSource::new(dir.path());
         let streams = src.streams().expect("streams");
         assert_eq!(
-            streams.iter().map(|s| (s.id, s.chunks, s.frames, s.start_us, s.end_us)).collect::<Vec<_>>(),
-            vec![(3, 2, 4, 1_000, 4_001), (9, 1, 1, 5_000, 5_001)]
+            streams.iter().map(|s| (s.id, s.start_us, s.end_us)).collect::<Vec<_>>(),
+            vec![(3, 1_000, 4_001), (9, 5_000, 5_001)]
         );
         assert_eq!(streams[0].format, "passthrough");
 
@@ -1669,6 +1640,6 @@ pub(crate) mod tests {
         std::os::unix::fs::symlink(dir.path().join("missing.cnk"), cnk(dir.path(), "5-9-9.cnk")).expect("symlink");
         let read = src.frames(5, 0, u64::MAX, 100, usize::MAX).expect("a vanished chunk is not an error");
         assert_eq!(read.frames.len(), 3);
-        assert_eq!(src.streams().expect("streams")[0].chunks, 1);
+        assert_eq!(listed_ids(&src), vec![(5, 1)]);
     }
 }

@@ -155,6 +155,15 @@ pub trait Catalog: Send + Sync {
     /// [`CatalogError::Storage`] only.
     fn stream(&self, id: StreamId) -> Result<Option<StreamInfo>>;
 
+    /// The time a stream's payloads reach over: from the start of its earliest to the end of the one that starts
+    /// last, Tier 0 frames and chunks alike. `None` for a stream that holds nothing. Two point reads of the time
+    /// index, whatever the stream holds: what a listing shows as a camera's recorded extent. A payload a running
+    /// purge has hidden still counts until the purge removes it.
+    ///
+    /// # Errors
+    /// [`CatalogError::NotFound`] for an unknown stream, [`CatalogError::Storage`] otherwise.
+    fn stream_extent(&self, stream: StreamId) -> Result<Option<Interval>>;
+
     /// Monotone per-stream revision for read-visible removals and frame cuts, atomic with those changes.
     /// Appended commits need not advance it. `None` means this implementation cannot supply the guarantee.
     ///
