@@ -56,7 +56,7 @@ Release packages include RTSP H.264 capture support. In a source checkout, build
 `mise run continuum-py-ffmpeg` and `mise run continuum-release` ([CONTINUUM-SDK.md](CONTINUUM-SDK.md)).
 
 1. Put any controller or camera credentials under `[unifi_protect]`, `[unifi]`, or `[network_cameras]` in `pack.toml`.
-2. Open **Settings**, **Cameras and microphones**, and go to the **Network cameras** card.
+2. Open **Settings**, **Devices**, and go to the **Network cameras** card.
 3. Press **Scan** to run explicit discovery (`src/liberational/dashboard/network_cameras.py`). Discovery queries UniFi
    Protect (`[unifi_protect]`, falling back to `[unifi]`) and sends ONVIF Media1 WS-Discovery multicast probes plus
    unicast UDP probes to `network_cameras.onvif_hosts` and, when `[unifi]` is set, up to 256 private client IPs from

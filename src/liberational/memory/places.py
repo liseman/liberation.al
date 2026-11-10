@@ -77,7 +77,7 @@ import os
 import re
 import time
 import uuid
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -916,13 +916,29 @@ def plan_history(state: Path, place: str) -> list[knowledge.Record]:
     return sorted(found, key=lambda r: (r.start_ns, r.recorded_ns))
 
 
-def restore_plan(state: Path, place: str, record: str, now: float | None = None) -> None:
+def restore_plan(
+    state: Path,
+    place: str,
+    record: str,
+    now: float | None = None,
+    convert: Callable[[str], str] | None = None,
+) -> None:
     """Make an earlier owner plan of `place` hold again: its plan, frame (`base`), and source, written as the newest
-    record, so the plans in between stay in the history too."""
+    record, so the plans in between stay in the history too and a restore can itself be undone. `convert` is applied
+    to the plan's text, and to its page's when it was drawn on one, on the way: the dashboard passes the converter
+    to a scene, so a version saved in the old DSL comes back in the format the editor works on. The old record is
+    never changed."""
     was = next((r for r in plan_history(state, place) if r.id == record), None)
     if was is None:
         raise KeyError(f"no plan record {record} for {place}")
-    _put(state, PLAN, _place_id(place), dict(was.value), now)
+    value = dict(was.value)
+    if convert is not None:
+        if isinstance(value.get("plan"), str) and value["plan"].strip():
+            value["plan"] = convert(value["plan"])
+        view = value.get("view")
+        if isinstance(view, Mapping) and isinstance(view.get("plan"), str):
+            value["view"] = {**view, "plan": convert(view["plan"])}
+    _put(state, PLAN, _place_id(place), value, now)
 
 
 def same_plan_frame(a: Revision, b: Revision) -> bool:

@@ -20,8 +20,10 @@ it does. A document that still mixes kinds is listed under the one it mostly is.
 | [Upgrading](../MIGRATING.md) | Update an existing install, follow the steps a change needs, and reset state |
 | [Cameras](CAMERAS.md) | Add a camera, name its view, pause it, and calibrate a wide or fisheye lens |
 | [Zones](ZONES.md) | Draw zones on a camera's picture and find the visits counted in them |
+| [Objects](OBJECTS.md) | Teach the pack an object and ask where it was last seen |
 | [Activities](ACTIVITIES.md) | Keep your list of activities, answer clips so a kind counts in Ask, and mark an event by hand |
 | [Remote access](REMOTE.md) | Use the dashboard from another device, with a password, and get video over HTTPS |
+| [Taught state](TAUGHT-STATE.md) | Export what you taught, check and import the bundle, and reset without losing it |
 | [Naming](NAMING.md) | Name people and pets, answer the naming cards, and remove a wrong training image |
 | [Places](PLACES.md) | Have the cameras learn a place's map and see people on its plan |
 | [Ingest](INGEST.md) | Import photos, video, and audio from elsewhere |
@@ -41,6 +43,7 @@ it does. A document that still mixes kinds is listed under the one it mostly is.
 | [mise.toml](../mise.toml) | Every task (`mise tasks` lists them) |
 | [tools/](../tools/) | Maintenance scripts; each docstring says how to run it |
 | [Vision streams](VISION-STREAMS.md) | The fields of every vision stream |
+| [Other streams](STREAMS.md) | The fields of the speech, place, network, Bluetooth, Wi-Fi, and position streams |
 | [Continuum broker](CONTINUUM-BROKER.md) | The shared memory arena, payload headers, socket protocol, scheduler, and catalog |
 | [Continuum storage](CONTINUUM-STORAGE.md) | Tiers, chunk files, the segment store, and the vector worker |
 | [Continuum gateway](CONTINUUM-GATEWAY.md) | The WebSocket transport, binary messages, and requests |

@@ -104,8 +104,8 @@ effective value and its comment as the description; secrets are never sent) and 
 - Saving writes only values that differ from the defaults into `pack.toml`, keeps the file's comments, restarts the
   services that read the changed settings, and re-executes the dashboard.
 - With no `pack.toml`, the dashboard opens on the same form as first-run setup.
-- **Cameras and microphones** edits the device manifest. Changing which devices are used restarts capture; changing
-  one camera's settings restarts only that camera's worker. Sensitivity applies live.
+- **Devices** (cameras and microphones) edits the device manifest. Changing which devices are used restarts capture;
+  changing one camera's settings restarts only that camera's worker. Sensitivity applies live.
 - **Network cameras** discovers RTSP cameras through UniFi Protect or ONVIF ([NETWORK.md](NETWORK.md#network-cameras)).
 - **Services** shows each service's state, last error, and history, and switches services on and off
   ([SERVICES.md](SERVICES.md)).

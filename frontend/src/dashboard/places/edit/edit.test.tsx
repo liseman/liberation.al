@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, within } from '@testing-library/react';
 import { HttpResponse, http } from 'msw';
 import { expect, it } from 'vitest';
 import { renderPage } from '../../../test/render';
@@ -11,7 +11,6 @@ import {
   type VertexHandle,
   wallHandles,
 } from '../../../vendor/floorplan/index.js';
-import type { PlanVersion } from '../api';
 import type { Place } from '../examples';
 import { OwnerBar } from './OwnerBar';
 import { dragged, findingsOf, MAX_STEPS, PlanEditor } from './PlanEditor';
@@ -242,71 +241,23 @@ const OWNED: Place = {
   origin: { source: 'owner', at: 1762500000, machineNewer: false },
   example: false,
 };
-const version = (id: string, rooms: number, at: number): PlanVersion => ({
-  id,
-  at,
-  rooms,
-  source: 'owner',
-  withdrawn: false,
-});
-
-/** The bar over `place`, its history answering `previous`: what it posts, and whether the history was read. */
-function bar(place: Place, previous: PlanVersion | null) {
-  const posted: { url: string; body: unknown }[] = [];
-  const read = { history: false };
-  server.use(
-    http.get('/places/plan/history', () => {
-      read.history = true;
-      return HttpResponse.json({ place: place.id, versions: previous ? [previous] : [], previous });
-    }),
-    http.post('/places/plan', async ({ request }) => {
-      posted.push({ url: '/places/plan', body: await request.json() });
-      return HttpResponse.json({ ok: true, plan: PLAN, plan_source: 'machine' });
-    }),
-    http.post('/places/plan/restore', async ({ request }) => {
-      posted.push({ url: '/places/plan/restore', body: await request.json() });
-      return HttpResponse.json({ ok: true, plan: PLAN, plan_source: 'owner' });
-    }),
-  );
-  renderPage(<OwnerBar place={place} showing="mine" onShow={() => {}} onEdit={() => {}} />);
-  return { posted, read };
-}
-
-it("reverts an owner's plan to the previous version, saying which, as a new record", async () => {
-  const at = new Date(2026, 10, 8, 14, 30).getTime() / 1000;
-  const { posted } = bar(OWNED, version('01a1c180', 1, at));
-  expect(screen.getByRole('button', { name: 'Edit plan' })).toBeEnabled();
-  fireEvent.click(await screen.findByRole('button', { name: 'Revert plan' }));
-  const dialog = await screen.findByRole('dialog', { name: 'Revert to your earlier plan?' });
-  expect(dialog.textContent).toMatch(/your plan for Place 1 saved Nov 8.*2:30.*, with 1 room\./);
-  expect(dialog.textContent).toContain('The plan you have now stays in the history');
-  fireEvent.click(within(dialog).getByRole('button', { name: 'Revert' }));
-  await waitFor(() =>
-    expect(posted).toEqual([{ url: '/places/plan/restore', body: { place: 'p1', record: '01a1c180' } }]),
-  );
-});
-
-it("offers the machine's plan when there's no earlier owner plan, and nothing when there's neither", async () => {
-  const { posted } = bar({ ...OWNED, machinePlanText: PLAN }, null);
-  fireEvent.click(await screen.findByRole('button', { name: "Revert to the machine's plan" }));
-  const dialog = await screen.findByRole('dialog', { name: "Revert to the machine's plan?" });
-  expect(dialog.textContent).toContain(', with 2 rooms.');
-  fireEvent.click(within(dialog).getByRole('button', { name: 'Revert' }));
-  await waitFor(() => expect(posted).toEqual([{ url: '/places/plan', body: { place: 'p1', plan: '' } }]));
-});
-
-it('hides Revert when the owner plan has nothing before it and no machine plan (it would leave no plan)', async () => {
-  const { read } = bar(OWNED, null);
-  await waitFor(() => expect(read.history).toBe(true));
-  await new Promise(r => setTimeout(r, 0)); // its answer rendered
+it('offers Edit plan alone over a plan with no machine plan to compare, with no Revert', () => {
+  renderPage(<OwnerBar place={OWNED} showing="mine" onShow={() => {}} onEdit={() => {}} />);
   expect(screen.getAllByRole('button').map(b => b.textContent)).toEqual(['Edit plan']);
 });
 
-it("offers a machine plan's place no Revert until it has an owner plan to go back to", async () => {
-  const { read } = bar({ ...OWNED, origin: { source: 'machine', at: 1762500000, machineNewer: false } }, null);
-  await waitFor(() => expect(read.history).toBe(true));
-  await new Promise(r => setTimeout(r, 0)); // its answer rendered
-  expect(screen.getAllByRole('button').map(b => b.textContent)).toEqual(['Edit plan']);
+it("takes the machine's plan only from the comparison, and only for an owner's plan", () => {
+  const compared = { ...OWNED, machinePlanText: PLAN };
+  const first = renderPage(<OwnerBar place={compared} showing="mine" onShow={() => {}} onEdit={() => {}} />);
+  expect(screen.queryByRole('button', { name: "Use the machine's plan" })).toBeNull();
+  first.unmount();
+  const second = renderPage(<OwnerBar place={compared} showing="machine" onShow={() => {}} onEdit={() => {}} />);
+  expect(screen.getByRole('button', { name: "Use the machine's plan" })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Edit plan' })).toBeDisabled();
+  second.unmount();
+  const machines = { ...compared, origin: { source: 'machine' as const, at: 1762500000, machineNewer: false } };
+  renderPage(<OwnerBar place={machines} showing="machine" onShow={() => {}} onEdit={() => {}} />);
+  expect(screen.queryByRole('button', { name: "Use the machine's plan" })).toBeNull();
 });
 
 /** Replace `obj[key]` for one test; returns the undo. */

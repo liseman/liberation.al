@@ -313,7 +313,7 @@ it('opens the editor on a machine plan, and Cancel goes back to the paths', asyn
   expect(screen.queryByRole('button', { name: 'Save my plan' })).toBeNull();
 });
 
-it("shows when a newer machine plan exists, compares the two, and reverts to the machine's on confirm", async () => {
+it("shows when a newer machine plan exists, compares the two, and takes the machine's on confirm", async () => {
   const machine = HOME_PLAN.replace('"Kitchen"', '"Galley"');
   const posted: unknown[] = [];
   serve([{ ...HOME, plan_source: 'owner', machine_newer: true, machine_plan: machine }]);
@@ -328,8 +328,10 @@ it("shows when a newer machine plan exists, compares the two, and reverts to the
   fireEvent.click(screen.getByRole('radio', { name: "The machine's" }));
   expect(screen.getByText(/The newest machine plan, to compare/)).toBeTruthy();
   expect(screen.getByRole('button', { name: 'Edit plan' })).toBeDisabled(); // you edit your own, not the machine's
-  fireEvent.click(await screen.findByRole('button', { name: "Revert to the machine's plan" }));
-  fireEvent.click(await screen.findByRole('button', { name: 'Revert' }));
+  fireEvent.click(screen.getByRole('button', { name: "Use the machine's plan" }));
+  const dialog = await screen.findByRole('dialog', { name: "Use the machine's plan?" });
+  expect(dialog.textContent).toContain('stays in its versions');
+  fireEvent.click(within(dialog).getByRole('button', { name: "Use the machine's plan" }));
   await screen.findByText('A newer machine plan exists'); // the page reads the places again
   await new Promise(r => setTimeout(r, 0));
   expect(posted).toEqual([{ place: 'p1', plan: '' }]);

@@ -7,9 +7,9 @@ the machine the pack runs on: only that machine can change cameras.
 ## Add a USB camera
 
 1. Plug the camera in.
-2. Open **Settings**, **Cameras and microphones**. The **Cameras** card lists every camera the machine sees.
-3. Turn on **Use** for the camera. That adds a `[[device]]` for it to `config/devices.toml` and restarts capture, so
-   every camera pauses for a few seconds.
+2. Open **Settings**, **Devices**. The **Cameras** card lists every camera the machine sees.
+3. Turn on **Use** for the camera. That adds a `[[device]]` for it (named `cam0`, `cam1`, and so on) to
+   `config/devices.toml` and restarts capture, so every camera pauses for a few seconds.
 4. Open the Live tab and check that its picture is there.
 
 To write the entry by hand, list what capture sees and add a `[[device]]` with `kind = "camera"` and a `match` rule
@@ -29,14 +29,18 @@ H.264 only.
 
 On the camera's row in the **Cameras** card:
 
-- **Resolution** picks the size and rate. Only that camera's worker restarts.
-- **Upside down** and **Mirror** turn the picture for a camera mounted that way.
-- **Automatic exposure** steers the exposure for the faces in view, or the whole frame when there are none.
+- **Resolution** picks the size and rate (Linux only, and only when the camera offers more than one). Only that
+  camera's worker restarts.
+- **Upside down** turns the picture for a camera mounted that way. **Mirror** mirrors it in this browser only.
+- **Zones** opens the editor for the zones drawn on the camera's view.
+- **Automatic exposure** (Linux only) steers the exposure for the faces in view, or the whole frame when there are
+  none. **Target brightness**, from 60 to 180, sets what it steers toward.
 
 ## Name its view
 
 A camera is a view, not a room: name it for what it sees. The name shown in People and Review comes from
-`vision.camera_names` in `pack.toml`, one `"<camera>: <name>"` for each camera:
+`vision.camera_names` in `pack.toml`, one `"<camera>: <name>"` for each camera (the **Name** row on the camera's row
+in Settings writes the same setting):
 
 ```toml
 [vision]
@@ -53,9 +57,9 @@ uv run pack-rename-camera facecam=desk --dry-run
 
 ## Pause it for privacy
 
-Open the status menu in the dashboard's header and choose **Pause** for the camera, or for all cameras. Capture
-stops a paused camera within about a second and records nothing from it until it is resumed. The others keep
-running.
+Open the status menu in the dashboard's header and choose **Pause all cameras**, or, with several, **Pause** and the
+camera's name. Capture stops a paused camera within about a second and records nothing from it until it is resumed.
+The others keep running.
 
 ## Say how it is mounted
 
@@ -66,7 +70,9 @@ A fixed camera's height puts its place's map at metric scale, and an outdoor cam
 mount = { height_m = 1.5, outdoor = false }
 ```
 
-`height_m` is from the floor to the lens. [Places](PLACES.md) covers putting the camera on a place's plan.
+`height_m` is from the floor to the lens. A camera carried on a moving rig takes `rig`, `at`, `turn`, and `hfov_deg`
+instead ([config/devices.example.toml](../config/devices.example.toml) has an example).
+[Places](PLACES.md) covers putting the camera on a place's plan.
 
 ## Calibrate a wide lens
 
