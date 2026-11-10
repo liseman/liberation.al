@@ -33,6 +33,7 @@ from liberational.dashboard import (
     photo_files,
     roster_read,
     server,
+    settings,
     speaker_lines,
     voice_clones,
 )
@@ -134,9 +135,6 @@ def state(tmp_path, monkeypatch, pack, faces, ran):
     """The dashboard pointed at an empty state dir of its own."""
     state = tmp_path / "state"
     state.mkdir()
-    files = {}
-    for name, path in files.items():
-        monkeypatch.setattr(server, name, state / path)
     monkeypatch.setattr(people_list, "PEOPLE_ADDED", state / "people_added.json")
     monkeypatch.setattr(inbox_state, "INBOX_SKIPS", state / "inbox_skips.json")
     monkeypatch.setattr(people_list, "CONTACTS_FILE", state / "contacts.json")
@@ -401,7 +399,7 @@ def test_voice_commands_run_in_order_in_a_child_and_stop_at_a_failure(monkeypatc
 def restarted(monkeypatch):
     restarted = threading.Event()
     monkeypatch.setattr(
-        server.settings,
+        settings,
         "restart",  # restart(log, names, dashboard, before): what a save restarts
         lambda log=print, names=(), dashboard=True, before=None: restarted.set(),
     )
@@ -409,10 +407,9 @@ def restarted(monkeypatch):
 
 
 @pytest.fixture
-def save_owner(people, serve, restarted, monkeypatch):
+def save_owner(people, serve_dashboard, restarted, monkeypatch):
     """POST /config with a new owner.name, as Settings saves it. Returns (status, body)."""
-    monkeypatch.setattr(server, "DASH_PASSWORD", "")
-    base = serve(server.H)
+    base = serve_dashboard()
 
     def save(name):
         c = http.client.HTTPConnection(base.removeprefix("http://"), timeout=10)
@@ -629,7 +626,7 @@ def test_a_stale_scene_never_crops_a_photo_under_a_name_nobody_has_now(state, se
     assert got == {"Dana Cole": 0, "Dee": 0, "Dana": 1, "Eve": 1, "Zed": 1}
 
 
-def test_faces_in_view_get_pictures_served_read_only_and_kept_on_rename(state, see, serve, monkeypatch):
+def test_faces_in_view_get_pictures_served_read_only_and_kept_on_rename(state, see, serve_dashboard, monkeypatch):
     see(("Face 3", BOX))
     roster_read._photos_from_scene()
     assert photo_files._unknown_photo(3).exists()
@@ -638,8 +635,7 @@ def test_faces_in_view_get_pictures_served_read_only_and_kept_on_rename(state, s
     roster_read._photos_from_scene()  # a named person with no photo yet gets one
     assert len(photo_files._photos("Dana Cole")) == 1
 
-    monkeypatch.setattr(server, "DASH_PASSWORD", "")
-    host = serve(server.H).removeprefix("http://")
+    host = serve_dashboard().removeprefix("http://")
 
     def get(path):
         c = http.client.HTTPConnection(host, timeout=5)
@@ -978,10 +974,9 @@ def test_ordinary_merge_never_grants_owner_voice_authority(people):
 
 
 @pytest.mark.parametrize("local,origin", [(False, None), (True, "http://elsewhere.invalid")])
-def test_this_is_me_http_preserves_local_and_same_origin_controls(people, serve, monkeypatch, local, origin):
+def test_this_is_me_http_preserves_local_and_same_origin_controls(people, serve_dashboard, monkeypatch, local, origin):
     monkeypatch.setattr(server.H, "_can_control", lambda self: local)
-    monkeypatch.setattr(server, "DASH_PASSWORD", "")
-    host = serve(server.H).removeprefix("http://")
+    host = serve_dashboard().removeprefix("http://")
     headers = {"Content-Type": "application/json"}
     if origin:
         headers["Origin"] = origin
@@ -1007,7 +1002,9 @@ def test_this_is_me_http_preserves_local_and_same_origin_controls(people, serve,
         pytest.param({"Authorization": ""}, 401, "Dana Cole", id="unauthenticated"),
     ],
 )
-def test_known_rename_through_https_proxy_preserves_write_gates(people, serve, monkeypatch, headers, status, name):
+def test_known_rename_through_https_proxy_preserves_write_gates(
+    people, serve_dashboard, monkeypatch, headers, status, name
+):
     monkeypatch.setattr(server, "DASH_PASSWORD", "pw")
     monkeypatch.setattr(server, "remote_teaching", lambda: True)
     request_headers = {
@@ -1018,7 +1015,7 @@ def test_known_rename_through_https_proxy_preserves_write_gates(people, serve, m
         "Authorization": "Bas" + "ic " + base64.b64encode(b"viewer:pw").decode(),
         **headers,
     }
-    host = serve(server.H).removeprefix("http://")
+    host = serve_dashboard().removeprefix("http://")
     connection = http.client.HTTPConnection(host, timeout=5)
     try:
         connection.request(
@@ -1042,12 +1039,12 @@ def test_known_rename_through_https_proxy_preserves_write_gates(people, serve, m
     ],
 )
 def test_known_rename_follows_remote_teaching_like_inbox_skip(
-    people, serve, monkeypatch, remote, teaching, status, name
+    people, serve_dashboard, monkeypatch, remote, teaching, status, name
 ):
     # A rename is teaching, so a password-checked remote page may rename only with dashboard.remote_teaching on.
     monkeypatch.setattr(server, "DASH_PASSWORD", "pw")
     monkeypatch.setattr(server, "remote_teaching", lambda: teaching)
-    host = serve(server.H).removeprefix("http://")
+    host = serve_dashboard().removeprefix("http://")
     headers = {"Host": host, "Content-Type": "application/json"}
     if remote:
         headers |= {

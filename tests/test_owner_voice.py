@@ -21,7 +21,6 @@ from liberational.dashboard import (
     people_list,
     people_writes,
     roster_read,
-    server,
     speaker_lines,
 )
 from liberational.domain import kernel
@@ -282,7 +281,7 @@ def test_a_failed_clone_prepare_keeps_the_clone_mark(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def dash(tmp_path, monkeypatch):
+def dash(dashboard_server, tmp_path, monkeypatch):
     """The dashboard on tmp_path, with people/voice_edits.py commands run in process. Returns the commands run."""
     ran = []
 
@@ -304,10 +303,7 @@ def dash(tmp_path, monkeypatch):
         def rename(self, old, new):
             return 0
 
-    for name, value in {
-        "DASH_PASSWORD": "",
-    }.items():
-        monkeypatch.setattr(server, name, value)
+    monkeypatch.setattr(dashboard_server, "DASH_PASSWORD", "")
     monkeypatch.setattr(roster_read, "people_view", lambda *a, **k: {})
     monkeypatch.setattr(people_list, "_room_lines", lambda *a, **k: [])
     monkeypatch.setattr(people_list, "_faces_mod", lambda: Faces())
@@ -327,9 +323,9 @@ def post(base, path, body, headers):
     return r.status
 
 
-def test_a_cross_site_voice_label_is_refused(tmp_path, dash, serve):
+def test_a_cross_site_voice_label_is_refused(tmp_path, dash, serve_dashboard):
     ran = dash
-    base = serve(server.H)
+    base = serve_dashboard()
     write_voices(tmp_path, {1: "Alice", 2: "Dana"})
     headers = {"Content-Type": "text/plain", "Origin": "http://evil.example"}  # a CORS simple request
     assert post(base, "/speakers/label", {"id": 2, "name": "Erin"}, headers) == 403
@@ -339,10 +335,10 @@ def test_a_cross_site_voice_label_is_refused(tmp_path, dash, serve):
 
 
 @pytest.mark.parametrize("scheme", ["http", "https"])
-def test_the_dashboards_own_page_labels_a_voice_over_http_or_https(tmp_path, dash, serve, scheme):
+def test_the_dashboards_own_page_labels_a_voice_over_http_or_https(tmp_path, dash, serve_dashboard, scheme):
     """The dashboard is served over HTTPS too, and Live's rename sends that Origin."""
     ran = dash
-    base = serve(server.H)
+    base = serve_dashboard()
     write_voices(tmp_path, {1: "Alice", 2: "Dana"})
     headers = {"Content-Type": "application/json", "Origin": f"{scheme}://pack.example", "Host": "pack.example"}
     assert post(base, "/speakers/label", {"id": 2, "name": "Erin"}, headers) == 200

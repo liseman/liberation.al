@@ -472,11 +472,11 @@ def test_grid_variant_uses_saved_jpeg_and_keeps_detail_bytes(tmp_path, monkeypat
     "kind,url", [("shots", "/faces/shot/saved.jpg?size=80"), ("pet_shots", "/pets/sightings/photo?track=saved&size=80")]
 )
 def test_grid_http_waits_for_background_variant_and_never_promotes_old_revision(
-    tmp_path, monkeypatch, serve, kind, url
+    tmp_path, monkeypatch, serve_dashboard, kind, url
 ):
     import http.client
 
-    from liberational.dashboard import context, photo_files, server
+    from liberational.dashboard import context, photo_files
 
     revision = ["0"]
     monkeypatch.setattr(context, "STATE", tmp_path)
@@ -486,7 +486,7 @@ def test_grid_http_waits_for_background_variant_and_never_promotes_old_revision(
     jpg = face_shots.encode(np.full((160, 160, 3), 123, np.uint8))
     assert jpg is not None
     face_shots.write(tmp_path, "saved", "0", jpg, kind)
-    connection = http.client.HTTPConnection(serve(server.H).removeprefix("http://"))
+    connection = http.client.HTTPConnection(serve_dashboard().removeprefix("http://"))
     connection.request("GET", url)
     response = connection.getresponse()
     assert response.status == 202

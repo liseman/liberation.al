@@ -5,7 +5,6 @@ import json
 
 import pytest
 
-from liberational.dashboard import server
 from liberational.people import pets
 
 
@@ -28,10 +27,10 @@ class PetStore:
 
 
 @pytest.fixture
-def pet_api(serve, monkeypatch):
+def pet_api(serve_dashboard, monkeypatch):
     store = PetStore()
     monkeypatch.setattr(pets, "at", lambda state: store)
-    host = serve(server.H).removeprefix("http://")
+    host = serve_dashboard().removeprefix("http://")
 
     def request(method, path, body=None, origin=None):
         headers = {"Content-Type": "application/json"}
@@ -68,9 +67,9 @@ def test_pet_http_writes_reject_another_origin_without_touching_profiles(pet_api
 
 
 @pytest.mark.parametrize("path", ["/pets/save", "/pets/remove"])
-def test_pet_http_writes_require_local_control(pet_api, monkeypatch, path):
+def test_pet_http_writes_require_local_control(dashboard_server, pet_api, monkeypatch, path):
     request, store = pet_api
-    monkeypatch.setattr(server.H, "_can_control", lambda self: False)
+    monkeypatch.setattr(dashboard_server.H, "_can_control", lambda self: False)
     status, _ = request("POST", path, {"name": "Pip", "species": "cat", "id": "pet-id"})
     assert status == 403
     assert store.profiles == []
@@ -94,10 +93,10 @@ def test_labeling_a_sighting_goes_through_from_this_machine(pet_api, labels):
     assert labels == [["t1"]]
 
 
-def test_labeling_a_sighting_refuses_another_origin_or_a_remote_viewer(pet_api, labels, monkeypatch):
+def test_labeling_a_sighting_refuses_another_origin_or_a_remote_viewer(dashboard_server, pet_api, labels, monkeypatch):
     request, _ = pet_api
     body = {"track_ids": ["t1"], "label": "other"}
     assert request("POST", "/pets/sightings/label", body, "http://other.invalid")[0] == 403
-    monkeypatch.setattr(server.H, "_can_control", lambda self: False)
+    monkeypatch.setattr(dashboard_server.H, "_can_control", lambda self: False)
     assert request("POST", "/pets/sightings/label", body)[0] == 403
     assert labels == []

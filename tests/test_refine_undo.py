@@ -3,11 +3,12 @@ everything since a moment, including any voice reference a label added. A label 
 transcript.jsonl is never rewritten, and lines read through people/transcript_view.py."""
 
 import json
+import time
 
 import pytest
 
 from liberational import speech_log
-from liberational.dashboard import context, people_reads, server, speaker_lines, transcript_lines
+from liberational.dashboard import context, feed_labels, people_reads, speaker_lines, transcript_lines
 from liberational.people import registry, transcript_view
 from speech_fake import fake
 from voices import write_voices
@@ -116,7 +117,7 @@ def test_undo_everything_since_a_moment(lines, monkeypatch):
     speaker_lines.speakers_refine("assign", {"ts_start": 1000.0, "name": "Carly"})
     cut = logged()[-1]["ts"] + 0.001
     with monkeypatch.context() as m:
-        m.setattr(server.time, "time", lambda: cut + 10)
+        m.setattr(time, "time", lambda: cut + 10)
         speaker_lines.speakers_refine("assign", {"ts_start": 1001.0, "name": "Carly"})
         speaker_lines.speakers_refine("assign", {"ts_start": 1001.0, "name": "Dana"})  # labeled twice: both unwind
     code, o = speaker_lines.speakers_refine_undo({"since": cut})
@@ -222,12 +223,12 @@ def test_undo_takes_back_one_label_of_a_line_labeled_before_and_after_keys(lines
 
 
 def test_the_live_feed_sends_only_the_microphones_line_that_was_labeled(twins):
-    _, seen = server.relabeled_tail({})
+    _, seen = feed_labels.relabeled_tail({})
     speaker_lines.speakers_refine("assign", {"line": B, "name": "Carly"})
-    changed, seen = server.relabeled_tail(seen)
+    changed, seen = feed_labels.relabeled_tail(seen)
     assert [e["line"] for e in changed] == [B]
     speaker_lines.speakers_refine("assign", {"line": A, "name": "Dana"})
-    changed, _ = server.relabeled_tail(seen)
+    changed, _ = feed_labels.relabeled_tail(seen)
     assert [e["line"] for e in changed] == [A]
 
 

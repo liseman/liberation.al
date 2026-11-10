@@ -20,11 +20,11 @@ from liberational.people import references
 
 
 @pytest.fixture(params=["http", "https"])
-def post(serve, monkeypatch, tmp_path, request):
+def post(serve_dashboard, monkeypatch, tmp_path, request):
     monkeypatch.setattr(
         inbox_state, "inbox_skip", lambda kind, ident, control: (200 if control else 403, {"ok": control})
     )
-    base = serve(server.H)
+    base = serve_dashboard()
     netloc = urllib.parse.urlsplit(base).netloc
 
     def go(path, *, remote=True, auth=True, origin=True, body=None, raw=None, content_type="application/json"):

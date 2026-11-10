@@ -112,10 +112,9 @@ def test_the_server_registers_the_same_routes_as_before():
 
 
 @pytest.fixture
-def ask(serve, monkeypatch):
+def ask(serve_dashboard, monkeypatch):
     """One request to a running dashboard: (status, content type, body)."""
-    monkeypatch.setattr(server, "DASH_PASSWORD", "")
-    netloc = urllib.parse.urlsplit(serve(server.H)).netloc
+    netloc = urllib.parse.urlsplit(serve_dashboard()).netloc
 
     def send(method, path, body=None):
         conn = http.client.HTTPConnection(netloc, timeout=5)

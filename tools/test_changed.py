@@ -22,7 +22,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 SRC = "src/liberational/"
 FRONT = "frontend/src/"
 FRONT_CODE = (".ts", ".tsx", ".js", ".jsx", ".mjs", ".css")
-MAX_IMPORTERS = 20  # a module more tests than this import (server.py) runs only the tests named for it
+MAX_IMPORTERS = 20  # a module more tests than this import (dashboard/context.py) runs only the tests named for it
 
 
 def changed(base: str, root: pathlib.Path = ROOT) -> list[str]:
@@ -73,7 +73,7 @@ def python_tests(
     paths: Iterable[str], tests: Sequence[pathlib.Path], root: pathlib.Path = ROOT, say: Callable[[str], None] = print
 ) -> list[str]:
     """The test files that cover the changed paths: changed tests themselves, tests named for a changed module, and
-    tests that import one. A module more than MAX_IMPORTERS tests import is a hub (the dashboard server): only the
+    tests that import one. A module more than MAX_IMPORTERS tests import is a hub (the dashboard's shared context): only the
     tests named for it run, and say() names how many were left out. Sorted, each once."""
     out: set[str] = set()
     modules = []

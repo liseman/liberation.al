@@ -77,7 +77,7 @@ def test_shell_retains_disabled_camera_history_and_excludes_it_only_from_live(tm
     (tmp_path / "config" / "devices.toml").write_text(
         'device = [{name="front-door", kind="rtsp", enabled=false}, {name="desk", kind="camera"}]'
     )
-    monkeypatch.setattr(server.cfg, "ROOT", tmp_path)
+    monkeypatch.setattr(cfg, "ROOT", tmp_path)
     data = names(server.fill(INDEX))
     assert data["cams"] == ["front-door", "desk"]
     assert data["activeCams"] == ["desk"]
@@ -137,8 +137,6 @@ def isolated_paths(tmp_path, monkeypatch):
     """Keep config defaults and import-time paths temporary until the HTTP servers have stopped."""
     state = tmp_path / "state"
     calls = tmp_path / "calls"
-    for name, value in {}.items():
-        monkeypatch.setattr(server, name, value)
     monkeypatch.setattr(people_list, "PEOPLE_ADDED", state / "people_added.json")
     monkeypatch.setattr(inbox_state, "INBOX_SKIPS", state / "inbox_skips.json")
     monkeypatch.setattr(people_list, "CONTACTS_FILE", state / "contacts.json")
@@ -177,9 +175,8 @@ def people_api_broker(request, monkeypatch):
 
 
 @pytest.fixture
-def dashboard(serve, monkeypatch):
-    monkeypatch.setattr(server, "DASH_PASSWORD", "")
-    return serve(server.H)
+def dashboard(serve_dashboard, monkeypatch):
+    return serve_dashboard()
 
 
 def test_the_page_says_whether_hotkeys_are_on(tree):

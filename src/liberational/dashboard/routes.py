@@ -132,10 +132,11 @@ class Table:
         return sorted((route.method, route.shown, route.area) for route in routes)
 
 
-def load(*areas: str) -> None:
-    """Import the dashboard modules that register routes, so the table has them: the server names them once."""
-    for area in areas:
-        importlib.import_module(f"liberational.dashboard.{area}")
+def load(*modules: str) -> None:
+    """Import the dashboard modules that register routes, so the table has them: the server names them once, by
+    full name, so readers.py (which follows "liberational.x" strings) counts the settings they read."""
+    for module in modules:
+        importlib.import_module(module)
 
 
 TABLE = Table()

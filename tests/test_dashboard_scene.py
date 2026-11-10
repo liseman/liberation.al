@@ -4,7 +4,7 @@ import time
 
 import pytest
 
-from liberational.dashboard import live_status, server
+from liberational.dashboard import live_status
 
 
 @pytest.fixture
@@ -19,7 +19,7 @@ def reads(vision, monkeypatch):
 
     monkeypatch.setattr(vision, "scene", scene)
     clock = [1000.0]
-    monkeypatch.setattr(server.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
     vision.caption(time.time() - 5, caption="a person at the desk")
     return calls, clock
 

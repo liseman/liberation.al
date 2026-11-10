@@ -1,4 +1,7 @@
+import time
 from collections import namedtuple
+
+import psutil
 
 """The admin sidebar's service status and switches: services.snapshot() and the dashboard's /services endpoints."""
 
@@ -15,7 +18,7 @@ import pytest
 from liberational import config as cfg
 from liberational import proc_table
 from liberational import services as s
-from liberational.dashboard import context, machine_stats, server, service_control
+from liberational.dashboard import context, machine_stats, service_control
 
 
 def proc(pid, cmdline):
@@ -370,7 +373,7 @@ class FakePackServices:
 @pytest.fixture
 def pack_services(monkeypatch):
     fake = FakePackServices()
-    monkeypatch.setattr(server.subprocess, "run", fake)
+    monkeypatch.setattr(subprocess, "run", fake)
     return fake
 
 
@@ -388,9 +391,8 @@ def snapshots(monkeypatch):
 
 
 @pytest.fixture
-def base(serve, monkeypatch, pack_services, snapshots):
-    monkeypatch.setattr(server, "DASH_PASSWORD", "")
-    return serve(server.H)
+def base(serve_dashboard, monkeypatch, pack_services, snapshots):
+    return serve_dashboard()
 
 
 def call(base, method, body=None, *, path="/services", **headers):
@@ -458,15 +460,15 @@ def test_every_action_logs_one_line_with_the_service_and_what_was_done(base, pac
     records: list[logging.LogRecord] = []
     grab = logging.Handler(logging.INFO)
     grab.emit = records.append  # ty: ignore[invalid-assignment]
-    monkeypatch.setattr(server.LOG, "level", logging.INFO)
-    server.LOG.addHandler(grab)
+    monkeypatch.setattr(context.LOG, "level", logging.INFO)
+    context.LOG.addHandler(grab)
     try:
         call(base, "POST", {"name": "voice", "action": "stop"})
         pack_services.returncode, pack_services.stderr = 1, "unit not found"
         call(base, "POST", {"name": "voice", "action": "off"})
         call(base, "POST", {"all": "off"})
     finally:
-        server.LOG.removeHandler(grab)
+        context.LOG.removeHandler(grab)
     said = [(r.levelno, r.getMessage()) for r in records if r.getMessage().startswith("services:")]
     assert said == [
         (logging.INFO, "services: stop voice (stopped now; starts again when the computer restarts): done"),
@@ -509,13 +511,13 @@ def test_disable_writes_pack_toml_then_uninstalls_so_it_stays_off_after_a_restar
 def test_each_action_runs_alone(base, pack_services, monkeypatch):
     # Two Disables at once each read pack.toml, and the second write dropped the first's change.
     held = []
-    run = server.subprocess.run
+    run = subprocess.run
 
     def checking(cmd, **kw):
         held.append(service_control.SERVICES_LOCK.locked())
         return run(cmd, **kw)
 
-    monkeypatch.setattr(server.subprocess, "run", checking)
+    monkeypatch.setattr(subprocess, "run", checking)
     call(base, "POST", {"name": "voice", "action": "disable"})
     call(base, "POST", {"all": "repair"})
     assert held and all(held)
@@ -623,7 +625,7 @@ def test_stats_name_each_service_and_each_ollama_runner_by_its_model(monkeypatch
         FakeProcess(6, "vim", ["vim"]),
     ]
     monkeypatch.setattr(proc_table, "table", as_table(lambda: procs))
-    monkeypatch.setattr(server.psutil, "Process", {p.pid: p for p in procs}.__getitem__)
+    monkeypatch.setattr(psutil, "Process", {p.pid: p for p in procs}.__getitem__)
     monkeypatch.setattr(
         service_control.services, "processes", lambda fresh=False: {"continuum-broker": [1], "see-faces": [2]}
     )
@@ -663,14 +665,14 @@ def test_stats_asked_again_within_a_second_give_the_same_measurement(monkeypatch
     monkeypatch.setattr(proc_table, "table", dict)
     monkeypatch.setattr(service_control.services, "processes", lambda fresh=False: {})
     clock = [1000.0]
-    monkeypatch.setattr(server.time, "time", lambda: clock[0])
+    monkeypatch.setattr(time, "time", lambda: clock[0])
     stats = machine_stats.Stats()
     monkeypatch.setattr(stats, "ollama_ps", lambda: {"models": []})
     monkeypatch.setattr(stats, "system_status", dict)
     # busy (user) and idle seconds since boot: 40% busy, then nothing, then 55%
     stats.cpu_t = times(user=0, idle=0)
     readings = iter([times(user=40, idle=60), times(user=40, idle=60), times(user=95, idle=105)])
-    monkeypatch.setattr(server.psutil, "cpu_times", lambda: next(readings))
+    monkeypatch.setattr(psutil, "cpu_times", lambda: next(readings))
     assert stats.snapshot()["cpu"] == 40.0
     clock[0] += 0.5
     assert stats.snapshot()["cpu"] == 40.0  # the same measurement, not a half-second's
@@ -700,9 +702,9 @@ def test_stats_read_the_cpu_the_same_from_any_request_thread(monkeypatch):
     monkeypatch.setattr(proc_table, "table", dict)
     monkeypatch.setattr(service_control.services, "processes", lambda fresh=False: {})
     clock = [1000.0]
-    monkeypatch.setattr(server.time, "time", lambda: clock[0])
+    monkeypatch.setattr(time, "time", lambda: clock[0])
     readings = iter([times(10, 90), times(85, 115)])
-    monkeypatch.setattr(server.psutil, "cpu_times", lambda: next(readings))
+    monkeypatch.setattr(psutil, "cpu_times", lambda: next(readings))
     stats = machine_stats.Stats()
     monkeypatch.setattr(stats, "ollama_ps", lambda: {"models": []})
     monkeypatch.setattr(stats, "system_status", dict)

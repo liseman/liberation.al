@@ -7,7 +7,8 @@ from unittest.mock import create_autospec
 
 import pytest
 
-from liberational.dashboard import context, roster_read, server, unnamed_groups
+from liberational import config as cfg
+from liberational.dashboard import context, roster_read, unnamed_groups
 
 
 @pytest.fixture
@@ -70,10 +71,10 @@ def test_importers_without_worker_activation_read_people_in_process(monkeypatch)
 
 
 def test_the_people_worker_rereads_settings_and_lowers_its_priority(monkeypatch):
-    clear = create_autospec(server.cfg.load.cache_clear)
+    clear = create_autospec(cfg.load.cache_clear)
     priority = create_autospec(context.low_priority)
     monkeypatch.setattr(roster_read.multiprocessing, "parent_process", lambda: object())
-    monkeypatch.setattr(server.cfg.load, "cache_clear", clear)
+    monkeypatch.setattr(cfg.load, "cache_clear", clear)
     monkeypatch.setattr(context, "low_priority", priority)
     monkeypatch.setattr(roster_read, "_people_view", lambda: {"people": []})
     assert roster_read._people_view_job() == {"people": []}

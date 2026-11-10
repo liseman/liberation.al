@@ -7,7 +7,6 @@ import json
 import numpy as np
 import pytest
 
-from liberational.dashboard import server
 from liberational.people import contacts, registry
 from liberational.vision import faces
 
@@ -46,15 +45,14 @@ def test_naming_a_face_group_the_registry_couldnt_record_changes_no_face_file(tm
     assert faces.load_db()[0] == [] and faces._unk_load()[0] == [3], "the group is still there, unnamed"
 
 
-def test_a_request_whose_write_failed_answers_with_the_error(serve, monkeypatch):
-    monkeypatch.setattr(server, "DASH_PASSWORD", "")
+def test_a_request_whose_write_failed_answers_with_the_error(dashboard_server, serve_dashboard, monkeypatch):
 
     def post(self):
         with registry.recorded("photo moved"):
             raise OSError("down")
 
-    monkeypatch.setattr(server.H, "_post", post)
-    c = http.client.HTTPConnection(serve(server.H).removeprefix("http://"), timeout=5)
+    monkeypatch.setattr(dashboard_server.H, "_post", post)
+    c = http.client.HTTPConnection(serve_dashboard().removeprefix("http://"), timeout=5)
     c.request("POST", "/people/anything", body=b"{}", headers={"Content-Type": "application/json"})
     r = c.getresponse()
     body = json.loads(r.read())

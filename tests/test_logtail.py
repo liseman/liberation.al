@@ -136,10 +136,9 @@ def test_every_declared_service_and_nothing_else_can_be_picked(logs):
 
 
 @pytest.fixture
-def base(logs, serve, monkeypatch):
-    monkeypatch.setattr(server, "DASH_PASSWORD", "")
+def base(logs, serve_dashboard, monkeypatch):
     monkeypatch.setattr(server, "LOG_POLL_S", 0.02)
-    return serve(server.H)
+    return serve_dashboard()
 
 
 def events(response, count):

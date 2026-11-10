@@ -23,7 +23,7 @@ from numpy.typing import NDArray
 
 from liberational import model_runtime
 from liberational.see.vision_backend import Frame, People
-from liberational.vision import crossings, pose_model
+from liberational.vision import crossings, onnx_runtime, pose_model
 from liberational.vision.onnx_runtime import DetectorUnavailable, preload_gpu_libraries
 
 _LOG = logging.getLogger(__name__)
@@ -93,7 +93,7 @@ class GraphSession:
             "has_user_compute_stream": "1",
             "user_compute_stream": str(stream.cuda_stream),
         }
-        self.session = ort.InferenceSession(str(path), options, providers=[("CUDAExecutionProvider", cuda)])
+        self.session = onnx_runtime.session(ort, str(path), options, providers=[("CUDAExecutionProvider", cuda)])
         if self.session.get_providers()[0] != "CUDAExecutionProvider":
             raise DetectorUnavailable(f"{path.name} did not load on the CUDA provider")
         self.output_names = [output.name for output in self.session.get_outputs()]
@@ -198,8 +198,8 @@ class HostSession:
         if coreml and COREML in ort.get_available_providers():
             for provider in ((COREML, COREML_OPTIONS), COREML):  # an older ONNX Runtime refuses the options
                 try:
-                    self.session = ort.InferenceSession(
-                        str(path), options, providers=[provider, "CPUExecutionProvider"]
+                    self.session = onnx_runtime.session(
+                        ort, str(path), options, providers=[provider, "CPUExecutionProvider"]
                     )
                     break
                 except Exception as e:

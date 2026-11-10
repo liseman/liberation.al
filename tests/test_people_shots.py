@@ -12,7 +12,7 @@ import cv2
 import numpy as np
 import pytest
 
-from liberational.dashboard import context, people_cards, photo_files, roster_read, server
+from liberational.dashboard import context, people_cards, photo_files, roster_read
 from liberational.people import face_shots, video_thumbs
 from liberational.vision import sightings
 from liberational.vision import sightings as st
@@ -55,7 +55,7 @@ def test_nobody_has_no_shots(state):
 
 
 @pytest.fixture
-def dashboard(tmp_path, monkeypatch, serve, vision):
+def dashboard(tmp_path, monkeypatch, serve_dashboard, vision):
     """The dashboard over a state dir with one 160 by 120 frame whose only "face" is a white square, a sighting of
     Alice in it, and one whose frame is gone."""
     monkeypatch.setattr(context, "STATE", tmp_path)
@@ -68,7 +68,7 @@ def dashboard(tmp_path, monkeypatch, serve, vision):
         gone=vision.face(T + 1.5, "cam0", "Alice", 0.8, bbox=BOX)["id"],
     )
     vision.visit("Alice", T + 0.5, T + 1.5, "cam0")
-    return serve(server.H), ids
+    return serve_dashboard(), ids
 
 
 def get(base, path, headers=None):
@@ -92,10 +92,10 @@ def test_a_shot_is_a_cached_crop_of_its_frame(dashboard, tmp_path):
     assert headers["ETag"]
     img = cv2.imdecode(np.frombuffer(body, np.uint8), cv2.IMREAD_GRAYSCALE)
     assert img is not None
-    assert img.shape == (server.SHOT_PX, server.SHOT_PX)
+    assert img.shape == (photo_files.SHOT_PX, photo_files.SHOT_PX)
     assert img[70:90, 70:90].mean() > 200  # the face sits in the middle
     assert img[:10, :10].mean() < 60  # with some padding around it
-    assert (server._shot_path(ids.kept)).exists()
+    assert (photo_files._shot_path(ids.kept)).exists()
     assert get(base, f"/faces/shot/{ids.kept}.jpg")[2] == body
 
 
@@ -132,7 +132,7 @@ def unmappable(vision, monkeypatch):
 def test_a_shot_whose_frame_has_no_geometry_is_404_and_not_cached(dashboard, unmappable):
     base, ids = dashboard
     assert get(base, f"/faces/shot/{ids.kept}.jpg")[0] == 404
-    assert not server._shot_path(ids.kept).exists()
+    assert not photo_files._shot_path(ids.kept).exists()
 
 
 def test_a_scene_photo_whose_frame_has_no_geometry_is_skipped(dashboard, unmappable, tmp_path):
@@ -169,7 +169,7 @@ def test_a_crop_from_before_a_forget_is_checked_once_and_kept(dashboard, tmp_pat
 
 def test_purged_crop_returns_404_and_removes_cached_file_even_with_old_etag(dashboard, tmp_path, vision, monkeypatch):
     base, ids = dashboard
-    path = server._shot_path(ids.kept)
+    path = photo_files._shot_path(ids.kept)
     code, headers, _ = get(base, f"/faces/shot/{ids.kept}.jpg")
     assert code == 200
     assert path.exists()
@@ -188,7 +188,7 @@ def test_live_cached_crop_revalidates_with_revision_etag_without_reading_jpeg(da
     url = f"/faces/shot/{ids.kept}.jpg"
     code, headers, body = get(base, url)
     assert code == 200 and body
-    cached = server._shot_path(ids.kept)
+    cached = photo_files._shot_path(ids.kept)
     original = Path.read_bytes
 
     def read(path):
@@ -275,7 +275,7 @@ def test_old_geometry_cache_is_not_reused_after_pixel_mapping_changes(dashboard,
     old.write_bytes(b"old incorrect geometry")
     code, _, body = get(base, f"/faces/shot/{ids.kept}.jpg")
     assert code == 200 and body != old.read_bytes()
-    assert server._shot_path(ids.kept).exists()
+    assert photo_files._shot_path(ids.kept).exists()
 
 
 def test_a_shot_that_would_wait_too_long_for_a_cut_is_told_to_come_back(dashboard, monkeypatch):
@@ -313,7 +313,7 @@ def test_a_face_at_the_frames_edge_is_cut_from_the_part_inside(dashboard, vision
     code, _, body = get(base, f"/faces/shot/{edge}.jpg")
     assert code == 200
     img = cv2.imdecode(np.frombuffer(body, np.uint8), cv2.IMREAD_GRAYSCALE)
-    assert img is not None and img.shape == (server.SHOT_PX, server.SHOT_PX)
+    assert img is not None and img.shape == (photo_files.SHOT_PX, photo_files.SHOT_PX)
 
 
 def video_thumb_url(cam="cam0", start=T + 0.5):

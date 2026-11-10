@@ -20,7 +20,6 @@ from liberational.dashboard import (
     capture_control,
     devices,
     privacy,
-    server,
     settings,
 )
 from liberational.dashboard.camera_modes import modes as native_camera_modes
@@ -92,7 +91,7 @@ def camera_restarts(monkeypatch):
 
 
 @pytest.fixture
-def base(serve, tmp_path, monkeypatch, pack_toml, ran, manifest, mode_calls, camera_restarts):
+def base(serve_dashboard, tmp_path, monkeypatch, pack_toml, ran, manifest, mode_calls, camera_restarts):
     state = tmp_path / "state"
     state.mkdir()
     now = time.time()
@@ -100,7 +99,6 @@ def base(serve, tmp_path, monkeypatch, pack_toml, ran, manifest, mode_calls, cam
         json.dumps({"ts": now, "devices": {"a": {"name": MIC_A, "level_dbfs": -50.0}}})
     )
     monkeypatch.setenv("PACK_PATHS_STATE", str(state))
-    monkeypatch.setattr(server, "DASH_PASSWORD", "")
     monkeypatch.setattr(devices, "_mic_discovery", None)
     monkeypatch.setattr(ambient, "scan_raw_devices", lambda: RAW)
     monkeypatch.setattr(ambient, "EXCLUDE_SUBSTR", [])
@@ -114,7 +112,7 @@ def base(serve, tmp_path, monkeypatch, pack_toml, ran, manifest, mode_calls, cam
     monkeypatch.setattr(
         devices, "_linux_cameras", lambda: [(0, "Acme Cam", "/dev/video0"), (2, "Other Cam", "/dev/video2")]
     )
-    return serve(server.H)
+    return serve_dashboard()
 
 
 MANIFEST = """# capture's devices

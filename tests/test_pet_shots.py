@@ -8,7 +8,7 @@ import cv2
 import numpy as np
 import pytest
 
-from liberational.dashboard import context, photo_files, server
+from liberational.dashboard import context, photo_files
 from liberational.people import pet_recognition, pet_shots
 from liberational.see.caption_animals import CaptionAnimals
 
@@ -62,11 +62,11 @@ def test_a_captions_embedded_box_is_offered_for_its_tracks_photo():
 
 
 @pytest.fixture
-def route(serve, tmp_path, monkeypatch, vision):
+def route(serve_dashboard, tmp_path, monkeypatch, vision):
     monkeypatch.setattr(context, "STATE", tmp_path)
     vision.frames[("cam0", T)] = frame()
     monkeypatch.setattr(pet_recognition, "recorded", lambda state, now=None: [sighting()])
-    host = serve(server.H).removeprefix("http://")
+    host = serve_dashboard().removeprefix("http://")
 
     def get(track):
         c = http.client.HTTPConnection(host, timeout=10)

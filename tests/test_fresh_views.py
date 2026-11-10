@@ -6,7 +6,8 @@ from unittest.mock import create_autospec
 
 import pytest
 
-from liberational.dashboard import context, fresh_reads, inbox_state, server, unnamed_groups
+from liberational import speech_log
+from liberational.dashboard import context, fresh_reads, inbox_state, unnamed_groups
 from liberational.vision import faces
 
 
@@ -51,9 +52,9 @@ def test_a_purge_bypasses_cached_face_groups_immediately(tmp_path, monkeypatch):
     monkeypatch.setattr(inbox_state, "INBOX_SKIPS", tmp_path / "skips.json")
     monkeypatch.setattr(faces, "UNK_DB", tmp_path / "unknown.npz")
     epoch = {"purge": None}
-    log = create_autospec(server.speech_log.SpeechLog, instance=True)
+    log = create_autospec(speech_log.SpeechLog, instance=True)
     log.newest_voice_purge.side_effect = lambda: epoch["purge"]
-    monkeypatch.setattr(server.speech_log, "shared", create_autospec(server.speech_log.shared, return_value=log))
+    monkeypatch.setattr(speech_log, "shared", create_autospec(speech_log.shared, return_value=log))
     groups = ["Face 1"]
     fresh = fresh_reads._Fresh(
         "face groups", lambda: (200, {"groups": groups.copy()}), unnamed_groups._faces_owner_key, lambda: 0
@@ -69,10 +70,10 @@ def test_a_video_only_purge_leaves_the_face_groups_key_as_it_was(tmp_path, monke
     monkeypatch.setattr(inbox_state, "INBOX_SKIPS", tmp_path / "skips.json")
     monkeypatch.setattr(faces, "UNK_DB", tmp_path / "unknown.npz")
     purges = {"any": "a", "voice": "a"}
-    log = create_autospec(server.speech_log.SpeechLog, instance=True)
+    log = create_autospec(speech_log.SpeechLog, instance=True)
     log.newest_purge.side_effect = lambda: purges["any"]
     log.newest_voice_purge.side_effect = lambda: purges["voice"]
-    monkeypatch.setattr(server.speech_log, "shared", create_autospec(server.speech_log.shared, return_value=log))
+    monkeypatch.setattr(speech_log, "shared", create_autospec(speech_log.shared, return_value=log))
     before = unnamed_groups._faces_owner_key(), unnamed_groups._faces_owner_key(groups=False)
     purges["any"] = "nightly-video-window"  # SpeechLog.newest_voice_purge leaves a video-only purge out
     assert (unnamed_groups._faces_owner_key(), unnamed_groups._faces_owner_key(groups=False)) == before

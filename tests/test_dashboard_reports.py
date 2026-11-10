@@ -7,17 +7,15 @@ import urllib.parse
 import pytest
 
 from liberational.dashboard import reports as page
-from liberational.dashboard import server
 from liberational.memory import reports
 from test_reports import FakeSources
 
 
 @pytest.fixture
-def base(serve, tmp_path, monkeypatch):
-    monkeypatch.setattr(server, "DASH_PASSWORD", "")
+def base(serve_dashboard, tmp_path, monkeypatch):
     view = reports.Reports(reports.Store(tmp_path / "reports.sqlite3"), FakeSources(), background=False)
     monkeypatch.setattr(reports, "at", lambda state: view)
-    return serve(server.H)
+    return serve_dashboard()
 
 
 def request(base, method, path, body=None, headers=None):

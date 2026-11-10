@@ -5,7 +5,14 @@ from unittest.mock import create_autospec
 
 import pytest
 
-from liberational.dashboard import context, inbox_state, people_reads, server, transcript_lines, unnamed_groups
+from liberational.dashboard import (
+    context,
+    feed_labels,
+    inbox_state,
+    people_reads,
+    transcript_lines,
+    unnamed_groups,
+)
 from liberational.domain.identity import Basis
 from liberational.people import registry, transcript_view
 from speech_fake import fake
@@ -88,9 +95,9 @@ def test_a_withdrawn_label_isnt_lent_to_a_copy_on_another_voice(state):
 
 
 def test_the_live_feed_resends_a_labeled_line_even_when_it_reads_as_a_copy(state):
-    seen = server.label_marks(transcript_view.View(state).lines(LINES))
+    seen = feed_labels.label_marks(transcript_view.View(state).lines(LINES))
     label(state, 1000.4, "Hall", "Eve")  # the owner labels the copy the client was showing
-    changed, _ = server.relabeled_tail(seen)
+    changed, _ = feed_labels.relabeled_tail(seen)
     assert "hall@1000.400" in {registry.key_of(e) for e in changed}
 
 

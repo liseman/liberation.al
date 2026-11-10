@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 import soundfile as sf
 
-from liberational.dashboard import server, transcript_lines
+from liberational.dashboard import transcript_lines
 from speech_fake import fake
 
 SR = 16_000
@@ -81,12 +81,11 @@ def test_quiet_room_audio_comes_out_at_a_normal_level():
     assert 20 * np.log10(np.sqrt(np.mean(data**2))) > -35
 
 
-def test_the_timeline_draws_each_microphones_kept_audio(serve, monkeypatch):
-    monkeypatch.setattr(server, "DASH_PASSWORD", "")
+def test_the_timeline_draws_each_microphones_kept_audio(serve_dashboard, monkeypatch):
     day = time.strftime("%Y-%m-%d", time.localtime(T0))
     fake().put_audio("kitchen.audio", int(T0 * NS), tone(10.0))
     fake().mics = {"kitchen.audio": None}
-    with urllib.request.urlopen(serve(server.H) + f"/audio/spans?day={day}", timeout=5) as r:
+    with urllib.request.urlopen(serve_dashboard() + f"/audio/spans?day={day}", timeout=5) as r:
         spans = json.loads(r.read())["spans"]
     assert spans == [{"device": "kitchen", "start": T0, "end": T0 + 10}]
 
@@ -110,15 +109,14 @@ def test_audio_day_bounds_keep_the_last_hour_and_exclude_the_next_day_across_dst
     assert transcript_lines.audio_spans(day) == [{"device": "kitchen", "start": late, "end": late + 1}]
 
 
-def test_a_lines_clip_plays_its_own_stretch_and_says_when_nothing_was_kept(kept, serve, monkeypatch):
-    monkeypatch.setattr(server, "DASH_PASSWORD", "")
+def test_a_lines_clip_plays_its_own_stretch_and_says_when_nothing_was_kept(kept, serve_dashboard, monkeypatch):
     at = int((T0 + 3) * NS)
     fake().say({"ts_start": T0 + 3, "ts_end": T0 + 4, "device": "kitchen", "text": "hi",
                 "audio": {"stream": "kitchen.audio", "start_ns": at, "end_ns": at + NS}})  # fmt: skip
     later = int((T0 + 60) * NS)  # past what was kept: still in the ring, or purged
     fake().say({"ts_start": T0 + 60, "ts_end": T0 + 61, "device": "kitchen", "text": "new",
                 "audio": {"stream": "kitchen.audio", "start_ns": later, "end_ns": later + NS}})  # fmt: skip
-    base = serve(server.H)
+    base = serve_dashboard()
     with urllib.request.urlopen(base + f"/clip?line=kitchen@{T0 + 3:.3f}", timeout=5) as r:
         data, sr = decoded(r.read())
     assert len(data) == pytest.approx((1 + 2 * transcript_lines.PAD_S) * sr, abs=sr // 100)

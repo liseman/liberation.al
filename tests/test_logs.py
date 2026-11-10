@@ -224,14 +224,13 @@ def test_another_media_write_failure_is_not_swallowed(captured):
     assert lines(captured) == []
 
 
-def test_a_failing_route_is_one_error_line_naming_it(captured, serve, monkeypatch, capsys):
-    monkeypatch.setattr(server, "DASH_PASSWORD", "")
+def test_a_failing_route_is_one_error_line_naming_it(captured, serve_dashboard, monkeypatch, capsys):
 
     def broken(*a: Any) -> dict:
         raise ValueError("boom")
 
     monkeypatch.setattr(live_status, "camera_status", broken)
-    url = serve(server.H).removeprefix("http://")
+    url = serve_dashboard().removeprefix("http://")
     c = http.client.HTTPConnection(url, timeout=5)
     c.request("GET", "/vision?who=Dana")  # a route whose own work raises
     with pytest.raises((http.client.RemoteDisconnected, ConnectionResetError)):
@@ -262,6 +261,26 @@ def test_a_librarys_warnings_warn_is_in_the_one_format():
     done = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60, check=True)
     first = done.stderr.splitlines()[0]
     assert re.match(r"\S+ \[py\.warnings\] WARN .*UserWarning: `torch_dtype` is deprecated", first), done.stderr
+
+
+def test_a_librarys_prints_inside_printed_are_log_lines_at_their_level(captured):
+    from liberational.vision import onnx_runtime
+
+    log = logs.get("vision.onnx_runtime")
+    with logs.printed(log, onnx_runtime._fallback_level):
+        print("*************** EP Error ***************")
+        print("EP Error CUDA failure 100: no CUDA-capable device is detected when using ['CUDAExecutionProvider']")
+        print("Falling back to ['CPUExecutionProvider'] and retrying.", end="")  # no newline: still a line
+    assert [line.split(" ", 1)[1] for line in lines(captured)] == [
+        "[vision.onnx_runtime] DEBUG *************** EP Error ***************",
+        (
+            "[vision.onnx_runtime] WARN EP Error CUDA failure 100: no CUDA-capable device is detected when using"
+            " ['CUDAExecutionProvider']"
+        ),
+        "[vision.onnx_runtime] WARN Falling back to ['CPUExecutionProvider'] and retrying.",
+    ]
+    print("after")  # stdout is the process's own again
+    assert len(lines(captured)) == 3
 
 
 def test_a_periodic_report_is_info_first_and_then_once_a_period():
@@ -334,10 +353,9 @@ def test_a_reply_that_cant_be_recorded_is_one_error_line(captured, monkeypatch):
     ]
 
 
-def test_a_slow_request_is_a_warning_with_its_route_and_duration(captured, serve, monkeypatch):
-    monkeypatch.setattr(server, "DASH_PASSWORD", "")
+def test_a_slow_request_is_a_warning_with_its_route_and_duration(captured, serve_dashboard, monkeypatch):
     monkeypatch.setattr(server, "SLOW_REQUEST_S", 0.0)
-    url = serve(server.H).removeprefix("http://")
+    url = serve_dashboard().removeprefix("http://")
     c = http.client.HTTPConnection(url, timeout=5)
     c.request("GET", "/no/such/route?who=Dana")
     c.getresponse().read()
@@ -350,9 +368,8 @@ def test_a_slow_request_is_a_warning_with_its_route_and_duration(captured, serve
     assert re.search(r"\[dashboard\] WARN GET /no/such/route took \d+\.\d s$", slow[0])  # no query: it can hold names
 
 
-def test_a_fast_request_is_not_logged(captured, serve, monkeypatch):
-    monkeypatch.setattr(server, "DASH_PASSWORD", "")
-    url = serve(server.H).removeprefix("http://")
+def test_a_fast_request_is_not_logged(captured, serve_dashboard, monkeypatch):
+    url = serve_dashboard().removeprefix("http://")
     c = http.client.HTTPConnection(url, timeout=5)
     c.request("GET", "/no/such/route")
     c.getresponse().read()

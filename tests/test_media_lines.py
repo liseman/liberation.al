@@ -6,7 +6,8 @@ from typing import Any, cast
 
 import pytest
 
-from liberational.dashboard import context, people_list, server, speaker_lines, transcript_lines, unnamed_groups
+from liberational import speech_log
+from liberational.dashboard import context, people_list, speaker_lines, transcript_lines, unnamed_groups
 from liberational.listen import revisions
 from liberational.people import registry
 
@@ -112,7 +113,7 @@ def heard(tmp_path, monkeypatch):
     rows = [line(T, "Tonight on the news", 9), line(T + 5, "and the weather", 9), line(T + 10, "Hi", 4)]
     monkeypatch.setattr(context, "STATE", tmp_path)
     monkeypatch.setattr(transcript_lines, "heard_lines", lambda *a, **k: revisions.filter_lines(tmp_path, rows))
-    monkeypatch.setattr(server.speech_log, "retained", lambda: rows)
+    monkeypatch.setattr(speech_log, "retained", lambda: rows)
     monkeypatch.setattr(
         transcript_lines, "_view", lambda: SimpleNamespace(lines=lambda raw: revisions.filter_lines(tmp_path, raw))
     )
@@ -142,7 +143,7 @@ def test_this_is_tv_needs_lines_that_were_heard(heard, body, status):
 
 
 def test_this_is_tv_on_an_unnamed_voice_marks_every_line_it_has(heard, monkeypatch):
-    monkeypatch.setattr(server.registry, "voice_names", lambda state, sids: dict.fromkeys(sids))
+    monkeypatch.setattr(registry, "voice_names", lambda state, sids: dict.fromkeys(sids))
     code, reply = speaker_lines.media_voice({"group": 9})
     assert code == 200
     assert reply["lines"] == [registry.key_of(heard[0]), registry.key_of(heard[1])]
@@ -151,7 +152,7 @@ def test_this_is_tv_on_an_unnamed_voice_marks_every_line_it_has(heard, monkeypat
 
 
 def test_this_is_tv_is_refused_for_a_named_voice(heard, monkeypatch):
-    monkeypatch.setattr(server.registry, "voice_names", lambda state, sids: dict.fromkeys(sids, "Alice"))
+    monkeypatch.setattr(registry, "voice_names", lambda state, sids: dict.fromkeys(sids, "Alice"))
     assert speaker_lines.media_voice({"group": 9})[0] == 409
     assert speaker_lines.media_voice({"group": "9"})[0] == 400
 

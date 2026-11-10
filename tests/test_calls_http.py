@@ -7,15 +7,15 @@ from unittest.mock import create_autospec
 import pytest
 
 from liberational import config as cfg
-from liberational.dashboard import call_log, server
+from liberational.dashboard import call_log
 from liberational.phone import outbound
 
 
 @pytest.fixture
-def hangup_http(serve, monkeypatch, tmp_path):
+def hangup_http(dashboard_server, serve_dashboard, monkeypatch, tmp_path):
     monkeypatch.setattr(call_log, "CALLS_DIR", tmp_path / "calls")
-    monkeypatch.setattr(server, "DASH_PASSWORD", "synthetic-password")
-    monkeypatch.setattr(server.H, "_local", lambda self: False)
+    monkeypatch.setattr(dashboard_server, "DASH_PASSWORD", "synthetic-password")
+    monkeypatch.setattr(dashboard_server.H, "_local", lambda self: False)
     env = tmp_path / "phone.env"
     env.write_text("TWILIO_ACCOUNT_SID=ACfake\nTWILIO_AUTH_TOKEN=fake\n")
     sid = "CA" + "1" * 32
@@ -25,7 +25,7 @@ def hangup_http(serve, monkeypatch, tmp_path):
         outbound.requests.post, return_value=SimpleNamespace(status_code=200, json=lambda: {"status": "completed"})
     )
     monkeypatch.setattr(outbound.requests, "post", send)
-    host = serve(server.H).removeprefix("http://")
+    host = serve_dashboard().removeprefix("http://")
 
     def post(body, *, auth=True, origin=None, content_type="application/json"):
         headers = {"Content-Type": content_type, "Origin": origin or f"https://{host}"}
@@ -90,10 +90,10 @@ def test_hangup_reports_connection_failure_instead_of_success(hangup_http):
     assert status == 502 and result["ok"] is False
 
 
-def test_call_route_requires_auth_origin_and_confirmation(serve, monkeypatch):
-    monkeypatch.setattr(server, "DASH_PASSWORD", "synthetic-password")
-    monkeypatch.setattr(server.H, "_local", lambda self: False)
-    base = serve(server.H)
+def test_call_route_requires_auth_origin_and_confirmation(dashboard_server, serve_dashboard, monkeypatch):
+    monkeypatch.setattr(dashboard_server, "DASH_PASSWORD", "synthetic-password")
+    monkeypatch.setattr(dashboard_server.H, "_local", lambda self: False)
+    base = serve_dashboard()
     sent = []
 
     def place(name, message, *, number=None):
@@ -116,7 +116,7 @@ def test_call_route_requires_auth_origin_and_confirmation(serve, monkeypatch):
 
     body = {"number": "+15555550123", "message": "Arrange dinner", "confirmed": True}
     assert post(body) == 401
-    monkeypatch.setattr(server.H, "_authed", lambda self: True)
+    monkeypatch.setattr(dashboard_server.H, "_authed", lambda self: True)
     assert post(body, "https://evil.invalid") == 403
     assert post({"number": "+15555550123"}) == 400
     assert sent == []
@@ -191,11 +191,10 @@ def test_a_live_mark_a_crash_left_behind_is_not_a_call_on(tmp_path, monkeypatch)
     assert call_log.calls_live() == {"live": None, "count": 0}
 
 
-def test_the_dashboard_serves_the_call_on_now(serve, monkeypatch, tmp_path):
+def test_the_dashboard_serves_the_call_on_now(serve_dashboard, monkeypatch, tmp_path):
     monkeypatch.setattr(call_log, "CALLS_DIR", tmp_path)
-    monkeypatch.setattr(server, "DASH_PASSWORD", "")
     _live(tmp_path / "2026-11-06" / "130200_CA9", direction="in", name=None, number="+15555550123")
-    base = serve(server.H)
+    base = serve_dashboard()
     c = http.client.HTTPConnection(base.removeprefix("http://"))
     c.request("GET", "/calls/live")
     response = c.getresponse()

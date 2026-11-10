@@ -9,7 +9,6 @@ import pytest
 
 from liberational import memory_log, speech_log
 from liberational.dashboard import journal as view
-from liberational.dashboard import server
 from liberational.listen import revisions
 from liberational.memory import journal
 
@@ -217,8 +216,8 @@ def test_a_bad_period_is_a_400(state, query):
     assert code == 400 and "error" in reply
 
 
-def test_the_route_answers_json_and_a_page_load_gets_the_app(serve, memory):
-    base = serve(server.H)
+def test_the_route_answers_json_and_a_page_load_gets_the_app(serve_dashboard, memory):
+    base = serve_dashboard()
     host = urlsplit(base).netloc
 
     def get(path, accept):
