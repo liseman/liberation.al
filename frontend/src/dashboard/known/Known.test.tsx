@@ -15,6 +15,24 @@ it('says what a tab badge counts, and shows nothing when none waits', () => {
 });
 
 it.each([
+  ['loading', { n: undefined, loading: true }, null],
+  ['loaded', { n: 12, loading: false }, '12 to name'],
+  ['zero', { n: 0, loading: false }, ''],
+] as const)('a tab count while %s: a skeleton until its read answers, then its words', (_, props, text) => {
+  renderPage(
+    <div data-testid="tab">
+      <Waiting {...props} what="to name" />
+    </div>,
+  );
+  const skeleton = screen.queryByTestId('count-skeleton');
+  if (text === null) expect(skeleton).toBeInTheDocument();
+  else {
+    expect(skeleton).not.toBeInTheDocument();
+    expect(screen.getByTestId('tab')).toHaveTextContent(text === '' ? /^$/ : text);
+  }
+});
+
+it.each([
   ['still loading', undefined],
   ['with none waiting', 0],
   ['with a count', 7],

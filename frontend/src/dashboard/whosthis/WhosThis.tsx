@@ -889,6 +889,7 @@ export function WhosThis({
       prefs="face"
       title="Who's this?"
       total={waitingTotal(faces, voices)}
+      counting={waitingTotal(faces, voices) == null && !failed}
       headingId={`${uid}-h`}
       sectionId={wide ? undefined : WHOS_THIS}
       className={wide ? 'whos-this who-wide' : 'rail-sec whos-this'}

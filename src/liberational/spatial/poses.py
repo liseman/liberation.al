@@ -6,11 +6,11 @@ where a camera was appends an observation, and readers ask for the pose valid at
 
 **Observations** (`Observation`, the `camera.pose` segment stream, segment_log.py): when, which camera, which place
 and map frame (`Revision.frame`) the pose is in, the 4x4 camera-to-map pose, a quality, and the source:
-- `seat`: a nightly seat's registration of the camera (spatial/fuse.py `seat`), quality its fitness;
-- `walk`: a match of the camera's frame with a LiDAR walk's frame whose pose is known;
-- `owner`: the owner's measured spot (position only: its rotation is not evidence), derived on read from the owner
-  plan's `x-camera` statements, at the time that plan was saved (`owner_spots`); never stored.
-`record` appends, `read` reads a span back. `backfill` makes the observations a place's revisions already hold.
+- `seat`: a registration of the camera against the place's map, quality its fitness;
+- `walk`: a match of the camera's frame with a frame whose pose in the map is known;
+- `owner`: a spot the owner measured (position only: its rotation is not evidence).
+`record` appends, `read` reads a span back. Nothing writes observations at present: the job that builds a place's map
+is the one to record them, and until one does a camera is read at the pose its place's revision holds.
 
 **Reading a pose** (`series`, `Series.at`): a camera's observations in one map frame, in time order, split into still
 stretches where a seat or walk observation lands more than MOVE_M or turns more than MOVE_DEG from the stretch so far
@@ -34,7 +34,6 @@ from typing import Any
 import numpy as np
 
 from liberational import segment_log as S
-from liberational.memory import places
 
 SOURCES = ("seat", "walk", "owner")
 
@@ -101,8 +100,8 @@ def read(state: Path, start: float, end: float, cameras: Sequence[str] | None = 
 
 
 #: A seat or walk observation this far (metres) from its stretch's seats and walks so far (their median) starts a new
-#: stretch: the camera moved. The seat's own refusal bound (spatial/fuse.py `SEAT_SHIFT_M`): a camera that stayed put
-#: is registered far closer than that to where it was.
+#: stretch: the camera moved. A camera that stayed put is registered far closer than that to where
+#: it was.
 MOVE_M = 0.5
 #: Or turned this far (degrees) from the stretch's smoothed rotation. A night's tilt swings a few degrees on a camera
 #: that stayed put (camera-b's pitch: 35.2, 32.7, and 33.6 on three runs), so a turn past that is a nudge.
@@ -135,8 +134,8 @@ class Series:
 
 
 def series(state: Path, place: str, frame: str | None, cameras: Sequence[str]) -> dict[str, Series]:
-    """Each of `cameras`' series in `place`'s map frame `frame`: its stored observations in that frame and the owner's
-    spots there (`owner_spots`). A camera with none is left out."""
+    """Each of `cameras`' series in `place`'s map frame `frame`: its stored observations in that frame. A camera with
+    none is left out."""
     # Up to now, not a far future: an observation is never ahead.
     by_slot = {S.slot(c): c for c in cameras}
     stored = [
@@ -146,55 +145,10 @@ def series(state: Path, place: str, frame: str | None, cameras: Sequence[str]) -
     ]
     wanted = set(cameras)
     found: dict[str, list[Observation]] = {}
-    for o in [*stored, *owner_spots(state, place, frame)]:
+    for o in stored:
         if o.camera in wanted:
             found.setdefault(o.camera, []).append(o)
     return {c: Series(c, frame, tuple(sorted(obs, key=lambda o: o.t))) for c, obs in sorted(found.items())}
-
-
-def owner_spots(state: Path, place: str, frame: str | None) -> list[Observation]:
-    """The owner's measured camera spots as `owner` observations, when the owner plan holds drawn on map frame
-    `frame` (spatial/fuse.py `measured_spots`), at the time that plan record was saved; [] otherwise."""
-    from liberational.spatial import fuse  # heavy: the map fusion and everything it reads
-
-    fused = fuse.fused_revision(state, place)
-    if fused is None or fused.frame != frame:
-        return []
-    spots = fuse.measured_spots(state, place)
-    history = places.plan_history(state, place)
-    if not spots or not history:
-        return []
-    t = history[-1].start_ns / 1e9
-    out = []
-    for camera, xyz in sorted(spots.items()):
-        pose = np.eye(4)
-        pose[:3, 3] = xyz
-        out.append(Observation(t, camera, "owner", place, frame, pose, 1.0))
-    return out
-
-
-def backfill(state: Path, place: str) -> list[Observation]:
-    """The `seat` observations `place`'s tier 1 revisions in its current map frame already hold: each time a revision
-    registered a fixed camera afresh (its pose changed from the revision before), at its registration time
-    (`CameraPose.at`). For a dry run to print and `record` to store."""
-    from liberational.spatial import fuse, splats  # heavy: the map fusion and everything it reads
-
-    fused = fuse.fused_revision(state, place)
-    if fused is None:
-        return []
-    out = []
-    before: dict[str, places.CameraPose] = {}
-    for rev in places.revisions(state, place):
-        if rev.producer != fuse.PRODUCER or rev.frame != fused.frame:
-            continue
-        for camera, cp in rev.cameras.items():
-            was = before.get(camera)
-            if camera.startswith(splats.LOOK_PREFIX) or (was is not None and was.pose == cp.pose):
-                continue
-            pose = np.asarray(cp.pose, dtype=np.float64).reshape(4, 4)
-            out.append(Observation(cp.at or rev.at, camera, "seat", place, rev.frame, pose, 1.0))
-        before = rev.cameras
-    return sorted(out, key=lambda o: (o.t, o.camera))
 
 
 def _turn_deg(a: np.ndarray, b: np.ndarray) -> float:

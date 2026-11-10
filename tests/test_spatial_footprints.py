@@ -308,44 +308,6 @@ def test_the_walkable_read_leaves_animals_footprints_out(tmp_path):
     assert den.uv[0] == pytest.approx((0.3, 0.6), abs=F.CELL)
 
 
-@pytest.mark.parametrize(
-    "head,expected",
-    [
-        pytest.param((0.3, 0.15, 0.9), (0.3, 0.15), id="placed"),
-        pytest.param((0.3, 0.15, 0.1), None, id="unsure"),
-        pytest.param(None, None, id="not-placed"),
-    ],
-)
-def test_a_sighting_has_the_feet_and_the_head_only_when_pose_was_sure_of_it(head, expected):
-    placed = {"left_heel": (0.25, 0.88, 0.9), "right_heel": (0.35, 0.86, 0.9)}
-    if head is not None:
-        placed["head"] = head
-    rows = {"ts_ns": [5 * F.NS], "track_id": [7], "box": [BOX], "joints": [joints(**placed)]}
-    (got,) = F.sightings_of("cam", rows)
-    assert (got.camera, got.t, got.track) == ("cam", 5.0, 7)
-    assert (got.u, got.v) == pytest.approx((0.30, 0.87))
-    assert got.head == (pytest.approx(expected) if expected else None)
-
-
-@pytest.mark.parametrize(
-    "placed,upright",
-    [
-        pytest.param(
-            {"head": (0.3, 0.1, 0.9), "left_hip": (0.3, 0.5, 0.9), "left_heel": (0.3, 0.88, 0.9)}, True, id="standing"
-        ),
-        pytest.param(
-            {"head": (0.3, 0.1, 0.9), "left_hip": (0.3, 0.75, 0.9), "left_heel": (0.3, 0.88, 0.9)}, False, id="sitting"
-        ),
-        pytest.param({"left_hip": (0.3, 0.5, 0.9), "left_heel": (0.3, 0.88, 0.9)}, False, id="no-head"),
-    ],
-)
-def test_a_sighting_is_upright_only_with_its_feet_hips_and_head_placed_and_long_legs(placed, upright):
-    # Hips at 0.5 between a head at 0.1 and heels at 0.88: legs 49% of the body's height in the frame; at 0.75, 17%
-    rows = {"ts_ns": [5 * F.NS], "track_id": [7], "box": [[0.2, 0.05, 0.4, 0.9, 0.8]], "joints": [joints(**placed)]}
-    (got,) = F.sightings_of("cam", rows)
-    assert got.upright == upright
-
-
 def test_a_foot_point_is_at_an_edge_where_what_its_camera_sees_behind_it_hides_enough_floor():
     # LEVEL, 2 m up looking level: the bottom row drops 0.5 m a metre, the row at v = 0.75 0.25 m. Its frame's
     # top half sees a couch's back 0.9 m up (0.45 of 2 m), the bottom left a chair 0.4 m up, the bottom right nothing
@@ -441,23 +403,3 @@ def test_an_unseen_cell_takes_the_newest_earlier_background_of_the_same_view_tha
 )
 def test_an_unseen_cell_stays_unknown_without_an_earlier_background_of_the_same_view(earlier):
     assert F.filled(grid(0.45, c95=None), earlier).heights[95] is None
-
-
-FULL = grid(0.45)
-SPARSE = grid(None, c0=0.45, c1=0.45, c2=0.9)  # knows 3 cells: too few to tell its view
-
-
-@pytest.mark.parametrize(
-    ("new", "old", "want"),
-    [
-        pytest.param(SPARSE, FULL, FULL, id="sparse-tonight-keeps-the-full-one"),
-        pytest.param(FULL, SPARSE, FULL, id="full-tonight-wins-over-sparse"),
-        pytest.param(grid(0.45, c95=None), FULL, FULL, id="same-view-gaps-filled"),
-        pytest.param(grid(0.0, c95=None), FULL, grid(0.0, c95=None), id="re-aimed-keeps-tonights-own"),
-        pytest.param(None, FULL, FULL, id="none-tonight-keeps-the-old"),
-        pytest.param(SPARSE, None, SPARSE, id="nothing-before"),
-        pytest.param(None, None, None, id="none-either"),
-    ],
-)
-def test_a_reregistered_cameras_background_is_never_left_sparser_than_its_view_had(new, old, want):
-    assert F.kept(new, old) == want

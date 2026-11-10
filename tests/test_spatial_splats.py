@@ -115,7 +115,7 @@ def runtime(tmp_path, monkeypatch):
 @pytest.fixture
 def placed(tmp_path):
     rev = places.revise(
-        tmp_path, None, producer="tier1 fuse v1", map_bytes=ply.dumps(CLOUD, np.full((3, 3), 90)), map_format="ply",
+        tmp_path, None, producer="mapper v1", map_bytes=ply.dumps(CLOUD, np.full((3, 3), 90)), map_format="ply",
         cameras={"cam0": CAM}, now=T,
     )  # fmt: skip
     return rev
@@ -203,7 +203,7 @@ def test_a_fixed_cameras_views_train_against_its_median_depth_scaled_to_the_map(
 ):
     monkeypatch.setattr("liberational.memory.history_qa.local_zone", lambda: UTC)
     rev = places.revise(
-        tmp_path, None, producer="tier1 fuse v1", map_bytes=ply.dumps(wall(2.0), None), map_format="ply",
+        tmp_path, None, producer="mapper v1", map_bytes=ply.dumps(wall(2.0), None), map_format="ply",
         cameras={"cam0": CAM}, now=T,
     )  # fmt: skip
     did = splats.splat_place(tmp_path, rev.place, T, always_lit, runtime, None)
@@ -303,11 +303,11 @@ def test_a_splat_note_takes_only_a_known_reason(tmp_path, placed):
 
 
 def test_the_newest_map_without_cameras_gets_no_splat(tmp_path, placed):
-    walk = places.revise(
-        tmp_path, placed.place, producer="walkthrough", map_bytes=ply.dumps(CLOUD), map_format="ply", cameras={},
+    bare = places.revise(
+        tmp_path, placed.place, producer="mapper v1", map_bytes=ply.dumps(CLOUD), map_format="ply", cameras={},
         now=T + 10,
     )  # fmt: skip
-    assert splats.target(tmp_path, walk.place) is None
+    assert splats.target(tmp_path, bare.place) is None
 
 
 def two_gaussians():
@@ -343,7 +343,7 @@ def test_a_kept_ply_that_doesnt_read_is_left_alone(tmp_path, placed, caplog):
 
 def test_a_failed_training_is_logged_and_the_next_place_still_runs(tmp_path, runtime, placed, monkeypatch):
     places.revise(
-        tmp_path, None, producer="tier1 fuse v1", map_bytes=ply.dumps(CLOUD), map_format="ply",
+        tmp_path, None, producer="mapper v1", map_bytes=ply.dumps(CLOUD), map_format="ply",
         cameras={"cam1": CAM}, now=T,
     )  # fmt: skip
     tried = []
@@ -383,91 +383,31 @@ def test_a_failed_trainer_says_why(tmp_path, runtime, monkeypatch):
         splats.run_runner(runtime, job, None)
 
 
-def test_a_walk_looks_from_evenly_spread_frames_named_by_their_time_into_it():
-    poses = np.repeat(np.eye(4)[None], 5, axis=0)
-    poses[:, 0, 3] = np.arange(5)  # frame i stands at x = i
-    frames = [(np.diag([250.0, 260.0, 1.0]), (240, 320))] * 5
-    looks = splats.look_from(poses, frames, [100.0, 130.0, 165.0, 165.5, 230.0], most=3)
-    # frames 0, 2, and 4: 0, 65, and 130 s into the walk
-    assert list(looks) == ["walk-0m00s", "walk-1m05s", "walk-2m10s"]
-    assert [c.pose[3] for c in looks.values()] == [0.0, 2.0, 4.0]
-    assert (looks["walk-1m05s"].focal, looks["walk-1m05s"].width, looks["walk-1m05s"].height) == (255.0, 240, 320)
-
-
-def test_two_looks_in_the_same_second_keep_both():
-    frames = [(np.eye(3), (10, 10))] * 2
-    looks = splats.look_from(np.repeat(np.eye(4)[None], 2, axis=0), frames, [0.0, 0.5])
-    assert list(looks) == ["walk-0m00s", "walk-0m00sb"]
-
-
-def _pose(rot: np.ndarray, centre) -> places.CameraPose:
-    m = np.eye(4)
-    m[:3, :3], m[:3, 3] = rot, centre
-    return places.CameraPose(tuple(m.ravel().tolist()), 100.0, 200, 100)
-
-
-def test_the_move_a_straight_walks_cameras_show_carries_any_other_pose_the_same_way():
-    # A walk along x only: its centres alone can't say how far it turned about x. Their axes can.
-    turn = np.array([[1.0, 0, 0], [0, 0, -1], [0, 1, 0]])  # 90 degrees about x
-    shift, scale = np.array([1.0, 2.0, 3.0]), 0.5
-    heading = np.array([[0.0, 0, 1], [0, 1, 0], [-1, 0, 0]])
-    before = {f"walk-{i}": _pose(heading, [i, 0.0, 0.0]) for i in range(3)}
-    after = {
-        n: _pose(turn @ heading, scale * turn @ np.asarray(p.pose).reshape(4, 4)[:3, 3] + shift)
-        for n, p in before.items()
-    }
-    moved = splats.carried(before, {**after, "cam0": CAM})
-    assert moved is not None
-    rot, got_shift, got_scale = moved
-    assert rot == pytest.approx(turn, abs=1e-9)
-    assert (got_shift, got_scale) == (pytest.approx(shift), pytest.approx(scale))
-
-
-def test_one_shared_camera_is_enough_and_none_is_no_move():
-    one = {"walk-0m00s": _pose(np.eye(3), [1.0, 0.0, 0.0])}
-    moved = splats.carried(one, {"walk-0m00s": _pose(np.eye(3), [3.0, 0.0, 0.0])})
-    assert moved is not None
-    assert (moved[1], moved[2]) == (pytest.approx([2.0, 0.0, 0.0]), 1.0)
-    assert splats.carried(one, {"cam0": CAM}) is None
-
-
-def test_a_walks_look_from_cameras_are_not_read_for_the_fixed_camera_splat(tmp_path, runtime):
-    rev = places.revise(
-        tmp_path, None, producer="tier1 fuse v1", map_bytes=ply.dumps(CLOUD, np.full((3, 3), 90)), map_format="ply",
-        cameras={"walk-0m00s": CAM}, now=T,
-    )  # fmt: skip
-    asked = []
-
-    def read(cam, t):
-        asked.append(cam)
-        return lit()
-
-    assert splats.splat_place(tmp_path, rev.place, T, read, runtime, None) is None
-    assert asked == []
-
-
-def test_a_walks_failed_training_leaves_the_walk_without_a_splat_and_says_why(tmp_path, runtime, monkeypatch, caplog):
-    rev = places.revise(
-        tmp_path, None, producer="tier1 fuse v1", map_bytes=ply.dumps(CLOUD, np.full((3, 3), 90)), map_format="ply",
-        cameras={"walk-0m00s": CAM}, now=T,
-    )  # fmt: skip
-    monkeypatch.setenv("FAIL_SPLAT", "1")
-    k = np.array([[100.0, 0, 100], [0, 100, 50], [0, 0, 1]])
-    with cfg.override({"spatial": {"splat_runtime": str(runtime), "splats_enabled": True, "gpu": 0}}):
-        did = splats.splat_walk(
-            tmp_path, rev.place, rev.id, [tmp_path / "f000.jpg"], np.eye(4)[None], [(k, (200, 100))], rev.cameras
-        )
-    assert did is None
-    assert not places.has_splat(tmp_path, rev)
-    assert "CUDA out of memory" in caplog.text
-
-
-def test_a_walk_is_only_drawn_at_its_poses_when_asked(tmp_path, runtime, monkeypatch):
+def test_many_views_are_only_drawn_at_their_poses_when_asked(tmp_path, runtime, monkeypatch):
     monkeypatch.setattr(splats.nvml, "gpus", list)
     views = [{"image": str(tmp_path / "f000.jpg"), "pose": np.eye(4).ravel().tolist(), "focal": 100.0}]
     with cfg.override({"spatial": {"splat_runtime": str(runtime), "gpu": -1}}):
-        plain, _ = splats.train_walk(views, CLOUD, None)
-        drawn, _ = splats.train_walk(views, CLOUD, None, render=tmp_path / "exact")
-    assert "render" not in plain["job"], "a walk's own splat draws nothing"
+        plain, _ = splats.train_views(views, CLOUD, None)
+        drawn, _ = splats.train_views(views, CLOUD, None, render=tmp_path / "exact")
+    assert "render" not in plain["job"], "a splat draws nothing unless asked"
     assert drawn["job"]["render"] == str(tmp_path / "exact")
     assert drawn["job"]["holdout"] == [] and drawn["job"]["pose_opt"] is True
+
+
+def test_posed_views_carry_each_frames_own_intrinsics_and_move_with_the_map(tmp_path):
+    k = np.array([[120.0, 0.0, 31.0], [0.0, 130.0, 17.0], [0.0, 0.0, 1.0]])
+    pose = np.eye(4)
+    pose[:3, 3] = [1.0, 0.0, 0.0]
+    quarter = np.array([[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])  # x to y
+    depth = tmp_path / "d.png"
+    (plain,) = splats.posed_views([tmp_path / "f.jpg"], pose[None], [(k, (64, 36))])
+    (moved,) = splats.posed_views(
+        [tmp_path / "f.jpg"], pose[None], [(k, (64, 36))], (quarter, np.array([0.0, 0.0, 5.0]), 2.0), [depth]
+    )
+    assert (plain["fx"], plain["fy"], plain["cx"], plain["cy"], plain["focal"]) == (120.0, 130.0, 31.0, 17.0, 125.0)
+    assert (plain["width"], plain["height"]) == (64, 36) and "depth" not in plain
+    assert np.array(plain["pose"]).reshape(4, 4) == pytest.approx(pose)
+    got = np.array(moved["pose"]).reshape(4, 4)
+    assert got[:3, 3] == pytest.approx([0.0, 2.0, 5.0])  # turned a quarter, doubled, then lifted
+    assert got[:3, :3] == pytest.approx(quarter)  # a camera's axes turn and never scale
+    assert moved["depth"] == str(depth)

@@ -50,7 +50,7 @@ export function Pictures({
         isOn={key => !out.has(key)}
         onToggle={onToggle}
         tone="keep"
-        marks="always"
+        mark="corner"
         disabled={disabled}
       />
       {children}

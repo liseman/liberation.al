@@ -7,15 +7,13 @@ import threading
 from dataclasses import replace
 from urllib.parse import urlsplit
 
-import numpy as np
 import pytest
 
-from liberational import config
 from liberational import segment_log as S
 from liberational.dashboard import context
 from liberational.dashboard import places as view
 from liberational.memory import places
-from liberational.spatial import floorplan, ply, positions
+from liberational.spatial import floorplan, positions
 
 T = 1_762_500_000.0
 PLAN = 'plan "Home" walls 0.2/0.1\nroom den "Den" living rect 0,0 4x6\n'
@@ -68,7 +66,7 @@ def test_last_activity_looks_back_a_week(tmp_path, mapped, ago, found):
 def test_a_place_found_in_a_newer_pass_isnt_read_again_in_the_older_ones(tmp_path, mapped, monkeypatch):
     # A busy place is read for the hour it was found in, not the week a place nobody was seen in still needs.
     watched, _ = mapped
-    never = places.revise(tmp_path, None, producer="walkthrough-v1", now=T + 10).place
+    never = places.revise(tmp_path, None, producer="mapper v1", now=T + 10).place
     now = T + 30 * 86400
     seen(tmp_path, now - 60, watched)
     asked = []
@@ -542,7 +540,7 @@ CAM = places.CameraPose(
 def mapped(tmp_path, vision):
     """A place with a cloud, a floor, a plan transform, one camera, and a plan: (its id, the revision)."""
     rev = places.revise(
-        tmp_path, None, producer="tier1 fuse v1", plan=PLAN, map_bytes=CLOUD, map_format="ply", floor=FLOOR,
+        tmp_path, None, producer="mapper v1", plan=PLAN, map_bytes=CLOUD, map_format="ply", floor=FLOOR,
         plan_transform=TRANSFORM, cameras={"cam0": CAM}, now=T,
     )  # fmt: skip
     return rev.place, rev.id
@@ -558,19 +556,18 @@ def test_the_scene_gives_the_newest_maps_frame_cameras_and_plan(tmp_path, mapped
     assert reply["cameras"]["cam0"]["focal"] == 300.0 and len(reply["cameras"]["cam0"]["pose"]) == 16
     assert (reply["plan"], reply["plan_source"]) == (PLAN, "machine")
     assert (reply["splat"], reply["splat_format"], reply["splat_bytes"]) == (None, None, None)
-    # no splat, and the nightly pass hasn't tried this map yet: the page says so, with when the pass runs
+    # no splat, and no pass has tried this map yet: the page says so, and that none is scheduled
     assert (reply["splat_state"], reply["splat_at"]) == ("none", None)
-    assert (reply["splat_wait"]["reason"], reply["splat_wait"]["tried"]) == ("pass", None)
-    assert reply["splat_wait"]["pass_at"] == "01:00"
+    assert reply["splat_wait"] == {"reason": "pass", "tried": None, "pass_at": None}
 
 
 def test_a_newer_map_in_the_same_frame_shows_the_last_splat_and_one_in_another_frame_names_it_stale(tmp_path, mapped):
-    # A nightly fusion with too few lit frames for a splat kept the map's frame, so the last splat still fits.
+    # A later revision that kept the map's frame has no splat of its own, so the last splat still fits.
     place, rev_id = mapped
     first = places.revisions(tmp_path, place)[-1]
     places.write_splat(tmp_path, first, master=b"ply", web=b"sog-bytes")
     same = places.revise(
-        tmp_path, place, producer="tier1 fuse v1", map_bytes=CLOUD, map_format="ply", frame=first.frame, now=T + 10
+        tmp_path, place, producer="mapper v1", map_bytes=CLOUD, map_format="ply", frame=first.frame, now=T + 10
     )
     reply = view.scene(tmp_path, place)[1]
     assert (reply["revision"], reply["splat_revision"]) == (same.id, rev_id)
@@ -578,7 +575,7 @@ def test_a_newer_map_in_the_same_frame_shows_the_last_splat_and_one_in_another_f
     assert reply["splat_stale"] is None
     # offered, and labelled as an earlier map's: when that map was made, and why this one has none of its own
     assert (reply["splat_state"], reply["splat_at"], reply["splat_wait"]["reason"]) == ("earlier", T, "pass")
-    moved = places.revise(tmp_path, place, producer="tier1 fuse v1", map_bytes=CLOUD, map_format="ply", now=T + 20)
+    moved = places.revise(tmp_path, place, producer="mapper v1", map_bytes=CLOUD, map_format="ply", now=T + 20)
     reply = view.scene(tmp_path, place)[1]
     assert (reply["revision"], reply["splat"], reply["splat_revision"]) == (moved.id, None, None)
     assert reply["splat_stale"] == {"revision": rev_id, "at": T}
@@ -602,50 +599,27 @@ def test_the_scene_gives_the_splat_passs_own_reason_once_it_has_tried_this_map(t
     wait = view.scene(tmp_path, place)[1]["splat_wait"]
     assert (wait["reason"], wait["tried"]) == (reason, T + 5)
     # a newer map hasn't been tried: the note was about the one before it
-    places.revise(tmp_path, place, producer="tier1 fuse v1", map_bytes=CLOUD, map_format="ply", now=T + 10)
+    places.revise(tmp_path, place, producer="mapper v1", map_bytes=CLOUD, map_format="ply", now=T + 10)
     wait = view.scene(tmp_path, place)[1]["splat_wait"]
     assert (wait["reason"], wait["tried"]) == ("pass", None)
 
 
-def test_the_scene_says_when_splats_are_turned_off(tmp_path, mapped):
-    place, _ = mapped
-    places.write_splat_note(tmp_path, places.revisions(tmp_path, place)[-1], "few_frames", T + 5)
-    with config.override({"spatial": {"splats_enabled": False}}):
-        wait = view.scene(tmp_path, place)[1]["splat_wait"]
-    assert (wait["reason"], wait["tried"]) == ("off", None)
-
-
 def test_a_map_with_no_cameras_says_the_pass_has_nothing_to_make_a_splat_from(tmp_path, mapped):
     place, _ = mapped
-    places.revise(tmp_path, place, producer="tier1 fuse v1", map_bytes=CLOUD, map_format="ply", cameras={}, now=T + 10)
+    places.revise(tmp_path, place, producer="mapper v1", map_bytes=CLOUD, map_format="ply", cameras={}, now=T + 10)
     reply = view.scene(tmp_path, place)[1]
     assert (reply["splat_state"], reply["splat_wait"]["reason"]) == ("none", "no_cameras")
 
 
-def test_the_scene_says_whether_its_splat_was_trained_from_a_walk_or_the_fixed_cameras(tmp_path, mapped):
-    # #44: a walk's import writes the revision that first holds its look-from cameras and trains its splat there; a
-    # later revision inherits those cameras, and a splat made for it is the daily fixed-camera one.
+def test_the_scene_says_what_its_splat_was_trained_from_as_the_trainer_named_it(tmp_path, mapped):
     place, _ = mapped
     first = places.revisions(tmp_path, place)[-1]
     places.write_splat(tmp_path, first, master=b"ply", web=b"sog-bytes")
-    assert view.scene(tmp_path, place)[1]["splat_from"] == "cameras"
-    walked = places.revise(
-        tmp_path, place, producer="tier1 fuse v1", cameras={"cam0": CAM, "walk-0m00s": CAM, "walk-0m10s": CAM},
-        frame=first.frame, now=T + 10,
-    )  # fmt: skip
-    places.write_splat(tmp_path, walked, master=b"ply", web=b"sog-bytes")
+    assert view.scene(tmp_path, place)[1]["splat_from"] is None  # a splat nobody said the source of
+    later = places.revise(tmp_path, place, producer="mapper v1", frame=first.frame, now=T + 10)
+    places.write_splat(tmp_path, later, master=b"ply", web=b"sog-bytes", source="cameras")
     reply = view.scene(tmp_path, place)[1]
-    assert (reply["splat_revision"], reply["splat_from"]) == (walked.id, "walk")
-    daily = places.revise(tmp_path, place, producer="tier1 fuse v1", frame=first.frame, now=T + 20)
-    places.write_splat(tmp_path, daily, master=b"ply", web=b"sog-bytes")
-    reply = view.scene(tmp_path, place)[1]
-    assert (reply["splat_revision"], reply["splat_from"]) == (daily.id, "cameras")
-    assert "walk-0m00s" in reply["cameras"]  # the walk's views are still there to look from
-    # #43: a walk's splat retrained onto a later revision, which only inherits the walk's cameras, says so itself.
-    again = places.revise(tmp_path, place, producer="tier1 fuse v1", frame=first.frame, now=T + 30)
-    places.write_splat(tmp_path, again, master=b"ply", web=b"sog-bytes", source="walk")
-    reply = view.scene(tmp_path, place)[1]
-    assert (reply["splat_revision"], reply["splat_from"]) == (again.id, "walk")
+    assert (reply["splat_revision"], reply["splat_from"]) == (later.id, "cameras")
 
 
 def test_the_scene_carries_the_owners_plan_only_in_the_frame_it_was_drawn_in(tmp_path, mapped):
@@ -657,7 +631,7 @@ def test_the_scene_carries_the_owners_plan_only_in_the_frame_it_was_drawn_in(tmp
     places.revise(
         tmp_path,
         place,
-        producer="tier1 fuse v1",
+        producer="mapper v1",
         plan=PLAN.replace("4x6", "4x5"),
         map_bytes=CLOUD,
         map_format="ply",
@@ -670,8 +644,8 @@ def test_the_scene_carries_the_owners_plan_only_in_the_frame_it_was_drawn_in(tmp
 def test_an_owner_plan_drawn_on_a_map_with_no_plan_of_its_own_is_outlined_in_the_floors_frame(tmp_path, mapped):
     # An imported plan drawn in a fused map's floor frame (the map has no plan file, so no plan transform)
     place, _ = mapped
-    bare = places.revise(tmp_path, place, producer="tier1 fuse v1", map_bytes=CLOUD, map_format="ply", now=T + 5)
-    places.revise(tmp_path, place, producer="tier1 fuse v1", floor=(0.0, 0.0, 1.0, 0.0), now=T + 6)
+    bare = places.revise(tmp_path, place, producer="mapper v1", map_bytes=CLOUD, map_format="ply", now=T + 5)
+    places.revise(tmp_path, place, producer="mapper v1", floor=(0.0, 0.0, 1.0, 0.0), now=T + 6)
     level = places.latest(tmp_path, place)
     assert bare.plan_transform is None and level is not None
     mine = PLAN.replace('"Den"', '"Lounge"')
@@ -782,48 +756,8 @@ def test_a_view_that_isnt_one_is_refused(tmp_path, home):
         places.correct_plan(tmp_path, place, IN_FRAME, base=frame, view={"plan": PAGE, "turn": "a quarter"})
 
 
-def floor_points(x0, x1, y0, y1, step=0.05):
-    """A floor of map points over plan [x0, x1) x [y0, y1) under TRANSFORM (plan = map + (2, 3))."""
-    xs, ys = np.meshgrid(np.arange(x0, x1, step), np.arange(y0, y1, step))
-    return np.c_[xs.ravel() - 2.0, ys.ravel() - 3.0, np.zeros(xs.size)]
-
-
-def walked_place(tmp_path, walked_den, walked_hall, *, producer="tier1 fuse v1", signals=None):
-    den, hall = floor_points(0, 4, 0, 6), floor_points(4, 6, 0, 6)
-    walks = np.r_[np.full(len(den), int(walked_den)), np.full(len(hall), int(walked_hall))]
-    cloud = ply.dumps(np.r_[den, hall], counts={"seen": np.ones(len(walks), np.int64), "walked": walks})
-    rev = places.revise(
-        tmp_path, None, producer=producer, plan=TWO_ROOMS, map_bytes=cloud, map_format="ply", floor=FLOOR,
-        plan_transform=TRANSFORM, signals={"walkthrough": ["walk-a"]} if signals is None else signals, now=T,
-    )  # fmt: skip
-    return rev.place
-
-
-def listed(tmp_path, place):
-    return {r["id"]: r for r in view.listing(tmp_path, now=T + 60)[1]["places"]}[place]
-
-
-def test_a_place_never_walked_lists_no_walks_and_every_room_unwalked(tmp_path, vision):
-    row = listed(tmp_path, walked_place(tmp_path, False, False, signals={}))
-    assert row["walks"] == 0
-    assert row["unwalked_rooms"] == [{"id": "den", "name": "Den"}, {"id": "hall", "name": "Hall"}]
-
-
-def test_a_walked_place_lists_the_rooms_its_walks_didnt_cover(tmp_path, vision):
-    row = listed(tmp_path, walked_place(tmp_path, True, False))
-    assert row["walks"] == 1
-    assert row["unwalked_rooms"] == [{"id": "hall", "name": "Hall"}]
-
-
-def test_a_place_walked_everywhere_has_no_unwalked_rooms(tmp_path, vision):
-    assert listed(tmp_path, walked_place(tmp_path, True, True))["unwalked_rooms"] == []
-
-
-def test_a_walked_place_without_a_fused_map_cant_say_which_rooms(tmp_path, vision):
-    row = listed(tmp_path, walked_place(tmp_path, True, False, producer="cut3r walkthrough"))
-    assert row["walks"] == 1 and row["unwalked_rooms"] is None
-
-
-def test_a_place_without_a_plan_cant_say_which_rooms(tmp_path, vision):
-    rev = places.revise(tmp_path, None, producer="cameras-v1", now=T)
-    assert listed(tmp_path, rev.place)["unwalked_rooms"] is None
+def test_the_positions_reply_counts_the_cameras_with_a_pose_in_the_place(tmp_path, reader, home, mapped):
+    # `home` has a plan and no camera in its map, so nobody can be placed there; `mapped` registers one
+    unposed, posed = home[0], mapped[0]
+    assert view.positions_view(window(unposed), tmp_path)[1]["cameras"] == 0
+    assert view.positions_view(window(posed), tmp_path)[1]["cameras"] == 1

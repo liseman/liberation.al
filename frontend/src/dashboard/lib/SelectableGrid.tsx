@@ -3,6 +3,7 @@
 // a card's "Pick what's theirs" (faces and videos to claim). Each tile is a toggle button with a check mark; the arrow
 // keys move between tiles (up and down by a row), Tab walks them in order, and Space or Enter toggles one.
 import { Checkbox, UnstyledButton } from '@mantine/core';
+import { IconCheck } from '@tabler/icons-react';
 import type { CSSProperties, KeyboardEvent, ReactNode } from 'react';
 import classes from './selectableGrid.module.css';
 
@@ -41,6 +42,7 @@ export function SelectableGrid({
   onToggle,
   tone = 'pick',
   marks = 'on',
+  mark = 'badge',
   tile = 64,
   twoOnPhone = false,
   disabled = false,
@@ -53,6 +55,9 @@ export function SelectableGrid({
    *  'keep' dims the tiles that are off instead (all start on, and the ones turned off are left behind). */
   tone?: 'pick' | 'remove' | 'keep';
   marks?: 'on' | 'always'; // the check mark on chosen tiles only, or on every tile (checked or not)
+  /** 'badge' is the full check box in the corner, for large tiles. 'corner' is a 16 px mark, for small pictures a
+   *  badge would cover: it's on chosen tiles only, and the tile's outline does most of the work. */
+  mark?: 'badge' | 'corner';
   tile?: number | string; // the narrowest a tile gets, in px (or a CSS length)
   twoOnPhone?: boolean; // two a row on a phone, whatever `tile` says (large pictures)
   disabled?: boolean;
@@ -65,6 +70,7 @@ export function SelectableGrid({
       aria-label={label}
       onKeyDown={onArrows}
       data-tone={tone}
+      data-mark={mark}
       data-two-on-phone={twoOnPhone || undefined}
       style={{ '--grid-tile': typeof tile === 'number' ? `${tile}px` : tile } as CSSProperties}
     >
@@ -84,8 +90,13 @@ export function SelectableGrid({
           >
             {t.content}
             {/* The corner is a box of our own: Mantine positions its indicator itself, which put it in the flow. */}
-            {(on || marks === 'always') && (
-              <span className={classes.mark} aria-hidden="true">
+            {mark === 'corner' && on && (
+              <span className={classes.corner} data-mark aria-hidden="true">
+                <IconCheck size={11} stroke={3.5} />
+              </span>
+            )}
+            {mark === 'badge' && (on || marks === 'always') && (
+              <span className={classes.mark} data-mark aria-hidden="true">
                 <Checkbox.Indicator checked={on} size="md" radius="xl" color={tone === 'remove' ? 'red' : undefined} />
               </span>
             )}

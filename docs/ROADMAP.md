@@ -37,14 +37,14 @@ agreement, not measured accuracy.
 ## Spatial memory
 
 The open plan: a point cloud and a floorplan of every indoor place, cheap enough to run unattended
-([SPATIAL.md](SPATIAL.md)). Fixed cameras and phone walkthroughs build places today, and people and pets are drawn
-on the plan.
+([SPATIAL.md](SPATIAL.md)). Spatial memory is being built again from what the cameras see: the place store, the
+owner's plans, the splat trainer, and the position layer are in place, and the job that maps a place is the open
+work. People and pets are drawn on the plan once a place's map registers its cameras.
 
 What is open:
 
 - Two fixed cameras can still put one person about a metre apart.
 - The wearable rig is not a position source; its pose track waits on a depth camera.
-- A plain-video walk drifts; a LiDAR walk is the reliable path.
 
 ## Platform
 

@@ -15,6 +15,7 @@ import { type CSSProperties, createContext, type ReactNode, useContext, useMemo,
 import { readPrefs, writePrefs } from '../../shared/prefs';
 import { focusAfter } from './focus';
 import '../whosthis/whosthis.css';
+import { CountSkeleton } from '../lib/loading';
 import { PageEmpty, PHONE_WIDTH, type ViewChoice, ViewMenu } from '../lib/page';
 import who from '../whosthis/whosthis.module.css';
 import classes from './naming.module.css';
@@ -99,6 +100,7 @@ export function NamingInbox({
   sortLabel = 'Sort sightings',
   compact = false,
   total,
+  counting = false,
   sectionId,
   className = 'who-wide',
   toast,
@@ -114,6 +116,7 @@ export function NamingInbox({
   // How many wait in all, when the server lists only the first ones (Who's this? lists 24 face groups); the
   // header counts these, as People's line and Known's badge do. Defaults to the listed items.
   total?: number | null;
+  counting?: boolean; // the count's read is still pending: a skeleton where "N waiting" goes (not on an error)
   compact?: boolean; // Live's rail: the list alone, without the controls, the count, or the introduction
   sectionId?: string;
   className?: string;
@@ -202,7 +205,12 @@ export function NamingInbox({
         <Title id={headingId} order={2} ref={heading} tabIndex={-1}>
           {title}
         </Title>
-        {!compact && waiting > 0 && (
+        {!compact && counting && (
+          <span className={classes.count}>
+            <CountSkeleton chars={10} label="Loading how many wait" />
+          </span>
+        )}
+        {!compact && !counting && waiting > 0 && (
           <span className={classes.count}>
             {waiting} waiting
             {!phone && waiting > items.length && items.length > 0 ? ` · ${items.length} shown` : ''}

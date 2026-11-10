@@ -53,6 +53,29 @@
   box-shadow: 0 0 0 2px var(--mantine-color-body);
   pointer-events: none;
 }
+/* The small mark (mark="corner"): 16 px in the top right, 3 px in, so it covers little of a small picture. Its
+   white ring and the dark edge around that keep it readable on a light picture and on a dark one. A tile turned off
+   has no mark and no outline: the dimmed picture says it. Nothing here takes a click, so the whole tile is the target. */
+.corner {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--mantine-primary-color-filled);
+  color: var(--mantine-color-white);
+  box-shadow:
+    0 0 0 1.5px var(--mantine-color-white),
+    0 0 0 2.5px rgb(0 0 0 / 0.35);
+  pointer-events: none;
+}
+.grid[data-mark="corner"][data-tone="keep"] .tile:not([data-on]) {
+  border-color: transparent;
+}
 @media (max-width: 600px) {
   .grid {
     gap: 6px;
