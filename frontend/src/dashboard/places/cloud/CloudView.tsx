@@ -5,14 +5,20 @@
 // weight. The view fills its pane down to the bottom of the window, with our own settings in a row under it.
 // A splat looks right only from where its frames were taken, so each camera has a button that flies the view
 // there.
-import { Button, Checkbox, Group, SegmentedControl, Slider, Text } from '@mantine/core';
+//
+// Whatever state the place's splat is in is said under the view, never left to the console (#246): none yet and
+// why, one made for an earlier map, loading with how much has come, or a load that failed with its reason and a
+// Retry. The points are drawn in every one of them: the map shows as soon as its own bytes are here, and the splat
+// takes over once it has drawn.
+import { Button, Checkbox, Group, Progress, SegmentedControl, Slider, Text } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { messageOf } from '../../../shared/http';
 import { type Scene, sceneQuery } from '../api';
 import classes from '../places.module.css';
-import { canDraw, canDrawSplat, openingCamera, parseCloud } from './load';
+import { canDraw, canDrawSplat, openingCamera, parseCloud, readBytes, splatFault } from './load';
 import { type Built, build, type Colour } from './scene';
+import { loadingText, splatNote } from './status';
 
 type Draw = 'points' | 'splat';
 
@@ -41,19 +47,28 @@ function useMapBytes(scene: Scene | undefined) {
   });
 }
 
-/** The splat's bytes, read once per revision, only once the view is asked to draw it. */
-function useSplatBytes(scene: Scene | undefined, wanted: boolean) {
-  return useQuery({
-    queryKey: ['places', 'splat', scene?.place, scene?.revision],
+/** The splat's bytes, read once per splat and try, with how much of them has come. A try after the first (Retry)
+ *  goes past the browser's cache, which may be what kept bytes the view can't draw. Bytes that can't be a splat are
+ *  an error here, with the reason, before the viewer is given them. */
+function useSplatBytes(scene: Scene | undefined, wanted: boolean, attempt: number) {
+  const [got, setGot] = useState({ received: 0, total: 0 });
+  const query = useQuery({
+    queryKey: ['places', 'splat', scene?.place, scene?.splat_revision ?? scene?.revision, scene?.splat_format, attempt],
     queryFn: async ({ signal }) => {
-      const r = await fetch(scene?.splat ?? '', { signal });
-      if (!r.ok) throw new Error(`The splat couldn't be read (${r.status}).`);
-      return r.arrayBuffer();
+      setGot({ received: 0, total: scene?.splat_bytes ?? 0 });
+      const r = await fetch(scene?.splat ?? '', { signal, cache: attempt ? 'reload' : 'default' });
+      if (!r.ok) throw new Error(`the server answered ${r.status}`);
+      const bytes = await readBytes(r, scene?.splat_bytes, (received, total) => setGot({ received, total }));
+      const fault = splatFault(bytes);
+      if (fault) throw new Error(fault);
+      return bytes;
     },
     enabled: wanted && !!scene?.splat && canDrawSplat(scene.splat_format),
+    retry: false, // the page says why and offers Retry
     staleTime: Number.POSITIVE_INFINITY,
     gcTime: 10 * 60_000,
   });
+  return { ...query, got };
 }
 
 export default function CloudView({ place }: { place: string }) {
@@ -64,11 +79,17 @@ export default function CloudView({ place }: { place: string }) {
   const hasSplat = !!data?.splat && canDrawSplat(data.splat_format);
   const [chosen, setChosen] = useState<Draw | null>(null);
   const wantSplat = (chosen ?? (hasSplat ? 'splat' : 'points')) === 'splat';
-  // The viewer is built around its splat, so a place that has one waits for it, whichever way it's drawn first.
-  const splatBytes = useSplatBytes(data, hasSplat);
-  // A splat that can't be read or drawn leaves the points: the map still shows, with a note.
-  const splatError = splatBytes.isError ? messageOf(splatBytes.error) : null;
-  const draw: Draw = wantSplat && !splatError ? 'splat' : 'points';
+  const [attempt, setAttempt] = useState(0);
+  const splatBytes = useSplatBytes(data, hasSplat, attempt);
+  // A splat the viewer couldn't draw (its bytes read, and looked right): which bytes, and why.
+  const [drawFault, setDrawFault] = useState<{ file: ArrayBuffer; reason: string } | null>(null);
+  // A splat that can't be read or drawn leaves the points: the map still shows, with why and a Retry.
+  const splatError = splatBytes.isError
+    ? messageOf(splatBytes.error)
+    : drawFault && drawFault.file === splatBytes.data
+      ? drawFault.reason
+      : null;
+  const draw: Draw = wantSplat && hasSplat && !splatError ? 'splat' : 'points';
   const [splatReady, setSplatReady] = useState(false);
   const host = useRef<HTMLDivElement>(null);
   const built = useRef<Built | null>(null);
@@ -77,16 +98,16 @@ export default function CloudView({ place }: { place: string }) {
   const [show, setShow] = useState({ floor: true, cameras: true, plan: true });
   const [failed, setFailed] = useState<string | null>(null);
 
-  // Build the scene once its map's bytes are here, and its splat's when it has one (or they've failed); tear it
+  // Build the scene once its map's bytes are here, with the points alone until the splat's bytes are (and when
+  // they can't be read or drawn), then again around the splat: the viewer is built around its content. It's torn
   // down when they change or the view closes.
   const [ready, setReady] = useState(0);
-  const splatSettled = !hasSplat || !!splatBytes.data || splatBytes.isError;
+  const file = splatError ? null : (splatBytes.data ?? null);
   useEffect(() => {
     const el = host.current;
-    if (!webgl || !el || !data || !bytes.data || !splatSettled) return;
+    if (!webgl || !el || !data || !bytes.data) return;
     let gone = false;
     let made: Built | null = null;
-    const file = splatBytes.data ?? null;
     // A splat looks right from where its frames were taken, and like floaters from above: it opens from the first of
     // the views it trained on ("Back to the start" goes to the overview).
     const opening = file ? openingCamera(Object.keys(data.cameras ?? {})) : null;
@@ -95,8 +116,16 @@ export default function CloudView({ place }: { place: string }) {
         if (gone) return b.dispose();
         made = b;
         built.current = b;
-        setSplatReady(!!file);
         setReady(n => n + 1); // the settings wait for the scene
+        if (!file) return;
+        b.splatLoaded.then(
+          () => {
+            if (!gone) setSplatReady(true);
+          },
+          e => {
+            if (!gone) setDrawFault({ file, reason: messageOf(e) });
+          },
+        );
       },
       e => {
         if (!gone) setFailed(messageOf(e));
@@ -108,7 +137,7 @@ export default function CloudView({ place }: { place: string }) {
       setSplatReady(false);
       made?.dispose();
     };
-  }, [webgl, data, bytes.data, splatBytes.data, splatSettled]);
+  }, [webgl, data, bytes.data, file]);
 
   // Settings change what's drawn, then one frame is drawn.
   // biome-ignore lint/correctness/useExhaustiveDependencies: `ready` says the scene was rebuilt and wants its settings
@@ -155,7 +184,13 @@ export default function CloudView({ place }: { place: string }) {
       </Text>
     );
   const loading = !data || bytes.isPending;
-  const splatLoading = draw === 'splat' && !splatReady;
+  // Loading is said whichever way the map is drawn meanwhile: the points show under it.
+  const splatLoading = hasSplat && !splatError && !splatReady;
+  const note = data ? splatNote(data) : null;
+  const retry = () => {
+    setDrawFault(null);
+    setAttempt(n => n + 1);
+  };
   const cams = Object.keys(data?.cameras ?? {});
   return (
     <div
@@ -169,18 +204,10 @@ export default function CloudView({ place }: { place: string }) {
         aria-label="The place's map in 3D: orbit, fly, or walk through it; press H for the controls"
         role="img"
       >
-        {loading ? (
+        {loading && (
           <Text size="sm" c="dimmed" className={classes.cloudNote}>
             {data?.map_bytes ? `Loading the map (${(data.map_bytes / 1e6).toFixed(1)} MB)…` : 'Loading the map…'}
           </Text>
-        ) : (
-          splatLoading && (
-            <Text size="sm" c="dimmed" className={classes.cloudNote}>
-              {data?.splat_bytes
-                ? `Loading the splat (${(data.splat_bytes / 1e6).toFixed(1)} MB)…`
-                : 'Loading the splat…'}
-            </Text>
-          )
         )}
       </div>
       <Group justify="space-between" gap="sm" mt="sm" wrap="wrap">
@@ -247,21 +274,35 @@ export default function CloudView({ place }: { place: string }) {
           Back to the start
         </Text>
       </Group>
-      {!hasSplat && data?.splat_stale && (
-        <Text size="xs" c="dimmed" mt="xs">
-          The splat from{' '}
-          {new Date(data.splat_stale.at * 1000).toLocaleString(undefined, {
-            month: 'short',
-            day: 'numeric',
-            hour: 'numeric',
-            minute: '2-digit',
-          })}{' '}
-          is out of date: the map has moved since. A new one comes with the next nightly run.
-        </Text>
+      {splatLoading && (
+        <Group gap="xs" mt="xs" wrap="nowrap" role="status">
+          <Text size="xs" c="dimmed">
+            {loadingText(splatBytes.got.received, splatBytes.got.total, !!splatBytes.data)}
+            {draw === 'splat' && !loading ? ' The points are drawn meanwhile.' : ''}
+          </Text>
+          {!splatBytes.data && splatBytes.got.total > 0 && (
+            <Progress
+              value={(splatBytes.got.received / splatBytes.got.total) * 100}
+              size="sm"
+              w={120}
+              aria-label="How much of the splat has loaded"
+            />
+          )}
+        </Group>
       )}
       {splatError && (
-        <Text size="xs" c="red" mt="xs">
-          Couldn't show the splat, so the points are drawn: {splatError}
+        <Group gap="xs" mt="xs" role="alert">
+          <Text size="xs" c="red">
+            Couldn't show the splat: {splatError}. The points are drawn instead.
+          </Text>
+          <Button size="compact-xs" variant="light" onClick={retry}>
+            Retry
+          </Button>
+        </Group>
+      )}
+      {note && (
+        <Text size="xs" c="dimmed" mt="xs" role="status">
+          {note}
         </Text>
       )}
       {cams.length > 0 && (

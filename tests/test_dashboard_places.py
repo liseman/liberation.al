@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 import numpy as np
 import pytest
 
+from liberational import config
 from liberational import segment_log as S
 from liberational.dashboard import context
 from liberational.dashboard import places as view
@@ -557,6 +558,10 @@ def test_the_scene_gives_the_newest_maps_frame_cameras_and_plan(tmp_path, mapped
     assert reply["cameras"]["cam0"]["focal"] == 300.0 and len(reply["cameras"]["cam0"]["pose"]) == 16
     assert (reply["plan"], reply["plan_source"]) == (PLAN, "machine")
     assert (reply["splat"], reply["splat_format"], reply["splat_bytes"]) == (None, None, None)
+    # no splat, and the nightly pass hasn't tried this map yet: the page says so, with when the pass runs
+    assert (reply["splat_state"], reply["splat_at"]) == ("none", None)
+    assert (reply["splat_wait"]["reason"], reply["splat_wait"]["tried"]) == ("pass", None)
+    assert reply["splat_wait"]["pass_at"] == "01:00"
 
 
 def test_a_newer_map_in_the_same_frame_shows_the_last_splat_and_one_in_another_frame_names_it_stale(tmp_path, mapped):
@@ -569,19 +574,52 @@ def test_a_newer_map_in_the_same_frame_shows_the_last_splat_and_one_in_another_f
     )
     reply = view.scene(tmp_path, place)[1]
     assert (reply["revision"], reply["splat_revision"]) == (same.id, rev_id)
-    assert reply["splat"] == f"/places/splat?place={place}&revision={rev_id}" and reply["splat_stale"] is None
+    assert reply["splat"] == f"/places/splat?place={place}&revision={rev_id}&format=sog"
+    assert reply["splat_stale"] is None
+    # offered, and labelled as an earlier map's: when that map was made, and why this one has none of its own
+    assert (reply["splat_state"], reply["splat_at"], reply["splat_wait"]["reason"]) == ("earlier", T, "pass")
     moved = places.revise(tmp_path, place, producer="tier1 fuse v1", map_bytes=CLOUD, map_format="ply", now=T + 20)
     reply = view.scene(tmp_path, place)[1]
     assert (reply["revision"], reply["splat"], reply["splat_revision"]) == (moved.id, None, None)
     assert reply["splat_stale"] == {"revision": rev_id, "at": T}
+    assert (reply["splat_state"], reply["splat_at"], reply["splat_wait"]["reason"]) == ("stale", None, "pass")
 
 
 def test_the_scene_names_the_revisions_splat_once_it_has_one(tmp_path, mapped):
     place, rev_id = mapped
     places.write_splat(tmp_path, places.revisions(tmp_path, place)[-1], master=b"ply", web=b"sog-bytes")
     reply = view.scene(tmp_path, place)[1]
-    assert reply["splat"] == f"/places/splat?place={place}&revision={rev_id}"
+    assert reply["splat"] == f"/places/splat?place={place}&revision={rev_id}&format=sog"
     assert (reply["splat_format"], reply["splat_bytes"]) == ("sog", len(b"sog-bytes"))
+    assert (reply["splat_state"], reply["splat_at"], reply["splat_wait"]) == ("current", T, None)
+
+
+@pytest.mark.parametrize("reason", ["few_frames", "failed", "no_runtime"])
+def test_the_scene_gives_the_splat_passs_own_reason_once_it_has_tried_this_map(tmp_path, mapped, reason):
+    place, _ = mapped
+    rev = places.revisions(tmp_path, place)[-1]
+    places.write_splat_note(tmp_path, rev, reason, T + 5)
+    wait = view.scene(tmp_path, place)[1]["splat_wait"]
+    assert (wait["reason"], wait["tried"]) == (reason, T + 5)
+    # a newer map hasn't been tried: the note was about the one before it
+    places.revise(tmp_path, place, producer="tier1 fuse v1", map_bytes=CLOUD, map_format="ply", now=T + 10)
+    wait = view.scene(tmp_path, place)[1]["splat_wait"]
+    assert (wait["reason"], wait["tried"]) == ("pass", None)
+
+
+def test_the_scene_says_when_splats_are_turned_off(tmp_path, mapped):
+    place, _ = mapped
+    places.write_splat_note(tmp_path, places.revisions(tmp_path, place)[-1], "few_frames", T + 5)
+    with config.override({"spatial": {"splats_enabled": False}}):
+        wait = view.scene(tmp_path, place)[1]["splat_wait"]
+    assert (wait["reason"], wait["tried"]) == ("off", None)
+
+
+def test_a_map_with_no_cameras_says_the_pass_has_nothing_to_make_a_splat_from(tmp_path, mapped):
+    place, _ = mapped
+    places.revise(tmp_path, place, producer="tier1 fuse v1", map_bytes=CLOUD, map_format="ply", cameras={}, now=T + 10)
+    reply = view.scene(tmp_path, place)[1]
+    assert (reply["splat_state"], reply["splat_wait"]["reason"]) == ("none", "no_cameras")
 
 
 def test_the_scene_says_whether_its_splat_was_trained_from_a_walk_or_the_fixed_cameras(tmp_path, mapped):
@@ -672,11 +710,16 @@ def test_the_map_is_served_in_ranges_cached_for_good_and_404_for_another_revisio
     assert (r.status, body, r.getheader("Content-Range")) == (206, CLOUD[10:20], f"bytes 10-19/{len(CLOUD)}")
     assert get(url, **{"If-None-Match": f'"{rev}"'})[0].status == 304
     assert get(f"/places/map?place={place}&revision=not-a-revision")[0].status == 404
-    assert get(f"/places/splat?place={place}&revision={rev}")[0].status == 404  # none made yet
+    splat = f"/places/splat?place={place}&revision={rev}&format=sog"
+    assert get(splat)[0].status == 404  # none made yet
     places.write_splat(tmp_path, places.revisions(tmp_path, place)[-1], master=b"ply", web=b"sog-bytes")
-    r, body = get(f"/places/splat?place={place}&revision={rev}")
-    assert (r.status, body, r.getheader("ETag")) == (200, b"sog-bytes", f'"{rev}"')
+    r, body = get(splat)
+    # the ETag names the format too: a copy kept from another encoding of this revision's splat doesn't match it
+    assert (r.status, body, r.getheader("ETag")) == (200, b"sog-bytes", f'"{rev}.sog"')
     assert "immutable" in (r.getheader("Cache-Control") or "")
+    assert get(splat, **{"If-None-Match": f'"{rev}.sog"'})[0].status == 304
+    assert get(splat, **{"If-None-Match": f'"{rev}"'})[0].status == 200
+    assert get(f"/places/splat?place={place}&revision={rev}&format=spz")[0].status == 404
 
 
 def test_one_persons_tracks_on_two_cameras_stay_two_paths(tmp_path, reader, home):
