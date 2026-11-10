@@ -21,7 +21,7 @@ from hypothesis import strategies as hs
 
 import speech_fake
 from liberational import speech_log
-from liberational.dashboard import presence, server
+from liberational.dashboard import presence, server, shell_status
 from liberational.domain.identity import Basis
 from liberational.domain.kernel import EventType
 from liberational.memory import history_qa, recall, summarize
@@ -131,6 +131,9 @@ class Feed(server.H):
 
     def __init__(self, out):
         self.wfile = out
+
+    def _shell_status(self):
+        return shell_status.Status({})  # these feeds are about the transcript: no pauses, services, or research
 
     def send_response(self, code, message=None):
         pass
