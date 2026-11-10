@@ -6,7 +6,7 @@ from unittest.mock import create_autospec
 import pytest
 
 from liberational import config, vision_log
-from liberational.memory import crossing_counts, movement_counts, presence_counts, video_evidence
+from liberational.memory import crossing_counts, movement_counts, presence_counts, question, video_evidence
 from liberational.memory import history_qa as history
 
 NOW = dt.datetime(2026, 10, 28, 15, tzinfo=history.TZ).timestamp()
@@ -43,47 +43,40 @@ def test_a_walk_by_question_without_presence_is_answered_from_walk_by_spans_alon
     assert result["crossings"]["path_b"]["result"]["cameras"] == {}
 
 
-ENTRY_QUESTIONS = [
-    pytest.param("how many times did you see someone walk into frame in last 24 hours?", id="walk-into-frame"),
-    pytest.param("how many people came in today?", id="came-in"),
-    pytest.param("how often did anyone enter the room yesterday?", id="enter-the-room"),
-    pytest.param("how many times did someone walk by in last 24 hours?", id="walk-by"),
-    pytest.param("can you tell me how many people came in today?", id="tell-me"),
+COUNT_OF_PASSERS = [
+    pytest.param(question.Reading(source="cameras", measure="count", movement="came_in", day="today"), id="came-in"),
+    pytest.param(
+        question.Reading(
+            source="cameras", measure="count", movement="walked_by", span=24, span_unit="hours", span_kind="last"
+        ),
+        id="walk-by",
+    ),
 ]
 
 
 @pytest.mark.parametrize("day", [None, "2026-10-28"], ids=["no-day", "review-day"])
-@pytest.mark.parametrize("question", ENTRY_QUESTIONS)
-def test_entry_count_questions_take_the_walk_by_path_on_every_route(question, day):
-    query = history.parse(question, NOW, selected_day=day)
-    assert history.is_history_question(question)
-    assert history.is_crossing_question(question, query)
+@pytest.mark.parametrize("reading", COUNT_OF_PASSERS)
+def test_a_count_of_people_passing_takes_the_walk_by_path_on_every_route(reading, day):
+    query = history.parse("how many?", NOW, selected_day=day, reading=reading)
+    assert query["kind"] == "video"
+    assert history.moves(query)
+    assert history.counts_passers(query)
 
 
 @pytest.mark.parametrize("day", [None, "2026-10-28"], ids=["no-day", "review-day"])
-@pytest.mark.parametrize(
-    "question",
-    [
-        pytest.param("how many people did I talk to today?", id="talk-to"),
-        pytest.param("how many times did I enter my password today?", id="enter-password"),
-        pytest.param("how many of the people who came in today did I talk to?", id="talked-to-arrivals"),
-        pytest.param("how many people did I see enter today and end up speaking to?", id="speaking-to-arrivals"),
-        pytest.param("how many people who came in today have I spoken with?", id="spoken-with-arrivals"),
-    ],
-)
-def test_count_questions_that_are_not_entries_stay_off_the_walk_by_path(question, day):
-    assert not history.is_crossing_question(question, history.parse(question, NOW, selected_day=day))
+def test_a_count_about_talking_stays_off_the_walk_by_path(day):
+    # "How many of the people who came in today did I talk to": the answer is in what was said.
+    reading = question.Reading(source="speech", measure="count", movement="came_in", day="today")
+    query = history.parse("how many?", NOW, selected_day=day, reading=reading)
+    assert query["kind"] == "transcript"
+    assert not history.moves(query)
+    assert not history.counts_passers(query)
 
 
-@pytest.mark.parametrize(
-    ("question", "kind"),
-    [
-        pytest.param("tell me what people were doing today", "video", id="scene"),
-        pytest.param("recap what everyone said today", "mixed", id="recap"),
-    ],
-)
-def test_review_day_questions_keep_their_kind(question, kind):
-    assert history.parse(question, NOW, selected_day="2026-10-28")["kind"] == kind
+@pytest.mark.parametrize(("source", "kind"), [("cameras", "video"), ("both", "mixed")])
+def test_a_review_day_keeps_the_readings_kind(source, kind):
+    reading = question.Reading(source=source)
+    assert history.parse("what happened?", NOW, selected_day="2026-10-28", reading=reading)["kind"] == kind
 
 
 def test_a_walk_by_question_reads_walk_by_spans_and_movement_not_sampled_presence(tmp_path, monkeypatch, vision):

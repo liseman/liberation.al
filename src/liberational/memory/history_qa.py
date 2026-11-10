@@ -26,14 +26,24 @@ encounters carries "paths": ["timeline"], which the dashboard shows as a "New" t
 "Last seen" answers from the timeline (on) or the face worker's visits (off); v1's detector journal and its own path
 are gone (#549).
 
-Ask and voice share the temporal parser here. Clock and relative-instant questions read a bounded five-minute
-neighborhood, clamped at question time; ranges read their stated interval. An unqualified 1 to 12 clock selects the
-most recent eligible half of the chosen local day, and an unqualified range prefers the shortest increasing span,
+One reader for every question (#60). The local model reads a question once into a structured reading
+(memory/question.py): whether it is about history, where the answer is, the measure, the people, and the time phrase
+copied into fields. parse() turns that reading into the query collect() routes on: the cameras the question names
+(a configuration lookup, cameras_named), the kind, and the window. No pattern here reads the question for its time,
+subject, or kind; the patterns left read one field's value (a clock), a camera ID, or the question's words for
+ranking lines. When the model gives no reading, collect() says the question couldn't be read and stops. Named
+events, zones, animals, and linked devices are still matched in their own modules before the reading routes.
+
+The window is worked out here from the reading's time fields (window_of), never by the model. Clock and
+relative-instant questions read a bounded five-minute neighborhood, clamped at question time; ranges read their
+stated interval. An unqualified 1 to 12 clock selects the most recent eligible half of the chosen local day, or the
+half its part of the day names ("3 this afternoon"), and an unqualified range prefers the shortest increasing span,
 then the latest start. Explicit AM/PM avoids this inference. Relative parts of the day use question time rather
 than the dashboard selection; an unqualified part uses the selected date. "Last night" spans the previous
 evening at 18:00 through 05:00; other night phrases retain 22:00 to 05:00. A clock qualified by "last night" selects
-the previous evening or the following early morning. Unreadable, conflicting, nonexistent, or
-ambiguous local times are refused instead of expanding the evidence search.
+the previous evening or the following early morning. "N days ago" is that local day. A time phrase the fields don't
+hold (the reading's other_time), and conflicting, nonexistent, or ambiguous local times, are refused instead of
+expanding the evidence search.
 """
 
 import bisect
@@ -60,6 +70,7 @@ from liberational.domain.kernel import PersonId
 from liberational.domain.memory import Modality
 from liberational.listen.revisions import NOT_SAID
 from liberational.memory import activity_kinds, event_counts, timeline
+from liberational.memory import question as reader
 from liberational.people import registry, transcript_view
 from liberational.speech.playback_guard import overlaps
 from liberational.vision import views
@@ -146,171 +157,63 @@ WORDS = dict(
         range(13),
     )
 )
+# A camera is named by its ID, which is a lookup against configuration, never something to infer: "camera 3" and
+# "cam two" are cam3 and cam2 on any install, and views.configured_camera_mentions finds the configured IDs and names.
 CAM = re.compile(r"\bcam(?:era)?\s*(\d+|zero|one|two|three|four|five|six|seven|eight|nine|ten)\b", re.I)
-
-
-WHO = re.compile(r"\bwho\s+(?:was|were|did\s+(?:i|you)\s+see)\s*(?:here|there|around|in view|seen|in the room)?\b")
-# "Who's home", "who is here right now": who was recognized in the last hour, from the presence answer. The cameras
-# and microphones see who is around, not who is home, so the answer says what it read and when.
-HOME_NOW = re.compile(
-    r"\bwho(?:['\u2019]s|\s+is|\s+all\s+is)\s+(?:at\s+)?(?:home|here|around|in(?:\s+the\s+house)?)\b"
-    r"(?:\s+(?:right\s+)?now)?\s*\??\s*$"
-)
-HOME_NOW_AS = "who was here in the last hour"
-# "What happened today" with a day named in it: the day's journal and transcript, as "what did we talk about today" reads.
-HAPPENED = re.compile(r"\bwhat (?:all )?happened\b")
-CLOCK = r"\d{1,2}(?::\d{2})?\s*(?:am|pm)?(?![:\d])"
-AT = re.compile(r"\b(at|around|about)\s+(" + CLOCK + r")\b")
-CLOCK_RANGE = re.compile(r"\bbetween\s+(" + CLOCK + r")\s+and\s+(" + CLOCK + r")\b")
-# "since 1pm", "since 13:00 today", "since 9 this morning", "yesterday since noon": a clock anchor up to now (#2219).
-# "since yesterday", "since this morning", "since last night": the start of that day or part of the day up to now (#2228).
-_SINCE_DAY = r"(today|yesterday|this morning|this afternoon|this evening|last night)"
-SINCE = re.compile(
-    r"\b(?:(today|yesterday)\s+)?since\s+(?:("
-    + CLOCK
-    + r"|noon|midnight)(?:\s*"
-    + _SINCE_DAY
-    + r")?|"
-    + _SINCE_DAY
-    + r")\b"
-)
-AGO = re.compile(
-    r"\b(\d+(?:\.\d+)?|an?|one|two|three|four|five|six|seven|eight|nine|ten)\s+(seconds?|minutes?|hours?)\s+ago\b"
-)
-MONTHS = {name.lower(): i for i, name in enumerate(calendar.month_name) if name}
-MONTH_DATE = re.compile(r"\b(" + "|".join(MONTHS) + r")\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?\b")
 WHO_WINDOW_S = 300  # "who was here at 3pm": anyone seen within 5 minutes of it
+HOME_NOW_S = 3600  # "who's home": who was recognized in the last hour; cameras and microphones see who is around
 # The parts of a day, as local hours [start, end) of the day they belong to; night runs past midnight to 05:00 the next
 # morning. Defined once, so "in the evening" means the same hours wherever a question is read (#195). A part resolves
 # against the selected day, else a date or "yesterday" in the question, else today; "last night" is the night before.
 LAST_NIGHT_HOURS = (18, 29)  # previous evening through 05:00 on the question day, shared by Ask and voice
 PARTS_OF_DAY = {"morning": (5, 12), "afternoon": (12, 17), "evening": (17, 22), "night": (22, 29)}
-PART = re.compile(r"\b(?:last night|tonight|(?:this|in the|during the|the)\s+(?:morning|afternoon|evening|night))\b")
-# "when did I last see Dana (today)": parsed only with the timeline on, which answers it from encounters. The name
-# stops before any time word parse() checks for, so "Dana this morning" leaves "this morning" for that check, and
-# before "on", "in", or "at", so "Dana at the office" asks about Dana. The detector path stops it the same way.
-TIME_WORDS = (
-    r"today|yesterday|this|last|past|previous|ago|since|before|after|earlier|tonight|morning|afternoon|evening|week"
-    r"|month|monday|tuesday|wednesday|thursday|friday|saturday|sunday"
+COMBINED = "Use a single time window; combined time expressions are not supported."
+UNSUPPORTED = (
+    "Unsupported time phrase; use today, yesterday, this/last week, last N hours/minutes/days, YYYY-MM-DD, "
+    "or a part of the day (this morning, in the afternoon, this evening, tonight, last night)."
 )
-# A part of the day ("during the night", "the afternoon") ends a name too, so it stays a time (Codex on #219).
-NAME_STOP = (
-    r"\s+(?:(?:"
-    + TIME_WORDS
-    + r")\b|"
-    + PART.pattern
-    + "|"
-    + AGO.pattern
-    + "|"
-    + AT.pattern
-    + "|"
-    + CLOCK_RANGE.pattern
-    + "|"
-    + MONTH_DATE.pattern
-    + r"|on\s|in\s|at\s|\d{4}-\d{2}-\d{2})"
-)
-# A time word left over once parse() has read the windows it supports is refused only when it is part of a time
-# expression parse() can't read ("last month", "since Monday", "two weeks ago", "before 5pm"). The same words used
-# ordinarily ("the week of work", "since its last oil change", "the previous owner") leave the question's day or window
-# as it is (#1299). TIME_MARK stands in for a phrase parse() already read, so "since yesterday" still refuses.
-TIME_MARK = "\x00"
-_UNIT = r"(?:seconds?|minutes?|hours?|days?|nights?|weeks?|weekends?|fortnights?|months?|years?)"
-_WEEKDAY = r"(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)s?"
-_COUNT = r"(?:\d+(?:\.\d+)?|" + "|".join(WORDS) + r"|few|couple(?:\s+of)?|several|many)"
-UNSUPPORTED_TIME = re.compile(
-    r"\bago\b|\btonight\b|\bearlier\b|\b(?:morning|afternoon|evening)\b|\b" + _WEEKDAY + r"\b|\bat\s+\d"
-    r"|\b(?:last|past|previous|this)\s+(?:" + _COUNT + r"\s+)?" + _UNIT + r"\b"
-    r"|\b" + _COUNT + r"\s+" + _UNIT + r"\s+(?:ago|back|before|after|earlier)\b"
-    r"|\b(?:since|before|after|until)\s+(?:" + TIME_MARK + r"|\d"
-    r"|noon|midnight|lunch|dinner|breakfast|then|now)"
-)
-# Speakers who are nobody in particular: "what did someone ask" reads every line, the way "what did we say" does.
-ANYONE = frozenset(
-    ["we", "us", "you", "they", "them", "someone", "somebody", "anyone", "anybody", "everyone", "everybody"]
-)
-# Passive-voice and filler words around a "what ... said" capture ("What was said", "what else was said", "What was
-# Dana told"): never a speaker's name (#2217).
-NOT_A_SPEAKER = frozenset(["was", "were", "is", "are", "be", "been", "being", "has", "have", "had", "else"])
-LAST_MET = re.compile(r"\bwhen\s+did\s+(?:i|you|we)\s+last\s+see\s+(.+?)(?=" + NAME_STOP + r"|\s*[?.!]?\s*$)", re.I)
+UNREADABLE = "I couldn't read that question: the local model that reads questions didn't answer. Try again."
+UNIT_S = {"seconds": 1, "minutes": 60, "hours": 3600, "days": 86400}
 
 
-def _clock_phrase(question: str) -> re.Match[str] | None:
-    match = AT.search(question)
-    # A bare number after 'about' is usually a topic/quantity, except in a who-time question.
-    if match and match[1] == "about" and not WHO.search(question) and not re.search(r"[:apm]", match[2]):
-        return None
-    return match
+def cameras_named(question: str) -> list[str]:
+    """The cameras a question names: configured IDs and names (views.configured_camera_mentions, which refuses an
+    ambiguous name and leaves a bare "in the kitchen" a place, #34), and numbered ones ("camera 3" is cam3). A
+    camera word followed by something that is no camera is refused, since IDs are not renumbered. Raises ValueError."""
+    configured, remaining = views.configured_camera_mentions(question)
+    cameras = sorted(set(configured) | {"cam" + str(int(WORDS.get(x.lower(), x))) for x in CAM.findall(remaining)})
+    stripped = CAM.sub("", remaining.lower())
+    if re.search(r"\bcam(?:era)?\s+\w+", stripped) and not re.search(r"\bcameras\b", stripped):
+        raise ValueError("Specify the actual camera ID, for example camera3; IDs are not renumbered.")
+    return cameras
 
 
-JOURNAL_SOURCE = re.compile(
-    r"\b(?:(?:the|my|our)\s+)?journal(?:\s+entries)?\s+"
-    r"(?:describ(?:e[ds]?|ing)|mention(?:ed|s)?|sa(?:y[s]?|id)|record(?:ed|s)?|report(?:ed|s)?|show(?:ed|s)?|not(?:e[ds]?|ing)|contain(?:ed|s)?)\b"
-    r"|\b(?:in|from|according\s+to)\s+(?:(?:the|my|our)\s+)?journal(?:\s+entries)?\b"
-    r"|\b(?:summari[sz]e|recap|search|read|review)\s+(?:(?:the|my|our)\s+)?journal(?:\s+entries)?\b",
-    re.I,
-)
-
-
-def _journal_source(text: str) -> bool:
-    match = JOURNAL_SOURCE.search(text)
-    if match is None:
-        return False
-    prefix = text[: match.start()]
-    return not (SPEECH.search(prefix) and re.search(r"\babout\b", prefix, re.I))
-
-
-def is_history_question(question: str) -> bool:
+def is_history_question(question: str, unreadable: bool = False) -> bool:
+    """Whether a question is about recorded history, for routing with no state of its own (voice): a named event,
+    animal, or linked device the owner taught, else the model's reading of it (memory/question.py). `unreadable` is
+    the answer when the model gives no reading: the voice password check passes True, so it fails closed."""
     try:
-        cameras, remaining = views.configured_camera_mentions(question)
+        views.configured_camera_mentions(question)
     except ValueError:
-        return True  # collect/parse returns the actionable camera-selection error, never general-model fallback.
-    q = remaining.lower()
-    temporal = (
-        re.search(r"\b(yesterday|today|last|past|previous|ago|since|when|history|earlier)\b|\d{4}-\d{2}-\d{2}", q)
-        or PART.search(q)
-        or _clock_phrase(q)
-        or CLOCK_RANGE.search(q)
-        or MONTH_DATE.search(q)
-        or UNSUPPORTED_TIME.search(q)
-    )
-    subject = re.search(
-        r"\b(cam(?:era)?s?\s*\d*|lights?|said|say|wanted|discuss|discussed|conversation|transcript|talk|talked|mentioned|work on|seen|see)\b",
-        q,
-    )
-    return bool(
-        _journal_source(q)
-        or (temporal and (subject or cameras or SCENE.search(q)))
-        or re.search(
-            r"how many times.*lights?|how long.*lights?|\bvideo\b|walk(?:ed)? (?:by|past)|get done|\b(?:this|last) week\b",
-            q,
-        )
-        or WHO.search(q)
-        or (
-            is_direction_question(q)
-            and re.search(r"\b(?:did|was|were|walked|crossed|passed|moved|went|headed|observed|recorded)\b", q)
-        )
-        or is_entry_count(q)
-        or event_counts.retired_question(question)
-        or event_counts.asks(q)  # "how many times did I open the fridge today" (#290, #518)
-        or _asks_about_animal(question)  # "what has the cat been doing", "where is May"
-        or HOME_NOW.search(q)
-        or (HAPPENED.search(q) and temporal)
+        return True  # collect returns the actionable camera-selection error, never general-model fallback.
+    if (
+        event_counts.retired_question(question)
+        or event_counts.asks(question.lower())  # "how many times did I open the fridge today" (#290, #518)
+        or _asks_about_animal(question)  # "what has the cat been doing", "where is Rex"
         or _asks_about_device(question)  # "is Sam home", "where are my keys": collect() answers from devices (#1329)
-        or _asks_if_home(question)  # "is Carly home" with no linked device: camera and voice presence (#1596)
-    )
-
-
-FIRST_PERSON = re.compile(r"\b(?:I|me|my|myself|I'm|I've)\b")
-
-
-def _owner_if_first_person(question: str, state: pathlib.Path) -> Any:
-    """The owner's PersonId when a count asks about "I" or "me" ("how many times do I get up at night"), so only spans
-    the owner was recognized in count; None when it doesn't, or when the owner isn't set up."""
-    if not FIRST_PERSON.search(question):
-        return None
+        or _asks_if_home(question)  # "is Sam home" with no linked device: camera and voice presence (#1596)
+    ):
+        return True
     try:
-        from liberational.people import registry
+        return reader.read(question).history
+    except reader.Unreadable:
+        return unreadable
 
+
+def _owner(state: pathlib.Path) -> Any:
+    """The owner's PersonId, for a count that asks about "I" or "me" ("how many times do I get up at night"), so only
+    spans the owner was recognized in count; None when the owner isn't set up."""
+    try:
         return registry.at(state).owner()
     except Exception:
         return None
@@ -353,80 +256,14 @@ def _asks_about_animal(question: str) -> bool:
         return False
 
 
-# "How many times did someone walk into frame", "how many people came in", "how often did anyone enter the room": a
-# count of people coming into view. It needs a count word, a coming-in verb, and a person or the view as the subject,
-# so "how many times did I enter my password" stays a transcript question.
-ENTRY_COUNT = re.compile(r"\b(?:how many|how often|count|number of)\b", re.I)
-ENTRY_VERB = re.compile(
-    r"\bwalk(?:s|ed|ing)?\s+(?:in|into|by|past|through)\b|\b(?:came|come|comes|coming)\s+in(?:to)?\b"
-    r"|\benter(?:s|ed|ing)?\b|\bpass(?:es|ed|ing)?\s+(?:by|through)\b",
-    re.I,
-)
-ENTRY_SUBJECT = re.compile(
-    r"\b(?:people|persons?|someone|somebody|anyone|anybody|visitors?|guests?)\b"
-    r"|\binto\s+(?:the\s+)?(?:frame|view|shot)\b",
-    re.I,
-)
-# Questions about talking are transcript questions even when they say "how many people".
-SPEECH = re.compile(
-    r"\b(?:talk(?:s|ed|ing)?|say(?:s|ing)?|said|speak(?:s|ing)?|spoken?|call(?:s|ed|ing)?|discuss(?:es|ed|ing)?)\b",
-    re.I,
-)
+def moves(query: Mapping[str, Any]) -> bool:
+    """A question about people walking by, coming into view, or which way they moved, on recordings."""
+    return query.get("kind") in ("video", "mixed") and bool(query.get("movement") or query.get("direction"))
 
 
-def is_entry_count(question: str) -> bool:
-    """A count of people coming into view or walking by, however it is phrased."""
-    return bool(
-        ENTRY_COUNT.search(question)
-        and ENTRY_VERB.search(question)
-        and ENTRY_SUBJECT.search(question)
-        and not SPEECH.search(question)
-    )
-
-
-# Asked as walking by, passing, or crossing, rather than as coming into view: how a walk-by answer words itself.
-WALKED_BY = re.compile(r"\b(?:walk\w*|pass\w*|went|go(?:ne|es|ing)?) (?:by|past)\b|\bcross\w*", re.I)
-CROSSING = re.compile(
-    r"how many\b.*\b(?:people|persons?|someone|anyone|walk\w*|pass\w*|cross\w*|went|go(?:ne)?|came|come)\b"
-    r"|\b(?:count|number of|how often)\b.*\b(?:people|persons?|walk\w*|pass\w*|cross\w*)\b"
-    r"|walk(?:ed|ing)? (?:by|past)|\bcross(?:ed|ings?)\b|\bpass(?:ed|ing)? (?:by|through)\b",
-    re.I,
-)
-
-
-SCENE = re.compile(
-    r"\b(?:scene|visible|appearance|wearing|wore|seated|sitting|standing|hanging|colou?rs?)\b"
-    r"|\blooks? like\b|\blooked like\b|\b(?:on|under|beside|behind|near|next to)\s+(?:the|a)\b",
-    re.I,
-)
-DIRECTION = re.compile(
-    r"\b(?:which|what)\s+way\b|\bdirections?\b"
-    r"|\b(?:left|right|top|bottom)[ -]+to[ -]+(?:left|right|top|bottom)\b"
-    r"|\b(?:toward|towards|from)\s+(?:the\s+)?(?:left|right|top|bottom)\b"
-    r"|\bside[ _-]+[ab][ _-]+(?:to|towards?)[ _-]+(?:line[ _-]+)?(?:side[ _-]+)?[ab]\b",
-    re.I,
-)
-
-
-def is_direction_question(question: str) -> bool:
-    """Movement direction, distinct from passage totals and conversational uses of direction words."""
-    return bool(
-        DIRECTION.search(question)
-        and re.search(
-            r"\b(?:walk(?:s|ed|ing)?|cross(?:es|ed|ing|ings)?|pass(?:es|ed|ing)?|mov(?:e[ds]?|ing|ement)|go(?:ing|ne)?|went|head(?:ed|ing)?)\b",
-            question,
-            re.I,
-        )
-        and not re.search(r"\b(?:plan(?:s|ned|ning)?|should|intend(?:s|ed|ing)?)\b", question, re.I)
-        and not SPEECH.search(question)
-    )
-
-
-def is_crossing_question(question: str, query: Mapping[str, Any]) -> bool:
-    """A walk-by / passage count question on recordings (not lights, not a plain scene description)."""
-    return query.get("kind") in ("video", "mixed") and bool(
-        CROSSING.search(question) or is_entry_count(question) or is_direction_question(question)
-    )
+def counts_passers(query: Mapping[str, Any]) -> bool:
+    """A count of people coming into view or walking by: presence answers it, never the named-event counts."""
+    return bool(query.get("movement")) and query.get("measure") == "count"
 
 
 def crossing_paths(state: pathlib.Path, query: Mapping[str, Any], warnings: list[str]) -> dict[str, Any]:
@@ -453,8 +290,11 @@ def stamp(ts: float) -> str:
 
 
 def _clock_choices(token: str, base: dt.datetime, *, night: bool = False) -> list[dt.datetime]:
-    """Read a local clock; an unqualified 1 to 12 offers both halves of the day."""
-    m = re.fullmatch(r"(\d{1,2})(?::(\d{2}))?\s*(am|pm)?", token)
+    """Read a local clock the reading copied from the question; an unqualified 1 to 12 offers both halves of the
+    day. The pattern reads one field's value (3pm, 15:30, 9), not the question."""
+    token = token.replace(".", "").replace(" ", "")
+    token = {"noon": "12pm", "midnight": "12am"}.get(token, token)
+    m = re.fullmatch(r"(\d{1,2})(?::(\d{2}))?(am|pm)?", token)
     if m is None:
         raise ValueError("Use a clock time like 3pm or 15:30.")
     hour, minute, ap = int(m[1]), int(m[2] or 0), m[3]
@@ -480,44 +320,44 @@ def _clock_choices(token: str, base: dt.datetime, *, night: bool = False) -> lis
 
 
 def _since_window(
-    match: re.Match[str], now: float, day: dt.datetime, selected_day: str | dt.date | None
+    r: reader.Reading, now: float, day: dt.datetime, selected_day: str | dt.date | None
 ) -> tuple[float, float, str]:
-    """The window a SINCE match names: from the most recent past reading of its clock, or the start of the day or
-    part of the day it names, to now.
+    """The window a "since" reading names: from the most recent past reading of its clock, or the start of the day
+    or part of the day it names, to now.
 
-    The clock is on today unless the phrase names yesterday or last night; with no day word and a selected day, it
+    The clock is on today unless the reading names yesterday or last night; with no day word and a selected day, it
     is on that day and the window ends with it. A part of the day picks the clock's half: "since 9 this morning"
     is 09:00, "since 3 this afternoon" is 15:00. An unqualified 1 to 12 reads as the latest of its two halves that
     has already passed. A named day or part of the day ("since yesterday", "since last night") starts where
     PARTS_OF_DAY and LAST_NIGHT_HOURS say and is always relative to today, whatever day is selected.
     """
-    if match[4]:
-        if match[1]:
-            raise ValueError("Use a single time window; combined time expressions are not supported.")
-        part = match[4].split()[-1]
+    word = r.part or r.day
+    if word not in ("", "today", "yesterday", "this morning", "this afternoon", "this evening", "last night"):
+        raise ValueError(UNSUPPORTED)
+    if not r.clock:
+        if not word:
+            raise ValueError(UNSUPPORTED)
+        part = word.split()[-1]
         hour = (
             0 if part in ("today", "yesterday") else LAST_NIGHT_HOURS[0] if part == "night" else PARTS_OF_DAY[part][0]
         )
-        begin = (day - dt.timedelta(days=match[4] in ("yesterday", "last night"))).replace(hour=hour)
+        begin = (day - dt.timedelta(days=word in ("yesterday", "last night"))).replace(hour=hour)
         if begin.timestamp() > now:
-            raise ValueError(f"{match[4].capitalize()} hasn't started yet, so there's no history for it.")
+            raise ValueError(f"{word.capitalize()} hasn't started yet, so there's no history for it.")
         return begin.timestamp(), now, f"since {_clock(begin.timestamp())} {'yesterday' if begin < day else 'today'}"
-    day_word = match[1] or match[3]
-    clock = match[2].strip()
-    token = {"noon": "12pm", "midnight": "12am"}.get(clock, clock)
     base, end = day, now
-    if day_word in ("yesterday", "last night"):
+    if word in ("yesterday", "last night"):
         base = day - dt.timedelta(days=1)
-    elif day_word is None and selected_day:
+    elif not word and selected_day:
         base = dt.datetime.combine(dt.date.fromisoformat(str(selected_day)), dt.time(), tzinfo=TZ)
         end = min(now, (base + dt.timedelta(days=1)).timestamp())
-    choices = _clock_choices(token, base, night=day_word == "last night")
-    if day_word == "this morning":
+    choices = _clock_choices(r.clock, base, night=word == "last night")
+    if word == "this morning":
         choices = [c for c in choices if c.hour < 12]
-    elif day_word in ("this afternoon", "this evening"):
+    elif word in ("this afternoon", "this evening"):
         choices = [c for c in choices if c.hour >= 12]
     if not choices:
-        raise ValueError(f"{clock} isn't {day_word}; use a clock time like 3pm or 15:30.")
+        raise ValueError(f"{r.clock} isn't {word}; use a clock time like 3pm or 15:30.")
     past = [c.timestamp() for c in choices if c.timestamp() <= now]
     if not past:
         raise ValueError("That clock time is in the future.")
@@ -527,108 +367,100 @@ def _since_window(
     return start, end, f"since {_clock(start)} {on}"
 
 
-def _natural_dates(question: str, day: dt.datetime) -> str:
-    """Normalize spelled-out dates, leaving selection and range validation to parse."""
-
-    def replace(match: re.Match[str]) -> str:
-        try:
-            return dt.date(int(match[3] or day.year), MONTHS[match[1]], int(match[2])).isoformat()
-        except ValueError:
-            raise ValueError("Specify a valid calendar date.") from None
-
-    return MONTH_DATE.sub(replace, question)
+MONTHS = {name.lower(): i for i, name in enumerate(calendar.month_name) if name}
+MONTHS.update({name.lower(): i for i, name in enumerate(calendar.month_abbr) if name})
 
 
-def parse(question: str, now: float, selected_day: str | dt.date | None = None) -> dict[str, Any]:
-    met = LAST_MET.search(question) if timeline.enabled() else None
-    configured_cameras, remaining = views.configured_camera_mentions(question)
-    q = remaining.lower()
-    journal_only = _journal_source(q)
-    if met:  # the phrase names a person, not a time: it must not read as "last <unit>" below
-        q = q[: met.start()] + " last seen " + q[met.end() :]
-    q = HOME_NOW.sub(HOME_NOW_AS, q)
+def _date(text: str, year: int) -> dt.date:
+    """A date the reading copied from the question: YYYY-MM-DD, MM-DD in the question's year, or a month's name and
+    a day ("october 20", "20 oct 2026")."""
+    words = text.replace(",", " ").replace("-", " ").replace("/", " ").split()
+    words = [w[:-2] if w[:-2].isdecimal() and w[-2:] in ("st", "nd", "rd", "th") else w for w in words]
+    month = next((MONTHS[w.rstrip(".")] for w in words if w.rstrip(".") in MONTHS), None)
+    numbers = [int(w) for w in words if w.isdecimal()]
+    try:
+        if month is not None and 1 <= len(numbers) <= 2:
+            years = [n for n in numbers if n > 31]
+            days = [n for n in numbers if n <= 31]
+            if len(days) == 1:
+                return dt.date(years[0] if years else year, month, days[0])
+        elif month is None and len(numbers) == len(words) == 3:
+            return dt.date(*numbers)
+        elif month is None and len(numbers) == len(words) == 2:
+            return dt.date(year, *numbers)
+        else:
+            raise ValueError(UNSUPPORTED)
+    except (ValueError, TypeError) as error:
+        if str(error) == UNSUPPORTED:
+            raise
+    raise ValueError("Specify a valid calendar date.")
+
+
+def _span_s(r: reader.Reading) -> float:
+    if r.span_unit not in UNIT_S:
+        raise ValueError(UNSUPPORTED)
+    if not 0 < r.span <= 100000:
+        raise ValueError("History duration is out of range.")
+    return r.span * UNIT_S[r.span_unit]
+
+
+def window_of(
+    r: reader.Reading, now: float, selected_day: str | dt.date | None = None
+) -> tuple[float, float, str, float | None]:
+    """(start, end, the window in words, the instant asked about or None) for a reading's time fields. Raises
+    ValueError with the refusal to show when the fields name no single window. The module docstring has the rules."""
     day = dt.datetime.fromtimestamp(now, TZ).replace(hour=0, minute=0, second=0, microsecond=0)
     start, end, window = 0.0, now, "all available retained history"
-    q = _natural_dates(q, day)
-    q = re.sub(r"\byesterday\s+(morning|afternoon|evening|night)\b", r"yesterday in the \1", q)
-    q = re.sub(r"\bearlier\s+today\b", "today", q)
-    q = re.sub(r"(\d)\s*([ap])\.\s?m\b\.?", r"\1\2m", q)  # "1 p.m." as speech recognition writes it
-    since = SINCE.search(q)
-    if since:
-        q = q[: since.start()] + f" {TIME_MARK} " + q[since.end() :]
-    ago = AGO.search(q)
-    if ago:
-        q = q[: ago.start()] + f" {TIME_MARK} " + q[ago.end() :]
-    clock_range = CLOCK_RANGE.search(q)
-    clock = _clock_phrase(q) if not clock_range else None
-    dates = re.findall(r"\b\d{4}-\d{2}-\d{2}\b", q)
-    duration = re.search(
-        r"\b(?:last|past|previous)\s+(?:(\d+(?:\.\d+)?|[a-z]+)\s+)?(seconds?|minutes?|hours?|days?)\b", q
-    )
-    week = re.search(r"\b(this|last) week\b", q)
-    if ago and (
-        dates
-        or _clock_phrase(q)
-        or CLOCK_RANGE.search(q)
-        or PART.search(q)
-        or re.search(r"\b(?:today|yesterday|past)\b|\blast\s+(?!seen\b|see\b)", q)
-    ):
-        raise ValueError("Use a single time window; combined time expressions are not supported.")
-    if sum((bool(dates), bool(duration), bool(week), "yesterday" in q, bool(re.search(r"\btoday\b", q)))) > 1:
-        raise ValueError("Use a single time window; combined time expressions are not supported.")
-    if since and (
-        ago
-        or dates
-        or duration
-        or week
-        or clock
-        or clock_range
-        or PART.search(q)
-        or re.search(r"\b(?:today|yesterday)\b", q)
-    ):
-        raise ValueError("Use a single time window; combined time expressions are not supported.")
-    if dates:
-        if len(dates) != 1:
-            raise ValueError("Use one explicit YYYY-MM-DD date, not a date range.")
-        d = dt.datetime.fromisoformat(dates[0]).replace(tzinfo=TZ)
-        start, end, window = d.timestamp(), (d + dt.timedelta(days=1)).timestamp(), dates[0]
-    elif "yesterday" in q:
+    at = None
+    if r.other_time:
+        raise ValueError(UNSUPPORTED)
+    week = r.day in ("this week", "last week")
+    dated = r.day not in reader.DAYS
+    relative_part = r.part in ("last night", "tonight") or r.part.startswith("this ")
+    timed = bool(r.day or r.part or r.clock or r.clock_end or r.since or r.span_kind)
+    home_now = r.now and r.source == "people" and not timed
+    if r.span_kind and (r.day or r.part or r.clock or r.clock_end or r.since):
+        raise ValueError(COMBINED)
+    if week and (r.part or r.clock or r.since):
+        raise ValueError(COMBINED)
+    if r.clock_end and not r.clock:
+        raise ValueError("Unsupported time phrase; specify a clock time or a complete time range.")
+    if r.clock_end and (r.part or r.since):
+        raise ValueError(COMBINED)
+    if r.since and (dated or (r.day and r.part)):
+        raise ValueError(COMBINED)
+    if relative_part and not r.since and (dated or r.day == "yesterday"):
+        raise ValueError(COMBINED)
+    if dated:
+        d = dt.datetime.combine(_date(r.day, day.year), dt.time(), tzinfo=TZ)
+        start, end, window = d.timestamp(), (d + dt.timedelta(days=1)).timestamp(), d.date().isoformat()
+    elif r.day == "yesterday":
         start, end, window = (day - dt.timedelta(days=1)).timestamp(), day.timestamp(), "yesterday"
-    elif re.search(r"\btoday\b", q):
+    elif r.day == "today":
         start, window = day.timestamp(), "today"
     elif week:
         monday = day - dt.timedelta(days=day.weekday())
-        d = monday - dt.timedelta(days=7 if week[1] == "last" else 0)
-        start, end, window = d.timestamp(), (d + dt.timedelta(days=7)).timestamp(), week[0]
-    elif duration:
-        token = duration[1] or "one"
-        n = WORDS.get(token, 1 if token in ("a", "an") else None)
-        if n is None:
-            try:
-                n = float(token)
-            except ValueError:
-                raise ValueError("Specify a numeric history duration.")
-        if not 0 < n <= 100000:
-            raise ValueError("History duration is out of range.")
-        start = now - n * {"s": 1, "m": 60, "h": 3600, "d": 86400}[duration[2][0]]
-        window = duration[0]
-    if selected_day and not (dates or duration or week or "yesterday" in q or re.search(r"\btoday\b", q)):
+        d = monday - dt.timedelta(days=7 if r.day == "last week" else 0)
+        start, end, window = d.timestamp(), (d + dt.timedelta(days=7)).timestamp(), r.day
+    elif home_now:
+        start, window = now - HOME_NOW_S, "last hour"
+    elif r.span_kind == "last":
+        start = now - _span_s(r)
+        window = f"last {r.span:g} {r.span_unit}" if r.span != 1 else f"last {r.span_unit[:-1]}"
+    if selected_day and not (r.day or home_now or r.span_kind == "last"):
         d = dt.datetime.combine(dt.date.fromisoformat(str(selected_day)), dt.time(), tzinfo=TZ)
         start, end, window = d.timestamp(), (d + dt.timedelta(days=1)).timestamp(), str(selected_day)
-    if since:
-        start, end, window = _since_window(since, now, day, selected_day)
-    if part := PART.search(q):
-        if duration or week or clock_range or (clock and part[0] != "last night"):
-            raise ValueError("Use a single time window; combined time expressions are not supported.")
-        name = "night" if part[0] in ("tonight", "last night") else part[0].split()[-1]
-        relative_part = part[0] in ("last night", "tonight") or part[0].startswith("this ")
-        if relative_part and (dates or "yesterday" in q):
-            raise ValueError("Use a single time window; combined time expressions are not supported.")
-        explicit = not relative_part and (dates or "yesterday" in q or selected_day)
+    if r.since:
+        start, end, window = _since_window(r, now, day, selected_day)
+        return start, min(end, now), window, None
+    part_start = part_end = None
+    name = "night" if r.part in ("tonight", "last night") else r.part.split()[-1] if r.part else ""
+    if r.part:
+        explicit = not relative_part and (r.day in ("yesterday",) or dated or selected_day)
         base = dt.datetime.fromtimestamp(start, TZ) if explicit else day
-        if part[0] == "last night":
+        if r.part == "last night":
             base -= dt.timedelta(days=1)
-        first, last = LAST_NIGHT_HOURS if part[0] == "last night" else PARTS_OF_DAY[name]
+        first, last = LAST_NIGHT_HOURS if r.part == "last night" else PARTS_OF_DAY[name]
         part_start = base.replace(hour=first)
         part_end = (base + dt.timedelta(days=last // 24)).replace(hour=last % 24)
         if part_start.timestamp() > now:
@@ -636,33 +468,19 @@ def parse(question: str, now: float, selected_day: str | dt.date | None = None) 
                 f"The {name} of {base.date().isoformat()} hasn't started yet, so there's no history for it."
             )
         start, end, window = part_start.timestamp(), part_end.timestamp(), f"the {name} of {base.date().isoformat()}"
-        q = q.replace(part[0], f" {TIME_MARK} ")
-    at_ts = None
-    who = bool(WHO.search(q))
-    if ago:
-        token = ago[1]
-        n = WORDS.get(token, 1 if token in ("a", "an") else None)
-        amount = float(token) if n is None else float(n)
-        if not 0 < amount <= 100000:
-            raise ValueError("History duration is out of range.")
-        center = now - amount * {"s": 1, "m": 60, "h": 3600}[ago[2][0]]
-        start, end = center - WHO_WINDOW_S, center + WHO_WINDOW_S
-        window = "around " + _clock(center)
-        at_ts = center if WHO.search(q) else None
-    elif clock or clock_range:
-        if duration or week:
-            raise ValueError("Use a single time window; combined time expressions are not supported.")
-        explicit_day = bool(dates or "yesterday" in q or selected_day or part)
-        base = dt.datetime.fromtimestamp(start, TZ) if explicit_day else day
-        match = clock_range or clock
-        assert match is not None
-        if clock_range:
-            pairs = [
-                (a, b)
-                for a in _clock_choices(clock_range[1], base)
-                for b in _clock_choices(clock_range[2], base)
-                if a < b
-            ]
+    if r.span_kind == "ago":
+        if r.span_unit == "days":  # "three days ago" is that local day, not ten minutes of it
+            if not r.span.is_integer() or not 0 < r.span <= 100000:
+                raise ValueError(UNSUPPORTED)
+            d = day - dt.timedelta(days=int(r.span))
+            start, end, window = d.timestamp(), (d + dt.timedelta(days=1)).timestamp(), d.date().isoformat()
+        else:
+            at = now - _span_s(r)
+            start, end, window = at - WHO_WINDOW_S, at + WHO_WINDOW_S, "around " + _clock(at)
+    elif r.clock:
+        base = dt.datetime.fromtimestamp(start, TZ) if (r.day or selected_day or r.part) else day
+        if r.clock_end:
+            pairs = [(a, b) for a in _clock_choices(r.clock, base) for b in _clock_choices(r.clock_end, base) if a < b]
             # Prefer a same-half-day range, then the most recent range that has started.
             pairs = [(a, b) for a, b in pairs if a.timestamp() <= now]
             if not pairs:
@@ -671,142 +489,84 @@ def parse(question: str, now: float, selected_day: str | dt.date | None = None) 
             start, end = a.timestamp(), b.timestamp()
             window = f"between {_clock(start)} and {_clock(end)}"
         else:
-            assert clock is not None
-            choices = _clock_choices(clock[2], base, night=bool(part and part[0] == "last night"))
+            choices = _clock_choices(r.clock, base, night=name == "night")
+            if part_start is not None and part_end is not None:
+                choices = [c for c in choices if part_start <= c < part_end]
+                if not choices:
+                    raise ValueError(f"{r.clock} isn't in the {name}; use a clock time like 3pm or 15:30.")
             choices = [c for c in choices if c.timestamp() <= now]
             if not choices:
                 raise ValueError("That clock time is in the future.")
-            center = max(c.timestamp() for c in choices)
-            start, end = center - WHO_WINDOW_S, center + WHO_WINDOW_S
-            window = "around " + _clock(center)
-            at_ts = center if WHO.search(q) else None
-        q = q.replace(match[0], f" {TIME_MARK} ")
-    if re.search(r"\b(?:at|around|between)\s+\d", q) or (
-        WHO.search(q) and re.search(r"\b(?:around|about|between)\s+(?!today\b|yesterday\b|last\b|this\b)\w+", q)
-    ):
-        raise ValueError("Unsupported time phrase; specify a clock time or a complete time range.")
-    residual = q
-    for phrase in dates + [x[0] for x in (week, duration) if x] + ["yesterday", "today"]:
-        residual = residual.replace(phrase, f" {TIME_MARK} ")
-    residual = re.sub(r"walk(?:ed)? past", "walked by", residual)
-    residual = re.sub(r"\blast\s+(?:seen|on|appear(?:ed)?|time)\b", "", residual)
-    leftover_clock = re.search(r"\b\d{1,2}:\d{2}\b|\b\d{1,2}\s*(?:am|pm)\b", residual)
-    incomplete_range = clock_range and re.search(r"\band\s+\d", residual)
-    if UNSUPPORTED_TIME.search(residual) or leftover_clock or incomplete_range:
-        raise ValueError(
-            "Unsupported time phrase; use today, yesterday, this/last week, last N hours/minutes/days, YYYY-MM-DD, "
-            "or a part of the day (this morning, in the afternoon, this evening, tonight, last night)."
-        )
-    cameras = sorted(
-        set(configured_cameras) | {"cam" + str(int(WORDS.get(x.lower(), x))) for x in CAM.findall(remaining)}
-    )
-    stripped = CAM.sub("", q)
-    if re.search(r"\bcam(?:era)?\s+\w+", stripped) and not re.search(r"\bcameras\b", stripped):
-        raise ValueError("Specify the actual camera ID, for example camera3; IDs are not renumbered.")
-    kind = (
-        "who"
-        if who
-        else "lights"
-        if re.search(r"\blights?\b", q)
-        else "camera"
-        if cameras or CAM.search(q) or re.search(r"\bcameras?\b|last seen", q)
-        else "transcript"
-    )
-    if journal_only:
+            at = max(c.timestamp() for c in choices)
+            start, end, window = at - WHO_WINDOW_S, at + WHO_WINDOW_S, "around " + _clock(at)
+    if start > now:  # the end is clamped to now below, so a future window would read as one with no evidence
+        raise ValueError("That date is in the future, so there's no history for it yet.")
+    return start, min(end, now), window, at
+
+
+def parse(
+    question: str, now: float, selected_day: str | dt.date | None = None, reading: reader.Reading | None = None
+) -> dict[str, Any]:
+    """The structured query for a question: the model's reading of it (memory/question.py, read here unless given),
+    the cameras it names, and the window worked out from the reading's time fields. Raises ValueError with a refusal
+    to show (a time that can't be read, an ambiguous camera) and question.Unreadable when the model gives no reading."""
+    r = reading if reading is not None else reader.read(question)
+    cameras = cameras_named(question)
+    start, end, window, at = window_of(r, now, selected_day)
+    people = [cfg.owner_or() if p.casefold() in ("me", "i", "myself") else p for p in r.people]
+    first_person = any(p.casefold() in ("me", "i", "myself") for p in r.people)
+    moving = r.source in ("cameras", "both") and bool(r.movement or r.direction)
+    last_seen = r.source == "people" and r.measure == "last_time" and bool(people)
+    if r.source == "journal":
         if cameras:
             raise ValueError("Journal summaries mix cameras; ask about the journal or a specific camera separately.")
         kind = "journal"
-    person = None
-    m = re.search(r"\bwhen\s+(?:was\s+)?(.+?)\s+last\b|\b(?:last seen|last see)\s+([\w-]+)", question, re.I)
-    if m:
-        person = (m[1] or m[2]).strip()
-    last_seen = bool(re.search(r"\blast (?:see|seen)\b", q))
-    if last_seen:
-        direct = re.search(
-            r"\blast see\s+(.+?)(?="
-            + NAME_STOP
-            + r"|\s+(?:over\s|during\b|the\s+(?:last|past)\b|cam(?:era)?\s*\d+\b)|[?!.]|$)",
-            question,
-            re.I,
-        )
-        if direct:
-            person = direct[1].strip()
-        kind = "camera"
-    if met:
-        person = met[1].strip()
-    if kind == "transcript":
-        m = re.search(
-            r"\b(?:what(?:\s+all)?|everything(?:\s+that)?|all(?:\s+that)?)(?:(?:\s+[\w'-]+){0,2}?\s+(?:did|does|has|had))?\s+([\w'-]+(?:\s+[\w'-]+){0,3}?)\s+(?:tell|told|wanted|want|said|say|discussed|discuss|mentioned|mention|talked|talk|asked|ask|suggested|suggest)\b",
-            question,
-            re.I,
-        )
-        if m:
-            words = m[1].split()
-            while words and words[0].casefold() in NOT_A_SPEAKER:
-                words.pop(0)
-            while words and words[-1].casefold() in NOT_A_SPEAKER:
-                words.pop()
-            person = " ".join(words) or None
-    participants: list[str] = []
-    if kind == "transcript" and person:
-        participants = [p.strip() for p in re.split(r"\s+and\s+", person, flags=re.I)]
-        participants = [cfg.owner_or() if p.casefold() in ("i", "me") else p for p in participants]
-        if any(p.casefold() in ANYONE for p in participants):
-            participants = []
-        person = participants[0] if len(participants) == 1 else None
-    intent = bool(re.search(r"\b(?:want(?:ed)?|get done|work on|plan(?:ned)?|to do|should|need(?:ed)?)\b", q))
-    if re.search(r"\blights?\b", q) and re.search(r"how long|duration|time.*on", q):
-        kind = "light_duration"
-    elif (
-        re.search(r"\bvideo\b|walk(?:ed)? (?:by|past)|cross(?:ed|ings)?", q)
-        or is_entry_count(q)
-        or is_direction_question(q)
-    ):
+    elif r.source == "lights":
+        kind = "light_duration" if r.measure == "duration" else "lights"
+    elif moving:
         kind = "video"
-    if kind == "transcript" and not intent:
-        if re.search(r"\bwhat (?:all )?happened\b|\b(?:recap|summarize)\b", q):
-            kind = "mixed"
-        elif not SPEECH.search(q) and (
-            SCENE.search(q)
-            or re.search(
-                r"\b(?:people|person|someone|anyone)\b.*\b(?:doing|did|came|come|pass|passed|walk|walking|wear)\b", q
-            )
-        ):
-            kind = "video"
-    if journal_only:
-        kind = "journal"
-    if start > now:  # the end is clamped to now below, so a future window would read as one with no evidence
-        raise ValueError("That date is in the future, so there's no history for it yet.")
+    elif r.source == "people":
+        kind = "camera" if last_seen else "who"
+    elif r.source == "both":
+        kind = "mixed"
+    elif r.source == "cameras":
+        kind = "camera" if cameras else "video"
+    else:
+        kind = "camera" if cameras else "transcript"
+    participants = people if kind == "transcript" else []
+    person = people[0] if last_seen or (kind == "transcript" and len(people) == 1) else None
     return dict(
         question=question,
         participants=participants,
-        topics=kind == "transcript" and bool(re.search(r"\bmost\b|\btopics?\b|main (?:theme|subject)", q)),
-        intent=intent,
+        people=people,
+        first_person=first_person,
+        topics=kind == "transcript" and r.measure == "topics",
+        intent=kind == "transcript" and r.intent,
         last_seen=last_seen,
+        measure=r.measure,
+        movement=r.movement if moving else "",
+        direction=moving and r.direction,
         start=start,
-        end=min(end, now),
+        end=end,
         timezone=str(TZ),
         window=window,
         cameras=cameras,
         kind=kind,
         person=person,
-        at=at_ts,
-        **(
-            {"search_text": " ".join(JOURNAL_SOURCE.sub(" ", residual).replace(TIME_MARK, " ").split())}
-            if journal_only
-            else {}
-        ),
+        at=at if kind == "who" else None,
+        reading=r.as_dict(),
+        **({"search_text": r.text} if kind == "journal" else {}),
     )
 
 
 def people_named(question: str) -> list[str]:
-    """The people `parse` finds in a question ("when was Dana last seen", "what did Dana and Eve say"), or none when it
-    can't parse it. For the forgotten-person check (people/forgotten.py), which runs before collect."""
+    """The people the reading finds in a question ("when was Dana last seen", "what did Dana and Sam say"), or none
+    when it can't be read. For the forgotten-person check (people/forgotten.py), which runs before collect."""
     try:
-        query = parse(question, time.time())
-    except ValueError:
+        people = reader.read(question).people
+    except reader.Unreadable:
         return []
-    return [p for p in (query["person"], *query["participants"]) if p]
+    return [p for p in people if p.casefold() not in ("me", "i", "myself")]
 
 
 def _json(path: pathlib.Path, default: Any) -> Any:
@@ -1756,31 +1516,35 @@ def collect(
         )
     device = device_answers.asked(question, state)
     home = device_answers.unlinked_home(question, state) if device is None else None
-    result: dict[str, Any] = dict(
-        is_history=bool(day)
-        or is_history_question(question)
+    result: dict[str, Any] = dict(is_history=True, answer=None, evidence=[], coverage={}, warnings=[], query={})
+    try:
+        r = reader.read(question)
+    except reader.Unreadable as error:
+        # No reading means no window and no route: say so, never guess at one.
+        LOG.warning("the question couldn't be read: %s", error)
+        result.update(answer=UNREADABLE, warnings=[UNREADABLE], coverage={"read_error": True})
+        return result
+    result["is_history"] = (
+        bool(day)
+        or r.history
+        or event_counts.retired_question(question)
         or event_counts.wanted(question, state) is not None
         or activity is not None
         or animal is not None
         or last is not None
         or device is not None
-        or (home is not None and timeline.person(home, state) is not None),
-        answer=None,
-        evidence=[],
-        coverage={},
-        warnings=[],
-        query={},
+        or (home is not None and timeline.person(home, state) is not None)
     )
     if not result["is_history"]:
         return result
     now = time.time() if now is None else now.timestamp() if isinstance(now, dt.datetime) else float(now)
     try:
-        query = parse(question, now, selected_day=day)
+        query = parse(question, now, selected_day=day, reading=r)
     except ValueError as e:
         from liberational.memory import presence_counts
 
         # An unsupported count window is a deterministic refusal, not a model prompt.
-        if is_entry_count(question) and presence_counts.enabled():
+        if r.movement and r.measure == "count" and r.source in ("cameras", "both") and presence_counts.enabled():
             result["paths"] = ["presence"]
         result["answer"] = str(e)
         result["warnings"] = [str(e)]
@@ -1841,10 +1605,13 @@ def collect(
             result["coverage"]["activity"] = measured["coverage"]
             warnings.extend(measured["warnings"])
             selected = measured["evidence"]
-        elif not is_entry_count(question) and (asked := event_counts.wanted(question, state)) is not None:
+        elif not counts_passers(query) and (asked := event_counts.wanted(question, state)) is not None:
             result["paths"] = ["events"]
-            who = transcript_view.View(state).person_at(query["person"]) if query.get("person") else None
-            person = who.id if who is not None else _owner_if_first_person(question, state)
+            named = next((p for p in r.people if p.casefold() not in ("me", "i", "myself")), None)
+            who = transcript_view.View(state).person_at(named) if named else None
+            person = who.id if who is not None else _owner(state) if query["first_person"] else None
+            # The count's wording names a person the question named, and says "you" for the asker.
+            counted = dict(query, person=named)
             unchecked = (
                 asked in activity_kinds.model_kinds(state) and event_counts.uncalibrated(state, asked) is not None
             )
@@ -1853,10 +1620,10 @@ def collect(
             if typical_counts.asks(question) and not unchecked:
                 result["paths"] = ["events", "typical"]
                 measured = typical_counts.answer(
-                    asked, query, state, stamp, TZ, now, event_counts.answer, person=person
+                    asked, counted, state, stamp, TZ, now, event_counts.answer, person=person
                 )
             else:
-                measured = event_counts.answer(asked, query, state, stamp, TZ, person=person)
+                measured = event_counts.answer(asked, counted, state, stamp, TZ, person=person)
             result["answer"] = measured["answer"]
             result["coverage"]["events"] = measured["coverage"]
             warnings.extend(measured["warnings"])
@@ -1864,7 +1631,7 @@ def collect(
         # Walk-bys from the activity worker's spans and entries from movement tracks (#1591): a day reads in a few
         # seconds. The sampled presence visits (Review's chips) aren't read here: one missed
         # detection splits a visit, so their count is not a number to say.
-        elif is_direction_question(question) and is_crossing_question(question, query):
+        elif query["direction"] and moves(query):
             from liberational.memory import crossing_counts, walked_past
 
             result["paths"] = ["directions"]
@@ -1874,9 +1641,7 @@ def collect(
             else:
                 crossed = crossing_counts.from_spans(state, query["start"], query["end"], query["cameras"])
                 result["walked_past"] = crossed
-                result["answer"] = walked_past.direction_text(
-                    crossed, include_counts=bool(ENTRY_COUNT.search(question))
-                )
+                result["answer"] = walked_past.direction_text(crossed, include_counts=query["measure"] == "count")
                 result["coverage"]["walked_past"] = {"partial": crossed["partial"]}
                 for cam, info in crossed["cameras"].items():
                     for example in info["direction_examples"]:
@@ -1892,7 +1657,7 @@ def collect(
                                 **({"payload_id": example["payload_id"]} if example.get("payload_id") else {}),
                             )
                         )
-        elif is_crossing_question(question, query) and presence_counts.enabled() and _presence_saved(state, query, now):
+        elif moves(query) and presence_counts.enabled() and _presence_saved(state, query, now):
             from liberational.memory import crossing_counts, movement_counts, walked_past
 
             result["paths"] = ["presence"]
@@ -1914,7 +1679,7 @@ def collect(
                 max(0.0, seen_to - float(query["start"])),
                 TZ,
                 so_far=float(query["end"]) > now,
-                entries=not WALKED_BY.search(question),
+                entries=query["movement"] != "walked_by",
             )
             if crossed is None and not tracked.get("available") and tracked.get("errors"):
                 result["answer"] = "History source could not be read safely."  # neither source: never a zero
@@ -1950,12 +1715,10 @@ def collect(
             result["answer"], result["coverage"]["lights"] = _lights_by_colour(state, query, warnings)
             if result["coverage"]["lights"] is not None:
                 result["paths"] = ["lights-colour"]
-        elif query["kind"] in ("video", "mixed") and (
-            cfg.get("review.recorded_frame_analysis") or is_crossing_question(question, query)
-        ):
+        elif query["kind"] in ("video", "mixed") and (cfg.get("review.recorded_frame_analysis") or moves(query)):
             from liberational.memory import video_evidence
 
-            if query["kind"] == "video" and is_crossing_question(question, query):
+            if query["kind"] == "video" and moves(query):
                 # Walk-by counts are answered by the walk-by spans below; tiny VLM windows would only add a misleading
                 # six-second denominator.
                 selected, coverage, video_warnings = [], {}, []
@@ -1969,13 +1732,9 @@ def collect(
                     item for pair in itertools.zip_longest(selected, transcript) for item in pair if item is not None
                 ]
                 result["coverage"]["transcript"] = transcript_coverage
-            if (
-                query["kind"] == "video"
-                and not is_crossing_question(question, query)
-                and re.search(r"how many|count|times", question, re.I)
-            ):
+            if query["kind"] == "video" and not moves(query) and query["measure"] == "count":
                 result["answer"] = video_evidence.measured_answer(coverage, query["kind"])
-            if is_crossing_question(question, query):
+            if moves(query):
                 result["crossings"] = crossing_paths(state, query, warnings)
                 counted = (result["crossings"]["path_b"] or {}).get("result")
                 result["coverage"]["walked_past"] = (
@@ -2134,7 +1893,7 @@ def collect(
         query["kind"] in ("transcript", "camera", "video", "mixed")
         and result["answer"] is None
         and not query["cameras"]
-        and not is_crossing_question(question, query)
+        and not moves(query)
     ):
         journal = _journal(question, query, state, result, warnings)
         selected = journal + selected
@@ -2157,11 +1916,7 @@ def collect(
     result["coverage"]["partial"] = was_cut(result["coverage"])
     if truncated:
         warnings.append("Evidence limit reached; selected matching records are partial, not all findings.")
-    if (
-        (query["kind"] in ("lights", "who") or is_crossing_question(question, query) or counted)
-        and result["evidence"]
-        and result["answer"]
-    ):
+    if (query["kind"] in ("lights", "who") or moves(query) or counted) and result["evidence"] and result["answer"]:
         result["answer"] += " Evidence: " + ", ".join("[" + r["id"] + "]" for r in result["evidence"][:5]) + "."
     if not result["evidence"] and result["answer"] is None:
         result["answer"] = NO_EVIDENCE

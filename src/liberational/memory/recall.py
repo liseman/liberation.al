@@ -203,10 +203,15 @@ def _planner_input(system: str, user: Any, model: str, num_ctx: int, num_predict
         prompt["snippets_compacted"] = True
 
 
-def _chat(system: str, user: Any, schema: Mapping[str, Any], num_predict: int) -> Any:
-    """The model's JSON reply to one structured-output call. Raises ValueError when it isn't JSON."""
+def _chat(
+    system: str, user: Any, schema: Mapping[str, Any], num_predict: int, shots: Sequence[tuple[str, str]] = ()
+) -> Any:
+    """The model's JSON reply to one structured-output call. `shots` are worked examples (a user turn and the reply
+    to it), sent as chat turns before `user`. Raises ValueError when the reply isn't JSON."""
     model, num_ctx = settings()
-    content = _planner_input(system, user, model, num_ctx or ask.OWN_NUM_CTX, num_predict)
+    examples = [(json.dumps(asked, ensure_ascii=False), reply) for asked, reply in shots]
+    framing = system + "".join(asked + reply for asked, reply in examples)  # what the prompt estimate counts
+    content = _planner_input(framing, user, model, num_ctx or ask.OWN_NUM_CTX, num_predict)
     data = _post(
         {
             "model": model,
@@ -218,13 +223,35 @@ def _chat(system: str, user: Any, schema: Mapping[str, Any], num_predict: int) -
             "options": {"num_ctx": num_ctx, "num_predict": num_predict, "temperature": 0},
             "messages": [
                 {"role": "system", "content": system},
+                *(
+                    {"role": role, "content": text}
+                    for asked, reply in examples
+                    for role, text in (("user", asked), ("assistant", reply))
+                ),
                 {"role": "user", "content": content},
             ],
         }
     )
-    summarize.observe_prompt_tokens(model, system, content, data.get("prompt_eval_count"))
+    if not examples:  # the estimator is calibrated on two-turn prompts; each example adds its own chat framing
+        summarize.observe_prompt_tokens(model, system, content, data.get("prompt_eval_count"))
     content = str((data.get("message") or {}).get("content") or "")
     return json.loads(re.sub(r"<think>.*?</think>\s*", "", content, flags=re.S))
+
+
+def chat_within(
+    system: str,
+    user: Any,
+    schema: Mapping[str, Any],
+    num_predict: int,
+    seconds: float,
+    shots: Sequence[tuple[str, str]] = (),
+) -> Any:
+    """_chat for a caller outside the loop (memory/question.py's reading), with its own deadline."""
+    token = _deadline.set(time.monotonic() + seconds)
+    try:
+        return _chat(system, user, schema, num_predict, shots)
+    finally:
+        _deadline.reset(token)
 
 
 def _local(ts: float) -> str:
