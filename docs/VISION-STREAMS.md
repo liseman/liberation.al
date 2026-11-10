@@ -5,8 +5,8 @@ overlays, Review, Ask, and the dashboard's pages. Every vision stream lives in t
 what the cameras saw (zones, pet labels, activity names and ratings) is in the knowledge store, not here: see [Owner
 records](#owner-records).
 
-`segment_log.STREAMS` also declares the speech, place-visit, network, Bluetooth, and Wi-Fi streams. This document
-covers the vision streams only.
+`segment_log.STREAMS` also declares the speech, place-visit, network, Bluetooth, Wi-Fi, and position streams.
+[STREAMS.md](STREAMS.md) covers those; this document covers the vision streams.
 
 ## Where the frames come from
 
