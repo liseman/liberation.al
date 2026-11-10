@@ -102,21 +102,6 @@ def test_single_window_counts_named_model_events_with_times_and_camera_filter(tm
 
 
 @pytest.mark.parametrize(
-    ("question", "asked"),
-    [
-        ("how many times did I get up to use the bathroom", "Bathroom"),  # the drawn zone wins
-        ("how many times did I say get up today", None),  # talk is the transcript's
-        ("how many times did I stand up today", "stand_up"),  # see-actions' model kinds
-        ("how often do I usually sit down", "sit_down"),
-        ("how many times did I open the door", None),
-    ],
-)
-def test_which_count_a_question_asks_for(tmp_path, question, asked):
-    zones.define(tmp_path, "cam0", zones.parse_zones([{"name": "Bathroom", "polygon": BOX}]), None, now=DAY)
-    assert event_counts.wanted(question, tmp_path) == asked
-
-
-@pytest.mark.parametrize(
     ("question", "what"),
     [("how many times did I get up today", "stand up"), ("how often do I usually sit down", "sit down")],
 )

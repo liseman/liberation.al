@@ -177,9 +177,10 @@ def test_only_what_the_owner_named_is_counted_events_first_then_zones(litter, ev
 def test_a_name_the_count_modules_refuse_is_unknown_not_unwatched(events, tmp_path):
     today = midnight(DAY)
     events.covered = [("cam0", today, today + 24 * H)]
-    events.found = [span(today + 9 * H, 0, "Ate breakfast")]  # eating is a retired kind event_counts won't count
+    # Repeated movement is a retired kind the camera model doesn't detect, so event_counts won't count it.
+    events.found = [span(today + 9 * H, 0, "repeated_movement")]
     (row,) = journal_counts.day_counts(DAY, state=tmp_path)
-    assert (row.what, row.value) == ("Ate breakfast", "unknown")
+    assert (row.what, row.value) == ("repeated_movement", "unknown")
 
 
 def test_a_week_counts_its_seven_days_with_the_usual_from_the_weeks_before(events, tmp_path):

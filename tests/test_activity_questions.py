@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from asking import query
 from liberational import segment_log
 from liberational.memory import activity_questions as aq
 from liberational.memory import event_counts
@@ -84,7 +85,7 @@ def test_what_someone_did_in_a_zone_is_the_model_guess_over_its_visitors_tracks(
         window(vision, DAY + 9 * H + 60 * n, "7", TYPING)
     window(vision, DAY + 9 * H + 300, "8", PHONE)  # someone not in the kitchen
     question = "What did someone do in the kitchen today?"
-    a = aq.asked(question, tmp_path)
+    a = aq.asked(query(question, tmp_path), tmp_path)
     assert a == aq.Asked("doing", zone="Kitchen")
     got = aq.doing(a, WINDOW, tmp_path, h.stamp)
     assert got["answer"] == (

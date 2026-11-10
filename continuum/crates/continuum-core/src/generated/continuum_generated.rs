@@ -21188,6 +21188,7 @@ impl<'a> CommitChunk<'a> {
   pub const VT_ABSORBED: ::flatbuffers::VOffsetT = 10;
   pub const VT_FRAME_PROVENANCE: ::flatbuffers::VOffsetT = 12;
   pub const VT_PROVENANCE_VERSION: ::flatbuffers::VOffsetT = 14;
+  pub const VT_FIRST_FRAME: ::flatbuffers::VOffsetT = 16;
 
   #[inline]
   pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
@@ -21199,6 +21200,7 @@ impl<'a> CommitChunk<'a> {
     args: &'args CommitChunkArgs<'args>
   ) -> ::flatbuffers::WIPOffset<CommitChunk<'bldr>> {
     let mut builder = CommitChunkBuilder::new(_fbb);
+    builder.add_first_frame(args.first_frame);
     builder.add_provenance_version(args.provenance_version);
     if let Some(x) = args.frame_provenance { builder.add_frame_provenance(x); }
     if let Some(x) = args.absorbed { builder.add_absorbed(x); }
@@ -21262,6 +21264,16 @@ impl<'a> CommitChunk<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<u32>(CommitChunk::VT_PROVENANCE_VERSION, Some(0)).unwrap()}
   }
+  /// Minor 35: 0 commits a new chunk. Otherwise this is a part of a chunk still being written: `frames` are the
+  /// chunk's frames from this index on (the chunk must hold exactly this many), `absorbed` and `frame_provenance`
+  /// go with them, and the header and location are the chunk's own again, with its new end and length.
+  #[inline]
+  pub fn first_frame(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(CommitChunk::VT_FIRST_FRAME, Some(0)).unwrap()}
+  }
 }
 
 impl ::flatbuffers::Verifiable for CommitChunk<'_> {
@@ -21276,6 +21288,7 @@ impl ::flatbuffers::Verifiable for CommitChunk<'_> {
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, Uuid>>>("absorbed", Self::VT_ABSORBED, false)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, FrameProvenance>>>("frame_provenance", Self::VT_FRAME_PROVENANCE, false)?
      .visit_field::<u32>("provenance_version", Self::VT_PROVENANCE_VERSION, false)?
+     .visit_field::<u32>("first_frame", Self::VT_FIRST_FRAME, false)?
      .finish();
     Ok(())
   }
@@ -21287,6 +21300,7 @@ pub struct CommitChunkArgs<'a> {
     pub absorbed: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, Uuid>>>,
     pub frame_provenance: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, FrameProvenance>>>,
     pub provenance_version: u32,
+    pub first_frame: u32,
 }
 impl<'a> Default for CommitChunkArgs<'a> {
   #[inline]
@@ -21298,6 +21312,7 @@ impl<'a> Default for CommitChunkArgs<'a> {
       absorbed: None,
       frame_provenance: None,
       provenance_version: 0,
+      first_frame: 0,
     }
   }
 }
@@ -21332,6 +21347,10 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> CommitChunkBuilder<'a, 'b, A>
     self.fbb_.push_slot::<u32>(CommitChunk::VT_PROVENANCE_VERSION, provenance_version, 0);
   }
   #[inline]
+  pub fn add_first_frame(&mut self, first_frame: u32) {
+    self.fbb_.push_slot::<u32>(CommitChunk::VT_FIRST_FRAME, first_frame, 0);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> CommitChunkBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     CommitChunkBuilder {
@@ -21355,6 +21374,7 @@ impl ::core::fmt::Debug for CommitChunk<'_> {
       ds.field("absorbed", &self.absorbed());
       ds.field("frame_provenance", &self.frame_provenance());
       ds.field("provenance_version", &self.provenance_version());
+      ds.field("first_frame", &self.first_frame());
       ds.finish()
   }
 }
