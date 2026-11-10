@@ -1,10 +1,10 @@
 """The dashboard prefers who the face worker found (its visits on the vision log) for history_at and last seen."""
 
-from liberational.dashboard import server
+from liberational.dashboard import context, server
 
 
 def test_recorded_visits_come_first_and_give_last_seen(tmp_path, monkeypatch, vision):
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     vision.visit("Alice", 1000, 1100, cam="cam0", best_sim=0.8, samples=9)
     vision.visit("Bob", 5000, 5100, cam="cam1", best_sim=0.7, samples=4)
     faces = [{"name": "Face 3", "sim": 0.0, "bearing_deg": 10}, {"name": "Alice", "sim": 0.5, "bearing_deg": 2}]

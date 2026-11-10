@@ -975,8 +975,7 @@ def face_embedding(row: Mapping[str, Any], cam: str) -> Record:
     """A face.embedding row as a record. Its vector stays the float32 (512,) array the store read (a row of its
     (rows, 512) block, not a copy): a list of 512 Python floats cost about 66 us a row, 1.25 s of autoname's 2.2 s
     over 7 days (18,889 rows), and every reader turns it straight back into numpy. It is a read-only view, so
-    a reader can't change the block it shares (or an hour `keep_hours` kept), and the caller's own array stays as it
-    was."""
+    a reader can't change the block it shares, and the caller's own array stays as it was."""
     vector = np.asarray(row["vector"], np.float32).view()
     vector.flags.writeable = False
     return {
@@ -1667,23 +1666,7 @@ class Writers:
 
 
 HOUR_S = 3600.0
-SETTLE_S = 120.0  # an hour this long over is kept: rows reach their files within a few seconds of their time
-MAX_HOURS = 1000  # kept hours, before the cache starts over (a day of every stream read, with room)
-_KEEP_HOURS = False
-_HOURS: dict[tuple[Any, ...], tuple[Any, list[Record]]] = {}
-
-
-def keep_hours(on: bool = True) -> None:
-    """Keep each ended hour's decoded records of a window still going in this process, for a reader that reads it
-    again and again (Review's day history of today, every minute). Each kept hour is checked against its files'
-    stamp (`Log.stamp`) on every read, so a row written late or a purge shows at once; only the newest hours are read
-    from the store. Off by default: a process that reads a window once gains nothing. Today's hours are a lot of
-    records: Review's day-history worker was about 1.1 GB by late afternoon on the Linux machine, dropped when the
-    day turns."""
-    global _KEEP_HOURS
-    _KEEP_HOURS = on
-    if not on:
-        _HOURS.clear()
+SETTLE_S = 120.0  # an hour this long over is settled: rows reach their files within a few seconds of their time
 
 
 def _segment_moved(exc: BaseException) -> bool:
@@ -1749,44 +1732,10 @@ class Log:
         return tuple(sorted(out))
 
     def range(self, stream: str, start: float, end: float, cameras: Sequence[str] | None = None) -> list[Record]:
-        """Every record of `stream` overlapping [start, end), in time order. With `keep_hours` on, a window over an hour
-        long is read an hour at a time, each ended hour's records kept (see `keep_hours`)."""
+        """Every record of `stream` overlapping [start, end), in time order."""
         if end <= start:
             return []
-        if _KEEP_HOURS and end - start > HOUR_S and end > time.time():
-            return _face_groups_now(stream, self._by_hour(stream, start, end, cameras))
         return _face_groups_now(stream, self._read(stream, start, end, cameras))
-
-    def _by_hour(self, stream: str, start: float, end: float, cameras: Sequence[str] | None) -> list[Record]:
-        settled = time.time() - SETTLE_S
-        # Only the window still going keeps its hours (an ended day's reader keeps its whole answer instead): what's
-        # kept from before this window, yesterday's hours once the day has turned, goes.
-        for old in [k for k in _HOURS if k[0] == str(self.base) and k[1] == stream and k[3] <= start]:
-            del _HOURS[old]
-        out: list[Record] = []
-        at = start
-        while at < end:
-            upto = min(end, (math.floor(at / HOUR_S) + 1) * HOUR_S)
-            if upto <= settled:
-                key = (str(self.base), stream, at, upto, tuple(cameras) if cameras is not None else None)
-                stamp = self.stamp(at, upto, (stream,))
-                kept = _HOURS.get(key)
-                if kept is None or kept[0] != stamp:
-                    kept = (stamp, self._read(stream, at, upto, cameras))
-                    if len(_HOURS) >= MAX_HOURS:
-                        _HOURS.clear()
-                    _HOURS[key] = kept
-                rows = kept[1]
-            else:
-                rows = self._read(stream, at, upto, cameras)
-            # A record spanning an hour's end is in both hours' reads, and ids aren't unique in every stream: each
-            # record is taken from the one hour holding its start (or the window's, for one that began before it),
-            # whose read always has it.
-            out.extend(dict(r) for r in rows if at <= max(r["ts_start"], start) < upto)  # copies: a reader that
-            # changes a record can't change the kept hour
-            at = upto
-        out.sort(key=lambda r: (r["ts_start"], r.get("id", "")))
-        return out
 
     def _segments(
         self,

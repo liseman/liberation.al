@@ -55,7 +55,7 @@ use continuum_core::StreamId;
 
 pub use chunk::{ChunkError, ChunkFormat, ChunkReader, ChunkWriter, Record, scan_tail};
 pub use flush::{ChunkCommit, Closed, FlushSettings, Flusher, Incoming, StreamShape};
-pub use hydrate::{Hydrated, Picture, decode_jpeg, hydrate, hydrate_frame, read_chunk, rgb_to_nv12};
+pub use hydrate::{Hydrated, JpegNv12, Picture, decode_jpeg, hydrate, hydrate_frame, read_chunk, rgb_to_nv12};
 pub use probe::{Ffmpeg, Probe, probe};
 pub use recover::{Recovered, recover};
 pub use worker::{Appended, CameraFrameInfo, CommitFailure, Counts, Outputs, Payload, WorkerLoop};

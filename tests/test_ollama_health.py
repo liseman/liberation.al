@@ -251,7 +251,7 @@ class Ps:
 def polled(monkeypatch):
     """The dashboard's Stats on a clock of its own, with Ollama answering (until `up` is cleared) and every /api/tags
     read counted."""
-    from liberational.dashboard import server
+    from liberational.dashboard import machine_stats, server
 
     clock = {"now": 1_800_000_000.0, "up": True, "tags": 0}
 
@@ -270,7 +270,7 @@ def polled(monkeypatch):
     monkeypatch.setattr(oh, "_get", tags)
     monkeypatch.setattr(server.time, "time", lambda: clock["now"])
     with cfg.override({"ollama": {"url": URL}, **MODELS}):
-        yield server.Stats(), clock
+        yield machine_stats.Stats(), clock
 
 
 def test_stats_polled_every_few_seconds_ask_ollama_for_its_models_once_in_five_minutes(polled):
@@ -296,7 +296,7 @@ def test_stats_say_ollama_is_down_at_once_and_back_at_once(polled):
 
 
 def test_the_dashboard_stats_carry_what_to_tell_the_owner():
-    from liberational.dashboard import server
+    from liberational.dashboard import machine_stats, server
 
     def refused(*a, **k):
         raise urllib.error.URLError(ConnectionRefusedError(111, "refused"))
@@ -306,7 +306,7 @@ def test_the_dashboard_stats_carry_what_to_tell_the_owner():
         patch.object(server.urllib.request, "urlopen", side_effect=refused),
         patch.object(oh, "_get", side_effect=refused),
     ):
-        o = server.Stats().ollama_ps()
+        o = machine_stats.Stats().ollama_ps()
     assert (o["up"], o["missing"], o["message"]) == (
         False,
         [],

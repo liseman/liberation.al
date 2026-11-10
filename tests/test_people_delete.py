@@ -12,7 +12,7 @@ import pytest
 
 from liberational import config as cfg
 from liberational import speech_log
-from liberational.dashboard import server
+from liberational.dashboard import call_log, context, server
 from liberational.domain.identity import Basis
 from liberational.memory import ask, history_qa, journal
 from liberational.people import contacts, face_shots, forgotten, registry
@@ -95,14 +95,14 @@ def world(tmp_path, monkeypatch):
     kept = journal_entry(state, [alices], 2010, 2040)
     faces = FakeFaces()
     files = {
-        "STATE": ".",
         "CONTACTS_FILE": "contacts.json",
         "PEOPLE_ADDED": "people_added.json",
         "VOICE_TAGS": "voice_tags.jsonl",
-        "CALLS_DIR": "calls",
     }
     for name, path in files.items():
         monkeypatch.setattr(server, name, state / path)
+    monkeypatch.setattr(call_log, "CALLS_DIR", state / "calls")
+    monkeypatch.setattr(context, "STATE", state)
     ran = in_process_voice_edits(monkeypatch)
     monkeypatch.setattr(server, "_listening", lambda: False)  # the microphone service isn't running
     monkeypatch.setattr(server, "_faces_mod", lambda: faces)
