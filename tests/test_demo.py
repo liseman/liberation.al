@@ -1,0 +1,102 @@
+"""Demo mode (demo/, #17): the seeded household as the dashboard reads it, and a launcher that keeps off real data."""
+
+import datetime as dt
+from pathlib import Path
+
+import pytest
+
+from liberational import config as cfg
+from liberational.dashboard import journal as journal_view
+from liberational.demo import cli, dataset
+from liberational.memory import journal, places
+from liberational.people import pets, registry
+
+TODAY = dt.date(2026, 11, 9)
+DAY = dt.date(2026, 11, 8)  # the demo's day is the day before
+NOW = journal.day_bounds(TODAY)[0] + 9 * 3600
+
+
+@pytest.fixture
+def seeded(tmp_path, memory):
+    assert dataset.seed(tmp_path, memory, today=TODAY) == DAY
+    return tmp_path
+
+
+def test_journal_lists_the_demo_day_with_its_page(seeded):
+    code, reply = journal_view.days(DAY - dt.timedelta(days=DAY.weekday()), seeded, NOW)
+
+    assert code == 200
+    assert [r["label"] for r in reply["items"] if r["key"] == DAY.isoformat()]
+
+    code, reply = journal_view.hours(DAY, seeded, NOW)
+
+    assert code == 200
+    assert len(reply["items"]) == 12
+    assert reply["items"][0]["label"] == "07:00"
+    assert reply["items"][-1]["label"] == "22:00"
+    assert reply["page"]["md"].startswith("# Sunday 2026-11-08\n")
+    assert "## In short" in reply["page"]["md"]
+
+
+def test_an_hour_lists_its_events(seeded):
+    six_pm = journal.day_bounds(DAY)[0] + 18 * 3600
+
+    code, reply = journal_view.events(six_pm, seeded)
+
+    assert code == 200
+    assert [r["text"][:5] for r in reply["items"]] == ["Alice", "Sam s", "Dana ", "Alice"]
+
+
+def test_people_pet_and_place_are_seeded(seeded):
+    assert sorted(p.display_name for p in registry.at(seeded).people()) == ["Alice", "Dana", "Sam"]
+    assert [(p["name"], p["species"]) for p in pets.at(seeded).listing()] == [("Rex", "dog")]
+    (place,) = places.places(seeded)
+    assert place.name == "Demo house"
+    assert (place.plan_source, str(place.plan).count("\nroom ")) == ("machine", 5)
+
+
+def test_environment_points_every_path_into_the_demo_dir(tmp_path):
+    root = tmp_path / "d"
+    real = {"PACK_PATHS_STATE": "/real/state", "PACK_STATE": "/real/state", "OLLAMA_HOST": "127.0.0.1:11434"}
+
+    env = cli.environment(root, 8766, base=real)
+
+    path_vars = [k for k in env if k.startswith("PACK_PATHS_")]
+    assert sorted(path_vars) == sorted(f"PACK_PATHS_{k.upper()}" for k in cfg.load()["paths"])
+    assert all(Path(env[k]).parent == root for k in path_vars)
+    assert env["PACK_STATE"] == str(root / "state")
+    assert env["PACK_CONFIG"] == str(root / "pack.toml")
+    assert env["PACK_OLLAMA_URL"] == cli.NO_OLLAMA
+    assert "OLLAMA_HOST" not in env
+    assert env["CONTINUUM_SOCKET"] == str(root / "state" / "continuum" / "broker.sock")
+
+
+def test_a_socket_path_too_long_for_a_socket_goes_to_a_short_dir(tmp_path):
+    root = tmp_path / ("x" * 120)
+
+    sock = Path(cli.environment(root, 8766, base={})["CONTINUUM_SOCKET"])
+
+    assert not sock.is_relative_to(root)
+    assert len(str(sock).encode()) <= cli.SOCKET_MAX
+    sock.parent.rmdir()
+
+
+@pytest.mark.parametrize("inside", ["data", "data/demo"])
+def test_a_demo_dir_in_the_real_data_dir_is_refused(inside):
+    with pytest.raises(SystemExit, match="real data directory"):
+        cli.check_dir(cfg.ROOT / inside)
+
+
+def test_a_dir_holding_something_else_is_refused(tmp_path):
+    (tmp_path / "notes.txt").write_text("mine")
+
+    with pytest.raises(SystemExit, match="isn't a demo directory"):
+        cli.check_dir(tmp_path)
+
+
+@pytest.mark.parametrize("marker", [False, True], ids=["empty", "seeded"])
+def test_an_empty_or_seeded_dir_is_accepted(tmp_path, marker):
+    if marker:
+        (tmp_path / cli.SEEDED).write_text("pack-demo\n")
+
+    cli.check_dir(tmp_path)

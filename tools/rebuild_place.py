@@ -51,9 +51,6 @@ from liberational.spatial import plan_import as pi
 LOOK_PREFIX = "walk-"  # a walk's look-from views (spatial/splats.py LOOK_PREFIX), not fixed cameras
 OUTSIDE_M = 0.3  # metres outside every room of the owner plan (past a wall's centreline) a point may lie and be kept
 NEAR_WALL = 0.1  # metres: the report's "within 10 cm of a wall's face"
-COVER_CELL = 0.1  # metres: the cells a room's floor is counted in for coverage
-WALKED_SHARE = 0.3  # a room is walked when a walk saw at least this share of its cells
-MAPPED_SHARE = 0.2  # a room is mapped (by the cameras, if not walked) when the map has this share of its cells
 IDENT = pi.Move(0.0, (0.0, 0.0), mirror=False)  # the owner plan is stored in the plan frame: its page is the frame
 
 
@@ -200,9 +197,9 @@ def inside_plan(plan: pi.Parsed, frame: Sequence[float]) -> Callable[[np.ndarray
 
 def snapshots(state: Path, cams: Sequence[str], now: float) -> list[fuse.Piece]:
     """Tonight's snapshot of each group of `cams` (frames and MASt3R, read only, in a temporary folder)."""
-    from liberational.spatial import cameras
+    from liberational.spatial import cameras, rig
 
-    indoor = cameras.indoor_cameras(cams, cfg.get("spatial.outdoor_cameras") or [])
+    indoor = cameras.indoor_cameras(cams, rig.load())
     out_pieces = []
     with tempfile.TemporaryDirectory(prefix="rebuild-place-") as tmp:
         out = Path(tmp)
@@ -293,25 +290,10 @@ def tonight(groups: Sequence[fuse.Piece], rebuilt: fuse.Rebuilt) -> None:
 
 
 def coverage(fused: fuse.Fused, plan: pi.Parsed, frame: Sequence[float]) -> dict[str, list[str]]:
-    """The plan's rooms by what covers them: a walk, the cameras only, or nothing."""
-    pts = pi.in_frame(fused.points, frame)[:, :2]
-    all_cells = {tuple(c) for c in np.floor(pts / COVER_CELL).astype(np.int64).tolist()}
-    walked_cells = {tuple(c) for c in np.floor(pts[fused.walks > 0] / COVER_CELL).astype(np.int64).tolist()}
+    """The plan's rooms by what covers them: a walk, the cameras only, or nothing (`plan_import.room_coverage`)."""
     out: dict[str, list[str]] = {"walked": [], "cameras only": [], "nothing": []}
-    for room in plan.rooms:
-        poly = np.asarray(room.polygon)
-        lo, hi = np.floor(poly.min(0) / COVER_CELL).astype(int), np.ceil(poly.max(0) / COVER_CELL).astype(int)
-        gx, gy = np.meshgrid(np.arange(lo[0], hi[0]), np.arange(lo[1], hi[1]))
-        cells = np.c_[gx.ravel(), gy.ravel()]
-        one = dataclasses.replace(plan, rooms=(room,))
-        cells = cells[pi.inside(one, (cells + 0.5) * COVER_CELL)]
-        if not len(cells):
-            continue
-        keys = [tuple(c) for c in cells.tolist()]
-        walked = sum(k in walked_cells for k in keys) / len(keys)
-        mapped = sum(k in all_cells for k in keys) / len(keys)
-        kind = "walked" if walked >= WALKED_SHARE else "cameras only" if mapped >= MAPPED_SHARE else "nothing"
-        out[kind].append(f"{room.name} ({walked:.0%} walked, {mapped:.0%} mapped)")
+    for c in pi.room_coverage(fused.points, fused.walks, plan, frame):
+        out[c.kind].append(f"{c.room.name} ({c.walked:.0%} walked, {c.mapped:.0%} mapped)")
     return out
 
 

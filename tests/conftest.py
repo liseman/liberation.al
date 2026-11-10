@@ -189,6 +189,45 @@ def _device_registries_empty(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_camera_mounts(monkeypatch, tmp_path_factory):
+    """Camera mounts come from capture's manifest (spatial/rig.py); a test never reads the real one. A test that needs
+    mounts writes its own through the `mounts` fixture."""
+    from liberational.spatial import rig
+
+    missing = tmp_path_factory.mktemp("no-manifest") / "devices.toml"
+    monkeypatch.setattr(rig, "manifest", lambda: missing)
+
+
+@pytest.fixture
+def mounts(monkeypatch, tmp_path_factory):
+    """Write a manifest of rtsp cameras with these mounts (`{"cam0": {"height_m": 1.5}}`, TOML values) and the rigs
+    named, and point spatial/rig.py at it."""
+    from liberational.spatial import rig
+
+    def write(cameras, rigs=()):
+        path = tmp_path_factory.mktemp("manifest") / "devices.toml"
+        lines = [f'[[rig]]\nname = "{r}"\n' for r in rigs]
+        for camera, mount in cameras.items():
+            fields = ", ".join(f"{k} = {_toml(v)}" for k, v in mount.items())
+            lines.append(f'[[device]]\nname = "{camera}"\nkind = "rtsp"\nmount = {{ {fields} }}\n')
+        path.write_text("".join(lines))
+        monkeypatch.setattr(rig, "manifest", lambda: path)
+        return path
+
+    return write
+
+
+def _toml(value):
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, str):
+        return f'"{value}"'
+    if isinstance(value, list | tuple):
+        return "[" + ", ".join(_toml(v) for v in value) + "]"
+    return repr(value)
+
+
+@pytest.fixture(autouse=True)
 def _ollama_health_starts_fresh():
     """ollama_health keeps one outage per process: a test that saw Ollama down must not make the next fail fast."""
     from liberational import ollama_health

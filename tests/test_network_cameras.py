@@ -149,7 +149,7 @@ def test_network_camera_name_is_a_display_alias_without_changing_id(manifest, mo
     monkeypatch.setattr(cameras.settings, "restart", lambda *a, **kw: None)
     cameras.add(proposal(), lambda *a, **kw: None)
     before = manifest.read_bytes()
-    with cameras.cfg.override({"vision": {"places": ["entryway: Front door"]}}):
+    with cameras.cfg.override({"vision": {"camera_names": ["entryway: Front door"]}}):
         row = cameras.view()["cameras"][0]
     assert row["name"] == "Front door" and row["id"] == "entryway"
     assert manifest.read_bytes() == before

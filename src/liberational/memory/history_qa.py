@@ -62,7 +62,7 @@ from liberational.listen.revisions import NOT_SAID
 from liberational.memory import activity_kinds, event_counts, timeline
 from liberational.people import registry, transcript_view
 from liberational.speech.playback_guard import overlaps
-from liberational.vision import places
+from liberational.vision import views
 
 LOG = logs.get("history-qa")
 
@@ -261,7 +261,7 @@ def _journal_source(text: str) -> bool:
 
 def is_history_question(question: str) -> bool:
     try:
-        cameras, remaining = places.configured_camera_mentions(question)
+        cameras, remaining = views.configured_camera_mentions(question)
     except ValueError:
         return True  # collect/parse returns the actionable camera-selection error, never general-model fallback.
     q = remaining.lower()
@@ -541,7 +541,7 @@ def _natural_dates(question: str, day: dt.datetime) -> str:
 
 def parse(question: str, now: float, selected_day: str | dt.date | None = None) -> dict[str, Any]:
     met = LAST_MET.search(question) if timeline.enabled() else None
-    configured_cameras, remaining = places.configured_camera_mentions(question)
+    configured_cameras, remaining = views.configured_camera_mentions(question)
     q = remaining.lower()
     journal_only = _journal_source(q)
     if met:  # the phrase names a person, not a time: it must not read as "last <unit>" below

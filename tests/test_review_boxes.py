@@ -397,10 +397,10 @@ def test_review_boxes_still_show_by_species_when_recognition_fails(animal_store,
 
 @pytest.fixture
 def rig(monkeypatch):
-    from liberational.vision import places
+    from liberational.vision import views
 
-    monkeypatch.setattr(places, "camera_ids", lambda active_only=False: ["cam0", "cam1"])
-    monkeypatch.setattr(places, "names", lambda: {"cam1": "desk"})
+    monkeypatch.setattr(views, "camera_ids", lambda active_only=False: ["cam0", "cam1"])
+    monkeypatch.setattr(views, "names", lambda: {"cam1": "desk"})
 
 
 def test_live_here_now_names_a_labeled_pet_in_view_with_its_camera_and_when_its_visit_began(animal_store, rig):

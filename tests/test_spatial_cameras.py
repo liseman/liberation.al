@@ -14,7 +14,7 @@ import pytest
 
 from liberational import config as cfg
 from liberational.memory import places
-from liberational.spatial import cameras, floorplan, footprints, fuse, lens, ply
+from liberational.spatial import cameras, floorplan, footprints, fuse, lens, ply, rig
 from liberational.spatial.mast3r_runner import (
     floor_from_normals,
     groups,
@@ -79,6 +79,12 @@ def test_fixed_cameras_are_the_enabled_cameras_without_a_fisheye_lens(tmp_path):
             [[device]]
             name = "porch"
             kind = "rtsp"
+            [[device]]
+            name = "pack-back"
+            kind = "camera"
+            mount = { rig = "pack", hfov_deg = 120.0 }
+            [[rig]]
+            name = "pack"
             [[device]]
             name = "attic"
             kind = "rtsp"
@@ -623,12 +629,16 @@ def test_a_lone_group_becomes_a_place_on_the_floor_it_was_given(tmp_path):
     assert rev.floor == pytest.approx(floor)  # a fit to this cloud would take the table top
 
 
-def test_outdoor_cameras_are_left_out_in_order():
-    assert cameras.indoor_cameras(["cam0", "patio", "bedroom", "driveway"], ["driveway", "patio"]) == [
-        "cam0",
-        "bedroom",
-    ]
-    assert cameras.indoor_cameras(["cam0"], []) == ["cam0"]
+def test_cameras_mounted_outdoors_are_left_out_in_order():
+    mounts = rig.Mounts(
+        cameras={
+            "patio": rig.Mount("patio", outdoor=True),
+            "bedroom": rig.Mount("bedroom", height_m=2.0),
+            "driveway": rig.Mount("driveway", outdoor=True),
+        }
+    )
+    assert cameras.indoor_cameras(["cam0", "patio", "bedroom", "driveway"], mounts) == ["cam0", "bedroom"]
+    assert cameras.indoor_cameras(["cam0"], rig.Mounts()) == ["cam0"]
 
 
 def test_the_runner_is_asked_for_lone_cameras_only_when_given_a_bar(runtime, tmp_path):
@@ -909,15 +919,17 @@ def test_a_cloud_with_no_flat_layer_along_up_has_no_floor_there():
         pytest.param(2.0, 1.5, False, id="against-a-measured-1.5"),
     ],
 )
-def test_a_lone_camera_with_an_impossible_floor_keeps_its_places_last_revision(tmp_path, floor_d, measured, kept):
+def test_a_lone_camera_with_an_impossible_floor_keeps_its_places_last_revision(
+    tmp_path, mounts, floor_d, measured, kept
+):
     # 2026-11-08: a kitchen camera 0.91 m up was registered 0.11 above its floor, and its place scaled by 8.3 (#2960)
     points, up = pitched_view()
     good = answer(tmp_path, ["kitchen"], points.reshape(-1, 3).astype(np.float32))
     good.update(up=[float(x) for x in up], floor=[*(float(x) for x in up), 2.0])
     (was,) = cameras.write_places(tmp_path, {"groups": [good]}, tmp_path, T)
     tonight = dict(good, floor=[*(float(x) for x in up), floor_d])
-    with cfg.override({"spatial": {"camera_heights_m": {"kitchen": measured} if measured else {}}}):
-        got = cameras.write_places(tmp_path, {"groups": [tonight]}, tmp_path, T + 86400)
+    mounts({"kitchen": {"height_m": measured}} if measured else {})
+    got = cameras.write_places(tmp_path, {"groups": [tonight]}, tmp_path, T + 86400)
     assert (got == []) == kept
     latest = places.latest(tmp_path, was.place)
     assert latest is not None and (latest.id == was.id) == kept
@@ -1216,7 +1228,7 @@ def test_the_nightly_run_writes_and_fuses_places_under_the_lock_a_join_holds(tmp
     real_get = cfg.get
     monkeypatch.setattr(cfg, "get", lambda key, *a: False if key == "spatial.splats_enabled" else real_get(key, *a))
     monkeypatch.setattr(cameras, "fixed_cameras", lambda path: ["cam0"])
-    monkeypatch.setattr(cameras, "indoor_cameras", lambda cams, outdoor: cams)
+    monkeypatch.setattr(cameras, "indoor_cameras", lambda cams, mounts: cams)
     monkeypatch.setattr(cameras.footprints, "record", lambda state, cams, now: 0)
     monkeypatch.setattr(cameras, "detector", lambda: None)
     monkeypatch.setattr(cameras, "frames", lambda *a, **kw: {"cam0": tmp_path / "cam0.png"})
