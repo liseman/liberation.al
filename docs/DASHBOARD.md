@@ -39,6 +39,8 @@ gitignored.
   [frontend/public/pascal/README.md](../frontend/public/pascal/README.md) says how to move the pin.
 - With no build, a page says how to make one. Hashed assets are cached for a year; pages are fetched fresh.
 - `mise run lint` runs Biome and `tsc`. Tests are Vitest files beside the code (Testing Library, jsdom, and MSW).
+- The conventions for dashboard UI (the theme and its tokens, the shared components to reuse, and light and dark)
+  are in [.claude/skills/mantine/SKILL.md](../.claude/skills/mantine/SKILL.md), not here.
 
 | Path under `frontend/src/` | Contents |
 |---|---|
@@ -104,7 +106,7 @@ effective value and its comment as the description; secrets are never sent) and 
 - With no `pack.toml`, the dashboard opens on the same form as first-run setup.
 - **Cameras and microphones** edits the device manifest. Changing which devices are used restarts capture; changing
   one camera's settings restarts only that camera's worker. Sensitivity applies live.
-- **Network cameras** discovers RTSP cameras through UniFi Protect or ONVIF ([NETWORK.md](NETWORK.md)).
+- **Network cameras** discovers RTSP cameras through UniFi Protect or ONVIF ([NETWORK.md](NETWORK.md#network-cameras)).
 - **Services** shows each service's state, last error, and history, and switches services on and off
   ([SERVICES.md](SERVICES.md)).
 - **This machine** shows processor, memory, loaded models, and missing system packages.

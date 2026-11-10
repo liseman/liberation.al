@@ -262,4 +262,4 @@ pushed. They don't know names, so keeping real people out of what you write is u
 ## License
 
 Apache License 2.0: see [LICENSE](LICENSE). Bundled third-party files (the fonts, the floorplan library, and the
-vendored testing skill) keep their own licenses, each stated beside the files it covers.
+vendored skills under `.claude/skills/`) keep their own licenses, each stated beside the files it covers.
