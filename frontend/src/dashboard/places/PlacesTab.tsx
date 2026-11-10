@@ -267,10 +267,7 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
               <Paper withBorder radius="md" className={classes.plan}>
                 <div className={classes.planHead}>
                   <Text fw={600} component="h2" className={classes.planTitle}>
-                    <span className={classes.name}>
-                      {place.name}
-                      {!place.example && <LearningBadge status={learning} place={place.id} />}
-                    </span>
+                    <span className={classes.name}>{place.name}</span>
                   </Text>
                   {result && (
                     <Text size="sm" c="dimmed">
