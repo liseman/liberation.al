@@ -1,5 +1,6 @@
 import hashlib
 import http.server
+import importlib
 import pathlib
 import sys
 import threading
@@ -70,7 +71,7 @@ def test_a_file_named_tar_that_isnt_an_archive_is_kept_as_it_is(tmp_path, monkey
 
 
 def test_huggingface_download_honors_declared_checkpoint_patterns(monkeypatch):
-    import huggingface_hub
+    huggingface_hub = pytest.importorskip("huggingface_hub")  # only an extra brings it on Linux
 
     calls = []
     monkeypatch.setattr(huggingface_hub, "snapshot_download", lambda repo, **kwargs: calls.append((repo, kwargs)))
@@ -83,7 +84,7 @@ def test_huggingface_download_honors_declared_checkpoint_patterns(monkeypatch):
 @pytest.fixture
 def snapshot(tmp_path, monkeypatch):
     """A fetched repository with its weights file: `snapshot_download` hands back its folder."""
-    import huggingface_hub
+    huggingface_hub = pytest.importorskip("huggingface_hub")  # only an extra brings it on Linux
 
     folder = tmp_path / "snapshot"
     folder.mkdir()
@@ -110,7 +111,7 @@ def test_a_fetched_copy_with_other_weights_is_refused_and_its_file_removed(snaps
 
 
 def test_huggingface_local_checkpoint_honors_revision_without_fetching_other_files(tmp_path, monkeypatch):
-    import huggingface_hub
+    huggingface_hub = pytest.importorskip("huggingface_hub")  # only an extra brings it on Linux
 
     calls = []
     monkeypatch.setattr("liberational.config.OWNER_ROOT", tmp_path)
@@ -137,16 +138,17 @@ def test_huggingface_local_checkpoint_honors_revision_without_fetching_other_fil
 
 
 def gated_error(repo):
-    import httpx
-    from huggingface_hub.errors import GatedRepoError
+    from huggingface_hub.errors import GatedRepoError, Response
 
+    # The response is built with the HTTP library the installed hub speaks (httpx before hub 2, httpx2 from it)
+    client = importlib.import_module(Response.__module__.partition(".")[0])
     url = f"https://huggingface.co/{repo}/resolve/main/config.json"
-    response = httpx.Response(401, headers={"X-Error-Code": "GatedRepo"}, request=httpx.Request("GET", url))
+    response = client.Response(401, headers={"X-Error-Code": "GatedRepo"}, request=client.Request("GET", url))
     return GatedRepoError(f"401 Client Error. Cannot access gated repo for url {url}.", response=response)
 
 
 def test_a_gated_repository_is_reported_after_everything_else_is_fetched(monkeypatch, capsys):
-    import huggingface_hub
+    huggingface_hub = pytest.importorskip("huggingface_hub")  # only an extra brings it on Linux
 
     fetched = []
 
@@ -186,7 +188,7 @@ def test_a_gated_repository_is_reported_after_everything_else_is_fetched(monkeyp
 
 
 def test_another_download_failure_still_stops_the_run(monkeypatch):
-    import huggingface_hub
+    huggingface_hub = pytest.importorskip("huggingface_hub")  # only an extra brings it on Linux
 
     def snapshot_download(repo, **kwargs):
         raise OSError("disk full")
