@@ -305,3 +305,13 @@
   cursor: pointer;
   text-decoration: underline;
 }
+
+/* The new plan editor and its 3D view (scene/PlanFrame.tsx): a page of its own in a frame, tall enough to work in. */
+.planFrame {
+  display: block;
+  width: 100%;
+  height: min(78vh, 60rem);
+  min-height: 28rem;
+  border: 0;
+  border-radius: var(--mantine-radius-md);
+}

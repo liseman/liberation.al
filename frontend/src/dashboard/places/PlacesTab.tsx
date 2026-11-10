@@ -19,6 +19,7 @@ import classes from './places.module.css';
 import { parsePlaceDsl } from './plan/dsl';
 import type { Extensions } from './plan/ext';
 import { drawPlace, looks, type PlaceDrawing } from './plan/render';
+import { PlanFrame } from './scene/PlanFrame';
 
 // The 3D view is its own chunk: the viewer and its engine load only when someone opens it.
 const CloudView = lazy(() => import('./cloud/CloudView'));
@@ -146,6 +147,9 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
   const [showing, setShowing] = useState<Showing>('mine');
   // The plan, or the place's map in 3D (real places only: the examples have no map).
   const [view, setView] = useState<'plan' | '3d'>('plan');
+  // A place whose plan is a Pascal scene (the example flat, for now): the plan as drawn, or in the new editor or its
+  // 3D view (scene/PlanFrame.tsx).
+  const [sceneView, setSceneView] = useState<'plan' | '2d' | '3d'>('plan');
   const machine = useMemo(() => {
     if (!place?.machinePlanText || showing !== 'machine') return null;
     try {
@@ -193,6 +197,7 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
                           aria-current={p.id === place?.id ? 'true' : undefined}
                           onClick={() => {
                             setPicked(p.id);
+                            setSceneView('plan');
                             setEditing(null);
                             setShowing('mine');
                           }}
@@ -232,6 +237,19 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
                         .join(' · ')}
                     </Text>
                   )}
+                  {place.scene && (
+                    <SegmentedControl
+                      size="xs"
+                      value={sceneView}
+                      onChange={v => setSceneView(v as 'plan' | '2d' | '3d')}
+                      data={[
+                        { value: 'plan', label: 'Plan' },
+                        { value: '2d', label: 'Editor' },
+                        { value: '3d', label: '3D' },
+                      ]}
+                      aria-label="Show the plan as"
+                    />
+                  )}
                   {!place.example && editing !== place.id && (
                     <SegmentedControl
                       size="xs"
@@ -245,7 +263,16 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
                     />
                   )}
                 </div>
-                {!place.example && view === '3d' && editing !== place.id ? (
+                {place.scene && sceneView !== 'plan' ? (
+                  <>
+                    <Text size="sm" c="dimmed" mb="xs">
+                      {sceneView === '2d'
+                        ? 'The new plan editor, on the example flat. Nothing drawn here is saved yet.'
+                        : 'The example flat in 3D, from the same plan.'}
+                    </Text>
+                    <PlanFrame key={`${place.id}-${sceneView}`} scene={place.scene} view={sceneView} scheme={scheme} />
+                  </>
+                ) : !place.example && view === '3d' && editing !== place.id ? (
                   <Suspense
                     fallback={
                       <Text size="sm" c="dimmed">
