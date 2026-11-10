@@ -675,9 +675,10 @@ impl Session {
         let Some(client) = link.client_or_reconnect_blocking() else { return Ok(recorded) };
         let asked = std::time::Instant::now();
         let listed = link.rt.block_on(client.list_streams());
-        // Which part a slow listing spent its time in, the chunk directory or the broker.
+        // Which part a slow listing spent its time in, the chunk directory or the broker. DEBUG: a loaded machine
+        // makes most listings slow, and at INFO they were most of the gateway's log (#59).
         if started.elapsed() > SLOW_LISTING {
-            tracing::info!(chunks = ?chunks, broker = ?asked.elapsed(), "a slow stream listing");
+            tracing::debug!(chunks = ?chunks, broker = ?asked.elapsed(), "a slow stream listing");
         }
         let listed = match listed {
             Ok(l) => l,
@@ -1690,7 +1691,8 @@ impl Session {
             && m.streams().contains(&"pose.track")
         {
             let path = if poses_live { "the pose.boxes ring" } else { "pose.track segments, until the ring appears" };
-            tracing::info!(camera = %m.camera(), "live poses from {path}");
+            // Per camera per connection, so DEBUG (#59).
+            tracing::debug!(camera = %m.camera(), "live poses from {path}");
         }
         let segments = match (&self.segments, vision.as_ref(), from_segments.is_empty()) {
             (Some(root), Some(m), false) => {
