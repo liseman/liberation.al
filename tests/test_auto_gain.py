@@ -1,6 +1,6 @@
-"""Auto gain (#410): a mic's level steered toward speech peaks near audio.auto_gain_target_dbfs, by its own capture
+"""Auto gain: a mic's level steered toward speech peaks near audio.auto_gain_target_dbfs, by its own capture
 volume when the OS can set it, else by software gain. No test touches a real mixer: amixer and pw-dump are fakes
-holding what the Elgato Wave:3 shows on devbox."""
+holding what the Elgato Wave:3 shows on the Linux machine."""
 
 import json
 import tomllib
@@ -119,7 +119,7 @@ def test_moves_are_spaced_and_count_what_was_heard_at_the_new_gain():
 
 
 def test_clipped_clicks_in_quiet_speech_dont_step_down_so_the_gain_climbs_instead():
-    # devbox, 2026-10-30: speech peaks near -42 dBFS with a few clipped transients stepped the Wave 3 down 3 dB, the
+    # On the Linux machine, speech peaks near -42 dBFS with a few clipped transients stepped the Wave 3 down 3 dB, the
     # quiet speech raised it again, and it hunted: 30, 27, 28.5, 30, 27 dB. Target -26.
     auto = gain.AutoGain(0.0, 40.0)
     heard(auto, -42.5, at=0.0)
@@ -207,7 +207,7 @@ def test_the_target_is_read_live_and_checked(pack_toml):
         gain.target_dbfs()
 
 
-# ---- #449's review ----
+# ---- review cases ----
 
 BUILTIN = "alsa_input.pci-0000_00_1f.3.analog-stereo"
 CARD0_SCONTENTS = """Simple mixer control 'Capture',0
@@ -221,7 +221,7 @@ CARD0_CONTENTS = """numid=21,iface=MIXER,name='Capture Volume'
   ; type=INTEGER,access=rw---R--,values=2,min=0,max=63,step=0
   : values=39,39
   | dBscale-min=-17.25dB,step=0.75dB,mute=0
-"""  # read-only from devbox's built-in mic (card 0)
+"""  # read-only from the Linux machine's built-in mic (card 0)
 
 
 def card0(args: list[str]) -> str:
@@ -276,7 +276,7 @@ class CoarseMixer:
         return f"Mono: Capture 0 [0%] [{self.db:.2f}dB] [on]\n"
 
 
-# ---- #798: devices.toml names to PipeWire nodes, and MicGain as the listen worker runs it
+# ---- devices.toml names to PipeWire nodes, and MicGain as the listen worker runs it
 
 IPHONE = "alsa_input.usb-Apple_iPhone-00.mono-fallback"
 NODES = [
@@ -417,7 +417,7 @@ def test_the_status_settings_reads_is_by_device_name_and_goes_stale(tmp_path, wa
     assert gain.read_status(tmp_path / "missing.json") == {}
 
 
-# ---- Codex on #809: software gain that stood in for a failed lookup, and macOS device names
+# ---- Software gain that stood in for a failed lookup, and macOS device names
 
 
 def test_software_gain_standing_in_gives_way_to_the_hardware_control_once_it_is_found(wave, pack_toml):

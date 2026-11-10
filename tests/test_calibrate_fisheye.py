@@ -1,4 +1,4 @@
-"""The fisheye calibration tool (tools/calibrate_fisheye.py, #1891): it recovers a known lens from checkerboard views,
+"""The fisheye calibration tool (tools/calibrate_fisheye.py): it recovers a known lens from checkerboard views,
 finds a board's corners, and writes the result where see-actions reads it."""
 
 import importlib.util

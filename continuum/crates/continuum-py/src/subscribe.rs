@@ -111,7 +111,7 @@ impl PySubscription {
     /// Blocks this thread, with the GIL released, until an event arrives, then returns it with every other event
     /// already waiting, up to `max` in all: a list of event dicts, `[]` once `timeout_s` passes with none, or None
     /// once the subscription or the connection ends. Not for the event loop's thread, which it would stall: for a
-    /// thread of its own, such as a camera's decoder (#3235), which then wakes once per batch, with no handoff to
+    /// thread of its own, such as a camera's decoder, which then wakes once per batch, with no handoff to
     /// asyncio for each event. An `unsubscribe` from another task ends a waiting `take` with None.
     #[pyo3(signature = (timeout_s, max = 64))]
     fn take(&self, py: Python<'_>, timeout_s: f64, max: usize) -> PyResult<Option<Vec<Py<PyAny>>>> {

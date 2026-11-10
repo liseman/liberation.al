@@ -129,7 +129,7 @@ def test_reading_an_empty_roster_creates_no_store(tmp_path):
 
 
 def test_the_roster_reads_beside_another_reader(registry, tmp_path, monkeypatch):
-    # Another connection mid-read, as the dashboard's warm-ups are after a start (#2022). In rollback journaling a
+    # Another connection mid-read, as the dashboard's warm-ups are after a start. In rollback journaling a
     # write can't commit until it ends, and every read used to open the store anew with a schema write: it waited out
     # the busy timeout (shortened here, so that fails at once instead of taking 10 s).
     reg, _ = registry

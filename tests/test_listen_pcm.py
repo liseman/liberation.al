@@ -88,7 +88,7 @@ def test_16_khz_passes_through() -> None:
 
 def test_resampling_to_16k_filters_out_what_would_fold_into_the_speech_band() -> None:
     # Without a low-pass, 48 kHz audio's 8 to 24 kHz folds into 0 to 8 kHz: the Wave 3's hiss (45% of its energy)
-    # landed in the speech band (2026-10-30). A 12 kHz tone would alias to 4 kHz; a 1 kHz tone is speech.
+    # landed in the speech band. A 12 kHz tone would alias to 4 kHz; a 1 kHz tone is speech.
     from liberational.listen.pcm import Resampler
 
     t = np.arange(48_000) / 48_000

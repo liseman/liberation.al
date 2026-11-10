@@ -1,4 +1,4 @@
-"""Walkthrough revisit proposals (#2931): MegaLoc similarity through onnxruntime, and the shortlist MASt3R measures. A
+"""Walkthrough revisit proposals: MegaLoc similarity through onnxruntime, and the shortlist MASt3R measures. A
 tiny ONNX graph (each image's mean normalized colour) stands in for MegaLoc."""
 
 import numpy as np

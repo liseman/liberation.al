@@ -69,7 +69,7 @@ STATUSES = (*PENDING, "done", "failed")
 
 class ItemGone(LookupError):
     """The item isn't there: never added, deleted, or removed while it was being worked on. Its own type, so a stray
-    KeyError from a bug is never taken for this (#3164)."""
+    KeyError from a bug is never taken for this."""
 
 
 @dataclass

@@ -1,4 +1,4 @@
-"""Who's this?: rows already at 100% aren't listed, and query values are URL-decoded (2026-10-29)."""
+"""Who's this?: rows already at 100% aren't listed, and query values are URL-decoded."""
 
 from liberational.dashboard import server
 

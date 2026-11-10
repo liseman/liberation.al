@@ -1,5 +1,5 @@
-"""Regression tests for the owner and lockout checks: the voice password lockout (#89, and per speaker and across
-restarts, #121) and the owner's phone number match (#90)."""
+"""Regression tests for the owner and lockout checks: the voice password lockout (and per speaker and across
+restarts) and the owner's phone number match."""
 
 import hashlib
 import json
@@ -73,7 +73,7 @@ def test_the_right_password_resets_the_count(conversation):
 
 
 class Room:
-    """A voice process with separate wall and monotonic clocks, several speakers, and restarts (#121)."""
+    """A voice process with separate wall and monotonic clocks, several speakers, and restarts."""
 
     def __init__(self, folder):
         self.verifier = make_verifier(folder)
@@ -120,7 +120,7 @@ def test_only_the_speaker_who_asked_can_cancel(room):
 
 
 def test_wrong_tries_from_many_voices_lock_everyone(room):
-    # Four different guests. (A line with no voice id needs a person's name to count as anyone: #94.)
+    # Four different guests. (A line with no voice id needs a person's name to count as anyone.)
     for who in ("eve", "fay"):
         assert room.wrong_tries(2, who) == [WRONG, WRONG]
         room.say("cancel", who)
@@ -219,7 +219,7 @@ def test_a_lockout_never_holds_up_the_owner(room):
 
 
 def test_an_owners_pending_request_answers_only_to_the_verified_owner(room):
-    """#94: the owner is never asked to confirm today (request_policy), so no owner request waits. If one ever does, a
+    """The owner is never asked to confirm today (request_policy), so no owner request waits. If one ever does, a
     line from the owner's voice that isn't the verified owner (heard too faintly, or no longer theirs) can neither
     confirm nor cancel it."""
     room.c.pending = Pending(
@@ -244,7 +244,7 @@ def test_an_owners_pending_request_answers_only_to_the_verified_owner(room):
 
 
 def test_a_line_that_says_nothing_about_who_spoke_starts_no_request(room):
-    """#94: every clip too short to match a voice is "unknown" with no voice id. Shared, that key let one unknown
+    """Every clip too short to match a voice is "unknown" with no voice id. Shared, that key let one unknown
     person's "yes" confirm another's request, and their wrong passwords lock each other out."""
     assert room.say(WAKE, "unknown") == UNHEARD
     assert room.c.pending is None
@@ -412,7 +412,7 @@ def test_settings_still_clear_owner_phone(tmp_path, monkeypatch, blank):
     assert "phone" not in tomllib.loads(path.read_text()).get("owner", {})
 
 
-# One lockout file, two processes (the voice service and the phone bridge, #122): #191.
+# One lockout file shared by two processes (the voice service and the phone bridge).
 @pytest.fixture
 def two_processes(tmp_path):
     clock = [1000.0]
@@ -463,7 +463,7 @@ def test_a_wall_clock_jump_while_another_process_saves_keeps_a_known_cooldown(tm
     assert voice.locked("x")
 
 
-# A line the microphone service matched to the password reads "[password]" and carries password: true (#194). The mark
+# A line the microphone service matched to the password reads "[password]" and carries password: true. The mark
 # answers only the ask it was said for.
 @pytest.fixture
 def asked(tmp_path):
@@ -531,7 +531,7 @@ def test_a_password_that_starts_with_password_is_still_recognized(tmp_path, said
     assert voice_auth.said_password(verifier, said)
 
 
-# Phone and room keep separate budgets, and phone cooldowns escalate (#204).
+# Phone and room keep separate budgets, and phone cooldowns escalate.
 @pytest.fixture
 def clocks(tmp_path):
     """Lockouts on one file with a shared clock; new() is another process's Lockouts, t the monotonic time, and
@@ -718,7 +718,7 @@ def test_recent_tries_in_a_file_from_before_the_split_count_for_the_phone_too(cl
     assert lockouts.fail("phone:+15555550199") is True  # the sixth wrong try within the minute
 
 
-# ---- #175: the rest of the #94 review ----
+# ---- additional lockout and guest-count cases ----
 
 
 def test_another_guest_hears_why_there_is_no_answer_while_a_request_waits(room):

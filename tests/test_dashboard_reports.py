@@ -98,7 +98,7 @@ def test_saved_per_person_whos_around_cards_fold_into_the_filter_in_page_order(t
         },
     )
     got = page.layout(store)
-    # Joe's activity card folds too, into an Activity by person card in its place (#2621 board, idea 2).
+    # Joe's activity card folds too, into an Activity by person card in its place.
     assert [r["id"] for r in got] == ["whos_around", "conversations", "person_activity"]
     assert got[0]["people"] == ["p-joe", "p-carly"] and got[0]["arg"] is None
     assert got[2] == card("person_activity", "person_activity", title="Activity by person", people=["p-joe"])

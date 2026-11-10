@@ -16,7 +16,7 @@
 //! | gateway | `live` | `stream`, `overlays: [{name, id}]` | Following; frames and overlays follow |
 //! | client | `stop` | | Stop following live |
 //! | gateway | `stopped` | `frames`, `dropped`, `skipped`, `reason` (when the gateway ended it) | Live following ended |
-//! | client | `watch` | `streams` (each an id, or `{id, max_fps, overlays}`), `max_fps` (the default for the bare ids: 1, at most 10; 0 is every frame), `media_context` | Follow many streams on one connection, beside any `live` (#2380). A stream at a rate gets its newest frame that decodes alone (a JPEG frame, or a video keyframe) at most that many times a second, newest only; one at 0 gets every frame, whole GOPs, as `live` sends them, with its overlays. Each stream's newest frame (within 15 s) goes out at once. A new `watch` replaces the set |
+//! | client | `watch` | `streams` (each an id, or `{id, max_fps, overlays}`), `max_fps` (the default for the bare ids: 1, at most 10; 0 is every frame), `media_context` | Follow many streams on one connection, beside any `live`. A stream at a rate gets its newest frame that decodes alone (a JPEG frame, or a video keyframe) at most that many times a second, newest only; one at 0 gets every frame, whole GOPs, as `live` sends them, with its overlays. Each stream's newest frame (within 15 s) goes out at once. A new `watch` replaces the set |
 //! | gateway | `watching` | `streams: [{id, max_fps, overlays: [{name, id}]}]` | Following; frames carry the live and watch flags |
 //! | client | `unwatch` | | Stop the watch set |
 //! | gateway | `unwatched` | `frames`, `dropped`, `skipped`, `reason` (when the gateway ended it) | The watch set ended |
@@ -26,7 +26,7 @@
 //! | gateway | `pong` | | |
 //! | gateway | `error` | `message` | A request was bad or failed |
 //!
-//! **Request ids** (#2380): `range`, `frame`, and `spans` take an optional `req` (a u32 the client picks). A request
+//! **Request ids**: `range`, `frame`, and `spans` take an optional `req` (a u32 the client picks). A request
 //! with one runs beside the connection's others instead of after them; every reply it causes (`done`, `frame`,
 //! `spans`, `media`, `error`) carries the same `req`, and its binary frames the header's request flag with the id after
 //! the header ([`crate::header::with_request`]), so overlapping seeks share one connection and `cancel` ends the one
@@ -47,7 +47,7 @@ use crate::source::StreamSummary;
 pub enum Request {
     /// List the streams with recorded frames. With `req` it runs beside the connection's other work, as a range does:
     /// listing reads chunk files and can take seconds, and an untagged request holds the connection's frames until
-    /// it's answered, long enough for a watched stream's queue to overflow and wait for a keyframe (#2772).
+    /// it's answered, long enough for a watched stream's queue to overflow and wait for a keyframe.
     Streams {
         /// Tags the reply, and runs the listing as a request of its own.
         #[serde(default)]
@@ -74,7 +74,7 @@ pub enum Request {
         /// Include explicitly identified playback metadata.
         #[serde(default)]
         media_context: bool,
-        /// The client's id for this request: answered beside the others, its replies and frames tagged (#2380).
+        /// The client's id for this request: answered beside the others, its replies and frames tagged.
         #[serde(default)]
         req: Option<u32>,
     },
@@ -87,7 +87,7 @@ pub enum Request {
         /// Include explicitly identified playback metadata.
         #[serde(default)]
         media_context: bool,
-        /// The client's id for this request (#2380).
+        /// The client's id for this request.
         #[serde(default)]
         req: Option<u32>,
     },
@@ -106,7 +106,7 @@ pub enum Request {
         /// reply lists.
         #[serde(default)]
         media_context: bool,
-        /// The client's id for this request (#2380).
+        /// The client's id for this request.
         #[serde(default)]
         req: Option<u32>,
     },
@@ -122,7 +122,7 @@ pub enum Request {
     },
     /// Stop following live.
     Stop,
-    /// Follow many streams on one connection, beside any `live` (#2380). Replaces the watch set already running.
+    /// Follow many streams on one connection, beside any `live`. Replaces the watch set already running.
     Watch {
         /// The streams: a bare id at the request's `max_fps`, or one with its own rate and overlays.
         streams: Vec<Watched>,
@@ -257,7 +257,7 @@ pub enum Reply {
         end_us: u64,
         /// The covered stretches, `[start_us, end_us)` each, in order.
         spans: Vec<(u64, u64)>,
-        /// The stretches whose video expired (aged out past the history window, #1748), `[start_us, end_us)` each,
+        /// The stretches whose video expired (aged out past the history window), `[start_us, end_us)` each,
         /// in order: a reader says the footage expired there instead of that nothing was recorded.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         expired: Vec<(u64, u64)>,
@@ -285,7 +285,7 @@ pub enum Reply {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         reason: Option<String>,
     },
-    /// Following a watch set (#2380): frames follow until `unwatched`.
+    /// Following a watch set: frames follow until `unwatched`.
     Watching {
         /// The streams followed.
         streams: Vec<WatchedStream>,

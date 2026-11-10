@@ -181,7 +181,7 @@ def test_exterior_gaps_are_a_window_over_a_sill_and_a_door_down_to_the_floor():
     angle=st.floats(0.0, math.pi * 2),
     seed=st.integers(0, 2**32 - 1),
 )
-# #2851: a small room's sparse floor, whose RANSAC plane came out 6 degrees off and was dropped for the ceiling.
+# A small room's sparse floor, whose RANSAC plane came out 6 degrees off and was dropped for the ceiling.
 @example(width=2.5, depth=3.0, angle=0.0, seed=0)
 def test_any_rectangular_room_at_any_heading_comes_back_as_its_rectangle(width, depth, angle, seed):
     rooms = [rect(0, 0, round(width, 2), round(depth, 2))]
@@ -192,7 +192,7 @@ def test_any_rectangular_room_at_any_heading_comes_back_as_its_rectangle(width, 
 # A door whose edge is under min_wall (0.4 m) from a corner reads as running into it (a documented limit), so the
 # door's centre stays at least 0.45 + 0.1 (the exterior face) + 0.4 m from each end of the 3.5 m wall.
 @given(split=st.floats(2.0, 5.0), door_at=st.floats(0.95, 2.55), seed=st.integers(0, 2**32 - 1))
-# #2851: each of these once lost or narrowed the door because a plane tilted 4 degrees through the walls was taken for
+# Each of these once lost or narrowed the door because a plane tilted 4 degrees through the walls was taken for
 # the floor, which lifted the lintel into the wall band.
 @example(split=4.9609375, door_at=2.2421875, seed=261)
 @example(split=4.99, door_at=1.88, seed=5)
@@ -283,7 +283,7 @@ def test_ply_refuses_a_file_without_vertices(tmp_path):
 
 def test_the_floor_is_the_lowest_plane_under_the_room_not_at_the_origin():
     # The scan sits 12 m from the origin. Besides the floor and the ceiling, RANSAC's spare plane here is a slice
-    # through the walls tilted 4 degrees, whose height at the origin is lower than the floor's (#2851).
+    # through the walls tilted 4 degrees, whose height at the origin is lower than the floor's.
     rooms = [rect(0, 0, 4.99, 3.5), rect(4.99, 0, 2.01, 3.5)]
     cloud = scan(rooms, [("door", (4.99, 1.88), 0.9)], np.random.default_rng(5))
     normal, d = fp.floor_plane(cloud, (0.0, 0.0, 1.0), 0.03, np.random.default_rng(0))
@@ -291,7 +291,7 @@ def test_the_floor_is_the_lowest_plane_under_the_room_not_at_the_origin():
     assert d / normal[2] == pytest.approx(0.4, abs=0.02)  # scan() lifts the floor to z = 0.4
 
 
-# Carrying an owner's plan into another frame (#2997)
+# Carrying an owner's plan into another frame
 
 OWNER_PLAN = """plan "Cottage" walls 0.2/0.1
 

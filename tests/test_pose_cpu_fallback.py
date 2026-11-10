@@ -1,4 +1,4 @@
-"""The pose model falls back to the CPU when its accelerated session fails at run time (2026-11-02)."""
+"""The pose model falls back to the CPU when its accelerated session fails at run time."""
 
 import numpy as np
 import pytest

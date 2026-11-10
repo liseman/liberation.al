@@ -1,10 +1,10 @@
-"""The owner's "this face group is not <person>" (#2368), as pets' "not this pet" (#2364).
+"""The owner's "this face group is not <person>", as pets' "not this pet".
 
-Each is a `face.not` record in the knowledge store (outside the broker's reset; #1755), keyed by its face group and
+Each is a `face.not` record in the knowledge store (outside the broker's reset), keyed by its face group and
 person, the newest of a pair winning; taking it back writes an inactive one (Undo). It's kept by person id, so it
 follows a rename or a merge. A face group marked not Alice never has Alice as its guess on Who's this? and is never
 named Alice automatically (vision/faces.py autoname), and the group's face becomes one of Alice's negatives in the face
-matcher (`faces.add_not`, #3246), so its next look isn't named Alice either. A single shot that isn't someone is the card's own correction
+matcher (`faces.add_not`), so its next look isn't named Alice either. A single shot that isn't someone is the card's own correction
 (POST /people/correct "remove"), which /faces/not reuses for its `shots`.
 """
 
@@ -86,7 +86,7 @@ def mark(state: Path, name: object, groups: object, active: bool = True, now: fl
     _store(state).put(records)
     from liberational.vision import faces
 
-    for gid in groups:  # and the matcher's negative for them (#3246): the group's face, so its next look isn't them
+    for gid in groups:  # and the matcher's negative for them: the group's face, so its next look isn't them
         if not active:
             faces.remove_not(person.display_name, f"group:{gid}")
         elif (vec := faces.group_vector(gid)) is not None:

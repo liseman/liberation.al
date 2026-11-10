@@ -54,7 +54,7 @@ def test_a_window_with_nothing_analysed_is_unknown_not_zero(tmp_path, vision):
     assert "unknown" in text and "0" not in text
 
 
-# -- what counts as walking past (#1403): the chain rules see/walk_bys.py applies as it watches
+# -- what counts as walking past: the chain rules see/walk_bys.py applies as it watches
 
 
 def seen(points, tid, where, t0, t1, line=LINE):

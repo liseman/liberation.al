@@ -83,8 +83,8 @@ see-actions keeps no checkpoint: a restart starts new tracks from the live frame
 ## see-actions: faces
 
 `see/head_faces.py` crops each confirmed track's head from pose joints 0 to 4 about once a second and runs
-SCRFD detection and AdaFace IR50 RGB recognition on the crop. The track's name is what the gallery names the mean of its looks so far
-(#2274), so the pose track is the identity over time. A look with insufficient nose confidence or
+SCRFD detection and AdaFace IR50 RGB recognition on the crop. The track's name is what the gallery names the mean of its looks so far,
+so the pose track is the identity over time. A look with insufficient nose confidence or
 feature norm writes only `face.signal`: it does not name the track, update a face group, or save a face photo.
 The saved held-out check can disable automatic naming; see [Architecture](ARCHITECTURE.md#see-actions-the-vision-pipeline).
 

@@ -1,4 +1,4 @@
-"""Room audio and line clips from the microphones' streams on the broker (#548, #786): Review's audio under recorded
+"""Room audio and line clips from the microphones' streams on the broker: Review's audio under recorded
 video (/audio/range, /audio/spans) and a line's clip (/clip), read through the speech log."""
 
 import io
@@ -74,7 +74,7 @@ def test_no_microphone_on_the_broker_is_not_found():
 
 
 def test_quiet_room_audio_comes_out_at_a_normal_level():
-    """#336: a mic that records speech near -55 dBFS played as silence. The served audio is brought up."""
+    """A mic that records speech near -55 dBFS played as silence. The served audio is brought up."""
     fake().put_audio("kitchen.audio", int(T0 * NS), tone(4.0, amplitude=10 ** (-55 / 20)))
     fake().mics = {"kitchen.audio": None}
     data, _ = decoded(server.audio_range(T0, T0 + 4)[0])

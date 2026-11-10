@@ -1,4 +1,4 @@
-"""The Debug tab's log tail: dashboard/logtail.py and GET /logs/stream (issue #111)."""
+"""The Debug tab's log tail: dashboard/logtail.py and GET /logs/stream."""
 
 import http.client
 import json
@@ -7,6 +7,7 @@ import time
 
 import pytest
 
+from liberational import logs as liblogs
 from liberational.dashboard import logtail, server, slow
 
 
@@ -196,3 +197,12 @@ def test_a_service_for_another_platform_has_no_log_to_miss(monkeypatch):
     monkeypatch.setattr(logtail.services, "declared", lambda: {"voice": {}, "vlm": {"platforms": ["darwin-arm64"]}})
     monkeypatch.setattr(logtail.cfg, "platform_key", lambda: "linux-x86_64")
     assert list(logtail.known()) == ["voice"]
+
+
+def test_backlog_just_after_a_trim_comes_from_the_older_copy_and_new_lines_follow(logs):
+    write(logs / "listen.log", "a1\na2\n")
+    assert liblogs.rotate(logs / "listen.log", cap=4) > 0
+    tail = logtail.Tailer(logtail.pick(["listen"]))
+    assert tail.start() == [("listen", "a2")]
+    write(logs / "listen.log", "a3\n")
+    assert tail.poll() == [("listen", "a3")]

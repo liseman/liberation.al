@@ -1,4 +1,4 @@
-"""Pick clips (#312): the owner picks a voice clone's reference from the person's recent lines. The reference is
+"""Pick clips: the owner picks a voice clone's reference from the person's recent lines. The reference is
 built from exactly those lines, with their own words and no voice check, the old one is moved aside only once the
 new one is written, and each picked line becomes the owner's word that it is theirs. Synthetic audio and a temp
 state dir; never the real data/."""

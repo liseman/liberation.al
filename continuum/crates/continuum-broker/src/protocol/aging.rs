@@ -1,5 +1,5 @@
 //! The aging messages (docs/CONTINUUM.md, "Aging"): `ListAgedOut` and `CommitSeqAt`, plus `GetChunk`,
-//! `GetCatalogStats`, and `ResolveFrames` (source identity for analysis receipts, #1394), read into owned asks and
+//! `GetCatalogStats`, and `ResolveFrames` (source identity for analysis receipts), read into owned asks and
 //! answered from what the catalog said. An age-out of whole payloads is a `Purge` with
 //! `age_out` set (see [`super::purge_ask`]).
 

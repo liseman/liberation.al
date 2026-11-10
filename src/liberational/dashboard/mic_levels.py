@@ -1,4 +1,4 @@
-"""Live microphone levels for the dashboard's meters (GET /audio/levels), read from the broker's PCM rings (#548).
+"""Live microphone levels for the dashboard's meters (GET /audio/levels), read from the broker's PCM rings.
 
 v1's microphone service served these from its own port; on Continuum the dashboard reads each `<mic>.audio` ring
 itself, under a read-only lease, from where the ring is when the page asks: every WINDOW_S it takes the records that
@@ -66,8 +66,8 @@ async def stream(socket: Path, send: Callable[[dict[str, Any]], None], stop: Cal
         client = await continuum_py.Client.connect(str(socket), client_name="levels")
         stack.push_async_callback(client.close)
         # The meters read the rings directly, and a full subscription queue blocks its connection's socket reader,
-        # so the subscriptions and their rings get a connection of their own and every request stays on `client`
-        # (#1267). That connection makes no requests, so it uses backpressure rather than the default policy (which
+        # so the subscriptions and their rings get a connection of their own and every request stays on
+        # `client`. That connection makes no requests, so it uses backpressure rather than the default policy (which
         # closes a connection whose subscription queue overflows, ending its ring leases), and each subscription's
         # events are drained and dropped so the broker never sees the connection stop reading.
         rings = await continuum_py.Client.connect(

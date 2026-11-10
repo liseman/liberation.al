@@ -11,9 +11,9 @@
 //!
 //! Boxes are already normalized to the upright frame, as the overlay wants them.
 
-/// The face worker's live face boxes: a Tier 0 ring stream (#1762), followed live, never queried.
+/// The face worker's live face boxes: a Tier 0 ring stream, followed live, never queried.
 pub const FACE_BOXES: &str = "face.boxes";
-/// see-actions' live people, boxes and skeletons: a Tier 0 ring stream (#1980) in `pose.track`'s record shape. A live
+/// see-actions' live people, boxes and skeletons: a Tier 0 ring stream in `pose.track`'s record shape. A live
 /// page reads bodies and poses from it when see-actions has registered it; recorded video reads `pose.track`.
 pub const POSE_BOXES: &str = "pose.boxes";
 
@@ -251,7 +251,7 @@ impl Overlays {
     }
 }
 
-/// see-actions' test for a person's pose (actions.MIN_JOINTS and JOINT_SURE, #2024): at least 6 of COCO's 17 joints
+/// see-actions' test for a person's pose (actions.MIN_JOINTS and JOINT_SURE): at least 6 of COCO's 17 joints
 /// (halpe26's first 17) at 0.5 or more. Anything less (an object taken for a person, or someone almost out of view)
 /// isn't drawn as a skeleton.
 const MIN_JOINTS: usize = 6;

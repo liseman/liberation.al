@@ -26,6 +26,16 @@ export const SPLAT_FORMATS = ['spz'] as const;
 export const canDrawSplat = (format: string | null | undefined): boolean =>
   (SPLAT_FORMATS as readonly string[]).includes(format ?? '');
 
+/** A walk's look-from views (spatial/splats.py LOOK_PREFIX), as against the fixed cameras. */
+const WALK_PREFIX = 'walk-';
+
+/** The camera a splat opens from (#44): one whose frames it trained on, since anywhere else it's only smear. A walk's
+ *  splat opens from the walk's first view, a fixed-camera splat from the first fixed camera; null with none. */
+export function openingCamera(names: readonly string[], from: 'walk' | 'cameras' | null | undefined): string | null {
+  const walk = from === 'walk';
+  return names.find(n => n.startsWith(WALK_PREFIX) === walk) ?? null;
+}
+
 /** A splat in the scene: Spark's renderer (it sorts and draws every splat mesh in the scene) and the mesh. */
 export interface LoadedSplat {
   spark: import('@sparkjsdev/spark').SparkRenderer;

@@ -1,4 +1,4 @@
-//! The H.264 encoder: a raw camera's Tier 1 video (#900) and capture's camera encoding.
+//! The H.264 encoder: a raw camera's Tier 1 video and capture's camera encoding.
 //!
 //! [`H264Encoder`] takes decoded frames (NV12, full-range BT.601, as [`crate::hydrate::rgb_to_nv12`] makes) with
 //! their times and returns H.264 access units in Annex B form, ready for WebCodecs' `annexb` decoder config. What the
@@ -39,7 +39,7 @@ pub struct H264Settings {
     /// Every frame's access unit as soon as it's encoded: no lookahead or frame threads holding frames back (Tier 1
     /// of a raw camera, which has to be durable within seconds).
     pub low_delay: bool,
-    /// Threads for a software encoder (libx264): 0 lets it choose. Playback transcoding uses 1 (#1478).
+    /// Threads for a software encoder (libx264): 0 lets it choose. Playback transcoding uses 1.
     pub threads: u32,
 }
 

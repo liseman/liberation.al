@@ -170,7 +170,7 @@ async def tier0_left(client: Client, streams: Sequence[str], now_ns: int) -> int
 
 async def wait_for_tier0_drain(socket: Path, streams: Sequence[str], timeout: float) -> int:
     """Waits, after capture stopped, until the tier has flushed and committed what capture left in Tier 0, so a
-    broker stop doesn't strand it (#1684). Returns how many payloads were still there when it gave up, 0 once
+    broker stop doesn't strand it. Returns how many payloads were still there when it gave up, 0 once
     drained. It only reads; a broker it can't reach counts as nothing to wait for."""
     import continuum_py
 

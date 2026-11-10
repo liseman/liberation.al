@@ -852,7 +852,7 @@ def test_calls_inside_the_loop_never_outlast_its_deadline(monkeypatch):
     assert timeouts == [90, 30.0]
 
 
-# ---- encounters (#223): who was here, last seen, and how long, from the timeline, citing what's behind them ----
+# ---- encounters: who was here, last seen, and how long, from the timeline, citing what's behind them ----
 
 DANA, ALICE = kernel.PersonId("p-dana"), kernel.PersonId("p-alice")
 

@@ -1,4 +1,4 @@
-//! Prints what auto exposure measures of a saved frame and what it would do (a diagnostic, #535).
+//! Prints what auto exposure measures of a saved frame and what it would do (a diagnostic).
 fn main() {
     let path = std::env::args().nth(1).expect("a JPEG");
     let bytes = std::fs::read(path).unwrap();
