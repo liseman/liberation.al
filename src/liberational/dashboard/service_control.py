@@ -5,12 +5,13 @@ GET  /services/history  lifecycle history over 24 hours or 7 days
 POST /services          {"name", "action"} or {"all"}: this machine only, same-origin JSON, one action at a time
 """
 
+import contextlib
 import subprocess
 import threading
 from typing import TYPE_CHECKING, Any
 
 from liberational import config as cfg
-from liberational import service_cascade, services
+from liberational import service_cascade, services, supervisor
 from liberational.config import ROOT
 from liberational.dashboard import context, routes
 from liberational.dashboard.context import LOG, PY, Reply
@@ -99,6 +100,8 @@ def service_action(name: str, action: str) -> Reply:
         }
     if action in ("stop", "start") and not svc["installed"]:
         return 409, {"ok": False, "error": f"{name} isn't installed: turn it on instead"}
+    if supervisor.read_status() is not None:
+        return _supervised(svc, name, action)
     if action in SERVICE_CHOICES:
         command, why = SERVICE_CHOICES[action]
         # Back to its default where that is the choice, so pack.toml names only what differs from services.toml.
@@ -138,6 +141,34 @@ def service_action(name: str, action: str) -> Reply:
     }
 
 
+def _supervised(svc: dict[str, Any], name: str, action: str) -> Reply:
+    """One service's action while a supervisor runs the services (#155): a message to it, not a unit install. On and
+    start have it running; off and stop stop it and keep it stopped while the application runs. Enable and disable
+    write pack.toml's [services] choice, which is what lasts, and have the supervisor follow it."""
+    try:
+        if action in SERVICE_CHOICES:
+            default = bool(svc.get("default"))
+            # Back to its default where that is the choice, so pack.toml names only what differs from services.toml.
+            choice = (None if default else True) if action == "enable" else (False if default else None)
+            with contextlib.suppress(SystemExit):  # choose() exits on a name services.toml doesn't declare
+                services.choose([name], enable=choice)
+            cfg.load.cache_clear()
+            reply = supervisor.request({"op": "reload"}, timeout=120)
+        else:
+            op = "start" if action in ("on", "start") else "stop"
+            reply = supervisor.request({"op": op, "names": [name]}, timeout=120)
+    except ConnectionError as error:
+        reply = {"ok": False, "error": str(error)}
+    ok = bool(reply.get("ok"))
+    LOG.info(f"services: {action} {name} (supervisor): {'done' if ok else 'failed: ' + str(reply.get('error'))}")
+    return (200 if ok else 500), {
+        **services_view(True, fresh=True),
+        "ok": ok,
+        "out": "",
+        "error": None if ok else str(reply.get("error")),
+    }
+
+
 def _pack_services(args: list[str], timeout: float) -> tuple[bool | None, str]:
     """Run `pack-services <args>` from this checkout: (worked, output), with worked None on a timeout."""
     try:
@@ -157,6 +188,24 @@ def all_services(action: str) -> Reply:
     service running by hand outside the service manager, which an install would start a second time."""
     if action not in ("repair", "off"):
         return 400, {"ok": False, "error": 'send {"all": "repair"} or {"all": "off"}'}
+    status = supervisor.read_status()
+    if status is not None:
+        # Under a supervisor (#155): repair is its staged restart of everything, and off stops all but this page.
+        try:
+            if action == "repair":
+                reply = supervisor.request({"op": "restart"}, timeout=service_cascade.subprocess_timeout())
+            else:
+                names = [name for name in status["services"] if name != "dashboard"]
+                reply = supervisor.request({"op": "stop", "names": names}, timeout=120)
+        except ConnectionError as error:
+            reply = {"ok": False, "error": str(error)}
+        ok = bool(reply.get("ok"))
+        LOG.info(f"services: {action} all (supervisor): {'done' if ok else 'failed: ' + str(reply.get('error'))}")
+        return (200 if ok else 500), {
+            **services_view(True, fresh=True),
+            "ok": ok,
+            "error": None if ok else str(reply.get("error")),
+        }
     view = services_view(True, fresh=True)
     if not view["ok"]:
         return 500, view
