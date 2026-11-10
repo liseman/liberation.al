@@ -464,9 +464,7 @@ def main(argv: list[str] | None = None) -> None:
         action="append",
         help="check this service within the port stage (repeatable; requires --selected-only)",
     )
-    parser.add_argument(
-        "--manifest", type=pathlib.Path, default=pathlib.Path("config/devices.toml"), help="capture's device manifest"
-    )
+    parser.add_argument("--manifest", type=pathlib.Path, default=cfg.devices_file(), help="capture's device manifest")
     parser.add_argument("--settle", type=float, default=0.0, help="check again for up to this many seconds first")
     parser.add_argument("--window", type=int, default=60, help="seconds back to look for each stream's newest")
     parser.add_argument("--stale", type=float, default=10.0, help="a live capture stream older than this fails")

@@ -502,7 +502,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument(
         "--camera", action="append", default=None, help="a camera to follow (repeatable; default: every camera)"
     )
-    parser.add_argument("--manifest", type=Path, default=Path("config/devices.toml"))
+    parser.add_argument("--manifest", type=Path, default=cfg.devices_file())
     parser.add_argument(
         "--backend",
         choices=vision_backend.BACKENDS,

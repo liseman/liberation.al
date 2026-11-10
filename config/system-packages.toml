@@ -189,6 +189,14 @@ brew = "ffmpeg"
 services = []
 build = true
 
+[pipewire]
+# The library Continuum's capture links (libpipewire-0.3.so.0): the one system library the Continuum wheels need
+# beyond the C and C++ runtimes. A desktop install has it; a minimal or server image doesn't.
+why = "Continuum's capture reads microphones through PipeWire (Linux only)."
+library = "pipewire-0.3"
+apt = "libpipewire-0.3-0"
+services = ["continuum-capture"]
+
 [libpipewire]
 # Checked by the headers' pkg-config module (the runtime library is there without them). libclang, which generates
 # the bindings, has no pkg-config module and only versioned names on Debian, so it's installed with it.

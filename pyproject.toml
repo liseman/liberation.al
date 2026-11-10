@@ -40,6 +40,8 @@ dependencies = [
     # toolchain (rustup). The ported speech path talks to the broker through it.
     "continuum-py[numpy]",
     "pyserial>=3.5",
+    # Time zones for zoneinfo where the system has none (a minimal image has no /usr/share/zoneinfo).
+    "tzdata>=2026.6",
 ]
 
 [project.optional-dependencies]
