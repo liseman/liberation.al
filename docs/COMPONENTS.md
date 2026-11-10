@@ -15,7 +15,7 @@ unless the row says otherwise.
 | `continuum-capture` | One worker per device; hotplug; privacy pause | `state/continuum/capture.sock` | `<device>.video`, `<device>.audio`, `capture_paused.json` | `config/devices.toml` | Core |
 | `continuum-tier-worker`, `continuum-export` | Chunk files, Opus audio, optional AV1 archive, purges, and MP4 export | | `state/continuum/tier/` | Broker streams | Core |
 | `continuum-vector-worker` | Embedding and full-text indexes and searches | | `state/continuum/vector/` | Segment store, broker streams | Core |
-| `continuum-gateway` | Live and recorded frames with overlays | `8766` (WebSocket) | | Tier chunks, broker, `camera.objects` | Core |
+| `continuum-gateway` | Live and recorded frames with overlays | `8766` (`ports.gateway`, WebSocket) | | Tier chunks, broker, `camera.objects` | Core |
 | `see/decoded_worker.py` (`pack-see-decode`) | One decode per camera, shared as NV12 and BGR | `paths.decoded/decoded.sock` | `paths.decoded/` | `<camera>.video` | Core |
 | `see/actions_worker.py` (`pack-see-actions`) | People, poses, tracks, faces, actions, movement, walk-bys, and animals | | `pose.*`, `action.*`, `face.*`, `movement.*`, `walkby.*`, `animal.*`; `state/shots/`, `state/screens_on.json` | Decoded frames, `faces/` | Core |
 | `see/caption_worker.py` (`pack-see-captions`) | Captions and grounded objects | | `camera.caption`, `camera.objects` | Decoded frames, Ollama or `pack-vlm` | Core |
@@ -47,7 +47,7 @@ unless the row says otherwise.
 | `ingest/` (`pack-ingest`, `pack-ingest-analyze`) | Imports and analyzes media | | `state/ingest.sqlite3`, `paths.ingest` | Uploads, links, sources | Optional |
 | `phone/bridge.py` (`pack-phone-bridge`) | Twilio media bridge | `8790` | `calls/`, lockout and call state | Memory, speakers | Optional, off |
 | `dashboard/server.py` (`pack-dashboard`) | The web app and API | `8765` | Owner edits in the knowledge store; UI state files | Most of `state/` | Core for humans |
-| `demo/cli.py` (`pack-demo`) | A made-up household on a private broker | `8766` (`--port`) | Its own directory | | Optional |
+| `demo/cli.py` (`pack-demo`) | A made-up household on a private broker | `8780` (`--port`; a free port when that one is taken) | Its own directory | | Optional |
 | `ollama`, `ask-ollama` services | The shared model server; Ask's own server | `11434`, `11435` | Ollama's state | Model store | `ollama` required; `ask-ollama` off |
 | `speech/whisper_service.py` (`pack-whisper`) | Supervises whisper-server | `8082` | `state/model_loads/` | | Optional, off |
 | `audio/route.py` (`pack-audio-route`) | Picks the macOS output device | | | | Optional, macOS |

@@ -29,7 +29,7 @@ edges, and expect a reset of recorded history now and then (what you taught it i
 
 These come from demo mode: a made-up household (Alice, Dana, Sam, and Rex the dog), one made-up house, and one
 day of journal. Once the install below is done, `mise run demo` opens the same dashboard on
-<http://localhost:8766/>, with its own data in a temporary directory and nothing from `data/`.
+<http://localhost:8780/>, with its own data in a temporary directory and nothing from `data/`.
 
 The Journal, a day's page:
 
@@ -177,7 +177,8 @@ uv run pack-config --check
 
 2. **Open the application.** It runs every service, the dashboard included, and stops them all when you quit it. It
    refuses to start while one of its services already runs outside it, so first stop what you started by hand (the
-   dashboard above, and the demo). Stop `mise run ollama` too: the application's own Ollama needs its port.
+   dashboard above). The demo can stay open: it runs apart from the application. Stop `mise run ollama` too: the
+   application's own Ollama needs its port.
 
    ```sh
    uv run pack-services list       # every service; * marks the ones that run on this machine
@@ -226,7 +227,7 @@ explains how voices and faces are named.
 | Symptom | Check |
 |---|---|
 | A service isn't running | `uv run pack-services status`, then the Debug tab, which shows each service's log by level |
-| The application refuses to start | It names the services that run outside it: stop those (a dashboard started by hand, or the demo) |
+| The application refuses to start | It names the services that run outside it: stop those (a dashboard started by hand, for one) |
 | "missing system package" | `uv run pack-system check`, then `mise run system` |
 | A model is missing | `uv run pack-models --list`, then `mise run models` |
 | No answers or captions | The `ollama` service isn't running (`uv run pack-services status`), or another Ollama holds port 11434 |
