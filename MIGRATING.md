@@ -1,11 +1,11 @@
 # Upgrading an existing install
 
-This guide covers a checkout installed from this repository's first public commit (2026-11-09) or later. For
-anything older, export what you taught (`pack-knowledge export`), set up fresh from [README.md](README.md), and
-import it.
+This guide shows how to update a checkout of this repository that already runs: the steps every upgrade takes, the
+extra steps some changes need, and how to reset state. It covers a checkout installed from the first public commit
+(2026-11-09) or later. For anything older, export what you taught (`pack-knowledge export`), set up fresh from the
+[README](README.md), and import it.
 
-Fresh setup is in the [README](README.md). Components and state paths are in
-[docs/COMPONENTS.md](docs/COMPONENTS.md).
+Components and state paths are in [docs/COMPONENTS.md](docs/COMPONENTS.md).
 
 ## Every upgrade
 
@@ -19,9 +19,10 @@ credentials. Device names identify streams, so do not rename devices as part of 
    uv run --no-sync pack-services status
    ```
 
-2. **Pull, then check your settings.** Remove any key or service name this reports:
+2. **Pull, then check your settings.** Remove any key or service name the check reports.
 
    ```sh
+   git pull
    uv run --no-sync pack-config --check
    ```
 
@@ -44,13 +45,30 @@ credentials. Device names identify streams, so do not rename devices as part of 
    | Models in `config/defaults.toml` | `mise run models` |
    | Anything under `frontend/` | `mise run frontend` |
 
-5. **Restart.** Quit the application and open it again (`pack-app`), or `pack-services restart --cascade`. The
-   cascade leaves the dashboard and gateway running: restart those by name when they changed
-   (`pack-services restart continuum-gateway dashboard`). A new or removed key in `config/defaults.toml` needs every
-   config-reading service restarted, the dashboard included.
+5. **Restart.** Quit the application and open it again (`pack-app`), or restart the services in stages:
 
-6. **Verify.** `mise run continuum-status`, then check that capture and transcript timestamps are fresh. A scheduled
-   job needs an armed timer, not a running process.
+   ```sh
+   uv run --no-sync pack-services restart --cascade
+   ```
+
+   The cascade leaves the dashboard and the gateway running. If either changed, restart it by name:
+
+   ```sh
+   uv run --no-sync pack-services restart continuum-gateway dashboard
+   ```
+
+   If a key was added to or removed from `config/defaults.toml`, restart every config-reading service, the dashboard
+   included.
+
+6. **Verify.**
+
+   ```sh
+   mise run continuum-status
+   uv run --no-sync pack-services status
+   ```
+
+   Check that capture and transcript timestamps are fresh. A scheduled job reads `scheduled` under the application
+   (an active timer on an install with a unit per service), not `running`.
 
 ## Changes that need a step
 
@@ -58,35 +76,46 @@ Newest first. Do each one your install has not had yet.
 
 ### Positions are placed every hour by `pack-positions`
 
-`tools/place_positions.py` is gone: its work is the `pack-positions` command, which the new `positions` service runs
-every hour at 20 past. It needs the command installed and the service added.
+The `positions` service runs `pack-positions` every hour at 20 past. It replaces `tools/place_positions.py`.
 
-1. **Install the new command** in the checkout's environment, keeping the extras your install uses (a bare
-   `uv sync` removes them; "Sync Python, keeping your extras" above has the command).
-2. **Add the service.** `uv run --no-sync pack-services install positions`, or under the application, quit it and
-   open it again.
-3. **Bring the positions up to date once**, so the first hourly run is short: `pack-positions --days 7` records up to
-   a week of footprints for cameras never recorded and places them. `pack-positions --dry-run` first prints what
-   that would place per camera and changes nothing.
+1. **Install the command.** Sync the checkout's environment, keeping your extras ("Every upgrade", step 3).
+
+2. **Add the service.** Under the application, quitting it and opening it again does the same.
+
+   ```sh
+   uv run --no-sync pack-services install positions
+   ```
+
+3. **Bring the positions up to date once**, so the first hourly run is short. The first command prints what a run
+   would place for each camera and changes nothing. The second records up to a week of footprints for cameras never
+   recorded, and places them.
+
+   ```sh
+   uv run --no-sync pack-positions --dry-run
+   uv run --no-sync pack-positions --days 7
+   ```
 
 ### Spatial memory starts again from what the cameras see
 
-Phone walks (`pack-walkthrough`, the Places page's "Import a walk") and the nightly fixed-camera pass
-(`pack-spatial-cameras`, the `spatial-cameras` job at 01:00) are gone, with the tools built on them
-(`tools/rebuild_place.py`, `restore_owner_plan.py`, `fit_intrinsics.py`, `camera_poses.py`, `splat_walk_check.py`, and
-`walkthrough_closure.py`). A place's map is made by a new job that learns it from what the cameras see. Until that
-job runs, nothing trains splats on a schedule (`pack-spatial-splat` still runs by hand); positions are placed by
-`pack-positions` (above).
+A place's map is learned from what the cameras see, by the `surroundings` service, while the Live tab's "Learn
+surroundings" switch is on ([docs/SPATIAL.md](docs/SPATIAL.md#learning-surroundings)). `pack-positions` places
+positions (above), and `pack-spatial-splat` trains a place's splat by hand.
 
-1. **Remove the scheduled job.** An install that still renders a unit per service removes its timer, before the
-   pull:
+Removed: phone walks (`pack-walkthrough`, and the Places page's "Import a walk"), the nightly fixed-camera pass
+(`pack-spatial-cameras`, the `spatial-cameras` job), and the tools built on them (`tools/rebuild_place.py`,
+`restore_owner_plan.py`, `fit_intrinsics.py`, `camera_poses.py`, `splat_walk_check.py`, and
+`walkthrough_closure.py`).
+
+1. **Remove the scheduled job.**
+
+   If the install has a unit per service, remove the job's timer before the pull:
 
    ```sh
    uv run --no-sync pack-services uninstall spatial-cameras
    ```
 
-   Under the application, the job goes once the pull is in: quit the application and open it again, or have it
-   read the service list again without a restart, and check the job is no longer listed:
+   If it runs under the application, pull first (step 2). Then quit the application and open it again, or have it
+   read the service list again without a restart, and check that the job is not listed:
 
    ```sh
    uv run --no-sync pack-supervisor reload
@@ -97,12 +126,10 @@ job runs, nothing trains splats on a schedule (`pack-spatial-splat` still runs b
    and the removed keys `spatial.cameras_enabled`, `spatial.splats_enabled`, `spatial.geocalib_runtime`,
    `spatial.cut3r_runtime`, `[models.files.geocalib]`, and `[models.files.cut3r]`.
 
-3. **Sync, build the dashboard, and restart everything**, as in "Every upgrade". Keys left `config/defaults.toml`,
-   so every config-reading service restarts, the dashboard included.
+3. **Sync, build the dashboard, and restart everything**, as in "Every upgrade". Keys were removed from
+   `config/defaults.toml`, so every config-reading service restarts, the dashboard included.
 
-4. **Reset the places.** The maps, splats, walks, camera registrations, and stored positions made by the removed
-   jobs go; your corrected plans, place names, and held camera intrinsics stay (they are in the knowledge store).
-   The first command only prints what would go and what would stay:
+4. **Reset the places.** The first command only prints what would go and what would stay.
 
    ```sh
    uv run --no-sync pack-reset-places
@@ -110,51 +137,87 @@ job runs, nothing trains splats on a schedule (`pack-spatial-splat` still runs b
    uv run --no-sync pack-services restart dashboard journal
    ```
 
-   A place whose plan you corrected stays on the Places page with that plan, without a 3D view, and nobody is
-   placed on it until it is mapped again. Other places are listed again once they are mapped.
+   The maps, splats, walks, camera registrations, and stored positions that the removed jobs made go. Your
+   corrected plans, place names, and held camera intrinsics stay: they are in the knowledge store. A place whose
+   plan you corrected stays on the Places page with that plan, without a 3D view, and nobody is placed on it until
+   it is mapped again. Other places are listed again once they are mapped.
 
-5. **Optionally free the disk.** Nothing reads these any more: `data/cut3r/`, `data/geocalib/`,
-   `data/models/cut3r/` (3.2 GB), and `data/models/geocalib/`.
+5. **Optionally, free the disk.** Nothing reads `data/cut3r/`, `data/geocalib/`, `data/models/cut3r/` (3.2 GB), or
+   `data/models/geocalib/`.
 
 ### The Places 3D view draws with PlayCanvas
 
-After the pull, on a machine that makes splats:
+On a machine that makes splats, after the pull:
 
-```sh
-mise run frontend
-.venv/bin/pack-spatial-splat      # gives each kept splat its SOG copy
-```
+1. **Build the dashboard.**
 
-Then restart the dashboard. Until the second command runs, a place shows its points, not its splat.
+   ```sh
+   mise run frontend
+   ```
+
+2. **Give each kept splat its SOG copy.** Until this runs, a place shows its points, not its splat.
+
+   ```sh
+   .venv/bin/pack-spatial-splat
+   ```
+
+3. **Restart the dashboard.**
+
+   ```sh
+   uv run --no-sync pack-services restart dashboard
+   ```
 
 ### Splats train against a depth model
 
 On a machine that makes splats (CUDA):
 
-```sh
-mise run gsplat   # rebuilds data/gsplat with Depth Anything 3's code
-mise run models   # fetches data/models/depth-anything-3-metric (1.3 GB)
-```
+1. **Rebuild `data/gsplat`** with Depth Anything 3's code.
 
-Restart every config-reading service (`[models.hf.depth_anything]` is a new key).
+   ```sh
+   mise run gsplat
+   ```
+
+2. **Fetch the depth model** into `data/models/depth-anything-3-metric` (1.3 GB).
+
+   ```sh
+   mise run models
+   ```
+
+3. **Restart every config-reading service**: `[models.hf.depth_anything]` is a new key.
 
 ### One application instead of a service per daemon
 
 The system runs as one application: `pack-app` (with a window) or `pack-supervisor run` (without). It refuses to
-start while the old systemd units or launchd agents run, so remove them once:
+start while the systemd units or launchd agents of an earlier install run, so remove them once.
 
-```sh
-.venv/bin/python -m liberational.services migrate --dry-run   # prints every command and file
-.venv/bin/python -m liberational.services migrate             # stops the units in order and removes them
-.venv/bin/pack-app
-```
+1. **Preview.** This prints every command and file, and changes nothing.
 
-The migration leaves `pack.toml`, `config/devices.toml`, and everything under `data/` alone.
+   ```sh
+   .venv/bin/python -m liberational.services migrate --dry-run
+   ```
 
-- The system now runs only while the application is open. Nothing starts at login unless you turn on "Start at
-  login" in Settings.
+2. **Remove the units.** This stops them in order and removes them. It leaves `pack.toml`, `config/devices.toml`,
+   and everything under `data/` alone.
+
+   ```sh
+   .venv/bin/python -m liberational.services migrate
+   ```
+
+   If nothing else of yours needs systemd linger, add `--disable-linger` to turn it off.
+
+3. **Open the application.**
+
+   ```sh
+   .venv/bin/pack-app
+   ```
+
+After this:
+
+- The system runs only while the application is open. Nothing starts at login unless you tick "Start at login" in
+  the application's window (the `app.start_at_login` setting).
 - `pack-services status`, `start`, `stop`, and `restart` are requests to the running application.
-- `migrate --disable-linger` turns off systemd linger if nothing else of yours needs it.
+
+[docs/SERVICES.md](docs/SERVICES.md#one-application) explains the application.
 
 ### Continuum's daemons are found in the environment
 
@@ -170,75 +233,107 @@ Run it again whenever `.venv` is made from scratch.
 ### Cameras come only from the device manifest
 
 `vision.cams`, `vision.width`, `vision.height`, `vision.fps`, and `vision.hold_fps` are removed. Cameras come from
-`config/devices.toml`, and per-camera size and rate are its `[video]` keys. Delete the old keys from `pack.toml`
-(`pack-config --check` lists them), rebuild Continuum and the SDK, and restart every service.
+`config/devices.toml`, and per-camera size and rate are its `[video]` keys.
+
+1. **Delete the removed keys** from `pack.toml`. `uv run --no-sync pack-config --check` lists them.
+2. **Rebuild Continuum and the SDK** ("Every upgrade", step 4).
+3. **Restart every service.**
 
 ### Pet embeddings are DINOv2
 
-Stored animal embeddings and taught pet examples from the earlier model stop being read. Pet profiles and labels
-are untouched. Carry the examples over before restarting anything:
+Stored animal embeddings and taught pet examples from the DINOv3 model are not read. Pet profiles and labels are
+untouched.
 
-```sh
-.venv/bin/python -m liberational.fetch_models --no-ollama
-.venv/bin/python tools/restore_pet_references.py --carry-from facebook/dinov3-vits16-pretrain-lvd1689m:tight \
-    --old-model facebook/dinov3-vits16-pretrain-lvd1689m --dry-run
-.venv/bin/python tools/restore_pet_references.py --carry-from facebook/dinov3-vits16-pretrain-lvd1689m:tight \
-    --old-model facebook/dinov3-vits16-pretrain-lvd1689m
-```
+1. **Carry the examples over, before restarting anything.** The first run of the tool is a dry run.
 
-Then restart every config-reading service. The tool prints how many examples each pet got; a pet with fewer than 6
-needs teaching again in Known, Pets. Labels now keep their photo, so a later model change needs only
-`tools/restore_pet_references.py` with no arguments.
+   ```sh
+   .venv/bin/python -m liberational.fetch_models --no-ollama
+   .venv/bin/python tools/restore_pet_references.py --carry-from facebook/dinov3-vits16-pretrain-lvd1689m:tight \
+       --old-model facebook/dinov3-vits16-pretrain-lvd1689m --dry-run
+   .venv/bin/python tools/restore_pet_references.py --carry-from facebook/dinov3-vits16-pretrain-lvd1689m:tight \
+       --old-model facebook/dinov3-vits16-pretrain-lvd1689m
+   ```
+
+2. **Restart every config-reading service.**
+
+3. **Teach again where needed.** The tool prints how many examples each pet got. A pet with fewer than 6 needs
+   teaching again in Known, Pets.
+
+Labels keep their photo, so a later model change needs only `tools/restore_pet_references.py` with no arguments.
 
 ### The gateway lists streams from the catalog
 
 Upgrade the broker, the gateway, and the frontend together, or the dashboard shows no camera as live:
-`mise run continuum-release`, `mise run frontend`, `pack-services restart --cascade`, then
-`pack-services restart continuum-gateway dashboard`.
-
-### Catalog format 8: a reset
-
-A camera writes one chunk file a minute, and the broker refuses an older catalog. This upgrade resets recorded
-history. What you taught (people, voices, faces, pets, zones, and settings) stays.
 
 ```sh
 mise run continuum-release
-.venv/bin/pack-reset-catalog --keep-taught          # prints the plan
-.venv/bin/pack-reset-catalog --keep-taught --yes    # stops the services, resets, and starts them again
+mise run frontend
+uv run --no-sync pack-services restart --cascade
+uv run --no-sync pack-services restart continuum-gateway dashboard
 ```
 
-Build first: the reset starts the new broker and tier worker.
+### Catalog format 8: a reset
+
+A camera writes one chunk file a minute, and the broker refuses an older catalog. This upgrade resets
+recorded history. What you taught (people, voices, faces, pets, zones, and settings) stays.
+
+1. **Build first**: the reset starts the broker and the tier worker.
+
+   ```sh
+   mise run continuum-release
+   ```
+
+2. **Preview the reset.** This prints the plan.
+
+   ```sh
+   .venv/bin/pack-reset-catalog --keep-taught
+   ```
+
+3. **Reset.** This stops the services, resets, and starts them again.
+
+   ```sh
+   .venv/bin/pack-reset-catalog --keep-taught --yes
+   ```
 
 ### Camera mounts moved to the device manifest
 
-A camera is a view, not a room. Move these from `pack.toml` to the camera's `[[device]]` in `config/devices.toml`
-(`config/devices.example.toml` shows the format), then delete the old keys:
+A camera is a view, not a room.
 
-| Old, in `pack.toml` | New |
-|---|---|
-| `[spatial] camera_heights_m = { cam0 = 1.5 }` | `mount = { height_m = 1.5 }` on `cam0` |
-| `[spatial] outdoor_cameras = ["patio"]` | `mount = { outdoor = true }` on `patio` |
-| `[vision] places` | `[vision] camera_names`, same format |
+1. **Move these** from `pack.toml` to the camera's `[[device]]` in `config/devices.toml`
+   (`config/devices.example.toml` shows the format), and delete the old keys:
 
-Restart `continuum-capture`, then every config-reading service.
+   | Old, in `pack.toml` | New |
+   |---|---|
+   | `[spatial] camera_heights_m = { cam0 = 1.5 }` | `mount = { height_m = 1.5 }` on `cam0` |
+   | `[spatial] outdoor_cameras = ["patio"]` | `mount = { outdoor = true }` on `patio` |
+   | `[vision] places` | `[vision] camera_names`, same format |
+
+2. **Restart `continuum-capture`**, then every config-reading service.
 
 ### The shared Ollama is a pack service
 
-The Ollama at `ollama.url` runs as the `ollama` service. Stop any other Ollama on port 11434 first.
+The Ollama at `ollama.url` runs as the `ollama` service.
 
-- **Linux:** `sudo systemctl disable --now ollama`. To keep its model store, set
-  `models = "/usr/share/ollama/.ollama/models"` under `[ollama]` in `pack.toml`.
-- **macOS:** `brew services stop ollama`, and quit the Ollama app and turn off its launch at login. Leave the
-  formula installed: the service runs that binary.
+1. **Stop any other Ollama on port 11434.**
 
-Server tuning is settings under `[ollama]`: `keep_alive`, `flash_attention`, `kv_cache_type`, `max_loaded_models`,
-and `gpu`. Carry over any `OLLAMA_*` variables your old server set. Then restart the application and check
-`curl -s http://127.0.0.1:11434/api/tags` lists your models.
+   - **Linux:** `sudo systemctl disable --now ollama`. To keep its model store, set
+     `models = "/usr/share/ollama/.ollama/models"` under `[ollama]` in `pack.toml`.
+   - **macOS:** `brew services stop ollama`, and quit the Ollama app and turn off its launch at login. Leave the
+     formula installed: the service runs that binary.
+
+2. **Carry over your server tuning.** The settings are under `[ollama]` in
+   [config/defaults.toml](config/defaults.toml). Carry over any `OLLAMA_*` variables the other server set.
+
+3. **Restart the application**, and check that this lists your models:
+
+   ```sh
+   curl -s http://127.0.0.1:11434/api/tags
+   ```
 
 ## Model changes
 
-Embeddings from different models cannot be compared, even at the same size. After one of these changes, the old
-vectors are ignored, and references are rebuilt from kept media or taught again.
+Embeddings from different models cannot be compared, even at the same size. After one of these changes, the vectors
+of the replaced model are ignored, and references are rebuilt from kept media or taught again.
 
 | Area | Current model | Replaced |
 |---|---|---|
@@ -270,15 +365,24 @@ A routine upgrade needs no reset. When one does:
    uv run --no-sync pack-reset-catalog --keep-taught
    ```
 
+3. **Reset**, with the same mode and `--yes`:
+
+   ```sh
+   uv run --no-sync pack-reset-catalog --keep-taught --yes
+   ```
+
 | Mode | Deletes | Keeps |
 |---|---|---|
 | `--keep-taught` | The catalog, recordings, the segment store, the vector index, and derived state | The knowledge store, the face gallery, voice references, and models |
 | `--fresh` | All of the above and everything taught | Models |
 
-`pack-reset-places` resets spatial memory alone: it deletes every place's maps, splats, camera registrations, and
-stored positions, and keeps the knowledge store, so your corrected plans and place names stay. It stops no service.
+`src/liberational/reset_catalog.py` lists every step of a reset. While history rebuilds after one, readers report
+unavailable coverage, not zero activity.
 
-`pack-knowledge import --input <bundle.zip>` restores a bundle. It never overwrites a file and names any it left
-alone. `src/liberational/reset_catalog.py` lists every step of a reset.
+To restore a bundle, run `uv run --no-sync pack-knowledge import --input <bundle.zip>`. It never overwrites a file,
+and names any it left alone.
 
-While history rebuilds after a reset, readers report unavailable coverage, not zero activity.
+To reset spatial memory alone, run `uv run --no-sync pack-reset-places --yes` (without `--yes` it only prints the
+plan). It deletes every place's maps, splats, camera registrations, and stored positions, and keeps the knowledge
+store, so your corrected plans and place names stay. It stops no service: restart the dashboard and the journal
+afterwards, as in "Spatial memory starts again from what the cameras see", step 4.
