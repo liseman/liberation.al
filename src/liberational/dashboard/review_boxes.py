@@ -43,7 +43,7 @@ from typing import Any
 
 from liberational import logs
 from liberational.people import registry, transcript_view
-from liberational.vision import places, sightings
+from liberational.vision import sightings, views
 
 WINDOW_MAX_S = 120.0  # the longest stretch one request reads
 LIMIT = 5000  # rows a source, at most
@@ -310,7 +310,7 @@ def _track(items: list[dict[str, Any]]) -> None:
 def boxes(cam: str, start: float, end: float, state: str | pathlib.Path) -> dict[str, Any]:
     """{"cam", "start", "end", "boxes": [...]} for camera cam between start and end (at most WINDOW_MAX_S), in time
     order. Raises ValueError for a bad camera or times."""
-    if not isinstance(cam, str) or not places.valid_camera_id(cam):
+    if not isinstance(cam, str) or not views.valid_camera_id(cam):
         raise ValueError("cam must contain only ASCII letters, digits, _ or -")
     start, end = float(start), float(end)
     if not end > start:

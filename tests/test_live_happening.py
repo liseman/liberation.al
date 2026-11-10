@@ -33,7 +33,11 @@ def state(tmp_path, monkeypatch):
     monkeypatch.setattr(happening, "_built", {})
     monkeypatch.setattr(happening, "_settled", {})
     monkeypatch.setattr(happening, "_rows", {})
-    cfgs = {"owner": {"name": "Olive"}, "paths": {"state": str(tmp_path)}, "vision": {"places": ["cam0=living room"]}}
+    cfgs = {
+        "owner": {"name": "Olive"},
+        "paths": {"state": str(tmp_path)},
+        "vision": {"camera_names": ["cam0=living room"]},
+    }
     with cfg.override(cfgs):
         yield tmp_path
 

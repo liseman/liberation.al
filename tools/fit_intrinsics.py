@@ -40,7 +40,7 @@ import numpy as np
 
 from liberational import config as cfg
 from liberational.memory import places
-from liberational.spatial import cameras, dryrun, footprints, lens, registration, splats, stray
+from liberational.spatial import cameras, dryrun, footprints, lens, registration, rig, splats, stray
 from liberational.spatial import walkthrough as W
 
 LOOK_PREFIX = splats.LOOK_PREFIX
@@ -330,7 +330,7 @@ def main() -> None:
             if got is not None:
                 chosen[cam] = got
                 print(f"    to hold: focal {got.focal:.4f}, lens {got.division:+.4f} ({got.source})")
-        indoor = cameras.indoor_cameras(sorted(fixed), cfg.get("spatial.outdoor_cameras") or [])
+        indoor = cameras.indoor_cameras(sorted(fixed), rig.load())
         capture = cameras.capture(state, indoor, out / "capture", time.time())
         if capture is None:
             print("no camera had a frame for tonight's pass; nothing measured")

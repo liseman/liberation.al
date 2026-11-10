@@ -91,7 +91,7 @@ def test_shell_serializes_prototype_named_cameras_and_aliases_as_literal_keys(tm
         'device=[{name="__proto__",kind="rtsp"},{name="constructor",kind="camera"},{name="toString",kind="camera"}]'
     )
     monkeypatch.setattr(cfg, "ROOT", tmp_path)
-    with cfg.override({"vision": {"places": ["__proto__: Front", "constructor: Rear", "toString: Side"]}}):
+    with cfg.override({"vision": {"camera_names": ["__proto__: Front", "constructor: Rear", "toString: Side"]}}):
         script = server.fill(INDEX).split("<script>", 1)[1].split("</script>", 1)[0]
     result = subprocess.run(
         [node, "-e", "const window = {}; " + script + "; process.stdout.write(JSON.stringify(window.NAMES));"],
