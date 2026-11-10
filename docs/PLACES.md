@@ -82,6 +82,10 @@ footprints it saw, how many land on the floor and in a room of the plan, whether
 or its pose in the map, its fitted tilt, and what it lacks. A camera read through "nothing: no spot and no pose"
 places nobody.
 
+A line also says how many people and animals the camera left unplaced behind a wall from its spot. A few are
+expected (a pet on a sofa). The run flags a camera with more than a tenth of its people there: its height, tilt,
+lens, or spot is off, or the plan is drawn at another scale.
+
 The `positions` service places people at 20 past each hour. To place them at once:
 
 ```sh
