@@ -253,7 +253,7 @@ def answer(
             f"{_clock(float(v['ts_start']), tz)} to {_clock(float(v['ts_end']), tz)}",
             link="/review#"
             + urlencode(dict(day=stamp(float(v["ts_start"]))[:10], t=float(v["ts_start"]), cam=v.get("cam") or "")),
-            method="ZoneVisit: a tracked subject inside an owner-drawn zone (#1316), an unconfirmed candidate",
+            method="ZoneVisit: a tracked subject inside an owner-drawn zone, an unconfirmed candidate",
             stream="zone.visit",
             event=v["id"],
         )

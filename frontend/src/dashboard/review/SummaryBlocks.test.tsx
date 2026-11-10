@@ -175,7 +175,7 @@ describe('the summary by time', () => {
     expect(asked).toEqual([{ start: at(0), end: at(24) }]);
   });
 
-  it('plays a stretch on every click, the same one twice and two in turn, without refetching the list (#2259)', async () => {
+  it('plays a stretch on every click, the same one twice and two in turn, without refetching the list', async () => {
     const engine = show();
     const lunch = await findStretch(/Lunch with Dana in the kitchen/);
     const list = screen.getByRole('list');
@@ -368,7 +368,7 @@ describe('summary attribution facets', () => {
   });
 });
 
-describe('zooming and playing (#443)', () => {
+describe('zooming and playing', () => {
   it('keeps the stretches showing, marked Refining…, until finer ones come, then swaps them in', async () => {
     const engine = show();
     await findSummaryText('Lunch with Dana in the kitchen');
@@ -411,7 +411,7 @@ describe('nextAsk', () => {
   it('asks nothing before the day loads', () => expect(nextAsk(v(1, 2), null, shown)).toBeNull());
 });
 
-describe("a day's parts and its sentence (#2276)", () => {
+describe("a day's parts and its sentence", () => {
   const rolled = (parts: DayRollup['parts'], text: string | null = 'A work day at home'): DayRollup => ({
     day: DAY,
     start: at(0),

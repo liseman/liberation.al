@@ -22,7 +22,7 @@ from PIL import Image
 
 from liberational import config as cfg
 from liberational import segment_log, vision_log
-from liberational.dashboard import server
+from liberational.dashboard import call_log, context, known_voices, server, voice_clones
 from liberational.domain.identity import Basis
 from liberational.people import registry, voice_edits
 from liberational.see import face_boxes
@@ -64,7 +64,7 @@ CLIP = np.eye(1, segment_log.VOICE_DIM, 1, dtype=np.float32)[0]  # what an uploa
 
 
 def in_process_voice_edits(monkeypatch):
-    """Puts people/voice_edits.py in place of the dashboard's child process, run on server.STATE with the embedding
+    """Puts people/voice_edits.py in place of the dashboard's child process, run on context.STATE with the embedding
     store and the voice model stood in for (an enroll files CLIP). Returns the commands it was given."""
     ran = []
 
@@ -82,19 +82,19 @@ def in_process_voice_edits(monkeypatch):
             ran.append([*map(str, c)])
             with redirect_stdout(io.StringIO()) as out:
                 try:
-                    voice_edits.main(["--state-dir", str(server.STATE), *ran[-1]])
+                    voice_edits.main(["--state-dir", str(context.STATE), *ran[-1]])
                 except SystemExit as e:
                     return False, str(e)
             outs.append(out.getvalue().strip())
         return True, "\n".join(outs)
 
-    monkeypatch.setattr(server, "_speaker_cmds", speaker_cmds)
+    monkeypatch.setattr(known_voices, "_speaker_cmds", speaker_cmds)
     return ran
 
 
 @pytest.fixture
 def ran(monkeypatch):
-    """The voice edits, run in process on server.STATE. Returns the commands they were given."""
+    """The voice edits, run in process on context.STATE. Returns the commands they were given."""
     return in_process_voice_edits(monkeypatch)
 
 
@@ -122,15 +122,15 @@ def state(tmp_path, monkeypatch, pack, faces, ran):
     state = tmp_path / "state"
     state.mkdir()
     files = {
-        "STATE": ".",
         "CONTACTS_FILE": "contacts.json",
         "PEOPLE_ADDED": "people_added.json",
         "INBOX_SKIPS": "inbox_skips.json",
-        "CALLS_DIR": "calls",
-        "_clones_dir": "clones",
     }
     for name, path in files.items():
         monkeypatch.setattr(server, name, state / path)
+    monkeypatch.setattr(voice_clones, "_clones_dir", state / "clones")
+    monkeypatch.setattr(call_log, "CALLS_DIR", state / "calls")
+    monkeypatch.setattr(context, "STATE", state)
     monkeypatch.setattr(server, "_face_last_seen_at", lambda: {"alice": (300.0, "cam0")})
     with cfg.override({"paths": {"state": str(state), "faces": str(tmp_path / "faces")}}):
         yield state
@@ -341,7 +341,7 @@ def test_taking_a_clones_name_leaves_the_clone_a_clone(people, ran, take, sid, c
     add_clone(people, 7, "Gus")
     code, _ = take()
     assert (code, ran) == (200, cmds)
-    assert (label(sid), server._clone_only_ids()) == ("Gus", {7})
+    assert (label(sid), voice_clones._clone_only_ids()) == ("Gus", {7})
 
 
 def test_a_clone_sharing_a_name_never_hides_the_person(people, faces):
@@ -365,7 +365,7 @@ def test_claiming_a_voice_as_the_owner_skips_a_clone_of_the_owner(people):
     add_clone(people, 1, "Alice")
     code, body = server.claim_identity("voice", 2, "Alice", control=True)
     assert (code, body["ok"]) == (200, True)
-    assert (label(2), server._clone_only_ids()) == ("Alice", {1})
+    assert (label(2), voice_clones._clone_only_ids()) == ("Alice", {1})
 
 
 def test_voice_commands_run_in_order_in_a_child_and_stop_at_a_failure(monkeypatch):
@@ -375,9 +375,9 @@ def test_voice_commands_run_in_order_in_a_child_and_stop_at_a_failure(monkeypatc
         ran.append(cmd)
         return subprocess.CompletedProcess(cmd, int(cmd[-1] == "bad"), "", "")
 
-    monkeypatch.setattr(server, "subprocess", SimpleNamespace(run=run))
-    ok, _ = server._speaker_cmds([["label", 2, "bad"], ["label", 3, "Dana"]])
-    voices = [server.PY, "-m", "liberational.people.voice_edits", "--state-dir", str(server.STATE)]
+    monkeypatch.setattr(known_voices, "subprocess", SimpleNamespace(run=run))
+    ok, _ = known_voices._speaker_cmds([["label", 2, "bad"], ["label", 3, "Dana"]])
+    voices = [server.PY, "-m", "liberational.people.voice_edits", "--state-dir", str(context.STATE)]
     assert ok is False
     assert ran == [[*voices, "label", "2", "bad"]]
 
@@ -461,17 +461,17 @@ def dana_recorded(state, monkeypatch):
         (state / "clones" / f"{sid}.json").write_text(json.dumps({"label": name, "source": "recorded"}))
         return 0, {"seconds": 12.0, "ref_text": "hello"}, []
 
-    monkeypatch.setattr(server, "_clone_run", clone_run)
+    monkeypatch.setattr(voice_clones, "_clone_run", clone_run)
     monkeypatch.setattr(clone_say, "voiced_seconds", lambda *a, **k: 12.0)
     monkeypatch.setattr(clone_say, "STATE", state)
     monkeypatch.setattr(clone_say, "OUT", state / "clones")
 
 
 def test_a_clone_under_an_existing_name_is_a_voice_of_its_own(state, dana_recorded):
-    code, body = server.clone_record(b"RIFF", "Dana")
+    code, body = voice_clones.clone_record(b"RIFF", "Dana")
     assert code == 200, body
     assert body["id"] != 3
-    assert server._clone_only_ids() == {body["id"]}
+    assert voice_clones._clone_only_ids() == {body["id"]}
     assert (label(3), label(body["id"])) == ("Dana", "Dana")
 
 
@@ -479,17 +479,17 @@ def test_same_person_as_leaves_a_clone_a_clone(state, dana_recorded, ran):
     # Review 2, findings 13 and 18: merging Dana into Eve folded Dana's clone into Eve's voice too. The people merge
     # in the event log carries every voice of Dana's along, and runs no voice command.
     write_voices(state, {7: "Eve"})
-    clone = server.clone_record(b"RIFF", "Dana")[1]["id"]
+    clone = voice_clones.clone_record(b"RIFF", "Dana")[1]["id"]
     code, body = server.rename_person("Dana", "Eve", control=True)
     assert code == 200, body
     assert [c[:2] for c in ran] == [["enroll-clone", "Dana"]]  # the recording, and nothing since
     assert (label(3), label(7), label(clone)) == ("Eve", "Eve", "Eve")
-    assert server._clone_only_ids() == {clone}
+    assert voice_clones._clone_only_ids() == {clone}
 
 
 def test_a_renamed_persons_clone_stays_a_clone_when_spoken(state, dana_recorded):
     # Review 2, finding 18: after a rename, Say it moved the clone's mark aside, so it was matched in the room.
-    clone = server.clone_record(b"RIFF", "Dana")[1]["id"]
+    clone = voice_clones.clone_record(b"RIFF", "Dana")[1]["id"]
     ref = state / "clones" / f"{clone}.wav"
     ref.write_bytes(b"RIFF")
     (state / "clones" / f"{clone}.txt").write_text("hello")
@@ -500,31 +500,31 @@ def test_a_renamed_persons_clone_stays_a_clone_when_spoken(state, dana_recorded)
         assert clone_say.ref_for(clone) == ref
     meta = json.loads((state / "clones" / f"{clone}.json").read_text())
     assert (meta["label"], meta["source"]) == ("Danielle", "recorded")
-    assert server._clone_only_ids() == {clone}
+    assert voice_clones._clone_only_ids() == {clone}
 
 
 def test_removing_a_recorded_clone_keeps_it_out_of_the_room(state, dana_recorded):
     # Review 2, finding 19: Remove clone deleted clones/<id>.json, the only mark that keeps a clone unmatched.
-    clone = server.clone_record(b"RIFF", "Gus")[1]["id"]
+    clone = voice_clones.clone_record(b"RIFF", "Gus")[1]["id"]
     for ext in ("wav", "txt"):
         (state / "clones" / f"{clone}.{ext}").write_bytes(b"x")
-    code, body = server.clone_remove(clone)
+    code, body = voice_clones.clone_remove(clone)
     assert code == 200, body
     assert sorted(body["removed"]) == [f"{clone}.txt", f"{clone}.wav"]
-    assert server._clone_only_ids() == {clone}
+    assert voice_clones._clone_only_ids() == {clone}
     assert clone_say.ref_for(clone, make=False) is None  # gone from Voice clones until recorded again
-    assert server.clone_record(b"RIFF", "Gus")[1]["id"] == clone  # recording it again reuses the voice
+    assert voice_clones.clone_record(b"RIFF", "Gus")[1]["id"] == clone  # recording it again reuses the voice
 
 
 def test_speaking_a_clone_whose_clip_is_gone_keeps_its_mark(state, dana_recorded):
     # Review 2, finding 19: with its clip missing, ref_for moved a clone's note aside, so it lost its mark.
-    clone = server.clone_record(b"RIFF", "Gus")[1]["id"]
+    clone = voice_clones.clone_record(b"RIFF", "Gus")[1]["id"]
     with (
         patch.object(clone_say, "build", side_effect=SystemExit("only 0.0s of audio verified")),
         pytest.raises(SystemExit, match="record it again"),
     ):
         clone_say.ref_for(clone)
-    assert server._clone_only_ids() == {clone}
+    assert voice_clones._clone_only_ids() == {clone}
 
 
 @pytest.fixture
@@ -855,8 +855,8 @@ def test_selected_face_claim_failure_withdraws_only_its_new_photo(people, faces,
     for name, data in old.items():
         (folder / name).write_bytes(data)
     old_ref = registry.photo("1000000000000")
-    registry.at(server.STATE).claim(old_ref, "Dana Cole", Basis.OWNER_TAG, "dashboard")
-    old_person = registry.at(server.STATE).person_of(old_ref).person
+    registry.at(context.STATE).claim(old_ref, "Dana Cole", Basis.OWNER_TAG, "dashboard")
+    old_person = registry.at(context.STATE).person_of(old_ref).person
     recorded = []
     record = server._record_person_photo
 
@@ -873,8 +873,8 @@ def test_selected_face_claim_failure_withdraws_only_its_new_photo(people, faces,
     assert code == 404
     assert {p.name: p.read_bytes() for p in folder.glob("*.jpg")} == old
     assert len(recorded) == 1
-    assert registry.at(server.STATE).person_of(registry.photo(recorded[0])).person is None
-    assert registry.at(server.STATE).person_of(old_ref).person == old_person
+    assert registry.at(context.STATE).person_of(registry.photo(recorded[0])).person is None
+    assert registry.at(context.STATE).person_of(old_ref).person == old_person
     assert faces.named == []
 
 

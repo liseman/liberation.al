@@ -15,7 +15,7 @@ import pytest
 
 import liberational.vision
 from liberational import config, knowledge, voice_turn
-from liberational.dashboard import server
+from liberational.dashboard import context, live_status, server, voice_clones
 
 
 def test_the_faces_helpers_are_imported_before_the_first_people_request(monkeypatch):
@@ -70,17 +70,17 @@ def warm_sources(monkeypatch):
     monkeypatch.setattr(
         voice_turn, "wait_quiet", create_autospec(voice_turn.wait_quiet, side_effect=lambda: calls.append("gate"))
     )
-    for attr, name, reply in (
-        ("mic_status", "microphones", {"devices": {}}),
-        ("scene_entries", "scene", []),
-        ("camera_status", "cameras", {"cameras": {}}),
-        ("people_view", "roster", {"people": []}),
-        ("clones_list", "clones", {"clones": [], "error": None}),
+    for module, attr, name, reply in (
+        (live_status, "mic_status", "microphones", {"devices": {}}),
+        (live_status, "scene_entries", "scene", []),
+        (live_status, "camera_status", "cameras", {"cameras": {}}),
+        (server, "people_view", "roster", {"people": []}),
+        (voice_clones, "clones_list", "clones", {"clones": [], "error": None}),
     ):
-        fn = getattr(server, attr)
+        fn = getattr(module, attr)
         originals[attr] = fn
         monkeypatch.setattr(
-            server,
+            module,
             attr,
             create_autospec(fn, side_effect=lambda *_, name=name, reply=reply, **__: calls.append(name) or reply),
         )
@@ -632,7 +632,7 @@ def test_a_change_made_during_a_cold_start_answers_with_its_own_read(roster, mon
 
 def test_the_faces_check_runs_in_a_child_process_and_saves_its_result(tmp_path, monkeypatch):
     # In the dashboard's own process it held every request up for seconds every 10 minutes.
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     imported_before = "liberational.vision.faces" in sys.modules
     check = server._run_check()
     assert (check["groups"], check["status"]) == (0, "unchecked")  # an install with no tags yet
@@ -642,7 +642,7 @@ def test_the_faces_check_runs_in_a_child_process_and_saves_its_result(tmp_path, 
 
 
 def test_a_faces_check_child_that_fails_says_why(tmp_path, monkeypatch):
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     monkeypatch.setattr(
         server.subprocess,
         "run",
@@ -849,7 +849,7 @@ def voice_state(monkeypatch, tmp_path):
     from liberational.people import registry
 
     skips = {"face": [], "voice": [9.0], "line": []}
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     monkeypatch.setattr(server, "inbox_skips", lambda: skips)
     yield registry.at(tmp_path), skips
     registry.close_all()

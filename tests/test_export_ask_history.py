@@ -59,7 +59,7 @@ def test_output_preserves_confirmed_and_manual_rows_updates_matching_drafts_and_
     labels.mkdir()
     target = labels / "retrieval.jsonl"
     old = [
-        {"id": "confirmed", "question": "Joe checked", "draft": False, "answer_includes": ["yes"]},
+        {"id": "confirmed", "question": "Sam checked", "draft": False, "answer_includes": ["yes"]},
         {"id": "manual", "question": "Manual label"},
         {"id": "draft", "question": "Old draft", "draft": True},
     ]

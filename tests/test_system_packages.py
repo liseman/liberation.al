@@ -295,7 +295,7 @@ def test_installing_services_names_their_missing_packages_and_the_fix(monkeypatc
 
 
 def test_the_dashboard_reports_missing_packages_and_checks_again_only_after_a_while(monkeypatch):
-    from liberational.dashboard import server
+    from liberational.dashboard import machine_stats
 
     calls = []
 
@@ -304,11 +304,11 @@ def test_the_dashboard_reports_missing_packages_and_checks_again_only_after_a_wh
         return {"missing": [{"name": "sox"}], "commands": ["sudo apt-get install -y sox"]}
 
     monkeypatch.setattr(system_packages, "status", status)
-    stats = server.Stats()
+    stats = machine_stats.Stats()
     assert stats.system_status()["missing"] == [{"name": "sox"}]
     stats.system_status()
     assert len(calls) == 1
-    stats.system_t -= server.SYSTEM_S + 1
+    stats.system_t -= machine_stats.SYSTEM_S + 1
     stats.system_status()
     assert len(calls) == 2
 

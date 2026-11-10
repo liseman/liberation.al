@@ -32,11 +32,15 @@ import math
 import os
 import threading
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from liberational import config as cfg
+from liberational.dashboard import routes
 from liberational.memory.ask import MAX_QUESTION
 from liberational.people import registry
+
+if TYPE_CHECKING:
+    from liberational.dashboard.server import H
 
 Reply = tuple[int, dict[str, Any]]
 
@@ -405,3 +409,14 @@ def mark(body: object, control: bool) -> Reply:
         return 400, {"ok": False, "error": made}
     save(made, file)
     return 200, {"ok": True, "label": made}
+
+
+# ---- routes (dashboard/routes.py): what the server answers for this area ----
+
+
+@routes.post("/measurement/mark")
+def _post_measurement_mark(h: H, body: Any) -> None:
+    if not h._same_origin_json():
+        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
+    code, o = mark(body, h._can_teach())
+    return h._json(o, code)

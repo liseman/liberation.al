@@ -12,10 +12,14 @@ import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from liberational import config, logs
+from liberational.dashboard import routes
 from liberational.proximity import devices
+
+if TYPE_CHECKING:
+    from liberational.dashboard.server import H
 
 LOG = logs.get("dashboard")
 DEFAULT_HOURS = 24.0
@@ -251,3 +255,48 @@ def unlocate(body: object, control: bool) -> tuple[int, dict[str, Any]]:
         return 503, {"ok": False, "error": UNAVAILABLE}
     _forget()
     return 200, {"ok": True}
+
+
+# ---- routes (dashboard/routes.py): what the server answers for this area ----
+
+
+@routes.get("/device-links")
+def _get_device_links(h: H) -> None:
+    code, reply = listing(h._query().get("hours", ""), state=h.state)
+    return h._json(reply, code)
+
+
+@routes.get("/device-presence")
+def _get_device_presence(h: H) -> None:
+    code, reply = presence()
+    return h._json(reply, code)
+
+
+# Known › Devices
+@routes.get("/device-whereabouts", "/device-comings")
+def _get_device_whereabouts(h: H) -> None:
+    p = h.path.split("?")[0]
+    code, reply = whereabouts() if p == "/device-whereabouts" else comings()
+    return h._json(reply, code)
+
+
+@routes.post(
+    "/device-links",
+    "/device-links/remove",
+    "/device-locations",
+    "/device-locations/remove",
+    "/device-access-point",
+)
+def _post_device_links(h: H, body: Any) -> None:
+    p = h.path.split("?")[0]
+    if not h._same_origin_json():
+        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
+    act = {
+        "/device-links": save,
+        "/device-links/remove": remove,
+        "/device-locations": lambda b, c: locate(b, c, h.state),
+        "/device-locations/remove": unlocate,
+        "/device-access-point": name_access_point,
+    }[p]
+    code, reply = act(body, h._can_teach())
+    return h._json(reply, code)

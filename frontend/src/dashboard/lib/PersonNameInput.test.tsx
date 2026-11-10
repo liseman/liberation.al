@@ -44,7 +44,7 @@ function Box({ onPick }: { onPick: (name: string) => void }) {
 }
 
 describe('PersonNameInput', () => {
-  it('keeps no options in the page while closed, so a list of name boxes costs one box each (#3214)', async () => {
+  it('keeps no options in the page while closed, so a list of name boxes costs one box each', async () => {
     const onPick = vi.fn();
     renderPage(<Box onPick={onPick} />);
     expect(screen.queryAllByRole('option', { hidden: true })).toEqual([]);

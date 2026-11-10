@@ -65,7 +65,7 @@ describe('seenStatus', () => {
   });
 });
 
-describe('hm and hms (#440: one formatter, made once)', () => {
+describe('hm and hms (one formatter, made once)', () => {
   it('read exactly as toLocaleTimeString does, at every hour of a day and across a year', () => {
     const start = new Date(2026, 0, 1).getTime() / 1000;
     for (let i = 0; i < 400; i++) {
@@ -140,7 +140,7 @@ describe('dateTime', () => {
   });
 });
 
-describe('momentWords (#2674)', () => {
+describe('momentWords', () => {
   const now = new Date('2026-11-06T15:00:00');
   const at = (iso: string) => new Date(iso).getTime() / 1000;
   it('says today, yesterday, or the day, then the 24-hour time', () => {

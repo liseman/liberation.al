@@ -34,7 +34,7 @@ const chip = (label: string, cams: Record<string, [number, number][]>): Chip => 
   cams: Object.fromEntries(Object.entries(cams).map(([c, s]) => [c, s.map(([a, b]) => [T + a, T + b])])),
 });
 
-describe('one person in Review (#2057)', () => {
+describe('one person in Review', () => {
   it('takes only their lines, the views their chip says saw them, and the actions that name them', () => {
     const moments = momentsOf(
       'alice',
@@ -91,7 +91,7 @@ describe('one person in Review (#2057)', () => {
   });
 });
 
-describe('person playback plans (#2057)', () => {
+describe('person playback plans', () => {
   const moment = (kind: Moment['kind'], start: number, end: number, cam: string | null = null): Moment => ({
     kind,
     start: T + start,

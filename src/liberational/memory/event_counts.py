@@ -306,7 +306,7 @@ def answer(
             answer=f"Event detection isn't set up here yet, so I can't count {asked}.",
             evidence=[],
             coverage={"recordings": 0, "available": False},
-            warnings=["memory/events.py is not installed (#228)."],
+            warnings=["memory/events.py is not installed."],
         )
     projection = getattr(act, "count_evidence", None)
     promoted, unverified = (
@@ -382,7 +382,7 @@ def answer(
             quote=f"{owner_name(e) or 'something not named yet'}: {_n(_occurrences(e), 'time', 'times')} on "
             f"{e.get('camera')}, {_clock(float(e['start']), tz)} to {_clock(float(e['end']), tz)}",
             link="/review#" + urlencode(dict(day=stamp(float(e["start"]))[:10], t=float(e["start"]))),
-            method="EventDetected: a detector's promoted span (#228), not a caption",
+            method="EventDetected: a detector's promoted span, not a caption",
             stream=e.get("stream"),
             event=e.get("id"),
         )

@@ -145,7 +145,7 @@ def answer(
             source="device",
             link=_review(s.start, stamp),
             quote=f"{name}'s device: {s.sightings} sightings by {', '.join(s.places)}",
-            method="presence.device_span-style stay of a linked device (#1329), unconfirmed",
+            method="presence.device_span-style stay of a linked device, unconfirmed",
             event=s.first_id,
         )
         for s in (seen.stays if seen else ())

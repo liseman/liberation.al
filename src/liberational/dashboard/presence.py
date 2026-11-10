@@ -33,15 +33,19 @@ from collections.abc import Iterable, Sequence
 from concurrent.futures import Executor, Future, ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from liberational import config as cfg
 from liberational import continuum_ready, logs, segment_log, speech_log
+from liberational.dashboard import routes
 from liberational.intervals import interval_groups
 from liberational.memory import presence_counts
 from liberational.people import registry, transcript_view
 from liberational.see.faces import VISIT_GAP_S
 from liberational.vision import sightings
+
+if TYPE_CHECKING:
+    from liberational.dashboard.server import H
 
 OBJECT_PAD = 2.0  # an observation covers about this long
 EVENT_PAD = 30.0  # a summary bullet that links a single moment
@@ -556,12 +560,9 @@ def _load(day: str, state: str) -> dict[str, Any]:
     """One day's answer, for for_request's job; in its own process, the settings as they are now."""
     if multiprocessing.parent_process() is not None:
         cfg.load.cache_clear()  # a setting saved since: the dashboard rereads its pack.toml, and so does this
-        # Today is read again every minute: each ended hour's records are kept in this process, and only the hours
-        # still going are read from the store.
-        from liberational import memtrim, segment_log
+        from liberational import memtrim
 
-        segment_log.keep_hours()
-        memtrim.start()  # what a load freed goes back to the system; the kept hours stay
+        memtrim.start()  # what a load freed goes back to the system
     start, end = day_bounds(day)
     pending = dict(day=day, start=start, end=end, chips=[], partial=True, pending=True)
     try:
@@ -663,3 +664,14 @@ def keep_warm(state: str | pathlib.Path | None = None, stop: threading.Event | N
     thread = threading.Thread(target=run, name="presence-warm", daemon=True)
     thread.start()
     return thread
+
+
+# ---- routes (dashboard/routes.py): what the server answers for this area ----
+
+
+@routes.get("/review/presence")
+def _get_review_presence(h: H) -> None:
+    day = h._query().get("day") or None
+    if day and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
+        return h._json({"error": "day must be YYYY-MM-DD"}, 400)
+    return h._json(for_request(day, h.state))

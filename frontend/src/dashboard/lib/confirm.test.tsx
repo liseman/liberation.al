@@ -12,7 +12,7 @@ const open = (options: Parameters<typeof confirm>[0]) => {
   return answer;
 };
 
-describe('confirm (#2538)', () => {
+describe('confirm', () => {
   it('focuses Cancel on a destructive prompt and answers no on Cancel', async () => {
     renderPage(<div />);
     const answer = open({ title: 'Delete Dana', body: 'Recordings stay.', confirm: 'Delete', danger: true });
@@ -23,7 +23,7 @@ describe('confirm (#2538)', () => {
     await expect(answer).resolves.toBe(false);
   });
 
-  it('focuses Cancel on an ordinary prompt too, so Enter right away answers no (#2541)', async () => {
+  it('focuses Cancel on an ordinary prompt too, so Enter right away answers no', async () => {
     renderPage(<div />);
     const answer = open({ title: 'Place a call', body: 'Have Bob call Dana now?', confirm: 'Call' });
     const dialog = await screen.findByRole('dialog', { name: 'Place a call' });

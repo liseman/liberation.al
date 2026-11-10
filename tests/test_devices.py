@@ -13,7 +13,7 @@ import test_network_worker as net
 from asking import query
 from liberational import config as cfg
 from liberational import segment_log
-from liberational.dashboard import device_links, server
+from liberational.dashboard import context, device_links, server
 from liberational.memory import device_answers, places
 from liberational.memory import history_qa as h
 from liberational.proximity import ble, devices, vendors
@@ -22,7 +22,7 @@ from liberational.proximity.network_worker import INVENTORY, OBSERVATIONS, Netwo
 
 NOW = 1_800_000_000.0
 PHONE = "aa:bb:cc:dd:ee:01"  # Sam's phone on the home Wi-Fi
-WATCH = "C0:FF:EE:00:00:01"  # Joe's watch, a static Bluetooth address
+WATCH = "C0:FF:EE:00:00:01"  # Eli's watch, a static Bluetooth address
 AIRPODS_DATA = {"76": "0719010f2022f58f01000045f2a1b3c4"}  # an exact payload, stable across address rotations
 
 
@@ -95,7 +95,7 @@ def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 def test_a_link_is_revised_in_place_and_retired_without_touching_sightings(home):
     reg, _ = home
-    first = reg.save("ble_identifier", WATCH, "person", "Joe")
+    first = reg.save("ble_identifier", WATCH, "person", "Eli")
     again = reg.save("ble_identifier", WATCH, "person", "Jordan")
     assert again.id == first.id and [x.name for x in reg.links()] == ["Jordan"], "one link per device, revised"
     reg.remove(first.id)
@@ -129,18 +129,18 @@ def ask(state: Path, question: str, now: float) -> dict[str, Any]:
 
 def test_is_joe_home_reads_his_devices_and_says_when_it_cannot_tell(home, tmp_path):
     reg, record = home
-    reg.save("ble_identifier", WATCH, "person", "Joe")
+    reg.save("ble_identifier", WATCH, "person", "Eli")
     now = NOW + 7200
     record(devices.BLE_SIGHTINGS, [sighting(now - 300, WATCH, sensor="Kitchen")])
     record(devices.BLE_COVERAGE, [coverage(now - 900), coverage(now - 30)])
-    reply = ask(tmp_path, "is Joe home?", now)
+    reply = ask(tmp_path, "is Eli home?", now)
     assert reply["paths"] == ["devices"]
-    assert reply["answer"].startswith("Probably: Joe's device was seen 5 min ago by Kitchen, signal -60 dBm.")
+    assert reply["answer"].startswith("Probably: Eli's device was seen 5 min ago by Kitchen, signal -60 dBm.")
     later = now + 3600  # no sighting and no sensor running since: unknown, not "left"
-    assert ask(tmp_path, "is Joe home?", later)["answer"].startswith("I can't tell")
+    assert ask(tmp_path, "is Eli home?", later)["answer"].startswith("I can't tell")
     record(devices.BLE_COVERAGE, [coverage(later - 10)])
     # Passive radio operation cannot certify that a quiet or rotating advertiser is absent.
-    assert ask(tmp_path, "is Joe home?", later)["answer"].startswith("I can't tell")
+    assert ask(tmp_path, "is Eli home?", later)["answer"].startswith("I can't tell")
 
 
 def test_when_did_sam_get_here_reads_todays_stays(home, tmp_path):
@@ -169,7 +169,7 @@ def test_where_did_i_last_have_my_airpods_names_the_sensor_and_signal(home, tmp_
 
 def test_unknown_devices_are_kept_and_counted(home):
     reg, record = home
-    reg.save("ble_identifier", WATCH, "person", "Joe")
+    reg.save("ble_identifier", WATCH, "person", "Eli")
     record(
         devices.BLE_SIGHTINGS,
         [sighting(NOW, WATCH), sighting(NOW, "de:ad:be:ef:00:01"), sighting(NOW, "de:ad:be:ef:00:02")],
@@ -180,7 +180,7 @@ def test_unknown_devices_are_kept_and_counted(home):
 
 def test_a_summary_row_says_how_to_link_it_and_which_link_it_has(home):
     reg, record = home
-    joe = reg.save("ble_identifier", WATCH, "person", "Joe")
+    eli = reg.save("ble_identifier", WATCH, "person", "Eli")
     keys = reg.save("ble_name", "Keys", "thing", "Keys")  # not heard in the window: still listed
     record(devices.BLE_SIGHTINGS, [sighting(NOW, WATCH, sensor="Hall", rssi=-48, data=AIRPODS_DATA)])
     record(devices.NET_OBSERVATIONS, [network(NOW, PHONE)])
@@ -188,13 +188,13 @@ def test_a_summary_row_says_how_to_link_it_and_which_link_it_has(home):
     by = {d["source"]: d for d in found["devices"]}
     watch, phone = by[devices.BLE_SIGHTINGS], by[devices.NET_OBSERVATIONS]
     assert (watch["linked"], watch["place"], watch["rssi"]) == (
-        {"id": joe.id, "target": "person", "name": "Joe"},
+        {"id": eli.id, "target": "person", "name": "Eli"},
         "Hall",
         -48.0,
     )
     assert [s["kind"] for s in watch["selectors"]] == ["ble_identifier", "ble_fingerprint"]
     assert (phone["linked"], phone["selectors"]) == (None, [{"kind": "net_mac", "value": PHONE}])
-    assert sorted(x["id"] for x in found["links"]) == sorted([joe.id, keys.id])
+    assert sorted(x["id"] for x in found["links"]) == sorted([eli.id, keys.id])
 
 
 def test_a_summary_row_and_a_wifi_device_say_who_made_them(home, monkeypatch):
@@ -290,9 +290,9 @@ def http_(home, serve, monkeypatch, tmp_path):
     import json
     import urllib.parse
 
-    from liberational.dashboard import server
+    from liberational.dashboard import context, server
 
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     monkeypatch.setattr(server, "DASH_PASSWORD", "")
     monkeypatch.setattr(device_links, "_held", {})  # an earlier test's listing, reused within the minute
     netloc = urllib.parse.urlsplit(serve(server.H)).netloc
@@ -591,7 +591,7 @@ def test_whereabouts_says_where_each_link_was_last_seen_looking_back_by_day(home
     fingerprint = devices.ble.payload_fingerprint(sighting(NOW, "x", data=AIRPODS_DATA))
     reg.save("ble_fingerprint", str(fingerprint), "thing", "AirPods")
     reg.save("ble_name", "Keys", "thing", "Keys")  # never heard
-    reg.save("ble_identifier", WATCH, "person", "Joe")
+    reg.save("ble_identifier", WATCH, "person", "Eli")
     record(
         devices.BLE_SIGHTINGS,
         [
@@ -600,11 +600,11 @@ def test_whereabouts_says_where_each_link_was_last_seen_looking_back_by_day(home
         ],
     )
     rows = reg.whereabouts(NOW, 30)
-    assert [(r["target"], r["name"]) for r in rows] == [("thing", "AirPods"), ("thing", "Keys"), ("person", "Joe")]
-    airpods, keys, joe = rows
+    assert [(r["target"], r["name"]) for r in rows] == [("thing", "AirPods"), ("thing", "Keys"), ("person", "Eli")]
+    airpods, keys, eli = rows
     assert (airpods["last_seen"], airpods["place"], airpods["rssi"]) == (NOW - 3 * 86400 + 5, "Car", -71.0)
     assert (keys["last_seen"], keys["place"]) == (None, None)
-    assert (joe["last_seen"], joe["place"]) == (NOW - 35, "Desk")
+    assert (eli["last_seen"], eli["place"]) == (NOW - 35, "Desk")
     assert reg.whereabouts(NOW, 2)[0]["last_seen"] is None, "past the lookback: not seen"
 
 
@@ -786,7 +786,7 @@ def test_the_dashboard_reads_the_device_list_once_at_start_at_low_priority(monke
     monkeypatch.setattr(server, "_low_priority", priority)
     server._warm_devices()
     priority.assert_called_once_with(19)
-    listing.assert_called_once_with("", state=server.STATE)
+    listing.assert_called_once_with("", state=context.STATE)
 
 
 def test_a_failed_device_warm_up_is_logged_not_raised(monkeypatch):

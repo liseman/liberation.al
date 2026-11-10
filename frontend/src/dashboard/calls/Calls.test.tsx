@@ -82,7 +82,7 @@ describe('the calls list', () => {
     expect(day).not.toHaveAccessibleName(/2026/);
   });
 
-  it('says which way a call went and with whom, what the assistant was asked, and what came of it (#2684)', async () => {
+  it('says which way a call went and with whom, what the assistant was asked, and what came of it', async () => {
     serve([
       {
         day: '2026-10-27',
@@ -271,7 +271,7 @@ describe('placing a call', () => {
     ).toBeInTheDocument();
   });
 
-  it('waits for someone to call before Call can be pressed (#2668)', async () => {
+  it('waits for someone to call before Call can be pressed', async () => {
     serve([]);
     renderPage(<Calls people={people} />);
     expect(await screen.findByRole('button', { name: 'Call' })).toBeDisabled();
@@ -279,7 +279,7 @@ describe('placing a call', () => {
     expect(screen.getByRole('button', { name: 'Call Dana' })).toBeEnabled();
   });
 
-  it('opens on Number while nobody has a number, and says where numbers come from (#2668)', async () => {
+  it('opens on Number while nobody has a number, and says where numbers come from', async () => {
     serve([]);
     renderPage(<Calls people={[person('Eli')]} />);
     expect(screen.getByRole('radio', { name: 'Number' })).toBeChecked();
@@ -430,7 +430,7 @@ describe('manual call targets', () => {
   );
 });
 
-describe('a call in progress (#2699)', () => {
+describe('a call in progress', () => {
   const live = (more: object = {}) => ({
     direction: 'out',
     number: '+14155550123',

@@ -25,7 +25,7 @@ describe('micName', () => {
   });
 });
 
-describe('Mics (#353)', () => {
+describe('Mics', () => {
   beforeEach(() => {
     FakeEventSource.all = [];
     vi.stubGlobal('EventSource', FakeEventSource);
@@ -51,7 +51,7 @@ describe('Mics (#353)', () => {
     expect(screen.getByText('Unavailable')).toBeInTheDocument();
   });
 
-  it("shows auto gain's gain now, and nothing while auto gain is off (#410)", () => {
+  it("shows auto gain's gain now, and nothing while auto gain is off", () => {
     const gain = { auto: true, kind: 'hardware', db: 12.5 };
     const { unmount } = renderMics({ wave: { name: WAVE, level_dbfs: -45, healthy: true, gain } });
     expect(screen.getByText('+12.5 dB')).toHaveAttribute('title', 'Hardware gain +12.5 dB');
@@ -60,7 +60,7 @@ describe('Mics (#353)', () => {
     expect(screen.queryByText('+12.5 dB')).not.toBeInTheDocument();
   });
 
-  it("says the level is unavailable in the conversation's compact line until the levels arrive (#2486)", () => {
+  it("says the level is unavailable in the conversation's compact line until the levels arrive", () => {
     renderMics({ wave: { name: WAVE, level_dbfs: -60, healthy: true } }, undefined, true);
     expect(screen.getByText('Listening · level unavailable')).toBeInTheDocument();
     const [stream] = FakeEventSource.all;

@@ -21,7 +21,7 @@ from hypothesis import strategies as hs
 
 import speech_fake
 from liberational import speech_log
-from liberational.dashboard import presence, server, shell_status
+from liberational.dashboard import context, presence, server, shell_status, transcript_lines
 from liberational.domain.identity import Basis
 from liberational.domain.kernel import EventType
 from liberational.memory import history_qa, recall, summarize
@@ -119,7 +119,7 @@ def dashboard(monkeypatch):
     def at(state):
         for name, file in (("REFINE_LOG", "refine_log.jsonl"),):
             monkeypatch.setattr(server, name, state / file)
-        monkeypatch.setattr(server, "STATE", state)
+        monkeypatch.setattr(context, "STATE", state)
         monkeypatch.setattr(server, "DASH_PASSWORD", "")
         return state
 
@@ -296,7 +296,7 @@ def test_a_reply_while_the_feed_connects_reaches_it(forgetting, monkeypatch):
     """Finding 11: on connect the feed read the tail, then the assistant's offset, so a reply in between was in
     neither the first batch nor any later read."""
     speech_fake.fake().reply({**REPLY, "text": "first"})
-    real_tail, replied = server.merged_tail, []
+    real_tail, replied = transcript_lines.merged_tail, []
 
     def tail(n=80):
         got = real_tail(n)
@@ -305,7 +305,7 @@ def test_a_reply_while_the_feed_connects_reaches_it(forgetting, monkeypatch):
             reply(forgetting, "REPLY-X")
         return got
 
-    monkeypatch.setattr(server, "merged_tail", tail)
+    monkeypatch.setattr(transcript_lines, "merged_tail", tail)
     sent = [e["text"] for ev in feed(monkeypatch) for e in ev["entries"]]
     assert sent.count("REPLY-X") == 1
 
@@ -568,8 +568,8 @@ def rename_alice(state, newcomer=True):
 
 
 def test_dashboard(heard):
-    assert [e["speaker"] for e in server.merged_tail(10)] == ["Dana", "Alice"]
-    assert [e["speaker"] for e in server.transcript_around(T0, 4)["entries"]] == ["Dana", "Alice"]
+    assert [e["speaker"] for e in transcript_lines.merged_tail(10)] == ["Dana", "Alice"]
+    assert [e["speaker"] for e in transcript_lines.transcript_around(T0, 4)["entries"]] == ["Dana", "Alice"]
     assert [r["who"] for r in server._room_lines()] == ["Dana", "Alice"]
     latest = server.latest_for_speaker(1)
     assert latest is not None

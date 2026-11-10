@@ -7,20 +7,20 @@ from unittest.mock import create_autospec
 import pytest
 
 from liberational import config as cfg
-from liberational.dashboard import server
+from liberational.dashboard import call_log, server
 from liberational.phone import outbound
 
 
 @pytest.fixture
 def hangup_http(serve, monkeypatch, tmp_path):
-    monkeypatch.setattr(server, "CALLS_DIR", tmp_path / "calls")
+    monkeypatch.setattr(call_log, "CALLS_DIR", tmp_path / "calls")
     monkeypatch.setattr(server, "DASH_PASSWORD", "synthetic-password")
     monkeypatch.setattr(server.H, "_local", lambda self: False)
     env = tmp_path / "phone.env"
     env.write_text("TWILIO_ACCOUNT_SID=ACfake\nTWILIO_AUTH_TOKEN=fake\n")
     sid = "CA" + "1" * 32
     day, name = "2026-11-06", "130200_" + sid
-    _live(server.CALLS_DIR / day / name, callSid=sid)
+    _live(call_log.CALLS_DIR / day / name, callSid=sid)
     send = create_autospec(
         outbound.requests.post, return_value=SimpleNamespace(status_code=200, json=lambda: {"status": "completed"})
     )
@@ -140,8 +140,8 @@ def test_the_call_list_reads_an_older_call_without_a_direction_as_unknown(tmp_pa
     (new / "call.json").write_text(
         json.dumps({**placed, "instructions": "Ask about Friday", "outcome": "Friday at 7."})
     )
-    monkeypatch.setattr(server, "CALLS_DIR", tmp_path)
-    by = {c["callSid"]: c for c in server.calls_list()}
+    monkeypatch.setattr(call_log, "CALLS_DIR", tmp_path)
+    by = {c["callSid"]: c for c in call_log.calls_list()}
     assert {k: by["CA1"][k] for k in ("direction", "to", "instructions", "outcome")} == {
         "direction": "unknown",
         "to": None,
@@ -162,10 +162,10 @@ def _live(folder, **over):
 
 def test_the_call_on_now_says_which_way_who_and_since_when(tmp_path, monkeypatch):
     """GET /calls/live for the Calls page's "on a call" row: from the bridge's live mark."""
-    monkeypatch.setattr(server, "CALLS_DIR", tmp_path)
-    assert server.calls_live() == {"live": None, "count": 0}
+    monkeypatch.setattr(call_log, "CALLS_DIR", tmp_path)
+    assert call_log.calls_live() == {"live": None, "count": 0}
     _live(tmp_path / "2026-11-06" / "130200_CA9")
-    got = server.calls_live()
+    got = call_log.calls_live()
     assert got["count"] == 1
     live = got["live"]
     assert {k: live[k] for k in ("direction", "number", "name", "day", "dir")} == {
@@ -183,16 +183,16 @@ def test_a_live_mark_a_crash_left_behind_is_not_a_call_on(tmp_path, monkeypatch)
 
     gone = subprocess.Popen(["true"])
     gone.wait()  # a process that has exited: its pid is free
-    monkeypatch.setattr(server, "CALLS_DIR", tmp_path)
+    monkeypatch.setattr(call_log, "CALLS_DIR", tmp_path)
     _live(tmp_path / "2026-11-06" / "080000_CA1", pid=gone.pid)
-    _live(tmp_path / "2026-11-06" / "090000_CA2", since=time.time() - server.LIVE_CALL_MAX_S - 1)
+    _live(tmp_path / "2026-11-06" / "090000_CA2", since=time.time() - call_log.LIVE_CALL_MAX_S - 1)
     (tmp_path / "2026-11-06" / "100000_CA3").mkdir()
     (tmp_path / "2026-11-06" / "100000_CA3" / "live.json").write_text("{not json")
-    assert server.calls_live() == {"live": None, "count": 0}
+    assert call_log.calls_live() == {"live": None, "count": 0}
 
 
 def test_the_dashboard_serves_the_call_on_now(serve, monkeypatch, tmp_path):
-    monkeypatch.setattr(server, "CALLS_DIR", tmp_path)
+    monkeypatch.setattr(call_log, "CALLS_DIR", tmp_path)
     monkeypatch.setattr(server, "DASH_PASSWORD", "")
     _live(tmp_path / "2026-11-06" / "130200_CA9", direction="in", name=None, number="+15555550123")
     base = serve(server.H)

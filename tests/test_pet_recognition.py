@@ -184,7 +184,7 @@ FIXTURE_ROWS = [
 def log(monkeypatch, tmp_path):
     continuum_py = pytest.importorskip("continuum_py")
     if not hasattr(continuum_py, "SegmentWriter"):
-        pytest.skip("this continuum_py predates the segment store (#1777)")
+        pytest.skip("this continuum_py predates the segment store")
     return Log(store(tmp_path, FIXTURE_ROWS))
 
 
@@ -267,7 +267,7 @@ def test_until_the_check_passes_a_match_is_only_a_suggestion(log):
     rows = {s["track_id"]: s for g in R.view(log.state, PETS, now=now + 1)["groups"] for s in g["sightings"]}
     assert "recognized" not in rows["m-new"]
     assert rows["m-new"]["suggestion"]["label"] == MIA
-    assert rows["m-new"]["suggestion"]["clear"] is True, "a clear match the check doesn't trust yet (#2291)"
+    assert rows["m-new"]["suggestion"]["clear"] is True, "a clear match the check doesn't trust yet"
 
 
 def test_an_unclear_nearest_pet_is_a_suggestion_that_is_not_clear():
@@ -743,7 +743,7 @@ def test_a_pet_the_owner_said_it_isnt_is_left_out_and_the_next_class_answers():
     mia, poppy, query = seen(("m", 0, 1, T), ("p", 1, 2, T), ("q", 0, 3, T))
     assert R.recognize(query, [(mia, MIA), (poppy, POPPY)])[0] == MIA
     label, _, suggestion = R.recognize(query, [(mia, MIA), (poppy, POPPY)], exclude={MIA})
-    assert (label, suggestion) == (None, POPPY), "Poppy is far from it: only a suggestion, never Mia (#2364)"
+    assert (label, suggestion) == (None, POPPY), "Poppy is far from it: only a suggestion, never Mia"
 
 
 def test_not_this_pet_moves_a_sightings_suggestion_on_and_taking_it_back_restores_it(log):

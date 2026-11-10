@@ -1,10 +1,12 @@
 //! Canonical MJPEG-camera H.264 adapter. The hardware encoder is NVENC, or VideoToolbox on macOS; its
 //! failure, at open or at run time, selects CPU H.264 (libx264), never raw JPEG.
+//! Each JPEG is decoded on the CPU straight to NV12, its own Y, Cb, and Cr repacked with no trip through RGB
+//! (`continuum_tier::JpegNv12`), into buffers kept from frame to frame.
 //! Source capture headers remain the publisher's responsibility; every accepted image yields exactly
 //! one access unit with its original monotonic timestamp and attested duration.
 
 use continuum_tier::h264::{H264Encoder, H264Settings};
-use continuum_tier::{TierError, decode_jpeg, rgb_to_nv12};
+use continuum_tier::{JpegNv12, TierError};
 
 use crate::manifest::VideoEncodingSettings;
 use crate::publish::Capture;
@@ -48,6 +50,9 @@ pub struct Pipeline {
     interval_ns: u64,
     encoder: H264Encoder,
     previous: Option<(u64, u64, u32, u64)>,
+    /// The JPEG decoder's working buffer and the NV12 picture it fills, both reused from frame to frame.
+    decoder: JpegNv12,
+    nv12: Vec<u8>,
 }
 
 impl Pipeline {
@@ -101,6 +106,8 @@ impl Pipeline {
             interval_ns: u64::from(config.keyframe_interval_ms) * 1_000_000,
             encoder,
             previous: None,
+            decoder: JpegNv12::default(),
+            nv12: Vec::new(),
         })
     }
 
@@ -115,10 +122,19 @@ impl Pipeline {
         self.previous = None;
     }
 
-    /// Decode and encode one JPEG without altering any capture metadata.
+    /// Decode one JPEG straight to NV12 (its own Y, Cb, and Cr, never through RGB) and encode it, without altering
+    /// any capture metadata.
     /// # Errors
     /// Invalid JPEG/layout/time, encoder failure, or output not exactly one matching access unit.
     pub fn encode(&mut self, capture: Capture, jpeg: &[u8]) -> Result<Vec<u8>, TierError> {
+        // The picture buffer is lent to this frame's work and kept for the next, whatever becomes of the frame.
+        let mut nv12 = std::mem::take(&mut self.nv12);
+        let encoded = self.encode_into(capture, jpeg, &mut nv12);
+        self.nv12 = nv12;
+        encoded
+    }
+
+    fn encode_into(&mut self, capture: Capture, jpeg: &[u8], nv12: &mut Vec<u8>) -> Result<Vec<u8>, TierError> {
         if (capture.width, capture.height) != (self.width, self.height) {
             return Err(invalid("capture dimensions changed; reopen the encoder for the new layout"));
         }
@@ -128,16 +144,14 @@ impl Pipeline {
         if jpeg_dimensions(jpeg)? != (self.width, self.height) {
             return Err(invalid("JPEG dimensions do not match the configured capture layout"));
         }
-        let picture = decode_jpeg(jpeg)?;
-        if (picture.width, picture.height) != (self.width, self.height) {
+        if self.decoder.decode(jpeg, nv12)? != (self.width, self.height) {
             return Err(invalid("decoded JPEG layout changed"));
         }
         let end =
             capture.mono_ns.checked_add(capture.duration_ns).ok_or_else(|| invalid("capture duration overflow"))?;
         let bucket = capture.mono_ns / self.interval_ns;
         let key = requires_keyframe(self.previous, capture, self.interval_ns);
-        let nv12 = rgb_to_nv12(&picture);
-        let encoded = self.encode_one(&nv12, capture.mono_ns, end, key);
+        let encoded = self.encode_one(nv12, capture.mono_ns, end, key);
         let bytes = match encoded {
             Ok(bytes) => bytes,
             // A hardware encoder that fails, or breaks the one-access-unit-per-frame contract (an encoder that holds a
@@ -149,7 +163,7 @@ impl Pipeline {
                 );
                 self.break_chain();
                 self.encoder = H264Encoder::open_with(&["libx264"], self.width, self.height, self.settings)?;
-                self.encode_one(&nv12, capture.mono_ns, end, true)?
+                self.encode_one(nv12, capture.mono_ns, end, true)?
             }
             Err(error) => {
                 self.break_chain();

@@ -2,7 +2,6 @@
 where a checkpoint said."""
 
 import dataclasses
-import json
 import math
 import threading
 import time
@@ -445,13 +444,13 @@ FIXED = {
         "frame_id": "0190a5b8-0000-7000-8000-000000000003",
         "bbox": [0.25, 0.125, 0.375, 0.3125],
         "det": 0.875,
-        "name": "Joe",
+        "name": "Sam",
         "sim": 0.625,
         "cluster": None,
         "quality": 0.5,
     },
     S.FACE_VISITS: {
-        "name": "Joe",
+        "name": "Sam",
         "best_sim": 0.625,
         "samples": 12,
         "shots": [
@@ -657,60 +656,11 @@ def test_a_tail_gives_what_is_appended_after_it_starts_and_nothing_before(store)
     writers.close()
 
 
-@pytest.fixture
-def kept_hours():
-    S.keep_hours()
-    yield
-    S.keep_hours(False)
-
-
 def write(store, records, stream=S.MOVEMENT_TRACKS):
     writers = S.Writers(store)
     writers.append(stream, "cam0", records)
     writers.sync()
     writers.close()
-
-
-def as_rows(records):
-    return [json.dumps(r, sort_keys=True, default=str) for r in records]
-
-
-def test_a_window_still_going_reads_its_ended_hours_once_and_answers_as_a_plain_read(store, kept_hours, monkeypatch):
-    """Review rereads today's history every minute; its ended hours' records are kept."""
-    now = time.time()
-    hour = (now // 3600) * 3600
-    start = hour - 3 * 3600
-    rows = [one(S.MOVEMENT_TRACKS, ts_start=start + k * 1500, ts_end=start + k * 1500 + 2400) for k in range(7)]
-    rows.append({**rows[0], "ts_start": start + 10, "ts_end": start + 20})  # the same id twice: both are rows
-    write(store, rows)
-    log = S.Log(store)
-    plain = log._read(S.MOVEMENT_TRACKS, start, now + 3600, None)
-    reads = []
-    real = S.Log._read
-    monkeypatch.setattr(S.Log, "_read", lambda self, *a: reads.append(a[1:3]) or real(self, *a))
-    first = log.range(S.MOVEMENT_TRACKS, start, now + 3600)
-    assert as_rows(first) == as_rows(plain), "the same records, a span across hours once, duplicate ids kept"
-    reads.clear()
-    first[0]["ts_start"] = 0  # a reader changing its copy changes nothing kept
-    again = log.range(S.MOVEMENT_TRACKS, start, now + 3600)
-    assert as_rows(again) == as_rows(plain)
-    assert all(lo >= hour - S.HOUR_S for lo, _ in reads), f"only the newest hours read again: {reads}"
-
-
-def test_a_row_written_late_into_a_kept_hour_shows_on_the_next_read(store, kept_hours):
-    now = time.time()
-    start = (now // 3600) * 3600 - 3 * 3600
-    write(store, [one(S.MOVEMENT_TRACKS, ts_start=start + 60, ts_end=start + 70)])
-    log = S.Log(store)
-    assert len(log.range(S.MOVEMENT_TRACKS, start, now + 3600)) == 1
-    write(store, [one(S.MOVEMENT_TRACKS, ts_start=start + 120, ts_end=start + 130)])  # late, into the oldest hour
-    assert len(log.range(S.MOVEMENT_TRACKS, start, now + 3600)) == 2
-
-
-def test_an_ended_window_keeps_nothing(store, kept_hours):
-    write(store, [one(S.MOVEMENT_TRACKS, ts_start=T + 60, ts_end=T + 70)])
-    assert len(S.Log(store).range(S.MOVEMENT_TRACKS, T, T + 4 * 3600)) == 1
-    assert not S._HOURS, "an ended day's reader keeps its whole answer instead"
 
 
 def test_a_part_listed_then_renamed_before_open_is_retried(store, monkeypatch):

@@ -12,7 +12,7 @@ import cv2
 import numpy as np
 import pytest
 
-from liberational.dashboard import server
+from liberational.dashboard import context, server
 from liberational.people import face_shots, video_thumbs
 from liberational.vision import sightings
 from liberational.vision import sightings as st
@@ -58,7 +58,7 @@ def test_nobody_has_no_shots(state):
 def dashboard(tmp_path, monkeypatch, serve, vision):
     """The dashboard over a state dir with one 160 by 120 frame whose only "face" is a white square, a sighting of
     Alice in it, and one whose frame is gone."""
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     monkeypatch.setattr(server, "_crop_jobs", face_shots.Pending(server._crop_process))
     frame = np.zeros((120, 160, 3), np.uint8)
     frame[30:70, 40:80] = 255
@@ -147,7 +147,7 @@ def looked_up(*args, **kwargs):
 
 def test_a_crop_written_under_the_current_revision_is_served_without_a_lookup(tmp_path, monkeypatch):
     # What see-actions leaves with each sighting: served as is, with no lookup and no decode.
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     sid = "01a18c4d-4f51-740b-9b2e-d84e49271b7d"
     face_shots.write(tmp_path, sid, server._shot_revision(), b"cut")
     monkeypatch.setattr(sightings, "shot", looked_up)
@@ -269,7 +269,7 @@ def test_video_scene_thumbnail_is_served_for_a_recorded_frame(dashboard, tmp_pat
 
 def test_old_geometry_cache_is_not_reused_after_pixel_mapping_changes(dashboard, tmp_path):
     base, ids = dashboard
-    folder = face_shots.directory(server.STATE, ids.kept)
+    folder = face_shots.directory(context.STATE, ids.kept)
     folder.mkdir(parents=True, exist_ok=True)
     old = folder / f"{ids.kept}.jpg"
     old.write_bytes(b"old incorrect geometry")

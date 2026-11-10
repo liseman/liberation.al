@@ -12,7 +12,7 @@ import pytest
 
 from liberational import config as cfg
 from liberational import speech_log
-from liberational.dashboard import server
+from liberational.dashboard import call_log, context, known_voices, live_status, server
 from liberational.domain.identity import Basis
 from liberational.memory import ask, history_qa, journal
 from liberational.people import contacts, face_shots, forgotten, registry
@@ -65,7 +65,7 @@ def add_lines(state, *lines):
 
 def named_voices(state):
     """{voice: its name} for each voice the event log names now."""
-    return {s["id"]: s["label"] for s in server._speakers()["speakers"] if s["label"] != f"Speaker {s['id']}"}
+    return {s["id"]: s["label"] for s in known_voices._speakers()["speakers"] if s["label"] != f"Speaker {s['id']}"}
 
 
 def requests(state):
@@ -95,16 +95,16 @@ def world(tmp_path, monkeypatch):
     kept = journal_entry(state, [alices], 2010, 2040)
     faces = FakeFaces()
     files = {
-        "STATE": ".",
         "CONTACTS_FILE": "contacts.json",
         "PEOPLE_ADDED": "people_added.json",
         "VOICE_TAGS": "voice_tags.jsonl",
-        "CALLS_DIR": "calls",
     }
     for name, path in files.items():
         monkeypatch.setattr(server, name, state / path)
+    monkeypatch.setattr(call_log, "CALLS_DIR", state / "calls")
+    monkeypatch.setattr(context, "STATE", state)
     ran = in_process_voice_edits(monkeypatch)
-    monkeypatch.setattr(server, "_listening", lambda: False)  # the microphone service isn't running
+    monkeypatch.setattr(live_status, "_listening", lambda: False)  # the microphone service isn't running
     monkeypatch.setattr(server, "_faces_mod", lambda: faces)
     monkeypatch.setattr(server, "_face_last_seen_at", dict)
     monkeypatch.setattr(server, "_room_lines", create_autospec(server._room_lines, return_value=[]))

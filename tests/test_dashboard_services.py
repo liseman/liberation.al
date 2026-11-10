@@ -15,7 +15,7 @@ import pytest
 from liberational import config as cfg
 from liberational import proc_table
 from liberational import services as s
-from liberational.dashboard import server
+from liberational.dashboard import context, machine_stats, server, service_control
 
 
 def proc(pid, cmdline):
@@ -136,7 +136,7 @@ def test_first_services_poll_returns_unknown_while_one_process_scan_runs(monkeyp
     monkeypatch.setattr(s, "last_error", lambda *a, **kw: None)
 
     def poll():
-        answers.append(server.services_view(True))
+        answers.append(service_control.services_view(True))
         replied.set()
 
     request = threading.Thread(target=poll)
@@ -145,14 +145,14 @@ def test_first_services_poll_returns_unknown_while_one_process_scan_runs(monkeyp
         assert scanning.wait(1)
         assert replied.wait(1), "a first poll must not wait for the cold process scan"
         assert answers == [{"ok": False, "control": True, "error": "Checking service processes…", "services": []}]
-        assert server.services_view(False)["ok"] is False
+        assert service_control.services_view(False)["ok"] is False
         assert scan.call_count == 1
     finally:
         release.set()
         request.join(5)
         if s._scan["thread"] is not None:
             s._scan["thread"].join(5)
-    view = server.services_view(True)
+    view = service_control.services_view(True)
     assert view["ok"] is True
     assert next(row for row in view["services"] if row["name"] == "listen")["pids"] == [7]
 
@@ -163,12 +163,12 @@ def test_failed_background_process_scan_is_unknown_and_retries_without_thread_ex
     monkeypatch.setattr(s, "states", dict)
     monkeypatch.setattr(s, "runs", dict)
     monkeypatch.setattr(s, "last_error", lambda *a, **kw: None)
-    assert server.services_view(True)["ok"] is False
+    assert service_control.services_view(True)["ok"] is False
     s._scan["thread"].join(5)
-    retry = server.services_view(True)
+    retry = service_control.services_view(True)
     assert retry["ok"] is False and "OSError" in retry["error"] and "retrying" in retry["error"]
     s._scan["thread"].join(5)
-    ready = server.services_view(True)
+    ready = service_control.services_view(True)
     assert ready["ok"] is True
     assert next(row for row in ready["services"] if row["name"] == "listen")["pids"] == [8]
     assert scan.call_count == 2
@@ -190,12 +190,12 @@ def test_fresh_action_waits_for_cold_background_scan_then_reads_new_processes(mo
     monkeypatch.setattr(s, "states", dict)
     monkeypatch.setattr(s, "runs", dict)
     monkeypatch.setattr(s, "last_error", lambda *a, **kw: None)
-    assert server.services_view(True)["ok"] is False
+    assert service_control.services_view(True)["ok"] is False
     assert started.wait(5)
 
     def action():
         action_started.set()
-        answers.append(server.services_view(True, fresh=True))
+        answers.append(service_control.services_view(True, fresh=True))
         done.set()
 
     request = threading.Thread(target=action)
@@ -219,7 +219,7 @@ def test_fresh_service_view_waits_for_process_evidence_even_before_the_first_pol
     monkeypatch.setattr(s, "states", dict)
     monkeypatch.setattr(s, "runs", dict)
     monkeypatch.setattr(s, "last_error", lambda *a, **kw: None)
-    view = server.services_view(True, fresh=True)
+    view = service_control.services_view(True, fresh=True)
     assert view["ok"] is True
     assert next(row for row in view["services"] if row["name"] == "listen")["pids"] == [9]
     assert s._scan["thread"] is None
@@ -383,7 +383,7 @@ def snapshots(monkeypatch):
         asked.append(fresh)
         return SNAPSHOT
 
-    monkeypatch.setattr(server.services, "snapshot", snapshot)
+    monkeypatch.setattr(service_control.services, "snapshot", snapshot)
     return asked
 
 
@@ -437,7 +437,7 @@ def test_each_action_runs_its_pack_services_command(base, pack_services):
 @pytest.mark.parametrize("elapsed", [309, 630], ids=["cold-start-over-five-minutes", "late-recovery"])
 def test_core_install_allows_the_bounded_cascade_to_finish(base, pack_services, monkeypatch, name, elapsed):
     row = {"name": name, "selected": True, "installed": True, "state": "active", "pids": [42]}
-    monkeypatch.setattr(server.services, "snapshot", lambda fresh=False: [row])
+    monkeypatch.setattr(service_control.services, "snapshot", lambda fresh=False: [row])
     pack_services.elapsed = elapsed
     assert call(base, "POST", {"name": name, "action": "on"})[0] == 200
     assert 630 <= pack_services.timeouts[0] <= 900, "cascade plus recovery must remain finitely bounded"
@@ -512,14 +512,14 @@ def test_each_action_runs_alone(base, pack_services, monkeypatch):
     run = server.subprocess.run
 
     def checking(cmd, **kw):
-        held.append(server.SERVICES_LOCK.locked())
+        held.append(service_control.SERVICES_LOCK.locked())
         return run(cmd, **kw)
 
     monkeypatch.setattr(server.subprocess, "run", checking)
     call(base, "POST", {"name": "voice", "action": "disable"})
     call(base, "POST", {"all": "repair"})
     assert held and all(held)
-    assert not server.SERVICES_LOCK.locked()
+    assert not service_control.SERVICES_LOCK.locked()
 
 
 def test_enable_writes_pack_toml_then_installs(base, pack_services):
@@ -541,7 +541,7 @@ def test_enable_and_disable_refuse_what_they_cannot_change(base, pack_services, 
     assert call(base, "POST", {"name": "dashboard", "action": "disable"})[0] == 400  # this page runs on it
     assert call(base, "POST", {"name": "see-faces", "action": "enable"})[0] == 409  # selected already
     whisper = {"name": "whisper", "selected": True, "installed": True, "state": "active", "pids": [], "required": True}
-    monkeypatch.setattr(server.services, "snapshot", lambda fresh=False: [whisper])
+    monkeypatch.setattr(service_control.services, "snapshot", lambda fresh=False: [whisper])
     assert call(base, "POST", {"name": "whisper", "action": "disable"})[0] == 409  # asr.engine needs it
     assert pack_services.ran == []
 
@@ -561,7 +561,7 @@ def test_core_repair_keeps_old_processes_visible_to_the_cascade(base, pack_servi
         {"name": name, "selected": True, "installed": True, "state": "active", "pids": [42]}
         for name in ("continuum-broker", "continuum-capture")
     ]
-    monkeypatch.setattr(server.services, "snapshot", lambda fresh=False: [*SNAPSHOT, *core])
+    monkeypatch.setattr(service_control.services, "snapshot", lambda fresh=False: [*SNAPSHOT, *core])
     pack_services.elapsed = 630  # A late failure must still have time to finish diagnostic recovery.
     code, body = call(base, "POST", {"all": "repair"})
     assert (code, body["ok"]) == (200, True)
@@ -572,7 +572,7 @@ def test_core_repair_keeps_old_processes_visible_to_the_cascade(base, pack_servi
 def test_all_off_removes_every_installed_service_but_the_dashboard(base, pack_services, monkeypatch):
     installed_dashboard = {"name": "dashboard", "selected": True, "installed": True, "state": "active", "pids": []}
     monkeypatch.setattr(
-        server.services, "snapshot", lambda fresh=False: [*SNAPSHOT[:3], installed_dashboard, SNAPSHOT[4]]
+        service_control.services, "snapshot", lambda fresh=False: [*SNAPSHOT[:3], installed_dashboard, SNAPSHOT[4]]
     )
     code, body = call(base, "POST", {"all": "off"})
     assert (code, body["ok"]) == (200, True), body
@@ -624,15 +624,17 @@ def test_stats_name_each_service_and_each_ollama_runner_by_its_model(monkeypatch
     ]
     monkeypatch.setattr(proc_table, "table", as_table(lambda: procs))
     monkeypatch.setattr(server.psutil, "Process", {p.pid: p for p in procs}.__getitem__)
-    monkeypatch.setattr(server.services, "processes", lambda fresh=False: {"continuum-broker": [1], "see-faces": [2]})
+    monkeypatch.setattr(
+        service_control.services, "processes", lambda fresh=False: {"continuum-broker": [1], "see-faces": [2]}
+    )
     asked = []
 
     def ollama_blob(name):
         asked.append(name)
         return BLOB if name == "qwen3:4b" else None
 
-    monkeypatch.setattr(server, "ollama_blob", ollama_blob)
-    stats = server.Stats()
+    monkeypatch.setattr(machine_stats, "ollama_blob", ollama_blob)
+    stats = machine_stats.Stats()
     models = [{"name": "qwen3:4b", "digest": "d1"}, {"name": "emb:4b", "digest": "d2"}]
     assert stats.weights(models) == {BLOB: "qwen3:4b"}
     assert stats.weights(models) == {BLOB: "qwen3:4b"}
@@ -651,18 +653,18 @@ def test_stats_name_each_service_and_each_ollama_runner_by_its_model(monkeypatch
 
 
 def test_a_runner_s_weights_come_from_its_model_argument():
-    assert server.runner_blob(["llama-server", "--model", f"/m/blobs/{BLOB}", "--port", "1"]) == BLOB
-    assert server.runner_blob(["llama-server", "--mmproj", f"/m/blobs/{BLOB}"]) is None
-    assert server.runner_blob(["llama-server"]) is None
+    assert machine_stats.runner_blob(["llama-server", "--model", f"/m/blobs/{BLOB}", "--port", "1"]) == BLOB
+    assert machine_stats.runner_blob(["llama-server", "--mmproj", f"/m/blobs/{BLOB}"]) is None
+    assert machine_stats.runner_blob(["llama-server"]) is None
 
 
 def test_stats_asked_again_within_a_second_give_the_same_measurement(monkeypatch):
     # Two pages polling a moment apart: the second read CPU "since the last call" as nearly nothing.
     monkeypatch.setattr(proc_table, "table", dict)
-    monkeypatch.setattr(server.services, "processes", lambda fresh=False: {})
+    monkeypatch.setattr(service_control.services, "processes", lambda fresh=False: {})
     clock = [1000.0]
     monkeypatch.setattr(server.time, "time", lambda: clock[0])
-    stats = server.Stats()
+    stats = machine_stats.Stats()
     monkeypatch.setattr(stats, "ollama_ps", lambda: {"models": []})
     monkeypatch.setattr(stats, "system_status", dict)
     # busy (user) and idle seconds since boot: 40% busy, then nothing, then 55%
@@ -687,21 +689,21 @@ def times(user, idle, *, iowait=0.0, guest=0.0, system=0.0):
 
 
 def test_cpu_busy_counts_guest_once_and_iowait_as_idle():
-    assert server.cpu_busy(times(0, 0), times(30, 50, iowait=10, system=10)) == 40.0  # 40 of 100 s busy
-    assert server.cpu_busy(times(0, 0), times(50, 50, guest=20)) == 50.0  # guest is inside user, not added again
-    assert server.cpu_busy(times(5, 5), times(5, 5)) == 0.0  # no time passed
+    assert machine_stats.cpu_busy(times(0, 0), times(30, 50, iowait=10, system=10)) == 40.0  # 40 of 100 s busy
+    assert machine_stats.cpu_busy(times(0, 0), times(50, 50, guest=20)) == 50.0  # guest is inside user, not added again
+    assert machine_stats.cpu_busy(times(5, 5), times(5, 5)) == 0.0  # no time passed
 
 
 def test_stats_read_the_cpu_the_same_from_any_request_thread(monkeypatch):
     # psutil 7 keeps cpu_percent's last reading per thread, and each /stats request is a new server thread: it read 0%
     # every time. Two snapshots taken on two fresh threads measure the time between them.
     monkeypatch.setattr(proc_table, "table", dict)
-    monkeypatch.setattr(server.services, "processes", lambda fresh=False: {})
+    monkeypatch.setattr(service_control.services, "processes", lambda fresh=False: {})
     clock = [1000.0]
     monkeypatch.setattr(server.time, "time", lambda: clock[0])
     readings = iter([times(10, 90), times(85, 115)])
     monkeypatch.setattr(server.psutil, "cpu_times", lambda: next(readings))
-    stats = server.Stats()
+    stats = machine_stats.Stats()
     monkeypatch.setattr(stats, "ollama_ps", lambda: {"models": []})
     monkeypatch.setattr(stats, "system_status", dict)
     clock[0] += 2
@@ -718,7 +720,7 @@ def test_stats_read_the_cpu_the_same_from_any_request_thread(monkeypatch):
 def test_service_history_get_keeps_unknown_time_and_uses_the_selected_bounded_window(
     base, tmp_path, monkeypatch, path, hours
 ):
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     monkeypatch.setattr(s, "_history_cache", {})
     monkeypatch.setattr(s, "DARWIN", False)
     monkeypatch.setattr(s, "declared", lambda: {"listen": {}})
@@ -744,7 +746,7 @@ def test_service_history_refuses_invalid_windows_before_reading_any_metadata(bas
 
 
 def test_service_history_missing_sample_fallback_is_unavailable_not_healthy(base, tmp_path, monkeypatch):
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     monkeypatch.setattr(s, "_history_cache", {})
     monkeypatch.setattr(s, "DARWIN", True)
     monkeypatch.setattr(s, "declared", lambda: {"listen": {}})

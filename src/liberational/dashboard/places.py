@@ -64,12 +64,17 @@ import re
 import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
 
 import numpy as np
 
+from liberational import logs
+from liberational.dashboard import routes
 from liberational.memory import places
+
+if TYPE_CHECKING:
+    from liberational.dashboard.server import H
 
 Reply = tuple[int, dict[str, Any]]
 
@@ -221,11 +226,16 @@ def splat_file(state: Path, place: str, revision: str) -> Path | None:
 WALK_PREFIX = "walk-"  # a walk's look-from views (spatial/splats.py LOOK_PREFIX), not fixed cameras
 
 
-def _walk_splat(chain: Sequence[places.Revision], splatted: places.Revision) -> bool:
-    """Whether `splatted`'s splat was trained from a walk's frames rather than the fixed cameras' (#44): a walk's
+def _walk_splat(state: Path, chain: Sequence[places.Revision], splatted: places.Revision) -> bool:
+    """Whether `splatted`'s splat was trained from a walk's frames rather than the fixed cameras' (#44): what the
+    splat's own note says (`places.splat_source`), which a walk's splat retrained onto a later revision needs (#43).
+    A splat written before that note is told by where it is: a walk's
     splat is made for the revision its import wrote (spatial/splats.py `splat_walk`), the first to hold the walk's
     look-from cameras, while the daily fixed-camera splat lands on a later revision, which inherits them. So it's a
     walk's when `splatted` has walk cameras that the revision before it in `chain` lacks."""
+    source = places.splat_source(state, splatted)
+    if source is not None:
+        return source == "walk"
     at = next((i for i, r in enumerate(chain) if r.id == splatted.id), None)
     before = set(chain[at - 1].cameras) if at else set()
     return any(cam.startswith(WALK_PREFIX) and cam not in before for cam in splatted.cameras)
@@ -259,7 +269,7 @@ def scene(state: Path, place: str) -> Reply:
     except FileNotFoundError:  # pruned since it was found
         shown, splat_size = None, None
     stale = with_splat[-1] if shown is None and with_splat else None
-    walk_splat = shown is not None and _walk_splat(chain, shown)
+    walk_splat = shown is not None and _walk_splat(state, chain, shown)
     # an owner plan drawn in a revision with no plan file is in its floor's frame
     transform = places.plan_frame(rev) if owner else rev.plan_transform
     return 200, {
@@ -525,3 +535,70 @@ def positions_view(query: Mapping[str, str], state: Path, cancelled: Callable[[]
         "tracks": [{"entity": k, "track": path, "points": thin(moved(v, every))} for (k, path), v in tracks.items()],
         "rooms": rooms,
     }
+
+
+# ---- routes (dashboard/routes.py): what the server answers for this area ----
+
+
+@routes.get("/places")
+def _get_places(h: H) -> None:
+    code, reply = listing(h.state)
+    return h._json(reply, code)
+
+
+@routes.get("/places/scene")
+def _get_places_scene(h: H) -> None:
+    code, reply = scene(h.state, h._query().get("place", ""))
+    return h._json(reply, code)
+
+
+@routes.get("/places/map", "/places/splat")
+def _get_places_map(h: H) -> None:
+    p = h.path.split("?")[0]
+    q = h._query()
+    files = map_file if p == "/places/map" else splat_file
+    found = files(h.state, q.get("place", ""), q.get("revision", ""))
+    if found is None:
+        return h._json({"error": f"no such {p.rsplit('/', 1)[1]}"}, 404)
+    # A revision's map and splat never change once written: its id is their ETag, and they can be kept for good.
+    tag = f'"{q.get("revision", "")}"'
+    if h.headers.get("If-None-Match") == tag:
+        h.send_response(304)
+        h.send_header("ETag", tag)
+        h.end_headers()
+        return None
+    return h._media(found, "application/octet-stream", {"ETag": tag}, cache="private, max-age=31536000, immutable")
+
+
+@routes.get("/places/positions")
+def _get_places_positions(h: H) -> None:
+    from liberational.spatial import positions
+
+    try:
+        code, reply = positions_view(h._query(), h.state, cancelled=h._client_gone)
+    except positions.Cancelled:
+        h.close_connection = True  # nobody is reading: nothing to send
+        return logs.get("dashboard").debug("places positions read stopped: the client hung up")
+    return h._json(reply, code)
+
+
+@routes.get("/places/plan/history")
+def _get_places_plan_history(h: H) -> None:
+    code, reply = plan_versions(h.state, h._query().get("place", ""))
+    return h._json(reply, code)
+
+
+@routes.post("/places/plan")
+def _post_places_plan(h: H, body: Any) -> None:
+    if not h._same_origin_json():
+        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
+    code, o = correct(body, h._can_teach(), h.state)
+    return h._json(o, code)
+
+
+@routes.post("/places/plan/restore")
+def _post_places_plan_restore(h: H, body: Any) -> None:
+    if not h._same_origin_json():
+        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
+    code, o = restore(body, h._can_teach(), h.state)
+    return h._json(o, code)

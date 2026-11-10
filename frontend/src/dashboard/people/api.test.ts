@@ -2,7 +2,7 @@ import { QueryClient } from '@tanstack/react-query';
 import { expect, it } from 'vitest';
 import { cardKey, PEOPLE_KEY, profileKey, tookView } from './api';
 
-it("takes the reply's list and marks the profiles and cards out of date, not the list (#330)", () => {
+it("takes the reply's list and marks the profiles and cards out of date, not the list", () => {
   const client = new QueryClient();
   client.setQueryData(profileKey('Dana'), {});
   client.setQueryData(cardKey('Dana'), {});

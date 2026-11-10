@@ -344,7 +344,7 @@ describe('issue acknowledgement safety', () => {
   });
 });
 
-describe('a crash loop (#297)', () => {
+describe('a crash loop', () => {
   it('flags a loop and opens a box with what happened and the error, and keeps older errors quiet', async () => {
     serve(
       view({
@@ -429,7 +429,7 @@ describe('a crash loop (#297)', () => {
   });
 });
 
-describe('which services run here (#386)', () => {
+describe('which services run here', () => {
   /** Settings, searching for the two lists, which Services leaves to search and Advanced. */
   async function searchRun() {
     await openSection();
@@ -595,7 +595,7 @@ describe('the services', () => {
     ['switch', 'Run notes', true],
     ['button', 'Enable notes', false],
   ] as const)(
-    'says on the row why a service started by hand has no working %s, for keyboards too (#2271)',
+    'says on the row why a service started by hand has no working %s, for keyboards too',
     async (role, name, selected) => {
       serve(view({ services: [svc({ name: 'notes', selected, installed: false, pids: [42] })] }));
       await openSection();
@@ -627,7 +627,7 @@ describe('the services', () => {
   });
 });
 
-describe("a service's switch and Disable (#423)", () => {
+describe("a service's switch and Disable", () => {
   it('posts the switch, shows it starting, then shows the fresh state', async () => {
     serve();
     const reply = gate();
@@ -871,7 +871,7 @@ describe('Repair and Turn all off', () => {
   });
 });
 
-describe('groups that need nothing fold away (#2728)', () => {
+describe('groups that need nothing fold away', () => {
   const settle = () => {
     history.replaceState(null, '', '/settings#services');
     return renderPage(<SettingsPage />);

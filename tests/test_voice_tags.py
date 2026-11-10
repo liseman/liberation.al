@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 
 import speech_fake
-from liberational.dashboard import server
+from liberational.dashboard import context, server, transcript_lines
 from liberational.domain import kernel
 from liberational.listen import revisions
 from liberational.people import registry
@@ -22,7 +22,7 @@ CHUNK = "audio/mic/2026-10-23/120000.flac"
 
 
 def test_rejecting_a_turn_is_atomic_durable_and_undoes_together(tmp_path, monkeypatch):
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     first = speech_fake.fake().say({"ts_start": 1000.0, "ts_end": 1003.0, "device": "mic", "text": "bad words"})
     second = speech_fake.fake().say({"ts_start": 1004.0, "ts_end": 1007.0, "device": "mic", "text": "more bad words"})
     keys = [registry.key_of(first), registry.key_of(second)]
@@ -31,23 +31,25 @@ def test_rejecting_a_turn_is_atomic_durable_and_undoes_together(tmp_path, monkey
     assert revisions.review_revision(tmp_path) == 0
     code, result = server.reject_transcript({"lines": keys})
     assert code == 200 and result["lines"] == keys
-    assert server.heard_lines() == []
+    assert transcript_lines.heard_lines() == []
     assert speech_fake.fake().all_lines() == before
     assert server.reject_transcript({"lines": keys})[1]["undo"] == result["undo"]
     assert server.undo_transcript({"undo": result["undo"]}) == (200, {"ok": True, "lines": keys})
-    assert [(row["id"], row["text"]) for row in server.heard_lines()] == [(row["id"], row["text"]) for row in before]
+    assert [(row["id"], row["text"]) for row in transcript_lines.heard_lines()] == [
+        (row["id"], row["text"]) for row in before
+    ]
     assert server.undo_transcript({"undo": result["undo"]})[0] == 409
 
 
 @pytest.mark.parametrize("body", [{}, {"lines": []}, {"lines": "mic@1.000"}, {"lines": [True]}, {"lines": [""]}])
 def test_reject_transcript_validates_every_key_before_writing(tmp_path, monkeypatch, body):
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     assert server.reject_transcript(body)[0] == 400
     assert not (tmp_path / "knowledge.sqlite3").exists()
 
 
 def test_transcript_correction_route_requires_same_origin_json(tmp_path, monkeypatch, serve):
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     monkeypatch.setattr(server, "DASH_PASSWORD", "")
     row = speech_fake.fake().say({"ts_start": 1000.0, "ts_end": 1003.0, "device": "mic", "text": "incorrect words"})
     host = urllib.parse.urlsplit(serve(server.H)).netloc
@@ -72,7 +74,7 @@ def test_transcript_correction_route_requires_same_origin_json(tmp_path, monkeyp
 
 
 def test_transcript_correction_routes_refuse_no_control_requests_without_changing_state(tmp_path, monkeypatch, serve):
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     monkeypatch.setattr(server, "DASH_PASSWORD", "")
     monkeypatch.setattr(server.H, "_can_control", lambda self: False)
     row = speech_fake.fake().say({"ts_start": 1000.0, "ts_end": 1003.0, "device": "mic", "text": "incorrect words"})
@@ -88,13 +90,13 @@ def test_transcript_correction_routes_refuse_no_control_requests_without_changin
         return result
 
     assert post("/transcript/reject", {"lines": [key]}) == (403, {"ok": False, "error": "Controls unavailable"})
-    assert server.heard_lines() == [row]
+    assert transcript_lines.heard_lines() == [row]
     assert revisions.review_revision(tmp_path) == 0
     assert not (tmp_path / "knowledge.sqlite3").exists()
     _, result = server.reject_transcript({"lines": [key]})
     before = revisions.review_revision(tmp_path)
     assert post("/transcript/undo", {"undo": result["undo"]}) == (403, {"ok": False, "error": "Controls unavailable"})
-    assert server.heard_lines() == []
+    assert transcript_lines.heard_lines() == []
     assert revisions.review_revision(tmp_path) == before
     assert revisions.current_rejection(tmp_path, [key]) == result["undo"]
 

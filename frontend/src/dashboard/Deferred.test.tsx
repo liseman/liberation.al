@@ -59,7 +59,7 @@ it('contains a repeated chunk failure and provides an explicit reload action', a
   expect(screen.getByRole('button', { name: 'Shell control' })).toBeEnabled();
 });
 
-it('reloads for the new build when a redeploy removed the chunk, instead of showing a failure (#2005)', async () => {
+it('reloads for the new build when a redeploy removed the chunk, instead of showing a failure', async () => {
   vi.spyOn(console, 'error').mockImplementation(() => {});
   const Page = lazy(async () => {
     throw new TypeError('Failed to fetch dynamically imported module: /static/app/assets/Known-OLD.js');

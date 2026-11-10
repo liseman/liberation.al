@@ -220,7 +220,7 @@ class FakeVisionLog:
         return {
             cam: {
                 name: [row[name] for row in rows]
-                if kinds[name].startswith("str") or kinds[name].endswith("[]")
+                if kinds[name].startswith(("str", "id")) or kinds[name].endswith("[]")
                 else np.asarray([row[name] for row in rows], dtype=_DTYPES[kinds[name].split("[")[0]])
                 for name in names
             }

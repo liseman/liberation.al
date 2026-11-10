@@ -17,7 +17,7 @@ DAY = dt.datetime(2026, 10, 23, tzinfo=LA).timestamp()  # local midnight
 NOW = DAY + 20 * 3600
 H = 3600.0
 BOX = [[0.1, 0.6], [0.3, 0.6], [0.3, 0.9], [0.1, 0.9]]
-OWNER = "p-joe"
+OWNER = "p-sam"
 
 
 @pytest.fixture(autouse=True)
@@ -208,8 +208,8 @@ def bathroom(tmp_path, vision, monkeypatch):
 
 def test_my_bathroom_trips_are_the_visits_my_face_was_seen_on(bathroom):
     state, trip = bathroom
-    trip(DAY + 8 * H, "t1", "Joe", face_at=60)  # my face in the bathroom doorway
-    trip(DAY + 9 * H, "t2", "Joe", face_at=-90)  # seen walking up 90 s before going in: the same track
+    trip(DAY + 8 * H, "t1", "Sam", face_at=60)  # my face in the bathroom doorway
+    trip(DAY + 9 * H, "t2", "Sam", face_at=-90)  # seen walking up 90 s before going in: the same track
     trip(DAY + 10 * H, "t3", "Dana", face_at=30)  # someone else
     trip(DAY + 11 * H, "t4", None)  # no face ever seen: can't say whose
     reply = h.collect("how many times did I go to the bathroom today", state, NOW)
@@ -221,7 +221,7 @@ def test_my_bathroom_trips_are_the_visits_my_face_was_seen_on(bathroom):
 
 def test_a_track_two_people_s_faces_were_seen_on_is_nobody_s(bathroom, vision):
     state, trip = bathroom
-    trip(DAY + 8 * H, "t1", "Joe", face_at=10)
+    trip(DAY + 8 * H, "t1", "Sam", face_at=10)
     vision.face(DAY + 8 * H + 10, "cam0", "Dana", bbox=FACE, track_id="t1")  # a second face on the same track
     reply = h.collect("how many times did I go to the bathroom today", state, NOW)
     assert reply["answer"].startswith("Bathroom: no visit of at least 10 s by you in the checked footage.")
@@ -232,7 +232,7 @@ def test_my_typical_night_counts_only_my_trips(bathroom):
     state, trip = bathroom
     for n, mine, theirs in ((1, 2, 1), (2, 1, 2), (3, 0, 0)):
         for k in range(mine):
-            trip(night(n) + (2 + k) * H, f"m{n}{k}", "Joe", face_at=5)
+            trip(night(n) + (2 + k) * H, f"m{n}{k}", "Sam", face_at=5)
         for k in range(theirs):
             trip(night(n) + (5 + k) * H, f"d{n}{k}", "Dana", face_at=5)
     reply = h.collect("how many times do I usually go to the bathroom at night", state, NOW)

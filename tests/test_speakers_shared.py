@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from liberational.dashboard import server
+from liberational.dashboard import known_voices, server
 
 
 @pytest.fixture
@@ -25,7 +25,7 @@ def voices(monkeypatch):
             "merged": {},
         }
 
-    monkeypatch.setattr(server, "_speakers", speakers)
+    monkeypatch.setattr(known_voices, "_speakers", speakers)
     monkeypatch.setattr(server, "_speakers_key", lambda: state.key)
     return state
 

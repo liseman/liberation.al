@@ -5,7 +5,7 @@ from unittest.mock import create_autospec
 
 import pytest
 
-from liberational.dashboard import server
+from liberational.dashboard import context, server, transcript_lines
 from liberational.domain.identity import Basis
 from liberational.people import registry, transcript_view
 from speech_fake import fake
@@ -28,7 +28,7 @@ LINES = [
 def state(tmp_path, monkeypatch):
     write_voices(tmp_path, {1: None})  # an unnamed voice heard all three
     fake().write(LINES)
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     return tmp_path
 
 
@@ -74,7 +74,7 @@ def test_why_this_name_explains_a_copy_by_the_label_it_borrowed(state):
 
 
 def test_the_days_transcript_shows_each_thing_said_once(state, monkeypatch):
-    entries = server.merged_tail(80)
+    entries = transcript_lines.merged_tail(80)
     assert [e["text"] for e in entries] == ["Lights on, please.", "Is dinner ready?"]
 
 

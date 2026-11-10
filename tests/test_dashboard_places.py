@@ -11,8 +11,8 @@ import numpy as np
 import pytest
 
 from liberational import segment_log as S
+from liberational.dashboard import context, server
 from liberational.dashboard import places as view
-from liberational.dashboard import server
 from liberational.memory import places
 from liberational.spatial import floorplan, ply, positions
 
@@ -284,7 +284,7 @@ def test_the_listing_route_answers_json_and_a_page_load_gets_the_app(serve):
 
 
 def test_a_positions_read_stops_without_an_answer_when_the_client_hangs_up(tmp_path, reader, home, serve, monkeypatch):
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     url = urlsplit(serve(server.H))
     asked, hung_up, tick = threading.Event(), threading.Event(), threading.Event()
 
@@ -308,7 +308,7 @@ def test_a_positions_read_stops_without_an_answer_when_the_client_hangs_up(tmp_p
 
 
 def test_a_client_still_waiting_isnt_taken_for_gone(tmp_path, reader, home, serve, monkeypatch):
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     host = urlsplit(serve(server.H)).netloc
     checks = []
 
@@ -601,6 +601,11 @@ def test_the_scene_says_whether_its_splat_was_trained_from_a_walk_or_the_fixed_c
     reply = view.scene(tmp_path, place)[1]
     assert (reply["splat_revision"], reply["splat_from"]) == (daily.id, "cameras")
     assert "walk-0m00s" in reply["cameras"]  # the walk's views are still there to look from
+    # #43: a walk's splat retrained onto a later revision, which only inherits the walk's cameras, says so itself.
+    again = places.revise(tmp_path, place, producer="tier1 fuse v1", frame=first.frame, now=T + 30)
+    places.write_splat(tmp_path, again, master=b"ply", web=b"spz-bytes", source="walk")
+    reply = view.scene(tmp_path, place)[1]
+    assert (reply["splat_revision"], reply["splat_from"]) == (again.id, "walk")
 
 
 def test_the_scene_carries_the_owners_plan_only_in_the_frame_it_was_drawn_in(tmp_path, mapped):
@@ -644,7 +649,7 @@ def test_a_place_without_a_map_has_no_scene_and_an_unknown_one_is_a_404(tmp_path
 
 def test_the_map_is_served_in_ranges_cached_for_good_and_404_for_another_revision(tmp_path, mapped, serve, monkeypatch):
     place, rev = mapped
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     host = urlsplit(serve(server.H)).netloc
 
     def get(path, **headers):

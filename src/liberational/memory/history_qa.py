@@ -23,8 +23,7 @@ or there is no event log yet, they answer from face visits alone, exactly as bef
 also answers from that camera's face visits alone, since encounters mix every camera and speech. An answer from
 encounters carries "paths": ["timeline"], which the dashboard shows as a "New" tag linked to the switch.
 
-"Last seen" answers from the timeline (on) or the face worker's visits (off); v1's detector journal and its own path
-are gone.
+"Last seen" answers from the timeline (on) or the face worker's visits (off).
 
 One reader for every question (#60). The local model reads a question once into a structured reading
 (memory/question.py): whether it is about history, where the answer is, the measure, the people, and the time phrase

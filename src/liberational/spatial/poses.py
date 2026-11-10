@@ -137,8 +137,7 @@ class Series:
 def series(state: Path, place: str, frame: str | None, cameras: Sequence[str]) -> dict[str, Series]:
     """Each of `cameras`' series in `place`'s map frame `frame`: its stored observations in that frame and the owner's
     spots there (`owner_spots`). A camera with none is left out."""
-    # Up to now, not a far future: a reader that keeps the store's hours (segment_log `keep_hours`, the dashboard)
-    # walks a window that runs past now an hour at a time, and this one starts at 0. An observation is never ahead.
+    # Up to now, not a far future: an observation is never ahead.
     by_slot = {S.slot(c): c for c in cameras}
     stored = [
         replace(o, camera=by_slot.get(o.camera, o.camera))

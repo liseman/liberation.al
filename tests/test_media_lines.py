@@ -6,7 +6,7 @@ from typing import Any, cast
 
 import pytest
 
-from liberational.dashboard import server
+from liberational.dashboard import context, server, transcript_lines
 from liberational.listen import revisions
 from liberational.people import registry
 
@@ -110,11 +110,11 @@ def test_a_voice_heard_only_from_the_tv_is_nobody_to_name():
 @pytest.fixture
 def heard(tmp_path, monkeypatch):
     rows = [line(T, "Tonight on the news", 9), line(T + 5, "and the weather", 9), line(T + 10, "Hi", 4)]
-    monkeypatch.setattr(server, "STATE", tmp_path)
-    monkeypatch.setattr(server, "heard_lines", lambda *a, **k: revisions.filter_lines(tmp_path, rows))
+    monkeypatch.setattr(context, "STATE", tmp_path)
+    monkeypatch.setattr(transcript_lines, "heard_lines", lambda *a, **k: revisions.filter_lines(tmp_path, rows))
     monkeypatch.setattr(server.speech_log, "retained", lambda: rows)
     monkeypatch.setattr(
-        server, "_view", lambda: SimpleNamespace(lines=lambda raw: revisions.filter_lines(tmp_path, raw))
+        transcript_lines, "_view", lambda: SimpleNamespace(lines=lambda raw: revisions.filter_lines(tmp_path, raw))
     )
     return rows
 
@@ -124,9 +124,9 @@ def test_this_is_tv_on_transcript_lines_marks_them_and_undo_takes_it_back(heard)
     code, reply = server.media_transcript({"lines": keys})
     assert code == 200 and reply["lines"] == keys
     assert server.media_transcript({"lines": keys}) == (200, reply), "a retry gets the same Undo"
-    assert [r.get("media") for r in server.heard_lines()] == [True, None, None]
+    assert [r.get("media") for r in transcript_lines.heard_lines()] == [True, None, None]
     assert server.undo_transcript({"undo": reply["undo"]}) == (200, {"ok": True, "lines": keys})
-    assert [r.get("media") for r in server.heard_lines()] == [None, None, None]
+    assert [r.get("media") for r in transcript_lines.heard_lines()] == [None, None, None]
 
 
 @pytest.mark.parametrize(
@@ -146,7 +146,7 @@ def test_this_is_tv_on_an_unnamed_voice_marks_every_line_it_has(heard, monkeypat
     code, reply = server.media_voice({"group": 9})
     assert code == 200
     assert reply["lines"] == [registry.key_of(heard[0]), registry.key_of(heard[1])]
-    assert [r.get("media") for r in server.heard_lines()] == [True, True, None]
+    assert [r.get("media") for r in transcript_lines.heard_lines()] == [True, True, None]
     assert server.media_voice({"group": 9})[0] == 404, "nothing left to mark"
 
 
