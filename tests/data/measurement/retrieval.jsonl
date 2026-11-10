@@ -1,0 +1,3 @@
+{"id": "dana-garden", "question": "What did Dana say about the garden yesterday?", "asked_at": "2026-10-21T09:00:00-07:00", "evidence": [{"at": "2026-10-20T15:00:05-07:00", "within_s": 5, "includes": "tomatoes", "source": "transcript"}]}
+{"id": "who-yesterday", "question": "Who was here yesterday?", "asked_at": "2026-10-21T09:00:00-07:00", "answer_includes": ["Alice"], "answer_excludes": ["Nobody"]}
+{"id": "alice-garden", "question": "What did Alice say about the garden yesterday?", "asked_at": "2026-10-21T09:00:00-07:00", "evidence": [{"at": "2026-10-20T15:00:05-07:00", "includes": "tomatoes"}]}

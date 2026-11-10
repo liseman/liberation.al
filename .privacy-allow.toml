@@ -1,0 +1,75 @@
+# Reviewed exceptions for tools/privacy_check.py. Every entry needs a reason. `skip` paths get the deny list and
+# the media rule by name only; `allow` entries excuse one rule on matching paths (and, with `match`, matching text).
+
+skip = [
+    "uv.lock",                    # package hashes and versions: the patterns misfire, and gitleaks still reads it
+    "frontend/package-lock.json",
+    "continuum/Cargo.lock",
+    "continuum/crates/continuum-core/src/generated/*",  # FlatBuffers output
+]
+
+[[allow]]
+rule = "*"
+path = "tools/privacy_check.py"
+reason = "the rules' own patterns"
+
+[[allow]]
+rule = "*"
+path = "tests/test_privacy_check.py"
+reason = "made-up seeds, one per category, that the check must catch"
+
+[[allow]]
+rule = "lan-ip"
+path = "tests/*"
+match = '^(192\.168\.(0|1|40|50)\.\d+|100\.64\.0\.9|10\.0\.0\.[15])$'
+reason = "made-up addresses in tests of the network code, which needs private-range values"
+
+[[allow]]
+rule = "lan-ip"
+path = "frontend/src/*.test.ts*"
+match = '^192\.168\.(1|40|50)\.\d+$'
+reason = "made-up addresses in frontend tests"
+
+[[allow]]
+rule = "lan-ip"
+path = "continuum/crates/continuum-gateway/src/*.rs"
+match = '^100\.64\.0\.9$'
+reason = "a made-up Tailscale-range address in the gateway's origin tests and usage example"
+
+[[allow]]
+rule = "mac-address"
+path = "tests/test_vendors.py"
+reason = "registry-format fixtures: IEEE's own published blocks and a made-up maker"
+
+[[allow]]
+rule = "street-address"
+path = "tests/test_vendors.py"
+reason = "the IEEE registry's published office address, and a made-up one"
+
+[[allow]]
+rule = "street-address"
+path = "tests/test_spatial_plan_import.py"
+match = "Imaginary Lane"
+reason = "a made-up address the import must drop"
+
+[[allow]]
+rule = "home-path"
+path = "tests/test_segmentation.py"
+match = "^/home/secret$"
+reason = "a made-up path in an error-redaction test"
+
+[[allow]]
+rule = "media-file"
+path = "docs/hardware/xvf3800-doa.jpg"
+reason = "the microphone maker's direction-of-arrival diagram, no people or rooms"
+
+[[allow]]
+rule = "media-file"
+path = "continuum/crates/continuum-*/tests/*/v1_*"
+reason = "generated test media: a tone and a synthetic B-frame clip"
+
+[[allow]]
+rule = "lan-ip"
+path = "config/devices.example.toml"
+match = '^192\.168\.1\.20$'
+reason = "the example network camera's address"

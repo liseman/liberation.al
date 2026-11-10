@@ -1,0 +1,63 @@
+# The capture supervisor's device manifest (continuum-capture; docs/CONTINUUM.md, "One process per physical
+# device"). Copy it to config/devices.toml and edit. Each [[device]] is one physical device and one worker; a device
+# that appears and matches an entry (every match field given must match) gets a worker, and one that matches
+# nothing is ignored. Streams are named <name>.<stream>: facecam.video, wave3.audio.
+
+# [supervisor]
+# settle_ms = 1500           # after one device opens, before the next may (concurrent UVC opens fail)
+# backoff_initial_ms = 2000  # a crashed worker's first restart wait, doubling up to backoff_max_ms
+# backoff_max_ms = 60000
+# healthy_after_ms = 15000   # a run this long resets the backoff
+# open_timeout_ms = 15000    # a worker that hasn't opened by then is stopped
+# stop_grace_ms = 10000      # a stopped worker that hasn't exited by then is killed
+
+# [audio]
+# exclude = ["arducam", "iphone", "ipad", "continuity"]  # microphone names to skip, case-insensitive pieces
+
+# Every camera's settings; a camera's own video = { ... } overrides them key by key. `continuum-capture --from-v1`
+# prints a manifest with these taken from v1's [vision] and a [[device]] per camera v1 opened, to check and save here.
+# [video]
+# width = 1280
+# height = 720
+# fps = 30
+# hold_fps = true    # keep the frame rate in dim light (V4L2): more gain instead of longer exposure
+# auto_exposure = true    # steer the exposure toward exposure_target, slowly (#535); false leaves the camera's own
+# exposure_target = 110.0  # mean luma (0 to 255) to steer toward: the faces' when some are in view, else the frame's
+# flip = false       # mounted upside down: readers flip it
+# encoding = { enabled = true }  # store an MJPEG camera as H.264 (NVENC on gpu 0, else libx264), see ARCHITECTURE.md
+
+[[device]]
+name = "facecam"
+kind = "camera"
+match = { usb = "0fd9:0078" }  # Elgato Facecam
+# paused = true  # paused for privacy (the header's camera and microphone icons set it): capture keeps no worker on
+#                # it, so nothing from it is recorded, until it's resumed. Followed live, no restart (#2260).
+# video = { width = 1280, height = 720, fps = 30, format = "MJPEG", fallback = [[960, 540], [640, 480]], flip = false }
+# Live saves exposed Linux V4L2 controls here by numeric control ID, for example:
+# video = { auto_exposure = false, controls = { "9963777" = 3 } }  # contrast, only when this camera advertises it
+# Capture applies changed controls live and reapplies them on open/replug. Automatic exposure owns brightness
+# and exposure controls while enabled. Reset defaults saves adjustable control defaults and preserves auto_exposure.
+# residual_offset_ns = { video = 0 }  # from a clap-and-flash run
+# A fisheye lens's calibration, written by tools/calibrate_fisheye.py: see-actions then rectifies each person (#1891).
+# fisheye = { width = 1920, height = 1080, k = [690.0, 690.0, 959.5, 539.5], d = [0.05, -0.01, 0.002, 0.0], rms = 0.4 }
+# A wide (not fisheye) lens's barrel, written by tools/calibrate_lens.py from straight edges in the room (#2998), and
+# the overlays the camera burns in (a clock, its name, a logo) as [x1, y1, x2, y2] fractions of the frame: MASt3R,
+# the footprints, and the splats see the frame undistorted with the overlays left out (spatial/lens.py).
+# lens = { width = 896, height = 512, k = [448.0, 448.0, 447.5, 255.5], division = -0.31 }
+# masks = [[0.25, 0.0, 0.74, 0.09], [0.84, 0.92, 1.0, 1.0]]
+
+[[device]]
+name = "wave3"
+kind = "microphone"
+match = { name = "Wave 3" }  # PipeWire calls it "Elgato Wave 3 Mono"
+# audio = { block_ms = 10, ring_seconds = 10, batch_seconds = 1 }
+
+
+# Native network camera, instead of a physical USB match. Store the actual URL only in ignored devices.toml,
+# chmod 600: RTSP paths/query strings can contain bearer credentials. H.264 only; no MJPEG conversion.
+# [[device]]
+# name = "entryway"
+# kind = "rtsp"
+# rtsp = { url = "rtsps://192.168.1.20:7441/private-stream", transport = "tcp", connect_timeout_ms = 10000, read_timeout_ms = 10000, max_access_unit_bytes = 4194304, max_width = 4096, max_height = 4096, ring_bytes = 67108864 }
+# video = { ring_seconds = 10.0, flip = false }
+# ring_bytes includes slot metadata. ring_seconds is a target bounded by these bytes, not a retention guarantee.

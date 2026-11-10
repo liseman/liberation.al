@@ -1,0 +1,5 @@
+{"id": "porch-alice", "modality": "face", "camera": "cam0", "start": "2026-10-20T14:00:00-07:00", "end": "2026-10-20T14:00:20-07:00", "people": ["Alice"], "note": "Alice at the door"}
+{"id": "porch-dana", "modality": "face", "camera": "cam0", "start": "2026-10-20T14:10:00-07:00", "end": "2026-10-20T14:10:20-07:00", "people": ["Dana"]}
+{"id": "hall-frame", "modality": "face", "camera": "cam1", "at": "2026-10-20T14:20:00-07:00", "people": ["Dana"], "unsure": ["Alice"]}
+{"id": "kitchen-dana", "modality": "voice", "start": "2026-10-20T15:00:00-07:00", "end": "2026-10-20T15:00:30-07:00", "people": ["Dana"]}
+{"id": "kitchen-nobody", "modality": "voice", "start": 1792535400, "end": 1792535430, "people": [], "note": "only the radio was talking"}

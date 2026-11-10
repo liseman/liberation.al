@@ -1,0 +1,197 @@
+# Programs and libraries Liberational needs from the operating system: everything that uv (Python packages) and mise
+# (mise.toml's [tools]) don't install. `mise run setup` installs the missing ones (`pack-system install`, which shows
+# the command and asks before running it), `pack-system check` lists them, `pack-services install` warns when a
+# service it installs needs one, and the dashboard's Machine panel shows the same list.
+#
+# One table per package:
+#   why       what it's for, in a sentence the owner can act on
+#   command   a program that must be on PATH, or
+#   library   a shared library that must load (as ctypes.util.find_library names it)
+#   apt       the Debian/Ubuntu package that provides it; leave it out when Linux doesn't need it
+#   brew      the Homebrew formula that provides it; leave it out when macOS doesn't need it
+#   mise      true when mise.toml's [tools] provides it (then `mise install` is the fix, whatever the OS)
+#   services  the services in services/services.toml that use it ([] for setup only)
+#   optional  true for a package only some setups need: listed by `pack-system check`, installed only with
+#             `pack-system install --optional`, and left out of the dashboard
+#   when      "nvidia": only on machines with an NVIDIA GPU (nvidia-smi on PATH), as voice cloning is
+
+[sox]
+why = "Voice cloning (Qwen3-TTS, on an NVIDIA GPU) runs the sox program when it loads."
+command = "sox"
+apt = "sox"
+services = ["voice"]
+when = "nvidia"
+
+[espeak-ng]
+why = "The voice (Kokoro, on Linux) uses it to pronounce names and unusual words. Apple Silicon speaks with MLX."
+library = "espeak-ng"
+apt = "espeak-ng"
+services = ["voice"]
+
+[portaudio]
+why = "Microphone and speaker access. On macOS the Python package brings its own copy."
+library = "portaudio"
+apt = "libportaudio2"
+services = ["voice", "audio-route"]
+
+[libgl]
+why = "OpenCV, which reads the cameras and video, loads it (minimal and server images leave it out)."
+library = "GL"
+apt = "libgl1"
+services = ["see-actions", "see-decode", "see-captions", "dashboard"]
+
+[glib]
+why = "OpenCV loads it too."
+library = "glib-2.0"
+apt = "libglib2.0-0"
+services = ["see-actions", "see-decode", "see-captions", "dashboard"]
+
+[curl]
+why = "Downloads the speech-gate model the first time the listen worker starts."
+command = "curl"
+apt = "curl"
+services = ["listen"]
+
+[ffmpeg]
+why = "Compresses recorded video, and cuts clips for the dashboard."
+command = "ffmpeg"
+mise = true
+services = ["continuum-tier-worker", "dashboard"]
+
+[ffprobe]
+why = "Reads how long each video recording is (it comes with ffmpeg)."
+command = "ffprobe"
+mise = true
+services = ["dashboard"]
+
+[ollama]
+why = "Runs the local language and vision models."
+command = "ollama"
+mise = true
+services = ["vlm", "voice", "see-captions", "dashboard"]
+
+[cmake]
+why = "Builds whisper.cpp's speech recognizer during setup."
+command = "cmake"
+mise = true
+services = []
+
+[cxx]
+why = "A C++ compiler, to build whisper.cpp during setup. On macOS it comes with the Xcode command line tools."
+command = "c++"
+apt = "build-essential"
+services = []
+
+[git]
+why = "Fetches whisper.cpp's source during setup."
+command = "git"
+apt = "git"
+brew = "git"
+services = []
+
+[libusb]
+why = "Controls an XVF3800 microphone array's settings (only with that microphone)."
+library = "usb-1.0"
+apt = "libusb-1.0-0"
+brew = "libusb"
+services = []  # v1's microphone service drove the array's controls; nothing does on Continuum yet (#548)
+optional = true
+
+[pw-dump]
+why = "Lists microphones and speakers for the dashboard's source picker on PipeWire."
+command = "pw-dump"
+apt = "pipewire-bin"
+services = ["dashboard"]
+optional = true
+
+[switchaudio-osx]
+why = "Switches the Mac's audio output for audio routing."
+command = "SwitchAudioSource"
+brew = "switchaudio-osx"
+services = ["audio-route"]
+optional = true
+
+[blueutil]
+why = "Connects Bluetooth speakers for audio routing on a Mac."
+command = "blueutil"
+brew = "blueutil"
+services = ["audio-route"]
+optional = true
+
+[bluez]
+why = "Optional host Bluetooth advertisement discovery through the local BlueZ system-bus service. ESP32 USB sensors do not need it."
+command = "bluetoothctl"
+apt = "bluez"
+services = ["bluetooth"]
+optional = true
+
+# FFmpeg's development headers: Continuum's RTSP capture, optional Python H.264 decoder, and tier worker link libavcodec and
+# friends through ffmpeg-next when built with its `ffmpeg` feature, for all-intra HEVC, fragmented MP4, and the
+# hardware decoders. The runtime libraries alone (what ffmpeg itself needs) are not enough to build it, which is why
+# these are checked with pkg-config rather than by loading the library. Homebrew's
+# ffmpeg formula brings the headers with it on macOS. Optional: only a machine that builds these workers or the Python decoder with
+# that feature needs them, and `mise run continuum-check` skips the feature when pkg-config can't find libavcodec.
+
+[libavcodec-dev]
+why = "FFmpeg's avcodec headers, to build Continuum RTSP capture, optional H.264 Python decoding, and Tier video codecs with the ffmpeg feature."
+pkgconfig = "libavcodec"
+apt = "libavcodec-dev"
+brew = "ffmpeg"
+services = []
+optional = true
+
+[libavformat-dev]
+why = "FFmpeg's avformat headers, to build Continuum RTSP capture, optional H.264 Python decoding, and Tier video codecs with the ffmpeg feature."
+pkgconfig = "libavformat"
+apt = "libavformat-dev"
+brew = "ffmpeg"
+services = []
+optional = true
+
+[libavutil-dev]
+why = "FFmpeg's avutil headers, to build Continuum RTSP capture, optional H.264 Python decoding, and Tier video codecs with the ffmpeg feature."
+pkgconfig = "libavutil"
+apt = "libavutil-dev"
+brew = "ffmpeg"
+services = []
+optional = true
+
+[libswscale-dev]
+why = "FFmpeg's swscale headers, to build Continuum RTSP capture, optional H.264 Python decoding, and Tier video codecs with the ffmpeg feature."
+pkgconfig = "libswscale"
+apt = "libswscale-dev"
+brew = "ffmpeg"
+services = []
+optional = true
+
+[libavfilter-dev]
+why = "FFmpeg's avfilter headers, to build Continuum RTSP capture, optional H.264 Python decoding, and Tier video codecs with the ffmpeg feature."
+pkgconfig = "libavfilter"
+apt = "libavfilter-dev"
+brew = "ffmpeg"
+services = []
+optional = true
+
+[libswresample-dev]
+why = "FFmpeg's swresample headers, to build Continuum RTSP capture, optional H.264 Python decoding, and Tier video codecs with the ffmpeg feature."
+pkgconfig = "libswresample"
+apt = "libswresample-dev"
+brew = "ffmpeg"
+services = []
+optional = true
+
+[libavdevice-dev]
+why = "FFmpeg's avdevice headers, to build Continuum RTSP capture, optional H.264 Python decoding, and Tier video codecs with the ffmpeg feature."
+pkgconfig = "libavdevice"
+apt = "libavdevice-dev"
+brew = "ffmpeg"
+services = []
+optional = true
+
+[libpipewire]
+# Checked by the headers' pkg-config module (the runtime library is there without them). libclang, which generates
+# the bindings, has no pkg-config module and only versioned names on Debian, so it's installed with it.
+why = "Building Continuum's capture supervisor needs PipeWire's headers, and libclang to generate its bindings (Linux only): it reads microphones through PipeWire for the driver's capture timestamps."
+pkgconfig = "libpipewire-0.3"
+apt = "libpipewire-0.3-dev libclang-dev"
+services = ["continuum-capture"]

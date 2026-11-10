@@ -1,0 +1,264 @@
+.top {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  min-height: 56px;
+  padding: 0 20px;
+  background: color-mix(in srgb, var(--mantine-color-body) 92%, transparent);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--mantine-color-default-border);
+}
+.brand {
+  font-weight: 700;
+  font-size: 17px;
+  color: var(--mantine-color-text);
+  text-decoration: none;
+  letter-spacing: -0.01em;
+}
+.tabs {
+  display: flex;
+  gap: 2px;
+  align-self: stretch;
+  min-width: 0;
+}
+.tab {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  color: var(--mantine-color-dimmed);
+  text-decoration: none;
+  font-weight: 500;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.tab:hover {
+  color: var(--mantine-color-text);
+}
+.tab[aria-current="page"] {
+  color: var(--mantine-color-text);
+  border-bottom-color: var(--mantine-color-anchor);
+}
+.right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.skip {
+  position: fixed;
+  top: 8px;
+  left: 12px;
+  transform: translateY(-200%);
+  z-index: 100;
+}
+.skip:focus {
+  transform: none;
+}
+@media (max-width: 1000px) {
+  .top {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 4px 12px;
+    padding: 6px 12px;
+  }
+  .brand {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .tabs {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    height: 44px;
+    padding: 0 12px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-padding-inline: 12px;
+    scrollbar-width: thin;
+    mask-image: linear-gradient(to right, transparent, black 12px, black calc(100% - 12px), transparent);
+  }
+  .right {
+    grid-column: 2;
+    grid-row: 1;
+    margin-left: 0;
+  }
+}
+/* The status pill (#2453): state first, the privacy menu second. */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: 999px;
+  font-size: 13px;
+  color: var(--mantine-color-text);
+  white-space: nowrap;
+}
+.pill:hover {
+  background: var(--mantine-color-default-hover);
+}
+.pill[data-pending] {
+  opacity: 0.7;
+}
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.glyph {
+  display: inline-flex;
+}
+/* The dot already says the state; the glyphs say which part, so on a wide screen the words do instead. */
+.pill .glyph {
+  display: none;
+}
+.pill[data-state="paused"] .glyph,
+.pill[data-state="bad"] .glyph {
+  display: inline-flex;
+}
+.pillChevron {
+  color: var(--mantine-color-dimmed);
+}
+.statusLine {
+  font-size: 13px;
+  color: var(--mantine-color-text);
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 500;
+}
+
+/* The one menu (#2453): a gear with a dot while a service needs attention. */
+.gear {
+  position: relative;
+}
+.gearDot,
+.gearDotInline {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--lib-warn);
+}
+.gearDot {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+}
+.gearDotInline {
+  display: inline-block;
+}
+
+/* The page's name, shown on a phone in place of the app's. */
+.pageName {
+  display: none;
+  font-weight: 600;
+  font-size: 17px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A phone's bottom bar (#2453). */
+:root {
+  --bottom-h: 0px;
+}
+.bottom {
+  position: fixed;
+  inset: auto 0 0 0;
+  z-index: 20;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  height: calc(56px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  background: color-mix(in srgb, var(--mantine-color-body) 94%, transparent);
+  backdrop-filter: blur(10px);
+  border-top: 1px solid var(--mantine-color-default-border);
+}
+.bottomItem {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 44px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--mantine-color-dimmed);
+  text-decoration: none;
+}
+.bottomItem[aria-current="page"] {
+  color: var(--mantine-color-anchor);
+}
+
+@media (max-width: 700px) {
+  :root {
+    --bottom-h: calc(56px + env(safe-area-inset-bottom, 0px));
+  }
+  :global(#main-content) {
+    padding-bottom: var(--bottom-h);
+  }
+  .top {
+    display: flex;
+    gap: 6px;
+    min-height: 52px;
+    padding: 4px 10px;
+  }
+  .brand,
+  .tabs {
+    display: none;
+  }
+  .pageName {
+    display: block;
+    flex: 1;
+    min-width: 0;
+  }
+  .right {
+    gap: 4px;
+    margin-left: auto;
+  }
+  .pill {
+    height: 44px;
+    padding: 0 10px;
+  }
+  .pill .glyph {
+    display: inline-flex;
+  }
+  .pillText,
+  .pillChevron {
+    display: none;
+  }
+  .right [data-ask-trigger] {
+    height: 44px;
+    padding-inline: 12px;
+  }
+  .right [data-ask-trigger] :global(.mantine-Button-section[data-position="right"]) {
+    display: none;
+  }
+  /* The command palette's button (#2598): just its icon on a phone, the same 44px square as the gear. */
+  .right [data-palette-trigger] {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    padding: 0;
+  }
+  .right [data-palette-trigger] :global(.mantine-Button-label),
+  .right [data-palette-trigger] :global(.mantine-Button-section[data-position="right"]) {
+    display: none;
+  }
+  .right [data-palette-trigger] :global(.mantine-Button-section[data-position="left"]) {
+    margin: 0;
+  }
+  .right [data-settings-trigger] {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+  }
+}

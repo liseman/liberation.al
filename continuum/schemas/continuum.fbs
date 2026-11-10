@@ -1,0 +1,1446 @@
+// Continuum Broker schema: ids, enums, the payload header and its provenance, and storage locators (Phase 1, #530),
+// then the control plane: the ControlEnvelope and every message in its ControlPayload union (#542).
+//
+// Follows docs/CONTINUUM.md ("Envelope and provenance", "Request flows", and "Schema notes for Phase 1"). Tables and
+// the union only grow at the end: appending is compatible, reordering or removing isn't.
+//
+// Generated code: `mise run continuum-codegen` writes crates/continuum-core/src/generated/continuum_generated.rs.
+
+namespace continuum;
+
+// ---- Ids and time ----
+
+/// A 128-bit UUIDv7 as its 16 bytes in RFC 9562 (big-endian) order, so ids sort by creation time. Payload, entity,
+/// and producer ids all use it; v1's domain/kernel.py stores the same ids as strings (decision 8).
+struct Uuid {
+  bytes: [ubyte:16];
+}
+
+/// One monotonic and one UTC reading taken together at capture start, plus the boot they belong to (the monotonic
+/// clock restarts each boot). The boot id is the host's own (Linux's /proc/sys/kernel/random/boot_id, the macOS boot
+/// session UUID), a random UUID rather than a UUIDv7; it's stored in the same 16-byte struct. A stream reports it at registration so its UTC times can be checked or re-fitted
+/// (decision 9). Every time elsewhere is u64 UTC nanoseconds since the Unix epoch.
+struct ClockAnchor {
+  boot_id: Uuid;
+  monotonic_ns: ulong;
+  utc_ns: ulong;
+}
+
+// ---- Enums ----
+
+/// Where bytes live: hot shared memory, warm NVMe chunks, or the cold archive (decision 2).
+enum StorageTier : ubyte {
+  Tier0Hot = 0,
+  Tier1Warm = 1,
+  Tier2Cold = 2,
+}
+
+/// The domain model's layers, in its order (decision 10).
+enum DomainLayer : ubyte {
+  Layer1Raw = 0,
+  Layer2Decision = 1,
+  Layer3Interpretation = 2,
+}
+
+/// Scheduler priority bands, most urgent first.
+enum PriorityBand : ubyte {
+  P0Critical = 0,
+  P1Realtime = 1,
+  P2Nearline = 2,
+  P3Background = 3,
+}
+
+/// What kind of hardware a worker computes on.
+enum ComputeDomain : ubyte {
+  CPU = 0,
+  GPU = 1,
+  ANE = 2,
+  MediaEngine = 3,
+}
+
+/// The voice turn, as broker system state (decision 11).
+enum VoiceTurnState : ubyte {
+  Idle = 0,
+  Listening = 1,
+  Thinking = 2,
+  Speaking = 3,
+}
+
+/// How a payload's bytes are encoded.
+enum PayloadFormat : ubyte {
+  RawBytes = 0,
+  DLPackTensor = 1,
+  ArrowRecordBatch = 2,
+  EncodedVideo = 3,
+  FlatBuffer = 4,
+  Text = 5,
+}
+
+// ---- Payload header and provenance ----
+
+/// Who made a payload: v1's kernel Producer plus version_hash.
+table Producer {
+  /// The worker and capability, like "sensor:cam0" or "worker:pose".
+  producer_id: string;
+  model: string;
+  version: string;
+  /// A git SHA or a hash of the weights.
+  version_hash: string;
+  prompt_id: string;
+  prompt_hash: string;
+}
+
+/// A record supporting a layer 2 or 3 claim: a payload, and optionally a span inside it (UTC nanoseconds).
+table EvidenceRef {
+  payload_id: Uuid;
+  start_ns: ulong = null;
+  end_ns: ulong = null;
+}
+
+/// The measured cost of making a payload.
+table ComputeCost {
+  wall_time_us: ulong;
+  queue_wait_us: ulong;
+  ram_bytes: ulong;
+  vram_bytes: ulong;
+  /// Like "CUDA:0", "MPS", "ANE", or "CPU".
+  device: string;
+  /// How many items (frames, utterances, rows) it processed, so the scheduler learns the cost per item.
+  items: ulong;
+}
+
+/// What capture knew about a sensor payload, so its times can be re-fitted later.
+table CaptureInfo {
+  /// Best estimate of when the sample was captured, on the host monotonic clock.
+  capture_mono_ns: ulong;
+  /// The device's own timestamp, raw.
+  device_ts: ulong;
+  /// When the capture worker received it, monotonic.
+  arrival_ns: ulong;
+  /// Video only: bytes per row, size, and whether the reader flips it (a camera mounted upside down).
+  stride: uint;
+  width: uint;
+  height: uint;
+  flip: bool;
+  /// The device's or driver's frame or block sequence number, so a dropped sample shows as a gap.
+  device_seq: ulong;
+  /// Audio source sample rate in Hz. Zero means unknown, including legacy producers.
+  sample_rate_hz: uint;
+  /// Video: an opaque id, the same for every frame of one continuous capture session (one device open or one RTSP
+  /// connection) and different after a reopen, reconnect, or wake, so device_seq is only compared within it. Zero
+  /// means unknown, including producers before minor 27. Added in minor 27.
+  capture_epoch: uint;
+}
+
+/// Every payload has one. It's immutable: where the bytes are now is a StorageLocator in the catalog's locations
+/// table, not here, and vector rows are keyed by the payload id.
+table PayloadHeader {
+  id: Uuid;
+  /// Assigned by the broker when the stream registers.
+  stream_id: uint;
+  /// The time covered, in UTC nanoseconds; equal for an instant.
+  start_ns: ulong;
+  end_ns: ulong;
+  /// Order among payloads of one stream with the same start.
+  seq: uint;
+  layer: DomainLayer;
+  format: PayloadFormat;
+  /// A raw format like "NV12" or "PCM_F32", or a named shape for derived data.
+  shape_name: string;
+  shape_version: uint;
+  producer: Producer;
+  /// The exact payloads it was computed from.
+  parents: [Uuid];
+  /// For layer 2 and 3 claims: the records that support it.
+  evidence: [EvidenceRef];
+  /// The coldest tier any input was read from when it was computed.
+  source_tier: StorageTier;
+  compute: ComputeCost;
+  /// The model's own summary confidence, if it has one.
+  confidence: float = null;
+  /// The people or things it's about, so a purge by entity finds it.
+  subjects: [Uuid];
+  /// Sensor payloads only.
+  capture: CaptureInfo;
+}
+
+// ---- Locators ----
+
+/// Tier 0: a slot in a shared memory arena. `offset` is from the arena's start and always a multiple of 16,384.
+table ShmLocation {
+  arena: string;
+  arena_generation: uint;
+  slab_class: ushort;
+  slot: uint;
+  slot_generation: uint;
+  offset: ulong;
+  length: ulong;
+}
+
+/// Tier 1 and Tier 2: a byte range in a chunk (a file on NVMe, or an archive object).
+table ChunkLocation {
+  uri: string;
+  offset: ulong;
+  length: ulong;
+}
+
+/// Bytes kept in the catalog itself, for small payloads (an event's JSON): no slab and no chunk. At most 64 KiB; a
+/// larger payload goes in shared memory. It reports Tier1Warm, since the catalog file is durable and on NVMe.
+table InlineLocation {
+  bytes: [ubyte];
+}
+
+/// Tier 0: a batch of records in a fixed-stride ring (PCM, IMU), by sequence number: records first_seq to
+/// first_seq + count - 1 of ring `ring` in the arena. Its bytes are count * stride, read at seq % capacity (at most two
+/// slices across the wrap). Readable until the ring laps it.
+table RingLocation {
+  arena: string;
+  arena_generation: uint;
+  ring: ushort;
+  first_seq: ulong;
+  count: uint;
+}
+
+union Location {
+  ShmLocation,
+  ChunkLocation,
+  InlineLocation,
+  RingLocation,
+}
+
+/// Where a payload's bytes are right now. A query result pairs one with a PayloadHeader.
+table StorageLocator {
+  tier: StorageTier;
+  location: Location;
+}
+
+// ---- Control plane (#542): the ControlEnvelope and every message in docs/CONTINUUM.md "Request flows" ----
+//
+// One length-prefixed ControlEnvelope at a time over the broker's Unix socket. A reply carries its request's
+// request_id; a message the broker sends on its own (a dispatch, a preemption, a stream event) uses request_id 0.
+// The union's order is fixed: add new messages only at the end.
+
+/// The schema version a client and the broker speak. Bump it when a change isn't backward compatible; the broker
+/// refuses a Hello with a different major version.
+table SchemaVersion {
+  major: ushort;
+  minor: ushort;
+}
+
+/// A half-open time range, [start_ns, end_ns), in UTC nanoseconds.
+struct TimeRange {
+  start_ns: ulong;
+  end_ns: ulong;
+}
+
+/// A payload as a query or event hands it out: its header and where its bytes are now (pinned for the reader).
+table Item {
+  /// Superseded by header_bytes; never set.
+  header: PayloadHeader (deprecated);
+  locator: StorageLocator;
+  /// The header as its own finished FlatBuffer (root PayloadHeader), the same bytes the catalog keeps, so it is
+  /// passed on without being rebuilt.
+  header_bytes: [ubyte] (nested_flatbuffer: "PayloadHeader");
+  /// The payload's commit sequence (the catalog's order of everything committed, the same StreamEvent.position
+  /// carries), when the sender knows it; 0 on a CommitLease output.
+  commit_seq: ulong;
+}
+
+// ---- Connecting ----
+
+table Hello {
+  client_name: string;
+  pid: uint;
+  sdk_version: string;
+  schema: SchemaVersion;
+}
+
+/// One size class of an arena.
+table SizeClass {
+  slab_bytes: ulong;
+  count: uint;
+}
+
+/// An arena the client should map. Its file descriptor is passed alongside the Welcome with SCM_RIGHTS, in the same
+/// order as Welcome.arenas.
+table ArenaInfo {
+  name: string;
+  generation: uint;
+  size_bytes: ulong;
+  classes: [SizeClass];
+}
+
+table Welcome {
+  session_id: Uuid;
+  schema: SchemaVersion;
+  arenas: [ArenaInfo];
+  voice_turn: VoiceTurnState;
+}
+
+/// What a worker reports with its heartbeat.
+table Telemetry {
+  queue_depth: uint;
+  models_resident: [string];
+  ram_bytes: ulong;
+  vram_bytes: ulong;
+}
+
+table Heartbeat {
+  now_ns: ulong;
+  telemetry: Telemetry;
+}
+
+table Goodbye {
+  reason: string;
+}
+
+enum ErrorCode : ushort {
+  Unknown = 0,
+  BadRequest = 1,
+  IncompatibleSchema = 2,
+  NotFound = 3,
+  NotAllowed = 4,
+  Unavailable = 5,
+  Internal = 6,
+  /// The request clashes with what exists, like a stream name registered before with different info.
+  Conflict = 7,
+}
+
+table Error {
+  code: ErrorCode;
+  message: string;
+}
+
+// ---- Registration ----
+
+enum StreamKind : ubyte {
+  Sensor = 0,
+  Derived = 1,
+}
+
+table RegisterStream {
+  name: string;
+  kind: StreamKind;
+  format: PayloadFormat;
+  shape_name: string;
+  shape_version: uint;
+  nominal_rate_hz: float;
+  /// For slab streams: the size class wanted. For ring streams, ring_stride_bytes is set instead.
+  slab_class: ushort;
+  ring_stride_bytes: uint;
+  /// The ring's length in seconds; 0 takes the profile's default (10 seconds).
+  ring_seconds: float;
+  /// Sensors only.
+  anchor: ClockAnchor;
+  /// The domain layer of the stream's payloads (a sensor's are Layer1Raw).
+  layer: DomainLayer;
+}
+
+/// A capture stream's standing lease: its own ring of slots, or a fixed-stride ring.
+table StreamLease {
+  lease_id: ulong;
+  arena: string;
+  arena_generation: uint;
+  first_slot: uint;
+  slot_count: uint;
+  slot_bytes: ulong;
+  /// For a fixed-stride ring: its offset in the arena and record count; zero for a slot ring.
+  ring_offset: ulong;
+  ring_records: uint;
+  /// For a ring carved at registration: its index (what RingLocation.ring names), where its records start, its
+  /// stride, and its generation (checked by readers). ring_offset is its control block.
+  ring_index: ushort;
+  ring_data_offset: ulong;
+  ring_stride: uint;
+  ring_generation: uint;
+}
+
+table StreamRegistered {
+  stream_id: uint;
+  lease: StreamLease;
+}
+
+/// An input a capability needs, with a window around the output's time (0 and 0 for the same frame).
+table Requirement {
+  stream: string;
+  before_ns: ulong;
+  after_ns: ulong;
+}
+
+/// What a capability is for.
+enum CapabilityRole : ubyte {
+  /// Runs a model or a transform on inputs in Tier 0 and produces `produces`.
+  Produce = 0,
+  /// The tier worker's hydrate: decodes a stream's Tier 1 or Tier 2 bytes into Tier 0 (`produces` and `requires`
+  /// are ignored).
+  Hydrate = 1,
+}
+
+table Capability {
+  produces: string;
+  requires: [Requirement];
+  compute_domain: ComputeDomain;
+  ram_mb: uint;
+  vram_mb: uint;
+  est_ms_per_item: float;
+  cold_start_ms: uint;
+  max_batch: uint;
+  preemptible: bool;
+  role: CapabilityRole;
+  /// Bytes one output takes in Tier 0, for sizing its lease's slots.
+  output_bytes: ulong;
+  /// How many outputs one job makes (0 means one).
+  outputs_per_job: uint;
+  /// The model's typical confidence, for pricing alternatives; unset when it has none.
+  expected_confidence: float = null;
+}
+
+table RegisterWorker {
+  worker_id: string;
+  version_hash: string;
+  capabilities: [Capability];
+  /// Which GPU the worker runs on, for workers on a machine with several; unset otherwise.
+  device_index: ubyte = null;
+  /// The worker keeps its own copies of payloads (chunk files, vector rows): a purge sends it a PurgeNotice and
+  /// waits for its PurgeAck.
+  keeps_copies: bool;
+}
+
+table WorkerRegistered {
+  /// Indexes into RegisterWorker.capabilities that were accepted.
+  accepted: [uint];
+  /// One reason per refused capability, in index order.
+  refused_reasons: [string];
+  /// The scheduler's id for each accepted capability, in the order of `accepted`. A QuoteRequest names one.
+  capability_ids: [uint];
+  /// For each accepted capability, whether this machine's profile can run it (a capability on a compute domain the
+  /// profile lacks is accepted, so telemetry can name it, but never dispatched).
+  runnable: [bool];
+}
+
+// ---- Ingest ----
+
+/// A derived payload's dependency on a stretch of a stream (minor 31, #1535): a purge that removes anything on that
+/// stream overlapping range (a payload, or frames cut from a chunk) takes the dependent too, and what derives from it;
+/// an age-out doesn't. revision is the stream's invalidation revision the producer read before checking what it used:
+/// the broker refuses the notice (Conflict) if it moved since, so a purge in between can't be missed.
+table Dependency {
+  stream_id: uint;
+  range: TimeRange;
+  revision: ulong;
+}
+
+table IngestNotice {
+  stream_id: uint;
+  lease_id: ulong;
+  /// Superseded by header_bytes; never set.
+  header: PayloadHeader (deprecated);
+  locator: StorageLocator;
+  /// Ring streams: the batch's first and last record sequence numbers.
+  ring_first_seq: ulong;
+  ring_last_seq: ulong;
+  /// The header of the slot's payload, or of the ring batch, as its own finished FlatBuffer (root PayloadHeader):
+  /// the catalog stores these bytes as they are.
+  header_bytes: [ubyte] (nested_flatbuffer: "PayloadHeader");
+  /// What the payload depends on (minor 31), stored with it in one commit before the answer. Only with a nonzero
+  /// request id: an unanswered notice can't learn that its dependencies were refused.
+  dependencies: [Dependency];
+}
+
+table IngestRejected {
+  stream_id: uint;
+  payload_id: Uuid;
+  reason: string;
+  /// Why, as a code: BadRequest (a malformed notice, a bad locator, an inline payload over 64 KiB), NotAllowed (a
+  /// stream this session didn't register), Conflict (the id is indexed with a different header), NotFound (an
+  /// unregistered stream or an unknown parent), Unavailable (the broker is busy or its writer stopped: send it
+  /// again), or Internal (the catalog failed).
+  code: ErrorCode;
+}
+
+/// The answer to an IngestNotice sent with a nonzero request id, once the payload is committed: its commit sequence
+/// (a repeat with identical header bytes gets its existing one), or 0 when it landed under a running purge that
+/// hides it (the same as LeaseReleased.output_seqs). A notice with request id 0 gets no answer.
+table Ingested {
+  stream_id: uint;
+  payload_id: Uuid;
+  commit_seq: ulong;
+}
+
+// ---- Consumer flow ----
+
+enum QueryMode : ubyte {
+  HitOnly = 0,
+  QuoteIfMissing = 1,
+  CommitWithinBudget = 2,
+}
+
+table Query {
+  stream: string;
+  range: TimeRange;
+  /// 0 means no budget.
+  latency_budget_ms: uint;
+  band: PriorityBand;
+  mode: QueryMode;
+  max_items: uint;
+  /// A sequence query: the stream's payloads in commit order after after_seq (0 for all), that the filters keep, at
+  /// most max_items of them after scanning at most max_scan rows (0 for the broker's default). Nothing is quoted or
+  /// made (mode must be HitOnly) and range, when set, keeps only payloads whose span overlaps it. The reply's
+  /// next_after says where to continue.
+  by_seq: bool;
+  after_seq: ulong;
+  /// Only payloads about any of these.
+  subjects: [Uuid];
+  /// Only payloads starting before this, UTC nanoseconds; 0 for no bound.
+  start_before: ulong;
+  /// Only these payloads.
+  ids: [Uuid];
+  /// Rows scanned at most in one page; 0 for the broker's default (4096), and never below max_items. With no
+  /// max_items given, the page holds at most this many items.
+  max_scan: uint;
+}
+
+/// The part of a ring stream newer than its last sealed batch, to read straight from shared memory.
+/// A ring stream's records past its newest indexed batch, for a query that reaches now: records first_seq to last_seq
+/// (inclusive) of the ring. ring_offset is its control block.
+table RingTail {
+  arena: string;
+  ring_offset: ulong;
+  first_seq: ulong;
+  last_seq: ulong;
+  /// The ring's index (as a RingLocation names it) and the arena's generation, so a reader can check its mapping.
+  ring: ushort;
+  arena_generation: uint;
+}
+
+table QueryResult {
+  items: [Item];
+  complete: bool;
+  missing: [TimeRange];
+  tail: RingTail;
+  /// The paging contract of a sequence query: nonzero means more remains (pass it as after_seq to continue), even
+  /// after an empty or short page (every row scanned failed a filter, or max_scan cut the page); 0 means done (the
+  /// stream has nothing more past what was looked at, and complete is set). A reader continues while next_after is
+  /// nonzero, never by how full a page was.
+  next_after: ulong;
+  /// The page was cut short of the range: at max_items, or at the inline byte cap (8 MiB). More may follow the last
+  /// item; a reader asks again from after it. Distinct from complete, which is also false for a range with gaps or an
+  /// unsealed ring tail.
+  truncated: bool;
+  /// A PromiseQuote for the missing part follows, with this result's request id. A query that asked for a quote can
+  /// still get none (nothing missing can be made: a sensor's past nobody captured), so a client waits only when set.
+  quoted: bool;
+}
+
+enum PromiseStatus : ubyte {
+  RequiresCompute = 0,
+  AwaitingCapture = 1,
+  AwaitingCaptureAndCompute = 2,
+}
+
+/// One step of a plan: a tier read, or a worker running a capability.
+table PlanStep {
+  /// A tier read when worker_id is empty.
+  read_tier: StorageTier;
+  worker_id: string;
+  produces: string;
+  items: uint;
+  est_ms: float;
+}
+
+table PlanOption {
+  steps: [PlanStep];
+  est_latency_ms: float;
+  cost_units: float;
+  exceeds_budget: bool;
+  expected_confidence: float = null;
+}
+
+table PromiseQuote {
+  promise_id: Uuid;
+  status: PromiseStatus;
+  /// The first option is the broker's pick; the rest are alternatives.
+  options: [PlanOption];
+  shares_in_flight: bool;
+  expires_at_ns: ulong;
+}
+
+table CommitPromise {
+  promise_id: Uuid;
+  option: uint;
+  band: PriorityBand;
+}
+
+table CancelPromise {
+  promise_id: Uuid;
+}
+
+/// Where a promise stands after a CommitPromise or CancelPromise.
+enum PromiseLife : ubyte {
+  /// Committed and waiting for its range to be captured.
+  Armed = 0,
+  /// Committed; its jobs are running.
+  Dispatching = 1,
+  /// Cancelled.
+  Cancelled = 2,
+  /// The commit failed at once (its only producer is gone, say); a PromiseFailed follows.
+  Failed = 3,
+}
+
+/// The answer to a CommitPromise or a CancelPromise: results and failures follow as FulfillPromise and
+/// PromiseFailed on the push path.
+table PromiseAccepted {
+  promise_id: Uuid;
+  life: PromiseLife;
+}
+
+table FulfillPromise {
+  promise_id: Uuid;
+  items: [Item];
+  final_part: bool;
+}
+
+table PromiseFailed {
+  promise_id: Uuid;
+  reason: string;
+  /// How many items were delivered before it failed.
+  delivered: uint;
+}
+
+// ---- Worker flow ----
+
+table OutputLease {
+  lease_id: ulong;
+  slots: [ShmLocation];
+  expires_at_ns: ulong;
+}
+
+table DispatchJob {
+  job_id: Uuid;
+  promise_ids: [Uuid];
+  /// The stream the capability produces, by name; empty for a hydrate.
+  capability: string;
+  inputs: [Item];
+  output_range: TimeRange;
+  band: PriorityBand;
+  deadline_ns: ulong;
+  output: OutputLease;
+  /// The capability's id from WorkerRegistered, which is what tells two capabilities of one worker apart.
+  capability_id: uint;
+}
+
+table JobRejected {
+  job_id: Uuid;
+  reason: string;
+}
+
+table QuoteRequest {
+  stage: string;
+  band: PriorityBand;
+  compute_domain: ComputeDomain;
+  output_bytes: ulong;
+  est_duration_ms: uint;
+  pin_parents: [Uuid];
+  /// Which of the worker's capabilities the work is for (an id from WorkerRegistered.capability_ids).
+  capability_id: uint;
+  /// The time the work covers.
+  range: TimeRange;
+}
+
+table LeaseGrant {
+  granted: bool;
+  lease: OutputLease;
+  retry_after_ms: uint;
+}
+
+table RenewLease {
+  lease_id: ulong;
+  extend_ms: uint;
+}
+
+/// A finished coverage interval for a source stream and stage.
+table CoverageDone {
+  source_stream_id: uint;
+  stage: string;
+  range: TimeRange;
+}
+
+table CommitLease {
+  lease_id: ulong;
+  outputs: [Item];
+  coverage: CoverageDone;
+  cost: ComputeCost;
+}
+
+table AbortLease {
+  lease_id: ulong;
+  reason: string;
+}
+
+table LeasePreempted {
+  lease_id: ulong;
+  reason: string;
+  by_band: PriorityBand;
+}
+
+table LeaseReleased {
+  lease_id: ulong;
+  /// Answering a CommitLease: each output's commit sequence, in the outputs' order (0 for one hidden by a running
+  /// purge). A repeat (identical header bytes committed already) carries its existing sequence.
+  output_seqs: [ulong];
+}
+
+// ---- Subscriptions ----
+
+enum StartAt : ubyte {
+  Live = 0,
+  Time = 1,
+  Saved = 2,
+}
+
+table Subscribe {
+  subscription_id: ulong;
+  streams: [string];
+  start: StartAt;
+  start_ns: ulong;
+  /// Set for a durable subscription; its position is saved under this name.
+  durable_name: string;
+  /// Whether events carry pinned locators, not only headers.
+  pinned: bool;
+  /// Only payloads with one of these subjects, when set.
+  subjects: [Uuid];
+  /// Only payloads with this shape name, when set.
+  shape_name: string;
+}
+
+/// The answer to a Subscribe: the position the subscription starts after (the newest commit sequence it will not
+/// send, 0 for everything), and whether it is live already (nothing to catch up on).
+/// A subscribed stream's ring, so a reader in another process can follow it (the flusher, a live view).
+table StreamRing {
+  stream_id: uint;
+  /// Its ring as StreamRegistered gave it to the stream's writer: arena, generation, index, offsets, stride, records.
+  lease: StreamLease;
+}
+
+table Subscribed {
+  subscription_id: ulong;
+  position: ulong;
+  live: bool;
+  /// The ring of each subscribed stream that has one.
+  rings: [StreamRing];
+}
+
+/// Catch-up is over: everything up to position has been sent, and what follows is live.
+table CaughtUp {
+  subscription_id: ulong;
+  position: ulong;
+}
+
+/// The answer to an Unsubscribe.
+table Unsubscribed {
+  subscription_id: ulong;
+}
+
+table StreamEvent {
+  subscription_id: ulong;
+  position: ulong;
+  item: Item;
+}
+
+table AckEvents {
+  subscription_id: ulong;
+  position: ulong;
+}
+
+table Unsubscribe {
+  subscription_id: ulong;
+}
+
+// ---- Coverage ----
+
+table CoverageGapQuery {
+  source_stream_id: uint;
+  stage: string;
+  window: TimeRange;
+  max_intervals: uint = 64;
+}
+
+table CoverageGapResponse {
+  source_stream_id: uint;
+  stage: string;
+  gaps: [TimeRange];
+}
+
+// ---- System state ----
+
+table SetSystemState {
+  voice_turn: VoiceTurnState;
+}
+
+table SystemStateChanged {
+  voice_turn: VoiceTurnState;
+  changed_at_ns: ulong;
+}
+
+// ---- Purge ----
+
+table Purge {
+  /// A range purge when entity_id is unset.
+  range: TimeRange;
+  /// Only these streams; all when empty.
+  streams: [string];
+  entity_id: Uuid;
+  reason: string;
+  /// A purge by id: these payloads (or absorbed frames) and everything derived from them. Send one of range,
+  /// entity_id, or ids.
+  ids: [Uuid];
+  /// The caller's JSON detail, kept in the record for good: it must not name the person (no subject id).
+  detail: string;
+  /// With ids: an age-out (docs/CONTINUUM.md, "Aging"). Only the named payloads go, none of what was derived from
+  /// them, and only those committed by committed_before_ns (by the commit clock, whatever their own time). Their
+  /// spans are recorded as aged out.
+  age_out: bool;
+  /// An age-out's cutoff, UTC nanoseconds.
+  committed_before_ns: ulong;
+  /// An age-out's run tolerance (minor 29): removed spans on one stream at most this many nanoseconds apart are
+  /// recorded as one aged-out span, so a per-frame stream leaves runs, not an entry a frame. 0 (and an older client)
+  /// keeps each payload's own span.
+  aged_gap_ns: ulong;
+}
+
+/// What kind of purge a record is of.
+enum PurgeKind : ubyte {
+  Range = 0,
+  Entity = 1,
+  Ids = 2,
+  AgeOut = 3,
+}
+
+/// One purge in the listing: what was asked (an entity purge keeps no entity id, a purge by ids keeps only how
+/// many), how far it got, and when every copy was gone.
+table PurgeSummary {
+  purge_id: Uuid;
+  /// When it started, UTC nanoseconds.
+  at_ns: ulong;
+  kind: PurgeKind;
+  /// The range, for a range purge.
+  range: TimeRange;
+  /// The streams a range purge named; empty for every stream.
+  stream_ids: [uint];
+  /// How many ids a purge by ids asked for.
+  id_count: uint;
+  reason: string;
+  detail: string;
+  /// Payloads removed, once its steps have run (0 while they run: the report is written by the last step).
+  removed: ulong;
+  /// Its steps have run.
+  finished: bool;
+  /// When every copy was gone (the keepers acknowledged); 0 while notices are outstanding.
+  completed_ns: ulong;
+}
+
+/// The purges, newest last: those after `after` (all when unset), at most `limit` (0 for the broker's default).
+table ListPurges {
+  after: Uuid;
+  limit: uint;
+}
+
+table PurgeList {
+  purges: [PurgeSummary];
+}
+
+/// One registered stream, as ListStreams reports it.
+table StreamDesc {
+  stream_id: uint;
+  name: string;
+  kind: StreamKind;
+  layer: DomainLayer;
+  format: PayloadFormat;
+  shape_name: string;
+  shape_version: uint;
+  rate_hz: float;
+  /// A producer session is connected for it now.
+  live: bool;
+  /// Monotone deletion revision; absent when the broker cannot provide it.
+  invalidation_revision: ulong = null;
+  /// The invalidation revision as the stream's last forget (any change but an age-out's) left it (minor 33, #1587).
+  /// A dependency or worker state read at any revision from this through invalidation_revision is still good.
+  forget_revision: ulong = null;
+}
+
+/// Every registered stream, in id order. Answered with StreamList.
+table ListStreams {}
+
+table StreamList {
+  streams: [StreamDesc];
+}
+
+/// Drops a keeper's name: a worker that registered with keeps_copies and has been retired or renamed. Purges
+/// waiting on its acknowledgement stop waiting for it (an admin request, logged). Answered with KeeperForgotten.
+table ForgetKeeper {
+  name: string;
+}
+
+table KeeperForgotten {
+  name: string;
+  /// How many purges were waiting on the name.
+  released: uint;
+}
+
+/// A forgotten person's name, hashed by the caller: the broker and the catalog never see the name.
+struct ForgottenHash {
+  bytes: [ubyte:32];
+}
+
+/// Records that a person was forgotten (the catalog's FORGOTTEN, which no purge removes), so the name is recognized
+/// and refused if it comes back. Answered with ForgottenRemembered.
+table RememberForgotten {
+  hash: ForgottenHash;
+}
+
+table ForgottenRemembered {}
+
+/// Whether a hash is in FORGOTTEN. Answered with ForgottenStatus.
+table IsForgotten {
+  hash: ForgottenHash;
+}
+
+table ForgottenStatus {
+  forgotten: bool;
+}
+
+/// Read-only, exclusive lexicographic hash cursor; limit is 1..1024 (default 256).
+table ListForgotten {
+  after: ForgottenHash;
+  limit: uint = 256;
+}
+
+/// Only opaque hashes, never names or observation records. next is the last returned hash when more remain.
+/// Each page is one read snapshot. Concurrent additions below the cursor require a new enumeration.
+table ForgottenList {
+  hashes: [ForgottenHash];
+  next: ForgottenHash;
+}
+
+/// One purge's record, answered with PurgeRecord or NotFound.
+table GetPurge {
+  purge_id: Uuid;
+}
+
+/// A purge's record: its summary, what it removed per stream and tier (the receipt), and the frames and partial
+/// chunks it touched.
+table PurgeRecord {
+  summary: PurgeSummary;
+  removed: [RemovedCount];
+  removed_frames: ulong;
+  partial_chunks: ulong;
+}
+
+/// A time range a purge removed from one stream.
+table PurgedSpan {
+  stream_id: uint;
+  range: TimeRange;
+}
+
+table PurgeNotice {
+  purge_id: Uuid;
+  payload_ids: [Uuid];
+  /// What the purge removed, per stream: a copy a worker holds over any of these is to be deleted or rewritten
+  /// without it, even when its id isn't listed (a frame inside a chunk). On the first page of a purge's notice.
+  spans: [PurgedSpan];
+  /// A large purge is told in pages: more pages of payload_ids follow this one. The worker acknowledges the purge
+  /// once, after the last page.
+  more: bool;
+}
+
+table PurgeAck {
+  purge_id: Uuid;
+}
+
+/// Payloads a purge removed on one stream in one tier. A payload with copies in two tiers counts in each, and one
+/// with no copy counts under Tier0Hot. Frames absorbed into chunks aren't counted (their bytes are the chunk's).
+table RemovedCount {
+  stream_id: uint;
+  tier: StorageTier;
+  count: ulong;
+}
+
+table PurgeResult {
+  purge_id: Uuid;
+  removed: [RemovedCount];
+}
+
+// ---- The envelope ----
+
+// ---- Aging (docs/CONTINUUM.md, "Aging"), schema minor 23 ----
+
+/// A condition an AgeOutFrames checks in its own transaction: the evidence the policy read hasn't changed since.
+table EvidenceGuard {
+  stream_id: uint;
+  /// The time the policy read.
+  range: TimeRange;
+  /// It saw everything committed up to here: a payload overlapping range with a higher commit sequence fails.
+  through_seq: ulong;
+  /// The stream's invalidation revision when read; checked only when has_revision.
+  has_revision: bool;
+  invalidation_revision: ulong;
+}
+
+/// A chunk the tier worker rewrote with fewer frames for a retention policy. Only a registered worker sends it.
+/// expected_location must be the chunk's only copy outside Tier 0; location replaces it (it may be in another tier).
+/// frames keeps the chunk's count and starts; a frame may go from uncut to cut, never back. Nothing derived from a
+/// newly cut frame goes. Refused while a running job pins the expected copy.
+table AgeOutFrames {
+  chunk_id: Uuid;
+  expected_location: StorageLocator;
+  frames: [ChunkFrame];
+  location: StorageLocator;
+  /// Refused when the chunk was committed after this (UTC nanoseconds, by the commit clock).
+  committed_before_ns: ulong;
+  guards: [EvidenceGuard];
+  /// The new file's playback profile, a JSON object of at most 4096 bytes; empty keeps the chunk's.
+  profile: string;
+  /// Minor 24: refused when has_stream_generation and a stream was registered since the policy read
+  /// expected_stream_generation (GetStreamGeneration), checked in the same transaction.
+  has_stream_generation: bool;
+  expected_stream_generation: ulong;
+  /// Minor 25: exact original observations and retained-frame roles, published atomically.
+  retention: RetentionEvidence;
+}
+
+/// The reply to an AgeOutFrames: the frames it newly cut, and their slots (merged), now aged out.
+table FramesAgedOut {
+  chunk_id: Uuid;
+  cut: [uint];
+  spans: [TimeRange];
+}
+
+/// The spans of a stream recorded as aged out, within range, at most limit (default 1000, at most 10000).
+table ListAgedOut {
+  stream: string;
+  range: TimeRange;
+  limit: uint;
+}
+
+table AgedOutList {
+  spans: [TimeRange];
+}
+
+/// Where the catalog file's bytes go (minor 30), from one read snapshot: each table's pages and bytes, and the file's
+/// apparent and on-disk size. Read-only and consistent; it walks every table's pages, so it takes a while on a large
+/// catalog and runs off the writer. A catalog that keeps no file answers with no tables and zero sizes.
+table GetCatalogStats {}
+
+/// One table's share (redb's own accounting).
+table TableStorage {
+  name: string;
+  rows: ulong;
+  height: uint;
+  leaf_pages: ulong;
+  branch_pages: ulong;
+  /// Key and value bytes.
+  stored_bytes: ulong;
+  /// Page headers and per-entry offsets.
+  metadata_bytes: ulong;
+  /// Unused space inside the table's pages.
+  fragmented_bytes: ulong;
+}
+
+table CatalogStats {
+  page_size: ulong;
+  /// The file's length, including region space redb reserved but never wrote (sparse on disk).
+  file_bytes: ulong;
+  /// The blocks the file holds on disk.
+  disk_bytes: ulong;
+  tables: [TableStorage];
+}
+
+/// One input stream of a worker's checkpoint, and the invalidation revision the state was read under.
+table WorkerStateInput {
+  stream: string;
+  revision: ulong;
+}
+
+/// A durable worker's checkpoint (minor 32, #1547), stored in place of its last one: one row per (owner, contract).
+/// Kept only if every input's revision still equals the one given, checked in the write that stores it; refused with
+/// Conflict when one has moved or an input isn't registered, BadRequest when out of bounds (inputs sorted, unique,
+/// 1 to 64; a body of at most 8 MiB). A purge that later advances one of the inputs' revisions deletes the row in its
+/// own transaction. Answered with WorkerStateSaved.
+table SaveWorkerState {
+  owner: string;
+  contract: string;
+  position: ulong;
+  created_ns: ulong;
+  inputs: [WorkerStateInput];
+  body: [ubyte];
+}
+
+table WorkerStateSaved {}
+
+/// A worker's checkpoint, if it has one whose inputs' revisions all still equal the stored ones. Answered with
+/// WorkerStateLoaded (found false otherwise).
+table LoadWorkerState {
+  owner: string;
+  contract: string;
+}
+
+table WorkerStateLoaded {
+  found: bool;
+  position: ulong;
+  created_ns: ulong;
+  inputs: [WorkerStateInput];
+  body: [ubyte];
+}
+
+/// Deletes a worker's checkpoint. Answered with WorkerStateForgotten (removed: whether it had one).
+table ForgetWorkerState {
+  owner: string;
+  contract: string;
+}
+
+table WorkerStateForgotten {
+  removed: bool;
+}
+
+/// The highest commit sequence known committed at or before at_ns (0 when none is that old).
+table CommitSeqAt {
+  at_ns: ulong;
+}
+
+table CommitSeq {
+  seq: ulong;
+}
+
+/// Minor 24: the stream registration generation, which goes up by one with each new stream. A policy reads it before
+/// listing streams and sends it on AgeOutFrames.
+table GetStreamGeneration {
+}
+
+table StreamGeneration {
+  generation: ulong;
+}
+
+/// A chunk's frame index and every copy, for a tier worker deciding how to age it.
+table GetChunk {
+  chunk_id: Uuid;
+}
+
+table ChunkInfo {
+  chunk_id: Uuid;
+  stream_id: uint;
+  /// Its commit sequence.
+  seq: ulong;
+  range: TimeRange;
+  frames: [ChunkFrame];
+  /// Every copy, Tier 0 first.
+  locations: [StorageLocator];
+  /// The playback profile an AgeOutFrames stored; empty when none.
+  profile: string;
+  retention: RetentionEvidence;
+  /// Minor 27: the chunk's per-frame provenance as committed (rewrites keep frames in place, so it never changes),
+  /// from the same snapshot as frames. Empty and version 0 when unknown.
+  frame_provenance: [FrameProvenance];
+  provenance_version: uint;
+}
+
+// ---- Exact retention evidence and discovery, schema minor 25 ----
+
+enum RetainedMode: ubyte { Clip = 0, Still = 1 }
+
+/// Equal endpoints describe a capture instant, never continuous recording to the next frame.
+struct RecordedObservation { start_ns: ulong; end_ns: ulong; }
+struct RetainedFrame { start_ns: ulong; mode: RetainedMode; }
+
+table RetentionEvidence {
+  version: uint;
+  recorded: [RecordedObservation];
+  moments: [TimeRange];
+  retained: [RetainedFrame];
+  timeline_every_ns: ulong;
+}
+
+table RetentionCursor { start_ns: ulong; chunk_id: Uuid; }
+table RetentionEntry {
+  chunk_id: Uuid;
+  stream_id: uint;
+  /// Discovery hull only; exact recorded coverage is in retention.
+  range: TimeRange;
+  locations: [StorageLocator];
+  profile: string;
+  retention: RetentionEvidence;
+}
+table PrepareRetentionIndex { budget: uint; }
+table RetentionPrepared { visited: ulong; ready: bool; }
+table ListRetention {
+  stream: string;
+  range: TimeRange;
+  after: RetentionCursor;
+  has_revision: bool;
+  expected_revision: ulong;
+  max_items: uint;
+  max_scan: uint;
+  max_bytes: uint;
+}
+table RetentionList {
+  entries: [RetentionEntry];
+  next: RetentionCursor;
+  revision: ulong;
+  index_ready: bool;
+}
+
+// ---- Source identity (#1394), schema minor 26: which chunk holds each raw frame a producer observed, so an
+// analysis receipt can name its actual inputs rather than whatever shares its time span. ----
+
+enum FrameState: ubyte {
+  /// Never committed, forgotten, or its frame row pruned (an hour after its chunk ended, for a frame nothing was
+  /// derived from).
+  Unknown = 0,
+  /// A payload with its own header: not absorbed into a chunk (yet), or not a raw frame.
+  Payload = 1,
+  /// A raw frame inside chunk_id.
+  Absorbed = 2,
+}
+
+/// At most 256 ids; more is a BadRequest.
+table ResolveFrames {
+  ids: [Uuid];
+}
+
+/// One asked id.
+table ResolvedFrame {
+  id: Uuid;
+  state: FrameState;
+  /// The payload's stream, or its chunk's. 0 when Unknown.
+  stream_id: uint;
+  /// The payload's commit sequence, or its chunk's. 0 when Unknown.
+  seq: ulong;
+  /// Absorbed only: the chunk, the frame's index in it, and the frame's start (UTC nanoseconds) from its frame index.
+  chunk_id: Uuid;
+  frame_index: uint;
+  start_ns: ulong;
+}
+
+/// The reply to a ResolveFrames: one entry per asked id, in the asked order.
+table FramesResolved {
+  frames: [ResolvedFrame];
+}
+
+// ---- Recording applicability (#1408), schema minor 28. Minor27 is capture provenance; these variants
+// append after it without adding authority to a generic age-out. Original inputs still need analysis receipts.
+table RecordingInput {
+  /// Immutable original temporal key; never a claim of continuous coverage.
+  start_ns: ulong;
+  /// Earliest original raw ingress sequence, not the later chunk packaging sequence.
+  first_seq: ulong;
+  chunk_id: Uuid;
+  spans: [TimeRange];
+  source_generation: ulong;
+  /// Original registered PCM layout, never a reduced playback layout. Zero channels means unknown.
+  channels: ushort;
+  shape_name: string;
+  shape_version: uint;
+}
+table RecordingCursor { start_ns: ulong; id: Uuid; }
+table ListRecordingInputs {
+  stream: string;
+  stream_id: uint;
+  range: TimeRange;
+  after: RecordingCursor;
+  has_revision: bool;
+  expected_revision: ulong;
+  max_items: uint;
+  max_scan: uint;
+  max_bytes: uint;
+}
+table RecordingInputs {
+  /// First original ingress sequence in the certified era.
+  era_start_seq: ulong;
+  /// Legacy unknown history overlaps this query; diagnostic only, outside the certified era.
+  legacy_overlap: bool;
+  stream_id: uint;
+  inputs: [RecordingInput];
+  /// Sticky erasures and unresolved inputs inside the certified era. Any overlap vetoes destructive policy.
+  unknown: [TimeRange];
+  next: RecordingCursor;
+  /// Whether this certified-era query is complete; false never proves an empty recording history.
+  history_known: bool;
+  revision: ulong;
+  through_seq: ulong;
+  /// Current source epoch; individual inputs retain their historical epochs.
+  source_generation: ulong;
+  scanned: uint;
+}
+
+union ControlPayload {
+  Hello,
+  Welcome,
+  Heartbeat,
+  Goodbye,
+  Error,
+  RegisterStream,
+  StreamRegistered,
+  RegisterWorker,
+  WorkerRegistered,
+  IngestNotice,
+  IngestRejected,
+  Query,
+  QueryResult,
+  PromiseQuote,
+  CommitPromise,
+  CancelPromise,
+  FulfillPromise,
+  PromiseFailed,
+  DispatchJob,
+  JobRejected,
+  QuoteRequest,
+  LeaseGrant,
+  RenewLease,
+  CommitLease,
+  AbortLease,
+  LeasePreempted,
+  LeaseReleased,
+  Subscribe,
+  StreamEvent,
+  AckEvents,
+  Unsubscribe,
+  CoverageGapQuery,
+  CoverageGapResponse,
+  SetSystemState,
+  SystemStateChanged,
+  Purge,
+  PurgeNotice,
+  PurgeAck,
+  PurgeResult,
+  PromiseAccepted,
+  Subscribed,
+  CaughtUp,
+  Unsubscribed,
+  CommitChunk,
+  ChunkCommitted,
+  RewriteChunk,
+  ChunkRewritten,
+  Ingested,
+  ListPurges,
+  PurgeList,
+  GetPurge,
+  PurgeRecord,
+  ListStreams,
+  StreamList,
+  ForgetKeeper,
+  KeeperForgotten,
+  RememberForgotten,
+  ForgottenRemembered,
+  IsForgotten,
+  ForgottenStatus,
+  CommitPayloadCopy,
+  PayloadCopyCommitted,
+  AgeOutFrames,
+  FramesAgedOut,
+  ListAgedOut,
+  AgedOutList,
+  CommitSeqAt,
+  CommitSeq,
+  GetChunk,
+  ChunkInfo,
+  GetStreamGeneration,
+  StreamGeneration,
+  PrepareRetentionIndex,
+  RetentionPrepared,
+  ListRetention,
+  RetentionList,
+  ResolveFrames,
+  FramesResolved,
+  ListRecordingInputs,
+  RecordingInputs,
+  GetCatalogStats,
+  CatalogStats,
+  SaveWorkerState,
+  WorkerStateSaved,
+  LoadWorkerState,
+  WorkerStateLoaded,
+  ForgetWorkerState,
+  WorkerStateForgotten,
+  ListForgotten,
+  ForgottenList
+}
+
+// ---- Tier 1 chunks (#552): the tier worker hands each chunk it closes, or rewrote after a purge, to the broker,
+// which commits it to the catalog (the worker never holds the catalog) and records the Tier 1 copy. ----
+
+/// One frame of a chunk: where its bytes are in the chunk, and whether a purge cut it (the place is kept, so frame
+/// indexes never move).
+struct ChunkFrame {
+  start_ns: ulong;
+  offset: ulong;
+  length: ulong;
+  cut: bool;
+}
+
+/// Schema minor 27: what capture attested about one frame of a chunk, so continuity survives the Tier 0 header
+/// being absorbed. In frame order, one per ChunkFrame. Two frames are continuous only within one nonzero epoch with
+/// consecutive device_seq; nothing here is inferred from times or a frame rate.
+struct FrameProvenance {
+  /// The device's or driver's frame sequence (CaptureInfo.device_seq).
+  device_seq: ulong;
+  /// CaptureInfo.capture_epoch; 0 when the producer didn't say.
+  epoch: uint;
+  /// Bit 0: the frame was stamped when it arrived, not by the device. Other bits are 0.
+  flags: ubyte;
+}
+
+/// A chunk the tier worker closed: its own header (on the frames' stream, spanning them, no parents) and Tier 1 or
+/// 2 location, its frame index, and the Tier 0 payloads it absorbed, in the same order as the frames. The catalog
+/// compacts the absorbed payloads' headers into the chunk. A chunk already committed is a duplicate, not an error.
+table CommitChunk {
+  header_bytes: [ubyte] (nested_flatbuffer: "PayloadHeader");
+  location: StorageLocator;
+  frames: [ChunkFrame];
+  absorbed: [Uuid];
+  /// Minor 27: one per frame, in the frames' order, under provenance_version 1. Empty (and version 0) when the
+  /// worker has none, which readers treat as unknown.
+  frame_provenance: [FrameProvenance];
+  provenance_version: uint;
+}
+
+/// The reply to a CommitChunk: the chunk's id and its commit sequence (the position subscribers and the event log
+/// see), whether it was committed already, and whether it landed under a running purge.
+table ChunkCommitted {
+  chunk_id: Uuid;
+  commit_seq: ulong;
+  duplicate: bool;
+  hidden: bool;
+}
+
+/// A chunk the tier worker rewrote (after a purge cut frames from it, or on recompression): its new frame index and
+/// location. The frames are the same frames in the same places: the same count, starts, and cut flags.
+table RewriteChunk {
+  chunk_id: Uuid;
+  location: StorageLocator;
+  frames: [ChunkFrame];
+}
+
+/// The reply to a RewriteChunk.
+table ChunkRewritten {
+  chunk_id: Uuid;
+}
+
+/// Add a durable Tier 1 copy without absorbing or changing the original derived payload. Only a registered
+/// copy keeper may send this; the file and its directory must be durable before sending.
+table CommitPayloadCopy {
+  payload_id: Uuid;
+  location: StorageLocator;
+}
+
+/// The original payload's durable copy is recorded. An identical retry is acknowledged without a new commit.
+table PayloadCopyCommitted {
+  payload_id: Uuid;
+}
+
+table ControlEnvelope {
+  request_id: ulong;
+  payload: ControlPayload;
+}
+
+// The root stays PayloadHeader (the catalog stores headers as their own buffers); the broker and SDKs read a
+// ControlEnvelope with flatbuffers::root::<ControlEnvelope>.
+root_type PayloadHeader;

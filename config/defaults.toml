@@ -1,0 +1,963 @@
+# Built-in defaults for Liberational. Don't edit this file for your own setup:
+# copy config/pack.example.toml to pack.toml at the repo root (gitignored) and
+# override what you need there.
+#
+# Precedence: environment variable > pack.toml > this file. Every key has an
+# environment variable named PACK_<SECTION>_<KEY>, e.g. owner.name is
+# PACK_OWNER_NAME and ports.dashboard is PACK_PORTS_DASHBOARD. Lists take
+# comma-separated values. See `uv run pack-config` for the
+# effective config.
+#
+# A "# New feature: <name>" line above an on/off key tags that switch for
+# the Features section in the dashboard's Settings.
+
+# Who Liberational belongs to. The owner's voice unlocks owner-only requests, and
+# prompts refer to the owner by name. Leave name empty to run without an owner
+# (owner-only features stay off).
+[owner]
+# The owner's name, as the assistant should say it. Changing it in Settings renames
+# the owner in People too (their voice, faces, photos, and profile).
+name = ""
+# Name used to resolve the owner's person and voice claims in the registry. Empty means
+# the lowercased owner.name.
+speaker_label = ""
+# Phone number, like +14155550123. Calls from it get owner treatment on the phone bridge.
+phone = ""
+# Reference clip for voice cloning, with its transcript next to it as .txt.
+voice_ref = "data/voices/owner_ref.wav"
+
+[assistant]
+# What the assistant is called; it answers to "hey <name>".
+name = "Bob"
+# Wake phrases for the voice service (assistant/voice.py). Empty means "hey <name>".
+wake_words = []
+# Require a full wake phrase for new spoken requests, including the owner.
+require_wake_phrase = false
+# New feature: Easter egg
+# On (the default), deleting a person keeps a one-way hash of each name they had, and a later question that
+# names them is answered with "Doesn't look like anything to me", with no evidence and no model call
+# (people/forgotten.py). Off keeps no hash and that line never fires.
+forgotten_reply = true
+
+[voice]
+# Maximum wait for a background model call while the voice turn is active.
+# A finite cap lets background work proceed if the voice service dies mid-turn.
+background_max_wait_s = 30.0
+
+[paths]
+# Runtime state, logs, and media live under data/ by default (gitignored), so the repo
+# root holds only code and config.
+# Relative paths are relative to the repo root; ~ is expanded.
+state = "data/state"
+logs = "data/logs"
+faces = "data/faces"
+voices = "data/voices"
+calls = "data/calls"
+# Hand-made labels for tools/measure.py: tagged clips, questions with expected answers,
+# and marked events (docs/MEASUREMENT.md). Nothing in the pack writes here.
+measurement = "data/measurement"
+# Downloaded and exported model files (mise run models); the model entries' paths are relative to the repo root,
+# and models.insightface.detector and models.adaface.recognition are relative to this.
+models = "data/models"
+# Media added in the dashboard's Ingest tab and by pack-ingest (ingest/): the originals, what they were converted
+# to for Continuum, Wyze recordings waiting to be ingested, and the Google Photos browser profile.
+ingest = "data/ingest"
+# see-decode's socket and its shared frame ring (#1955): rewritten at full frame rate and never needed after a restart,
+# so they belong in memory, not on disk. Empty picks a per-user directory under /dev/shm (a tmpfs on Linux), or under
+# the system temp directory where there's no /dev/shm (macOS).
+decoded = ""
+
+[ollama]
+# Where the local Ollama server listens.
+url = "http://127.0.0.1:11434"
+# For the ollama service: the GPU it may use, as nvidia-smi -L names it (a UUID like GPU-76f6cae8-...), and the model
+# store it reads ("" means Ollama's own default for the user it runs as, ~/.ollama/models; a store left by the system
+# Ollama on Linux is /usr/share/ollama/.ollama/models). Empty gpu leaves CUDA_VISIBLE_DEVICES unset, so it may use any
+# GPU. The service listens on Ollama's default 127.0.0.1:11434, which is url's default.
+gpu = ""
+models = ""
+# When Ollama isn't running (or lacks a model), callers fail fast and try it again only every retry_s seconds,
+# logging a reminder at most every log_every_s seconds, instead of an error on every call (ollama_health.py).
+retry_s = 30
+log_every_s = 60
+
+# Optional agent gateway for requests the small local model can't handle
+# (tools, web, actions): any OpenAI-compatible chat endpoint. Off until url is
+# set; Liberational then answers locally and says when something needs an agent.
+[agent]
+# Chat endpoint, like http://127.0.0.1:18789/v1/chat/completions for OpenClaw.
+url = ""
+# Bearer token. Empty means read gateway.auth.token (or .password) from
+# openclaw_config.
+token = ""
+# OpenClaw's config file, like ~/.openclaw/openclaw.json.
+openclaw_config = ""
+# Agent for owner requests by voice and phone, like openclaw/phone.
+phone_agent = ""
+# Agent for asking friends, like openclaw/friends-advisor.
+friends_agent = ""
+
+[ports]
+# Local ports for each service. The dashboard is the web UI.
+dashboard = 8765
+vlm = 8081
+whisper = 8082
+# Ask's own Ollama (the ask-ollama service), when ask.ollama_url points at it.
+ask_ollama = 11435
+phone_bridge = 8790
+# Clone speech from the voice service's warm model, for the dashboard (127.0.0.1 only).
+voice = 8776
+# Vite's dev server for the frontend (frontend/), in dev only: `mise run dev` starts it on this port, and
+# `pack-dashboard --dev` serves the pages from it.
+vite = 5173
+
+[dashboard]
+# Names the camera gateway (continuum-gateway) may be reached by besides this machine's own: a Tailscale MagicDNS
+# name, comma-separated. Empty: local names only. See MIGRATING "Remote dashboard cameras".
+gateway_allow_host = ""
+# dashboard/presence.py: join a person's chip spans across gaps up to this many seconds.
+person_gap_s = 10.0
+# dashboard/presence.py: join object chip spans across gaps from intermittent groundings.
+object_gap_s = 45.0
+# HTTP Basic password (dashboard/server.py). Empty reads <state>/dash_password. With neither set, no password
+# is asked, including from other machines. A loopback request that was not forwarded skips it even when one is
+# set; every other request must give it.
+password = ""
+# Review's "what the cameras saw" (captions and face names, GET /history/at) for browsers on other machines too,
+# once they pass the dashboard password above. Off shows it only on this machine. Never without a password.
+remote_camera_history = false
+# Teaching from other machines: naming and renaming people, faces, voices and pets, the Inbox, zones, transcript
+# fixes, and activity ratings, for browsers that pass the dashboard password and post from this dashboard's own page.
+# Services, Settings, devices, and ingest stay this machine only. Off: all of it is this machine only. Never without a
+# password.
+remote_teaching = false
+# Single-key shortcuts in the dashboard: / opens Ask and , opens Settings. Keys that act on a focused row (naming Y, N,
+# and I) and Ctrl+K for the palette work either way.
+hotkeys = false
+
+# Journal (memory/journal.py, pack-journal): a first-person entry for every 30 s of the day, written by the local
+# model from what was said and what the cameras captioned, and rolled up into longer levels. Entries and rollups
+# are journal.entry records on the broker; source speech and captions are in the segment store. After WorldMM;
+# see docs/research/worldmm-long-video-memory.md.
+[journal]
+# New feature: The journal
+# Write the journal, and use it in answers. Off stops both; forgetting a person still purges it.
+enabled = true
+# Window lengths in seconds, finest first; each level is written from the one before it.
+levels = [30, 180, 600, 3600]
+# Seconds a window waits after it ends before it's written, so late transcript lines and captions land first.
+lag_s = 120
+# Seconds between passes over new windows, relabeled lines, and windows that need a rebuild.
+every_s = 60
+# Days back the pass checks for transcript lines whose speaker changed after identity corrections.
+reconcile_days = 2
+# Ollama model for entries; empty means models.ollama.llm.
+model = ""
+# The Ollama model that writes the settled day, week, and month pages (memory/journal_pages.py), once a day in one
+# batch at page_batch_at: loaded for the batch and unloaded right after, so it needs GPU memory only then. When it
+# doesn't fit beside Ollama's other models, the daily batch opens a sleep window (page_window_services). A
+# pack-journal --day rebuild never opens one. When it isn't pulled (tools/fetch_models.py, `mise run models`),
+# won't fit even then, or fails to load, the pages are written with the entries' model (journal.model, else
+# models.ollama.llm), and that is logged once. Entries and today so far always use the entries' model. Empty: every
+# page is written with the entries' model, on every pass. On devbox qwen3.8:27b (17 GB) writes the best pages and
+# fits on one 24 GB GPU only in the window; qwen3:14b (10.5 GB at 8192) fits beside the rest (#2930).
+page_model = "qwen3.8:27b"
+# Context in tokens for page_model (memory/journal_pages.py). 0, or empty, uses the entries' context
+# (summarize.NUM_CTX, 4096).
+page_num_ctx = 8192
+# Local time (HH:MM) the day before settles and the daily page batch starts (memory/journal_pages.py); every hour
+# of that day is written by then. Weeks are written early Monday, months on the 1st, in the same batch. Empty
+# means 03:00.
+page_batch_at = "03:00"
+# Service names the daily page batch stops while page_model runs, when that model doesn't fit beside Ollama's
+# other models (memory/journal_pages.py). Only an installed name is stopped. Empty stops none. Every Ollama model
+# is unloaded either way, and a service left off the list, recording included, keeps running. Stopped services
+# start again, and a model that stays loaded until Ollama stops is loaded again (any other loads on its next
+# call), as soon as the pages are written, or after an hour, when the entries' model writes the rest. A batch
+# that already opened a window today retries later without stopping services again. A window a crash left open
+# is closed on the journal's next pass.
+page_window_services = ["voice", "see-captions", "identity", "whisper-names"]
+# New feature: Cloud journal pages
+# Write the journal's week and month pages with a cloud model, through the agent gateway (agent.url, with the model
+# in cloud_agent), for a stronger writer (memory/journal_pages.py). Day pages and everything below always stay on
+# the local model, and nothing else leaves the machine. Needs the network: offline, or with the gateway not set up
+# or failing, a page is written locally and that is logged once. Off: every page is written locally.
+cloud_pages = false
+# The gateway model (or agent) that writes those pages, like openclaw/journal. Empty: they are written locally.
+cloud_agent = ""
+# New feature: Facts about people
+# Distill lasting facts about people (relationships, roles, habits, preferences) from the hourly entries, for
+# Ask's search loop (memory/facts.py). Needs the journal and its 3600 s level. Off writes no facts, and the loop
+# doesn't look for any.
+facts = true
+
+# The local model Ask answers history questions with (memory/ask.py), and its search loop's when recall.model is
+# empty. By default Ask shares the voice loop's model at the context everything else keeps it loaded with, so it
+# needs no memory of its own. A bigger model or context gives Ask room for more evidence; the model has to be pulled
+# (ollama pull <name>). A model or context only Ask uses is let go after 30 idle minutes, so the first question after
+# that waits for it to load.
+[ask]
+# The Ollama Ask's answers (and its search loop, when that uses Ask's model) go to, like http://127.0.0.1:11435 for the
+# ask-ollama service; empty means ollama.url. A server of Ask's own keeps Ask's model loaded at Ask's context without
+# reloading the voice loop's, even when they're the same model (Ollama shares one load per model file and context).
+ollama_url = ""
+# For the ask-ollama service: the GPU it may use, as nvidia-smi -L names it (a UUID like GPU-1e27a922-...), and the
+# Ollama model store it reads ("" means Ollama's own default for the user it runs as; the system Ollama's store on
+# Linux is /usr/share/ollama/.ollama/models). Empty gpu leaves CUDA_VISIBLE_DEVICES unset, so it may use any GPU.
+gpu = ""
+ollama_models = ""
+# For the ask-ollama service: how many models it keeps loaded at once. 1 keeps only Ask's. 2 lets research's own model
+# (research.model) stay loaded beside Ask's, so a research job never unloads Ask's model and instant Ask never waits
+# for it to load again. Both models and their configured contexts must fit on the GPU together; CPU-expert models
+# also need enough RAM for both sets of weights (use 1 unless that memory has been budgeted).
+max_loaded_models = 1
+# Expert layers kept on CPU by Ask's own Ollama (0 disables this profile). For a constrained GPU, Qwen3's
+# MoE models can keep their attention/KV on GPU while expert weights stay in RAM; use a higher-thread tag.
+# This profile requires a separate ask.ollama_url and an Ollama runner supporting LLAMA_ARG_N_CPU_MOE.
+cpu_expert_layers = 0
+# KV-cache precision for Ask's own Ollama: f16 (stock), q8_0 (about half the cache memory), or q4_0.
+# The dedicated service enables Flash Attention and one parallel request to keep its memory predictable.
+kv_cache_type = "f16"
+# Ollama model for Ask (memory/ask.py). Empty uses OpenClaw's default when that is a local ollama/ model, or
+# models.ollama.llm when OpenClaw names no model. A non-local OpenClaw default is refused.
+model = ""
+# Context in tokens for Ask's model (memory/ask.py). 0 uses the model's usual context; any other value must be
+# from 4096 to 1048576. With ask.model set, 0 is 4096 when that model is models.ollama.llm, and 16384 otherwise.
+# With ask.model empty, 0 follows OpenClaw. A local default model uses its num_ctx, else its contextWindow, else
+# 65536. When OpenClaw names no model, the model is models.ollama.llm and that last fallback is 4096 instead
+# (its num_ctx, or its contextWindow, still wins over 4096).
+# Evidence grows with the context, then stops at a cap: 16000 characters while ask.model is empty and this is 0
+# (4416 at 4096, after the reply and prompt reserve), and 192000 once ask.model is set or this is above 0.
+# Don't set this while ask.model is empty on a machine whose voice loop shares models.ollama.llm: Ollama reloads
+# a model whose context changes, so Ask and the voice loop would keep reloading it (#917).
+num_ctx = 0
+# Let a thinking model (qwen3:14b, a -thinking build) reason before it answers. Slower, and its reasoning takes a
+# third of the context, which the evidence gives up; a model that can't think fails the answer. The search loop's own
+# calls never think.
+think = false
+
+# Research (memory/research.py, the pack-research service, #1336): an Ask question taken slowly in the background,
+# with more search rounds, a longer answer, and no deadline, one at a time at idle priority; each finished one is a
+# report in the dashboard's Inbox. It runs only on a server of Ask's own (ask.ollama_url, or ollama_url here), never the
+# voice loop's.
+[research]
+# New feature: Research
+# A Research button beside Ask runs the question in the background and puts a report in the Inbox. Off hides it.
+enabled = true
+# Ollama model, context, and server for research; empty or 0 means Ask's (ask.model, ask.num_ctx, ask.ollama_url).
+# Recommended deliberate checkpoint: qwen3:30b-a3b-thinking-2507-q4_K_M-t2 (-t8 with CPU expert offload), think=true.
+# On a server that keeps one model loaded, like the ask-ollama service by default, a different model here unloads
+# Ask's while research runs, so instant Ask waits for its model to load again. Set ask.max_loaded_models to 2 so both
+# stay loaded (they have to fit on the GPU together).
+model = ""
+num_ctx = 0
+ollama_url = ""
+# Let a thinking model reason before it answers (as ask.think).
+think = false
+# Most search rounds before the answer (Ask's own is recall.max_rounds).
+max_rounds = 8
+
+# Ask's search-or-answer loop (memory/recall.py, memory/ask.py): the local model searches the journal, transcript,
+# camera captions, and visits a round at a time, then answers from what it found. Ask, Review Ask, and history
+# questions said out loud (assistant/voice.py asks memory/ask.py) all run it.
+[recall]
+# New feature: Ask's search loop
+# Ask searches the journal, transcript, cameras, and visits a round at a time before it answers, also for spoken
+# history questions, which then take a few seconds longer. Off keeps the single pass.
+enabled = true
+# Most search rounds before the answer (WorldMM used 5; a small local model does better with fewer).
+max_rounds = 3
+# Ollama model for the loop; empty means ask.model, else models.ollama.llm.
+model = ""
+# Journal candidates taken from each level before one model call ranks them across levels.
+per_level = 5
+
+# Semantic index (memory/embedding.py): journal entries embedded with models.ollama.embedding, committed as
+# journal.embedding payloads the vector worker files, so a search finds entries by meaning as well as by their words.
+# The journal service embeds new entries, and any it hasn't yet, after each pass. Purged with the entries.
+[semantic]
+# New feature: Search by meaning
+# Search the journal by meaning as well as by words. Off embeds nothing and searches by words alone.
+enabled = true
+# Numbers kept per vector. Qwen3-Embedding 0.6B gives 1024; vectors are normalized for cosine search.
+# Different models and dimensions require a fresh index; discard and rebuild machine-made state, never mix spaces.
+dimensions = 1024
+
+# Timeline (memory/timeline.py): encounters, the stretches of time each person was seen (face visits in recorded
+# video) or heard (named transcript lines), joined by person through the event log. Built on demand, never stored.
+[timeline]
+# New feature: Who was here, seen and heard
+# "Who was here", "last seen", and day summaries use encounters, seen and heard. Off: face visits alone, as before.
+enabled = true
+# Seconds between one person's visits or lines that still count as one encounter.
+gap_s = 120.0
+
+# Camera video is kept for a fixed window, like an NVR (#1748); only video goes.
+[video_archive]
+# Off by default. On re-encodes camera video to AV1 (SVT-AV1) once it's after_hours old, in the tier worker, at the
+# lowest CPU priority: about half the disk of the cameras' H.264, for up to about 6 CPU cores all day with six
+# cameras at preset 8 (docs/STORAGE.md, "AV1 archive"); short of cores, it falls behind rather than slowing anything. Existing H.264 is converted too, newest first, except the last two days
+# before the video window ages it out. Turning it off again stops the pass; video already converted stays AV1 and
+# plays as before. Browsers without AV1 decoding (older Safari) can't play the converted video in Review.
+av1 = false
+# Hours after recording before a chunk becomes AV1 (at least 1): until then Review, crops, and vision read H.264.
+after_hours = 24
+# SVT-AV1 preset (0 slowest and smallest to 13 fastest) and constant rate factor (0 to 63, higher is smaller and
+# softer): the measured recommendation.
+preset = 8
+crf = 52
+# SVT-AV1's level of parallelism: about how many cores the pass keeps busy when nothing else wants them.
+threads = 4
+
+[video_window]
+# On ages out camera video older than days each night (pack-video-window). Detections, transcripts, captions,
+# embeddings, the journal, and audio stay. Off keeps all video.
+enabled = true
+# Days of video kept, counted from when the broker committed it (an import gets the whole window from its import).
+days = 30
+# Below this much free space on the recordings volume, the oldest video goes early, an hour at a time.
+free_floor_percent = 15
+# Payloads per age-out request.
+batch = 1000
+
+[spatial]
+# Fixed-camera places (pack-spatial-cameras, daily at midday, #2825): the fixed cameras that see the same space become a
+# place, with a point cloud, a floorplan, and each camera's pose. Needs CUDA, MASt3R's runtime (`mise run mast3r`),
+# and its checkpoint ([models.hf.mast3r], `mise run models`); without them the job logs why and does nothing.
+cameras_enabled = true
+# Where `mise run mast3r` puts MASt3R's pinned code (src/) and its own venv (.venv/).
+runtime = "data/mast3r"
+# Where `mise run geocalib` puts GeoCalib's own venv. pack-spatial-cameras runs spatial/geocalib_runner.py there on
+# each fixed camera's frame, and its gravity and focal replace MASt3R's for a camera when its pitch is within 3
+# degrees (#2960). Without the runtime or its checkpoint ([models.files.geocalib]) cameras keep MASt3R's.
+geocalib_runtime = "data/geocalib"
+# Where `mise run cut3r` puts CUT3R's pinned code (src/) and its own venv (.venv/). spatial/walkthrough.py
+# (pack-walkthrough, #2931) runs spatial/cut3r_runner.py there for the walk's camera poses. A missing runtime or
+# checkpoint ([models.files.cut3r]) fails that walk and says to run `mise run cut3r` or `mise run models`. The
+# runner needs CUDA.
+cut3r_runtime = "data/cut3r"
+# GPU index for MASt3R, CUT3R, and the splat trainer; -1 picks the one with the most free memory when the job starts.
+gpu = -1
+# Whether spatial/cameras.py trains a 3D Gaussian splat after the daily fixed-camera run (spatial/splats.py,
+# #2877), from the place's map, its cameras' poses, and a day of their recorded frames, for the Places 3D view.
+# Off skips that step and logs nothing. pack-spatial-splat ignores this and makes them by hand. The trainer needs
+# CUDA; the hand command logs and skips on macOS.
+splats_enabled = true
+# Where `mise run gsplat` puts gsplat's own venv (.venv/). spatial/splats.py reads it. With no python at
+# .venv/bin/python, it logs why once and makes nothing.
+splat_runtime = "data/gsplat"
+# Each fixed camera's height from the floor to its lens, in metres, keyed by its name in config/devices.toml
+# ({ cam0 = 1.5 }). spatial/fuse.py scales a place's map so those cameras stand this high: MASt3R's maps aren't
+# metric (#2960). Empty, a camera left out, or a height of 0 or below is unknown, and a map with no known camera
+# keeps its scale.
+camera_heights_m = {}
+# Fixed cameras that look outdoors, by their names in config/devices.toml (["patio", "driveway"]).
+# spatial/cameras.py (pack-spatial-cameras) leaves them out: no indoor place can include them, and alone each
+# would become a place of its own (#3000). Empty leaves every fixed camera in.
+outdoor_cameras = []
+
+[faces]
+# Days an unnamed face group stays listed and counted on People's "to name" (dashboard/server.py,
+# GET /faces/unknown/groups). The time is the newer of when a face last started or joined the group
+# (vision/faces.py; a save or deploy stamp does not count) and its newest recorded sighting. A group with
+# neither time is left off the list. Older groups stay in the store and come back when one of those times
+# is inside the window again.
+unnamed_days = 7
+# The named faces learn the household (#3013): a track your named faces alone confidently name someone, with no look
+# of it matching anyone else, adds a couple of its views of them (at most 16 learned views a person, apart from the
+# ones you named; list or remove them with `pack-faces learned` and `pack-faces unlearn`). Off for now: on
+# 2026-11-08's faces it also named a few tracks of a person since deleted as their lookalike. Off: only the faces you
+# name teach it.
+learn = false
+
+[pets]
+# Days an unlabeled animal sighting is listed for labeling on People's Pets section; sightings you label stay
+# references with no cutoff.
+label_days = 14
+
+# Times someone came into view of a camera (#1825): episodes from see-actions' tracked people, which see-zones writes
+# as presence.span rows, over see-actions' coverage. Counts are times, never people, and never who.
+[presence]
+# On: count answers, speech, Review's came-into-view chips, and the day summary's section use the episodes.
+enabled = true
+# Seconds with no analyzed frame at all that end an episode as censored (nobody was watching).
+gap_s = 30.0
+# Seconds of analyzed frames with nobody tracked that end an episode: a brief occlusion stays in the same visit.
+absence_s = 10.0
+# Playback context for a came-into-view chip. This is navigation padding, never occupancy duration.
+chip_context_s = 10.0
+
+[review]
+# Stored captions are the default evidence; costly recorded-frame analysis is explicit opt-in.
+recorded_frame_analysis = false
+# Question-time analysis decodes recorded camera frames from the broker; never opens capture devices.
+video_max_frames = 24
+video_timeout_s = 40
+video_cache_entries = 512
+
+[crossings]
+# Each camera's counting line and the track evidence used by see-actions for walk-bys (vision/crossings.py).
+# A track needs this many detections over this many seconds before it can cross; a crossing needs the anchor to get
+# "hysteresis" (share of the frame) past the line, so jitter on the line never counts.
+min_track_frames = 3
+min_track_seconds = 0.6
+hysteresis = 0.03
+# A track unseen this long ends (a person walking behind something returns as a new track).
+max_gap_seconds = 1.5
+# Per-camera counting line, default a vertical centre line counting both directions. Examples (pack.toml):
+#   [crossings.lines.cam1]
+#   kind = "vertical"      # or "horizontal" (position = share of frame height) or "segment" (p1/p2 = [x, y] in 0..1)
+#   position = 0.45
+# Cameras with no entry use the default centre line, and results say so.
+[crossings.lines]
+
+[time]
+# IANA time zone for history questions, e.g. America/Los_Angeles. Empty means
+# the TZ environment variable, else the system zone.
+timezone = ""
+
+[asr]
+# parakeet (MLX on Apple Silicon, sherpa-onnx elsewhere), parakeet-onnx, or whisper.
+engine = "parakeet"
+# Deep transcription GPU, e.g. "cuda:0". Empty chooses most-free CUDA, then MPS, then CPU.
+deep_device = ""
+
+[tts]
+# Kokoro fallback voice when the assistant's cloned voice is unavailable.
+voice = "af_heart"
+# GPU for voice cloning on Linux, like "cuda:1". Empty picks the GPU with the most free memory.
+clone_device = ""
+
+[audio]
+# Input devices whose names contain any of these are ignored by ambient.py.
+exclude_devices = ["arducam", "iphone", "ipad", "continuity"]
+# Bluetooth address of the preferred output headset (macOS audio_route.py).
+bluetooth_output = ""
+# Check each utterance the energy VAD cuts with Silero VAD before ASR, and drop it when
+# it holds less than speech_gate_min_s seconds of speech. Stops knocks, clicks and typing
+# from becoming "Yeah." / "Okay." lines on someone's voice. false turns it off.
+speech_gate = true
+speech_gate_min_s = 0.25
+# How readily each microphone hears speech, 0 to 100. Higher catches quieter speech and lets more noise reach the
+# speech gate. It sets the energy VAD's margin over the room floor and its minimum level, and the speech gate's
+# Silero threshold, together (audio/sensitivity.py has the mapping and how 70 was measured). Changes apply
+# without restarting the microphone service.
+sensitivity = 70
+
+# Auto gain (#410, #798): where the listen worker steers a mic's speech peaks (the 95th percentile of 20 ms RMS), in
+# dBFS, for each mic it is on for (see [audio.mic_auto_gain]). It moves the mic's own capture volume when the OS can
+# set it, else a software gain. Changes apply within about a second, without a restart.
+auto_gain_target_dbfs = -20
+# Two microphones hearing the same speech (audio/twins.py, #285): a line from one mic that overlaps in time with a
+# line just written from another, starts within dedup_window_s of it, and has words at least dedup_similarity alike
+# (0 to 1, as difflib compares them), is the same thing said, and isn't written again. A line that may be the voice
+# password is always written. dedup_window_s = 0 turns it off.
+dedup_window_s = 1.5
+dedup_similarity = 0.9
+# Microphones whose line is kept even when another mic's copy was written first: case-insensitive pieces of a device
+# name. Empty: whichever mic's line comes first is kept. "reSpeaker" keeps the original install's rule (its line was
+# never dropped for the Powerbeats' copy); it matches nothing elsewhere.
+primary_devices = ["reSpeaker"]
+# One microphone's sensitivity, by its exact device name, over audio.sensitivity. Settings writes these.
+[audio.mic_sensitivity]
+
+# Auto gain per microphone ("<name>" = true or false), by exact device name (on Linux the PipeWire node name, as
+# Settings shows and writes it) or by its name in config/devices.toml; the device name wins when both are set. A mic
+# with no entry has auto gain when it has a hardware capture control (the mic's own volume), and not when only
+# software gain could stand in. audio/gain.py has how a devices.toml entry finds its device name.
+[audio.mic_auto_gain]
+
+# The channel the listen worker transcribes from a multichannel microphone, by its name in config/devices.toml
+# ("<name>" = 1); 0 when not listed, as v1.
+[audio.mic_channel]
+
+[vision]
+# Shared decoding for caption and object readers (see-decode, #1738). "*" selects H.264 cameras; explicit names
+# select those cameras; [] leaves these readers on their own decoders. see-actions always reads every selected
+# camera through see-decode, independently of this setting.
+shared_decode_cameras = ["*"]
+# CUDA device ordinal for see-decode's NVDEC decoders. Without CUDA it shares one software decoder per camera and
+# logs the higher CPU cost.
+shared_decode_gpu = 0
+# Legacy OS camera indexes for missing-manifest fallback and --from-v1 manifest import. Current capture
+# selects cameras through config/devices.toml.
+cams = [0]
+# Display names used in People and Review: one "camera ID: display name" per camera. A camera with no name
+# shows its native ID.
+places = []
+# auto picks mlx-server on Apple Silicon and ollama elsewhere.
+backend = "auto"
+# Legacy capture size and frame rate for --from-v1 manifest import. Current per-camera capture settings
+# live in config/devices.toml.
+width = 1280
+height = 720
+fps = 30
+# Legacy manifest-import default for Linux UVC cameras: hold frame rate in dim light by raising gain
+# instead of lengthening exposure. Current capture uses each manifest entry's setting.
+hold_fps = true
+# Ground notable objects with the Ollama caption backend on the first view, on scene changes at most every
+# 30 s, and on steady views every 300 s. The boxes are shown on live video between groundings.
+objects = true
+
+# Default device for the animal check and pet embeddings when a caller does not choose one.
+# "auto" takes the last CUDA GPU, else Apple's GPU, else the CPU; or name one ("cuda:0", "cpu"). Caption-grounded
+# animal embeddings use this default. see-actions uses its selected vision backend's device.
+animal_models_device = "auto"
+# How long a network camera waits between captions, seconds (#1641): a change in view within this long of its last
+# caption is captioned once the time passes, and its records meanwhile repeat the last caption, marked deferred.
+# Object grounding keeps its own cadence. USB cameras don't wait. 0 is no wait.
+network_caption_every_s = 60.0
+
+# see-actions (#1745) analyzes every manifest camera at this many frames a second: people, skeletons, tracks,
+# actions, movement, walk-bys, faces, and animals. [vision.actions_camera_fps] sets one camera's rate by name.
+actions_fps = 10.0
+# Optional per-camera CUDA device indexes for see-actions, keyed by manifest camera name. Empty uses the highest
+# rate camera on the last visible GPU and the others on the first. Non-CUDA backends ignore this mapping.
+actions_camera_gpus = {}
+# Per-camera see-actions rates override actions_fps by their names in config/devices.toml.
+[vision.actions_camera_fps]
+cam0 = 30.0
+
+# One camera's caption interval in seconds, over network_caption_every_s, by its name in config/devices.toml
+# ("<name>" = 60.0). It applies to USB cameras too.
+[vision.caption_every_s]
+
+# Photos, video, and audio added from outside: the dashboard's Ingest tab (uploads, links, and sources) and
+# `pack-ingest` (src/liberational/ingest/, docs/INGEST.md). Each item is converted with ffmpeg and registered on
+# Continuum, registered in place by its pipeline.
+[ingest]
+# Largest file the Ingest tab takes as an upload, downloads from a link, or saves from Google Photos, in MB.
+max_mb = 4096
+# How often `pack-ingest poll` asks each ongoing source for new items, in seconds.
+poll_s = 60.0
+# The ongoing sources `pack-ingest poll` runs (wyze, google_photos, icloud_photos, allsound, thinking_hat).
+sources = []
+# The yt-dlp program, for a link to a page rather than a file: a name on PATH, or a path.
+yt_dlp = "yt-dlp"
+# Wyze cameras, through docker-wyze-bridge (docs/INGEST.md). The bridge signs in to Wyze with these; Liberational
+# itself only reads each camera's RTSP stream from it.
+wyze_email = ""
+wyze_password = ""
+wyze_api_id = ""
+wyze_api_key = ""
+# The bridge's RTSP address. Each camera is <wyze_rtsp_url>/<its name as the bridge spells it>.
+wyze_rtsp_url = "rtsp://127.0.0.1:8554"
+# The cameras to record, by the bridge's name for each (like "front-door"). Empty records none.
+wyze_cameras = []
+# Length of each recorded Wyze segment, in seconds: a segment is ingested once it's finished.
+wyze_segment_s = 300
+
+# Which services `pack-services install` sets up, on top of each one's default in
+# services/services.toml. Names are the sections of that file.
+[services]
+enable = []
+disable = []
+
+# Logs (liberational/logs.py): every service writes "<ISO local timestamp with UTC offset> [tag] LEVEL message"
+# to logs/<service>.log. The Debug tab tails and filters them by level. ERROR: failed and needs attention.
+# WARN: degraded, retrying, or falling back.
+# INFO: normal progress. DEBUG: per-item detail.
+[logging]
+# The lowest level a service writes: "debug", "info", "warn", or "error". A service picks it up when it restarts.
+level = "info"
+# One service's own level, as "service=level" (services.toml names), such as ["see-actions=debug"].
+per_service = []
+
+# Naming people (people/identity.py). A tag can carry a role and an organization, parsed by fixed rules in
+# people/tags.py: "that's Alice, CEO of Acme". From conversation and the dashboard they are recorded either way.
+[identity]
+# New feature: Roles from a spoken name tag
+# The assistant also takes "that's Alice, CEO of Acme" as a command, as it takes "that's Alice": it tags the visible
+# unknown face and the last other voice as Alice, and gives her the role and organization. Off until the measurement
+# set shows that the face and voice a spoken tag picks are right (docs/MEASUREMENT.md).
+command_attributes = false
+
+[events]
+# New feature: Counts of named events
+# "How many times did I open the fridge today" is answered from detected events (memory/event_counts.py, #290) when
+# the question names an event the detector or the owner has named: the count per span, the recordings analyzed, and a
+# Review link for each, or that nothing covers the window. Never from captions. Off: such questions go the way other
+# history questions do.
+answer_counts = true
+
+[activity]
+# Owner Right/Wrong feedback calibrates each activity kind for Ask. Repeated clicks on one event count once,
+# using its latest verdict. A camera angle with this many rated events uses its own precision; otherwise the
+# kind-wide policy applies. Falling below either threshold withdraws promotion again; purged evidence is excluded.
+# Existing eligible crossings count by default until sufficient feedback fails the precision threshold.
+promotion_min_ratings = 10
+# Fraction of rated events marked Right required for promotion (0 to 1). This is feedback precision, not recall
+# or a calibrated detector probability. A known Wrong event is excluded even when its kind passes.
+promotion_min_precision = 0.8
+
+
+# Phone calls through Twilio (optional). Credentials stay in env_file:
+# TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_SIGNING_TOKEN (optional).
+[phone]
+env_file = ".env.phone"
+# The Twilio number calls are placed from, like +14155550123.
+twilio_number = ""
+# Public host:port that reaches the phone bridge, e.g. via Tailscale Funnel.
+public_host = ""
+# Owner calls: everyday back-and-forth is answered by the fast local model (models.ollama.llm), about half a second;
+# requests that need the web, this machine, or an action still go to the phone agent (agent.phone_agent).
+fast_replies = true
+
+# Models. `mise run models` fetches anything missing; it's safe to re-run.
+#
+# Platform keys used by only_on / skip_on: darwin-arm64, darwin-x86_64,
+# linux-x86_64, linux-aarch64.
+
+# On-demand object masks on the Objects page. EdgeTAM runs once per selection, never as a live camera loop.
+[objects]
+# PyTorch device for EdgeTAM: auto chooses CUDA, Apple Silicon MPS, or CPU. Explicit cpu/cuda:N/mps is allowed.
+segmentation_device = "auto"
+# Deadline for one isolated EdgeTAM selection, including model load; a timeout saves no mask or object.
+segmentation_timeout_s = 60.0
+
+[models.ollama]
+# A tag ending in -t<N> is the model before it run with N CPU threads (`mise run models` makes it with
+# PARAMETER num_thread N). These models run on the GPU; the thread limit bounds CPU work while waiting for it.
+# Fast local turns (voice replies, summaries, identity, name polishing).
+llm = "qwen3:4b-instruct-t2"
+# Camera captions when the MLX caption server isn't available.
+# Ollama captions: 8B where it fits; use qwen3-vl:4b-instruct-t2 explicitly on constrained GPUs.
+# The Apple Silicon MLX caption checkpoint below is configured independently.
+vlm = "qwen3-vl:8b-instruct-q4_K_M-t2"
+# Model for offline people profiles. Defaults to the local-turn model; choose a larger installed model here
+# when more detailed analysis is wanted.
+big_llm = "qwen3:4b-instruct-t2"
+# Embeddings for the semantic index (semantic.enabled), the same on Apple Silicon and Linux. Qwen3-Embedding
+# 0.6B (Apache 2.0, 1024 dimensions) pairs with LanceDB native full-text search for exact names and terms.
+# This model cutover discards the old index and rebuilds it; see MIGRATING.md.
+embedding = "qwen3-embedding:0.6b"
+
+# Face detection stays on SCRFD and five-point alignment; only the detector is installed from the pack.
+# Both paths are relative to paths.models. Runtime loading never downloads weights.
+[models.insightface]
+detector = "scrfd/det_10g.onnx"
+
+# Official CVLFace AdaFace IR50 WebFace4M RGB checkpoint, exported locally with tools/export_adaface.py.
+# Code is MIT; pretrained weights also require following the training-dataset license. Personal use was
+# approved for this cutover; other operators must review the model card's dataset-license conditions.
+# ArcFace vectors cannot be compared with these vectors; discard old face embeddings at cutover.
+[models.adaface]
+recognition = "adaface/adaface_ir50_webface4m_rgb.onnx"
+
+# EfficientAT mn10_as (MIT, AudioSet), the audio tagger that marks lines heard from a TV while one is on (#2468).
+# Not fetched: built on each machine with tools/export_audio_tagger.py, from a pinned commit and checksummed
+# checkpoint. Optional: without these files nothing is tagged by ear, and "This is TV" still marks lines by hand.
+[models.audio_tagger]
+model = "efficientat/efficientat_mn10_as.onnx"
+labels = "efficientat/efficientat_labels.json"
+
+# Hugging Face repositories loaded in process (MLX and portable Transformers models).
+# Qwen3-ASR native Transformers checkpoint (Apache-2.0), loaded only by the nightly process.
+[models.hf.asr_deep]
+repo = "Qwen/Qwen3-ASR-0.6B-hf"
+
+[models.hf.asr_parakeet]
+repo = "mlx-community/parakeet-tdt-0.6b-v3"
+only_on = ["darwin-arm64"]
+
+[models.hf.tts_kokoro]
+repo = "mlx-community/Kokoro-82M-bf16"
+only_on = ["darwin-arm64"]
+
+[models.hf.tts_clone]
+repo = "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16"
+only_on = ["darwin-arm64"]
+
+# The same voice cloning model for Linux with an NVIDIA GPU (qwen-tts on CUDA, the voice-clone
+# extra), kept under data/models. Skipped where there's no GPU.
+[models.hf.tts_clone_cuda]
+repo = "Qwen/Qwen3-TTS-12Hz-0.6B-Base"
+path = "data/models/Qwen3-TTS-12Hz-0.6B-Base"
+only_on = ["linux-x86_64"]
+needs = "cuda"
+
+# EdgeTAM prompted/automatic image masks (Meta code/weights Apache-2.0), Transformers conversion by its contributor.
+# Fixed checkpoint revision and local directory keep on-demand requests entirely offline.
+[models.hf.mast3r]
+# Fixed-camera places (#2825): MASt3R ViT-L 512, metric (naver; code and weights CC BY-NC-SA 4.0, the weights also
+# under their training datasets' non-commercial terms; accepted for now, 2026-11-07). Only its safetensors and config.
+repo = "naver/MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric"
+revision = "06e7259f34c3060f322df5cb0c7b9094f57e41fc"
+path = "data/models/mast3r"
+allow_patterns = ["config.json", "model.safetensors"]
+needs = "cuda"
+
+[models.hf.object_segmentation]
+repo = "yonigozlan/EdgeTAM-hf"
+revision = "c266ce53b3fc00f0f495b583f6a116c4e57f53bb"
+path = "data/models/edgetam"
+allow_patterns = ["*.json", "*.safetensors", "*.txt"]
+
+# see-actions' animal check (#2192): Google's SigLIP 2 Base B/16 (Apache-2.0), about 1.5 GB on disk,
+# fetched into the standard Hugging Face cache. The processor supplies its image normalization and tokenizer.
+[models.hf.animal_verifier]
+repo = "google/siglip2-base-patch16-224"
+allow_patterns = ["config.json", "preprocessor_config.json", "tokenizer.json", "tokenizer.model", "tokenizer_config.json", "special_tokens_map.json", "model.safetensors"]
+
+# Pet embeddings for see-actions and caption-grounded sightings (#2193): DINOv3 ViT-S/16.
+# Gated weights require operator license acceptance and HF access approval before fetching. DINOv2 and
+# DINOv3 are both 384-dimensional, but their vectors are incompatible; discard old pet vectors at cutover.
+[models.hf.animal_embedding]
+repo = "facebook/dinov3-vits16-pretrain-lvd1689m"
+revision = "114c1379950215c8b35dfcd4e90a5c251dde0d32"
+allow_patterns = ["*.json", "*.safetensors", "LICENSE.md", "README.md"]
+
+[models.hf.vlm]
+repo = "mlx-community/Qwen3-VL-4B-Instruct-4bit"
+only_on = ["darwin-arm64"]
+
+# Files fetched into data/models/ (gitignored). Archives are unpacked there.
+[models.files.face_detector]
+url = "https://github.com/deepinsight/insightface/releases/download/model-zoo/buffalo_l.zip"
+path = "data/models/scrfd/det_10g.onnx"
+member = "det_10g.onnx"
+sha256 = "80ffe37d8a5940d59a7384c201a2a38d4741f2f3c51eef46ebb28218a7b0ca2f"
+
+[models.files.geocalib]
+# Fixed cameras' gravity and focal from one frame (spatial/geocalib_runner.py, #2960): GeoCalib's pinhole weights
+# (cvg/GeoCalib v1.0 release), about 116 MB. It's a PyTorch checkpoint: the runner loads it as weights, never as code.
+url = "https://github.com/cvg/GeoCalib/releases/download/v1.0/geocalib-pinhole.tar"
+path = "data/models/geocalib/geocalib-pinhole.tar"
+sha256 = "86d6aeacd8bbd974c59ce39f61854e00d36911c732ad89be471476fd708722ac"
+
+[models.files.cut3r]
+# Walkthrough camera poses (spatial/walkthrough.py reads this path; pack-walkthrough, #2931): CUT3R 512 DPT
+# (CUT3R/CUT3R; code and weights CC BY-NC-SA 4.0, accepted 2026-11-08), about 3.2 GB. The authors publish it on
+# Google Drive; this mirror is byte for byte the same file (sha256). It's a pickle: spatial/cut3r_runner.py loads
+# it weights-only, never as code. A missing file fails the walk.
+url = "https://huggingface.co/blanchon/CUT3R/resolve/bdd24091fb5120b609e178aee1f71bd972aa7986/cut3r_512_dpt_4_64.pth"
+path = "data/models/cut3r/cut3r_512_dpt_4_64.pth"
+sha256 = "45f7e98a0a64dbeb54901ae2b878cd8cd125f20a4497316483f0bd6f109f8103"
+needs = "cuda"
+
+[models.files.megaloc]
+# Walkthrough revisit proposals (spatial/retrieval.py reads this path; pack-walkthrough, #2931): MegaLoc
+# (gberton/MegaLoc, MIT), the authors' ONNX export, about 460 MB, run on the CPU through onnxruntime. A walk long
+# enough to have revisits fails without it (a Stray Scanner walk closes none instead).
+url = "https://huggingface.co/gberton/MegaLoc/resolve/a0f34722c4297ff787e022433799250180860af7/megaloc.onnx"
+path = "data/models/megaloc/megaloc.onnx"
+sha256 = "9304d7d2473b006d2664736b5c56135c8404ff351d4592cfd9dcb4d7e8f12355"
+
+# Pinned export inputs; fetching does not execute the source or export the model. Keep the publisher's
+# MIT notice with the source, and follow the pretrained model card's separate training-dataset conditions.
+[models.files.adaface_source]
+url = "https://huggingface.co/minchul/cvlface_adaface_ir50_webface4m/resolve/60a65befbcf7e19284c4f3ac730f56867ed29594/models/iresnet/model.py"
+path = "data/models/adaface/model.py"
+sha256 = "e31be55c60b538c15151887e911b7535e2f0e1114a13427ba06483e1cd2a63f9"
+
+[models.files.adaface_checkpoint]
+url = "https://huggingface.co/minchul/cvlface_adaface_ir50_webface4m/resolve/60a65befbcf7e19284c4f3ac730f56867ed29594/pretrained_model/model.pt"
+path = "data/models/adaface/model.pt"
+sha256 = "43bd2d570584d95d4a17ce81f26449034c45dbeed750afcab651872abc0e1496"
+
+[models.files.adaface_code_license]
+url = "https://raw.githubusercontent.com/mk-minchul/CVLface/308142aa50adf2e187711354f7524635d3414f1e/LICENSE"
+path = "data/models/adaface/LICENSE.code.MIT"
+sha256 = "95b6e493eb9dba27f2150304e790ae254bab18d1611f4d6e2ade28fa3a271583"
+
+[models.files.speaker_embedding]
+# ReDimNet2 B3 VoxCeleb2 large-margin, MIT (upstream and export); waveform frontend included.
+# Export checked against PalabraAI/redimnet2 b3-vox2-lm.pt. New space: discard old voice vectors at cutover.
+url = "https://huggingface.co/soulmachine/evertranscript-redimnet2-b3-vox2-lm/resolve/b34b98f7a6c821d3775e878209e03b5bcf4a3a4d/redimnet2-b3-vox2-lm.onnx"
+path = "data/models/redimnet2-b3-vox2-lm.onnx"
+sha256 = "dcecdce7d52bbd4739b24d0874359ec564d43f4b3a392f0104f505593b566d41"
+
+[models.files.vad_silero]
+# Silero v6.2.3 (MIT), streaming opset 16 graph; the separate sequence graph is not a sherpa VAD model.
+url = "https://raw.githubusercontent.com/snakers4/silero-vad/5cd7945676eb32225748052e2e6a0580e4686a08/src/silero_vad/data/silero_vad.onnx"
+path = "data/models/silero_vad-v6.2.3.onnx"
+sha256 = "1a153a22f4509e292a94e67d6f9b85e8deb25b4988682b7e174c65279d8788e3"
+
+# Same Parakeet and Kokoro models as on Apple Silicon: Parakeet runs on sherpa-onnx,
+# Kokoro on kokoro-onnx (which needs espeak-ng installed system-wide).
+[models.files.asr_parakeet]
+url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2"
+path = "data/models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8"
+skip_on = ["darwin-arm64"]
+
+[models.files.tts_kokoro]
+url = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx"
+path = "data/models/kokoro-v1.0.onnx"
+skip_on = ["darwin-arm64"]
+
+[models.files.tts_kokoro_voices]
+url = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin"
+path = "data/models/voices-v1.0.bin"
+skip_on = ["darwin-arm64"]
+
+# RF-DETR Small person/animal detector (Roboflow code/weights Apache-2.0), fixed 512x512 RGB ONNX.
+# Immutable third-party conversion, checked against the official Roboflow checkpoint (see ARCHITECTURE.md).
+# Raw COCO boxes/logits; sigmoid/global top-300 decoding, without YOLOX grids or NMS.
+[models.files.person_detector]
+url = "https://huggingface.co/Deeds67/rfdetr-small/resolve/eb76679daa78e76b4b9ef358ef18bed7b65e383a/detection/model.onnx"
+path = "data/models/rfdetr-small.onnx"
+sha256 = "31fe724f8d5dbff5d09eb4c2c44d2d4083c086c167aec54e11e694e652307f9b"
+
+# Pose model for see-actions' skeletons, action windows, and Live overlays: RTMPose-m, halpe26, 256x192,
+# Apache-2.0 (OpenMMLab), ONNX. A 52 MB zip; the 56 MB end2end.onnx inside it is kept. Run locally only.
+[models.files.pose_live]
+url = "https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/onnx_sdk/rtmpose-m_simcc-body7_pt-body7-halpe26_700e-256x192-4d3e73dd_20230605.zip"
+member = "20230831/rtmpose_onnx/rtmpose-m_simcc-body7_pt-body7-halpe26_700e-256x192-4d3e73dd_20230605/end2end.onnx"
+path = "data/models/rtmpose-m_halpe26_256x192.onnx"
+sha256 = "55b81170e236040b59fc792ad0a8315301ac4c079a3bdb1095d838aad3088d18"
+
+# Action model for see-actions (#1745): ST-GCN++ (PYSKL, Apache-2.0), the joint stream trained on NTU RGB+D 120
+# HRNet 2D keypoints, cross-subject. A 5.9 MB PyTorch checkpoint, read with weights_only (no code runs from it).
+[models.files.action_stgcnpp]
+url = "https://download.openmmlab.com/mmaction/pyskl/ckpt/stgcnpp/stgcnpp_ntu120_xsub_hrnet/j.pth"
+path = "data/models/stgcnpp_ntu120_xsub_hrnet_j.pth"
+sha256 = "c6e074210fa30c01081460665ce9c1c221ba4a60d7eeb10456cde6e8ac40486e"
+
+# Clip action model for see-actions (#1951): MoViNet-A2 base, trained on Kinetics-600. The authors' TensorFlow weights
+# (Apache-2.0) as a PyTorch state_dict by Atze00/MoViNet-pytorch (MIT), 21 MB, read with weights_only into
+# see/movinet.py's port (no code runs from it).
+[models.files.action_movinet]
+url = "https://github.com/Atze00/MoViNet-pytorch/raw/8728ae813de9ebe07b4b0501c0827f87d9b17c3a/weights/modelA2_statedict_v3"
+path = "data/models/movinet_a2_k600.pth"
+sha256 = "4c1cbef685413caffecd7dcdc656a8e009836868a0e5de47ce42a8486cc91659"
+
+# Model for the optional whisper service (asr.engine = whisper; `mise run whisper` builds the server).
+# large-v3-turbo quantized to 5 bits: 574 MB, more accurate and faster than medium (1.5 GB).
+[models.files.asr_whisper]
+url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin"
+path = "data/models/ggml-large-v3-turbo-q5_0.bin"
+
+# Device makers for Known › Devices (proximity/vendors.py, #3267): the IEEE registry of address blocks, MA-S (36-bit),
+# MA-M (28-bit), and MA-L (24-bit), about 4.5 MB in all. No checksum: the IEEE updates them every week, and a copy is
+# kept until it's deleted (delete them and re-run `mise run models` to refresh). Where they're missing, Debian and
+# Ubuntu's ieee-data package (/usr/share/ieee-data) stands in. Read only at a lookup, never fetched at runtime.
+[models.files.oui_ma_s]
+url = "https://standards-oui.ieee.org/oui36/oui36.csv"
+path = "data/models/ieee-oui/oui36.csv"
+
+[models.files.oui_ma_m]
+url = "https://standards-oui.ieee.org/oui28/mam.csv"
+path = "data/models/ieee-oui/mam.csv"
+
+[models.files.oui_ma_l]
+url = "https://standards-oui.ieee.org/oui/oui.csv"
+path = "data/models/ieee-oui/oui.csv"
+
+# The Bluetooth SIG's assigned numbers (bitbucket.org/bluetooth-SIG/public), at a fixed commit: company identifiers
+# (a BLE advertisement's manufacturer data names its maker by one), the 16-bit service UUIDs registered to member
+# companies, and the ones the SIG defines (Heart Rate, Glucose). Fetched, not vendored: the files say they're
+# proprietary to the Bluetooth SIG and grant no license. About 250 KB in all.
+[models.files.bt_company_ids]
+url = "https://bitbucket.org/bluetooth-SIG/public/raw/129ab53e87e6141512a1d4a06a0ffc04bb9c9eb1/assigned_numbers/company_identifiers/company_identifiers.yaml"
+path = "data/models/bluetooth-sig/company_identifiers.yaml"
+sha256 = "8575ab025d09711c304ab3f6c27730fb0a56713115b77ba398112bef4ef6525a"
+
+[models.files.bt_member_uuids]
+url = "https://bitbucket.org/bluetooth-SIG/public/raw/129ab53e87e6141512a1d4a06a0ffc04bb9c9eb1/assigned_numbers/uuids/member_uuids.yaml"
+path = "data/models/bluetooth-sig/member_uuids.yaml"
+sha256 = "26943d559ff362bb2d29458d1ebfed5c5dae6be2ac8500dbd39766c8c1043246"
+
+[models.files.bt_service_uuids]
+url = "https://bitbucket.org/bluetooth-SIG/public/raw/129ab53e87e6141512a1d4a06a0ffc04bb9c9eb1/assigned_numbers/uuids/service_uuids.yaml"
+path = "data/models/bluetooth-sig/service_uuids.yaml"
+sha256 = "401d8e0962d2586dc2526e9ecedef40803c6e09b689767a526e86caa783c3166"
+
+# Linked-device history from Bluetooth sightings and router inventories.
+[devices]
+# Who is home and where my things are (#1329).
+# Devices linked to people or named as things (pack-devices link), from Bluetooth sightings and the router's client
+# list. Nothing alerts.
+# Sightings of one device no more than this many seconds apart are one stay; longer quiet is "left".
+gap_s = 600
+# Names for the Wi-Fi access points the router reports by MAC alone: one "MAC: name" each, like
+# "aa:bb:cc:dd:ee:ff: Living room". Known › Devices shows where a device was seen by this name; an access point
+# with none shows the router's name for it, else its MAC.
+access_points = []
+# Hours of sightings used for person-presence questions.
+lookback_h = 12
+# Days back object-location questions look, a day at a time.
+thing_lookback_days = 30
+
+[bluetooth]
+# New feature: Bluetooth sensors
+# Enables the optional pack-bluetooth service. New settings require all config readers to restart after upgrade.
+enabled = false
+# ESP32 serial is preferred. Replay reads local BLE1 JSONL; optional bluez/corebluetooth use host OS discovery.
+source = "esp32"
+# Required separately for bluez/corebluetooth: OS discovery may send scan requests, so it is not strictly passive.
+# Never automatically used when an ESP32 is absent. No backend connects, pairs, or reads GATT attributes.
+allow_active_scan = false
+# BlueZ adapter name/path (empty chooses the first powered adapter); CoreBluetooth's sensor label (empty=system-default).
+host_adapter = ""
+# Bounded OS callback queue. Overflow is reported as incomplete coverage, never inferred absence.
+host_queue_size = 512
+# Empty autodetects Espressif native USB and common ESP32 USB bridges; explicit ttyACM/ttyUSB/macOS paths win.
+serial_ports = []
+# CHIPID=name strings override each board's NVS name without writing to it. Empty uses its name or chip ID.
+sensor_names = []
+# Serial baud used by the supplied firmware (native USB Serial/JTAG also accepts it).
+baudrate = 115200
+# Simultaneously connected sensors. More ports than this limit are not opened.
+max_sensors = 8
+# Aggregate repeated backend reports per sensor and native advertiser identifier for this many seconds.
+aggregate_seconds = 5.0
+# Pending native identifiers and payload-match fingerprints at most. Capacity loss is explicit in coverage.
+max_devices = 1024
+# Combined sightings, unconfirmed candidates, and coverage records per second (3 through 500).
+max_records_per_second = 50
+# Local BLE1 JSONL used only with source=replay; empty disables replay.
+replay_path = ""
+
+
+[unifi]
+# Local controller literal-IP HTTPS URL; never a cloud endpoint. Credentials stay in local pack.toml.
+url = ""
+username = ""
+password = ""
+api_key = ""
+# UniFi OS uses /proxy/network; standalone Network uses its direct API.
+unifi_os = true
+# legacy cookie login, or integration with a local read-only API key.
+mode = "legacy"
+verify_tls = true
+# Optional local CA certificate file. Prefer this to disabling TLS verification.
+ca_file = ""
+timeout_seconds = 5.0
+
+[unifi_protect]
+# Optional separate UniFi OS console running Protect (an NVR or Cloud Key), when Protect is not on the [unifi]
+# console. Empty url uses [unifi] for Protect too. Same meanings as [unifi]; credentials stay in local pack.toml.
+url = ""
+username = ""
+password = ""
+api_key = ""
+unifi_os = true
+mode = "legacy"
+verify_tls = true
+ca_file = ""
+timeout_seconds = 5.0
+
+[network_devices]
+# Read-only inventories. Off until explicitly enabled; new keys require all config readers to restart.
+enabled = false
+observer = "local-network"
+site = "default"
+# Poll interval, bounded to 30 through 3600 seconds.
+poll_seconds = 60.0
+max_devices = 1024
+# Empty chooses the platform cache. These passive caches never establish current presence.
+arp_path = ""
+linux_arp_path = "/proc/net/arp"
+# Existing local dnsmasq, ISC, or Apple DHCP lease files; no DHCP requests are sent.
+dhcp_lease_paths = []
+
+
+[network_cameras]
+# Optional camera credentials for explicit read-only ONVIF discovery and its RTSP stream.
+# Never used for background probing; a stream URL with its own credentials keeps those.
+onvif_username = ""
+onvif_password = ""
+# Literal private IPv4 addresses that also get a unicast WS-Discovery probe, for cameras that miss multicast
+# (often on Wi-Fi). When [unifi] is configured, its current clients are probed the same way. At most 256 hosts,
+# one UDP datagram each; no port scanning.
+onvif_hosts = []

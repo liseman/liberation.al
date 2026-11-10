@@ -1,0 +1,3 @@
+{"id": "dana-sat-down-1", "person": "Dana", "camera": "cam1", "what": "sat down", "start": "2026-10-20T18:00:00-07:00", "end": "2026-10-20T18:10:00-07:00", "count": 3, "notes": [{"nth": 2, "note": "on the arm of the couch"}, {"note": "same chair the other times"}]}
+{"id": "alice-fridge-1", "person": "Alice", "camera": "cam0", "what": "opened the fridge", "start": 1792544400, "end": 1792544520, "count": 2, "attributes": {"door open": {"value": 40, "unit": "s"}}}
+{"id": "dog-couch-1", "camera": "cam1", "what": "the dog got on the couch", "start": "2026-10-20T19:00:00-07:00", "end": "2026-10-20T19:30:00-07:00", "count": 1}

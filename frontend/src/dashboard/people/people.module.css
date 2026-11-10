@@ -1,0 +1,143 @@
+/* The People tab: the list on the left, and Who's this? or a contact card beside it at full width (voice clones are
+   in each person's card and under Settings, #2455). On narrow windows only one of the roster and the detail shows at
+   a time (`.picked` is set while a person or the inbox is chosen). Ported from static/dashboard/tabs.css. */
+.page {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 36px;
+  align-items: start;
+  /* Known's page frame sets the edges (#2469). */
+}
+.main {
+  min-width: 0;
+}
+/* The roster is a fixed 36rem, room for two cards of about 18rem side by side (the list's 15rem minimum would make
+   three crowded ones at 46rem and up), and the candidates beside it take the rest of a wide window (Joe, #3237). Under
+   about 1200 px it gives way to 48vw so the candidates keep room until the phone layout takes over at 820 px. */
+.cols {
+  display: grid;
+  grid-template-columns: minmax(0, min(36rem, 48vw)) minmax(0, 1fr);
+  gap: 36px;
+  align-items: start;
+}
+.detail {
+  position: sticky;
+  top: calc(var(--top-h, 56px) + var(--known-h, 49px) + 20px); /* under the app bar and Known's tab row */
+  min-width: 0;
+}
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 15rem), 1fr));
+  gap: 8px;
+}
+.list li {
+  min-width: 0;
+}
+.row {
+  display: flex;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--mantine-color-default-border);
+  background: var(--mantine-color-body);
+  color: var(--mantine-color-text);
+  height: 100%;
+}
+.row:hover {
+  background: var(--mantine-color-default-hover);
+}
+.row:focus-visible {
+  outline: 2px solid var(--mantine-color-anchor);
+}
+.row[aria-current] {
+  background: var(--mantine-primary-color-light);
+  box-shadow: inset 3px 0 0 var(--mantine-color-anchor);
+}
+.name {
+  font-weight: 600;
+}
+/* A roster card's name: a click on it opens the card (RosterRow), so it underlines like a link under the pointer. */
+.opens {
+  cursor: pointer;
+}
+.opens:hover {
+  text-decoration: underline;
+}
+.meta {
+  color: var(--mantine-color-dimmed);
+  font-size: var(--mantine-font-size-sm);
+}
+/* The picked row's tint: Mantine fades an active NavLink's description to 0.9, which took the dimmed text under AA
+   (4.07:1 on the tint); at full strength it's 4.97:1. */
+.row[aria-current] .meta {
+  opacity: 1;
+}
+/* An avatar with room for the "here now" dot on its lower right. */
+.avatar {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+}
+
+.group {
+  margin: 18px 12px 4px;
+  font-size: var(--mantine-font-size-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--mantine-color-dimmed);
+}
+/* "3 faces need a name ›": a quiet link-like row under New person. */
+.waiting {
+  all: unset;
+  box-sizing: border-box;
+  display: block;
+  width: 100%;
+  margin-top: 10px;
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-size: var(--mantine-font-size-sm);
+  font-weight: 500;
+  color: var(--mantine-color-anchor);
+  background: var(--mantine-primary-color-light);
+  cursor: pointer;
+}
+a.waiting {
+  text-decoration: none;
+}
+/* People's own Who's this?, under the faces link: still there, but the faces come first. */
+.waitingQuiet {
+  margin-top: 4px;
+  background: transparent;
+  color: var(--mantine-color-dimmed);
+}
+.waiting:hover {
+  background: var(--mantine-primary-color-light-hover);
+}
+.waiting:focus-visible {
+  outline: 2px solid var(--mantine-color-anchor);
+}
+.waiting[aria-current] {
+  box-shadow: inset 3px 0 0 var(--mantine-color-anchor);
+}
+
+@media (max-width: 820px) {
+  .cols {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .detail {
+    position: static;
+  }
+  .page:not(.picked) .detail {
+    display: none;
+  }
+  .page.picked .roster {
+    display: none;
+  }
+}

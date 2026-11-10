@@ -1,0 +1,39 @@
+.preview-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.preview-canvas.off {
+  visibility: hidden;
+}
+.preview-canvas.stale {
+  opacity: 0.5;
+}
+.preview-missing {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 12px;
+  color: #d3dadd;
+  text-align: center;
+}
+.preview-status {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  max-width: calc(100% - 12px);
+  padding: 3px 6px;
+  border-radius: 3px;
+  background: #161b1ed9;
+  color: white;
+  font-size: 11px;
+  text-align: right;
+  pointer-events: none;
+}
+.preview-status > span {
+  display: block;
+}

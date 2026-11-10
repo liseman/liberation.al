@@ -1,0 +1,15 @@
+[package]
+name = "continuum-shm"
+description = "Continuum Broker Tier 0: a 16 KB aligned POSIX shared memory slab and ring arena"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+continuum-core.workspace = true
+libc.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

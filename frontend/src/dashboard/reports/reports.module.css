@@ -1,0 +1,457 @@
+/* The Reports tab: one chart style for every report. Magnitude is one blue ramp, light to dark (dark: dark to light
+   against the dark card); a recorded hour with nothing in it is the track color, and an hour nothing was recorded in
+   is hatched, so a gap never reads as a zero. Categorical slots follow one fixed order, for identity only. */
+.root {
+  --rep-seq-0: #cde2fb;
+  --rep-seq-1: #9ec5f4;
+  --rep-seq-2: #6da7ec;
+  --rep-seq-3: #3987e5;
+  --rep-seq-4: #256abf;
+  --rep-seq-5: #104281;
+  --rep-zero: var(--lib-track);
+  --rep-gap: var(--lib-dim);
+  --rep-grid: var(--mantine-color-default-border);
+  --rep-bar: #2a78d6;
+  --rep-plan: #eb6834;
+  --rep-cat-0: #2676c9;
+  --rep-cat-1: #a65ac1;
+  --rep-cat-2: #178278;
+  --rep-cat-3: #cb6b27;
+  --rep-cat-4: #b64670;
+  --rep-cat-5: #667d20;
+}
+
+[data-mantine-color-scheme="dark"] .root {
+  --rep-seq-0: #26508a; /* clear of the empty-hour track, so the lowest value doesn't read as "nothing there" */
+  --rep-seq-1: #1c5cab;
+  --rep-seq-2: #2a78d6;
+  --rep-seq-3: #5598e7;
+  --rep-seq-4: #86b6ef;
+  --rep-seq-5: #cde2fb;
+  --rep-bar: #3987e5;
+  --rep-plan: #d95926;
+  --rep-cat-0: #69acf3;
+  --rep-cat-1: #cc91e2;
+  --rep-cat-2: #56c8b5;
+  --rep-cat-3: #f0aa67;
+  --rep-cat-4: #e886ad;
+  --rep-cat-5: #bad478;
+}
+
+.card {
+  background: var(--lib-card);
+}
+
+/* Findings are the app's words, not speech, so they take the UI face; the serif is for what people said (#2450). */
+.findings {
+  font-size: var(--mantine-font-size-lg);
+  line-height: 1.35;
+}
+
+.chart {
+  position: relative;
+  margin: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.chart svg {
+  display: block;
+  font-size: 11px;
+}
+
+/* The axis and the plot side by side, as wide as the plot, so the axis can stick while the frame scrolls. */
+.track {
+  display: flex;
+  width: max-content;
+}
+
+.yAxis {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  flex: none;
+  background: var(--lib-card); /* the report card the chart sits on */
+}
+
+.axis {
+  fill: var(--mantine-color-dimmed);
+}
+
+.xCaption {
+  position: sticky;
+  left: 0;
+  margin: 0;
+  color: var(--mantine-color-dimmed);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 14px;
+}
+
+.axisTitle {
+  fill: var(--mantine-color-dimmed);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.gridline {
+  stroke: var(--rep-grid);
+  stroke-width: 1;
+}
+
+.cell a,
+a.cell {
+  cursor: pointer;
+}
+
+.mark:focus {
+  outline: none;
+}
+/* A focused mark's ring: an outline in the text colour, drawn over the neighbouring cells, which
+   would otherwise cover half of a stroke; the accent stroke alone was blue on blue cells. */
+.mark:focus-visible {
+  outline: 2px solid var(--mantine-color-text);
+  outline-offset: 1px;
+}
+
+.mark:focus-visible rect,
+.mark:focus-visible circle,
+.mark:focus-visible path {
+  stroke: var(--mantine-color-anchor);
+  stroke-width: 2px;
+}
+
+.s0 {
+  fill: var(--rep-seq-0);
+}
+.s1 {
+  fill: var(--rep-seq-1);
+}
+.s2 {
+  fill: var(--rep-seq-2);
+}
+.s3 {
+  fill: var(--rep-seq-3);
+}
+.s4 {
+  fill: var(--rep-seq-4);
+}
+.s5 {
+  fill: var(--rep-seq-5);
+}
+.zero {
+  fill: var(--rep-zero);
+}
+.gap {
+  fill: url(#reports-gap);
+}
+.gapStroke {
+  stroke: var(--rep-gap);
+  stroke-width: 1;
+  opacity: 0.55;
+}
+.bar {
+  fill: var(--rep-bar);
+}
+.plan {
+  stroke: var(--rep-plan);
+  stroke-width: 2px;
+  stroke-dasharray: 5 3;
+  fill: none;
+}
+.line {
+  stroke: var(--rep-bar);
+  stroke-width: 2px;
+  fill: none;
+}
+
+.tooltip {
+  /* In a portal on the body, at viewport coordinates (charts.tsx Tooltip), so no card clips it. */
+  position: fixed;
+  pointer-events: none;
+  z-index: 400;
+  /* Its size never depends on where it was first drawn, so it measures the same before and after it's placed. */
+  width: max-content;
+  max-width: min(260px, calc(100vw - 16px));
+  padding: 6px 8px;
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-md);
+  background: var(--lib-raise);
+  color: var(--mantine-color-text);
+  font-size: var(--mantine-font-size-xs);
+  line-height: 1.35;
+  white-space: pre-line;
+  box-shadow: var(--mantine-shadow-sm);
+}
+
+.swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  vertical-align: -2px;
+}
+
+.legend {
+  font-size: var(--mantine-font-size-xs);
+  color: var(--mantine-color-dimmed);
+}
+
+.fluidChart {
+  margin: 0;
+  width: 100%;
+}
+
+.fluidChart svg {
+  display: block;
+  width: 100%;
+  max-height: 360px;
+  font-size: 11px;
+}
+
+.fluidChart .axis,
+.fluidChart .axisTitle {
+  font-size: 12px;
+
+  @media (max-width: 48em) {
+    font-size: 14px;
+  }
+}
+
+.clockCenter {
+  fill: var(--mantine-color-text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.ribbon {
+  opacity: 0.7;
+  stroke: var(--lib-card);
+  stroke-width: 0.5px;
+}
+
+.chord:has(a:hover) a:not(:hover),
+.chord:has(a:focus-visible) a:not(:focus-visible) {
+  opacity: 0.25;
+}
+
+.streamBand:hover,
+.ribbon:hover {
+  opacity: 1;
+  stroke: var(--mantine-color-text);
+  stroke-width: 1px;
+}
+
+/* Jump chips (#2457): one per report, sticky under the top bar so any report is a click away on a long page. */
+.jump {
+  position: sticky;
+  top: var(--top-h, 56px); /* under the app bar, which is sticky at the top too */
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 16px;
+  padding: 8px 0;
+  background: var(--mantine-color-body);
+}
+.chip {
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 13px;
+  color: var(--mantine-color-text);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.chip:hover {
+  background: var(--lib-bg2);
+}
+.card {
+  /* A chip's card lands below both the app bar and the jump row (--reports-jump-h, measured in ReportsTab). */
+  scroll-margin-top: calc(var(--top-h, 56px) + var(--reports-jump-h, 44px) + 8px);
+}
+.byDay {
+  font-size: 14px;
+}
+@media (max-width: 600px) {
+  .jump {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+}
+
+/* While a report loads, its card keeps about the height it will have (measured on the live corpus, 2026-11-06), so
+   the reports below don't jump down as each one's data lands. Data changes the real height a little; this only has
+   to be close. */
+.card:has([data-report-loading]) {
+  min-height: 300px;
+}
+.card[data-kind="whos_around"]:has([data-report-loading]) {
+  min-height: 612px;
+}
+.card[data-kind="conversations"]:has([data-report-loading]) {
+  min-height: 1270px;
+}
+.card[data-kind="activity"]:has([data-report-loading]) {
+  min-height: 720px;
+}
+.card[data-kind="activity"][data-arg]:has([data-report-loading]) {
+  min-height: 570px;
+}
+.card[data-kind="health"]:has([data-report-loading]) {
+  min-height: 582px; /* its measures as small lines (#2621 board, idea 7) */
+}
+.card[data-kind="person_activity"]:has([data-report-loading]) {
+  min-height: 430px;
+}
+.card[data-kind="devices"]:has([data-report-loading]) {
+  min-height: 280px;
+}
+@media (max-width: 600px) {
+  .card[data-kind="whos_around"]:has([data-report-loading]) {
+    min-height: 665px;
+  }
+  .card[data-kind="conversations"]:has([data-report-loading]) {
+    min-height: 1315px;
+  }
+  .card[data-kind="activity"]:has([data-report-loading]) {
+    min-height: 600px;
+  }
+  .card[data-kind="activity"][data-arg]:has([data-report-loading]) {
+    min-height: 414px;
+  }
+  .card[data-kind="health"]:has([data-report-loading]) {
+    min-height: 852px;
+  }
+  .card[data-kind="person_activity"]:has([data-report-loading]) {
+    min-height: 530px;
+  }
+  .card[data-kind="devices"]:has([data-report-loading]) {
+    min-height: 390px;
+  }
+}
+
+/* System health (#2457 board, proposal 5): problems first, then storage as a meter, then one aligned list of
+   services with plain names, the healthy majority folded. */
+.healthOk {
+  font-weight: 600;
+  color: var(--lib-ok);
+}
+/* --lib-ok on a white card is 4.3:1, under the 4.5 text needs; a darker green is 6:1 (dark's is 7.9:1 already). */
+:global([data-mantine-color-scheme="light"]) .healthOk {
+  color: #24704a;
+}
+.healthBad {
+  font-weight: 600;
+  color: var(--lib-bad);
+}
+.services {
+  max-width: 520px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+.serviceRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: baseline;
+  font-size: 14px;
+}
+.serviceName {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.servicePct {
+  font-variant-numeric: tabular-nums;
+  color: var(--mantine-color-dimmed); /* --lib-dim was 3:1 on the card */
+  font-size: 13px;
+}
+.serviceRow[data-down] .servicePct {
+  color: var(--lib-bad);
+}
+.downTag {
+  color: var(--lib-bad);
+  font-size: 12px;
+}
+.moreServices {
+  font-size: 14px;
+}
+
+/* Who's around's pinned people: on a phone a long row scrolls inside itself instead of widening the card (#2591). */
+.pins {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+/* A chart showing the last figures while the next person's load (#2591). */
+.stale[data-stale] {
+  opacity: 0.55;
+  transition: opacity 150ms;
+}
+
+/* The cards: one column, and on a wide screen two smaller reports next to each other in the page's order share a row
+   (ReportsTab's pairsOf marks them data-paired); every other card spans the row. */
+.cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-lg);
+}
+@media (min-width: 1000px) {
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .cards > * {
+    grid-column: 1 / -1;
+  }
+  .cards > [data-paired] {
+    grid-column: auto;
+  }
+}
+
+/* System health's measures as small lines (#2621 board, idea 7): the value now, its range, and its shape. */
+.spark {
+  min-width: 0;
+}
+.sparkNow {
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+.sparkLine {
+  display: block;
+  width: 100%;
+  height: 32px;
+  margin-top: 4px;
+}
+.sparkLine polyline {
+  fill: none;
+  stroke: var(--rep-bar);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+/* Words that come up, while there's one week of them: a ranked list in columns, each word with how often it was said. */
+.wordList {
+  margin: 0;
+  padding-left: 1.6em;
+  columns: 3 11em;
+  column-gap: 2em;
+  font-size: 14px;
+}
+.wordList li {
+  break-inside: avoid;
+  padding-block: 1px;
+}
+.wordCount {
+  margin-left: 0.5em;
+  color: var(--mantine-color-dimmed);
+  font-size: 12.5px;
+}

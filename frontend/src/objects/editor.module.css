@@ -1,0 +1,110 @@
+.editor {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.toolbar button {
+  min-height: 40px;
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: 5px;
+  padding: 6px 10px;
+  background: var(--mantine-color-body);
+  color: var(--mantine-color-text);
+  cursor: pointer;
+}
+.toolbar button[aria-pressed="true"] {
+  background: var(--mantine-color-teal-light);
+  border-color: var(--mantine-color-teal-6);
+}
+.toolbar button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.toolbar output {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+.viewport {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  position: relative;
+  width: 100%;
+  height: clamp(240px, 48vh, 520px);
+  overflow: hidden;
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: 6px;
+  background: #151719;
+  touch-action: none;
+  user-select: none;
+  cursor: grab;
+}
+.viewport[data-mode="crop"] {
+  cursor: crosshair;
+}
+.viewport[aria-disabled="true"] {
+  cursor: default;
+}
+.viewport:focus-visible {
+  outline: 2px solid var(--mantine-color-teal-5);
+  outline-offset: 2px;
+}
+.canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+.crop {
+  position: absolute;
+  border: 2px solid #ffd166;
+  box-shadow: 0 0 0 9999px rgb(0 0 0 / 24%);
+  pointer-events: none;
+  box-sizing: border-box;
+}
+.move {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: move;
+  pointer-events: auto;
+}
+.handle {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  transform: translate(-50%, -50%);
+  border: 2px solid #151719;
+  border-radius: 50%;
+  background: #ffd166;
+  padding: 0;
+  pointer-events: auto;
+  touch-action: none;
+}
+.handle:focus-visible {
+  outline: 3px solid white;
+}
+.help {
+  margin: 8px 0 0;
+  color: var(--mantine-color-dimmed);
+  font-size: 12px;
+}
+@media (pointer: coarse) {
+  .handle {
+    width: 32px;
+    height: 32px;
+  }
+}

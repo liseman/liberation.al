@@ -1,0 +1,198 @@
+# Plain labels for Settings (#382): for each setting, the words Settings shows instead of its raw key, one line of
+# help, and the menu section it belongs to. defaults.toml stays the source of every setting and its default; this
+# file only names them for people. A setting not listed here still shows in Advanced, by its key and its comment
+# in defaults.toml. New-feature switches (the "New feature:" comment in defaults.toml) show under Features.
+#
+# Sections: you (You and the assistant), devices (Devices), features, people (People and privacy), phone,
+# and services. This machine has its own status panel. Every setting also shows in Advanced.
+#
+# live = true marks a setting its services follow without a restart, so saving only such settings restarts
+# nothing.
+#
+# group puts settings on a card of their own within their section, under that heading, in the order the groups
+# first appear here. Settings with no group share one card: the section's only card, or, in a section with groups,
+# the last one, under Other.
+
+["owner.name"]
+section = "you"
+label = "Your name"
+help = "What the assistant calls you"
+
+["assistant.name"]
+section = "you"
+label = "Assistant's name"
+help = "What you call it"
+
+["assistant.wake_words"]
+section = "you"
+label = "Wake words"
+help = "Say one of these to get its attention. Empty means \"hey\" and its name."
+
+["assistant.require_wake_phrase"]
+section = "you"
+label = "Always need a wake word"
+help = "Even you have to start with a wake word before it answers"
+
+["tts.voice"]
+section = "you"
+label = "Fallback voice"
+help = "Kokoro voice used when the cloned voice is unavailable"
+
+["time.timezone"]
+section = "you"
+label = "Time zone"
+help = "Time zone for dates in history questions. Dashboard clocks use your browser's local time."
+
+["owner.voice_ref"]
+section = "you"
+label = "Your voice reference"
+help = "About 15 seconds of you talking, used to recognize you and for your cloned voice"
+
+["owner.phone"]
+section = "phone"
+label = "Your phone number"
+help = "Calls from it are treated as you, like +14155550123"
+
+["phone.twilio_number"]
+section = "phone"
+label = "Number calls come from"
+help = "The Twilio number the assistant calls from, like +14155550123"
+
+["phone.public_host"]
+section = "phone"
+label = "Public address"
+help = "Optional, for calls from outside: the host:port that reaches the phone bridge, like a Tailscale Funnel name"
+
+["agent.phone_agent"]
+section = "phone"
+label = "Agent for your calls"
+help = "Optional: the agent that handles your requests by phone and voice, like openclaw/phone"
+
+["services.enable"]
+section = "services"
+label = "Also run"
+help = "Services that are off by default, to run here too: installed and started when you save"
+
+["services.disable"]
+section = "services"
+label = "Don't run"
+help = "Services that run by default, never to run here: uninstalled when you save, and they stay off"
+
+# Devices (#384): the panel (settings/devices/) draws these settings itself; catalog.ts's "drawn" keeps
+# them out of the section's standard rows, and Advanced and search still list them.
+
+["vision.places"]
+section = "devices"
+label = "Camera names"
+help = "One \"camera ID: display name\" entry per named camera"
+
+["vision.cams"]
+section = "devices"
+label = "Fallback camera indexes"
+help = "Legacy OS camera indexes for a missing device manifest or manifest import. Devices manages current capture."
+
+["audio.sensitivity"]
+section = "devices"
+label = "Default microphone sensitivity"
+help = "0 to 100, for a microphone without its own. Higher hears quieter speech and more noise."
+live = true # the microphone service follows it without a restart (Devices saves it at once)
+
+
+# ---- Features (#385): the switches, in plain words; a new feature also says whether it's on by default ----
+
+["journal.enabled"]
+section = "features"
+group = "Memory and answers"
+label = "The journal"
+help = "Keep a running diary of the day, and use it in answers"
+
+["journal.facts"]
+section = "features"
+group = "Memory and answers"
+label = "Facts about people"
+help = "Learn lasting facts from the journal, like who works where or who is whose partner"
+
+["journal.cloud_pages"]
+section = "features"
+group = "Memory and answers"
+label = "Cloud journal pages"
+help = "Write the week and month journal pages with a cloud model through the agent gateway. Day pages stay local"
+
+["recall.enabled"]
+section = "features"
+group = "Memory and answers"
+label = "Search harder when stuck"
+help = "When Ask can't answer at once, it searches the journal, transcript, cameras, and visits for a few more rounds"
+
+["semantic.enabled"]
+section = "features"
+group = "Memory and answers"
+label = "Search by meaning"
+help = "Find journal entries by what they mean, not only by their words"
+
+["timeline.enabled"]
+section = "features"
+group = "Who was here"
+label = "Who was here, seen and heard"
+help = "Who was here, when you last met, and day summaries count voices as well as faces"
+
+["presence.enabled"]
+section = "features"
+group = "Who was here"
+label = "Times someone came into view"
+help = "Count times someone came into view from tracked camera episodes, for answers, Review, and summaries. Off disables this evidence, without a caption fallback."
+
+["review.recorded_frame_analysis"]
+section = "features"
+group = "Past recordings"
+label = "Look at recorded video to answer"
+help = "Questions about the past can study saved video frames with the local vision model, not only their captions. Slower."
+
+["identity.command_attributes"]
+section = "features"
+group = "Naming people"
+label = "Spoken name tags with a role"
+help = "Lets you say \"That's Alice, CEO of Acme\" to tag her with the role and the company. Overheard tags keep roles either way."
+
+["dashboard.hotkeys"]
+section = "features"
+group = "Dashboard"
+label = "Keyboard shortcuts"
+help = "/ opens Ask. On face and voice naming lists, Y takes the guess, S focuses the name field, I ignores, M is several people, N is nobody, and P plays."
+
+# ---- People and privacy (#385) ----
+
+["dashboard.password"]
+section = "people"
+group = "Other devices"
+label = "Dashboard password"
+help = "Other devices must give it to open the dashboard. Empty uses the one in the state folder; with neither, none is asked."
+
+["audio.auto_gain_target_dbfs"]
+section = "devices"
+label = "Auto gain target"
+help = "Where auto gain steers speech peaks, in dBFS, for each microphone it is on for. Louder is closer to 0."
+live = true # the listen worker follows it without a restart
+
+["bluetooth.enabled"]
+section = "devices"
+label = "Bluetooth sensors"
+help = "Receive nearby-device advertisements through attached ESP32 boards, without connecting or sending alerts."
+group = "Bluetooth"
+
+["bluetooth.serial_ports"]
+section = "devices"
+label = "Sensor serial ports"
+help = "Leave empty to find attached ESP32 USB boards."
+group = "Bluetooth"
+
+["bluetooth.sensor_names"]
+section = "devices"
+label = "Sensor names"
+help = "Optional CHIPID=name overrides for boards."
+group = "Bluetooth"
+
+["events.answer_counts"]
+section = "features"
+label = "Counts of named events"
+help = "Answers \"how many times did I open the fridge today\" from the events the cameras detected, with a Review link for each, and never from captions. Off: such questions go the way other questions about the past do."

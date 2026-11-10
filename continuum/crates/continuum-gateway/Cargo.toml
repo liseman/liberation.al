@@ -1,0 +1,54 @@
+[package]
+name = "continuum-gateway"
+description = "Continuum's browser gateway: WebSockets and WebTransport, encoded frames and overlays for WebCodecs"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "continuum-gateway"
+path = "src/main.rs"
+
+[features]
+# Only for the tests that encode H.264 (tests/native_h264.rs); release builds turn on continuum-tier/ffmpeg directly.
+ffmpeg = ["continuum-tier/ffmpeg"]
+
+[dependencies]
+arrow-array = "60"
+axum = { version = "0.8", features = ["ws"] }
+clap.workspace = true
+continuum-client = { path = "../continuum-client" }
+continuum-core.workspace = true
+# Overlay streams in the segment store (src/segment_overlays.rs, #1791).
+continuum-segments = { path = "../continuum-segments" }
+continuum-shm.workspace = true
+continuum-tier.workspace = true
+flatbuffers.workspace = true
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+hostname = "0.4"
+# Raw camera frames go to the live view as JPEG (session.rs raw_jpeg).
+jpeg-encoder = "0.7"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror.workspace = true
+tokio.workspace = true
+tower-http = { version = "0.7", features = ["cors"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true
+wtransport = "0.7"
+
+[dev-dependencies]
+# The arrow crates, continuum-sched, and uuid are for the shared grouped-archive fixture (tests/grouped.rs).
+arrow-array = "60"
+arrow-ipc = "60"
+arrow-schema = "60"
+continuum-broker = { path = "../continuum-broker" }
+continuum-sched.workspace = true
+proptest.workspace = true
+tempfile.workspace = true
+tokio-tungstenite = "0.30"
+uuid.workspace = true
+
+[lints]
+workspace = true

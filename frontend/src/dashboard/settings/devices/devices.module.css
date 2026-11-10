@@ -1,0 +1,204 @@
+/* Settings' Cameras and microphones (#384). */
+.cameraInfo {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  min-width: 0;
+}
+.cameraInfo > :last-child {
+  flex: 1 1 100px;
+}
+.preview {
+  position: relative;
+  width: 128px;
+  max-width: 100%;
+  flex: 0 1 128px;
+  aspect-ratio: 16 / 9;
+  border-radius: 4px;
+  overflow: hidden;
+  background: #3a3f47;
+}
+.previewLabel {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  max-width: calc(100% - 8px);
+  padding: 2px 5px;
+  border-radius: 3px;
+  color: #fff;
+  background: rgb(0 0 0 / 55%);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+
+.dark {
+  position: absolute;
+  inset: 0;
+}
+
+.status {
+  font-size: 13px;
+}
+
+.ok {
+  color: var(--lib-ok-text);
+}
+
+.warn {
+  color: var(--lib-warn);
+}
+
+.dim {
+  color: var(--mantine-color-dimmed);
+}
+
+:global([data-mantine-color-scheme="dark"]) .ok {
+  color: var(--mantine-color-green-4);
+}
+
+.toggles {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.toggleBody {
+  display: flex;
+  flex-direction: row-reverse;
+  align-items: flex-start;
+  gap: 12px;
+}
+.toggleWords {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+}
+
+.restartFallback {
+  align-items: flex-start;
+}
+
+.micName {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.micName > * {
+  overflow-wrap: anywhere;
+}
+
+.micControls {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.meter {
+  position: relative;
+  height: 10px;
+  border-radius: 5px;
+  background: var(--mantine-color-default-border);
+  overflow: hidden;
+}
+
+.meter > b {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: var(--level, 0%);
+  background: var(--mantine-primary-color-filled);
+  transition: width 0.3s;
+}
+
+/* Live, the bar and the peak mark span the meter and move by transform, so a level changing every frame costs no
+   layout or paint (#486); the mark is the box's left edge. */
+.meter[data-live] > b {
+  transition: none;
+  width: 100%;
+  transform-origin: left;
+  will-change: transform;
+}
+
+.meter > s {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--lib-warn);
+}
+
+.meter > i {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--mantine-color-text);
+  display: none;
+}
+
+.meter[data-live] > i {
+  display: block;
+  left: 0;
+  width: 100%;
+  background: none;
+  will-change: transform;
+}
+
+.meter[data-live] > i::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 2px;
+  background: var(--mantine-color-text);
+}
+
+.defaultSensitivity {
+  width: 100%;
+}
+
+.sliderControl {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+}
+.slider {
+  flex: 1;
+  min-width: 0;
+}
+.saveNote {
+  grid-column: 1 / -1;
+}
+
+.value {
+  flex: none;
+  width: 2.5em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+  .camera,
+  .mic {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+}

@@ -1,0 +1,112 @@
+/* Live's right rail (#356): What's happening, Here now, and Who's this?, as white cards (the Live design, #350). */
+.rail-card {
+  padding: 16px;
+  background: var(--lib-card);
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.rail-card h2 {
+  font: 600 18px / 1.45 var(--mantine-font-family); /* a section heading, as theme.ts h2 (#2594) */
+  margin: 0;
+}
+.rail-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.rail-note {
+  font-size: 12px;
+  color: var(--mantine-color-dimmed);
+}
+
+.happening {
+  max-height: 260px;
+  overflow-y: auto;
+  padding-top: 2px;
+}
+.happening .mantine-Timeline-itemContent {
+  display: flex;
+  gap: 10px;
+  font-size: 14px;
+  line-height: 1.4;
+}
+.happening time {
+  width: 40px;
+  flex-shrink: 0;
+  color: var(--mantine-color-dimmed);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Side by side, wrapping to another row when there are many (#2606) */
+.here-now {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+}
+.here-now li {
+  min-width: 0;
+  max-width: 100%;
+}
+.here-now a {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: inherit;
+  text-decoration: none;
+}
+/* A narrow card (a phone) gets tiles, the face over the name, so several still sit side by side */
+.here-card {
+  container-type: inline-size;
+}
+@container (max-width: 560px) {
+  .here-now {
+    gap: 12px 8px;
+  }
+  .here-now li {
+    width: 96px;
+  }
+  .here-now a {
+    flex-direction: column;
+    gap: 4px;
+    text-align: center;
+  }
+  .here-now .here-who {
+    align-items: center;
+  }
+  .here-now .here-name {
+    font-size: 14px;
+  }
+}
+.here-who {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.here-name {
+  font-size: 15px;
+  font-weight: 550;
+}
+.here-now a:hover .here-name {
+  text-decoration: underline;
+}
+.here-where {
+  font-size: 12px;
+  color: var(--mantine-color-dimmed);
+}
+.rail-all {
+  padding: 0 4px;
+}
+
+.happening .mantine-Timeline-item:not(:first-of-type) {
+  margin-top: 8px;
+}

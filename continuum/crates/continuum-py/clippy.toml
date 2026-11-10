@@ -1,0 +1,7 @@
+# continuum-py's awaitables come from crate::awaitable, which a process can exit with pending (#690):
+# pyo3_async_runtimes' future_into_py attaches a tokio thread to Python on its cancel path, which segfaults once the
+# interpreter has finalized.
+disallowed-methods = [
+  { path = "pyo3_async_runtimes::tokio::future_into_py", reason = "use crate::awaitable, which is safe at interpreter exit (#690)" },
+  { path = "pyo3_async_runtimes::generic::future_into_py", reason = "use crate::awaitable, which is safe at interpreter exit (#690)" },
+]

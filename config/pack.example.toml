@@ -1,0 +1,30 @@
+# Copy this to pack.toml at the repo root and fill in what applies to you.
+# Anything you leave out keeps its value from config/defaults.toml, which
+# documents every setting.
+
+[owner]
+name = "Alice"
+# phone = "+15555550123"
+
+[assistant]
+name = "Bob"
+
+# Three cameras in a ring, mounted upside down:
+# [vision]
+# cams = [0, 1, 2]
+# yaws = [0, 120, 240]
+# fov = 160.0
+# Set each camera's video.flip in config/devices.toml, or use Settings.
+
+# Phone calls through Twilio, reached via Tailscale Funnel:
+# [phone]
+# twilio_number = "+15555550100"
+# public_host = "my-machine.example-tailnet.ts.net:8443"
+
+# An agent gateway for owner requests that need tools or the web (off unless url
+# is set). These are the values for OpenClaw on the same machine:
+# [agent]
+# url = "http://127.0.0.1:18789/v1/chat/completions"
+# openclaw_config = "~/.openclaw/openclaw.json"
+# phone_agent = "openclaw/phone"
+# friends_agent = "openclaw/friends-advisor"

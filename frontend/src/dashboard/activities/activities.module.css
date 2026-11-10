@@ -1,0 +1,245 @@
+/* Known › Activities (#2283): the kinds on the left and the clips to check beside them, as Pets lays out its roster
+   and sightings; one column on narrow windows, the kinds above the clips. */
+.page {
+  display: grid;
+  grid-template-columns: minmax(0, 320px) minmax(0, 1fr);
+  gap: 36px;
+  align-items: start;
+  /* Known's page frame sets the edges (#2469). */
+}
+.roster {
+  position: sticky;
+  top: calc(var(--top-h, 56px) + var(--known-h, 49px) + 20px); /* under the app bar and Known's tab row */
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.callout {
+  display: block;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--mantine-primary-color-light);
+  color: var(--mantine-color-anchor);
+  text-decoration: none;
+}
+.callout:focus-visible {
+  outline: 2px solid var(--mantine-color-anchor);
+}
+.group {
+  margin: 6px 0 0;
+  color: var(--mantine-color-dimmed);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.kinds {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+/* A kind's row: its filter button, and the owner's activity's bin beside it (#3244). */
+.kindRow {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.delete {
+  flex: 0 0 auto;
+}
+.delete:hover,
+.delete:focus-visible {
+  color: var(--lib-bad); /* turns red only when meant, as Ingest's (#2715) */
+}
+.addForm {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.phoneAdd {
+  margin-left: auto;
+}
+/* Each kind is a button that filters the clips (#2294); the one shown is tinted like a selected nav row. */
+.kind {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 6px;
+}
+.kind:hover {
+  background: var(--mantine-color-default-hover);
+}
+.kind[data-active] {
+  background: var(--mantine-primary-color-light);
+}
+.kind:focus-visible {
+  outline: 2px solid var(--mantine-color-anchor);
+  outline-offset: -2px;
+}
+.kindBody {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.main {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.mainTitle {
+  margin: 0;
+  font: 600 18px / 1.45 var(--mantine-font-family); /* a section heading, as theme.ts h2 (#2594) */
+  scroll-margin-top: calc(var(--top-h, 56px) + var(--known-h, 49px) + 12px);
+}
+/* Clips in a grid of small cards (#2473), the clip above its question, so a screen holds several at once. */
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: 10px;
+  background: var(--lib-card, var(--mantine-color-body));
+}
+.clip,
+.ask {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.ask {
+  gap: 8px;
+}
+.answers {
+  display: flex;
+}
+.answers > * {
+  flex: 1;
+}
+.callIt {
+  align-self: flex-start;
+}
+/* A clip takes its camera's own shape (--clip-ratio, width over height, set by ClipPlayer; 16:9 until known), so a
+   portrait camera fills a tall box instead of a strip between gray bars (#2299). Tall ones stop at 70% of the
+   window's height, centred. The poster and the playing video share the size, so nothing jumps on play. */
+.clipBox,
+.clipFrame {
+  width: min(100%, calc(70vh * var(--clip-ratio, 1.7778)));
+  margin-inline: auto;
+  border-radius: 8px;
+}
+.clipBox {
+  display: block;
+  aspect-ratio: var(--clip-ratio, 16 / 9);
+  overflow: hidden;
+}
+.clipBox:focus-visible {
+  outline: 2px solid var(--mantine-color-anchor);
+  outline-offset: 2px;
+}
+.clipFrame {
+  position: relative;
+  --player-ratio: var(--clip-ratio, 16 / 9); /* the embedded player's stage (player.module.css), its controls below */
+}
+/* In a card, a clip stays within 240px of height (a portrait camera would otherwise make one card a screen tall). */
+.cards .clipBox,
+.cards .clipFrame {
+  width: min(100%, calc(240px * var(--clip-ratio, 1.7778)));
+}
+/* The poster is a fixed box the card's full width, its still letterboxed in it, so it doesn't grow from 16:9 to the
+   camera's shape once that's known (a load shift of every card). Playing, the clip takes its own shape at the same
+   240px height. */
+.cards .clipBox {
+  width: 100%;
+  height: 240px;
+  aspect-ratio: auto;
+}
+.cards .clipBox > * {
+  height: 100%; /* the shared ClipPoster fills the box rather than taking the clip's shape inside it */
+  aspect-ratio: auto;
+}
+/* A phone's kinds: one row of chips that scrolls sideways, its height fixed so the clips under it stay put. */
+.chips {
+  display: flex;
+  gap: 6px;
+  min-height: 34px;
+  margin: 0 calc(-1 * var(--mantine-spacing-xs, 10px));
+  padding: 0 var(--mantine-spacing-xs, 10px) 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  list-style: none;
+  /* The chips' visually hidden labels are positioned absolutely: without a positioned scroller they escaped it, and
+     the chips scrolled out of view widened the whole page on a phone (390 px wide scrolled to 820). */
+  position: relative;
+}
+.chips > li {
+  flex: none;
+}
+.chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: 999px;
+  font-size: 14px;
+  white-space: nowrap;
+}
+.chip[data-active] {
+  border-color: var(--mantine-primary-color-filled);
+  background: var(--mantine-primary-color-filled);
+  color: var(--mantine-primary-color-contrast);
+}
+.chip:focus-visible {
+  outline: 2px solid var(--mantine-color-anchor);
+  outline-offset: 2px;
+}
+.chipCount {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
+}
+/* Open the clip bigger: the stage's top right corner, over the video. */
+.expand {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 3;
+  opacity: 0.85;
+}
+.expand:hover,
+.expand:focus-visible {
+  opacity: 1;
+}
+.clipFrame canvas {
+  cursor: zoom-in;
+}
+
+@media (max-width: 820px) {
+  .page {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 20px;
+  }
+  .roster {
+    position: static;
+  }
+}

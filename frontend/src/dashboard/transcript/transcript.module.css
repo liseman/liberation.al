@@ -1,0 +1,394 @@
+/* One transcript for Live and Review: each turn is an avatar in the speaker's colour with their initials, their name
+   and the time, quiet actions, then what they said in the speech face. Only the turns in view are mounted, each at its
+   measured offset (#2382). Live's display choices (word balloons, compact, timestamps always) are data attributes
+   on the list. */
+.box {
+  position: relative; /* the turns' offsetTop is measured from here */
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 6px 6px 10px 0;
+}
+.empty {
+  padding: 30px 4px;
+  color: var(--mantine-color-dimmed);
+}
+.turns {
+  position: relative;
+}
+.turnSlot {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  contain: layout style; /* a turn mounting lays out itself, not the list around it (#2412) */
+}
+
+/* IconButton: Mantine's subtle gray ActionIcon at size sm, as a plain button (#2412). First, so the rules below that
+   hide and show it win over its all: unset. */
+.iconBtn {
+  all: unset;
+  box-sizing: border-box;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: calc(1.375rem * var(--mantine-scale));
+  height: calc(1.375rem * var(--mantine-scale));
+  border-radius: var(--mantine-radius-default);
+  color: var(--mantine-color-gray-light-color);
+  cursor: pointer;
+}
+.iconBtn:hover:not(:disabled) {
+  background: var(--mantine-color-gray-light-hover);
+}
+.iconBtn:focus-visible {
+  outline: 2px solid var(--mantine-primary-color-filled);
+  outline-offset: 1px;
+}
+.iconBtn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.turn {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 6px 4px;
+}
+.turn[data-other] {
+  opacity: 0.45; /* someone else's, beside the person Review is for (#2057) */
+}
+.turn[data-missed] {
+  opacity: 0.35; /* nothing in it matches the search: kept in place, so the list doesn't move (#2580) */
+}
+.avatar {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  margin-top: 1px;
+  border-radius: 50%;
+  background: var(--who, var(--lib-dim));
+  color: #10161a;
+  font: 700 10.5px / 1 var(--mantine-font-family);
+}
+.turn[data-bot] .avatar {
+  background: var(--lib-bg2);
+  color: var(--mantine-color-anchor);
+}
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
+  min-width: 0;
+}
+.head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 22px;
+}
+.head time {
+  font-size: 12px;
+  color: var(--mantine-color-dimmed);
+}
+.speaker {
+  all: unset;
+  font: 600 13px var(--mantine-font-family);
+  color: var(--mantine-color-text);
+  max-width: 14em;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  border-radius: 2px;
+}
+.speaker:disabled {
+  cursor: default;
+}
+.turn[data-unmatched] .speaker {
+  color: var(--mantine-color-dimmed); /* no person matched this voice (#2580) */
+}
+.speaker:hover:not(:disabled) {
+  text-decoration: underline;
+}
+.speaker:focus-visible {
+  outline: 2px solid var(--mantine-color-anchor);
+}
+.nameEdit {
+  font: 600 12px var(--mantine-font-family);
+  padding: 2px 6px;
+}
+.status {
+  font-size: 12px;
+}
+
+/* A turn's actions: quiet until the turn is hovered or focused; always shown where there's no hover (touch). */
+.acts {
+  display: inline-flex;
+  gap: 2px;
+  flex-shrink: 0;
+  opacity: 0.35;
+  transition: opacity 120ms;
+}
+.turn:hover .acts,
+.turn:focus-within .acts {
+  opacity: 1;
+}
+
+/* A line: the words play (Live) or seek there (Review) when clicked; its time and its correction show on hover. */
+.lineRow {
+  display: flex;
+  align-items: flex-start;
+  min-width: 0;
+}
+.line {
+  all: unset;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  box-sizing: border-box;
+  margin-left: -6px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  cursor: pointer;
+  font: 14.5px / 1.5 var(--lib-speech);
+  color: var(--mantine-color-text);
+}
+.line:hover {
+  background: var(--lib-raise);
+}
+.line:focus-visible {
+  outline: 2px solid var(--mantine-color-anchor);
+}
+.line[aria-current],
+.line[data-playing] {
+  background: var(--mantine-primary-color-light);
+  box-shadow: inset 2px 0 0 var(--mantine-color-anchor);
+}
+.line[data-new] {
+  animation: arrive 4s ease-out;
+}
+@keyframes arrive {
+  from {
+    background: color-mix(in srgb, var(--who) 22%, transparent);
+  }
+}
+.line[data-said] {
+  cursor: default;
+  font-style: italic; /* what the assistant said */
+  color: color-mix(in oklab, var(--mantine-color-text) 85%, var(--mantine-color-anchor));
+}
+.line[data-said]:hover {
+  background: none;
+}
+.lineText {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.turn[data-tagging] .lineText {
+  opacity: 0.6;
+}
+.lineTime {
+  visibility: hidden;
+  font: 11px var(--mantine-font-family);
+  color: var(--lib-dim);
+  white-space: nowrap;
+}
+.lineRow:hover .lineTime,
+.lineRow:focus-within .lineTime,
+.line[aria-current] .lineTime,
+.line[data-playing] .lineTime,
+.box[data-ts="always"] .lineTime {
+  visibility: visible;
+}
+.lineUnlabel {
+  margin-top: 4px;
+  opacity: 0;
+}
+.lineRow:hover .lineUnlabel,
+.lineRow:focus-within .lineUnlabel,
+.lineUnlabel:focus-visible {
+  opacity: 1;
+}
+@media (hover: none) {
+  .acts,
+  .lineUnlabel {
+    opacity: 1;
+  }
+  .lineTime {
+    visibility: visible;
+  }
+}
+
+/* The assistant's unspoken log lines, folded into one line that opens. */
+.statusLine {
+  margin: 2px 0 2px 40px; /* under the turn text: the avatar and the gap */
+}
+.statusToggle {
+  all: unset;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  max-width: 100%;
+  cursor: pointer;
+  color: var(--lib-dim);
+  font: 12px var(--mantine-font-family-monospace);
+}
+.statusToggle:hover {
+  color: var(--mantine-color-dimmed);
+}
+.statusToggle:focus-visible {
+  outline: 2px solid var(--mantine-color-anchor);
+}
+.statusWho {
+  color: var(--mantine-color-anchor);
+}
+.statusText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.statusMore {
+  white-space: nowrap;
+}
+.statusLog {
+  list-style: none;
+  margin: 4px 0 6px;
+  padding: 6px 10px;
+  border-left: 2px solid var(--mantine-color-default-border);
+  font: 12px / 1.6 var(--mantine-font-family-monospace);
+  color: var(--mantine-color-dimmed);
+}
+.statusLog time {
+  color: var(--lib-dim);
+  margin-right: 6px;
+}
+
+/* Compact density (Live display). */
+.box[data-density="compact"] .turn {
+  padding: 3px 4px;
+}
+.box[data-density="compact"] .line {
+  font-size: 13.5px;
+  line-height: 1.4;
+  padding: 1px 6px;
+}
+
+/* Word balloons (Live display): chat bubbles, the owner on the right in the accent tint, everyone else on the left,
+   the assistant quiet and centred. Every control stays: the name renames, the bubble plays, the actions show. */
+.box[data-look="balloons"] .avatar {
+  display: none;
+}
+.box[data-look="balloons"] .turn {
+  max-width: min(78%, 60ch);
+  padding: 6px 0;
+}
+.box[data-look="balloons"] .turn[data-mine] {
+  margin-left: auto;
+}
+.box[data-look="balloons"] .turn[data-mine] .body {
+  align-items: flex-end;
+}
+.box[data-look="balloons"] .turn[data-bot] {
+  margin-inline: auto;
+}
+.box[data-look="balloons"] .head {
+  margin: 0 8px 3px;
+}
+.box[data-look="balloons"] .lineRow {
+  margin-bottom: 3px;
+}
+.box[data-look="balloons"] .turn[data-mine] .lineRow {
+  flex-direction: row-reverse;
+}
+.box[data-look="balloons"] .line {
+  flex: 0 1 auto;
+  margin: 0;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border-bottom-left-radius: 3px;
+  background: var(--lib-raise);
+  border: 1px solid var(--mantine-color-default-border);
+}
+.box[data-look="balloons"] .turn[data-mine] .line {
+  border-radius: 8px;
+  border-bottom-right-radius: 3px;
+  background: color-mix(in srgb, var(--mantine-primary-color-filled) 20%, var(--lib-card));
+  border-color: color-mix(in srgb, var(--mantine-color-anchor) 40%, var(--mantine-color-default-border));
+}
+.box[data-look="balloons"] .turn[data-bot] .line {
+  background: transparent;
+  border-style: dashed;
+  border-radius: 8px;
+}
+.box[data-look="balloons"] .statusLine {
+  margin: 2px auto;
+  width: fit-content;
+  max-width: 100%;
+}
+
+/* "N new lines" below a list scrolled away from its live end (#2286). */
+.newLines {
+  position: sticky;
+  bottom: 8px;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+.newLines > * {
+  pointer-events: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .line[data-new] {
+    animation: none;
+  }
+}
+
+/* A line heard from a TV or radio (#2468): in the dimmed text colour (which keeps its contrast, as opacity didn't),
+   with the TV tag as the cue, and nobody's. */
+.line[data-media] {
+  color: var(--mantine-color-dimmed);
+}
+.tvTag {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 5px;
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: 4px;
+  font-size: 0.75em;
+  font-weight: 600;
+  vertical-align: 0.1em;
+}
+/* A line's TV tag is its Not TV (#2643): at the start of the line, its own button, outside the line's play button. */
+.tvTag[data-action] {
+  all: unset;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin: 5px 6px 0 0;
+  padding: 0 4px;
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: 4px;
+  font-size: 0.75em;
+  font-weight: 600;
+  cursor: pointer;
+}
+.tvTag[data-action]:hover {
+  background: var(--lib-raise);
+}
+.tvTag[data-action]:focus-visible {
+  outline: 2px solid var(--mantine-color-anchor);
+}

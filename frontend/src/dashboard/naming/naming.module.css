@@ -1,0 +1,224 @@
+/* The shared naming inbox (#2366), in the layout Joe picked (direction A) and annotated (#3263). In a wide pane (People's,
+   Pets'), the rows are cards in as many columns as fit (#3241), each at least the picked size's card width
+   (--naming-card, set by NamingInbox), as the roster's cards are (#3101). A card is three columns: the picture at the
+   picked size (--naming-photo), then the guess with "Yes, <name>" beside it, its bar, its reason, a voice's words, and
+   when it was seen, then at the top right the name box with the answer buttons in one row under it, sharing its
+   width. Each card is its own container: a card too narrow for the three puts the name box and buttons under the
+   words, and a phone's card puts a small picture beside the words and the name box and buttons across the card.
+   Selectors are one class more specific than whosthis.css's, so bundle order does not matter. Live's rail (compact,
+   not .who-wide) keeps whosthis.css's own stacked rows, with the card's parts as the row's own children. */
+.photo {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: var(--mantine-radius-md);
+  background: var(--lib-bg2);
+}
+.lead {
+  position: relative;
+  display: block;
+  width: 100%;
+}
+.quote {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+/* The guess and its Yes on one line, the Yes wrapping under a long guess. */
+.guessLine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+.card {
+  display: contents; /* Live's rail: the parts are the row's own stacked children */
+}
+.side {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+/* The name box fills the column and adds nothing to its width, so the buttons and the 208 px floor size it. */
+.name {
+  contain: inline-size;
+  min-width: 0;
+}
+.answers {
+  display: flex;
+  gap: 4px;
+}
+/* An answer: its icon over its caption and key cap, about 46 px tall. */
+.answer {
+  flex: 1 1 0;
+  min-width: max-content;
+  height: 46px;
+  padding: 0 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-sm);
+  background: var(--mantine-color-default);
+  color: var(--mantine-color-text);
+}
+.answer:hover:not(:disabled) {
+  background: var(--mantine-color-default-hover);
+}
+.answer:focus-visible {
+  outline: 2px solid var(--mantine-primary-color-filled);
+  outline-offset: 1px;
+}
+.answer:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.icon {
+  display: flex;
+}
+.caption {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+}
+.kbd {
+  font-size: 8px;
+  line-height: 1;
+  padding: 1px 3px;
+  border-bottom-width: 1px;
+}
+:global(.who-wide) .list:global(.who-list) {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--naming-card, 620px)), 1fr));
+}
+:global(.who-wide .who-group).row {
+  display: block;
+  container: naming-card / inline-size;
+  padding: 16px 20px;
+  min-width: 0;
+}
+:global(.who-wide) .card {
+  display: grid;
+  grid-template-columns: var(--naming-photo, 180px) minmax(0, 1fr) auto;
+  grid-template-areas: "pic info side";
+  align-items: start;
+  gap: 8px 16px;
+}
+/* A row with no picture (a voice: its play button) keeps its column narrow, so its words start beside the button. */
+:global(.who-wide .who-group).row[data-media] {
+  --naming-photo: 48px;
+}
+:global(.who-wide) .card .pic {
+  grid-area: pic;
+  min-width: 0;
+}
+:global(.who-wide) .card .info {
+  grid-area: info;
+  gap: 6px;
+}
+:global(.who-wide) .card .side {
+  grid-area: side;
+  width: max-content;
+  min-width: 208px;
+}
+:global(.who-wide) .card > :not(.pic, .info, .side) {
+  grid-column: 1 / -1; /* every picture (Show all) spans the card */
+}
+/* A card showing every picture takes the whole width of the list, so the pictures have room to pick from. */
+:global(.who-wide) .row:has(> .card > :not(.pic, .info, .side)) {
+  grid-column: 1 / -1;
+}
+:global(.who-wide) .row :global(.who-guess) {
+  font-size: 16px;
+}
+:global(.who-wide) .row :global(.who-bar) {
+  max-width: 260px;
+}
+/* A card too narrow for the three columns (its words under about 180 px): the name box and buttons go under the words,
+   beside the picture. The width is the picture's, 16 px gaps twice, 180 px of words, and the 208 px name box. A phone's
+   card (below) is narrower still. */
+@container naming-card (min-width: 468px) and (max-width: 499px) {
+  :global([data-photo-size="S"]) .row:not([data-media]) .card {
+    grid-template-columns: var(--naming-photo) minmax(0, 1fr);
+    grid-template-areas:
+      "pic info"
+      "pic side";
+  }
+}
+@container naming-card (min-width: 468px) and (max-width: 599px) {
+  :global([data-photo-size="M"]) .row:not([data-media]) .card {
+    grid-template-columns: var(--naming-photo) minmax(0, 1fr);
+    grid-template-areas:
+      "pic info"
+      "pic side";
+  }
+}
+@container naming-card (min-width: 468px) and (max-width: 719px) {
+  :global([data-photo-size="L"]) .row:not([data-media]) .card {
+    grid-template-columns: var(--naming-photo) minmax(0, 1fr);
+    grid-template-areas:
+      "pic info"
+      "pic side";
+  }
+}
+/* A phone's card: a small picture beside the words, and the name box and buttons across the card under them. */
+@container naming-card (max-width: 467px) {
+  :global(.who-wide) .row .card {
+    grid-template-columns: min(112px, var(--naming-photo, 180px)) minmax(0, 1fr);
+    grid-template-areas:
+      "pic info"
+      "side side";
+    gap: 10px 12px;
+  }
+  :global(.who-wide) .card .side {
+    width: auto;
+    min-width: 0;
+  }
+  :global(.who-wide) .card .answer {
+    min-width: 0;
+  }
+}
+@container (max-width: 520px) {
+  :global(.who-wide .who-group).row {
+    padding: 12px;
+  }
+}
+.row:focus-visible {
+  outline: 2px solid var(--mantine-primary-color-filled);
+  outline-offset: 2px;
+}
+/* The selected row (NamingRow's aria-current), marked as a selected roster card is (people.module.css): the accent bar
+   on its left, and in a wide pane the card's border in the accent too. No tint behind it: the guess's colored words
+   are tuned to 4.5:1 on the card. */
+.row[aria-current] {
+  box-shadow: inset 3px 0 0 var(--mantine-color-anchor);
+}
+:global(.who-wide .who-group).row[aria-current] {
+  border-color: var(--mantine-color-anchor);
+}
+.header {
+  margin-bottom: 4px;
+  row-gap: 8px;
+}
+.view {
+  margin-left: auto;
+  flex: none;
+}
+.count {
+  white-space: nowrap;
+  font-size: 13px;
+  border-radius: 999px;
+  padding: 2px 10px;
+  background: var(--mantine-primary-color-light);
+  color: var(--mantine-primary-color-light-color);
+}

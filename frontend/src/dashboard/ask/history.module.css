@@ -1,0 +1,76 @@
+.root {
+  border-top: 1px solid var(--mantine-color-default-border);
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+}
+.root > [data-disclosure-trigger] {
+  cursor: pointer;
+  font-weight: 600;
+}
+.body {
+  overflow-wrap: anywhere;
+}
+.list {
+  list-style: none;
+  padding: 0;
+}
+.list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 0.35rem;
+  padding-block: 0.4rem;
+  border-bottom: 1px solid var(--mantine-color-default-border);
+}
+.list small {
+  width: 100%;
+  color: var(--mantine-color-dimmed);
+}
+/* A past question and a saved moment read as text that opens (#2594 follow-up), not a box each; the actions after the
+   list are Mantine buttons (they carry data-variant) on the four-button system. */
+.body button:not([data-variant]) {
+  cursor: pointer;
+  background: none;
+  color: var(--mantine-color-text);
+  border: 0;
+  border-radius: var(--mantine-radius-sm);
+  padding: 0;
+  min-height: 1.75rem;
+  max-width: 100%;
+  text-align: left;
+  white-space: normal;
+  font-weight: 500;
+}
+.body button:not([data-variant]):hover:not(:disabled) {
+  text-decoration: underline;
+}
+.body button:disabled {
+  cursor: default;
+}
+.answer {
+  margin-block: 0.5rem;
+}
+
+.body button:focus-visible {
+  outline: 2px solid var(--mantine-color-blue-6);
+  outline-offset: 2px;
+}
+.timing {
+  font-size: var(--mantine-font-size-xs);
+  color: var(--mantine-color-dimmed);
+}
+
+.moments :global(.mantine-Timeline-item:not(:first-of-type)) {
+  margin-top: 6px;
+}
+
+.listActions {
+  margin-top: 4px;
+}
+.list li > button:first-child {
+  flex: 1;
+  min-width: 0;
+}
+.list small {
+  order: 3;
+}

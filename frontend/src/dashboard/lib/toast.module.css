@@ -1,0 +1,18 @@
+/* A toast in Mantine's queue (#2596): the words, then Undo or another action on the same line. */
+.toast[data-error] {
+  border: 1px solid var(--lib-bad);
+}
+.toast[data-error] .text {
+  color: var(--lib-bad);
+}
+.body {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--mantine-font-size-sm);
+  color: var(--mantine-color-text);
+}
+.text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}

@@ -1,0 +1,61 @@
+// The browser gateway's overlay payload (payload type 0x02 in the 16 byte frame header, docs/CONTINUUM.md "Browser
+// gateway"): what to draw over one video frame, in frame fractions (0 to 1 of width and height) so it fits any
+// display size. One Overlay per capture time; the browser keeps them in a map keyed by the header's capture_us and
+// draws the one whose time matches the frame's.
+
+namespace continuum.overlay;
+
+/// A box around something, with its label and the detector's score.
+table Box {
+  x1: float;
+  y1: float;
+  x2: float;
+  y2: float;
+  score: float;
+  label: string;
+  /// Hue 0 to 360 for the box's colour, so the same person keeps the same colour across frames; -1 for the default.
+  hue: float = -1;
+  /// What it is, so a page can style and filter it: `face`, `body`, or `object` for vision's (empty when unknown).
+  kind: string;
+  /// What it follows across frames, so a page can smooth it and act on it: a face's track, say (empty when none).
+  id: string;
+}
+
+/// One joint of a skeleton: its place and the model's confidence (a joint under the page's threshold isn't drawn).
+struct Joint {
+  x: float;
+  y: float;
+  confidence: float;
+}
+
+/// A body pose: its box and its joints in the layout `layout` names (halpe26 is vision's).
+table Skeleton {
+  box: Box;
+  layout: string;
+  joints: [Joint];
+}
+
+/// A line through points, for a trail or a gaze ray.
+table Polyline {
+  points: [Joint];
+  label: string;
+  hue: float = -1;
+}
+
+/// A line of text pinned to a frame (a transcript line while it is being said, a caption).
+table Caption {
+  text: string;
+  /// Who said it, when known.
+  speaker: string;
+}
+
+table Overlay {
+  /// The capture time this overlay belongs to, microseconds UTC: the same value as the frame header's capture_us.
+  capture_us: ulong;
+  boxes: [Box];
+  skeletons: [Skeleton];
+  polylines: [Polyline];
+  captions: [Caption];
+}
+
+root_type Overlay;

@@ -1,0 +1,313 @@
+/* Settings' This machine (#386, drawn as cards in #787): a verdict, what needs installing, three tiles, the models in
+   memory, and what's using the machine (usageChart.module.css). Phone width (600px and under) drops the Models tile
+   and stacks each model process header and its rows. */
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.platform {
+  margin: -8px 0 0;
+  color: var(--mantine-color-dimmed);
+  font-size: 15px;
+}
+
+/* The verdict card. */
+.verdict {
+  padding: 20px 24px;
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+.bigDot {
+  flex: none;
+}
+.headline {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 600;
+}
+
+.ollama {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.smallDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+
+/* Needs installing. */
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.install {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px 16px;
+  align-items: center;
+}
+.kind {
+  font-weight: 400;
+  color: var(--mantine-color-dimmed);
+}
+.command {
+  display: inline-block;
+  margin-top: 6px;
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 12.5px;
+  background: var(--lib-raise);
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: 3px;
+  padding: 4px 8px;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+/* The tiles. */
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+.tile {
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.tileTitle {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--mantine-color-dimmed);
+}
+.big {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+.of {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--mantine-color-dimmed);
+}
+.small {
+  margin: 0;
+  color: var(--mantine-color-dimmed);
+  font-size: 13px;
+}
+.bar {
+  gap: 2px;
+}
+.modelSummary {
+  margin: 0;
+  padding: 0 24px 12px;
+  color: var(--mantine-color-dimmed);
+  font-size: 13px;
+}
+.inventoryNote {
+  margin: 0;
+  padding: 0 24px 12px;
+  color: var(--mantine-color-dimmed);
+  font-size: 13px;
+}
+.inventoryWarning {
+  padding: 0 24px 12px;
+  color: var(--lib-warn);
+  font-size: 13px;
+}
+.inventoryWarning p {
+  margin: 0;
+}
+.inventoryWarning ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+.modelGroup {
+  border-top: 1px solid var(--mantine-color-default-border);
+}
+.modelGroupHead {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px 20px;
+  align-items: start;
+  padding: 12px 24px;
+  background: var(--lib-bg2);
+}
+.modelProcess {
+  min-width: 0;
+}
+.modelProcess h4 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.modelProcess > span {
+  color: var(--mantine-color-dimmed);
+  font-size: 12px;
+}
+.processMemory {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  text-align: right;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+.modelRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 220px);
+  gap: 12px 24px;
+  padding: 12px 24px;
+  border-top: 1px solid var(--mantine-color-default-border);
+}
+.modelName,
+.modelState {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.mono {
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 13px;
+  font-weight: 550;
+  overflow-wrap: anywhere;
+}
+.modelPurpose {
+  color: var(--mantine-color-dimmed);
+  font-size: 13px;
+}
+.modelState {
+  color: var(--mantine-color-dimmed);
+  font-size: 12.5px;
+  text-align: right;
+}
+.modelDetails {
+  font-size: 12px;
+  color: var(--mantine-color-dimmed);
+}
+.dim,
+.unloaded {
+  color: var(--mantine-color-dimmed);
+}
+.configured h4 {
+  margin: 0;
+  padding: 14px 24px;
+  font-size: 14px;
+  font-weight: 600;
+  border-top: 1px solid var(--mantine-color-default-border);
+}
+
+@media (max-width: 600px) {
+  .stack {
+    gap: 16px;
+  }
+  .verdict {
+    padding: 16px;
+    align-items: flex-start;
+    gap: 14px;
+  }
+  .verdict .bigDot {
+    margin-top: 6px;
+  }
+  .headline {
+    font-size: 18px;
+  }
+  .install {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .install button {
+    justify-self: start;
+    height: 44px;
+  }
+  .tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .tile {
+    padding: 14px 16px;
+    gap: 8px;
+  }
+  .modelsTile {
+    display: none;
+  }
+  .big {
+    font-size: 26px;
+  }
+  .of {
+    display: block;
+    font-size: 13px;
+  }
+  .modelSummary,
+  .inventoryNote,
+  .inventoryWarning {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+  .modelGroupHead {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 12px 16px;
+    gap: 6px;
+  }
+  .processMemory {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    text-align: left;
+  }
+  .modelRow {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 12px 16px;
+    gap: 8px;
+  }
+  .modelState {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    text-align: left;
+  }
+  .configured h4 {
+    padding: 12px 16px;
+  }
+}
+
+/* A process's models, folded to one line (#2728) */
+.modelGroupToggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 16px;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.modelGroupLine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  font-size: 14px;
+}
+.modelProcessNote {
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: var(--mantine-color-dimmed);
+}

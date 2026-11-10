@@ -1,0 +1,144 @@
+/* The page frame (#2450): one left edge, one heading size, and one header row on every page. */
+.frame {
+  --page-gutter: 24px;
+  --page-top: 20px; /* the space above the page's first row; Known's sticky tab row takes it inside itself */
+  width: 100%;
+  max-width: calc(1280px + 2 * var(--page-gutter));
+  min-width: 0;
+  margin-inline: auto;
+  padding: var(--page-top) var(--page-gutter) 32px;
+}
+.frame[data-width="narrow"] {
+  max-width: calc(880px + 2 * var(--page-gutter));
+}
+.frame[data-width="wide"] {
+  max-width: none;
+}
+@media (max-width: 700px) {
+  .frame {
+    --page-gutter: 16px;
+    --page-top: 14px;
+  }
+}
+
+.head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px 16px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+.headText {
+  min-width: 0;
+  flex: 1 1 320px;
+}
+.titleRow {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.title {
+  margin: 0;
+  font-size: 24px;
+  line-height: 1.25;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.meta {
+  font-size: 14px;
+  color: var(--mantine-color-dimmed);
+}
+.lede {
+  margin: 4px 0 0;
+  max-width: 72ch;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--mantine-color-dimmed);
+}
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  max-width: 100%; /* on a phone the row wraps under the title: its controls wrap too, not off the screen */
+}
+.actions > * {
+  max-width: 100%;
+}
+
+/* Loading: the skeleton, then one quiet line once the wait runs long. */
+.slow {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--mantine-color-dimmed);
+}
+
+/* Empty: what will appear here, and the one thing that makes it appear. */
+.empty {
+  padding: 20px;
+  border: 1px dashed var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-md);
+  max-width: 560px;
+}
+.empty[data-compact] {
+  padding: 12px 14px;
+}
+.emptyTitle {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+.emptyText {
+  margin: 4px 0 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--mantine-color-dimmed);
+}
+.emptyAction {
+  margin-top: 12px;
+}
+
+/* Error: the theme's tinted ground with a border, the same in both themes, never a solid slab. */
+.error {
+  margin-block: var(--mantine-spacing-xs);
+  padding: 12px 14px;
+  background: var(--lib-bad-tint);
+  border: 1px solid color-mix(in srgb, var(--lib-bad) 35%, transparent);
+  border-radius: var(--mantine-radius-md);
+  color: var(--mantine-color-text);
+}
+.errorRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.errorTitle {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+.errorText {
+  margin: 2px 0 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.details {
+  margin-top: 6px;
+  font-size: 12.5px;
+  color: var(--mantine-color-dimmed);
+}
+.details summary {
+  cursor: pointer;
+  width: fit-content;
+}
+.details code {
+  display: block;
+  margin-top: 4px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12.5px;
+}

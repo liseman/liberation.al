@@ -1,0 +1,118 @@
+/* The shell measures its wrapping app bar as --top-h. Everything above the tail takes its natural height. */
+.page {
+  height: calc(100dvh - var(--top-h, 56px) - var(--bottom-h, 0px));
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.content {
+  flex: 1;
+  min-height: 0;
+}
+.content > :not(.logArea) {
+  flex-shrink: 0;
+}
+.logArea {
+  flex: 1;
+  min-height: 0;
+}
+
+.tail {
+  font-family: var(--mantine-font-family-monospace);
+  font-size: var(--mantine-font-size-xs);
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-sm);
+}
+
+.line {
+  padding: 1px var(--mantine-spacing-xs);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.line[data-level="error"] {
+  background: color-mix(in srgb, var(--lib-bad) 7%, transparent);
+}
+
+.line[data-level="warn"] {
+  background: color-mix(in srgb, var(--lib-warn) 7%, transparent);
+}
+
+.line[data-focused] {
+  background: var(--mantine-color-yellow-light);
+}
+
+/* The level badge: fixed width so the service names line up. A level taken from the line before is fainter. */
+.level {
+  display: inline-block;
+  min-width: 6ch;
+  margin-right: var(--mantine-spacing-xs);
+  padding: 0 2px;
+  border-radius: 1px;
+  font-size: 0.9em;
+  font-weight: 600;
+  text-align: center;
+  color: var(--mantine-color-dimmed);
+}
+
+.level[data-level="error"] {
+  color: var(--lib-bad);
+  background: color-mix(in srgb, var(--lib-bad) 15%, transparent);
+}
+
+.level[data-level="warn"] {
+  color: var(--lib-warn);
+  background: color-mix(in srgb, var(--lib-warn) 15%, transparent);
+}
+
+.level[data-level="debug"] {
+  opacity: 0.6;
+}
+
+.level[data-inherited] {
+  opacity: 0.4;
+}
+
+.count {
+  display: inline-block;
+  width: 5ch;
+  text-align: right;
+  color: var(--mantine-color-dimmed);
+  font-variant-numeric: tabular-nums;
+}
+
+.time {
+  color: var(--mantine-color-dimmed);
+  font-family: inherit;
+  font-size: inherit;
+  margin-right: var(--mantine-spacing-xs);
+}
+
+button.time:hover {
+  text-decoration: underline;
+}
+
+.service,
+.text {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+/* The service chips, a row per section: its title (a button that shows or hides the section) and its chips. */
+.groups {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px var(--mantine-spacing-sm);
+  align-items: center;
+}
+.groupRow {
+  display: contents;
+}
+.groupTitle {
+  font-size: var(--mantine-font-size-xs);
+  font-weight: 600;
+  color: var(--mantine-color-dimmed);
+}
+.groupTitle:hover {
+  color: var(--mantine-color-text);
+}

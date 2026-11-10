@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Rebuild the dashboard frontend when a pull, checkout, or rebase changed frontend/, so the dashboard doesn't keep
+# serving a build older than its source. Called by post-merge, post-checkout, and post-rewrite with the commits
+# before and after. Never fails the git command: a failed build leaves the old one in place.
+set -uo pipefail
+old=$1 new=$2
+case "$old" in *[!0]*) ;; *) exit 0 ;; esac # a new clone or worktree: mise run setup builds it
+# Only the main checkout serves the dashboard. In a linked worktree (a worker's, under liberational-wt/) npm ci would
+# install there, and through a frontend/node_modules link to the main checkout it wipes that checkout's (#1486).
+[ "$(git rev-parse --path-format=absolute --git-dir)" = "$(git rev-parse --path-format=absolute --git-common-dir)" ] || exit 0
+git diff --quiet "$old" "$new" -- frontend/ 2>/dev/null && exit 0
+if ! command -v mise >/dev/null; then
+  echo "frontend/ changed: run 'mise run frontend' to rebuild the dashboard" >&2
+  exit 0
+fi
+echo "frontend/ changed: rebuilding the dashboard (mise run frontend)" >&2
+mise run frontend || echo "The frontend build failed. The dashboard serves the previous build until 'mise run frontend' succeeds." >&2
+exit 0

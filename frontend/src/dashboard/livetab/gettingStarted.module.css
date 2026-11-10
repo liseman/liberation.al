@@ -1,0 +1,103 @@
+/* Live's Getting started (L5, #296), after Joe's approved design: a card with a progress bar and the six steps. */
+.card {
+  max-width: 720px;
+  margin: 0 auto 20px;
+  padding: 28px 32px;
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: 12px;
+  background: var(--lib-card);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.title {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 650;
+}
+.sub {
+  margin: 0;
+  font-size: 15px;
+  color: var(--mantine-color-dimmed);
+}
+.steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.steps li {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 6px;
+  border-top: 1px solid var(--mantine-color-default-border);
+}
+.dot {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--lib-dim);
+  color: #fff;
+}
+.done .dot {
+  border: 0;
+  background: var(--lib-ok);
+}
+.text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.stepTitle {
+  font-size: 15px;
+  font-weight: 550;
+}
+.done .stepTitle {
+  color: var(--mantine-color-dimmed);
+}
+.note {
+  font-size: 13px;
+  color: var(--mantine-color-dimmed);
+  overflow-wrap: anywhere;
+}
+.hide {
+  align-self: flex-start;
+}
+@media (max-width: 520px) {
+  .card {
+    padding: 20px 16px;
+  }
+  .steps li {
+    flex-wrap: wrap;
+  }
+  /* the text takes the row beside the dot, so a step's button goes under it instead of squeezing it to a word a
+     line (#478) */
+  .text {
+    flex-basis: calc(100% - 42px);
+  }
+  .steps li > a,
+  .steps li > button {
+    margin-left: 42px;
+  }
+}
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

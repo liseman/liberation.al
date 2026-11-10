@@ -1,0 +1,53 @@
+{
+  "name": "liberational-frontend",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "lint": "biome lint && tsc --noEmit",
+    "fmt": "biome check --write"
+  },
+  "dependencies": {
+    "@mantine/core": "^9.7.5",
+    "@mantine/dates": "^9.7.5",
+    "@mantine/hooks": "^9.7.5",
+    "@mantine/modals": "^9.7.5",
+    "@mantine/notifications": "^9.7.5",
+    "@mantine/spotlight": "^9.7.5",
+    "@sparkjsdev/spark": "^2.4.0",
+    "@tabler/icons-react": "^3.50.0",
+    "@tanstack/react-query": "^5.106.1",
+    "@tanstack/react-virtual": "^3.14.26",
+    "d3": "7.9.2",
+    "dayjs": "^1.11.23",
+    "flatbuffers": "^25.9.23",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "three": "^0.187.0",
+    "zustand": "^5.0.16"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.6.5",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.8",
+    "@types/d3": "7.4.3",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/three": "^0.187.0",
+    "@vitejs/plugin-react": "^6.2.1",
+    "fast-check": "^4.10.2",
+    "jsdom": "^31.0.0",
+    "msw": "^3.0.4",
+    "playwright": "^1.65.0",
+    "postcss": "^8.5.32",
+    "postcss-preset-mantine": "^1.18.0",
+    "postcss-simple-vars": "^7.0.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.6",
+    "vitest": "^5.1.0"
+  }
+}

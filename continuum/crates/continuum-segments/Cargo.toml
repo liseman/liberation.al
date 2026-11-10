@@ -1,0 +1,27 @@
+[package]
+name = "continuum-segments"
+description = "Continuum's segment store: per-stream, per-camera, per-hour columnar files for machine time series (#1755)"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+arrow-array = "60"
+arrow-buffer = "60"
+arrow-ipc = { version = "60", features = ["zstd"] }
+arrow-schema = "60"
+arrow-select = "60"
+chrono.workspace = true
+serde.workspace = true
+serde_json = "1"
+thiserror.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+rustix = { version = "1.1", features = ["event", "fs"] }
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,40 @@
+[package]
+name = "continuum-broker"
+description = "Continuum Broker daemon: the Unix socket control plane"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "continuum-broker"
+path = "src/main.rs"
+
+[dependencies]
+chrono.workspace = true
+clap.workspace = true
+continuum-catalog.workspace = true
+continuum-core.workspace = true
+continuum-sched.workspace = true
+continuum-shm.workspace = true
+continuum-wire.workspace = true
+crossbeam-channel.workspace = true
+flatbuffers.workspace = true
+libc.workspace = true
+rustix = { version = "1.1", features = ["fs", "process", "shm"] }
+serde.workspace = true
+serde_json = "1"
+thiserror.workspace = true
+tokio.workspace = true
+toml.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+continuum-client = { path = "../continuum-client" }
+proptest.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,332 @@
+/* Settings inside the shared drawer: its menu and cards retain their draft while the drawer is closed. */
+.page {
+  display: flex;
+  min-height: calc(100vh - var(--top-h, 56px));
+  background: var(--mantine-color-body);
+}
+.nav {
+  width: 260px;
+  flex-shrink: 0;
+  background: var(--lib-card);
+  border-right: 1px solid var(--mantine-color-default-border);
+  padding: 24px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  position: sticky;
+  top: var(--top-h, 56px);
+  align-self: flex-start;
+  height: calc(100vh - var(--top-h, 56px)); /* the menu runs the page's height, as designed */
+  overflow-y: auto;
+}
+.title {
+  margin: 0 8px 12px;
+  font: 650 22px var(--mantine-font-family);
+}
+.search {
+  margin: 0 4px 12px;
+}
+.navItem {
+  min-height: 40px;
+  padding: 0 12px;
+  border-radius: 4px;
+  color: var(--mantine-color-text);
+  text-decoration: none;
+}
+.navLabel {
+  font-size: 15px;
+}
+.navItem:hover {
+  background: var(--lib-raise);
+}
+.navItem[aria-current="page"] {
+  background: var(--lib-hi);
+  font-weight: 600;
+}
+.warn {
+  font-size: 12px;
+  color: var(--lib-warn);
+  white-space: nowrap;
+}
+.bad {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--lib-bad);
+  background: var(--lib-bad-tint);
+  padding: 1px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.dim {
+  font-size: 12px;
+  color: var(--mantine-color-dimmed);
+  white-space: nowrap;
+}
+.main {
+  flex-grow: 1;
+  min-width: 0;
+  padding: 32px 48px 120px;
+  position: relative;
+}
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-width: 960px;
+}
+/* Shared rows supply the card spacing; configuration fields add their control grid. */
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 320px);
+  gap: 24px;
+  align-items: center;
+}
+.row[data-toggle] {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.key {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.desc {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.grow {
+  flex-grow: 1;
+  min-width: 0;
+}
+/* An unsaved change: a thicker border in the accent, as the design marks it. */
+.changed {
+  border: 2px solid var(--mantine-color-anchor);
+}
+.isDefault,
+.isChanged {
+  flex-shrink: 0;
+}
+.isDefault {
+  color: var(--mantine-color-dimmed);
+}
+.isChanged {
+  color: var(--mantine-color-anchor);
+}
+.empty {
+  padding: 8px 0;
+}
+.loading {
+  padding: 48px;
+}
+.bar {
+  position: sticky;
+  bottom: 24px;
+  margin-top: 32px;
+  max-width: 960px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 18px;
+  border-radius: 8px;
+  background: #1c1c1a;
+  color: #ffffff;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+.barText {
+  min-width: 0;
+}
+.barBlocked {
+  color: #f5d08a;
+}
+.barError {
+  color: #ffb3b0;
+}
+.barActions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+/* The link back to the menu, at phone width only (#787). */
+/* Back to the menu, on a narrow screen only: Mantine's subtle Button (#2041), at a 44 px touch height. */
+.back {
+  display: none;
+  align-self: flex-start;
+  min-height: 44px;
+  margin-top: -12px;
+  padding-inline: 0;
+}
+@media (max-width: 900px) {
+  .page {
+    flex-direction: column;
+  }
+  .nav {
+    width: auto;
+    align-self: stretch;
+    position: static;
+    height: auto;
+    border-right: 0;
+  }
+  .navItem {
+    min-height: 44px;
+  }
+  .main {
+    padding: 24px 16px 120px;
+  }
+
+  /* The menu and the section take turns: the menu fills the page until a section is opened, and search results show
+     under the menu while searching. */
+  .page[data-shown="section"]:not([data-searching]) .nav,
+  .page[data-shown="menu"]:not([data-searching]) .main {
+    display: none;
+  }
+  .page[data-shown="section"]:not([data-searching]) .back {
+    display: inline-flex;
+  }
+}
+/* The bar's buttons on its dark ground, in either theme: light while they work, plainly dimmed when they can't. */
+.barSave {
+  background: #ffffff;
+  color: #1c1c1a;
+}
+.barSave:disabled,
+.barSave[data-disabled] {
+  background: #4a4a45;
+  color: #b9b9b2;
+}
+.barDiscard {
+  color: #ffffff;
+  border-color: #6f6f69;
+  background: transparent;
+}
+.barDiscard:disabled,
+.barDiscard[data-disabled] {
+  color: #8a8a84;
+  border-color: #4a4a45;
+  background: transparent;
+}
+.readOnly {
+  max-width: 960px;
+  margin-bottom: 16px;
+}
+/* Advanced's filter stays narrow enough to scan beside the section cards. */
+.filter {
+  width: 320px;
+  max-width: 100%;
+}
+
+.drawerContent {
+  display: flex;
+  flex-direction: column;
+}
+/* The drawer's one header row: the title, Settings' search, and close. */
+.drawerHeader {
+  gap: 16px;
+}
+.drawerTitle {
+  font: 600 18px var(--mantine-font-family);
+  white-space: nowrap;
+}
+.drawerTitle:focus {
+  outline: none; /* focus lands here on opening, for screen readers; it isn't a control */
+}
+.searchSlot {
+  flex: 1;
+  /* The search's height even while it's absent (loading, or hidden as the drawer closes), so the header row and the
+     body under it don't jump 8px. */
+  min-height: 36px;
+  max-width: 360px;
+  margin-right: auto;
+}
+.drawerBody {
+  flex: 1;
+  min-height: 0;
+  padding: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+/* The page fills the drawer, so nothing shows through below a short section or the phone's menu. */
+.drawerBody .page {
+  flex: 1 0 auto;
+  min-height: 0;
+}
+.drawerBody .nav {
+  top: 0;
+  height: auto;
+}
+.drawerBody .title {
+  display: none;
+}
+.drawerBody .main {
+  padding: 24px 28px 96px;
+}
+
+/* On a wide drawer the menu's column runs the full height (#2450 board item 5): the column is painted on the page,
+   so the menu itself can stay sticky at its own height. */
+@media (min-width: 901px) {
+  .drawerBody .page {
+    background: linear-gradient(
+      to right,
+      var(--lib-card) 0 260px,
+      var(--mantine-color-default-border) 260px 261px,
+      var(--mantine-color-body) 261px
+    );
+  }
+  .drawerBody .nav {
+    background: none;
+    border-right-color: transparent;
+  }
+}
+
+@media (max-width: 900px) {
+  .drawerBody .main {
+    padding: 24px 16px 96px;
+  }
+  .bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+  .barActions > button {
+    flex: 1;
+    min-height: 40px;
+  }
+}
+
+@media (max-width: 600px) {
+  .row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+  .row[data-toggle] {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 3px 12px;
+  }
+  .control {
+    flex-wrap: wrap;
+  }
+}
+
+/* People and privacy's list (#2728): what it is on the left, On or Off on the right */
+.leaves {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+/* Advanced's folded sections (#2728): how many settings, and Show or Hide */
+.advancedTrail {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.dimCount {
+  font-size: var(--mantine-font-size-sm);
+  color: var(--mantine-color-dimmed);
+}

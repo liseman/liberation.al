@@ -1,0 +1,50 @@
+[build-system]
+requires = ["maturin>=1.16,<2"]
+# maturin, plus the ffmpeg feature (H.264 decoding for network-camera vision) wherever FFmpeg's development
+# libraries are installed, so a plain uv sync or uv pip install keeps it (#1626). See build_backend/continuum_build.py.
+build-backend = "continuum_build"
+backend-path = ["build_backend"]
+
+[project]
+name = "continuum-py"
+description = "Python bindings for Continuum Broker's Tier 0 shared memory arena"
+requires-python = ">=3.12"
+dynamic = ["version"]
+# NumPy is optional: Lease.numpy() and numpy.from_dlpack() need it; memoryviews and DLPack capsules don't.
+dependencies = []
+
+[project.optional-dependencies]
+numpy = ["numpy>=2.1"]
+# continuum_py.device: slab views as torch tensors on cuda, mps, or cpu.
+torch = ["torch>=2.11"]
+
+[tool.uv]
+# The root project depends on this package by path (not editable), so uv caches its wheel; these say when to build it
+# again: the Rust it compiles, the lockfile, the schema the generated code comes from, and the Python package.
+cache-keys = [
+  { file = "pyproject.toml" },
+  { file = "Cargo.toml" },
+  { file = "Cargo.lock" },
+  { file = "crates/**/Cargo.toml" },
+  { file = "crates/**/*.rs" },
+  { file = "schemas/*.fbs" },
+  { file = "python/**/*.py" },
+  { file = "python/**/*.pyi" },
+  { file = "build_backend/*.py" },
+  { env = "CONTINUUM_PY_FFMPEG" },
+]
+
+[tool.maturin]
+manifest-path = "crates/continuum-py/Cargo.toml"
+python-source = "python"
+module-name = "continuum_py._native"
+
+# ty checks the package and its tests from here (mise run continuum-check), not through the repo root's config,
+# whose src list doesn't include continuum/.
+[tool.ty.environment]
+python-version = "3.14"
+# The build backend's tests import it from its own directory, as the build frontend does.
+extra-paths = ["build_backend"]
+
+[tool.ty.src]
+include = ["python", "build_backend", "crates/continuum-py/tests"]

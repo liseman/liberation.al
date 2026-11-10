@@ -1,0 +1,62 @@
+/* The Voice clones panel and the recorder, after .clones, .clone, .clone-st, and .rec-* in static/dashboard/tabs.css. */
+/* Settings' Voice clones panel (#2455): it sits in the section, under its heading. */
+.clones {
+  min-width: 0;
+}
+
+.pick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.clone {
+  width: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 6px 12px;
+  border: 1px solid var(--mantine-color-default-border);
+  border-left: 3px solid var(--who);
+  border-radius: var(--mantine-radius-sm);
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.clone:hover:not(:disabled) {
+  background: var(--lib-raise);
+}
+
+.clone[aria-checked="true"] {
+  background: var(--mantine-primary-color-light);
+  border-color: var(--mantine-color-anchor);
+  border-left-color: var(--who);
+}
+
+.clone:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.clone span {
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--mantine-color-dimmed);
+}
+
+.text {
+  font: 16px / 1.5 var(--lib-speech);
+}
+
+.status {
+  height: 40px;
+  overflow: hidden;
+  margin: 8px 0 0;
+  line-height: 1.45;
+}
+
+.time {
+  font-size: 22px;
+  font-weight: 600;
+}

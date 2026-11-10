@@ -1,0 +1,128 @@
+/* Who's this? (#310, #347): its rows on Live's rail (compact) and People's pane (wide). Class names are global, as
+   Live's other rail styles are. */
+.who-h {
+  font: 600 13.5px var(--mantine-font-family);
+  margin: 14px 0 6px;
+}
+.who-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.who-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.who-group {
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--lib-bg2);
+}
+.who-group:last-child {
+  border-bottom: 0;
+}
+.who-shots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.who-shots .face-thumb,
+.who-shots .who-shot {
+  width: 40px;
+  height: 40px;
+  border-radius: 3px;
+  background: var(--lib-bg2);
+  object-fit: cover;
+  flex: none;
+}
+.who-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.who-bar {
+  max-width: 220px;
+}
+.who-now {
+  color: var(--lib-ok);
+}
+.who-picks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  align-items: center;
+}
+/* People's pane (wide): one card per row. With room (the design's full width), three columns: the pictures or clip
+   and when it was seen, the guess, and the answers. In a narrower pane, the answers go under the guess. */
+.who-wide {
+  container-type: inline-size;
+}
+.who-wide .who-list {
+  gap: 12px;
+}
+.who-wide .who-group {
+  display: grid;
+  grid-template-columns: minmax(0, 200px) minmax(0, 1fr);
+  grid-template-areas:
+    "what body"
+    "what picks";
+  align-items: center;
+  gap: 10px 20px;
+  padding: 16px 20px;
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: 8px;
+  background: var(--lib-card);
+}
+.who-wide .who-what {
+  grid-area: what;
+}
+.who-wide .who-body {
+  grid-area: body;
+}
+.who-wide .who-picks {
+  grid-area: picks;
+}
+.who-wide .who-group:last-child {
+  border-bottom: 1px solid var(--mantine-color-default-border);
+}
+.who-wide .who-guess {
+  font-size: 16px;
+}
+.who-wide .who-bar {
+  max-width: 320px;
+}
+@container (min-width: 900px) {
+  .who-wide .who-group {
+    grid-template-columns: minmax(0, 300px) minmax(0, 1fr) auto;
+    grid-template-areas: "what body picks";
+    gap: 12px 24px;
+  }
+}
+@container (max-width: 420px) {
+  .who-wide .who-group {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "what"
+      "body"
+      "picks";
+  }
+}
+.who-quote {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.who-shots:has(.who-quote) {
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+}
+.who-state {
+  min-height: 1.45em;
+  margin: 0;
+}

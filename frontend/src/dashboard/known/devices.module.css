@@ -1,0 +1,42 @@
+/* Known › Devices' Wi-Fi cards (#1326): a bar across the day with the device's stays (the cards themselves are
+   settings/devices/deviceCards.module.css, #3267). */
+/* The whole day, midnight to midnight: the device's stays filled in, marks at 06, 12, and 18, and an edge at now. */
+.bar {
+  position: relative;
+  height: 6px;
+  margin: 4px 0;
+  border-radius: 3px;
+  background: var(--mantine-color-default-border);
+}
+/* The rest of the day, still to come: fainter than the part already past. */
+.later {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  background: var(--mantine-color-body);
+  opacity: 0.55;
+}
+.tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--mantine-color-dimmed);
+  opacity: 0.45;
+}
+.now {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--mantine-color-text);
+}
+.stay {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 3px;
+  background: var(--mantine-primary-color-filled);
+}

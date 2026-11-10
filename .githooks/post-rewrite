@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# After `git pull --rebase` or any rebase ($1 is "rebase"; amends change nothing to rebuild for).
+# Turned on by `mise run hooks`.
+[ "${1:-}" = rebase ] || exit 0
+exec "$(dirname "$0")/rebuild-frontend" ORIG_HEAD HEAD

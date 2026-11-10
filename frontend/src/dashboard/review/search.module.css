@@ -1,0 +1,85 @@
+.search {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding-top: 10px;
+}
+.search[data-active] {
+  flex: 1;
+  min-height: 0;
+}
+/* The transcript shows below, its turns dimmed to the matches (#2593). A fixed share, so the transcript resizes once
+   as a search opens, not with every word typed. */
+.search[data-active][data-beside] {
+  flex: 0 0 45%;
+}
+/* Stacked (as review.module.css): the box, buttons, and notices take most of a small panel, so the results need more. */
+@media not ((min-aspect-ratio: 4 / 3) and (min-width: 900px) and (min-height: 600px)) {
+  .search[data-active][data-beside] {
+    flex-basis: 62%;
+  }
+}
+.results {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.heading {
+  margin: 10px 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--rv-ink);
+}
+.hit {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  padding: 9px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  text-align: left;
+  color: var(--rv-ink);
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.hit:hover,
+.hit[aria-selected="true"] {
+  background: var(--lib-raise);
+  border-color: var(--rv-line);
+}
+.hit:focus-visible {
+  outline: 2px solid var(--rv-acc);
+}
+.hit mark {
+  background: var(--mantine-primary-color-light);
+  color: inherit;
+  font-weight: 650;
+}
+.meta {
+  font-size: 11px;
+  color: var(--rv-mute);
+  font-variant-numeric: tabular-nums;
+}
+.notice {
+  margin: 0;
+  font-size: 12px;
+  color: var(--rv-mute);
+}
+.group {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+@media (max-width: 48em) {
+  .search input,
+  .search button {
+    min-height: 44px;
+  }
+}

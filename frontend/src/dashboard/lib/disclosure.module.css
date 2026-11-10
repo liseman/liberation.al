@@ -1,0 +1,17 @@
+.trigger {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35em;
+  max-width: 100%;
+  font: inherit;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.chevron {
+  flex-shrink: 0;
+  align-self: center;
+  transition: transform 150ms ease;
+}
+.chevron[data-open="true"] {
+  transform: rotate(90deg);
+}

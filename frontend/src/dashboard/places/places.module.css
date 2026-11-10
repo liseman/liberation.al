@@ -1,0 +1,287 @@
+/* Known › Places (#2796): the place list beside the plan on a wide screen, above it on a phone. */
+.layout {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+@media (max-width: 720px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.plan {
+  padding: 16px;
+  min-width: 0;
+}
+
+.planHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.planTitle {
+  margin: 0;
+  font-size: var(--mantine-font-size-lg);
+}
+
+/* The plan scales down to the column and never past its own drawn size. */
+.drawing svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin-inline: auto;
+}
+
+/* The key under a plan: one swatch per kind of mark its overlay draws (plan/render.ts's look, in miniature). */
+.legend {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  font-size: var(--mantine-font-size-xs);
+  color: var(--mantine-color-dimmed);
+}
+
+.legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.swatch {
+  display: inline-block;
+  width: 18px;
+  height: 10px;
+}
+
+.swatch[data-mark="owner"] {
+  border-top: 3px solid var(--mantine-primary-color-filled);
+  height: 3px;
+}
+
+.swatch[data-mark="unsure"] {
+  border-top: 3px dashed #b45309;
+  height: 3px;
+}
+
+.swatch[data-mark="partial"] {
+  border: 1px dashed var(--mantine-color-dimmed);
+}
+
+.swatch[data-mark="unexplored"] {
+  border: 1px dashed var(--mantine-color-dimmed);
+  background: repeating-linear-gradient(45deg, var(--mantine-color-dimmed) 0 1.5px, transparent 1.5px 5px);
+  opacity: 0.7;
+}
+
+.swatch[data-mark="camera"] {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--mantine-color-text);
+}
+
+/* The app's own dark (Mantine's), as the plan follows it, not the system's. */
+:global([data-mantine-color-scheme="dark"]) .swatch[data-mark="unsure"] {
+  border-top-color: #f59e0b;
+}
+
+/* Paths (#2831): a second SVG over the plan with the plan's viewBox, so the two scale together. */
+.drawingWrap {
+  position: relative;
+  max-width: max-content;
+  margin-inline: auto;
+}
+
+.paths {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.here {
+  stroke: var(--lib-card);
+  stroke-width: 2;
+  pointer-events: visiblePainted;
+}
+
+.scrubber {
+  margin-top: 12px;
+}
+
+.who {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+}
+
+.whoButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  padding: 2px 0;
+  font: inherit;
+  font-size: var(--mantine-font-size-sm);
+  color: var(--mantine-color-text);
+  cursor: pointer;
+}
+
+.whoButton[aria-pressed="false"] {
+  opacity: 0.4;
+  text-decoration: line-through;
+}
+
+.whoSwatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+
+.whoNote {
+  color: var(--mantine-color-dimmed);
+}
+
+/* Correcting a plan (#2859): grips over the plan, and the rooms, doors, and findings beside it. */
+.editor {
+  margin-top: 4px;
+}
+
+.drawingWrap[data-stale] {
+  opacity: 0.5;
+}
+
+.handles {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+
+.wallHandle {
+  stroke: transparent;
+  stroke-width: 14;
+  stroke-linecap: round;
+  cursor: move;
+}
+
+.wallHandle:hover {
+  stroke: var(--mantine-primary-color-filled);
+  stroke-opacity: 0.35;
+}
+
+.corner {
+  fill: var(--lib-card);
+  stroke: var(--mantine-primary-color-filled);
+  stroke-width: 2;
+  cursor: grab;
+}
+
+.editorPanels {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
+  margin-top: 14px;
+}
+
+@media (max-width: 720px) {
+  .editorPanels {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.panelTitle {
+  margin: 0 0 8px;
+  font-size: var(--mantine-font-size-sm);
+  font-weight: 600;
+}
+
+.openings,
+.findings {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  font-size: var(--mantine-font-size-sm);
+}
+
+.openings li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+.findings li {
+  padding: 3px 0 3px 10px;
+  border-left: 3px solid var(--mantine-color-yellow-6);
+  margin-bottom: 4px;
+}
+
+.findings li[data-severity="error"] {
+  border-left-color: var(--mantine-color-red-6);
+}
+
+.ownerBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+/* The 3D view (#2876): a canvas that fills the panel's width, a little shorter than wide. */
+.cloud {
+  position: relative;
+  width: 100%;
+  height: clamp(280px, 62vh, 640px);
+  border-radius: var(--mantine-radius-sm);
+  overflow: hidden;
+  background: var(--lib-card, transparent);
+  touch-action: none;
+}
+
+.cloudNote {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cloudHome {
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+}

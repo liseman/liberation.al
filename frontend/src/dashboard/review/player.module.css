@@ -1,0 +1,326 @@
+/* The Review player (R2, #327): one camera large and the others as tiles beside it, then the controls. */
+.player {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.stage {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-auto-rows: minmax(0, 1fr);
+  gap: 8px;
+}
+.stage[data-tiles] {
+  grid-template-columns: minmax(0, 3fr) minmax(0, 1fr);
+}
+.big,
+.tile {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: #2b2f36;
+}
+.big {
+  grid-column: 1;
+  grid-row: var(--row);
+  aspect-ratio: var(--player-ratio, 16 / 9); /* an embedding sets its clip's own shape (activities, #2299) */
+  border-radius: 8px;
+}
+.tile {
+  grid-column: 2;
+  grid-row: var(--row);
+  border-radius: 8px;
+  background: #3a3f47;
+}
+.big canvas,
+.tile canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+  background: transparent;
+}
+.big:not([data-video]) canvas,
+.tile:not([data-video]) canvas,
+canvas[data-standby] {
+  visibility: hidden;
+}
+.label {
+  position: absolute;
+  left: 12px;
+  top: 10px;
+  z-index: 1;
+  padding: 3px 8px;
+  border-radius: 3px;
+  background: rgb(0 0 0 / 55%);
+  color: #fff;
+  font-size: 13px;
+  pointer-events: none;
+}
+.tile .label {
+  left: 8px;
+  top: 8px;
+  padding: 2px 6px;
+  font-size: 12px;
+}
+.nothing {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px 24px;
+  text-align: center;
+  color: #d7dbe2;
+  font-variant-numeric: tabular-nums;
+}
+.caption {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1;
+  margin: 0;
+  padding: 18px 14px 12px;
+  background: linear-gradient(transparent, rgb(0 0 0 / 60%));
+  color: #fff;
+  font-size: 14px;
+  line-height: 1.4;
+}
+/* The caption's words: two lines over the picture, all of them once tapped (aria-expanded). */
+/* The caption's words and its notes, two lines over the picture, all of them once opened (data-open). The words
+   are an inline button, so "(12 s before)" and the unchanged mark follow them on the same line. */
+.captionLine {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+.captionLine[data-open] {
+  display: block;
+}
+.captionText {
+  display: inline;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+.big:has(.momentNavigation) {
+  --moment-controls-height: 40px;
+}
+.big:has(.momentNavigation) .caption {
+  bottom: var(--moment-controls-height);
+  padding-bottom: 6px;
+  background: none;
+}
+.big:has(.momentNavigation) .caption::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 calc(-1 * var(--moment-controls-height));
+  z-index: -1;
+  background: linear-gradient(transparent, rgb(0 0 0 / 50%));
+  pointer-events: none;
+}
+.momentNavigation {
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0;
+  padding: 5px 10px;
+  border-radius: 999px;
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.2;
+  white-space: nowrap;
+  background: linear-gradient(rgb(0 0 0 / 30%), rgb(0 0 0 / 48%));
+  pointer-events: none;
+}
+.momentNavigation span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.momentKey {
+  color: #fff;
+  background: rgb(255 255 255 / 14%);
+  border-color: rgb(255 255 255 / 35%);
+}
+.same {
+  display: inline-flex;
+  vertical-align: middle;
+  margin-left: 6px;
+  padding: 1px 3px;
+  border-radius: 2px;
+  background: rgb(255 255 255 / 18%);
+}
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.off {
+  color: #d7dbe2;
+  font-size: 12.5px;
+}
+.who {
+  display: block;
+  font-size: 12.5px;
+  color: #d7dbe2;
+}
+.noneTile {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  font-size: 11px;
+  color: #d7dbe2;
+}
+.swap {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  border-radius: inherit;
+}
+.swap:hover {
+  background: rgb(255 255 255 / 6%);
+}
+.swap:focus-visible {
+  outline: 2px solid var(--rv-acc);
+  outline-offset: -2px;
+}
+.cover {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+/* Pushes the timeline's tools and "?" to the bar's right end; gone when the bar wraps on a narrow screen. */
+.spacer {
+  flex: 1 1 0;
+}
+/* Play/pause is Mantine's ActionIcon and speed its Button (#2041): only their place in the row is ours. */
+.play {
+  flex: none;
+}
+.clock {
+  flex: none;
+  min-width: 5.2em;
+  font-size: 18px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.speed {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+.skip {
+  margin-left: auto;
+}
+.skip + .skip {
+  margin-left: 0;
+}
+/* Phones (#2454 follow-up): the large camera on top, the others in one row under it that swipes sideways. The
+   stage scrolls; the large camera spans the tiles' columns but stays one screen wide and pinned at the left. */
+@media (max-width: 700px) {
+  .stage[data-tiles] {
+    container-type: inline-size;
+    grid-template-columns: none;
+    grid-template-rows: auto auto;
+    grid-auto-rows: auto;
+    grid-auto-columns: 38%;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x proximity;
+    scrollbar-width: none;
+  }
+  .stage[data-tiles] .big {
+    grid-row: 1;
+    grid-column: 1 / span var(--tiles);
+    justify-self: start;
+    width: 100cqw;
+    position: sticky;
+    left: 0;
+  }
+  .stage[data-tiles] .tile {
+    grid-row: 2;
+    grid-column: auto;
+    aspect-ratio: 16 / 9;
+    scroll-snap-align: start;
+  }
+}
+
+.faceError {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  z-index: 2;
+  padding: 8px 12px;
+  border-radius: 4px;
+  background: rgb(0 0 0 / 80%);
+  color: #fff;
+  pointer-events: none;
+}
+
+/* A matched box's actions over its label (#2607): "Not <name>", and a person's card. Shown on hover or tap. */
+.boxMenu {
+  position: absolute;
+  z-index: 3;
+  display: flex;
+  gap: 4px;
+  padding: 2px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--mantine-color-dark-9) 72%, transparent);
+}
+
+/* What the journal kept of a moment whose video expired (#2838): its promoted clip or still (the Journal tab's
+   SourceMedia) filling the camera's space, letterboxed, with what was seen under it. */
+.kept {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  background: #000;
+}
+.kept > video,
+.kept > img {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  object-fit: contain;
+}
+.keptCaption {
+  margin: 0;
+  padding: 6px 10px;
+  font-size: var(--mantine-font-size-sm);
+  color: #fff;
+  background: rgb(0 0 0 / 0.6);
+}

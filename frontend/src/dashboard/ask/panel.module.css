@@ -1,0 +1,56 @@
+/* The Ask window (#1358): floating above the page, or a bottom sheet on a phone. It sits over every tab's content
+   but under Mantine's modals (z-index 200), so a confirm dialog opened from inside it stays on top. */
+.panel {
+  position: fixed;
+  min-width: 0;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--mantine-color-default-border);
+  /* One surface (#2594 follow-up): the window is the card colour, so the Ask inside it (a card on that colour too)
+     shows no second fill; the question box is the only field set into it (ask.module.css .input). */
+  background: var(--lib-card);
+  box-shadow: 0 12px 36px #0003;
+  z-index: 150;
+}
+.window {
+  border-radius: 12px;
+}
+.sheet {
+  left: 0;
+  right: 0;
+  bottom: 0;
+  max-height: min(620px, 75dvh); /* fits what's in it, up to this */
+  border-radius: 12px 12px 0 0;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.heading {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--mantine-color-default-border);
+}
+.handle {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.handle:active {
+  cursor: grabbing;
+}
+.title {
+  flex: 1;
+  min-width: 0;
+}
+.grip {
+  cursor: grab;
+}
+.body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  padding: 10px;
+  overflow: hidden;
+}

@@ -1,0 +1,20 @@
+[package]
+name = "continuum-wire"
+description = "Continuum's socket wire format: length-prefixed ControlEnvelope frames and arena fds over SCM_RIGHTS"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+continuum-core.workspace = true
+flatbuffers.workspace = true
+rustix = { version = "1.1", features = ["net", "fs"] }
+thiserror.workspace = true
+tokio = { workspace = true, features = ["net", "io-util"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt", "net", "io-util", "time"] }
+
+[lints]
+workspace = true

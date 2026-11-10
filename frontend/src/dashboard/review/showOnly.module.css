@@ -1,0 +1,224 @@
+/* Review filters share one surface. A long People list scrolls inside its group; things and events wrap (#2287). */
+.showOnly {
+  border: 1px solid var(--rv-line);
+  border-radius: var(--mantine-radius-md);
+  padding: 16px;
+  margin: 8px 0 12px;
+  min-width: 0;
+  background: var(--rv-bg2);
+}
+.legend {
+  padding: 0 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--rv-ink);
+}
+.filters {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.search {
+  min-width: 0;
+}
+.cameraChoice {
+  display: inline-flex;
+  max-width: 100%;
+}
+.cameraChoice > div {
+  min-width: 0;
+  max-width: 100%;
+}
+.cameraChip {
+  height: auto;
+  min-height: 32px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+}
+.group {
+  min-width: 0;
+}
+.group:first-child {
+  grid-column: 1 / -1;
+}
+.groupName {
+  color: var(--rv-dim);
+  font-size: 12px;
+  font-weight: 600;
+  margin: 0 0 8px;
+}
+.groupChips {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 6px;
+  max-height: 168px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 2px;
+}
+.pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 2px;
+}
+.chip {
+  flex: 0 1 auto;
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 4px 10px;
+  border-radius: var(--mantine-radius-sm);
+  border: 1px solid var(--rv-line);
+  background: var(--rv-bg);
+  color: var(--rv-ink);
+  font: 13px var(--mantine-font-family);
+  text-align: left;
+  cursor: pointer;
+}
+.chip:hover {
+  background: var(--lib-raise);
+}
+.chip[data-unrelated],
+.cameraChoice[data-unrelated] .cameraChip,
+.cameraChoice:has(input[data-unrelated]) .cameraChip {
+  color: var(--rv-mute);
+  border-style: dashed;
+  opacity: 0.55;
+}
+.chip:focus-visible,
+.groupChips:focus-visible {
+  outline: 2px solid var(--rv-acc);
+  outline-offset: 1px;
+}
+.dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--so-color);
+}
+.cameraChip .dot {
+  display: inline-block;
+  margin-right: 6px;
+}
+.chip[data-unrelated] .dot,
+.cameraChoice:has(input[data-unrelated]) .dot {
+  background: var(--rv-mute);
+}
+.chip[aria-pressed="true"] {
+  border-color: var(--so-color);
+  background: color-mix(in oklab, var(--so-color) 18%, var(--rv-bg));
+}
+/* Room for three digits whatever the count is now: the day's counts arrive in steps (a first part of the day, then
+   all of it), and a chip that widened as its count grew rewrapped its group a row taller and pushed everything under
+   it down (#2577 follow-up). */
+.count {
+  display: inline-block;
+  min-width: 3ch;
+  color: var(--rv-dim);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.cameraChip .count {
+  margin-left: 6px;
+  color: inherit;
+  opacity: 0.7;
+}
+.empty {
+  color: var(--rv-mute);
+  font-size: 13px;
+  grid-column: 1 / -1;
+}
+.controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--rv-line);
+}
+.more {
+  align-self: center;
+}
+.markers {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+}
+.markersName {
+  font-size: 12px;
+  color: var(--rv-dim);
+}
+.showAll {
+  margin-left: auto;
+}
+.selection {
+  flex: 1 1 100%;
+  font-size: 12px;
+  color: var(--rv-dim);
+}
+@media (max-width: 600px) {
+  .showOnly {
+    padding: 12px;
+  }
+  .filters,
+  .list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .chip,
+  .cameraChip {
+    min-height: 40px;
+  }
+}
+
+/* The timeline's lane labels, over the canvas (Timeline.tsx). */
+/* The lanes' names, a column left of the track (#2577): each beside its lane, right-aligned to it. */
+.laneLabels {
+  position: relative;
+  flex: none;
+  width: 84px;
+}
+.laneLabel {
+  position: absolute;
+  left: 0;
+  right: 8px;
+  overflow: hidden;
+  font-size: 10.5px;
+  color: var(--rv-dim);
+  text-align: right;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+.lgPeople,
+.lgEvent {
+  display: inline-block;
+  width: 14px;
+  height: 8px;
+  margin-right: 5px;
+  vertical-align: middle;
+  border-radius: 1px;
+}
+.lgPeople {
+  background: linear-gradient(90deg, hsl(32 90% 62%) 50%, hsl(200 70% 65%) 50%);
+}
+i.lgEvent.lgEvent {
+  /* doubled to outweigh the legend's own swatch size (review.module.css) */
+  width: 3px;
+  height: 11px;
+  border-radius: 0.5px;
+  background: var(--rv-acc);
+}

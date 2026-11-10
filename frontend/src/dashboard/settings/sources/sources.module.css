@@ -1,0 +1,10 @@
+/* Settings' sources (#1331): rows of the shared card anatomy (layout.module.css). */
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tile {
+  min-width: 0;
+}

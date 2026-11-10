@@ -1,0 +1,9 @@
+/* Filled controls keep the dark blue; foreground accents and focus indicators use the readable anchor color. */
+.mantine-focus-auto:focus-visible,
+.mantine-focus-always:focus {
+  outline-color: var(--mantine-color-anchor);
+}
+[data-mantine-color-scheme="dark"] .mantine-Input-wrapper[data-variant="default"],
+[data-mantine-color-scheme="dark"] .mantine-Input-wrapper[data-variant="filled"] {
+  --input-bd-focus: var(--mantine-color-anchor);
+}

@@ -1,0 +1,40 @@
+[package]
+name = "continuum-py"
+description = "Python bindings (continuum_py) for Continuum Broker's Tier 0 shared memory arena"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[features]
+default = []
+# Optional RTSP vision decoder. Ordinary SDK installs do not need FFmpeg development libraries.
+ffmpeg = ["continuum-tier/ffmpeg"]
+
+[lib]
+name = "continuum_py"
+crate-type = ["cdylib"]
+test = false
+doctest = false
+
+[dependencies]
+continuum-client = { path = "../continuum-client" }
+continuum-core.workspace = true
+continuum-search.workspace = true
+continuum-segments = { path = "../continuum-segments" }
+arrow-array = "60"
+arrow-buffer = "60"
+arrow-schema = "60"
+arrow-select = "60"
+continuum-shm.workspace = true
+# For the v1 audio archive and FLAC decoding.
+continuum-tier = { path = "../continuum-tier" }
+flatbuffers.workspace = true
+dlpark.workspace = true
+pyo3.workspace = true
+pyo3-async-runtimes.workspace = true
+tokio = { workspace = true, features = ["rt"] }
+uuid.workspace = true
+
+[lints]
+workspace = true

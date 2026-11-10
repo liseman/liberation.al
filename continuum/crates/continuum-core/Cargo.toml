@@ -1,0 +1,13 @@
+[package]
+name = "continuum-core"
+description = "Continuum Broker shared types: 16 KB alignment, ids, and the generated schema"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+flatbuffers.workspace = true
+
+[lints]
+workspace = true

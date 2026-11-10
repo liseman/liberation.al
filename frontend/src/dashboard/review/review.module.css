@@ -1,0 +1,737 @@
+/* Review keeps video and timeline beside transcript/summary tabs on desktop, stacked on narrow windows.
+   Ask stays mounted in a nonmodal panel so drafts and in-flight answers survive closing it. The "?" popover renders
+   in a portal outside .review, so it carries the tokens too: its legend's swatches are drawn with them (#2577). */
+.review,
+.askPanel,
+.help {
+  /* the old dashboard's tokens, which the timeline canvas reads (getComputedStyle resolves the var()s) */
+  --rv-line: var(--mantine-color-default-border);
+  /* dim text: darker than Mantine's placeholder (#8a9692, under 3:1) so it reads at 4.65:1 or more on every light
+     ground Review uses; dark mode keeps the placeholder colour below */
+  --rv-dim: #5f6b67;
+  --rv-mute: var(--mantine-color-dimmed);
+  --rv-acc: var(--mantine-color-anchor);
+  --rv-bg: var(--mantine-color-body);
+  --rv-bg2: #e8ecea;
+  --rv-ink: var(--mantine-color-text);
+  --rv-warn: var(--lib-warn);
+}
+:global([data-mantine-color-scheme="dark"]) .review,
+:global([data-mantine-color-scheme="dark"]) .askPanel,
+:global([data-mantine-color-scheme="dark"]) .help {
+  --rv-bg2: var(--mantine-color-dark-6);
+  --rv-dim: var(--mantine-color-placeholder);
+}
+
+/* the status sentence keeps its own slot in the day header, so loading a day never rewraps it */
+.status {
+  flex: 1 1 12ch;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--rv-mute);
+  font-size: 13.5px;
+}
+/* "Still loading the day": a slot as tall as the status line, whatever it holds (no layout shift) */
+.grid {
+  --ph: min(46vh, 56vw);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px 24px;
+  padding: 0;
+}
+
+/* The control bar's "?" (#2454, #2577): short sections of two aligned columns, the keys or a swatch on the left and
+   what it means on the right. The tables share one left column width, so everything lines up down the popover. */
+.helpPanel {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+.helpScroll {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  padding: 12px 14px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.helpTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  line-height: 1.35;
+}
+.helpGroup {
+  padding: 0 0 4px;
+  color: var(--rv-dim);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-align: left;
+  text-transform: uppercase;
+}
+.helpTable tbody + tbody .helpGroup {
+  padding-top: 10px;
+}
+.helpTable td {
+  padding: 3px 0;
+  vertical-align: middle;
+}
+.helpTable td.helpLead {
+  width: 104px;
+  padding-right: 12px;
+  white-space: nowrap;
+}
+.helpHow {
+  color: var(--rv-mute);
+}
+.keyOr {
+  color: var(--rv-dim);
+  font-size: 11px;
+}
+
+/* The day header over the video (#2577): the day picker, Today, a person filter, and the status sentence, one row. */
+.head {
+  display: flex;
+  align-items: center;
+  gap: 8px 12px;
+  flex-wrap: wrap;
+  padding: 0 4px;
+}
+/* Video and timeline, then the transcript/summary panel. */
+.cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  padding: 12px 16px 16px;
+}
+.left {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+/* the column scrolls; its parts keep their own heights instead of squeezing into it */
+.left > * {
+  flex-shrink: 0;
+}
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  min-height: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--rv-line);
+  border-radius: 8px;
+  background: var(--lib-card);
+  height: clamp(340px, 65vh, 800px);
+  overflow: hidden;
+}
+
+/* the timeline: canvas lanes, a playhead moved by transform, and a hover tip */
+.timeline {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+.scrub {
+  flex: none;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--rv-line);
+}
+.hint {
+  margin-left: auto;
+}
+/* A skeleton laid over the player or the timeline while the day loads; what's under it stays mounted (#250). */
+.cover {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+.trackRow {
+  display: flex;
+  min-width: 0;
+}
+.track {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--rv-line);
+  border-radius: 3px;
+  cursor: default;
+  touch-action: none;
+  user-select: none;
+  overflow: hidden;
+}
+.track[data-zone="ruler"] {
+  cursor: grab;
+}
+.track[data-panning] {
+  cursor: grabbing;
+}
+/* last, so marking's crosshair wins over the ruler's hand */
+.track[data-marking] {
+  cursor: crosshair;
+}
+.track:focus-visible {
+  outline: 2px solid var(--rv-acc);
+  outline-offset: 2px;
+}
+.track canvas {
+  display: block;
+  width: 100%;
+}
+.playhead {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--rv-acc);
+  pointer-events: none;
+  will-change: transform;
+}
+.knob {
+  position: absolute;
+  top: 0;
+  left: -6px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--rv-acc);
+  box-shadow: 0 0 0 2px var(--rv-bg);
+  cursor: ew-resize;
+  pointer-events: auto;
+}
+.tip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  max-width: 60%;
+  padding: 2px 8px;
+  border-radius: 2.5px;
+  background: var(--rv-ink);
+  color: var(--rv-bg);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  will-change: transform;
+}
+/* the days still loading under the timeline: always one line tall, so it never moves the page (#2435) */
+/* Exactly one line, whatever it holds (#2485): several days loading wrapped it to two or three lines, and the page
+   under it moved up when they finished. The full text is the line's title. */
+.chunkLine {
+  height: calc(var(--mantine-font-size-xs) * var(--mantine-line-height-xs));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.legend i {
+  display: inline-block;
+  width: 18px;
+  height: 6px;
+  border-radius: 1px;
+  vertical-align: middle;
+}
+.legend .lgSpeech {
+  height: 10px;
+  background: linear-gradient(90deg, hsl(32 90% 62%) 33%, hsl(172 55% 58%) 33% 66%, hsl(48 85% 60%) 66%);
+}
+.legend .lgVideo {
+  height: 5px;
+  background: var(--rv-mute);
+  opacity: 0.6;
+}
+.legend .lgCut {
+  height: 3px;
+  background: var(--rv-warn);
+}
+.legend .lgAudio {
+  height: 4px;
+  background: var(--rv-acc);
+  opacity: 0.55;
+}
+.legend .lgMark {
+  background: linear-gradient(90deg, #e8590c 50%, #1c7ed6 50%);
+}
+
+/* The day's transcript: its box. The turns are the shared transcript's (transcript/transcript.module.css). */
+.transcript {
+  position: relative; /* the turns' offsetTop is measured from here */
+  height: clamp(240px, 42vh, 560px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 10px 6px 10px 0;
+}
+.empty {
+  padding: 30px 0;
+  color: var(--rv-mute);
+}
+/* Phones give the day's status and the timeline's notes two lines rather than cutting them off at one: there's no
+   title to hover there. Each slot is two lines tall whatever it holds, so a note that comes or goes
+   never moves the page (#2485): the status in two smaller lines within the header row's height, the notes in a
+   two-line slot. Wide screens keep each to one line. */
+@media (max-width: 700px) {
+  .head {
+    min-height: 32px;
+  }
+  .status,
+  .chunkLine {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    white-space: normal;
+  }
+  .status {
+    font-size: 12px;
+    line-height: 16px;
+    max-height: 32px;
+  }
+  .chunkLine {
+    height: calc(2 * var(--mantine-font-size-xs) * var(--mantine-line-height-xs));
+  }
+}
+/* stacked: the inline hints are for wide screens with a pointer. The "?" table of keys always shows: a window can
+   be narrow and still have a keyboard. */
+@media not ((min-aspect-ratio: 4 / 3) and (min-width: 900px) and (min-height: 600px)) {
+  .hint {
+    display: none;
+  }
+}
+
+/* Desktop gives the video the remaining width and keeps the reading panel beside it. The page scrolls with the
+   window's own scrollbar when the video column (the day, the player, the timeline, and Show only) is taller than the
+   window; the panel stays in view (sticky), exactly the window's height under the top bar less the column padding,
+   with the transcript scrolling inside it. While the video column is no taller than the panel, the page is exactly
+   the window: no scrollbar at all (#2618, Joe's follow-up). */
+@media (min-width: 1000px) {
+  .cols {
+    grid-template-columns: minmax(0, 1fr) clamp(480px, 46.5vw, 660px);
+    align-items: start;
+  }
+  .panel {
+    position: sticky;
+    top: calc(var(--top-h, 56px) + 12px);
+    /* the window under the top bar, less .cols' 12 px above and 16 px below */
+    height: calc(100dvh - var(--top-h, 56px) - var(--bottom-h, 0px) - 28px);
+    min-height: 420px;
+  }
+}
+@media (min-aspect-ratio: 4 / 3) and (min-width: 900px) and (min-height: 600px) and (max-width: 1500px) {
+  .hint {
+    display: none;
+  }
+}
+
+/* Native tabs preserve transcript position and summary selection while the other panel shows. */
+.tabs {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+.tabPanel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* Ask, chat style: questions on the right, answers on the left with their moments as time chips, the box below. */
+.chat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+.thread {
+  flex: 1;
+  min-height: 0;
+  max-height: clamp(240px, 42vh, 560px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 2px;
+}
+.turnPair {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.question {
+  align-self: flex-end;
+  max-width: 85%;
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 8px 8px 2px 8px;
+  background: var(--mantine-primary-color-light);
+  color: var(--rv-ink);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.answer {
+  align-self: stretch;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--rv-line);
+  border-radius: 8px 8px 8px 2px;
+  background: var(--lib-raise);
+  overflow-wrap: anywhere;
+}
+.chips,
+.suggest {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.timeChip {
+  all: unset;
+  cursor: pointer;
+  padding: 2px 10px;
+  border: 1px solid var(--rv-line);
+  border-radius: 999px;
+  background: var(--lib-card);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+.timeChip:hover {
+  background: var(--mantine-primary-color-light);
+}
+.timeChip:focus-visible {
+  outline: 2px solid var(--rv-acc);
+  outline-offset: 2px;
+}
+.how {
+  margin-top: 8px;
+  font-size: 13px;
+}
+.how > [data-disclosure-trigger] {
+  cursor: pointer;
+  color: var(--rv-dim);
+}
+.start {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.dim {
+  margin: 0;
+  color: var(--rv-mute);
+}
+.askStatus {
+  margin: 0;
+  min-height: 1.2em;
+  color: var(--rv-dim);
+  font-size: 12.5px;
+}
+.askForm {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+.askBox {
+  flex: 1;
+  min-width: 0;
+}
+@media (min-aspect-ratio: 4 / 3) and (min-width: 900px) and (min-height: 600px) {
+  /* landscape: Ask's thread fills the panel above the box (after the thread's own rule, so this wins) */
+  .thread {
+    max-height: none;
+  }
+}
+
+/* The summary by time (#405): a heading, then the stretches of what the timeline shows, under parts of the day. */
+.blocks {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  min-height: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--rv-line);
+  border-radius: 8px;
+  background: var(--lib-card);
+}
+.blocksHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.blocksTitle {
+  margin: 0;
+  font-size: 15px;
+}
+/* the stretches showing while finer ones load (#443): dimmed, then swapped in place */
+.blocksBody[data-refining] {
+  opacity: 0.55;
+  transition: opacity 150ms;
+}
+.blocksBody {
+  max-height: clamp(200px, 36vh, 480px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+/* The story feed (#2275): one row per stretch (its time, its sentence, a play mark), with its activities as chips. */
+.feed {
+  margin: 0;
+  padding: 2px 0 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.part {
+  margin-top: 10px;
+  padding: 0 8px;
+  color: var(--rv-dim);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.part:first-child {
+  margin-top: 0;
+}
+/* A day's view (#2276): the day's own sentence first, then each part of the day as one sentence with its activities,
+   its hours folded under it. */
+.daySentence {
+  padding: 2px 8px 6px;
+  font-size: 15.5px;
+  line-height: 1.45;
+}
+.partRow {
+  display: grid;
+  gap: 2px;
+  margin-top: 8px;
+}
+.partRow:first-child {
+  margin-top: 0;
+}
+.partHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.partHead .part {
+  margin-top: 0;
+}
+.partFold {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 24px;
+  padding: 0 8px;
+  border-radius: 4px;
+  color: var(--rv-dim);
+  font-size: 12px;
+}
+.partFold:hover {
+  color: var(--mantine-color-text);
+}
+.partFold:focus-visible {
+  outline: 2px solid var(--rv-acc);
+}
+.partChevron {
+  transition: transform 120ms ease;
+}
+.partChevron[data-open] {
+  transform: rotate(90deg);
+}
+.feedRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+  padding: 4px 0;
+  border-radius: 6px;
+}
+.feedRow[data-current] {
+  background: var(--mantine-primary-color-light);
+}
+.feedMain[data-picked] {
+  box-shadow: inset 0 0 0 1px var(--rv-acc);
+}
+.feedLoose {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 4px 8px;
+}
+.feedMain {
+  all: unset;
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr) 16px;
+  gap: 10px;
+  align-items: baseline;
+  width: 100%;
+  min-height: 32px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.feedMain:hover {
+  background: var(--lib-raise);
+}
+.feedMain:focus-visible,
+.feedChip:focus-visible {
+  outline: 2px solid var(--rv-acc);
+}
+.feedTime {
+  color: var(--rv-dim);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+.feedText {
+  font-size: 14px;
+  line-height: 1.4;
+}
+.feedPlay {
+  align-self: center;
+  color: var(--rv-acc);
+}
+.feedChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 8px 4px 114px;
+}
+.feedChip {
+  all: unset;
+  box-sizing: border-box;
+  min-height: 24px;
+  padding: 2px 9px;
+  border: 1px solid var(--rv-acc);
+  border-radius: 12px;
+  color: var(--mantine-color-text);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.feedChip:hover {
+  background: var(--mantine-primary-color-light);
+}
+.feedChip[data-candidate] {
+  border-style: dashed;
+  border-color: var(--rv-dim);
+  color: var(--rv-dim);
+}
+@media (max-width: 600px) {
+  .feedMain {
+    grid-template-columns: minmax(0, 1fr) 16px;
+  }
+  .feedMain .feedTime {
+    grid-column: 1 / -1;
+  }
+  .feedChips {
+    padding-left: 8px;
+  }
+}
+@media (min-aspect-ratio: 4 / 3) and (min-width: 900px) and (min-height: 600px) {
+  /* landscape: the stretches fill the column's height (after the base rule, so this wins) */
+  .blocks {
+    overflow: hidden;
+  }
+  .blocksBody {
+    flex: 1;
+    min-height: 0;
+    max-height: none;
+  }
+}
+
+.tabPanel > .transcript {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+}
+.tabPanel > .blocks {
+  flex: 1;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.tabPanel .blocksBody {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+}
+.askPanel .chat {
+  height: 100%;
+}
+.askPanel .thread {
+  max-height: none;
+}
+.askPanel .askForm {
+  flex: none;
+}
+
+/* Summary and detected activities share a scroll area, without stretching a short summary above the names. */
+.summaryDetails {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.summaryDetails > .blocks {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.summaryDetails .blocksBody {
+  flex: none;
+  overflow: visible;
+}
+
+/* One person's day (#2057): scroll inside the fixed reading panel, with its own focusable moment targets. */
+.person {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 2px 4px 8px;
+}
+.personMoment {
+  display: block;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: var(--mantine-radius-sm);
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.personMoment:hover {
+  background: var(--lib-raise);
+}
+
+.person mark {
+  background: var(--mantine-color-yellow-light);
+  color: inherit;
+  border-radius: 2px;
+}
+
+/* The video's boxes and Skip quiet time while Show only loads or failed (#2486), as Show only's own last row. */
+.videoTools {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-top: 12px;
+}

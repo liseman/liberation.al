@@ -1,0 +1,404 @@
+/* The Live tab, carried over from static/dashboard/app.css with the old colour tokens mapped onto the theme's.
+   Buttons and inputs are Mantine's; these rules lay out the tab, the transcript, the rail, and the camera stage. */
+.muted {
+  color: var(--mantine-color-dimmed);
+}
+.tab-msg {
+  max-width: 760px;
+  margin: 40px auto;
+  padding: 0 20px;
+}
+.small {
+  font-size: 13px;
+}
+.err {
+  color: var(--lib-bad);
+}
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.live-tab {
+  position: relative;
+  z-index: 1;
+  max-width: 1680px;
+  margin: 0 auto;
+  padding: 18px 20px 40px;
+}
+.look-intro {
+  margin: -4px 0 12px;
+}
+.look-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.look-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px 12px;
+  align-items: center;
+}
+.look-label {
+  font-weight: 500;
+}
+.seg {
+  display: inline-flex;
+  justify-self: start;
+  padding: 2px;
+  border-radius: 999px;
+  background: var(--lib-bg2);
+  border: 1px solid var(--mantine-color-default-border);
+}
+.seg-opt {
+  all: unset;
+  cursor: pointer;
+  padding: 4px 11px;
+  border-radius: 999px;
+  font: 500 13px var(--mantine-font-family);
+  color: var(--mantine-color-dimmed);
+  white-space: nowrap;
+}
+.seg-opt:hover {
+  color: var(--mantine-color-text);
+}
+.seg-opt.on {
+  background: var(--lib-card);
+  color: var(--mantine-color-text);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+.seg-opt:focus-visible {
+  outline: 2px solid var(--mantine-color-anchor);
+}
+.look-foot {
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+@media (max-width: 480px) {
+  .look-row {
+    grid-template-columns: 1fr;
+  }
+}
+.summary .row {
+  gap: 4px 12px;
+}
+
+.summary .row .quiet {
+  padding-left: 0;
+  padding-right: 0;
+}
+.notice {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  border: 1px solid var(--mantine-color-default-border);
+  border-left: 3px solid var(--lib-warn);
+  border-radius: 4px;
+  background: var(--lib-card);
+}
+.live-main {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+}
+.live-side {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+/* Who's here, under the cameras. */
+.live-here {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  gap: 16px;
+  align-items: start;
+  min-width: 0;
+}
+/* Wide windows (#2456, #2473): the cameras with who's here under them on the left, and a rail on the right that
+   fills the window under the top bar: the conversation on top (its feed scrolls inside it), what's happening
+   under it. */
+@media (min-width: 981px) {
+  /* Exactly the window under the top bar (#2485): no page scrollbar while everything fits. The rail and Who's here
+     scroll inside it instead; the cameras keep their own height cap (--cam-max-h). */
+  .live-tab {
+    box-sizing: border-box;
+    height: calc(100dvh - var(--top-h, 56px) - var(--bottom-h, 0px));
+    display: flex;
+    flex-direction: column;
+    padding-bottom: 18px;
+  }
+  .live-tab > .live-main {
+    flex: 1;
+    min-height: 0;
+  }
+  .live-main > .live-here {
+    align-self: stretch;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .live-main {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 400px;
+    grid-template-areas:
+      "cams side"
+      "here side";
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 20px;
+    align-items: start;
+  }
+  .live-main > .live-cams,
+  .live-main > .stage {
+    grid-area: cams;
+    margin-bottom: 0;
+  }
+  .live-main > .live-here {
+    grid-area: here;
+  }
+  .live-side {
+    grid-area: side;
+    align-self: stretch;
+    min-height: 0;
+  }
+  .live-side > .transcript {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 0;
+    min-height: 260px;
+  }
+  .live-side > .transcript > .feed {
+    flex: 1;
+    min-height: 0;
+    max-height: none;
+  }
+  .live-side > .rail {
+    position: static;
+    flex: 0 0 35%; /* a fixed share, so what's happening filling in doesn't squeeze the conversation (#2485) */
+    max-height: 35%;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+}
+
+.transcript {
+  position: relative;
+  min-width: 0;
+  background: var(--lib-card);
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: 8px;
+  padding: 18px;
+}
+.transcript-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.transcript-head h2 {
+  font: 600 18px / 1.45 var(--mantine-font-family); /* a section heading, as theme.ts h2 (#2594) */
+  margin: 0 0 4px;
+}
+.transcript-head p {
+  margin: 0;
+}
+.transcript-head button {
+  flex: none;
+}
+.transcript-search {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-bottom: 12px;
+}
+.transcript-search input {
+  flex: 1;
+  min-width: 120px;
+  max-width: 100%;
+  font-size: 14px;
+}
+.transcript-search a {
+  white-space: nowrap;
+}
+.search-count {
+  margin: 0 0 8px;
+}
+.feed {
+  max-height: calc(100vh - var(--top-h, 56px) - var(--bottom-h, 0px) - 170px);
+  min-height: 320px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 6px;
+}
+.feed.balloons .conv-who {
+  font-size: 12px;
+}
+.play-status {
+  margin: 8px 0 0;
+}
+
+.rail {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  position: sticky;
+  top: calc(var(--top-h, 56px) + 18px);
+}
+.rail-sec {
+  padding: 16px;
+  background: var(--lib-card);
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: 8px; /* as .rail-card (rail.css) */
+  min-width: 0;
+}
+.rail-sec h2 {
+  font: 600 18px / 1.45 var(--mantine-font-family); /* a section heading, as theme.ts h2 (#2594) */
+  margin: 0 0 6px;
+}
+.rail-sec > p {
+  margin: 0 0 8px;
+}
+.rail .cams {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+@media (min-width: 1500px) {
+  .rail .cams {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+.rail .cams figure {
+  margin: 0;
+}
+.rail .cams figure:only-child {
+  grid-column: 1 / -1;
+}
+.cam-open {
+  all: unset;
+  position: relative;
+  display: block;
+  width: 100%;
+  cursor: zoom-in;
+  border-radius: 3px;
+}
+.cam-open:focus-visible {
+  outline: 2px solid var(--mantine-color-anchor);
+}
+.cam-wrap {
+  position: relative;
+}
+.flip-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 0;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font: 600 11px var(--mantine-font-family);
+  opacity: 0.75;
+}
+.flip-btn:hover {
+  opacity: 1;
+  filter: none;
+}
+.flip-btn.on {
+  opacity: 1;
+  background: var(--mantine-primary-color-filled);
+  color: var(--mantine-primary-color-contrast);
+}
+.mirror img {
+  transform: scaleX(-1);
+}
+/* Boxes the page draws over live pictures (lib/boxes.js): green for a known face, amber for an unknown one, calm
+   steel for objects. Mirroring moves the boxes, never the text. */
+@media (prefers-reduced-motion: reduce) {
+  .bx {
+    will-change: auto;
+  }
+}
+.rail .cams img {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  background: var(--lib-bg2);
+  border-radius: 3px;
+  display: block;
+}
+
+.face-thumb {
+  width: 56px;
+  height: 56px;
+  border-radius: 4px;
+  background: var(--lib-bg2);
+  flex: none;
+  object-fit: cover;
+}
+.face-none {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--lib-dim);
+}
+
+.summary .md {
+  max-height: 42vh;
+  overflow-y: auto;
+  margin-bottom: 10px;
+}
+
+/* ---- setup (nothing running yet) ---- */
+.setup {
+  max-width: 620px;
+  margin: 12vh auto 0;
+  padding: 0 20px;
+}
+.setup h1 {
+  font: 600 32px / 1.15 var(--lib-speech);
+  margin: 0 0 14px;
+  letter-spacing: -0.01em;
+}
+.setup > p {
+  font-size: 16.5px;
+  color: var(--mantine-color-dimmed);
+  margin: 0 0 22px;
+  max-width: 60ch;
+}
+.setup-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 18px;
+}
+
+/* ---- Live's cameras: livetab/cameras.css (#352). The note shown when no camera is up: */
+.stage-off {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 22px;
+  border: 1px dashed var(--mantine-color-default-border);
+  border-radius: 8px;
+  max-width: none;
+}
+.rail .cams figcaption {
+  font-size: 12.5px;
+  color: var(--mantine-color-dimmed);
+  margin-top: 4px;
+  line-height: 1.35;
+}
+.mirror .live-canvas {
+  transform: scaleX(-1);
+}

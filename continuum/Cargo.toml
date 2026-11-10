@@ -1,0 +1,64 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/continuum-broker",
+    "crates/continuum-capture",
+    "crates/continuum-catalog",
+    "crates/continuum-client",
+    "crates/continuum-core",
+    "crates/continuum-ffi",
+    "crates/continuum-gateway",
+    "crates/continuum-py",
+    "crates/continuum-search",
+    "crates/continuum-segments",
+    "crates/continuum-sched",
+    "crates/continuum-shm",
+    "crates/continuum-tier",
+    "crates/continuum-vector",
+    "crates/continuum-wire",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+publish = false
+# redb 4.4 and later require Rust 1.90; continuum-vector declares its higher floor separately.
+rust-version = "1.90"
+
+[workspace.dependencies]
+continuum-catalog = { path = "crates/continuum-catalog" }
+continuum-core = { path = "crates/continuum-core" }
+continuum-gateway = { path = "crates/continuum-gateway" }
+continuum-search = { path = "crates/continuum-search" }
+continuum-sched = { path = "crates/continuum-sched" }
+continuum-shm = { path = "crates/continuum-shm" }
+continuum-tier = { path = "crates/continuum-tier" }
+continuum-wire = { path = "crates/continuum-wire" }
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+clap = { version = "4.6", features = ["derive"] }
+crossbeam-channel = "0.5"
+dlpark = { version = "0.10", features = ["pyo3"] }
+flatbuffers = "25"
+libc = "0.2"
+proptest = "1.12"
+redb = "4.4"
+serde = { version = "1.0", features = ["derive"] }
+pyo3 = "0.30"
+pyo3-async-runtimes = { version = "0.30", features = ["tokio-runtime"] }
+tempfile = "3.27"
+thiserror = "2.0"
+toml = "1.1"
+tokio = { version = "1.54", features = ["io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["env-filter", "fmt", "std"] }
+uuid = { version = "1.29", features = ["v7"] }
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+undocumented_unsafe_blocks = "warn"
+
+[profile.release]
+lto = "thin"

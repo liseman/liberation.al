@@ -1,0 +1,143 @@
+/* Known › Devices' compact cards (#3267): a grid of fixed-width cards, more columns as the window widens and one on a
+   phone, like the People roster's. Every section of the tab (Who's home, Your things, the Wi-Fi, and the device list)
+   uses it. */
+.grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 15rem), 1fr));
+  gap: 8px;
+}
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--mantine-color-default-border);
+  background: var(--mantine-color-body);
+}
+.card:focus-visible {
+  outline: 2px solid var(--mantine-primary-color-filled);
+  outline-offset: 1px;
+}
+.head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 0;
+}
+.name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* A card's name: up to two lines, so a long kind ("iPhone, iPad, Mac, or Watch (39:95)") still shows its end. */
+.title {
+  min-width: 0;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+/* The card's actions sit at its foot, so a row of cards lines them up. */
+.foot {
+  margin-top: auto;
+  padding-top: 4px;
+  min-width: 0;
+}
+.foot:empty {
+  display: none;
+}
+.badge {
+  min-width: 0;
+  max-width: 100%;
+}
+.details {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 2px 12px;
+  margin: 0;
+  font-size: var(--mantine-font-size-xs);
+}
+.details dt {
+  color: var(--mantine-color-dimmed);
+}
+.details dd {
+  margin: 0;
+  font-family: var(--mantine-font-family-monospace);
+  overflow-wrap: anywhere;
+}
+/* The Link button, as the Who's this? cards' answers (#3266): its icon over its caption and key cap. */
+.action {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  height: 36px;
+  padding: 0 6px;
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-sm);
+  color: var(--mantine-color-text);
+}
+.action:hover:not(:disabled) {
+  background: var(--mantine-color-default-hover);
+}
+.action:focus-visible {
+  outline: 2px solid var(--mantine-primary-color-filled);
+  outline-offset: 1px;
+}
+.action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.caption {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+}
+.kbd {
+  font-size: 8px;
+  line-height: 1;
+  padding: 1px 3px;
+  border-bottom-width: 1px;
+}
+/* A device's link and where it lives: a chip each, with a remove button. */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: auto;
+  padding-top: 4px;
+  min-width: 0;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  min-width: 0;
+  padding: 1px 2px 1px 8px;
+  border-radius: 999px;
+  background: var(--mantine-primary-color-light);
+  color: var(--mantine-primary-color-light-color);
+  font-size: var(--mantine-font-size-xs);
+  font-weight: 500;
+}
+.chipText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

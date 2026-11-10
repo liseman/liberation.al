@@ -1,0 +1,84 @@
+.backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 50%);
+  backdrop-filter: blur(3px);
+}
+.panel {
+  visibility: hidden;
+  transform-origin: 0 0;
+  position: fixed;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--mantine-color-body);
+  color: var(--mantine-color-text);
+  box-shadow: 0 20px 80px rgb(0 0 0 / 40%);
+}
+.content {
+  --player-ratio: var(--clip-ratio, 16 / 9); /* the player's stage (player.module.css) in the camera's shape */
+  position: relative;
+  padding: 12px;
+  box-sizing: border-box;
+  transform-origin: 0 0;
+}
+.poster {
+  /* Review's loading cover is at 3: keep the retained poster and recovery UI above it. */
+  z-index: 4;
+  position: absolute;
+  inset: 12px 12px auto;
+  width: calc(100% - 24px);
+  aspect-ratio: var(--player-ratio, 16 / 9);
+  object-fit: contain;
+  border-radius: 8px;
+  background: #2b2f36;
+  pointer-events: none;
+  transition: opacity 180ms ease;
+}
+.loading,
+.error {
+  z-index: 5;
+  position: absolute;
+  left: 24px;
+  right: 24px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border-radius: 4px;
+  padding: 12px;
+  background: var(--mantine-color-body);
+}
+.actions {
+  z-index: 6;
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  display: flex;
+  gap: 8px;
+}
+
+.poster[data-ready] {
+  opacity: 0;
+}
+.panel[data-closing] {
+  pointer-events: none;
+}
+.panel[data-closing] .actions {
+  opacity: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .poster {
+    transition-duration: 120ms;
+  }
+}
+
+.panel[data-positioned] {
+  visibility: visible;
+}
+.panel[data-closing] .poster {
+  opacity: 1;
+}

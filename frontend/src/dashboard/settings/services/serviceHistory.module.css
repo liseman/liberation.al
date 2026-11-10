@@ -1,0 +1,142 @@
+.body {
+  padding: 12px 24px 18px;
+  min-width: 0;
+  /* Keep the service controls below in place while history loads or its window changes. */
+  height: clamp(240px, 40dvh, 420px);
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+.key {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: var(--mantine-color-dimmed);
+}
+.key > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.key i {
+  display: inline-block;
+  width: 14px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--lib-track);
+}
+.key .up {
+  background: var(--lib-ok);
+}
+.key .restart {
+  width: 2px;
+  height: 12px;
+  background: var(--lib-warn);
+}
+.key .failure {
+  width: 7px;
+  height: 7px;
+  border-radius: 0;
+  transform: rotate(45deg);
+  background: var(--lib-bad);
+}
+.key .stopped {
+  background: var(--mantine-color-body);
+  border: 1px solid var(--mantine-color-default-border);
+}
+.key .unknown {
+  background: repeating-linear-gradient(125deg, var(--lib-track) 0 3px, var(--mantine-color-dimmed) 3px 4px);
+  opacity: 0.65;
+}
+.axis {
+  position: relative;
+  height: 24px;
+  margin: 12px 0 0 190px;
+  font-size: 11px;
+  color: var(--mantine-color-dimmed);
+}
+.axis span {
+  position: absolute;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+.rows {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.row {
+  display: grid;
+  grid-template-columns: 175px minmax(0, 1fr);
+  gap: 15px;
+  align-items: center;
+  min-height: 55px;
+  border-top: 1px solid var(--mantine-color-default-border);
+}
+.name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.name span {
+  font-size: 11px;
+  color: var(--mantine-color-dimmed);
+}
+.plot {
+  width: 100%;
+  height: 48px;
+  min-width: 0;
+  cursor: crosshair;
+  border-radius: 5px;
+}
+.plot svg {
+  width: 100%;
+  height: 44px;
+  display: block;
+  overflow: visible;
+}
+.plot:focus-visible {
+  outline: 2px solid var(--mantine-primary-color-filled);
+  outline-offset: 1px;
+}
+.detail {
+  pointer-events: none;
+}
+.hint {
+  margin-top: 10px;
+}
+@media (max-width: 600px) {
+  .body {
+    padding: 12px 16px 16px;
+  }
+  .row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+    padding: 9px 0 4px;
+  }
+  .name {
+    display: grid;
+    grid-template-columns: minmax(100px, 1fr) minmax(0, 1.8fr);
+    gap: 8px;
+    align-items: baseline;
+  }
+  .name span {
+    text-align: right;
+  }
+  .axis {
+    margin: 12px 0 0;
+  }
+  .axis span:first-child {
+    transform: none;
+  }
+  .axis span:last-child {
+    transform: translateX(-100%);
+  }
+  .plot {
+    height: 44px;
+  }
+}

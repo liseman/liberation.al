@@ -1,0 +1,25 @@
+[package]
+name = "continuum-client"
+description = "The Rust client SDK for Continuum Broker: an async socket client and pinned views of the Tier 0 arena"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+continuum-core.workspace = true
+continuum-shm.workspace = true
+continuum-wire.workspace = true
+flatbuffers.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["net", "io-util", "rt", "sync", "time", "macros"] }
+
+[dev-dependencies]
+continuum-broker = { path = "../continuum-broker" }
+continuum-sched.workspace = true
+libc.workspace = true
+tempfile.workspace = true
+tokio = { workspace = true, features = ["net", "io-util", "rt", "rt-multi-thread", "sync", "time", "macros"] }
+
+[lints]
+workspace = true

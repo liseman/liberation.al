@@ -1,0 +1,79 @@
+.callControl {
+  min-width: 0;
+  padding-inline: 0;
+}
+.callLabel {
+  padding-block: 10px;
+}
+.callContent {
+  margin-bottom: 10px;
+  padding: 4px 0 4px 14px;
+  border-left: 2px solid var(--mantine-color-default-border);
+}
+/* A day's calls under its heading ("Today", "Mon 3 Nov"), as the rest of the app lists days. */
+.dayHeading {
+  margin: 0 0 2px;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+/* Which way the call went, beside its title. */
+.way {
+  flex: none;
+  margin-top: 3px;
+  color: var(--mantine-color-dimmed);
+}
+/* What came of a call that had instructions: one line, a little stronger than the rest. */
+.outcome svg {
+  margin-right: 2px;
+  vertical-align: -2px;
+}
+/* The opened call's player, above its transcript: play, where it is, and the time. */
+.player {
+  margin: 4px 0 10px;
+}
+.position {
+  flex: 1;
+  min-width: 0;
+}
+.clock {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+/* A call in progress, pinned at the top while it's on (#2699): a live dot, which way, who, and how long so far. */
+.liveRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: var(--mantine-spacing-md);
+  padding: 10px 14px;
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-md);
+  background: var(--lib-card);
+}
+.liveRow .way {
+  margin-top: 0;
+}
+.liveDot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--lib-live, var(--mantine-color-red-6));
+  animation: livePulse 1.6s ease-in-out infinite;
+}
+@keyframes livePulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .liveDot {
+    animation: none;
+  }
+}
+.liveClock {
+  font-variant-numeric: tabular-nums;
+  color: var(--mantine-color-dimmed);
+}

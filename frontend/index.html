@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Liberational</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+    <!-- an inline icon, so the browser doesn't ask for /favicon.ico (a 404 and a console error on every load, #478) -->
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%277%27 fill=%27%233454d1%27/%3E%3Cpath d=%27M11 8v16h11%27 stroke=%27white%27 stroke-width=%273.5%27 fill=%27none%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27/%3E%3C/svg%3E" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="theme-color" content="#161b1e" />
+    <script>
+      // Set the colour scheme before the first paint, from the same preference the app keeps (src/shared/prefs.ts).
+      try {
+        const t = JSON.parse(localStorage.getItem('liberational.prefs') || '{}').theme;
+        const dark = t === 'dark' || (t !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
+        document.documentElement.setAttribute('data-mantine-color-scheme', dark ? 'dark' : 'light');
+      } catch {
+        // no storage: Mantine picks the OS scheme once it loads
+      }
+    </script>
+    <!-- The dashboard server fills these in when it serves the page (page() in dashboard/server.py). -->
+    <script>window.NAMES={{names_json}};</script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/dashboard/main.tsx"></script>
+  </body>
+</html>

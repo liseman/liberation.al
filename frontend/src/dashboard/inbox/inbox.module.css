@@ -1,0 +1,219 @@
+/* The Inbox: the list of research reports beside the open one (stacked on a phone). */
+.page {
+  display: grid;
+  grid-template-columns: minmax(240px, 340px) 1fr;
+  gap: 24px;
+}
+
+@media (max-width: 760px) {
+  .page {
+    grid-template-columns: 1fr;
+  }
+}
+
+.items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.item {
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--lib-border, transparent);
+}
+
+.item[aria-current] {
+  background: var(--lib-bg2);
+}
+
+.itemQuestion {
+  white-space: normal;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.unread .itemQuestion {
+  font-weight: 700;
+}
+
+.itemMeta {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--mantine-color-dimmed); /* --lib-dim read at 2.9:1 on the page (#2661) */
+}
+
+.detail {
+  min-width: 0;
+}
+
+.report {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.question {
+  overflow-wrap: anywhere;
+}
+
+.looked {
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.searches {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 13px;
+}
+
+/* An unread report: a dot before its date, in the accent colour. */
+.dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--mantine-primary-color-filled);
+  vertical-align: middle;
+}
+
+/* The report's header: question, when and how long, then what to do with it. */
+.reportHead {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--mantine-color-default-border);
+}
+
+.sure ul {
+  margin: 4px 0 0;
+  padding-left: 20px;
+  font-size: 14px;
+  color: var(--mantine-color-dimmed); /* --lib-dim read at 2.9:1 on the page (#2661) */
+}
+
+.lookedBody {
+  font-weight: 400;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 8px;
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* "All reports" only shows on a phone, where the open report takes the whole page. */
+.back {
+  display: none;
+  align-self: flex-start;
+}
+
+@media (max-width: 760px) {
+  .page[data-reading] .list {
+    display: none;
+  }
+  .page[data-reading] .back {
+    display: inline-flex;
+  }
+}
+
+/* "Partly sure" in amber, "Fairly sure" in green, as text (#2674) */
+.verdict {
+  font-weight: 700;
+}
+.verdict[data-sure="partly"] {
+  color: var(--lib-warn-text);
+}
+.verdict[data-sure="fairly"] {
+  color: var(--lib-ok-text);
+}
+
+/* The open report's row: Mantine fades an active row's description (4.3:1 on the highlight); the date stays readable */
+.item[data-active] .itemMeta {
+  opacity: 1;
+  color: var(--mantine-color-dimmed);
+}
+
+/* The moments the answer cites (#2674): time, a still, the evidence's words on a line, and where it came from */
+.moments {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.moments li {
+  display: grid;
+  grid-template-columns: 48px 72px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 6px;
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: 6px;
+  background: var(--lib-card);
+  font-size: 14px;
+}
+.moments time {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.still {
+  width: 72px;
+  height: 41px;
+  border-radius: 4px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background: var(--lib-bg2);
+  color: var(--mantine-color-dimmed);
+  font-size: 11px;
+  text-align: center;
+  line-height: 1.2;
+}
+.still img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.momentText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.momentSource {
+  font-size: 12px;
+  color: var(--mantine-color-dimmed);
+  white-space: nowrap;
+}
+@media (max-width: 760px) {
+  .moments li {
+    grid-template-columns: 44px 56px minmax(0, 1fr);
+    row-gap: 2px;
+  }
+  .still {
+    width: 56px;
+    height: 32px;
+  }
+  .momentSource {
+    grid-column: 3;
+  }
+}
+.moments a {
+  color: var(--mantine-color-anchor);
+  text-underline-offset: 2px;
+}

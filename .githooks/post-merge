@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# After a pull or merge. Turned on by `mise run hooks` (and `mise run setup`).
+exec "$(dirname "$0")/rebuild-frontend" ORIG_HEAD HEAD

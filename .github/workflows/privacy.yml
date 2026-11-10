@@ -1,0 +1,66 @@
+# The privacy check from the Git hooks, run again on GitHub: a clone that never turned its hooks on, or a commit
+# made with --no-verify, still gets checked. It can only report: by the time it runs, a push is already public, so
+# a failure here means "remove it now" (docs/CONVENTIONS.md, "If something private gets out").
+name: privacy
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GITLEAKS_VERSION: "8.30.1"
+      GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install gitleaks
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/gitleaks.tgz "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  /tmp/gitleaks.tgz" | sha256sum --check
+          mkdir -p "$HOME/bin" && tar -xzf /tmp/gitleaks.tgz -C "$HOME/bin" gitleaks
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+
+      # The maintainers' private deny list, when this run may read secrets (a pull request from a fork may not, and
+      # gets the generic patterns only). Matches on it are counted, never located or printed: --redact.
+      - name: Write the private deny list
+        env:
+          PRIVACY_DENYLIST: ${{ secrets.PRIVACY_DENYLIST }}
+        run: |
+          set -euo pipefail
+          umask 077
+          if [ -n "${PRIVACY_DENYLIST}" ]; then printf '%s\n' "${PRIVACY_DENYLIST}" > "$RUNNER_TEMP/denylist.txt"; fi
+          echo "LIBERATIONAL_PRIVACY_DENYLIST=$RUNNER_TEMP/denylist.txt" >> "$GITHUB_ENV"
+
+      - name: Check the whole tree
+        run: python3 tools/privacy_check.py --tree . --redact
+
+      - name: Check the pushed commits and their messages
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          # A new branch has no "before": compare with the default branch instead.
+          if ! git cat-file -e "${BASE}^{commit}" 2>/dev/null; then BASE=$(git merge-base "$HEAD" "origin/${{ github.event.repository.default_branch }}"); fi
+          python3 tools/privacy_check.py --range "$BASE" "$HEAD" --redact --no-secrets
+
+      - name: Check the pull request's title and description
+        if: github.event_name == 'pull_request'
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+          printf '%s\n\n%s\n' "$TITLE" "$BODY" > "$RUNNER_TEMP/pull-request.txt"
+          python3 tools/privacy_check.py --text "$RUNNER_TEMP/pull-request.txt" --redact

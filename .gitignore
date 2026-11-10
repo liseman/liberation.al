@@ -1,0 +1,45 @@
+.venv/
+__pycache__/
+# runtime data: everything under data/ (paths.* in config/defaults.toml) except the state placeholder
+data/*
+!data/state/
+data/state/*
+!data/state/.gitkeep
+# where runtime data lived before it moved under data/ (see MIGRATING.md)
+/state/
+/logs/
+/faces/
+/voices/
+/models/
+
+# private, never publish: secrets (data/ above holds the previews, call recordings, and profiles)
+.env*
+/calls/
+
+# real camera frames: not published until their owner says so
+tests/data/vision/
+
+# local config overrides
+pack.toml
+config/devices.toml
+mise.local.toml
+
+# local editor settings (machine paths, not shared project config)
+.vscode/
+
+# agent scratch worktrees (Claude Code and similar)
+.claude/worktrees/
+
+# agent scratch space for probes and experiments (see AGENTS.md)
+scratch/
+
+# the frontend's packages, and its build (mise run frontend builds it from frontend/ into the package)
+frontend/node_modules/
+src/liberational/dashboard/static/app/
+# tsc's incremental cache
+*.tsbuildinfo
+
+# Continuum Broker build output (continuum/)
+continuum/target/
+# continuum_py: maturin develop builds the extension into the package source (python/continuum_py/)
+continuum/python/continuum_py/*.so

@@ -1,0 +1,21 @@
+[package]
+name = "continuum-search"
+description = "Continuum's search payloads (vector and text queries, results, embeddings) as Arrow IPC, shared by the vector worker and the SDKs"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+# The same Arrow lancedb 0.41 uses, so the vector worker and this share one build. Move them together.
+arrow-array = "58.4"
+arrow-ipc = "58.4"
+arrow-schema = "58.4"
+thiserror.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true

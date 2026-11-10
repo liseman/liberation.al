@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Refuse to commit any file that .gitignore excludes, which only gets staged with `git add -f`.
+# Runtime data under data/ is private, and once a commit tracks it, every other checkout that pulls
+# the commit has its own copy overwritten. Turned on by `mise run hooks` (and `mise run setup`).
+set -euo pipefail
+blocked=$(git diff --cached --name-only --diff-filter=ACMR -z | git check-ignore --no-index --stdin -z | tr '\0' '\n' || true)
+if [ -n "$blocked" ]; then
+  echo "pre-commit: these files are gitignored (runtime data or secrets) and must not be committed:" >&2
+  sed 's/^/  /' <<<"$blocked" >&2
+  echo "Unstage them with: git restore --staged <file>" >&2
+  exit 1
+fi
+# And refuse leftover merge conflict markers in what's staged.
+"$(dirname "$0")/check-conflict-markers" pre-commit
+# And refuse private data: secrets, personal details, and this machine's private deny list (docs/CONVENTIONS.md).
+python3 "$(git rev-parse --show-toplevel)/tools/privacy_check.py" --staged

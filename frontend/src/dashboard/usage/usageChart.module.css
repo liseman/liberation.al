@@ -1,0 +1,198 @@
+/* This machine's stacked usage chart (#2245). Service bands take a validated categorical order (adjacent pairs pass
+   the colour-vision checks in both schemes); everything else is a neutral band. A thin body-colour edge separates the
+   stacked bands. */
+.root {
+  --use-c0: #2a78d6;
+  --use-c1: #eb6834;
+  --use-c2: #1baf7a;
+  --use-c3: #eda100;
+  --use-c4: #e87ba4;
+  --use-c5: #008300;
+  --use-other: #b4b2a9;
+  padding: 0 24px 18px;
+}
+
+@media (max-width: 600px) {
+  .root {
+    padding: 0 16px 14px;
+  }
+}
+
+.frame {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+}
+
+[data-mantine-color-scheme="dark"] .root {
+  --use-c0: #3987e5;
+  --use-c1: #d95926;
+  --use-c2: #199e70;
+  --use-c3: #c98500;
+  --use-c4: #d55181;
+  --use-c5: #008300;
+  --use-other: #5f5e5a;
+}
+
+.c0 {
+  --use: var(--use-c0);
+}
+.c1 {
+  --use: var(--use-c1);
+}
+.c2 {
+  --use: var(--use-c2);
+}
+.c3 {
+  --use: var(--use-c3);
+}
+.c4 {
+  --use: var(--use-c4);
+}
+.c5 {
+  --use: var(--use-c5);
+}
+.other {
+  --use: var(--use-other);
+}
+
+.toggle {
+  margin-bottom: 8px;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+  font-size: 12.5px;
+  color: var(--mantine-color-text);
+}
+
+.legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.swatch {
+  display: inline-block;
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--use);
+}
+
+.svg {
+  display: block;
+  overflow: visible;
+}
+
+.plot {
+  touch-action: pan-y;
+}
+
+.plot:focus-visible {
+  outline: 2px solid var(--mantine-primary-color-filled);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.band {
+  fill: var(--use);
+  stroke: var(--mantine-color-body);
+  stroke-width: 1;
+}
+
+.grid {
+  stroke: var(--mantine-color-default-border);
+  stroke-width: 1;
+}
+
+.tick {
+  fill: var(--mantine-color-dimmed);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.cross {
+  stroke: var(--mantine-color-text);
+  stroke-width: 1;
+  pointer-events: none;
+}
+
+.tip {
+  position: absolute;
+  top: 0;
+  z-index: 2;
+  min-width: 180px;
+  max-width: min(280px, 80vw);
+  padding: 8px 10px;
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: 8px;
+  background: var(--mantine-color-body);
+  box-shadow: var(--mantine-shadow-sm);
+  font-size: 12.5px;
+  pointer-events: none;
+}
+
+.tipList {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tipList li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tipName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.value {
+  font-variant-numeric: tabular-nums;
+}
+
+.dim {
+  color: var(--mantine-color-dimmed);
+}
+
+.now {
+  width: 100%;
+  margin-top: 10px;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.now caption {
+  text-align: left;
+  color: var(--mantine-color-dimmed);
+  padding-bottom: 4px;
+}
+
+.now th {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 400;
+  text-align: left;
+  padding: 2px 0;
+}
+
+.now td {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  padding: 2px 0;
+}

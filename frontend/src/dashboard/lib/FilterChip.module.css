@@ -1,0 +1,29 @@
+/* A filter chip (#2450 board item 6, duplicates item 8): neutral, with a small dot in the colour its series uses
+   elsewhere (a service's log lines, a person's marks), so the colour links chip to what it filters without the row
+   outshouting the content. Off looks off: dashed and dimmed, not a missing tick on a bright chip. */
+.label,
+.label[data-checked] {
+  gap: 6px;
+  font-weight: 500;
+  /* One padding on and off: Mantine narrows a checked chip to make room for its tick, which this chip hides, so
+     without this a chip changes width (and moves its neighbours) as it's toggled. */
+  padding-inline: var(--chip-padding);
+}
+.label:not([data-checked]) .dot {
+  opacity: 0.4;
+}
+.iconWrapper {
+  display: none; /* the dot says it's on, not a tick */
+}
+.dot {
+  display: inline-block;
+  margin-right: 5px;
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.count {
+  color: var(--mantine-color-dimmed);
+  font-variant-numeric: tabular-nums;
+}

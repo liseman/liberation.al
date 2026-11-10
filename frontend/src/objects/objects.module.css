@@ -1,0 +1,120 @@
+.canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  touch-action: none;
+  background: #000;
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-sm);
+}
+.thumb {
+  width: 70px;
+  height: 60px;
+  flex: none;
+  object-fit: contain;
+  background: #000;
+  border-radius: var(--mantine-radius-xs);
+}
+
+/* Inside Known's page frame (#2469): the frame sets the edges, so the page adds none of its own. */
+.page {
+  max-width: 1600px;
+  padding-bottom: 20px;
+}
+/* As People, Pets, and Activities: a 320px column on the left (the title, then Find and what's remembered), and
+   Remember beside it. One column on a phone: the title, Remember, then the rest (Known design pass). */
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 320px) minmax(0, 1fr);
+  grid-template-rows: auto 1fr;
+  grid-template-areas:
+    "head main"
+    "side main";
+  align-items: start;
+  gap: 16px 36px;
+}
+.head {
+  grid-area: head;
+  min-width: 0;
+}
+.side {
+  grid-area: side;
+  min-width: 0;
+}
+.remember {
+  grid-area: main;
+  min-width: 0;
+}
+.empty {
+  margin-top: 12px;
+}
+.about {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--mantine-color-default-border);
+  color: var(--mantine-color-dimmed);
+  font-size: 13px;
+}
+.about > [data-disclosure-trigger] {
+  cursor: pointer;
+}
+@media (max-width: 820px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+    grid-template-areas:
+      "head"
+      "main"
+      "side";
+    gap: 16px;
+  }
+}
+@media (max-width: 1100px) {
+  .heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+  }
+}
+
+.preview {
+  position: relative;
+  border-radius: var(--mantine-radius-sm);
+  overflow: hidden;
+  background: var(--lib-card);
+}
+.livePreview {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: var(--mantine-radius-sm);
+  background: #000;
+}
+.livePreview :global(.live-canvas) {
+  object-fit: cover;
+}
+.cameraLabel {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  max-width: calc(100% - 16px);
+  padding: 3px 7px;
+  border-radius: 3px;
+  color: #fff;
+  background: rgb(0 0 0 / 55%);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+.processing {
+  pointer-events: none;
+}
+
+.waitingFrame {
+  min-height: 220px;
+}
+
+.observations :global(.mantine-Timeline-item:not(:first-of-type)) {
+  margin-top: 6px;
+}

@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Refuse changes that add lines that look like leftover merge conflict markers (#566): lines of seven <, =, >, or |
+# that git diff --check calls "leftover conflict marker". 2026-10-29: a merge script kept going after a failed step
+# and committed unresolved markers into continuum/Cargo.toml on main, and every cargo command failed until the fix.
+# Other --check findings (trailing whitespace and so on) are left alone.
+#
+#   check-conflict-markers <hook>               what's staged, against HEAD (pre-commit, pre-merge-commit)
+#   check-conflict-markers <hook> <from> <to>   the change from one commit to another (pre-push)
+#
+# A file whose lines are meant to look like markers (a Markdown heading underlined with exactly seven =, say) opts
+# out with a larger marker size in .gitattributes, which git diff --check honors: <path> conflict-marker-size=32.
+# Git then writes markers that long in that file's own merge conflicts, so a real conflict there is still caught.
+set -uo pipefail
+hook=${1:-pre-commit}
+if [ $# -ge 3 ]; then
+  diff=(git diff --check "$2" "$3" --)
+  what="the commits being pushed add"
+else
+  against=$(git rev-parse -q --verify HEAD || git hash-object -t tree --stdin </dev/null) # a first commit has no HEAD
+  diff=(git diff --cached --check "$against" --)
+  what="the staged changes still have"
+fi
+# LC_ALL=C: the grep matches git's English message, whatever the person's locale.
+found=$(LC_ALL=C "${diff[@]}" | grep ': leftover conflict marker$' || true)
+if [ -n "$found" ]; then
+  echo "$hook: $what merge conflict markers:" >&2
+  sed 's/^/  /' <<<"$found" >&2
+  echo "Resolve them and commit again. (A file meant to have such lines can opt out in .gitattributes: <path> conflict-marker-size=32)" >&2
+  exit 1
+fi

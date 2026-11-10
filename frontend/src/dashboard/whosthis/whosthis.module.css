@@ -1,0 +1,107 @@
+/* Who's this?: the narrow window's way back, the play button, and the recent decisions under the list, moved from
+   People's old inbox (#347). */
+
+/* "Back to people" shows only on narrow windows, where the inbox takes the whole page. */
+.back {
+  display: none;
+}
+
+@media (max-width: 820px) {
+  .back {
+    display: block;
+    margin-bottom: 8px;
+  }
+}
+
+.play {
+  /* The round play control itself is the shared PlayToggle (Mantine ActionIcon, #2041); this is only its place. */
+  margin-top: 6px;
+}
+
+.history {
+  margin-top: 22px;
+}
+
+.history > [data-disclosure-trigger] {
+  cursor: pointer;
+  color: var(--mantine-color-dimmed);
+  font-size: 14px;
+  font-weight: 600;
+  padding: 4px 0;
+}
+
+.hist {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  max-height: 360px;
+  overflow: auto;
+}
+
+.hist li {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+  gap: 4px 10px;
+  align-items: center;
+  padding: 8px 0;
+  border-top: 1px solid var(--mantine-color-default-border);
+  min-height: 44px;
+}
+
+.when {
+  font-size: 13px;
+  color: var(--mantine-color-dimmed);
+  font-family: var(--mantine-font-family-monospace);
+  font-variant-numeric: tabular-nums;
+}
+
+.histText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--lib-speech);
+}
+
+.got {
+  white-space: nowrap;
+}
+
+.was {
+  font-size: 13px;
+  color: var(--mantine-color-dimmed);
+}
+
+.since {
+  margin-top: 10px;
+  font-size: 13px;
+}
+
+@media (max-width: 600px) {
+  .hist li {
+    grid-template-columns: auto auto minmax(0, 1fr);
+  }
+
+  .got {
+    grid-column: 1 / -1;
+  }
+}
+
+/* Every picture of a face group, to take the wrong ones out (#2008). A selected picture gets a ring and a check drawn
+   over it (outline and a pseudo-element), so selecting never moves the grid. */
+.picker {
+  grid-column: 1 / -1; /* the whole row, under its picture and its answer, on People's wide cards */
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border-radius: 4px;
+  background: var(--lib-bg2);
+}
+
+/* A picture in an "Every picture" grid (lib's SelectableGrid): square, cropped to fill. */
+.square {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+}

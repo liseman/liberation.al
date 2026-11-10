@@ -1,0 +1,316 @@
+# The pack's long-running services, declared once. `uv run pack-services` renders
+# them to launchd agents (macOS) or systemd user units (Linux) and installs them.
+#
+# Per service:
+#   description  one plain sentence, for the machine's owner, on what it does (Settings' Services shows it); build
+#              steps, dependencies, and issue numbers go in a comment above the table instead
+#   group      the section Settings' Services lists it under: core (Continuum's daemons), workers, dashboard, or
+#              extras; anything else, or none, is listed under Other
+#   command    a pack-* command from pyproject.toml, or a path relative to the repo
+#   args       extra arguments
+#   fresh_config  this service name; install a stable launcher that expands current settings at each startup
+#   enabled_by optional config boolean that also enables this service (services.disable still wins)
+#   default    installed unless pack.toml says otherwise ([services] enable / disable)
+#   platforms  only on these platform keys (see config/defaults.toml); omit for all
+#   restart    keep it running (true) or run once / on a schedule (false)
+#   throttle   seconds to wait before restarting after a crash
+#   stop_timeout  seconds systemd waits after SIGTERM before killing it (default 20)
+#   schedule   "HH:MM" daily; makes it a scheduled job instead of a daemon
+#   background lower CPU and IO priority
+#   env        extra environment variables
+#   reads_settings  false for a command that never reads pack.toml itself (whisper-server), so a settings save
+#              restarts it only for the {section.key} values in its args and env (src/liberational/readers.py)
+#
+# wait_for_broker checks a real broker request before exec, for at most 60 seconds.
+# wait_for_gpu waits for the NVIDIA driver before exec (gpu_ready.py), for a program that picks its device once.
+# Keep dashboard and gateway ungated: diagnostics and recorded playback work while the broker is offline.
+# Settings like cameras, ports, and models come from config, not from args here.
+
+# The workers below run on Continuum (#548, #549): each needs continuum-broker and continuum-capture, and listen also
+# continuum-vector-worker. They replace v1's vision, identity, backfill, and other services.
+[listen]
+description = "Listens to the microphones, writes down what people say, and works out who said it."
+group = "workers"
+command = "pack-listen"
+wait_for_broker = true
+default = true
+
+[identity]
+description = "Learns people's names from introductions, name badges, and what you tell it, and puts them on the voices and faces heard and seen."
+group = "workers"
+command = "pack-identity"
+wait_for_broker = true
+default = true
+
+[journal]
+description = "Writes a first-person journal of the day from what was said and seen, and rolls it up into longer summaries."
+group = "workers"
+command = "pack-journal"
+wait_for_broker = true
+default = true
+
+[see-objects]
+description = "Finds the objects you remembered on the Objects page in the camera video, and notes where it saw them."
+group = "workers"
+command = "pack-see-objects"
+wait_for_broker = true
+default = true
+
+[see-captions]
+description = "Describes in words what the cameras see, and notes the objects in view."
+group = "workers"
+command = "pack-see-captions"
+wait_for_broker = true
+default = true
+
+[research]
+description = "Works through the Research questions asked in the dashboard, one at a time in the background, for the Inbox."
+group = "workers"
+command = "pack-research"
+default = true
+
+[see-zones]
+description = "Counts visits to the zones drawn on each camera's view, and the times someone came into view, from see-actions' tracks."
+group = "workers"
+command = "pack-see-zones"
+wait_for_broker = true
+default = true
+
+[vlm]
+description = "Runs the model that describes the camera video, for see-captions (Mac with Apple Silicon only)."
+group = "workers"
+command = "pack-vlm"
+default = true
+platforms = ["darwin-arm64"]
+
+[dashboard]
+description = "Runs this dashboard."
+group = "dashboard"
+command = "pack-dashboard"
+default = true
+throttle = 5
+
+# On the broker's speech log (#548): needs continuum-broker and the listen worker.
+[voice]
+description = "Listens for the wake word and answers out loud."
+group = "workers"
+command = "pack-voice"
+wait_for_broker = true
+default = true
+
+[whisper-names]
+description = "Whispers the name of each person who arrives."
+group = "extras"
+command = "pack-whisper-names"
+default = false
+
+[audio-route]
+description = "Plays sound through the chosen Bluetooth headset when it's connected (Mac only)."
+group = "extras"
+command = "pack-audio-route"
+default = false
+platforms = ["darwin-arm64", "darwin-x86_64"]
+
+# Needs phone.public_host and .env.phone.
+[phone-bridge]
+description = "Answers phone calls through Twilio."
+group = "extras"
+command = "pack-phone-bridge"
+default = false
+
+[whisper]
+description = "Turns speech into text, when Whisper is the chosen speech engine (asr.engine)."
+group = "extras"
+command = "pack-whisper"  # supervises the native server and reports its actual model holder
+args = ["data/whisper.cpp/build/bin/whisper-server", "-m", "{models.files.asr_whisper.path}", "--host", "127.0.0.1", "--port", "{ports.whisper}",
+        "-l", "en", "-nt", "-t", "8"]
+default = false
+
+# The shared Ollama server (ollama.url): the voice loop, captions, the journal, and embeddings. A pack service, not
+# the system ollama.service, so it waits for the NVIDIA driver (an Ollama started first stays on the CPU) and is
+# pinned to ollama.gpu. It reads the model store ollama.models names.
+[ollama]
+description = "Runs the local language and vision models that the voice replies, captions, and journal use."
+group = "extras"
+command = "ollama"
+args = ["serve"]
+default = true
+wait_for_gpu = true
+throttle = 5
+reads_settings = false
+env = { CUDA_VISIBLE_DEVICES = "{ollama.gpu}", OLLAMA_MODELS = "{ollama.models}", OLLAMA_VULKAN = "0", GGML_VK_VISIBLE_DEVICES = "" }
+
+# An Ollama server of Ask's own (#1306): one model, kept loaded, on the GPU ask.gpu names, reading the model store
+# ask.ollama_models names. Set ask.ollama_url to http://127.0.0.1:{ports.ask_ollama} to send Ask's answers there.
+[ask-ollama]
+description = "Keeps Ask's own language model loaded, so Ask can read more of the day without slowing the voice replies."
+group = "extras"
+command = "ollama"
+args = ["serve"]
+default = false
+platforms = ["linux-x86_64", "linux-aarch64"]
+throttle = 5
+reads_settings = false
+env = { OLLAMA_HOST = "127.0.0.1:{ports.ask_ollama}", CUDA_VISIBLE_DEVICES = "{ask.gpu}", OLLAMA_MODELS = "{ask.ollama_models}", OLLAMA_VULKAN = "0", GGML_VK_VISIBLE_DEVICES = "", OLLAMA_MAX_LOADED_MODELS = "{ask.max_loaded_models}", OLLAMA_KEEP_ALIVE = "-1", OLLAMA_NOPRUNE = "1", LLAMA_ARG_N_CPU_MOE = "{ask.cpu_expert_layers}", LLAMA_ARG_MOE_CACHE_MIB = "0", OLLAMA_KV_CACHE_TYPE = "{ask.kv_cache_type}", OLLAMA_FLASH_ATTENTION = "1", OLLAMA_NUM_PARALLEL = "1" }
+
+# Continuum's daemons (docs/CONTINUUM.md). Build them first with `mise run continuum-release`.
+[continuum-broker]
+description = "Keeps everything the system records and hands it to the other services."
+group = "core"
+command = "continuum/target/release/continuum-broker"
+args = ["--state-dir", "{paths.state}", "--manifest", "config/devices.toml"]
+default = true
+throttle = 5
+reads_settings = false
+# A clean stop drains the writer (up to 10 s), saves the restart projection (up to 45 s), and closes the catalog (up
+# to 10 s); killing it sooner leaves the next start a full index rebuild and a catalog repair.
+stop_timeout = 75
+
+# One worker process per camera and microphone in config/devices.toml, opened one at a time (docs/CONTINUUM.md, One
+# process per physical device). It opens the same devices as v1's vision service, so don't run both.
+[continuum-capture]
+description = "Records from each camera and microphone."
+group = "core"
+command = "continuum/target/release/continuum-capture"
+wait_for_broker = true
+args = ["--state-dir", "{paths.state}", "--manifest", "config/devices.toml"]
+default = true
+platforms = ["linux-x86_64", "linux-aarch64", "darwin-arm64"]
+throttle = 5
+# A worker gets stop_grace_ms (10 s) to release its device, then a kill, then as long again to be reaped; the
+# supervisor stops them all on SIGTERM. This covers all of it, so launchd or systemd never kills mid-teardown (#1388).
+stop_timeout = 25
+reads_settings = false
+
+# Drains each capture stream from Tier 0 into Tier 1 chunk files. A microphone's chunk becomes Opus as it closes,
+# before it is committed (docs/CONTINUUM.md, Storage tiers). With video_archive.av1 on, it also re-encodes older camera
+# video to AV1 (docs/STORAGE.md, AV1 archive); the settings go by environment, which an older binary ignores.
+# SVT_LOG=1 keeps SVT-AV1 to errors: otherwise it logs a banner of about 20 lines for every chunk it encodes.
+[continuum-tier-worker]
+description = "Saves recordings to disk, with audio compressed as Opus."
+group = "core"
+command = "continuum/target/release/continuum-tier-worker"
+# Expand settings when the process starts, including an ordinary restart after Settings changes.
+fresh_config = "continuum-tier-worker"
+wait_for_broker = true
+args = ["--state-dir", "{paths.state}", "--manifest", "config/devices.toml"]
+env = { CONTINUUM_AV1_ARCHIVE = "{video_archive.av1}", CONTINUUM_AV1_AFTER_HOURS = "{video_archive.after_hours}", CONTINUUM_AV1_PRESET = "{video_archive.preset}", CONTINUUM_AV1_CRF = "{video_archive.crf}", CONTINUUM_AV1_THREADS = "{video_archive.threads}", CONTINUUM_VIDEO_WINDOW = "{video_window.enabled}", CONTINUUM_VIDEO_WINDOW_DAYS = "{video_window.days}", SVT_LOG = "1" }
+default = true
+throttle = 5
+# On SIGTERM it closes and commits every open chunk first.
+stop_timeout = 15
+reads_settings = true
+
+# Files face and voice embeddings, answers similarity and text searches, and deletes its rows on purges
+# (docs/CONTINUUM.md, Vector worker).
+[continuum-vector-worker]
+description = "Keeps the face and voice index used to recognize people and to search."
+group = "core"
+command = "continuum/target/release/continuum-vector-worker"
+wait_for_broker = true
+# Follows face.embedding on the broker (--embeddings STREAM, repeated, chooses others) and voice.embedding in the
+# segment store under paths.state/segments.
+args = ["--state-dir", "{paths.state}"]
+default = true
+throttle = 5
+stop_timeout = 15
+reads_settings = false
+
+# Live and recorded frames with overlays, over WebSockets (docs/CONTINUUM.md, Browser gateway).
+[continuum-gateway]
+description = "Streams live and recorded video, with labels, to the dashboard."
+group = "core"
+command = "continuum/target/release/continuum-gateway"
+# dashboard.gateway_allow_host (comma-separated) names the gateway is reached by besides this machine's own name and
+# address, such as a Tailscale MagicDNS name; a browser request under any other name is refused (DNS rebinding).
+args = ["--state-dir", "{paths.state}", "--listen", "0.0.0.0:8766", "--allow-host", "{dashboard.gateway_allow_host}"]
+default = true
+throttle = 5
+reads_settings = false
+
+[deep-transcribe]
+description = "Each night, hears the day's speech again with two models and fixes the transcript where they agree."
+group = "workers"
+command = "pack-deep-transcribe"
+restart = false
+schedule = "03:30"
+default = true
+
+[video-window]
+description = "Each night, deletes camera video older than the configured history window; what was seen and heard in it stays."
+group = "workers"
+command = "pack-video-window"
+restart = false
+schedule = "04:15"
+wait_for_broker = true
+default = true
+
+[spatial-cameras]
+description = "Each night, turns the fixed cameras that see the same space into a place, from each camera's best lit frame of the day, with a 3D map, a floorplan, and where each camera sits."
+group = "workers"
+command = "pack-spatial-cameras"
+restart = false
+# Off-hours on the GPU, after the day's last daytime frame and before the 03:00 journal page window (#3008).
+schedule = "01:00"
+background = true
+default = true
+
+[ingest-analyze]
+description = "Finds faces, captions, and speech in the photos, video, and audio you bring in, as it does for your own cameras and microphones."
+group = "workers"
+command = "pack-ingest-analyze"
+wait_for_broker = true
+default = true
+throttle = 5
+
+# The ingest poll (src/liberational/ingest/runner.py, docs/INGEST.md): off until ingest.sources names a source.
+[ingest]
+description = "Brings in new photos, video, and audio from the sources you've connected, like Wyze cameras."
+group = "extras"
+command = "pack-ingest"
+args = ["poll"]
+wait_for_broker = true
+default = false
+
+# ESP32 receivers scan BLE advertisements without connecting to devices; off until explicitly enabled.
+[bluetooth]
+description = "Records nearby Bluetooth advertisements received by attached ESP32 sensors."
+group = "workers"
+command = "pack-bluetooth"
+wait_for_broker = true
+default = false
+enabled_by = "bluetooth.enabled"
+background = true
+stop_timeout = 15
+
+
+[network-devices]
+description = "Records read-only local router client inventories and partial host caches."
+group = "workers"
+command = "pack-network-devices"
+wait_for_broker = true
+default = false
+enabled_by = "network_devices.enabled"
+background = true
+stop_timeout = 30
+
+# One full-rate decoder per selected H.264 camera, shared by every model.
+[see-decode]
+description = "Shares full-rate decoded camera frames between vision models."
+group = "workers"
+command = "pack-see-decode"
+wait_for_broker = true
+default = true
+throttle = 5
+stop_timeout = 15
+
+# Model-based actions on every configured camera (#1745), at its analysis rate. Reads see-decode's frames.
+[see-actions]
+description = "Follows people on each camera at its configured rate, with their skeletons, faces, and actions."
+group = "workers"
+command = "pack-see-actions"
+wait_for_broker = true
+# Its models need the GPU (no useful CPU fallback): at boot, wait for the driver rather than start without it (#2964).
+wait_for_gpu = true
+default = true
+throttle = 5

@@ -1,0 +1,87 @@
+.drop {
+  border: 1px dashed var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-md);
+  padding: 16px;
+}
+
+.drop[data-over] {
+  border-color: var(--mantine-primary-color-filled);
+  background: var(--mantine-primary-color-light);
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.item {
+  padding-block: 10px;
+  border-bottom: 1px solid var(--mantine-color-default-border);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 12px;
+  align-items: center;
+}
+
+.name {
+  overflow-wrap: anywhere; /* a link's address has no spaces to wrap at */
+}
+
+.groupTitle {
+  font-size: var(--mantine-font-size-sm);
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.delete:hover,
+.delete:focus-visible {
+  color: var(--lib-bad); /* turns red only when meant (#2715) */
+}
+
+.bar {
+  max-width: 24rem;
+}
+
+/* The whole page while files are dragged over it (#2721); events pass through to the window's drop handler. */
+.page {
+  position: fixed;
+  inset: 8px;
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed var(--mantine-primary-color-filled);
+  border-radius: var(--mantine-radius-md);
+  background: color-mix(in srgb, var(--mantine-primary-color-filled) 10%, transparent); /* the page shows through */
+  font-weight: 600;
+  pointer-events: none;
+}
+
+.page span {
+  background: var(--mantine-color-body); /* readable over whatever is under it */
+  border: 1px solid var(--mantine-primary-color-filled);
+  border-radius: var(--mantine-radius-xl);
+  padding: 8px 16px;
+  box-shadow: var(--mantine-shadow-md);
+}
+
+.queue {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  max-height: 16rem;
+  overflow-y: auto;
+}
+
+.queue li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-block: 2px;
+}
+
+.queueName {
+  flex: 1;
+  min-width: 0;
+}

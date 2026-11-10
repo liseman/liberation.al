@@ -1,0 +1,241 @@
+/* Journal (#2811): a Finder-style column view. Columns sit side by side and the preview takes the rest; past the
+   page's width the row scrolls sideways. The picked row in the column the keys act on is filled; in the others, tinted. */
+.browser {
+  display: flex;
+  height: calc(100dvh - var(--top-h, 56px) - 170px);
+  min-height: 460px;
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-md);
+  background: var(--lib-card);
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.column {
+  flex: 0 0 160px;
+  overflow-y: auto;
+  border-right: 1px solid var(--mantine-color-default-border);
+  padding: 4px;
+  outline: none;
+}
+
+.column[data-level="month"],
+.column[data-level="day"] {
+  flex-basis: 170px;
+}
+
+.column[data-deep] {
+  flex-basis: 240px;
+}
+
+.column:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--mantine-primary-color-light);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: var(--mantine-radius-sm);
+  cursor: pointer;
+  font-size: var(--mantine-font-size-sm);
+}
+
+.row:hover {
+  background: var(--mantine-color-default-hover);
+}
+
+.row[aria-selected="true"] {
+  background: var(--mantine-primary-color-light);
+}
+
+.column[data-active] .row[aria-selected="true"] {
+  background: var(--mantine-primary-color-filled);
+  color: var(--mantine-primary-color-contrast);
+}
+
+.chevron {
+  flex: none;
+  opacity: 0.5;
+}
+
+.period {
+  flex: 1;
+  white-space: nowrap;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--mantine-font-size-xs);
+  opacity: 0.75;
+}
+
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.entry {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.time {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.snippet {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: var(--mantine-font-size-xs);
+  opacity: 0.8;
+}
+
+.note {
+  padding: 8px;
+}
+
+.preview {
+  flex: 1 0 320px;
+  overflow-y: auto;
+  padding: 16px 20px;
+}
+
+.previewTitle {
+  margin: 0 0 8px;
+  font-size: var(--mantine-font-size-lg);
+}
+
+.subhead {
+  margin: 16px 0 6px;
+  font-size: var(--mantine-font-size-sm);
+  color: var(--mantine-color-dimmed);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.entryText {
+  margin: 0;
+  line-height: 1.55;
+}
+
+.sources {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.source {
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-sm);
+  padding: 8px 10px;
+}
+
+.sourceHead {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: var(--mantine-font-size-xs);
+  color: var(--mantine-color-dimmed);
+}
+
+.sourceText {
+  margin: 4px 0 0;
+  font-size: var(--mantine-font-size-sm);
+}
+
+.audio {
+  display: block;
+  width: 100%;
+  max-width: 360px;
+  height: 32px;
+  margin-top: 6px;
+}
+
+.still {
+  display: block;
+  margin-top: 6px;
+  max-width: 240px;
+  border-radius: var(--mantine-radius-sm);
+}
+
+.stillWait {
+  margin-top: 6px;
+  font-size: var(--mantine-font-size-xs);
+  color: var(--mantine-color-dimmed);
+}
+
+.expired {
+  margin: 6px 0 0;
+  font-size: var(--mantine-font-size-xs);
+  color: var(--mantine-color-dimmed);
+  font-style: italic;
+}
+
+/* A phone: one pane at a time, with Back and the picked row's name above it. */
+.phoneBar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  margin-bottom: 8px;
+}
+
+.phoneTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.phoneOpen {
+  font-size: var(--mantine-font-size-sm);
+  color: var(--mantine-primary-color-filled);
+}
+
+.phonePane {
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-md);
+  background: var(--lib-card);
+}
+
+.phonePane .column {
+  border-right: none;
+}
+
+.phonePane .preview {
+  padding: 12px 14px;
+}
+
+.clip {
+  display: block;
+  margin-top: 6px;
+  width: 100%;
+  max-width: 320px;
+  border-radius: var(--mantine-radius-sm);
+  background: #000;
+}
+
+.where {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: var(--mantine-font-size-sm);
+}

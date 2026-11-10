@@ -1,0 +1,69 @@
+[package]
+name = "continuum-tier"
+description = "Continuum Broker's tier worker library: chunk files, flush, hydrate, Opus Tier 2, and the codec probe"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[features]
+default = []
+# Links FFmpeg through ffmpeg-next for the H.264 encoder (a raw camera's Tier 1), video decoding, export, and Tier 2
+# recompression. Needs the FFmpeg development headers (config/system-packages.toml); without the feature those paths
+# report Unsupported.
+ffmpeg = ["dep:ffmpeg-next", "dep:clap"]
+
+[dependencies]
+chrono.workspace = true
+libc.workspace = true
+continuum-catalog.workspace = true
+flatbuffers.workspace = true
+continuum-client = { path = "../continuum-client" }
+continuum-core.workspace = true
+continuum-shm.workspace = true
+bytes = "1"
+claxon = "0.4"
+crc32fast = "1"
+flacenc = { version = "0.5", default-features = false }
+lz4_flex = "0.14"
+serde.workspace = true
+serde_json = "1"
+thiserror.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "signal", "time"] }
+toml.workspace = true
+uuid.workspace = true
+zune-jpeg = "0.5"
+ffmpeg-next = { version = "9", optional = true }
+# Only for the continuum-export command.
+clap = { workspace = true, optional = true }
+opus = "0.4"
+
+[[bin]]
+name = "continuum-export"
+required-features = ["ffmpeg"]
+
+[[bin]]
+name = "continuum-tier-worker"
+
+[[bin]]
+name = "continuum-recording-bound"
+path = "src/bin/continuum-recording-bound.rs"
+
+[[example]]
+name = "raw_bytes"
+required-features = ["ffmpeg"]
+
+[[example]]
+name = "decode_fanout"
+required-features = ["ffmpeg"]
+
+[dev-dependencies]
+continuum-broker = { path = "../continuum-broker" }
+continuum-sched.workspace = true
+jpeg-encoder = "0.7"
+proptest.workspace = true
+redb.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

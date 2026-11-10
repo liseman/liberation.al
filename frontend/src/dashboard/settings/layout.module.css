@@ -1,0 +1,139 @@
+/* One card and row anatomy for every Settings section. Services supplies the reference spacing and type. */
+.card {
+  min-width: 0;
+  background: var(--lib-card);
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-lg);
+}
+.cardHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 18px 24px 14px;
+}
+.words {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.cardTitle {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.description {
+  min-width: 0;
+  color: var(--mantine-color-dimmed);
+  font-size: var(--mantine-font-size-sm);
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.trailing {
+  flex: none;
+  font-size: 13px;
+  font-weight: 600;
+  padding-top: 2px;
+}
+.row {
+  font-size: var(--mantine-font-size-sm);
+  margin: 0;
+  min-width: 0;
+  border: 0;
+  border-top: 1px solid var(--mantine-color-default-border);
+  padding: 14px 16px 14px 24px;
+}
+.card > .row:first-child {
+  border-top: 0;
+}
+.row:last-child {
+  border-radius: 0 0 calc(var(--mantine-radius-lg) - 1px) calc(var(--mantine-radius-lg) - 1px);
+}
+.sectionHead {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.sectionTitle {
+  margin: 0;
+  font: 650 24px var(--mantine-font-family);
+}
+@media (max-width: 600px) {
+  .cardHead {
+    padding: 14px 16px 10px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "title trailing" "description description";
+    gap: 0 12px;
+  }
+  .cardHead .words {
+    display: contents;
+  }
+  .cardTitle {
+    grid-area: title;
+  }
+  .cardHead .description {
+    grid-area: description;
+    margin-top: 3px;
+  }
+  .trailing {
+    grid-area: trailing;
+    padding-top: 0;
+  }
+  .row {
+    padding: 10px 8px 12px 16px;
+  }
+  .row[data-toggle] > .words {
+    display: contents;
+  }
+  .row[data-toggle] > .words > :first-child {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .row[data-toggle] > .words > :not(:first-child) {
+    grid-column: 1 / -1;
+  }
+  .row[data-toggle] > :last-child {
+    grid-column: 2;
+    grid-row: 1;
+    align-self: center;
+  }
+}
+
+.fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.panel {
+  padding: 0;
+}
+.accordionControl {
+  padding: 18px 24px 14px;
+}
+@media (max-width: 600px) {
+  .accordionControl {
+    padding: 14px 16px 10px;
+  }
+}
+
+.label {
+  font-size: 14.5px;
+  font-weight: 600;
+}
+@media (max-width: 600px) {
+  .label {
+    font-size: 15px;
+  }
+}
+/* One source (SourceItem): a head row and its settings' rows. */
+.source {
+  min-width: 0;
+}
+.card > .source:first-child > .row:first-child {
+  border-top: 0;
+}

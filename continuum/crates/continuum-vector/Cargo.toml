@@ -1,0 +1,38 @@
+[package]
+name = "continuum-vector"
+description = "LanceDB tables and search for Continuum's vector worker (embeddings and interpretation text, keyed by payload id)"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+# lancedb 0.41 needs 1.94; the rest of the workspace keeps its lower floor.
+rust-version = "1.94"
+
+[dependencies]
+# The segment store's batches are arrow 60; lancedb's are its own major (58), so the two never meet in one type.
+arrow-array = "60"
+chrono.workspace = true
+continuum-client = { path = "../continuum-client" }
+continuum-core.workspace = true
+continuum-search.workspace = true
+continuum-segments = { path = "../continuum-segments" }
+futures = "0.3"
+lancedb = "0.41"
+# lancedb pins lance-index exactly; FullTextSearchQuery comes from it. Move both together.
+lance-index = "=14.0.2"
+serde.workspace = true
+serde_json = "1"
+thiserror.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+arrow-schema = "60"
+continuum-broker = { path = "../continuum-broker" }
+tempfile.workspace = true
+continuum-shm.workspace = true
+continuum-wire.workspace = true
+flatbuffers.workspace = true
+libc.workspace = true
+
+[lints]
+workspace = true

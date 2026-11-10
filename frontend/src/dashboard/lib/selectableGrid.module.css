@@ -1,0 +1,63 @@
+/* SelectableGrid: tiles at least --grid-tile wide, a check mark on the chosen ones. A tile's content (a picture, a
+   strip of faces, a caption) is the caller's; the tile frames it. */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--grid-tile, 64px)), 1fr));
+  gap: 8px;
+}
+.tile {
+  position: relative;
+  display: block;
+  min-width: 0;
+  border: 2px solid transparent;
+  border-radius: var(--mantine-radius-md);
+  overflow: hidden;
+  background: var(--mantine-color-default);
+  cursor: pointer;
+}
+.tile:hover {
+  background: var(--mantine-color-default-hover);
+}
+.tile:focus-visible {
+  outline: 3px solid var(--mantine-primary-color-filled);
+  outline-offset: 2px;
+}
+.tile:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.tile[data-on] {
+  border-color: var(--mantine-primary-color-filled);
+}
+/* About to be taken out: a red ring, and the picture dimmed. */
+.grid[data-tone="remove"] .tile[data-on] {
+  border-color: var(--mantine-color-red-6);
+}
+.grid[data-tone="remove"] .tile[data-on] :is(img, [data-safe-image]) {
+  opacity: 0.55;
+}
+/* All start on: a tile turned off is the one left behind, gray. */
+.grid[data-tone="keep"] .tile:not([data-on]) {
+  border-color: var(--mantine-color-default-border);
+}
+.grid[data-tone="keep"] .tile:not([data-on]) :is(img, [data-safe-image]) {
+  opacity: 0.35;
+  filter: grayscale(1);
+}
+.mark {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--mantine-color-body);
+  pointer-events: none;
+}
+@media (max-width: 600px) {
+  .grid {
+    gap: 6px;
+  }
+  .grid[data-two-on-phone] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

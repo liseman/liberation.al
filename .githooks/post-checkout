@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# After switching branches ($3 is 1; 0 means only files were checked out). Turned on by `mise run hooks`.
+[ "${3:-0}" = 1 ] || exit 0
+exec "$(dirname "$0")/rebuild-frontend" "$1" "$2"

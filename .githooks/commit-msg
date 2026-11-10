@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Refuse a commit message that carries private data: a commit message is as public as the code
+# (docs/CONVENTIONS.md). $1 is the file holding the message. Turned on by `mise run hooks`.
+set -euo pipefail
+python3 "$(git rev-parse --show-toplevel)/tools/privacy_check.py" --message "$1"

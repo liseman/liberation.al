@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Before a push: refuse it if the pushed commits add conflict markers or private data, or carry history from
+# somewhere else. This catches what pre-commit can't see: git rebase --continue, git am, and git pull --rebase make
+# commits without running pre-commit, and a clone that turned the hooks on late has commits they never saw. Turned
+# on by `mise run hooks`. Git passes the remote's name and URL, and one line per ref on stdin:
+# <local ref> <local sha> <remote ref> <remote sha>.
+set -uo pipefail
+remote=${1:-origin}
+empty=$(git hash-object -t tree --stdin </dev/null)
+top=$(git rev-parse --show-toplevel)
+# The repository's first commit, as the remote's main has it. A clone that once tracked another repository (the
+# project's earlier private one) still holds that history, and pushing a branch of it here would publish it.
+first=$(git rev-list --max-parents=0 "refs/remotes/$remote/main" 2>/dev/null | tail -1)
+status=0
+while read -r ref local _ theirs; do
+  case "$local" in *[!0]*) ;; *) continue ;; esac # deleting a remote branch: nothing to check
+  if [ -n "$first" ] && ! git merge-base --is-ancestor "$first" "$local" 2>/dev/null; then
+    echo "pre-push: $ref doesn't descend from this repository's first commit, so it carries another history. Not pushed." >&2
+    status=1
+    continue
+  fi
+  base=""
+  case "$theirs" in *[!0]*) git cat-file -e "$theirs^{commit}" 2>/dev/null && base=$theirs ;; esac
+  # A new branch, or a remote tip this clone doesn't have: compare with where it left the remote's default branch.
+  [ -n "$base" ] || base=$(git merge-base "$local" "refs/remotes/$remote/HEAD" 2>/dev/null || git merge-base "$local" "refs/remotes/$remote/main" 2>/dev/null || echo "$empty")
+  "$(dirname "$0")/check-conflict-markers" pre-push "$base" "$local" || status=1
+  python3 "$top/tools/privacy_check.py" --range "$base" "$local" || status=1
+done
+exit "$status"

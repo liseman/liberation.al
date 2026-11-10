@@ -1,0 +1,91 @@
+/* Known (#1970): the tab row above People, Pets, Objects, and Activities. Each tab's own page keeps its own layout below it. The
+   row stays at the top while the page scrolls, under the app bar (--top-h), on a solid background; once it's stuck
+   it gets a bottom edge. Its height is --known-h, which sticky parts below it and anchor jumps leave room for.
+   The frame's space above the row (--page-top) is the row's own top padding, so the row's top is the app bar's bottom
+   before it sticks and after: sticking moves nothing and changes no size (it used to jump up by that space, #3270). */
+.root {
+  display: flex;
+  flex-direction: column;
+}
+
+.sentinel {
+  height: 1px;
+  margin-top: calc(-1 * var(--page-top, 0px));
+  margin-bottom: -1px;
+}
+
+.bar {
+  /* Out to the frame's edges, so what scrolls under it is covered across the whole width. */
+  margin-inline: calc(-1 * var(--page-gutter, 0px));
+  padding-inline: var(--page-gutter, 0px);
+  padding-top: var(--page-top, 0px);
+  margin-bottom: 20px;
+  position: sticky;
+  top: var(--top-h, 56px);
+  z-index: 5;
+  background: var(--mantine-color-body);
+  box-shadow: 0 1px 0 transparent;
+  transition: box-shadow 120ms;
+}
+
+.bar[data-stuck] {
+  box-shadow:
+    0 1px 0 var(--mantine-color-default-border),
+    0 4px 8px -6px rgb(0 0 0 / 0.25);
+}
+
+.list {
+  padding: 0;
+  /* one row of tabs at any width (four since Activities, #2283): it scrolls sideways on a phone rather than wrap */
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.list > * {
+  flex: none;
+}
+/* More tabs past an end (a phone): that end fades out, so the row says it scrolls (Known design pass). */
+.list[data-more-end] {
+  mask-image: linear-gradient(to right, #000 calc(100% - 48px), transparent);
+}
+.list[data-more-start] {
+  mask-image: linear-gradient(to left, #000 calc(100% - 48px), transparent);
+}
+.list[data-more-start][data-more-end] {
+  mask-image: linear-gradient(to right, transparent, #000 48px, #000 calc(100% - 48px), transparent);
+}
+/* Every tab one fixed width, wide enough for the longest title over the longest count ("Activities" over "1234 to
+   check"), with the title on the first line and the count on a second line every tab has, empty until its count loads
+   and on tabs that never count (#3243): a count arriving changes neither a tab's width nor the row's height, so
+   nothing moves under the pointer (#2828). In rem, so it grows with the text. */
+.tab {
+  width: 8rem;
+  padding-inline: var(--mantine-spacing-xs);
+}
+.label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+}
+.title,
+.count {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The reserved line: its height is set, not taken from its text, so it is as tall empty as with a count. */
+.count {
+  display: block;
+  height: calc(var(--mantine-font-size-xs) * 1.4);
+  font-size: var(--mantine-font-size-xs);
+  line-height: 1.4;
+  font-weight: 500;
+  color: var(--mantine-primary-color-light-color);
+}
+
+.root [id] {
+  scroll-margin-top: calc(var(--top-h, 56px) + var(--known-h, 73px) + 8px);
+}

@@ -1,0 +1,23 @@
+menu "Receive-only BLE sensor"
+    config BLE_SCANNER_NAME
+        string "Initial sensor name (empty uses chip ID, at most 32 UTF-8 bytes)"
+        default ""
+    config BLE_SCANNER_REPORTS_PER_SECOND
+        int "Maximum advertisement lines per second (UART at most 64)"
+        range 1 64 if !BLE_SCANNER_USB_SERIAL_JTAG
+        range 1 256
+        default 32 if !BLE_SCANNER_USB_SERIAL_JTAG
+        default 128
+    config BLE_SCANNER_QUEUE_SIZE
+        int "Fixed advertisement queue capacity"
+        range 8 256
+        default 64
+    config BLE_SCANNER_USB_SERIAL_JTAG
+        bool "Use native USB Serial/JTAG instead of UART0"
+        depends on SOC_USB_SERIAL_JTAG_SUPPORTED
+        default y
+    config BLE_SCANNER_UART_BAUD
+        int "UART0 baud (ignored by native USB)"
+        range 115200 921600
+        default 115200
+endmenu

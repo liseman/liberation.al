@@ -1,0 +1,12 @@
+# gitleaks configuration for tools/privacy_check.py: the default rules, plus the reviewed false alarms.
+title = "liberation.al"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Made-up values in tests that look like keys"
+condition = "AND"
+paths = ['''^tests/test_ask_friends\.py$''', '''^tests/test_onvif\.py$''']
+regexTarget = "line"
+regexes = ['''"key": "ollama/synthetic"''', '''qop="auth", charset=unknown''']
