@@ -139,13 +139,21 @@ function fromFrame(frame: HTMLIFrameElement, data: unknown, origin = location.or
 
 it("opens the editor's page in a frame, gives it the scene once it is up, and passes on each change", () => {
   const changed = vi.fn();
-  renderPage(<PlanFrame scene={EXAMPLE_SCENE} view="2d" scheme="dark" onChange={changed} />);
+  renderPage(
+    <PlanFrame
+      scene={EXAMPLE_SCENE}
+      view="2d"
+      scheme="dark"
+      cameras={[{ id: 'cam0', name: 'Hall camera' }]}
+      onChange={changed}
+    />,
+  );
   const frame = screen.getByTitle('Plan editor') as HTMLIFrameElement;
   expect(frame.getAttribute('src')).toBe(editorUrl(import.meta.env.BASE_URL, '2d', 'dark'));
   expect(screen.getByText('Loading the plan editor…')).toBeTruthy();
   const post = vi.spyOn(frame.contentWindow as Window, 'postMessage').mockImplementation(() => {});
   fromFrame(frame, { type: 'plan-editor:ready' });
-  const open: Open = { type: 'plan-editor:open', scene: EXAMPLE_SCENE };
+  const open: Open = { type: 'plan-editor:open', scene: EXAMPLE_SCENE, cameras: [{ id: 'cam0', name: 'Hall camera' }] };
   expect(post).toHaveBeenCalledWith(open, location.origin);
   expect(screen.queryByText('Loading the plan editor…')).toBeNull();
   const edited = { ...EXAMPLE_SCENE, rootNodeIds: ['site_main'] };

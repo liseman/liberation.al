@@ -13,7 +13,10 @@ import { configureViewer, useViewer } from '@pascal-app/viewer';
 import { useGLTF } from '@react-three/drei';
 import { createRoot } from 'react-dom/client';
 import { BuildTab, icon } from './BuildTab';
+import { CameraMarks } from './CameraMarks';
+import { CamerasTab } from './CamerasTab';
 import { type Changed, fromHash, type Open, ours, type Ready, type Scene } from './protocol';
+import { useSpotsUi } from './spotsUi';
 
 const assets = `${location.origin}${import.meta.env.BASE_URL}pascal`;
 const { view, scheme } = fromHash(location.hash);
@@ -40,6 +43,7 @@ const opened = new Promise<Scene>(resolve => {
     const message = ours<Open>(event, ['plan-editor:open']);
     if (!message) return;
     removeEventListener('message', listen);
+    useSpotsUi.getState().setCameras(message.cameras ?? []);
     resolve(message.scene);
   };
   addEventListener('message', listen);
@@ -52,6 +56,7 @@ const TABS = [
   // the editor's own panel of levels and rooms
   { id: 'site', label: 'Plan', icon: tabIcon('floorplan'), component: () => null },
   { id: 'build', label: 'Build', icon: tabIcon('wall'), component: BuildTab },
+  { id: 'cameras', label: 'Cameras', icon: tabIcon('topview'), component: CamerasTab },
 ];
 
 /** Run `then` once the editor holds a scene: it sets its own layout and selection as it loads one, so what this
@@ -85,6 +90,7 @@ function App() {
         layoutVersion="v2"
         projectId="place-plan"
         sidebarTabs={TABS}
+        floorplanSceneSlot={<CameraMarks />}
         onLoad={async () => {
           const scene = await opened;
           onceLoaded(show);

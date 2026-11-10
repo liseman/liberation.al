@@ -8,9 +8,14 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import type { PlanView, Scene } from '../../../plan-editor/protocol';
 import { messageOf } from '../../../shared/http';
+import { shell } from '../../shell';
 import { planSceneQuery, savePlan } from '../api';
 import type { Place } from '../examples';
 import { PlanFrame } from './PlanFrame';
+
+/** The house's cameras as the editor's Cameras panel lists them: each with the name the page shows. */
+export const houseCameras = (): { id: string; name: string }[] =>
+  shell().cams.map(id => ({ id, name: shell().views[id] ?? id }));
 
 /** How many rooms a scene has: a plan with none can't be saved. */
 export const roomsIn = (scene: Scene): number => Object.values(scene.nodes).filter(n => n.type === 'zone').length;
@@ -110,7 +115,14 @@ export function PlaceEditor({
           Couldn't save the plan: {messageOf(save.error)}
         </Alert>
       )}
-      <PlanFrame key={`${place.id}-${view}-${opened}`} scene={scene} view={view} scheme={scheme} onChange={setEdited} />
+      <PlanFrame
+        key={`${place.id}-${view}-${opened}`}
+        scene={scene}
+        view={view}
+        scheme={scheme}
+        cameras={place.example ? [] : houseCameras()}
+        onChange={setEdited}
+      />
     </>
   );
 }

@@ -25,10 +25,12 @@ export interface Ready {
   type: 'plan-editor:ready';
 }
 
-/** Host to editor: the scene to open. */
+/** Host to editor: the scene to open, and the house's cameras (id and the name the page shows), for the Cameras
+ *  panel to offer the ones with no spot yet. */
 export interface Open {
   type: 'plan-editor:open';
   scene: Scene;
+  cameras?: { id: string; name: string }[];
 }
 
 /** Editor to host: the scene as it stands after an edit. */

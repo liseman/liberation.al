@@ -10,17 +10,22 @@ export function PlanFrame({
   scene,
   view,
   scheme,
+  cameras,
   onChange,
 }: {
   /** The scene to open. A later one is ignored: the editor holds the plan from then on, and remounting opens another. */
   scene: Scene;
   view: PlanView;
   scheme: 'light' | 'dark';
+  /** The house's cameras, for the editor to offer the ones with no spot on the plan yet. */
+  cameras?: { id: string; name: string }[];
   /** The scene after each edit. */
   onChange?: (scene: Scene) => void;
 }) {
   const frame = useRef<HTMLIFrameElement>(null);
   const first = useRef(scene);
+  const known = useRef(cameras);
+  known.current = cameras;
   const changed = useRef(onChange);
   changed.current = onChange;
   const [ready, setReady] = useState(false);
@@ -29,7 +34,7 @@ export function PlanFrame({
       if (event.source !== frame.current?.contentWindow) return;
       const message = ours<FromEditor>(event, ['plan-editor:ready', 'plan-editor:changed']);
       if (message?.type === 'plan-editor:ready') {
-        const open: Open = { type: 'plan-editor:open', scene: first.current };
+        const open: Open = { type: 'plan-editor:open', scene: first.current, cameras: known.current };
         frame.current?.contentWindow?.postMessage(open, location.origin);
         setReady(true);
       } else if (message?.type === 'plan-editor:changed') changed.current?.(message.scene);
