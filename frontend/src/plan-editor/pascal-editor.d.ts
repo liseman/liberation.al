@@ -15,6 +15,8 @@ export interface EditorProps {
   layoutVersion?: 'v1' | 'v2';
   projectId?: string | null;
   sidebarTabs?: (SidebarTab & { component: ComponentType })[];
+  /** Host-owned SVG content mounted in the 2D plan, in the plan's own coordinates (metres). */
+  floorplanSceneSlot?: ReactNode;
   onLoad?: () => Promise<Scene | null>;
   onSave?: (scene: Scene, options?: { keepalive?: boolean }) => Promise<void>;
 }
