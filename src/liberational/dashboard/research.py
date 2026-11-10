@@ -30,6 +30,15 @@ def _body(handler: Any) -> dict[str, Any]:
     return body
 
 
+def view(store: research.Store | None = None) -> dict[str, Any]:
+    """GET /research/jobs, and the live feed's `research` event: the jobs, whether research can run, and the unread
+    count."""
+    jobs = (store or research.Store()).jobs()
+    reason = research.unavailable()
+    unread = sum(1 for j in jobs if j["status"] in ("done", "failed") and not j["read"])
+    return {"jobs": jobs, "available": reason is None, "reason": reason, "unread": unread}
+
+
 def handle(handler: Any) -> bool:
     """Answer a /research request, or return False for any other path."""
     path = handler.path.split("?", 1)[0]
@@ -43,10 +52,7 @@ def handle(handler: Any) -> bool:
         if handler.command == "POST" and not ask._same_origin(handler.headers):
             handler._json({"error": "Cross-origin request rejected."}, 403)
         elif handler.command in ("GET", "HEAD") and path == "/research/jobs":
-            jobs = store.jobs()
-            reason = research.unavailable()
-            unread = sum(1 for j in jobs if j["status"] in ("done", "failed") and not j["read"])
-            handler._json({"jobs": jobs, "available": reason is None, "reason": reason, "unread": unread})
+            handler._json(view(store))
         elif handler.command in ("GET", "HEAD") and match and not match[2]:
             job = store.get(match[1])
             handler._json(job if job else {"error": "No such research job."}, 200 if job else 404)

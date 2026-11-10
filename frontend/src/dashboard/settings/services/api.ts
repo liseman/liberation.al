@@ -1,8 +1,10 @@
-// GET /services, shared by the section and its menu badge so one poll feeds both.
+// GET /services, shared by the section and its menu badge. The badge and the other readers that only need the
+// current state take it from the live feed (servicesStatusQuery, #52); the open section polls it closely.
 
 import { useQuery } from '@tanstack/react-query';
 import { useMemo, useSyncExternalStore } from 'react';
 import { messageOf, request } from '../../../shared/http';
+import { statusQuery } from '../../live/feed';
 import {
   dismissible,
   type HistoryView,
@@ -15,12 +17,13 @@ import {
 } from './model';
 
 export const SECTION_POLL_MS = 3000; // while the section shows
-export const BADGE_POLL_MS = 15000; // for the menu badge otherwise
+
+/** The services as the live feed last sent them: no poll of its own. */
+export const servicesStatusQuery = () => statusQuery<ServicesView>('services');
 
 export const servicesQuery = (refetchInterval: number) => ({
   queryKey: SERVICES_KEY,
-  queryFn: ({ signal }: { signal?: AbortSignal }) =>
-    request<ServicesView>('/services', undefined, signal, refetchInterval === BADGE_POLL_MS ? 'background' : 'page'),
+  queryFn: ({ signal }: { signal?: AbortSignal }) => request<ServicesView>('/services', undefined, signal, 'page'),
   refetchInterval,
 });
 
@@ -94,7 +97,7 @@ export function useServiceIssues(raw: ServicesView | undefined) {
 
 /** The shell's health badge uses the small query/model layer, without loading the service controls. */
 export function useServicesBadge() {
-  const query = useQuery(servicesQuery(BADGE_POLL_MS));
+  const query = useQuery(servicesStatusQuery());
   const { view } = useServiceIssues(query.isError ? unreadable(messageOf(query.error)) : query.data);
   return servicesBadge(view);
 }

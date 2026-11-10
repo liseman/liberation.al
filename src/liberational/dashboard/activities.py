@@ -207,3 +207,21 @@ def listing(day: str, state: Path, kind: str | None = None, unrated: bool = Fals
             item["person_name"] = names.get(current) if current is not None else None
     _track_names(reply["items"], state)
     return 200, reply
+
+
+MAX_DAYS = 31  # one request's worth of days: Known's Activities reads a week (#52)
+
+
+def listings(days: str, state: Path) -> tuple[int, dict[str, Any]]:
+    """GET /activities?days=YYYY-MM-DD,YYYY-MM-DD: each named day's listing in one answer, {"days": {day: listing}},
+    so a page that shows a week asks once instead of once per day."""
+    wanted = list(dict.fromkeys(day for day in days.split(",") if day))
+    if not wanted or len(wanted) > MAX_DAYS:
+        return 400, {"error": f"days must name 1 to {MAX_DAYS} days"}
+    out: dict[str, Any] = {}
+    for day in wanted:
+        code, reply = listing(day, state)
+        if code != 200:
+            return code, reply
+        out[day] = reply
+    return 200, {"days": out}

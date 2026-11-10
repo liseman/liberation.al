@@ -53,6 +53,14 @@ def test_shell_roundtrips_script_like_names_without_ending_its_script():
     assert names(page)["owner"] == owner
 
 
+def test_shell_says_first_run_setup_is_needed_until_the_local_config_exists(tmp_path, monkeypatch):
+    local = tmp_path / "pack.toml"
+    monkeypatch.setattr(cfg, "local_config", lambda: local)
+    assert names(server.fill(INDEX))["needsSetup"] is True
+    local.write_text("")
+    assert names(server.fill(INDEX))["needsSetup"] is False
+
+
 def test_shell_uses_exact_native_camera_names(tmp_path, monkeypatch):
     (tmp_path / "config").mkdir()
     (tmp_path / "config" / "devices.toml").write_text(
