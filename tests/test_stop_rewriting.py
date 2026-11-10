@@ -21,7 +21,7 @@ from hypothesis import strategies as hs
 
 import speech_fake
 from liberational import speech_log
-from liberational.dashboard import presence, server, shell_status
+from liberational.dashboard import context, presence, server, shell_status
 from liberational.domain.identity import Basis
 from liberational.domain.kernel import EventType
 from liberational.memory import history_qa, recall, summarize
@@ -119,7 +119,7 @@ def dashboard(monkeypatch):
     def at(state):
         for name, file in (("REFINE_LOG", "refine_log.jsonl"),):
             monkeypatch.setattr(server, name, state / file)
-        monkeypatch.setattr(server, "STATE", state)
+        monkeypatch.setattr(context, "STATE", state)
         monkeypatch.setattr(server, "DASH_PASSWORD", "")
         return state
 

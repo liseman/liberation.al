@@ -12,7 +12,7 @@ import pytest
 import test_network_worker as net
 from liberational import config as cfg
 from liberational import segment_log
-from liberational.dashboard import device_links, server
+from liberational.dashboard import context, device_links, server
 from liberational.memory import device_answers, places
 from liberational.memory import history_qa as h
 from liberational.proximity import ble, devices, vendors
@@ -289,9 +289,9 @@ def http_(home, serve, monkeypatch, tmp_path):
     import json
     import urllib.parse
 
-    from liberational.dashboard import server
+    from liberational.dashboard import context, server
 
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     monkeypatch.setattr(server, "DASH_PASSWORD", "")
     monkeypatch.setattr(device_links, "_held", {})  # an earlier test's listing, reused within the minute
     netloc = urllib.parse.urlsplit(serve(server.H)).netloc
@@ -785,7 +785,7 @@ def test_the_dashboard_reads_the_device_list_once_at_start_at_low_priority(monke
     monkeypatch.setattr(server, "_low_priority", priority)
     server._warm_devices()
     priority.assert_called_once_with(19)
-    listing.assert_called_once_with("", state=server.STATE)
+    listing.assert_called_once_with("", state=context.STATE)
 
 
 def test_a_failed_device_warm_up_is_logged_not_raised(monkeypatch):

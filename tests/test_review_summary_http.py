@@ -9,13 +9,13 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from liberational.dashboard import server
+from liberational.dashboard import context, server
 from liberational.memory import history_qa, recall, review_summary
 
 
 @pytest.fixture
 def request_(serve, monkeypatch, tmp_path):
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     monkeypatch.setattr(server, "DASH_PASSWORD", "")
     netloc = urllib.parse.urlsplit(serve(server.H)).netloc
 
@@ -54,7 +54,7 @@ def test_review_search_passes_one_day_and_requires_meaning_without_chat_ranking(
         "quiet lunch",
         1792454400.0,
         1792540800.0,
-        state=server.STATE,
+        state=context.STATE,
         rank=False,
         limit=24,
         require_semantic=True,
@@ -91,7 +91,7 @@ def test_review_search_uses_next_local_midnight_on_clock_change_days(
         "lunch",
         start,
         end,
-        state=server.STATE,
+        state=context.STATE,
         rank=False,
         limit=24,
         require_semantic=True,
@@ -159,7 +159,7 @@ def timeline_summary(monkeypatch):
 def test_day_summary_uses_recording_timezone_instead_of_browser_bounds(request_, timeline_summary, day, start, end):
     code, body = request_("GET", f"/review/summary?day={day}")
     assert (code, body) == (200, {"blocks": [], "status": "ready"})
-    timeline_summary.assert_called_once_with(start, end, server.STATE)
+    timeline_summary.assert_called_once_with(start, end, context.STATE)
 
 
 @pytest.mark.parametrize("day", ["", "2026-02-30", "2026-2-03", "2026-10-20T00:00:00", "../private", "9999-12-31"])
