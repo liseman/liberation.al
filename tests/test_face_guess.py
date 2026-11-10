@@ -201,13 +201,14 @@ def test_the_route_lists_the_groups_waiting_for_a_name(state, serve_dashboard, m
     with urllib.request.urlopen(serve_dashboard() + "/faces/unknown/groups", timeout=5) as r:
         assert r.status == 200
         body = json.loads(r.read())
-    assert (body["count"], body["skipped"]) == (3, [7])
-    assert [g["id"] for g in body["groups"]] == [5, 8, 6]
+    # Face 8 has no sighting to cut a picture from (nor is it old enough to drop): it is left out of the count too
+    assert (body["count"], body["skipped"]) == (2, [7])
+    assert [g["id"] for g in body["groups"]] == [5, 6]
 
 
 @pytest.mark.parametrize(
     ("days", "listed"),
-    [pytest.param(7, [5, 6], id="default"), pytest.param(10, [5, 6, 8], id="longer"), pytest.param(1, [5], id="a-day")],
+    [pytest.param(7, [5, 6], id="default"), pytest.param(10, [5, 6], id="longer"), pytest.param(1, [5], id="a-day")],
 )
 def test_to_name_lists_and_counts_only_groups_seen_in_the_last_unnamed_days(state, monkeypatch, days, listed):
     # Face 5 was seen now, Face 6 two days ago (its sightings and the store agree), and Face 8, which has no
@@ -493,9 +494,7 @@ def test_a_group_resolved_by_owner_claims_is_not_asked_again(state, ids, monkeyp
     assert 6 not in [g["id"] for g in body["groups"]]
 
 
-def test_mixed_named_and_low_confidence_unknown_evidence_still_counts_as_without_a_picture(
-    state, vision, ids, monkeypatch
-):
+def test_a_group_with_only_low_confidence_unknown_evidence_is_not_listed_but_kept(state, vision, ids, monkeypatch):
     from liberational import segment_log
     from liberational.people import face_shots
 
@@ -507,10 +506,60 @@ def test_mixed_named_and_low_confidence_unknown_evidence_still_counts_as_without
     face_shots.write(state, ids[1], "0", b"jpeg", "shots_grid")
     code, body = unnamed_groups._ready_face_groups(*unnamed_groups._unknown_groups())
     assert code == 200
-    six = next(g for g in body["groups"] if g["id"] == 6)
-    assert six["shots"] == []
-    assert (six["shots_pending"], six["shots_unavailable"]) == (0, 0)
-    assert body["groups_without_shots"] == 3  # Face 6 plus the two aggregates with no retained matches
+    # Face 5 has a saved picture; 6, 7 (put aside nowhere here), and 8 have none to show and none being cut.
+    assert ([g["id"] for g in body["groups"]], body["count"]) == ([5], 1)
+    assert "groups_without_shots" not in body
+    assert {g["id"] for g in fid.unknown_groups()} == {5, 6, 7, 8}  # its sighting is evidence: kept in the store
+
+
+def _forget_last_seen(*groups):
+    """The store's groups, with these last started or joined long ago (past NEW_GROUP_GRACE_S)."""
+    have, vecs, counts, nxt, sums = fid._unk_load_sums()
+    seen = {g: (B if g in groups else time.time()) for g in have}
+    fid._unk_save(have, vecs, counts, nxt, sums, last_seen=seen)
+
+
+def test_a_group_with_no_sighting_left_is_dropped_and_stays_dropped(state, monkeypatch):
+    # Face 8 has no recorded sighting (as after a catalog reset) and was last joined two days ago; Face 7 has none
+    # either but a face joined it just now, so its sightings may still be on their way.
+    monkeypatch.setattr(context, "STATE", state)
+    _forget_last_seen(8)
+    code, body = unnamed_groups._unknown_groups()
+    assert code == 200
+    assert 8 not in [g["id"] for g in body["groups"]]
+    assert {g["id"] for g in fid.unknown_groups()} == {5, 6, 7}
+    assert 8 not in [g["id"] for g in unnamed_groups._unknown_groups()[1]["groups"]]  # the next read too
+
+
+def test_a_group_the_owner_touched_is_kept_with_no_sighting_left(state, kara, monkeypatch):
+    from liberational.people import face_nots
+
+    monkeypatch.setattr(context, "STATE", state)
+    have, vecs, counts, nxt, sums = fid._unk_load_sums()
+    fid._unk_save(have, vecs, counts, nxt, sums, held=[7], last_seen=dict.fromkeys(have, B))  # a shot taken out
+    face_nots.mark(state, "Kara", [8])  # marked not someone
+    code, _ = unnamed_groups._unknown_groups()
+    assert code == 200
+    assert {g["id"] for g in fid.unknown_groups()} == {5, 6, 7, 8}
+
+
+def test_a_group_whose_every_crop_failed_is_dropped_and_a_pending_one_stays(state, monkeypatch):
+    from liberational.people import face_shots
+
+    monkeypatch.setattr(context, "STATE", state)
+    jobs = face_shots.Pending(lambda key: face_shots.CropResult(key[2] not in fail))
+    monkeypatch.setattr(photo_files, "_crop_jobs", jobs)
+    answer = unnamed_groups._unknown_groups()
+    five = next(g for g in answer[1]["groups"] if g["id"] == 5)
+    fail = {str(s["id"]) for s in five["_all_shots"]}  # Face 5's video is gone; Face 6's crops are still queued
+    code, body = unnamed_groups._ready_face_groups(*answer)
+    assert (code, [g["id"] for g in body["groups"]]) == (200, [5, 6])  # both still being cut
+    for _ in five["_all_shots"]:
+        assert jobs.one()
+    code, body = unnamed_groups._ready_face_groups(*answer)
+    assert code == 200
+    assert [g["id"] for g in body["groups"]] == [6]
+    assert {g["id"] for g in fid.unknown_groups()} == {6, 7, 8}  # Face 5 left the store; pending Face 6 did not
 
 
 def test_a_scan_limited_group_with_unknown_members_is_not_mistaken_for_resolved(state, monkeypatch):
