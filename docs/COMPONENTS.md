@@ -15,44 +15,45 @@ unless the row says otherwise.
 | `continuum-capture` | One worker per device; hotplug; privacy pause | `state/continuum/capture.sock` | `<device>.video`, `<device>.audio`, `capture_paused.json` | `config/devices.toml` | Core |
 | `continuum-tier-worker`, `continuum-export` | Chunk files, Opus audio, optional AV1 archive, purges, and MP4 export | | `state/continuum/tier/` | Broker streams | Core |
 | `continuum-vector-worker` | Embedding and full-text indexes and searches | | `state/continuum/vector/` | Segment store, broker streams | Core |
-| `continuum-gateway` | Live and recorded frames with overlays | `8766` (`ports.gateway`, WebSocket) | | Tier chunks, broker, `camera.objects` | Core |
+| `continuum-gateway` | Live and recorded frames with overlays | `8766` (`ports.gateway`, WebSocket) | | Tier chunks; `face.boxes` and `pose.boxes` from the broker; `pose.track` and `camera.objects` from the segment store | Core |
 | `see/decoded_worker.py` (`pack-see-decode`) | One decode per camera, shared as NV12 and BGR | `paths.decoded/decoded.sock` | `paths.decoded/` | `<camera>.video` | Core |
-| `see/actions_worker.py` (`pack-see-actions`) | People, poses, tracks, faces, actions, movement, walk-bys, and animals | | `pose.*`, `action.*`, `face.*`, `movement.*`, `walkby.*`, `animal.*`; `state/shots/`, `state/screens_on.json` | Decoded frames, `faces/` | Core |
-| `see/caption_worker.py` (`pack-see-captions`) | Captions and grounded objects | | `camera.caption`, `camera.objects` | Decoded frames, Ollama or `pack-vlm` | Core |
+| `see/actions_worker.py` (`pack-see-actions`) | People, poses, tracks, faces, actions, movement, walk-bys, and animals | | `pose.*`, `action.*`, `face.*`, `movement.*`, `walkby.*`, `animal.*`; `state/shots/`, `state/pet_shots/`, `state/screens_on.json`; `faces/` (learned views, unnamed face groups) | Decoded frames, `faces/` | Core |
+| `see/caption_worker.py` (`pack-see-captions`) | Captions, grounded objects, and the animals the captions name | | `camera.caption`, `camera.objects`, `animal.grounding`, `animal.grounding_embedding`; `state/pet_shots/` | Decoded frames or `<camera>.video`, Ollama or `pack-vlm` | Core |
 | `see/zones_worker.py` (`pack-see-zones`) | Zone visits and came-into-view episodes | | `zone.visit`, `zone.coverage`, `presence.span`, `state/see-zones.json` | `pose.track`, `action.coverage`, `zone.defined` | Optional |
 | `see/object_worker.py` (`pack-see-objects`), `memory/objects.py` | Finds remembered objects every 5 s | | `object.match` | Decoded frames, knowledge store | Optional |
-| `vision/vlm_server.py` (`pack-vlm`) | Keeps Qwen3-VL (MLX) resident | `8081` | | | Optional, Apple Silicon |
-| `listen/` (`pack-listen`) | VAD, ASR, speaker embedding, voiceprint matching, and auto gain | | `speech.utterance`, `speech.activity`, `voice.embedding`, `listen.gain.json` | PCM rings, playback windows, `voice_tags.jsonl` | Core |
+| `vision/vlm_server.py` (`pack-vlm`) | Keeps Qwen3-VL (MLX) resident | `8081` (`ports.vlm`) | | | Optional, Apple Silicon |
+| `listen/` (`pack-listen`) | VAD, ASR, speaker embedding, voiceprint matching, and auto gain | | `speech.utterance`, `speech.activity`, `voice.embedding`, `listen.gain.json`, `voiceprints.json` | PCM rings, playback windows, the password window, `voice_tags.jsonl`, the vector worker's voice search | Core |
 | `listen/deep.py` (`pack-deep-transcribe`) | Overnight second ASR pass, 03:30 | | `state/transcript_revisions_qwen.sqlite3` | Utterance audio, live transcript | Optional |
-| `people/identity.py` (`pack-identity`), `listen/media_tag.py` | Links voices to faces, learns names, tags broadcast lines, and parses spoken quantities | | `identity.record`, `transcript.correction`, `measurements` | `speech.utterance`, `face.match`, `screens_on.json` | Core for people ID |
+| `people/identity.py` (`pack-identity`), `listen/media_tag.py` | Links voices to faces, learns names, tags broadcast lines, and parses spoken quantities | | `identity.record`, `transcript.correction`, `measurements`, `identity.speech.cursor` | `speech.utterance`, `face.match`, `screens_on.json` | Core for people ID |
 | `people/registry.py` (`pack-registry`), `knowledge.py` | Stable person IDs and the knowledge store | | `state/knowledge.sqlite3` | | Core for people ID |
-| `people/transcript_view.py` | Resolves speech rows to current people and applies corrections | | | `speech.utterance`, corrections | Core |
-| `people/pets.py`, `people/pet_recognition.py` | Named pets, sighting labels, and recognition by appearance | | `pet.profile`, `pet.sighting` | `animal.embedding` | Optional |
+| `people/transcript_view.py` | Resolves speech rows to current people and applies corrections | | | `speech.utterance`, the registry, corrections, overnight revisions | Core |
+| `people/pets.py`, `people/pet_recognition.py` | Named pets, sighting labels, and recognition by appearance | | `pet.*` (knowledge store) | `animal.embedding`, `animal.grounding_embedding` | Optional |
 | `people/profiles.py` (`pack-people`) | A profile per person from transcripts and calls | | `state/people/` | Transcript, calls | Optional |
 | `people/whisper_names.py` (`pack-whisper-names`) | Whispers who is speaking | | `whisper_names.json` | Transcript, profiles | Optional, off |
-| `assistant/voice.py` (`pack-voice`) | Wake phrase, authorization, routing, spoken replies, and clone speech | `8776` (`ports.voice`, loopback) | `assistant.reply`, `voice_lockout.json` | `speech.utterance`, `voice_auth.json` | Core |
-| `memory/journal.py` (`pack-journal`), `memory/journal_pages.py` | Journal entries, rollups, pages, embeddings, and person facts | | `journal.entry`, `journal.page`, `person.fact` (memory log) | Speech, captions, registry | Optional |
+| `assistant/voice.py` (`pack-voice`) | Wake phrase, authorization, routing, spoken replies, and clone speech | `8776` (`ports.voice`, loopback) | `assistant.reply`, `voice_lockout.json`, `voice_password_window.json` | `speech.utterance`, `voice_auth.json` | Core |
+| `memory/journal.py` (`pack-journal`), `memory/journal_pages.py` | Journal entries, rollups, pages, embeddings, and person facts | | `journal.entry`, `journal.page`, `journal.embedding.*`, `person.fact` (memory log); `journal_pages_window.json`, `journal_pages_batch.json` | Speech, captions, registry | Optional |
 | `memory/ask.py` (`pack-ask`), `memory/history_qa.py`, `memory/question.py`, `memory/recall.py` | Evidence-grounded answers and the search loop | | `ask.*` (memory log), `state/ask/` | Transcript, captions, journal, visits, calls | Core for history |
 | `memory/research.py` (`pack-research`) | Slow background Ask jobs | | `state/research/` | Ask's evidence | Optional |
 | `memory/events.py`, `memory/activity_kinds.py` | Activity spans, the owner's activity list, and ratings | | `activity.*` (knowledge store) | `action.*`, `walkby.*` | Optional |
 | `vision/camera_history.py` (`pack-camera-history`) | What each camera shows now | | | `camera.caption` | Core |
-| `video_window.py` (`pack-video-window`), `retention.py` | Nightly retention, 04:15 | | `state/journal_evidence/`, `video_window.json`, `retention.json` | Broker chunks, day pages | Optional |
-| `spatial/positions.py` (`pack-positions`), `spatial/spots.py`, `spatial/surroundings_positions.py` | Hourly: places the people and pets the fixed cameras saw on each place's plan | | `position.sample`, `position.placed`, `position.path`, `state/places/` | `pose.track`, `animal.detection`, place revisions, owner plans | Optional |
+| `video_window.py` (`pack-video-window`), `retention.py` | Nightly video age-out, journal evidence, and retention, 04:15 | | `state/journal_evidence/`, `video_window.json`, `retention.json`, condensed segment rows | Broker chunks, day pages | Optional |
+| `spatial/positions.py` (`pack-positions`), `spatial/spots.py`, `spatial/surroundings_positions.py` | Hourly: places the people and pets the fixed cameras saw on each place's plan | | `position.sample`, `position.placed`, `position.path`, `state/places/` | `pose.track`, `animal.detection`, `zone.visit`, `camera.pose`, place revisions, owner plans | Optional |
 | `spatial/splats.py` (`pack-spatial-splat`) | A Gaussian splat per place revision | | `state/places/` | Recorded video | Optional, by hand, needs CUDA |
 | `spatial/surroundings_worker.py` (`pack-surroundings`) | While "learn surroundings" is on, samples the chosen cameras and keeps the frames likely to improve a place's map | | `state/surroundings/` | Decoded frames, `pack.toml` (followed live) | Optional, idle while off |
 | `spatial/surroundings_map.py` (`pack-surroundings-map`) | One step of placing kept frames in a place's map and continuing its splat; started by `pack-surroundings` | | `state/places/`, `state/surroundings/map.json` | `state/surroundings/`, held intrinsics | Optional, needs CUDA |
-| `proximity/` (`pack-bluetooth`) | Passive BLE sightings | USB serial | `bluetooth.sighting`, `bluetooth.coverage` | ESP32 receivers | Optional, off |
-| `proximity/network_worker.py` (`pack-network-devices`) | UniFi client inventory and heard Wi-Fi access points | Outbound local HTTPS | `network.*`, `wifi.access_point` | Local controller | Optional, off |
-| `proximity/devices.py` (`pack-devices`) | Device tallies, links, and presence answers | | `device.link`, `state/cache/device_tallies.json` | Bluetooth and network streams | Optional |
-| `ingest/` (`pack-ingest`, `pack-ingest-analyze`) | Imports and analyzes media | | `state/ingest.sqlite3`, `paths.ingest` | Uploads, links, sources | Optional |
-| `phone/bridge.py` (`pack-phone-bridge`) | Twilio media bridge | `8790` | `calls/`, lockout and call state | Memory, speakers | Optional, off |
-| `dashboard/server.py` (`pack-dashboard`) | The web app and API | `8765` | Owner edits in the knowledge store; UI state files | Most of `state/` | Core for humans |
+| `proximity/worker.py` (`pack-bluetooth`) | BLE advertisement sightings | USB serial | `bluetooth.sighting`, `bluetooth.coverage` | ESP32 receivers, or the host's adapter (`bluetooth.source`) | Optional, off |
+| `proximity/network_worker.py` (`pack-network-devices`) | Router client inventory, host ARP and DHCP caches, and heard Wi-Fi access points | Outbound local HTTPS | `network.*`, `wifi.access_point` | UniFi controller, host caches | Optional, off |
+| `proximity/devices.py` (`pack-devices`) | Device tallies, links, and presence answers | | `device.link`, `device.location` (knowledge store), `state/cache/device_tallies.json` | Bluetooth and network streams | Optional |
+| `ingest/` (`pack-ingest`, `pack-ingest-analyze`) | Imports and analyzes media | | Imported media streams, their captions, objects, and utterances; `state/ingest.sqlite3`, `ingest-locks/`, `ingest-analyzed.json`, `paths.ingest` | Uploads, links, sources | Optional; `ingest` off |
+| `phone/bridge.py` (`pack-phone-bridge`) | Twilio media bridge | `8790` (`ports.phone_bridge`) | `calls/`, lockout and call state | Memory, speakers | Optional, off |
+| `dashboard/server.py` (`pack-dashboard`) | The web app and API | `8765` (`ports.dashboard`) | Owner edits in the knowledge store; UI state files | Most of `state/` | Core for humans |
 | `demo/cli.py` (`pack-demo`) | A made-up household on a private broker | `8780` (`--port`; a free port when that one is taken) | Its own directory | | Optional |
-| `ollama`, `ask-ollama` services | The shared model server; Ask's own server | `11434`, `11435` | Ollama's state | Model store | `ollama` required; `ask-ollama` off |
-| `speech/whisper_service.py` (`pack-whisper`) | Supervises whisper-server | `8082` | `state/model_loads/` | | Optional, off |
+| `ollama`, `ask-ollama` services | The shared model server; Ask's own server | `11434` (`ollama.url`), `11435` (`ports.ask_ollama`) | Ollama's state | Model store | `ollama` required; `ask-ollama` off, Linux only |
+| `speech/whisper_service.py` (`pack-whisper`) | Supervises whisper-server | `8082` (`ports.whisper`) | `state/model_loads/` | | Optional, off, checkout only |
 | `audio/route.py` (`pack-audio-route`) | Picks the macOS output device | | | | Optional, macOS |
-| `supervisor.py` (`pack-supervisor`), `app_window.py` (`pack-app`) | Runs the services as one application | `state/supervisor/control.sock` | `state/supervisor/` | `services.toml` | Core |
-| `service_profile.py`, `tools/profile_services.py` | Opt-in CPU profiles | | `paths.logs/profiles/` | procfs | Optional, off |
+| `supervisor.py` (`pack-supervisor`), `app_window.py` (`pack-app`) | Runs the services as one application | `state/supervisor/control.sock` | `state/supervisor/` | `services/services.toml` | Core |
+| `services.py` (`pack-services trim-logs`, the `log-trim` service) | Hourly log trim, :07 | | `paths.logs/` | `paths.logs/` | Optional |
+| `profile_bootstrap.py` (`PACK_PROFILE`), `service_profile.py`, `tools/profile_services.py` | Opt-in CPU profiles | | `paths.logs/profiles/` | procfs | Optional, off |
 
 Other commands are CLIs: `pack-config`, `pack-services`, `pack-setup`, `pack-models`, `pack-system`, `pack-knowledge`,
 `pack-reset-catalog`, `pack-reset-places`, `pack-rename-camera`, `pack-continuum-status`, `pack-catalog-stats`,
