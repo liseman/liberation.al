@@ -288,7 +288,7 @@ class BrokenOnceRegistrar(FakeRegistrar):
     ("error", "why"),
     [
         pytest.param(BrokerError("Internal", "worker registration failed"), "worker registration failed", id="broker"),
-        # A KeyError from a bug is not "the item is gone" (#3164): it fails the item rather than escaping with it
+        # A KeyError from a bug is not "the item is gone": it fails the item rather than escaping with it
         # left converting, which every resume then skipped
         pytest.param(KeyError("fps"), "KeyError: 'fps'", id="stray-keyerror"),
     ],
@@ -339,7 +339,7 @@ def test_source_state_is_kept_per_source(store):
 def test_stub_sources_say_they_arent_set_up(name, store):
     s = src.make(name)
     assert not s.status().configured
-    assert s.status().later  # Settings lists it under Coming later (#2728)
+    assert s.status().later  # Settings lists it under Coming later
     with pytest.raises(src.NotConfigured, match=stubs.STUBS[name].label):
         s.list_new(src.SourceState(store, name))
 
@@ -352,8 +352,8 @@ def test_every_source_has_a_status():
 
 
 def test_google_photos_without_its_package_says_so_plainly_and_holds_its_sign_in(monkeypatch, capsys):
-    # The owner reads what's missing in plain words, and the sign-in waits; the command is for whoever runs the machine
-    # (#2695): `pack-ingest sources` still prints it.
+    # The owner reads what's missing in plain words, and the sign-in waits; the command is for whoever runs the machine:
+    # `pack-ingest sources` still prints it.
     monkeypatch.setitem(sys.modules, "playwright", None)  # importing it now raises ImportError
     st = src.make("google_photos").status()
     assert (st.configured, st.blocked) == (False, True)

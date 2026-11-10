@@ -1,5 +1,5 @@
 """Test helper: give voiceprints out the way listen does (state/voiceprints.json, listen/voices.py), with each
-voice's name as an identity assertion in the event log (#772).
+voice's name as an identity assertion in the event log.
 
     write_voices(state, {3: "Dana", 5: None})
 
@@ -10,7 +10,7 @@ count and times come from its lines on the speech log (people/voice_list.py): wr
     write_voices(state, {3: "Dana"}, forwards={7: 3})
 
 also hands out voice 7 and claims it for Dana as a cluster merge: what a v1 merge of voice 7 into 3 left in the log.
-Voices are never merged now (#772), so 7 keeps its own number; it only reads as Dana.
+Voices are never merged now, so 7 keeps its own number; it only reads as Dana.
 """
 
 import json

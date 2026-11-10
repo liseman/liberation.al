@@ -132,7 +132,7 @@ def test_empty_batch_never_calls_processor_or_model(adapter):
 def test_embed_crops_a_normalized_frame_box_tight(adapter):
     adapter.model.output = adapter.model.output[:1]
     result = E.DinoEmbedder(REPO, "cpu").embed(np.zeros((100, 200, 3), np.uint8), [0.4, 0.4, 0.5, 0.6])
-    assert adapter.processor.images[0].shape == (20, 20, 3)  # the box itself, no square context (#3024)
+    assert adapter.processor.images[0].shape == (20, 20, 3)  # the box itself, no square context
     np.testing.assert_allclose(result[:2], [0.6, 0.8])
 
 

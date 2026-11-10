@@ -70,7 +70,7 @@ def test_a_line_put_aside_by_key_leaves_the_other_microphones_line_and_a_time_re
     assert server.inbox_skip("line", "mic-a@2000.000", True)[0] == 200
     skipped = set(server.inbox_skips()["line"])
     assert (server.put_aside(a, skipped), server.put_aside(b, skipped)) == (True, False)
-    assert server.inbox_skip("line", 2000.0, True)[0] == 200  # as Inbox sent it before #247
+    assert server.inbox_skip("line", 2000.0, True)[0] == 200  # as Inbox sent it before per-device line keys
     skipped = set(server.inbox_skips()["line"])
     assert (server.put_aside(a, skipped), server.put_aside(b, skipped)) == (True, True)
 

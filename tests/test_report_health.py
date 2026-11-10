@@ -57,7 +57,7 @@ def test_storage_adds_chunks_up_by_recorded_day_and_tier(tmp_path):
     day2 = int(time.mktime(time.strptime("2026-10-20 00:01", "%Y-%m-%d %H:%M")) * 1e9)
 
     def hour(tier: str, stream: int, label: str) -> Path:
-        # Chunks live in `streams/<stream>/<hour>/` (#2908); the day comes from the chunk's name.
+        # Chunks live in `streams/<stream>/<hour>/`; the day comes from the chunk's name.
         d = tmp_path / tier / "streams" / str(stream) / label
         d.mkdir(parents=True, exist_ok=True)
         return d

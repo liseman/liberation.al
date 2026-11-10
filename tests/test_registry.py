@@ -458,7 +458,7 @@ def test_forgetting_purges_their_events_and_keeps_others(tmp_path, reg):
     assert "Dana" not in json.dumps([e.to_dict() for e in left])
     forgotten = next(e for e in left if e.type is EventType.PERSON_FORGOTTEN)
     assert (forgotten.subject, forgotten.payload["person"]) == (None, dana)
-    # Dana and the person merged into her go in one purge, with one record (#725).
+    # Dana and the person merged into her go in one purge, with one record.
     assert [(p.reason, p.scope.subject) for p in make_log(tmp_path).purges()] == [("PersonForgotten", True)]
 
     def answers(r):
@@ -608,7 +608,7 @@ def test_every_name_gets_an_id_and_a_rerun_writes_nothing(tmp_path, stores):
     assert sorted(p.display_name for p in reg.people()) == ["Alice", "Erin", "Gus", "Hana", "Ivy"]
     assert who(reg, registry.utterance(11.0)) == "Ivy"  # a hand-tagged line
     assert winner(reg.person_of(registry.utterance(13.0))).basis == Basis.OWNER_TAG
-    # A voice's name is only ever the log's (#772): a voice-matched line's stored name never names its voice.
+    # A voice's name is only ever the log's: a voice-matched line's stored name never names its voice.
     assert reg.person_of(registry.voiceprint(1)).person is None
     assert reg.person_of(registry.utterance(10.0)).person is None  # voice-matched: follows its voice
 
@@ -775,7 +775,7 @@ def test_a_rename_onto_someone_without_a_voice_merges_them(tmp_path, reg, dash, 
 
 
 def test_a_rename_onto_someone_with_a_voice_makes_both_voices_theirs(tmp_path, reg, dash, monkeypatch):
-    """Naming replaces merging (#772): renaming Alice onto Gus, who has a voice, is a person merge alone. No voice is
+    """Naming replaces merging: renaming Alice onto Gus, who has a voice, is a person merge alone. No voice is
     folded into another, and each voice reads as Gus."""
     write_voices(tmp_path, {1: "Alice", 2: "Gus"})
     gus = reg.person_id("Gus")
@@ -788,7 +788,7 @@ def test_a_rename_onto_someone_with_a_voice_makes_both_voices_theirs(tmp_path, r
 
 
 def test_refresh_reads_the_log_only_when_something_was_written_since(tmp_path):
-    """#441: People's requests refreshed about a hundred times each, and each opened two connections to find
+    """People's requests refreshed about a hundred times each, and each opened two connections to find
     nothing new. A refresh now asks the log's version first."""
     reads: list[str] = []
 

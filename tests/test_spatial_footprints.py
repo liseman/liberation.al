@@ -1,4 +1,4 @@
-"""Fixed-camera footprints (#2800): a tracked person's foot point, sampled per track, projected onto a place's floor,
+"""Fixed-camera footprints: a tracked person's foot point, sampled per track, projected onto a place's floor,
 and the walked floor closing a room that a fixed camera's cloud has no walls for."""
 
 import math
@@ -55,7 +55,7 @@ BOX = [0.2, 0.1, 0.4, 0.9, 0.8]  # x1, y1, x2, y2, detector score
     ],
 )
 def test_the_foot_point_is_the_heels_then_the_ankles_never_the_box(placed, expected):
-    # The box's bottom isn't the feet when furniture hides the legs (#2960)
+    # The box's bottom isn't the feet when furniture hides the legs
     got = F.foot_point(BOX, joints(**placed))
     assert got == (pytest.approx(expected) if expected else None)
 
@@ -107,7 +107,7 @@ LEVEL = places.CameraPose(
 
 
 def test_a_person_lands_where_the_ray_meets_their_heels_plane_and_a_thing_on_the_floor_where_it_meets_the_floor():
-    # LEVEL 2 m up, a pixel 0.25 down per metre ahead: the floor 8 m out; heels 0.07 m up, 7.72 m out (#3069)
+    # LEVEL 2 m up, a pixel 0.25 down per metre ahead: the floor 8 m out; heels 0.07 m up, 7.72 m out
     assert places.floor_point(LEVEL, FLOOR, 0.5, 0.75) == pytest.approx((8.0, 0.0, 0.0))
     assert places.floor_point(LEVEL, FLOOR, 0.5, 0.75, 0.07) == pytest.approx((7.72, 0.0, 0.0))
     assert places.floor_point(LEVEL, (0.0, 0.0, 3.0, 0.0), 0.5, 0.75, 0.07) == pytest.approx((7.72, 0.0, 0.0)), (
@@ -130,7 +130,7 @@ def test_a_pixel_just_under_the_horizon_lands_nowhere_rather_than_far_away():
 
 def test_a_ray_too_shallow_for_its_error_lands_nowhere_even_within_reach():
     # LEVEL's pixel v looks (v - 0.5) down per metre ahead. Just under MIN_RAY_DEG (12) the floor is still within
-    # MAX_FLOOR_M, about 9.9 m out, but a degree of floor tilt moves it metres (#2865); just over, it's kept.
+    # MAX_FLOOR_M, about 9.9 m out, but a degree of floor tilt moves it metres; just over, it's kept.
     shallow = 0.5 + math.tan(math.radians(places.MIN_RAY_DEG - 0.2))
     steep = 0.5 + math.tan(math.radians(places.MIN_RAY_DEG + 0.2))
     assert places.floor_point(LEVEL, FLOOR, 0.5, shallow) is None
@@ -240,7 +240,7 @@ def test_the_walkable_read_turns_many_footprints_into_few_counted_cells(tmp_path
 
 def test_weighted_walkable_points_make_the_plan_the_repeated_ones_would():
     # Each footprint counted by its cell's weight is the same evidence as that footprint repeated (the concern on
-    # #2857: a lone foot carrying a weight is many feet there, not a busy cell from one).
+    # A lone foot carrying a weight is many feet there, not a busy cell from one).
     rng = np.random.default_rng(6)
     cloud = floor_and_furniture(rng)
     feet = walked(rng)[::4]
@@ -347,7 +347,7 @@ def test_a_sighting_is_upright_only_with_its_feet_hips_and_head_placed_and_long_
 
 
 def test_a_foot_point_is_at_an_edge_where_what_its_camera_sees_behind_it_hides_enough_floor():
-    # LEVEL, 2 m up looking level: the bottom row drops 0.5 m a metre, the row at v = 0.75 0.25 m (#3070). Its frame's
+    # LEVEL, 2 m up looking level: the bottom row drops 0.5 m a metre, the row at v = 0.75 0.25 m. Its frame's
     # top half sees a couch's back 0.9 m up (0.45 of 2 m), the bottom left a chair 0.4 m up, the bottom right nothing
     # sure.
     cam = replace(LEVEL, background=places.Background(2, 2, (0.45, 0.45, 0.2, None)))
@@ -368,7 +368,7 @@ def test_a_foot_point_is_at_an_edge_where_what_its_camera_sees_behind_it_hides_e
 
 
 def test_a_surface_given_for_an_unseen_cell_is_judged_as_the_background_would_be():
-    # The bottom right cell is unknown (#3168). From the bottom row (dropping 0.5 m a metre) a 1 m surface would hide
+    # The bottom right cell is unknown. From the bottom row (dropping 0.5 m a metre) a 1 m surface would hide
     # (1.0 - 0.07) / 0.5 = 1.86 m of floor, a 0.4 m one 0.66 m
     cam = replace(LEVEL, background=places.Background(2, 2, (0.45, 0.45, 0.2, None)))
     assert F.at_edge(cam, FLOOR, 0.75, 0.999, surface=1.0) is True
@@ -378,7 +378,7 @@ def test_a_surface_given_for_an_unseen_cell_is_judged_as_the_background_would_be
 
 
 def test_the_walked_floor_leaves_out_feet_on_an_occluding_edge():
-    # #3070: LEVEL's bottom row (dropping 0.5 m a metre) over a 0.4 m chair hides 0.66 m of floor: kept. Over a cell
+    # LEVEL's bottom row (dropping 0.5 m a metre) over a 0.4 m chair hides 0.66 m of floor: kept. Over a cell
     # no registration saw, judged as FURNITURE_M (1 m) would hide 1.86 m: left out, as positions leaves it uncertain.
     cam = replace(LEVEL, background=places.Background(2, 2, (0.45, 0.45, 0.2, None)))
     cells = [F.Cells("hall", np.array([[0.25, 0.999], [0.75, 0.999]]), np.array([3, 4]))]

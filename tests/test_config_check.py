@@ -1,4 +1,4 @@
-"""`pack-config --check` (src/liberational/config.py, #1907): what in an old pack.toml to delete after an update."""
+"""`pack-config --check` (src/liberational/config.py): what in an old pack.toml to delete after an update."""
 
 import pytest
 
@@ -49,5 +49,5 @@ def test_check_prints_what_to_delete_and_fails_until_its_gone(tmp_path, monkeypa
 
 def test_the_config_module_runs_without_the_services_module():
     # Every service imports config, so config importing services makes every service look like a reader of what
-    # services.py reads (asr.engine), and a Settings save restarts them all (#1911 did, by importing it in check()).
+    # services.py reads (asr.engine), and a Settings save restarts them all (as importing it in check() would).
     assert "liberational.services" not in readers._closure("liberational.config")
