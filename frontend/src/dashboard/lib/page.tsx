@@ -6,7 +6,7 @@ import { Button, Menu } from '@mantine/core';
 import { IconCheck, IconChevronDown } from '@tabler/icons-react';
 import type { UseQueryResult } from '@tanstack/react-query';
 import { Fragment, type ReactNode } from 'react';
-import { BlockSkeleton, RowsSkeleton, useSlow } from './loading';
+import { BlockSkeleton, CardsSkeleton, RowsSkeleton, useSlow } from './loading';
 import classes from './page.module.css';
 
 /** How long a page load runs before it says it is still going. */
@@ -87,15 +87,23 @@ export function PageLoading({
 }: {
   /** What is loading, in words: "people", "the call log". */
   label: string;
-  shape?: 'block' | 'rows';
+  shape?: 'block' | 'rows' | 'cards';
   lines?: number;
   slowMs?: number;
 }) {
   const slow = useSlow(true, slowMs);
   const name = `Loading ${label}`;
+  const skeleton =
+    shape === 'rows' ? (
+      <RowsSkeleton label={name} rows={lines} />
+    ) : shape === 'cards' ? (
+      <CardsSkeleton label={name} cards={lines} />
+    ) : (
+      <BlockSkeleton label={name} lines={lines} />
+    );
   return (
     <div>
-      {shape === 'rows' ? <RowsSkeleton label={name} rows={lines} /> : <BlockSkeleton label={name} lines={lines} />}
+      {skeleton}
       <p className={classes.slow} role="status" aria-live="polite">
         {slow ? `Still loading ${label}. This can take a minute after a restart.` : ''}
       </p>

@@ -11,7 +11,7 @@ Two layers, following docs/DOMAIN-MODEL.md:
   derived from, the signals that identify the place, which map and plan files it uses, the map's floor plane, the
   map-to-plan transform, and the fixed cameras registered in that frame), plus the files it adds: `<revision id>.map`
   (the point cloud, in the format its producer names; the current writers use binary PLY) and `<revision id>.plan`
-  (floorplan DSL text, a few hundred bytes). A re-derivation writes a new revision and never edits an old one; a
+  (a Pascal scene, spatial/plan_scene.py: JSON, a few kilobytes). A re-derivation writes a new revision and never edits an old one; a
   revision that doesn't change the map or the plan points at the earlier file. Plans are kept forever (they are
   small). Maps are
   replaced, not accumulated: the newest `MAPS_KEPT` map files stay, and so does each still-active producer's newest
@@ -77,7 +77,7 @@ import os
 import re
 import time
 import uuid
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -198,7 +198,7 @@ class Revision:
     # with the map: a new map without one has none.
     floor: tuple[float, ...] | None = None  # 4 numbers
     # Map to plan: (plan x, plan y, height above the floor) = this 3x4 matrix, row by row, times (x, y, z, 1): the
-    # frame the plan's DSL is drawn in (spatial/floorplan.py's `Floorplan.transform`). It goes with the plan.
+    # frame the plan is drawn in (spatial/floorplan.py's `Floorplan.transform`). It goes with the plan.
     plan_transform: tuple[float, ...] | None = None
     # The map's frame: the id of the revision whose map first stood in it. A writer carries it over while it
     # adds to the same map without moving it, so a splat made for one revision of that frame still fits a later
@@ -436,19 +436,15 @@ def camera_places(state: Path) -> dict[str, str]:
     return {**{cam: place for cam, (_, _, place) in newest.items()}, **spot_places(state)}
 
 
-_SPOT = re.compile(r"^x-camera[ \t]+(\S+)", re.MULTILINE)
-
-
 def _spot_cameras(plan: str) -> list[str]:
-    """The cameras with a spot on a plan: a scene's records (spatial/plan_scene.py), or a DSL plan's `x-camera`
-    lines."""
+    """The cameras with a spot on a stored plan (spatial/plan_scene.py)."""
     from liberational.spatial import plan_scene  # the standard library only, but spatial imports this module
 
-    return plan_scene.spot_names(plan) if plan_scene.is_scene(plan) else _SPOT.findall(plan)
+    return plan_scene.spot_names(plan)
 
 
 def spot_places(state: Path) -> dict[str, str]:
-    """Each camera the owner gave a spot on a place's plan (`x-camera <camera> ...` in an owner plan that holds),
+    """Each camera the owner gave a spot on a place's plan (among the records of an owner plan that holds, spatial/plan_scene.py),
     with that place. The owner said where the camera is, so it outranks a registration in any map
     (spatial/spots.py makes the camera's pose from the spot). A camera on two places' plans sits in the later place
     of `places`."""
@@ -519,7 +515,7 @@ def floor_point(
 
 def camera_to_plan(state: Path, camera: str, u: float, v: float) -> tuple[str, float, float] | None:
     """Where a pixel of a registered fixed camera lands on its place's floor, in the plan's frame: (place, x, y) in
-    metres, the frame the plan's DSL is drawn in, or the floor's own frame (`floor_frame`) while the place has no plan.
+    metres, the frame the plan is drawn in, or the floor's own frame (`floor_frame`) while the place has no plan.
     `u` and `v` are the pixel's position as fractions of the frame's width and height (0 to 1, from the top left, the
     frame as see-decode delivers it), so any resolution works; a foot point is the bottom middle of a person's box.
     None when the camera isn't registered, its place has no floor yet, or the pixel's ray doesn't reach the floor (it
@@ -853,7 +849,7 @@ def correct_plan(
     a newer revision moved the frame is still editing text in the old frame, and labelling it with the newest would
     put positions off it.
 
-    `view` is how the owner drew it, when that isn't the plan frame (an imported plan): `{"plan": <the DSL as
+    `view` is how the owner drew it, when that isn't the plan frame (an imported plan): `{"plan": <the plan as
     drawn on its page>, "turn": <radians>, "shift": [x, y], "mirror": <bool>}`, the move from the page into the
     plan frame (spatial/plan_import.py `Move`). The Places tab draws the page and turns positions onto it
     (`page_view`); `plan` stays in the plan frame for every other reader."""
@@ -873,7 +869,7 @@ def correct_plan(
 
 @dataclass(frozen=True)
 class PageView:
-    """An owner plan as drawn on its page (`correct_plan`'s `view`): the page's DSL, and the move from the page into
+    """An owner plan as drawn on its page (`correct_plan`'s `view`): the page's plan, and the move from the page into
     the plan frame, p = R(turn) F q + shift, F mirroring y when `mirror`."""
 
     plan: str
@@ -916,29 +912,13 @@ def plan_history(state: Path, place: str) -> list[knowledge.Record]:
     return sorted(found, key=lambda r: (r.start_ns, r.recorded_ns))
 
 
-def restore_plan(
-    state: Path,
-    place: str,
-    record: str,
-    now: float | None = None,
-    convert: Callable[[str], str] | None = None,
-) -> None:
+def restore_plan(state: Path, place: str, record: str, now: float | None = None) -> None:
     """Make an earlier owner plan of `place` hold again: its plan, frame (`base`), and source, written as the newest
-    record, so the plans in between stay in the history too and a restore can itself be undone. `convert` is applied
-    to the plan's text, and to its page's when it was drawn on one, on the way: the dashboard passes the converter
-    to a scene, so a version saved in the old DSL comes back in the format the editor works on. The old record is
-    never changed."""
+    record, so the plans in between stay in the history too and a restore can itself be undone."""
     was = next((r for r in plan_history(state, place) if r.id == record), None)
     if was is None:
         raise KeyError(f"no plan record {record} for {place}")
-    value = dict(was.value)
-    if convert is not None:
-        if isinstance(value.get("plan"), str) and value["plan"].strip():
-            value["plan"] = convert(value["plan"])
-        view = value.get("view")
-        if isinstance(view, Mapping) and isinstance(view.get("plan"), str):
-            value["view"] = {**view, "plan": convert(view["plan"])}
-    _put(state, PLAN, _place_id(place), value, now)
+    _put(state, PLAN, _place_id(place), dict(was.value), now)
 
 
 def same_plan_frame(a: Revision, b: Revision) -> bool:

@@ -1,6 +1,7 @@
 """The application's window (#156): what it says, that Quit drains and stops, and the real Tk window on a virtual
 display."""
 
+import importlib.util
 import shutil
 import subprocess
 import sys
@@ -10,7 +11,7 @@ import time
 import pytest
 
 from liberational import app_window, supervisor
-from liberational.app_window import RUNNING, STARTING, STOPPED, STOPPING
+from liberational.app_window import DOT_RECORDING, DOT_WARNING, RUNNING, STARTING, STOPPED, STOPPING
 from liberational.service_cascade import BROKER, CAPTURE
 
 
@@ -30,27 +31,30 @@ UP = status(continuum_capture="running", continuum_broker="running", listen="run
 
 def test_it_says_running_and_recording_and_counts_the_daemons_not_the_jobs():
     now = app_window.summary(RUNNING, UP, {"camera": ([], 2), "microphone": ([], 1)})
-    assert (now.headline, now.recording) == ("Running and recording", True)
-    assert now.detail == "3 of 3 services running."
+    assert (now.headline, now.recording, now.dot) == ("Running and recording", True, DOT_RECORDING)
+    assert now.detail == "Everything declared is recording."
 
 
 def test_some_devices_paused_is_still_recording_and_says_which():
     now = app_window.summary(RUNNING, UP, {"camera": (["cam1"], 2), "microphone": ([], 1)})
-    assert (now.headline, now.recording) == ("Running and recording", True)
-    assert "1 of 2 cameras paused" in now.detail
+    assert (now.headline, now.recording, now.dot) == ("Running and recording", True, DOT_RECORDING)
+    assert "cam1 camera paused for privacy." in now.detail
 
 
 def test_every_device_paused_is_not_recording():
     now = app_window.summary(RUNNING, UP, {"camera": (["cam0", "cam1"], 2), "microphone": (["desk"], 1)})
     assert (now.headline, now.recording) == ("Running, paused for privacy", False)
-    assert "cameras paused, microphone paused" in now.detail
+    assert "All cameras are paused for privacy." in now.detail
+    assert "The microphone is paused for privacy." in now.detail
 
 
 @pytest.mark.parametrize(
     ("services", "why"),
     [
-        pytest.param(status(continuum_capture="activating", listen="running"), "Capture isn't running.", id="down"),
-        pytest.param(status(listen="running"), "Capture is off.", id="not-selected"),
+        pytest.param(
+            status(continuum_capture="activating", listen="running"), "Recording isn't running yet.", id="down"
+        ),
+        pytest.param(status(listen="running"), "Recording is off.", id="not-selected"),
     ],
 )
 def test_without_capture_it_never_claims_to_record(services, why):
@@ -72,9 +76,11 @@ def test_capture_back_up_during_a_restart_says_recording():
     assert (now.headline, now.recording) == ("Running and recording", True)
 
 
-def test_a_service_waiting_to_restart_is_named():
+def test_a_service_waiting_to_restart_is_not_named_in_the_window(caplog):
     services = status(continuum_capture="running", listen="activating", journal="activating")
-    assert "Restarting: journal, listen." in app_window.summary(RUNNING, services).detail
+    with caplog.at_level("INFO", logger="liberational.app"):
+        assert "Restarting:" not in app_window.summary(RUNNING, services).detail
+    assert any("services still starting: journal, listen" in msg for msg in caplog.messages)
 
 
 @pytest.mark.parametrize(
@@ -86,34 +92,40 @@ def test_outside_running_it_never_claims_to_record(phase, headline):
     assert (now.headline, now.recording) == (headline, False)
 
 
+def test_stopped_says_you_can_close_or_start_again():
+    now = app_window.summary(STOPPED, UP, DEVICES)
+    assert now.detail == "You can close this window or start the services again."
+
+
 def test_unknown_pauses_say_nothing_about_them():
     now = app_window.summary(RUNNING, UP, {})
-    assert (now.headline, now.detail) == ("Running and recording", "3 of 3 services running.")
+    assert (now.headline, now.detail) == ("Running and recording", "Everything declared is recording.")
 
 
 def test_a_declared_microphone_that_never_registered_is_named():
     # #183: capture ran on without its microphone, and the window said "Running and recording".
     stuck = {**UP, "unregistered": [{"name": "desk", "kind": "microphone"}]}
     now = app_window.summary(RUNNING, stuck, DEVICES)
-    assert (now.headline, now.recording) == ("Recording, but not from every device", True)
-    assert now.detail == "Nothing is coming from the microphone desk. 3 of 3 services running."
+    assert (now.headline, now.recording, now.dot) == ("Recording, but not from every device", True, DOT_WARNING)
+    assert now.detail == "The desk microphone isn't sending audio."
     assert app_window.summary(RUNNING, {**UP, "unregistered": []}, DEVICES).headline == "Running and recording"
 
 
 def test_several_missing_devices_are_all_named():
     gone = [{"name": n, "kind": k} for n, k in (("cam0", "camera"), ("cam1", "camera"), ("desk", "microphone"))]
     now = app_window.summary(RUNNING, {**UP, "unregistered": gone[:2]}, DEVICES)
-    assert "the camera cam0 and camera cam1." in now.detail
-    assert (now.headline, now.recording) == ("Recording, but not from every device", True)
+    assert "The cam0 camera isn't sending pictures." in now.detail
+    assert "The cam1 camera isn't sending pictures." in now.detail
+    assert (now.headline, now.recording, now.dot) == ("Recording, but not from every device", True, DOT_WARNING)
     every = app_window.summary(RUNNING, {**UP, "unregistered": gone}, DEVICES)
     assert (every.headline, every.recording) == ("Running, not recording", False)
-    assert "the camera cam0, camera cam1, and microphone desk." in every.detail
+    assert "The desk microphone isn't sending audio." in every.detail
 
 
 def test_a_paused_device_is_paused_not_missing():
     stuck = {**UP, "unregistered": [{"name": "desk", "kind": "microphone"}]}
     now = app_window.summary(RUNNING, stuck, {"camera": ([], 2), "microphone": (["desk"], 1)})
-    assert (now.headline, now.detail) == ("Running and recording", "3 of 3 services running (microphone paused).")
+    assert (now.headline, now.detail) == ("Running and recording", "The microphone is paused for privacy.")
 
 
 @pytest.mark.parametrize(
@@ -321,7 +333,7 @@ WINDOW = textwrap.dedent(
             assert window.dot.itemcget("light", "fill") == look.dot_colours[0]
             assert window.root.tk.call("image", "height", window.headline.cget("image")[0]) > drawn
             seen.append("closed")
-            window.ask_quit()  # what closing the window calls (WM_DELETE_WINDOW)
+            window.quit_recording()  # the Quit button (closing the window asks first)
             assert str(window.quit.cget("state")) == "disabled"
         window.root.after(10, step)
 
@@ -335,7 +347,10 @@ WINDOW = textwrap.dedent(
 )
 
 
-@pytest.mark.skipif(shutil.which("xvfb-run") is None, reason="needs xvfb-run for a display nobody is looking at")
+@pytest.mark.skipif(
+    shutil.which("xvfb-run") is None or importlib.util.find_spec("tkinter") is None,
+    reason="needs xvfb-run and tkinter for a display nobody is looking at",
+)
 @pytest.mark.parametrize(("dpi", "scheme"), [pytest.param(96, "light", id="1x"), pytest.param(192, "dark", id="2x")])
 def test_the_real_window_shows_recording_and_closing_it_stops_everything(dpi, scheme):
     """Tk itself, on a virtual display: themed widgets, text sized for the display's scale, it says it is recording,

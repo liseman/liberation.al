@@ -1,6 +1,7 @@
 import { act, render, screen } from '@testing-library/react';
 import { expect, it } from 'vitest';
 import { renderPage } from '../../test/render';
+import { countLineChars, setSessionCount } from '../lib/loading';
 import { useRowEdges, Waiting } from './Known';
 
 it('says what a tab badge counts, and shows nothing when none waits', () => {
@@ -12,6 +13,35 @@ it('says what a tab badge counts, and shows nothing when none waits', () => {
   );
   expect(screen.getByText('201 to name')).toBeInTheDocument();
   expect(screen.queryByText(/to check/)).not.toBeInTheDocument();
+});
+
+it('sizes a first-read skeleton to one digit and the count words', () => {
+  expect(countLineChars('to name')).toBe(9);
+  renderPage(<Waiting n={undefined} what="to name" loading />);
+  expect(screen.getByTestId('count-skeleton')).toBeInTheDocument();
+});
+
+it('shows the last count while a tab reloads after a first read', () => {
+  setSessionCount('test:tab', 0);
+  renderPage(
+    <div data-testid="tab">
+      <Waiting cacheKey="test:tab" n={undefined} what="to name" loading />
+    </div>,
+  );
+  expect(screen.queryByTestId('count-skeleton')).not.toBeInTheDocument();
+  expect(screen.getByTestId('tab')).toHaveTextContent(/^$/);
+});
+
+it('marks a held count as an earlier read while the tab reloads, then shows the new one as current', () => {
+  setSessionCount('test:held', 7);
+  const { rerender } = renderPage(<Waiting cacheKey="test:held" n={undefined} what="to name" loading />);
+  const held = screen.getByText('7 to name');
+  expect(held).toHaveAttribute('data-stale');
+  expect(held).toHaveAttribute('aria-busy', 'true');
+  rerender(<Waiting cacheKey="test:held" n={9} what="to name" />);
+  const fresh = screen.getByText('9 to name');
+  expect(fresh).not.toHaveAttribute('data-stale');
+  expect(fresh).not.toHaveAttribute('aria-busy');
 });
 
 it.each([

@@ -63,17 +63,17 @@ it.each([
     'training, before the trainer says a step',
     running({ phase: 'training', views: 2, steps: 3000 }),
     'training',
-    'Training the splat',
-    'With 2 new views.',
+    'Building the 3D map',
+    'Adding 2 new views.',
   ],
   [
     'training',
     running({ phase: 'training', views: 2, step: 1200, steps: 3000 }),
     'training',
-    'Training the splat',
-    'Step 1,200 of 3,000, with 2 new views.',
+    'Building the 3D map',
+    '40% done, adding 2 new views.',
   ],
-  ['writing', running({ phase: 'writing', views: 2 }), 'writing', 'Saving the map', 'Writing the new map and splat.'],
+  ['writing', running({ phase: 'writing', views: 2 }), 'writing', 'Saving the map', 'Writing the improved map.'],
   [
     'a step that has not said what it is doing',
     status({ running: true }),
@@ -88,8 +88,8 @@ it.each([
     'Working on the map',
     'A step is running.',
   ],
-  ['frames waiting', status({ waiting: 3 }), 'waiting', '3 frames waiting', 'The next step starts by itself.'],
-  ['one frame waiting', status({ waiting: 1 }), 'waiting', '1 frame waiting', 'The next step starts by itself.'],
+  ['pictures waiting', status({ waiting: 3 }), 'waiting', '3 pictures waiting', 'The next step starts by itself.'],
+  ['one picture waiting', status({ waiting: 1 }), 'waiting', '1 picture waiting', 'The next step starts by itself.'],
   ['up to date', status({ last_step: 1.8e9 }), 'current', 'Up to date', watching],
   [
     'nothing kept yet',
@@ -137,7 +137,7 @@ it('measures the bar only while the training says how far it is', () => {
   expect(measured(status({ step: step({ phase: 'training', step: 1200, steps: 3000 }) }))).toBeNull();
 });
 
-it('gives the numbers as numbers: the views in every map, and the frames kept, waiting, and parked', () => {
+it('gives the numbers with plain labels: in the map, pictures kept, waiting, and those that cannot be placed', () => {
   const told = status({
     waiting: 3,
     parked: 2,
@@ -148,10 +148,10 @@ it('gives the numbers as numbers: the views in every map, and the frames kept, w
     },
   });
   expect(learningStats(told).map(s => [s.label, s.value])).toEqual([
-    ['Views', 128],
-    ['Kept', 37],
+    ['In the map', 128],
+    ['Pictures kept', 37],
     ['Waiting', 3],
-    ['Parked', 2],
+    ["Can't be placed", 2],
   ]);
   expect(mapTotals(told)).toEqual({ views: 128, improved: 1.8e9 }); // the newest improvement of any place
   // an older service says nothing of parking or of the places
@@ -176,11 +176,11 @@ it('gives each sampled camera a row: keeping frames, or why none was kept lately
     ['hall', 'none', 'Person or animal in view'],
     ['porch', 'none', 'Too dark'],
     ['yard', 'none', 'Picture is blurred'],
-    ['desk', 'ok', 'Keeping frames'],
+    ['desk', 'ok', 'Keeping pictures'],
     ['attic', 'none', 'Not looked at yet'],
     ['unseen', 'none', 'Not looked at yet'],
   ]);
-  expect(rows[0]).toMatchObject({ detail: 'Last kept a frame 2 min ago.', frame: 'a'.repeat(32) });
+  expect(rows[0]).toMatchObject({ detail: 'Last kept a picture 2 min ago.', frame: 'a'.repeat(32) });
   expect(rows[1]).toMatchObject({ detail: null, frame: null });
 });
 
@@ -264,8 +264,8 @@ it('says learning is off, with what was learned, once something was', async () =
   renderPage(<PlacesTab examples={[]} />);
   expect((await state()).textContent).toContain('Learning is off');
   expect((await state()).getAttribute('data-state')).toBe('off');
-  expect(stat('Views')).toBe('9');
-  expect(stat('Kept')).toBe('12');
+  expect(stat('In the map')).toBe('9');
+  expect(stat('Pictures kept')).toBe('12');
   expect(within(await panel()).queryByRole('list', { name: 'Cameras learned from' })).toBeNull();
   expect(screen.queryByText('Learning')).toBeNull(); // no badge on a place
 });
@@ -274,12 +274,12 @@ it('marks each place Learning while it is on, still while nothing runs, with the
   serve(status({ last_step: 1.8e9, waiting: 0, parked: 1 }), { p1: { views: 128, improved: 1.8e9 } });
   renderPage(<PlacesTab examples={[]} />);
   expect((await state()).textContent).toBe('Up to dateWatching 2 cameras for new views.');
-  expect(['Views', 'Kept', 'Waiting', 'Parked'].map(stat)).toEqual(['128', '37', '0', '1']);
+  expect(['In the map', 'Pictures kept', 'Waiting', "Can't be placed"].map(stat)).toEqual(['128', '37', '0', '1']);
   expect((await panel()).textContent).toContain('Map last improved');
-  // one on each place in the list, and one on the open place's heading
+  // one on each place in the list only (not on the open place's heading)
   const badges = screen.getAllByText('Learning').map(b => b.closest('[data-working]'));
-  expect(badges).toHaveLength(3);
-  expect(badges.map(b => b?.getAttribute('data-working'))).toEqual(['false', 'false', 'false']);
+  expect(badges).toHaveLength(2);
+  expect(badges.map(b => b?.getAttribute('data-working'))).toEqual(['false', 'false']);
   expect(within(await panel()).queryByRole('progressbar')).toBeNull();
   expect((await panel()).querySelector('.mantine-Loader-root')).toBeNull(); // nothing moves while nothing runs
 });
@@ -287,8 +287,8 @@ it('marks each place Learning while it is on, still while nothing runs, with the
 it('moves the badge of the place a step is training, with a measured bar and its step count', async () => {
   serve(running({ phase: 'training', place: 'p2', views: 2, step: 1200, steps: 3000 }));
   renderPage(<PlacesTab examples={[]} />);
-  expect((await state()).textContent).toBe('Training the splatStep 1,200 of 3,000, with 2 new views.');
-  const bar = within(await panel()).getByRole('progressbar', { name: "How far the splat's training is" });
+  expect((await state()).textContent).toBe('Building the 3D map40% done, adding 2 new views.');
+  const bar = within(await panel()).getByRole('progressbar', { name: 'How far along the 3D map build is' });
   expect(bar.getAttribute('aria-valuenow')).toBe('40');
   expect((await panel()).textContent).toContain('40%');
   expect((await panel()).querySelector('.mantine-Loader-root')).not.toBeNull();
@@ -308,13 +308,13 @@ it('shows an unmeasured bar while a step does not say how far it is', async () =
   expect(within(await panel()).getByRole('progressbar', { name: 'A map step is running' })).toBeTruthy();
   // before training the step hasn't said which place: every place's badge moves
   const badges = screen.getAllByText('Learning').map(b => b.closest('[data-working]')?.getAttribute('data-working'));
-  expect(badges).toEqual(['true', 'true', 'true']);
+  expect(badges).toEqual(['true', 'true']);
 });
 
 it('says how many frames wait, and that the next step starts by itself', async () => {
   serve(status({ waiting: 3 }));
   renderPage(<PlacesTab examples={[]} />);
-  expect((await state()).textContent).toBe('3 frames waitingThe next step starts by itself.');
+  expect((await state()).textContent).toBe('3 pictures waitingThe next step starts by itself.');
   expect(stat('Waiting')).toBe('3');
 });
 
@@ -328,13 +328,59 @@ it('gives each camera a row with its name, how it is doing, and its newest kept 
   const rows = within(await within(await panel()).findByRole('list', { name: 'Cameras learned from' })).getAllByRole(
     'listitem',
   );
-  expect(rows.map(r => r.textContent)).toEqual(['frontPerson or animal in view', 'hallNeeds a facing']);
-  const picture = within(rows[0] as HTMLElement).getByRole('img', { name: 'The newest frame kept from front' });
+  expect(rows.map(r => r.textContent)).toEqual([
+    'frontPerson or animal in view',
+    'hallNeeds a facingIts spot on the plan has no facing. Give it one in the plan editor.',
+  ]);
+  const picture = within(rows[0] as HTMLElement).getByRole('img', { name: 'The newest view kept from front' });
   expect(picture.getAttribute('src')).toBe(`/surroundings/thumb/${frame}.jpg`);
   // no frame of the hall may be shown: a plain tile, and the reason in full for a pointer
   expect(within(rows[1] as HTMLElement).queryByRole('img')).toBeNull();
-  expect(rows[1]?.getAttribute('title')).toBe('Its spot on the plan has no facing. Give it one in the plan editor.');
+  expect(rows[1]?.textContent).toContain('Its spot on the plan has no facing. Give it one in the plan editor.');
   // a picture that doesn't load gives way to the plain tile
   fireEvent.error(picture);
   expect(within(rows[0] as HTMLElement).queryByRole('img')).toBeNull();
+});
+
+it('flags a spot whose view fits the plan better past the spot bound while noting that the spot holds', async () => {
+  const told = status({
+    sampling: ['front', 'hall'],
+    spot_suggestions: {
+      front: { shift_m: 0.62, turn_deg: 2.1, far_shift: true, far_turn: false },
+      hall: { shift_m: 0.12, turn_deg: 14.2, far_shift: false, far_turn: true },
+      porch: { shift_m: 0.55, turn_deg: 11.8, far_shift: true, far_turn: true },
+    },
+    cameras: { front: { recent: { view: 3 }, last_kept: 1.8e9 } },
+  });
+  expect(cameraRows(told).map(r => [r.camera, r.tone, r.label, r.detail])).toEqual([
+    [
+      'front',
+      'warn',
+      'Check spot (0.6 m off)',
+      "Its view fits the plan's walls better about 0.6 m from its spot. Its spot on the plan holds unless you move it.",
+    ],
+    [
+      'hall',
+      'warn',
+      'Check facing (14° off)',
+      "Its view fits the plan's walls better turned about 14° from its spot. Its spot on the plan holds unless you turn it.",
+    ],
+    [
+      'porch',
+      'warn',
+      'Check spot (0.6 m, 12° off)',
+      "Its view fits the plan's walls better about 0.6 m and 12° from its spot. Its spot on the plan holds unless you move it.",
+    ],
+  ]);
+
+  serve(told, { p1: { views: 3, improved: 1.8e9 } });
+  renderPage(<PlacesTab examples={[]} />);
+  const rows = within(await within(await panel()).findByRole('list', { name: 'Cameras learned from' })).getAllByRole(
+    'listitem',
+  );
+  expect(rows.map(r => r.textContent)).toEqual([
+    "frontCheck spot (0.6 m off)Its view fits the plan's walls better about 0.6 m from its spot. Its spot on the plan holds unless you move it.",
+    "hallCheck facing (14° off)Its view fits the plan's walls better turned about 14° from its spot. Its spot on the plan holds unless you turn it.",
+    "porchCheck spot (0.6 m, 12° off)Its view fits the plan's walls better about 0.6 m and 12° from its spot. Its spot on the plan holds unless you move it.",
+  ]);
 });

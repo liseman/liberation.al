@@ -69,16 +69,27 @@ export function CamerasTab() {
     <div className="flex h-full flex-col gap-3 overflow-y-auto p-3" data-surface="cameras-tab">
       <section className="flex flex-col gap-2">
         <h3 className="font-medium text-foreground text-xs">Cameras on the plan</h3>
-        {Object.keys(spots).length === 0 && (
-          <p className="text-[11px] text-muted-foreground">No camera has a spot on this plan yet.</p>
-        )}
+        {Object.keys(spots).length === 0 &&
+          (cameras.length > 0 ? (
+            <p className="text-[11px] text-muted-foreground">
+              No camera has a spot yet. Pick a camera below, then click the plan where it is.
+            </p>
+          ) : (
+            <p className="text-[11px] text-muted-foreground">
+              No cameras are set up yet. Add one in{' '}
+              <a className="underline" href="/devices" target="_top">
+                Devices
+              </a>
+              .
+            </p>
+          ))}
         <div className="flex flex-wrap gap-1.5">
           {Object.entries(spots).map(([id, s]) => (
             <button
               key={id}
               type="button"
               aria-pressed={id === selected}
-              className={`${BUTTON} ${id === selected ? 'bg-primary text-primary-foreground hover:bg-primary' : ''}`}
+              className={`${BUTTON} ${id === selected ? 'border-transparent bg-[var(--lib-accent)] text-white hover:bg-[var(--lib-accent)]' : ''}`}
               onClick={() => select(id === selected ? null : id)}
             >
               {cameraName(cameras, id)}
@@ -104,8 +115,14 @@ export function CamerasTab() {
               onSet={v => change({ at: [spot.at[0], v ?? spot.at[1]] })}
             />
             <Field label="Height, m" value={spot.height} step={0.05} optional onSet={height => change({ height })} />
-            <Field label="Facing, °" value={spot.yaw} step={5} optional onSet={yaw => change({ yaw })} />
-            <Field label="View, °" value={spot.fov} step={5} optional onSet={fov => change({ fov })} />
+            <Field
+              label="Facing, degrees (0 is up)"
+              value={spot.yaw}
+              step={5}
+              optional
+              onSet={yaw => change({ yaw })}
+            />
+            <Field label="Field of view, degrees" value={spot.fov} step={5} optional onSet={fov => change({ fov })} />
           </div>
           {spot.yaw === undefined && (
             <p className="text-[11px] text-muted-foreground">

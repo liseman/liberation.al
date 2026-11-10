@@ -9,14 +9,15 @@ from urllib.parse import urlsplit
 
 import pytest
 
+import plans
 from liberational import segment_log as S
 from liberational.dashboard import context
 from liberational.dashboard import places as view
 from liberational.memory import places
-from liberational.spatial import floorplan, plan_scene, positions
+from liberational.spatial import plan_scene, positions
 
 T = 1_762_500_000.0
-PLAN = 'plan "Home" walls 0.2/0.1\nroom den "Den" living rect 0,0 4x6\n'
+PLAN = plans.scene('plan "Home" walls 0.2/0.1\nroom den "Den" living rect 0,0 4x6\n')
 
 
 def test_the_listing_gives_each_place_its_plan_revision_and_last_visit(tmp_path, vision):
@@ -382,8 +383,11 @@ def test_a_correction_holds_over_the_machine_plan_until_withdrawn(tmp_path, home
         pytest.param({"place": "no-such-place", "plan": PLAN}, True, 404, id="unknown-place"),
         pytest.param({"place": None, "plan": PLAN}, True, 400, id="no-place"),
         pytest.param({"plan": 3}, True, 400, id="plan-not-text"),
-        pytest.param({"plan": 'plan "x"\ndoor a>b w1\n'}, True, 400, id="no-room"),
-        pytest.param({"plan": PLAN + "#" * view.MAX_PLAN_BYTES}, True, 400, id="too-long"),
+        pytest.param(
+            {"plan": plan_scene.dump(plan_scene.build(walls=[((0.0, 0.0), (4.0, 0.0), 0.2)]))}, True, 400, id="no-room"
+        ),
+        pytest.param({"plan": 'plan "Home"\nroom den "Den" living rect 0,0 4x6\n'}, True, 400, id="the-old-format"),
+        pytest.param({"plan": PLAN[:-1] + " " * view.MAX_SCENE_BYTES + "}"}, True, 400, id="too-long"),
     ],
 )
 def test_a_correction_that_isnt_one_changes_nothing(tmp_path, home, body, control, code):
@@ -436,30 +440,21 @@ def test_a_stored_base_no_longer_in_the_chain_falls_back_to_the_frame_current_wh
 TWO_ROOMS = PLAN + 'room hall "Hall" hall rect 4,0 2x6\n'
 
 
-def test_revert_puts_back_the_previous_owner_plan_and_a_second_revert_undoes_it(tmp_path, home):
+def test_restoring_a_version_saves_it_again_on_top_and_restoring_the_one_before_undoes_it(tmp_path, home):
     place = home[0]
     hand = PLAN.replace('"Den"', '"Study"')
     view.correct({"place": place, "plan": hand}, True, tmp_path, now=T + 10)
     view.correct({"place": place, "plan": TWO_ROOMS}, True, tmp_path, now=T + 20)
-    code, reply = view.plan_versions(tmp_path, place)
-    assert code == 200
-    assert [v["rooms"] for v in reply["versions"]] == [1, 2]
-    previous = reply["previous"]
-    assert (previous["id"], previous["rooms"], previous["at"]) == (reply["versions"][0]["id"], 1, T + 10)
+    first, second = view.plan_versions(tmp_path, place)[1]["versions"]
+    assert [(v["rooms"], v["current"]) for v in (first, second)] == [(1, False), (2, True)]
 
-    code, reply = view.restore({"place": place, "record": previous["id"]}, True, tmp_path, now=T + 30)
-    assert (code, reply["plan_source"]) == (200, "owner")
-    # the version comes back as a scene (what the plan editor works on), with the plan it held
-    assert plan_scene.is_scene(reply["plan"])
-    assert [room[:2] for room in floorplan.rooms_from_dsl(reply["plan"])] == [("den", "Study")]
-    # appended, not rewound: three records now, the old one untouched, and the previous one is the two-room plan
-    reply = view.plan_versions(tmp_path, place)[1]
-    assert [(v["rooms"], v["format"], v["current"]) for v in reply["versions"]] == [
-        (1, "dsl", False),
-        (2, "dsl", False),
-        (1, "scene", True),
-    ]
-    assert (reply["previous"]["rooms"], reply["previous"]["at"]) == (2, T + 20)
+    code, reply = view.restore({"place": place, "record": first["id"]}, True, tmp_path, now=T + 30)
+    assert (code, reply["plan"], reply["plan_source"]) == (200, hand, "owner")
+    # appended, not rewound: three versions now, and the one it replaced is still there to restore
+    versions = view.plan_versions(tmp_path, place)[1]["versions"]
+    assert [(v["rooms"], v["current"]) for v in versions] == [(1, False), (2, False), (1, True)]
+    code, reply = view.restore({"place": place, "record": second["id"]}, True, tmp_path, now=T + 40)
+    assert (code, reply["plan"]) == (200, TWO_ROOMS)
 
 
 def test_each_version_says_what_changed_from_the_one_before_and_which_one_holds(tmp_path, home):
@@ -480,7 +475,7 @@ def test_each_version_says_what_changed_from_the_one_before_and_which_one_holds(
     assert (versions[-1]["summary"], versions[-1]["current"]) == ("2 rooms, 1 camera spot", True)
 
 
-ROOM = 'plan "x"\nroom den "Den" living rect 0,0 4x6\n'
+ROOM = plans.scene('plan "x"\nroom den "Den" living rect 0,0 4x6\n')
 
 
 @pytest.mark.parametrize(
@@ -491,7 +486,7 @@ ROOM = 'plan "x"\nroom den "Den" living rect 0,0 4x6\n'
         pytest.param(ROOM, ROOM.replace("4x6", "4x5"), "Reshaped Den", id="reshaped"),
         pytest.param(
             ROOM,
-            'plan "x"\nroom den "Den" living poly 4,6 0,6 0,0 4,0\n',
+            plans.scene('plan "x"\nroom den "Den" living poly 4,6 0,6 0,0 4,0\n'),
             "No change to rooms, openings, or cameras",
             id="same-outline-from-another-corner",
         ),
@@ -529,8 +524,10 @@ ROOM = 'plan "x"\nroom den "Den" living rect 0,0 4x6\n'
         pytest.param(ROOM + "x-camera porch at 1,1\n", ROOM, "Removed camera porch", id="spot-removed"),
         pytest.param(
             ROOM,
-            'plan "x"\nroom a "A" other rect 0,0 1x1\nroom b "B" other rect 1,0 1x1\nroom c "C" other rect 2,0 1x1\n'
-            'room d "D" other rect 3,0 1x1\n',
+            plans.scene(
+                'plan "x"\nroom a "A" other rect 0,0 1x1\nroom b "B" other rect 1,0 1x1\nroom c "C" other rect 2,0 1x1\n'
+                'room d "D" other rect 3,0 1x1\n'
+            ),
             "Added A, added B, added C, and 2 more",
             id="more-than-three",
         ),
@@ -543,92 +540,46 @@ def test_a_versions_summary_names_what_changed(before, after, said):
     assert view.plan_change(before, after) == said
 
 
-def test_a_summary_compares_a_scene_with_the_dsl_version_before_it():
-    from liberational.spatial import plan_import
-
-    scene = plan_import.to_scene(ROOM + "x-camera porch at 1,1 yaw 90\n").scene
-    assert view.plan_change(ROOM, scene) == "Added camera porch"
-    assert view.plan_change(scene, scene) == "No change to rooms, openings, or cameras"
-
-
-def test_restoring_a_scene_version_puts_it_back_as_it_was_and_one_that_cant_convert_is_refused(tmp_path, home):
-    from liberational.spatial import plan_import
-
+def test_a_version_in_the_old_format_is_not_listed_and_cant_be_restored(tmp_path, home):
+    # a plan saved before scenes is still in the store, where nothing is ever rewritten; it is no longer read
     place = home[0]
-    scene = plan_import.to_scene(TWO_ROOMS).scene
-    view.correct({"place": place, "plan": scene}, True, tmp_path, now=T + 10)
-    view.correct({"place": place, "plan": PLAN + "door exterior>den at 9,9 w0.9\n"}, True, tmp_path, now=T + 20)
-    first, second = view.plan_versions(tmp_path, place)[1]["versions"]
-    code, reply = view.restore({"place": place, "record": first["id"]}, True, tmp_path, now=T + 30)
-    assert (code, reply["plan"]) == (200, scene)
-    code, reply = view.restore({"place": place, "record": second["id"]}, True, tmp_path, now=T + 40)
-    assert code == 422 and "door at 9,9 is on no wall" in reply["error"]
-    assert len(view.plan_versions(tmp_path, place)[1]["versions"]) == 3, "a refused restore writes nothing"
-
-
-def test_restoring_a_plan_drawn_on_its_page_converts_the_page_too(tmp_path, paged):
-    place, frame = paged
-    record = places.plan_history(tmp_path, place)[-1].id
-    assert view.restore({"place": place, "record": record}, True, tmp_path, now=T + 50)[0] == 200
-    held = places.get(tmp_path, place)
-    assert held is not None and held.view is not None and held.plan is not None
-    assert plan_scene.is_scene(held.plan) and plan_scene.is_scene(held.view.plan)
-    assert held.plan_revision == frame
-    assert floorplan.rooms_from_dsl(held.view.plan) == floorplan.rooms_from_dsl(PAGE)
-    assert floorplan.rooms_from_dsl(held.plan) == floorplan.rooms_from_dsl(IN_FRAME)
-
-
-def test_the_only_owner_plan_has_nothing_earlier_to_revert_to(tmp_path, home):
-    view.correct({"place": home[0], "plan": TWO_ROOMS}, True, tmp_path, now=T + 10)
-    assert view.plan_versions(tmp_path, home[0])[1]["previous"] is None
-
-
-def test_an_earlier_owner_plan_with_the_same_text_is_skipped(tmp_path, home):
-    place = home[0]
-    view.correct({"place": place, "plan": PLAN.replace('"Den"', '"Study"')}, True, tmp_path, now=T + 10)
+    places.correct_plan(tmp_path, place, 'plan "Home"\nroom den "Den" living rect 0,0 4x6\n', now=T + 10)
     view.correct({"place": place, "plan": TWO_ROOMS}, True, tmp_path, now=T + 20)
-    view.correct({"place": place, "plan": TWO_ROOMS}, True, tmp_path, now=T + 30)
-    assert view.plan_versions(tmp_path, place)[1]["previous"]["at"] == T + 10
+    old = places.plan_history(tmp_path, place)[0]
+    versions = view.plan_versions(tmp_path, place)[1]["versions"]
+    assert [(v["rooms"], v["current"], v["summary"]) for v in versions] == [(2, True, "2 rooms")]
+    code, reply = view.restore({"place": place, "record": old.id}, True, tmp_path, now=T + 30)
+    assert code == 422 and "old format" in reply["error"]
+    assert len(places.plan_history(tmp_path, place)) == 2, "a refused restore writes nothing"
 
 
-def test_a_re_registration_of_the_same_plan_isnt_a_version_to_revert_to(tmp_path, home):
-    # Place 1: a hand plan, then an imported one, then that imported plan registered again into a newer frame, which
-    # moves its corners by millimetres. Revert goes back to the hand plan, not to the same plan in the older frame.
-    place = home[0]
-    view.correct({"place": place, "plan": PLAN.replace('"Den"', '"Study"')}, True, tmp_path, now=T + 10)
-    view.correct({"place": place, "plan": TWO_ROOMS}, True, tmp_path, now=T + 20)
-    view.correct({"place": place, "plan": TWO_ROOMS.replace("4,0 2x6", "4.003,0 2x6")}, True, tmp_path, now=T + 30)
-    assert view.plan_versions(tmp_path, place)[1]["previous"]["at"] == T + 10
-
-
-@pytest.mark.parametrize(
-    "a,b,same",
-    [
-        pytest.param("rect 0,0 4x6", "rect 0.004,-0.003 4x6", True, id="millimetres"),
-        pytest.param("rect 0,0 4x6", "rect 0.05,0 4x6", False, id="one-snap-step"),
-        pytest.param('room den "Den" rect 0,0 4x6', 'room den "Study" rect 0,0 4x6', False, id="renamed"),
-        pytest.param("room a2 rect 0,0 4x6", "room a3 rect 0,0 4x6", False, id="numbered-id"),
-        pytest.param("rect 0,0 4x6", "rect 0,0 4x6\ndoor a>b w1", False, id="door-added"),
-        pytest.param(
-            "rect 0,0 4x6\nx-camera a at 1,1 yaw 7", "rect 0,0 4x6\nx-camera a at 1,1 yaw 90", True, id="camera"
-        ),
-    ],
-)
-def test_same_plan_allows_only_millimetres(a, b, same):
-    assert view.same_plan(a, b) is same
-
-
-def test_with_the_machines_plan_holding_revert_offers_the_newest_owner_plan(tmp_path, home):
+def test_no_version_is_current_while_an_old_format_plan_is_the_newest(tmp_path, home):
     place = home[0]
     view.correct({"place": place, "plan": TWO_ROOMS}, True, tmp_path, now=T + 10)
-    view.correct({"place": place, "plan": ""}, True, tmp_path, now=T + 20)  # withdrawn, as the old bar did
-    reply = view.plan_versions(tmp_path, place)[1]
-    assert [v["withdrawn"] for v in reply["versions"]] == [False, True]
-    assert (reply["previous"]["rooms"], reply["previous"]["at"]) == (2, T + 10)
+    places.correct_plan(tmp_path, place, 'plan "Home"\nroom den "Den" living rect 0,0 4x6\n', now=T + 20)
+    assert [v["current"] for v in view.plan_versions(tmp_path, place)[1]["versions"]] == [False]
+
+
+def test_restoring_a_plan_drawn_on_its_page_keeps_its_page(tmp_path, paged):
+    place, frame = paged
+    record = places.plan_history(tmp_path, place)[-1].id
+    view.correct({"place": place, "plan": PAGE.replace("4x6", "4x5")}, True, tmp_path, now=T + 40)
+    assert view.restore({"place": place, "record": record}, True, tmp_path, now=T + 50)[0] == 200
+    held = places.get(tmp_path, place)
+    assert held is not None and held.view is not None
+    assert (held.plan, held.view.plan, held.plan_revision) == (IN_FRAME, PAGE, frame)
+
+
+def test_a_withdrawal_is_a_version_too(tmp_path, home):
+    place = home[0]
+    view.correct({"place": place, "plan": TWO_ROOMS}, True, tmp_path, now=T + 10)
+    view.correct({"place": place, "plan": ""}, True, tmp_path, now=T + 20)
+    versions = view.plan_versions(tmp_path, place)[1]["versions"]
+    assert [(v["withdrawn"], v["current"]) for v in versions] == [(False, False), (True, False)]
 
 
 def test_a_place_never_corrected_has_no_versions(tmp_path, home):
-    assert view.plan_versions(tmp_path, home[0]) == (200, {"place": home[0], "versions": [], "previous": None})
+    assert view.plan_versions(tmp_path, home[0]) == (200, {"place": home[0], "versions": []})
     assert view.plan_versions(tmp_path, "no-such-place")[0] == 404
 
 
@@ -814,9 +765,9 @@ def test_one_persons_tracks_on_two_cameras_stay_two_paths(tmp_path, reader, home
 
 # An owner plan drawn on its own page: the page's x and y become the plan frame's y + 10 and x, the page
 # mirrored and given a quarter turn, as an imported plan's fit does.
-PAGE = 'plan "Home" walls 0.2/0.1\nroom den "Den" living rect 0,0 4x6\n'
+PAGE = plans.scene('plan "Home" walls 0.2/0.1\nroom den "Den" living rect 0,0 4x6\n')
 TURNED = {"turn": 1.5707963267948966, "shift": [10.0, 0.0], "mirror": True}
-IN_FRAME = 'plan "Home" walls 0.2/0.1\nroom den "Den" living poly 10,0 16,0 16,4 10,4\n'
+IN_FRAME = plans.scene('plan "Home" walls 0.2/0.1\nroom den "Den" living poly 10,0 16,0 16,4 10,4\n')
 
 
 @pytest.fixture
@@ -848,7 +799,7 @@ def test_an_edit_of_a_plan_drawn_on_its_page_is_moved_into_the_plan_frame(tmp_pa
     held = places.get(tmp_path, place)
     assert held is not None and held.view is not None and held.view.plan == edited
     assert held.plan_revision == frame, "still drawn in the frame the page was registered to"
-    (room,) = floorplan.rooms_from_dsl(held.plan or "")
+    (room,) = plan_scene.rooms_of(held.plan or "")
     assert set(room[2]) == {(10.0, 0.0), (10.0, 4.0), (15.0, 4.0), (15.0, 0.0)}
 
 

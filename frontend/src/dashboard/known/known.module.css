@@ -89,3 +89,7 @@
 .root [id] {
   scroll-margin-top: calc(var(--top-h, 56px) + var(--known-h, 73px) + 8px);
 }
+/* A count from an earlier read, shown while this one reloads: dimmed until the new number arrives. */
+.count[data-stale] {
+  color: var(--mantine-color-dimmed);
+}

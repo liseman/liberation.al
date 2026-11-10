@@ -385,21 +385,19 @@ export function Stage({
   }
   if (!shown.length)
     return (
-      <>
-        <section ref={root} className="stage stage-off" aria-label="Cameras">
-          {picker}
-          {trouble === 'retrying' ? (
-            <Text c="dimmed">Camera not responding, retrying.</Text>
-          ) : trouble === 'starting' ? (
-            <Text c="dimmed">Starting cameras…</Text>
-          ) : (
-            <>
-              <Text c="dimmed">Cameras are off, so Liberational can't see who's here.</Text>
-              <StartButton name={CAMERA_SERVICES} label="Start cameras" />
-            </>
-          )}
-        </section>
-      </>
+      <section ref={root} className="stage stage-off" aria-label="Cameras">
+        {picker}
+        {trouble === 'retrying' ? (
+          <Text c="dimmed">Camera not responding, retrying.</Text>
+        ) : trouble === 'starting' ? (
+          <Text c="dimmed">Starting cameras…</Text>
+        ) : (
+          <>
+            <Text c="dimmed">Cameras are off, so Liberational can't see who's here.</Text>
+            <StartButton name={CAMERA_SERVICES} label="Start cameras" />
+          </>
+        )}
+      </section>
     );
   return (
     <section key="stage" ref={stageRef} className="live-cams" aria-label="Cameras">

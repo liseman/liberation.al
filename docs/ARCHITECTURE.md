@@ -87,24 +87,30 @@ services), `knowledge.py` (the knowledge store), `segment_log.py` (segment strea
 
 ## Where data lives
 
-Runtime data is under `data/` in a checkout (gitignored) and under `~/.local/share/liberational/` for an installed
-package. `state/` below means `paths.state`. [SERVICES.md](SERVICES.md#install-layout) has the full layout.
+Runtime data is under `data/` in a checkout (gitignored) and, for an installed package, under
+`~/.local/share/liberational/` on Linux (`XDG_DATA_HOME` overrides that directory) or
+`~/Library/Application Support/liberational` on a Mac. `state/` below means `paths.state`.
+[SERVICES.md](SERVICES.md#install-layout) has the full layout.
 
 | Store | Path | Holds | Kept |
 |---|---|---|---|
-| Recordings | `state/continuum/tier/` | Camera video and microphone audio as chunk files | Video 30 days; speech audio until a reset |
-| Broker catalog | `state/continuum/catalog.redb` | Chunk metadata, the memory log (journal, facts, Ask history), subscriptions | Until a reset |
-| Segment store | `state/segments/<stream>/<slot>/` | Everything derived: Arrow IPC parts per stream, slot, and UTC hour | Until a reset; forgets write tombstones |
-| Knowledge store | `state/knowledge.sqlite3` | What the owner taught: people, names, pets, zones, ratings, device links, place plans | Kept by `--keep-taught` |
-| Face gallery | `faces/` | Enrolled face embeddings, negatives, and photos | Kept by `--keep-taught` |
-| Places | `state/places/<place>/` | Machine-made maps, floorplans, and camera poses per place | Until a reset |
+| Recordings | `state/continuum/tier/` and `state/continuum/tier2/` | Camera video and microphone audio as chunk files. Nothing new is written under `tier2/` | Video 30 days; speech audio until a reset |
+| Broker catalog | `state/continuum/catalog.redb` | Chunk metadata, the memory log (journal, facts, summaries, Ask history), and durable subscription positions | Until a reset |
+| Segment store | `state/segments/<stream>/<slot>/` | Everything derived: Arrow IPC parts per stream, slot, and UTC hour | Until a reset; a forget is appended to `.deletions`, and the parts are rewritten |
+| Knowledge store | `state/knowledge.sqlite3` | What the owner taught: people, names, pets, zones, ratings, device links, place plans, and remembered objects | Kept by `--keep-taught` |
+| Face gallery | `faces/` | Enrolled and learned face embeddings, negatives, photos, and unknown clusters | Kept by `--keep-taught` |
+| Voice reference | `voices/` | The owner's voice reference (`owner_ref.wav` and `owner_ref.txt`) | Kept by `--keep-taught` |
+| Places | `state/places/<place>/` | Machine-made maps, floorplans, splats, and camera poses per place | Until a reset |
 | Vector index | `state/continuum/vector/` | LanceDB tables for face, voice, and journal search | Rebuilt from its streams |
 
-- **The video window.** `pack-video-window` runs nightly. It condenses dense rows of days past the window, keeps a
-  short clip of each moment the journal cites, then ages out camera video older than `video_window.days` (30) and
-  audio no speech touches. Derived rows stay, and Review says the footage expired.
+- **The video window.** `pack-video-window` runs nightly. It keeps a short clip, a still, and the caption of each
+  moment the journal cites, then ages out camera video older than `video_window.days` (30). When free space falls
+  under `video_window.free_floor_percent` (15), older video goes early, never the newest day. It then condenses
+  dense rows of days past the window and ages out audio no speech touches. Spans, captions, transcripts, and the
+  journal stay, and Review says the footage expired.
 - **The reset.** `pack-reset-catalog --keep-taught` deletes the machine-made stores and keeps taught state.
-  `--fresh` deletes taught state too. `pack-knowledge export` and `import` move taught state between installs.
+  `--keep-places` keeps `state/places`. `--fresh` deletes taught state too. `pack-knowledge export` and `import`
+  move taught state between installs.
 
 [STORAGE.md](STORAGE.md) covers retention and sizes. [MIGRATING.md](../MIGRATING.md) has the reset steps.
 [COMPONENTS.md](COMPONENTS.md#state) lists every file.
@@ -261,14 +267,14 @@ is thread-affine: a model is loaded and called on one thread. That is why `visio
 
 | Service | Needed for | Without it |
 |---|---|---|
-| Ollama (`ollama.url`, port 11434) | Every language model call, embeddings, and captions on Linux | Voice answers, summaries, naming, and history answers fail |
-| Agent gateway (`[agent] url`, OpenClaw) | Owner requests that need tools, friends panels, and public lookups | Those reply that no agent is configured; the rest works |
+| Ollama (`ollama.url`, port 11434) | Local language model calls, embeddings, and captions on Linux | Voice answers, captions on Linux, summaries, naming, and history answers fail |
+| Agent gateway (`[agent] url`, any OpenAI-compatible endpoint, such as OpenClaw) | Owner requests that need tools, friends panels, and public lookups | Those reply that no agent is configured; the rest works |
 | Twilio (`.env.phone`) | Phone calls in and out | No phone calls |
-| Tailscale Funnel | A public HTTPS name for Twilio webhooks; optional remote dashboard | Local network only |
+| Tailscale Funnel | A public HTTPS name for Twilio webhooks (`phone.public_host`) | Twilio cannot reach the bridge, so no phone calls |
 | whisper-server (port 8082) | `asr.engine = whisper` | Parakeet runs in process |
 
-Only Ollama is required. The pack runs it as the `ollama` service; `ask-ollama` is an optional second server that
-keeps Ask's model loaded at its own context size.
+Only Ollama is required. The pack runs it as the `ollama` service; `ask-ollama` is an optional second server on Linux
+that keeps Ask's model loaded at its own context size.
 
 ## Read next
 

@@ -2,11 +2,13 @@
 
 import json
 import math
+from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
 import pytest
 
+import plans
 from liberational import config as cfg
 from liberational.memory import places
 from liberational.spatial import cameras, lens, ply, splat_runner, splats, spots
@@ -594,7 +596,9 @@ def test_the_summary_gives_the_sampled_cameras_recent_looks_from_the_samplers_st
 
 # ---- a camera with a spot on the owner's plan (#288)
 
-ROOMS = 'plan "Home" walls 0.2/0.1\nroom r1 "Living" other rect 0,0 4x3\nroom r2 "Hall" other rect 0,3 4x2\n'
+ROOMS = plans.scene(
+    'plan "Home" walls 0.2/0.1\nroom r1 "Living" other rect 0,0 4x3\nroom r2 "Hall" other rect 0,3 4x2\n'
+)
 #: A camera 1 m up at (2, 1.5) on the plan, level, looking along the plan's +x: its right is the plan's -y, its
 #: down the plan's -z.
 LOOKING_EAST = (0.0, 0.0, 1.0, 2.0, -1.0, 0.0, 0.0, 1.5, 0.0, -1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
@@ -907,3 +911,358 @@ def test_accept_before_fit_and_warp_splat_guard_and_carry_resumed_gaussians():
     assert warped["means"][1] == pytest.approx([7.0, 0.0, 0.0], abs=1e-5)
     assert float(np.linalg.norm(warped["quats"][1])) == pytest.approx(1.0, abs=1e-5)
     assert warped["quats"][1, 0] == pytest.approx(math.cos(math.radians(45.0)), abs=1e-4)
+
+
+# ---- spot verification and bounded refinement on a made-up room with known true pose (#292)
+
+
+def _synthetic_plan(cx: float = 0.65, cy: float = 0.75, cz: float = 1.65, yaw: float = 125.0) -> plans.Plan:
+    return plans.scene(
+        'plan "Synthetic" walls 0.2/0.1\n'
+        'room r1 "Main" living rect 0,0 5x4\n'
+        'room r2 "Side" other rect 5,0 3.5x4\n'
+        "cased r1>r2 at 5,2.0 w2.4\n"
+        "door exterior>r1 at 2.4,0 w0.9\n"
+        f"x-camera front at {cx:.3f},{cy:.3f} height {cz:.3f} yaw {yaw:.2f} fov 90\n"
+    )
+
+
+# `_synthetic_plan`'s walls as centrelines (x1, y1, x2, y2), by hand: the 5 x 4 m main room and the 3.5 x 4 m side
+# room east of it. Solid up to the 2.1 m headers: the front door's 0.9 m gap at x 1.95 to 2.85 on y = 0, and the 2.4 m
+# cased archway at y 0.8 to 3.2 on x = 5. Above 2.1 m every wall is whole.
+_SCENE_SOLID = np.array(
+    [
+        [0.0, 0.0, 0.0, 4.0],
+        [0.0, 0.0, 1.95, 0.0],
+        [2.85, 0.0, 5.0, 0.0],
+        [0.0, 4.0, 5.0, 4.0],
+        [5.0, 0.0, 5.0, 0.8],
+        [5.0, 3.2, 5.0, 4.0],
+        [5.0, 0.0, 8.5, 0.0],
+        [5.0, 4.0, 8.5, 4.0],
+        [8.5, 0.0, 8.5, 4.0],
+    ]
+)
+_SCENE_FULL = np.array(
+    [
+        [0.0, 0.0, 0.0, 4.0],
+        [0.0, 0.0, 5.0, 0.0],
+        [0.0, 4.0, 5.0, 4.0],
+        [5.0, 0.0, 5.0, 4.0],
+        [5.0, 0.0, 8.5, 0.0],
+        [5.0, 4.0, 8.5, 4.0],
+        [8.5, 0.0, 8.5, 4.0],
+    ]
+)
+
+
+def _render_synthetic_room(
+    c2w: np.ndarray,
+    width: int = 320,
+    height: int = 180,
+    focal: float = 160.0,
+    floor_warp: float = 1.10,
+    wall_warp: float = 0.99,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Ray-trace a made-up two-room scene with an open cased archway, a foreground sofa in the wall band, and a
+    depth warp between near floor and far walls like Depth Anything 3's. The scene's walls are written out here
+    (`_SCENE_SOLID`, `_SCENE_FULL`), not cut by the plan helpers the verifier uses, so a mistake in those can't hide
+    in the ground truth."""
+    solid, full = _SCENE_SOLID, _SCENE_FULL
+
+    uu, vv = np.meshgrid(np.arange(width, dtype=np.float64) + 0.5, np.arange(height, dtype=np.float64) + 0.5)
+    dirs_c = np.stack([(uu - width / 2.0) / focal, (vv - height / 2.0) / focal, np.ones_like(uu)], axis=-1)
+    dirs_w = dirs_c @ c2w[:3, :3].T
+    orig = c2w[:3, 3]
+
+    best_t = np.full((height, width), np.inf, dtype=np.float64)
+    shade = np.full((height, width, 3), 210, dtype=np.uint8)
+    is_floor = np.zeros((height, width), dtype=bool)
+
+    # Floor (z = 0) and ceiling (z = 2.6).
+    with np.errstate(divide="ignore", invalid="ignore"):
+        t_floor = np.where(dirs_w[..., 2] < -1e-6, -orig[2] / dirs_w[..., 2], np.inf)
+        t_ceil = np.where(dirs_w[..., 2] > 1e-6, (2.6 - orig[2]) / dirs_w[..., 2], np.inf)
+    hit_f = t_floor < best_t
+    best_t = np.where(hit_f, t_floor, best_t)
+    shade[hit_f] = (92, 86, 78)
+    is_floor[hit_f] = True
+    hit_c = t_ceil < best_t
+    best_t = np.where(hit_c, t_ceil, best_t)
+    shade[hit_c] = (228, 228, 224)
+    is_floor[hit_c] = False
+
+    def cast_segments(segs: np.ndarray, z_lo: float, z_hi: float, palette: Sequence[tuple[int, int, int]]) -> None:
+        nonlocal best_t
+        dx, dy = dirs_w[..., 0], dirs_w[..., 1]
+        for idx, (ax, ay, bx, by) in enumerate(segs.tolist()):
+            sx, sy = bx - ax, by - ay
+            denom = dx * sy - dy * sx
+            with np.errstate(divide="ignore", invalid="ignore"):
+                t = ((ax - orig[0]) * sy - (ay - orig[1]) * sx) / denom
+                u = ((ax - orig[0]) * dy - (ay - orig[1]) * dx) / denom
+            z = orig[2] + t * dirs_w[..., 2]
+            ok = (
+                (np.abs(denom) > 1e-8) & (t > 0.05) & (u >= 0.0) & (u <= 1.0) & (z >= z_lo) & (z <= z_hi) & (t < best_t)
+            )
+            if not np.any(ok):
+                continue
+            best_t = np.where(ok, t, best_t)
+            color = np.array(palette[idx % len(palette)], dtype=np.uint8)
+            shade[ok] = color
+            is_floor[ok] = False
+            # Crisp baseboard and jamb trim for structural edge detection.
+            trim = ok & ((z < 0.04) | (z > 2.56) | (u < 0.015) | (u > 0.985))
+            shade[trim] = (38, 36, 34)
+
+    wall_colors = [(172, 168, 160), (148, 152, 158), (186, 178, 166), (160, 156, 150)]
+    cast_segments(solid, 0.0, 2.6, wall_colors)
+    # Header above the 2.1 m cased archway and door.
+    cast_segments(full, 2.1, 2.6, wall_colors)
+
+    # A sofa/cabinet block inside r1 at x in [2.2, 3.2], y in [2.5, 3.5], z in [0, 1.45], sitting in the wall band.
+    box_walls = np.array(
+        [[2.2, 2.5, 3.2, 2.5], [3.2, 2.5, 3.2, 3.5], [3.2, 3.5, 2.2, 3.5], [2.2, 3.5, 2.2, 2.5]], dtype=np.float64
+    )
+    cast_segments(box_walls, 0.0, 1.45, [(68, 82, 98)])
+    with np.errstate(divide="ignore", invalid="ignore"):
+        t_top = np.where(dirs_w[..., 2] < -1e-6, (1.45 - orig[2]) / dirs_w[..., 2], np.inf)
+    px = orig[0] + t_top * dirs_w[..., 0]
+    py = orig[1] + t_top * dirs_w[..., 1]
+    hit_top = (t_top > 0.05) & (t_top < best_t) & (px >= 2.2) & (px <= 3.2) & (py >= 2.5) & (py <= 3.5)
+    best_t = np.where(hit_top, t_top, best_t)
+    shade[hit_top] = (76, 90, 106)
+    is_floor[hit_top] = False
+
+    # Depth along the camera's +z axis (`best_t` multiplies unit-z camera rays `dirs_c`), warped like DA3: near floor
+    # overestimated by `floor_warp`, far walls at `wall_warp`.
+    warp = np.where(is_floor & (best_t < 3.6), floor_warp, wall_warp)
+    depth = np.where(np.isfinite(best_t), best_t * warp, 0.0).astype(np.float32)
+    return shade, depth
+
+
+def _true_synthetic_pose(
+    cx: float = 0.65, cy: float = 0.75, cz: float = 1.65, yaw: float = 125.0
+) -> tuple[spots.Aim, np.ndarray]:
+    from liberational.spatial import plan_import
+
+    up = tuple(float(v) for v in spots.up_at(14.0, -2.0))
+    aim = spots.Aim((up[0], up[1], up[2]), 320, 180, 30, 1.72, 50.0, f"{cz}|90.0|")
+    cam = plan_import.Camera("front", (cx, cy), cz, yaw, 90.0)
+    matrix = spots.pose(cam, aim, mirrored=True)
+    assert matrix is not None
+    return aim, np.asarray(matrix, dtype=np.float64).reshape(4, 4)
+
+
+def _setup_synthetic_place(
+    state: Path,
+    rgb: np.ndarray,
+    cx: float,
+    cy: float,
+    cz: float = 1.65,
+    yaw: float = 125.0,
+    pitch: float = 14.0,
+    roll: float = -2.0,
+    t: float = 1.0,
+) -> tuple[str, frames.Kept]:
+    import cv2
+
+    plan_text = _synthetic_plan(cx, cy, cz, yaw)
+    place = places.revise(state, None, producer="places reset v1", now=10.0).place
+    places.correct_plan(
+        state, place, plan_text, now=20.0, view={"plan": plan_text, "turn": 0.0, "shift": [0.0, 0.0], "mirror": True}
+    )
+    up = tuple(float(v) for v in spots.up_at(pitch, roll))
+    aim = spots.Aim((up[0], up[1], up[2]), rgb.shape[1], rgb.shape[0], 30, 1.72, 50.0, f"{cz}|90.0|")
+    spots.save_aims(state, {"front": aim})
+    store = frames.Store(frames.root(state))
+    _, kept = store.offer("front", cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR), unit(0), 100.0, now=t)
+    assert kept is not None
+    return place, kept
+
+
+def test_spot_verification_tells_the_true_pose_from_shifted_and_turned_ones_despite_archways_furniture_and_depth_warp():
+    from liberational.spatial import plan_import, spot_check
+
+    plan_text = _synthetic_plan()
+    parsed = plan_import.parse(plan_text)
+    _, true_c2w = _true_synthetic_pose()
+    focal = 160.0
+    rgb, depth = _render_synthetic_room(true_c2w, focal=focal)
+
+    # Naive wall-band proximity (`spot_fit` given raw `Walls`) cannot tell the true pose from a shifted one: floor
+    # scaling pulls warped walls short at the true pose (~6% near), while shifting +0.45 m in x and +0.30 m in y lands
+    # those shortened walls and the sofa onto the plan's walls and cased partition line.
+    wrong_shift = spot_check.offset_pose(true_c2w, dx=0.45, dy=0.30)
+    old_walls = plan_import.walls(parsed)
+    naive_true = sm.spot_fit(depth, focal, true_c2w, old_walls)
+    naive_wrong = sm.spot_fit(depth, focal, wrong_shift, old_walls)
+    assert (naive_wrong.wall_near or 0.0) > (naive_true.wall_near or 0.0) * 2
+
+    # `spot_fit` given the parsed plan (`refine=False` to inspect the raw landscape) peaks clearly at the true pose
+    # across shifts and turns, and stays idempotent after `_scale_depth` scales the depth to the plan's floor.
+    at_true = sm.spot_fit(depth, focal, true_c2w, parsed, image=rgb, refine=False)
+    assert at_true.score is not None
+    for candidate in (
+        wrong_shift,
+        spot_check.offset_pose(true_c2w, dx=0.60),
+        spot_check.offset_pose(true_c2w, dx=-0.50),
+        spot_check.offset_pose(true_c2w, dy=0.60),
+        spot_check.offset_pose(true_c2w, dy=-0.50),
+        spot_check.offset_pose(true_c2w, dyaw=14.0),
+        spot_check.offset_pose(true_c2w, dyaw=-14.0),
+        spot_check.offset_pose(true_c2w, dpitch=8.0),
+        spot_check.offset_pose(true_c2w, droll=8.0),
+    ):
+        off = sm.spot_fit(depth, focal, candidate, parsed, image=rgb, refine=False)
+        assert off.score is not None and at_true.score > off.score + 0.05
+
+    scaled_depth = depth * float(at_true.scale)
+    again = sm.spot_fit(scaled_depth, focal, true_c2w, parsed, image=rgb, refine=False)
+    assert again.score == pytest.approx(at_true.score, abs=0.01)
+
+
+def test_a_spot_within_the_refinement_bound_is_refined_toward_the_true_pose_while_the_owners_spot_stays_authoritative(
+    models, state
+):
+    from liberational.spatial import spot_check
+
+    _, true_c2w = _true_synthetic_pose(0.65, 0.75, 1.65, 125.0)
+    rgb, depth = _render_synthetic_room(true_c2w, focal=160.0)
+    models.depth = lambda h, w, f: depth
+
+    # The owner's spot is 0.19 m and ~3.4 deg off the true camera pose: inside `(spots.REFINE_M, spots.REFINE_DEG)`.
+    place, _ = _setup_synthetic_place(state, rgb, cx=0.81, cy=0.65, cz=1.65, yaw=128.2, pitch=15.0, roll=-2.0)
+    owner_spot = spots.read(state)["front"]
+    assert owner_spot.pose is not None
+    init_shift, init_turn = spot_check.pose_delta(owner_spot.pose.pose, true_c2w)
+    assert 0.15 < init_shift < spots.REFINE_M and 2.5 < init_turn < spots.REFINE_DEG
+
+    did = sm.step(state, now=100.0, held={})
+    assert did is not None
+    fit_info = did["spots"]["front"]
+    assert fit_info["refined"] is True
+    assert "suggestion" not in fit_info
+
+    after = spots.read(state)["front"]
+    assert after.pose == owner_spot.pose  # the owner's spot itself is untouched
+    assert after.refined is not None
+    assert spots.within_bounds(after.pose, after.refined)
+    ref_shift, ref_turn = spot_check.pose_delta(after.refined.pose, true_c2w)
+    assert ref_shift < init_shift and ref_turn < init_turn
+
+    # `spots.overlay` and the placed view use the within-bound refined pose, and a second step does not mistake the
+    # refined pose for an owner edit of the spot.
+    assert spots.overlay(newest(state, place), spots.read(state)).cameras["front"].pose == after.refined.pose
+    assert sm.views(state, place)[0].pose == after.refined.pose
+    assert sm.summary(state, now=110.0)["spot_suggestions"] == {}
+    assert sm.step(state, now=120.0, held={}) is None
+
+    # Moving the spot on the plan immediately drops the old refinement.
+    moved = _synthetic_plan(cx=0.65, cy=0.75, cz=1.65, yaw=125.0)
+    places.correct_plan(
+        state, place, moved, now=130.0, view={"plan": moved, "turn": 0.0, "shift": [0.0, 0.0], "mirror": True}
+    )
+    assert spots.read(state)["front"].refined is None
+
+
+def test_a_spot_off_past_the_bound_holds_where_the_owner_put_it_and_surfaces_a_suggestion_until_moved(models, state):
+    _, true_c2w = _true_synthetic_pose(0.65, 0.75, 1.65, 125.0)
+    rgb, depth = _render_synthetic_room(true_c2w, focal=160.0)
+    models.depth = lambda h, w, f: depth
+
+    # The owner's spot is ~0.58 m and 12 deg off: well beyond `(0.3 m, 5 deg)`.
+    place, _ = _setup_synthetic_place(state, rgb, cx=1.15, cy=1.05, cz=1.65, yaw=137.0, pitch=14.0, roll=-2.0)
+    owner_spot = spots.read(state)["front"]
+    assert owner_spot.pose is not None
+
+    did = sm.step(state, now=100.0, held={})
+    assert did is not None
+    fit_info = did["spots"]["front"]
+    assert fit_info["refined"] is False
+    assert fit_info["suggestion"]["score"] > fit_info["at_spot"]
+    assert fit_info["suggestion"]["shift_m"] > spots.REFINE_M or fit_info["suggestion"]["turn_deg"] > spots.REFINE_DEG
+
+    # The owner's spot stays the authority: neither the placed view nor `spots.read` moves past it.
+    assert sm.views(state, place)[0].pose == owner_spot.pose.pose
+    assert newest(state, place).cameras["front"].pose == owner_spot.pose.pose
+    assert spots.read(state)["front"].refined is None
+
+    # The Places summary surfaces the suggestion until the owner updates the spot on the plan.
+    summary = sm.summary(state, now=110.0)
+    assert "front" in summary["spot_suggestions"]
+    assert summary["spot_suggestions"]["front"]["far_turn"] is True  # the spot faces 12 degrees off: past 5
+    moved = _synthetic_plan(cx=0.65, cy=0.75, cz=1.65, yaw=125.0)
+    places.correct_plan(
+        state, place, moved, now=120.0, view={"plan": moved, "turn": 0.0, "shift": [0.0, 0.0], "mirror": True}
+    )
+    assert sm.summary(state, now=125.0)["spot_suggestions"] == {}
+
+
+def test_a_spot_at_the_true_pose_stays_exactly_where_the_owner_put_it(models, state):
+    _, true_c2w = _true_synthetic_pose(0.65, 0.75, 1.65, 125.0)
+    rgb, depth = _render_synthetic_room(true_c2w, focal=160.0)
+    models.depth = lambda h, w, f: depth
+    place, _ = _setup_synthetic_place(state, rgb, cx=0.65, cy=0.75, cz=1.65, yaw=125.0, pitch=14.0, roll=-2.0)
+    owner_spot = spots.read(state)["front"]
+    assert owner_spot.pose is not None
+
+    did = sm.step(state, now=100.0, held={})
+
+    assert did is not None
+    assert did["spots"]["front"]["refined"] is False
+    assert "suggestion" not in did["spots"]["front"]
+    assert spots.read(state)["front"].refined is None
+    assert sm.views(state, place)[0].pose == owner_spot.pose.pose
+    assert sm.summary(state, now=110.0)["spot_suggestions"] == {}
+
+
+def test_a_cameras_spot_is_searched_once_and_its_views_share_that_pose_until_the_plan_changes(
+    models, state, monkeypatch
+):
+    import cv2
+
+    from liberational.spatial import spot_check
+
+    searched: list[int] = []
+    real_verify = spot_check.verify
+
+    def counting(*args, **kwargs):
+        found = real_verify(*args, **kwargs)
+        searched.append(found.scored)
+        return found
+
+    monkeypatch.setattr(spot_check, "verify", counting)
+    _, true_c2w = _true_synthetic_pose(0.65, 0.75, 1.65, 125.0)
+    rgb, depth = _render_synthetic_room(true_c2w, focal=160.0)
+    models.depth = lambda h, w, f: depth
+    # The owner's spot is inside the bound but off, so the search refines it.
+    place, _ = _setup_synthetic_place(state, rgb, cx=0.81, cy=0.65, cz=1.65, yaw=128.2, pitch=15.0, roll=-2.0)
+    store = frames.Store(frames.root(state))
+    store.offer("front", cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR), unit(60), 100.0, now=2.0)
+
+    sm.step(state, now=100.0, held={})
+
+    assert len(searched) == 1 and searched[0] > 500  # the two views of one step: one search
+    refined = spots.read(state)["front"].refined
+    assert refined is not None
+    assert [v.pose for v in sm.views(state, place)] == [refined.pose, refined.pose]
+
+    # A later view of the same spot and plan reuses the kept check: no search, the same pose.
+    store.offer("front", cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR), unit(120), 100.0, now=3.0)
+    did = sm.step(state, now=200.0, held={})
+    assert did is not None
+    assert did["spots"]["front"]["reused"] is True
+    assert len(searched) == 1
+    assert [v.pose for v in sm.views(state, place)] == [refined.pose] * 3
+
+    # A changed plan (a window on the side room's far wall; the spot itself doesn't move) is searched again.
+    windowed = _synthetic_plan(0.81, 0.65, 1.65, 128.2) + "window exterior>r2 at 8.5,2.0 w1.0\n"
+    places.correct_plan(
+        state, place, windowed, now=210.0, view={"plan": windowed, "turn": 0.0, "shift": [0.0, 0.0], "mirror": True}
+    )
+    store.offer("front", cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR), unit(180), 100.0, now=4.0)
+    did = sm.step(state, now=300.0, held={})
+    assert did is not None
+    assert did["spots"]["front"]["reused"] is False
+    assert len(searched) == 2

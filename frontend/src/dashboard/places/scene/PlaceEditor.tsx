@@ -1,26 +1,31 @@
-// A place's plan in the new plan editor (or its 3D view), with Save. The editor works on a Pascal scene: the
-// place's own when its plan is one, or its DSL plan converted by the server on the way out (GET /places/plan/scene),
-// in which case saving is what turns the place's plan into a scene. Saving writes the owner's plan, as correcting it
-// always has (POST /places/plan), so every save is a version in the place's plan history. Those versions are listed
-// beside the editor (Versions.tsx): picking one opens it in the editor to look at, changing nothing, and Restore
-// saves it again on top. An example place has nothing to save to and no versions.
-import { Alert, Badge, Button, Group, Text } from '@mantine/core';
+// A place's plan in the plan editor (or its 3D view), with Save. The editor works on a Pascal scene: the place's
+// own (GET /places/plan/scene), or an empty one for a place with no plan yet, which is how a plan is drawn from
+// nothing. Saving writes the owner's plan (POST /places/plan), so every save is a version in the place's plan
+// history. Those versions open from a Versions button beside Save (Versions.tsx), so the editor keeps the card's
+// full width: picking one opens it in the editor to look at only, with nothing that changes it, and Restore saves
+// it again on top. An example place has nothing to save to and no versions.
+import { Alert, Badge, Button, Group, Popover, Text } from '@mantine/core';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { PlanView, Scene } from '../../../plan-editor/protocol';
-import { messageOf } from '../../../shared/http';
+import { HttpError, messageOf } from '../../../shared/http';
 import { confirm } from '../../lib/confirm';
-import { dateTime } from '../../lib/format';
+import { momentWords } from '../../lib/format';
+import { BlockSkeleton } from '../../lib/loading';
 import { shell } from '../../shell';
 import { type PlanVersion, planSceneQuery, restorePlan, savePlan } from '../api';
 import type { Place } from '../examples';
 import classes from '../places.module.css';
+import { buildScene } from './build';
 import { PlanFrame } from './PlanFrame';
 import { Versions } from './Versions';
 
 /** The house's cameras as the editor's Cameras panel lists them: each with the name the page shows. */
 export const houseCameras = (): { id: string; name: string }[] =>
   shell().cams.map(id => ({ id, name: shell().views[id] ?? id }));
+
+/** What the editor opens on for a place with no plan to open: a site, a building, and a storey, and nothing drawn. */
+export const EMPTY_SCENE: Scene = buildScene({ height: 2.4, walls: [], openings: [], rooms: [] });
 
 /** How many rooms a scene has: a plan with none can't be saved. */
 export const roomsIn = (scene: Scene): number => Object.values(scene.nodes).filter(n => n.type === 'zone').length;
@@ -30,19 +35,29 @@ export function PlaceEditor({
   view: shown,
   scheme,
   onSaved,
+  onUnsaved,
 }: {
   place: Place;
   view: PlanView;
   scheme: 'light' | 'dark';
   onSaved?: () => void;
+  /** Whether the editor holds changes that haven't been saved, each time that changes. */
+  onUnsaved?: (unsaved: boolean) => void;
 }) {
   const client = useQueryClient();
-  const view3d = shown === '3d';
   // An earlier version being looked at (Versions.tsx), or null for the plan as it is now.
   const [viewing, setViewing] = useState<PlanVersion | null>(null);
+  const [listed, setListed] = useState(false);
   const stored = useQuery({ ...planSceneQuery(place.id, viewing?.id), enabled: !place.example });
-  const scene = place.example ? place.scene : stored.data?.scene;
+  // A place with no plan (404), or one whose stored plan can't be read (422), starts an empty one: that is how a
+  // plan is drawn from nothing. An earlier version that doesn't open is an error, not a blank page.
+  const status = stored.error instanceof HttpError ? stored.error.status : null;
+  const fresh = !place.example && !viewing && (status === 404 || status === 422);
+  const scene = place.example ? place.scene : (stored.data?.scene ?? (fresh ? EMPTY_SCENE : undefined));
   const [edited, setEdited] = useState<Scene | null>(null);
+  const dirty = edited !== null;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: told when it changes, whoever is listening
+  useEffect(() => onUnsaved?.(dirty), [dirty]);
   // a new key makes the frame again, on the stored plan: that is what Discard does
   const [opened, setOpened] = useState(0);
   const save = useMutation({
@@ -68,8 +83,8 @@ export function PlaceEditor({
     if (
       edited &&
       !(await confirm({
-        title: 'Discard your changes?',
-        body: "The changes you haven't saved will be lost.",
+        title: 'Discard your unsaved changes?',
+        body: "The changes to this plan that you haven't saved will be lost.",
         confirm: 'Discard changes',
         danger: true,
         id: 'plan-versions',
@@ -80,58 +95,79 @@ export function PlaceEditor({
     restore.reset();
     setViewing(version);
   };
-  const body = () => {
-    if (!place.example && stored.isPending)
-      return (
-        <Text size="sm" c="dimmed">
-          Loading the plan…
-        </Text>
-      );
-    if (!scene)
-      return (
-        <Alert color="red" variant="light">
-          {stored.error ? messageOf(stored.error) : "This place's plan can't be opened in the editor."}
-        </Alert>
-      );
-    const left = stored.data?.left ?? [];
-    const empty = edited !== null && roomsIn(edited) === 0;
-    // a plan still in the old format can be saved as it opened: that is what stores it in the new one
-    const toSave = edited ?? (stored.data?.converted ? scene : null);
+  if (!place.example && stored.isPending) return <BlockSkeleton label="the plan" />;
+  if (!scene)
     return (
-      <>
-        <Group justify="space-between" gap="xs" mb="xs" wrap="wrap">
-          <Text size="sm" c="dimmed">
-            {place.example ? (
-              'An example flat. Nothing drawn here is saved.'
-            ) : viewing ? (
-              <>
-                <Badge variant="light" color="gray" tt="none" fw={500} mr={6}>
-                  Earlier version
-                </Badge>
-                Saved {dateTime(viewing.at)}. Looking at it changes nothing.
-              </>
-            ) : stored.data?.converted ? (
-              'This plan is stored in the old format. Saving it here stores it in the new one.'
-            ) : edited ? (
-              'Changes not saved yet.'
-            ) : view3d ? (
-              'The plan in 3D.'
+      <Alert color="red" variant="light">
+        {stored.error ? messageOf(stored.error) : "This place's plan can't be opened in the editor."}
+      </Alert>
+    );
+  const empty = edited !== null && roomsIn(edited) === 0;
+  const toSave = edited;
+  // The plan's versions, in a popover from a button beside Save: the editor keeps the card's full width.
+  const versions = !place.example && (
+    <Popover opened={listed} onChange={setListed} position="bottom-end" width={300} shadow="md" withinPortal>
+      <Popover.Target>
+        <Button size="xs" variant="default" aria-expanded={listed} onClick={() => setListed(open => !open)}>
+          Versions
+        </Button>
+      </Popover.Target>
+      <Popover.Dropdown>
+        <Versions
+          place={place.id}
+          viewing={viewing?.id ?? null}
+          onView={version => {
+            setListed(false);
+            view(version);
+          }}
+        />
+      </Popover.Dropdown>
+    </Popover>
+  );
+  return (
+    <>
+      <Group justify="space-between" gap="xs" mb="xs" wrap="wrap">
+        <Text size="sm" c="dimmed">
+          {place.example ? (
+            'An example flat. Nothing drawn here is saved.'
+          ) : viewing ? (
+            <>
+              <Badge variant="light" color="gray" tt="none" fw={500} mr={6}>
+                Earlier version
+              </Badge>
+              Saved {momentWords(viewing.at)}. Looking at it changes nothing.
+            </>
+          ) : fresh ? (
+            status === 404 ? (
+              'No plan yet. Draw rooms and walls, and put doors and windows in them.'
             ) : (
-              'Draw rooms and walls, and put doors and windows in them.'
-            )}
-          </Text>
-          {!place.example && viewing && (
-            <Group gap="xs">
-              <Button size="xs" variant="default" disabled={restore.isPending} onClick={() => view(null)}>
-                Back to the current plan
-              </Button>
-              <Button size="xs" loading={restore.isPending} onClick={() => restore.mutate(viewing)}>
-                Restore this version
-              </Button>
-            </Group>
+              `The stored plan can't be opened, so this starts a new one. ${messageOf(stored.error)}`
+            )
+          ) : shown === '3d' ? (
+            'The plan in 3D.'
+          ) : (
+            'Draw rooms and walls, and put doors and windows in them.'
           )}
-          {!place.example && !viewing && (
-            <Group gap="xs">
+        </Text>
+        {viewing ? (
+          <Group gap="xs" className={classes.editorActions}>
+            {versions}
+            <Button size="xs" variant="default" disabled={restore.isPending} onClick={() => view(null)}>
+              Back to the current plan
+            </Button>
+            <Button size="xs" loading={restore.isPending} onClick={() => restore.mutate(viewing)}>
+              Restore this version
+            </Button>
+          </Group>
+        ) : (
+          !place.example && (
+            <Group gap="xs" className={classes.editorActions}>
+              {edited && (
+                <Text size="sm" c="var(--lib-warn-text)" role="status">
+                  Unsaved changes
+                </Text>
+              )}
+              {versions}
               <Button
                 size="xs"
                 variant="default"
@@ -152,45 +188,33 @@ export function PlaceEditor({
                 Save plan
               </Button>
             </Group>
-          )}
-        </Group>
-        {left.length > 0 && !viewing && (
-          <Text size="xs" c="dimmed" mb="xs">
-            {left.length === 1 ? 'One line' : `${left.length} lines`} of the old plan have no place in the new format
-            and are left out when it is saved: {left.join('; ')}
-          </Text>
+          )
         )}
-        {empty && (
-          <Alert color="yellow" variant="light" mb="xs">
-            A plan needs at least one room before it can be saved.
-          </Alert>
-        )}
-        {save.isError && (
-          <Alert color="red" variant="light" mb="xs">
-            Couldn't save the plan: {messageOf(save.error)}
-          </Alert>
-        )}
-        {restore.isError && (
-          <Alert color="red" variant="light" mb="xs">
-            Couldn't restore that version: {messageOf(restore.error)}
-          </Alert>
-        )}
-        <PlanFrame
-          key={`${place.id}-${view3d ? '3d' : '2d'}-${viewing?.id ?? 'now'}-${opened}`}
-          scene={scene}
-          view={shown}
-          scheme={scheme}
-          cameras={place.example ? [] : houseCameras()}
-          onChange={viewing ? undefined : setEdited}
-        />
-      </>
-    );
-  };
-  if (place.example) return body();
-  return (
-    <div className={classes.editorWithVersions}>
-      <div>{body()}</div>
-      <Versions place={place.id} viewing={viewing?.id ?? null} onView={view} />
-    </div>
+      </Group>
+      {empty && (
+        <Alert color="yellow" variant="light" mb="xs">
+          A plan needs at least one room before it can be saved.
+        </Alert>
+      )}
+      {save.isError && (
+        <Alert color="red" variant="light" mb="xs">
+          Couldn't save the plan: {messageOf(save.error)}
+        </Alert>
+      )}
+      {restore.isError && (
+        <Alert color="red" variant="light" mb="xs">
+          Couldn't restore that version: {messageOf(restore.error)}
+        </Alert>
+      )}
+      <PlanFrame
+        key={`${place.id}-${shown}-${viewing?.id ?? 'now'}-${opened}`}
+        scene={scene}
+        view={shown}
+        scheme={scheme}
+        cameras={place.example ? [] : houseCameras()}
+        look={viewing !== null}
+        onChange={viewing ? undefined : setEdited}
+      />
+    </>
   );
 }

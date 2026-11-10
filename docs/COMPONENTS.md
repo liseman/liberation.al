@@ -19,7 +19,7 @@ unless the row says otherwise.
 | `see/decoded_worker.py` (`pack-see-decode`) | One decode per camera, shared as NV12 and BGR | `paths.decoded/decoded.sock` | `paths.decoded/` | `<camera>.video` | Core |
 | `see/actions_worker.py` (`pack-see-actions`) | People, poses, tracks, faces, actions, movement, walk-bys, and animals | | `pose.*`, `action.*`, `face.*`, `movement.*`, `walkby.*`, `animal.*`; `state/shots/`, `state/pet_shots/`, `state/screens_on.json`; `faces/` (learned views, unnamed face groups) | Decoded frames, `faces/` | Core |
 | `see/caption_worker.py` (`pack-see-captions`) | Captions, grounded objects, and the animals the captions name | | `camera.caption`, `camera.objects`, `animal.grounding`, `animal.grounding_embedding`; `state/pet_shots/` | Decoded frames or `<camera>.video`, Ollama or `pack-vlm` | Core |
-| `see/zones_worker.py` (`pack-see-zones`) | Zone visits and came-into-view episodes | | `zone.visit`, `zone.coverage`, `presence.span`, `state/see-zones.json` | `pose.track`, `action.coverage`, `zone.defined` | Optional |
+| `see/zones_worker.py` (`pack-see-zones`) | Zone visits and came-into-view episodes | | `zone.visit`, `zone.coverage`, `presence.span`, `state/see-zones.json` | `pose.track`, `action.coverage`, `animal.detection`, `animal.coverage`, `zone.defined` | Optional |
 | `see/object_worker.py` (`pack-see-objects`), `memory/objects.py` | Finds remembered objects every 5 s | | `object.match` | Decoded frames, knowledge store | Optional |
 | `vision/vlm_server.py` (`pack-vlm`) | Keeps Qwen3-VL (MLX) resident | `8081` (`ports.vlm`) | | | Optional, Apple Silicon |
 | `listen/` (`pack-listen`) | VAD, ASR, speaker embedding, voiceprint matching, and auto gain | | `speech.utterance`, `speech.activity`, `voice.embedding`, `listen.gain.json`, `voiceprints.json` | PCM rings, playback windows, the password window, `voice_tags.jsonl`, the vector worker's voice search | Core |
@@ -56,10 +56,10 @@ unless the row says otherwise.
 | `profile_bootstrap.py` (`PACK_PROFILE`), `service_profile.py`, `tools/profile_services.py` | Opt-in CPU profiles | | `paths.logs/profiles/` | procfs | Optional, off |
 
 Other commands are CLIs: `pack-config`, `pack-services`, `pack-setup`, `pack-models`, `pack-system`, `pack-knowledge`,
-`pack-reset-catalog`, `pack-reset-places`, `pack-plan-convert`, `pack-rename-camera`, `pack-continuum-status`,
-`pack-catalog-stats`, `pack-faces`, `pack-voice-clone`, `pack-clone-say`, `pack-clone-tts`, `pack-call`,
-`pack-phone-call`, `pack-call-eval`, `pack-call-review`, `pack-ask-friends`, and `pack-xvf3800`. `pyproject.toml` maps
-each to its module, whose docstring says how to use it.
+`pack-reset-catalog`, `pack-reset-places`, `pack-rename-camera`, `pack-continuum-status`, `pack-catalog-stats`,
+`pack-faces`, `pack-voice-clone`, `pack-clone-say`, `pack-clone-tts`, `pack-call`, `pack-phone-call`,
+`pack-call-eval`, `pack-call-review`, `pack-ask-friends`, and `pack-xvf3800`. `pyproject.toml` maps each to its
+module, whose docstring says how to use it.
 
 ## State
 
@@ -113,7 +113,7 @@ one `<service>.log` each, trimmed hourly past 10 MB by the `log-trim` service. H
 | `state/journal.lock` | `pack-journal` | The same | The journal's one-writer lock |
 | `state/journal_evidence/<day>/` | `pack-video-window` | Dashboard | Clips and stills of moments day pages cite; durable |
 | `state/video_window.json`, `retention.json` | `pack-video-window` | The same | Age-out progress and finished retention days |
-| `state/places/<place>/`, `footprints.json`, `positions.json`, `aims.json`, `positions.run`, `<place>/positions.learned`, `state/places.lock` | Spatial jobs through `memory/places.py` | `memory/places.py`, `spatial/positions.py` | Place revisions, maps, plans, splats, how far each camera's footprints are recorded, placer progress, each spot camera's fitted tilt, what each learned map's floor and cameras came to, the positions job's lock, and each place's line-up with its owner's plan (`plan.lineup`, `spatial/plan_lineup.py`) |
+| `state/places/<place>/`, `footprints.json`, `positions.json`, `aims.json`, `refined.json`, `positions.run`, `<place>/positions.learned`, `state/places.lock` | Spatial jobs through `memory/places.py` | `memory/places.py`, `spatial/positions.py` | Place revisions, maps, plans, splats, how far each camera's footprints are recorded, placer progress, each spot camera's fitted tilt, each spot's check against the plan and any refinement in bound, what each learned map's floor and cameras came to, the positions job's lock, and each place's line-up with its owner's plan (`plan.lineup`, `spatial/plan_lineup.py`) |
 | `state/surroundings/` | The surroundings sampler (`pack-surroundings`: frames and `index.json` through `spatial/surroundings_frames.py`, and `status.json`) and the map step (`spatial/surroundings_map.py`: `map.json`, `progress.json` and `training.json` while a step runs, depth arrays, `map.lock`) | Each other, the Places page | The frames kept for learning a place's map, at most 300, with their descriptors and depth; what each step placed |
 | `state/lights/<day>.json` | `memory/lights_color.py` | The same | A finished day's lamps-on spans, measured from the recordings; rebuildable |
 | `state/continuum/pet-evidence.lock` | `people/pet_recognition.py` | The same | Serializes changes to pet evidence |

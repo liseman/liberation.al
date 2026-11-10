@@ -6,6 +6,7 @@ import math
 import numpy as np
 import pytest
 
+import plans
 from liberational import segment_log as S
 from liberational.memory import places
 from liberational.spatial import plan_import as pi
@@ -15,7 +16,7 @@ from liberational.spatial import positions as P
 
 T = 1_800_000_000.0
 # Four rooms in an L, so no turn of the plan fits its own walls again.
-PLAN = (
+PLAN = plans.scene(
     'plan "Home" walls 0.2/0.1\n'
     'room den "Den" other rect 0,0 5x4\n'
     'room kitchen "Kitchen" other rect 5,0 3x2.5\n'
@@ -23,7 +24,7 @@ PLAN = (
     'room bed "Bedroom" other rect 0,4 3x3\n'
 )
 SPOTS = "x-camera cam0 at 1,1 height 2\nx-camera cam1 at 6.5,1.5 height 2\n"
-SQUARE = 'plan "Shed" walls 0.2/0.1\nroom shed "Shed" other rect 0,0 4x4\n'
+SQUARE = plans.scene('plan "Shed" walls 0.2/0.1\nroom shed "Shed" other rect 0,0 4x4\n')
 EVERYWHERE = (-1.0, -1.0, 9.0, 8.0)
 DEN_CORNER = (-1.0, -1.0, 2.0, 2.0)  # two 2 m stretches of wall: a corner like any other
 

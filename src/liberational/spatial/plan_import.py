@@ -1,20 +1,13 @@
-"""An owner-supplied floorplan, registered into a place's plan frame (part of spatial memory).
+"""A place's plan as the shapes the fitting code works on, and a plan registered into a map's frame (part of spatial
+memory).
 
-An owner may have an accurate plan of their home from elsewhere, such as a phone LiDAR scan app's export redrawn in
-the floorplan DSL. It becomes the place's owner plan (memory/places.py `correct_plan`), so positions name its rooms,
-and it is ground truth to measure the map and the cameras' registrations against. `tools/import_owner_plan.py` runs
-it against a live place; this module is the pure part: no I/O.
-
-**Reading** (`parse`): the subset of the DSL a plan of one storey needs, as the floorplan library's docs give it:
-`plan "<title>" walls <exterior>/<partition>`, `room <id> "<name>" <kind> rect x,y WxH | poly x,y ...`, openings
-(`door`, `window`, `cased`: `<a>><b> at x,y w<width> ...`), fixtures (`fixture <kind> in:<room> at x,y size WxD ...`),
-and owner-measured camera spots (`x-camera <id> at x,y [height m] [yaw deg] [fov deg]`, as the Places tab's DSL
-extension spells them). Comments and `level` lines are dropped (a comment may hold the home's address, which has no
-place in owner state); any other statement is counted in `Parsed.skipped`. Coordinates are wall centrelines in
-metres, with x growing east and y growing south on the page.
+**Reading** (`parse`): a stored plan is a Pascal scene (spatial/plan_scene.py). `parse` gives its rooms, its
+openings (each between the rooms either side of its wall), and its camera spots; `walls` cuts the rooms' edges into
+wall centrelines with the plan's exterior and partition thickness. Coordinates are wall centrelines in metres, with
+x growing east and y growing south on the page.
 
 **Registering** (`register`): a rigid move of the plan onto the map's plan frame: a turn, a shift, and the mirror the
-page needs when the map's frame is right-handed seen from above (the DSL's y grows south), both tried. Scale is not
+page needs when the map's frame is right-handed seen from above (the page's y grows south), both tried. Scale is not
 fitted: both are metric, so a free scale would only soak up error. It is measured by a fit that frees it (`Fit.scale`)
 for the report instead (`_free_scale`). The steps:
 
@@ -35,8 +28,7 @@ The report (`Fit`): the band points' distances to the nearest wall's face (media
 within REPORT_NEAR of its centreline, so a couch or the yard doesn't count as error), how many lie within NEAR_FACE of
 a face, which room each camera lands in, and each anchor's residual.
 
-**Writing** (`to_dsl`): the plan moved into the target frame, every room a `poly` (a turn that isn't a quarter makes
-a rectangle a polygon), openings and fixtures moved with it, a camera spot's yaw turned, and the title replaced.
+**Moving** (`moved`): a stored plan moved into another frame, every outline and camera spot with it.
 
 **A camera's view** (`view_fit`): its own points in the map (the part of it the camera sees) moved to its measured spot and
 turned about it, scored by how many it could see from there on the plan (in a room, with no wall but a door or
@@ -52,10 +44,7 @@ registration, not a replacement for one.
 from __future__ import annotations
 
 import dataclasses
-import itertools
-import json
 import math
-import re
 from collections.abc import Mapping, Sequence
 
 import numpy as np
@@ -76,12 +65,6 @@ NEAR_FACE = 0.1  # metres from a wall's face that count as on it
 # metres: a camera this far from its measured spot after the fit is registered wrong, not measured wrong (the owner's
 # tape is good to centimetres), so its spot is left out and the fit run again, while three or more remain
 ANCHOR_OUTLIER = 1.0
-
-_TOKEN = re.compile(r'"(?:[^"\\]|\\.)*"|\S+')
-_NUM = r"-?\d+(?:\.\d+)?"
-_PAIR = re.compile(rf"^({_NUM}),({_NUM})$")
-_SIZE = re.compile(rf"^({_NUM})x({_NUM})$")
-_OPENINGS = ("door", "window", "cased")
 
 Point = tuple[float, float]
 
@@ -113,7 +96,7 @@ class Fixture:
 
 @dataclasses.dataclass(frozen=True)
 class Camera:
-    """An owner-measured camera spot (`x-camera`)."""
+    """An owner-measured camera spot."""
 
     id: str
     at: Point
@@ -130,143 +113,32 @@ class Parsed:
     openings: tuple[Opening, ...]
     fixtures: tuple[Fixture, ...]
     cameras: tuple[Camera, ...]
-    skipped: int  # statements this reader doesn't know, left out
+    skipped: int  # always 0: kept for the readers that report it
 
 
 class PlanError(ValueError):
-    """A plan this reader can't use, with the line it stopped at."""
-
-
-def _pair(word: str, line: int) -> Point:
-    m = _PAIR.match(word)
-    if not m:
-        raise PlanError(f"line {line}: expected x,y, got {word!r}")
-    return float(m.group(1)), float(m.group(2))
-
-
-def _box(at: Point, size: str, line: int) -> tuple[Point, ...]:
-    m = _SIZE.match(size)
-    if not m:
-        raise PlanError(f"line {line}: expected WxH, got {size!r}")
-    x, y = at
-    w, h = float(m.group(1)), float(m.group(2))
-    return ((x, y), (x + w, y), (x + w, y + h), (x, y + h))
-
-
-def _options(words: Sequence[str], line: int, keys: Sequence[str]) -> dict[str, str]:
-    out: dict[str, str] = {}
-    i = 0
-    while i < len(words):
-        if words[i] not in keys or i + 1 >= len(words):
-            raise PlanError(f"line {line}: unexpected {words[i]!r}")
-        out[words[i]] = words[i + 1]
-        i += 2
-    return out
+    """A plan this reader can't use, with why."""
 
 
 def parse(text: str) -> Parsed:
-    """The plan in `text`: a Pascal scene (spatial/plan_scene.py) or floorplan DSL. Raises PlanError for a statement
-    it knows but can't read, a scene that isn't one, or a plan with no rooms."""
-    if plan_scene.is_scene(text):
-        return _parse_scene(text)
-    title, walls = "", (0.2, 0.1)
-    rooms: list[Room] = []
-    openings: list[Opening] = []
-    fixtures: list[Fixture] = []
-    cameras: list[Camera] = []
-    skipped = 0
-    for n, raw in enumerate(text.splitlines(), start=1):
-        words = _TOKEN.findall(raw)
-        cut = next((i for i, w in enumerate(words) if w.startswith("#")), len(words))
-        words = words[:cut]  # a comment, whole-line or trailing
-        if not words:
-            continue
-        head = words[0]
-        if raw[:1].isspace():
-            skipped += 1  # an indented row belongs to a statement this reader skips (a layout picture)
-        elif head == "plan":
-            title = words[1].strip('"') if len(words) > 1 else ""
-            if "walls" in words:
-                ext, _, part = words[words.index("walls") + 1].partition("/")
-                walls = (float(ext), float(part or ext))
-        elif head == "level":
-            continue
-        elif head == "room":
-            if len(words) < 5:
-                raise PlanError(f'line {n}: room <id> "<name>" <kind> rect|poly ...')
-            rid, name, kind, shape = words[1], words[2].strip('"'), words[3], words[4]
-            if shape == "rect" and len(words) >= 7:
-                poly = _box(_pair(words[5], n), words[6], n)
-            elif shape == "poly":
-                poly = tuple(_pair(w, n) for w in words[5:] if _PAIR.match(w))
-            else:
-                raise PlanError(f"line {n}: a room is rect x,y WxH or poly x,y ...")
-            if len(poly) < 3:
-                raise PlanError(f"line {n}: room {rid} has fewer than three corners")
-            rooms.append(Room(rid, name, kind, poly))
-        elif head in _OPENINGS:
-            if len(words) < 5 or words[2] != "at" or not re.fullmatch(rf"w{_NUM}", words[4]):
-                raise PlanError(f"line {n}: {head} <a>><b> at x,y w<width> ...")
-            openings.append(Opening(head, words[1], _pair(words[3], n), float(words[4][1:]), tuple(words[5:])))
-        elif head == "fixture":
-            room = next((w[3:] for w in words if w.startswith("in:")), None)
-            rest = [w for w in words[2:] if not w.startswith("in:")]
-            if "poly" in rest:
-                i = rest.index("poly")
-                corners = tuple(_pair(w, n) for w in rest[i + 1 :] if _PAIR.match(w))
-                rest = rest[:i] + [w for w in rest[i + 1 :] if not _PAIR.match(w)]
-            elif "at" in rest and "size" in rest:
-                i, j = rest.index("at"), rest.index("size")
-                corners = _box(_pair(rest[i + 1], n), rest[j + 1], n)
-                rest = [w for k, w in enumerate(rest) if k not in (i, i + 1, j, j + 1)]
-            else:
-                skipped += 1
-                continue
-            fixtures.append(Fixture(words[1], room, corners, tuple(rest)))
-        elif head == "x-camera":
-            if len(words) < 2:
-                raise PlanError(f"line {n}: x-camera <id> at x,y ...")
-            o = _options(words[2:], n, ("at", "height", "yaw", "fov"))
-            if "at" not in o:
-                raise PlanError(f"line {n}: x-camera {words[1]} has no at x,y")
-            num = {k: float(o[k]) for k in ("height", "yaw", "fov") if k in o}
-            cameras.append(Camera(words[1], _pair(o["at"], n), num.get("height"), num.get("yaw"), num.get("fov")))
-        else:
-            skipped += 1
-    if not rooms:
-        raise PlanError("the plan has no rooms")
-    return Parsed(title, walls, tuple(rooms), tuple(openings), tuple(fixtures), tuple(cameras), skipped)
+    """The plan in `text`, a Pascal scene (spatial/plan_scene.py). Raises PlanError for a plan that isn't a scene
+    that reads (one saved in the line DSL from before scenes is no longer read), or a plan with no rooms."""
+    return _parse_scene(text)
 
 
 def spots(text: str) -> tuple[Camera, ...]:
-    """The owner-measured camera spots (`x-camera`) in a plan's DSL, whatever else it holds: a reader that wants only
-    the spots takes them from a plan `parse` would refuse (one with no rooms yet). A spot line it can't read is left
-    out; the later of two lines for one camera wins. A scene's spots come from its own records; a scene that doesn't
-    read has none."""
-    if plan_scene.is_scene(text):
-        try:
-            return tuple(Camera(*spot) for spot in plan_scene.spots(plan_scene.load(text)))
-        except plan_scene.SceneError:
-            return ()
-    found: dict[str, Camera] = {}
-    for n, raw in enumerate(text.splitlines(), start=1):
-        words = _TOKEN.findall(raw)
-        words = words[: next((i for i, w in enumerate(words) if w.startswith("#")), len(words))]
-        if len(words) < 2 or words[0] != "x-camera" or raw[:1].isspace():
-            continue
-        try:
-            o = _options(words[2:], n, ("at", "height", "yaw", "fov"))
-            num = {k: float(o[k]) for k in ("height", "yaw", "fov") if k in o}
-            found[words[1]] = Camera(words[1], _pair(o["at"], n), num.get("height"), num.get("yaw"), num.get("fov"))
-        except KeyError, ValueError:  # PlanError is a ValueError
-            continue
-    return tuple(found.values())
+    """The camera spots on a stored plan, whatever else it holds: a reader that wants only the spots takes them from
+    a plan `parse` would refuse (one with no rooms yet). A plan that doesn't read has none."""
+    try:
+        return tuple(Camera(*spot) for spot in plan_scene.spots(plan_scene.load(text)))
+    except plan_scene.SceneError:
+        return ()
 
 
 def _parse_scene(text: str) -> Parsed:
-    """A scene as the shapes a DSL plan parses to. Rooms are its zones, and the plan's two wall thicknesses its
-    walls' medians (`plan_scene.thicknesses`), so `walls` cuts the same centrelines from the rooms as it does for
-    DSL. An opening is `between` the rooms either side of its wall, the outside first."""
+    """A scene as the shapes the fitting code takes. Rooms are its zones, and the plan's two wall thicknesses its
+    walls' medians (`plan_scene.thicknesses`), which `walls` cuts the rooms' edges with. An opening is `between`
+    the rooms either side of its wall, the outside first."""
     try:
         scene = plan_scene.load(text)
     except plan_scene.SceneError as e:
@@ -305,35 +177,11 @@ class Walls:
 def walls(plan: Parsed) -> Walls:
     """The plan's wall centrelines as segments: every room edge, with an edge two rooms share (or overlap along) cut
     into pieces so each stretch is one wall, exterior where only one room has it."""
-    edges: list[tuple[Point, Point]] = []
-    for room in plan.rooms:
-        poly = room.polygon
-        edges += [(poly[i], poly[(i + 1) % len(poly)]) for i in range(len(poly))]
-    pieces: dict[tuple[Point, Point], int] = {}
-    for a, b in edges:
-        # cut the edge at every corner of another edge that lies on it, so shared stretches line up
-        ax, ay = a
-        dx, dy = b[0] - ax, b[1] - ay
-        length2 = dx * dx + dy * dy
-        if length2 < 1e-12:
-            continue
-        cuts = {0.0, 1.0}
-        for c, d in edges:
-            for px, py in (c, d):
-                t = ((px - ax) * dx + (py - ay) * dy) / length2
-                if 1e-9 < t < 1 - 1e-9 and abs((px - ax) * dy - (py - ay) * dx) / math.sqrt(length2) < 1e-6:
-                    cuts.add(t)
-        ts = sorted(cuts)
-        for t0, t1 in itertools.pairwise(ts):
-            p = (round(ax + t0 * dx, 6), round(ay + t0 * dy, 6))
-            q = (round(ax + t1 * dx, 6), round(ay + t1 * dy, 6))
-            key = (min(p, q), max(p, q))
-            pieces[key] = pieces.get(key, 0) + 1
     ext, part = plan.walls
-    keys = sorted(pieces)
-    a = np.array([k[0] for k in keys], dtype=np.float64).reshape(-1, 2)
-    b = np.array([k[1] for k in keys], dtype=np.float64).reshape(-1, 2)
-    half = np.array([(ext if pieces[k] == 1 else part) / 2 for k in keys], dtype=np.float64)
+    cut = plan_scene.cut_walls([room.polygon for room in plan.rooms], ext, part)
+    a = np.array([w[0] for w in cut], dtype=np.float64).reshape(-1, 2)
+    b = np.array([w[1] for w in cut], dtype=np.float64).reshape(-1, 2)
+    half = np.array([w[2] / 2 for w in cut], dtype=np.float64)
     return Walls(a, b, half)
 
 
@@ -569,7 +417,7 @@ def register(
 ) -> Fit:
     """`plan` registered onto a map's wall band (`band`: (N, 2) points in the target frame, 1.0 to 1.9 m above the
     floor). `cams` are the registered cameras' spots in that frame; `seen` names the plan room each camera sees, and
-    `anchors` the owner-measured spot of each on the plan's page (`x-camera`), which hold the fit (`anchor_share` of
+    `anchors` the owner-measured spot of each on the plan's page, which hold the fit (`anchor_share` of
     the weight; 1 for the spots alone, with the walls only measured). A spot whose camera lands over ANCHOR_OUTLIER
     from it is left out (`Fit.dropped`). `mirror` fixes whether the plan's page is mirrored into the frame (True for a
     right-handed frame seen from above, as every map here is: the page's y grows south); None tries both. `start`, when
@@ -701,191 +549,13 @@ def wall_error(plan: Parsed, move: Move, band: np.ndarray) -> tuple[float, float
     return float(np.median(wall)), float(np.percentile(wall, 90)), len(wall)
 
 
-def _n(value: float) -> str:
-    text = f"{value:.3f}".rstrip("0").rstrip(".")
-    return "0" if text in ("-0", "") else text
-
-
-def _pt(p: Point) -> str:
-    return f"{_n(p[0])},{_n(p[1])}"
-
-
-def _poly(points: Sequence[Point], move: Move) -> list[Point]:
-    """The corners moved, in the same winding on the page as they had (a mirror reverses it)."""
-    out = [move.point(*p) for p in points]
-    return out[::-1] if move.mirror else out
-
-
-def to_dsl(plan: Parsed, move: Move, title: str, cameras: Sequence[Camera] = ()) -> str:
-    """The plan in the target frame, as DSL: rooms, openings, fixtures, and camera spots (`plan.cameras` and any
-    `cameras` given, the later winning for one id), titled `title`. A door's `hinge:` is left out: which end of its wall
-    is the start can change under a mirror."""
-    title = title.replace('"', "'")
-    ext, part = plan.walls
-    lines = [f'plan "{title}" walls {_n(ext)}/{_n(part)}', ""]
-    for r in plan.rooms:
-        name = r.name.replace('"', "'")
-        lines.append(f'room {r.id} "{name}" {r.kind} poly ' + " ".join(_pt(p) for p in _poly(r.polygon, move)))
-    if plan.openings:
-        lines.append("")
-    for o in plan.openings:
-        rest = [w for w in o.rest if not w.startswith("hinge:")]
-        lines.append(" ".join([o.kind, o.between, "at", _pt(move.point(*o.at)), f"w{_n(o.width)}", *rest]))
-    if plan.fixtures:
-        lines.append("")
-    for f in plan.fixtures:
-        where = [f"in:{f.room}"] if f.room else []
-        corners = " ".join(_pt(p) for p in _poly(f.corners, move))
-        lines.append(" ".join(["fixture", f.kind, *where, "poly", corners, *f.rest]))
-    spots = {c.id: c for c in (*plan.cameras, *cameras)}
-    if spots:
-        lines.append("")
-    for c in spots.values():
-        words = ["x-camera", c.id, "at", _pt(move.point(*c.at))]
-        if c.height is not None:
-            words += ["height", _n(c.height)]
-        if c.yaw is not None:
-            words += ["yaw", _n(round(move.yaw(c.yaw), 1) % 360)]
-        if c.fov is not None:
-            words += ["fov", _n(c.fov)]
-        lines.append(" ".join(words))
-    return "\n".join(lines) + "\n"
-
-
 def moved(text: str, move: Move) -> str:
-    """A stored plan moved into another frame, in the format it is in: a scene stays a scene (every outline and
-    camera spot moved), and DSL is written again by `to_dsl`. Raises PlanError for a plan it can't read."""
-    if not plan_scene.is_scene(text):
-        parsed = parse(text)
-        return to_dsl(parsed, move, parsed.title)
+    """A stored plan moved into another frame: every outline and camera spot of the scene. Raises PlanError for a
+    plan it can't read."""
     try:
         return plan_scene.moved(text, move.point, move.yaw)
     except plan_scene.SceneError as e:
         raise PlanError(str(e)) from e
-
-
-# From DSL to a scene: what the conversion command runs on each stored plan.
-
-_CARRIED = ("plan", "level", "room", *_OPENINGS, "fixture", "x-camera", "x-object", "x-unexplored")
-
-
-@dataclasses.dataclass(frozen=True)
-class Converted:
-    scene: str  # the plan as a scene, as it is stored
-    left: tuple[str, ...]  # the DSL's statements the scene doesn't carry, as written
-
-
-def _name(word: str) -> str:
-    """A DSL name or label as its writer meant it: the editor writes one as a JSON string (`"Sofa \\"big\\""`),
-    and a hand-written one may be plain quotes around anything."""
-    if len(word) >= 2 and word[0] == word[-1] == '"':
-        try:
-            decoded = json.loads(word)
-        except json.JSONDecodeError:
-            return word[1:-1]
-        return decoded if isinstance(decoded, str) else word[1:-1]
-    return word
-
-
-def _x_object(words: Sequence[str], n: int) -> tuple[str, dict[str, object]]:
-    """`x-object <id> "<label>" at x,y [size WxD] [yaw deg] [machine|owner] [confidence]`."""
-    if len(words) < 3:
-        raise PlanError(f'line {n}: x-object <id> "<label>" at x,y ...')
-    rest = list(words[3:])
-    o = _options([w for w in rest if w not in ("machine", "owner")], n, ("at", "size", "yaw"))
-    if "at" not in o:
-        raise PlanError(f"line {n}: x-object {words[1]} has no at x,y")
-    out: dict[str, object] = {"label": _name(words[2]), "at": list(_pair(o["at"], n))}
-    if (size := _SIZE.match(o.get("size", ""))) is not None:
-        out["size"] = [float(size.group(1)), float(size.group(2))]
-    if "yaw" in o:
-        out["yaw"] = float(o["yaw"])
-    if (source := next((w for w in rest if w in ("machine", "owner")), None)) is not None:
-        out["source"] = source
-    keyed = {o.get(k) for k in ("at", "size", "yaw")}
-    if (number := next((w for w in rest if re.fullmatch(_NUM, w) and w not in keyed), None)) is not None:
-        out["confidence"] = float(number)
-    return words[1], out
-
-
-def _x_unexplored(words: Sequence[str], n: int) -> tuple[str, dict[str, object]]:
-    """`x-unexplored <id> ["<name>"] rect x,y WxH` or `... poly x,y x,y x,y ...`."""
-    out: dict[str, object] = {}
-    rest = list(words[2:])
-    if rest and rest[0].startswith('"'):
-        out["name"] = _name(rest.pop(0))
-    if len(rest) >= 3 and rest[0] == "rect" and (size := _SIZE.match(rest[2])) is not None:
-        x, y = _pair(rest[1], n)
-        out["rect"] = [x, y, float(size.group(1)), float(size.group(2))]
-    elif rest and rest[0] == "poly" and len(points := [_pair(w, n) for w in rest[1:] if _PAIR.match(w)]) >= 3:
-        out["poly"] = [list(p) for p in points]
-    else:
-        raise PlanError(f"line {n}: x-unexplored <id> rect x,y WxH or poly x,y ...")
-    return words[1], out
-
-
-def to_scene(text: str) -> Converted:
-    """A DSL plan as a Pascal scene (spatial/plan_scene.py), in the same frame. Rooms become named zones with their
-    kind; every stretch of a room's edge becomes a wall on its centreline, as thick as the plan's exterior or
-    partition walls (`walls`); a door, a window, or a cased opening goes on the wall its point is on; and the camera
-    spots, objects, unexplored areas, fixtures, and the title go in the scene's own records. What the scene has no
-    place for (provenance, the anchor, revision history, and statements this reader doesn't know) comes back in
-    `left`. Raises PlanError for a plan `parse` refuses, or an opening that is on no wall."""
-    parsed = parse(text)
-    cut = walls(parsed)
-    spans = [
-        ((float(a[0]), float(a[1])), (float(b[0]), float(b[1])), round(2 * float(half), 6))
-        for a, b, half in zip(cut.a, cut.b, cut.half, strict=True)
-    ]
-    records: dict[str, object] = {}
-    if parsed.title:
-        records["title"] = parsed.title
-    if parsed.cameras:
-        records["cameras"] = {
-            c.id: {
-                "at": list(c.at),
-                **{k: v for k, v in (("height", c.height), ("yaw", c.yaw), ("fov", c.fov)) if v is not None},
-            }
-            for c in parsed.cameras
-        }
-    if parsed.fixtures:
-        records["fixtures"] = [
-            {"kind": f.kind, "room": f.room, "poly": [list(p) for p in f.corners], "words": list(f.rest)}
-            for f in parsed.fixtures
-        ]
-    objects: dict[str, object] = {}
-    unexplored: dict[str, object] = {}
-    names: dict[str, str] = {}  # each room's name read as a JSON string, which `parse` leaves escaped
-    left: list[str] = []
-    for n, raw in enumerate(text.splitlines(), start=1):
-        words = _TOKEN.findall(raw)
-        words = words[: next((i for i, w in enumerate(words) if w.startswith("#")), len(words))]
-        if not words:
-            continue
-        if raw[:1].isspace() or words[0] not in _CARRIED:
-            left.append(raw.rstrip())
-        elif words[0] == "room" and len(words) > 2:
-            names[words[1]] = _name(words[2])
-        elif words[0] == "x-object":
-            key, value = _x_object(words, n)
-            objects[key] = value
-        elif words[0] == "x-unexplored" and len(words) >= 2:
-            key, value = _x_unexplored(words, n)
-            unexplored[key] = value
-    if objects:
-        records["objects"] = objects
-    if unexplored:
-        records["unexplored"] = unexplored
-    try:
-        scene = plan_scene.build(
-            walls=spans,
-            openings=[(o.kind, o.at, o.width) for o in parsed.openings],
-            rooms=[(r.id, names.get(r.id, r.name), r.kind, r.polygon) for r in parsed.rooms],
-            records=records,
-        )
-    except plan_scene.SceneError as e:
-        raise PlanError(str(e)) from e
-    return Converted(plan_scene.dump(scene), tuple(left))
 
 
 # The map side: its wall band and its cameras, in a revision's plan frame.
@@ -985,36 +655,64 @@ def inside(plan: Parsed, q: np.ndarray) -> np.ndarray:
 SIGHT_SLACK = 0.1  # metres short of a point its line of sight is checked to: a wall's own points sit on its face
 
 
-def sight_walls(plan: Parsed) -> Walls:
-    """The plan's walls with a gap at each door and cased opening (which can be seen through; a window can't, for
-    this: what's beyond it is outside every room anyway)."""
+def sight_walls(plan: Parsed, kinds: Sequence[str] = ("door", "cased")) -> Walls:
+    """The plan's walls with a gap at each opening of `kinds` (`door` and `cased` by default, which can be seen
+    through; pass `window` too when depth sees outside)."""
     w = walls(plan)
-    a, b = list(w.a), list(w.b)
-    half = list(w.half)
+    a, b, half = list(w.a), list(w.b), list(w.half)
     for o in plan.openings:
-        if o.kind == "window":
+        if o.kind not in kinds:
             continue
         at = np.asarray(o.at, dtype=np.float64)
-        for i in range(len(a)):
-            ab = b[i] - a[i]
+        next_a, next_b, next_h = [], [], []
+        for pa, pb, ph in zip(a, b, half, strict=True):
+            ab = pb - pa
             length = float(np.linalg.norm(ab))
             if length < 1e-9:
                 continue
-            t = float((at - a[i]) @ ab) / length
-            off = abs(float(ab[0] * (at - a[i])[1] - ab[1] * (at - a[i])[0])) / length
+            t = float((at - pa) @ ab) / length
+            off = abs(float(ab[0] * (at - pa)[1] - ab[1] * (at - pa)[0])) / length
             if off > 0.02 or not -0.02 <= t <= length + 0.02:
+                next_a.append(pa)
+                next_b.append(pb)
+                next_h.append(ph)
                 continue
             unit = ab / length
             lo, hi = max(t - o.width / 2, 0.0), min(t + o.width / 2, length)
-            pieces = [(a[i], a[i] + unit * lo), (a[i] + unit * hi, b[i])]
-            pieces = [(p, q) for p, q in pieces if float(np.linalg.norm(q - p)) > 1e-6]
-            a[i : i + 1], b[i : i + 1], half[i : i + 1] = (
-                [p for p, _ in pieces],
-                [q for _, q in pieces],
-                [half[i]] * len(pieces),
-            )
-            break
+            for p, q in ((pa, pa + unit * lo), (pa + unit * hi, pb)):
+                if float(np.linalg.norm(q - p)) > 0.02:
+                    next_a.append(p)
+                    next_b.append(q)
+                    next_h.append(ph)
+        a, b, half = next_a, next_b, next_h
     return Walls(np.array(a).reshape(-1, 2), np.array(b).reshape(-1, 2), np.array(half))
+
+
+def opening_jambs(plan: Parsed, kinds: Sequence[str] = ("door", "cased")) -> np.ndarray:
+    """The (J, 2) plan points where openings of `kinds` start and end along their walls (jambs at least 5 cm from a
+    wall corner)."""
+    w = walls(plan)
+    out: list[tuple[float, float]] = []
+    for o in plan.openings:
+        if o.kind not in kinds:
+            continue
+        at = np.asarray(o.at, dtype=np.float64)
+        for pa, pb in zip(w.a, w.b, strict=True):
+            ab = pb - pa
+            length = float(np.linalg.norm(ab))
+            if length < 1e-9:
+                continue
+            t = float((at - pa) @ ab) / length
+            off = abs(float(ab[0] * (at - pa)[1] - ab[1] * (at - pa)[0])) / length
+            if off > 0.02 or not -0.02 <= t <= length + 0.02:
+                continue
+            unit = ab / length
+            for s in (max(t - o.width / 2, 0.0), min(t + o.width / 2, length)):
+                if 0.05 < s < length - 0.05:
+                    jp = pa + unit * s
+                    if all(math.hypot(float(jp[0]) - ox, float(jp[1]) - oy) > 0.04 for ox, oy in out):
+                        out.append((float(jp[0]), float(jp[1])))
+    return np.array(out, dtype=np.float64).reshape(-1, 2)
 
 
 def in_sight(plan: Parsed, sight: Walls, eye: Point, q: np.ndarray) -> np.ndarray:

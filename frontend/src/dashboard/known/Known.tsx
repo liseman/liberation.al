@@ -10,7 +10,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Activity, lazy, type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import { toCheck, useRecentActivities } from '../activities/recent';
 import { Deferred } from '../Deferred';
-import { CountSkeleton } from '../lib/loading';
+import { CountSkeleton, countLineChars, sessionCount, setSessionCount } from '../lib/loading';
 import { PageFrame } from '../lib/page';
 import { sightingsQuery, waitingGroups } from '../people/pets/api';
 import { KNOWN_TABS, type KnownTab, navigate, useRoute } from '../router';
@@ -67,14 +67,26 @@ export function Waiting({
   n,
   what,
   loading = false,
+  cacheKey,
 }: {
   n: number | null | undefined;
   what: string;
   loading?: boolean;
+  /** When set, the skeleton shows only until this tab's count has been read once this session. */
+  cacheKey?: string;
 }) {
+  useEffect(() => {
+    if (cacheKey && !loading && n !== null && n !== undefined) setSessionCount(cacheKey, n);
+  }, [cacheKey, loading, n]);
+  const held = cacheKey ? sessionCount(cacheKey) : undefined;
+  const showSkeleton = loading && held === undefined;
+  // A held count is an earlier read, not this one: it shows dimmed and busy until the new number arrives.
+  const stale = loading && held !== undefined;
+  const shown = stale ? held : n;
+  const text = shown ? `${shown} ${what}` : null;
   return (
-    <span className={classes.count}>
-      {loading ? <CountSkeleton chars={what.length + 3} /> : n ? `${n} ${what}` : null}
+    <span className={classes.count} data-stale={stale || undefined} aria-busy={stale || undefined}>
+      {showSkeleton ? <CountSkeleton chars={countLineChars(what)} /> : text}
     </span>
   );
 }
@@ -101,12 +113,21 @@ function PeopleBadge({ read }: { read: boolean }) {
   const faces = useQuery({ ...unknownGroupsQuery(), enabled: read });
   const voices = useQuery({ ...unknownVoicesQuery(), enabled: read });
   // Pending covers the wait before the read starts too (a disabled query is pending): the count isn't known yet.
-  return <Waiting n={waitingTotal(faces, voices)} what="to name" loading={faces.isPending || voices.isPending} />;
+  return (
+    <Waiting
+      cacheKey="known:people"
+      n={waitingTotal(faces, voices)}
+      what="to name"
+      loading={faces.isPending || voices.isPending}
+    />
+  );
 }
 
 function PetsBadge({ read }: { read: boolean }) {
   const sightings = useQuery({ ...sightingsQuery(), enabled: read });
-  return <Waiting n={waitingGroups(sightings.data)} what="to name" loading={sightings.isPending} />;
+  return (
+    <Waiting cacheKey="known:pets" n={waitingGroups(sightings.data)} what="to name" loading={sightings.isPending} />
+  );
 }
 
 /** The clips of the last week Clips to check lists: counted kinds by their spot-check sample. */
@@ -114,6 +135,7 @@ function ActivitiesBadge() {
   const recent = useRecentActivities();
   return (
     <Waiting
+      cacheKey="known:activities"
       n={toCheck(recent.items, recent.promotion).length}
       what="to check"
       loading={recent.pending && !recent.error}

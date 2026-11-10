@@ -128,7 +128,7 @@ def location_options(state: Path | None = None) -> list[dict[str, Any]]:
     """The places a device can live in: each place (memory/places.py) by its name, with the rooms of the plan that
     holds for it, in plan order. [] when the places can't be read."""
     from liberational.memory import places
-    from liberational.spatial import floorplan
+    from liberational.spatial import plan_scene
 
     base = config.path("paths.state") if state is None else Path(state)
     try:
@@ -138,7 +138,7 @@ def location_options(state: Path | None = None) -> list[dict[str, Any]]:
         return []
     out = []
     for p in found:
-        rooms = list(dict.fromkeys(name for _, name, _ in floorplan.rooms_from_dsl(p.plan or "") if name.strip()))
+        rooms = list(dict.fromkeys(name for _, name, _ in plan_scene.rooms_of(p.plan or "") if name.strip()))
         out.append({"id": p.id, "name": p.name, "rooms": rooms})
     return out
 

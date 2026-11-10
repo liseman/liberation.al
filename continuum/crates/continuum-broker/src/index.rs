@@ -14,11 +14,15 @@
 mod restart_projection;
 pub use restart_projection::{MAX_RESTART_PROJECTION_BYTES, RestartProjectionError};
 
-use std::collections::{BTreeMap, HashMap};
+use std::cmp::Reverse;
+use std::collections::{BTreeMap, BinaryHeap, HashMap};
+use std::sync::OnceLock;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use continuum_catalog::{
-    Catalog, CatalogError, CoverageSet, PurgeDelta, RangeCursor, StreamKind as CatalogKind, frame_slots,
+    AvailabilityCopy, AvailabilityCutChunk, AvailabilitySnapshot, Catalog, CatalogError, CoverageSet, PurgeDelta,
+    RangeCursor, StreamKind as CatalogKind, frame_slots,
 };
 use continuum_core::{Interval, StageId, StorageTier, StreamId, Uuid};
 use continuum_sched::{Covered, StreamKind};
@@ -555,9 +559,9 @@ pub struct LoadTimings {
     pub total: Duration,
 }
 
-/// Builds the index from the catalog, a page at a time: every stream, every payload's copies (with cut frames taken
-/// out of their chunks), and every stage's coverage. The broker runs it once at startup, before it accepts a
-/// connection, so the scheduler never sees a partial index.
+/// Builds the index from the catalog: from one parallel snapshot scan when the catalog supports
+/// [`Catalog::availability_snapshot`], or a page at a time otherwise. The broker runs it once at startup, before it
+/// accepts a connection, so the scheduler never sees a partial index.
 ///
 /// # Errors
 ///
@@ -566,7 +570,7 @@ pub fn load(catalog: &dyn Catalog, page: usize) -> Result<(AvailabilityIndex, Lo
     load_profiled(catalog, page).map(|(index, stats, _)| (index, stats))
 }
 
-/// Builds the same complete index as [`load`], with per-page phase timing for startup diagnosis.
+/// Builds the same complete index as [`load`], with phase timing for startup diagnosis.
 ///
 /// # Errors
 /// As [`load`]; a partial index is never returned.
@@ -575,6 +579,287 @@ pub fn load_profiled(
     page: usize,
 ) -> Result<(AvailabilityIndex, LoadStats, LoadTimings), CatalogError> {
     let load_started = Instant::now();
+    match catalog.availability_snapshot()? {
+        Some(snap) => Ok(load_from_snapshot(snap, load_started, PARALLEL_APPLY_MIN_COPIES)),
+        None => load_paged_profiled_from(catalog, page, load_started),
+    }
+}
+
+/// Builds the index through the paged [`Catalog::streams`], [`Catalog::range`], and [`Catalog::coverage`] methods,
+/// bypassing [`Catalog::availability_snapshot`]. Exposed as a reference full rebuild for parity tests.
+///
+/// # Errors
+/// As [`load`]; a partial index is never returned.
+pub fn load_paged(catalog: &dyn Catalog, page: usize) -> Result<(AvailabilityIndex, LoadStats), CatalogError> {
+    load_paged_profiled(catalog, page).map(|(index, stats, _)| (index, stats))
+}
+
+/// Reference paged full rebuild with phase timings (see [`load_paged`]).
+///
+/// # Errors
+/// As [`load`]; a partial index is never returned.
+pub fn load_paged_profiled(
+    catalog: &dyn Catalog,
+    page: usize,
+) -> Result<(AvailabilityIndex, LoadStats, LoadTimings), CatalogError> {
+    load_paged_profiled_from(catalog, page, Instant::now())
+}
+
+const PARALLEL_APPLY_MIN_COPIES: usize = 4_096;
+const MAX_APPLY_WORKERS: usize = 16;
+
+/// Builds a normalized [`CopySet`] from durable Tier 1 and Tier 2 copies on one stream in a single sweep, packing
+/// sorted segments directly into its `BTreeMap` instead of splitting and normalizing per payload.
+fn build_copy_set(meta: &StreamMeta, mut copies: Vec<AvailabilityCopy>) -> CopySet {
+    if copies.is_empty() {
+        return CopySet::new();
+    }
+    if !copies.is_sorted_by_key(|c| c.span.start_ns()) {
+        copies.sort_unstable_by_key(|c| c.span.start_ns());
+    }
+    let mut runs: Vec<(u64, (u64, Counts))> = Vec::with_capacity(copies.len());
+    let mut active: BinaryHeap<Reverse<(u64, [u64; 2])>> = BinaryHeap::with_capacity(4);
+    let mut cur = [0u64; 2];
+    let mut cursor = 0u64;
+
+    let emit = |runs: &mut Vec<(u64, (u64, Counts))>, from: u64, to: u64, cur: [u64; 2]| {
+        if from >= to || cur == [0, 0] {
+            return;
+        }
+        let counts: Counts = [0, u32::try_from(cur[0]).unwrap_or(u32::MAX), u32::try_from(cur[1]).unwrap_or(u32::MAX)];
+        if let Some(last) = runs.last_mut()
+            && last.1.0 == from
+            && last.1.1 == counts
+        {
+            last.1.0 = to;
+            return;
+        }
+        runs.push((from, (to, counts)));
+    };
+
+    for copy in copies {
+        let add = [u64::from(copy.warm), u64::from(copy.cold)];
+        if add == [0, 0] {
+            continue;
+        }
+        let span = frame_span(meta, copy.span);
+        let (a, b) = (span.start_ns(), span.end_ns());
+        while let Some(&Reverse((end, dec))) = active.peek() {
+            if end > a {
+                break;
+            }
+            active.pop();
+            if end > cursor {
+                emit(&mut runs, cursor, end, cur);
+                cursor = end;
+            }
+            cur[0] -= dec[0];
+            cur[1] -= dec[1];
+        }
+        if a > cursor {
+            emit(&mut runs, cursor, a, cur);
+            cursor = a;
+        }
+        cur[0] += add[0];
+        cur[1] += add[1];
+        active.push(Reverse((b, add)));
+    }
+    while let Some(Reverse((end, dec))) = active.pop() {
+        if end > cursor {
+            emit(&mut runs, cursor, end, cur);
+            cursor = end;
+        }
+        cur[0] -= dec[0];
+        cur[1] -= dec[1];
+    }
+    debug_assert_eq!(cur, [0, 0]);
+    CopySet { segs: runs.into_iter().collect() }
+}
+
+fn build_stream_copies(
+    meta: &StreamMeta,
+    mut copies: Vec<AvailabilityCopy>,
+    mut cuts: Vec<AvailabilityCutChunk>,
+) -> CopySet {
+    if cuts.is_empty() {
+        return build_copy_set(meta, copies);
+    }
+    // Cut removal clamps at zero, so overlapping rate-expanded cut slots can depend on TIME_INDEX order
+    // `(start_ns, seq)` relative to overlapping copies on the same stream. Replay in exact TIME_INDEX order.
+    copies.sort_unstable_by_key(|c| (c.span.start_ns(), c.seq));
+    cuts.sort_unstable_by_key(|c| (c.span.start_ns(), c.seq));
+    let mut set = CopySet::new();
+    let apply_copy = |set: &mut CopySet, copy: &AvailabilityCopy| {
+        let span = frame_span(meta, copy.span);
+        for _ in 0..copy.warm {
+            set.add(span, StorageTier::Tier1Warm);
+        }
+        for _ in 0..copy.cold {
+            set.add(span, StorageTier::Tier2Cold);
+        }
+    };
+    let apply_cut = |set: &mut CopySet, chunk: &AvailabilityCutChunk| {
+        let span = frame_span(meta, chunk.span);
+        for &tier in &chunk.tiers {
+            set.add(span, tier);
+            for &slot in &chunk.cut_slots {
+                let _ = set.remove(frame_span(meta, slot), tier);
+            }
+        }
+    };
+    let (mut ci, mut ki) = (0usize, 0usize);
+    while ci < copies.len() && ki < cuts.len() {
+        if (copies[ci].span.start_ns(), copies[ci].seq) <= (cuts[ki].span.start_ns(), cuts[ki].seq) {
+            apply_copy(&mut set, &copies[ci]);
+            ci += 1;
+        } else {
+            apply_cut(&mut set, &cuts[ki]);
+            ki += 1;
+        }
+    }
+    for copy in &copies[ci..] {
+        apply_copy(&mut set, copy);
+    }
+    for chunk in &cuts[ki..] {
+        apply_cut(&mut set, chunk);
+    }
+    set
+}
+
+/// Applies an [`AvailabilitySnapshot`] with a caller-chosen parallel apply threshold, for parity tests.
+#[doc(hidden)]
+#[must_use]
+pub fn load_from_snapshot_for_test(
+    snap: AvailabilitySnapshot,
+    min_parallel_copies: usize,
+) -> (AvailabilityIndex, LoadStats) {
+    let (index, stats, _) = load_from_snapshot(snap, Instant::now(), min_parallel_copies);
+    (index, stats)
+}
+
+fn load_from_snapshot(
+    snap: AvailabilitySnapshot,
+    load_started: Instant,
+    min_parallel_copies: usize,
+) -> (AvailabilityIndex, LoadStats, LoadTimings) {
+    let mut timings = LoadTimings {
+        stream_reads: snap.stream_reads,
+        payload_reads: snap.payload_reads,
+        payload_apply: Duration::ZERO,
+        coverage_load: snap.coverage_reads,
+        total: Duration::ZERO,
+    };
+    let mut index = AvailabilityIndex::new();
+    let mut metas = Vec::with_capacity(snap.streams.len());
+    for (stream, info) in snap.streams {
+        let kind = match info.kind {
+            CatalogKind::Sensor => StreamKind::Sensor,
+            CatalogKind::Derived => StreamKind::Derived,
+        };
+        let meta = StreamMeta { kind, rate_hz: info.rate_hz.unwrap_or(0.0) };
+        index.register(stream, meta);
+        index.name_stream(info.name, stream);
+        metas.push((stream, meta));
+    }
+
+    let apply_started = Instant::now();
+    let mut per_stream_cuts: Vec<Vec<AvailabilityCutChunk>> = (0..metas.len()).map(|_| Vec::new()).collect();
+    for chunk in snap.cut_chunks {
+        for &slot in &chunk.cut_slots {
+            index.record_cut(chunk.id, slot);
+        }
+        if !chunk.tiers.is_empty()
+            && let Ok(pos) = metas.binary_search_by_key(&chunk.stream, |&(s, _)| s)
+        {
+            per_stream_cuts[pos].push(chunk);
+        }
+    }
+
+    let total_copies: usize =
+        snap.stream_copies.iter().zip(&per_stream_cuts).map(|(copies, cuts)| copies.len() + cuts.len()).sum();
+    if total_copies < min_parallel_copies || metas.len() <= 1 {
+        for (((stream, meta), copies), cuts) in metas.iter().zip(snap.stream_copies).zip(per_stream_cuts) {
+            if !copies.is_empty() || !cuts.is_empty() {
+                let set = build_stream_copies(meta, copies, cuts);
+                if let Some((_, dst)) = index.streams.get_mut(stream) {
+                    *dst = set;
+                }
+            }
+        }
+    } else {
+        type StreamWork = (usize, StreamMeta, Vec<AvailabilityCopy>, Vec<AvailabilityCutChunk>);
+        let mut order: Vec<StreamWork> = metas
+            .iter()
+            .enumerate()
+            .zip(snap.stream_copies)
+            .zip(per_stream_cuts)
+            .filter(|((_, copies), cuts)| !copies.is_empty() || !cuts.is_empty())
+            .map(|(((idx, &(_, meta)), copies), cuts)| (idx, meta, copies, cuts))
+            .collect();
+        // Schedule largest streams first so a single dense stream never starts after small ones finish.
+        order.sort_unstable_by_key(|(_, _, copies, cuts)| Reverse(copies.len() + cuts.len()));
+        let slots: Vec<OnceLock<(usize, CopySet)>> = (0..order.len()).map(|_| OnceLock::new()).collect();
+        let inputs: Vec<std::sync::Mutex<Option<StreamWork>>> =
+            order.into_iter().map(|item| std::sync::Mutex::new(Some(item))).collect();
+        let workers = std::thread::available_parallelism()
+            .map_or(4, std::num::NonZeroUsize::get)
+            .min(MAX_APPLY_WORKERS)
+            .min(inputs.len().max(1));
+        let next = AtomicUsize::new(0);
+        std::thread::scope(|scope| {
+            for _ in 0..workers {
+                let inputs_ref = &inputs;
+                let slots_ref = &slots;
+                let next_ref = &next;
+                scope.spawn(move || {
+                    loop {
+                        let i = next_ref.fetch_add(1, Ordering::Relaxed);
+                        let Some(cell) = inputs_ref.get(i) else { break };
+                        let Some((stream_idx, meta, copies, cuts)) =
+                            cell.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take()
+                        else {
+                            continue;
+                        };
+                        let set = build_stream_copies(&meta, copies, cuts);
+                        let _ = slots_ref[i].set((stream_idx, set));
+                    }
+                });
+            }
+        });
+        for mut slot in slots {
+            if let Some((stream_idx, set)) = slot.take() {
+                let stream = metas[stream_idx].0;
+                if let Some((_, dst)) = index.streams.get_mut(&stream) {
+                    *dst = set;
+                }
+            }
+        }
+    }
+    timings.payload_apply = apply_started.elapsed();
+
+    let cov_apply_started = Instant::now();
+    for (pair, set) in snap.coverage {
+        if !set.is_empty() {
+            index.coverage.insert(pair, set);
+        }
+    }
+    timings.coverage_load += cov_apply_started.elapsed();
+
+    let mut stale_tier0 = snap.stale_tier0;
+    if !stale_tier0.is_sorted() {
+        stale_tier0.sort_unstable();
+    }
+    let (segments, coverage_intervals) = index.size();
+    let stats = LoadStats { streams: metas.len(), payloads: snap.payloads, segments, coverage_intervals, stale_tier0 };
+    timings.total = load_started.elapsed();
+    (index, stats, timings)
+}
+
+fn load_paged_profiled_from(
+    catalog: &dyn Catalog,
+    page: usize,
+    load_started: Instant,
+) -> Result<(AvailabilityIndex, LoadStats, LoadTimings), CatalogError> {
     let mut timings = LoadTimings::default();
     let page = page.max(1);
     let everything = Interval::new(0, u64::MAX).expect("non-empty");
@@ -644,6 +929,9 @@ pub fn load_profiled(
         }
     }
     timings.coverage_load = coverage_started.elapsed();
+    if !stats.stale_tier0.is_sorted() {
+        stats.stale_tier0.sort_unstable();
+    }
     (stats.segments, stats.coverage_intervals) = index.size();
     timings.total = load_started.elapsed();
     Ok((index, stats, timings))
@@ -943,6 +1231,35 @@ mod tests {
             if counts.iter().all(|c| *c == [0; TIERS]) {
                 prop_assert!(set.is_empty());
             }
+        }
+
+        /// Bulk sweep-line CopySet construction must equal incremental `AvailabilityIndex::add_copy` across
+        /// arbitrary unordered, overlapping, touching, rated-instant, and `u64::MAX`-adjacent spans.
+        #[test]
+        fn bulk_copy_set_matches_incremental_adds(
+            rate_hz in prop_oneof![Just(0.0), Just(30.0), Just(60.0)],
+            base in prop_oneof![Just(0u64), Just(u64::MAX - 256)],
+            items in proptest::collection::vec((0u64..120, 1u64..40, 0u8..=1, 0u8..=1), 0..80),
+        ) {
+            let meta = StreamMeta { kind: StreamKind::Sensor, rate_hz };
+            let stream = StreamId(1);
+            let mut incremental = AvailabilityIndex::new();
+            incremental.register(stream, meta);
+            let mut bulk_items = Vec::with_capacity(items.len());
+            for (offset, len, warm, cold) in items {
+                let start = base.saturating_add(offset).min(u64::MAX - 1);
+                let end = start.saturating_add(len).max(start + 1);
+                let span = iv(start, end);
+                if warm > 0 {
+                    incremental.add_copy(stream, span, StorageTier::Tier1Warm).unwrap();
+                }
+                if cold > 0 {
+                    incremental.add_copy(stream, span, StorageTier::Tier2Cold).unwrap();
+                }
+                bulk_items.push(AvailabilityCopy { span, seq: 0, warm, cold });
+            }
+            let bulk = build_copy_set(&meta, bulk_items);
+            prop_assert_eq!(bulk.segments(), incremental.streams.get(&stream).unwrap().1.segments());
         }
     }
 }

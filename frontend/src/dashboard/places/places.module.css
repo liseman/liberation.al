@@ -45,6 +45,14 @@
   margin-bottom: 12px;
 }
 
+/* The place's name with its line of facts under it: the same spot in every view. */
+.planNamed {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
 .planTitle {
   margin: 0;
   font-size: var(--mantine-font-size-lg);
@@ -58,7 +66,7 @@
   margin-inline: auto;
 }
 
-/* The key under a plan: one swatch per kind of mark its overlay draws (plan/render.ts's look, in miniature). */
+/* The key under a plan: one swatch per kind of mark it draws (scene/draw.ts's look, in miniature). */
 .legend {
   list-style: none;
   margin: 12px 0 0;
@@ -82,20 +90,6 @@
   height: 10px;
 }
 
-.swatch[data-mark="owner"] {
-  border-top: 3px solid var(--mantine-primary-color-filled);
-  height: 3px;
-}
-
-.swatch[data-mark="unsure"] {
-  border-top: 3px dashed #b45309;
-  height: 3px;
-}
-
-.swatch[data-mark="partial"] {
-  border: 1px dashed var(--mantine-color-dimmed);
-}
-
 .swatch[data-mark="unexplored"] {
   border: 1px dashed var(--mantine-color-dimmed);
   background: repeating-linear-gradient(45deg, var(--mantine-color-dimmed) 0 1.5px, transparent 1.5px 5px);
@@ -107,11 +101,6 @@
   height: 8px;
   border-radius: 50%;
   background: var(--mantine-color-text);
-}
-
-/* The app's own dark (Mantine's), as the plan follows it, not the system's. */
-:global([data-mantine-color-scheme="dark"]) .swatch[data-mark="unsure"] {
-  border-top-color: #f59e0b;
 }
 
 /* Paths: a second SVG over the plan with the plan's viewBox, so the two scale together. */
@@ -191,139 +180,10 @@
   opacity: 0.5;
 }
 
-.handles {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  touch-action: none;
-}
-
-.wallHandle {
-  stroke: transparent;
-  stroke-width: 14;
-  stroke-linecap: round;
-  cursor: move;
-}
-
-.wallHandle:hover {
-  stroke: var(--mantine-primary-color-filled);
-  stroke-opacity: 0.35;
-}
-
-.corner {
-  fill: var(--lib-card);
-  stroke: var(--mantine-primary-color-filled);
-  stroke-width: 2;
-  cursor: grab;
-}
-
-.cameraCone {
-  fill: var(--mantine-primary-color-filled);
-  fill-opacity: 0.14;
-  stroke: var(--mantine-primary-color-filled);
-  stroke-opacity: 0.6;
-  stroke-width: 1;
-  pointer-events: none;
-}
-
-.cameraCone[data-selected] {
-  fill-opacity: 0.24;
-}
-
-.cameraNoFacing {
-  fill: none;
-  stroke: var(--mantine-color-yellow-6);
-  stroke-width: 1.5;
-  stroke-dasharray: 4 3;
-  pointer-events: none;
-}
-
-.cameraArm {
-  stroke: var(--mantine-primary-color-filled);
-  stroke-width: 1.5;
-  stroke-dasharray: 3 3;
-  pointer-events: none;
-}
-
-.cameraDot,
-.cameraTurn {
-  fill: var(--mantine-primary-color-filled);
-  stroke: var(--lib-card);
-  stroke-width: 2;
-  cursor: grab;
-  outline: none;
-}
-
-.cameraTurn {
-  fill: var(--lib-card);
-  stroke: var(--mantine-primary-color-filled);
-}
-
-.cameraDot[data-selected] {
-  stroke: var(--mantine-color-text);
-}
-
-.cameraDot:focus-visible,
-.cameraTurn:focus-visible {
-  stroke: var(--mantine-color-text);
-  stroke-width: 3;
-}
-
-.placeCatcher {
-  fill: transparent;
-  cursor: crosshair;
-}
-
-.cameraForm {
-  display: grid;
-  gap: 6px;
-  margin-bottom: 6px;
-}
-
-.editorPanels {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 20px;
-  margin-top: 14px;
-}
-
-@media (max-width: 720px) {
-  .editorPanels {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
 .panelTitle {
   margin: 0 0 8px;
   font-size: var(--mantine-font-size-sm);
   font-weight: 600;
-}
-
-.openings,
-.findings {
-  list-style: none;
-  margin: 0 0 10px;
-  padding: 0;
-  font-size: var(--mantine-font-size-sm);
-}
-
-.openings li {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 2px 0;
-}
-
-.findings li {
-  padding: 3px 0 3px 10px;
-  border-left: 3px solid var(--mantine-color-yellow-6);
-  margin-bottom: 4px;
-}
-
-.findings li[data-severity="error"] {
-  border-left-color: var(--mantine-color-red-6);
 }
 
 .ownerBar {
@@ -369,12 +229,13 @@
   text-decoration: underline;
 }
 
-/* The new plan editor and its 3D view (scene/PlanFrame.tsx): a page of its own in a frame, tall enough to work in. */
+/* The plan editor and its 3D view (scene/PlanFrame.tsx): a page of its own in a frame, tall enough to work in. */
 .planFrame {
   display: block;
   width: 100%;
-  height: min(78vh, 60rem);
-  min-height: 28rem;
+  /* low enough that Save, above it, and the plan are on one screen */
+  height: min(70vh, 720px);
+  min-height: 26rem;
   border: 0;
   border-radius: var(--mantine-radius-md);
 }
@@ -444,21 +305,7 @@
   stroke-width: 1.5;
 }
 
-/* The plan editor with its versions beside it (scene/PlaceEditor.tsx, scene/Versions.tsx): the timeline is a strip
-   on the right, and goes under the editor on a narrow page. */
-.editorWithVersions {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 15rem;
-  gap: var(--mantine-spacing-md);
-  align-items: start;
-}
-
-@media (max-width: 1000px) {
-  .editorWithVersions {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
+/* The plan's versions, in a popover from the editor's Versions button (scene/PlaceEditor.tsx, scene/Versions.tsx). */
 .versions {
   min-width: 0;
 }
@@ -470,7 +317,7 @@
   padding: 0;
   list-style: none;
   border-inline-start: 2px solid var(--mantine-color-default-border);
-  max-height: min(78vh, 60rem);
+  max-height: min(60vh, 28rem);
   overflow-y: auto;
 }
 
@@ -481,6 +328,7 @@
   width: 100%;
   margin-inline-start: -2px;
   padding: 6px 10px;
+  cursor: pointer;
   border-inline-start: 2px solid transparent;
   border-radius: 0 var(--mantine-radius-md) var(--mantine-radius-md) 0;
 
@@ -505,4 +353,19 @@
   gap: 6px;
   font-size: var(--mantine-font-size-sm);
   font-weight: 500;
+}
+
+/* On a phone the editor takes the screen: its frame fills the height left under the page's bars, and Versions,
+   Discard, and Save stack at full width above it. */
+@media (max-width: 720px) {
+  .planFrame {
+    height: calc(100dvh - 9rem);
+    min-height: 20rem;
+  }
+
+  .editorActions {
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+  }
 }

@@ -209,3 +209,9 @@
   height: 7px;
   transform: translateY(-1px);
 }
+
+.cameraProblem {
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--lib-warn-text);
+}

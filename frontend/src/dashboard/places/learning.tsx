@@ -7,12 +7,12 @@
 // kept lately), and its newest kept frame as a small picture, which the server paints over wherever someone was in
 // view and withholds when it can't. GET /surroundings/status (dashboard/surroundings.py) is the map step's own
 // summary: a few small files a read, so it's asked often.
-import { Badge, Loader, Progress } from '@mantine/core';
+import { Badge, Loader, Progress, Tooltip } from '@mantine/core';
 import { IconCamera } from '@tabler/icons-react';
 import { queryOptions, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { request } from '../../shared/http';
-import { ago, momentWords, plural } from '../lib/format';
+import { ago, capitalize, momentWords, plural } from '../lib/format';
 import { viewName } from '../review/views';
 import classes from './learning.module.css';
 
@@ -36,6 +36,15 @@ export interface LearningCamera {
   last_kept: number | null;
 }
 
+/** A placed spot camera whose view fits the plan's walls better past the spot refinement bound, while the spot holds. */
+export interface SpotSuggestion {
+  shift_m: number;
+  turn_deg: number;
+  /** Whether the better fit is past the bound on how far a map may move the spot, and on how far it may turn it. */
+  far_shift: boolean;
+  far_turn: boolean;
+}
+
 export interface LearningStatus {
   on: boolean;
   /** The cameras sampled now; none while off. */
@@ -47,6 +56,8 @@ export interface LearningStatus {
   parked?: number;
   /** For each camera with a parked frame, why (a word of the map step's PARKED). */
   parked_cameras?: Record<string, string>;
+  /** Placed spot cameras whose views fit the plan's walls better beyond the spot bound, while the owner's spot holds. */
+  spot_suggestions?: Record<string, SpotSuggestion>;
   running: boolean;
   step: LearningStep | null;
   /** When the last step ended (epoch seconds), or null. */
@@ -130,11 +141,16 @@ export function learningState(status: LearningStatus): LearningState {
           next: 'Measuring their depth. Training comes next.',
         };
       case 'training': {
-        const far = step.step != null && step.steps ? `Step ${count(step.step)} of ${count(step.steps)}, with` : 'With';
-        return { kind: 'training', tone: 'ok', title: 'Training the splat', next: `${far} ${newViews(step.views)}.` };
+        const views = newViews(step.views);
+        const adding = `adding ${views}`;
+        if (step.step != null && step.steps) {
+          const pct = Math.round((step.step / step.steps) * 100);
+          return { kind: 'training', tone: 'ok', title: 'Building the 3D map', next: `${pct}% done, ${adding}.` };
+        }
+        return { kind: 'training', tone: 'ok', title: 'Building the 3D map', next: `${capitalize(adding)}.` };
       }
       case 'writing':
-        return { kind: 'writing', tone: 'ok', title: 'Saving the map', next: 'Writing the new map and splat.' };
+        return { kind: 'writing', tone: 'ok', title: 'Saving the map', next: 'Writing the improved map.' };
       default:
         return { kind: 'working', tone: 'ok', title: 'Working on the map', next: 'A step is running.' };
     }
@@ -150,7 +166,7 @@ export function learningState(status: LearningStatus): LearningState {
     return {
       kind: 'waiting',
       tone: 'ok',
-      title: `${plural(status.waiting, 'frame', 'frames')} waiting`,
+      title: `${plural(status.waiting, 'picture', 'pictures')} waiting`,
       next: 'The next step starts by itself.',
     };
   const watching = `Watching ${plural(status.sampling.length, 'camera', 'cameras')}`;
@@ -175,13 +191,18 @@ export function measured(status: LearningStatus): number | null {
  *  the kept frames a step is, and isn't, due for. */
 export function learningStats(status: LearningStatus): { key: string; label: string; full: string; value: number }[] {
   return [
-    { key: 'views', label: 'Views', full: "Views in the places' maps", value: mapTotals(status).views },
-    { key: 'kept', label: 'Kept', full: 'Frames kept to learn from', value: status.kept },
-    { key: 'waiting', label: 'Waiting', full: 'Kept frames waiting to be placed in a map', value: status.waiting },
+    { key: 'views', label: 'In the map', full: "Views in this place's 3D map", value: mapTotals(status).views },
+    { key: 'kept', label: 'Pictures kept', full: 'Pictures kept to learn from', value: status.kept },
+    {
+      key: 'waiting',
+      label: 'Waiting',
+      full: 'Pictures kept, waiting to be placed in the map',
+      value: status.waiting,
+    },
     {
       key: 'parked',
-      label: 'Parked',
-      full: "Kept frames that can't be placed until the map grows or their camera's spot changes",
+      label: "Can't be placed",
+      full: "Pictures that can't be placed until the map grows or the camera's spot changes",
       value: status.parked ?? 0,
     },
   ];
@@ -201,6 +222,29 @@ const PARKED: Record<string, [label: string, full: string]> = {
   frame: ["Plan can't hold a map", "The plan's frame can't hold a map."],
   floor: ["Floor doesn't match", "The floor it sees doesn't sit on the plan's floor. Check its height on the plan."],
 };
+
+function spotSuggestionWords(sug: SpotSuggestion): [label: string, detail: string] {
+  const farShift = sug.far_shift;
+  const farTurn = sug.far_turn;
+  const metres = `${sug.shift_m.toFixed(1)} m`;
+  const deg = `${Math.round(sug.turn_deg)}°`;
+  if (farShift && farTurn) {
+    return [
+      `Check spot (${metres}, ${deg} off)`,
+      `Its view fits the plan's walls better about ${metres} and ${deg} from its spot. Its spot on the plan holds unless you move it.`,
+    ];
+  }
+  if (farTurn) {
+    return [
+      `Check facing (${deg} off)`,
+      `Its view fits the plan's walls better turned about ${deg} from its spot. Its spot on the plan holds unless you turn it.`,
+    ];
+  }
+  return [
+    `Check spot (${metres} off)`,
+    `Its view fits the plan's walls better about ${metres} from its spot. Its spot on the plan holds unless you move it.`,
+  ];
+}
 
 /** The outcomes of a look that kept its frame. */
 const KEPT = ['view', 'changed', 'sharper'];
@@ -223,29 +267,31 @@ export interface CameraRow {
   frame: string | null;
 }
 
-/** A row for each sampled camera, in the order sampled, then for any other camera with a parked frame. A parked
- *  frame comes first (it's what the owner can act on), then that frames are being kept, then why none was lately,
- *  by what most of the camera's recent looks came to. */
+/** A row for each sampled camera, in the order sampled, then for any other camera with a parked frame or a spot
+ *  suggestion. A parked frame or beyond-bound spot suggestion comes first (it's what the owner can act on), then that
+ *  frames are being kept, then why none was lately, by what most of the camera's recent looks came to. */
 export function cameraRows(status: LearningStatus, now = Date.now() / 1000): CameraRow[] {
   const parked = status.parked_cameras ?? {};
-  const names = [
-    ...status.sampling,
-    ...Object.keys(parked)
-      .filter(c => !status.sampling.includes(c))
-      .sort(),
-  ];
+  const suggestions = status.spot_suggestions ?? {};
+  const extra = new Set([...Object.keys(parked), ...Object.keys(suggestions)]);
+  const names = [...status.sampling, ...[...extra].filter(c => !status.sampling.includes(c)).sort()];
   return names.map(camera => {
     const seen = status.cameras[camera];
     const frame = status.frames?.[camera] ?? null;
-    const kept = seen?.last_kept ? `Last kept a frame ${ago(seen.last_kept, now)}.` : null;
+    const kept = seen?.last_kept ? `Last kept a picture ${ago(seen.last_kept, now)}.` : null;
     const why = parked[camera];
     if (why != null) {
       const [label, full] = PARKED[why] ?? ["Can't be placed yet", "Its kept frame can't be placed in the map yet."];
       return { camera, tone: 'warn', label, detail: full, frame };
     }
+    const suggestion = suggestions[camera];
+    if (suggestion != null) {
+      const [label, full] = spotSuggestionWords(suggestion);
+      return { camera, tone: 'warn', label, detail: full, frame };
+    }
     const recent = seen?.recent ?? {};
     if (KEPT.some(k => (recent[k] ?? 0) > 0))
-      return { camera, tone: 'ok', label: 'Keeping frames', detail: kept, frame };
+      return { camera, tone: 'ok', label: 'Keeping pictures', detail: kept, frame };
     const byReason = new Map<string, number>();
     for (const [outcome, n] of Object.entries(recent)) {
       const reason = WHY[outcome];
@@ -272,7 +318,7 @@ export function LearningBadge({ status, place }: { status: LearningStatus | unde
   const working = workingOn(status, place);
   return (
     <Badge
-      size="xs"
+      size="sm"
       variant="light"
       color={working ? 'blue' : 'gray'}
       tt="none"
@@ -299,7 +345,7 @@ function Thumb({ row }: { row: CameraRow }) {
     <img
       className={classes.thumb}
       src={`/surroundings/thumb/${row.frame}.jpg`}
-      alt={`The newest frame kept from ${viewName(row.camera)}`}
+      alt={`The newest view kept from ${viewName(row.camera)}`}
       width={64}
       height={36}
       loading="lazy"
@@ -317,7 +363,8 @@ export function LearningPanel({ status }: { status: LearningStatus | undefined }
   if (!status.on && !status.running && status.kept === 0 && totals.views === 0) return null;
   const state = learningState(status);
   const done = measured(status);
-  const rows = status.on ? cameraRows(status) : [];
+  const hasSuggestions = Object.keys(status.spot_suggestions ?? {}).length > 0;
+  const rows = status.on || hasSuggestions ? cameraRows(status) : [];
   return (
     <section className={classes.panel} aria-labelledby="learning-h">
       <h3 id="learning-h" className={classes.title}>
@@ -354,17 +401,25 @@ export function LearningPanel({ status }: { status: LearningStatus | undefined }
               size={8}
               radius="xl"
               bg="var(--lib-track)"
-              aria-label="How far the splat's training is"
+              aria-label="How far along the 3D map build is"
             />
             <span className={classes.percent}>{`${Math.round(done)}%`}</span>
           </div>
         ))}
       <dl className={classes.stats}>
         {learningStats(status).map(stat => (
-          <div key={stat.key} className={classes.stat} title={stat.full} data-zero={stat.value === 0 || undefined}>
-            <dt>{stat.label}</dt>
-            <dd>{count(stat.value)}</dd>
-          </div>
+          <Tooltip
+            key={stat.key}
+            label={stat.full}
+            events={{ hover: true, focus: true, touch: true }}
+            multiline
+            maw={280}
+          >
+            <div className={classes.stat} data-zero={stat.value === 0 || undefined}>
+              <dt>{stat.label}</dt>
+              <dd>{count(stat.value)}</dd>
+            </div>
+          </Tooltip>
         ))}
       </dl>
       {totals.improved != null && (
@@ -378,7 +433,7 @@ export function LearningPanel({ status }: { status: LearningStatus | undefined }
       {rows.length > 0 && (
         <ul className={classes.cameras} aria-label="Cameras learned from">
           {rows.map(row => (
-            <li key={row.camera} className={classes.camera} title={row.detail ?? undefined}>
+            <li key={row.camera} className={classes.camera}>
               <Thumb row={row} />
               <div className={classes.cameraText}>
                 <span className={classes.cameraName}>{viewName(row.camera)}</span>
@@ -386,6 +441,7 @@ export function LearningPanel({ status }: { status: LearningStatus | undefined }
                   <span className={classes.dot} data-tone={row.tone} aria-hidden />
                   {row.label}
                 </span>
+                {row.tone === 'warn' && row.detail && <span className={classes.cameraProblem}>{row.detail}</span>}
               </div>
             </li>
           ))}

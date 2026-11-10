@@ -100,7 +100,7 @@ def test_gate_only_replay_scores_coverage_into_scratch_state(tmp_path: Path, mon
     odom_path = tmp_path / "odometry.csv"
     state_dir = tmp_path / "scratch_state"
     w, h, fps, n_frames = 320, 240, 5.0, 35
-    writer = cv2.VideoWriter(str(video_path), cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
+    writer = cv2.VideoWriter(str(video_path), cv2.VideoWriter.fourcc(*"mp4v"), fps, (w, h))
     assert writer.isOpened()
 
     lines = ["timestamp,frame,x,y,z,qx,qy,qz,qw,fx,fy,cx,cy"]

@@ -231,29 +231,6 @@ def test_a_cloud_with_no_floor_is_refused():
         fp.floorplan(wall)
 
 
-def test_dsl_writes_rect_rooms_poly_rooms_and_openings_in_the_librarys_grammar():
-    plan = fp.Floorplan(
-        rooms=(
-            fp.Room("r1", ((0.0, 0.0), (4.0, 0.0), (4.0, 3.5), (0.0, 3.5))),
-            fp.Room("r2", ((4.0, 0.0), (8.0, 0.0), (8.0, 3.0), (6.5, 3.0), (6.5, 3.5), (4.0, 3.5))),
-        ),
-        openings=(
-            fp.Opening("door", ("r1", "r2"), (4.0, 1.25), 0.9),
-            fp.Opening("window", ("exterior", "r1"), (2.0, 0.0), 1.2),
-        ),
-        transform=np.eye(3, 4),
-    )
-    assert fp.to_dsl(plan, title='Flat "B"') == (
-        "plan \"Flat 'B'\" walls 0.2/0.1\n"
-        "\n"
-        'room r1 "Room 1" other rect 0,0 4x3.5\n'
-        'room r2 "Room 2" other poly 4,0 8,0 8,3 6.5,3 6.5,3.5 4,3.5\n'
-        "\n"
-        "door r1>r2 at 4,1.25 w0.9\n"
-        "window exterior>r1 at 2,0 w1.2\n"
-    )
-
-
 @pytest.mark.parametrize("fmt", ["ascii", "binary_little_endian", "binary_big_endian"])
 def test_ply_reads_vertex_positions_past_other_properties(tmp_path, fmt):
     xyz = np.array([[0.5, -1.25, 2.0], [3.0, 4.5, -0.75]])
@@ -291,57 +268,9 @@ def test_the_floor_is_the_lowest_plane_under_the_room_not_at_the_origin():
     assert d / normal[2] == pytest.approx(0.4, abs=0.02)  # scan() lifts the floor to z = 0.4
 
 
-# Carrying an owner's plan into another frame
-
-OWNER_PLAN = """plan "Cottage" walls 0.2/0.1
-
-room r1 "Bedroom" bedroom rect 1,2 3x4
-room r2 "Closet" other poly 4,2 5,2 5,3 4,3
-door r1>r2 at 4,2.5 w0.8
-door r1.north @1 w0.9
-fixture bath in:r1 at 1,2 size 1x2 id:tub
-x-camera bedroom at 2,3 yaw 10
-x-anchor 01a1b856-15c9-7622-9732-bc2aee79fdda yaw 0 origin 0,0,0
-"""
+# A move between two plan frames
 
 QUARTER = fp.Similarity(1.0, math.pi / 2, (10.0, 0.0))  # (x, y) to (10 - y, x): clockwise on the page
-
-
-def test_an_owner_plan_carried_a_quarter_turn_keeps_its_rooms_square_and_renames_its_ids():
-    got = fp.carry(OWNER_PLAN, QUARTER, "m1", "Cottage")
-    assert got.lines == (
-        'room m1_r1 "Bedroom" bedroom rect 4,1 4x3',
-        'room m1_r2 "Closet" other poly 8,4 8,5 7,5 7,4',
-        "door m1_r1>m1_r2 at 7.5,4 w0.8",
-        "door m1_r1.east @1 w0.9",  # its north wall faces east once turned
-        "fixture bath in:m1_r1 at 6,1 size 2x1 id:m1_tub",  # its top-left corner is another corner once turned
-        "x-camera bedroom at 7,2 yaw 100",
-    ), "the header and the old frame's anchor are left out: the target plan's hold"
-    assert got.renamed == {"r1": "m1_r1", "r2": "m1_r2", "tub": "m1_tub"}
-    assert got.kept_as_comments == 0
-    assert [name for _, name, _ in fp.rooms_from_dsl("\n".join(got.lines))] == ["Bedroom", "Closet"]
-
-
-def test_under_a_turn_that_isnt_a_quarter_what_cant_turn_is_kept_as_comments():
-    move = fp.Similarity(2.0, math.radians(30), (0.0, 0.0))
-    got = fp.carry(OWNER_PLAN, move, "m1", "Cottage")
-    (bedroom,) = (line for line in got.lines if line.startswith("room m1_r1"))
-    c, s = math.cos(math.radians(30)), math.sin(math.radians(30))
-    corner = (2 * (c * 4 - s * 2), 2 * (s * 4 + c * 2))  # (4, 2) turned and doubled
-    assert bedroom.startswith('room m1_r1 "Bedroom" bedroom poly ')
-    assert f"{fp._num(corner[0])},{fp._num(corner[1])}" in bedroom.split()
-    assert "door m1_r1>m1_r2 at" in "\n".join(got.lines) and "w1.6" in "\n".join(got.lines), "lengths are scaled"
-    assert "# from Cottage: door r1.north @1 w0.9" in got.lines, "a wall side can't turn 30 degrees"
-    (bath,) = (line for line in got.lines if line.startswith("fixture"))
-    assert bath.startswith("fixture bath in:m1_r1 poly ") and len(bath.split()) == 9, "a box turned is its corners"
-    assert got.kept_as_comments == 1
-
-
-def test_a_track_grid_and_its_picture_are_kept_as_comments():
-    text = 'plan "P"\nlayout cols 3,3 rows 3\n  a b\nroom a "A" rect 0,0 3x3\n'
-    got = fp.carry(text, QUARTER, "m2", "P")
-    assert got.lines == ("# from P: layout cols 3,3 rows 3", "# from P: a b", 'room m2_a "A" rect 7,0 3x3')
-    assert got.kept_as_comments == 2
 
 
 def test_a_turn_near_a_quarter_snaps_to_it_keeping_its_centre_where_it_lands():
@@ -350,17 +279,3 @@ def test_a_turn_near_a_quarter_snaps_to_it_keeping_its_centre_where_it_lands():
     assert snapped.turn == pytest.approx(math.pi / 2) and snapped.quarters == 1
     assert snapped.point(2.0, 3.0) == pytest.approx(near.point(2.0, 3.0))
     assert near.snapped((2.0, 3.0), within_deg=2) == near, "3 degrees off is too far to round at 2"
-
-
-def test_without_takes_out_a_room_and_whatever_names_it():
-    text = (
-        'room r1 "A" rect 0,0 2x2\nroom r2 "B" rect 2,0 2x2\ndoor r1>r2 at 2,1 w0.8\ndoor r2.east @1 w0.8\n'
-        "door exterior>r1 at 0,1 w0.9\nfixture bath in:r2 at 2,0 size 1x1\nx-source room:r2 owner\n"
-    )
-    assert fp.without(text, ["r2"]) == 'room r1 "A" rect 0,0 2x2\ndoor exterior>r1 at 0,1 w0.9\n'
-
-
-def test_covered_is_the_share_of_a_room_inside_others():
-    square = ((0.0, 0.0), (2.0, 0.0), (2.0, 2.0), (0.0, 2.0))
-    assert fp.covered(square, [("a", "A", ((1.0, -1.0), (3.0, -1.0), (3.0, 3.0), (1.0, 3.0)))]) == 0.5
-    assert fp.covered(square, []) == 0.0
