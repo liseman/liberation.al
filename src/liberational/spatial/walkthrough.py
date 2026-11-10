@@ -10,7 +10,8 @@ of spatial memory), its poses corrected where the walk passes the same place aga
 A Stray Scanner export (spatial/stray.py: an iPhone or iPad with LiDAR records the walk with ARKit's metric,
 gravity-aligned poses and its depth) skips CUT3R: its poses are the walk and its depth is the cloud, then revisits
 are closed and the place written the same way (`run_stray`). Then a Gaussian splat of the walk is trained and kept
-beside the revision (spatial/splats.py `splat_walk`), from every saved frame at its ARKit pose. It needs no CUDA
+beside the revision (spatial/splats.py `splat_walk`), from every saved frame at its ARKit pose; a plain video's walk
+gets one the same way at its corrected CUT3R poses, which the trainer refines as it trains (#21). It needs no CUDA
 unless MASt3R is to close revisits or gsplat is to train the splat; without them it skips that step.
 
 By hand, once per video; no service runs it. Steps:
@@ -1537,11 +1538,15 @@ def run(
         if closed.why_no_scale:
             LOG.warning("no loops closed: %s", closed.why_no_scale)
         up = posegraph.world_up(closed.poses)
+        frames = cut3r_intrinsics(stream["focal"], stream["size"], paths)
+        chosen = set(picked)
+        times = [s.t for s in scored if s.index in chosen]
+        looks = splats.look_from(closed.poses, frames, times)
         with places.writing(state):  # the nightly fixed-camera run waits for the join
-            did = finish(state, place, video.name, walk, closed, PRODUCER, up, out=out)
+            did = finish(state, place, video.name, walk, closed, PRODUCER, up, looks=looks, out=out)
             did["join"] = join_new(state, place, did, walk, closed, out)
+        did["splat"] = splats.splat_walk(state, did["place"], did["revision"], paths, closed.poses, frames, looks)
         if poses_out is not None:
-            chosen = set(picked)
             np.savez(
                 poses_out,
                 c2w=closed.poses,
@@ -1549,7 +1554,7 @@ def run(
                 focal=stream["focal"],
                 size=stream["size"],
                 frame=np.array(sorted(picked)),
-                t=np.array([s.t for s in scored if s.index in chosen]),
+                t=np.array(times),
             )
     meta = stream["meta"].item()
     return {
@@ -1563,6 +1568,27 @@ def run(
         "mast3r_s": measured[0]["seconds"] if measured else None,
         "seconds": round(time.monotonic() - began, 1),
     }
+
+
+def cut3r_intrinsics(
+    focal: np.ndarray, size: np.ndarray, images: Sequence[Path]
+) -> list[tuple[np.ndarray, tuple[int, int]]]:
+    """Each saved frame's intrinsics (3 x 3) and size (width, height) from CUT3R's focal (`focal`, pixels at its input
+    `size`, width and height): CUT3R's loader scales a frame's long side to its input's and crops it about the centre,
+    so the focal scales by the saved frame's long side over that input's, and the principal point is the saved frame's
+    centre. CUT3R estimates the focal per frame; the splat's pose refinement takes up what it gets wrong (#21)."""
+    import cv2
+
+    first = cv2.imread(str(images[0])) if images else None
+    if first is None:
+        raise RuntimeError("no saved frames to splat")
+    h, w = first.shape[:2]
+    scale = max(w, h) / float(max(np.asarray(size).ravel()))
+    out = []
+    for f in np.asarray(focal, dtype=np.float64).ravel():
+        k = np.array([[f * scale, 0.0, w / 2], [0.0, f * scale, h / 2], [0.0, 0.0, 1.0]])
+        out.append((k, (w, h)))
+    return out
 
 
 def stray_depths(folder: Path, picked: Sequence[int], code: int | None, out: Path) -> list[Path | None]:
