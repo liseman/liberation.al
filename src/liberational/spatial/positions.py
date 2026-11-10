@@ -1,24 +1,46 @@
-"""The position layer (#2831, part of the spatial memory goal #2794): where people, pets, and the rig wearer were, in
-one stream every source writes and one reader every view uses (the Places tab's paths, the journal's "where").
+"""The position layer: where people, pets, and the rig wearer were, in one stream every source writes and one
+reader every view uses (the Places tab's paths, a place's last activity).
 
-Raw on write, placed on read. A row is an observation as its source made it (`segment_log.POSITIONS`,
-`position.sample`):
-- **fixed-camera** (#2800's footprints): the foot point as the camera saw it, `camera`, `u`, `v` (fractions of the
-  frame, as `places.camera_to_plan` takes them), about one per track a second, for people and animals alike. A
-  person's `track` is "<camera>:<pose track number>", an animal's "<camera>:<run>:<species>:<n>" (`animal_track`).
-  It's put on the plan when read, through the camera's pose at the row's time (spatial/poses.py, #3289) when it has
-  a pose series, else its current registration in its place (memory/places.py, #2825): each pack-spatial-cameras run
-  makes a new map frame, and a place may have no plan yet, so coordinates stored at write time would go stale.
-- **rig-pose** (#2802, once there's a rig pose): `place`, `x`, `y` in the plan frame of the place revision it names.
-- **zone** (the coarse fallback): never written. A reader derives one from each person or animal visit to a drawn
-  area zone (`zone.visit`): the room only, no x and y, over the visit's span.
+Placed on write, read as stored. A record (`Position`, stored in `segment_log.PLACED`) is a subject at a time in a
+place: who or what (`entity`), the place, the room, plan coordinates (`x`, `y`, in the plan frame of the place
+revision `revision` names), how sure, and the source. Every source writes that shape through `write`:
+- **fixed-camera**: footprints (spatial/footprints.py) are recorded raw, the foot point as the camera saw it
+  (`Sample`, `segment_log.POSITIONS`: `camera`, `u`, `v`, about one per track a second, for people and animals
+  alike; a person's `track` is "<camera>:<pose track number>", an animal's "<camera>:<run>:<species>:<n>",
+  `animal_track`). The placer (`advance`, run after each recording) puts them on the plan, names them, joins and
+  fuses the cameras' tracks (`derive`, everything below), and writes the result.
+- **zone** (the coarse fallback): the placer writes each person or animal visit to a drawn area zone
+  (`zone.visit`) as a room-only record over the visit's span, with no x and y.
+- **rig-pose** (once there is a rig pose): the rig's writer gives `place`, `x`, `y`, and the revision whose plan
+  frame they are in, and calls `write` itself.
+
+A read (`positions`) decodes stored records and nothing else: it never projects, names tracks, or joins paths, so
+its cost is the rows of the window, thinned as they are scanned for a long one, and it stops between days when its
+caller says the client has gone (`Cancelled`). Before this, every read placed every raw sample of its window, and a
+week of a busy place passed the client's deadline.
+
+What placing on write costs: a record keeps the coordinates and the identity it was given when it was placed.
+- **Frames.** Records are placed in the frame of the plan the place draws (`Place.plan_revision`) and say so
+  (`revision`). A read for another frame of the same place (the plan moved to a new registration since) moves the
+  points by the similarity between the two frames (`_Places.carried`, through the cameras both register), and
+  marks a record it can't move `in_frame` False. That is a rigid move of what was stored, not a new projection:
+  the raw footprints stay in `segment_log.POSITIONS`, and `reset` has the placer place them again from scratch
+  into a new generation of its slots (the store hides rows appended into a forgotten range, so a generation is a
+  new slot name, not a rewrite).
+- **Identity.** A track is named from the faces and labels known when it was placed (at most a day after it was
+  seen). A person named since then shows under their name (names are looked up on read), but a track nobody could
+  name then stays unnamed until a `reset`.
+- **Chunks.** The placer works through time in CHUNK_S pieces, each read with MARGIN_S of context either side, so
+  a track that spans a chunk's end is named and joined the same on both sides when its faces and partner are
+  within the margin; when they aren't, its path changes id there and a view draws two lines end to end.
+
+The rest of this docstring is how `derive` places and names the raw footprints.
 
 `entity` is an id ("person:<PersonId>", "pet:<pet id>", "face:<N>" for an unnamed face group, "rig"), or None until
 someone is identified; `track` ("<camera>:<track id>") still groups an unknown's samples into a path. A reader names
 an entity when it reads, as speaker tokens are, so renaming someone rewrites nothing stored.
 
-Who a camera track is, is worked out when it's read too (`identify`), so a correction or a new label since applies:
-a person's track by the faces see-actions matched on it (the name at least LOOK_S around the read that MIN_SHARE of
+Who a camera track is, is worked out when it's placed (`identify`): a person's track by the faces see-actions matched on it (the name at least LOOK_S around the read that MIN_SHARE of
 them agree on, as zone visits are named in memory/zone_people.py), or, for a track with no named face, by the
 unnamed face group ("Face 3") MIN_SHARE of its faces were put in (#2981): the same unnamed person's tracks share
 "face:3", on every camera. Naming the group names its faces (vision/sightings.py), so its tracks become that
@@ -60,6 +82,7 @@ from __future__ import annotations
 
 import bisect
 import collections
+import json
 import math
 import statistics
 import uuid
@@ -158,7 +181,9 @@ class Sample:
 
 @dataclass(frozen=True)
 class Position:
-    """Where an entity was, as a view uses it: placed on its place's plan, and named."""
+    """Where an entity was: the record every position source writes (`write`) and every view reads (`positions`),
+    placed on its place's plan. `name` is looked up on read and `in_frame` worked out then; `u` and `v` are only on a
+    row fresh from `derive`, and aren't stored."""
 
     id: str
     t: float
@@ -198,8 +223,8 @@ def _slot(row: Mapping[str, Any]) -> str:
     return S.slot(str(row.get("camera") or (RIG if row.get("source") == RIG_POSE else row.get("source") or "unknown")))
 
 
-def write_positions(state: Path, rows: Sequence[Mapping[str, Any]]) -> None:
-    """Append observations (see the module docstring for the fields: `t`, `source`, `confidence`, and the optional
+def write_samples(state: Path, rows: Sequence[Mapping[str, Any]]) -> None:
+    """Append raw camera observations, for the placer (`advance`) to put on the plan (the fields: `t`, `source`, `confidence`, and the optional
     `end`, `id`, `entity`, `track`, `camera`, `u`, `v`, `place`, `room`, `x`, `y`, `revision`). Nothing to write is
     fine."""
     if not rows:
@@ -1126,7 +1151,7 @@ def _fuse(
     return [s for s in stored if s.id not in gone] + made, fused, doubtful
 
 
-def positions(
+def derive(
     state: Path,
     start: float,
     end: float,
@@ -1135,24 +1160,22 @@ def positions(
     every: float | None = None,
     frame_revision: str | None = None,
 ) -> list[Position]:
-    """Where entities were in [start, end), in time order (then by id) across every path: each stored observation
-    placed on its place's plan (a fixed camera's through its pose at the row's time), plus the zone fallback, each
-    identified (`identify`) and named. `place` and `entity` keep only that place's or that entity's rows, and are
-    applied before anything is placed (a place reads only its cameras' and the rig's rows, and names only their
-    tracks). `every` thins a long read to one row per path per that many seconds, plus each path's last, which a
-    drawn path doesn't miss.
+    """The raw footprints of [start, end) placed, named, joined, and fused, with the zone fallback, in time order
+    (then by id) across every path: what the placer writes to the layer (`advance`), and what a tool that tries a
+    registration out reads (spatial/dryrun.py). Its cost grows with every raw sample of the window, so no view calls
+    it: views read `positions`. `place` and `entity` keep only that place's or that entity's rows, and are applied
+    before anything is placed (a place reads only its cameras' rows, and names only their tracks). `every` thins to
+    one row per path per that many seconds, plus each path's last.
 
-    For a view: group rows into paths by `path` (a track's, or a joined path's), else `entity`, and skip rows whose
-    `x` is None when drawing (zone rows, rows of a place with no plan yet, points above the horizon). `x` and `y` are in the plan frame of
-    `revision`. To draw on a plan, pass its frame as `frame_revision` (`places.Place.plan_revision`, with `place`):
-    every camera row is then projected from its raw `u`, `v` through that revision's poses, so it lands in that
-    plan's frame whatever night it was seen, and a row that can't be comes back `in_frame` False (skip or mark it).
+    `x` and `y` are in the plan frame of `revision`. With `frame_revision` (and `place`), every camera row is
+    projected from its raw `u`, `v` through that revision's poses, so it lands in that plan's frame whatever night
+    it was seen, and a row that can't be comes back `in_frame` False.
 
     A fixed camera's row is placed through the camera's pose at the row's time when the camera has a pose series in
-    the map frame of the revision it's projected through (spatial/poses.py, #3289: its still stretches, smoothed,
-    with its held focal and lens), so after a camera is moved or re-aimed its older rows land where it was then.
-    Without a series (or one that gives no pose), it's placed through that revision's registration of the camera,
-    whatever the row's age, so its older rows land as if seen from where it is now."""
+    the map frame of the revision it's projected through (spatial/poses.py: its still stretches, smoothed, with its
+    held focal and lens), so after a camera is moved or re-aimed its older rows land where it was then. Without a
+    series (or one that gives no pose), it's placed through that revision's registration of the camera, whatever the
+    row's age, so its older rows land as if seen from where it is now."""
     where = _Places(state)
     frame: places.Revision | None = None
     if frame_revision is not None:
@@ -1296,4 +1319,328 @@ def positions(
         for z in zones
         if entity is None or z.entity == entity
     ]
+    return sorted(out, key=lambda p: (p.t, p.id))
+
+
+# The layer itself: stored records, the placer that writes the cameras' and the zones', and the read.
+
+CAMERAS_WRITER, RIG_WRITER = "cameras", "rig"  # the placer (fixed-camera and zone rows), and the rig's own writer
+LAYER_MARKS = "positions.json"  # under the places folder: how far the placer has placed, and its slots' generation
+# The placer's piece of time, on the clock (so a rerun cuts where the last run did), and the context it reads either
+# side of one to name and join the tracks that cross its ends. A day of a busy place is a few seconds of placing, so
+# a piece is short enough to hold in memory and long enough that few tracks cross an end.
+CHUNK_S = 6 * 3600.0
+MARGIN_S = 600.0
+BACKFILL_S = 30 * 86400.0  # how far back the first run places: the raw footprints' history window
+# Each write also goes, thinned to one record per path per this long (and each path's last), to a second stream
+# (`segment_log.PLACED_PATHS`). A read thinning at least this much (the page's Week: 15 s) scans that one: a tenth of
+# the rows, since decoding rows is what a read costs. A day or less reads every record.
+COARSE_S = 10.0
+LAYER_STREAMS = (S.PLACED, S.PLACED_PATHS)
+READ_S = 86400.0  # a read scans this much at a time, and asks between scans whether anyone still wants it
+_ALWAYS = 4102444800.0  # 2100-01-01: past any record, for a forget of everything a slot holds
+
+
+class Cancelled(Exception):
+    """A read stopped because its caller said nobody is waiting for it any more."""
+
+
+def layer_slot(place: str, source: str, generation: int = 0) -> str:
+    """The store slot a place's records from `source` are in: one per writer, so a read of a place opens only that
+    place's files. The placer's (fixed-camera and zone) carries its generation (`reset`); the rig's doesn't, since
+    nothing can make its records again."""
+    if source == RIG_POSE:
+        return S.slot(f"{place}.{RIG_WRITER}")
+    return S.slot(f"{place}.{CAMERAS_WRITER}.{generation}")
+
+
+def _marks(state: Path) -> dict[str, Any]:
+    try:
+        found = json.loads((places.root(state) / LAYER_MARKS).read_text())
+    except FileNotFoundError, ValueError:
+        return {}
+    return found if isinstance(found, dict) else {}
+
+
+def _save_marks(state: Path, marks: Mapping[str, Any]) -> None:
+    path = places.root(state) / LAYER_MARKS
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(marks, indent=1, sort_keys=True))
+    tmp.replace(path)
+
+
+def _line(r: Mapping[str, Any]) -> str:
+    """What one drawn line is, for thinning: a record's path, else its track, else its entity; a zone record (a
+    visit's whole span) or one with none of those is its own."""
+    if r["source"] == ZONE:
+        return f"row:{r['id']}"
+    return r["path"] or r["track"] or r["entity"] or f"row:{r['id']}"
+
+
+Seqs = dict[str, dict[str, int]]  # each layer stream's slots' next row numbers
+
+
+def write(state: Path, rows: Sequence[Position], resume: Mapping[str, Mapping[str, int]] | None = None) -> Seqs:
+    """Append records to the layer: what every position source calls. A record with no place can't be read by place
+    or drawn, so it's left out. Each call's records also go thinned to the paths stream (see COARSE_S), so a source
+    writes a stretch of time at once, not a record at a time (a lone record is always its path's last, and kept).
+    `resume` is the placer's: each of its slots' next row number as its last finished piece left it, so rows a piece
+    wrote before it failed are dropped when it's written again. Returns each stream's slots' next row numbers."""
+    generation = int(_marks(state).get("generation", 0))
+    by_slot: dict[str, list[dict[str, Any]]] = {}
+    for p in rows:
+        if p.place is None:
+            continue
+        by_slot.setdefault(layer_slot(p.place, p.source, generation), []).append(
+            {
+                "id": p.id.removeprefix("fused:"),  # a fused row stands in for the camera rows it was made from
+                "ts_start": p.t,
+                "ts_end": max(p.t, p.end),
+                "source": p.source,
+                "confidence": p.confidence,
+                "entity": p.entity,
+                "track": p.track,
+                "path": p.path,
+                "place": p.place,
+                "room": p.room,
+                "room_id": p.room_id,
+                "x": p.x,
+                "y": p.y,
+                "revision": p.revision,
+                "camera": p.camera,
+                "uncertain": p.uncertain,
+            }
+        )
+    if not by_slot:
+        return {s: dict(slots) for s, slots in (resume or {}).items()}
+    writers = S.Writers(S.root(state), resume)
+    try:
+        for slot, records in by_slot.items():
+            writers.append(S.PLACED, slot, records)
+            writers.append(S.PLACED_PATHS, slot, thin(records, _line, lambda r: r["ts_start"], COARSE_S))
+        return {s: slots for s, slots in writers.sync().items() if s in LAYER_STREAMS}
+    finally:
+        writers.close()
+
+
+def _piece(state: Path, held: places.Place, lo: float, hi: float) -> list[Position]:
+    """One place's records for [lo, hi): its raw footprints and zone visits placed in the frame its plan is drawn in
+    (`derive`), read with MARGIN_S of context either side."""
+    try:
+        rows = derive(state, lo - MARGIN_S, hi + MARGIN_S, place=held.id, frame_revision=held.plan_revision)
+    except ValueError as e:  # the plan names a revision the place no longer has: its current frame, then
+        LOG.warning("placing %s in its current frame: %s", held.id, e)
+        rows = derive(state, lo - MARGIN_S, hi + MARGIN_S, place=held.id)
+    return [r for r in rows if lo <= r.t < hi]
+
+
+def advance(state: Path, upto: float, chunk_s: float = CHUNK_S) -> dict[str, int]:
+    """Place what was recorded since the last run, up to `upto` (the time the raw footprints are recorded to), and
+    write it to the layer: every place's fixed-camera and zone records, a piece of `chunk_s` at a time, oldest first.
+    The first run goes BACKFILL_S back. The mark moves after each piece is written, so a run that stops part way
+    picks up at the piece it was on, and that piece's rows aren't kept twice (`write`'s `resume`). Returns how many
+    records and pieces it wrote.
+
+    Only time after the mark is placed: a footprint or a zone visit recorded later for a time before it (a camera
+    that caught up after an outage, a visit that began before the mark and closed after) isn't in the layer until a
+    `reset`."""
+    marks = _marks(state)
+    at = float(marks["placed_to"]) if marks.get("placed_to") is not None else upto - BACKFILL_S
+    seq: Seqs = {s: {str(k): int(v) for k, v in slots.items()} for s, slots in (marks.get("seq") or {}).items()}
+    counts = {"records": 0, "pieces": 0}
+    while at < upto:
+        hi = min(upto, (math.floor(at / chunk_s) + 1) * chunk_s)  # always past `at`: the loop ends
+        rows = [r for held in places.places(state) for r in _piece(state, held, at, hi)]
+        seq = write(state, rows, resume=seq)
+        at = hi
+        marks = {**marks, "placed_to": at, "seq": seq}
+        _save_marks(state, marks)
+        counts["records"] += len(rows)
+        counts["pieces"] += 1
+    return counts
+
+
+def reset(state: Path) -> int:
+    """Have the placer place everything again from the raw footprints (after a registration, a plan, or a label
+    changed what the stored records should say): its records so far are forgotten, its mark is cleared so the next
+    `advance` goes BACKFILL_S back, and its slots move to a new generation, since the store hides rows appended into
+    a forgotten range. The rig's records stay: nothing can make them again. Returns the new generation."""
+    from continuum_py import forget_segments
+
+    generation = int(_marks(state).get("generation", 0))
+    root = S.root(state)
+    streams = [s for s in (*LAYER_STREAMS, *map(S.condensed, LAYER_STREAMS)) if (root / s).is_dir()]
+    ending = f".{CAMERAS_WRITER}.{generation}"
+    slots = sorted({d.name for s in streams for d in (root / s).iterdir() if d.is_dir() and d.name.endswith(ending)})
+    if slots:
+        forget_segments(root, 0, S.ns(_ALWAYS), streams, slots, "reset")
+    _save_marks(state, {"generation": generation + 1})
+    return generation + 1
+
+
+def _scan(state: Path, lo: float, hi: float, slots: Sequence[str] | None, paths: bool = False) -> list[dict[str, Any]]:
+    """The layer's rows whose span reaches into [lo, hi), as the store's columns: every record's stream (the thinned
+    paths' with `paths`) and its condensed history's (retention.py), for `slots` (every slot when None)."""
+    from continuum_py import read_segments
+
+    root = S.root(state)
+    out = []
+    held = S.PLACED_PATHS if paths else S.PLACED
+    for stream in (held, S.condensed(held)):
+        if (root / stream).is_dir():
+            cams = None if slots is None else list(slots)
+            out.append(read_segments(root, stream, S.PLACED_SCHEMA, S.ns(lo), S.ns(hi), cams, overlapping=True))
+    return out
+
+
+def _place_slots(state: Path, place: str) -> list[str]:
+    return [layer_slot(place, FIXED_CAMERA, int(_marks(state).get("generation", 0))), layer_slot(place, RIG_POSE)]
+
+
+def last_seen(state: Path, ids: Iterable[str], now: float, lookbacks: Sequence[float]) -> dict[str, float]:
+    """When anyone was last placed in each of the places `ids`, by the layer's newest record there. Read newest
+    first over the widening `lookbacks` (seconds before `now`), each place only until it's found: a place seen in the
+    last hour costs an hour's read, and one not seen in the longest is left out."""
+    found: dict[str, float] = {}
+    upto = now
+    for back in lookbacks:
+        lo = now - back
+        for place in ids:
+            if place in found:
+                continue
+            scans = _scan(state, lo, upto, _place_slots(state, place), paths=True)  # a path's last is always kept
+            ends = [got["end_ns"] for got in scans if len(got["end_ns"])]
+            if ends:
+                found[place] = min(max(float(np.max(e)) for e in ends) / S.NS, now)
+        upto = lo
+    return found
+
+
+_AS_STORED = {"camera": "seen_by", "revision": "place_revision"}  # the store keeps those two names for its own
+_TEXT = ("id", "entity", "track", "source", "place", "room", "room_id", "path")
+
+
+def _columns(got: Mapping[str, Any]) -> dict[str, list[Any]]:
+    """One scan's columns as lists, by `Position`'s field names: a read goes over every row of them, and a list is the
+    fastest thing to go over."""
+    cols: dict[str, list[Any]] = {name: got[name] for name in _TEXT}
+    cols |= {name: got[column] for name, column in _AS_STORED.items()}
+    cols["t"] = (np.asarray(got["ts_ns"], dtype=np.int64) / S.NS).tolist()
+    cols["end"] = (np.asarray(got["end_ns"], dtype=np.int64) / S.NS).tolist()
+    for name in ("x", "y", "confidence", "uncertain"):
+        cols[name] = np.asarray(got[name]).tolist()
+    return cols
+
+
+def _record(cols: Mapping[str, list[Any]], i: int) -> dict[str, Any]:
+    """Row `i` of a scan as `Position`'s fields (all but its name and its raw u and v)."""
+    row = {name: values[i] for name, values in cols.items()}
+    row["id"] = str(row["id"])
+    row["x"] = None if math.isnan(row["x"]) else row["x"]
+    row["y"] = None if math.isnan(row["y"]) else row["y"]
+    row["uncertain"] = bool(row["uncertain"])
+    return row
+
+
+def _to_frame(
+    where: _Places, frame: places.Revision, row: dict[str, Any], moves: dict[str | None, floorplan.Similarity | bool]
+) -> dict[str, Any]:
+    """A stored record as `frame` (a revision of its place) draws it: as it is when it was placed in that plan frame,
+    moved by the similarity between the two frames when it was placed in another (`_Places.carried`), and `in_frame`
+    False when nothing relates them. A room-only record has no point to move."""
+    if row["x"] is None or row["y"] is None or row["revision"] == frame.id:
+        return row
+    key = row["revision"]
+    if key not in moves:
+        rev = where.revision(frame.place, key)
+        if rev is None:
+            moves[key] = False
+        elif places.same_plan_frame(rev, frame):
+            moves[key] = True
+        else:
+            moves[key] = where.carried(rev, frame) or False
+    move = moves[key]
+    if move is True:
+        return row
+    if move is False:
+        return {**row, "in_frame": False}
+    x, y = move.point(row["x"], row["y"])
+    x, y = round(x, 3), round(y, 3)
+    room = where.room(frame, x, y)
+    moved = {"x": x, "y": y, "revision": frame.id, "room_id": room[0] if room else None}
+    return {**row, **moved, "room": room[1] if room else None}
+
+
+def positions(
+    state: Path,
+    start: float,
+    end: float,
+    place: str | None = None,
+    entity: str | None = None,
+    every: float | None = None,
+    frame_revision: str | None = None,
+    cancelled: Callable[[], bool] | None = None,
+) -> list[Position]:
+    """Where entities were in [start, end), in time order (then by id): the layer's records as they were stored,
+    named as people and pets are named now. `place` reads only that place's records and `entity` keeps only that
+    entity's. `every` thins a long read as it scans: one record per path per that many seconds, plus each path's
+    last (zone records, each a visit's whole span, are all kept), so a week of a busy place builds the few thousand
+    records a view draws, not one per second; from COARSE_S up it scans the stream thinned that much when written. `cancelled` is asked before each READ_S of the window is scanned; when
+    it says yes the read raises `Cancelled`.
+
+    For a view: group records into paths by `path`, else `entity`, and skip those whose `x` is None when drawing
+    (zone records, records of a place with no plan yet, points above the horizon). `x` and `y` are in the plan frame
+    of `revision`. To draw on a plan, pass its frame as `frame_revision` (`places.Place.plan_revision`, with
+    `place`): a record placed in another frame of the place is moved onto it (`_to_frame`), and one that can't be
+    comes back `in_frame` False (skip or mark it)."""
+    where: _Places | None = None
+    frame: places.Revision | None = None
+    if frame_revision is not None:
+        if place is None:
+            raise ValueError("frame_revision needs the place it's a revision of")
+        where = _Places(state)
+        frame = where.revision(place, frame_revision)
+        if frame is None:
+            raise ValueError(f"{place} has no revision {frame_revision}")
+    slots = _place_slots(state, place) if place is not None else None
+    kept: list[dict[str, Any]] = []
+    seen: set[tuple[str, int]] = set()  # (path, the `every` it's in) already kept
+    newest: dict[str, float] = {}  # each path's last record's time so far
+    tail: dict[str, dict[str, Any] | None] = {}  # each path's last record, when thinning left it out
+    at = start
+    while at < end:
+        if cancelled is not None and cancelled():
+            raise Cancelled
+        hi = min(end, at + READ_S)
+        for got in _scan(state, at, hi, slots, paths=bool(every and every >= COARSE_S)):
+            cols = _columns(got)
+            times, sources, entities = cols["t"], cols["source"], cols["entity"]
+            last: dict[str, int] = {}  # this scan's rows that are their path's last so far; -1 once kept
+            for i, t in enumerate(times):
+                # A span that began before this scan's piece of the window is the earlier piece's (or, begun before
+                # the window, the first's): each record is taken once.
+                if not at <= max(t, start) < hi or (entity is not None and entities[i] != entity):
+                    continue
+                if not every or sources[i] == ZONE:
+                    kept.append(_record(cols, i))
+                    continue
+                key = cols["path"][i] or cols["track"][i] or entities[i] or f"row:{cols['id'][i]}"
+                bucket = (key, int(t // every))
+                fresh = bucket not in seen
+                if fresh:
+                    seen.add(bucket)
+                    kept.append(_record(cols, i))
+                if t >= newest.get(key, -math.inf):
+                    newest[key] = t
+                    last[key] = -1 if fresh else i
+            for key, i in last.items():
+                tail[key] = None if i < 0 else _record(cols, i)
+        at = hi
+    kept += [r for r in tail.values() if r is not None]
+    if frame is not None and where is not None:
+        moves: dict[str | None, floorplan.Similarity | bool] = {}
+        kept = [_to_frame(where, frame, r, moves) for r in kept]
+    names = _names(state, {r["entity"] for r in kept})
+    out = [Position(**r, name=names.get(r["entity"]) if r["entity"] else None, u=None, v=None) for r in kept]
     return sorted(out, key=lambda p: (p.t, p.id))

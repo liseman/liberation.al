@@ -6825,6 +6825,18 @@ class H(http.server.BaseHTTPRequestHandler):
     def _json(self, o: Any, code: int = 200) -> None:
         self._send(code, "application/json", jdump(o))
 
+    def _client_gone(self) -> bool:
+        """Whether the client closed its side while a GET is still being worked on (a page that gave up waiting, or
+        moved on to another window): its socket reads as ended. Bytes waiting there are a next request on a
+        kept-alive connection, so it's still here. A long read asks this as it goes, to stop work nobody will get."""
+        try:
+            ready, _, _ = select.select([self.connection], [], [], 0)
+            return bool(ready) and self.connection.recv(1, socket.MSG_PEEK | socket.MSG_DONTWAIT) == b""
+        except BlockingIOError:
+            return False
+        except OSError, ValueError:  # reset, or already closed
+            return True
+
     def _media(
         self, b: bytes | pathlib.Path, ct: str, extra: dict[str, Any] | None = None, cache: str = "no-store"
     ) -> None:
@@ -7311,8 +7323,13 @@ class H(http.server.BaseHTTPRequestHandler):
             )
         if p == "/places/positions":
             from liberational.dashboard import places as places_view
+            from liberational.spatial import positions
 
-            code, reply = places_view.positions_view(self._query(), STATE)
+            try:
+                code, reply = places_view.positions_view(self._query(), STATE, cancelled=self._client_gone)
+            except positions.Cancelled:
+                self.close_connection = True  # nobody is reading: nothing to send
+                return log("places positions read stopped: the client hung up", level=logs.DEBUG)
             return self._json(reply, code)
         if p == "/places/plan/history":
             from liberational.dashboard import places as places_view
