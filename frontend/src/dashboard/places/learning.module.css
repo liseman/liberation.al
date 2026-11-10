@@ -1,0 +1,211 @@
+/* The Places page's learning panel (learning.tsx): a card under the place list, as wide as that column on a wide
+   screen and as the page on a phone. One state, the numbers, then a row a camera. */
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding: 14px 16px 16px;
+  background: var(--lib-card);
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-md);
+}
+
+.title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--mantine-color-dimmed);
+}
+
+/* The state: a dot (or the spinner while a step runs) beside two lines. */
+.state {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.stateText {
+  min-width: 0;
+}
+
+.headline {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.next {
+  margin: 2px 0 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--mantine-color-dimmed);
+}
+
+.dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--lib-track-off);
+}
+
+.dot[data-tone="ok"] {
+  background: var(--lib-ok);
+}
+
+.dot[data-tone="warn"] {
+  background: var(--lib-warn);
+}
+
+.dot[data-halo] {
+  width: 10px;
+  height: 10px;
+  box-shadow: 0 0 0 4px var(--lib-track);
+}
+
+.dot[data-halo][data-tone="ok"] {
+  box-shadow: 0 0 0 4px var(--lib-ok-tint);
+}
+
+.dot[data-halo][data-tone="warn"] {
+  box-shadow: 0 0 0 4px var(--lib-warn-tint);
+}
+
+.state > .dot,
+.spinner {
+  margin-top: 5px;
+  justify-self: center;
+}
+
+.measured {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.percent {
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bar * {
+    animation: none;
+  }
+}
+
+/* The numbers: each over its label, four across. */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px 12px;
+  margin: 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--mantine-color-default-border);
+}
+
+.stat {
+  display: flex;
+  flex-direction: column-reverse;
+  justify-content: flex-end;
+  gap: 1px;
+  min-width: 0;
+}
+
+.stat dd {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat[data-zero] dd {
+  color: var(--mantine-color-dimmed);
+  font-weight: 500;
+}
+
+.stat dt {
+  font-size: 12px;
+  line-height: 1.3;
+  color: var(--mantine-color-dimmed);
+}
+
+.improved {
+  margin: -4px 0 0;
+  font-size: 12.5px;
+  color: var(--mantine-color-dimmed);
+}
+
+/* The cameras: one column in the place list's column, more where the card is wider (a tablet, a phone on its side). */
+.cameras {
+  list-style: none;
+  margin: 0;
+  padding: 12px 0 0;
+  border-top: 1px solid var(--mantine-color-default-border);
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px 16px;
+}
+
+.camera {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+}
+
+.thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 36px;
+  border-radius: 4px;
+  object-fit: cover;
+  background: var(--lib-bg2);
+  color: var(--mantine-color-dimmed);
+}
+
+.thumb[data-empty] {
+  border: 1px dashed var(--mantine-color-default-border);
+  background: var(--lib-raise);
+}
+
+.cameraText {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.cameraName {
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cameraStatus {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12.5px;
+  line-height: 1.3;
+  color: var(--mantine-color-dimmed);
+}
+
+.cameraStatus .dot {
+  width: 7px;
+  height: 7px;
+  transform: translateY(-1px);
+}

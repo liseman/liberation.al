@@ -1138,8 +1138,8 @@ def summary(
     (`parked`, `due`; `parked_cameras` says why for each camera with one, a word of PARKED), whether a step is running and what it's doing (`step`:
     `progress`, None while none runs), when the last step ended (`last_step`, Unix seconds, or None), each sampled
     camera's recent looks by outcome and when a frame of it was last kept (`cameras`, from the sampler's status),
-    and each learned place's newest revision, views, rounds, and when a step last added a view to it (Unix seconds,
-    or None)."""
+    each learned place's newest revision, views, rounds, and when a step last added a view to it (Unix seconds,
+    or None), and each camera's newest kept frame (`frames`, by camera: the frame's id), for a page's thumbnail."""
     from liberational.spatial import surroundings
 
     folder = frames.root(state_dir)
@@ -1166,6 +1166,10 @@ def summary(
     looked = sampler.get("cameras") if isinstance(sampler, dict) else None
     looked = looked if isinstance(looked, dict) else {}
     began, took = state.last.get("at"), state.last.get("seconds")
+    newest: dict[str, frames.Kept] = {}
+    for kept in index:
+        if kept.camera not in newest or kept.t > newest[kept.camera].t:
+            newest[kept.camera] = kept
     return {
         "on": switch.on,
         "sampling": sampling,
@@ -1193,6 +1197,7 @@ def summary(
             }
             for place, entry in state.places.items()
         },
+        "frames": {camera: kept.id for camera, kept in sorted(newest.items())},
     }
 
 

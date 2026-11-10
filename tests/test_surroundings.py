@@ -1,14 +1,19 @@
 """Learning surroundings (#254): the live switch and the cameras it samples, and the Live tab's route for them."""
 
+import io
+import re
 import tomllib
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pytest
 
 from liberational import config as cfg
 from liberational.dashboard import surroundings as route
 from liberational.spatial import surroundings
+from liberational.spatial import surroundings_frames as frames
 
 MANIFEST = """
 [[device]]
@@ -177,5 +182,110 @@ def test_the_status_route_answers_with_the_map_steps_summary_for_a_fresh_install
         "on": False, "sampling": [], "kept": 0, "waiting": 0, "parked": 0, "parked_cameras": {}, "running": False,
         "step": None,
         "last_step": None,
-        "cameras": {}, "places": {},
+        "cameras": {}, "places": {}, "frames": {},
     }  # fmt: skip
+
+
+# ---- a camera's newest kept frame, as a small picture (#294)
+
+
+@dataclass
+class Sender(Handler):
+    """A handler that also takes a picture: what `_send` or the header calls and the body came to."""
+
+    command: str = "GET"
+    status: int | None = None
+    headers: dict[str, str] = field(default_factory=dict)
+    wfile: io.BytesIO = field(default_factory=io.BytesIO)
+
+    def _send(self, code: int, content_type: str, body: bytes) -> None:
+        self.status = code
+
+    def send_response(self, code: int) -> None:
+        self.status = code
+
+    def send_header(self, name: str, value: str) -> None:
+        self.headers[name] = value
+
+    def end_headers(self) -> None:
+        pass
+
+
+@pytest.fixture
+def detector(tmp_path):
+    """The sampler's person detector, as far as the route checks for it."""
+    model = tmp_path / "detector.onnx"
+    model.write_bytes(b"")
+    route.thumbnail.cache_clear()
+    with cfg.override({"models": {"files": {"person_detector": {"path": str(model)}}}}):
+        assert cfg.model_path("person_detector") == model
+        yield model
+
+
+def kept_frame(state: Path, camera: str, t: float, angle: float, covered: np.ndarray | None = None) -> frames.Kept:
+    """Put a made-up 320 x 180 white frame in the kept store, as the sampler would have."""
+    store = frames.Store(frames.root(state))
+    descriptor = np.array([np.cos(angle), np.sin(angle)], dtype=np.float32)
+    _, kept = store.offer(
+        camera, np.full((180, 320, 3), 255, dtype=np.uint8), descriptor, 100.0, now=t, covered=covered
+    )
+    assert kept is not None
+    return kept
+
+
+def thumb(state: Path, frame_id: str) -> Sender:
+    h = Sender()
+    h.state = state  # ty: ignore[unresolved-attribute]  # the handler's state directory
+    match = re.fullmatch(r"/surroundings/thumb/([0-9a-f]{32})\.jpg", f"/surroundings/thumb/{frame_id}.jpg")
+    assert match is not None
+    route._get_thumb(h, match)
+    return h
+
+
+def test_the_status_names_each_cameras_newest_kept_frame(pack_toml, tmp_path, detector):
+    state = tmp_path / "state"
+    kept_frame(state, "front", 100.0, 0.0)
+    newer = kept_frame(state, "front", 200.0, 1.5)
+    hall = kept_frame(state, "hall", 150.0, 3.0)
+    h = Handler()
+    h.state = state  # ty: ignore[unresolved-attribute]  # the handler's state directory
+    route._get_status(h)
+    assert h.sent[0][1]["frames"] == {"front": newer.id, "hall": hall.id}
+
+
+def test_a_kept_frame_is_served_small_with_whoever_was_in_view_painted_over(tmp_path, detector):
+    import cv2
+
+    state = tmp_path / "state"
+    covered = np.zeros((180, 320), dtype=bool)
+    covered[:, :160] = True  # someone in the left half
+    h = thumb(state, kept_frame(state, "front", 100.0, 0.0, covered).id)
+    assert h.status == 200
+    assert h.headers["Content-Type"] == "image/jpeg"
+    assert "immutable" in h.headers["Cache-Control"]
+    picture = cv2.imdecode(np.frombuffer(h.wfile.getvalue(), dtype=np.uint8), cv2.IMREAD_COLOR)
+    assert picture is not None
+    assert picture.shape == (108, route.THUMB_WIDTH, 3)
+    # the covered half is the flat grey, well inside its edge, and the rest is still the white frame
+    assert np.abs(picture[:, :80].astype(int) - route.COVER).max() <= 6
+    assert picture[:, 112:].min() >= 245
+
+
+def test_no_picture_is_served_without_the_person_detector_or_for_a_frame_not_kept(pack_toml, tmp_path, detector):
+    state = tmp_path / "state"
+    kept = kept_frame(state, "front", 100.0, 0.0)
+    assert thumb(state, "0" * 32).status == 404
+    assert thumb(state, kept.id).status == 200
+    detector.unlink()  # nothing marked who was in view, so no frame is shown
+    assert thumb(state, kept.id).status == 404
+    h = Handler()
+    h.state = state  # ty: ignore[unresolved-attribute]  # the handler's state directory
+    route._get_status(h)
+    assert h.sent[0][1]["frames"] == {}
+
+
+def test_a_frame_whose_mask_does_not_read_is_not_shown(tmp_path, detector):
+    state = tmp_path / "state"
+    kept = kept_frame(state, "front", 100.0, 0.0, np.ones((180, 320), dtype=bool))
+    frames.Store(frames.root(state)).covered_path(kept).write_bytes(b"not a picture")
+    assert thumb(state, kept.id).status == 404
