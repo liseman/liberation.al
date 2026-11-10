@@ -15,7 +15,7 @@ import soundfile as sf
 from liberational import config as cfg
 from liberational import segment_log
 from liberational.assistant import voice
-from liberational.dashboard import context, server
+from liberational.dashboard import context, known_voices, server
 from liberational.domain import kernel
 from liberational.domain.identity import MODEL_BASES, Basis, IdentityAssertion
 from liberational.domain.kernel import AssertionId, EventType, PersonId
@@ -298,7 +298,6 @@ def dash(tmp_path, monkeypatch):
 
     for name, value in {
         "VOICE_TAGS": tmp_path / "voice_tags.jsonl",
-        "_speaker_cmds": speaker_cmds,
         "_faces_mod": lambda: Faces(),
         "_room_lines": lambda *a, **k: [],
         "_call_lines": lambda *a, **k: [],
@@ -306,6 +305,7 @@ def dash(tmp_path, monkeypatch):
         "DASH_PASSWORD": "",
     }.items():
         monkeypatch.setattr(server, name, value)
+    monkeypatch.setattr(known_voices, "_speaker_cmds", speaker_cmds)
     monkeypatch.setattr(context, "STATE", tmp_path)
     return ran
 

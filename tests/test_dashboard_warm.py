@@ -15,7 +15,7 @@ import pytest
 
 import liberational.vision
 from liberational import config, knowledge, voice_turn
-from liberational.dashboard import context, server
+from liberational.dashboard import context, live_status, server, voice_clones
 
 
 def test_the_faces_helpers_are_imported_before_the_first_people_request(monkeypatch):
@@ -70,17 +70,17 @@ def warm_sources(monkeypatch):
     monkeypatch.setattr(
         voice_turn, "wait_quiet", create_autospec(voice_turn.wait_quiet, side_effect=lambda: calls.append("gate"))
     )
-    for attr, name, reply in (
-        ("mic_status", "microphones", {"devices": {}}),
-        ("scene_entries", "scene", []),
-        ("camera_status", "cameras", {"cameras": {}}),
-        ("people_view", "roster", {"people": []}),
-        ("clones_list", "clones", {"clones": [], "error": None}),
+    for module, attr, name, reply in (
+        (live_status, "mic_status", "microphones", {"devices": {}}),
+        (live_status, "scene_entries", "scene", []),
+        (live_status, "camera_status", "cameras", {"cameras": {}}),
+        (server, "people_view", "roster", {"people": []}),
+        (voice_clones, "clones_list", "clones", {"clones": [], "error": None}),
     ):
-        fn = getattr(server, attr)
+        fn = getattr(module, attr)
         originals[attr] = fn
         monkeypatch.setattr(
-            server,
+            module,
             attr,
             create_autospec(fn, side_effect=lambda *_, name=name, reply=reply, **__: calls.append(name) or reply),
         )

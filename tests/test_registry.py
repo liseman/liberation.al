@@ -19,7 +19,7 @@ import pytest
 
 from liberational import config as cfg
 from liberational import knowledge
-from liberational.dashboard import context, server
+from liberational.dashboard import context, known_voices, server
 from liberational.domain import kernel
 from liberational.domain.eventlog import Selector
 from liberational.domain.identity import Basis, Decision, IdentityAssertion, SubjectKind, SubjectRef, decide
@@ -761,8 +761,8 @@ def test_rename_keeps_the_id(reg, dash):
 def test_a_rename_onto_someone_without_a_voice_merges_them(tmp_path, reg, dash, monkeypatch, on_people):
     """Review 2, findings 14 and 25: Gus has no voice, so no voice moves and the person merge alone makes Alice's voice
     his, whether he is on People or only in the registry."""
-    cmds = create_autospec(server._speaker_cmds)
-    monkeypatch.setattr(server, "_speaker_cmds", cmds)
+    cmds = create_autospec(known_voices._speaker_cmds)
+    monkeypatch.setattr(known_voices, "_speaker_cmds", cmds)
     if on_people:
         dash("/people/add", {"name": "Gus"})
     else:
@@ -780,8 +780,8 @@ def test_a_rename_onto_someone_with_a_voice_makes_both_voices_theirs(tmp_path, r
     folded into another, and each voice reads as Gus."""
     write_voices(tmp_path, {1: "Alice", 2: "Gus"})
     gus = reg.person_id("Gus")
-    cmds = create_autospec(server._speaker_cmds)
-    monkeypatch.setattr(server, "_speaker_cmds", cmds)
+    cmds = create_autospec(known_voices._speaker_cmds)
+    monkeypatch.setattr(known_voices, "_speaker_cmds", cmds)
     assert dash("/people/rename", {"from": "Alice", "to": "Gus"})[0] == 200
     cmds.assert_not_called()
     assert [reg.person_of(registry.voiceprint(i)).person for i in (1, 2)] == [gus, gus]
