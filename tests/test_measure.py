@@ -11,7 +11,7 @@ import pytest
 
 import speech_fake
 from liberational import config as cfg
-from liberational import segment_log
+from liberational import memory_log, segment_log
 from liberational.memory import ask, history_qa, question, recall
 from voices import write_voices
 
@@ -292,7 +292,8 @@ def execute(monkeypatch):
     return fake
 
 
-def test_scores_the_answer_and_evidence_execute_gives(state, labels, execute):
+def test_scores_the_answer_and_evidence_execute_gives(state, labels, execute, memory):
+    memory.append(memory_log.JOURNAL, {"ts_start": at(15, 0), "ts_end": at(15, 0, 30), "text": "x", "level": 30})
     write(
         labels,
         "retrieval",
@@ -438,7 +439,7 @@ def test_an_environment_variable_that_would_win_over_rounds_is_refused(state, la
 def test_the_default_run_does_not_ask_and_keeps_its_fields(state, monkeypatch):
     monkeypatch.setattr(ask, "execute", create_autospec(ask.execute, side_effect=AssertionError("must not execute")))
     r = retrieval(FIXTURES, state)
-    assert set(r) == {"questions", "passed", "answers_checked", "answers_ok", "evidence_expected", "evidence_found",
+    assert set(r) == {"questions", "stale", "passed", "answers_checked", "answers_ok", "evidence_expected", "evidence_found",
                       "recorded_frame_analysis", "timezone", "per_question"}  # fmt: skip
     assert not any("latency_s" in q or "rounds" in q for q in r["per_question"])
 
@@ -986,3 +987,111 @@ def test_a_retrieval_row_keeps_the_query_and_its_reading(state, labels):
     row = measure.score_retrieval(measure.load(labels, "retrieval"), state)["per_question"][0]
     assert row["query"]["reading"]["source"] == "people"
     assert row["query"]["window"] == "yesterday"
+
+
+# Stale labels: a question whose cited records are gone (a reset) is set apart, not failed
+
+
+def test_a_question_whose_records_are_gone_is_stale_and_not_asked(state, labels, monkeypatch, run):
+    write(
+        labels,
+        "retrieval",
+        # Cites a line from before the history the state keeps
+        dict(id="gone", question="What did Dana say?", asked_at=at(23, 0),
+             evidence=[{"at": at(9, 0), "source": "transcript"}]),
+        # The line is still kept, though it doesn't say this: a wrong answer, not a stale one
+        dict(id="kept", question="What did Dana say?", asked_at=at(23, 0),
+             evidence=[{"at": at(15, 0, 5), "within_s": 1, "includes": "roses", "source": "transcript"}]),
+        dict(id="nothing", question="Who was here?", asked_at=at(23, 0), answer_includes=["x"]),
+    )  # fmt: skip
+    collect = fake_collect(monkeypatch, return_value={"answer": "x", "evidence": []})
+    r = retrieval(labels, state)
+    gone, kept, nothing = r["per_question"]
+    assert collect.call_count == 2
+    assert (gone.get("stale"), kept.get("stale"), nothing.get("stale")) == (True, None, None)
+    assert (r["questions"], r["stale"], r["passed"], r["evidence_expected"]) == (2, 1, 1, 1)
+    _, out, _ = run("--dir", str(labels), "--part", "retrieval")
+    assert "1 stale, not asked" in out and "gone" in out
+    assert "FAIL kept" in out and "FAIL gone" not in out
+
+
+@pytest.mark.parametrize(
+    "source, kept",
+    [
+        pytest.param("journal", True, id="journal"),
+        pytest.param("transcript", False, id="transcript-has-no-line-then"),
+        pytest.param("walkby.span", True, id="other-sources-are-not-looked-up"),
+        pytest.param(None, True, id="no-source-is-not-looked-up"),
+    ],
+)
+def test_a_record_is_kept_when_its_store_still_has_one_then(state, memory, source, kept):
+    memory.append(memory_log.JOURNAL, {"ts_start": at(9, 0), "ts_end": at(10, 0), "text": "Quiet.", "level": 3600})
+    e = measure.Expected(at(9, 30), 1.0, None, source)
+    assert measure._kept(e, state) is kept
+
+
+def test_an_unreadable_store_is_no_proof_a_question_is_stale(state, monkeypatch):
+    from liberational import speech_log
+
+    def down():
+        raise ConnectionError("no broker")
+
+    monkeypatch.setattr(speech_log, "shared", down)
+    q = measure.Question("q", "?", at(23, 0), evidence=(measure.Expected(at(9, 0), 1.0, None, "transcript"),))
+    assert not measure._stale(q, state)
+
+
+def test_compare_leaves_stale_questions_out_of_better_and_worse(labels, run, monkeypatch):
+    write(
+        labels,
+        "retrieval",
+        dict(id="a", question="?", asked_at=at(23, 0), evidence=[{"at": at(9, 0), "source": "transcript"}]),
+    )
+    stale = labels / "stale.json"
+    stale.write_text(run("--dir", str(labels), "--part", "retrieval", "--json")[1])
+    passed = labels / "passed.json"
+    passed.write_text(json.dumps({"retrieval": {
+        "questions": 1, "stale": 0, "passed": 1, "answers_ok": 0, "answers_checked": 0, "evidence_found": 1,
+        "evidence_expected": 1, "per_question": [{"id": "a", "passed": True}],
+    }}))  # fmt: skip
+    code, out, _ = run("--compare", str(stale), str(passed))
+    assert code == 0
+    assert "stale           1  ->  0" in out
+    assert "only in B: a" in out and "better" not in out
+
+
+# --demo: labels on the made-up demo household, which can't go stale
+
+
+def test_every_demo_label_cites_a_record_the_demo_seeds(tmp_path, memory, speech, monkeypatch):
+    from liberational.demo import dataset
+
+    monkeypatch.setattr(history_qa, "TZ", LA)
+    dataset.seed(tmp_path, memory, today=measure.DEMO_DAY + dt.timedelta(days=1), say=speech.say)
+    items = [{"ts": line["ts_start"], "quote": line["text"], "source": "transcript"} for line in speech.range(0, 2e9)]
+    items += [{"start": e["ts_start"], "end": e["ts_end"], "text": e["text"], "kind": "journal"}
+              for e in memory.entries(0, 2e9)]  # fmt: skip
+    questions = measure.load(measure.DEMO_LABELS, "retrieval")
+    expected = [(q.id, e) for q in questions for e in q.evidence]
+    assert len(questions) >= 10 and expected
+    assert [qid for qid, e in expected if not any(measure._cites(item, e) for item in items)] == []
+    assert {q.day for q in questions} == {measure.DEMO_DAY.isoformat()}
+
+
+@pytest.mark.parametrize(
+    "argv, expected",
+    [
+        (["--demo", "--ask"], ["--ask", "--part", "retrieval"]),
+        (["--demo", "--part", "readings"], ["--part", "readings"]),
+        (["--part=retrieval", "--demo"], ["--part=retrieval"]),
+    ],
+)
+def test_the_run_inside_the_demo_scores_retrieval_unless_a_part_is_named(argv, expected):
+    assert measure._without_demo(argv) == expected
+
+
+@pytest.mark.parametrize("args", [["--part", "events"], ["--state-dir", "/somewhere"]])
+def test_demo_refuses_what_it_cant_score(args, capsys):
+    with pytest.raises(SystemExit) as e:
+        measure.main(["--demo", *args])
+    assert e.value.code == 2

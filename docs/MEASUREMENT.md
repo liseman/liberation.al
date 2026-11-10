@@ -13,6 +13,7 @@ uv run tools/measure.py --json              # the full result, to keep beside a 
 uv run tools/measure.py --part retrieval --ask        # questions through Ask, answered by the local model
 uv run tools/measure.py --part retrieval --rounds 3   # the same, with three search rounds
 uv run tools/measure.py --part retrieval --ask --journal off  # the same, with the journal off
+uv run tools/measure.py --demo --ask                  # retrieval on the made-up demo household instead
 ```
 
 The default parts only read. They score the stores in `paths.state` (or `--state-dir`), and prints a report. With `--ask` it also calls the local model. The numbers describe the labels you have. With a few dozen labels they move a lot from one label to the next, so read them as a check, not as a claim about accuracy.
@@ -76,6 +77,8 @@ One line per real question, with what a right answer contains. This is the regre
 
 Give at least one of the last two rows. Each question goes through `memory/history_qa.collect()`, the code the dashboard and the voice loop answer from, in the configured time zone. `collect()` has the local model read the question once into a structured reading (`memory/question.py`, one short call to `recall.model`), so a run needs that model even without `--ask`; a question the model gives no reading for fails, and its answer says so. Each row of the `--json` output keeps the query under `query`, with the model's reading of the question as `query.reading`. `--part readings` scores the reader on its own, reworded copies included. Recorded-frame analysis is off for the run, because it writes a cache and can queue scans. `--as-configured` keeps it as configured. A question passes when every check holds. A question `collect()` does not treat as a history question fails, and the report says so. The report also counts answers and evidence found.
 
+A question is **stale** when every record it cites from the transcript or the journal is gone: no line or entry of that source is kept within `within_s` of its `at`, whatever it says, as after a state reset. A stale question isn't asked, and the report counts it apart (`stale`, with the ids) instead of failing it, since it would fail on any code and two runs would score the same. A question with no evidence, or citing only other sources or none (a mark's fact or frame, matched by time alone), is always asked. Relabel stale questions from current history (Marking answers in Review, below), or measure on the demo set.
+
 `--ask` sends each question through `memory/ask.execute()` in local mode instead, the path the dashboard's Ask box takes: `collect()`, then the search rounds when `recall.enabled` is on and `recall.max_rounds` is above 0, then the local model's answer. The answer checks then read the answer the user hears, and the evidence checks read the evidence Ask answered from, the rounds' finds included. An answer that ends in an error fails its answer check, since the error message is still text. Each question records how long it took, how many search rounds it ran, and the model that answered. It also records how much of the expected evidence was in the answering model's input (`evidence_given`, and `model_input`, how many items it got): Ask finds more than fits the model's input budget, so evidence found but not given was cut before the model saw it, and evidence given with a wrong answer is evidence the model had and didn't use. An answer that needed no model call counts all its evidence as given. The report gives the median and slowest time, and the settings that change the answer: `ask.model`, `ask.num_ctx`, `recall.enabled`, `recall.max_rounds`, `recall.model`, `journal.enabled`, `models.ollama.llm`, and whether the journal store exists. The answer comes from OpenClaw's default model when one is set, so trust each question's `model` over `models.ollama.llm`. Ask's path writes nothing while recorded-frame analysis is off, but Ollama keeps the model it loads.
 
 `--rounds N` implies `--ask` and runs with `recall.max_rounds` set to N, so the search loop can be measured against a single pass (`--rounds 0`, which also turns `recall.enabled` off for the run). `--journal off` runs with `journal.enabled` off, so answers with and without the journal can be compared (`--vectors off` does the same for search by meaning). A `PACK_RECALL_MAX_ROUNDS` or `PACK_RECALL_ENABLED` variable would win over the flag, so the run stops instead. To compare two runs, keep each one's `--json` output under `data/` (it holds real answers), and give both to `--compare`. It prints the totals of each and the questions that passed in one and failed in the other. To compare Ask's model or context, set `PACK_ASK_MODEL` and `PACK_ASK_NUM_CTX` for a run, which change it for that process only (a bigger model has to be pulled first, and is let go 30 minutes after its last question).
@@ -86,6 +89,18 @@ uv run tools/measure.py --part retrieval --rounds 3 --json > data/measurement/lo
 uv run tools/measure.py --part retrieval --ask --journal off --json > data/measurement/no-journal.json
 uv run tools/measure.py --compare data/measurement/single.json data/measurement/loop.json
 ```
+
+#### The demo set (--demo)
+
+`uv run tools/measure.py --demo` scores retrieval on the made-up demo household (#17, `demo/dataset.py`) instead of this install, against the labels in `tests/data/measurement/demo/retrieval.jsonl`. It makes a new temporary directory, starts a broker and a vector worker of its own there (so the journal is searched by words; the meaning index is off, since the demo makes no embeddings), seeds the demo's day at a fixed date (2026-10-20, in `America/Los_Angeles`), runs this tool there with the rest of its options, and removes the directory (kept, with the services' log, when the run fails). Nothing of this install is read, apart from the configured Ollama, which reads the questions and, with `--ask`, answers them. Because the history is made up and seeded fresh every time, these labels never go stale and the same run gives the same retrieval wherever it runs, so it is the before-and-after check for a retrieval change:
+
+```bash
+uv run tools/measure.py --demo --ask --json > /tmp/before.json
+uv run tools/measure.py --demo --ask --json > /tmp/after.json   # on the changed code
+uv run tools/measure.py --compare /tmp/before.json /tmp/after.json
+```
+
+The labels are the kinds a real set holds: questions asked in Review on the day (`day`), about a place, a time, a person, a count, a price, a trade, a pet, and the weather, each citing its transcript line (and its journal entry where the journal covers it) within a second, with the answer's words as `answer_includes` or `answer_any`, and two whose right answer is that nothing was found. Like Review's marks, score them with `--ask`. A change to the demo's transcript or journal needs the labels checked: `tests/test_measure.py` fails when a label cites a record the demo no longer seeds. `--demo` takes `--part retrieval` (the default) or `--part readings`, and no `--state-dir`.
 
 #### Marking answers in Review
 

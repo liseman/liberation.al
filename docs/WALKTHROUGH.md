@@ -6,7 +6,7 @@ scale and full walls. This page says which places need one, how to record it, an
 ## Which places need a walk
 
 Known › Places marks each place that has never been walked ("Not walked") and each place with rooms no LiDAR walk
-has covered yet ("2 rooms not walked"). Open the place to see which rooms, and to drop a walk on it.
+has covered yet ("2 rooms not walked"). Open the place to see which rooms. A walk is dropped at the top of the page.
 
 A room counts as walked when a LiDAR walk saw at least 30% of its floor (`plan_import.room_coverage`, read from the
 fused map's per-voxel walk counts). A plain video walk (below) gives no LiDAR depth, so it doesn't mark rooms walked.
@@ -29,29 +29,44 @@ place's map), walk through the missing rooms, and come back.
 
 ## Import
 
-In Stray Scanner, share the recording: it exports a zip. On Known › Places, open the place and drop that zip on
-"Import a walk" (or choose it there). The page shows the upload's progress, then the import's, and the new walk when
-it's done; it takes a few minutes and keeps going if you leave the page. One import runs at a time.
+In Stray Scanner, share the recording: it exports a zip. On Known › Places, drop that zip on "Import a walk" at the
+top of the page (or choose it there). You don't pick a place: the import works out which place the walk belongs to,
+and the page says which it went into, or that it made a new one. It shows the upload's progress, then the import's;
+it takes a few minutes and keeps going if you leave the page or the dashboard restarts. One import runs at a time.
+
+The walk is registered against every place that has a map, and goes into the first of these that holds:
+
+1. **Its map fits a place's.** Of the walk's points over that place's map, at least 35% land within 5 cm of it, and
+   at least 1,000 points do. With several such places, the best fit is taken.
+2. **Its walls fit a plan you drew** (a LiDAR walk only): the walls are a median of 6 cm or less from the plan's, 60%
+   of them near one, and 90% of the walk's floor is inside the plan's rooms.
+3. **A place's fixed cameras see where it went**, when neither of those holds anywhere: at least two of the walk's
+   frames seat the same camera view the same way (within 15 degrees and 1.5 m). This needs CUDA.
+
+A walk that passes none of these for any place becomes a new place, with its own map, plan, rooms, and splat. So
+does a walk that the cameras of two or more places see: it passed through all of them, and they are joined into one
+place with it. These are the checks a walk into a named place already had to pass (`match_place` in
+`spatial/walkthrough.py`); nothing is written to a place the walk doesn't register in.
 
 The zip is checked before anything is imported: it must hold one recording with `rgb.mp4`, `odometry.csv`, its
 `depth/` frames, and the camera's intrinsics (`camera_matrix.csv`, or per-frame ones in the odometry). A zip that
-isn't that is refused with what is missing. The zip is removed once it's unpacked, and the unpacked recording once
-its import succeeds; a failed import keeps it, so Try again needs no second upload, until you dismiss it or drop
-another walk. Uploads take up to `ingest.max_mb` (4 GB by default).
+isn't that is refused with what is missing. Uploads take up to `ingest.max_mb` (4 GB by default).
 
-A walk that doesn't register against the place's map, or by the fixed cameras both see, is stored as a place of its
-own, and the page says so.
+The upload is a copy: the file on the phone or computer it came from is never touched. Of the copy on this machine,
+the zip is removed once it's unpacked, and the unpacked recording once its import succeeds; a failed import keeps
+it, so Try again needs no second upload, until you dismiss it or drop another walk.
 
 By hand, the same import is `pack-walkthrough`. Copy the export folder to this machine, somewhere outside the repo
 (the folder that contains `rgb.mp4` and `odometry.csv` and its depth frames, not the video on its own), and from the
 repo:
 
 ```
-uv run pack-walkthrough <folder> --place <id>
+uv run pack-walkthrough <folder> --match
 ```
 
-Without `--place` it starts a new place, which the page can't do: a drop always goes into the place it's dropped on.
-An id that is not a place is refused.
+`--place <id>` instead puts the walk in a place you name (an id that is not a place is refused, and a walk that
+doesn't register there is stored as a place of its own, and the run says so). With neither, the walk always starts a
+new place.
 
 A plain phone video (.mp4, .mov, or .m4v) also works, dropped the same way or as
 `uv run pack-walkthrough <video>`. That path uses CUT3R, needs CUDA, and drifts on a long walk, and the page refuses
