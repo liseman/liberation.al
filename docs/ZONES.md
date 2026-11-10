@@ -13,7 +13,7 @@ visits are found, and [ANSWERS.md](ANSWERS.md#deterministic-answers) how they ar
 
 ## Open a camera's zones
 
-1. Open **Settings**, **Cameras and microphones**.
+1. Open **Settings**, **Devices**.
 2. On the camera's row, under "Picture and zones", press **Zones**. The editor opens on the camera's live picture,
    with its saved zones outlined and named.
 

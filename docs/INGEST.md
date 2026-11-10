@@ -41,7 +41,7 @@ uv run pack-ingest link https://example.com/clip.mp4
 
 ## Poll ongoing and library sources
 
-Camera sources are configured in Settings, Cameras and microphones, on the **Network cameras** card. Photo libraries and
+Camera sources are configured in Settings, Devices, on the **Network cameras** card. Photo libraries and
 recorders are configured in Settings, **Imported media**.
 
 ### Wyze cameras
@@ -50,7 +50,7 @@ Most Wyze cameras do not serve RTSP directly. [docker-wyze-bridge](https://githu
 in to your Wyze account and exposes each camera over local RTSP. A camera that already serves RTSP on the local network
 belongs in capture directly instead ([NETWORK.md](NETWORK.md#network-cameras)).
 
-1. Enter `wyze_email`, `wyze_password`, `wyze_api_id`, and `wyze_api_key` in Settings, Cameras and microphones, under
+1. Enter `wyze_email`, `wyze_password`, `wyze_api_id`, and `wyze_api_key` in Settings, Devices, under
    **Network cameras**, or under `[ingest]` in `pack.toml`. Get the API ID and key from Wyze's developer console.
 2. Start the bridge with those credentials:
 
