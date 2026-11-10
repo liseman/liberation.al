@@ -50,7 +50,8 @@ than the dashboard selection; an unqualified part uses the selected date. "Last 
 evening at 18:00 through 05:00; other night phrases retain 22:00 to 05:00. A clock qualified by "last night" selects
 the previous evening or the following early morning. "N days ago" is that local day. A time phrase the fields don't
 hold (the reading's other_time), and conflicting, nonexistent, or ambiguous local times, are refused instead of
-expanding the evidence search.
+expanding the evidence search. "This week", "last month", and "this year" are their calendar week (from Monday),
+month, or year.
 """
 
 import bisect
@@ -173,7 +174,8 @@ LAST_NIGHT_HOURS = (18, 29)  # previous evening through 05:00 on the question da
 PARTS_OF_DAY = {"morning": (5, 12), "afternoon": (12, 17), "evening": (17, 22), "night": (22, 29)}
 COMBINED = "Use a single time window; combined time expressions are not supported."
 UNSUPPORTED = (
-    "Unsupported time phrase; use today, yesterday, this/last week, last N hours/minutes/days, YYYY-MM-DD, "
+    "Unsupported time phrase; use today, yesterday, this/last week, month, or year, last N hours/minutes/days, "
+    "YYYY-MM-DD, "
     "or a part of the day (this morning, in the afternoon, this evening, tonight, last night)."
 )
 UNREADABLE = "I couldn't read that question: the local model that reads questions didn't answer. Try again."
@@ -406,6 +408,23 @@ def _span_s(r: reader.Reading) -> float:
     return r.span * UNIT_S[r.span_unit]
 
 
+def _period(day: dt.datetime, name: str) -> tuple[dt.datetime, dt.datetime]:
+    """[start, end) of the calendar week (from Monday), month, or year that `name` ("this week", "last month", ...)
+    names, relative to the local midnight `day`."""
+    which, unit = name.split()
+    if unit == "week":
+        first = day - dt.timedelta(days=day.weekday() + (7 if which == "last" else 0))
+        return first, first + dt.timedelta(days=7)
+    if unit == "month":
+        first = day.replace(day=1)
+        if which == "last":
+            first = (first - dt.timedelta(days=1)).replace(day=1)
+        after = (first + dt.timedelta(days=32)).replace(day=1)
+        return first, after
+    first = day.replace(year=day.year - (which == "last"), month=1, day=1)
+    return first, first.replace(year=first.year + 1)
+
+
 def window_of(
     r: reader.Reading, now: float, selected_day: str | dt.date | None = None
 ) -> tuple[float, float, str, float | None]:
@@ -416,7 +435,7 @@ def window_of(
     at = None
     if r.other_time:
         raise ValueError(UNSUPPORTED)
-    week = r.day in ("this week", "last week")
+    week = r.day in ("this week", "last week", "this month", "last month", "this year", "last year")
     dated = r.day not in reader.DAYS
     relative_part = r.part in ("last night", "tonight") or r.part.startswith("this ")
     timed = bool(r.day or r.part or r.clock or r.clock_end or r.since or r.span_kind)
@@ -441,9 +460,8 @@ def window_of(
     elif r.day == "today":
         start, window = day.timestamp(), "today"
     elif week:
-        monday = day - dt.timedelta(days=day.weekday())
-        d = monday - dt.timedelta(days=7 if r.day == "last week" else 0)
-        start, end, window = d.timestamp(), (d + dt.timedelta(days=7)).timestamp(), r.day
+        first, after = _period(day, r.day)
+        start, end, window = first.timestamp(), after.timestamp(), r.day
     elif home_now:
         start, window = now - HOME_NOW_S, "last hour"
     elif r.span_kind == "last":

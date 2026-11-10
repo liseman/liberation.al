@@ -187,7 +187,7 @@ def test_since_a_clock_refuses_what_it_cannot_read(question, message):
 @pytest.mark.parametrize(
     "question",
     [
-        pytest.param("what did we talk about last month", id="last-month"),
+        pytest.param("what did we talk about in March", id="a-month-name"),
         pytest.param("what did Dana say since Monday", id="since-weekday"),
         pytest.param("what did Dana say before 5pm", id="before-clock"),
         pytest.param("what did Dana say two weeks ago", id="ago"),
