@@ -136,13 +136,28 @@ export const restorePlan = (place: string, record: string) =>
   });
 
 /** Why a map has no splat of its own. `reason`: no pass has tried this map ("pass"), there were too few lit daytime
- *  frames ("few_frames"), the map has no fixed cameras ("no_cameras"), the trainer isn't installed ("no_runtime"), or
- *  training failed ("failed"). `tried` is when a pass last tried this map (epoch seconds), and `pass_at` the time of
+ *  frames ("few_frames"), the map has no fixed cameras ("no_cameras"), the trainer isn't installed ("no_runtime"),
+ *  training failed ("failed"), or the map is learned from the cameras and its splat is written right after it
+ *  ("learned"). `tried` is when a pass last tried this map (epoch seconds), and `pass_at` the time of
  *  day a scheduled pass runs ("HH:MM"), null while none is scheduled. */
 export interface SplatWait {
-  reason: 'pass' | 'few_frames' | 'no_cameras' | 'no_runtime' | 'failed';
+  reason: 'pass' | 'few_frames' | 'no_cameras' | 'no_runtime' | 'failed' | 'learned';
   tried: number | null;
   pass_at: string | null;
+}
+
+/** How a place's map is learned from the cameras (the Live tab's "Learn surroundings"). */
+export interface Learning {
+  /** The switch. */
+  on: boolean;
+  /** How many cameras it samples now; none while it's off. */
+  cameras: number;
+  /** On, and a view is being added now: a kept frame is waiting to be placed, or a map step is running. */
+  improving: boolean;
+  /** The views this place's map was built from, or null for a place learning hasn't built. */
+  views: number | null;
+  /** When a view was last added to it (epoch seconds), or null. */
+  improved: number | null;
 }
 
 /** What the 3D view draws for a place (GET /places/scene), all in its map's frame, or `revision: null` while it
@@ -168,8 +183,8 @@ export interface Scene {
   splat_from?: string | null;
   /** Which state the splat is in, so the page doesn't guess: made for this map ("current"), made for an earlier map
    *  in the same frame, so it still lines up ("earlier"), made in another frame and so not offered ("stale"), or
-   *  there is none. "improving" is for a splat that is drawn while it's still being built up from new frames; the
-   *  view words it, and nothing serves it yet. */
+   *  there is none. "improving" is this map's own splat while learning is adding views to it: a newer one is on
+   *  its way, and the view draws it when it's written. */
   splat_state?: 'current' | 'improving' | 'earlier' | 'stale' | 'none';
   /** When the map the offered splat was made for was built (epoch seconds). */
   splat_at?: number | null;
@@ -183,11 +198,20 @@ export interface Scene {
   /** The plan in this revision's frame (DSL), and whose it is. */
   plan?: string | null;
   plan_source?: 'owner' | 'machine';
+  /** How the map is learned from the cameras; also given while the place has no map. */
+  learning?: Learning;
 }
+
+/** How often the 3D view asks for the scene again while it's open: a learned map gets a newer splat every so
+ *  often while learning is on, and the view draws it without a reload. With learning off it asks seldom, to notice
+ *  that it was turned on. */
+export const SCENE_LEARNING_MS = 10_000;
+export const SCENE_IDLE_MS = 60_000;
 
 export const sceneQuery = (place: string) =>
   queryOptions({
     queryKey: ['places', 'scene', place],
     queryFn: ({ signal }) => request<Scene>(`/places/scene?${new URLSearchParams({ place })}`, undefined, signal),
     staleTime: 5 * 60_000,
+    refetchInterval: q => (q.state.data?.learning?.on ? SCENE_LEARNING_MS : SCENE_IDLE_MS),
   });

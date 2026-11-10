@@ -6,8 +6,9 @@ import { HttpResponse, http } from 'msw';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { renderPage } from '../../../test/render';
 import { server } from '../../../test/server';
+import { SCENE_IDLE_MS, SCENE_LEARNING_MS, sceneQuery } from '../api';
 import CloudView from './CloudView';
-import type { Built } from './scene';
+import type { Built, View } from './scene';
 
 const build = vi.hoisted(() => vi.fn());
 vi.mock('./scene', () => ({ build }));
@@ -16,7 +17,7 @@ vi.mock('./scene', () => ({ build }));
 let shown: Parameters<Built['show']>[0][] = [];
 let splatLoaded: () => Promise<void> = () => Promise.resolve();
 /** The splat's own load is only followed for a viewer built around one, as scene.ts settles it at once without. */
-type BuildArgs = [HTMLDivElement, object, object, ArrayBuffer | null, string | null];
+type BuildArgs = [HTMLDivElement, object, object, ArrayBuffer | null, string | View | null];
 
 beforeEach(() => {
   shown = [];
@@ -24,6 +25,7 @@ beforeEach(() => {
   build.mockReset();
   build.mockImplementation(
     async (...args: BuildArgs): Promise<Built> => ({
+      view: () => LOOKING,
       home: () => {},
       lookFrom: () => {},
       show: s => {
@@ -36,6 +38,9 @@ beforeEach(() => {
   );
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({} as RenderingContext);
 });
+
+/** Where the stood-in viewer says the person is looking from. */
+const LOOKING: View = { position: [1, 2, 3], target: [1, 2, 0], fov: 60, mode: 'fly' };
 
 /** A map with no points: enough for the view to build. */
 const MAP = new TextEncoder().encode(
@@ -122,12 +127,99 @@ it("draws an earlier map's splat that still lines up, labelled as one", async ()
   expect(screen.getByText('Splat')).toBeTruthy();
 });
 
+const learning = (more: object = {}) => ({
+  on: true,
+  cameras: 1,
+  improving: false,
+  views: 42,
+  improved: 1.8e9,
+  ...more,
+});
+
 it('draws a splat that is still improving, and says it is', async () => {
-  serve(withSplat({ splat_state: 'improving' }), () => bytes(SOG));
+  serve(withSplat({ splat_state: 'improving', learning: learning({ improving: true }) }), () => bytes(SOG));
   renderPage(<CloudView place="p1" />);
-  expect(await screen.findByText(/^This splat is still improving/)).toBeTruthy();
+  expect(
+    await screen.findByText(/^Learning is on, and this map is still improving: .* Built from 42 views/),
+  ).toBeTruthy();
   await waitFor(() => expect(shown.at(-1)?.splat).toBe(true));
   expect(screen.queryByRole('alert')).toBeNull();
+});
+
+it('says a place with no map has none, and what would start one', async () => {
+  serve({ place: 'p1', revision: null, learning: learning({ on: false, cameras: 0, views: null, improved: null }) });
+  renderPage(<CloudView place="p1" />);
+  expect(
+    await screen.findByText(/^No 3D map of this place yet\. Learning is off\. Turn on Learn surroundings/),
+  ).toBeTruthy();
+  expect(build).not.toHaveBeenCalled();
+});
+
+it('asks for the scene again every few seconds while learning is on, and seldom while it is off', () => {
+  const every = sceneQuery('p1').refetchInterval as (q: { state: { data?: object } }) => number;
+  expect(every({ state: { data: withSplat({ learning: learning() }) } })).toBe(SCENE_LEARNING_MS);
+  expect(every({ state: { data: withSplat({ learning: learning({ on: false }) }) } })).toBe(SCENE_IDLE_MS);
+  expect(every({ state: {} })).toBe(SCENE_IDLE_MS);
+});
+
+it('draws a newer splat once all of it is here, from where the person was looking, without a reload', async () => {
+  const NEWER = '/places/splat?place=p1&revision=r3&format=sog';
+  let reply = withSplat({ learning: learning({ improving: true }) });
+  let release = () => {};
+  const held = new Promise<void>(resolve => {
+    release = resolve;
+  });
+  server.use(
+    http.get('/places/scene', () => HttpResponse.json(reply)),
+    http.get('/places/map', () => bytes(MAP)),
+    http.get('/places/splat', async ({ request }) => {
+      if (new URL(request.url).searchParams.get('revision') === 'r3') await held;
+      return bytes(SOG);
+    }),
+  );
+  const { client } = renderPage(<CloudView place="p1" />);
+  await waitFor(() => expect(shown.at(-1)?.splat).toBe(true));
+  const before = build.mock.calls.length;
+
+  // the next read of the scene names a newer map and splat, with one more view
+  reply = withSplat({
+    revision: 'r3',
+    map: '/places/map?place=p1&revision=r3',
+    splat: NEWER,
+    splat_revision: 'r3',
+    learning: learning({ improving: true, views: 43 }),
+  });
+  await client.invalidateQueries({ queryKey: ['places', 'scene', 'p1'] });
+  expect(await screen.findByText(/^A newer version of this map is loading/)).toBeTruthy();
+  expect(await screen.findByText(/Built from 43 views/)).toBeTruthy();
+  // the one before it stays drawn while the newer one's bytes come
+  expect(build.mock.calls.length).toBe(before);
+  expect(shown.at(-1)?.splat).toBe(true);
+
+  release();
+  await waitFor(() => expect(build.mock.calls.length).toBe(before + 1));
+  const [, drawn, , file, opening] = build.mock.calls.at(-1) as BuildArgs;
+  expect((drawn as { revision: string }).revision).toBe('r3');
+  expect(new Uint8Array(file ?? new ArrayBuffer(0))).toEqual(SOG);
+  expect(opening).toEqual(LOOKING);
+  await waitFor(() => expect(screen.queryByText(/^A newer version of this map is loading/)).toBeNull());
+  await waitFor(() => expect(shown.at(-1)?.splat).toBe(true));
+});
+
+it("doesn't draw the map again when only what is said about learning changed", async () => {
+  let reply = withSplat({ learning: learning({ improving: true }) });
+  server.use(
+    http.get('/places/scene', () => HttpResponse.json(reply)),
+    http.get('/places/map', () => bytes(MAP)),
+    http.get('/places/splat', () => bytes(SOG)),
+  );
+  const { client } = renderPage(<CloudView place="p1" />);
+  await waitFor(() => expect(shown.at(-1)?.splat).toBe(true));
+  const before = build.mock.calls.length;
+  reply = withSplat({ splat_state: 'current', learning: learning({ on: false }) });
+  await client.invalidateQueries({ queryKey: ['places', 'scene', 'p1'] });
+  expect(await screen.findByText(/^Learning is off, so this map stays as it is/)).toBeTruthy();
+  expect(build.mock.calls.length).toBe(before);
 });
 
 it("names a splat that doesn't line up with the map without offering it", async () => {
