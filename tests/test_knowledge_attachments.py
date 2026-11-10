@@ -330,6 +330,21 @@ def test_restore_puts_taught_files_home_and_leaves_settings_in_the_bundle(tmp_pa
     assert sorted(p.name for p in (state / "clones").iterdir()) == ["3.wav"]  # no temporary left behind
 
 
+def test_a_face_rows_picture_and_source_travel_with_the_owners_rows(tmp_path):
+    state, faces, voice = homes(tmp_path)
+    key = "ab12" * 6
+    put(faces / "db.npz", b"rows")
+    put(faces / "examples" / f"{key}.json", b'{"source": "group"}')
+    put(faces / "examples" / f"{key}.jpg", b"picture")
+    put(faces / "examples" / "notes.txt", b"not a row's file")
+    files = A.collect_files(state, faces)
+    assert set(files) == {"faces/db.npz", f"faces/examples/{key}.json", f"faces/examples/{key}.jpg"}
+    elsewhere = tmp_path / "new" / "faces"
+    placed = A.restore_files(files, tmp_path / "new" / "state", elsewhere, voice)
+    assert placed == A.Placed(restored=3, same=0, bundle=0, differ=())
+    assert (elsewhere / "examples" / f"{key}.jpg").read_bytes() == b"picture"
+
+
 def test_restore_never_overwrites_a_different_file(tmp_path):
     state, faces, voice = homes(tmp_path)
     put(faces / "db.npz", b"written since the reset")

@@ -349,6 +349,7 @@ one `<service>.log` each, trimmed hourly past 10 MB by the `log-trim` service. H
 | `faces/db.npz`, `nots.npz`, `learned.npz` | `vision/faces.py` (`pack-faces`, dashboard), see-actions | see-actions, dashboard | Owner face rows, negatives, and views learned from tracks |
 | `faces/unknown_clusters.npz`, `unknown_rejected.json`, `check.json` | see-actions, dashboard, `pack-faces check` | The same | Unnamed face groups, rejected matches, and the held-out check |
 | `faces/<name>/`, `faces/_unknown/` | Dashboard | Dashboard | Face photos |
+| `faces/examples/` | `vision/faces.py` (dashboard, `pack-faces`) | Dashboard | Each owner face row's picture and source, by a hash of its vector (Training images) |
 | `state/voiceprints.json`, `voice_enrollments.json`, `clones/` | listen, `people/voice_edits.py`, `speech/clone_say.py`, dashboard | The same | Next voiceprint number, enrollments, and clone references |
 | `state/voice_tags.jsonl`, `voice_tags.offset` | Dashboard queues; listen consumes | listen | Owner voice-label requests and the cursor |
 | `state/listen.gain.json` | `pack-listen` | Dashboard | Each microphone's auto gain |

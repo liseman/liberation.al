@@ -305,7 +305,12 @@ def correct(ids: Sequence[str], name: str | None, state: State = None) -> list[d
         # "not them" said of these faces before is taken back, so it can't hold the new rows' name off them
         for sid in dict.fromkeys(ids):
             face_db.remove_not(name, f"shot:{sid}")
-        rows = face_db.add_correction_rows(name, _vectors(list(dict.fromkeys(ids)), state))
+        taught = _embedding_rows(list(dict.fromkeys(ids)), state)
+        rows = face_db.add_correction_rows(
+            name,
+            [np.asarray(r["vector"], np.float32) for r in taught.values()],
+            [_example(sid, r, state) for sid, r in taught.items()],
+        )
         if rows:
             prior[0].update(rows=rows, rows_name=name)
     if denied:
@@ -327,13 +332,43 @@ def _vectors(ids: Sequence[str], state: State) -> list[np.ndarray]:
 
 def _vector_ids(ids: Sequence[str], state: State) -> dict[str, np.ndarray]:
     """The face embeddings see-actions recorded for detections `ids`, by id (those it still has)."""
+    return {sid: np.asarray(r["vector"], np.float32) for sid, r in _embedding_rows(ids, state).items()}
+
+
+def _embedding_rows(ids: Sequence[str], state: State) -> dict[str, dict[str, Any]]:
+    """The face embedding rows see-actions recorded for detections `ids`, by id in their order (those it still has)."""
     times = [t for t in (_id_time(sid) for sid in ids) if t is not None]
-    found: dict[str, np.ndarray] = {}
+    found: dict[str, dict[str, Any]] = {}
     for a, b in _windows(times):
         for r in segment_log.at(state).range(segment_log.FACE_EMBEDDINGS, a, b, None):
             if r.get("match_id") in ids and r.get("vector") is not None:
-                found[str(r["match_id"])] = np.asarray(r["vector"], np.float32)
-    return found
+                found[str(r["match_id"])] = r
+    return {sid: found[sid] for sid in ids if sid in found}
+
+
+def _example(sid: str, row: Mapping[str, Any], state: State) -> Any:
+    """Where a corrected sighting's face row came from, for Training images: its camera, its time, and the crop
+    see-actions saved of it (`state/shots`, any revision: the owner is looking at this sighting now)."""
+    from liberational import config as cfg
+    from liberational.people import face_shots
+    from liberational.vision.face_examples import CORRECTION, Example
+
+    jpg = None
+    try:
+        home = pathlib.Path(state) if state is not None else cfg.path("paths.state")
+        saved = sorted(face_shots.directory(home, sid).glob(f"{sid}-*.jpg"), key=lambda f: f.stat().st_mtime)
+        jpg = saved[-1].read_bytes() if saved else None
+    except OSError:
+        jpg = None
+    cam = row.get("cam")
+    at = row.get("ts_start")
+    return Example(
+        CORRECTION,
+        cam=str(cam) if isinstance(cam, str) and cam else None,
+        at=float(at) if isinstance(at, int | float) else _id_time(sid),
+        ref=f"shot:{sid}",
+        jpg=jpg,
+    )
 
 
 def uncorrect(prior: Sequence[Mapping[str, Any]], state: State = None) -> None:
