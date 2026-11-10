@@ -80,7 +80,7 @@ def test_hits_no_voiceprint_holds_are_passed_over(lookup):
 
 
 def test_a_voice_clone_never_names_a_clip(lookup, tmp_path):
-    # v1 never matched room speech to a clone (2026-10-27: room lines were filed under a clone's name).
+    # v1 never matched room speech to a clone (otherwise room lines were filed under a clone's name).
     (tmp_path / "clones").mkdir()
     (tmp_path / "clones" / "4.json").write_text(json.dumps({"source": "recorded"}))
     assert lookup.judge([hit(voices.subject(4), 0.9), hit(voices.subject(5), 0.7)], seconds=2.0).number == 5

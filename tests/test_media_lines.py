@@ -1,4 +1,4 @@
-"""Lines heard from a TV (#2468): marked, not dropped (listen/revisions.py), and left out of the readers that speak
+"""Lines heard from a TV: marked, not dropped (listen/revisions.py), and left out of the readers that speak
 for people (unknown voices, people counts, voice learning), with the owner's "This is TV" and its Undo."""
 
 from types import SimpleNamespace
@@ -45,7 +45,7 @@ def test_a_marked_line_stays_marked_and_undo_unmarks_it(tmp_path):
 
 
 def test_the_corrections_are_read_once_per_change_however_often_lines_are_read(tmp_path, monkeypatch):
-    """#2578: the tagger writes a correction per TV line, and filter_lines and review_revision (polled by every
+    """The tagger writes a correction per TV line, and filter_lines and review_revision (polled by every
     Live page) read and parsed all of them on every call."""
     from liberational import knowledge
 

@@ -60,7 +60,7 @@ def test_processes_match_pack_commands_by_basename(monkeypatch):
 
 
 def test_processes_match_repo_commands_by_their_path_here_and_count_their_children(monkeypatch):
-    # #787: the continuum-* daemons are programs in the repo, not pack-* commands, so they had no pids
+    # The continuum-* daemons are programs in the repo, not pack-* commands, so they had no pids
     broker = str(cfg.ROOT / "continuum/target/release/continuum-broker")
     capture = str(cfg.ROOT / "continuum/target/release/continuum-capture")
     gateway = str(cfg.ROOT / "continuum/target/release/continuum-gateway")
@@ -96,7 +96,7 @@ def test_a_fresh_scan_sees_a_process_started_since_the_last_one(monkeypatch):
 
 
 def test_a_request_gets_the_last_answer_while_a_rescan_is_still_running(monkeypatch):
-    # #433: after a start, reading every /proc entry took 17 s and GET /services waited for all of it
+    # After a start, reading every /proc entry took 17 s and GET /services waited for all of it
     rescanning, release = threading.Event(), threading.Event()
 
     def slow_second_scan():
@@ -587,7 +587,7 @@ def test_bulk_actions_stop_at_a_failure(base, pack_services):
     assert pack_services.ran == [["uninstall", "listen", "voice"]]  # no install after a failed removal
 
 
-# ---- /stats: each process named for its service, and each Ollama runner for its model (#787) ------------------------
+# ---- /stats: each process named for its service, and each Ollama runner for its model ------------------------
 
 BLOB = "sha256-" + "ab" * 32
 
@@ -694,7 +694,7 @@ def test_cpu_busy_counts_guest_once_and_iowait_as_idle():
 
 def test_stats_read_the_cpu_the_same_from_any_request_thread(monkeypatch):
     # psutil 7 keeps cpu_percent's last reading per thread, and each /stats request is a new server thread: it read 0%
-    # every time (#2694). Two snapshots taken on two fresh threads measure the time between them.
+    # every time. Two snapshots taken on two fresh threads measure the time between them.
     monkeypatch.setattr(proc_table, "table", dict)
     monkeypatch.setattr(server.services, "processes", lambda fresh=False: {})
     clock = [1000.0]

@@ -77,7 +77,7 @@ beforeEach(() => {
   useLiveStatus.setState({ now: NOW });
   setGatewayForTests(fakeGateway().connect); // a gateway that never answers, unless a test answers for it
   server.use(
-    // Getting started's reads (#296): nothing set up, so it shows; tests about it set their own.
+    // Getting started's reads: nothing set up, so it shows; tests about it set their own.
     http.get('/stats', () => HttpResponse.json({})),
     http.get('/devices', () => HttpResponse.json({ control: true, mics: [], cameras: [], notes: {} })),
     http.get('/config/voice_ref', () => HttpResponse.json({ exists: false })),
@@ -300,7 +300,7 @@ describe('Live', () => {
   it('says the microphone is off while the cameras run', async () => {
     renderLive({ scene: both });
     expect(screen.getByRole('heading', { name: 'Live' })).toBeInTheDocument();
-    // A state of the conversation header's mic line (#2485), not a notice above the page.
+    // A state of the conversation header's mic line, not a notice above the page.
     const mics = screen.getByRole('region', { name: 'Microphones' });
     expect(within(mics).getByRole('status')).toHaveTextContent('Not listening');
     expect(await within(mics).findByRole('button', { name: 'Start listening' })).toBeInTheDocument();
@@ -324,7 +324,7 @@ describe('Live', () => {
     await userEvent.click(screen.getByRole('button', { name: 'All cameras' }));
     expect(screen.getByRole('button', { name: 'Open cam0 camera' })).toBeInTheDocument();
     expect(location.hash).toBe('');
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument(); // no full-size popup any more (#352)
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument(); // no full-size popup any more
   });
 
   it('heads the rig Cameras even with a stale room value, and names each camera', () => {
@@ -447,7 +447,7 @@ describe('Live', () => {
 
   it("leaves Who's this? to People and the day's summary to Review (#356)", async () => {
     renderLive({ ambient: { ts: NOW - 1 }, scene: both });
-    expect(screen.queryByRole('heading', { name: "Who's this?" })).toBeNull(); // removed from Live (2026-10-29)
+    expect(screen.queryByRole('heading', { name: "Who's this?" })).toBeNull(); // removed from Live
     expect(screen.queryByText(/Planned the week|summary|minutes of speech/i)).toBeNull();
   });
 
@@ -461,10 +461,10 @@ describe('Live', () => {
 
   it('puts Here now under the cameras, and leaves the rail to the conversation (#2473)', async () => {
     renderLive({ ambient: { ts: NOW - 1 }, scene: both });
-    // One region a panel, named as its heading and its grip are (#2621): no "Who's here" or "Right now" around them
+    // One region a panel, named as its heading and its grip are: no "Who's here" or "Right now" around them
     const here = screen.getByRole('region', { name: 'Here now' });
     expect(screen.getAllByRole('region', { name: 'Here now' })).toHaveLength(1);
-    expect(within(here).queryByRole('region', { name: 'Linked device evidence' })).toBeNull(); // cut (#2575)
+    expect(within(here).queryByRole('region', { name: 'Linked device evidence' })).toBeNull(); // cut
     const rail = screen.getByRole('region', { name: "What's happening" });
     expect(within(rail).queryByRole('region', { name: 'Here now' })).toBeNull();
     expect(screen.queryByRole('complementary', { name: 'Right now' })).toBeNull();

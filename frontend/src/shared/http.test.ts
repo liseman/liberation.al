@@ -2,7 +2,7 @@ import { QueryClient } from '@tanstack/react-query';
 import { HttpResponse, http } from 'msw';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { liveQuery } from '../dashboard/live/feed';
-import { BADGE_POLL_MS, servicesQuery } from '../dashboard/settings/services/api';
+import { servicesStatusQuery } from '../dashboard/settings/services/api';
 import { unknownVoicesQuery } from '../dashboard/whosthis/api';
 import { server } from '../test/server';
 import { HttpError, RECOVER_MS, request, TIMEOUT_MS, upload } from './http';
@@ -39,7 +39,7 @@ describe('request', () => {
     vi.stubGlobal('fetch', fetcher);
     const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
     const ambient = client.fetchQuery(liveQuery(client, 'ambient'));
-    const services = servicesQuery(BADGE_POLL_MS).queryFn({});
+    const services = client.fetchQuery(servicesStatusQuery());
     const people = request('/people');
     await Promise.resolve();
     expect(fetcher.mock.calls.map(args => args[0])).toEqual(['/ambient', '/people']);

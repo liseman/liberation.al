@@ -99,7 +99,7 @@ pub type BackgroundJob = Box<dyn FnMut(&dyn Catalog, usize) -> bool + Send>;
 
 /// A long job on the writer's queue, and whether a clean stop may drop it unfinished. Only restartable upkeep that
 /// never changes availability (the `FRAMES` sweep) may: the restart fence drops it rather than wait for it, so a
-/// sweep that is always running can't keep every stop from saving the restart projection (#1789).
+/// sweep that is always running can't keep every stop from saving the restart projection.
 struct LongJob {
     job: BackgroundJob,
     drop_at_stop: bool,
@@ -178,7 +178,7 @@ impl std::fmt::Display for CheckpointRefusal {
 /// What a clean-stop fence hands back: the index to encode and its catalog stamp, or why there is none.
 pub type RestartCheckpoint = Result<(AvailabilityIndex, continuum_catalog::RestartStamp), CheckpointRefusal>;
 
-/// How long the writer waits with nothing to do before making the catalog's latest commits durable (#1958).
+/// How long the writer waits with nothing to do before making the catalog's latest commits durable.
 const DURABLE_IDLE: Duration = Duration::from_secs(1);
 
 /// A background step this many times over its target held urgent writes up long enough to warn about.
@@ -290,7 +290,7 @@ pub enum Command {
         /// The time, UTC nanoseconds.
         at_ns: u64,
     },
-    /// `ResolveFrames`: which chunk holds each of these ids (#1394).
+    /// `ResolveFrames`: which chunk holds each of these ids.
     ResolveFrames {
         /// The asking session.
         session: SessionId,
@@ -347,7 +347,7 @@ pub enum Command {
         header: HeaderBuf,
         /// Where its bytes are, if anywhere yet.
         locator: Option<StorageLocator>,
-        /// What it depends on (#1535), stored with it.
+        /// What it depends on, stored with it.
         dependencies: Vec<continuum_catalog::Dependency>,
     },
     /// `RegisterWorker`: the scheduler indexes the worker's capabilities; the answer is `WorkerRegistered`.
@@ -630,7 +630,7 @@ pub enum Command {
         /// The hash.
         hash: continuum_catalog::ForgottenHash,
     },
-    /// `SaveWorkerState`, `LoadWorkerState`, or `ForgetWorkerState` (#1547): a durable worker's checkpoint as one
+    /// `SaveWorkerState`, `LoadWorkerState`, or `ForgetWorkerState`: a durable worker's checkpoint as one
     /// catalog row. Saves and deletes go through the writer, loads to the reader pool.
     WorkerState {
         /// The session asking.
@@ -686,7 +686,7 @@ impl Command {
     ///
     /// `SyncWriter` stays on the normal channel: the task takes it only once the control channel is empty, so it
     /// still follows every ingest sent before it, and it also follows the `AckEvents` sent before it, which a
-    /// control-channel sync could overtake (#1322).
+    /// control-channel sync could overtake.
     fn is_control(&self) -> bool {
         matches!(
             self,
@@ -800,7 +800,7 @@ impl CoreHandle {
     }
 
     /// Waits until the writer has done every urgent job queued before now, and has written every durable
-    /// subscription position acknowledged before now (#1322).
+    /// subscription position acknowledged before now.
     ///
     /// # Errors
     ///
@@ -1353,7 +1353,7 @@ struct Sched {
     promise_owners: HashMap<PromiseId, SessionId>,
     /// Live subscriptions by (session, the client's subscription id), and the ones on each stream.
     subs: HashMap<(SessionId, u64), Subscription>,
-    /// Durable positions acknowledged but not yet saved, at most one queued write per name (#1269).
+    /// Durable positions acknowledged but not yet saved, at most one queued write per name.
     cursors: subscribe::CursorAcks,
     /// The last subscription token handed out (each subscription gets the next).
     sub_tokens: u64,
@@ -1588,7 +1588,7 @@ impl Sched {
             Command::RestartCheckpoint { reply } => {
                 // Not settled yet: dropping the reply answers Busy, and the server asks again within its budget.
                 // Reads still running for clients that already left (a long query, a catch-up page) finish on the
-                // reader pool; nothing new can start once the sessions are gone (#1835).
+                // reader pool; nothing new can start once the sessions are gone.
                 if !self.sessions.is_empty() || self.reads.outstanding.load(Ordering::SeqCst) != 0 {
                     return;
                 }
@@ -2372,7 +2372,7 @@ impl Sched {
                     self.leases.remove(&lease);
                     self.jobs.retain(|_, &mut (_, l)| l != lease);
                 }
-                // Queries and promises are wired in the next part (#542): until then the engine has no promises,
+                // Queries and promises are wired in the next part: until then the engine has no promises,
                 // so these can't come up.
                 Action::Dispatch(d) => self.dispatch(d),
                 Action::Fulfill { promise, consumer, outputs, final_part } => {
@@ -2503,7 +2503,7 @@ fn writer(
             continue;
         }
         // Nothing to do: wait for either queue. A durable catalog leaves ordinary commits unsynced for up to
-        // `DURABLE_IDLE` (#1958); a wait that long with nothing arriving makes them durable.
+        // `DURABLE_IDLE`; a wait that long with nothing arriving makes them durable.
         let idle = match (urgent_open, background_open) {
             (false, false) => return,
             (true, true) => crossbeam_channel::select_biased! {
@@ -2818,7 +2818,7 @@ fn insert_bisecting(catalog: &dyn Catalog, batch: Vec<NewPayload>) -> Vec<Result
     insert_bisecting_with(catalog, batch.into_iter().map(|p| (p, Vec::new())).collect())
 }
 
-/// [`insert_bisecting`] for payloads with their dependencies (#1535), which go with them into each half.
+/// [`insert_bisecting`] for payloads with their dependencies, which go with them into each half.
 fn insert_bisecting_with(
     catalog: &dyn Catalog,
     batch: Vec<(NewPayload, Vec<continuum_catalog::Dependency>)>,
@@ -3179,7 +3179,7 @@ mod tests {
         let (events, mut received) = tokio::sync::mpsc::unbounded_channel();
         let alive = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
         let guard = Alive(std::sync::Arc::clone(&alive));
-        // Never finishes on its own, like devbox's frame sweep.
+        // Never finishes on its own, like a long frame sweep.
         let job: super::BackgroundJob = Box::new(move |_, _| {
             let _ = &guard;
             true
@@ -3698,7 +3698,7 @@ mod tests {
         fulfillment_with_overtaking_final(FulfillmentTestOutcome::Cancel).await;
     }
 
-    /// #1269: after a restart, a durable follower's catch-up acknowledged every event while the writer was busy. Each
+    /// After a restart, a durable follower's catch-up acknowledged every event while the writer was busy. Each
     /// ack took a slot in the writer's urgent queue, the queue filled, and later acks were dropped (5,635 warnings in
     /// one second), so the saved cursor stayed behind the work done. The newest position must still reach the catalog,
     /// in a few writes rather than one per ack.

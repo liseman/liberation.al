@@ -40,7 +40,7 @@
   flex: none;
   font-variant-numeric: tabular-nums;
 }
-/* A call in progress, pinned at the top while it's on (#2699): a live dot, which way, who, and how long so far. */
+/* A call in progress, pinned at the top while it's on: a live dot, which way, who, and how long so far. */
 .liveRow {
   display: flex;
   flex-wrap: wrap;

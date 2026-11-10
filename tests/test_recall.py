@@ -13,7 +13,7 @@ from liberational import config as cfg
 from liberational import memory_log
 from liberational import ollama_health as oh
 from liberational.domain import kernel
-from liberational.memory import embedding, recall, video_evidence
+from liberational.memory import embedding, question, recall, video_evidence
 from liberational.memory import history_qa as h
 from liberational.people import registry
 from voices import write_voices
@@ -553,6 +553,15 @@ def run_loop(state, question=Q):
     return recall.loop(question, history(state, question), state)
 
 
+def test_the_planner_is_told_how_the_question_was_read(state, fake, readings):
+    asked = "what did Dana tell me about the garden yesterday"
+    readings[asked] = question.Reading(people=("Dana", "me"), day="yesterday", text="ignored")
+    fake.replies += [{"decision": "answer"}]
+    recall.loop(asked, history(state, asked), state, NOW)
+    prompt = json.loads(fake.decisions()[0]["messages"][1]["content"])
+    assert prompt["read_as"] == {"source": "speech", "measure": "describe", "people": ["Dana", "me"]}
+
+
 def test_journal_only_loop_rejects_other_sources_and_defaults_to_focused_search(state, fake):
     meaning = put(state, "Tomatoes in the garden.", YESTERDAY)
     lines(state, [(YESTERDAY, "Dana", 3, "Unrelated speech must stay out.")])
@@ -852,7 +861,7 @@ def test_calls_inside_the_loop_never_outlast_its_deadline(monkeypatch):
     assert timeouts == [90, 30.0]
 
 
-# ---- encounters (#223): who was here, last seen, and how long, from the timeline, citing what's behind them ----
+# ---- encounters: who was here, last seen, and how long, from the timeline, citing what's behind them ----
 
 DANA, ALICE = kernel.PersonId("p-dana"), kernel.PersonId("p-alice")
 

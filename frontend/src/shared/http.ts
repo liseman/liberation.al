@@ -105,7 +105,7 @@ export const isNetworkFailure = (e: unknown): boolean => e instanceof TypeError;
 
 /**
  * True for a refusal that will clear by itself shortly: the server's 503 with `starting` (its data broker restarting,
- * or a first read still loading, #1355).
+ * or a first read still loading).
  */
 export const isStarting = (e: unknown): boolean =>
   e instanceof HttpError &&
@@ -159,7 +159,7 @@ export async function request<T>(
   priority: ReadPriority = 'page',
   recover = true,
 ): Promise<T> {
-  // Every request is timed for the page's log (#2007): a failed or slow one is reported, and each joins the trace of
+  // Every request is timed for the page's log: a failed or slow one is reported, and each joins the trace of
   // the navigation that waited on it. Only its path is kept.
   const method = body === undefined ? 'GET' : 'POST';
   const started = performance.now();
@@ -176,7 +176,7 @@ export async function request<T>(
 }
 
 /** A file POSTed as its request's body, as request() sends one, with the upload's progress, which fetch can't give:
- *  `onProgress` gets the share sent so far, 0 to 1 (Ingest, #2718). A refusal is an HttpError with the server's
+ *  `onProgress` gets the share sent so far, 0 to 1 (Ingest). A refusal is an HttpError with the server's
  *  message, as request()'s is. */
 export function upload<T>(url: string, file: Blob, onProgress?: (share: number) => void): Promise<T> {
   const started = performance.now();
@@ -256,7 +256,7 @@ async function send<T>(
       release = await readSlot(controller.signal, priority);
       // Only reads get a deadline, as getJSON had; a POST can wait on the server's own work, like a service restart.
       // The deadline is the server's: it starts once this read has a slot, so a page that asks for many at once
-      // doesn't time out the ones queued behind a few slow answers (#2022).
+      // doesn't time out the ones queued behind a few slow answers.
       timer = setTimeout(() => {
         timedOut = true;
         controller.abort();

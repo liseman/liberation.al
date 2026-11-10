@@ -247,7 +247,7 @@ it('lists the streams on the one connection, which a hold keeps open with nothin
   expect(wire().closed).toBe(true);
 });
 
-// #2772: an untagged `streams` held the connection's frames until it was answered (about 1.8 s when the gateway re-read
+// An untagged `streams` held the connection's frames until it was answered (about 1.8 s when the gateway re-read
 // live chunks), so every camera stalled until its next keyframe. A gateway that says `streams_req` runs a tagged one
 // beside the frames; an older one gets them untagged, as before.
 it.each([

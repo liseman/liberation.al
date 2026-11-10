@@ -1,7 +1,7 @@
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { HttpResponse, http } from 'msw';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { renderPage } from '../../../test/render';
 import { server } from '../../../test/server';
 import { DeviceLinks, UNKNOWN_SHOWN } from './DeviceLinks';
@@ -42,7 +42,12 @@ const view = (over: Partial<DeviceLinksView> = {}): DeviceLinksView => {
 
 const serve = (reply: DeviceLinksView) => server.use(http.get('/device-links', () => HttpResponse.json(reply)));
 
+// Whose a device is comes from the people known by name.
+const PEOPLE = http.get('/people', () => HttpResponse.json({ people: [{ name: 'Dana' }, { name: 'Sam' }] }));
+
 describe('DeviceLinks', () => {
+  beforeEach(() => server.use(PEOPLE));
+
   it('lists each device with its sensor, where, signal, and when, and counts them', async () => {
     serve(
       view({
@@ -178,12 +183,70 @@ describe('DeviceLinks', () => {
     renderPage(<DeviceLinks control />);
     await user.click(await screen.findByRole('button', { name: 'Link Unknown device' }));
     const form = screen.getByRole('form', { name: 'Link Unknown device' });
-    await user.type(within(form).getByLabelText('Whose is it?'), ' Dana ');
+    await user.type(await within(form).findByRole('combobox', { name: 'Whose is it?' }), ' Dana ');
     await user.selectOptions(within(form).getByLabelText('Recognize it by'), '1');
     await user.click(within(form).getByRole('button', { name: 'Link' }));
     expect(await screen.findByTitle('Linked to Dana, a person')).toBeInTheDocument();
     expect(sent).toEqual({ kind: 'ble_fingerprint', value: FINGERPRINT, target: 'person', name: 'Dana' });
     expect(screen.queryByRole('form')).not.toBeInTheDocument();
+  });
+
+  it('offers the known people as you type and links the one picked', async () => {
+    let sent: unknown = null;
+    server.use(
+      http.get('/device-links', () => HttpResponse.json(view({ devices: [device()] }))),
+      http.post('/device-links', async ({ request }) => {
+        sent = await request.json();
+        return HttpResponse.json({ ok: true, link: { id: 'l1', kind: 'ble_identifier', value: WATCH } });
+      }),
+    );
+    const user = userEvent.setup();
+    renderPage(<DeviceLinks control />);
+    await user.click(await screen.findByRole('button', { name: 'Link Unknown device' }));
+    const form = screen.getByRole('form', { name: 'Link Unknown device' });
+    await user.type(await within(form).findByRole('combobox', { name: 'Whose is it?' }), 'sa');
+    expect(screen.queryByRole('option', { name: 'Dana' })).not.toBeInTheDocument();
+    await user.click(await screen.findByRole('option', { name: 'Sam' }));
+    expect(within(form).getByRole('combobox', { name: 'Whose is it?' })).toHaveValue('Sam');
+    await user.click(within(form).getByRole('button', { name: 'Link' }));
+    await waitFor(() => expect(sent).toEqual({ kind: 'ble_identifier', value: WATCH, target: 'person', name: 'Sam' }));
+  });
+
+  it('links a device only to someone known: a new name offers no Add and leaves Link off', async () => {
+    let posted = false;
+    server.use(
+      http.get('/device-links', () => HttpResponse.json(view({ devices: [device()] }))),
+      http.post('/device-links', () => {
+        posted = true;
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    const user = userEvent.setup();
+    renderPage(<DeviceLinks control />);
+    await user.click(await screen.findByRole('button', { name: 'Link Unknown device' }));
+    const form = screen.getByRole('form', { name: 'Link Unknown device' });
+    const box = await within(form).findByRole('combobox', { name: 'Whose is it?' });
+    await user.type(box, 'Danna{Enter}');
+    expect(screen.queryByRole('option', { name: /Add/ })).not.toBeInTheDocument();
+    expect(within(form).getByRole('button', { name: 'Link' })).toBeDisabled();
+    // A known name typed in another case is that person, sent as they're known.
+    await user.clear(box);
+    await user.type(box, 'dana');
+    expect(within(form).getByRole('button', { name: 'Link' })).toBeEnabled();
+    expect(posted).toBe(false);
+  });
+
+  it('says so when nobody is known by name yet', async () => {
+    server.use(
+      http.get('/device-links', () => HttpResponse.json(view({ devices: [device()] }))),
+      http.get('/people', () => HttpResponse.json({ people: [] })),
+    );
+    const user = userEvent.setup();
+    renderPage(<DeviceLinks control />);
+    await user.click(await screen.findByRole('button', { name: 'Link Unknown device' }));
+    const form = screen.getByRole('form', { name: 'Link Unknown device' });
+    expect(await within(form).findByText(/Nobody is known by name yet/)).toBeInTheDocument();
+    expect(within(form).getByRole('button', { name: 'Link' })).toBeDisabled();
   });
 
   it('names a device as a thing, and says why when the server refuses', async () => {
@@ -241,7 +304,7 @@ describe('DeviceLinks', () => {
     await user.type(screen.getByLabelText('Search devices'), 'PHONE');
     await user.click(screen.getByRole('button', { name: 'Link Sample phone' }));
     const form = screen.getByRole('form', { name: 'Link Sample phone' });
-    await user.type(within(form).getByLabelText('Whose is it?'), ' Dana ');
+    await user.type(await within(form).findByRole('combobox', { name: 'Whose is it?' }), ' Dana ');
     await user.click(within(form).getByRole('button', { name: 'Link' }));
     expect(await screen.findByTitle('Linked to Dana, a person')).toBeInTheDocument();
     expect(sent).toEqual({ kind: 'net_mac', value: phone.identifier, target: 'person', name: 'Dana' });
@@ -265,10 +328,10 @@ describe('DeviceLinks', () => {
     renderPage(<DeviceLinks control />);
     await user.click(await screen.findByRole('button', { name: 'Link Sample phone' }));
     const form = screen.getByRole('form', { name: 'Link Sample phone' });
-    await user.type(within(form).getByLabelText('Whose is it?'), 'Dana');
+    await user.type(await within(form).findByRole('combobox', { name: 'Whose is it?' }), 'Dana');
     await user.click(within(form).getByRole('button', { name: 'Link' }));
     expect(await within(form).findByRole('alert')).toHaveTextContent('Store unavailable');
-    expect(within(form).getByLabelText('Whose is it?')).toHaveValue('Dana');
+    expect(await within(form).findByRole('combobox', { name: 'Whose is it?' })).toHaveValue('Dana');
     expect(within(form).getByRole('button', { name: 'Link' })).toBeEnabled();
   });
 

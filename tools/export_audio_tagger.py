@@ -1,9 +1,9 @@
-"""Export EfficientAT mn10_as (an AudioSet tagger, MIT) to ONNX for the TV tagger (listen/media_tag.py, #2468):
+"""Export EfficientAT mn10_as (an AudioSet tagger, MIT) to ONNX for the TV tagger (listen/media_tag.py):
 32 kHz mono waveform in ("waveform", float32 [batch, samples], any length), 527 AudioSet probabilities out ("probs",
 already sigmoided), with the labels in output order beside it.
 
 It runs EfficientAT's own Python and loads its pickled checkpoint, so it is run by hand, on purpose, by someone who
-has decided to trust that code (Joe approved it for devbox, 2026-11-06). The source and checkpoint are pinned:
+has decided to trust that code. The source and checkpoint are pinned:
 
   code        https://github.com/fschmid56/EfficientAT at commit a425fdce92572e602a1d5634799bd9f1f2efa806 (MIT)
   checkpoint  https://github.com/fschmid56/EfficientAT/releases/download/v0.0.1/mn10_as_mAP_471.pt
@@ -16,7 +16,7 @@ torch, torchaudio, and onnxruntime, with the checkpoint in resources/:
     mkdir -p resources && curl -L -o resources/mn10_as_mAP_471.pt <checkpoint URL above>
     python /path/to/liberational/tools/export_audio_tagger.py data/models/efficientat
 
-and copy the upstream LICENSE beside the output. Joe's build on devbox gave:
+and copy the upstream LICENSE beside the output. A reference build on the Linux machine gave:
   efficientat_mn10_as.onnx    eed1f591b2c11e3199d31fc96f6a6f76550c4d9377c8fc83ffc1794b178f0f7a
   efficientat_labels.json     5997fb8a7be942d4442e7cdc8526a2eab46221e442652fad02b76dd0e6adee7f
 

@@ -1,5 +1,5 @@
 import { act, render, screen } from '@testing-library/react';
-import { expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { newQueryClient, Providers } from '../../shared/Providers';
 import { CONFIG_KEY, type ConfigView } from './model';
 import { useNeedsSetup } from './Settings';
@@ -17,7 +17,9 @@ function SetupGate() {
   return <h1>{setup ? 'Set up Liberational' : 'Dashboard'}</h1>;
 }
 
+/** The gate on a page the server filled with `needsSetup`, over a cache that already holds /config's view. */
 function renderGate(needsSetup: boolean) {
+  vi.stubGlobal('NAMES', { needsSetup });
   const client = newQueryClient();
   client.setDefaultOptions({ queries: { retry: false, staleTime: Infinity } });
   client.setQueryData(CONFIG_KEY, config(needsSetup));
@@ -28,6 +30,8 @@ function renderGate(needsSetup: boolean) {
   );
   return client;
 }
+
+afterEach(() => vi.unstubAllGlobals());
 
 it('keeps first-run setup mounted when a post-save config refresh sees the new file', async () => {
   const client = renderGate(true);

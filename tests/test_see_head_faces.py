@@ -106,7 +106,7 @@ def face(person, box=(10.0, 12.0, 60.0, 70.0), emb=None, norm=None, kps=STRAIGHT
 
 
 def side(person, norm=14.0, emb=None):
-    """The side or back of `person`'s head: readable (#2355), but no face to the camera (#3155)."""
+    """The side or back of `person`'s head: readable, but no face to the camera."""
     return face(person, emb=emb, norm=norm, kps=SIDE_ON)
 
 
@@ -195,7 +195,7 @@ def run_track(looks, names, seconds):
 
 
 def test_a_track_that_becomes_a_named_person_never_makes_an_unnamed_group():
-    # #3001: its first look matched nobody, but the track was Alice all along; no "Face N" waits to be named for it
+    # Its first look matched nobody, but the track was Alice all along; no "Face N" waits to be named for it
     rows, matcher = run_track([[weak(1, k)] for k in range(4)], {1: "Alice", 2: "Ann"}, 4)
     assert [r["name"] for r in rows] == [None, "Alice", "Alice", "Alice"]
     assert [r["cluster"] for r in rows] == [None] * 4 and matcher.grouped == []
@@ -216,7 +216,7 @@ def near(person, k=300, w=0.42):
 
 
 def test_a_track_close_to_naming_someone_gets_no_group_before_it_is_named():
-    # #3048: three looks 0.42 like Alice name no one, but the track is Alice, as her fourth look shows
+    # Three looks 0.42 like Alice name no one, but the track is Alice, as her fourth look shows
     rows, matcher = run_track([[near(1)]] * 3 + [[face(1)]], {1: "Alice", 2: "Ann"}, 4)
     assert [r["name"] for r in rows] == [None, None, None, "Alice"]
     assert [r["cluster"] for r in rows] == [None] * 4 and matcher.grouped == []
@@ -240,7 +240,7 @@ def test_a_track_that_stays_close_to_someone_but_unnamed_is_grouped_at_the_hold_
     ],
 )
 def test_only_looks_that_show_the_face_count_toward_an_unnamed_group(look, grouped):
-    # #3155: nine looks of a stranger, past the hold limit; the side or back of a head never makes a group
+    # Nine looks of a stranger, past the hold limit; the side or back of a head never makes a group
     rows, matcher = run_track([[look]] * 9, {1: "Alice", 2: "Ann"}, 9)
     first = head_faces.GROUP_AFTER_LOOKS - 1
     expected = [None] * first + ["Face 5"] * (9 - first) if grouped else [None] * 9
@@ -411,7 +411,7 @@ def test_a_face_past_the_frames_edge_is_written_inside_it():
 
 @pytest.mark.parametrize("norm", [pytest.param(17.5, id="with-norm"), pytest.param(None, id="recognizer-gave-none")])
 def test_each_look_writes_what_its_face_is_made_of_beside_its_match(norm):
-    # A head half turned: the ears placed, the nose and eyes less so (#2355).
+    # A head half turned: the ears placed, the nose and eyes less so.
     back = joints([(500, 100), (490, 92), (510, 92), (480, 96), (520, 96)])
     back[:3, 2] = [0.45, 0.31, 0.3]
     detector, written = Script([face(1, norm=norm)]), Written()
@@ -435,7 +435,7 @@ def test_each_look_writes_what_its_face_is_made_of_beside_its_match(norm):
     ],
 )
 def test_a_look_that_hardly_reads_as_a_face_is_set_aside_with_only_its_signal(nose, norm):
-    # The track's first look is a clear Alice; the next one doesn't read as a face (#2355). It must not name the
+    # The track's first look is a clear Alice; the next one doesn't read as a face. It must not name the
     # track, start a face group, become a photo, or leave an embedding: only its signal is written.
     seen = joints([(500, 100), (490, 92), (510, 92), (480, 96), (520, 96)])
     seen[0, 2] = nose
@@ -473,7 +473,7 @@ def test_a_look_at_the_cutoffs_is_kept():
 
 
 class Learning(Names):
-    """Names that records what each ended track would teach the gallery (#3013)."""
+    """Names that records what each ended track would teach the gallery."""
 
     def __init__(self, names):
         super().__init__(names)
@@ -496,7 +496,7 @@ def test_a_track_that_ends_offers_its_looks_and_their_own_matches_to_the_gallery
 
 
 def test_the_side_or_back_of_a_head_is_never_offered_to_the_gallery():
-    # #3155: the track is Alice, but only its two face looks may teach; the side look's own match still counts
+    # The track is Alice, but only its two face looks may teach; the side look's own match still counts
     matcher = Learning({1: "Alice"})
     faces = HeadFaces("cam0", Script([face(1)], [side(1)], [face(1)]), matcher, Written(), sharpness=lambda p, b: 100.0)
     t0 = 1_800_000_000 * NS

@@ -2,7 +2,20 @@ import { QueryClient } from '@tanstack/react-query';
 import { delay, HttpResponse, http } from 'msw';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { server } from '../../test/server';
-import { applyEvent, liveKey, liveQuery, NEW_MS, POLL_MS, QUIET_MS, startLive, WATCHDOG_MS } from './feed';
+import {
+  applyEvent,
+  FIRST_EVENT_MS,
+  liveKey,
+  liveQuery,
+  NEW_MS,
+  POLL_MS,
+  QUIET_MS,
+  STATUS,
+  STATUS_POLL_TICKS,
+  startLive,
+  statusQuery,
+  WATCHDOG_MS,
+} from './feed';
 import { useLiveStatus } from './status';
 import type { Transcript } from './types';
 
@@ -108,7 +121,16 @@ describe('startLive', () => {
     for (let i = 0; i < 4; i++) es.fail();
     expect(conn()).toEqual({ state: 'bad', text: 'polling' });
     await vi.waitFor(() => expect(polls).toContain('/scene'));
-    expect(new Set(polls)).toEqual(new Set(['/transcript?n=80', '/scene', '/speakers', '/ambient', '/vision']));
+    const live = ['/transcript?n=80', '/scene', '/speakers', '/ambient', '/vision'];
+    const status = ['/devices/privacy', '/services', '/research/jobs'];
+    expect(new Set(polls)).toEqual(new Set([...live, ...status]));
+    // The shell's status is asked on every fifth tick only: it's a badge and a count, not the transcript.
+    polls.length = 0;
+    await vi.advanceTimersByTimeAsync(POLL_MS * (STATUS_POLL_TICKS - 1));
+    expect(polls.filter(url => status.includes(url))).toEqual([]);
+    await vi.advanceTimersByTimeAsync(POLL_MS);
+    // Status reads are background reads, one at a time behind the page's: they go out as the earlier ones answer.
+    await vi.waitFor(() => expect(new Set(polls.filter(url => status.includes(url)))).toEqual(new Set(status)));
     expect(client.getQueryData(liveKey('scene'))).toEqual([{ cam: 'cam0', ts: 5 }]);
 
     es.open();
@@ -182,6 +204,67 @@ describe('a snapshot that started before the stream', () => {
     await snapshot;
     const texts = client.getQueryData<Transcript>(liveKey('transcript'))?.entries.map(e => e.text);
     expect(texts).toEqual(['from the stream', 'newer line']);
+  });
+});
+
+describe('stream-fed queries (#52)', () => {
+  const privacy = { ok: true, control: true, ready: true, devices: [] };
+
+  it("writes the shell's status events to the queries their pages read", () => {
+    stop = startLive(client);
+    const es = FakeEventSource.last;
+    es.open();
+    es.send('privacy', privacy);
+    es.send('services', { ok: true, control: true, platform: 'linux', services: [] });
+    es.send('research', { jobs: [], available: true, reason: null, unread: 2 });
+    expect(client.getQueryData(STATUS.privacy.key)).toEqual(privacy);
+    expect(client.getQueryData(STATUS.services.key)).toMatchObject({ platform: 'linux' });
+    expect(client.getQueryData(STATUS.research.key)).toMatchObject({ unread: 2 });
+  });
+
+  it("takes a first read from the stream's opening snapshot without asking the URL", async () => {
+    stop = startLive(client);
+    const scene = client.fetchQuery(liveQuery(client, 'scene'));
+    const pauses = client.fetchQuery(statusQuery('privacy'));
+    await vi.advanceTimersByTimeAsync(100);
+    expect(polls).toEqual([]);
+    const es = FakeEventSource.last;
+    es.open();
+    es.send('scene', [{ cam: 'cam1', ts: 9 }]);
+    es.send('privacy', privacy);
+    expect(await scene).toEqual([{ cam: 'cam1', ts: 9 }]);
+    expect(await pauses).toEqual(privacy);
+    expect(polls).toEqual([]);
+  });
+
+  it('asks the URL for a kind the opening snapshot ended without, and for a refetch of one it has', async () => {
+    stop = startLive(client);
+    const es = FakeEventSource.last;
+    es.open();
+    const jobs = client.fetchQuery(statusQuery('research'));
+    es.send('privacy', privacy);
+    es.send('ready', {});
+    await jobs;
+    expect(polls).toEqual(['/research/jobs']);
+    await client.fetchQuery({ ...statusQuery('privacy'), staleTime: 0 }); // as an invalidation after a change does
+    expect(polls).toEqual(['/research/jobs', '/devices/privacy']);
+  });
+
+  it('stops waiting when the stream goes quiet or fails over to polling', async () => {
+    stop = startLive(client);
+    const quiet = client.fetchQuery(statusQuery('services'));
+    await vi.advanceTimersByTimeAsync(FIRST_EVENT_MS);
+    await quiet;
+    expect(polls).toEqual(['/services']);
+    const waiting = client.fetchQuery(statusQuery('privacy'));
+    for (let i = 0; i < 4; i++) FakeEventSource.last.fail();
+    await waiting;
+    expect(polls).toContain('/devices/privacy');
+  });
+
+  it('asks the URL at once when no feed was started', async () => {
+    await client.fetchQuery(statusQuery('privacy'));
+    expect(polls).toEqual(['/devices/privacy']);
   });
 });
 

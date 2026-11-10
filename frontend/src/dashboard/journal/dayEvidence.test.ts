@@ -30,7 +30,7 @@ describe('evidenceAt', () => {
   });
 
   it("never shows a long source's clip far from its moment, and never a speech source", () => {
-    // An action over a minute: its clip is the 6 s around its moment, not anything 40 s on (review of #2846).
+    // An action over a minute: its clip is the 6 s around its moment, not anything 40 s on.
     const span = src({ ts_start: T, ts_end: T + 60, t: T + 2 });
     expect(evidenceAt([span], 'cam0', T + 40)).toBeNull();
     expect(evidenceAt([span], 'cam0', T + 4)).toBe(span);

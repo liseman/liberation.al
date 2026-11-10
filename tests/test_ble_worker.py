@@ -99,7 +99,7 @@ def test_a_flush_reserves_one_record_of_the_rate_for_coverage():
 
 
 def test_a_running_worker_says_it_started_and_reports_what_it_recorded_every_ten_minutes(caplog):
-    """#2660: bluetooth.log stayed empty on a healthy run; it logged only a stop or a failure."""
+    """bluetooth.log stayed empty on a healthy run; it logged only a stop or a failure."""
     moment = [0.0]
     source = Source()
     source.stats["lost_reports"] = 0

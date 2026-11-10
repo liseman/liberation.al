@@ -289,7 +289,7 @@ def test_a_leftover_row_under_a_renamed_persons_old_name_is_refused(world, monke
 
 
 def test_a_voice_clone_that_shares_their_name_stays(world):
-    # A clone recorded from one uploaded clip, named like her: not her voice (PR #36).
+    # A clone recorded from one uploaded clip, named like her: not her voice.
     state = world.state
     write_voices(state, {9: "Dana Cole"})
     (state / "clones" / "9.wav").write_bytes(b"wav")
@@ -370,7 +370,7 @@ def test_a_failed_continuum_purge_keeps_them_in_the_registry_to_delete_again(wor
 
 
 def test_deleting_someone_clears_their_face_crops_and_keeps_everyone_elses(world, vision):
-    # Clearing every crop made the dashboard cut every face again from video, which starved the pets' photos (#2579).
+    # Clearing every crop made the dashboard cut every face again from video, which starved the pets' photos.
     hers, alices = (vision.face(time.time() - 60, "cam0", who, 0.8)["id"] for who in ("Dana Cole", "Alice"))
     for sid in (hers, alices):
         face_shots.write(world.state, sid, "0", b"jpg")

@@ -85,7 +85,7 @@ describe('Show only', () => {
   it('picks and unpicks with a click, and Show all clears every pick', async () => {
     const { engine } = setup();
     const dana = showOnly().getByRole('button', { name: /^Dana/ });
-    const mug = showOnly().getByRole('checkbox', { name: /^Mug/ }); // things and events are pills (#2287)
+    const mug = showOnly().getByRole('checkbox', { name: /^Mug/ }); // things and events are pills
     await userEvent.click(dana);
     await userEvent.click(mug);
     expect(dana).toHaveAttribute('aria-pressed', 'true');
@@ -324,7 +324,7 @@ describe('co-occurring filter alternatives (#2106)', () => {
     spans: spans.map(([a, b]) => [D0 + a, D0 + b]),
     ...more,
   });
-  // People are toggle buttons; things and events are pill checkboxes (#2287).
+  // People are toggle buttons; things and events are pill checkboxes.
   const option = (name: string) =>
     showOnly().queryByRole('checkbox', { name: new RegExp(`^${name}\\d`) }) ??
     showOnly().getByRole('button', { name: new RegExp(`^${name}\\d`) });

@@ -1,4 +1,4 @@
-"""Device makers and kinds from the IEEE and Bluetooth SIG registries (proximity/vendors.py, #3267). Every registry
+"""Device makers and kinds from the IEEE and Bluetooth SIG registries (proximity/vendors.py). Every registry
 here is a small hand-written file in the real files' formats."""
 
 from pathlib import Path

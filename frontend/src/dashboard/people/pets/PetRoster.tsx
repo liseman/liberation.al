@@ -1,4 +1,4 @@
-// The Pets list, left of a pet's card, as People's roster is (#2019): a count, search, "New pet", how many sighting
+// The Pets list, left of a pet's card, as People's roster is: a count, search, "New pet", how many sighting
 // groups wait for a name (Pets' "Who's this?"), then every named pet with its photo and where it was last seen.
 import { Button, Group, Text } from '@mantine/core';
 import { useState } from 'react';
@@ -47,7 +47,7 @@ export function PetRoster({
   errorDetail?: string | null; // the server's reason, behind Show details
   retrying: boolean;
   onRetry: () => void;
-  only?: string; // one species only (a link from an animal's box, #1986)
+  only?: string; // one species only (a link from an animal's box)
   onShowAll: () => void;
   cursor: string | null; // the selected roster row
   sel: string | null; // a pet's id, '?' for the sightings waiting, or null

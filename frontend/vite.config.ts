@@ -27,7 +27,7 @@ export default defineConfig({
     setupFiles: ['src/test/setup.ts'],
     css: false,
     restoreMocks: true,
-    testTimeout: 30_000, // a loaded shared machine, not a slow test: see asyncUtilTimeout in src/test/setup.ts (#1321)
+    testTimeout: 30_000, // a loaded shared machine, not a slow test: see asyncUtilTimeout in src/test/setup.ts
     maxWorkers: 4, // a shared machine: AGENTS.md "Share the machine"
   },
 });

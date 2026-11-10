@@ -1,7 +1,7 @@
 // Formatting shared by the dashboard's tabs. Times are Unix seconds.
 
 // One formatter each, made once: toLocaleTimeString builds a new one per call, and Live formats every line's time on
-// every render (a quarter of its script time, #440).
+// every render (a quarter of its script time).
 const HMS = new Intl.DateTimeFormat([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
 const HM = new Intl.DateTimeFormat([], { hour: '2-digit', minute: '2-digit', hour12: false });
 

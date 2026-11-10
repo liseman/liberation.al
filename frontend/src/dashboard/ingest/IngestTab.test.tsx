@@ -70,7 +70,7 @@ describe('mediaTime', () => {
       at(2026, 8, 27, 15, 9),
       `${new Date(2026, 8, 27).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })}, 15:09`,
     ],
-    // Media can be years old: another year says which (#2713)
+    // Media can be years old: another year says which
     [
       at(2019, 7, 17, 14, 12),
       `${new Date(2019, 7, 17).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}, 14:12`,
@@ -486,7 +486,7 @@ describe('the Ingest tab', () => {
       expect.stringMatching(/#network-cameras$/),
     );
     const link = screen.getByText('Fetching https://example.invalid/v:').parentElement as HTMLElement;
-    expect(link).toHaveTextContent("That link didn't load"); // in plain words (#2712)
+    expect(link).toHaveTextContent("That link didn't load"); // in plain words
     expect(within(link).queryByRole('link')).not.toBeInTheDocument(); // a link's failure isn't fixed in Settings
     expect(screen.getByText('Fetching https://example.invalid/w: working')).toBeInTheDocument();
   });

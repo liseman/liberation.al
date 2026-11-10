@@ -1,7 +1,7 @@
-// Where focus goes when a naming row leaves the list (#2328, #2329): shared by every kind of naming inbox.
+// Where focus goes when a naming row leaves the list: shared by every kind of naming inbox.
 
 /** Where focus goes when a row leaves for saving: the next row still waiting, else the one before, else the heading,
- *  without scrolling, so the owner stays where they were in the list and can carry on down it (#2328). */
+ *  without scrolling, so the owner stays where they were in the list and can carry on down it. */
 export function focusAfter(list: HTMLElement | null, id: string, fallback: HTMLElement | null) {
   const rows = [...(list?.querySelectorAll<HTMLElement>(':scope > li[data-row]') ?? [])];
   const at = rows.findIndex(r => r.dataset.row === id);
@@ -28,7 +28,7 @@ export function focusRestored(rowKey: string | null, headingId: string, giveUp =
 
 export type Direction = 'up' | 'down' | 'left' | 'right';
 
-/** The card beside, above, or below `from` on screen (#3241), by the cards' drawn rectangles, not their list order,
+/** The card beside, above, or below `from` on screen, by the cards' drawn rectangles, not their list order,
  *  so in a grid of several columns the arrows follow what the owner sees. Left and Right stay in `from`'s row (in one
  *  column they find nothing); Up and Down take the nearest row that way, and in it the card closest across. Hidden
  *  cards (a row saving, or folded away) are skipped. Null when there is none that way. */

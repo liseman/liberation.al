@@ -16,7 +16,7 @@ interface Reference {
   exists: boolean;
   seconds: number;
   prompt: string;
-  problem?: 'missing' | 'unreadable' | null; // the voice can't clone from it (#301)
+  problem?: 'missing' | 'unreadable' | null; // the voice can't clone from it
 }
 interface Saved {
   ok: boolean;
@@ -28,7 +28,7 @@ const DRAFT_KEY = 'voice-ref-take';
 const SAVED_KEY = 'voice-ref';
 const ownPlayback = () => [DRAFT_KEY, SAVED_KEY].includes(usePlayer.getState().key ?? '');
 
-/** bare: in Settings' recording dialog (#383), where the row above already says what is saved and plays it. */
+/** bare: in Settings' recording dialog, where the row above already says what is saved and plays it. */
 export function VoiceRef({ readOnly, bare = false }: { readOnly: boolean; bare?: boolean }) {
   const client = useQueryClient();
   const reference = useQuery({

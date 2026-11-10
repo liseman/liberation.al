@@ -1,5 +1,5 @@
-"""Count questions about a named event answered from detected events (#290, #518), through history_qa, with a
-stand-in for memory/events.py (#228's interface: events() and coverage())."""
+"""Count questions about a named event answered from detected events, through history_qa, with a
+stand-in for memory/events.py (events() and coverage())."""
 
 import datetime as dt
 import types
@@ -25,7 +25,7 @@ def span(start, end, count, name, cam="cam0"):
 
 
 class FakeEvents(types.ModuleType):
-    """memory/events.py (#228) as a stand-in: the spans it found and the recordings it covered, set per test."""
+    """memory/events.py as a stand-in: the spans it found and the recordings it covered, set per test."""
 
     def __init__(self) -> None:
         super().__init__("liberational.memory.events")
@@ -196,7 +196,7 @@ def test_an_event_count_is_the_answer_with_no_model(events, tmp_path, monkeypatc
 
 
 def test_a_span_named_only_by_its_detectors_kind_is_not_named_yet(events, tmp_path):
-    # memory/events.py (#871) gives an unnamed span its kind ("model_pause") as its name: that's no name anyone gave it.
+    # memory/events.py gives an unnamed span its kind ("model_pause") as its name: that's no name anyone gave it.
     events.covered = [("cam0", at(9, 0), at(9, 30))]
     still = {**span(at(9, 10), at(9, 12), 2, "model_pause"), "kind": "model_pause"}
     named = {**span(at(9, 14), at(9, 16), 1, "opened the fridge"), "kind": "model_action"}

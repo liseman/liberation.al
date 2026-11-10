@@ -1,4 +1,4 @@
-//! A camera's live controls and auto exposure, running beside its capture loop (#535): the loop offers a frame a second
+//! A camera's live controls and auto exposure, running beside its capture loop: the loop offers a frame a second
 //! ([`Steer::offer`], a copy, never waiting), and a thread of its own measures it and steers the camera
 //! ([`crate::exposure::AutoExposure`]), so a decode never costs the 30 fps loop a frame.
 //!
@@ -8,8 +8,8 @@
 //! - **What it sets (V4L2):** `exposure_time_absolute`, with the camera in shutter-priority exposure, where the
 //!   camera raises its own gain as the exposure is capped at the frame period (the Elgato Facecam has no gain
 //!   control of its own), else its brightness. A camera with neither is put in its own auto mode instead, said once
-//!   at WARN (#2953), so its picture still adapts, at whatever frame rate the camera picks.
-//! - **macOS:** AVFoundation's custom exposure (duration and ISO) is still to come (#720); the camera keeps its own
+//!   at WARN, so its picture still adapts, at whatever frame rate the camera picks.
+//! - **macOS:** AVFoundation's custom exposure (duration and ISO) is still to come; the camera keeps its own
 //!   auto exposure there.
 //!
 //! The same thread polls manifest preferences once per second and applies saved controls, even with steering OFF.
@@ -447,7 +447,7 @@ mod device {
     /// that offers just Auto and Shutter Priority (the Elgato Facecam) has it inactive (a write is refused, EACCES):
     /// then its brightness is steered instead, the camera's gain doing the rest as before.
     ///
-    /// A camera with neither (#2953: a kernel that permanently disabled the Facecam's brightness after one stalled
+    /// A camera with neither (a kernel that permanently disabled the Facecam's brightness after one stalled
     /// query) is put in its own auto mode instead (`fall_back`), said once at WARN, so its picture still adapts.
     ///
     /// The bool says whether the mode setup is settled: false only for a failure worth retrying.
@@ -564,7 +564,7 @@ mod device {
     }
 
     /// A control's value as the integer saved settings use. The v4l crate reads a boolean control (auto white
-    /// balance, say) as `Boolean`: that's 0 or 1 here, or a saved boolean would never verify (#2957).
+    /// balance, say) as `Boolean`: that's 0 or 1 here, or a saved boolean would never verify.
     fn scalar(value: &Value) -> Result<i64, String> {
         match value {
             Value::Integer(value) => Ok(*value),
@@ -1047,7 +1047,7 @@ mod device {
             assert!(scalar(&Value::String("x".into())).is_err());
         }
 
-        /// cam0's Facecam after a kernel disabled its brightness (#2953): Auto and Shutter Priority only, exposure
+        /// cam0's Facecam after a kernel disabled its brightness: Auto and Shutter Priority only, exposure
         /// time not settable in Shutter Priority, brightness DISABLED.
         fn knobless_facecam() -> FakeV4l {
             FakeV4l { menu: vec![0, 2], brightness_flags: Flags::DISABLED.bits(), ..Default::default() }
@@ -1193,7 +1193,7 @@ mod device {
     /// The exposure unit (unused off Linux).
     pub const UNIT_NS: u64 = 100_000;
 
-    /// No device control here yet (macOS: AVFoundation's custom exposure, #720).
+    /// No device control here yet (macOS: AVFoundation's custom exposure).
     pub struct Device;
 
     impl Device {

@@ -1,5 +1,5 @@
 """POST /speakers/me ("that was me"): name a voice as the owner's, beside any voice of theirs (naming replaces
-merging, #772), with the microphone service left running."""
+merging), with the microphone service left running."""
 
 import subprocess
 from unittest.mock import create_autospec

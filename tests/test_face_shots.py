@@ -1,4 +1,4 @@
-"""Face thumbnails on disk (#2018): written under the deletion revision, pruned by age and size."""
+"""Face thumbnails on disk: written under the deletion revision, pruned by age and size."""
 
 import threading
 from pathlib import Path
@@ -269,7 +269,7 @@ def test_queue_overflow_and_contention_remain_pending_for_later_admission(tmp_pa
 
 
 def test_a_flood_of_face_crops_neither_keeps_out_nor_delays_a_pet_photo(tmp_path):
-    # #2579: after every face crop was cleared, thousands of face jobs filled the one queue, so a pet's grid photo was
+    # After every face crop was cleared, thousands of face jobs filled the one queue, so a pet's grid photo was
     # reported pending without being admitted and stayed "processing" for hours.
     done = []
     jobs = face_shots.Pending(lambda key: done.append((key[1], key[2])) or face_shots.CropResult(True))

@@ -106,7 +106,7 @@ def test_single_window_counts_named_model_events_with_times_and_camera_filter(tm
     [
         ("how many times did I get up to use the bathroom", "Bathroom"),  # the drawn zone wins
         ("how many times did I say get up today", None),  # talk is the transcript's
-        ("how many times did I stand up today", "stand_up"),  # see-actions' model kinds (#1856)
+        ("how many times did I stand up today", "stand_up"),  # see-actions' model kinds
         ("how often do I usually sit down", "sit_down"),
         ("how many times did I open the door", None),
     ],
@@ -121,7 +121,7 @@ def test_which_count_a_question_asks_for(tmp_path, question, asked):
     [("how many times did I get up today", "stand up"), ("how often do I usually sit down", "sit down")],
 )
 def test_an_unrated_model_kind_is_not_counted_and_says_how_to_check_it(tmp_path, vision, question, what):
-    vision.add(segment_log.ACTION_COVERAGE, ts_start=DAY, ts_end=NOW, cam="cam0", frames=1000)
+    vision.add(segment_log.ACTION_COVERAGE, ts_start=DAY, ts_end=NOW, cam="cam0", frames=1000, model="test")
     kind = what.replace(" ", "_")
     vision.add(segment_log.ACTION_SPANS, ts_start=DAY + 9 * H, ts_end=DAY + 9 * H + 2, cam="cam0", kind=kind,
                candidate=True, track_id="1", subject_type="person", camera_moved=False)  # fmt: skip

@@ -1,4 +1,4 @@
-"""The walkthrough's pose graph (#2931): drift closed by a loop, gravity, the gauge, robustness to a false loop, and
+"""The walkthrough's pose graph: drift closed by a loop, gravity, the gauge, robustness to a false loop, and
 the acceptance checks a MASt3R pair passes to become a loop edge."""
 
 import itertools
@@ -81,7 +81,7 @@ def test_a_loop_edge_closes_heading_drift_and_the_first_pose_stays(width, depth,
     # The loop doesn't close all of the drift, and shouldn't: the chain of odometry edges is as stiff as their noise
     # times the square root of their number (2 degrees x sqrt(31), about 11 degrees, round a 2 x 2 m rectangle)
     # against the loop's 5, so least squares leaves the loop about a sixth of the drift, and Huber, softening a loop
-    # more than 1 sigma out, about 30% on the smallest rectangle with the most drift (#2992). Without the loop
+    # more than 1 sigma out, about 30% on the smallest rectangle with the most drift. Without the loop
     # nothing improves (a ratio of 1).
     assert position_error(solved.poses, true) < 0.5 * position_error(start, true)
     assert solved.edge_deg[-1] < 0.35 * drift_deg

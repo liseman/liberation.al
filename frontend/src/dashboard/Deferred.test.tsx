@@ -6,7 +6,7 @@ import { renderPage } from '../test/render';
 import { Deferred } from './Deferred';
 import { reloadForNewBuild } from './lib/staleChunk';
 
-// Reloading the page isn't something jsdom can do: the boundary's decision is what's under test (#2005).
+// Reloading the page isn't something jsdom can do: the boundary's decision is what's under test.
 vi.mock('./lib/staleChunk', async importOriginal => {
   const real = await importOriginal<typeof import('./lib/staleChunk')>();
   return { ...real, reloadForNewBuild: vi.fn((error: unknown) => real.isChunkLoadError(error)) };

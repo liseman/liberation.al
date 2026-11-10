@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Serialize Rust builds, tests, and checks across every worktree of this repository (#1097). Cargo, rustc, and
+# Serialize Rust builds, tests, and checks across every worktree of this repository. Cargo, rustc, and
 # future sccache startup keep the invoking shell's standard priority; do not wrap this in tools/niced.sh.
 # CARGO_BUILD_JOBS defaults to 8 and remains overridable. Full gates hold this lock too, inside tools/gated.sh.
 #

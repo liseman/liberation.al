@@ -1,4 +1,4 @@
-// Settings' phones, watches, and tags (#1363): the devices the Bluetooth sensors and the router saw, and the owner's
+// Settings' phones, watches, and tags: the devices the Bluetooth sensors and the router saw, and the owner's
 // links from a device to a person or a thing (GET and POST /device-links, dashboard/device_links.py).
 import { request } from '../../../shared/http';
 
@@ -25,7 +25,7 @@ export interface SeenDevice {
   sightings: number;
   selectors: Selector[];
   linked: { id: string; target: Target; name: string } | null;
-  location?: DeviceLocation | null; // where the owner said it lives (#3274)
+  location?: DeviceLocation | null; // where the owner said it lives
 }
 
 /** Where a device lives: a place, or a room of its plan (proximity/devices.py's `device.location`). */
@@ -89,7 +89,7 @@ export const SELECTOR_LABEL: Record<SelectorKind, string> = {
 type Named = Pick<SeenDevice, 'name' | 'identifier' | 'vendor' | 'kind'>;
 
 /** A device's name for the page: what it calls itself, else what kind it is, else who made it, else "Unknown
- *  device". Never its address (#3267): that's in the card's details. */
+ *  device". Never its address: that's in the card's details. */
 export const deviceName = (d: Named): string =>
   d.name?.trim() || d.kind || (d.vendor ? `${d.vendor} device` : 'Unknown device');
 

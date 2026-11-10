@@ -1,4 +1,4 @@
-"""The people list's full read leaves the dashboard process, and a failed worker is replaced (#2418)."""
+"""The people list's full read leaves the dashboard process, and a failed worker is replaced."""
 
 from concurrent.futures import Future
 from concurrent.futures.process import BrokenProcessPool

@@ -262,7 +262,7 @@ export function Health() {
                 Storage isn't measured yet. The dashboard measures it every half hour.
               </Text>
             )}
-            {/* One row of small lines with where each is now (#2621 board, idea 7): steady charts don't need a page
+            {/* One row of small lines with where each is now: steady charts don't need a page
                 each. The hour-by-hour charts are a click away. */}
             {measured.hours.length > 0 && (
               <Stack gap="xs">

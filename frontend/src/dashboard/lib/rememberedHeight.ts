@@ -1,4 +1,4 @@
-// A part of a page whose height arrives with its data holds its last height in this browser while it loads (#2485),
+// A part of a page whose height arrives with its data holds its last height in this browser while it loads,
 // so what's under it doesn't move when the data lands. Per viewer and per window width band, and only a hint: storage
 // can be missing or throw (a private window), and then the part just takes its natural height.
 import { type RefCallback, useMemo } from 'react';

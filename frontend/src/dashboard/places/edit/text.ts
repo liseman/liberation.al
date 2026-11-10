@@ -1,4 +1,4 @@
-// Editing a plan's DSL text (#2859). The text stays the one source of truth, as in the library's playground: every
+// Editing a plan's DSL text. The text stays the one source of truth, as in the library's playground: every
 // edit is a splice into it, and the drawing is made again from it. The library edits the upstream DSL, which has no
 // `x-` statements (spatial memory's extensions, plan/dsl.ts), so those lines are set aside while editing and put back
 // on save, unchanged.

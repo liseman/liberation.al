@@ -26,7 +26,7 @@
   width: 100%;
   color: var(--mantine-color-dimmed);
 }
-/* A past question and a saved moment read as text that opens (#2594 follow-up), not a box each; the actions after the
+/* A past question and a saved moment read as text that opens, not a box each; the actions after the
    list are Mantine buttons (they carry data-variant) on the four-button system. */
 .body button:not([data-variant]) {
   cursor: pointer;

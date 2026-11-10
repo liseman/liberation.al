@@ -1,5 +1,4 @@
-//! The broker's decision making, as a library with no I/O (docs/CONTINUUM.md, "Scheduler" and "Request flows";
-//! issue #541).
+//! The broker's decision making, as a library with no I/O (docs/CONTINUUM.md, "Scheduler" and "Request flows").
 //!
 //! The broker's main loop owns one [`Scheduler`] and drives it as a state machine: every message that reaches the
 //! broker becomes a call with the current time passed in (`now_ns`, UTC nanoseconds like every other time in

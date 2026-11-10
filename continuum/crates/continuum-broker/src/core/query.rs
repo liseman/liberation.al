@@ -260,7 +260,7 @@ impl Sched {
         // it), so a page's limit counts candidates that can pass; the other half is checked on what comes back.
         let mut filter = seq.filter;
         if let Some(r) = range {
-            filter.window = Some(r); // the catalog reads the window, not the whole history (#935)
+            filter.window = Some(r); // the catalog reads the window, not the whole history
             filter.start_before = Some(filter.start_before.map_or(r.end_ns(), |s| s.min(r.end_ns())));
         }
         let events = self.events.clone();

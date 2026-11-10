@@ -1,6 +1,6 @@
-// The Inbox (#1336): research reports, newest first. Each is an Ask question taken slowly in the background; opening
+// The Inbox: research reports, newest first. Each is an Ask question taken slowly in the background; opening
 // a report marks it read. A report leads with its question and its actions, then the answer (whose citations open the
-// moment in Review), "How sure is this?" in plain words, and one counted line that opens on what it looked at (#2457).
+// moment in Review), "How sure is this?" in plain words, and one counted line that opens on what it looked at.
 // On a phone the list opens a report on its own, with a way back.
 import { Alert, Badge, Button, Group, Loader, NavLink, Stack, Text, Title, VisuallyHidden } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
@@ -40,7 +40,7 @@ function took(seconds: number | undefined): string {
   return minutes < 90 ? `${minutes} min` : `${Math.floor(minutes / 60)} h ${minutes % 60} min`;
 }
 
-const when = (ts: number) => momentWords(ts); // "Today, 13:31", in the app's 24-hour times (#2674)
+const when = (ts: number) => momentWords(ts); // "Today, 13:31", in the app's 24-hour times
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
@@ -107,7 +107,7 @@ export function LookedAt({ report }: { report: Report }) {
   );
 }
 
-/** "How sure is this?" as one verdict line (#2674): "Partly sure" and why, or "Fairly sure", with the caveats that hold
+/** "How sure is this?" as one verdict line: "Partly sure" and why, or "Fairly sure", with the caveats that hold
  *  for every report folded under it. The answer's own "Partial answer" badge gives way to it. */
 function HowSure({ status, warnings }: { status: unknown; warnings: readonly unknown[] }) {
   const v = verdict(status, warnings);
@@ -202,7 +202,7 @@ function ReportView({
           {job.took_s !== undefined && ` · took ${took(job.took_s)}`}
         </Text>
         <Group gap="xs">
-          {/* The day it's about, else the day it was asked: a report with no day of its own still opens somewhere (#2674) */}
+          {/* The day it's about, else the day it was asked: a report with no day of its own still opens somewhere */}
           <Button
             size="xs"
             variant="default"
@@ -213,7 +213,7 @@ function ReportView({
             Open in Review
           </Button>
           {finished && (
-            // The same question, researched now: "the last 30 minutes" is about a moment that has passed (#2674)
+            // The same question, researched now: "the last 30 minutes" is about a moment that has passed
             <Button
               size="xs"
               variant="default"
@@ -233,7 +233,7 @@ function ReportView({
             </Button>
           )}
           {job.status === 'done' && !!report?.answer && (
-            // Ask, opened on this report: the server reads the report by its id, so the next question knows it (#2680)
+            // Ask, opened on this report: the server reads the report by its id, so the next question knows it
             <Button
               size="xs"
               variant="default"
@@ -329,7 +329,7 @@ function researchAQuestion() {
 export function InboxTab() {
   const q = useQuery(researchQuery());
   const [open, setOpen] = useState<string | null>(null);
-  // On a wide screen the reader beside the list opens on arrival (#2674): the newest unread report, else the newest.
+  // On a wide screen the reader beside the list opens on arrival: the newest unread report, else the newest.
   // Closing it ("All reports") or a phone, where the list is the page, leaves it closed.
   const wide = useMediaQuery(`(min-width: ${PHONE_MAX + 1}px)`, undefined, { getInitialValueInEffect: false }) ?? false;
   const [closed, setClosed] = useState(false);
@@ -347,7 +347,7 @@ export function InboxTab() {
       meta={jobs.length ? plural(jobs.length, 'report') : undefined}
       lede="Questions looked into slowly, in the background. Each report lands here when it's done."
       actions={
-        // Research starts from Review's Ask, which has the day's recordings to look through (#2674)
+        // Research starts from Review's Ask, which has the day's recordings to look through
         <Button size="sm" onClick={researchAQuestion}>
           Research a question
         </Button>
@@ -380,7 +380,7 @@ export function InboxTab() {
           <ul className={classes.items}>
             {jobs.map(j => {
               const unread = (j.status === 'done' || j.status === 'failed') && !j.read;
-              // A finished report whose answer came out short of whole says so on the list (#2674)
+              // A finished report whose answer came out short of whole says so on the list
               const partial = j.status === 'done' && !!j.answer_status && j.answer_status !== 'ok';
               return (
                 <li key={j.id}>
@@ -408,7 +408,7 @@ export function InboxTab() {
                         )}
                         {when(j.created_at)}
                         {/* What the dot and a finished row's missing badge say, for screen readers; the row is named
-                            by its visible words plus these, not an aria-label that left the date out (axe, #2661) */}
+                            by its visible words plus these, not an aria-label that left the date out (axe) */}
                         {((j.status === 'done' && !partial) || unread) && (
                           <>
                             {' '}

@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useMicRecorder, voicedSeconds } from './mic';
 
 let show: (on: boolean) => void = () => {};
-/** A tab that can be hidden, as App shows one (#330). */
+/** A tab that can be hidden, as App shows one. */
 function Tab({ children }: { children: ReactNode }) {
   const [on, setOn] = useState(true);
   show = setOn;
