@@ -23,7 +23,7 @@
 # auto_exposure = true    # steer the exposure toward exposure_target, slowly; false leaves the camera's own
 # exposure_target = 110.0  # mean luma (0 to 255) to steer toward: the faces' when some are in view, else the frame's
 # flip = false       # mounted upside down: readers flip it
-# encoding = { enabled = true }  # store an MJPEG camera as H.264 (NVENC on gpu 0, else libx264), see ARCHITECTURE.md
+# encoding = { enabled = true }  # store an MJPEG camera as H.264 (NVENC on gpu 0, else libx264), see docs/VISION.md
 
 [[device]]
 name = "facecam"
