@@ -291,6 +291,10 @@ description = "Build the Continuum daemons in release mode, for the services (co
 dir = "continuum"
 run = "../tools/build-slot.sh cargo build --release --bins --features continuum-tier/ffmpeg,continuum-capture/ffmpeg"
 
+[tasks.continuum-wheels]
+description = "Build Continuum's wheels for this platform into continuum/dist/: the SDK and the daemons, with a private LGPL FFmpeg linked in (docs/CONTINUUM.md, Wheels). On Linux it builds in a Debian 12 container (needs Docker), so the wheels run on glibc 2.36 and later"
+run = "tools/build-slot.sh continuum/packaging/wheels.sh"
+
 [tasks.continuum-check]
 description = "Check the Continuum workspace: rustfmt, clippy with warnings as errors, ruff and ty on the Python bindings, and that the generated schema code is current"
 dir = "continuum"

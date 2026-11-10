@@ -2030,7 +2030,7 @@ On Linux with NVIDIA GPUs:
 - NVENC encodes H.264 and HEVC (AV1 hardware encode depends on the GPU generation; `ffmpeg -encoders` may list `av1_nvenc` even when the GPU lacks it).
 - NVDEC decodes H.264, HEVC, AV1, VP9, and MJPEG (`*_cuvid` and nvjpeg).
 - Software: SVT-AV1, libaom, x264, x265, libopus, and FLAC.
-- The Rust crates link the system shared FFmpeg libraries (`libavcodec`, `libavformat`, `libavutil`), not a static FFmpeg binary from `mise`.
+- A checkout's build links the system's shared FFmpeg libraries (`libavcodec`, `libavformat`, `libavutil`, and `libswscale`), not a static FFmpeg binary from `mise`. The wheels link a private FFmpeg statically instead ("Wheels", below).
 
 On macOS (Apple Silicon):
 
@@ -2056,6 +2056,68 @@ controls behind one generic API. Instead:
 - macOS video: AVFoundation through `objc2`, using each `CMSampleBuffer`'s presentation time on the host clock.
 - Audio: `cpal` (CoreAudio on the Mac). On Linux, check that its backend gives capture timestamps for PipeWire
   sources; if it doesn't, use `pipewire-rs`.
+
+### Wheels
+
+An install that isn't a checkout gets Continuum as two wheels, so it needs no Rust toolchain, no compiler, and no
+FFmpeg or PipeWire headers:
+
+| Wheel | What it installs |
+|---|---|
+| `continuum_py-<version>-cp314-cp314-<platform>.whl` | The Python SDK, with the H.264 decoder for network-camera vision built in |
+| `continuum_daemons-<version>-py3-none-<platform>.whl` | `continuum-broker`, `continuum-capture`, `continuum-capture-worker`, `continuum-tier-worker`, `continuum-vector-worker`, `continuum-gateway`, and `continuum-export`, in the environment's `bin/`, so they're on its `PATH` |
+
+`mise run continuum-wheels` builds both for the platform it runs on, into `continuum/dist/`
+(`continuum/packaging/wheels.sh`, which runs `packaging/build.sh`). A checkout doesn't use them: `uv sync` and
+`mise run continuum-release` build from source against the system's FFmpeg, as before.
+
+**FFmpeg: a private LGPL build, linked statically.** The alternative was a build per distribution release against
+that release's FFmpeg. The private build won because:
+
+- A distribution's FFmpeg changes its library names with every major version (`libavcodec60`, `61`, `62`), so each
+  supported release would need its own daemons and its own SDK wheel, and a wheel has no tag for a distribution
+  release: `manylinux` only names a glibc.
+- The code calls little of FFmpeg, so the private build is small: the H.264 decoder and parser, the RTSP demuxer over
+  TCP and UDP, the MP4 muxer, libswscale, and the hardware encoders and decoder (NVENC and NVDEC on Linux, which load
+  the NVIDIA driver's own libraries when they run, and VideoToolbox on macOS). libavdevice, libavfilter, and
+  libswresample aren't called at all, and the crates no longer link them anywhere.
+- One FFmpeg version everywhere means one set of codec behavior to test, on every distribution and on macOS.
+
+What the choice costs:
+
+- **No libx264.** It's GPL, and an LGPL build can't carry it. The software H.264 encoder in the wheels is OpenH264
+  (BSD), which `continuum_tier::h264` tries after libx264: a checkout's build against a distribution's FFmpeg still
+  uses libx264. OpenH264 has no Main profile, so its streams are High profile, and it encodes pictures up to
+  about 4K. It's the fallback for a machine with no hardware encoder; NVENC and VideoToolbox are unchanged.
+- **No AV1.** The opt-in archive pass (`video_archive.av1`) needs SVT-AV1 and an AV1 decoder, which the private build
+  leaves out; with the wheels it reports that this FFmpeg has no such encoder. A checkout's build has it.
+- **No TLS**, so a wheel install reads `rtsp://` cameras only, not `rtsps://`.
+- **Static linking and the LGPL.** Each wheel carries FFmpeg's and OpenH264's licenses, the notice from NVIDIA's codec
+  headers, and FFmpeg's configure line under its `.dist-info/licenses/`. The recipe is `continuum/packaging/ffmpeg.sh`,
+  with every source pinned by version and SHA-256, so anyone can rebuild the same libraries or relink with their own.
+
+PipeWire stays a system library, since the capture supervisor talks to the session's own PipeWire daemon:
+`continuum-capture` and `continuum-capture-worker` need `libpipewire-0.3.so.0` (Debian and Ubuntu:
+`libpipewire-0.3-0`). The daemons that encode on the CPU also need `libstdc++.so.6`, which every desktop has.
+Nothing else comes from the system but glibc.
+
+**Supported platforms.** The Linux wheels are built in a Debian 12 container, and name its glibc, 2.36, as the
+oldest they run on (`manylinux_2_36`). `packaging/pack_wheel.py` refuses to pack a daemon that needs a newer one, and
+maturin checks the SDK the same way.
+
+| Platform | Wheel tag | Releases |
+|---|---|---|
+| Linux x86-64 | `manylinux_2_36_x86_64` | Ubuntu 24.04 and 26.04, Debian 12 and 13 |
+| Linux arm64 | `manylinux_2_36_aarch64` | the same |
+| macOS on Apple Silicon | `macosx_14_0_arm64` | macOS 14 and later |
+
+Ubuntu 22.04 is out: its glibc is 2.35, and its PipeWire (0.3.48) is older than the capture supervisor builds
+against. NVENC and NVDEC need NVIDIA driver 530 or later, the oldest that FFmpeg 8's NVIDIA headers (12.1) work with.
+
+`packaging/smoke.sh <image>` installs the wheels in `continuum/dist/` into a clean container of one release (for
+example `ubuntu:24.04`) and checks that the SDK imports with its decoder and each daemon starts and prints its version
+or capabilities. To run the Rust tests against the private FFmpeg, as after a version bump in `ffmpeg.sh`:
+`packaging/wheels.sh packaging/with-ffmpeg.sh cargo test -p continuum-tier --features ffmpeg-static`.
 
 ### One process per physical device
 
@@ -2362,6 +2424,7 @@ Tasks in `mise.toml`, added with the code that needs them:
 | `continuum-test` | `tools/continuum-test.sh`: `continuum-tier` and `continuum-capture` tests with the `ffmpeg` feature when libavcodec is present, `cargo test --workspace`, the Python bindings' tests against a real broker, the C++ example, and the Python Continuum integration tests |
 | `continuum-py` | `tools/build-slot.sh uv run --no-sync maturin develop --manifest-path continuum/pyproject.toml --release` into the repo's venv |
 | `continuum-py-ffmpeg` | Builds `continuum_py` with the `ffmpeg` feature into the repo's venv |
+| `continuum-wheels` | `tools/build-slot.sh continuum/packaging/wheels.sh`: the SDK wheel and the daemons wheel for this platform, into `continuum/dist/` ("Wheels") |
 | `continuum-status` | `.venv/bin/python -m liberational.continuum_status`: checks the running Continuum services, streams, Tier 0 classes, and flush lag |
 
 `continuum-check` and `continuum-test` run under `tools/gated.sh`: one full gate at a time on a machine, shared by every

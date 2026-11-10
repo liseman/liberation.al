@@ -2,7 +2,7 @@
 //! back. Bounded: 20 small frames per encoder.
 #![cfg(feature = "ffmpeg")]
 
-use continuum_tier::h264::{AccessUnit, H264Encoder, H264Settings};
+use continuum_tier::h264::{AccessUnit, H264Encoder, H264Settings, SOFTWARE_H264_ENCODERS};
 use ffmpeg_next as ff;
 
 const W: u32 = 160;
@@ -118,10 +118,10 @@ fn check(name: &str, aus: &[AccessUnit]) {
             assert!(!types.contains(&7) && !types.contains(&5), "{name}: frame {n} is not a delta frame: {types:?}");
         }
     }
-    // Main profile (profile_idc 77) in the first SPS.
+    // Main profile (profile_idc 77) in the first SPS; High (100) from OpenH264, which has no Main.
     let first = &aus[0].bytes;
     let sps = (0..first.len() - 4).find(|&i| first[i..i + 3] == [0, 0, 1] && first[i + 3] & 0x1f == 7).unwrap();
-    assert_eq!(first[sps + 4], 77, "{name}: profile");
+    assert_eq!(first[sps + 4], if name == "libopenh264" { 100 } else { 77 }, "{name}: profile");
     let decoded = decode(aus);
     assert_eq!(sizes(&decoded), vec![(W, H); FRAMES as usize], "{name}: decodes back");
     // In order: each frame's top-left luma is near its own phase, 4n (lossy, so within a few levels).
@@ -136,9 +136,13 @@ fn check(name: &str, aus: &[AccessUnit]) {
 }
 
 #[test]
-fn libx264_makes_a_browser_stream() {
-    let (name, aus) = encode(&["libx264"]).expect("libx264 is in this FFmpeg");
-    check(&name, &aus);
+fn each_software_encoder_here_makes_a_browser_stream() {
+    // libx264 in a distribution's FFmpeg, OpenH264 in the wheels' private build; some FFmpeg builds have both.
+    let made: Vec<_> = SOFTWARE_H264_ENCODERS.iter().filter_map(|name| encode(&[name])).collect();
+    assert!(!made.is_empty(), "this FFmpeg has no software H.264 encoder");
+    for (name, aus) in &made {
+        check(name, aus);
+    }
 }
 
 #[test]
@@ -160,7 +164,7 @@ fn bad_input_is_refused() {
     assert!(H264Encoder::open(W, H, H264Settings { gop_frames: 0, ..settings() }).is_err());
     let none = H264Encoder::open_with(&["no_such_encoder"], W, H, settings());
     assert!(matches!(none, Err(e) if e.to_string().contains("no_such_encoder")));
-    let mut enc = H264Encoder::open_with(&["libx264"], W, H, settings()).unwrap();
+    let mut enc = H264Encoder::open_with(SOFTWARE_H264_ENCODERS, W, H, settings()).unwrap();
     assert!(enc.encode(&[0u8; 10], T0, T0 + 1).is_err());
     assert!(enc.encode(&frame(0), T0 + 1, T0).is_err());
 }
@@ -168,7 +172,7 @@ fn bad_input_is_refused() {
 #[test]
 fn explicit_capture_cut_starts_an_independently_decodable_keyframe() {
     let settings = H264Settings { gop_frames: 100, low_delay: true, threads: 1, ..settings() };
-    let mut encoder = H264Encoder::open_with(&["libx264"], W, H, settings).unwrap();
+    let mut encoder = H264Encoder::open_with(SOFTWARE_H264_ENCODERS, W, H, settings).unwrap();
     let mut units = Vec::new();
     for n in 0..8 {
         units.extend(encoder.encode_keyframe(&frame(n), T0 + n * STEP, T0 + (n + 1) * STEP, n == 3).unwrap());

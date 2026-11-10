@@ -385,7 +385,8 @@ async fn a_native_snapshot_never_invents_a_picture_for_missing_bytes_or_missing_
 async fn a_native_snapshot_keyframe_decodes_alone_without_an_unfinished_delta_tail() {
     use continuum_tier::h264::{H264Encoder, H264Settings};
     use continuum_tier::video::H264StreamDecoder;
-    let mut encoder = H264Encoder::open_with(&["libx264"], 64, 96, H264Settings::default()).unwrap();
+    let mut encoder =
+        H264Encoder::open_with(continuum_tier::h264::SOFTWARE_H264_ENCODERS, 64, 96, H264Settings::default()).unwrap();
     let picture = continuum_tier::hydrate::rgb_to_nv12(&continuum_tier::hydrate::Picture {
         width: 64,
         height: 96,

@@ -12,6 +12,9 @@ default = []
 # recompression. Needs the FFmpeg development headers (config/system-packages.toml); without the feature those paths
 # report Unsupported.
 ffmpeg = ["dep:ffmpeg-next", "dep:clap"]
+# The same, linked statically from a private FFmpeg build found by pkg-config: what the wheels use
+# (packaging/, docs/CONTINUUM.md "Wheels"). One crate turning it on makes every crate in the build link that way.
+ffmpeg-static = ["ffmpeg", "ffmpeg-next/static"]
 
 [dependencies]
 continuum-log.workspace = true
@@ -35,7 +38,8 @@ tokio = { workspace = true, features = ["rt-multi-thread", "signal", "time"] }
 toml.workspace = true
 uuid.workspace = true
 zune-jpeg = "0.5"
-ffmpeg-next = { version = "9", optional = true }
+# Only the FFmpeg libraries the code calls: libavcodec, libavformat, libavutil, and libswscale.
+ffmpeg-next = { version = "9", optional = true, default-features = false, features = ["codec", "format", "software-scaling"] }
 # Only for the continuum-export command.
 clap = { workspace = true, optional = true }
 opus = "0.4"

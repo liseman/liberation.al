@@ -36,9 +36,9 @@ if pkg-config --exists libavcodec; then
 else
   echo "FFmpeg headers not found (pkg-config libavcodec): skipping the ffmpeg feature check"
 fi
-../tools/niced.sh .venv/bin/ruff check python crates/continuum-py/tests
-../tools/niced.sh .venv/bin/ruff format --check python crates/continuum-py/tests
-../tools/niced.sh .venv/bin/ty check --python .venv python crates/continuum-py/tests
+../tools/niced.sh .venv/bin/ruff check python packaging crates/continuum-py/tests
+../tools/niced.sh .venv/bin/ruff format --check python packaging crates/continuum-py/tests
+../tools/niced.sh .venv/bin/ty check --python .venv python packaging crates/continuum-py/tests
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
