@@ -9,6 +9,10 @@ spoken follow-up like "where was it?") still gets the latest entries from the la
 question that names a camera gets none: entries mix every camera and speech. Without a journal store, or with no
 entries in the window, the result is exactly what it was before the journal existed.
 
+A question read as about the cameras that names none, and asks to describe a scene or what someone was doing, also
+gets the transcript's lines in its window, best matches first: whether its answer was seen or said is the reading's
+guess.
+
 A transcript question that names nobody, and no topic or intent, keeps the lines that hold the question's words when
 the evidence budget (MAX_EVIDENCE, MAX_CHARS) cuts the window, the best matches first (rare words count most), each
 with the lines said within CONTEXT_S of it, then fills what's left with the lines nearest the question time, and shows
@@ -237,6 +241,19 @@ def _owner(state: pathlib.Path) -> Any:
 def moves(query: Mapping[str, Any]) -> bool:
     """A question about people walking by, coming into view, or which way they moved, on recordings."""
     return query.get("kind") in ("video", "mixed") and bool(query.get("movement") or query.get("direction"))
+
+
+def also_said(query: Mapping[str, Any]) -> bool:
+    """Whether a question read as about the cameras, naming none, also reads what was said in its window. Whether
+    an answer was seen or said is the reading's guess ("what did Sam hide the pill in" was seen, or talked about),
+    so a describe or doing question gets the transcript's lines too, best matches first. A count, a duration, and
+    people moving are measured from the cameras alone, and a named camera keeps to its own evidence."""
+    return (
+        query.get("kind") == "video"
+        and not moves(query)
+        and not query.get("cameras")
+        and query.get("measure") not in ("count", "duration")
+    )
 
 
 def counts_passers(query: Mapping[str, Any]) -> bool:
@@ -1725,8 +1742,10 @@ def collect(
                 selected, coverage, video_warnings = video_evidence.collect(state, query)
             result["coverage"] = coverage
             warnings.extend(video_warnings)
-            if query["kind"] == "mixed":
+            if query["kind"] == "mixed" or also_said(query):
                 transcript, transcript_coverage = _transcripts(state, query, warnings)
+                if also_said(query):
+                    transcript = _about_first(transcript, question)
                 selected = [
                     item for pair in itertools.zip_longest(selected, transcript) for item in pair if item is not None
                 ]
@@ -1899,12 +1918,14 @@ def collect(
     else:
         journal = []
     if (
-        query["kind"] == "mixed"
+        (query["kind"] == "mixed" or also_said(query))
         and not cfg.get("review.recorded_frame_analysis")
         and "presence" not in result.get("paths", [])
         and not counted
     ):
         transcript, transcript_coverage = _transcripts(state, query, warnings)
+        if also_said(query):
+            transcript = _about_first(transcript, question)
         selected = [item for pair in itertools.zip_longest(selected, transcript) for item in pair if item is not None]
         result["coverage"]["transcript"] = transcript_coverage
     count = len(selected)

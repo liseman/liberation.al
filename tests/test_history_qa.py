@@ -13,6 +13,7 @@ import speech_fake
 from liberational import config as cfg
 from liberational import memory_log, vision_log
 from liberational.memory import history_qa as h
+from liberational.memory import question
 from liberational.people import registry
 from liberational.vision import sightings
 from vision_fake import FakeVisionLog
@@ -724,6 +725,28 @@ def test_journal_stays_out_of_a_question_about_one_camera(state):
     assert "journal" not in r["coverage"]
     r = ask(state, "what did the cameras see in the kitchen today")  # no camera named: the journal joins
     assert r["evidence"][0]["kind"] == "journal"
+
+
+PILL = "what did Sam hide the pill in this morning"
+
+
+@pytest.mark.parametrize(
+    ("measure", "heard"),
+    [
+        pytest.param("describe", True, id="describe-reads-the-lines"),
+        pytest.param("count", False, id="a-count-keeps-to-the-cameras"),
+    ],
+)
+def test_a_question_read_as_seen_also_reads_what_was_said(state, readings, measure, heard):
+    # Whether "what did Sam hide the pill in" was seen or said is the reading's guess, so a question read as about
+    # the cameras still gets the lines said in its window.
+    readings[PILL] = question.Reading(source="cameras", measure=measure, people=("Sam",), part="this morning")
+    said = dt.datetime(2026, 10, 23, 7, 21, tzinfo=LA).timestamp()
+    transcripts(state, [dict(ts_start=said, speaker="Sam", text="I hid the pill in a piece of cheese.")])
+    camera(state, [dict(ts=said + 60, cam="cam0", caption="A kitchen counter with a bowl")])
+    quotes = [e["quote"] for e in h.collect(PILL, state, NOW)["evidence"]]
+    assert ("I hid the pill in a piece of cheese." in quotes) is heard
+    assert "A kitchen counter with a bowl" in quotes
 
 
 def test_journal_never_moves_a_recorded_answers_citation(state):
