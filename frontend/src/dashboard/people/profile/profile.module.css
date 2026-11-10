@@ -347,8 +347,13 @@
   margin: 0;
   padding: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   gap: 8px;
+}
+@media (max-width: 720px) {
+  .training {
+    grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  }
 }
 .trainingTile {
   position: relative;
@@ -383,15 +388,47 @@
 .trainingTile[data-selected] img,
 .trainingTile[data-selected] [data-safe-image],
 .trainingTile[data-selected] .noPicture {
-  outline-color: var(--mantine-color-red-6);
+  outline-color: var(--lib-bad);
 }
 .trainingPick {
   position: absolute;
   top: 6px;
   left: 6px;
 }
-.trainingCaption {
+.trainingSkeleton {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+  border-radius: 6px;
+}
+/* The picture and its "Unlike the rest" badge, which sits on the picture's bottom left. */
+.trainingPicture {
+  position: relative;
   display: block;
+}
+.trainingBadge {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  pointer-events: none;
+}
+.trainingStatus {
+  margin-bottom: 8px;
+}
+/* One line on a desktop, at most two on a phone's narrower tiles. */
+.trainingCaption {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+  line-clamp: 1;
+  overflow: hidden;
   margin-top: 4px;
   line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 720px) {
+  .trainingCaption {
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+  }
 }

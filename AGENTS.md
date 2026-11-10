@@ -9,9 +9,10 @@ Start with [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) to find where a change b
 ## Rules that prevent damage
 
 1. **This repository is public.** No names of real people or pets, no transcript lines or other live content, no
-   addresses or room layouts, no hostnames or network addresses, no secrets, and no agent, session, or machine
-   names. That covers code, tests, docs, commit messages, branch names, issues, pull requests, and comments.
-   [docs/CONVENTIONS.md](docs/CONVENTIONS.md) is the full list. Tests use made-up people: Alice, Dana, Sam, and Rex.
+   addresses or room layouts, no hostnames or network addresses, no secrets, and no agent, session, or machine names
+   (the sign-off under "Tracking and merging" is the one exception). That covers code, tests, docs, commit messages,
+   branch names, issues, pull requests, and comments. [docs/CONVENTIONS.md](docs/CONVENTIONS.md) is the full list. Tests
+   use made-up people: Alice, Dana, Sam, and Rex.
 2. **Never skip a hook with `--no-verify`.** The hooks (`mise run hooks`) run `tools/privacy_check.py` before every
    commit and push. Fix a false alarm by changing the text, or add an entry to `.privacy-allow.toml` with a reason.
    The hooks cannot read an issue or a comment: check those yourself before posting.
@@ -135,6 +136,11 @@ Work is tracked as GitHub issues on the [project board](https://github.com/lisem
   card to In progress. That is the claim.
 - A pull request says `Closes #N` (or `Part of #N`), what changed, which checks ran with counts, and "Docs:" when
   the change affects what a user or contributor needs to know.
+- Sign your work with the exact model you run as and whose team you ran for
+  ([docs/CONVENTIONS.md](docs/CONVENTIONS.md#branches-commits-and-pull-requests) has the rule). A commit's last line:
+  `Co-Authored-By: <exact model> (<name>'s team) <the tool's no-reply address>`. A pull request's last line:
+  `Written by <exact model> (<name>'s team).` Never the tool's name alone, and never a worker, session, role, or
+  task name.
 - Before merging: `mise run fmt`, lint and type-check what you changed, run the tests that cover it, and read the
   diff. The `privacy` check must pass. The hosted `checks` workflow is informational: do not wait for it, and fix
   forward if it turns red.

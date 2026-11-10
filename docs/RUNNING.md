@@ -17,8 +17,9 @@ pack-app
 ```
 
 `pack-app` starts every selected service and keeps a small status window on screen. Click **Open the dashboard** to
-open the web interface in your browser. Click **Quit and stop recording** or close the window to flush Tier 0 and stop
-every service.
+open the web interface in your browser. Click **Quit and stop recording** to flush Tier 0 and stop every service.
+Closing the window from its title bar does the same after asking "Stop recording and quit?". Once everything has
+stopped, **Close** ends the window and **Start again** runs the services once more.
 
 On a machine without a desktop session, run the supervisor in the foreground instead:
 

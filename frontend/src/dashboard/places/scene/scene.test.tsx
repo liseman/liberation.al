@@ -8,7 +8,7 @@ import { EXAMPLE_PLACES, type Place } from '../examples';
 import { along, buildScene } from './build';
 import { centre, drawScene, spots } from './draw';
 import { EXAMPLE_SCENE } from './example';
-import { PlaceEditor } from './PlaceEditor';
+import { EMPTY_SCENE, PlaceEditor } from './PlaceEditor';
 import { PlanFrame } from './PlanFrame';
 import { age } from './Versions';
 
@@ -260,7 +260,7 @@ it('draws nothing for a scene with nothing on its level, and leaves out a spot w
   expect(drawing?.svg).not.toContain('class="view"'); // no facing, no view drawn
 });
 
-const HOME: Place = { id: 'p1', name: 'Home', lastVisit: null, plan: null, scene: EXAMPLE_SCENE, example: false };
+const HOME: Place = { id: 'p1', name: 'Home', lastVisit: null, scene: EXAMPLE_SCENE, example: false };
 const FLAT = EXAMPLE_PLACES.find(p => p.scene) as Place;
 
 const VERSIONS = [
@@ -270,7 +270,6 @@ const VERSIONS = [
     rooms: 1,
     source: 'owner',
     withdrawn: false,
-    format: 'dsl',
     current: false,
     summary: '1 room',
   },
@@ -280,7 +279,6 @@ const VERSIONS = [
     rooms: 0,
     source: 'owner',
     withdrawn: true,
-    format: 'dsl',
     current: false,
     summary: 'Plan withdrawn',
   },
@@ -290,7 +288,6 @@ const VERSIONS = [
     rooms: 6,
     source: 'owner',
     withdrawn: false,
-    format: 'scene',
     current: true,
     summary: 'Added Kitchen, moved camera hall',
   },
@@ -300,7 +297,7 @@ function serveScene(reply: Record<string, unknown> = {}, versions: unknown[] = [
   server.use(
     http.get('/places/plan/history', () => HttpResponse.json({ place: 'p1', versions, previous: null })),
     http.get('/places/plan/scene', () =>
-      HttpResponse.json({ place: 'p1', scene: EXAMPLE_SCENE, converted: false, left: [], base: 'r1', ...reply }),
+      HttpResponse.json({ place: 'p1', scene: EXAMPLE_SCENE, base: 'r1', ...reply }),
     ),
   );
 }
@@ -327,23 +324,29 @@ it("saves what was drawn as the place's plan, in the frame it was opened in, and
   expect(sent).toEqual([{ place: 'p1', plan: JSON.stringify(edited), base: 'r1' }]);
 });
 
-it('says a plan in the old format is converted by saving, with the lines the new one has no place for', async () => {
-  serveScene({ converted: true, left: ['x-anchor place:p1 yaw 0 origin 0,0,0', 'x-source wall:w3 machine 0.4'] });
-  renderPage(<PlaceEditor place={HOME} view="2d" scheme="light" />);
-  expect(await screen.findByText('Saving here lets you edit this plan in 3D.')).toBeTruthy();
-  expect(screen.getByText(/2 lines of the old plan have no place in the new format/).textContent).toContain(
-    'x-source wall:w3 machine 0.4',
-  );
-  // it can be saved as it opened, with nothing drawn: that is the conversion
+it("starts an empty plan when the place has none, or when its stored plan can't be read, and saves what is drawn", async () => {
   const sent: unknown[] = [];
   server.use(
+    http.get('/places/plan/history', () => HttpResponse.json({ place: 'p1', versions: [], previous: null })),
+    http.get('/places/plan/scene', () =>
+      HttpResponse.json({ error: "this plan can't be opened in the editor: it is in an old format" }, { status: 422 }),
+    ),
     http.post('/places/plan', async ({ request }) => {
       sent.push(await request.json());
       return HttpResponse.json({ ok: true, plan: '{}', plan_source: 'owner' });
     }),
   );
+  renderPage(<PlaceEditor place={{ ...HOME, scene: null }} view="2d" scheme="light" />);
+  const frame = (await screen.findByTitle('Plan editor')) as HTMLIFrameElement;
+  expect(screen.getByText(/The stored plan can't be opened, so this starts a new one.*old format/)).toBeTruthy();
+  const post = vi.spyOn(frame.contentWindow as Window, 'postMessage').mockImplementation(() => {});
+  fromFrame(frame, { type: 'plan-editor:ready' });
+  expect(post).toHaveBeenCalledWith(expect.objectContaining({ scene: EMPTY_SCENE }), location.origin);
+  expect((screen.getByRole('button', { name: 'Save plan' }) as HTMLButtonElement).disabled).toBe(true);
+  fromFrame(frame, { type: 'plan-editor:changed', scene: EXAMPLE_SCENE });
   fireEvent.click(screen.getByRole('button', { name: 'Save plan' }));
-  await waitFor(() => expect(sent).toEqual([{ place: 'p1', plan: JSON.stringify(EXAMPLE_SCENE), base: 'r1' }]));
+  // no revision to draw it in was given, so none is sent: the server takes the place's newest
+  await waitFor(() => expect(sent).toEqual([{ place: 'p1', plan: JSON.stringify(EXAMPLE_SCENE) }]));
 });
 
 it('opens the stored plan again on Discard, and refuses to save a plan with no room', async () => {
@@ -364,15 +367,12 @@ it('opens the stored plan again on Discard, and refuses to save a plan with no r
   expect(screen.getByTitle('Plan editor')).not.toBe(frame); // a new frame, on the stored plan
 });
 
-it("says why when a plan can't be opened or saved", async () => {
+it("says why when a plan can't be loaded or saved", async () => {
   server.use(http.get('/places/plan/history', () => HttpResponse.json({ place: 'p1', versions: [], previous: null })));
-  server.use(
-    http.get('/places/plan/scene', () =>
-      HttpResponse.json({ error: "this plan can't be opened in the editor: the plan has no rooms" }, { status: 422 }),
-    ),
-  );
+  server.use(http.get('/places/plan/scene', () => HttpResponse.json({ error: 'the store is busy' }, { status: 503 })));
   const first = renderPage(<PlaceEditor place={HOME} view="2d" scheme="light" />);
-  expect(await screen.findByText(/can't be opened in the editor: the plan has no rooms/)).toBeTruthy();
+  expect(await screen.findByText(/the store is busy/, undefined, { timeout: 8000 })).toBeTruthy();
+  expect(screen.queryByTitle('Plan editor')).toBeNull(); // a failed read is not a place with no plan
   first.unmount();
   serveScene();
   server.use(
@@ -468,7 +468,6 @@ it('opens an earlier version to look at without changing anything, and restores 
   await waitFor(() => expect(asked).toEqual([null, 'v1']));
   await waitFor(() => expect(screen.getByTitle('Plan editor')).not.toBe(current)); // the editor opened on that version
   expect(screen.queryByRole('button', { name: 'Save plan' })).toBeNull(); // nothing to save while looking
-  expect(screen.queryByText(/have no place in the new format/)).toBeNull();
   // the editor opens it to look at only: nothing in it changes the scene
   expect(screen.getByTitle('Plan editor').getAttribute('src')).toContain('look=1');
   fireEvent.click(screen.getByRole('button', { name: 'Versions' }));

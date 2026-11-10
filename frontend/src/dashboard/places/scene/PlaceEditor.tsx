@@ -1,15 +1,14 @@
-// A place's plan in the new plan editor (or its 3D view), with Save. The editor works on a Pascal scene: the
-// place's own when its plan is one, or its DSL plan converted by the server on the way out (GET /places/plan/scene),
-// in which case saving is what turns the place's plan into a scene. Saving writes the owner's plan, as correcting it
-// always has (POST /places/plan), so every save is a version in the place's plan history. Those versions open from
-// a Versions button beside Save (Versions.tsx), so the editor keeps the card's full width: picking one opens it in
-// the editor to look at only, with nothing that changes it, and Restore saves it again on top. An example place has
-// nothing to save to and no versions.
+// A place's plan in the plan editor (or its 3D view), with Save. The editor works on a Pascal scene: the place's
+// own (GET /places/plan/scene), or an empty one for a place with no plan yet, which is how a plan is drawn from
+// nothing. Saving writes the owner's plan (POST /places/plan), so every save is a version in the place's plan
+// history. Those versions open from a Versions button beside Save (Versions.tsx), so the editor keeps the card's
+// full width: picking one opens it in the editor to look at only, with nothing that changes it, and Restore saves
+// it again on top. An example place has nothing to save to and no versions.
 import { Alert, Badge, Button, Group, Popover, Text } from '@mantine/core';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import type { PlanView, Scene } from '../../../plan-editor/protocol';
-import { messageOf } from '../../../shared/http';
+import { HttpError, messageOf } from '../../../shared/http';
 import { confirm } from '../../lib/confirm';
 import { momentWords } from '../../lib/format';
 import { BlockSkeleton } from '../../lib/loading';
@@ -17,12 +16,16 @@ import { shell } from '../../shell';
 import { type PlanVersion, planSceneQuery, restorePlan, savePlan } from '../api';
 import type { Place } from '../examples';
 import classes from '../places.module.css';
+import { buildScene } from './build';
 import { PlanFrame } from './PlanFrame';
 import { Versions } from './Versions';
 
 /** The house's cameras as the editor's Cameras panel lists them: each with the name the page shows. */
 export const houseCameras = (): { id: string; name: string }[] =>
   shell().cams.map(id => ({ id, name: shell().views[id] ?? id }));
+
+/** What the editor opens on for a place with no plan to open: a site, a building, and a storey, and nothing drawn. */
+export const EMPTY_SCENE: Scene = buildScene({ height: 2.4, walls: [], openings: [], rooms: [] });
 
 /** How many rooms a scene has: a plan with none can't be saved. */
 export const roomsIn = (scene: Scene): number => Object.values(scene.nodes).filter(n => n.type === 'zone').length;
@@ -46,7 +49,11 @@ export function PlaceEditor({
   const [viewing, setViewing] = useState<PlanVersion | null>(null);
   const [listed, setListed] = useState(false);
   const stored = useQuery({ ...planSceneQuery(place.id, viewing?.id), enabled: !place.example });
-  const scene = place.example ? place.scene : stored.data?.scene;
+  // A place with no plan (404), or one whose stored plan can't be read (422), starts an empty one: that is how a
+  // plan is drawn from nothing. An earlier version that doesn't open is an error, not a blank page.
+  const status = stored.error instanceof HttpError ? stored.error.status : null;
+  const fresh = !place.example && !viewing && (status === 404 || status === 422);
+  const scene = place.example ? place.scene : (stored.data?.scene ?? (fresh ? EMPTY_SCENE : undefined));
   const [edited, setEdited] = useState<Scene | null>(null);
   const dirty = edited !== null;
   // biome-ignore lint/correctness/useExhaustiveDependencies: told when it changes, whoever is listening
@@ -95,10 +102,8 @@ export function PlaceEditor({
         {stored.error ? messageOf(stored.error) : "This place's plan can't be opened in the editor."}
       </Alert>
     );
-  const left = stored.data?.left ?? [];
   const empty = edited !== null && roomsIn(edited) === 0;
-  // a plan still in the old format can be saved as it opened: that is what stores it in the new one
-  const toSave = edited ?? (stored.data?.converted ? scene : null);
+  const toSave = edited;
   // The plan's versions, in a popover from a button beside Save: the editor keeps the card's full width.
   const versions = !place.example && (
     <Popover opened={listed} onChange={setListed} position="bottom-end" width={300} shadow="md" withinPortal>
@@ -132,8 +137,12 @@ export function PlaceEditor({
               </Badge>
               Saved {momentWords(viewing.at)}. Looking at it changes nothing.
             </>
-          ) : stored.data?.converted ? (
-            'Saving here lets you edit this plan in 3D.'
+          ) : fresh ? (
+            status === 404 ? (
+              'No plan yet. Draw rooms and walls, and put doors and windows in them.'
+            ) : (
+              `The stored plan can't be opened, so this starts a new one. ${messageOf(stored.error)}`
+            )
           ) : shown === '3d' ? (
             'The plan in 3D.'
           ) : (
@@ -182,12 +191,6 @@ export function PlaceEditor({
           )
         )}
       </Group>
-      {left.length > 0 && !viewing && (
-        <Text size="xs" c="dimmed" mb="xs">
-          {left.length === 1 ? 'One line' : `${left.length} lines`} of the old plan have no place in the new format and
-          are left out when it is saved: {left.join('; ')}
-        </Text>
-      )}
       {empty && (
         <Alert color="yellow" variant="light" mb="xs">
           A plan needs at least one room before it can be saved.

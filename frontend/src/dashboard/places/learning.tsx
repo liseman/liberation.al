@@ -12,7 +12,7 @@ import { IconCamera } from '@tabler/icons-react';
 import { queryOptions, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { request } from '../../shared/http';
-import { ago, momentWords, plural } from '../lib/format';
+import { ago, capitalize, momentWords, plural } from '../lib/format';
 import { viewName } from '../review/views';
 import classes from './learning.module.css';
 
@@ -144,7 +144,7 @@ export function learningState(status: LearningStatus): LearningState {
           const pct = Math.round((step.step / step.steps) * 100);
           return { kind: 'training', tone: 'ok', title: 'Building the 3D map', next: `${pct}% done, ${adding}.` };
         }
-        return { kind: 'training', tone: 'ok', title: 'Building the 3D map', next: `${adding[0].toUpperCase()}${adding.slice(1)}.` };
+        return { kind: 'training', tone: 'ok', title: 'Building the 3D map', next: `${capitalize(adding)}.` };
       }
       case 'writing':
         return { kind: 'writing', tone: 'ok', title: 'Saving the map', next: 'Writing the improved map.' };
@@ -342,7 +342,7 @@ function Thumb({ row }: { row: CameraRow }) {
     <img
       className={classes.thumb}
       src={`/surroundings/thumb/${row.frame}.jpg`}
-      alt={`The newest picture kept from ${viewName(row.camera)}`}
+      alt={`The newest view kept from ${viewName(row.camera)}`}
       width={64}
       height={36}
       loading="lazy"
@@ -438,9 +438,7 @@ export function LearningPanel({ status }: { status: LearningStatus | undefined }
                   <span className={classes.dot} data-tone={row.tone} aria-hidden />
                   {row.label}
                 </span>
-                {row.tone === 'warn' && row.detail && (
-                  <span className={classes.cameraProblem}>{row.detail}</span>
-                )}
+                {row.tone === 'warn' && row.detail && <span className={classes.cameraProblem}>{row.detail}</span>}
               </div>
             </li>
           ))}

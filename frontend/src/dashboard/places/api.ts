@@ -10,7 +10,7 @@ export interface PlaceSummary {
   /** The owner's name for it, or its placeholder ("Place 1"). */
   name: string;
   named: boolean;
-  /** Its floorplan in the line DSL (the owner's correction if there is one, else the machine's), or null. */
+  /** Its plan as stored: a Pascal scene's JSON (the owner's if there is one, else the machine's), or null. */
   plan: string | null;
   plan_source: 'owner' | 'machine' | null;
   /** A machine plan was made after the owner's correction that holds. */
@@ -110,15 +110,13 @@ export const savePlan = (place: string, plan: string, base?: string | null) =>
   });
 
 /** One saved version of a place's owner plan (GET /places/plan/history): when it was saved (epoch seconds), how many
- *  rooms it has, whether it was a withdrawal (an empty plan, so the machine's held), whether it is stored as a scene
- *  or in the old DSL, whether it is the one that holds, and what changed from the version before it. */
+ *  rooms it has, whether it was a withdrawal (an empty plan, so the machine's held), whether it is the one that holds, and what changed from the version before it. */
 export interface PlanVersion {
   id: string;
   at: number;
   rooms: number;
   source: string;
   withdrawn: boolean;
-  format: 'scene' | 'dsl';
   current: boolean;
   summary: string;
 }
@@ -139,13 +137,11 @@ export const planHistoryQuery = (place: string) =>
   });
 
 /** A place's plan as a Pascal scene (GET /places/plan/scene), for the plan editor: the plan that holds, or with
- *  `record` an earlier version of it. `converted`: the stored plan is still DSL and was converted on the way out,
- *  with `left` the statements a scene has no place for. `base` is the revision it is drawn in, which a save sends. */
+ *  `record` an earlier version of it. `base` is the revision it is drawn in, which a save sends back. A place with
+ *  no plan answers 404, and a plan that can't be read 422. */
 export interface PlanScene {
   place: string;
   scene: PlanGraph;
-  converted: boolean;
-  left: string[];
   base: string | null;
 }
 
@@ -160,6 +156,7 @@ export const planSceneQuery = (place: string, record?: string) =>
       ),
     staleTime: 0, // the editor opens on the plan as it is now
     gcTime: 0,
+    retry: false, // no plan yet is an answer, not a failure to try again
   });
 
 /** Make an earlier version of the owner's plan hold again: written as a new version on top, so the one it replaces
@@ -230,7 +227,7 @@ export interface Scene {
   /** Map to plan, 3x4 row by row. */
   plan_transform?: number[] | null;
   cameras?: Record<string, { pose: number[]; focal: number; width: number; height: number; at: number }>;
-  /** The place's plan (DSL), and whose it is. A place with an owner's plan always gives that one. It's in this
+  /** The place's plan (a Pascal scene's JSON), and whose it is. A place with an owner's plan always gives that one. It's in this
    *  revision's frame only with a `plan_transform`: an owner's plan a learned map isn't lined up with yet has none,
    *  and isn't drawn on the map. */
   plan?: string | null;
