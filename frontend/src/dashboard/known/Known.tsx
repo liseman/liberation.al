@@ -10,6 +10,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Activity, lazy, type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import { toCheck, useRecentActivities } from '../activities/recent';
 import { Deferred } from '../Deferred';
+import { CountSkeleton } from '../lib/loading';
 import { PageFrame } from '../lib/page';
 import { sightingsQuery, waitingGroups } from '../people/pets/api';
 import { KNOWN_TABS, type KnownTab, navigate, useRoute } from '../router';
@@ -62,8 +63,24 @@ const PANELS: Record<KnownTab, ReactNode> = {
  *  title, a line every tab has from the first paint, loaded or not and counted or not, and every tab is one
  *  fixed width, so a count arriving late (they read their lists seconds after Known opens) never widens a tab or slides
  *  the row under a pointer that hadn't moved. Nothing shows when none waits. */
-export function Waiting({ n, what }: { n: number | null | undefined; what: string }) {
-  return <span className={classes.count}>{n ? `${n} ${what}` : null}</span>;
+export function Waiting({
+  n,
+  what,
+  loading = false,
+}: {
+  n: number | null | undefined;
+  what: string;
+  loading?: boolean;
+}) {
+  return (
+    <span className={classes.count}>
+      {loading ? (
+        <CountSkeleton chars={what.length + 3} />
+      ) : n ? (
+        `${n} ${what}`
+      ) : null}
+    </span>
+  );
 }
 
 // Each badge reads the list its tab reads, so the badge and the list agree. On its own tab the badge only follows
@@ -87,18 +104,25 @@ function useSettled(): boolean {
 function PeopleBadge({ read }: { read: boolean }) {
   const faces = useQuery({ ...unknownGroupsQuery(), enabled: read });
   const voices = useQuery({ ...unknownVoicesQuery(), enabled: read });
-  return <Waiting n={waitingTotal(faces, voices)} what="to name" />;
+  // Pending covers the wait before the read starts too (a disabled query is pending): the count isn't known yet.
+  return <Waiting n={waitingTotal(faces, voices)} what="to name" loading={faces.isPending || voices.isPending} />;
 }
 
 function PetsBadge({ read }: { read: boolean }) {
   const sightings = useQuery({ ...sightingsQuery(), enabled: read });
-  return <Waiting n={waitingGroups(sightings.data)} what="to name" />;
+  return <Waiting n={waitingGroups(sightings.data)} what="to name" loading={sightings.isPending} />;
 }
 
 /** The clips of the last week Clips to check lists: counted kinds by their spot-check sample. */
 function ActivitiesBadge() {
   const recent = useRecentActivities();
-  return <Waiting n={toCheck(recent.items, recent.promotion).length} what="to check" />;
+  return (
+    <Waiting
+      n={toCheck(recent.items, recent.promotion).length}
+      what="to check"
+      loading={recent.pending && !recent.error}
+    />
+  );
 }
 
 const badge = (id: KnownTab, tab: KnownTab, settled: boolean): ReactNode =>

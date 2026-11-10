@@ -1,6 +1,6 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { HttpResponse, http } from 'msw';
+import { delay, HttpResponse, http } from 'msw';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { renderPage } from '../../test/render';
 import { server } from '../../test/server';
@@ -179,6 +179,43 @@ it("says why research can't run here", async () => {
 it('shows how many reports are unread on the tab', async () => {
   renderPage(<InboxLabel />);
   expect(await screen.findByLabelText('1 unread')).toHaveTextContent('1');
+});
+
+it('holds the unread badge as a skeleton while the count loads, and the link stays "Inbox"', () => {
+  server.use(http.get('/research/jobs', () => delay('infinite')));
+  renderPage(
+    <a href="/inbox">
+      <InboxLabel />
+    </a>,
+  );
+  expect(screen.getByTestId('inbox-count-skeleton')).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: 'Inbox' })).toBeInTheDocument();
+});
+
+it.each([
+  ['none is unread', () => HttpResponse.json({ jobs: [], available: true, unread: 0 })],
+  ['the count failed', () => HttpResponse.json({ error: 'down' }, { status: 500 })],
+])('shows no badge and no skeleton once %s', async (_, answer) => {
+  let asked = 0;
+  server.use(
+    http.get('/research/jobs', () => {
+      asked += 1;
+      return answer();
+    }),
+  );
+  renderPage(<InboxLabel />);
+  await waitFor(() => expect(screen.queryByTestId('inbox-count-skeleton')).not.toBeInTheDocument(), {
+    timeout: 5000,
+  });
+  expect(asked).toBeGreaterThan(0);
+  expect(screen.queryByLabelText(/unread/)).not.toBeInTheDocument();
+});
+
+it('holds the report count as a skeleton while the Inbox loads', () => {
+  server.use(http.get('/research/jobs', () => delay('infinite')));
+  renderPage(<InboxTab />);
+  expect(screen.getByText('Loading how many reports')).toBeInTheDocument();
+  expect(screen.getByTestId('count-skeleton')).toBeInTheDocument();
 });
 
 it("Review's Research button queues the question for the selected day", async () => {

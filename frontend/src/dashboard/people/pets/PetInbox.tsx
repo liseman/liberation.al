@@ -333,6 +333,7 @@ export function PetInbox({
       // three to a screen (Known's design pass, P3).
       defaultSize="M"
       title="Sightings to name"
+      counting={loading}
       headingId="pet-sightings-h"
       onBack={onBack}
       backLabel="Back to pets"

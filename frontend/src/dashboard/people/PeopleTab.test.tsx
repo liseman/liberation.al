@@ -371,7 +371,8 @@ describe("what waits in Who's this?", () => {
       ),
     );
     const { client } = renderPage(<PeopleTab />);
-    expect(await roster().findByRole('button', { name: '2 voices need a name · Loading faces…' })).toBeInTheDocument();
+    // A count still being worked out holds the line as a skeleton, not "2 voices" and then a jump to the total.
+    expect(await roster().findByRole('button', { name: "Who's this? · Loading the count" })).toBeInTheDocument();
     expect(roster().queryByRole('button', { name: '2 voices need a name' })).not.toBeInTheDocument();
     pending = false;
     await act(async () => {
@@ -608,7 +609,7 @@ describe('loading and errors', () => {
       await Promise.resolve();
     });
     expect(asked).toEqual([]);
-    expect(roster().getByRole('button', { name: "Who's this? · Waiting for people…" })).toBeInTheDocument();
+    expect(roster().getByRole('button', { name: "Who's this? · Loading the count" })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: "Who's this?" })).not.toBeInTheDocument();
     answer();
     expect(await roster().findByRole('button', { name: /^Dana/ })).toBeInTheDocument();
@@ -706,7 +707,7 @@ describe("Who's this before the roster view exists", () => {
     history.replaceState(null, '', '/people');
     const { container } = renderPage(<PeopleTab />);
     const page = peoplePage(container);
-    await userEvent.click(roster().getByRole('button', { name: "Who's this? · Waiting for people…" }));
+    await userEvent.click(roster().getByRole('button', { name: "Who's this? · Loading the count" }));
     expect(roster().getByLabelText('Loading people')).toBeInTheDocument();
     expect(page).not.toHaveClass(PICKED);
     expect(screen.queryByRole('heading', { name: "Who's this?" })).not.toBeInTheDocument();
