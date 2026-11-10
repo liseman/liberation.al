@@ -1,4 +1,4 @@
-"""Journal evidence that degrades in steps (#2808): which moments a day page's citations promote, what promotion keeps
+"""Journal evidence that degrades in steps: which moments a day page's citations promote, what promotion keeps
 while video is going, and what a citation resolves to at each stage (video, clip, still, audio, expired).
 
 A day page and its hour entries go in the suite's in-memory memory log; frames and video stretches in the in-memory

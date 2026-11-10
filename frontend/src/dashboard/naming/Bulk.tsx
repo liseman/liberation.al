@@ -1,7 +1,7 @@
-// The naming inbox's bulk view (#2297, #2366): "By pet" or "By person". One name at a time, every waiting thing
+// The naming inbox's bulk view: "By pet" or "By person". One name at a time, every waiting thing
 // guessed as them, as large pictures, best match first. All start checked; click (or Space) the ones that aren't
 // them, then one button saves both halves: the checked ones are named, and the unchecked ones are recorded as not
-// them, so they stop being guessed as them (#2364, #2372). One toast, one Undo. Arrows move between pictures.
+// them, so they stop being guessed as them. One toast, one Undo. Arrows move between pictures.
 
 import { Button, Chip, Group, Text } from '@mantine/core';
 import { useState } from 'react';

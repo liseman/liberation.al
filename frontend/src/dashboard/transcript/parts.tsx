@@ -39,7 +39,7 @@ export function InlineName({ value, onDone }: { value: string; onDone: (name: st
   );
 }
 
-/** A turn's name: for a named voice it opens Why this name (#288); for an unnamed one, the name box. */
+/** A turn's name: for a named voice it opens Why this name; for an unnamed one, the name box. */
 export function NameButton({
   unnamed,
   name,
@@ -88,7 +88,7 @@ export function NameButton({
 }
 
 /** A small quiet icon button, as Mantine's subtle gray ActionIcon looks, as a plain button: transcript rows mount
- *  by the dozen as they scroll into view, and each ActionIcon cost several Mantine components (#2412). */
+ *  by the dozen as they scroll into view, and each ActionIcon cost several Mantine components. */
 export function IconButton({
   label,
   title,
@@ -119,8 +119,8 @@ export function IconButton({
 }
 
 /** Quiet, keyboard-reachable actions for a whole turn. Plain titles, not Tooltips: a turn header mounts with every
- *  turn scrolled into view, and three Tooltips each made it cost several times more (#2412). `more` holds actions a
- *  page adds after these. A voice is named from its name, so there's no separate button for that (#2580). */
+ *  turn scrolled into view, and three Tooltips each made it cost several times more. `more` holds actions a
+ *  page adds after these. A voice is named from its name, so there's no separate button for that. */
 export function TurnActions({
   name,
   canUnlabel,
@@ -137,7 +137,7 @@ export function TurnActions({
   busy: boolean;
   onNot: () => void;
   onTrash: () => void;
-  onTv?: () => void; // "This is TV" (#2468), on a turn with a line not marked as a TV's yet
+  onTv?: () => void; // "This is TV", on a turn with a line not marked as a TV's yet
   onNotTv?: () => void; // "Not TV", on a turn with a line marked as a TV's
   more?: ReactNode;
   nobodys?: boolean; // every line is a TV's: there is no voice to take it off

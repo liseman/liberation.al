@@ -1,4 +1,4 @@
-// One person's day in Review (#2057): their lines, the camera views that saw them, and the actions put down to them,
+// One person's day in Review: their lines, the camera views that saw them, and the actions put down to them,
 // merged into visits; and the summary blocks that mention them. Pure, so the panel and its tests share it.
 
 import type { TranscriptEntry } from '../live/types';

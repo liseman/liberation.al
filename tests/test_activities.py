@@ -140,6 +140,38 @@ def test_listing_rejects_invalid_day_without_reading(day, tmp_path, vision):
     assert vision.reads == 0
 
 
+def test_several_days_are_listed_in_one_answer_each_with_its_own_activities(tmp_path, vision):
+    from liberational.dashboard.presence import day_bounds
+
+    first, _ = day_bounds("2027-01-15")
+    second, _ = day_bounds("2027-01-16")
+    vision.add(segment_log.WALKBY_SPANS, ts_start=first + 10, ts_end=first + 20, cam="cam0", kind="crossing")
+    vision.add(segment_log.WALKBY_SPANS, ts_start=second + 30, ts_end=second + 40, cam="cam1", kind="crossing")
+    code, reply = activities.listings("2027-01-16,2027-01-15,2027-01-14", tmp_path)
+    assert code == 200
+    assert list(reply["days"]) == ["2027-01-16", "2027-01-15", "2027-01-14"]
+    assert [[item["start"] for item in day["items"]] for day in reply["days"].values()] == [
+        [second + 30],
+        [first + 10],
+        [],
+    ]
+    assert reply["days"]["2027-01-15"] == activities.listing("2027-01-15", tmp_path)[1]
+
+
+@pytest.mark.parametrize(
+    "days",
+    [
+        pytest.param("", id="none"),
+        pytest.param("2027-01-15,bad", id="one-invalid"),
+        pytest.param(
+            ",".join(f"2027-{month:02d}-{day:02d}" for month in (1, 3) for day in range(1, 17)), id="too-many"
+        ),
+    ],
+)
+def test_a_days_listing_is_refused_whole_when_any_part_is_wrong(days, tmp_path, vision):
+    assert activities.listings(days, tmp_path)[0] == 400
+
+
 def test_candidate_listing_is_bounded_and_reports_truncation(tmp_path, vision):
     for offset in range(5):
         vision.add(segment_log.WALKBY_SPANS, ts_start=T + offset, cam="cam0", kind="crossing")

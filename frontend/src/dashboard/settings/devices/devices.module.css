@@ -1,4 +1,4 @@
-/* Settings' Cameras and microphones (#384). */
+/* Settings' Cameras and microphones. */
 .cameraInfo {
   display: flex;
   align-items: center;
@@ -118,7 +118,7 @@
 }
 
 /* Live, the bar and the peak mark span the meter and move by transform, so a level changing every frame costs no
-   layout or paint (#486); the mark is the box's left edge. */
+   layout or paint; the mark is the box's left edge. */
 .meter[data-live] > b {
   transition: none;
   width: 100%;

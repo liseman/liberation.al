@@ -1,4 +1,4 @@
-/* The naming inbox's bulk view, "By pet" or "By person" (#2297, #2366): large pictures in lib's SelectableGrid, 3 or 4
+/* The naming inbox's bulk view, "By pet" or "By person": large pictures in lib's SelectableGrid, 3 or 4
    a row on a wide window and 2 on a phone, at the size the inbox's header picks (--naming-tile). */
 .image {
   display: block;

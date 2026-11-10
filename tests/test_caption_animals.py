@@ -51,7 +51,7 @@ class Embed:
         ("cat tree", None),
         ("guitar", None),
         ("", None),
-        ("zebra", None),  # not a pet here (#2035): no sighting
+        ("zebra", None),  # not a pet here: no sighting
         ("a brown horse", None),
     ],
 )

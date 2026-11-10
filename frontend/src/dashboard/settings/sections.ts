@@ -1,4 +1,4 @@
-// Which Settings sections are open, remembered per browser (#262). Storage can be missing or throw (a private window,
+// Which Settings sections are open, remembered per browser. Storage can be missing or throw (a private window,
 // blocked site data), so every read and write is guarded and the page works without it.
 import { blank, isRequired, type Section, type Values } from './model';
 

@@ -1,4 +1,4 @@
-// One confirm prompt for the app (#2538), in place of the old window.confirm, through Mantine's modals manager
+// One confirm prompt for the app, in place of the old window.confirm, through Mantine's modals manager
 // (ModalsProvider is in shared/Providers.tsx). Cancel is focused on every prompt, so a stray or held Enter (the Calls
 // form submits with Enter) keeps things as they are; a prompt whose action is easily undone can opt into a focused
 // confirm button with `focusConfirm`. A destructive one also has a red confirm button. A prompt with an `id` opens once:

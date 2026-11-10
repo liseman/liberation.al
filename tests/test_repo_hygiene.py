@@ -1,12 +1,12 @@
 """Runtime data never lives in git.
 
 Git treats ignored files as disposable: when a commit tracks a file that another checkout has as ignored runtime data,
-checking out or pulling that commit overwrites the local file without a word. 2026-10-26: one install's
+checking out or pulling that commit overwrites the local file without a word. In an earlier incident, one install's
 data/state/transcript.jsonl and speakers.json were force-added and committed, and the next pull on another install
 replaced its transcript and voices with them. These tests fail if anything gitignored is tracked again, and check the
 pre-commit hook in .githooks/ that refuses to commit such a file.
 
-They also check the hooks that refuse leftover merge conflict markers (#566): pre-commit for ordinary commits and
+They also check the hooks that refuse leftover merge conflict markers: pre-commit for ordinary commits and
 for finishing a conflicted merge, pre-merge-commit for a merge that had no conflicts.
 
 Every git command here runs without the user's global or system git config (#29), and each temporary repo has its own

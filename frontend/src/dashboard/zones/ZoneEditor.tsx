@@ -1,4 +1,4 @@
-// Drawing named zones on one camera's live picture (#1316): click corners to outline a zone, name it, and save the
+// Drawing named zones on one camera's live picture: click corners to outline a zone, name it, and save the
 // camera's whole set. The picture is never mirrored here, since zones are in the camera's own frame coordinates, and
 // the box takes the frame's shape, so a corner lands where it was clicked.
 import { Button, Checkbox, Group, Modal, Stack, Text, TextInput, Timeline } from '@mantine/core';
@@ -66,7 +66,7 @@ export function ZoneEditor({ cam, label, onClose }: { cam: string; label: string
   const q = useQuery(zonesQuery());
   const saved: Definition | undefined = q.data && Object.hasOwn(q.data.cameras, cam) ? q.data.cameras[cam] : undefined;
   const [zones, setZones] = useState<Zone[] | null>(null);
-  // A new zone drawn from "Draw the TV" starts as a screen named TV (#2669).
+  // A new zone drawn from "Draw the TV" starts as a screen named TV.
   const [drawing, setDrawing] = useState<{ corners: Point[]; replaces: number | null; tv?: boolean } | null>(null);
   const [note, setNote] = useState('');
   const [history, setHistory] = useState(false);

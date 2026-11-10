@@ -401,7 +401,7 @@ def test_alias_not_relabel_named(state):
 
 
 def test_a_persons_several_voices_all_answer_for_them(state):
-    # #772: naming replaces merging, so one person may have several voices.
+    # Naming replaces merging, so one person may have several voices.
     write_voices(state, {1: "Sam", 2: "Sam"})
     transcripts(
         state,
@@ -489,7 +489,7 @@ UTOPIA = "We went to Utopia at the hot springs."
     ],
 )
 def test_a_selected_day_keeps_the_lines_the_question_is_about(state, monkeypatch, day, said_at, now):
-    """A busy day's newest lines don't push out the line the question names (#1303), and the day is cut at local
+    """A busy day's newest lines don't push out the line the question names, and the day is cut at local
     midnight, so the same words just outside it stay out."""
     d = dt.date.fromisoformat(day)
     before = dt.datetime.combine(d, dt.time(), tzinfo=LA).timestamp() - 600
@@ -566,7 +566,7 @@ def test_journal_entries_stay_ahead_of_the_newest_lines(state, monkeypatch):
 
 
 def test_lines_that_mention_passwords_or_codes_are_not_hidden(state):
-    """#92, by Joe's decision: history answers hide nothing for what a line says."""
+    """History answers hide nothing based on what a line says."""
     texts = ["We moved here in 2019 and want to fix the fence", "The password is rosebud", "The code is 482913"]
     transcripts(state, [dict(ts_start=YESTERDAY + i, speaker="Sam", text=t) for i, t in enumerate(texts)])
     assert [e["text"] for e in ask(state, SAM_WANTED)["evidence"]] == texts
@@ -760,7 +760,7 @@ def test_local_zone_reads_tz(tz, tmp_path, monkeypatch):
     assert dt.datetime(2026, 7, 1, 12, tzinfo=h.local_zone()).utcoffset() == dt.timedelta(hours=2)
 
 
-# ---- parts of the day (#195): one set of hours, against the selected day or today ----
+# ---- parts of the day: one set of hours, against the selected day or today ----
 
 
 def span(q):
@@ -809,7 +809,7 @@ def test_a_night_across_the_spring_change_is_an_hour_short():
 
 
 def test_speech_heard_on_two_mics_is_one_piece_of_evidence(state):
-    """#476: another mic's copy of a line (#284) is the same thing said, so an answer cites it once, even when the
+    """Another mic's copy of a line is the same thing said, so an answer cites it once, even when the
     two copies were written down a little differently, or start in different seconds."""
     write_voices(state, {1: "Sam"})
     transcripts(

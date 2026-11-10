@@ -1,7 +1,7 @@
-"""The dashboard's media replies (#439, H._media): a file, or the byte range of it the browser asks for, read from disk
+"""The dashboard's media replies (H._media): a file, or the byte range of it the browser asks for, read from disk
 as it's sent rather than loaded whole, since a browser keeps a range open for as long as it plays. The routes that
 send files this way (/people/reference-media, room audio) share it; here a small handler serves one file through it.
-v1's /video/file, which these tested first, is gone (#549)."""
+v1's /video/file, which these tested first, is gone."""
 
 import http.client
 import inspect
@@ -102,7 +102,7 @@ def test_media_is_slow_only_when_it_was_slow_to_start(kind, headers_after, done_
 def around_send_media(monkeypatch, change):
     """Wrap the real `H._send_media`: each call is bound to its own signature, `change` gets its arguments by name (and
     may replace one), and the real method runs with them. A parameter added to it later passes through untouched,
-    and one a test reaches for that's renamed or gone fails here, not in a fake that went stale (#2922)."""
+    and one a test reaches for that's renamed or gone fails here, not in a fake that went stale."""
     real = server.H._send_media
     signature = inspect.signature(real)
 

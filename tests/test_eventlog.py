@@ -130,7 +130,7 @@ def test_a_purge_removes_a_persons_events_and_records_that_it_did(log):
 
 
 def test_forgetting_a_set_of_subjects_is_one_purge_with_one_record_naming_none(log):
-    """#725: a person and the ids merged into them go in one purge, with one record that says only that it was by
+    """A person and the ids merged into them go in one purge, with one record that says only that it was by
     person, not which ids, nor how many."""
     merged = PersonId("0199a000-0000-7000-8000-0000000a11ce")
     alice, merged_in = ev(subject=ALICE, text="alice"), ev("cam:front", EventType.SCENE_OBSERVED, subject=merged)

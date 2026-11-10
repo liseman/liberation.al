@@ -1,4 +1,4 @@
-// "Who's this?": every face group and voice nobody has named yet, one row each, best guess first (#310, #347). Live
+// "Who's this?": every face group and voice nobody has named yet, one row each, best guess first. Live
 // shows it in its rail (compact), and People in its right pane (wide, with the recent decisions under it). Each row
 // has the face's newest pictures or the voice's most useful clip to play, how often and when it was seen or heard, the
 // best guess with its score ("Probably Kara 86%"), a bar, a one-line reason, and an inline name selector plus Ignore. A voice
@@ -50,14 +50,14 @@ import playClasses from './whosthis.module.css';
 
 export { WHOS_THIS };
 // The most face groups By person names in one save: the server keeps the newest 50 undo records
-// (people/card_prefs.py UNDO_KEEP), and one save's Undo must cover all of it (Codex on #2383).
+// (people/card_prefs.py UNDO_KEEP), and one save's Undo must cover all of it.
 export const FACE_BATCH = 50;
 
 const RANK: Record<Band, number> = { probable: 0, maybe: 1, none: 2 };
 
 type Row = ({ kind: 'face' } & UnknownGroup) | ({ kind: 'voice' } & UnknownGroup & UnknownVoice);
 
-/** What a row's suggestion from who was seen or heard with it says (#225), or ''. */
+/** What a row's suggestion from who was seen or heard with it says, or ''. */
 export function togetherText(kind: 'face' | 'voice', t: Together | null | undefined, now = Date.now() / 1000): string {
   if (!t) return '';
   const times = `${t.moments} ${t.moments === 1 ? 'time' : 'times'}, last ${seenAt(t.last, now)}`;
@@ -75,7 +75,7 @@ export function guessText(g: Pick<UnknownGroup, 'guess' | 'band' | 'score' | 'to
 }
 
 // Made once: toLocale*String builds a new formatter per call, and Live renders every row's time on every scene
-// update (most of Who's this?'s render time, #486).
+// update (most of Who's this?'s render time).
 const HM = new Intl.DateTimeFormat([], { hour: '2-digit', minute: '2-digit', hour12: false }); // 24-hour, as lib/format
 const DAY = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
 
@@ -96,7 +96,7 @@ interface InView extends SceneFace {
 }
 
 /** A face shot at the picked size: the 80 px thumbnail for the small size, else the saved crop. The server's URLs may
- *  already ask for the thumbnail (`?size=80`, #2392's Codex note), so the parameter is set or removed, never appended. */
+ *  already ask for the thumbnail (`?size=80`), so the parameter is set or removed, never appended. */
 export function shotSrc(url: string, small: boolean): string {
   const u = new URL(url, location.origin);
   if (small) u.searchParams.set('size', '80');
@@ -104,11 +104,11 @@ export function shotSrc(url: string, small: boolean): string {
   return `${u.pathname}${u.search}`;
 }
 
-/** What requests about a clip's line send: its key, or its time for a clip from before keys (#247). */
+/** What requests about a clip's line send: its key, or its time for a clip from before keys. */
 const ref = (clip: { ts: number; line?: string }): LineRef => clip.line ?? clip.ts;
 
 /** Best guess first: the probable ones by score, then the maybes, then the rest by when they were last seen. */
-/** A row's band for sorting: one with no guess but a suggestion from who was with it sorts with the maybes (#225), as
+/** A row's band for sorting: one with no guess but a suggestion from who was with it sorts with the maybes, as
  *  the server sorts it. */
 const sortBand = (g: Row): Band => (g.band === 'none' && g.together ? 'maybe' : g.band);
 const scoreKey = (g: Row): number => (g.band !== 'none' ? -g.score : 0);
@@ -121,7 +121,7 @@ type NotUndo = { name: string; group: number };
 type Said = ({ text: string; undo?: LineRef } | { err: string }) & {
   claimUndo?: ClaimUndo;
   notUndo?: NotUndo;
-  tvUndo?: { token: string; row: string }; // "TV or radio" (#2468): the mark's Undo, and the row it took away
+  tvUndo?: { token: string; row: string }; // "TV or radio": the mark's Undo, and the row it took away
   bulkUndo?: () => Promise<void>; // By person's save, both halves
 };
 
@@ -145,28 +145,28 @@ function WhoRow({
   onSaid: (said: Said) => void;
   hidden: boolean;
   onPending: (pending: boolean) => void;
-  onGone: () => void; // the row was decided: take it off the list (2026-10-29)
+  onGone: () => void; // the row was decided: take it off the list
   onMissingPicture: (url: string) => void;
 }) {
   const client = useQueryClient();
   const leaving = useLeaving();
   const [state, setState] = useState<RowState>({ mode: 'idle' });
   const [name, setName] = useState('');
-  const [all, setAll] = useState(false); // every picture shown, to take the wrong ones out (#2008)
+  const [all, setAll] = useState(false); // every picture shown, to take the wrong ones out
   const submitting = useRef(false);
   const begin = (terminal = false) => {
     if (submitting.current) return false;
     submitting.current = true;
     setState({ mode: 'saving' });
     if (terminal) {
-      leaving(`${g.kind}:${g.id}`); // focus moves on first, without scrolling (#2328)
+      leaving(`${g.kind}:${g.id}`); // focus moves on first, without scrolling
       onPending(true);
     }
     return true;
   };
   const busy = state.mode === 'saving';
   const clip = g.kind === 'voice' ? g.clips[0] : undefined;
-  // who was seen or heard with it (#225), when that's not the guess already
+  // who was seen or heard with it, when that's not the guess already
   const suggested =
     g.together && g.together.name.toLocaleLowerCase() !== g.guess?.name.toLocaleLowerCase() ? g.together.name : null;
   const done = (text: string, undo?: LineRef, claimUndo?: ClaimUndo) => {
@@ -207,7 +207,7 @@ function WhoRow({
       done(`${g.label} ignored. It won't be asked about again.`);
     } else failed(j.error || 'Could not put this aside');
   };
-  /** Not the guessed person (#2366): the group stays, guessed afresh without them; Undo takes it back. */
+  /** Not the guessed person: the group stays, guessed afresh without them; Undo takes it back. */
   const notThem = async (who: string) => {
     if (g.kind !== 'face' || !begin()) return;
     const j = await markNotFace(client, who, [g.id]);
@@ -227,7 +227,7 @@ function WhoRow({
       failed(`Saving failed: ${messageOf(e)}`);
     }
   };
-  /** A TV or radio (#2468): every line of the voice is marked as one, kept in the transcript but nobody's; the row
+  /** A TV or radio: every line of the voice is marked as one, kept in the transcript but nobody's; the row
    *  leaves, and Undo brings it back. */
   const tv = async () => {
     if (g.kind !== 'voice' || !begin(true)) return;
@@ -585,12 +585,12 @@ export function WhosThis({
   const reading = faces.isPending || voices.isPending;
   const graceOver = useSlow(reading, PAGE_SLOW_MS);
   const holding = reading && !graceOver;
-  // Only a first load says so: a refetch behind a list (or behind an empty answer) is silent (#1984).
+  // Only a first load says so: a refetch behind a list (or behind an empty answer) is silent.
   const waiting = [facesWaiting && 'faces', voicesWaiting && 'voices'].filter(Boolean).join(' and ');
   const failed = faces.isError || voices.isError;
   // A link to /#whos-this lands here once the rows are in, and again on each such link while Live stays open (in-app
-  // links fire hashchange; a visited tab isn't mounted afresh, #330). Only the first load lands: a list read again
-  // after a decision (a cold answer flips loading) mustn't pull the page back up while the owner works down it (#2328).
+  // links fire hashchange; a visited tab isn't mounted afresh). Only the first load lands: a list read again
+  // after a decision (a cold answer flips loading) mustn't pull the page back up while the owner works down it.
   const landed = useRef(false);
   useEffect(() => {
     if (loading) return;
@@ -612,7 +612,7 @@ export function WhosThis({
       say({ err: `That didn't work: ${messageOf(e)}` });
     }
   };
-  // By person (#2366): face groups guessed as each person, as tiles. Saving claims the checked ones and records the
+  // By person: face groups guessed as each person, as tiles. Saving claims the checked ones and records the
   // unchecked ones as not that person, with one Undo for both.
   const byPerson = (thumb: boolean): BulkTarget[] => {
     const found = new Map<string, Row[]>();
@@ -647,7 +647,7 @@ export function WhosThis({
         if (typeof j.undo === 'string') tokens.push(j.undo);
       } else failures.push(j.error || `Face ${id} could not be named`);
     }
-    // A claim that failed is still waiting: it comes back to the list (and to By person) at once (Codex on #2383).
+    // A claim that failed is still waiting: it comes back to the list (and to By person) at once.
     const failed = checked.filter(id => !named.includes(id));
     if (failed.length)
       setGone(previous => {
@@ -902,7 +902,7 @@ export function WhosThis({
             </Text>
           )}
           {/* One box for loading, saving, and empty, always in the page and a line tall, so moving between them
-          doesn't move what's below (#1984). */}
+          doesn't move what's below. */}
           <p
             className="who-state"
             role="status"

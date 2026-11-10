@@ -200,7 +200,7 @@ def test_the_route_lists_the_groups_waiting_for_a_name(state, serve, monkeypatch
     [pytest.param(7, [5, 6], id="default"), pytest.param(10, [5, 6, 8], id="longer"), pytest.param(1, [5], id="a-day")],
 )
 def test_to_name_lists_and_counts_only_groups_seen_in_the_last_unnamed_days(state, monkeypatch, days, listed):
-    # #3004: Face 5 was seen now, Face 6 two days ago (its sightings and the store agree), and Face 8, which has no
+    # Face 5 was seen now, Face 6 two days ago (its sightings and the store agree), and Face 8, which has no
     # recorded sighting left, eight days ago by the store
     ids, vecs, counts, nxt, sums = fid._unk_load_sums()
     fid._unk_save(ids, vecs, counts, nxt, sums, last_seen={6: B, 8: time.time() - 8 * 86400})
@@ -256,7 +256,7 @@ def test_the_route_says_when_the_groups_cannot_be_read(state, serve, monkeypatch
 
 
 def test_a_face_heard_with_a_named_voice_suggests_that_name_but_never_the_owners(state, monkeypatch, vision, ids):
-    """Face 6 is seen three times while Dana speaks (#225); the owner, Joe, talks near Face 5 all the while."""
+    """Face 6 is seen three times while Dana speaks; the owner, Joe, talks near Face 5 all the while."""
     from voices import write_voices
 
     add_sightings(vision, ids, [(30, 400.0, 6, None, 0.9, 0.2), (31, 900.0, 6, None, 0.9, 0.2)])
@@ -388,7 +388,7 @@ def test_face_snapshot_is_one_read_reused_until_the_next_request(tmp_path, visio
     from liberational.vision import sightings
 
     # Only this thread's reads count: the fake answers any thread, and a warm-up thread an earlier test's server
-    # started (test_dashboard_warm) can read through it while this runs (#2922).
+    # started (test_dashboard_warm) can read through it while this runs.
     here = threading.get_ident()
     mine = [0]
     read = vision.range
@@ -613,7 +613,7 @@ def test_an_undone_automatic_name_brings_the_group_back_and_is_not_redone(kara, 
 
 
 def test_a_group_marked_not_kara_is_never_named_kara_automatically(kara, state):
-    """#2368: Face 5 clearly matches Kara, but the owner said it isn't her."""
+    """Face 5 clearly matches Kara, but the owner said it isn't her."""
     from liberational.people import face_nots
 
     face_nots.mark(state, "Kara", [5])
@@ -644,7 +644,7 @@ def track(vision, tid, kara_looks, group_looks=1, t=300.0, group=6):
 
 
 def test_a_group_whose_tracks_all_turned_out_to_be_one_person_is_named_them(kara, state, vision, caplog):
-    # #3025: Face 6's faces are like nobody, but both tracks it was seen on were Kara once more of her face showed
+    # Face 6's faces are like nobody, but both tracks it was seen on were Kara once more of her face showed
     caplog.set_level("INFO")
     track(vision, "1", kara_looks=3)
     track(vision, "2", kara_looks=3, t=400.0)
@@ -672,7 +672,7 @@ def test_a_groups_tracks_name_it_only_with_enough_and_unanimous_evidence(kara, s
 
 
 def test_a_track_seen_under_a_group_folded_in_since_counts_for_the_group_it_went_into(kara, state, vision):
-    # #3181: Face 40 was folded into Face 6 after its track was recorded (and that hour kept)
+    # Face 40 was folded into Face 6 after its track was recorded (and that hour kept)
     track(vision, "1", kara_looks=3)
     track(vision, "2", kara_looks=3, t=400.0, group=40)
     assert [r for r in fid.autoname(keep=[8], apply=False, state=state) if r.get("by")] == []
@@ -683,7 +683,7 @@ def test_a_track_seen_under_a_group_folded_in_since_counts_for_the_group_it_went
 
 
 def test_a_track_across_an_hours_end_is_one_track(kara, state, vision):
-    # #3140: hours are summed apart; a track's looks either side of the hour are still its 8 looks
+    # Hours are summed apart; a track's looks either side of the hour are still its 8 looks
     hour_end = (B // 3600 + 1) * 3600
     track(vision, "1", kara_looks=7, t=hour_end - B - 1.5)
     got = [r["gid"] for r in fid.autoname(keep=[8], state=state) if r.get("by") == "tracks"]
@@ -784,7 +784,7 @@ def test_a_rebuild_dry_run_changes_nothing(taught, state):
 
 
 def test_a_group_marked_not_someone_never_has_them_as_its_guess(state):
-    """#2368: Face 5 looks like Kara, but the owner said it isn't her."""
+    """Face 5 looks like Kara, but the owner said it isn't her."""
     (five,) = G.groups([{"id": 5, "count": 12}], state)
     assert (five["guess"]["id"], five["guess"]["name"], five["not"]) == ("Kara", "Kara", [])
     (five,) = G.groups([{"id": 5, "count": 12}], state, nots={5: {"kara"}})
@@ -792,7 +792,7 @@ def test_a_group_marked_not_someone_never_has_them_as_its_guess(state):
 
 
 def test_rebuild_leaves_out_a_recorded_look_whose_signal_says_it_hardly_read_as_a_face(vision, state):
-    # Recorded before head_faces set such looks aside (#2355): a turned-away look in Face 5 with a low norm.
+    # Recorded before head_faces set such looks aside: a turned-away look in Face 5 with a low norm.
     for k, (mid, norm, nose) in enumerate((("m-clear", 20.0, 0.9), ("m-away", 7.0, 0.9), ("m-blur", 20.0, 0.2))):
         vision.add(
             segment_log.FACE_EMBEDDINGS, ts_start=B + k, cam="cam0", group=_key(5), match_id=mid, vector=at(0.9, 2 + k)

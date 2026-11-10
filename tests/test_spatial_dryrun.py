@@ -1,4 +1,4 @@
-"""Dry runs of spatial writes (#3286, #3289): a throwaway state that never lets a write reach the live one, and the
+"""Dry runs of spatial writes: a throwaway state that never lets a write reach the live one, and the
 measures the tools print."""
 
 import math

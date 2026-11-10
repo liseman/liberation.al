@@ -246,7 +246,7 @@ describe('bounded listings', () => {
     await expect(daySegments(0, 1, { connect: gateway.connect, url: 'ws://small/ws' })).rejects.toThrow(
       'smallest safe window',
     );
-    expect(gateway.closes()).toBe(0); // the listing failed on its data; the connection is fine for the next (#2348)
+    expect(gateway.closes()).toBe(0); // the listing failed on its data; the connection is fine for the next
     bad = false;
     expect(await daySegments(0, 1, { connect: gateway.connect, url: 'ws://small/ws' })).toEqual([
       { cam: 'cam0', start: 0, end: 1, url: 'gateway:1:0:1000000' },

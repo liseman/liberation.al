@@ -111,7 +111,7 @@ it('does not replace newer transcript labels with a superseded slow refresh', as
   expect(c.getQueryData<Transcript>(liveKey('transcript'))?.entries[0]?.text).toBe('newer labels');
 });
 
-// #2330: a voice named from a transcript (useNameVoice claims it) leaves the waiting voices at once; only that one,
+// A voice named from a transcript (useNameVoice claims it) leaves the waiting voices at once; only that one,
 // only on the server's OK, and a face list is left alone.
 it.each([
   ['an accepted name', { ok: true, name: 'Dana' }, 200, [8], 1],

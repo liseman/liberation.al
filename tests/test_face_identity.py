@@ -136,7 +136,7 @@ def test_without_a_registry_the_names_are_as_matched(tmp_path, vision, monkeypat
 
 
 def test_someone_still_in_view_is_seen_now_from_the_matches_not_their_last_closed_visit(tmp_path, vision):
-    """A visit is published once its run ends, so an hour of continuous matches has no visit yet (Codex on #814):
+    """A visit is published once its run ends, so an hour of continuous matches has no visit yet:
     the newest matches within TAIL_S of the window's end stand for the open run."""
     registry.at(tmp_path).ensure("Alice", "test")
     visit(vision, "Alice", 100, 110)  # her last closed visit

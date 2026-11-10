@@ -14,12 +14,12 @@ export function PreviewCam({ cam, alt }: { cam: string; alt: string }) {
     // A single focused camera does not need the thumbnail scheduler or its read connection.
     void import('./preview')
       .then(module => {
-        // Vite resolves a stale-build import with nothing once the page is reloading for the new build (#2054).
+        // Vite resolves a stale-build import with nothing once the page is reloading for the new build.
         if (!closed && target && module) off = module.attachPreview(cam, target, setState);
       })
       .catch(error => {
         // A tab left open across a dashboard rebuild asks for a chunk that's gone: reload once for the new build
-        // instead of showing "Preview unavailable" until someone reloads by hand (2026-11-05).
+        // instead of showing "Preview unavailable" until someone reloads by hand.
         if (reloadForNewBuild(error)) return;
         if (!closed) setState({ status: 'unavailable', capturedAt: null, error: 'Preview unavailable' });
       });

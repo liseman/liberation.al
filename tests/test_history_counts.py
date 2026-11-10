@@ -80,7 +80,7 @@ def test_a_review_day_keeps_the_readings_kind(source, kind):
 
 
 def test_a_walk_by_question_reads_walk_by_spans_and_movement_not_sampled_presence(tmp_path, monkeypatch, vision):
-    # #1591: a walk-by count comes from walk-by spans and movement, never from sampled presence.
+    # A walk-by count comes from walk-by spans and movement, never from sampled presence.
     monkeypatch.setattr(
         video_evidence,
         "collect",

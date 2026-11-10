@@ -1,4 +1,4 @@
-// Where an animal word goes (#1986): a taught pet's name or a species opens Known's Pets tab, at that pet or for that
+// Where an animal word goes: a taught pet's name or a species opens Known's Pets tab, at that pet or for that
 // species, never Objects. Pets.tsx and Live's large view share it, and the Pets query is here so both read one cache.
 import { request } from '../../shared/http';
 
@@ -7,11 +7,11 @@ export interface Pet {
   name: string;
   species: string;
   sex?: 'female' | 'male' | null;
-  photo?: string | null; // the sighting (its track) chosen as its photo on its card (#2363); none: its newest
-  hidden?: string[]; // the sightings hidden from its card (#2363)
+  photo?: string | null; // the sighting (its track) chosen as its photo on its card; none: its newest
+  hidden?: string[]; // the sightings hidden from its card
 }
 
-/** A named pet a camera sees now (#2606): where, since when, and its newest track there (a photo of it now). */
+/** A named pet a camera sees now: where, since when, and its newest track there (a photo of it now). */
 export interface PetHere {
   cam: string;
   camera_name: string; // the camera's name (vision.camera_names), else its id

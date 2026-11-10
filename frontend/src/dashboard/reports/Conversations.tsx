@@ -22,7 +22,7 @@ import { ConversationChord } from './visualizations';
 const HOURS = Array.from({ length: 24 }, (_, h) => hourName(h));
 const HOUR_TICKS = new Set([0, 3, 6, 9, 12, 15, 18, 21]);
 
-/** Words that say little about what was talked about, left out of "Words that come up" (#2621 board, idea 4). The
+/** Words that say little about what was talked about, left out of "Words that come up". The
  *  server already drops stop words (memory/conversation_topics.py); these are the conversational filler it keeps. */
 const FILLER = new Set(
   'stuff thing things probably anyway same bunch really actually basically gonna kinda sorta maybe okay yeah yes like just right well know think mean sure also still something anything everything lot lots whatever'.split(

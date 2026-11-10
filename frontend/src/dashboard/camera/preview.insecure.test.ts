@@ -1,4 +1,4 @@
-// Without WebCodecs (a plain-http page that isn't localhost), tiles take one live JPEG frame instead (2026-11-05).
+// Without WebCodecs (a plain-http page that isn't localhost), tiles take one live JPEG frame instead.
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { Connection, Handlers } from '../player/transport';
 import { controlVisibility, recordingCanvas } from './testFakes';

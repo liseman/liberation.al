@@ -1,7 +1,7 @@
-// The top bar's status (#2453): one pill that reads as state first ("Listening · 6 cameras") and opens the privacy
+// The top bar's status: one pill that reads as state first ("Listening · 6 cameras") and opens the privacy
 // menu second. Its microphone and camera glyphs keep their colours (on, late, off, or paused), and the live feed's
 // glyph joins them only when it's down. The full words are the pill's accessible name and the menu's first lines.
-// On this machine the menu pauses capture for privacy (#2260): all of a kind with one item, or each device on its own.
+// On this machine the menu pauses capture for privacy: all of a kind with one item, or each device on its own.
 import { Menu, UnstyledButton } from '@mantine/core';
 import {
   IconCameraFilled,

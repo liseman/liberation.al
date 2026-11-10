@@ -142,7 +142,7 @@ WITH_TIER = (*NAMES[:2], "continuum-tier-worker", *NAMES[2:])
 
 def test_the_tier_stops_after_capture_once_it_has_drained_tier_0(lifecycle):
     # Stopped with the readers, the tier missed what capture wrote until it stopped, and the broker's new arena
-    # stranded it (#1684).
+    # stranded it.
     _manager, readiness, health, events = lifecycle
     manager = FakeManager(events, WITH_TIER)
     cascade.run(WITH_TIER, manager=manager, readiness=readiness, health=health, log=lambda _: None)
@@ -158,7 +158,7 @@ def test_the_tier_stops_after_capture_once_it_has_drained_tier_0(lifecycle):
 
 def test_the_tier_starts_before_capture(lifecycle):
     # Started with the readers, the tier subscribed after capture's first frames, and the broker could reclaim them
-    # from Tier 0 before anything archived them (#1726).
+    # from Tier 0 before anything archived them.
     _manager, readiness, health, events = lifecycle
     manager = FakeManager(events, WITH_TIER)
     cascade.run(WITH_TIER, manager=manager, readiness=readiness, health=health, log=lambda _: None)
@@ -249,7 +249,7 @@ def test_orphan_capture_child_prevents_new_broker_and_capture_start(lifecycle):
 
 @pytest.mark.parametrize("stage", ["broker", "capture"])
 def test_a_failed_upstream_gate_still_starts_everything_it_stopped_and_fails(lifecycle, stage):
-    # Bob's Mac (#1387): a capture failure left the readers unloaded, and launchd never brings those back.
+    # Bob's Mac: a capture failure left the readers unloaded, and launchd never brings those back.
     manager, readiness, health, events = lifecycle
     readiness.fail = stage
     with pytest.raises(cascade.CascadeError, match=stage):
@@ -357,7 +357,7 @@ def _capture_worker_replaced(manager, *, network):
 
 
 def test_an_rtsp_worker_reconnecting_while_the_cascade_watches_isnt_a_failure(lifecycle):
-    """#2360: capture's supervisor starts an RTSP worker again whenever its camera's clock fit fails."""
+    """Capture's supervisor starts an RTSP worker again whenever its camera's clock fit fails."""
     manager, readiness, _health, _events = lifecycle
     health = _capture_worker_replaced(manager, network=True)
     cascade.run(NAMES, manager=manager, readiness=readiness, health=health, log=lambda _: None)
@@ -807,7 +807,7 @@ def test_invalid_capture_configuration_precedes_every_manager_mutation(tmp_path,
 
 
 def test_a_failed_cascade_leaves_its_stage_and_reason_on_disk(tmp_path, monkeypatch):
-    """#2660: an install reported rc 1 and only its "after failure" tail was kept, not the stage that failed."""
+    """An install reported rc 1 and only its "after failure" tail was kept, not the stage that failed."""
     monkeypatch.setattr(services, "_check_checkout", lambda anywhere: None)
     monkeypatch.setattr(services, "selected", lambda: {name: {} for name in NAMES})
     monkeypatch.setattr(services, "installed", lambda: list(NAMES))

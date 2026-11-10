@@ -1,5 +1,5 @@
 // Corrections from a transcript, the same on Live and Review: a turn put down to the wrong person opens Who is this?
-// (move its lines to someone, or take them off this person, #300), a line's label comes off, or lines are marked not
+// (move its lines to someone, or take them off this person), a line's label comes off, or lines are marked not
 // transcribed correctly. One change at a time, each with one Undo in a toast; lines that failed can be tried again.
 import { Button } from '@mantine/core';
 import { useQueryClient } from '@tanstack/react-query';
@@ -33,7 +33,7 @@ export interface Corrections {
   openNot: (n: Not, from: HTMLElement | null) => void;
   /** Mark these lines not transcribed correctly. */
   trash: (lines: readonly TranscriptEntry[]) => Promise<void>;
-  /** "This is TV" (#2468): mark these lines as a TV's, with an Undo. */
+  /** "This is TV": mark these lines as a TV's, with an Undo. */
   tv: (lines: readonly TranscriptEntry[]) => Promise<void>;
   /** "Not TV": take the TV marks off these lines. */
   notTv: (lines: readonly TranscriptEntry[]) => Promise<void>;
@@ -183,7 +183,7 @@ export function useCorrections(scope: string, onChanged: () => void): Correction
       setToast({ text: 'Taking the TV mark off', sticky: true });
       const result = await notTv(lines.map(e => e.line ?? e.ts_start));
       if (result.ok) {
-        // An Undo marks the lines a TV's again (#2643): a misclick could otherwise put a TV back into people.
+        // An Undo marks the lines a TV's again: a misclick could otherwise put a TV back into people.
         if (typeof result.undo === 'string') undoRef.current = { kind: 'transcript', token: result.undo };
         setToast({
           text: 'Not TV: it counts as said here again',

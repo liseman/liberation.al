@@ -9,7 +9,7 @@ import { LoadError, PageEmpty, PageHeader, PageLoading } from '../lib/page';
 import classes from './people.module.css';
 
 /** Whether the roster and its card share one column (people.module.css, 820px and under: a phone). There, People and
- *  Pets open on what waits for a name, with the list one tap back (Joe, #2584); side by side, both show. */
+ *  Pets open on what waits for a name, with the list one tap back; side by side, both show. */
 export function oneColumn(): boolean {
   return typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 820px)').matches;
 }
@@ -61,8 +61,8 @@ export function RosterRow({
         aria-current={current ? 'true' : undefined}
         aria-keyshortcuts={onOpen ? 'I' : undefined}
         // A click on the name opens the card, as it always did; a click elsewhere on the card only selects it, the
-        // cursor Enter and I open (#3117). At one column the roster and the card aren't shown together, and a
-        // touchscreen has no Enter or I, so a tap anywhere opens the card there (#3145).
+        // cursor Enter and I open. At one column the roster and the card aren't shown together, and a
+        // touchscreen has no Enter or I, so a tap anywhere opens the card there.
         onClick={e => (onOpen && (oneColumn() || opensCard(e.target)) ? onOpen() : onPick())}
         onDoubleClick={onOpen}
         onKeyDown={onKey}

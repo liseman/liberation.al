@@ -33,7 +33,7 @@ it("keeps the reader's scrolling until the drawing's width changes", () => {
   expect(ref.current.scrollLeft).toBe(744);
 });
 
-// Chart tooltips float over the page (#1982): placed in the window, not in the chart's clipping card.
+// Chart tooltips float over the page: placed in the window, not in the chart's clipping card.
 it.each([
   ['below and to the right of the pointer', 100, 100, { left: 112, top: 112 }],
   ['to its left near the right edge', 950, 100, { left: 738, top: 112 }],

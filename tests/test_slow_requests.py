@@ -1,4 +1,4 @@
-"""The slow-request watchdog (dashboard/slow.py, #433), and the request's duration counted from its request line."""
+"""The slow-request watchdog (dashboard/slow.py), and the request's duration counted from its request line."""
 
 import socket
 import sys
@@ -157,13 +157,13 @@ def test_a_playing_video_is_long_on_purpose_once_its_headers_are_out():
     h._content_type, h._headers_at = "video/mp4", None
     assert not h._long_on_purpose()  # still working out the reply: a stall the watchdog should see
     h._headers_at = 1.0
-    assert h._long_on_purpose()  # the browser holds it open while it plays (#439)
+    assert h._long_on_purpose()  # the browser holds it open while it plays
     h._content_type = "application/json"
     assert not h._long_on_purpose()
 
 
 def test_a_client_that_gave_up_on_a_slow_json_reply_is_still_named(serve, monkeypatch):
-    """#459 made _send take a client leaving quietly; a slow request it left is still the error it was."""
+    """_send takes a client leaving quietly, while a slow request it left is still logged as slow."""
     log = Warnings()
     monkeypatch.setattr(server, "LOG", log)
     monkeypatch.setattr(server, "SLOW_REQUEST_S", 0.2)

@@ -1,5 +1,4 @@
-"""The face groups' full answer in a process of its own, and the data key that starts it only when something moved
-(#2418)."""
+"""The face groups' full answer in a process of its own, and the data key that starts it only when something moved."""
 
 from concurrent.futures import Future
 from concurrent.futures.process import BrokenProcessPool

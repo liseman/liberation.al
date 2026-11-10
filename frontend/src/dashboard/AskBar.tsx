@@ -9,7 +9,7 @@ import { useAskOpener } from './ask/openAsk';
 import type { TabId } from './router';
 import { shell } from './shell';
 
-/** The top bar's Ask button on Live and Review: default weight, with its / shortcut shown (#2453). */
+/** The top bar's Ask button on Live and Review: default weight, with its / shortcut shown. */
 export function AskTrigger({
   onClick,
   label,

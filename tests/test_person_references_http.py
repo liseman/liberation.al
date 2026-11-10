@@ -68,7 +68,7 @@ def test_upload_preview_attach_list_remove(base):
 
 
 def test_a_one_face_photo_teaches_its_person_and_removing_it_takes_the_row_back(base, found):
-    # #3245: a single-face reference photo becomes one of the person's owner face rows
+    # A single-face reference photo becomes one of the person's owner face rows
     face = np.zeros(512, np.float32)
     face[3] = 1.0
     found.append(face)

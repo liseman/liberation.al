@@ -47,8 +47,8 @@ const SLOW_FIND_MS = 4000;
 type Prompt = { bbox: Box } | { point: [number, number] };
 
 /** Freeze a camera view, then outline the object the owner points at with EdgeTAM (a clicked Live box, a click, or a
- *  drawn box), or ask EdgeTAM for every object in view (Find objects, #2020) and pick one, and save it. EdgeTAM runs only
- *  when the owner asks (#1481). */
+ *  drawn box), or ask EdgeTAM for every object in view (Find objects) and pick one, and save it. EdgeTAM runs only
+ *  when the owner asks. */
 export function Remember({
   cameras,
   cameraNames = {},
@@ -108,7 +108,7 @@ export function Remember({
   const [aliasDraft, setAliasDraft] = useState('');
   const [note, setNote] = useState('');
   const say = (text: string, error = false) => setMessage({ text, error });
-  const [saved, setSaved] = useState<string | null>(null); // the toast after remembering one (#1984)
+  const [saved, setSaved] = useState<string | null>(null); // the toast after remembering one
 
   useEffect(
     () => () => {

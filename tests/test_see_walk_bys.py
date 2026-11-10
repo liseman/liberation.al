@@ -1,4 +1,4 @@
-"""Walk-bys as they happen (see/walk_bys.py), for the activity worker's "Walked past" spans (#1403): the same rules
+"""Walk-bys as they happen (see/walk_bys.py), for the activity worker's "Walked past" spans: the same rules
 as crossing_counts, decided once a chain has ended."""
 
 import json

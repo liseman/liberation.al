@@ -241,7 +241,7 @@ it('says when a face was last seen', () => {
 
 describe("Who's this?", () => {
   it("counts every face and voice that waits, not just the ones listed, as People's line does (#2451)", async () => {
-    // The server lists the first face groups but counts them all (#2236): 3 listed of 30, plus no voices.
+    // The server lists the first face groups but counts them all: 3 listed of 30, plus no voices.
     serve([]);
     server.use(
       http.get('/faces/unknown/groups', () =>
@@ -263,7 +263,7 @@ describe("Who's this?", () => {
     show();
     const kara = await row(/^Face 5/);
     expect(kara).toHaveAccessibleName('Face 5: Probably Kara 86%');
-    // One picture, the newest, with Show all for the rest (#2366's design): decorative, the row's name says who it is
+    // One picture, the newest, with Show all for the rest: decorative, the row's name says who it is
     expect(kara.querySelectorAll('.who-shot img')).toHaveLength(1);
     expect(within(kara).getByText(/^Seen 42 times, /)).toBeInTheDocument();
     expect(within(kara).getByText('Probably Kara 86%')).toHaveAttribute('data-band', 'probable');
@@ -288,7 +288,7 @@ describe("Who's this?", () => {
     await row(/^Face 9/);
     expect(screen.getAllByRole('combobox', { name: "This person's name" })).toHaveLength(3);
     expect(screen.queryByRole('button', { name: /^(Name them|Someone else|Tag$)/ })).toBeNull();
-    // A guess gets a one-click Yes (#2366), a Probably's a Default button and a Maybe's a Subtle one; no guess, none.
+    // A guess gets a one-click Yes, a Probably's a Default button and a Maybe's a Subtle one; no guess, none.
     expect(screen.getAllByRole('button', { name: /^Yes,/ }).map(b => [b.textContent, b.dataset.variant])).toEqual([
       ['Yes, Kara', 'default'],
       ['Yes, Luca', 'subtle'],
@@ -529,7 +529,7 @@ describe("Who's this?", () => {
   });
 });
 
-// Voices (#347)
+// Voices
 
 const VOICE: UnknownVoice = {
   id: 12,
@@ -840,7 +840,7 @@ describe("voices in Who's this?", () => {
     await waitFor(() =>
       expect(posts.at(-1)).toEqual({ url: '/speakers/refine/undo', body: { lines: [VOICE.clips[0]?.line] } }),
     );
-    // A new message is a new toast in the shared queue (lib/Toast, #2596)
+    // A new message is a new toast in the shared queue (lib/Toast)
     expect(await screen.findByRole('status', { name: 'Decisions' })).toHaveTextContent('Undid 1 label.');
   });
 
@@ -894,7 +894,7 @@ describe("voices in Who's this?", () => {
     await row(/^Speaker 12/);
     expect(screen.getByText(/Faces and voices nobody has named yet/)).toBeInTheDocument();
     expect(screen.getByText(/^Recent decisions/)).toBeInTheDocument();
-    expect(document.getElementById('whos-this')).toBeNull(); // Live's rail keeps that id; both stay mounted (#330)
+    expect(document.getElementById('whos-this')).toBeNull(); // Live's rail keeps that id; both stay mounted
   });
 });
 
@@ -904,7 +904,7 @@ describe("answering Who's this? quickly", () => {
     show();
     const voice = await row(/^Speaker 12/);
     voice.focus();
-    await userEvent.keyboard('d'); // Nobody's old key does nothing now (#3263)
+    await userEvent.keyboard('d'); // Nobody's old key does nothing now
     expect(posts).toEqual([]);
     await userEvent.keyboard('n');
     await waitFor(() =>
@@ -1298,7 +1298,7 @@ describe('Show all and Not this person (#2008)', () => {
     pictures(['a', 'b', 'c']);
     show();
     const card = await row(/^Face 5/);
-    // No Show all photos button of its own (#3263): the Show all link, A, and Space open them
+    // No Show all photos button of its own: the Show all link, A, and Space open them
     expect(within(card).queryByRole('button', { name: /^Show all photos/ })).toBeNull();
     expect(within(card).getByRole('button', { name: 'Show all (3)' })).toHaveAttribute('aria-keyshortcuts', 'A');
     card.focus();
