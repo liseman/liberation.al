@@ -38,7 +38,10 @@
   "linter": {
     "enabled": true,
     "rules": {
-      "preset": "recommended"
+      "preset": "recommended",
+      "suspicious": {
+        "noUnknownAtRules": { "level": "error", "options": { "ignore": ["mixin"] } }
+      }
     }
   },
   "assist": {

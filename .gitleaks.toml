@@ -10,3 +10,10 @@ condition = "AND"
 paths = ['''^tests/test_ask_friends\.py$''', '''^tests/test_onvif\.py$''']
 regexTarget = "line"
 regexes = ['''"key": "ollama/synthetic"''', '''qop="auth", charset=unknown''']
+
+[[allowlists]]
+description = "Vendored modern web guidance: a WebCrypto algorithm name, not a key"
+condition = "AND"
+paths = ['''^\.claude/skills/modern-web-guidance/guides/security/client-side-encryption\.md$''']
+regexTarget = "line"
+regexes = ['''encapsulateKey', 'MLKEM768-X25519', 'ChaCha20-Poly1305''']

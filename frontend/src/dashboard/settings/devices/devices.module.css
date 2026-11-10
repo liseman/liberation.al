@@ -54,10 +54,6 @@
   color: var(--mantine-color-dimmed);
 }
 
-:global([data-mantine-color-scheme="dark"]) .ok {
-  color: var(--mantine-color-green-4);
-}
-
 .toggles {
   display: flex;
   flex-direction: column;
