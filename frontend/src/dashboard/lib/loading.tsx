@@ -3,6 +3,21 @@
 // leaves a skeleton up for good. The error itself is LoadError in page.tsx.
 import { Group, Loader, Skeleton, Stack, Text, VisuallyHidden } from '@mantine/core';
 import { useEffect, useState } from 'react';
+import classes from './loading.module.css';
+
+/** Counts read once this session and shown again while the same tab's count reloads, so the tab row does not flash. */
+const sessionCounts = new Map<string, number>();
+
+export function sessionCount(key: string): number | undefined {
+  return sessionCounts.get(key);
+}
+
+export function setSessionCount(key: string, n: number): void {
+  sessionCounts.set(key, n);
+}
+
+/** Inline width for a tab count line, matched to one digit and the words ("9 to name"). */
+export const countLineChars = (what: string): number => 2 + what.length;
 
 /** How long a load runs before the loader joins the skeleton. */
 export const SLOW_MS = 1200;
@@ -55,6 +70,30 @@ export function CountSkeleton({ chars, label }: { chars: number; label?: string 
       />
       {label && <VisuallyHidden>{label}</VisuallyHidden>}
     </>
+  );
+}
+
+/** Placeholder cards in the People roster grid: a round picture and two lines, like a roster row. */
+export function CardsSkeleton({ cards = 4, label }: { cards?: number; label: string }) {
+  return (
+    <div
+      className={classes.cards}
+      role="group"
+      aria-busy="true"
+      aria-label={label}
+      data-testid="cards-skeleton"
+    >
+      {Array.from({ length: cards }, (_, i) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: identical placeholders with no identity of their own
+        <div key={i} className={classes.card}>
+          <Skeleton circle height={40} />
+          <Stack gap={6} style={{ flex: 1, minWidth: 0 }}>
+            <Skeleton height={12} width="70%" radius="sm" />
+            <Skeleton height={8} width="50%" radius="sm" />
+          </Stack>
+        </div>
+      ))}
+    </div>
   );
 }
 

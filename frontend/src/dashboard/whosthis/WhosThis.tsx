@@ -23,6 +23,7 @@ import { messageOf } from '../../shared/http';
 import { ProcessingImages } from '../../shared/ProcessingImages';
 import { capitalize, plural, seenAt } from '../lib/format';
 import { useSlow } from '../lib/loading';
+import whoClasses from './whosthis.module.css';
 import { PlayClip } from '../lib/PlayToggle';
 import { LoadError, PAGE_SLOW_MS } from '../lib/page';
 import { play } from '../lib/player';
@@ -540,6 +541,28 @@ function RowPlaceholders({ rows, height }: { rows: number; height: number }) {
   );
 }
 
+/** Wide pane: two naming cards with a picture block, while the lists load. */
+function CardPlaceholders({ count = 2 }: { count?: number }) {
+  return (
+    <div
+      className={whoClasses.cardSkeletons}
+      role="group"
+      aria-busy="true"
+      aria-label="Loading faces and voices"
+      data-testid="card-placeholders"
+    >
+      {Array.from({ length: count }, (_, i) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: identical placeholders with no identity of their own
+        <div key={i} className={whoClasses.cardSkeleton}>
+          <Skeleton className={whoClasses.cardSkeletonPic} radius="md" />
+          <Skeleton height={12} width="55%" radius="sm" mt="sm" />
+          <Skeleton height={8} width="35%" radius="sm" mt={6} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function WhosThis({
   last = {},
   live = [],
@@ -956,7 +979,8 @@ export function WhosThis({
               busy={faces.isFetching}
             />
           )}
-          {holding && <RowPlaceholders rows={wide ? 5 : 3} height={wide ? 140 : 72} />}
+          {holding &&
+            (wide ? <CardPlaceholders count={2} /> : <RowPlaceholders rows={3} height={72} />)}
           {voices.isError && (
             <LoadError
               message="Couldn't load the voices waiting for a name"

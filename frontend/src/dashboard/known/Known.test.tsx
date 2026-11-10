@@ -1,6 +1,7 @@
 import { act, render, screen } from '@testing-library/react';
 import { expect, it } from 'vitest';
 import { renderPage } from '../../test/render';
+import { countLineChars, setSessionCount } from '../lib/loading';
 import { useRowEdges, Waiting } from './Known';
 
 it('says what a tab badge counts, and shows nothing when none waits', () => {
@@ -12,6 +13,23 @@ it('says what a tab badge counts, and shows nothing when none waits', () => {
   );
   expect(screen.getByText('201 to name')).toBeInTheDocument();
   expect(screen.queryByText(/to check/)).not.toBeInTheDocument();
+});
+
+it('sizes a first-read skeleton to one digit and the count words', () => {
+  expect(countLineChars('to name')).toBe(9);
+  renderPage(<Waiting n={undefined} what="to name" loading />);
+  expect(screen.getByTestId('count-skeleton')).toBeInTheDocument();
+});
+
+it('shows the last count while a tab reloads after a first read', () => {
+  setSessionCount('test:tab', 0);
+  renderPage(
+    <div data-testid="tab">
+      <Waiting cacheKey="test:tab" n={undefined} what="to name" loading />
+    </div>,
+  );
+  expect(screen.queryByTestId('count-skeleton')).not.toBeInTheDocument();
+  expect(screen.getByTestId('tab')).toHaveTextContent(/^$/);
 });
 
 it.each([
