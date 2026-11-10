@@ -35,6 +35,8 @@ from typing import TYPE_CHECKING, Any
 
 from liberational import config as cfg
 from liberational import logs
+from liberational.dashboard import routes
+from liberational.dashboard.context import log
 from liberational.ingest import pipeline as ingest_pipeline
 from liberational.ingest import runner
 from liberational.ingest import sources as src
@@ -396,3 +398,12 @@ def handle(handler: H, log: Callable[..., None] = print) -> bool:
 def _reply(handler: H, code: int, body: dict[str, Any]) -> bool:
     handler._json(body, code)
     return True
+
+
+# ---- routes (dashboard/routes.py) ----
+
+
+@routes.get_when(PREFIX + "...", lambda p: p.startswith(PREFIX))
+@routes.post_raw_when(PREFIX + "...", lambda p: p.startswith(PREFIX))
+def _route(h: H) -> None:
+    handle(h, log)

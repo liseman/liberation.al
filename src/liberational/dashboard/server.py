@@ -237,19 +237,14 @@ from liberational import (
 from liberational.dashboard import (
     assets,
     context,
-    devices,
     devreload,
-    frontend_log,
     inbox_state,
-    ingest,
     live_status,
     machine_stats,
-    network_cameras,
     people_list,
     people_reads,
     people_writes,
     photo_files,
-    reports,
     routes,
     service_control,
     settings,
@@ -268,35 +263,44 @@ from liberational.people import (
 )
 from liberational.vision import views
 
-# The areas whose modules register their own routes (dashboard/routes.py); the rest are still registered below.
+# Every module that registers routes (dashboard/routes.py), named once so the table is whole however the server
+# is imported; this module registers its own few at its end.
 routes.load(
-    "people_writes",
-    "speaker_lines",
-    "people_reads",
-    "unnamed_groups",
-    "people_list",
-    "inbox_state",
-    "fresh_reads",
-    "photo_files",
-    "voice_clones",
-    "known_voices",
-    "review_reads",
-    "playback",
-    "live_status",
-    "transcript_lines",
-    "call_log",
-    "service_control",
-    "machine_stats",
     "activities",
+    "ask_routes",
+    "call_log",
     "device_links",
+    "devices",
+    "fresh_reads",
+    "frontend_log",
     "happening",
+    "inbox_state",
+    "ingest",
     "journal",
+    "known_voices",
+    "live_status",
+    "machine_stats",
     "marks",
+    "network_cameras",
+    "people_list",
+    "people_reads",
+    "people_writes",
     "pets",
+    "photo_files",
     "places",
+    "playback",
     "presence",
+    "reports",
+    "research",
     "review_boxes",
+    "review_reads",
+    "service_control",
+    "settings",
     "skeletons",
+    "speaker_lines",
+    "transcript_lines",
+    "unnamed_groups",
+    "voice_clones",
     "zones",
 )
 
@@ -382,32 +386,6 @@ def _warm_devices() -> None:
 def _shot_path(sid: str) -> pathlib.Path:
     """Where sighting sid's crop is under the current deletion revision."""
     return face_shots.path(context.STATE, sid, photo_files._shot_revision())
-
-
-def _research(handler: H) -> bool:
-    """Delegate /research* (the Inbox's research jobs) to dashboard/research.py."""
-    if not handler.path.startswith("/research"):
-        return False
-    from liberational.dashboard import research as research_routes
-
-    return research_routes.handle(handler)
-
-
-def _pack_ask(handler: H) -> bool:
-    """Delegate /pack-ask* to liberational/memory/ask.py when present; never raises into the server."""
-    if not handler.path.startswith("/pack-ask"):
-        return False
-    try:
-        from liberational.memory.ask import handle_http
-
-        return bool(handle_http(handler))
-    except Exception as ex:
-        log("pack_ask failed:", ex, level=logs.ERROR)
-        try:
-            handler._json({"error": f"pack_ask unavailable: {ex}"}, 503)
-        except Exception:
-            pass
-        return True
 
 
 AUTONAME_EVERY_S = 60.0  # how often clear face matches are named without a tag
@@ -1033,16 +1011,6 @@ class H(http.server.BaseHTTPRequestHandler):
             # The app is one page; its router reads the tab from the path.
             code, body = app_page()
             return self._send(code, "text/html; charset=utf-8", body)
-        if (
-            settings.handle(self, log)
-            or devices.handle(self, log)
-            or network_cameras.handle(self, log)
-            or ingest.handle(self, log)
-            or reports.handle(self, log)
-        ):
-            return
-        if _pack_ask(self) or _research(self):
-            return  # history Q&A: /pack-ask/jobs, and research for the Inbox: /research/jobs
         found = routes.find("GET", p)  # every other route is registered in dashboard/routes.py's table (#61)
         if found is None:
             return self._send(404, "text/plain", b"")
@@ -1077,8 +1045,10 @@ class H(http.server.BaseHTTPRequestHandler):
         return self._media(b, "audio/wav", {"Cache-Control": "no-store"})
 
     def do_DELETE(self) -> None:
-        if not _pack_ask(self):
-            self._json({"error": "Method not supported."}, 405)
+        found = routes.find("DELETE", self.path.split("?")[0])
+        if found is None:
+            return self._json({"error": "Method not supported."}, 405)
+        return found[0].handler(self)
 
     def do_POST(self) -> None:
         # A registry write that failed (registry.recorded) wasn't done, or was undone: said, never answered as done.
@@ -1096,17 +1066,6 @@ class H(http.server.BaseHTTPRequestHandler):
                 people_reads._CARD_READS.clear()
 
     def _post(self) -> None:
-        if (
-            settings.handle(self, log, carry_owner=people_writes.rename_owner)
-            or devices.handle(self, log)
-            or network_cameras.handle(self, log)
-            or ingest.handle(self, log)
-            or reports.handle(self, log)
-            or frontend_log.handle(self)
-        ):
-            return
-        if _pack_ask(self) or _research(self):
-            return
         p = self.path.split("?")[0]
         if p in people_writes.TEACHING_ROUTES and not self._can_teach(
             people_writes.UPLOAD_TYPE if p == "/people/reference-upload" else "application/json"
