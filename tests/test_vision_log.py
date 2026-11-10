@@ -729,3 +729,119 @@ def test_captions_for_some_cameras_read_only_those_cameras(monkeypatch: pytest.M
     assert [r["id"] for r in log.captions(100.0, 200.0)] == ["c1", "c2"]
     assert asked == [["cam0"], None], "one camera's read, then every camera's"
     log.close()
+
+
+FRAME_NS = 1_800_000_000_000_000_000
+CHUNK_ID = "0190c8e0-0000-7000-8000-0000000000c1"
+
+
+def chunk_at(length: int, frames: list[tuple[int, bool]], uri: str = "streams/7/2027010100/7-1-0.cnk") -> dict:
+    """A `get_chunk` snapshot of one chunk file, `length` bytes long so far."""
+    place = {"kind": "Chunk", "tier": "Tier1Warm", "uri": uri, "offset": 0, "length": length}
+    return {"chunk_id": CHUNK_ID, "seq": len(frames), "frames": frames, "locations": [place]}
+
+
+class _GrowingChunk:
+    """A broker whose one MJPEG chunk answers `get_chunk` with each of `snapshots` in turn, as a chunk does while
+    the tier worker adds a part to it."""
+
+    def __init__(self, queried: dict, snapshots: list[dict]) -> None:
+        capture = {
+            "capture_mono_ns": 1,
+            "device_ts": 1,
+            "arrival_ns": 1,
+            "stride": 0,
+            "width": 8,
+            "height": 6,
+            "flip": False,
+            "device_seq": 1,
+        }
+        header = continuum_py.encode_header(
+            {
+                "id": CHUNK_ID,
+                "stream_id": 7,
+                "start_ns": FRAME_NS,
+                "end_ns": FRAME_NS + 1,
+                "layer": "Layer1Raw",
+                "format": "EncodedVideo",
+                "shape_name": "MJPEG",
+                "capture": cast(Any, capture),
+            }
+        )
+        self.item = {"header": header, "locator": queried["locations"][0]}
+        self.snapshots = collections.deque(snapshots)
+
+    async def query(self, stream: str, start_ns: int, end_ns: int, **_: Any) -> dict:
+        return {"items": [self.item], "truncated": False}
+
+    async def get_chunk(self, chunk_id: str) -> dict:
+        return self.snapshots.popleft()
+
+
+def frame_evidence(monkeypatch: pytest.MonkeyPatch, queried: dict, snapshots: list[dict]) -> Any:
+    """What `frame_evidence_at` finds for the frame at FRAME_NS, read from a chunk the query saw as `queried` and
+    the two `get_chunk` calls see as `snapshots`."""
+    import cv2
+    import numpy as np
+
+    ok, jpeg = cv2.imencode(".jpg", np.full((6, 8, 3), 200, np.uint8))
+    assert ok
+
+    async def records(client: Any, stream: str, item: Any, *, start_ns: int, end_ns: int) -> list[read.Record]:
+        return [read.Record(PID, FRAME_NS, FRAME_NS + 1, jpeg.tobytes())]
+
+    monkeypatch.setattr(read, "records", records)
+    client = cast(continuum_py.Client, _GrowingChunk(queried, snapshots))
+    return asyncio.run(vision_log.frame_evidence_at(client, "cam0", FRAME_NS / 1e9))
+
+
+ONE_PART = chunk_at(4_000, [(FRAME_NS, False)])
+TWO_PARTS = chunk_at(9_000, [(FRAME_NS, False), (FRAME_NS + 100_000_000, False)])
+
+
+@pytest.mark.parametrize(
+    "queried, snapshots",
+    [
+        pytest.param(ONE_PART, [ONE_PART, ONE_PART], id="unchanged"),
+        pytest.param(ONE_PART, [TWO_PARTS, TWO_PARTS], id="a-part-lands-after-the-query"),
+        pytest.param(ONE_PART, [ONE_PART, TWO_PARTS], id="a-part-lands-during-the-read"),
+    ],
+)
+def test_frame_evidence_reads_a_chunk_that_only_grew(
+    monkeypatch: pytest.MonkeyPatch, queried: dict, snapshots: list[dict]
+) -> None:
+    found = frame_evidence(monkeypatch, queried, snapshots)
+    assert found is not None
+    assert (found.captured_at_ns, found.image.shape, found.metadata["capturedAtUs"]) == (
+        FRAME_NS,
+        (6, 8, 3),
+        FRAME_NS // 1000,
+    )
+
+
+@pytest.mark.parametrize(
+    "queried, snapshots",
+    [
+        pytest.param(ONE_PART, [ONE_PART, chunk_at(4_000, [(FRAME_NS, True)])], id="the-frame-is-cut-during-the-read"),
+        pytest.param(
+            TWO_PARTS,
+            [TWO_PARTS, chunk_at(9_000, [(FRAME_NS, False), (FRAME_NS + 100_000_000, True)])],
+            id="another-frame-is-cut-during-the-read",
+        ),
+        pytest.param(
+            ONE_PART,
+            [ONE_PART, chunk_at(4_000, [(FRAME_NS, False)], uri="streams/7/2027010100/7-2-0.cnk")],
+            id="rewritten-to-another-file-during-the-read",
+        ),
+        pytest.param(
+            chunk_at(4_000, [(FRAME_NS, False)], uri="streams/7/2027010100/7-0-0.cnk"),
+            [ONE_PART, ONE_PART],
+            id="the-query-named-a-file-the-chunk-has-left",
+        ),
+        pytest.param(TWO_PARTS, [TWO_PARTS, ONE_PART], id="frames-are-gone-after-the-read"),
+    ],
+)
+def test_frame_evidence_refuses_a_chunk_that_changed_under_the_read(
+    monkeypatch: pytest.MonkeyPatch, queried: dict, snapshots: list[dict]
+) -> None:
+    assert frame_evidence(monkeypatch, queried, snapshots) is None
