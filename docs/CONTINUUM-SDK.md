@@ -75,7 +75,7 @@ headers.
 | `continuum_py` | The Python SDK with the H.264 decoder built in |
 | `continuum_daemons` | The five daemons, `continuum-capture-worker`, and `continuum-export`, in the environment's `bin/` |
 
-The wheels link a private LGPL FFmpeg build statically (`continuum/packaging/ffmpeg.sh`, every source pinned by
+The wheels link a private LGPL (version 3 or later) FFmpeg build statically (`continuum/packaging/ffmpeg.sh`, every source pinned by
 version and SHA-256). A distribution's FFmpeg renames its libraries every major version, and a wheel tag names only a
 glibc, so a private build is the one way to ship a single wheel per platform.
 
@@ -84,7 +84,9 @@ What that costs in a wheel install:
 - **No libx264** (it is GPL). The software H.264 encoder is OpenH264. Hardware encoders are unchanged.
 - **Size.** SVT-AV1 and dav1d, for the opt-in AV1 archive, add about 9 MB to each program that links FFmpeg (the
   SDK, the tier worker, the capture worker, and export).
-- **No TLS**, so cameras must be `rtsp://`, not `rtsps://`.
+- **LGPL version 3.** TLS for `rtsps://` cameras comes from mbedTLS, whose Apache license FFmpeg accepts only as
+  LGPL version 3 or later. The build still has no GPL part. A camera's certificate isn't checked (cameras sign their
+  own), so the link is encrypted but the camera isn't authenticated, as in a checkout's build.
 
 | Platform | Wheel tag |
 |---|---|

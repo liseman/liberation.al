@@ -29,7 +29,13 @@ fn main() -> ExitCode {
     if args.iter().any(|arg| arg == "--capabilities") {
         println!(
             "{}",
-            serde_json::json!({"version": 1, "rtsp_h264": cfg!(feature = "ffmpeg"), "device_enabled": true, "device_paused": true})
+            serde_json::json!({
+                "version": 1,
+                "rtsp_h264": cfg!(feature = "ffmpeg"),
+                "rtsps": continuum_capture::rtsp::rtsps_available(),
+                "device_enabled": true,
+                "device_paused": true,
+            })
         );
         return ExitCode::SUCCESS;
     }
