@@ -55,6 +55,17 @@ def test_a_view_that_is_not_ready_is_asked_again_soon():
     assert status.changed(now=102.0) == [("services", services.value)]
 
 
+def test_a_view_that_fails_is_skipped_and_the_others_still_go_out():
+    def broken():
+        raise OSError("research store is locked")
+
+    privacy = Source({"ok": True, "devices": []})
+    status = shell_status.Status({"research": broken, "privacy": privacy})
+    assert status.changed(now=100.0) == [("privacy", {"ok": True, "devices": []})]
+    status.sources["research"] = Source({"jobs": []})
+    assert status.changed(now=105.0) == [("research", {"jobs": []})]
+
+
 def test_feeds_open_together_share_one_read_until_it_is_older_than_the_period(monkeypatch):
     clock = [50.0]
     monkeypatch.setattr(shell_status.time, "monotonic", lambda: clock[0])

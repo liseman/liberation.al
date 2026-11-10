@@ -14,6 +14,10 @@ import time
 from collections.abc import Callable, Hashable
 from typing import Any
 
+from liberational import logs
+
+LOG = logs.get("dashboard")
+
 # How often each kind is read for an open feed. Privacy follows capture applying a pause, which the header icon
 # shows as it happens; the other two are a badge and a count.
 PERIOD_S: dict[str, float] = {"privacy": 1.0, "services": 15.0, "research": 5.0}
@@ -56,7 +60,12 @@ class Status:
         for kind, read in self.sources.items():
             if now < self.due[kind]:
                 continue
-            value = read()
+            try:
+                value = read()
+            except Exception as e:  # one view failing must not end the feed that carries the transcript
+                LOG.warning(f"shell status: {kind} could not be read: {e!r}")
+                self.due[kind] = now + PERIOD_S[kind]
+                continue
             self.due[kind] = now + (RETRY_S if _waiting(value) else PERIOD_S[kind])
             if kind not in self.sent or self.sent[kind] != value:
                 self.sent[kind] = value
