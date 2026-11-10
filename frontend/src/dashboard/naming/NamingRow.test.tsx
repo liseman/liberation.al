@@ -292,7 +292,7 @@ describe('a card of pictures', () => {
 });
 
 describe('guessWords', () => {
-  it('words a guess as Who\'s this? does, its score included', () => {
+  it("words a guess as Who's this? does, its score included", () => {
     expect(guessWords({ id: 'mia', name: 'Mia', score: 91, band: 'probable' })).toBe('Probably Mia 91%');
     expect(guessWords({ id: 'mia', name: 'Mia', score: 58, band: 'maybe' })).toBe('Maybe Mia 58%');
     expect(guessWords({ id: 'mia', name: 'Mia', score: 12, band: 'none' })).toBe('No good guess');
