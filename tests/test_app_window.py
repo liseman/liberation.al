@@ -1,0 +1,233 @@
+"""The application's window (#156): what it says, that Quit drains and stops, and the real Tk window on a virtual
+display."""
+
+import shutil
+import subprocess
+import sys
+import textwrap
+import time
+
+import pytest
+
+from liberational import app_window, supervisor
+from liberational.app_window import RUNNING, STARTING, STOPPED, STOPPING
+from liberational.service_cascade import BROKER, CAPTURE
+
+
+def status(**states):
+    """A supervisor status with these services; "job" marks a scheduled one."""
+    return {
+        "services": {
+            name.replace("_", "-"): {"state": "scheduled" if state == "job" else state, "scheduled": state == "job"}
+            for name, state in states.items()
+        }
+    }
+
+
+UP = status(continuum_capture="running", continuum_broker="running", listen="running", video_window="job")
+
+
+def test_it_says_running_and_recording_and_counts_the_daemons_not_the_jobs():
+    now = app_window.summary(RUNNING, UP, {"camera": ([], 2), "microphone": ([], 1)})
+    assert (now.headline, now.recording) == ("Running and recording", True)
+    assert now.detail == "3 of 3 services running."
+
+
+def test_some_devices_paused_is_still_recording_and_says_which():
+    now = app_window.summary(RUNNING, UP, {"camera": (["cam1"], 2), "microphone": ([], 1)})
+    assert (now.headline, now.recording) == ("Running and recording", True)
+    assert "1 of 2 cameras paused" in now.detail
+
+
+def test_every_device_paused_is_not_recording():
+    now = app_window.summary(RUNNING, UP, {"camera": (["cam0", "cam1"], 2), "microphone": (["desk"], 1)})
+    assert (now.headline, now.recording) == ("Running, paused for privacy", False)
+    assert "cameras paused, microphone paused" in now.detail
+
+
+@pytest.mark.parametrize(
+    ("services", "why"),
+    [
+        pytest.param(status(continuum_capture="activating", listen="running"), "Capture isn't running.", id="down"),
+        pytest.param(status(listen="running"), "Capture is off.", id="not-selected"),
+    ],
+)
+def test_without_capture_it_never_claims_to_record(services, why):
+    now = app_window.summary(RUNNING, services, {"camera": ([], 1)})
+    assert (now.headline, now.recording) == ("Running, not recording", False)
+    assert why in now.detail
+
+
+def test_a_service_waiting_to_restart_is_named():
+    services = status(continuum_capture="running", listen="activating", journal="activating")
+    assert "Restarting: journal, listen." in app_window.summary(RUNNING, services).detail
+
+
+@pytest.mark.parametrize(
+    ("phase", "headline"),
+    [(STARTING, "Starting..."), (STOPPING, "Stopping..."), (STOPPED, "Stopped. Nothing is recording.")],
+)
+def test_outside_running_it_never_claims_to_record(phase, headline):
+    now = app_window.summary(phase, UP, {"camera": ([], 1)})
+    assert (now.headline, now.recording) == (headline, False)
+
+
+def test_unknown_pauses_say_nothing_about_them():
+    now = app_window.summary(RUNNING, UP, {})
+    assert (now.headline, now.detail) == ("Running and recording", "3 of 3 services running.")
+
+
+class Proc:
+    def __init__(self, pid):
+        self.pid, self.code = pid, None
+
+    def poll(self):
+        return self.code
+
+
+class Harness:
+    """A Presence, with the stand-in workers it started and the addresses it opened."""
+
+    def __init__(self, presence, procs, opened):
+        self.presence, self.procs, self.opened = presence, procs, opened
+
+    def __getattr__(self, name):
+        return getattr(self.presence, name)
+
+
+@pytest.fixture
+def presence(monkeypatch):
+    """A Presence over a real supervisor with stand-in workers, and a list of what it opened."""
+    monkeypatch.setattr(supervisor, "TICK_S", 0.01)
+    procs, opened = {}, []
+
+    def spawn(name, svc):
+        procs[name] = Proc(100 + len(procs))
+        return procs[name]
+
+    def kill(pid, sig):
+        next(p for p in procs.values() if p.pid == pid).code = -sig
+
+    spec = {BROKER: {"command": "b"}, CAPTURE: {"command": "c"}, "listen": {"command": "l"}}
+    app = supervisor.App(supervisor.Supervisor(spec, spawn=spawn, kill=kill))
+    made = Harness(app_window.Presence(app, paused=lambda: {"camera": ([], 1)}, open_url=opened.append), procs, opened)
+    yield made
+    made.quit()
+    if made.thread is not None:
+        made.thread.join(30)
+
+
+def wait_for(check, seconds=30.0):
+    deadline = time.monotonic() + seconds
+    while not check():
+        assert time.monotonic() < deadline, "timed out"
+        time.sleep(0.01)
+
+
+def test_quit_drains_and_stops_every_worker_and_only_then_is_it_finished(presence):
+    assert presence.phase == STARTING
+    presence.start()
+    wait_for(lambda: presence.phase == RUNNING)
+    assert presence.summary().headline == "Running and recording"
+    presence.quit()
+    wait_for(lambda: presence.finished)
+    assert all(proc.code is not None for proc in presence.procs.values())
+    assert (presence.phase, presence.summary().recording) == (STOPPED, False)
+
+
+def test_a_supervisor_that_ends_by_itself_shows_as_stopped_without_anyone_asking(presence):
+    presence.start()
+    wait_for(lambda: presence.phase == RUNNING)
+    presence.app.quitting.set()  # the supervisor's own end, not the window's Quit
+    wait_for(lambda: presence.finished)
+    assert (presence.phase, presence.asked) == (STOPPED, False)
+
+
+def test_the_dashboard_opens_on_its_port(presence):
+    presence.open_dashboard()
+    assert len(presence.opened) == 1
+    assert presence.opened[0].startswith("http://localhost:") and presence.opened[0].endswith("/")
+
+
+WINDOW = textwrap.dedent(
+    """
+    import threading, time
+    from liberational import app_window, supervisor
+
+    class Proc:
+        def __init__(self, pid): self.pid, self.code = pid, None
+        def poll(self): return self.code
+
+    procs = {}
+    def spawn(name, svc):
+        procs[name] = Proc(100 + len(procs)); return procs[name]
+    def kill(pid, sig):
+        next(p for p in procs.values() if p.pid == pid).code = -sig
+
+    supervisor.TICK_S = 0.01
+    app_window.REFRESH_MS = 20
+    spec = {"continuum-broker": {"command": "b"}, "continuum-capture": {"command": "c"}}
+    presence = app_window.Presence(
+        supervisor.App(supervisor.Supervisor(spec, spawn=spawn, kill=kill)), paused=lambda: {"camera": ([], 1)}
+    )
+    window = app_window.Window(presence)
+    presence.start()
+    seen = []
+
+    def step(n=0):
+        seen.append(window.headline.cget("text"))
+        if window.headline.cget("text") == "Running and recording" and "closed" not in seen:
+            assert window.root.title() == "Liberational: Running and recording"
+            assert window.dot.cget("fg") == "#c62828"
+            seen.append("closed")
+            window.ask_quit()  # what closing the window calls (WM_DELETE_WINDOW)
+            assert str(window.quit.cget("state")) == "disabled"
+        window.root.after(10, step)
+
+    window.root.after(10, step)
+    window.run()  # returns once the window has closed itself, after the workers stopped
+    presence.thread.join(5)
+    assert "Running and recording" in seen and "closed" in seen
+    assert all(p.code is not None for p in procs.values()), "a worker outlived the window"
+    print("ok")
+    """
+)
+
+
+@pytest.mark.skipif(shutil.which("xvfb-run") is None, reason="needs xvfb-run for a display nobody is looking at")
+def test_the_real_window_shows_recording_and_closing_it_stops_everything():
+    """Tk itself, on a virtual display: the window comes up, says it is recording, and closing it quits: the workers
+    are stopped before the window goes."""
+    done = subprocess.run(
+        ["xvfb-run", "-a", sys.executable, "-c", WINDOW], capture_output=True, text=True, timeout=60, check=False
+    )
+    assert done.returncode == 0 and done.stdout.strip().endswith("ok"), done.stderr[-2000:]
+
+
+def test_main_refuses_without_a_display_before_starting_any_service(monkeypatch):
+    started = []
+
+    class NoSpawn(supervisor.Supervisor):
+        def start_all(self, missed=()):
+            started.append("start")
+
+    app = supervisor.App(NoSpawn({}))
+
+    class Ready:
+        def __enter__(self):
+            return app, []
+
+        def __exit__(self, *exc):
+            return False
+
+    def no_display(presence):
+        raise RuntimeError("no display name and no $DISPLAY environment variable")
+
+    monkeypatch.setattr(supervisor, "application", Ready)
+    monkeypatch.setattr(app_window, "Window", no_display)
+    monkeypatch.setattr(app_window.logs, "setup", lambda: None)
+    monkeypatch.setattr(app_window.logs, "adopt", lambda name: None)
+    monkeypatch.setattr(app_window.signal, "signal", lambda *a: None)
+    with pytest.raises(SystemExit, match="can't open a window"):
+        app_window.main()
+    assert started == []

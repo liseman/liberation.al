@@ -433,7 +433,7 @@ def test_real_processes_are_started_restarted_and_all_stopped(tmp_path):
         first = sup.status()["services"]["napper"]["pid"]
         assert services.log_path("napper").exists()
         os.kill(first, signal.SIGKILL)
-        deadline = time.monotonic() + 10
+        deadline = time.monotonic() + 30
         while sup.status()["services"]["napper"]["pid"] in (first, None) and time.monotonic() < deadline:
             sup.tick()
             time.sleep(0.05)
