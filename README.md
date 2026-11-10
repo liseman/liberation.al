@@ -25,6 +25,33 @@ edges, and expect a reset of recorded history now and then (what you taught it i
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) describes the running system. The wearable hardware in
 [docs/history](docs/history/plan-2026-10.md) is the original idea, not a list of what's built.
 
+## Screenshots
+
+These come from demo mode: a made-up household (Alice, Dana, Sam, and Rex the dog), one made-up house, and one
+day of journal. Once the install below is done, `mise run demo` opens the same dashboard on
+<http://localhost:8766/>, with its own data in a temporary directory and nothing from `data/`.
+
+The Journal, a day's page:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/demo-journal-day-dark.png">
+  <img alt="The Journal tab with a day's page: in short, what happened, what was talked about, and what was eaten" src="docs/images/demo-journal-day-light.png">
+</picture>
+
+An hour of that day, and its events:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/demo-journal-dark.png">
+  <img alt="The Journal tab with the 18:00 hour selected, its four events, and the hour's entry" src="docs/images/demo-journal-light.png">
+</picture>
+
+Known, Places, with the house's floorplan:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/demo-places-dark.png">
+  <img alt="The Places tab with a five-room floorplan: kitchen, hall, bedroom, living room, and study" src="docs/images/demo-places-light.png">
+</picture>
+
 ## What you need
 
 | | |
