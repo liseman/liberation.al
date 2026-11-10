@@ -758,6 +758,27 @@ def test_the_shared_ollama_is_a_pack_service_pinned_by_config():
     assert "CUDA_VISIBLE_DEVICES" not in env and "OLLAMA_MODELS" not in env
 
 
+def test_the_shared_ollama_takes_its_server_tuning_from_config():
+    svc = s.declared()["ollama"]
+    env = s.environment(svc)
+    # Defaults: Ollama's own keep-alive (left unset), flash attention on, the stock cache, Ollama's own model count.
+    assert "OLLAMA_KEEP_ALIVE" not in env
+    assert (env["OLLAMA_FLASH_ATTENTION"], env["OLLAMA_KV_CACHE_TYPE"], env["OLLAMA_MAX_LOADED_MODELS"]) == (
+        "True",
+        "f16",
+        "0",
+    )
+    tuned = {"keep_alive": "-1", "flash_attention": False, "kv_cache_type": "q8_0", "max_loaded_models": 2}
+    with cfg.override({"ollama": tuned}):
+        env = s.environment(svc)
+    assert (
+        env["OLLAMA_KEEP_ALIVE"],
+        env["OLLAMA_FLASH_ATTENTION"],
+        env["OLLAMA_KV_CACHE_TYPE"],
+        env["OLLAMA_MAX_LOADED_MODELS"],
+    ) == ("-1", "False", "q8_0", "2")
+
+
 def test_offline_dashboard_and_gateway_do_not_wait_for_the_broker():
     for name in ("dashboard", "continuum-gateway", "continuum-broker"):
         svc = s.declared()[name]

@@ -146,7 +146,7 @@ reads_settings = false
 # Its lines in the pack's log format (log_relay.py), and the model runner's per-request chatter off: llama.cpp's
 # INFO lines were thousands an hour (warnings and errors still come through, marked by a level letter).
 log_relay = true
-env = { CUDA_VISIBLE_DEVICES = "{ollama.gpu}", OLLAMA_MODELS = "{ollama.models}", OLLAMA_VULKAN = "0", GGML_VK_VISIBLE_DEVICES = "", LLAMA_ARG_LOG_VERBOSITY = "2", LLAMA_ARG_LOG_PREFIX = "1" }
+env = { CUDA_VISIBLE_DEVICES = "{ollama.gpu}", OLLAMA_MODELS = "{ollama.models}", OLLAMA_KEEP_ALIVE = "{ollama.keep_alive}", OLLAMA_FLASH_ATTENTION = "{ollama.flash_attention}", OLLAMA_KV_CACHE_TYPE = "{ollama.kv_cache_type}", OLLAMA_MAX_LOADED_MODELS = "{ollama.max_loaded_models}", OLLAMA_VULKAN = "0", GGML_VK_VISIBLE_DEVICES = "", LLAMA_ARG_LOG_VERBOSITY = "2", LLAMA_ARG_LOG_PREFIX = "1" }
 
 # An Ollama server of Ask's own: one model, kept loaded, on the GPU ask.gpu names, reading the model store
 # ask.ollama_models names. Set ask.ollama_url to http://127.0.0.1:{ports.ask_ollama} to send Ask's answers there.
