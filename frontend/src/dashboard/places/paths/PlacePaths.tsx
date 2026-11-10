@@ -64,6 +64,17 @@ function when(ts: number, span: number): string {
   return `${new Date(ts * 1000).toLocaleDateString([], { weekday: 'short' })} ${hm(ts)}`;
 }
 
+/** What a camera lacks before it can place anyone, in words (the reply's `camera_notes[].missing`). */
+const LACKS: Record<string, string> = {
+  height: 'its spot on the plan has no height',
+  facing: 'its spot on the plan has no facing, so add which way it looks',
+  lens: "its lens isn't known, so give its spot a field of view",
+  tilt: "it hasn't seen enough people walking to work out how far it's tilted",
+  check: 'people come out the wrong height from its spot, so its height or its lens is off',
+};
+
+export const lacks = (missing: string[]): string => missing.map(m => LACKS[m] ?? m).join('; ');
+
 /** Where the paths are drawn: floor metres to the drawing's pixels, and the plan's rooms (none on a plain frame). */
 interface Surface {
   toScreen: (p: [number, number]) => [number, number];
@@ -274,6 +285,8 @@ export function PlacePaths({
   const strangers = data ? data.entities.filter(e => e.kind === 'unknown').map(e => e.id) : [];
   const strangersOff = strangers.length > 0 && strangers.every(id => hidden.has(id));
   const nobody = data && data.tracks.length === 0 && data.rooms.length === 0;
+  // The cameras that can't place anyone yet, each with what it lacks (a camera that places isn't listed).
+  const lacking = example ? [] : (data?.camera_notes ?? []).filter(c => c.missing.length > 0);
   return (
     <>
       <div className={classes.drawingWrap}>
@@ -341,6 +354,17 @@ export function PlacePaths({
           </Text>
         </Group>
       </div>
+      {lacking.length > 0 && (
+        <ul className={classes.lacking} aria-label="Cameras that can't place anyone yet">
+          {lacking.map(c => (
+            <li key={c.camera}>
+              <Text size="sm" c="dimmed">
+                {c.camera} can't place anyone yet: {lacks(c.missing)}.
+              </Text>
+            </li>
+          ))}
+        </ul>
+      )}
       {query.isError && !example ? (
         <Text size="sm" c="red">
           Couldn't load where people were.
@@ -348,7 +372,9 @@ export function PlacePaths({
       ) : nobody ? (
         <Text size="sm" c="dimmed">
           {data?.cameras === 0 && !example
-            ? "No camera has a spot on this place's map yet, so nobody can be placed here. That starts once the place is mapped again."
+            ? lacking.length > 0
+              ? 'Nobody can be placed here yet: each camera on this plan is missing something.'
+              : "No camera has a spot on this place's plan or a pose in its map yet, so nobody can be placed here. Add each camera's spot to the plan: where it is, how high, and which way it faces."
             : 'Nobody was placed here in this window.'}
         </Text>
       ) : (

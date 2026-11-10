@@ -72,8 +72,12 @@ export interface Positions {
    *  joined. */
   tracks: { entity: string; track?: string; points: Point[] }[];
   rooms: RoomSpan[];
-  /** How many cameras have a pose in the place's map. With none, nobody can be placed there. */
+  /** How many cameras can place people here: posed from a spot on the owner's plan, or in the place's map. With
+   *  none, nobody can be placed there. */
   cameras?: number;
+  /** Each camera of the place: how it's posed, and what a spot still lacks for a pose ("height", "facing", "lens",
+   *  "tilt", or "check"; empty when it places). */
+  camera_notes?: { camera: string; by: 'spot' | 'map'; missing: string[] }[];
 }
 
 export const positionsQuery = (place: string, start: number, end: number) =>

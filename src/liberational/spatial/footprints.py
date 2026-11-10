@@ -14,8 +14,8 @@ so a footprint is projected through the place's current camera pose when it is r
 
 Recording: `record` writes each fixed camera's footprints since it was last called raw
 (`positions.write_samples`), the observation as it is, and the position layer's placer (`positions.advance`) then puts
-them on the plan and writes them to the layer every view reads. Nothing calls `record` on a schedule at present: the
-job that builds a place's map is the one to (tools/place_positions.py does both by hand).
+them on the plan and writes them to the layer every view reads. Nothing calls `record` on a schedule at present
+(tools/place_positions.py does both by hand).
 `places/footprints.json` keeps how far each camera is recorded.
 
 Projected into the map frame, a place's people's footprints are where people walk: its walkable floor, which
@@ -360,10 +360,10 @@ def _rows(feet: Iterable[Footprint]) -> list[dict[str, Any]]:
     ]
 
 
-def record(state: Path, cameras: Sequence[str], now: float) -> int:
-    """Write each camera's footprints since it was last recorded (FIRST_S back the first time, at most MAX_BACKLOG_S)
-    up to FLUSH_S ago, raw, for the position layer's placer; how many. The mark stops at FLUSH_S ago too, so rows still being
-    flushed are read by the next run rather than skipped."""
+def record(state: Path, cameras: Sequence[str], now: float, first_s: float = FIRST_S) -> int:
+    """Write each camera's footprints since it was last recorded (`first_s` back the first time, at most
+    MAX_BACKLOG_S) up to FLUSH_S ago, raw, for the position layer's placer; how many. The mark stops at FLUSH_S ago
+    too, so rows still being flushed are read by the next run rather than skipped."""
     from liberational.spatial import positions
 
     path = places.root(state) / MARKS
@@ -374,7 +374,7 @@ def record(state: Path, cameras: Sequence[str], now: float) -> int:
     total = 0
     upto = now - FLUSH_S
     for camera in cameras:
-        start = max(marks.get(camera, upto - FIRST_S), upto - MAX_BACKLOG_S)
+        start = max(marks.get(camera, upto - first_s), upto - MAX_BACKLOG_S)
         if start >= upto:
             continue
         feet = collect(state, start, upto, [camera])

@@ -235,6 +235,25 @@ def parse(text: str) -> Parsed:
     return Parsed(title, walls, tuple(rooms), tuple(openings), tuple(fixtures), tuple(cameras), skipped)
 
 
+def spots(text: str) -> tuple[Camera, ...]:
+    """The owner-measured camera spots (`x-camera`) in a plan's DSL, whatever else it holds: a reader that wants only
+    the spots takes them from a plan `parse` would refuse (one with no rooms yet). A spot line it can't read is left
+    out; the later of two lines for one camera wins."""
+    found: dict[str, Camera] = {}
+    for n, raw in enumerate(text.splitlines(), start=1):
+        words = _TOKEN.findall(raw)
+        words = words[: next((i for i, w in enumerate(words) if w.startswith("#")), len(words))]
+        if len(words) < 2 or words[0] != "x-camera" or raw[:1].isspace():
+            continue
+        try:
+            o = _options(words[2:], n, ("at", "height", "yaw", "fov"))
+            num = {k: float(o[k]) for k in ("height", "yaw", "fov") if k in o}
+            found[words[1]] = Camera(words[1], _pair(o["at"], n), num.get("height"), num.get("yaw"), num.get("fov"))
+        except KeyError, ValueError:  # PlanError is a ValueError
+            continue
+    return tuple(found.values())
+
+
 # Walls: each room's polygon edges, a wall shared by two rooms counted once.
 
 
