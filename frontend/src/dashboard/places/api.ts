@@ -176,12 +176,10 @@ export const sceneQuery = (place: string) =>
     staleTime: 5 * 60_000,
   });
 
-/** A walk import (dashboard/walk_import.py): a walkthrough dropped on a place, uploaded, then imported into it in the
- *  background. `status` goes uploading, extracting, importing, then done or failed. */
+/** A walk import (dashboard/walk_import.py): a walkthrough dropped on the Places page, uploaded, then imported in the
+ *  background into the place it matches, or as a new place. `status` goes uploading, extracting, importing, then done or failed. */
 export interface WalkJob {
   id: string;
-  /** The place it was dropped on. */
-  place: string;
   /** The dropped file's name. */
   name: string;
   kind: 'stray' | 'video';
@@ -189,9 +187,9 @@ export interface WalkJob {
   /** The importer's newest log line, while it runs. */
   detail: string;
   error: string;
-  /** What the import printed: the place and revision it wrote, and `meant_for` when the walk didn't register in the
-   *  place it was dropped on and was stored as a place of its own. */
-  result: { place?: string; revision?: string; registered?: string; meant_for?: string } & Record<string, string>;
+  /** What the import printed, as text: `final_place` is the place the walk ended up in, `new_place` is "True" when
+   *  that place didn't exist before, and `registered` is how it matched ("map", "plan", or "cameras"). */
+  result: { final_place?: string; new_place?: string; registered?: string } & Record<string, string>;
   /** A failed import kept its files, so it can run again without a second upload. */
   retry: boolean;
   started: number;
@@ -217,11 +215,11 @@ export const walkQuery = () =>
     staleTime: 0,
   });
 
-/** Upload a walk (the zip Stray Scanner exports, or a video) for a place. The body is the file itself, sent as
+/** Upload a walk (the zip Stray Scanner exports, or a video). The body is the file itself, sent as
  *  application/octet-stream: the type the route takes, and one no cross-site page can send unasked. */
-export const uploadWalk = (place: string, file: File, onProgress?: (share: number) => void) =>
+export const uploadWalk = (file: File, onProgress?: (share: number) => void) =>
   upload<{ job: WalkJob }>(
-    `/places/walk/upload?${new URLSearchParams({ place, name: file.name })}`,
+    `/places/walk/upload?${new URLSearchParams({ name: file.name })}`,
     file.slice(0, file.size, 'application/octet-stream'),
     onProgress,
   );

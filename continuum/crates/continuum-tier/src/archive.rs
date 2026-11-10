@@ -174,10 +174,13 @@ impl Archive {
     ///
     /// # Errors
     ///
-    /// Without the `ffmpeg` feature (no encoder), or when the thread can't be started.
+    /// Without the `ffmpeg` feature or an FFmpeg that has SVT-AV1 (no encoder), or when the thread can't be started.
     pub fn start(settings: ArchiveSettings) -> Result<Self, String> {
         if !cfg!(feature = "ffmpeg") {
             return Err("the AV1 archive needs the tier worker built with the ffmpeg feature".to_owned());
+        }
+        if !crate::probe::av1_encoder_available() {
+            return Err("the AV1 archive needs an FFmpeg with SVT-AV1 (libsvtav1), which this one lacks".to_owned());
         }
         let (to_worker, jobs) = mpsc::channel::<Candidate>();
         let (results, from_worker) = mpsc::channel();
@@ -475,6 +478,10 @@ mod tests {
     #[cfg(feature = "ffmpeg")]
     #[test]
     fn scans_go_newest_first_then_take_newly_eligible_time_before_more_backlog() {
+        if !crate::probe::av1_encoder_available() {
+            eprintln!("this FFmpeg has no SVT-AV1 (the wheels' private build); skipped");
+            return;
+        }
         let mut a = Archive::start(settings(Some(30))).unwrap();
         let now = 100 * DAY;
         assert_eq!(a.next_range(now), Some((99 * DAY - SLICE_NS, 99 * DAY)), "the backlog's newest slice");
@@ -487,6 +494,10 @@ mod tests {
     #[cfg(feature = "ffmpeg")]
     #[test]
     fn the_backlog_stops_two_days_before_the_window_ends() {
+        if !crate::probe::av1_encoder_available() {
+            eprintln!("this FFmpeg has no SVT-AV1 (the wheels' private build); skipped");
+            return;
+        }
         let mut a = Archive::start(settings(Some(4))).unwrap();
         let now = 100 * DAY;
         let mut ranges = Vec::new();

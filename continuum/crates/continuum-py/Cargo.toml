@@ -10,6 +10,8 @@ rust-version.workspace = true
 default = []
 # Optional RTSP vision decoder. Ordinary SDK installs do not need FFmpeg development libraries.
 ffmpeg = ["continuum-tier/ffmpeg"]
+# The decoder linked statically from a private FFmpeg build, for the platform wheels (packaging/).
+ffmpeg-static = ["ffmpeg", "continuum-tier/ffmpeg-static"]
 
 [lib]
 name = "continuum_py"

@@ -26,6 +26,10 @@ fn main() -> ExitCode {
     let (mut state_dir, mut socket, mut store, mut embeddings) =
         (None::<PathBuf>, None::<PathBuf>, None::<PathBuf>, Vec::<String>::new());
     let (mut prefixes, mut texts, mut segments) = (Vec::<String>::new(), Vec::<String>::new(), None::<PathBuf>);
+    if std::env::args().skip(1).any(|arg| arg == "--version") {
+        println!("continuum-vector-worker {}", env!("CARGO_PKG_VERSION"));
+        return ExitCode::SUCCESS;
+    }
     let mut args = std::env::args().skip(1);
     while let Some(flag) = args.next() {
         match (flag.as_str(), args.next()) {

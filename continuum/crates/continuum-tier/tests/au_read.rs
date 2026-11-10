@@ -199,6 +199,10 @@ fn kept(path: &Path, stop: bool) -> String {
 
 #[test]
 fn the_archive_pass_keeps_every_record_and_reads_back_as_the_same_frames() {
+    if !continuum_tier::probe::av1_encoder_available() {
+        eprintln!("this FFmpeg has no SVT-AV1 (the wheels' private build); skipped");
+        return;
+    }
     let _gpu = gpu();
     let dir = tempfile::tempdir().unwrap();
     let (path, _) = chunk(dir.path());
@@ -242,6 +246,10 @@ fn the_archive_pass_leaves_a_purged_chunk_as_h264() {
 
 #[test]
 fn the_archive_pass_never_swaps_over_a_file_that_changed_after_it_was_read() {
+    if !continuum_tier::probe::av1_encoder_available() {
+        eprintln!("this FFmpeg has no SVT-AV1 (the wheels' private build); skipped");
+        return;
+    }
     let _gpu = gpu();
     let dir = tempfile::tempdir().unwrap();
     let (path, _) = chunk(dir.path());

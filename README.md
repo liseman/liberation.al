@@ -204,8 +204,8 @@ uv run pack-walkthrough <folder>
 ```
 
 The place shows up under Known, in Places, which also marks the places and rooms no walk has covered yet.
-To add a walk to a place that's already there, open it in Places and drop the zip Stray Scanner exports on it: no
-copying and no command.
+Or skip the copying and the command: drop the zip Stray Scanner exports on Places. The walk goes into the place it
+matches, or becomes a new one.
 [Recording and importing a walkthrough](docs/WALKTHROUGH.md) has the full advice, adding a walk to a place that's
 already there, and the plain-video alternative.
 

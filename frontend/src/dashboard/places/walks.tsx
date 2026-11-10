@@ -1,7 +1,7 @@
 // Walk coverage on Known › Places (#3): a place registered only from fixed cameras has a sparse cloud and a rough
 // plan, and a LiDAR walkthrough gives it metric scale and full walls. GET /places says how many walks went into each
 // place (`walks`) and which of its plan's rooms no LiDAR walk covered (`unwalked_rooms`, null when it can't tell), so
-// the list marks a place that needs a walk, and the place's panel says which rooms, above where a walk is dropped to import it (WalkImport.tsx, #176).
+// the list marks a place that needs a walk, and the place's panel says which rooms. A walk is dropped at the top of the page to import it (WalkImport.tsx).
 import { Badge, Text } from '@mantine/core';
 import { plural } from '../lib/format';
 import type { Place } from './examples';
@@ -38,7 +38,7 @@ export function WalkBadge({ place }: { place: Place }) {
 }
 
 /** The place panel's note: what isn't walked yet. The import itself, and the link to how to record a walk, are
- *  WalkImport's, below it. */
+ *  WalkImport's, at the top of the page. */
 export function WalkNote({ place }: { place: Place }) {
   const need = walkNeed(place);
   if (!need) return null;

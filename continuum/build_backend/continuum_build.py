@@ -42,8 +42,8 @@ __all__ = [
     "prepare_metadata_for_build_wheel",
 ]
 
-# What ffmpeg-next's default features link: all of them must be there or the build fails.
-FFMPEG_LIBS = ("libavcodec", "libavformat", "libavutil", "libswscale", "libswresample", "libavfilter", "libavdevice")
+# What the ffmpeg-next features the crates turn on link: all of them must be there or the build fails.
+FFMPEG_LIBS = ("libavcodec", "libavformat", "libavutil", "libswscale")
 FEATURE = "--features=ffmpeg"
 
 

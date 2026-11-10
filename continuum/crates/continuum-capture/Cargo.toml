@@ -16,7 +16,7 @@ continuum-log.workspace = true
 tracing.workspace = true
 continuum-tier.workspace = true
 chrono.workspace = true
-ffmpeg-next = { version = "9", optional = true }
+ffmpeg-next = { version = "9", optional = true, default-features = false, features = ["codec", "format", "software-scaling"] }
 continuum-client = { path = "../continuum-client" }
 continuum-core.workspace = true
 continuum-shm.workspace = true

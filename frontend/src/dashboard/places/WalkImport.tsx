@@ -1,13 +1,14 @@
-// A place's walk import (#176): drop the zip Stray Scanner exports (or choose it) and it's uploaded, then imported
-// into this place in the background (dashboard/walk_import.py), as `pack-walkthrough <folder> --place <id>` does by
-// hand. One import runs at a time, and the server keeps the newest one, so its progress and its result are still here
-// after a reload. When it finishes, the places are read again and the new walk shows.
+// The Places page's walk import (#176, #192): drop the zip Stray Scanner exports (or choose it) and it's uploaded,
+// then imported in the background (dashboard/walk_import.py), as `pack-walkthrough <folder> --match` does by hand.
+// Nobody picks a place: the import registers the walk against every place's map and puts it in the one it fits, or
+// makes a new place when it fits none, and this says which. One import runs at a time, and the server keeps the
+// newest one, so its progress and its result are still here after a reload. When it finishes, the places are read
+// again and the new walk shows.
 import { Alert, Anchor, Button, FileButton, Group, Progress, Text } from '@mantine/core';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { type DragEvent, useEffect, useRef, useState } from 'react';
 import { messageOf } from '../../shared/http';
 import { dismissWalk, retryWalk, uploadWalk, type WalkJob, walkActive, walkQuery } from './api';
-import type { Place } from './examples';
 import classes from './places.module.css';
 import { WALKTHROUGH_DOC } from './walks';
 
@@ -34,16 +35,26 @@ export function stepText(job: WalkJob): string {
   return job.detail ? `Importing ${job.name}: ${job.detail}` : `Importing ${job.name}`;
 }
 
-/** What a finished import did, for the place it was dropped on. */
-export function resultText(job: WalkJob): string {
-  if (job.result.meant_for)
-    return `${job.name} didn't register against this place's map, so it was stored as a place of its own. This place is unchanged.`;
-  return `${job.name} was imported into this place.`;
+const MATCHED_BY: Record<string, string> = {
+  map: "it fits that place's map",
+  plan: 'it fits the plan you drew for that place',
+  cameras: "that place's cameras see where it went",
+};
+
+/** What a finished import did: which place the walk went into and why it's that one, or that it made a new place.
+ *  `name` is that place's name, once the places have been read again. */
+export function resultText(job: WalkJob, name: string | undefined): string {
+  if (job.result.new_place === 'True')
+    return `${job.name} matched no place you already have, so it became a new place${name ? `: ${name}` : ''}.`;
+  const why = MATCHED_BY[job.result.registered ?? ''];
+  return `${job.name} went into ${name ?? 'a place you already have'}${why ? `: ${why}` : ''}.`;
 }
 
 const hasFiles = (e: DragEvent) => Array.from(e.dataTransfer.types).includes('Files');
 
-export function WalkImport({ place }: { place: Place }) {
+/** `names` are the listed places' names by id, and `onOpen` shows a place: the result names the walk's place and
+ *  offers to open it. */
+export function WalkImport({ names, onOpen }: { names: Map<string, string>; onOpen: (place: string) => void }) {
   const client = useQueryClient();
   const walk = useQuery(walkQuery());
   const [sent, setSent] = useState<{ name: string; share: number } | null>(null);
@@ -53,11 +64,11 @@ export function WalkImport({ place }: { place: Place }) {
   const job = walk.data?.job ?? null;
   const video = walk.data?.video ?? false;
   const maxMb = walk.data?.max_mb ?? 4096;
-  const mine = job?.place === place.id ? job : null;
-  const elsewhere = !mine && walkActive(job);
   const busy = sent !== null || walkActive(job);
+  const place = job?.result.final_place ?? '';
+  const made = job?.result.new_place === 'True';
 
-  // A finished import changed the places (a new revision here, or a new place): read them again, once per job.
+  // A finished import changed the places (a new revision in one, or a new place): read them again, once per job.
   const finished = job?.status === 'done' ? job.id : null;
   const reread = useRef<string | null>(null);
   useEffect(() => {
@@ -75,7 +86,7 @@ export function WalkImport({ place }: { place: Place }) {
     if (why) return;
     setSent({ name: file.name, share: 0 });
     try {
-      const reply = await uploadWalk(place.id, file, share => setSent({ name: file.name, share }));
+      const reply = await uploadWalk(file, share => setSent({ name: file.name, share }));
       setJob(reply.job);
     } catch (e) {
       setErr(messageOf(e));
@@ -114,8 +125,9 @@ export function WalkImport({ place }: { place: Place }) {
       }}
     >
       <Text size="sm">
-        Drop the zip Stray Scanner exports here to import a walk into this place
-        {video ? ', or a plain video of the walk (less accurate, and it marks no room as walked).' : '.'}{' '}
+        Drop the zip Stray Scanner exports here to import a walk
+        {video ? ', or a plain video of the walk (less accurate, and it marks no room as walked).' : '.'} It goes into
+        the place it matches, or becomes a new place when it matches none.{' '}
         <Anchor href={WALKTHROUGH_DOC} target="_blank" rel="noreferrer">
           How to record a walk
         </Anchor>
@@ -137,11 +149,6 @@ export function WalkImport({ place }: { place: Place }) {
             </Button>
           )}
         </FileButton>
-        {elsewhere && (
-          <Text size="xs" c="dimmed">
-            A walk is being imported into another place. One runs at a time.
-          </Text>
-        )}
       </Group>
       {sent && (
         <div role="status" className={classes.walkStatus}>
@@ -151,28 +158,35 @@ export function WalkImport({ place }: { place: Place }) {
           <Progress value={Math.round(sent.share * 100)} size="sm" aria-label="Uploaded so far" />
         </div>
       )}
-      {!sent && mine && walkActive(mine) && (
+      {!sent && job && walkActive(job) && (
         <div role="status" className={classes.walkStatus}>
-          <Text size="sm">{stepText(mine)}</Text>
+          <Text size="sm">{stepText(job)}</Text>
           <Progress value={100} striped animated size="sm" aria-label="Importing" />
           <Text size="xs" c="dimmed">
             This takes a few minutes. It keeps going if you leave the page.
           </Text>
         </div>
       )}
-      {!sent && mine?.status === 'done' && (
-        <Alert mt={8} color={mine.result.meant_for ? 'yellow' : 'green'} title="Walk imported" role="status">
-          <Text size="sm">{resultText(mine)}</Text>
-          <Button mt={6} size="xs" variant="default" onClick={() => void act(dismissWalk)}>
-            Dismiss
-          </Button>
+      {!sent && job?.status === 'done' && (
+        <Alert mt={8} color="green" title={made ? 'New place from a walk' : 'Walk imported'} role="status">
+          <Text size="sm">{resultText(job, names.get(place))}</Text>
+          <Group mt={6} gap="xs">
+            {names.has(place) && (
+              <Button size="xs" variant="default" onClick={() => onOpen(place)}>
+                Open {names.get(place)}
+              </Button>
+            )}
+            <Button size="xs" variant="default" onClick={() => void act(dismissWalk)}>
+              Dismiss
+            </Button>
+          </Group>
         </Alert>
       )}
-      {!sent && mine?.status === 'failed' && (
-        <Alert mt={8} color="red" title={`${mine.name} wasn't imported`} role="alert">
-          <Text size="sm">{mine.error}</Text>
+      {!sent && job?.status === 'failed' && (
+        <Alert mt={8} color="red" title={`${job.name} wasn't imported`} role="alert">
+          <Text size="sm">{job.error}</Text>
           <Group mt={6} gap="xs">
-            {mine.retry && (
+            {job.retry && (
               <Button size="xs" variant="default" onClick={() => void act(retryWalk)}>
                 Try again
               </Button>

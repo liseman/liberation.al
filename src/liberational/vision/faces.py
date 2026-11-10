@@ -22,6 +22,7 @@ import pathlib
 import sys
 import threading
 import time
+import warnings
 import zipfile
 from collections.abc import Callable, Collection, Generator, Iterable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any
@@ -36,6 +37,15 @@ from liberational.domain.identity import MODEL_BASES, Basis, SubjectRef
 from liberational.domain.kernel import EvidenceRef, Producer
 from liberational.people import registry
 from liberational.vision.onnx_runtime import preload_gpu_libraries
+
+
+def quiet_alignment_warning() -> None:
+    """insightface's face_align calls a scikit-image method deprecated since 0.26, and the FutureWarning came out as
+    a WARN line for every aligned face (hundreds an hour). It is theirs to fix and says nothing about this install."""
+    warnings.filterwarnings("ignore", category=FutureWarning, module=r"insightface\.utils\.face_align")
+
+
+quiet_alignment_warning()
 
 if TYPE_CHECKING:
     from insightface.app.common import Face
