@@ -72,7 +72,7 @@ and shows the plan.
 
 - **Discard changes** puts the editor back on the last saved plan.
 - **Close editor** leaves the editor. With unsaved changes, it asks "Discard your unsaved changes?" first. Picking
-  another place, or **3D map**, asks the same.
+  another place asks the same. The **Plan** and **3D map** switch is hidden while the editor is open.
 - If a save fails, the message "Couldn't save the plan:" gives the reason. A save from a device that may not teach
   says "plans can only be corrected from this machine (Remote teaching is off)".
 

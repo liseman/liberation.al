@@ -107,10 +107,12 @@ stays warm between requests and is stopped when idle, so an idle dashboard holds
 
 ## Zones and came-into-view
 
-`pack-see-zones` (`see/zones_worker.py`) follows see-actions' analyzed frames. No model is involved.
+`pack-see-zones` (`see/zones_worker.py`) follows see-actions' analyzed frames, people's and animals'. No model is
+involved.
 
 - For each owner-drawn zone (`zone.defined`) it writes `zone.visit` (a track's foot point inside the polygon: entry,
-  last frame inside, dwell, and how it ended) and `zone.coverage`.
+  last frame inside, dwell, and how it ended) and `zone.coverage`. An animal's visit carries its species; a pet's name
+  is matched to its track by the reader.
 - It writes `presence.span` episodes: one starts at the first analyzed frame with anyone tracked and ends once
   nobody was seen for `presence.absence_s` (10). A gap over `presence.gap_s` (30) censors it. An episode means
   someone was in view. It is not an entry, a headcount, or an identity.

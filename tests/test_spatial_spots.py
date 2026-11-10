@@ -26,23 +26,24 @@ def walkers(pitch, roll=0.0, above=2.0, n=120, seed=0, across=3.0):
     pitched `pitch` degrees down and rolled `roll` clockwise, worked out from the room's side: the world has z up,
     the camera looks along +y. Returns (feet, heads, the people's median height)."""
     rng = np.random.default_rng(seed)
+    tall = rng.uniform(1.5, 1.8, n)
+    floor = np.column_stack([rng.uniform(-across, across, n), rng.uniform(2.0, 7.0, n)])
+    feet = pixels(np.column_stack([floor, np.full(n, footprints.FOOT_M)]), pitch, roll, above)
+    heads = pixels(np.column_stack([floor, tall]), pitch, roll, above)
+    return feet, heads, float(np.median(tall))
+
+
+def pixels(points, pitch, roll=0.0, above=2.0):
+    """Where (N, 3) points (x right of the camera, y ahead, z up, from the floor under it) are seen in a pinhole
+    frame of SIZE at FOCAL, from a camera `above` the floor pitched `pitch` degrees down and rolled `roll`."""
     p, r = math.radians(pitch), math.radians(roll)
     forward = np.array([0.0, math.cos(p), -math.sin(p)])
     level_right, level_down = np.array([1.0, 0.0, 0.0]), np.array([0.0, -math.sin(p), -math.cos(p)])
     right = math.cos(r) * level_right + math.sin(r) * level_down
     down = -math.sin(r) * level_right + math.cos(r) * level_down
-    eye = np.array([0.0, 0.0, above])
-    tall = rng.uniform(1.5, 1.8, n)
-    floor = np.column_stack([rng.uniform(-across, across, n), rng.uniform(2.0, 7.0, n)])
-
-    def pixels(points):
-        rel = points - eye
-        x, y, z = rel @ right, rel @ down, rel @ forward
-        return np.column_stack([0.5 + FOCAL * x / z / SIZE[0], 0.5 + FOCAL * y / z / SIZE[1]])
-
-    feet = pixels(np.column_stack([floor, np.full(n, footprints.FOOT_M)]))
-    heads = pixels(np.column_stack([floor, tall]))
-    return feet, heads, float(np.median(tall))
+    rel = np.asarray(points, dtype=np.float64) - np.array([0.0, 0.0, above])
+    x, y, z = rel @ right, rel @ down, rel @ forward
+    return np.column_stack([0.5 + FOCAL * x / z / SIZE[0], 0.5 + FOCAL * y / z / SIZE[1]])
 
 
 HELD = lens.Held(FOCAL / SIZE[0], 0.0, "test")
@@ -299,13 +300,15 @@ def test_a_dry_run_counts_what_each_camera_would_place_and_keeps_nothing(tmp_pat
     monkeypatch.setattr(spots, "frame_size", lambda camera, t: SIZE)
     seen = [
         footprints.Footprint("cam0", T - 900, 0.5, 1.0, 7, 0.9),  # on the floor, in the living room
+        footprints.Footprint("cam0", T - 850, 1.0, 1.0, 7, 0.9),  # in the hall, behind the wall from the camera
         footprints.Footprint("cam0", T - 800, 0.5, 0.2, 7, 0.9),  # above the horizon: no floor point
         footprints.Footprint("porch", T - 700, 0.5, 1.0, 3, 0.9),  # a camera with no spot and no pose
     ]
     monkeypatch.setattr(footprints, "collect", lambda state, start, end, cameras: seen)
     cam0, porch = P.dry_run(tmp_path, ["cam0", "porch"], T, 24.0)
-    assert (cam0["by"], cam0["footprints"], cam0["placed"], cam0["in_a_room"], cam0["missing"]) == ("spot", 2, 1, 1, [])
-    assert (porch["by"], porch["footprints"], porch["placed"]) == (None, 1, 0)
+    assert (cam0["by"], cam0["footprints"], cam0["placed"], cam0["in_a_room"], cam0["missing"]) == ("spot", 3, 2, 2, [])
+    assert cam0["in_view"] == 1
+    assert (porch["by"], porch["footprints"], porch["placed"], porch["in_view"]) == (None, 1, 0, None)
     assert spots.aims(tmp_path) == {}
     assert not S.root(tmp_path).exists()
 
@@ -318,13 +321,59 @@ def test_a_map_may_refine_a_spot_only_within_the_bound():
     assert not spots.within_bounds(spot, places.CameraPose(tuple(float(x) for x in far.ravel()), FOCAL, *SIZE))
 
 
+WIDE = lens.Lens(SIZE[0], SIZE[1], (280.0, 280.0, SIZE[0] / 2 - 0.5, SIZE[1] / 2 - 0.5), -0.3)
+
+
+def bend(uv: np.ndarray, undone: float) -> np.ndarray:
+    """Pinhole pixels at FOCAL (the true rays) as WIDE's barrel shows them raw, for a camera whose undone frames
+    (`lens.undistort_points`) are a pinhole of focal `undone` (a share of the width)."""
+    fx, fy, cx, cy = WIDE.fractions()
+    scale = undone / (lens.out_scale(WIDE) * fx)  # true normalized rays over the calibration's
+    xu = (uv[:, 0] - 0.5) * SIZE[0] / FOCAL * scale
+    yu = (uv[:, 1] - 0.5) * SIZE[1] / FOCAL * scale
+    xd, yd = lens._distort(WIDE, xu, yu)
+    return np.column_stack([cx + fx * xd, cy + fy * yd])
+
+
+@pytest.mark.parametrize(
+    ("configured", "held", "undone"),
+    [
+        pytest.param(None, HELD, None, id="pinhole"),
+        # held on the raw frames before its lens was read (no `lens` on it): the undone frame isn't the one it was
+        # measured on, so the calibration's own focal holds (0.366 of the width), not 0.6
+        pytest.param(WIDE, lens.Held(0.6, 0.0, "fitted on raw frames"), lens.undone_focal(WIDE), id="wide-held-raw"),
+        pytest.param(WIDE, None, lens.undone_focal(WIDE), id="wide-nothing-held"),
+        pytest.param(WIDE, lens.Held(0.45, 0.0, "fit", lens=WIDE.as_tuple()), 0.45, id="wide-held-through-it"),
+    ],
+)
+def test_a_footprint_at_a_known_floor_spot_is_placed_on_that_spot(
+    tmp_path, vision, monkeypatch, configured, held, undone
+):
+    def seen(uv: np.ndarray) -> np.ndarray:
+        return uv if undone is None else bend(uv, undone)
+
+    monkeypatch.setattr(lens, "as_registered", lambda camera: None if configured is None else configured.as_tuple())
+    place = taught(tmp_path, "x-camera cam0 at 1,1 height 2.2 yaw 90", held=False)
+    if held is not None:
+        lens.hold(tmp_path, "cam0", held, now=T - 50)
+    feet, heads, _ = walkers(18.0, above=2.2)
+    monkeypatch.setattr(spots, "people", lambda state, camera, now: (seen(feet), seen(heads)))
+    spots.fit(tmp_path, T, sizes=lambda camera, t: SIZE)
+    # Heels 2.5 m ahead of the camera and 0.8 m to its right, near the frame's edge: it faces east on the page, so
+    # its right is south, and they stand at (3.5, 1.8).
+    ((u, v),) = seen(pixels([[0.8, 2.5, footprints.FOOT_M]], 18.0, above=2.2))
+    foot(vision, T, u=float(u), v=float(v))
+    (p,) = P.derive(tmp_path, T - 1, T + 5, place=place)
+    assert (p.x, p.y) == pytest.approx((3.5, 1.8), abs=0.05)
+
+
 def test_a_configured_barrel_lens_is_undone_when_fitting_a_spots_tilt_and_placing_footprints(
     tmp_path, vision, monkeypatch
 ):
     # A camera whose barrel lens is in the device manifest holds the undone frame's focal in lens.held, while pose
     # tracks and footprints come in raw camera pixels.
     configured = lens.Lens(SIZE[0], SIZE[1], (280.0, 280.0, SIZE[0] / 2 - 0.5, SIZE[1] / 2 - 0.5), -0.3)
-    held_undone = lens.Held(280.0 * lens.out_scale(configured) / SIZE[0], 0.0, "test")
+    held_undone = lens.Held(280.0 * lens.out_scale(configured) / SIZE[0], 0.0, "test", lens=configured.as_tuple())
     fx, fy, cx, cy = configured.fractions()
 
     def barrel(uv: np.ndarray) -> np.ndarray:
