@@ -311,22 +311,27 @@ def walls(plan: Parsed) -> Walls:
         edges += [(poly[i], poly[(i + 1) % len(poly)]) for i in range(len(poly))]
     pieces: dict[tuple[Point, Point], int] = {}
     for a, b in edges:
-        # cut the edge at every corner of another edge that lies on it, so shared stretches line up
+        # Cut the edge at every corner of another edge that lies on it, snapping to that corner so shared stretches
+        # still line up after `to_dsl` rounds a turned plan's coordinates to millimetres.
         ax, ay = a
         dx, dy = b[0] - ax, b[1] - ay
         length2 = dx * dx + dy * dy
         if length2 < 1e-12:
             continue
-        cuts = {0.0, 1.0}
+        length = math.sqrt(length2)
+        cuts: list[tuple[float, Point]] = [
+            (0.0, (round(ax, 6), round(ay, 6))),
+            (1.0, (round(b[0], 6), round(b[1], 6))),
+        ]
         for c, d in edges:
             for px, py in (c, d):
                 t = ((px - ax) * dx + (py - ay) * dy) / length2
-                if 1e-9 < t < 1 - 1e-9 and abs((px - ax) * dy - (py - ay) * dx) / math.sqrt(length2) < 1e-6:
-                    cuts.add(t)
-        ts = sorted(cuts)
-        for t0, t1 in itertools.pairwise(ts):
-            p = (round(ax + t0 * dx, 6), round(ay + t0 * dy, 6))
-            q = (round(ax + t1 * dx, 6), round(ay + t1 * dy, 6))
+                if 1e-5 < t < 1 - 1e-5 and abs((px - ax) * dy - (py - ay) * dx) / length < 0.01:
+                    pt = (round(px, 6), round(py, 6))
+                    if all(math.hypot(pt[0] - q[0], pt[1] - q[1]) > 0.01 for _, q in cuts):
+                        cuts.append((t, pt))
+        cuts.sort(key=lambda item: item[0])
+        for (_, p), (_, q) in itertools.pairwise(cuts):
             key = (min(p, q), max(p, q))
             pieces[key] = pieces.get(key, 0) + 1
     ext, part = plan.walls
@@ -985,36 +990,64 @@ def inside(plan: Parsed, q: np.ndarray) -> np.ndarray:
 SIGHT_SLACK = 0.1  # metres short of a point its line of sight is checked to: a wall's own points sit on its face
 
 
-def sight_walls(plan: Parsed) -> Walls:
-    """The plan's walls with a gap at each door and cased opening (which can be seen through; a window can't, for
-    this: what's beyond it is outside every room anyway)."""
+def sight_walls(plan: Parsed, kinds: Sequence[str] = ("door", "cased")) -> Walls:
+    """The plan's walls with a gap at each opening of `kinds` (`door` and `cased` by default, which can be seen
+    through; pass `window` too when depth sees outside)."""
     w = walls(plan)
-    a, b = list(w.a), list(w.b)
-    half = list(w.half)
+    a, b, half = list(w.a), list(w.b), list(w.half)
     for o in plan.openings:
-        if o.kind == "window":
+        if o.kind not in kinds:
             continue
         at = np.asarray(o.at, dtype=np.float64)
-        for i in range(len(a)):
-            ab = b[i] - a[i]
+        next_a, next_b, next_h = [], [], []
+        for pa, pb, ph in zip(a, b, half, strict=True):
+            ab = pb - pa
             length = float(np.linalg.norm(ab))
             if length < 1e-9:
                 continue
-            t = float((at - a[i]) @ ab) / length
-            off = abs(float(ab[0] * (at - a[i])[1] - ab[1] * (at - a[i])[0])) / length
+            t = float((at - pa) @ ab) / length
+            off = abs(float(ab[0] * (at - pa)[1] - ab[1] * (at - pa)[0])) / length
             if off > 0.02 or not -0.02 <= t <= length + 0.02:
+                next_a.append(pa)
+                next_b.append(pb)
+                next_h.append(ph)
                 continue
             unit = ab / length
             lo, hi = max(t - o.width / 2, 0.0), min(t + o.width / 2, length)
-            pieces = [(a[i], a[i] + unit * lo), (a[i] + unit * hi, b[i])]
-            pieces = [(p, q) for p, q in pieces if float(np.linalg.norm(q - p)) > 1e-6]
-            a[i : i + 1], b[i : i + 1], half[i : i + 1] = (
-                [p for p, _ in pieces],
-                [q for _, q in pieces],
-                [half[i]] * len(pieces),
-            )
-            break
+            for p, q in ((pa, pa + unit * lo), (pa + unit * hi, pb)):
+                if float(np.linalg.norm(q - p)) > 0.02:
+                    next_a.append(p)
+                    next_b.append(q)
+                    next_h.append(ph)
+        a, b, half = next_a, next_b, next_h
     return Walls(np.array(a).reshape(-1, 2), np.array(b).reshape(-1, 2), np.array(half))
+
+
+def opening_jambs(plan: Parsed, kinds: Sequence[str] = ("door", "cased")) -> np.ndarray:
+    """The (J, 2) plan points where openings of `kinds` start and end along their walls (jambs at least 5 cm from a
+    wall corner)."""
+    w = walls(plan)
+    out: list[tuple[float, float]] = []
+    for o in plan.openings:
+        if o.kind not in kinds:
+            continue
+        at = np.asarray(o.at, dtype=np.float64)
+        for pa, pb in zip(w.a, w.b, strict=True):
+            ab = pb - pa
+            length = float(np.linalg.norm(ab))
+            if length < 1e-9:
+                continue
+            t = float((at - pa) @ ab) / length
+            off = abs(float(ab[0] * (at - pa)[1] - ab[1] * (at - pa)[0])) / length
+            if off > 0.02 or not -0.02 <= t <= length + 0.02:
+                continue
+            unit = ab / length
+            for s in (max(t - o.width / 2, 0.0), min(t + o.width / 2, length)):
+                if 0.05 < s < length - 0.05:
+                    jp = pa + unit * s
+                    if all(math.hypot(float(jp[0]) - ox, float(jp[1]) - oy) > 0.04 for ox, oy in out):
+                        out.append((float(jp[0]), float(jp[1])))
+    return np.array(out, dtype=np.float64).reshape(-1, 2)
 
 
 def in_sight(plan: Parsed, sight: Walls, eye: Point, q: np.ndarray) -> np.ndarray:

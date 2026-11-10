@@ -278,3 +278,19 @@ def test_a_camera_sees_through_a_door_but_not_through_a_wall():
     points = np.array([[5.0, 1.5], [5.0, 0.5], [2.0, 2.0], [7.0, 1.5]])
     # from (1, 1.5): straight through the door, through the wall beside it, in its own room, and outside the plan
     assert pi.in_sight(plan, sight, (1.0, 1.5), points).tolist() == [True, False, True, False]
+
+
+def test_a_moved_plans_shared_walls_and_openings_stay_clean_after_rounding():
+    # Writing a turned plan rounds its corners to millimetres (`to_dsl`), which puts T-junctions up to a millimetre off
+    # the shared edge; `walls` and `sight_walls` must still split the shared wall once and cut its opening through.
+    raw = pi.parse(
+        'plan "P" walls 0.2/0.1\nroom a "A" other rect 0,0 4x3\nroom b "B" other rect 4,0 2x5\ncased a>b at 4,1.5 w0.8\n'
+    )
+    moved = pi.parse(pi.to_dsl(raw, TRUE, "P"))
+    w = pi.walls(moved)
+    assert len(w.a) == 8
+    assert int(np.sum(np.isclose(w.half, 0.05))) == 1
+    sight = pi.sight_walls(moved)
+    eye = TRUE.point(2.0, 1.5)
+    through_cased = TRUE.points(np.array([[5.0, 1.5], [5.0, 2.8]]))
+    assert pi.in_sight(moved, sight, eye, through_cased).tolist() == [True, False]

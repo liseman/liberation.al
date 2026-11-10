@@ -341,3 +341,46 @@ it('gives each camera a row with its name, how it is doing, and its newest kept 
   fireEvent.error(picture);
   expect(within(rows[0] as HTMLElement).queryByRole('img')).toBeNull();
 });
+
+it('flags a spot whose view fits the plan better past the spot bound while noting that the spot holds', async () => {
+  const told = status({
+    sampling: ['front', 'hall'],
+    spot_suggestions: {
+      front: { shift_m: 0.62, turn_deg: 2.1 },
+      hall: { shift_m: 0.12, turn_deg: 14.2 },
+      porch: { shift_m: 0.55, turn_deg: 11.8 },
+    },
+    cameras: { front: { recent: { view: 3 }, last_kept: 1.8e9 } },
+  });
+  expect(cameraRows(told).map(r => [r.camera, r.tone, r.label, r.detail])).toEqual([
+    [
+      'front',
+      'warn',
+      'Check spot (0.6 m off)',
+      "Its view fits the plan's walls better about 0.6 m from its spot. Its spot on the plan holds unless you move it.",
+    ],
+    [
+      'hall',
+      'warn',
+      'Check facing (14° off)',
+      "Its view fits the plan's walls better turned about 14° from its spot. Its spot on the plan holds unless you turn it.",
+    ],
+    [
+      'porch',
+      'warn',
+      'Check spot (0.6 m, 12° off)',
+      "Its view fits the plan's walls better about 0.6 m and 12° from its spot. Its spot on the plan holds unless you move it.",
+    ],
+  ]);
+
+  serve(told, { p1: { views: 3, improved: 1.8e9 } });
+  renderPage(<PlacesTab examples={[]} />);
+  const rows = within(await within(await panel()).findByRole('list', { name: 'Cameras learned from' })).getAllByRole(
+    'listitem',
+  );
+  expect(rows.map(r => r.textContent)).toEqual([
+    "frontCheck spot (0.6 m off)Its view fits the plan's walls better about 0.6 m from its spot. Its spot on the plan holds unless you move it.",
+    "hallCheck facing (14° off)Its view fits the plan's walls better turned about 14° from its spot. Its spot on the plan holds unless you turn it.",
+    "porchCheck spot (0.6 m, 12° off)Its view fits the plan's walls better about 0.6 m and 12° from its spot. Its spot on the plan holds unless you move it.",
+  ]);
+});
