@@ -39,7 +39,10 @@ image, and each frame's pose is refined as the splat trains. The walk registers 
 map's frame, and the move they show (`carried`) brings every frame's pose along. The daily fixed-camera splat leaves
 those cameras out. A splat is kept with what it was trained from ("walk" or "cameras", `places.write_splat`), so the
 3D view opens it from the right kind of view. A plain video's walk (CUT3R's poses, corrected by the pose graph) is
-splatted the same way (#21), without the depth: the pose refinement is what makes its poses agree well enough.
+splatted the same way (#21), without the depth: the pose refinement takes up some of what its poses get wrong. It's
+a first look, not a match for a LiDAR walk's: the same 120 frames of one walk through a home scored 15.2 dB held out
+as a plain video (14.0 without refinement, which moved each frame a median 6 cm and 2.7 degrees) against 21.6 dB
+from the LiDAR export, in the same 11 minutes and 1.3 GiB of GPU memory (`tools/splat_walk_check.py` measures it).
 
 gsplat (nerfstudio-project/gsplat) is Apache-2.0; the trainer adds no model weights.
 """

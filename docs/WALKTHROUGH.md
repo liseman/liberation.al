@@ -77,6 +77,8 @@ Prefer the Stray Scanner export whenever the device is to hand, and always for:
 - a place that fixed cameras or an owner plan must register against; and
 - rooms with plain walls and little texture.
 
-A plain video is for a first look at a place when only a phone without LiDAR is there.
+A plain video is for a first look at a place when only a phone without LiDAR is there. Its Gaussian splat shows
+that: on one walk through a home, the same frames scored 15 dB on held-out views as a plain video and 22 dB from the
+Stray Scanner export.
 
 What the import does, step by step, is in the docstring of `src/liberational/spatial/walkthrough.py`.
