@@ -1,4 +1,4 @@
-"""Research: an Ask question taken slowly, as a background job whose report lands in the Inbox (#1336).
+"""Research: an Ask question taken slowly, as a background job whose report lands in the Inbox.
 
 Ask answers at once from the live setup. Research takes the same question with more search rounds, a longer answer
 timeout, and no deadline, and runs one job at a time in `pack-research` at idle CPU and IO priority. Each finished job
@@ -11,7 +11,7 @@ read, delete) and the worker (claim, heartbeat, finish) never overwrite each oth
 that stopped goes back to the queue once; interrupted again, it fails, so one bad question can't wedge the queue.
 
 Where its final answer runs (the GPU decision): by default research uses Ask's model and context on Ask's own Ollama (`ask.*`). A
-server that keeps one model loaded (devbox's ask-ollama) then never swaps Ask's model out for research's, so instant
+server that keeps one model loaded (ask-ollama on the Linux machine) then never swaps Ask's model out for research's, so instant
 Ask stays loaded. `[research]` can name another model, context, or server; a different model on Ask's one-model server
 would unload Ask's. At the end of a job (including a failed answer), Research reloads the normal Ask model and
 context when it used a different load on that same dedicated server. A failed reload is logged without discarding

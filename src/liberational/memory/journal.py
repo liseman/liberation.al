@@ -1,7 +1,7 @@
 """Journal: a first-person entry for every 30 seconds of the day, rolled up into longer levels (after WorldMM), on
-Continuum (#550 part B, #777). Entries are `journal.entry` payloads on the broker (liberational/memory_log.py): layer 3
+Continuum . Entries are `journal.entry` payloads on the broker (liberational/memory_log.py): layer 3
 interpretations whose subjects are the people in them; a rollup's parents are its child entries. A finest entry has
-no parents: the utterances, replies, and captions it was written from are in the segment store (#1788, #1791), which
+no parents: the utterances, replies, and captions it was written from are in the segment store, which
 the broker can't name as a parent, and its `line_speakers` keys its lines by id instead. A speaker
 is written as a token, `[S<id>]` with the voice id the line has through the event log (people/transcript_view.py),
 and becomes a name only when read (render(), through person_of), so renaming someone rewrites nothing stored. A
@@ -44,7 +44,7 @@ Levels come from `[journal] levels` (default 30, 180, 600, and 3600 seconds), fi
   children, so a child that is purged takes it along (the broker's purge cascade), and a child that is rebuilt
   (superseded) leaves it stale: the next pass rebuilds it from the current children.
 
-Above the hour sit the day, week, and month pages (memory/journal_pages.py, #2806): written inside each pass once
+Above the hour sit the day, week, and month pages (memory/journal_pages.py): written inside each pass once
 their period has settled (a day at journal.page_batch_at the next morning, a week early Monday, a month on the 1st), and again
 when what they were built from changes.
 
@@ -126,7 +126,7 @@ SHAPE_VERSION = "1"
 TOKEN = re.compile(r"\[S(\d+)\]")
 PROMPT_VERSION = "v2"
 GENERIC = re.compile(r"(?:speaker\s*\d+|unknown|someone)?", re.I)  # a recorded label that names nobody
-PLAYBACK_FLAGS = revisions.NOT_SAID  # played back, synthetic, or a TV's (#2468): nobody here said it
+PLAYBACK_FLAGS = revisions.NOT_SAID  # played back, synthetic, or a TV's: nobody here said it
 SAME = 0.8  # caption similarity above which two captions describe the same scene
 MAX_CAPTIONS = 12  # distinct captions per window given to the model
 MAX_INPUT = 9000  # soft UTF-8 byte cap for optional metadata; full prompts also have a token budget
@@ -144,7 +144,7 @@ _now = time.time
 _TRIES: dict[str, int] = {}  # "level:start" -> failures so far, in this process
 #: "level:start" -> the inputs a rebuild was given up on, in this process: a failed rebuild of a window that has an
 #: entry leaves the old one standing, so the window stays stale, and without this it was opened again (and failed
-#: again) every few passes, forever (#2891). Tried again once its inputs change.
+#: again) every few passes, forever. Tried again once its inputs change.
 _GAVE_UP: dict[str, str] = {}
 PROGRESS_S = 60.0  # how often, at most, a long phase of a pass says where it is
 PROGRESS_BIG = 100  # windows in a phase big enough to say so as it starts, before its first PROGRESS_S
@@ -204,9 +204,9 @@ def words(level: int, base: int) -> int:
     return round(min(300, 60 * (level / base) ** 0.35))
 
 
-# The structured reply's bounds (#2347). Unbounded, the 4B now and then ran on until num_predict cut the JSON off: an
+# The structured reply's bounds. Unbounded, the 4B now and then ran on until num_predict cut the JSON off: an
 # invalid reply, asked again on later passes, and the window given up on after MAX_RETRIES. Bounded, the reply always
-# closes. An entry cites at most MAX_SOURCE_IDS sources (entries kept on devbox cite up to 11), each one of the window's
+# closes. An entry cites at most MAX_SOURCE_IDS sources (entries kept on the Linux machine cite up to 11), each one of the window's
 # own ids; its text is at most TEXT_CHARS_PER_WORD characters per word of its budget (kept replies use about 6).
 MAX_SOURCE_IDS = 12
 TEXT_CHARS_PER_WORD = 8
@@ -375,7 +375,7 @@ def _clean_once(text: str) -> str:
 
 def _cap(text: str, most: int) -> str:
     """`text` at most `most` characters, cut after its last full sentence that fits, else at a word. The reply schema
-    asks for `most`, but Ollama let an hour's summary run to 4,329 characters past its 2,400 (#2891): longer than what
+    asks for `most`, but Ollama let an hour's summary run to 4,329 characters past its 2,400: longer than what
     it summed up, so splitting a window that didn't fit never shrank it."""
     if len(text) <= most:
         return text
@@ -425,7 +425,7 @@ def transcript(
 ) -> list[dict[str, Any]]:
     """Utterances in [a, b) from the speech log (all when unbounded), oldest first: {id, uid, ts, end, text, sid,
     label, person, playback}. With a view, sid and label are who said the line now (person_of), and person is the id of the
-    person the line names (View.speakers), and another mic's copy of a line is left out (#284, #476: one thing said is
+    person the line names (View.speakers), and another mic's copy of a line is left out (one thing said is
     summarized once); without one, as stored, with no person."""
     raw = _speech(a, b, speech_log.UTTERANCES)
     rows: list[dict[str, Any]] = []
@@ -550,7 +550,7 @@ def camera(
     view: transcript_view.View | None = None,
 ) -> list[dict[str, Any]]:
     """Caption records in [a, b) that are fresh observations: {id, people, ts, cam, caption, faces, named,
-    objects}. Captions carry no faces (#1811): who was seen comes from see-actions' face matches (`face.match`, through
+    objects}. Captions carry no faces: who was seen comes from see-actions' face matches (`face.match`, through
     vision/sightings.py), each named face going with the nearest caption of its camera in the window. Each face goes
     under its person's current name through view (see _face()); a face the registry does not know is left out unless
     its name is in known (see known_faces()), and known None keeps every face. named holds the names as matched, for
@@ -761,7 +761,7 @@ class Progress:
     """Where a long phase of a pass is, logged at most every PROGRESS_S: how many of its windows are done, the one it
     has reached, and about how long the rest will take at the pace so far. A pass logs its counts only when it ends,
     and reconciling a day or two of corrected transcript writes thousands of windows first, so twice a healthy pass
-    looked hung (#2880, #2888)."""
+    looked hung."""
 
     def __init__(self, phase: str, total: int, clock: Callable[[], float] = time.monotonic) -> None:
         self.phase, self.total, self.clock = phase, total, clock
@@ -806,7 +806,7 @@ class Pass:
         self.error: str | None = None
         today = dt.datetime.fromtimestamp(now, history_qa.TZ).date()
         # Windows with no entry yet are written from the day's start, or from the coarsest window still open at the
-        # lag when the day has just turned, so yesterday's last minutes and rollups are finished (Codex on #861).
+        # lag when the day has just turned, so yesterday's last minutes and rollups are finished.
         day_start, top = day_bounds(today)[0], self.levels[-1]
         self.fill_from = day_start - top if now - self.lag < day_start + top else day_start
         self.stale_from = now - float(cfg.get("journal.reconcile_days", 2)) * 86400  # and checked back to here
@@ -1229,7 +1229,7 @@ class Pass:
                     source_ids=[r["id"] for r in s["rows"]],
                 )
             )
-            # Captions are segment rows (#1791), not broker payloads, so an entry names none as a parent.
+            # Captions are segment rows, not broker payloads, so an entry names none as a parent.
             faces += [f for f in s["faces"] if f not in faces]
             sources.extend(evidence_source(r, segment_log.CAPTIONS, r["caption"], camera=r["cam"]) for r in s["rows"])
             for r in s["rows"]:  # under the name the row has: the name as of when it was seen
@@ -1325,7 +1325,7 @@ class Pass:
     def _inputs(self, level: int, start: int, supersedes: str) -> str:
         """What a rebuild of a window is made from, to tell when one given up on has new inputs: the entry it would
         supersede, the window's transcript review, and a rollup's children or a finest window's lines with who each
-        is now (what `reconcile` compares, so a relabel wakes it: the review of #2892)."""
+        is now (what `reconcile` compares, so a relabel wakes it)."""
         if level == self.base:
             rows = self.lines.between(start, start + level)
             made: list[Any] = [
@@ -1373,7 +1373,7 @@ class Pass:
                 _GAVE_UP[key] = self._inputs(level, start, supersedes)
             else:
                 # Settled in the catalog, so a later pass (or a restart) doesn't open the window and its retries
-                # again (Codex on #861); `--day` rewrites it. A failed rebuild leaves the old entry standing.
+                # again; `--day` rewrites it. A failed rebuild leaves the old entry standing.
                 self.mark(level, start, FAILED)
             return True
         _TRIES.pop(key, None)
@@ -1547,7 +1547,7 @@ def _embed(state: pathlib.Path, now: float, embedding: Any) -> dict[str, Any]:
         batch, todo = todo[:EMBED_BATCH], todo[EMBED_BATCH:]
         voice_turn.wait_quiet()
         vectors = embedding.embed([r.get("search") or render(r["text"], state) for r in batch], model, dims, 120)
-        again, why = embedding.digest(model, fresh=True)  # never the cache: these vectors are kept (#2204)
+        again, why = embedding.digest(model, fresh=True)  # never the cache: these vectors are kept
         if again != digest:  # other weights made this batch, or might have: drop it, and the next pass starts over
             embedding.trouble(why or f"{model} changed in Ollama during an embedding pass")
             return dict(embedded=embedded, skipped=why or "model changed")
@@ -1586,7 +1586,7 @@ def facts(state: str | pathlib.Path | None = None) -> dict[str, Any]:
 
 
 def summaries(state: str | pathlib.Path | None = None) -> dict[str, Any]:
-    """Write Review's summary lines ahead (memory/review_summary.py, #444), after a pass, as review.summary records.
+    """Write Review's summary lines ahead (memory/review_summary.py), after a pass, as review.summary records.
     Skipped with the journal off. Model calls yield to voice. Never raises."""
     from liberational.memory import review_summary
 

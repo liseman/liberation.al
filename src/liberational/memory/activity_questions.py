@@ -1,4 +1,4 @@
-"""Activity questions that aren't counts (#1863), from see-actions' model: when someone sat down, what someone was doing.
+"""Activity questions that aren't counts, from see-actions' model: when someone sat down, what someone was doing.
 
 - "When did I sit down?" (`when`): the times of that kind's `action.span` rows over the window, over the time
   `action.coverage` says was watched. Until the owner's ratings check a kind (memory/events.py's promotion), each time

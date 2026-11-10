@@ -1,4 +1,4 @@
-"""What's typical for a count, over days or nights (#1318): "how many times do I generally get up to use the bathroom
+"""What's typical for a count, over days or nights: "how many times do I generally get up to use the bathroom
 at night", "how often does the cat usually use the litter box".
 
 history_qa sends a count question here when it names a detected event or a zone (memory/event_counts.py) and asks

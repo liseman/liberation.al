@@ -55,7 +55,7 @@ from liberational.listen.revisions import NOT_SAID
 from liberational.people import registry, transcript_view
 
 SOURCES = ("playback_windows.json",)
-PLAYBACK = NOT_SAID  # played back, synthetic, or a TV's (#2468): nobody here said it
+PLAYBACK = NOT_SAID  # played back, synthetic, or a TV's: nobody here said it
 BATCH = 5000  # transcript lines resolved at a time, so reading a year of them never holds it all as dicts
 
 

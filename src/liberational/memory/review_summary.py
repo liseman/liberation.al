@@ -1,4 +1,4 @@
-"""Review's summary column (#404): what happened over a stretch of time, as timeline blocks.
+"""Review's summary column: what happened over a stretch of time, as timeline blocks.
 
 GET /review/summary?start=&end= gives the journal's entries over that stretch at one of its levels (journal.levels:
 30 s, 3 min, 10 min, and 1 h by default), each rewritten as one short neutral line (memory/plain_text.py), with tags
@@ -21,14 +21,14 @@ for Review's Show only chips:
   with nothing recorded is ready with no blocks. A journal that is off, or whose cursor hasn't moved in STALE_S,
   is writing nothing more. Lines the model couldn't write cleanly are left out, never shown.
 
-Rollups (#2276): at the hour level the summary also has `days`, one per local day in the stretch with hour lines:
+Rollups: at the hour level the summary also has `days`, one per local day in the stretch with hour lines:
 
-    {"day": "2026-11-04", "start", "end", "text": str | None, "status": "ready" | "pending",
+    {"day": "<YYYY-MM-DD>", "start", "end", "text": str | None, "status": "ready" | "pending",
      "parts": [{"name": "Morning", "start", "end", "text": str | None, "status": "ready" | "pending"}]}
 
 - A part of the day (PARTS: Night, Morning, Afternoon, and Evening, by the local clock) is one short sentence on the
   gist of its hour lines (about PART_WORDS words), and the day's (about DAY_WORDS) on the gist of its parts'. Like the
-  lines, they leave the diarist unnamed (#2313): a reply that names them, or runs well past its length, is asked for
+  lines, they leave the diarist unnamed: a reply that names them, or runs well past its length, is asked for
   once more. Each is written only once none of its inputs is
   still pending, so an hour line on its way doesn't cost a rollup that's thrown away a moment later.
 - They're `review.summary` records like the lines, with level `part:<name>` or `day`, the hour entries as parents, and
@@ -38,13 +38,13 @@ Rollups (#2276): at the hour level the summary also has `days`, one per local da
 
 Never first person: the journal is written as "I", and plain_text checks every line.
 
-Lines are `review.summary` records on the memory log (#778): one per journal entry, over its window, with the entry
+Lines are `review.summary` records on the memory log: one per journal entry, over its window, with the entry
 as parent and the hash of the text it was written from, so purging the entry takes its line, and an entry reworded or
 renamed reads as new text and gets a new line. A line the model couldn't write cleanly is a record with status
 `rejected`, not asked for again; a model that was down is tried again after plain_text.RETRY_S, remembered in the
 process (`Lines`, plain_text's writer over these records).
 
-Written ahead (#444): precompute() writes the lines before anyone looks. It writes the last RECENT_S first, coarse levels before
+Written ahead: precompute() writes the lines before anyone looks. It writes the last RECENT_S first, coarse levels before
 fine (a day's hours before its 30 s steps) and newest first within a level, then older days a little at a time
 (BACKFILL_PER_PASS lines a pass, looking at most SWEEP_DAYS days a pass, back BACKFILL_DAYS,
 then round again from yesterday, so a day missed while the journal was off, or renamed since, is reached too). It stops for a voice turn and after BUDGET_S
@@ -78,11 +78,11 @@ BACKFILL_KEY = "backfill_before"
 STALE_S = 900  # a journal that wrote nothing in this long isn't running: stop waiting
 NOT_PEOPLE = re.compile(r"(speaker \d+|unknown.*|multiple speakers?)?$", re.I)  # as dashboard/presence.py
 HOUR = 3600
-# The parts of a day a rollup sums up (#2276), by the journal's local clock (history_qa.local_zone): (name, first
+# The parts of a day a rollup sums up, by the journal's local clock (history_qa.local_zone): (name, first
 # hour, end hour). The feed's own part
 # headings (SummaryBlocks.partOfDay) use the same hours.
 PARTS = (("Night", 0, 5), ("Morning", 5, 12), ("Afternoon", 12, 17), ("Evening", 17, 24))
-ROLLUP = "review-rollup-v3"  # in every rollup's source, so a new prompt (#2313, #2316) writes each sentence again
+ROLLUP = "review-rollup-v3"  # in every rollup's source, so a new prompt writes each sentence again
 PART_WORDS = 20
 DAY_WORDS = 25
 SLACK_WORDS = 2  # a reply this much past its limit is a list, not a gist: asked once more
@@ -190,7 +190,7 @@ def _evidence_tags(evidence: dict[str, Any]) -> list[str]:
 
 
 # Each entry's evidence source by (entry id, its text as rendered now): an entry never changes under its id, so only
-# a rename (new rendered text) builds it again. precompute asks for every recent entry each pass (#3177).
+# a rename (new rendered text) builds it again. precompute asks for every recent entry each pass.
 SOURCES_KEPT = 20_000
 _sources: collections.OrderedDict[tuple[str, str], str] = collections.OrderedDict()
 _sources_lock = threading.Lock()
@@ -338,7 +338,7 @@ def at(state: pathlib.Path) -> Lines:
 
 
 def without_owner(text: str) -> str:
-    """An hour line as a rollup reads it (#2321): the diarist's own name taken out ("with <owner>", "<owner> and",
+    """An hour line as a rollup reads it: the diarist's own name taken out ("with <owner>", "<owner> and",
     "and <owner>"), since a line can name them (a speaker label rendering as them, or one cached before the rule) and the model
     copies it into the rollup however it's told. Other names stay."""
     name = cfg.owner_name()
@@ -357,7 +357,7 @@ def without_owner(text: str) -> str:
 
 def _check_rollup(reply: str | None, words: int = DAY_WORDS) -> tuple[dict[str, Any] | None, str]:
     """A rollup keeps the lines' prose rules, at a day's sentence's length; it selects no sources. A gist of at most
-    about `words` words, not a list, and never the diarist's own name (#2313)."""
+    about `words` words, not a list, and never the diarist's own name."""
     line, why = plain_text.check(reply, max_chars=DAY_CHARS)
     if line is None:
         return None, why
@@ -371,7 +371,7 @@ def _check_rollup(reply: str | None, words: int = DAY_WORDS) -> tuple[dict[str, 
 
 
 class Rollups(Lines):
-    """The part-of-day and day sentences (#2276): written by the journal's model from the lines below them, and
+    """The part-of-day and day sentences: written by the journal's model from the lines below them, and
     kept on the memory log as `review.summary` records like the lines."""
 
     def __init__(self, state: pathlib.Path, rewrite: Any = None, **kw: Any) -> None:
@@ -514,7 +514,7 @@ def _entries(state: pathlib.Path, start: float, end: float, level: int | None) -
 def _still_writing(state: pathlib.Path, level: int, start: float, end: float, now: float) -> bool:
     """Whether the journal will still write a window of `level` over [start, end): the stretch reaches the recent
     edge the journal hasn't got to yet, or a window in it has neither an entry nor a quiet marker on the memory log
-    (the catalog is the journal's cursor, #777). Only while the journal runs: with it off, or nothing written or
+    (the catalog is the journal's cursor). Only while the journal runs: with it off, or nothing written or
     marked in the last STALE_S, nothing more is coming."""
     if not cfg.get("journal.enabled", True):
         return False
@@ -577,7 +577,7 @@ def summary(
         out["blocks"].append(
             {"start": r["ts_start"], "end": r["ts_end"], "text": line["text"], "tags": tags, "evidence": evidence}
         )
-    if level == HOUR:  # a day's view reads in parts of the day, under the day's own sentence (#2276)
+    if level == HOUR:  # a day's view reads in parts of the day, under the day's own sentence
         days = local_days(start, end, history_qa.local_zone())
         found = [day_rollup(d, state, view=view, lines=rw, rolls=rollups)[0] for d in days]
         out["days"] = [d for d in found if d is not None]
@@ -618,7 +618,7 @@ def precompute(
         """The sources over [start, end) with no line yet: coarse levels first, newest first in each."""
         srcs: list[str] = []
         by_level: dict[Any, list[dict[str, Any]]] = {}
-        for r in _entries(state, start, end, None):  # one read for every level (#3177)
+        for r in _entries(state, start, end, None):  # one read for every level
             by_level.setdefault(r.get("level"), []).append(r)
         for level in levels:
             for r in sorted(by_level.get(level, []), key=lambda r: r["ts_start"], reverse=True):
