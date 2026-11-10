@@ -9,6 +9,8 @@ revision `revision` names), how sure, and the source. Every source writes that s
   alike; a person's `track` is "<camera>:<pose track number>", an animal's "<camera>:<run>:<species>:<n>",
   `animal_track`). The placer (`advance`, run after each recording) puts them on the plan, names them, joins and
   fuses the cameras' tracks (`derive`, everything below), and writes the result.
+  A camera is read at the spot the owner gave it on its place's plan when it has one (spatial/spots.py: the plan's
+  own frame, no map needed, and the spot outranks a map's registration), else through its registration in the map.
 - **zone** (the coarse fallback): the placer writes each person or animal visit to a drawn area zone
   (`zone.visit`) as a room-only record over the visit's span, with no x and y.
 - **rig-pose** (once there is a rig pose): the rig's writer gives `place`, `x`, `y`, and the revision whose plan
@@ -100,7 +102,7 @@ from liberational import json_state, logs
 from liberational import segment_log as S
 from liberational.memory import places
 from liberational.people import face_nots, pets
-from liberational.spatial import cameras, floorplan, footprints, lens, poses
+from liberational.spatial import cameras, floorplan, footprints, lens, poses, spots
 
 LOG = logs.get("spatial-positions")
 
@@ -327,14 +329,19 @@ class _Places:
     """One read of the places for a whole call: each camera's place and current revision, the plan rooms in each
     revision's frame, the rooms points fell in, and the cameras' pose series and held intrinsics, all read once."""
 
-    def __init__(self, state: Path) -> None:
+    def __init__(self, state: Path, aims: Mapping[str, spots.Aim] | None = None) -> None:
         self.state = state
         self.cams = places.camera_places(state)
-        self.revs: dict[str, places.Revision | None] = {p: places.latest(state, p) for p in set(self.cams.values())}
+        # The cameras the owner gave a spot on a plan (spatial/spots.py): each is read at its spot, in the revision
+        # its plan is drawn in (`revisions` lays the spots over that revision), whatever a map registers
+        self.spots = spots.read(state, aims)  # `aims`: a dry run's, in place of the stored ones
+        self._all: dict[str, list[places.Revision]] = {}
+        self.revs: dict[str, places.Revision | None] = {
+            p: next(iter(self.revisions(p)), None) for p in set(self.cams.values())
+        }
         self._plans: dict[str, Plan] = {}
         self._rooms: dict[tuple[str, float, float], tuple[str, str] | None] = {}
         self._by_id: dict[tuple[str, str], places.Revision | None] = {}
-        self._all: dict[str, list[places.Revision]] = {}
         self._backgrounds: dict[tuple[str, str], places.Background | None] = {}
         self._poses: dict[tuple[str, str], places.CameraPose | None] = {}  # `camera`'s, by revision and camera
         self.edges: dict[tuple[str, str, float, float], bool] = {}  # `_at_edge`'s answers, by pixel to a thousandth
@@ -362,8 +369,15 @@ class _Places:
                 found = places.revisions(self.state, place)
             except ValueError:
                 found = []
+            found = [spots.overlay(r, self.spots) for r in found]
             self._all[place] = sorted(found, key=lambda r: r.at, reverse=True)
         return self._all[place]
+
+    def spot_revision(self, camera: str) -> places.Revision | None:
+        """The revision a camera with an owner spot is read through: the one its plan is drawn in, with the spots
+        laid over it. None for a camera with no spot."""
+        spot = self.spots.get(camera)
+        return self.revision(spot.place, spot.revision) if spot is not None else None
 
     def background(self, place: str, camera: str) -> places.Background | None:
         """What a camera sees with nobody in the way, by the place's current registration, with the cells it doesn't
@@ -404,7 +418,9 @@ class _Places:
 
     def _pose_at(self, rev: places.Revision, camera: str, t: float) -> tuple[float, ...] | None:
         """`camera`'s pose at `t` in `rev`'s map frame as 16 numbers, row by row, or None with no series that
-        gives one."""
+        gives one, or for a camera read at its owner's spot."""
+        if camera in self.spots:
+            return None  # the owner's spot is where it is, at every time
         found = self.series(rev).get(camera)
         m = found.at(t) if found is not None else None
         return None if m is None else tuple(float(x) for x in np.asarray(m, dtype=np.float64).reshape(16))
@@ -495,11 +511,12 @@ class _Places:
             room = sample.room or (found[1] if found else None)
             return Placed(sample.place, room, found[0] if found else None, sample.x, sample.y, sample.revision, same)
         place = self.cams.get(sample.camera)
-        rev = self.revs.get(place) if place is not None else None
+        spotted = self.spot_revision(sample.camera)  # an owner's spot outranks the current registration
+        rev = spotted or (self.revs.get(place) if place is not None else None)
         in_frame = True
         move = None  # from the current frame onto `frame`'s, for a camera `frame` doesn't register
         if frame is not None and frame.place == place:
-            if sample.camera in frame.cameras:
+            if sample.camera in frame.cameras and (spotted is None or spotted.id == frame.id):
                 rev = frame
             elif rev is not None and (move := self.carried(rev, frame)) is None:
                 in_frame = False  # that revision doesn't register this camera: placed in the current frame
@@ -1535,8 +1552,14 @@ def advance(state: Path, upto: float, chunk_s: float = CHUNK_S) -> dict[str, int
     its place is placed again."""
     counts = {"records": 0, "pieces": 0, "replaced": 0}
     held = {p.id: p for p in places.places(state)}
+    lacking = {c: s.missing for c, s in spots.read(state).items() if s.missing}
+    if lacking:
+        LOG.info(
+            "cameras with a spot on a plan that can't place anyone yet: %s",
+            "; ".join(f"{c} ({', '.join(m)})" for c, m in sorted(lacking.items())),
+        )
     if not places.camera_places(state):
-        LOG.info("no camera has a pose in any place's map: no footprint is placed until a map registers one")
+        LOG.info("no camera has a spot on a plan or a pose in a map: no footprint is placed until one does")
     first = _marks(state).get("placed_to") is None
     was: dict[str, Basis] = _marks(state).get("basis") or {}
     now = {place: _basis(state, p, upto) for place, p in held.items()}
@@ -1592,6 +1615,62 @@ def advance(state: Path, upto: float, chunk_s: float = CHUNK_S) -> dict[str, int
     while at < upto:
         at = piece(None, at, upto)
     return counts
+
+
+def dry_run(state: Path, cams: Sequence[str], now: float, hours: float) -> list[dict[str, Any]]:
+    """What a run would place, changing nothing: for each of `cams`, the footprints its pose tracks hold over the
+    last `hours` (read as `footprints.record` would record them), how many land on its place's floor, how many of
+    those in a room of the plan, the aim it was read through (fitted now when it has none stored, and not kept), and
+    what the camera lacks. One row per camera, in order."""
+    aims = spots.fit(state, now, save=False)
+    where = _Places(state, aims)
+    feet = footprints.collect(state, now - hours * 3600.0, now - footprints.FLUSH_S, list(cams))
+    out = []
+    for camera in cams:
+        rows = placed = roomed = 0
+        for f in feet:
+            if f.camera != camera:
+                continue
+            rows += 1
+            track = f"{camera}:{f.track}"
+            sample = Sample("", f.t, f.t, FIXED_CAMERA, f.confidence, None, track, camera, f.u, f.v, *[None] * 5)
+            found = where.place(sample)
+            placed += found.x is not None
+            roomed += found.room is not None
+        spot = where.spots.get(camera)
+        out.append(
+            {
+                "camera": camera,
+                "place": where.cams.get(camera),
+                "by": "spot" if spot is not None else ("map" if camera in where.cams else None),
+                "footprints": rows,
+                "placed": placed,
+                "in_a_room": roomed,
+                "missing": list(spot.missing) if spot is not None else [],
+                "aim": spot.aim if spot is not None else None,
+            }
+        )
+    return out
+
+
+def placing(state: Path, place: str) -> list[dict[str, Any]]:
+    """The cameras that sit in `place`, by name, and whether each can place the people it sees: `by` is "spot" for a
+    camera read at the owner's spot on the plan and "map" for one posed in the place's map, and `missing` is what a
+    spot lacks for a pose (spatial/spots.py's `Spot.missing`; empty when it places). For a reader to say what's
+    missing per camera instead of showing nobody."""
+    found = spots.read(state)
+    out = []
+    for camera, at in sorted(places.camera_places(state).items()):
+        if at == place:
+            spot = found.get(camera)
+            out.append(
+                {
+                    "camera": camera,
+                    "by": "spot" if spot is not None else "map",
+                    "missing": list(spot.missing) if spot is not None else [],
+                }
+            )
+    return out
 
 
 def reset(state: Path) -> int:

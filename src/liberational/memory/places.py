@@ -54,7 +54,8 @@ live with the video and follow the 30-day video window.
 This module is the schema and the read and write helpers. A writer is a job that builds a place's map and registers
 each camera in it: its pose in the map's frame, with the map's floor plane and the plan's frame, so `camera_to_plan`
 can put a pixel of that camera on the plan. No such job runs at present: spatial memory is being built again from
-what the cameras see, and until it writes a revision no camera has a pose and nothing can be placed.
+what the cameras see. Until it writes a revision, a camera has a pose only from the spot the owner gave it on the
+place's plan (`spot_places`, spatial/spots.py), which needs no map.
 
 **Places in the journal**: `places_for_span` is the one call the journal's pages make for a
 span: the places visited in it and the places a registered fixed camera only observed, each with the rooms seen
@@ -423,14 +424,30 @@ def camera_places(state: Path) -> dict[str, str]:
     that registered it most recently (`CameraPose.at`; on a tie, such as two registrations from before `at` was
     recorded, the more recently revised place). A later revision of a place that only carries a camera over
     doesn't take it back from where it was registered since (a camera that moved). A camera that leaves every
-    group (moved out of sight, or no frame) stays registered where it was last seen."""
+    group (moved out of sight, or no frame) stays registered where it was last seen. A camera with a spot on an
+    owner's plan sits in that plan's place, whatever any map registers (`spot_places`)."""
     newest: dict[str, tuple[float, float, str]] = {}
     for place in place_ids(state):
         rev = latest(state, place)
         for cam, pose in (rev.cameras if rev is not None else {}).items():
             if rev is not None and (cam not in newest or (pose.at, rev.at) > newest[cam][:2]):
                 newest[cam] = (pose.at, rev.at, place)
-    return {cam: place for cam, (_, _, place) in newest.items()}
+    return {**{cam: place for cam, (_, _, place) in newest.items()}, **spot_places(state)}
+
+
+_SPOT = re.compile(r"^x-camera[ \t]+(\S+)", re.MULTILINE)
+
+
+def spot_places(state: Path) -> dict[str, str]:
+    """Each camera the owner gave a spot on a place's plan (`x-camera <camera> ...` in an owner plan that holds),
+    with that place. The owner said where the camera is, so it outranks a registration in any map
+    (spatial/spots.py makes the camera's pose from the spot). A camera on two places' plans sits in the later place
+    of `places`."""
+    out: dict[str, str] = {}
+    for held in places(state):
+        if held.plan_source == "owner" and held.plan:
+            out.update(dict.fromkeys(_SPOT.findall(held.plan), held.id))
+    return out
 
 
 MAX_FLOOR_M = 15.0  # a floor hit farther from its camera than this is a pixel near the horizon, not a place in the room

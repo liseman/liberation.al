@@ -366,8 +366,10 @@ it("says when a place was last in use: the owner's visit, or anyone its cameras 
   expect(at(null, null)).toBe('Nothing seen yet');
 });
 
-it('says nobody can be placed while no camera has a spot on the map, and only then', async () => {
-  const empty = (cameras: number) => (q: URLSearchParams) => ({
+type Note = { camera: string; by: 'spot' | 'map'; missing: string[] };
+const empty =
+  (cameras: number, camera_notes: Note[] = []) =>
+  (q: URLSearchParams) => ({
     place: q.get('place') ?? '',
     start: Number(q.get('start')),
     end: Number(q.get('end')),
@@ -375,13 +377,44 @@ it('says nobody can be placed while no camera has a spot on the map, and only th
     tracks: [],
     rooms: [],
     cameras,
+    camera_notes,
   });
+
+it('says nobody can be placed while no camera has a spot or a pose, and only then', async () => {
   serve([HOME], empty(0));
   const first = renderPage(<PlacesTab />);
-  expect(await screen.findByText(/No camera has a spot on this place's map yet/)).toBeTruthy();
+  expect(await screen.findByText(/No camera has a spot on this place's plan or a pose in its map yet/)).toBeTruthy();
   first.unmount();
   serve([HOME], empty(2));
   renderPage(<PlacesTab />);
   expect(await screen.findByText('Nobody was placed here in this window.')).toBeTruthy();
   expect(screen.queryByText(/No camera has a spot/)).toBeNull();
+});
+
+it('says what each camera with a spot is missing, and not that no camera has a spot', async () => {
+  serve(
+    [HOME],
+    empty(1, [
+      { camera: 'hall', by: 'spot', missing: [] },
+      { camera: 'porch', by: 'spot', missing: ['facing'] },
+      { camera: 'attic', by: 'spot', missing: ['height', 'tilt'] },
+    ]),
+  );
+  renderPage(<PlacesTab />);
+  expect(await screen.findByText(/porch can't place anyone yet: its spot on the plan has no facing/)).toBeTruthy();
+  expect(
+    screen.getByText(/attic can't place anyone yet: its spot on the plan has no height; it hasn't seen/),
+  ).toBeTruthy();
+  expect(screen.queryByText(/hall can't place/)).toBeNull();
+  expect(screen.queryByText(/No camera has a spot/)).toBeNull();
+  expect(screen.getByText('Nobody was placed here in this window.')).toBeTruthy();
+});
+
+it('says every camera is missing something when none can place anyone', async () => {
+  serve([HOME], empty(0, [{ camera: 'porch', by: 'spot', missing: ['facing'] }]));
+  renderPage(<PlacesTab />);
+  expect(
+    await screen.findByText(/Nobody can be placed here yet: each camera on this plan is missing something/),
+  ).toBeTruthy();
+  expect(screen.getByText(/porch can't place anyone yet/)).toBeTruthy();
 });
