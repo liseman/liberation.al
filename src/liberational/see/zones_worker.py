@@ -1,15 +1,20 @@
-"""`pack-see-zones`: zone visits and coverage, and times someone was in view, from see-actions' tracked people.
+"""`pack-see-zones`: zone visits and coverage, and times someone was in view, from see-actions' tracked people
+and animals.
 
-It follows see-actions' analyzed frames (see/tracked_frames.py: `pose.track` and `action.coverage` in the segment
-store) and feeds each camera's frames through see/zones.py's pipeline, which writes `zone.visit` and `zone.coverage`
-rows to the segment store. A frame inside see-actions' coverage with nobody tracked still counts as looked at, so a
-zone nobody visited reads as none, not unknown. The zones are the owner's saved sets (`zone.defined`, in the
-knowledge store), read again every ZONES_S; a changed set ends that camera's open visits, as saving one always has.
-No model runs here: a visit is a track's foot anchor (its box's bottom centre) inside a polygon. The same frames give
-each camera's `presence.span` rows (memory/presence_episodes.py): times someone was in view, which presence answers
-read with see-actions' coverage.
+It follows see-actions' analyzed frames (see/tracked_frames.py: `pose.track` with `action.coverage`, and
+`animal.detection` with `animal.coverage`, one read of both) and feeds each camera's frames through see/zones.py's
+pipeline, which writes `zone.visit` and `zone.coverage` rows to the segment store. A frame inside a kind's coverage
+with nobody of that kind tracked still counts as looked at, so a zone nobody visited reads as none, not unknown.
+The zones are the owner's saved sets (`zone.defined`, in the knowledge store), read again every ZONES_S; a changed
+set ends that camera's open visits, as saving one always has. No model runs here: a visit is a track's foot anchor
+(its box's bottom centre) inside a polygon. People's frames also give each camera's `presence.span` rows
+(memory/presence_episodes.py): times someone was in view, which presence answers read with see-actions' coverage.
+An animal in view is not someone present.
 
-Visits are people's: see-actions' tracks are people, so animal zone counts are unknown.
+A person's visit is labeled "person". An animal's is labeled with the species on its detection, and keeps that
+detection's track id. A pet's name is not on the track: a later reader matches the track id to a `pet.sighting`
+or to recognition (people/pet_recognition.py), the way a person's name is read from the faces on their track
+(memory/zone_people.py). This pass does not do that match.
 
 The checkpoint is a small local file, `paths.state/see-zones.json`, replaced atomically every CHECKPOINT_S: the input
 cursor, each output writer's next `row_seq`, and every camera's open visits and episode. Outputs are synced before the
@@ -34,7 +39,7 @@ from liberational.memory import presence_episodes
 from liberational.see import tracked_frames, zones
 
 LOG = logs.get("see-zones")
-VERSION = 4  # 3: from see-actions' tracked frames, with a local checkpoint; 4: presence episodes too
+VERSION = 5  # 4: presence episodes; 5: animal tracks in the same read as people. An older file starts from now.
 CHECKPOINT_S = 5.0
 ZONES_S = 5.0
 POLL_S = 1.0
@@ -162,7 +167,10 @@ class ZoneWorker:
     def feed(self, frames: Sequence[tracked_frames.Frame]) -> None:
         for f in frames:
             record = {"id": f.frame_id or "", "ts_start": f.ts, "boxes": f.boxes, "track_ids": f.track_ids, "ok": True}
-            self._write(self._pipeline(f.cam).frame("person", record, ["person"] * len(f.boxes)))
+            labels = f.labels if len(f.labels) == len(f.boxes) else [f.kind] * len(f.boxes)
+            self._write(self._pipeline(f.cam).frame(f.kind, record, labels))
+            if f.kind != "person":
+                continue
             ended = self._episodes(f.cam).frame(f.ts, f.track_ids)
             if ended:
                 rows = [{**ep, "id": segment_log.new_id()} for ep in ended]
@@ -198,7 +206,7 @@ class ZoneWorker:
 
 
 def main(argv: Sequence[str] | None = None) -> None:
-    """`pack-see-zones`: zone visits and coverage from see-actions' tracked people and the owner's zones."""
+    """`pack-see-zones`: zone visits and coverage from see-actions' tracked people and animals, and the owner's zones."""
     import argparse
 
     parser = argparse.ArgumentParser(prog="pack-see-zones", description=main.__doc__)
