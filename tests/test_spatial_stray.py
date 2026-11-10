@@ -124,3 +124,57 @@ def test_a_frame_scaled_down_scales_its_intrinsics():
     assert size == (1024, 768)
     s = 1024 / 1920
     assert got == pytest.approx(np.array([[1400 * s, 0, 960 * s], [0, 1400 * s, 720 * s], [0, 0, 1]]))
+
+
+# A phone drops a camera frame now and then, so the frames come one or two 60 Hz ticks apart. These are the ticks
+# between ten recorded frames; the video's frame times and the odometry's timestamps both follow them.
+TICKS = [1, 2, 1, 1, 2, 2, 1, 2, 1]
+
+
+def recording(ticks: list[int], start: float = 38_600.0) -> dict[int, stray.Frame]:
+    seconds = start + np.concatenate([[0.0], np.cumsum(ticks)]) / 60.0
+    return {n: stray.Frame(float(t), np.eye(4), np.eye(3), n) for n, t in enumerate(seconds)}
+
+
+def decoded(ticks: list[int], skipped: int) -> list[tuple[int, float]]:
+    """(index, seconds) of the video's frames as a decoder gives them when it skips the first `skipped`: numbered
+    from 0 again, and timed from 0."""
+    seconds = np.concatenate([[0.0], np.cumsum(ticks)])[skipped:] / 60.0
+    return [(i, float(t - seconds[0])) for i, t in enumerate(seconds)]
+
+
+@pytest.mark.parametrize("skipped", [0, 1, 2])
+def test_a_decoded_frame_goes_with_the_row_its_timing_matches(skipped):
+    rows = recording(TICKS)
+    assert stray.video_shift(rows, decoded(TICKS, skipped)) == skipped
+    paired = stray.by_video_frame(rows, decoded(TICKS, skipped))
+    assert [paired[i].frame for i in sorted(paired)] == list(range(skipped, 10)), "frame i is recorded frame i + skip"
+
+
+def test_frames_timed_a_few_apart_still_find_their_rows():
+    # The walk scores a few frames a second, not all of them: every third frame's time is enough.
+    ticks = [int(n) for n in np.random.default_rng(7).integers(1, 3, 90)]
+    assert stray.video_shift(recording(ticks), decoded(ticks, 1)[::3]) == 1
+
+
+def test_a_gap_the_encoder_shortened_doesnt_hide_the_offset():
+    # An encoder can write one long gap a tick short. The frames after it are late against the rows, but each gap
+    # between them still matches.
+    ticks = TICKS * 3
+    video = [(i, t - (1 / 60 if i > 9 else 0.0)) for i, t in decoded(ticks, 1)]
+    assert stray.video_shift(recording(ticks), video) == 1
+
+
+@pytest.mark.parametrize(
+    "times",
+    [
+        pytest.param([(i, i / 30) for i in range(9)], id="a-steady-rate-fits-every-offset"),
+        pytest.param([(i, 0.0) for i in range(9)], id="no-frame-times"),
+        pytest.param([(0, 0.0)], id="one-frame"),
+        pytest.param([], id="none"),
+    ],
+)
+def test_frames_whose_timing_says_nothing_are_paired_by_number(times):
+    rows = {n: stray.Frame(100.0 + n / 30, np.eye(4), np.eye(3), n) for n in range(10)}
+    assert stray.video_shift(rows, times) == 0
+    assert stray.by_video_frame(rows, times) == rows
