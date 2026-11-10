@@ -2,7 +2,7 @@
 // while it knows none, and one place's plan, drawn by the vendored floorplan library (src/vendor/floorplan), with where people and pets
 // went on it over time (paths/). A link can open a place at a moment: /places?place=<id>&t=<epoch>. Places is
 // places and plans only: what happened where belongs to the journal.
-import { Badge, NavLink, Paper, SegmentedControl, Text, useComputedColorScheme } from '@mantine/core';
+import { Badge, Button, NavLink, Paper, SegmentedControl, Text, useComputedColorScheme } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
 import { lazy, Suspense, useMemo, useState } from 'react';
 import type { FloorplanResult, RenderOptions } from '../../vendor/floorplan/index.js';
@@ -130,9 +130,13 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
   // any places still waiting for their first.
   const real = server.data?.places ?? [];
   const showingExamples = !real.some(p => p.plan);
+  // The new plan editor is a preview on an example until places' own plans open in it: with real plans listed, a
+  // button under the list lists the example it opens on too.
+  const [preview, setPreview] = useState(false);
+  const previewOn = examples.find(p => p.scene);
   const places = useMemo(
-    () => [...real.map(fromServer), ...(showingExamples ? examples : [])],
-    [real, examples, showingExamples],
+    () => [...real.map(fromServer), ...(showingExamples ? examples : preview && previewOn ? [previewOn] : [])],
+    [real, examples, showingExamples, preview, previewOn],
   );
   // A link opens a place at a moment; reading the address on each navigation follows a link while the tab is open.
   const route = useRoute(s => s);
@@ -219,6 +223,21 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
                   })}
                 </ul>
               </nav>
+              {!showingExamples && previewOn && (
+                <Button
+                  variant="subtle"
+                  size="xs"
+                  mt="xs"
+                  onClick={() => {
+                    setEditing(null);
+                    setPreview(!preview);
+                    setPicked(preview ? undefined : previewOn.id);
+                    setSceneView(preview ? 'plan' : '2d');
+                  }}
+                >
+                  {preview ? 'Hide the example' : 'Try the new plan editor on an example'}
+                </Button>
+              )}
               <LearningPanel status={learning} />
             </div>
             {place && (
@@ -267,8 +286,8 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
                   <>
                     <Text size="sm" c="dimmed" mb="xs">
                       {sceneView === '2d'
-                        ? 'The new plan editor, on the example flat. Nothing drawn here is saved yet.'
-                        : 'The example flat in 3D, from the same plan.'}
+                        ? "A preview of the new plan editor, on a made-up flat. It doesn't touch your own plans, and nothing drawn here is saved."
+                        : "A preview of the new 3D view, on the same made-up flat. It doesn't touch your own plans."}
                     </Text>
                     <PlanFrame key={`${place.id}-${sceneView}`} scene={place.scene} view={sceneView} scheme={scheme} />
                   </>

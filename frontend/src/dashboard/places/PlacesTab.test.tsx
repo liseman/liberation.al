@@ -364,12 +364,37 @@ it('opens the example flat in the new plan editor and in its 3D view, each in a 
   expect(container.querySelector('iframe')).toBeNull(); // nothing of the editor loads until it is asked for
   fireEvent.click(screen.getByRole('radio', { name: 'Editor' }));
   expect(screen.getByTitle('Plan editor').getAttribute('src')).toContain('plan-editor/index.html#view=2d');
-  expect(screen.getByText(/Nothing drawn here is saved yet/)).toBeTruthy();
+  expect(screen.getByText(/nothing drawn here is saved/)).toBeTruthy();
   fireEvent.click(screen.getByRole('radio', { name: '3D' }));
   expect(screen.getByTitle('The plan in 3D').getAttribute('src')).toContain('plan-editor/index.html#view=3d');
   fireEvent.click(screen.getByRole('radio', { name: 'Plan' }));
   expect(container.querySelector('iframe')).toBeNull();
   expect(drawing()).toBeTruthy();
+});
+
+it('offers the new plan editor on an example beside real plans, as a preview that can be hidden again', async () => {
+  serve([HOME]);
+  const { container } = renderPage(<PlacesTab />);
+  await screen.findByRole('button', { name: 'Edit plan' });
+  expect(rows()).toHaveLength(1); // the real place alone: no example is listed until it is asked for
+  fireEvent.click(screen.getByRole('button', { name: 'Try the new plan editor on an example' }));
+  expect(rows().map(r => r.textContent)).toEqual([
+    expect.stringContaining('Home'),
+    expect.stringContaining('Example flat'),
+  ]);
+  expect(screen.getByTitle('Plan editor').getAttribute('src')).toContain('plan-editor/index.html#view=2d');
+  expect(screen.getByText(/doesn't touch your own plans, and nothing drawn here is saved/)).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Hide the example' }));
+  expect(rows()).toHaveLength(1);
+  expect(container.querySelector('iframe')).toBeNull();
+  expect(await screen.findByRole('button', { name: 'Edit plan' })).toBeTruthy(); // back on the real place's plan
+});
+
+it('offers no preview button while the examples are already listed', async () => {
+  serve([]);
+  renderPage(<PlacesTab />);
+  await screen.findAllByRole('img', { name: /^Floor plan/ });
+  expect(screen.queryByRole('button', { name: /Try the new plan editor/ })).toBeNull();
 });
 
 it("says when a place was last in use: the owner's visit, or anyone its cameras saw since", () => {
