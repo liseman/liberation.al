@@ -434,8 +434,8 @@ def facts_pass(
 
 def about(name: str, state: pathlib.Path | None = None) -> list[dict[str, Any]]:
     """The current facts about the person called name (or last called it), most supported first, each folded from
-    its records (`held`), with v1's `payload`, `start`, `end`, and `sources` beside its own keys for the readers
-    written against the store. [] for nobody."""
+    its records (`held`), with `payload`, `start`, `end`, and `sources` beside its own keys, which its readers
+    use. [] for nobody."""
     state = pathlib.Path(state or cfg.path("paths.state"))
     if not registry.log_exists(state):  # nobody is known yet, and opening the registry would make the log
         return []

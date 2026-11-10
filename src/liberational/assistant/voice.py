@@ -632,7 +632,7 @@ def _append(line: Mapping[str, Any]) -> None:
 def run_continuum() -> None:
     """The voice service on Continuum: utterances from the speech log as they're written, replies written
     back, and the voice turn set as system state. Lines from before it starts aren't answered (it follows
-    from now, as v1's floor did)."""
+    from now)."""
     global CONTINUUM
     from liberational import speech_log
 
@@ -643,7 +643,7 @@ def run_continuum() -> None:
     log("listening on the speech log")
     for entry in CONTINUUM.follow(idle_s=0.5):
         if entry is None:
-            # Between lines: any clone speech the dashboard asked for, on this thread (as v1's pause did).
+            # Between lines: any clone speech the dashboard asked for, on this thread.
             clone_server.run_pending(0)
             continue
         try:

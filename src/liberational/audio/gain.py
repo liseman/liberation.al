@@ -9,11 +9,11 @@ On Continuum the listen worker runs it (listen/worker.py): a MicGain per microph
 utterance the VAD hands over and moves the stage between them. Which mics, from [audio.mic_auto_gain] in pack.toml
 as it is now (followed within about a second, no restart):
 - An entry is keyed by the mic's device name, the one Settings shows and writes (on Linux its exact PipeWire node
-  name, as v1 keyed it), or by its name in config/devices.toml ("wave3"). The device name wins when both are set.
+  name), or by its name in config/devices.toml ("wave3"). The device name wins when both are set.
   The listen worker finds a mic's device name the way continuum-capture finds the device (device_name: the
   manifest entry's `match` against PipeWire's sources, or on macOS its `name` against the input devices).
-- A mic with no entry has auto gain when it has a hardware control (capture sets the gain, as v1
-  did with it turned on); software gain is off until turned on. `false` turns it off.
+- A mic with no entry has auto gain when it has a hardware control (capture sets the gain); software gain is off until
+  turned on. `false` turns it off.
 
 AutoGain decides, from the utterances the VAD hands over:
 - It measures each utterance's speech peak: the 95th percentile of its 20 ms RMS, in dBFS. A sample peak would
@@ -439,7 +439,7 @@ FIND_AGAIN_S = 30.0  # how often a hardware control is looked for again: after o
 
 
 class MicGain:
-    """One microphone's auto gain as the listen worker runs it, the way v1's ambient ran it for each device: the
+    """One microphone's auto gain as the listen worker runs it: the
     stage is found the first time it ticks (PipeWire's node for the mic, then its mixer), [audio.mic_auto_gain] is
     followed live, the gain is read back every REREAD_S (a control rounds to its steps, and someone may move it by
     hand), and moved when AutoGain says so, each move logged in one line. A setting or mixer that can't be read

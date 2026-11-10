@@ -1,11 +1,11 @@
 """Voices on Continuum: which voiceprint said each utterance, and the dashboard's voice tags.
 
-v1 kept a voice list (`voices.sqlite3`: a running centroid per voice id) and matched each line against it. Here every
+There is no list of voices with a centroid each. Every
 utterance's ReDimNet2 B3 embedding is its own row on `voice.embedding` in the segment store, and the vector worker
  follows and indexes them; a line is matched to the nearest stored embeddings through
 `continuum_py.search.Searcher`.
 
-- **Numbers.** A voiceprint keeps v1's form, an integer (`registry.voiceprint(n)`, "Speaker n" until it names
+- **Numbers.** A voiceprint is an integer (`registry.voiceprint(n)`, "Speaker n" until it names
   someone), since the registry, voice auth (`voice:<n>`), and the dashboard all key voices that way. `Voiceprints`
   hands out the next number, kept in `state/voiceprints.json` and always above every number the registry knows.
 - **Matching.** Unnamed clusters use the nearest embedding at cosine 0.45 (0.55 under one second). Named people
@@ -28,7 +28,7 @@ utterance's ReDimNet2 B3 embedding is its own row on `voice.embedding` in the se
   else) keeps its embedding as that person's negative (`deny`, `voice.not` in the knowledge store), released by the
   undo: their threshold rises to clear it and a line must beat it by PERSON_MARGIN, as faces' "not <person>".
 - **Recent embeddings.** Only unnamed clusters use recent observations. The vector worker files an embedding a moment after it's committed, so a new speaker's
-  second line could miss their first and open a second voiceprint (v1 merged such fragments later). The matcher
+  second line could miss their first and open a second voiceprint. The matcher
   keeps the last two minutes of its own embeddings and matches against them too.
 - **Filing.** An embedding is filed only for a clip of a second or more, as a row in the writer's slot (listen's
   `listen`, an ingested item's `ingest-<id>`, the dashboard's enroll `enroll`) over its utterance's exact span, with
@@ -41,11 +41,11 @@ utterance's ReDimNet2 B3 embedding is its own row on `voice.embedding` in the se
   one.
 - **Owner answers teach**. Naming a voice confirms a few of its lines (`teaching_lines`, `teach`) and a
   line labeled as a person confirms that line, both as confirmed references (`confirm_lines`).
-- **Voice tags.** "This line was Alice" from the dashboard (`state/voice_tags.jsonl`, as v1's microphone service
-  read it) labels the line in the event log and teaches the voice: the line's embedding is filed again under
-  Alice's voiceprint, or opens one for her. A batch syncs its segment rows before one owner-knowledge transaction.
-  For a new person these prepared rows carry only the voiceprint and utterance; the committed registry claims
-  and references supply the person. A failed knowledge transaction never grants those rows a named identity. A forget request (People: Delete) needs nothing more here than
+- **Voice tags.** "This line was Alice" from the dashboard (`state/voice_tags.jsonl`) labels the line in the event log
+  and teaches the voice: the line's embedding is filed again under Alice's voiceprint, or opens one for her. A batch
+  syncs its segment rows before one owner-knowledge transaction. For a new person these prepared rows carry only the
+  voiceprint and utterance; the committed registry claims and references supply the person. A failed knowledge
+  transaction never grants those rows a named identity. A forget request (People: Delete) needs nothing more here than
   dropping the recent embeddings, since the dashboard purges the person's subjects itself.
 """
 
@@ -91,7 +91,7 @@ K = 20
 SEARCH_TIMEOUT_S = 0.5
 RECENT_S = 120.0
 NS = 1_000_000_000
-# The source of a voice tag's assertions, as v1's microphone service wrote them (people/transcript_view.VOICE_TAG).
+# The source of a voice tag's assertions (people/transcript_view.VOICE_TAG).
 VOICE_TAG = "ambient"
 
 
@@ -999,7 +999,7 @@ class VoiceMatcher:
 
     def _number(self, entity: object, people: People | None = None, clones: frozenset[int] | None = None) -> int | None:
         """The voiceprint a hit is filed under, or None for none or a voice clone's: a clone's recording is never a
-        person in the room (v1 never matched room speech to one)."""
+        person in the room, so room speech is never matched to one."""
         if not isinstance(entity, str):
             return None
         n = self.prints.number(entity)
