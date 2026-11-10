@@ -601,6 +601,11 @@ def test_the_scene_says_whether_its_splat_was_trained_from_a_walk_or_the_fixed_c
     reply = view.scene(tmp_path, place)[1]
     assert (reply["splat_revision"], reply["splat_from"]) == (daily.id, "cameras")
     assert "walk-0m00s" in reply["cameras"]  # the walk's views are still there to look from
+    # #43: a walk's splat retrained onto a later revision, which only inherits the walk's cameras, says so itself.
+    again = places.revise(tmp_path, place, producer="tier1 fuse v1", frame=first.frame, now=T + 30)
+    places.write_splat(tmp_path, again, master=b"ply", web=b"spz-bytes", source="walk")
+    reply = view.scene(tmp_path, place)[1]
+    assert (reply["splat_revision"], reply["splat_from"]) == (again.id, "walk")
 
 
 def test_the_scene_carries_the_owners_plan_only_in_the_frame_it_was_drawn_in(tmp_path, mapped):
