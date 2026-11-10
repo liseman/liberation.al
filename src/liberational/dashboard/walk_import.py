@@ -1,19 +1,21 @@
-"""Known › Places' walk import (#176): a walkthrough dropped on a place's panel is uploaded, checked, and imported
-into that place in the background, as `pack-walkthrough <folder> --place <id>` does by hand.
+"""Known › Places' walk import (#176, #192): a walkthrough dropped on the Places page is uploaded, checked, and
+imported in the background, as `pack-walkthrough <folder> --match` does by hand: into the place it registers in
+(spatial/walkthrough.py `match_place` says how that's decided), or as a new place when it registers in none.
 
     GET  /places/walk                    {job, max_mb, video}: the newest import (null with none), the largest upload
                                          taken (ingest.max_mb), and whether this machine takes a plain video
-    POST /places/walk/upload?place=&name=
+    POST /places/walk/upload?name=
                                          the file itself as the body: the zip Stray Scanner exports, or a plain video
                                          (.mp4, .mov, .m4v; CUT3R's path, so not on macOS). Streamed to disk, checked,
                                          then imported in the background. {job} (202)
     POST /places/walk/retry              run a failed import again from the files it kept. {job} (202)
     POST /places/walk/dismiss            forget a finished import and remove what it kept. {job: null}
 
-A job is {id, place, name, kind ("stray" or "video"), status, detail, error, result, retry, started, finished}.
+A job is {id, name, kind ("stray" or "video"), status, detail, error, result, retry, started, finished}.
 `status` goes uploading, extracting, importing, then done or failed; `detail` is the importer's newest log line;
-`result` is what pack-walkthrough printed ({place, revision, registered, meant_for, ...}: `meant_for` is there when
-the walk didn't register and was stored as a place of its own); `retry` says a failed import kept its files.
+`result` is what pack-walkthrough printed, of which the page reads `final_place` (the place the walk ended up in),
+`new_place` ("True" when that place didn't exist before), and `registered` (how it matched: "map", "plan", or
+"cameras"); `retry` says a failed import kept its files.
 
 One import at a time: an upload while another is uploading, extracting, or importing is refused (409) before its body
 is read. The writes are teaching writes (`_can_teach`), same-origin, with a body type no cross-site page can send
@@ -35,6 +37,9 @@ is kept:
 - a failed import keeps it, so Try again needs no second upload, until the import is dismissed or the next upload
   starts, which removes it;
 - an import cut off by a dashboard restart reads as failed and keeps its files the same way.
+
+All of that is the copy on this machine. The file the walk was uploaded from is never touched: the browser sends
+its bytes, and nothing here takes a local path, moves a file, or reaches back to where it came from.
 
 The import itself is `pack-walkthrough`'s `main` in a child process, niced (its model runs nice themselves further),
 so the dashboard holds none of its memory and a crash there is a failed job, not a dead dashboard.
@@ -61,7 +66,6 @@ from typing import TYPE_CHECKING, Any
 from liberational import config as cfg
 from liberational import logs
 from liberational.dashboard import routes
-from liberational.memory import places
 
 if TYPE_CHECKING:
     from liberational.dashboard.server import H
@@ -97,7 +101,6 @@ class Refused(ValueError):
 @dataclass
 class Job:
     id: str
-    place: str
     name: str
     kind: str  # "stray" or "video"
     status: str = "uploading"
@@ -225,18 +228,18 @@ def extract(path: Path, export: Export, into: Path) -> Path:
     return folder
 
 
-def command(source: Path, place: str) -> list[str]:
-    """pack-walkthrough on `source` into `place`, niced, in this interpreter."""
+def command(source: Path) -> list[str]:
+    """pack-walkthrough on `source`, into the place it matches or a new one, niced, in this interpreter."""
     run = [sys.executable, "-c", "from liberational.spatial.walkthrough import main; main()", str(source)]
     nice = shutil.which("nice")
-    return [*([nice, "-n", str(NICE)] if nice else []), *run, "--place", place]
+    return [*([nice, "-n", str(NICE)] if nice else []), *run, "--match"]
 
 
-def run_import(source: Path, place: str, progress: Callable[[str], None]) -> dict[str, str]:
+def run_import(source: Path, progress: Callable[[str], None]) -> dict[str, str]:
     """Run the import as a child process and return what it printed (`key: value` lines); its log lines go to
     `progress` as they come. `RuntimeError` with its own message when it fails."""
     with subprocess.Popen(
-        command(source, place),
+        command(source),
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         stdin=subprocess.DEVNULL,
@@ -263,7 +266,7 @@ def run_import(source: Path, place: str, progress: Callable[[str], None]) -> dic
             killer.cancel()
     if code != 0:
         raise RuntimeError(last.removeprefix("pack-walkthrough: ") or f"the import stopped (exit {code})")
-    if not result.get("place"):
+    if not result.get("final_place"):
         raise RuntimeError("the import finished without saying which place it wrote")
     return result
 
@@ -316,12 +319,12 @@ class Importer:
             if child.is_dir() and child.name != keep:
                 shutil.rmtree(child, ignore_errors=True)
 
-    def begin(self, place: str, name: str, kind: str) -> Job | None:
+    def begin(self, name: str, kind: str) -> Job | None:
         """Take the one slot for a new upload (clearing the last job's files), or None while another is active."""
         with self.lock:
             if self.job is not None and self.job.status in ACTIVE:
                 return None
-            job = Job(uuid.uuid4().hex, place, name, kind)
+            job = Job(uuid.uuid4().hex, name, kind)
             self.job = job
             self._clear_files()
             (self.root / job.id).mkdir(parents=True, exist_ok=True)
@@ -346,14 +349,20 @@ class Importer:
         try:
             source = ready(job)
             self._set(job, status="importing", detail="Starting the import", source=str(source.relative_to(folder)))
-            LOG.info("importing the walk %s into %s", job.name, job.place)
-            result = run_import(source, job.place, lambda line: self._set(job, detail=line[:300]))
+            LOG.info("importing the walk %s", job.name)
+            result = run_import(source, lambda line: self._set(job, detail=line[:300]))
         except Exception as e:  # the job says what went wrong, whatever it was
             LOG.warning("walk import of %s failed: %s", job.name, e)
             self._set(job, status="failed", error=str(e) or type(e).__name__, finished=time.time())
             return
         shutil.rmtree(folder, ignore_errors=True)  # the place has what it needs
-        LOG.info("walk %s imported: place %s revision %s", job.name, result.get("place"), result.get("revision"))
+        LOG.info(
+            "walk %s imported: %s place %s, revision %s",
+            job.name,
+            "new" if result.get("new_place") == "True" else "into",
+            result.get("final_place"),
+            result.get("revision"),
+        )
         self._set(job, status="done", detail="", result=result, finished=time.time())
 
     def unpack(self, upload: Path, export: Export) -> Callable[[Job], Path]:
@@ -440,7 +449,7 @@ def _body(handler: H, length: int) -> Iterable[bytes]:
         yield block
 
 
-def upload(handler: H, state: Path, place: str, name: str) -> Reply:
+def upload(handler: H, state: Path, name: str) -> Reply:
     """POST /places/walk/upload: every refusal that needs no body comes first, with the body left unread; then the
     body is streamed to the job's folder, a zip is checked, and the import starts."""
     name = Path(name).name or "walk"
@@ -452,9 +461,7 @@ def upload(handler: H, state: Path, place: str, name: str) -> Reply:
     except ValueError:
         length = -1
     refusal: Reply | None = None
-    if places.get(state, place) is None:
-        refusal = 404, {"error": "no such place"}
-    elif kind is None:
+    if kind is None:
         refusal = 415, {"error": "Drop the zip Stray Scanner exports, or a video of the walk (.mp4, .mov, or .m4v)."}
     elif kind == "video" and not takes_video():
         refusal = 415, {"error": "A plain video can't be imported on a Mac. Drop a Stray Scanner export's zip."}
@@ -468,7 +475,7 @@ def upload(handler: H, state: Path, place: str, name: str) -> Reply:
     if shutil.disk_usage(held.root).free < length + DISK_MARGIN:
         handler.close_connection = True
         return 507, {"error": "Not enough free disk space for that upload."}
-    job = held.begin(place, name, kind)
+    job = held.begin(name, kind)
     if job is None:
         handler.close_connection = True
         return 409, {"error": "Another walk is being imported. Wait for it to finish, then drop this one."}
@@ -517,7 +524,7 @@ def _post_places_walk_upload(h: H) -> None:
         h.close_connection = True  # its body is never read
         return h._json(refused[1], refused[0])
     q = h._query()
-    code, reply = upload(h, h.state, q.get("place", ""), q.get("name", ""))
+    code, reply = upload(h, h.state, q.get("name", ""))
     return h._json(reply, code)
 
 

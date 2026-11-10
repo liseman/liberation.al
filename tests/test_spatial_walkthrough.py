@@ -635,6 +635,65 @@ def test_a_walk_its_places_map_cant_place_is_fused_where_the_fixed_cameras_seat_
     assert np.ptp(walls[:, 0]) == pytest.approx(4.0, abs=0.1)
 
 
+def test_a_walk_nobody_placed_goes_into_the_place_whose_map_it_fits(tmp_path, runtime, monkeypatch):
+    yard = unrelated_place(tmp_path, {"s2": POSE})
+    first = W.run(tmp_path, pan_video(tmp_path / "a.mp4"))
+    monkeypatch.setattr(W.cameras, "frames", no_frames)
+    second = W.run(tmp_path, pan_video(tmp_path / "b.mp4"), match=True)
+    assert (second["place"], second["matched"], second["registered"]) == (first["place"], first["place"], "map")
+    assert (second["final_place"], second["new_place"]) == (first["place"], False)
+    home = places.latest(tmp_path, first["place"])
+    assert home is not None and home.signals["walkthrough"] == ["a.mp4", "b.mp4"]
+    assert places.latest(tmp_path, yard.place) == yard, "the place it doesn't fit is left as it was"
+    assert sorted(places.place_ids(tmp_path)) == sorted([yard.place, first["place"]]), "and no third place is made"
+
+
+def test_a_walk_that_fits_no_place_becomes_a_new_one(tmp_path, runtime, monkeypatch):
+    yard = unrelated_place(tmp_path, {"s2": POSE})
+    monkeypatch.setattr(W.cameras, "frames", no_frames)  # s2 has no recorded frame to seat the yard by
+    did = W.run(tmp_path, pan_video(tmp_path / "b.mp4"), match=True)
+    assert did["place"] != yard.place and did["matched"] is None and did["registered"] is None
+    assert (did["final_place"], did["new_place"]) == (did["place"], True)
+    assert "meant_for" not in did
+    alone = places.latest(tmp_path, did["place"])
+    assert alone is not None and alone.signals["walkthrough"] == ["b.mp4"]
+    assert alone.map is not None and alone.plan is not None, "its own map and plan, as any walk-only place has"
+    assert places.latest(tmp_path, yard.place) == yard
+
+
+def test_a_walk_no_map_fits_goes_into_the_one_place_whose_cameras_seat_it(tmp_path, runtime, monkeypatch):
+    yard = unrelated_place(tmp_path, {"s2": POSE})
+    there = np.eye(4)
+    there[0, 3] = -20.0
+    monkeypatch.setattr(W, "seat_places", lambda state, held, *a, **kw: ({yard.place: there}, {}))
+    did = W.run(tmp_path, pan_video(tmp_path / "b.mp4"), match=True)
+    assert (did["place"], did["matched"], did["registered"], did["new_place"]) == (
+        yard.place,
+        yard.place,
+        "cameras",
+        False,
+    )
+
+
+def test_a_walk_seated_in_two_places_is_matched_to_neither(tmp_path, runtime, monkeypatch):
+    # It passes through both: it becomes a place of its own, which the join then merges with them.
+    one, two = unrelated_place(tmp_path, {"s2": POSE}), unrelated_place(tmp_path, {"s3": POSE})
+    monkeypatch.setattr(W, "seat_places", lambda *a, **kw: ({one.place: np.eye(4), two.place: np.eye(4)}, {}))
+    joins = []
+    monkeypatch.setattr(W, "join_places", lambda state, place, *a, **kw: joins.append(place) or {"joined": []})
+    did = W.run(tmp_path, pan_video(tmp_path / "b.mp4"), match=True)
+    assert did["matched"] is None and did["place"] not in (one.place, two.place)
+    assert joins == [did["place"]]
+    assert (places.latest(tmp_path, one.place), places.latest(tmp_path, two.place)) == (one, two)
+
+
+def test_a_new_place_the_join_merges_into_one_already_there_isnt_reported_as_new():
+    did = {"place": "walk", "new_place": True, "join": {"joined": ["walk"], "into": "home"}}
+    assert W.settled(did)["final_place"] == "home" and W.settled(did)["new_place"] is False
+    kept = {"place": "walk", "new_place": True, "join": {"joined": ["yard"], "into": "walk"}}
+    assert W.settled(kept)["final_place"] == "walk" and W.settled(kept)["new_place"] is True
+
+
 def test_a_failed_cut3r_run_changes_no_place(tmp_path, runtime, monkeypatch):
     first = W.run(tmp_path, pan_video(tmp_path / "good.mp4"))
     monkeypatch.setenv("FAKE_FAIL", "1")
@@ -923,7 +982,8 @@ def test_the_walk_is_written_and_joined_under_the_places_lock(tmp_path, runtime,
     assert held == [("finish", True), ("join", True)]
 
 
-def test_a_lidar_walk_into_a_place_with_an_owner_plan_is_placed_by_the_plan(tmp_path, monkeypatch):
+@pytest.mark.parametrize("named", [True, False], ids=["into-the-place", "matched-to-it"])
+def test_a_lidar_walk_into_a_place_with_an_owner_plan_is_placed_by_the_plan(tmp_path, monkeypatch, named):
     # The place's map has nothing like the walk's room, and no camera sees it, but the owner's plan has the room
     monkeypatch.setattr(W.fuse.cameras, "layout", lambda *a, **k: W.fuse.cameras.Layout(None, None, fuse.LEVEL_FLOOR))
     old = unrelated_place(tmp_path, {"s2": POSE})
@@ -931,7 +991,7 @@ def test_a_lidar_walk_into_a_place_with_an_owner_plan_is_placed_by_the_plan(tmp_
     plan = 'plan "Home" walls 0.02/0.02\nroom r1 "Box" other poly 20,5 24,5 24,8 20,8\n'
     places.correct_plan(tmp_path, old.place, plan, now=T + 2, base=old.id)
     folder = stray_fake.write(tmp_path / "71de12f9", [stray_fake.upright_pose(0.5 + 0.1 * k) for k in range(30)])
-    did = W.run(tmp_path, folder, place=old.place)
+    did = W.run(tmp_path, folder, place=old.place) if named else W.run(tmp_path, folder, match=True)
     assert did["place"] == old.place and did["registered"] == "plan"
     rev = places.latest(tmp_path, old.place)
     assert rev is not None and rev.frame == old.frame and rev.cameras["s2"] == POSE

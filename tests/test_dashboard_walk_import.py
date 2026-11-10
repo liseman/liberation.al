@@ -18,9 +18,8 @@ from hypothesis import strategies as st
 
 from liberational import config as cfg
 from liberational.dashboard import context, walk_import
-from liberational.memory import places
 
-T = 1_762_500_000.0
+RESULT = {"place": "p1", "revision": "r1", "registered": "map", "final_place": "p1", "new_place": "False"}
 ODOMETRY = "timestamp, frame, x, y, z, qx, qy, qz, qw\n0.0, 0, 0, 0, 0, 0, 0, 0, 1\n"
 #: A whole export, as Stray Scanner zips one: every file is made up and a few bytes long.
 EXPORT = {
@@ -177,14 +176,14 @@ class FakeImport:
         self.hold.set()
         self.called = threading.Event()
 
-    def __call__(self, source, place, progress):
-        self.calls.append((source, place, sorted(p.name for p in source.iterdir()) if source.is_dir() else None))
+    def __call__(self, source, progress):
+        self.calls.append((source, sorted(p.name for p in source.iterdir()) if source.is_dir() else None))
         progress("12 frames from 40 posed frames")
         self.called.set()
         assert self.hold.wait(30)
         if self.fail:
             raise RuntimeError(self.fail)
-        return {"place": place, "revision": "r1", "registered": "map"}
+        return dict(RESULT)
 
 
 @pytest.fixture
@@ -203,11 +202,6 @@ def held(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def home(tmp_path):
-    return places.revise(tmp_path, None, producer="cameras-v1", now=T).place
-
-
-@pytest.fixture
 def base(serve_dashboard, held):
     return serve_dashboard()
 
@@ -222,8 +216,8 @@ def request(base, method, path, body=b"", headers=None):
     return r.status, json.loads(data) if data else None
 
 
-def send(base, place, name, body, **headers):
-    path = f"/places/walk/upload?place={quote(place)}&name={quote(name)}"
+def send(base, name, body, **headers):
+    path = f"/places/walk/upload?name={quote(name)}"
     return request(base, "POST", path, body, {"Content-Type": "application/octet-stream", **headers})
 
 
@@ -237,33 +231,33 @@ def settled(held):
     return held.view()
 
 
-def test_a_dropped_export_is_unpacked_imported_into_its_place_and_then_removed(base, held, home, run, tmp_path):
-    code, reply = send(base, home, "my walk.zip", zipped(EXPORT, "71de12f9/"))
+def test_a_dropped_export_is_unpacked_imported_with_no_place_named_and_then_removed(base, held, run, tmp_path):
+    code, reply = send(base, "my walk.zip", zipped(EXPORT, "71de12f9/"))
     assert code == 202
-    assert (reply["job"]["place"], reply["job"]["name"], reply["job"]["kind"]) == (home, "my walk.zip", "stray")
+    assert (reply["job"]["name"], reply["job"]["kind"]) == ("my walk.zip", "stray")
+    assert "place" not in reply["job"]  # the import works out where the walk belongs
     job = settled(held)
     folder = tmp_path / "walk_imports" / job["id"]
     assert run.calls == [
         (
             folder / "71de12f9",
-            home,
             ["camera_matrix.csv", "confidence", "depth", "odometry.csv", "rgb.mp4"],
         )
     ]
     assert (job["status"], job["error"], job["retry"]) == ("done", "", False)
-    assert job["result"] == {"place": home, "revision": "r1", "registered": "map"}
+    assert job["result"] == RESULT
     assert not folder.exists()  # the zip and the unpacked recording are both gone once the place has the walk
     assert request(base, "GET", "/places/walk")[1]["job"] == job
 
 
-def test_a_finished_import_is_still_there_after_a_restart(base, held, home, run, tmp_path):
-    send(base, home, "walk.zip", zipped(EXPORT))
+def test_a_finished_import_is_still_there_after_a_restart(base, held, run, tmp_path):
+    send(base, "walk.zip", zipped(EXPORT))
     job = settled(held)
     assert walk_import.Importer(tmp_path).view() == job
 
 
-def test_an_import_cut_off_by_a_restart_reads_as_failed(held, home, tmp_path):
-    job = held.begin(home, "walk.zip", "stray")
+def test_an_import_cut_off_by_a_restart_reads_as_failed(held, tmp_path):
+    job = held.begin("walk.zip", "stray")
     held._set(job, status="importing")
     again = walk_import.Importer(tmp_path).view()
     assert again is not None
@@ -271,9 +265,9 @@ def test_an_import_cut_off_by_a_restart_reads_as_failed(held, home, tmp_path):
     assert "restarted" in again["error"]
 
 
-def test_the_page_sees_the_importers_newest_log_line_while_it_runs(base, held, home, run):
+def test_the_page_sees_the_importers_newest_log_line_while_it_runs(base, held, run):
     run.hold.clear()
-    send(base, home, "walk.zip", zipped(EXPORT))
+    send(base, "walk.zip", zipped(EXPORT))
     assert run.called.wait(30)
     job = request(base, "GET", "/places/walk")[1]["job"]
     run.hold.set()
@@ -281,19 +275,19 @@ def test_the_page_sees_the_importers_newest_log_line_while_it_runs(base, held, h
     settled(held)
 
 
-def test_a_second_upload_waits_for_the_first_import_to_finish(base, held, home, run):
+def test_a_second_upload_waits_for_the_first_import_to_finish(base, held, run):
     run.hold.clear()
-    assert send(base, home, "one.zip", zipped(EXPORT))[0] == 202
-    code, reply = send(base, home, "two.zip", zipped(EXPORT))
+    assert send(base, "one.zip", zipped(EXPORT))[0] == 202
+    code, reply = send(base, "two.zip", zipped(EXPORT))
     run.hold.set()
     assert code == 409 and "Another walk" in reply["error"]
     assert settled(held)["name"] == "one.zip"
     assert len(run.calls) == 1
 
 
-def test_a_failed_import_keeps_its_recording_and_runs_again_without_a_second_upload(base, held, home, run, tmp_path):
+def test_a_failed_import_keeps_its_recording_and_runs_again_without_a_second_upload(base, held, run, tmp_path):
     run.fail = "the GPU has 1.0 GB free and the walkthrough needs 6; try later"
-    send(base, home, "walk.zip", zipped(EXPORT))
+    send(base, "walk.zip", zipped(EXPORT))
     job = settled(held)
     assert (job["status"], job["error"], job["retry"]) == ("failed", run.fail, True)
     kept = tmp_path / "walk_imports" / job["id"]
@@ -307,58 +301,55 @@ def test_a_failed_import_keeps_its_recording_and_runs_again_without_a_second_upl
     assert post(base, "/places/walk/retry")[0] == 409  # nothing failed is left to try
 
 
-def test_dismissing_a_failed_import_removes_what_it_kept(base, held, home, run, tmp_path):
+def test_dismissing_a_failed_import_removes_what_it_kept(base, held, run, tmp_path):
     run.fail = "no"
-    send(base, home, "walk.zip", zipped(EXPORT))
+    send(base, "walk.zip", zipped(EXPORT))
     job = settled(held)
     assert post(base, "/places/walk/dismiss") == (200, {"job": None})
     assert not (tmp_path / "walk_imports" / job["id"]).exists()
     assert request(base, "GET", "/places/walk")[1]["job"] is None
 
 
-def test_an_upload_that_isnt_an_export_is_refused_and_leaves_nothing_behind(base, held, home, run, tmp_path):
-    code, reply = send(base, home, "walk.zip", zipped(without("depth/000000.png")))
+def test_an_upload_that_isnt_an_export_is_refused_and_leaves_nothing_behind(base, held, run, tmp_path):
+    code, reply = send(base, "walk.zip", zipped(without("depth/000000.png")))
     assert code == 400 and "depth/ (the LiDAR depth frames)" in reply["error"]
     assert run.calls == [] and held.view() is None
     assert [p for p in (tmp_path / "walk_imports").iterdir() if p.is_dir()] == []
 
 
 @pytest.mark.skipif(sys.platform == "darwin", reason="a plain video is refused on macOS")
-def test_a_plain_video_is_imported_as_it_is(base, held, home, run, tmp_path):
-    code, reply = send(base, home, "front hall.MOV", b"a made-up video")
+def test_a_plain_video_is_imported_as_it_is(base, held, run, tmp_path):
+    code, reply = send(base, "front hall.MOV", b"a made-up video")
     assert (code, reply["job"]["kind"]) == (202, "video")
     job = settled(held)
-    assert run.calls == [(tmp_path / "walk_imports" / job["id"] / "front-hall.MOV", home, None)]
+    assert run.calls == [(tmp_path / "walk_imports" / job["id"] / "front-hall.MOV", None)]
     assert job["status"] == "done"
 
 
-def test_a_plain_video_is_refused_where_pack_walkthrough_cant_take_one(base, held, home, run, monkeypatch):
+def test_a_plain_video_is_refused_where_pack_walkthrough_cant_take_one(base, held, run, monkeypatch):
     monkeypatch.setattr(walk_import, "takes_video", lambda: False)
-    code, reply = send(base, home, "walk.mp4", b"a made-up video")
+    code, reply = send(base, "walk.mp4", b"a made-up video")
     assert code == 415 and "Mac" in reply["error"]
     assert request(base, "GET", "/places/walk")[1]["video"] is False
 
 
 @pytest.mark.parametrize(
-    ("place", "name", "body", "headers", "code"),
+    ("name", "body", "headers", "code"),
     [
-        pytest.param(None, "walk.zip", b"x", {"Origin": "https://evil.example"}, 403, id="another-site"),
-        pytest.param(None, "walk.zip", b"x", {"Content-Type": "text/plain"}, 403, id="a-type-a-form-can-send"),
-        pytest.param("nowhere", "walk.zip", b"x", {}, 404, id="no-such-place"),
-        pytest.param(None, "notes.txt", b"x", {}, 415, id="not-a-zip-or-video"),
-        pytest.param(None, "walk.zip", b"", {}, 413, id="empty"),
+        pytest.param("walk.zip", b"x", {"Origin": "https://evil.example"}, 403, id="another-site"),
+        pytest.param("walk.zip", b"x", {"Content-Type": "text/plain"}, 403, id="a-type-a-form-can-send"),
+        pytest.param("notes.txt", b"x", {}, 415, id="not-a-zip-or-video"),
+        pytest.param("walk.zip", b"", {}, 413, id="empty"),
     ],
 )
-def test_an_upload_refused_before_its_body_is_read_starts_nothing(
-    base, held, home, run, place, name, body, headers, code
-):
-    assert send(base, place or home, name, body, **headers)[0] == code
+def test_an_upload_refused_before_its_body_is_read_starts_nothing(base, held, run, name, body, headers, code):
+    assert send(base, name, body, **headers)[0] == code
     assert held.view() is None and run.calls == []
 
 
-def test_an_upload_over_the_limit_is_refused(base, held, home, run):
+def test_an_upload_over_the_limit_is_refused(base, held, run):
     with cfg.override({"ingest": {"max_mb": 0}}):
-        code, reply = send(base, home, "walk.zip", zipped(EXPORT))
+        code, reply = send(base, "walk.zip", zipped(EXPORT))
     assert code == 413 and "up to 0 MB" in reply["error"]
 
 
@@ -366,7 +357,7 @@ def test_an_upload_over_the_limit_is_refused(base, held, home, run):
 
 
 def child(monkeypatch, script):
-    monkeypatch.setattr(walk_import, "command", lambda source, place: [sys.executable, "-c", script])
+    monkeypatch.setattr(walk_import, "command", lambda source: [sys.executable, "-c", script])
 
 
 def test_the_imports_printed_result_is_read_and_its_log_lines_are_its_progress(monkeypatch, tmp_path):
@@ -374,21 +365,28 @@ def test_the_imports_printed_result_is_read_and_its_log_lines_are_its_progress(m
         monkeypatch,
         "import sys\n"
         "print('2026-11-03T02:20:15-08:00 [walkthrough] INFO 12 frames from 40 posed frames', file=sys.stderr)\n"
-        "print('place: abc')\nprint('revision: r9')\nprint('registered: plan')\n",
+        "print('place: abc')\nprint('final_place: abc')\nprint('new_place: True')\nprint('registered: None')\n",
     )
     seen = []
-    result = walk_import.run_import(tmp_path, "abc", seen.append)
-    assert result == {"place": "abc", "revision": "r9", "registered": "plan"}
+    result = walk_import.run_import(tmp_path, seen.append)
+    assert result == {"place": "abc", "final_place": "abc", "new_place": "True", "registered": "None"}
     assert seen == ["12 frames from 40 posed frames"]
 
 
 def test_a_failed_import_raises_what_pack_walkthrough_said(monkeypatch, tmp_path):
     child(monkeypatch, "import sys\nsys.exit('pack-walkthrough: only 3 frames: the recording needs to move')")
     with pytest.raises(RuntimeError, match="^only 3 frames: the recording needs to move$"):
-        walk_import.run_import(tmp_path, "abc", lambda line: None)
+        walk_import.run_import(tmp_path, lambda line: None)
 
 
-def test_the_import_runs_pack_walkthrough_on_the_recording_for_that_place(tmp_path):
-    command = walk_import.command(tmp_path / "71de12f9", "abc")
-    assert command[-3:] == [str(tmp_path / "71de12f9"), "--place", "abc"]
-    assert "liberational.spatial.walkthrough" in command[-4]
+def test_an_import_that_never_says_where_the_walk_went_is_a_failure(monkeypatch, tmp_path):
+    child(monkeypatch, "print('frames: 12')")
+    with pytest.raises(RuntimeError, match="without saying which place"):
+        walk_import.run_import(tmp_path, lambda line: None)
+
+
+def test_the_import_runs_pack_walkthrough_on_the_recording_and_lets_it_find_the_place(tmp_path):
+    command = walk_import.command(tmp_path / "71de12f9")
+    assert command[-2:] == [str(tmp_path / "71de12f9"), "--match"]
+    assert "--place" not in command
+    assert "liberational.spatial.walkthrough" in command[-3]
