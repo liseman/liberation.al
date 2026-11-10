@@ -1,27 +1,18 @@
 // First-run setup owns the page; configured installations open Settings in a Mantine Drawer.
 import { Drawer } from '@mantine/core';
-import { useQuery } from '@tanstack/react-query';
-import { Activity, lazy, useEffect, useState } from 'react';
-import { request } from '../../shared/http';
+import { Activity, lazy, useState } from 'react';
 import { Deferred } from '../Deferred';
-import { CONFIG_KEY, type ConfigView } from './model';
+import { shell } from '../shell';
 import { SearchSlot } from './searchSlot';
 import settingsClasses from './settings.module.css';
 
 const SettingsPage = lazy(() => import('./SettingsPage').then(m => ({ default: m.SettingsPage })));
 
+/** First run (no pack.toml when the page was served): setup owns the page until its own restart navigation loads
+ *  the page again, so a config refresh that sees the new file can't unmount the flow. The server fills it into the
+ *  page, so the shell asks nothing to know. */
 export function useNeedsSetup(): boolean {
-  const query = useQuery({
-    queryKey: CONFIG_KEY,
-    queryFn: ({ signal }) => request<ConfigView>('/config', undefined, signal),
-  });
-  // A first-run flow owns the page until restart navigation. A focus refetch can
-  // see pack.toml before services finish restarting; it must not unmount that flow.
-  const [started, setStarted] = useState(false);
-  useEffect(() => {
-    if (query.data?.needs_setup) setStarted(true);
-  }, [query.data?.needs_setup]);
-  return started || (query.data?.needs_setup ?? false);
+  return shell().needsSetup;
 }
 
 export function SettingsDrawer({ opened, onClose }: { opened: boolean; onClose: () => void }) {

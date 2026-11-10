@@ -1,8 +1,9 @@
 // Pausing cameras and microphones for privacy: GET/POST /devices/privacy (dashboard/privacy.py). A paused
 // device's capture is stopped where it's owned, so nothing from it is recorded; the header icons toggle it and Live
-// says "Paused for privacy" in its place.
+// says "Paused for privacy" in its place. The view arrives on the live feed (live/feed.ts), not by polling.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { request } from '../shared/http';
+import { STATUS, statusQuery } from './live/feed';
 
 export type PrivacyKind = 'camera' | 'microphone';
 /** on; pausing (saved, capture hasn't stopped it yet); paused; resuming (saved, capture hasn't started it yet). */
@@ -27,9 +28,7 @@ export interface PrivacyChange {
   device?: string;
 }
 
-export const PRIVACY_KEY = ['privacy'] as const;
-const SETTLED_MS = 15_000;
-const PENDING_MS = 1_000;
+export const PRIVACY_KEY = STATUS.privacy.key;
 
 /** One kind's devices: which are paused (or being paused), whether all are, and whether capture is still applying a
  *  change. */
@@ -55,14 +54,10 @@ export function summary(view: PrivacyView | undefined, kind: PrivacyKind): Priva
 export const canChange = (view: PrivacyView | undefined, kind: PrivacyKind): boolean =>
   !!view?.control && view.ready && summary(view, kind).devices.length > 0;
 
+/** The pauses, from the live feed: the server sends them as capture applies a change, so the icon turns as soon
+ *  as the device has stopped. */
 export function usePrivacy(): PrivacyView | undefined {
-  return useQuery({
-    queryKey: PRIVACY_KEY,
-    queryFn: ({ signal }) => request<PrivacyView>('/devices/privacy', undefined, signal, 'background'),
-    // Follow capture closely while it applies a change, so the icon turns as soon as the device has stopped.
-    refetchInterval: query =>
-      query.state.data?.devices.some(d => d.state === 'pausing' || d.state === 'resuming') ? PENDING_MS : SETTLED_MS,
-  }).data;
+  return useQuery(statusQuery<PrivacyView>('privacy')).data;
 }
 
 export function usePrivacyChange() {

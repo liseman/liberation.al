@@ -9,6 +9,7 @@ export interface Shell {
   activeCams: string[]; // Live/status only; disabled cameras stay in cams for recorded history
   views: Record<string, string>; // each named camera's name (vision.camera_names), like "front camera"
   hotkeys: boolean; // dashboard.hotkeys: single-key shortcuts, off by default
+  needsSetup: boolean; // no pack.toml yet: first-run setup owns the page
 }
 
 const DEFAULTS: Shell = {
@@ -18,6 +19,7 @@ const DEFAULTS: Shell = {
   activeCams: ['cam0'],
   views: {},
   hotkeys: false,
+  needsSetup: false,
 };
 
 /** The shell values, read when called (tests set window.NAMES before rendering). */

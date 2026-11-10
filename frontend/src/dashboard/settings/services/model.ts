@@ -1,7 +1,8 @@
 // Settings' Services data (once the top bar's Services drawer, now drawn as cards), and the rules for what
 // each row says.
+import { STATUS } from '../../live/feed';
 
-export const SERVICES_KEY = ['services'] as const;
+export const SERVICES_KEY = STATUS.services.key;
 
 /** One service from GET /services. */
 export interface Service {

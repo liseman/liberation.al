@@ -185,7 +185,9 @@ export function App() {
   const background = tabOf(returnTo?.split(/[?#]/)[0] ?? '/');
   const content = tab === 'settings' ? (background === 'settings' ? 'live' : background) : tab;
   const setup = useNeedsSetup();
-  useEffect(() => startLive(client), [client]);
+  // A layout effect: the feed is open before any query subscribes (in a passive effect), so a stream-fed query
+  // waits for the stream's opening snapshot instead of asking its URL (#52).
+  useLayoutEffect(() => startLive(client), [client]);
   const top = useRef<HTMLElement>(null);
   const tabs = useRef<HTMLElement>(null);
   // On a phone the bottom bar is the one Sections navigation; the top one is hidden outright, not just by CSS.
