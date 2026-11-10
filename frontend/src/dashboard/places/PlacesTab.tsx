@@ -123,7 +123,7 @@ function drawOrNull(place: Place, scheme: 'light' | 'dark'): PlaceDrawing | null
 export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] }) {
   const scheme = useComputedColorScheme('light');
   const server = useQuery(placesQuery());
-  // What "Learn surroundings" is doing now: a badge on each place and a panel, while it's on (learning.tsx).
+  // What "Learn surroundings" is doing now: a badge on each place, and a panel under the list (learning.tsx).
   const learning = useLearning();
   // The examples are the empty state: they show only while no place has a plan yet (or the list couldn't load), after
   // any places still waiting for their first.
@@ -178,42 +178,44 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
               mapped.
             </Text>
           )}
-          <LearningPanel status={learning} />
           <div className={classes.layout}>
-            <nav aria-label="Places">
-              <ul className={classes.list}>
-                {places.map(p => {
-                  const r = drawn.get(p.id)?.result;
-                  return (
-                    <li key={p.id}>
-                      <NavLink
-                        component="button"
-                        type="button"
-                        active={p.id === place?.id}
-                        aria-current={p.id === place?.id ? 'true' : undefined}
-                        onClick={() => {
-                          setPicked(p.id);
-                          setEditing(null);
-                          setShowing('mine');
-                        }}
-                        label={
-                          <span className={classes.name}>
-                            {p.name}
-                            {p.example && (
-                              <Badge size="xs" variant="light" tt="none" fw={500}>
-                                Example
-                              </Badge>
-                            )}
-                            {!p.example && <LearningBadge status={learning} place={p.id} />}
-                          </span>
-                        }
-                        description={`${r ? `${planSummary(r)} · ` : p.plan ? '' : 'No plan yet · '}${lastVisit(p)}`}
-                      />
-                    </li>
-                  );
-                })}
-              </ul>
-            </nav>
+            <div className={classes.side}>
+              <nav aria-label="Places">
+                <ul className={classes.list}>
+                  {places.map(p => {
+                    const r = drawn.get(p.id)?.result;
+                    return (
+                      <li key={p.id}>
+                        <NavLink
+                          component="button"
+                          type="button"
+                          active={p.id === place?.id}
+                          aria-current={p.id === place?.id ? 'true' : undefined}
+                          onClick={() => {
+                            setPicked(p.id);
+                            setEditing(null);
+                            setShowing('mine');
+                          }}
+                          label={
+                            <span className={classes.name}>
+                              {p.name}
+                              {p.example && (
+                                <Badge size="xs" variant="light" tt="none" fw={500}>
+                                  Example
+                                </Badge>
+                              )}
+                              {!p.example && <LearningBadge status={learning} place={p.id} />}
+                            </span>
+                          }
+                          description={`${r ? `${planSummary(r)} · ` : p.plan ? '' : 'No plan yet · '}${lastVisit(p)}`}
+                        />
+                      </li>
+                    );
+                  })}
+                </ul>
+              </nav>
+              <LearningPanel status={learning} />
+            </div>
             {place && (
               <Paper withBorder radius="md" className={classes.plan}>
                 <div className={classes.planHead}>

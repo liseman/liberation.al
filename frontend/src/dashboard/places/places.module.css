@@ -12,6 +12,13 @@
   }
 }
 
+/* The place list, and under it what learning is doing (learning.module.css). */
+.side {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
 .list {
   list-style: none;
   margin: 0;

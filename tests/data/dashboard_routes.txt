@@ -86,6 +86,8 @@ GET /static/...
 GET /stats
 GET /stats/history
 GET /surroundings
+GET /surroundings/status
+GET /surroundings/thumb/([0-9a-f]{32})\.jpg
 GET /transcript
 GET /transcript/day
 GET /vision

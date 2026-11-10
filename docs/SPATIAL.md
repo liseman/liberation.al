@@ -181,6 +181,12 @@ says why a camera's frames aren't being kept (a person or an animal in view, not
 none of them was. The page asks every 3 s while a step runs, every 10 s while learning is on, and every 60 s
 while it's off.
 
+The panel sits under the place list (#294): one state with what happens next, the numbers (views in the maps, and
+frames kept, waiting, and parked), and a row a camera with its newest kept frame as a small picture
+(`GET /surroundings/thumb/<frame id>.jpg`, dashboard/surroundings.py). The server paints over the pixels the sampler
+marked as someone in view before it serves one, and serves none when the sampler's person detector is missing, since
+then nobody was ever marked. While learning is off the panel stays, saying so, once something has been learned.
+
 **Positions** (#260, `spatial/surroundings_positions.py`). Foot points keep being recorded as each camera saw them. At
 the end of each map step, and when `pack-positions` runs, a learned map gets what placing takes:
 
