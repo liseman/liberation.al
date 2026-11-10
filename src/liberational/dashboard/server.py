@@ -71,8 +71,8 @@ GET  /people/<name>/card    the contact card (#307): {name, photo: Shot | null, 
                             per day until days run out), videos: [{cam, place, start, end, duration_s, thumb, what,
                             review}]
                             (up to 4, newest first), voices: [{line, ts_start, text, mic}] (up to 4, newest first),
-                            last_seen: {ts, cam, place} | null, here_now: {cam, place, since} | null}. A place is where the
-                            camera is (vision.places), or its id when it has none. Shot = {id, url, ts, cam, score};
+                            last_seen: {ts, cam, place} | null, here_now: {cam, place, since} | null}. A place is the
+                            camera's name (vision.camera_names), or its id when it has none. Shot = {id, url, ts, cam, score};
                             id, cam, and score are null only for a saved crop (no recorded shot yet). The main photo
                             is the best-scoring shot (vision/face_quality.py); /people's "photo" is its url.
                             Each video also has "id": "<cam>@<start .2f>", for /people/correct
@@ -279,7 +279,7 @@ from liberational.people import (
     voice_list,
 )
 from liberational.see.faces import VISIT_GAP_S
-from liberational.vision import places
+from liberational.vision import views
 
 if TYPE_CHECKING:
     from liberational.vision.sightings import FaceBatch
@@ -2163,7 +2163,7 @@ def people_roster(
     for nm, number in book.phones().items():  # so the dashboard can place calls to them
         person(nm)["number"] = number
     seen, owner, described, here = _face_last_seen_at(), _owner_keys(), _attributes(), _here_now()
-    named = places.names()  # where each camera is (#313); a camera with no name goes by its id
+    named = views.names()  # each camera's name (#313); a camera with no name goes by its id
     saved_shots = face_shots.saved(STATE, revision=_shot_revision()) if saved_shots is None else saved_shots
     for key, b in by.items():
         cam = seen[key][1] if key in seen else None
@@ -3987,7 +3987,7 @@ def person_card(name: str) -> dict[str, Any] | None:
         [r for r in sightings.ranked(name, STATE) if r["id"] not in prefs["hidden"]["shot"]], saved_shots
     )
     hidden_videos = set(prefs["hidden"]["video"])
-    named = places.names()
+    named = views.names()
     videos = []
     for v in sightings.recent_visits(name, CARD_VIDEOS + len(hidden_videos), STATE):
         if _video_id(v["cam"], v["start"]) in hidden_videos or len(videos) >= CARD_VIDEOS:
@@ -4242,7 +4242,7 @@ def people_unnamed() -> dict[str, Any]:
         recent = {}
     faces, named, shots_pending, shots_unavailable, saved_shots = (
         [],
-        places.names(),
+        views.names(),
         0,
         0,
         face_shots.saved(STATE, revision=_shot_revision()),
@@ -6438,13 +6438,13 @@ def fill(s: str) -> str:
     """An HTML page with the assistant and owner names filled in, and NAMES for its scripts (with the cameras and
     whether dashboard.hotkeys is on)."""
     names = {"assistant": cfg.assistant_name(), "owner": cfg.owner_name()}
-    cams = places.camera_ids()
-    # views: each camera's name (vision.places, #313), for Review's lane labels; a page load picks up a rename
+    cams = views.camera_ids()
+    # views: each camera's name (vision.camera_names, #313), for Review's lane labels; a page load picks up a rename
     shell = {
         **names,
         "cams": cams,
-        "activeCams": places.camera_ids(active_only=True),
-        "views": places.names(),
+        "activeCams": views.camera_ids(active_only=True),
+        "views": views.names(),
         "hotkeys": bool(cfg.get("dashboard.hotkeys")),
     }
     # JSON.parse retains literal __proto__ keys; a JavaScript object literal silently drops a string alias.

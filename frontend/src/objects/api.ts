@@ -27,7 +27,7 @@ export interface MemoryObject {
 
 export interface CameraStatus {
   camera: string;
-  /** Its place name from Settings (vision.places), or its id when it has none. */
+  /** Its name from Settings (vision.camera_names), or its id when it has none. */
   name?: string;
   available: boolean;
   stale?: boolean;
