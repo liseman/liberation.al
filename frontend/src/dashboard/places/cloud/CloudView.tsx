@@ -81,7 +81,6 @@ export default function CloudView({ place }: { place: string }) {
   const wantSplat = (chosen ?? (hasSplat ? 'splat' : 'points')) === 'splat';
   const [attempt, setAttempt] = useState(0);
   const splatBytes = useSplatBytes(data, hasSplat, attempt);
-  const splatFrom = data?.splat_from;
   // A splat the viewer couldn't draw (its bytes read, and looked right): which bytes, and why.
   const [drawFault, setDrawFault] = useState<{ file: ArrayBuffer; reason: string } | null>(null);
   // A splat that can't be read or drawn leaves the points: the map still shows, with why and a Retry.
@@ -110,8 +109,8 @@ export default function CloudView({ place }: { place: string }) {
     let gone = false;
     let made: Built | null = null;
     // A splat looks right from where its frames were taken, and like floaters from above: it opens from the first of
-    // the views it trained on, a walk's or a fixed camera's ("Back to the start" goes to the overview).
-    const opening = file ? openingCamera(Object.keys(data.cameras ?? {}), splatFrom) : null;
+    // the views it trained on ("Back to the start" goes to the overview).
+    const opening = file ? openingCamera(Object.keys(data.cameras ?? {})) : null;
     (async () => build(el, data, parseCloud(bytes.data, 'ply'), file, opening))().then(
       b => {
         if (gone) return b.dispose();
@@ -138,7 +137,7 @@ export default function CloudView({ place }: { place: string }) {
       setSplatReady(false);
       made?.dispose();
     };
-  }, [webgl, data, bytes.data, file, splatFrom]);
+  }, [webgl, data, bytes.data, file]);
 
   // Settings change what's drawn, then one frame is drawn.
   // biome-ignore lint/correctness/useExhaustiveDependencies: `ready` says the scene was rebuilt and wants its settings

@@ -64,6 +64,13 @@ current space (`embedding_model`: the configured model and its crop), as referen
 earlier square crop) doesn't compare with the rest, so it's no sighting, and a label can only keep an example of
 the current space.
 
+**Training images** (`examples`, `remove_examples`): a pet's card lists every sighting labeled as it, which is its
+whole training set, the least like the rest first, with the photo each label kept. Removing one is the owner saying
+the sighting is not that pet: its label is cleared and a `pet.not` written, as `mark_not` does, and its
+`pet.reference` and `pet.photo` records are erased in the same transaction, so no vector or picture of it is left
+as an example. Every kept answer here is keyed by the knowledge store's generation, which that write moves, so it
+takes effect on the next read with no restart.
+
 **Review's pet boxes** name a track by appearance through `resolve`, which never scans history. Its reference
 gallery is built from the owner's labels alone: each label records its sighting's camera, so the labeled tracks'
 embeddings are taken from the kept rows by track and camera, plus the imported `pet.reference` records. A label
@@ -976,6 +983,133 @@ def mark_not(
                 records.append(knowledge.Record(str(uuid.uuid7()), LABELS, tid, at, at, at, cleared, ()))
         _store(state).put(records)
         return len(track_ids)
+
+
+_photo_keys: dict[Path, tuple[tuple[Any, ...] | None, frozenset[str]]] = {}
+
+
+def _photo_tracks(state: Any) -> frozenset[str]:
+    """The tracks with a kept `pet.photo`, under the knowledge store's photo generation: reading them decodes every
+    kept picture, and a listing only asks which tracks have one."""
+    from liberational.people import registry
+
+    path = registry.knowledge_path(state)
+    key = _generation(state, (PHOTOS,))
+    with _answers_lock:
+        kept = _photo_keys.get(path)
+    if kept is not None and kept[0] == key:
+        return kept[1]
+    tracks = frozenset(str(r.key) for r in _query(state, PHOTOS) if r.key)
+    with _answers_lock:
+        _photo_keys[path] = (key, tracks)
+    return tracks
+
+
+def kept_photo(state: Any, track: str) -> bytes | None:
+    """The track's kept `pet.photo` (the newest of it), or None."""
+    from liberational.people import registry
+
+    if not registry.knowledge_path(state).exists():
+        return None
+    for stored in reversed(_store(state).query(PHOTOS, key=track)):
+        try:
+            return base64.b64decode(stored.record.value["jpg"], validate=True)
+        except KeyError, TypeError, ValueError:
+            continue
+    return None
+
+
+def examples(state: Any, pet: str, pets: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """A named pet's training set, for its card's Training images: every sighting actively labeled as `pet` (its id).
+    [{"track_id", "cam", "start", "end", "labeled", "source" ("owner", or "carried" for a label carried over from an
+    earlier model's examples), "picture" ("kept": its `pet.photo`; "recorded": none kept, but its track is still in
+    the segment store, so its photo can be cut; None), "example" (whether recognition has a vector of it in the
+    current space: a label with none teaches nothing until it is restored), "similarity"}], the least like the rest
+    of the set first (its cosine to the mean of the others), since a wrong picture is an outlier; a label with no
+    example comes last. Raises LookupError for a pet that isn't one."""
+    if pet not in {str(p["id"]) for p in pets}:
+        raise LookupError("pet not found")
+    mine = {tid: row for tid, row in labels(state).items() if row.get("label") == pet}
+    recorded_tracks = {str(r.get("track_id")) for r in embedding_rows(state)} if mine else set()
+    found = {s.track_id: s for s in _references(state, mine)} if mine else {}
+    kept = _photo_tracks(state) if mine else frozenset()
+    have = [tid for tid in mine if tid in found]
+    alike: dict[str, float] = {}
+    if len(have) > 1:
+        rows = np.stack([found[tid].mean for tid in have]).astype(np.float32)
+        rest = rows.sum(axis=0)[None] - rows
+        rest /= np.linalg.norm(rest, axis=1, keepdims=True) + 1e-9
+        alike = {tid: round(float(x), 4) for tid, x in zip(have, np.einsum("ij,ij->i", rows, rest))}
+    out = []
+    for tid, row in mine.items():
+        seen = found.get(tid)
+        start, end = _finite(row.get("sighting_start")), _finite(row.get("sighting_end"))
+        out.append(
+            {
+                "track_id": tid,
+                "cam": str(row.get("cam") or "") or (seen.cam if seen is not None else ""),
+                "start": start if start is not None else (seen.start if seen is not None else None),
+                "end": end if end is not None else (seen.end if seen is not None else None),
+                "labeled": _finite(row.get("ts_start")),
+                "source": "carried" if row.get("carried_from") else "owner",
+                "picture": "kept" if tid in kept else "recorded" if tid in recorded_tracks else None,
+                "example": seen is not None,
+                "similarity": alike.get(tid),
+            }
+        )
+    out.sort(key=lambda r: (not r["example"], r["similarity"] is None, r["similarity"] or 0.0, r["track_id"]))
+    return out
+
+
+def remove_examples(
+    state: Any, track_ids: Sequence[str], pet: str, pets: Sequence[Mapping[str, Any]], now: float | None = None
+) -> int:
+    """The owner took these sightings out of `pet`'s training set (a wrong picture got in). Each one labeled as that
+    pet now loses the label and is marked not that pet (so recognition never names it them again), and its
+    `pet.reference` and `pet.photo` records are erased, all in one transaction under the evidence lock. Unlike
+    `mark_not` it needs no recorded sighting: an old example that is only a vector, or only a label, is removed the
+    same. A track not labeled as the pet by now is passed over. Returns how many were removed."""
+    now = time.time() if now is None else now
+    if not isinstance(track_ids, list) or not track_ids or len(track_ids) > 500:
+        raise ValueError("send 1 to 500 sighting ids")
+    if not all(isinstance(t, str) and t for t in track_ids):
+        raise ValueError("a sighting id is text")
+    if not isinstance(pet, str) or pet not in {str(p["id"]) for p in pets}:
+        raise LookupError("pet not found")
+    with evidence_lock(state):
+        current = labels(state)  # under the lock: the label this clears is the current one
+        mine = [t for t in dict.fromkeys(track_ids) if current.get(t, {}).get("label") == pet]
+        if not mine:
+            return 0
+        records = []
+        for k, tid in enumerate(mine):
+            row = current[tid]
+            at = int((now + k * 1e-6) * 1e9)  # newest wins
+            cam = str(row.get("cam") or "")
+            denied = {"cam": cam, "track_id": tid, "pet": pet, "active": True, "source": "owner"}
+            records.append(knowledge.Record(str(uuid.uuid7()), NOTS, f"{tid}:{pet}", at, at, at, denied, (pet,)))
+            cleared = {
+                "cam": cam,
+                "track_id": tid,
+                "species": str(row.get("species") or ""),
+                "label": "",
+                "active": False,
+                "source": "owner",
+                "sighting_start": row.get("sighting_start"),
+                "sighting_end": row.get("sighting_end"),
+            }
+            records.append(knowledge.Record(str(uuid.uuid7()), LABELS, tid, at, at, at, cleared, ()))
+        store = _store(state)
+        with store.transaction():
+            gone = [
+                stored.record.id
+                for collection in (REFERENCES, PHOTOS)
+                for tid in mine
+                for stored in store.query(collection, key=tid)
+            ]
+            store.put(records)
+            store.remove(gone)
+        return len(mine)
 
 
 @dataclass

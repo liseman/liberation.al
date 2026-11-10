@@ -339,3 +339,59 @@
 .loadLine {
   min-height: calc(var(--mantine-font-size-sm) * var(--mantine-line-height-sm));
 }
+
+/* Training images (../TrainingSet.tsx): small square tiles, as many a row as fit, each one a label for its own
+   checkbox so the whole tile selects it. */
+.training {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 8px;
+}
+.trainingTile {
+  position: relative;
+  /* Tiles past the first screen are laid out only when scrolled near, so a long set stays quick. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 150px;
+}
+.trainingTile label {
+  display: block;
+  cursor: pointer;
+}
+.trainingTile img,
+.trainingTile [data-safe-image],
+.noPicture {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 6px;
+  object-fit: cover;
+  background: var(--lib-raise);
+  outline: 2px solid transparent;
+  outline-offset: -2px;
+}
+.noPicture {
+  padding: 6px;
+  text-align: center;
+  font-size: var(--mantine-font-size-xs);
+  color: var(--mantine-color-dimmed);
+  border: 1px dashed var(--mantine-color-default-border);
+}
+.trainingTile[data-selected] img,
+.trainingTile[data-selected] [data-safe-image],
+.trainingTile[data-selected] .noPicture {
+  outline-color: var(--mantine-color-red-6);
+}
+.trainingPick {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+}
+.trainingCaption {
+  display: block;
+  margin-top: 4px;
+  line-height: 1.3;
+}

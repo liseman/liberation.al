@@ -57,6 +57,65 @@ Each defaults to a dry run that prints what would change. Their docstrings have 
 | `tools/place_positions.py` | Runs the placer by hand; `--reset` places every place again |
 | `tools/calibrate_lens.py`, `tools/calibrate_fisheye.py` | Calibrate a camera's lens |
 
+## Learning surroundings
+
+The design for a place's map that the cameras refine as they see it (#254). It replaces the walk import and the
+nightly pass (#252), and each part below says which issue builds it. Until a part is built, its readers say so.
+
+**The switch** (#255). `spatial.learn_surroundings` (off by default) and `spatial.learn_cameras` (camera names; empty
+means the first camera in the device manifest). Both are live settings: the sampler reads `pack.toml` again when it
+changes, so the Live tab's button and camera picker take effect in about a second with no restart.
+
+**The sampler** (#256). `pack-surroundings` holds no decoder connection while the switch is off. While it's on it
+takes one BGR picture every 5 s from each chosen camera, from see-decode's shared pictures. It skips, cheapest check
+first: a dark or night-mode frame, a frame whose 32 x 18 thumbnail matches the last one looked at (a still camera
+costs a few milliseconds a sample), a frame much less sharp than the camera's usual, and a frame the person detector
+finds a person or an animal in. Such a frame is skipped, not masked: the view comes by again without them.
+
+**The gate** (#257). "Likely to improve the map" is measured twice, cheaply first.
+
+1. *Before a pose is known*, by the frame's place-recognition descriptor (MegaLoc, on the CPU, about 0.26 s): its
+   novelty is 1 minus its highest cosine similarity to the kept frames. Measured on six live cameras, read only:
+   a still camera's frames 5 s apart are 0.95 to 0.99 alike (54 pairs), the same view one to three hours apart under
+   changing daylight 0.61 to 0.83 (9 pairs), and two different cameras at most 0.18 (15 pairs). So a frame under 0.85
+   alike to every kept frame is kept: that takes a new viewpoint, an uncovered area, and a scene or light that
+   changed, and drops the copies. A frame at least 0.85 alike to a kept one replaces it when it's 1.5 times as
+   sharp (better detail), and is dropped otherwise.
+2. *Once it has a pose* (in the map step), by the map itself: the current splat is drawn from the frame's pose.
+   The share of the frame the splat doesn't cover is the uncovered area, and the error of what it does draw is the
+   change or the missing detail. A frame the splat already draws well is dropped. The map step's pull request sets
+   those two thresholds from measurements.
+
+Kept frames are JPEGs with their descriptors under `state/surroundings/`, at most 300 in all and 4 per view (frames
+0.85 alike are one view). At the bound, the frame most like another kept frame goes first. They are machine-made: a
+reset deletes them.
+
+**The map** (#258). One step at a time, niced, on the GPU with the most free memory, started by the sampler when
+new frames are waiting, never on a schedule.
+
+- *Poses come from the frames.* A camera may be on a moving rig or on a fixed mount, so neither is assumed. A
+  place's first frame founds its map: Depth Anything 3's metric depth lifted to points, the frame's own pose the
+  origin. A later frame is paired with the kept frames it's most like through MASt3R, whose pair pose, scaled by the
+  kept frame's depth, gives the frame's pose in the map. A frame no pair places is dropped. The splat trainer's own
+  pose refinement takes up what's left.
+- *The splat is continued, not rebuilt.* The trainer starts from the place's current splat, adds points where a new
+  frame shows what the map lacked, and trains a short while on the old and new views. Each step writes one revision
+  of the place (`memory/places.py`); the newest two maps and splats are kept, as before.
+- *Places.* Frames that register with a place's kept frames join that place. Frames that register with each other
+  and with no place found a new one. Telling places apart by the rig's signals is not part of this.
+
+**The 3D view** (#259) shows the newest splat, reloads when a newer one is written, and says whether learning is on,
+how many views the map has, and when it last improved.
+
+**Positions** (#260). Foot points keep being recorded as each camera saw them. A learned map gets a floor from its own
+surfaces. A camera whose kept views all sit at one pose is registered in the revision as a fixed camera, and its
+foot points are placed on the map's floor in metres, through the same geometry as before. A camera on a moving rig
+needs a pose for each moment (#7), so its foot points stay unplaced until then. While a place has no map, or a camera
+has no pose, readers say that and show no position.
+
+**The owner's plan** (#261) is kept as taught state. Lining a learned map up with it comes after the map exists: until
+then the 3D view and positions are in the map's own frame, and the plan is drawn on its own.
+
 ## Model runtimes
 
 Each runs in its own environment, set up by a mise task, with weights under `data/models/`.

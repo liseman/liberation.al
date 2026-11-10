@@ -1,7 +1,7 @@
 // Known › Places' reads: the places the house has (GET /places, memory/places.py) and where people and pets were in
 // one of them over a window of time (GET /places/positions; the position layer is spatial/positions.py).
 import { queryOptions } from '@tanstack/react-query';
-import { request, upload } from '../../shared/http';
+import { request } from '../../shared/http';
 
 /** A place, as GET /places lists it. */
 export interface PlaceSummary {
@@ -24,11 +24,6 @@ export interface PlaceSummary {
   last_visit: number | null;
   /** When anyone was last seen there by its fixed cameras, apart from the owner's visits. */
   last_activity?: number | null;
-  /** How many walkthroughs went into the place (#3). */
-  walks?: number;
-  /** The plan's rooms no LiDAR walk covered, in plan order (every room while it has never been walked); null when it
-   *  can't tell (no plan, or no fused map in the plan's frame). */
-  unwalked_rooms?: { id: string; name: string }[] | null;
 }
 
 export const placesQuery = () =>
@@ -167,8 +162,8 @@ export interface Scene {
   splat_revision?: string | null;
   /** The newest splat when it was made in another map frame, so it would sit out of place: named, not drawn. */
   splat_stale?: { revision: string; at: number } | null;
-  /** What the splat was trained from (#44): a walk's own frames, or the fixed cameras'. */
-  splat_from?: 'walk' | 'cameras' | null;
+  /** What the splat was trained from, as its trainer named it (the fixed cameras' frames are "cameras"). */
+  splat_from?: string | null;
   /** Which state the splat is in, so the page doesn't guess: made for this map ("current"), made for an earlier map
    *  in the same frame, so it still lines up ("earlier"), made in another frame and so not offered ("stale"), or
    *  there is none. "improving" is for a splat that is drawn while it's still being built up from new frames; the
@@ -194,54 +189,3 @@ export const sceneQuery = (place: string) =>
     queryFn: ({ signal }) => request<Scene>(`/places/scene?${new URLSearchParams({ place })}`, undefined, signal),
     staleTime: 5 * 60_000,
   });
-
-/** A walk import (dashboard/walk_import.py): a walkthrough dropped on the Places page, uploaded, then imported in the
- *  background into the place it matches, or as a new place. `status` goes uploading, extracting, importing, then done or failed. */
-export interface WalkJob {
-  id: string;
-  /** The dropped file's name. */
-  name: string;
-  kind: 'stray' | 'video';
-  status: 'uploading' | 'extracting' | 'importing' | 'done' | 'failed';
-  /** The importer's newest log line, while it runs. */
-  detail: string;
-  error: string;
-  /** What the import printed, as text: `final_place` is the place the walk ended up in, `new_place` is "True" when
-   *  that place didn't exist before, and `registered` is how it matched ("map", "plan", or "cameras"). */
-  result: { final_place?: string; new_place?: string; registered?: string } & Record<string, string>;
-  /** A failed import kept its files, so it can run again without a second upload. */
-  retry: boolean;
-  started: number;
-  finished: number | null;
-}
-
-/** GET /places/walk: the newest import, the largest upload taken (MB), and whether a plain video is taken here. */
-export interface WalkImports {
-  job: WalkJob | null;
-  max_mb: number;
-  video: boolean;
-}
-
-export const walkActive = (job: WalkJob | null | undefined): boolean =>
-  !!job && job.status !== 'done' && job.status !== 'failed';
-
-export const walkQuery = () =>
-  queryOptions({
-    queryKey: ['places', 'walk'],
-    queryFn: ({ signal }) => request<WalkImports>('/places/walk', undefined, signal),
-    // While an import runs the page follows it; otherwise there is nothing to ask about.
-    refetchInterval: q => (walkActive(q.state.data?.job) ? 2000 : false),
-    staleTime: 0,
-  });
-
-/** Upload a walk (the zip Stray Scanner exports, or a video). The body is the file itself, sent as
- *  application/octet-stream: the type the route takes, and one no cross-site page can send unasked. */
-export const uploadWalk = (file: File, onProgress?: (share: number) => void) =>
-  upload<{ job: WalkJob }>(
-    `/places/walk/upload?${new URLSearchParams({ name: file.name })}`,
-    file.slice(0, file.size, 'application/octet-stream'),
-    onProgress,
-  );
-
-export const retryWalk = () => request<{ job: WalkJob }>('/places/walk/retry', {});
-export const dismissWalk = () => request<{ job: null }>('/places/walk/dismiss', {});
