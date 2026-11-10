@@ -1681,11 +1681,42 @@ PLAN_NEAR_SHARE = 0.6
 PLAN_INSIDE = 0.9
 
 
-def by_plan(state: Path, place: str, points: np.ndarray) -> tuple[np.ndarray, str] | None:
-    """Where a LiDAR walk's levelled cloud (`points`, floor at z = 0, metres) stands in `place`'s fused map by the
-    owner's plan: its wall band registered to the plan (plan_import.register, every turn and shift), when the
-    plan holds drawn on the fused map's frame and the fit passes PLAN_MEDIAN_M, PLAN_NEAR_SHARE, and PLAN_INSIDE. The
-    4x4 from the levelled cloud into the fused map, with what it found for the log; None otherwise."""
+#: A fit that passes the median and the floor share but has this share of its walls near the plan's, short of
+#: PLAN_NEAR_SHARE, is a near miss (`PlanFit.near_miss`): a walk through rooms the owner drew with no LiDAR walk to go
+#: by, whose plan walls are approximate. It is never placed on the plan's word alone: a caller places it only when the
+#: walks already placed agree (`agrees`).
+PLAN_NEAR_MISS = 0.5
+
+
+@dataclass(frozen=True)
+class PlanFit:
+    """How a LiDAR walk's levelled cloud fits a place's owner plan (`plan_fit`)."""
+
+    transform: np.ndarray  # the levelled cloud into the fused map, 4x4, where the fit puts it
+    median: float  # metres from a wall point to the plan's nearest wall face
+    near_share: float  # the share of its wall points within plan_import.NEAR_FACE of one
+    inside: float  # the share of its floor inside the plan's rooms
+    found: str  # the three, for a log or a person
+
+    @property
+    def ok(self) -> bool:
+        return self.median <= PLAN_MEDIAN_M and self.near_share >= PLAN_NEAR_SHARE and self.inside >= PLAN_INSIDE
+
+    @property
+    def near_miss(self) -> bool:
+        """Not `ok`, but only for want of wall share, and not by much (PLAN_NEAR_MISS)."""
+        return (
+            not self.ok
+            and self.median <= PLAN_MEDIAN_M
+            and self.inside >= PLAN_INSIDE
+            and self.near_share >= PLAN_NEAR_MISS
+        )
+
+
+def plan_fit(state: Path, place: str, points: np.ndarray) -> PlanFit | None:
+    """A LiDAR walk's levelled cloud (`points`, floor at z = 0, metres) registered to `place`'s owner plan
+    (plan_import.register on its wall band, every turn and shift), whether or not the fit is good enough to place it
+    by (`PlanFit.ok`). None when no owner plan holds drawn on the fused map's frame, or the plan can't be read."""
     from liberational.spatial import plan_import  # the owner plan reader
 
     known = places.get(state, place)
@@ -1708,10 +1739,53 @@ def by_plan(state: Path, place: str, points: np.ndarray) -> tuple[np.ndarray, st
         f"fit to the owner plan: walls median {fit.median * 100:.1f} cm, {fit.near_share:.0%} within "
         f"{plan_import.NEAR_FACE * 100:.0f} cm of a wall, {inside:.0%} of its floor inside the rooms"
     )
-    if not (fit.median <= PLAN_MEDIAN_M and fit.near_share >= PLAN_NEAR_SHARE and inside >= PLAN_INSIDE):
-        LOG.info("%s: the walk doesn't fit the owner plan well enough (%s)", place, found)
+    transform = np.linalg.inv(_plan_matrix(frame)) @ plan_import.undo(LEVEL_PLAN, fit.move)
+    return PlanFit(transform, float(fit.median), float(fit.near_share), inside, found)
+
+
+def by_plan(state: Path, place: str, points: np.ndarray) -> tuple[np.ndarray, str] | None:
+    """Where a LiDAR walk's levelled cloud (`points`, floor at z = 0, metres) stands in `place`'s fused map by the
+    owner's plan (`plan_fit`), when the plan holds drawn on the fused map's frame and the fit passes PLAN_MEDIAN_M,
+    PLAN_NEAR_SHARE, and PLAN_INSIDE. The 4x4 from the levelled cloud into the fused map, with what it found for the
+    log; None otherwise."""
+    fit = plan_fit(state, place, points)
+    if fit is None:
         return None
-    return np.linalg.inv(_plan_matrix(frame)) @ plan_import.undo(LEVEL_PLAN, fit.move), found
+    if not fit.ok:
+        LOG.info("%s: the walk doesn't fit the owner plan well enough (%s)", place, fit.found)
+        return None
+    return fit.transform, fit.found
+
+
+AGREE_SCALE = 0.02  # how far from 1 the scale of a metric cloud's fit to the map may be (`agrees`)
+
+
+def agrees(new_pts: np.ndarray, map_pts: np.ndarray, start: np.ndarray) -> tuple[np.ndarray, str] | None:
+    """Whether a map agrees with where something else put a levelled cloud (`start`, the cloud into the map's
+    frame): the cloud registered by ICP from `start` against the map around there (SEAT_PAD_M) fits it
+    (`Registration.ok`: MIN_FITNESS of the cloud over the map's footprint within INLIER_M, and MIN_INLIERS) and ends
+    within SEAT_SHIFT_M and SEAT_TURN_DEG of `start`, at the scale it had (AGREE_SCALE). The registered 4x4 and what it found; None when the map has
+    nothing there, the cloud doesn't fit it, or fitting it takes it away from `start`. The second, independent check
+    that lets a rebuild place a walk whose plan fit is a near miss."""
+    new_pts = np.asarray(new_pts, dtype=np.float64).reshape(-1, 3)
+    placed = apply(start, new_pts)
+    lo, hi = placed.min(axis=0) - SEAT_PAD_M, placed.max(axis=0) + SEAT_PAD_M
+    around = map_pts[np.all((map_pts >= lo) & (map_pts <= hi), axis=1)]
+    if len(around) == 0:
+        return None
+    reg = register(new_pts, around, start=start)
+    centre = new_pts.mean(axis=0)
+    shift = float(np.linalg.norm(apply(reg.transform, centre[None]) - apply(start, centre[None])))
+    turn = abs(math.degrees(_yaw(reg.transform[:3, :3] @ np.linalg.inv(start[:3, :3]))))
+    # ICP fits a scale too (the fixed cameras' clouds need one). A LiDAR walk is metric: one that only fits the map
+    # stretched or shrunk is fitting some other room of about its size.
+    scale = float(np.cbrt(np.linalg.det(reg.transform[:3, :3]) / np.linalg.det(start[:3, :3])))
+    if not (reg.ok and shift <= SEAT_SHIFT_M and turn <= SEAT_TURN_DEG and abs(scale - 1.0) <= AGREE_SCALE):
+        return None
+    return reg.transform, (
+        f"the walks already placed agree: fitness {reg.fitness:.2f} over them, {reg.inliers} inliers, "
+        f"{shift:.2f} m and {turn:.1f} degrees from where the plan put it, scale {scale:.3f}"
+    )
 
 
 def on_spots(

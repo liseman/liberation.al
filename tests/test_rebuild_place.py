@@ -105,7 +105,7 @@ def walk_piece(room):
 def test_a_walk_read_from_its_folder_is_placed_where_the_owners_plan_has_its_room(tmp_path, home):
     piece = walk_piece(box_room(4, 3))
     placed = rp.place_folder(tmp_path, home.place, "71de12f9", piece, pi.parse(BOX), LEVEL)
-    assert placed is not None and placed.name == "71de12f9"
+    assert not isinstance(placed, str) and placed.name == "71de12f9"
     there = fuse.apply(placed.transform, piece.points)
     assert there[:, :2].min(axis=0) == pytest.approx([20.0, 5.0], abs=0.05)
     assert there[:, :2].max(axis=0) == pytest.approx([24.0, 8.0], abs=0.05)
@@ -113,7 +113,8 @@ def test_a_walk_read_from_its_folder_is_placed_where_the_owners_plan_has_its_roo
 
 
 def test_a_walk_that_doesnt_fit_the_owners_plan_is_not_placed(tmp_path, home):
-    assert rp.place_folder(tmp_path, home.place, "71de12f9", walk_piece(box_room(9, 9)), pi.parse(BOX), LEVEL) is None
+    refused = rp.place_folder(tmp_path, home.place, "71de12f9", walk_piece(box_room(9, 9)), pi.parse(BOX), LEVEL)
+    assert isinstance(refused, str) and refused.endswith("not a fit")
 
 
 def test_two_walks_looks_keep_names_of_their_own():
@@ -123,3 +124,100 @@ def test_two_walks_looks_keep_names_of_their_own():
     second = rp.distinct({"walk-0m00s": look, "walk-1m00s": look}, taken)
     assert sorted(first) == ["walk-0m00s", "walk-0m30s"]
     assert sorted(second) == ["walk-0m00sb", "walk-1m00s"]
+
+
+def sketched(room, share, seed=3):
+    """`room` with clutter the plan doesn't draw: wall-height points inside it, away from its walls, making up `share`
+    of its wall band, as a walk through rooms the owner only sketched has."""
+    rng = np.random.default_rng(seed)
+    walls = int((room[:, 2] > 0.3).sum())
+    n = int(walls * share / (1 - share))
+    inner = np.c_[rng.uniform(1.0, 3.0, n), rng.uniform(0.8, 2.2, n), rng.uniform(0.4, 1.9, n)]
+    return np.r_[room, inner]
+
+
+def in_the_box(points):
+    """Where the plan has the room: the made-up room moved to the box at 20,5."""
+    return points + [20.0, 5.0, 0.0]
+
+
+def test_a_near_miss_is_a_fit_short_only_of_wall_share_and_not_by_much():
+    def fit(median, near, inside):
+        return fuse.PlanFit(np.eye(4), median, near, inside, "")
+
+    assert fit(0.057, 0.59, 0.97).near_miss and not fit(0.057, 0.59, 0.97).ok
+    assert fit(0.03, 0.82, 1.0).ok and not fit(0.03, 0.82, 1.0).near_miss
+    assert not fit(0.057, 0.49, 0.97).near_miss, "too few walls near the plan's"
+    assert not fit(0.07, 0.59, 0.97).near_miss, "the median misses"
+    assert not fit(0.057, 0.59, 0.85).near_miss, "the floor misses"
+
+
+def test_a_near_miss_walk_is_placed_when_a_walk_already_placed_agrees(tmp_path, home):
+    piece = walk_piece(sketched(box_room(4, 3), 0.36))
+    plan = pi.parse(BOX)
+    fit = fuse.plan_fit(tmp_path, home.place, piece.points)
+    assert fit is not None and fit.near_miss  # about 54% of its walls are near the plan's
+    alone = rp.place_folder(tmp_path, home.place, "second", piece, plan, LEVEL)
+    assert isinstance(alone, str) and "no walk placed yet" in alone, "not on the plan's word alone"
+    earlier = in_the_box(box_room(4, 3))  # the first walk, placed: the same room, as LiDAR saw it
+    placed = rp.place_folder(tmp_path, home.place, "second", piece, plan, LEVEL, earlier)
+    assert not isinstance(placed, str) and "a near miss" in placed.found and "agree" in placed.found
+    there = fuse.apply(placed.transform, piece.points)
+    assert there[:, :2].min(axis=0) == pytest.approx([20.0, 5.0], abs=0.05)
+    assert there[:, :2].max(axis=0) == pytest.approx([24.0, 8.0], abs=0.05)
+
+
+def test_a_near_miss_walk_is_refused_when_the_walks_already_placed_dont_agree(tmp_path, home):
+    piece = walk_piece(sketched(box_room(4, 3), 0.36))
+    plan = pi.parse(BOX)
+    fit = fuse.plan_fit(tmp_path, home.place, piece.points)
+    assert fit is not None and fit.near_miss
+    elsewhere = in_the_box(box_room(4, 3)) + [40.0, 0.0, 0.0]  # nothing where the plan put the walk
+    nothing_there = rp.place_folder(tmp_path, home.place, "second", piece, plan, LEVEL, elsewhere)
+    assert isinstance(nothing_there, str) and "don't agree" in nothing_there
+    other = in_the_box(box_room(9, 9) * [0.3, 0.3, 1.0] + [0.6, 0.2, 0.0])  # something there, but not this room
+    another_room = rp.place_folder(tmp_path, home.place, "second", piece, plan, LEVEL, other)
+    assert isinstance(another_room, str)
+
+
+def test_a_walk_that_misses_the_median_is_refused_whatever_else_is_placed(tmp_path, home):
+    wrong = walk_piece(box_room(9, 9))
+    refused = rp.place_folder(tmp_path, home.place, "x", wrong, pi.parse(BOX), LEVEL, in_the_box(box_room(4, 3)))
+    assert isinstance(refused, str) and refused.endswith("not a fit")
+
+
+def test_the_walks_the_plan_places_go_first_whatever_order_they_were_given_in(tmp_path, home):
+    near_miss, good = walk_piece(sketched(box_room(4, 3), 0.36)), walk_piece(box_room(4, 3))
+    placed, refused = rp.place_folders(
+        tmp_path, home.place, [("second", near_miss), ("first", good)], pi.parse(BOX), LEVEL
+    )
+    assert [f.name for f in placed] == ["second", "first"] and refused == {}
+    alone, refused = rp.place_folders(tmp_path, home.place, [("second", near_miss)], pi.parse(BOX), LEVEL)
+    assert alone == [] and list(refused) == ["second"] and "no walk placed yet" in refused["second"]
+
+
+def export(folder):
+    folder.mkdir()
+    (folder / "rgb.mp4").write_bytes(b"video")
+    (folder / "odometry.csv").write_text("timestamp, frame\n")
+    return folder
+
+
+def test_a_walk_read_once_isnt_read_again_until_its_recording_changes(tmp_path):
+    folder = export(tmp_path / "71de12f9")
+    look = places.CameraPose(tuple(float(v) for v in np.arange(16)), 300.0, 640, 360)
+    reads = []
+
+    def read(path):
+        reads.append(path)
+        return np.ones((5, 3), np.float32), np.full((5, 3), 7, np.uint8), (0.0, 0.0, 1.0, 0.0), {"walk-0m00s": look}
+
+    first, cached = rp.read_piece(folder, tmp_path / "cache", read)
+    again, cached_again = rp.read_piece(folder, tmp_path / "cache", read)
+    assert (cached, cached_again, reads) == (False, True, [folder])
+    assert again.points.tolist() == first.points.tolist() and again.colors.tolist() == first.colors.tolist()
+    assert tuple(again.floor) == (0.0, 0.0, 1.0, 0.0) and again.cameras == {"walk-0m00s": look}
+    (folder / "odometry.csv").write_text("timestamp, frame\n0, 0\n")  # the recording changed
+    rp.read_piece(folder, tmp_path / "cache", read)
+    rp.read_piece(folder, None, read)  # and with no cache it is read every time
+    assert len(reads) == 3
