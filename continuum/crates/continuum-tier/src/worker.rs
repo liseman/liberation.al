@@ -14,7 +14,9 @@
 //!   commit the broker refuses for good can never succeed. A whole chunk's file is set aside (renamed `.rejected`)
 //!   and the queue moves on. A later part's chunk is in the catalog already (a purge hid it, say), so its file
 //!   stays: the chunk is closed, the records the catalog doesn't hold are moved into a new chunk file
-//!   ([`crate::chunk::split_off`]), and that is committed as a chunk of its own.
+//!   ([`crate::chunk::split_off`]), and that is committed as a chunk of its own. Records that start before
+//!   their chunk's last committed frame (a camera's times stepped back) are never sent as a part: the flusher
+//!   closes the chunk at the next keyframe and they move to a chunk of their own the same way.
 //! - Chunks a crash left open come back from [`crate::recover`], with each stream's newest finished one. Each is
 //!   committed once its stream is declared again (its header needs the stream's shape, which the first payload
 //!   brings): whole when the catalog doesn't know it, or only the records past what the catalog holds of it
@@ -472,6 +474,7 @@ impl<O: Outputs> WorkerLoop<O> {
                     absorbed,
                     durable: Vec::new(),
                     provenance,
+                    stepped_back: false,
                 };
                 self.counts.recovered += 1;
                 let refused = (self.counts.rejected, self.counts.rehomed);
@@ -900,6 +903,10 @@ impl<O: Outputs> WorkerLoop<O> {
             self.gathered.push(closed);
             return;
         }
+        if closed.stepped_back && closed.first_frame > 0 {
+            self.step_back(&closed);
+            return;
+        }
         if !self.uncommitted.is_empty() {
             self.uncommitted.push_back(closed);
             self.retry();
@@ -913,6 +920,29 @@ impl<O: Outputs> WorkerLoop<O> {
                 self.uncommitted.push_back(closed);
             }
             Err(CommitFailure::Reject(e)) => self.reject(closed, &e),
+        }
+    }
+
+    /// A chunk closed with records that start before its last committed frame: the stream's times stepped back
+    /// (capture started a network camera's clock fit over). The catalog would refuse them as the chunk's last part,
+    /// so they aren't sent: they move to a chunk of their own, which the catalog takes whole, as after a refused
+    /// part ([`WorkerLoop::rehome`]). The flusher closed the chunk before the keyframe that follows, so that frame
+    /// opens the next chunk and nothing after it is dropped.
+    fn step_back(&mut self, closed: &Closed) {
+        tracing::info!(
+            "stream {}'s frame times stepped back; the {} records since chunk {}'s last part move to a new chunk",
+            closed.stream.0,
+            closed.records.len(),
+            closed.path.display()
+        );
+        self.counts.rehomed += 1;
+        match self.rehome(&closed.path, closed.stream, closed.first_frame as usize) {
+            Ok(Some(moved)) => self.finish(moved),
+            Ok(None) => self.out.rejected(closed, &closed.path),
+            Err(e) => {
+                tracing::warn!("moving the records of {} failed: {e}", closed.path.display());
+                self.out.rejected(closed, &closed.path);
+            }
         }
     }
 
@@ -1067,6 +1097,7 @@ impl<O: Outputs> WorkerLoop<O> {
             absorbed,
             durable: Vec::new(),
             provenance,
+            stepped_back: false,
         }))
     }
 
