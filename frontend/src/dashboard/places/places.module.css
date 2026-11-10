@@ -233,8 +233,9 @@
 .planFrame {
   display: block;
   width: 100%;
-  /* low enough that Save, above it, and the plan are on one screen */
-  height: min(70vh, 720px);
+  /* as tall as the window has left under where it starts (PlanFrame measures that), so Save, above it, and the plan
+     are on one screen */
+  height: calc(100dvh - var(--plan-top, 0px) - var(--bottom-h, 0px) - var(--mantine-spacing-md));
   min-height: 26rem;
   border: 0;
   border-radius: var(--mantine-radius-md);
@@ -355,8 +356,8 @@
   font-weight: 500;
 }
 
-/* On a phone the editor takes the screen: its frame fills the height left under the page's bars, and Versions,
-   Discard, and Save stack at full width above it. */
+/* On a phone the editor takes the screen: its frame is the height between the page's bars, scrolled to, and
+   Versions, Discard, and Save stack at full width above it. */
 @media (max-width: 720px) {
   .planFrame {
     height: calc(100dvh - 9rem);

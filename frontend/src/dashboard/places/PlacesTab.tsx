@@ -235,10 +235,11 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
                     )}
                   </div>
                   <Group gap="xs" wrap="wrap">
-                    {views.length > 1 && (
+                    {/* hidden while the editor is open: Close editor is the one way out of it */}
+                    {views.length > 1 && !editing && (
                       <SegmentedControl
                         size="xs"
-                        value={editing ? '' : shown}
+                        value={shown}
                         onChange={v => leave(() => setView(v as View))}
                         data={views}
                         aria-label="Show the place as"
