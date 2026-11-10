@@ -1,8 +1,7 @@
 """The vision log on Continuum: captions, detections, matches, poses, crossings, motion, and visits as broker
-payloads, read back in the shapes v1's readers use.
+payloads, read back as dicts.
 
-v1 kept vision in `scene.json`, `camera_history.sqlite3`, `detections.sqlite3`, `sightings.sqlite3`, and
-`poses.sqlite3`. On Continuum each is a stream of small JSON payloads stored inline in the catalog (a pose or a
+Each is a stream of small JSON payloads stored inline in the catalog (a pose or a
 detection is far under the 64 KiB inline cap). The header carries the time (UTC nanoseconds, half open), the producer,
 and the provenance (the frames it came from, as parents); the JSON body carries the rest. Face embeddings aren't in
 the body: they go to the vector worker, keyed by the detection's payload id.
@@ -12,7 +11,7 @@ device: a reader asks for "captions over this hour" more often than for one came
 from the same query.
 
 Readers get dicts with `ts_start` and `ts_end` (seconds, from the header), `id` (the payload's id), and the stream's
-body keys. `VisionLog` is the synchronous face for v1's threaded code; async code uses `read_range` and `follow` with
+body keys. `VisionLog` is the synchronous face for threaded code; async code uses `read_range` and `follow` with
 its own client.
 """
 
@@ -333,8 +332,8 @@ async def follow(
 
 
 def scene_entries(captions: Iterable[dict[str, Any]], limit: int = 30) -> list[dict[str, Any]]:
-    """Caption records as `scene.json`'s entries were: the newest `limit`, oldest first, each with `ts` (its start,
-    seconds) as v1's entries had."""
+    """Caption records as the scene's entries: the newest `limit`, oldest first, each with `ts` (its start,
+    seconds)."""
     newest = sorted(captions, key=lambda r: (r["ts_start"], r["id"]))[-limit:] if limit > 0 else []
     return [{**r, "ts": r["ts_start"]} for r in newest]
 
@@ -349,22 +348,21 @@ def latest_by_camera(captions: Iterable[dict[str, Any]]) -> dict[str, dict[str, 
 
 def is_real(caption: Mapping[str, Any]) -> bool:
     """Whether a `camera.caption` record is a description the VLM gave then: not a repeat of an earlier one for an
-    unchanged view (`unchanged`), and not empty (warming up, or a failed call). v1's readers told these apart by its
-    placeholder captions ("No new caption", "No caption yet")."""
+    unchanged view (`unchanged`), and not empty (warming up, or a failed call)."""
     text = caption.get("caption")
     return isinstance(text, str) and bool(text.strip()) and not caption.get("unchanged")
 
 
 def as_v1_row(caption: Mapping[str, Any]) -> dict[str, Any]:
-    """A `camera.caption` record with v1's `observations` names beside its own: `ts` (its start, seconds) and `yaw`
-    (`yaw_deg`), for readers written against camera_history's rows."""
+    """A `camera.caption` record with two more names beside its own, which some readers use: `ts` (its start,
+    seconds) and `yaw` (`yaw_deg`)."""
     return {**caption, "ts": caption["ts_start"], "yaw": caption.get("yaw_deg", 0.0)}
 
 
 class VisionLog:
     """The vision log for synchronous code: one broker client on a background event loop (see `BrokerLink`)."""
 
-    #: How far back `scene` looks for the newest captions (v1's scene.json kept the last 30 entries, about half a
+    #: How far back `scene` looks for the newest captions (the last 30 entries are about half a
     #: minute of captioning; an hour covers a camera that's been unchanged for a while).
     SCENE_WINDOW_S = 3600.0
 
@@ -511,7 +509,7 @@ class VisionLog:
 
     def captions(self, start: float, end: float, cams: Iterable[str] = ()) -> list[dict[str, Any]]:
         """Every `camera.caption` record overlapping [start, end) (seconds), on `cams` when given, in time order, each
-        with v1's row names too (`as_v1_row`)."""
+        with `ts` and `yaw` too (`as_v1_row`)."""
         wanted = set(cams)
         rows = self._captions(start, end, sorted(wanted) if wanted else None)
         return [as_v1_row(r) for r in rows if not wanted or r.get("cam") in wanted]

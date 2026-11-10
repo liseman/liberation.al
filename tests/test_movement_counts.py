@@ -1,5 +1,6 @@
 """Movement counts retain source evidence, uncertainty, and camera-local identity."""
 
+import numpy as np
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
@@ -24,6 +25,8 @@ def cover(vision, start=0.0, end=20.0, *, cam="cam0", **fields):
         gaps=[],
         tracking="complete",
         camera_motion="stable",
+        finished=True,
+        closure="open",
         **fields,
     )
 
@@ -204,7 +207,7 @@ def test_coarrival_is_same_camera_and_all_possible_event_times_must_be_close(tmp
 
 def test_read_error_is_unavailable_and_does_not_fall_back_to_zero(tmp_path, monkeypatch):
     class Offline:
-        def range(self, stream, start, end):
+        def table(self, stream, start, end, names):
             raise ConnectionRefusedError("store unreadable")
 
     monkeypatch.setattr(segment_log, "at", lambda state: Offline())
@@ -217,6 +220,10 @@ def test_reads_only_one_expanded_window_per_stream_and_keeps_no_day_cache(tmp_pa
     class Empty:
         def __init__(self):
             self.calls = []
+
+        def table(self, stream, start, end, names):
+            self.calls.append((stream, start, end))
+            return {}
 
         def range(self, stream, start, end):
             self.calls.append((stream, start, end))
@@ -414,8 +421,8 @@ def test_append_between_reads_cannot_mix_old_empty_tracks_with_new_complete_cove
     original = vision.range
     appended = []
 
-    def racing_read(stream, start, end):
-        rows = original(stream, start, end)
+    def racing_read(stream, start, end, cameras=None):
+        rows = original(stream, start, end, cameras)
         if not appended:
             cover(vision)
             fragment(vision, entry=edge(2))
@@ -481,7 +488,7 @@ _spans = st.lists(
 
 @given(support=_spans, barriers=_spans, observed=_spans.filter(bool), gaps=_spans, at=_spans.filter(bool))
 def test_the_day_index_answers_as_the_whole_day_lists_do(support, barriers, observed, gaps, at):
-    """The per-camera index (#1591) is only a faster way to ask the same questions of a day's spans."""
+    """The per-camera index is only a faster way to ask the same questions of a day's spans."""
     supported = movement._subtract(support, barriers)
     index = movement._Index(supported, barriers)
     span = (min(lo for lo, _ in observed + gaps), max(hi for _, hi in observed + gaps))
@@ -491,3 +498,81 @@ def test_the_day_index_answers_as_the_whole_day_lists_do(support, barriers, obse
     for edge in at:
         reference = movement._covered(edge, supported, [*barriers, *((p, p) for p in points)])
         assert index.covered(edge, points) == reference
+
+
+def mixed_day(add):
+    """Coverage of every kind `collect` tells apart, and a track across it: mostly plain rows, as a real day is."""
+    for at in range(0, 40, 2):
+        add(COVERAGE, at, at + 2)
+    add(COVERAGE, 40, 44, tracking="partial")
+    add(COVERAGE, 44, 48, gaps=[[45, 46]])
+    add(COVERAGE, 48, 52, camera_motion="moved")
+    add(COVERAGE, 52, 56, frames=0)
+    add(COVERAGE, 56, 60, supported=[[59, 57]])  # reversed: an invalid row
+    add(COVERAGE, 60, 64, supported=[[60, 61], [62, 64]])
+    add(TRACKS, 4, 30, entry=edge(4.0), exit=edge(30.0, side="right"))
+
+
+def test_the_column_path_for_plain_coverage_answers_as_the_row_checks_do(tmp_path, vision, monkeypatch):
+    def add(stream, start, end, **fields):
+        if stream == TRACKS:
+            return fragment(vision, start=start, end=end, **fields)
+        row = dict(
+            version=1,
+            frames=20,
+            supported=[[start, end]],
+            gaps=[],
+            tracking="complete",
+            camera_motion="stable",
+            finished=True,
+            closure="open",
+        )
+        return vision.add(COVERAGE, ts_start=start, ts_end=end, cam="cam0", **{**row, **fields})
+
+    mixed_day(add)
+    fast = movement.collect(tmp_path, start=0, end=70)
+    plain = movement._plain(vision.table(COVERAGE, 0, 70, movement.COVERAGE_COLUMNS)["cam0"])
+    assert plain.tolist() == [True] * 20 + [False] * 6
+    monkeypatch.setattr(movement, "_plain", lambda columns: np.zeros(len(columns["ts_ns"]), dtype=bool))
+    assert movement.collect(tmp_path, start=0, end=70) == fast, "every row through the row checks: the same answer"
+    camera = fast["cameras"]["cam0"]
+    assert (camera["entry_count"], camera["exit_count"]) == (None, None), "the invalid row leaves no count"
+    assert len(fast["errors"]) == 1
+    assert len(camera["source_ids"]) == 23, "the steady rows with frames: plain, partial, gapped, and two-span"
+
+
+def test_plain_coverage_is_told_from_the_stores_own_columns(tmp_path, monkeypatch):
+    pytest.importorskip("continuum_py").SegmentWriter  # noqa: B018 (the native store must be built)
+    store = tmp_path / "segments"
+    writers = segment_log.Writers(store)
+    T = 1_800_000_000.0
+
+    def add(stream, start, end, **fields):
+        row = dict(
+            id=segment_log.new_id(),
+            ts_start=T + start,
+            ts_end=T + end,
+            version=1,
+            frames=20,
+            gaps=[],
+            supported=[[T + start, T + end]],
+            tracking="complete",
+            camera_motion="stable",
+            finished=True,
+            closure="open",
+        )
+        if stream == COVERAGE:
+            shifted = {k: [[T + a, T + b] for a, b in v] for k, v in fields.items() if k in ("supported", "gaps")}
+            writers.append(COVERAGE, "cam0", [{**row, **fields, **shifted}])
+
+    mixed_day(add)
+    writers.close()
+    log = segment_log.Log(store)
+    monkeypatch.setattr(segment_log, "at", lambda state=None: log)
+    columns = log.table(COVERAGE, T, T + 70, movement.COVERAGE_COLUMNS)["cam0"]
+    assert movement._plain(columns).tolist() == [True] * 20 + [False] * 6
+    fast = movement.collect(tmp_path, start=T, end=T + 70)
+    monkeypatch.setattr(movement, "_plain", lambda columns: np.zeros(len(columns["ts_ns"]), dtype=bool))
+    assert movement.collect(tmp_path, start=T, end=T + 70) == fast
+    # Complete tracking only: the 20 plain rows (40 s), the row around its gap (3 s), and the two-span row (3 s).
+    assert fast["cameras"]["cam0"]["supported_s"] == pytest.approx(46)

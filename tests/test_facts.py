@@ -320,7 +320,7 @@ def test_a_fact_keeps_the_hours_that_still_support_it_when_one_is_rebuilt(env, m
 
 
 def test_a_purged_hour_takes_only_its_own_records_and_the_rebuilt_hour_adds_to_what_stands(env, monkeypatch):
-    """#878: a fact from hours a and b is one record per hour, so purging a leaves it standing on b, and a's
+    """A fact from hours a and b is one record per hour, so purging a leaves it standing on b, and a's
     rewritten window restates it instead of starting it over."""
     by_content(
         monkeypatch, {"dog": ("habit", "Dana walks the dog."), "tea": ("preference", "Dana likes tea.")}, same_by_text
@@ -433,7 +433,7 @@ def test_a_pass_reads_a_few_hours_at_a_time_and_stops_for_voice(env, monkeypatch
 
 
 def test_retiring_a_facts_last_support_takes_the_fact(env, monkeypatch):
-    """Codex on #872: a fact must not come back in an earlier form once nothing supports it."""
+    """A fact must not come back in an earlier form once nothing supports it."""
     by_content(monkeypatch, {"dog": ("habit", "Dana walks the dog.")}, same_by_text)
     a = hour(env, T0, "[S3] walked the dog.")
     b = hour(env, T0 + 3600, "[S3] walked the dog again.")
@@ -511,7 +511,7 @@ def ollama(env, monkeypatch):
 
 
 def test_an_hour_whose_reply_stays_broken_is_skipped_and_the_next_hour_is_read(env, ollama):
-    """#1271: a reply cut off mid-string (JSONDecodeError) left the hour unacknowledged, so every pass tried it again
+    """A reply cut off mid-string (JSONDecodeError) left the hour unacknowledged, so every pass tried it again
     and the facts pass sat on it for hours. A bad reply is retried a few times, then the hour is skipped with a log
     line naming it, and the pass goes on."""
     broken = hour(env, T0, "[S3] talked for a long while.")

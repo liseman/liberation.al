@@ -1,6 +1,6 @@
-// Review's "?" on the control bar (#2454): the keyboard shortcuts and the key to the timeline, out of the way until
-// someone asks. The shortcuts come from the same table the engine dispatches on (reviewKeys.ts, #2285). Laid out as
-// two aligned columns (#2577): the keys or the swatch on the left, what it means on the right, in short sections.
+// Review's "?" on the control bar: the keyboard shortcuts and the key to the timeline, out of the way until
+// someone asks. The shortcuts come from the same table the engine dispatches on (reviewKeys.ts). Laid out as
+// two aligned columns: the keys or the swatch on the left, what it means on the right, in short sections.
 import { ActionIcon, Kbd, Popover } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import { IconQuestionMark } from '@tabler/icons-react';
@@ -52,7 +52,7 @@ export function ReviewHelp({ timeline = false }: { timeline?: boolean }) {
       width="min(360px, calc(100vw - 16px))"
       middlewares={{ flip: true, shift: { padding: 8 }, size: { padding: 8 } }}
       // A panel to read and scroll, so it takes focus when it opens and gives it back to "?" when it closes (Escape,
-      // or a click outside), as a dialog does: keyboard users land in it and can scroll it (the pass, #2621).
+      // or a click outside), as a dialog does: keyboard users land in it and can scroll it (the pass).
       trapFocus
       returnFocus
     >

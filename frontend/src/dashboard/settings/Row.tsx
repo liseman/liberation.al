@@ -1,4 +1,4 @@
-// One setting in Settings (#382): its plain label and one line of help, the control, and Reset while it differs from
+// One setting in Settings: its plain label and one line of help, the control, and Reset while it differs from
 // what is saved, which also marks it as changed. In Advanced, its raw key and comment, and Default or Changed.
 import { Button, Code, PasswordInput, Radio, Stack, Switch, TagsInput, Text, TextInput } from '@mantine/core';
 import type { ReactNode } from 'react';
@@ -167,7 +167,7 @@ export function SettingRow({ row }: { row: Setting }) {
         <Text size="sm" c="dimmed">
           {helpOf(row)}
         </Text>
-        {/* A feature says so only when it's not as it comes (#2728), instead of "On by default." on every line */}
+        {/* A feature says so only when it's not as it comes, instead of "On by default." on every line */}
         {row.feature && row.type === 'bool' && !sameAsDefault(row, d.value(row.key)) && (
           <Text size="xs" className={classes.isChanged}>
             Changed: {row.default ? 'on' : 'off'} by default

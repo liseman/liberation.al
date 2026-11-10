@@ -5,8 +5,8 @@ import { startTelemetry } from '../shared/telemetry';
 import { App } from './App';
 import { followPreloadErrors } from './lib/staleChunk';
 
-startTelemetry(); // errors, failed and slow requests, and slow navigations, to logs/frontend.log (#2007)
-followPreloadErrors(); // a chunk a redeploy removed reloads once for the new build (#2005)
+startTelemetry(); // errors, failed and slow requests, and slow navigations, to logs/frontend.log
+followPreloadErrors(); // a chunk a redeploy removed reloads once for the new build
 
 const root = document.getElementById('app');
 if (!root) throw new Error('index.html has no #app element');

@@ -64,8 +64,8 @@ pub struct AccessUnit {
 /// recorder's connect burst (its buffered GOP) to drain.
 const SETTLE_NS: i128 = 30_000_000_000;
 /// After settling, how much source time a fit must span before its rate is judged: a fit restarted near the end of
-/// settling held 2 to 4 anchors over 1 to 3 s when kitchen and bedroom were refused at slopes of 1.009 and 0.983
-/// (#1662), ordinary jitter on so short a line. Until then an out-of-bound fit is neither used nor judged.
+/// settling held 2 to 4 anchors over 1 to 3 s when kitchen and bedroom were refused at slopes of 1.009 and 0.983,
+/// ordinary jitter on so short a line. Until then an out-of-bound fit is neither used nor judged.
 const MIN_FIT_SPAN_NS: f64 = 10_000_000_000.0;
 
 /// Places a remote video clock on host monotonic time using a bounded set of low-delay anchors.
@@ -76,7 +76,7 @@ const MIN_FIT_SPAN_NS: f64 = 10_000_000_000.0;
 /// (re-anchors) and recording goes on, with source time from the new anchor, capped at arrival, until a new line
 /// fits. Reconnecting instead cost every re-anchor a gap until the next IDR plus the restart wait: on 11-07 driveway
 /// and patio were judged off by a median 35% and 6% (up to 488%), a link stalling and bursting, not a clock, and
-/// reconnected 45 times an hour (#2904). Timestamp discontinuities still cause a reconnect; B-frame presentation
+/// reconnected 45 times an hour. Timestamp discontinuities still cause a reconnect; B-frame presentation
 /// reorder is explicitly allowed.
 pub struct NetworkClock {
     origin: Option<(i64, u64)>,
@@ -158,9 +158,9 @@ impl NetworkClock {
                             return Ok((estimated.max(0.0) as u64).min(arrival_ns));
                         }
                         if settled {
-                            // Start over and keep recording (#2904). The first one says
-                            // what the fit saw, so it tells a few noisy anchors from a clock that really runs off
-                            // (#1662); the worker's health line counts the rest.
+                            // Start over and keep recording. The first one says
+                            // what the fit saw, so it tells a few noisy anchors from a clock that really runs off;
+                            // the worker's health line counts the rest.
                             self.re_anchored += 1;
                             if self.re_anchored == 1 {
                                 self.note = Some(format!(
@@ -176,7 +176,7 @@ impl NetworkClock {
                             }
                             // From the rejected fit's least-delayed anchor, not this picture: after a stall this one
                             // is likely from the backlog's burst, seconds late, and every stamp until the next line
-                            // would be late by as much (the review of #2925).
+                            // would be late by as much.
                             if let Some((x, host)) = self.fit.least_lag() {
                                 let anchor = (i128::from(origin) + x as i128) as i64;
                                 let anchor_arrival = (host.max(0.0) as u64).min(arrival_ns);
@@ -272,7 +272,7 @@ impl AnnexB {
         Ok(out)
     }
 
-    /// Log lines about parameter sets the stream replaced since the last call (#1640).
+    /// Log lines about parameter sets the stream replaced since the last call.
     pub fn take_notes(&mut self) -> Vec<String> {
         std::mem::take(&mut self.notes)
     }
@@ -328,7 +328,7 @@ impl AnnexB {
                     )));
                 } else {
                     // Same profile, chroma, depth, size, and frame coding: a level, constraint, VUI, reference
-                    // count, or PPS difference decodes into the same pictures, so keep recording (#1640).
+                    // count, or PPS difference decodes into the same pictures, so keep recording.
                     self.notes.push(format!(
                         "RTSP parameter sets changed without changing the layout; continuing{}: {change}",
                         if idr { "" } else { " from the next IDR" }
@@ -661,7 +661,7 @@ mod tests {
 
 /// How many times a picture that finds Tier 0 full tries again, `FULL_PAUSE` apart, before it is dropped: about 150 ms,
 /// three of the broker's 50 ms ticks, each of which frees 1/8 of a class with nothing free. A drop costs every picture
-/// up to the next IDR, so waiting is far cheaper; the reader's 8-picture queue covers the wait at 30 fps (#1635).
+/// up to the next IDR, so waiting is far cheaper; the reader's 8-picture queue covers the wait at 30 fps.
 pub const FULL_RETRIES: u32 = 15;
 /// The pause between those tries.
 pub const FULL_PAUSE: std::time::Duration = std::time::Duration::from_millis(10);
@@ -700,7 +700,7 @@ pub struct SlotBudget {
     limit: u64,
     used: u64,
     /// This camera's share of each class, in slots (`class_share`). At its share it recycles its own oldest
-    /// flushed slot before claiming another, so a camera that just connected still finds free slots (#1650).
+    /// flushed slot before claiming another, so a camera that just connected still finds free slots.
     share: u64,
     held: std::collections::VecDeque<(continuum_core::SlotHandle, u64)>,
 }
@@ -845,7 +845,7 @@ impl SlotBudget {
 mod parameter_change_tests {
     use super::{AnnexB, annex_b_units};
 
-    // Recorded in-band sets (#1640): kitchen (Reolink E1 Pro through Protect) and patio.
+    // Recorded in-band sets: kitchen (Reolink E1 Pro through Protect) and patio.
     const KITCHEN_SPS: &[u8] = &[
         0x67, 0x64, 0x00, 0x33, 0xac, 0x15, 0x14, 0xa0, 0xe0, 0x10, 0x68, 0x40, 0x00, 0x01, 0x3d, 0x80, 0x00, 0x18,
         0xce,

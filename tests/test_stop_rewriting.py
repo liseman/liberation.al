@@ -21,7 +21,7 @@ from hypothesis import strategies as hs
 
 import speech_fake
 from liberational import speech_log
-from liberational.dashboard import presence, server
+from liberational.dashboard import context, presence, server, shell_status
 from liberational.domain.identity import Basis
 from liberational.domain.kernel import EventType
 from liberational.memory import history_qa, recall, summarize
@@ -79,7 +79,7 @@ def names(state):
 def legacy_state(state):
     """A state directory with lines as the code before step 4 left them: rewritten by merges, dashboard labels, voice
     tags, unlabels, and backfill relabels. The voices v1 merged (3 into Alice's, 6 into Dana's, 7 into 2) are their
-    own voiceprints now, each named for whoever it was folded into (#772: naming replaces merging)."""
+    own voiceprints now, each named for whoever it was folded into (naming replaces merging)."""
     write_voices(state, {1: "Alice", 2: None, 3: "Alice", 4: "Dana", 5: "Gus", 6: "Dana", 7: None})
     write_lines(
         state,
@@ -119,7 +119,7 @@ def dashboard(monkeypatch):
     def at(state):
         for name, file in (("REFINE_LOG", "refine_log.jsonl"),):
             monkeypatch.setattr(server, name, state / file)
-        monkeypatch.setattr(server, "STATE", state)
+        monkeypatch.setattr(context, "STATE", state)
         monkeypatch.setattr(server, "DASH_PASSWORD", "")
         return state
 
@@ -131,6 +131,9 @@ class Feed(server.H):
 
     def __init__(self, out):
         self.wfile = out
+
+    def _shell_status(self):
+        return shell_status.Status({})  # these feeds are about the transcript: no pauses, services, or research
 
     def send_response(self, code, message=None):
         pass
@@ -402,7 +405,7 @@ def test_the_lines_labeled_as_someone_are_found_for_forgetting(reg):
     assert reg.utterances_of("Nobody") == []
 
 
-# ------------------------------------------------------- two microphones (#247) ----
+# ------------------------------------------------------- two microphones ----
 A, B = registry.utterance(20.0, "Mic A"), registry.utterance(20.0, "Mic B")  # one millisecond, two microphones
 
 
@@ -443,7 +446,7 @@ def test_a_new_label_outranks_an_old_one_on_its_line(reg):
 
 
 def test_an_old_label_on_a_millisecond_two_microphones_share_counts_for_both_until_one_changes(reg, tmp_path):
-    # Decision 2 on #247: what was said under the old id names every line that starts in that millisecond. What is
+    # What was said under the legacy millisecond id names every line that starts in that millisecond. What is
     # said from now on is per line, so undoing or replacing it on one line leaves the other.
     reg.claim(registry.utterance(20.0), "Dana", Basis.OWNER_TAG, "test")
     assert (who(reg, A), who(reg, B)) == ("Dana", "Dana")
@@ -494,7 +497,7 @@ def test_readers_see_a_label_on_only_its_microphones_line_unless_the_other_is_th
     write_lines(tmp_path, apart)
     registry.at(tmp_path).claim(registry.utterance_of(apart[0]), "Dana", Basis.OWNER_TAG, "dashboard")
     assert [e["speaker"] for e in transcript_view.View(tmp_path).lines(apart)] == ["Dana", "Alice"]
-    # The same words on both mics at once are one thing said: the label reaches its copy (#284), each line keeps its key
+    # The same words on both mics at once are one thing said: the label reaches its copy, each line keeps its key
     twins = [{**line(0, "Alice", 1, 0.9), "device": d} for d in ("Mic A", "Mic B")]
     assert [e["speaker"] for e in transcript_view.View(tmp_path).lines(twins)] == ["Dana", "Dana"]
 
@@ -576,7 +579,7 @@ def test_dashboard(heard):
 
 
 def test_a_voices_latest_line_is_found_past_a_newer_line_with_no_voice(heard):
-    # #3051: a newer line with audio but no voice of its own raised KeyError, so the People tab couldn't play the voice.
+    # A newer line with audio but no voice of its own raised KeyError, so the People tab couldn't play the voice.
     unvoiced = {"ts_start": T0 + 8, "ts_end": T0 + 9, "speaker": "", "text": "line 8", "audio": AUDIO}
     write_lines(heard, [*HEARD, unvoiced])
     latest = server.latest_for_speaker(1)

@@ -1,11 +1,11 @@
-"""The same speech heard on two microphones, written as two lines (#284): a label on one copy applies to the other,
+"""The same speech heard on two microphones, written as two lines: a label on one copy applies to the other,
 readers show it once, and "Why this name" explains the copy by the label it borrowed. Each line keeps its own key."""
 
 from unittest.mock import create_autospec
 
 import pytest
 
-from liberational.dashboard import server
+from liberational.dashboard import context, server
 from liberational.domain.identity import Basis
 from liberational.people import registry, transcript_view
 from speech_fake import fake
@@ -28,7 +28,7 @@ LINES = [
 def state(tmp_path, monkeypatch):
     write_voices(tmp_path, {1: None})  # an unnamed voice heard all three
     fake().write(LINES)
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     return tmp_path
 
 
@@ -94,7 +94,7 @@ def test_the_live_feed_resends_a_labeled_line_even_when_it_reads_as_a_copy(state
     assert "hall@1000.400" in {registry.key_of(e) for e in changed}
 
 
-# ---- readers that show or count speech, once (#476) ----
+# ---- readers that show or count speech, once ----
 
 
 def with_audio(state):
@@ -193,7 +193,7 @@ def test_the_same_lines_read_twice_are_decided_once_and_each_reader_gets_its_own
     view = transcript_view.View(state)
     first = view.lines(LINES)
     first[0]["speaker"] = "changed"
-    assert [e["speaker"] for e in view.named(LINES)] == ["Eve", "Eve", "Speaker 1"]  # #2440: lines, then named
+    assert [e["speaker"] for e in view.named(LINES)] == ["Eve", "Eve", "Speaker 1"]  # Lines, then named
     assert batches == [3]
     view.lines(LINES[:2])  # another batch
     view.individual_lines(LINES)  # the same lines, read without borrowing a copy's label

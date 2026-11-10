@@ -1,4 +1,4 @@
-// The labelled timeline's layout and what goes in its lanes (R3, #328): "Who spoke", one lane per camera (recorded
+// The labelled timeline's layout and what goes in its lanes (R3): "Who spoke", one lane per camera (recorded
 // video in grey with a bar per person in view), the audio kept, and Events as tick marks. The cameras are angles of
 // one rig (a backpack), not rooms, so a lane says who that angle saw. Pure, so the canvas drawing
 // in Timeline.tsx stays thin and this is tested on its own.
@@ -12,10 +12,10 @@ import { RULER } from './time';
 import type { Chip, Span } from './types';
 import { viewName } from './views';
 
-export const UNKNOWN_FACES = 'person:unknown'; // the chip for faces nobody has named (#328)
+export const UNKNOWN_FACES = 'person:unknown'; // the chip for faces nobody has named
 export const UNKNOWN_COLOR = 'hsl(220 10% 62%)'; // unknown faces: a person, but nobody's colour
 export const MAX_ROWS = 5; // presence rows per camera; the rest share one "Others" row
-const LANE_MIN = 14; // a labelled lane's least height: one line of its label, which sits to its left (#2577)
+const LANE_MIN = 14; // a labelled lane's least height: one line of its label, which sits to its left
 const LANE_GAP = 2; // between lanes
 const ROW = 5; // one presence row: a 4 px bar and a 1 px gap
 const OTHERS = 'others';
@@ -135,11 +135,11 @@ export function compactLayout(cams: readonly string[], rows: Record<string, Pres
     audio: [RULER + 42, 6],
     events: [RULER + 4, 38],
     labels: [],
-    height: RULER + 52, // 72 px with the ruler: the main way through the day, with room to aim at a marker (#2454)
+    height: RULER + 52, // 72 px with the ruler: the main way through the day, with room to aim at a marker
   };
 }
 
-/** The camera whose lane a height on the track is in (#287), else null. */
+/** The camera whose lane a height on the track is in, else null. */
 export function camAt(L: Layout, y: number): string | null {
   if (L.compact) return null;
   const lane = L.cams.find(l => y >= l.video[0] && y < l.video[0] + l.video[1]);
@@ -407,7 +407,7 @@ export function hitAt(
   return null;
 }
 
-/** Names as a phrase: "Kara", "Kara and Luca", "Kara, Luca, and Joe". */
+/** Names as a phrase: "Kara", "Kara and Luca", "Kara, Luca, and Dana". */
 export function nameList(names: readonly string[]): string {
   if (names.length <= 2) return names.join(' and ');
   return `${names.slice(0, -1).join(', ')}, and ${names.at(-1)}`;

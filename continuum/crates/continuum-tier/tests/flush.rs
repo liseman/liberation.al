@@ -3,7 +3,7 @@
 //!
 //! The wrap test is deliberately short and bounded: a synthetic producer, small frames, a 16-slot ring, and 4
 //! seconds of frames at 30 fps, so the ring wraps seven times within one test. A long soak run is a separate thing
-//! that happens only when Joe asks for one.
+//! that is run on demand.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -110,7 +110,7 @@ fn frames_flush_into_timed_chunks_that_the_catalog_compacts() {
     }
 
     // A frame's own header is compacted away; its FRAMES row maps it to the chunk, which carries the frame index in
-    // its place (every absorbed frame keeps the row, so a late child still finds its parent, #849).
+    // its place (every absorbed frame keeps the row, so a late child still finds its parent).
     let (first_id, _) = &hot[&T0];
     assert!(matches!(catalog.get(*first_id).expect("get"), Some(Resolved::AbsorbedFrame { frame_index: 0, .. })));
     let chunk_id = closed[0].chunk.payload.header.id();
@@ -633,7 +633,7 @@ fn a_chunk_closed_before_a_failed_create_is_parked_and_handed_back() {
     let bytes = frame_bytes(0);
     let first = Incoming { id: uuid(1), stream: cam, start_ns: 0, end_ns: 0, seq: 0, bytes: &bytes, key: true };
     flusher.append(first, 0).expect("append");
-    // The directory the next chunk goes in (its stream's hour, #2908) can't take a new file now; the next payload is
+    // The directory the next chunk goes in (its stream's hour) can't take a new file now; the next payload is
     // past the chunk's time, so the old chunk closes and the new one can't be created.
     let hour = continuum_tier::layout::hour_dir(dir.path(), cam, S);
     std::fs::set_permissions(&hour, std::fs::Permissions::from_mode(0o500)).expect("chmod");
@@ -649,7 +649,7 @@ fn a_chunk_closed_before_a_failed_create_is_parked_and_handed_back() {
     std::fs::set_permissions(&hour, std::fs::Permissions::from_mode(0o700)).expect("chmod back");
 }
 
-/// #2908: a new chunk goes in its stream's UTC-hour directory, not the chunk directory itself.
+/// A new chunk goes in its stream's UTC-hour directory, not the chunk directory itself.
 #[test]
 fn a_new_chunk_goes_in_its_streams_hour_directory() {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -669,7 +669,7 @@ fn a_new_chunk_goes_in_its_streams_hour_directory() {
     assert!(continuum_tier::layout::chunk_paths(dir.path(), None).expect("list").contains(&closed[0].path));
 }
 
-/// #2908: an unfinished chunk in an hour directory (a crash mid-write) is found and finalized by recovery.
+/// An unfinished chunk in an hour directory (a crash mid-write) is found and finalized by recovery.
 #[test]
 fn recovery_finds_an_unfinished_chunk_in_an_hour_directory() {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -686,7 +686,7 @@ fn recovery_finds_an_unfinished_chunk_in_an_hour_directory() {
     assert_eq!((found[0].path.clone(), found[0].stream, found[0].records.len()), (path, StreamId(3), 1));
 }
 
-/// #2965: recovery opens a stream's chunks newest first and stops at its first finished one. A run finishes a
+/// Recovery opens a stream's chunks newest first and stops at its first finished one. A run finishes a
 /// stream's chunk before it opens the next, so nothing older can be unfinished; opening every chunk in the archive
 /// took minutes at each start, while the encoded cameras' Tier 0 rings filled with unflushed frames.
 #[test]
@@ -720,7 +720,7 @@ fn recovery_stops_at_each_streams_newest_finished_chunk() {
     assert!(!ChunkReader::open(&behind).expect("open").finalized(), "left as it was, unopened by recovery");
 }
 
-/// #2908: a purge that deletes an hour's last chunk removes its directory; a new chunk in that hour makes it again.
+/// A purge that deletes an hour's last chunk removes its directory; a new chunk in that hour makes it again.
 #[test]
 fn a_chunk_after_its_hour_directory_was_pruned_is_still_created() {
     let dir = tempfile::tempdir().expect("tempdir");

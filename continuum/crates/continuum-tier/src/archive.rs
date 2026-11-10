@@ -1,4 +1,4 @@
-//! The opt-in AV1 archive pass's scheduling (#1479; docs/STORAGE.md, "AV1 archive"): which camera chunks to
+//! The opt-in AV1 archive pass's scheduling (docs/STORAGE.md, "AV1 archive"): which camera chunks to
 //! re-encode, when, and on what thread. The re-encoding itself is [`crate::av1`].
 //!
 //! Off unless `video_archive.av1` is on (the tier worker reads it from its environment, [`ArchiveSettings::from_env`]).

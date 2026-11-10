@@ -1,9 +1,9 @@
-// The naming inbox (#2366): one component for every list of things waiting for a name (Pets' sightings to name;
-// People's face groups next), in the layout Joe picked (direction A, with an explicit "Not <name>" and Y/N/I keys).
+// The naming inbox: one component for every list of things waiting for a name (Pets' sightings to name;
+// People's face groups next), with an explicit "Not <name>" action and Y/N/I keys.
 // The shell owns what every kind shares: the heading with how many wait, the "By <kind>" bulk view, the sort (a
-// Certainty toggle, highest first by default so the one-click rows come first, #3263) and the picture size, both
-// remembered per kind in this browser, the list itself, and where focus goes when a row leaves (#2329). Each kind renders its rows with
-// NamingRow and supplies its own name picker, pictures, and bulk view.
+// Certainty toggle, highest first by default so the one-click rows come first) and the picture size, both
+// remembered per kind in this browser, the list itself, and where focus goes when a row leaves. Each kind renders its
+// rows with NamingRow and supplies its own name picker, pictures, and bulk view.
 //
 // The guess bands are each kind's own: pets' "probable" is a clear recognition match and "maybe" a suggestion
 // (people/pet_recognition.py); faces' are vision/face_guess.py's score floors (probable at 75 points, maybe at 50).
@@ -29,7 +29,7 @@ export interface InboxGuess {
   band: Band;
 }
 
-// By certainty, highest or lowest first (#3263). The old select's third order, Newest, is gone: ties keep the
+// By certainty, highest or lowest first. The old select's third order, Newest, is gone: ties keep the
 // newest-first order, and a browser that remembered Newest starts at highest first.
 export type InboxSort = 'sure' | 'unsure';
 export type PhotoSize = 'S' | 'M' | 'L';
@@ -37,10 +37,10 @@ const SORTS: { value: InboxSort; label: string }[] = [
   { value: 'sure', label: 'Highest certainty first' },
   { value: 'unsure', label: 'Lowest certainty first' },
 ];
-/** Each size's list picture, narrowest card, and bulk tile widths, in px. L is the large picture (#2304); S is about
+/** Each size's list picture, narrowest card, and bulk tile widths, in px. L is the large picture; S is about
  *  the old compact rows', and loads the thumbnail, since a full crop is wasted on it. The cards fill as many columns
- *  as fit at their narrowest (#3241), so S fits the most. A card is its picture, the guess, and the 208 px name box
- *  with its buttons at the top right (#3263). A card with less than about 180 px left for the words puts the name box
+ *  as fit at their narrowest, so S fits the most. A card is its picture, the guess, and the 208 px name box
+ *  with its buttons at the top right. A card with less than about 180 px left for the words puts the name box
  *  and buttons under them instead (naming.module.css), as one at the narrowest width does. */
 export const PHOTO_SIZES: Record<PhotoSize, { row: number; card: number; tile: number; thumb: boolean }> = {
   S: { row: 80, card: 520, tile: 110, thumb: true },
@@ -70,12 +70,12 @@ function remembered<T extends string>(key: string, allowed: readonly T[], fallba
   return allowed.includes(value as T) ? (value as T) : fallback;
 }
 
-/** What a row asks of the list: to move focus on before it leaves (#2329). */
+/** What a row asks of the list: to move focus on before it leaves. */
 const Leaving = createContext<(key: string) => void>(() => {});
 export const useLeaving = () => useContext(Leaving);
 
-/** The list's selected row, as the roster has one (#3117): a click on a row, or focus coming to it (a pick moves focus
- *  to the next row, #2329), selects it, and its keys (Y, N, I, and the icons') act on it. One per list. */
+/** The list's selected row, as the roster has one: a click on a row, or focus coming to it (a pick moves focus
+ *  to the next row), selects it, and its keys (Y, N, I, and the icons') act on it. One per list. */
 const Cursor = createContext<{ cursor: string | null; select: (key: string) => void }>({
   cursor: null,
   select: () => {},
@@ -111,8 +111,8 @@ export function NamingInbox({
   items: InboxItem[];
   defaultSize?: PhotoSize; // until this browser picks one
   sortLabel?: string;
-  // How many wait in all, when the server lists only the first ones (Who's this? lists 24 face groups, #2236); the
-  // header counts these, as People's line and Known's badge do (#2451). Defaults to the listed items.
+  // How many wait in all, when the server lists only the first ones (Who's this? lists 24 face groups); the
+  // header counts these, as People's line and Known's badge do. Defaults to the listed items.
   total?: number | null;
   compact?: boolean; // Live's rail: the list alone, without the controls, the count, or the introduction
   sectionId?: string;

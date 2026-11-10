@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Rebuild a place's map from its LiDAR walks and its fixed cameras' clouds (#3286; spatial/fuse.py `rebuild` says
+"""Rebuild a place's map from its LiDAR walks and its fixed cameras' clouds (spatial/fuse.py `rebuild` says
 how the pieces go together).
 
 The base is each Stray Scanner walk's own map (a revision of the place by `walkthrough.PRODUCER_STRAY` whose map file

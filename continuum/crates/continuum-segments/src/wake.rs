@@ -1,4 +1,4 @@
-//! Waiting for a follower's directories to change (#3211), so [`crate::Follower::wait`] sleeps until a writer
+//! Waiting for a follower's directories to change, so [`crate::Follower::wait`] sleeps until a writer
 //! touches a part instead of listing and reading every part every [`crate::reader::WAIT_STEP`].
 //!
 //! On Linux it is an inotify descriptor: the store's root, the stream's directory, and each camera's directory are

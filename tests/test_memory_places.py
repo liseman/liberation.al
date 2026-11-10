@@ -1,4 +1,4 @@
-"""Places and visits (#2799): machine revisions on disk, the owner's names and plan corrections over them."""
+"""Places and visits: machine revisions on disk, the owner's names and plan corrections over them."""
 
 import json
 from unittest.mock import create_autospec
@@ -166,7 +166,7 @@ def test_a_newest_revision_with_no_machine_plan_has_none_newer_than_the_owners(t
     one = first(tmp_path, plan=PLAN_A)
     places.correct_plan(tmp_path, one.place, OWNER_PLAN, now=T + 10)
     places.revise(tmp_path, one.place, producer="tier2-v1", plan=PLAN_B, now=T + 20)
-    # a joined map that derives no plan: a new map, so the old plan isn't carried over (#3196)
+    # a joined map that derives no plan: a new map, so the old plan isn't carried over
     places.revise(tmp_path, one.place, producer="join", map_bytes=b"m", map_format="ply", now=T + 30)
     p = held(tmp_path, one.place)
     assert (p.plan, p.plan_source, p.machine_newer) == (OWNER_PLAN, "owner", False)
@@ -202,7 +202,7 @@ def test_a_visit_record_round_trips_through_the_place_visit_columns():
     assert places.Visit.from_record(spec.to_record(spec.to_row(record), "rig")) == v
 
 
-# The journal's view (#2812)
+# The journal's view
 
 BOX = [[0.1, 0.6], [0.3, 0.6], [0.3, 0.9], [0.1, 0.9]]
 
@@ -385,7 +385,7 @@ def test_a_plan_shifted_from_the_map_moves_the_point_with_it(tmp_path):
 @pytest.mark.parametrize(
     ("u", "want"),
     [
-        # The y-down floor's frame: the map's x as x, up (-y) cross x = the map's z as y (#3151)
+        # The y-down floor's frame: the map's x as x, up (-y) cross x = the map's z as y
         pytest.param(0.5, (1.0, 2.0), id="bottom-middle-lands-2m-ahead"),
         pytest.param(0.0, (-2.556, 2.0), id="bottom-left-is-off-to-the-side"),
     ],
@@ -397,7 +397,7 @@ def test_a_lone_cameras_pixel_lands_in_its_floors_frame_without_a_plan(tmp_path,
 
 def test_a_revision_with_no_plan_works_out_its_floor_frame_once_for_many_pixels(tmp_path, monkeypatch):
     # A rebuilt revision has no plan file of its own, so every point a positions read projects through it goes through
-    # its floor's frame (#3293): that's the floor's, worked out once.
+    # its floor's frame: that's the floor's, worked out once.
     rev = floor_place(tmp_path, plan_transform=None, plan=None, floor=(0.0, -1.0, 0.0, 0.25))
     frame = places.floor_frame
     calls = []
@@ -444,7 +444,7 @@ def test_the_floor_goes_with_its_map_and_the_transform_with_its_plan(tmp_path):
 
 
 def test_registrations_made_at_the_same_time_go_to_the_more_recently_revised_place(tmp_path):
-    unstamped = places.CameraPose(POSE.pose, POSE.focal, POSE.width, POSE.height)  # at = 0, as before #2842
+    unstamped = places.CameraPose(POSE.pose, POSE.focal, POSE.width, POSE.height)  # at = 0, as in unstamped poses
     first(tmp_path, now=T, cameras={"cam0": unstamped})
     newer = first(tmp_path, now=T + 100, cameras={"cam0": unstamped}).place
     assert places.camera_places(tmp_path) == {"cam0": newer}

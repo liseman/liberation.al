@@ -1,4 +1,4 @@
-"""Activity questions that aren't counts (#1863): when a model action happened, and what someone did in a zone,
+"""Activity questions that aren't counts: when a model action happened, and what someone did in a zone,
 from see-actions' spans and scored windows, honest about unchecked kinds and unwatched time."""
 
 import datetime as dt
@@ -113,7 +113,7 @@ def test_ask_answers_when_a_model_action_happened(tmp_path, vision):
     assert reply["paths"] == ["activity"]
     assert reply["answer"].startswith("Unverified")
     assert reply["evidence"][0]["method"].startswith("see-actions model action")
-    assert reply["evidence"][0]["stream"] == "action.span"  # tools/measure.py can expect it by stream (#1909)
+    assert reply["evidence"][0]["stream"] == "action.span"  # tools/measure.py can expect it by stream
 
 
 def test_what_was_i_doing_is_the_model_guess_over_the_window(tmp_path, vision):

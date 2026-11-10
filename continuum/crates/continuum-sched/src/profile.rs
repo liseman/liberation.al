@@ -40,7 +40,7 @@ pub struct Profile {
 }
 
 impl Profile {
-    /// The field rig: Apple Silicon Mac mini, 64 GB unified memory. First guesses: 40 GB for worker leases, a
+    /// The field rig: an Apple Silicon Mac with 64 GB unified memory. First guesses: 40 GB for worker leases, a
     /// Tier 0 arena of about 5 GB in size classes, and two jobs at a time on each accelerator.
     #[must_use]
     pub fn mac_mini_64gb() -> Self {

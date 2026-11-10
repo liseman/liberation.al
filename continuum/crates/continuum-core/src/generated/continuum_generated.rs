@@ -7744,7 +7744,7 @@ impl ::core::fmt::Debug for WorkerRegistered<'_> {
 pub enum DependencyOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
-/// A derived payload's dependency on a stretch of a stream (minor 31, #1535): a purge that removes anything on that
+/// A derived payload's dependency on a stretch of a stream (minor 31): a purge that removes anything on that
 /// stream overlapping range (a payload, or frames cut from a chunk) takes the dependent too, and what derives from it;
 /// an age-out doesn't. revision is the stream's invalidation revision the producer read before checking what it used:
 /// the broker refuses the notice (Conflict) if it moved since, so a purge in between can't be missed.
@@ -14101,7 +14101,7 @@ impl<'a> StreamDesc<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<u64>(StreamDesc::VT_INVALIDATION_REVISION, None)}
   }
-  /// The invalidation revision as the stream's last forget (any change but an age-out's) left it (minor 33, #1587).
+  /// The invalidation revision as the stream's last forget (any change but an age-out's) left it (minor 33).
   /// A dependency or worker state read at any revision from this through invalidation_revision is still good.
   #[inline]
   pub fn forget_revision(&self) -> Option<u64> {
@@ -17433,7 +17433,7 @@ impl ::core::fmt::Debug for WorkerStateInput<'_> {
 pub enum SaveWorkerStateOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
-/// A durable worker's checkpoint (minor 32, #1547), stored in place of its last one: one row per (owner, contract).
+/// A durable worker's checkpoint (minor 32), stored in place of its last one: one row per (owner, contract).
 /// Kept only if every input's revision still equals the one given, checked in the write that stores it; refused with
 /// Conflict when one has moved or an input isn't registered, BadRequest when out of bounds (inputs sorted, unique,
 /// 1 to 64; a body of at most 8 MiB). A purge that later advances one of the inputs' revisions deletes the row in its

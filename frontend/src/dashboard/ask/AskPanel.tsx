@@ -1,4 +1,4 @@
-// The Ask window (#1358): it floats above the page on any tab, nonmodal, so the page stays usable beside it. Drag it
+// The Ask window: it floats above the page on any tab, nonmodal, so the page stays usable beside it. Drag it
 // by its header (or move it with the arrow keys on its move handle); it stays inside the viewport, also on a resize,
 // and remembers where it was per browser. On a phone-width screen it is a bottom sheet instead. Escape or the close
 // button closes it, and focus goes back to the Ask button that opened it.
@@ -175,7 +175,7 @@ export function AskPanel({
 
   const style = sheet
     ? { display: opened ? 'flex' : 'none' }
-    : // Its height is a cap, not a size: the window fits what's in it (#2450 board item 3: no blank half-window under
+    : // Its height is a cap, not a size: the window fits what's in it (no blank half-window under
       // the question box), and scrolls inside once an answer runs past it.
       { display: opened ? 'flex' : 'none', left: box.left, top: box.top, width: box.width, maxHeight: box.height };
   return createPortal(

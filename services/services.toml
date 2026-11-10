@@ -26,8 +26,8 @@
 # Keep dashboard and gateway ungated: diagnostics and recorded playback work while the broker is offline.
 # Settings like cameras, ports, and models come from config, not from args here.
 
-# The workers below run on Continuum (#548, #549): each needs continuum-broker and continuum-capture, and listen also
-# continuum-vector-worker. They replace v1's vision, identity, backfill, and other services.
+# The workers below run on Continuum: each needs continuum-broker and continuum-capture, and listen also
+# continuum-vector-worker.
 [listen]
 description = "Listens to the microphones, writes down what people say, and works out who said it."
 group = "workers"
@@ -90,7 +90,7 @@ command = "pack-dashboard"
 default = true
 throttle = 5
 
-# On the broker's speech log (#548): needs continuum-broker and the listen worker.
+# On the broker's speech log: needs continuum-broker and the listen worker.
 [voice]
 description = "Listens for the wake word and answers out loud."
 group = "workers"
@@ -140,7 +140,7 @@ throttle = 5
 reads_settings = false
 env = { CUDA_VISIBLE_DEVICES = "{ollama.gpu}", OLLAMA_MODELS = "{ollama.models}", OLLAMA_VULKAN = "0", GGML_VK_VISIBLE_DEVICES = "" }
 
-# An Ollama server of Ask's own (#1306): one model, kept loaded, on the GPU ask.gpu names, reading the model store
+# An Ollama server of Ask's own: one model, kept loaded, on the GPU ask.gpu names, reading the model store
 # ask.ollama_models names. Set ask.ollama_url to http://127.0.0.1:{ports.ask_ollama} to send Ask's answers there.
 [ask-ollama]
 description = "Keeps Ask's own language model loaded, so Ask can read more of the day without slowing the voice replies."
@@ -167,7 +167,7 @@ reads_settings = false
 stop_timeout = 75
 
 # One worker process per camera and microphone in config/devices.toml, opened one at a time (docs/CONTINUUM.md, One
-# process per physical device). It opens the same devices as v1's vision service, so don't run both.
+# process per physical device).
 [continuum-capture]
 description = "Records from each camera and microphone."
 group = "core"
@@ -178,7 +178,7 @@ default = true
 platforms = ["linux-x86_64", "linux-aarch64", "darwin-arm64"]
 throttle = 5
 # A worker gets stop_grace_ms (10 s) to release its device, then a kill, then as long again to be reaped; the
-# supervisor stops them all on SIGTERM. This covers all of it, so launchd or systemd never kills mid-teardown (#1388).
+# supervisor stops them all on SIGTERM. This covers all of it, so launchd or systemd never kills mid-teardown.
 stop_timeout = 25
 reads_settings = false
 
@@ -260,7 +260,7 @@ description = "Each night, turns the fixed cameras that see the same space into 
 group = "workers"
 command = "pack-spatial-cameras"
 restart = false
-# Off-hours on the GPU, after the day's last daytime frame and before the 03:00 journal page window (#3008).
+# Off-hours on the GPU, after the day's last daytime frame and before the 03:00 journal page window.
 schedule = "01:00"
 background = true
 default = true
@@ -314,13 +314,13 @@ default = true
 throttle = 5
 stop_timeout = 15
 
-# Model-based actions on every configured camera (#1745), at its analysis rate. Reads see-decode's frames.
+# Model-based actions on every configured camera, at its analysis rate. Reads see-decode's frames.
 [see-actions]
 description = "Follows people on each camera at its configured rate, with their skeletons, faces, and actions."
 group = "workers"
 command = "pack-see-actions"
 wait_for_broker = true
-# Its models need the GPU (no useful CPU fallback): at boot, wait for the driver rather than start without it (#2964).
+# Its models need the GPU (no useful CPU fallback): at boot, wait for the driver rather than start without it.
 wait_for_gpu = true
 default = true
 throttle = 5

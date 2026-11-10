@@ -53,15 +53,22 @@ closed, and on a Mac it is the path that runs (`--keyframes-only` also runs ther
 
 ## A plain video, or a recording with tracked poses
 
-A plain video has no tracked poses. CUT3R's heading drifts about half a degree a frame, and only the walk's revisits
+A plain video has no tracked poses. CUT3R's heading drifts about half a degree a frame, and the walk's revisits
 pull it back. Record it so they can: cross your own path every half minute or so, end where you started, and walk on
 a few seconds past the start, facing the way you set out. Such a walk closes within 0.75 m and 10 degrees of heading
 at its start. The "Long walks" part of the `walkthrough.py` docstring has the measurements,
 `tools/walkthrough_closure.py` reproduces them on simulated walks of 2 to 10 minutes, and the run prints `closed`,
 and logs a walk that didn't close.
 
-Closing the walk has limits. A walk that sees its start again only at the end closes there, but stays metres off in
-the middle. And no closure sharpens CUT3R's soft depth, which is what doubles a wall.
+Between revisits the walls hold the walk's heading: a house's walls stand square to each other, so the walls a frame
+sees say which way it faces. A walk that sees its start again only at the end is bent in its middle by no more than
+1% of its length (under a metre on a two minute walk, and about 1.5 m on a six minute one, where it could be tens of
+metres), measured on simulated walks; the run prints `walls_held`, the frames whose walls it used. Face a wall
+squarely now and then as you go. A place with few square walls (round rooms, or mostly slanted ones) gets no such
+hold, and the run logs it: cross your own path there.
+
+Closing the walk has limits. No closure sharpens CUT3R's soft depth, which is what doubles a wall, and a walk's
+length along a long straight stretch is only as good as its steps.
 
 Prefer the Stray Scanner export whenever the device is to hand, and always for:
 

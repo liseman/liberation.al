@@ -1,4 +1,4 @@
-"""Fixed-camera places (#2825): which cameras are grouped, how MASt3R's runtime is called, and what is written as a
+"""Fixed-camera places: which cameras are grouped, how MASt3R's runtime is called, and what is written as a
 place. MASt3R itself never runs here: a fake runtime stands in for it at the subprocess boundary."""
 
 import datetime as dt
@@ -29,7 +29,7 @@ T = 1_800_000_000.0
 IDENTITY = [float(x) for x in np.eye(4).ravel()]
 
 
-# The #2786 spike's match counts on devbox's six fixed cameras.
+# Match counts from the six fixed cameras on the Linux machine.
 SPIKE = [
     ("s2", "s6", 3528),
     ("s2", "s5", 669),
@@ -306,7 +306,7 @@ def test_a_place_that_split_keeps_its_larger_part_and_the_rest_becomes_a_new_pla
     assert [len(places.revisions(tmp_path, p)) for p in (home, cd.place)] == [2, 1]  # one write into home this run
 
 
-# A joined place's rooms come back as one group a room every night (#3115)
+# A joined place's rooms come back as one group a room every night
 
 DAY = 86400.0
 Y_DOWN_FLOOR = [0.0, -1.0, 0.0, 0.0]  # MASt3R's frame: y down, the floor at y = 0
@@ -408,7 +408,7 @@ def test_every_room_of_a_joined_place_keeps_writing_into_it_night_after_night(tm
 
 
 def test_rooms_seated_in_one_run_write_one_revision_each_built_on_the_one_before(tmp_path, joined):
-    # #3220: one run's seats share its time, so places.revise keeps them apart by a millisecond each
+    # One run's seats share its time, so places.revise keeps them apart by a millisecond each
     home, _ = joined
     living, bedroom = cameras.write_places(tmp_path, tonight(tmp_path, np.eye(4), np.eye(4)), tmp_path, T + DAY)
     assert bedroom.sources == (living.id,), "the bedroom's seat fuses into the map the living room's just wrote"
@@ -441,7 +441,7 @@ def bedroom_feet(frame):
 
 
 def test_a_seated_room_keeps_mast3rs_pose_when_geocalib_is_sure_so_it_stays_put_night_after_night(tmp_path, joined):
-    # #3228: GeoCalib's pitch turned the bedroom's pose and slid it on its footprints, off its own cloud; the seat
+    # GeoCalib's pitch turned the bedroom's pose and slid it on its footprints, off its own cloud; the seat
     # started from it, ICP put the cloud back, and the pose was written 0.45 m off the map's bedroom
     home, _ = joined
     for k, unc in enumerate([2.0, cameras.MAX_PITCH_UNC_DEG + 0.2, 2.0], start=1):
@@ -556,7 +556,7 @@ def test_pnp_keeps_matches_that_project_where_they_were_seen_and_not_shuffled_on
     assert pnp_inliers(points[:5], pixels[:5], 300.0, (160.0, 120.0)) == 0
 
 
-# --- a camera that sees no other camera's space (#3000)
+# --- a camera that sees no other camera's space
 
 
 @pytest.mark.parametrize(
@@ -649,7 +649,7 @@ def test_the_runner_is_asked_for_lone_cameras_only_when_given_a_bar(runtime, tmp
     assert cameras.run_mast3r(runtime, images, out, None, lone_matches=300)["job"]["lone_matches"] == 300
 
 
-# --- each camera's best recorded frame (#3008)
+# --- each camera's best recorded frame
 
 UTC = ZoneInfo("UTC")
 
@@ -713,7 +713,7 @@ def test_frames_saves_each_cameras_best_and_leaves_out_one_with_none(tmp_path, v
     assert list(got) == ["cam0"] and got["cam0"].is_file()
 
 
-# GeoCalib's gravity and focal over MASt3R's (#2960). GeoCalib never runs here: a fake runtime stands in for it.
+# GeoCalib's gravity and focal over MASt3R's. GeoCalib never runs here: a fake runtime stands in for it.
 
 LEVEL = (0.0, 0.0, 1.0, 0.0)
 
@@ -803,7 +803,7 @@ def test_only_a_sure_gravity_replaces_mast3rs(unc, applied):
 
 
 def test_cameras_registered_together_keep_mast3rs_poses_against_a_sure_gravity(tmp_path):
-    # #2960: turning one camera of a joint registration about its own centre moved its floor points 0.5 m off the
+    # Turning one camera of a joint registration about its own centre moved its floor points 0.5 m off the
     # other camera's
     result = {"groups": [answer(tmp_path, ["s2", "s6"], room())]}
     (rev,) = cameras.write_places(tmp_path, result, tmp_path, T, gravity={"s2": gravity(10.0, focal=0.7)})
@@ -822,7 +822,7 @@ def test_a_lone_camera_takes_a_sure_gravity_and_focal(tmp_path):
 
 
 def test_a_lone_cameras_held_focal_wins_over_tonights(tmp_path):
-    # #3289: a camera's own intrinsics are held; neither MASt3R's focal nor GeoCalib's replaces them
+    # A camera's own intrinsics are held; neither MASt3R's focal nor GeoCalib's replaces them
     points, up = pitched_view(pitch_deg=35.0)
     group = answer(tmp_path, ["bedroom"], points.reshape(-1, 3).astype(np.float32))
     group.update(up=list(up), floor=[*up, 2.0])
@@ -922,7 +922,7 @@ def test_a_cloud_with_no_flat_layer_along_up_has_no_floor_there():
 def test_a_lone_camera_with_an_impossible_floor_keeps_its_places_last_revision(
     tmp_path, mounts, floor_d, measured, kept
 ):
-    # 2026-11-08: a kitchen camera 0.91 m up was registered 0.11 above its floor, and its place scaled by 8.3 (#2960)
+    # A kitchen camera 0.91 m up was registered 0.11 above its floor, and its place scaled by 8.3
     points, up = pitched_view()
     good = answer(tmp_path, ["kitchen"], points.reshape(-1, 3).astype(np.float32))
     good.update(up=[float(x) for x in up], floor=[*(float(x) for x in up), 2.0])
@@ -935,7 +935,7 @@ def test_a_lone_camera_with_an_impossible_floor_keeps_its_places_last_revision(
     assert latest is not None and (latest.id == was.id) == kept
 
 
-# What a registered camera sees behind people, kept with its pose (#3070)
+# What a registered camera sees behind people, kept with its pose
 
 
 def test_a_registered_groups_cameras_keep_what_they_see_behind_people(tmp_path, monkeypatch):
@@ -981,7 +981,7 @@ def test_a_camera_registered_by_mast3rs_alignment_alone_has_no_background(tmp_pa
     assert footprints.at_edge(rev.cameras["s2"], rev.floor, 0.5, 0.9) is None
 
 
-# People left out of the frame a camera is registered from (#3085)
+# People left out of the frame a camera is registered from
 
 
 def rfdetr(*people):
@@ -1062,7 +1062,7 @@ def test_a_seat_that_holds_between_refusals_starts_the_count_again(tmp_path, joi
     assert cameras.refused_seats(tmp_path)["bedroom"]["nights"] == 2
 
 
-# A camera moved or uncovered after midday (#2997): its frame since the change, the same night
+# A camera moved or uncovered after midday: its frame since the change, the same night
 
 
 def view(across: bool, light: float = 1.0):
@@ -1140,7 +1140,7 @@ def test_with_no_floorless_camera_mast3r_isnt_run_again(tmp_path, monkeypatch):
 
 
 def test_a_camera_that_stops_matching_its_rooms_others_and_doesnt_seat_splits_off_that_night(tmp_path):
-    # living and cam0 were one group; tonight living comes back alone, its snapshot off where its pose was (#3146)
+    # living and cam0 were one group; tonight living comes back alone, its snapshot off where its pose was
     (both,) = cameras.write_places(
         tmp_path, {"groups": [group_in(tmp_path, 0, ["cam0", "living"], room(1), LIVING, np.eye(4))]}, tmp_path, T
     )

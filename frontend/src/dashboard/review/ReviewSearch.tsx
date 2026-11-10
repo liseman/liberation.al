@@ -59,7 +59,7 @@ export function ReviewSearch({
   onSeek: (ts: number) => void;
   /** The search as typed (trimmed), or '' when there's none. */
   onSearching?: (query: string) => void;
-  /** The day's transcript shows below, dimmed to the matches (#2593): the results take a fixed share, not all of it. */
+  /** The day's transcript shows below, dimmed to the matches: the results take a fixed share, not all of it. */
   beside?: boolean;
   onRetrySummary?: () => void;
 }) {
@@ -80,7 +80,7 @@ export function ReviewSearch({
           id: `transcript:${entry.line ?? (typeof entry.id === 'string' ? entry.id : `${entry.ts_start}:${index}`)}`,
           kind: 'transcript' as const,
           ts: entry.ts_start,
-          // The text the transcript below searches too (#2580): the name it shows, never a placeholder like
+          // The text the transcript below searches too: the name it shows, never a placeholder like
           // "Speaker 250", then the words.
           text: lineSearchText(entry.speaker, String(entry.text ?? '')),
         })),

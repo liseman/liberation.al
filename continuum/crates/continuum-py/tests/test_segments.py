@@ -1,4 +1,4 @@
-"""The segment store from Python (#1755): typed columns written with SegmentWriter read back exactly with
+"""The segment store from Python: typed columns written with SegmentWriter read back exactly with
 read_segments and SegmentFollower, NumPy in and out, with the part set a read saw."""
 
 from pathlib import Path

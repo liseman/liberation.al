@@ -1,4 +1,4 @@
-"""Journal evidence that degrades in steps (#2808): which moments a day page's citations promote, what promotion keeps
+"""Journal evidence that degrades in steps: which moments a day page's citations promote, what promotion keeps
 while video is going, and what a citation resolves to at each stage (video, clip, still, audio, expired).
 
 A day page and its hour entries go in the suite's in-memory memory log; frames and video stretches in the in-memory
@@ -293,9 +293,9 @@ def test_a_promoted_clip_is_served_in_byte_ranges(tmp_path, monkeypatch, serve):
     import http.client
     from urllib.parse import urlsplit
 
-    from liberational.dashboard import server
+    from liberational.dashboard import context, server
 
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     monkeypatch.setattr(server, "DASH_PASSWORD", "")
     E.folder(tmp_path, DAY).mkdir(parents=True)
     (E.folder(tmp_path, DAY) / "den-1.mp4").write_bytes(bytes(range(100)))

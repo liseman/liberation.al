@@ -1,4 +1,4 @@
-"""tools/restore_pet_references.py (#3018, #3024): which saved photo a stranded label is restored from, and which of
+"""tools/restore_pet_references.py: which saved photo a stranded label is restored from, and which of
 the detector's animals in it is the track's."""
 
 import importlib.util
@@ -18,8 +18,8 @@ _spec.loader.exec_module(tool)
 
 
 def test_a_tracks_photo_is_its_newest_revision_and_never_another_tracks(tmp_path):
-    folder = face_shots.folder(tmp_path, pet_shots.KIND)
-    folder.mkdir()
+    folder = face_shots.directory(tmp_path, "run:cat:1", pet_shots.KIND)
+    folder.mkdir(parents=True)
     for name in [
         "run:cat:1-{v}-r2.jpg",
         "run:cat:1-{v}-r10.jpg",

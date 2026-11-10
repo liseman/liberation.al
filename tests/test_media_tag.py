@@ -1,4 +1,4 @@
-"""Lines heard from a TV, tagged by ear (listen/media_tag.py, #2468), and the owner's Not TV."""
+"""Lines heard from a TV, tagged by ear (listen/media_tag.py), and the owner's Not TV."""
 
 import json
 import threading
@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from liberational import config as cfg
-from liberational.dashboard import server
+from liberational.dashboard import context, server
 from liberational.listen import media_tag, revisions
 from liberational.people import registry
 
@@ -65,7 +65,7 @@ def scores(**kw: float) -> dict[str, float]:
             False,
             id="a-room-conversation-takes-it-down",
         ),
-        # One voice close to the desk microphone reads as a monologue (Nov 6, #2669): it isn't a broadcast.
+        # One voice close to the desk microphone reads as a monologue: it isn't a broadcast.
         pytest.param(scores(**{"Narration, monologue": 0.39, "Music": 0.03}), False, id="close-mic-monologue"),
         pytest.param(scores(Speech=0.9), False, id="plain-speech"),
     ],
@@ -146,7 +146,7 @@ def test_a_line_that_sounds_like_tv_while_a_screen_is_on_is_marked_by_the_tagger
 
 
 def test_an_error_mid_batch_leaves_that_line_and_the_rest_for_the_next_pass(tagger):
-    """#2578: the cursor moved past the whole batch before scoring, so one error lost the rest for good."""
+    """The cursor moved past the whole batch before scoring, so one error lost the rest for good."""
     t, speech, _state = tagger
     speech.rows += [line(T + 10, "the news one"), line(T + 20, "the news two"), line(T + 30, "the news three")]
     hiccups = ["the news two"]
@@ -183,7 +183,7 @@ def test_a_line_that_always_fails_is_passed_over_after_a_few_tries(tagger):
 
 
 def test_a_missing_module_never_passes_a_line_over(tagger):
-    # #2899: while continuum_py was rebuilt in a deploy, every line failed to import it and was given up on.
+    # While continuum_py was rebuilt in a deploy, every line failed to import it and was given up on.
     t, speech, _state = tagger
     speech.rows += [line(T + 10, "the news"), line(T + 20, "the news after")]
     audio = t.audio
@@ -200,7 +200,7 @@ def test_a_missing_module_never_passes_a_line_over(tagger):
 
 
 def test_a_line_is_judged_once_its_screen_span_could_be_written(tmp_path):
-    """#2578: a show's span is written after it has run 30 s, so a line from its first moments wasn't covered
+    """A show's span is written after it has run 30 s, so a line from its first moments wasn't covered
     when it arrived, and was never looked at again."""
     speech = Speech(tmp_path)
     wall = [T + 10.0]
@@ -271,7 +271,7 @@ def test_a_start_looks_only_at_lines_heard_from_then_on(tmp_path):
 
 
 def test_not_tv_takes_back_only_its_lines_of_a_mark_and_comes_undone(tmp_path):
-    """#2578: Not TV on one line took back the owner's whole mark, with no Undo, and raced its own Undo."""
+    """Not TV on one line took back the owner's whole mark, with no Undo, and raced its own Undo."""
     rows = [line(T, "one"), line(T + 5, "two"), line(T + 10, "three")]
     revisions.mark_media(tmp_path, rows)
     token, lines = revisions.unmark_media(tmp_path, [registry.key_of(rows[1])])
@@ -296,7 +296,7 @@ def test_this_is_tv_again_after_not_tv_marks_the_line_anew(tmp_path):
 
 
 def test_this_is_tv_on_a_line_the_tagger_marked_never_hands_over_the_taggers_token(tmp_path):
-    """#2581: the owner's Undo then took back the tagger's mark."""
+    """The owner's Undo then took back the tagger's mark."""
     rows = [line(T, "one")]
     tagger = revisions.mark_media(tmp_path, rows, source="classifier")
     assert revisions.current_media(tmp_path, [registry.key_of(rows[0])]) is None
@@ -311,7 +311,7 @@ def test_this_is_tv_on_a_line_the_tagger_marked_never_hands_over_the_taggers_tok
 @pytest.fixture
 def heard(tmp_path, monkeypatch):
     rows = [line(T, "the news"), line(T + 5, "dinner")]
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     return rows
 
 
@@ -351,7 +351,7 @@ def test_without_its_model_the_tagger_stays_off(tmp_path, monkeypatch):
 
 
 def test_a_tagger_that_cant_start_never_stops_identity_and_is_tried_again(tmp_path, monkeypatch):
-    """A corrupt model or a broker mid-restart (#2578): start returns, and the tagger is tried again later."""
+    """A corrupt model or a broker mid-restart: start returns, and the tagger is tried again later."""
     stop, tries = threading.Event(), []
 
     def broken():
@@ -378,7 +378,7 @@ def test_the_built_model_scores_a_clip_when_this_machine_has_it():
 
 
 def test_a_repeated_failure_is_said_once_and_the_recovery_once(tagger, caplog, monkeypatch):
-    # #2899's outage logged the same warning every POLL_S, about 1,100 times.
+    # An outage used to log the same warning every POLL_S, about 1,100 times.
     t, _speech, _state = tagger
     # the same kind of failure with a message that changes each pass is still one outage
     outcomes: list[Exception | None] = [ModuleNotFoundError(f"No module named 'x' (pass {n})") for n in range(5)]

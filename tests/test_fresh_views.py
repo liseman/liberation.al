@@ -6,7 +6,7 @@ from unittest.mock import create_autospec
 
 import pytest
 
-from liberational.dashboard import server
+from liberational.dashboard import context, server
 from liberational.vision import faces
 
 
@@ -47,7 +47,7 @@ def test_the_owners_change_is_worked_out_at_once():
 
 
 def test_a_purge_bypasses_cached_face_groups_immediately(tmp_path, monkeypatch):
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     monkeypatch.setattr(server, "INBOX_SKIPS", tmp_path / "skips.json")
     monkeypatch.setattr(faces, "UNK_DB", tmp_path / "unknown.npz")
     epoch = {"purge": None}
@@ -63,7 +63,7 @@ def test_a_purge_bypasses_cached_face_groups_immediately(tmp_path, monkeypatch):
 
 
 def test_a_video_only_purge_leaves_the_face_groups_key_as_it_was(tmp_path, monkeypatch):
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     monkeypatch.setattr(server, "INBOX_SKIPS", tmp_path / "skips.json")
     monkeypatch.setattr(faces, "UNK_DB", tmp_path / "unknown.npz")
     purges = {"any": "a", "voice": "a"}

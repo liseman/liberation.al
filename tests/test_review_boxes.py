@@ -1,4 +1,4 @@
-"""Review's boxes (#374): the people and things one camera saw during a short stretch, from bounded reads."""
+"""Review's boxes: the people and things one camera saw during a short stretch, from bounded reads."""
 
 import pytest
 
@@ -32,7 +32,7 @@ def state(tmp_path, vision):
     face(vision, T0 + 2, None, box=(0.7, 0.1, 0.8, 0.25))  # a face nobody has named
     face(vision, T0 + 3, "Dana", cam="cam1")  # another camera
     face(vision, T0 + 500, "Dana")  # long after the window
-    # object memory's sightings (#778): one, and one whose box isn't a box
+    # object memory's sightings: one, and one whose box isn't a box
     owner_crop(tmp_path, T0 + 4, cam="cam0", object_id="o1", name="Coffee maker", bbox=[0.6, 0.5, 0.2, 0.3])
     owner_crop(tmp_path, T0 + 6, cam="cam0", object_id="o1", name="Coffee maker", bbox="not json")
     return tmp_path
@@ -335,7 +335,7 @@ def test_pet_boxes_are_bounded_after_camera_selection(animal_store, monkeypatch)
 
 
 def embedding(state, ts, track, identity, k, species="dog"):
-    """One see-actions animal embedding: 0.95 along the animal's own axis, 0.31 along the sighting's (#1332's tests)."""
+    """One see-actions animal embedding: 0.95 along the animal's own axis, 0.31 along the sighting's."""
     import numpy as np
 
     v = np.zeros(384)

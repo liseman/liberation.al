@@ -13,7 +13,9 @@ def watched(vision, start, end, cam="cam0"):
     """see-actions analyzed [start, end) of `cam`, in one-second rows as it writes them."""
     at = start
     while at < end:
-        vision.add(segment_log.ACTION_COVERAGE, ts_start=T + at, ts_end=T + min(at + 1, end), cam=cam, frames=30)
+        vision.add(
+            segment_log.ACTION_COVERAGE, ts_start=T + at, ts_end=T + min(at + 1, end), cam=cam, frames=30, model="test"
+        )
         at += 1
 
 

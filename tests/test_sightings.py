@@ -258,7 +258,7 @@ def _signal(vision, look, norm, nose=0.9):
 
 
 def test_shots_rank_by_how_much_they_read_as_a_face_and_backs_of_heads_are_left_out(tmp_path, vision, now):
-    # Landmarks call a back of the head straight on, so quality can't tell (#2355): the norm ranks them.
+    # Landmarks call a back of the head straight on, so quality can't tell: the norm ranks them.
     looks = {
         key: vision.face(T - 1000 + 70 * i, name="Kara", sim=0.6, quality=q)
         for i, (key, q) in enumerate(
@@ -298,7 +298,7 @@ def test_newly_scored_crops_are_read_without_a_restart(tmp_path, vision, now):
 
 
 def test_an_owner_correction_teaches_the_gallery_and_its_undo_takes_it_back(tmp_path, vision, now, monkeypatch):
-    # #3013: the owner's word on a face makes it one of the person's rows, as naming a group does
+    # The owner's word on a face makes it one of the person's rows, as naming a group does
     monkeypatch.setattr(faces, "DB", tmp_path / "db.npz")
     monkeypatch.setattr(faces, "LEARNED_DB", tmp_path / "learned.npz")
     d = vision.face(T, name="Kara", sim=0.6)
@@ -313,7 +313,7 @@ def test_an_owner_correction_teaches_the_gallery_and_its_undo_takes_it_back(tmp_
 
 
 def test_not_kara_on_a_shot_makes_its_face_her_negative_and_its_undo_takes_it_back(tmp_path, vision, now, monkeypatch):
-    # #3246: "Not <name>" teaches the matcher that this face isn't them
+    # "Not <name>" teaches the matcher that this face isn't them
     monkeypatch.setattr(faces, "DB", tmp_path / "db.npz")
     monkeypatch.setattr(faces, "LEARNED_DB", tmp_path / "learned.npz")
     monkeypatch.setattr(faces, "NOTS_DB", tmp_path / "nots.npz")

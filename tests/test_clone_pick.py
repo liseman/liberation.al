@@ -1,4 +1,4 @@
-"""Pick clips (#312): the owner picks a voice clone's reference from the person's recent lines. The reference is
+"""Pick clips: the owner picks a voice clone's reference from the person's recent lines. The reference is
 built from exactly those lines, with their own words and no voice check, the old one is moved aside only once the
 new one is written, and each picked line becomes the owner's word that it is theirs. Synthetic audio and a temp
 state dir; never the real data/."""
@@ -10,7 +10,7 @@ import pytest
 
 import speech_fake
 from liberational import config as cfg
-from liberational.dashboard import server
+from liberational.dashboard import context, server
 from liberational.domain.identity import Basis
 from liberational.listen import revisions
 from liberational.people import registry
@@ -28,7 +28,7 @@ def state(tmp_path, monkeypatch):
         ("OUT", tmp_path / "clones"),
     ):
         monkeypatch.setattr(clone_say, name, path)
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     monkeypatch.setattr(clone_say, "cut", lambda e: np.full(int(clone_say.dur(e) * SR), 0.1, np.float32))
     write_voices(tmp_path, {3: {"label": "Carly", "centroid": [1.0, 0, 0, 0]}, 5: None})
     return tmp_path

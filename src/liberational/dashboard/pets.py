@@ -10,11 +10,13 @@ from typing import TYPE_CHECKING, Any
 import continuum_py
 
 from liberational import logs
+from liberational.dashboard import routes
 from liberational.people import pets
 
 LOG = logs.get("pets")
 
 if TYPE_CHECKING:
+    from liberational.dashboard.server import H
     from liberational.people.pet_recognition import Sighting
 
 
@@ -23,7 +25,7 @@ SINCE_LOOKBACK_S = 1800  # how far back "since" looks for the start of that visi
 
 
 def here(state: Path, now: float | None = None) -> dict[str, dict[str, Any]]:
-    """{pet id: {cam, camera_name, since, track}} for each named pet a camera saw in the last HERE_NOW_S seconds (#2606), by the
+    """{pet id: {cam, camera_name, since, track}} for each named pet a camera saw in the last HERE_NOW_S seconds, by the
     same naming as Review's boxes: an owner label on the track, else recognition by appearance. The camera is the one
     that saw it last, and track its newest track there (a photo of it now); "since" is when that camera's run of its tracks began, with no gap longer than HERE_NOW_S. A
     failure says nobody: Here now is extra, and the roster still answers."""
@@ -74,7 +76,7 @@ def here(state: Path, now: float | None = None) -> dict[str, dict[str, Any]]:
 
 
 def listing(state: Path) -> tuple[int, dict[str, Any]]:
-    """GET /pets, with `here` (#2606): the named pets a camera sees now. Unavailable broker evidence stays an error,
+    """GET /pets, with `here`: the named pets a camera sees now. Unavailable broker evidence stays an error,
     never an empty roster."""
     try:
         listing = pets.at(state).listing()
@@ -132,7 +134,7 @@ def sightings(state: Path) -> tuple[int, dict[str, Any]]:
 
 
 def card(body: object, control: bool, state: Path) -> tuple[int, dict[str, Any]]:
-    """POST /pets/photo {id, track, action} (#2363): a pet card's photo choices. `main` makes the sighting (its track)
+    """POST /pets/photo {id, track, action}: a pet card's photo choices. `main` makes the sighting (its track)
     the pet's photo, `newest` goes back to its newest sighting (no track), and `hide` and `show` take a sighting off
     its card or put it back. Answers the roster, as /pets/save does."""
     if not control:
@@ -183,7 +185,7 @@ def label(body: object, control: bool, state: Path) -> tuple[int, dict[str, Any]
 
 
 def deny(body: object, control: bool, state: Path) -> tuple[int, dict[str, Any]]:
-    """POST /pets/sightings/not {track_ids, pet, not} (#2364): these sightings are not `pet` (a named pet's id), or,
+    """POST /pets/sightings/not {track_ids, pet, not}: these sightings are not `pet` (a named pet's id), or,
     with `not` false, take that back. Recognition never names or suggests that pet for them again."""
     from liberational.people import pet_recognition
 
@@ -238,3 +240,46 @@ def photo(track: str, state: Path, *, sighting: Sighting | None = None) -> bytes
     if jpg is not None:
         write(state, track, pet_shots.revision(state), jpg, pet_shots.KIND)
     return jpg
+
+
+# ---- routes (dashboard/routes.py): what the server answers for this area ----
+
+
+@routes.get("/pets")
+def _get_pets(h: H) -> None:
+    code, reply = listing(h.state)
+    return h._json(reply, code)
+
+
+@routes.post("/pets/sightings/label")
+def _post_pets_sightings_label(h: H, body: Any) -> None:
+    if not h._same_origin_json():
+        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
+    code, reply = label(body, h._can_teach(), h.state)
+    return h._json(reply, code)
+
+
+@routes.post("/pets/sightings/not")
+def _post_pets_sightings_not(h: H, body: Any) -> None:
+    if not h._same_origin_json():
+        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
+    code, reply = deny(body, h._can_teach(), h.state)
+    return h._json(reply, code)
+
+
+@routes.post("/pets/photo")
+def _post_pets_photo(h: H, body: Any) -> None:
+    if not h._same_origin_json():
+        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
+    code, reply = card(body, h._can_teach(), h.state)
+    return h._json(reply, code)
+
+
+@routes.post("/pets/save", "/pets/remove")
+def _post_pets_save(h: H, body: Any) -> None:
+    p = h.path.split("?")[0]
+    if not h._same_origin_json():
+        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
+    action = save if p == "/pets/save" else remove
+    code, reply = action(body, h._can_teach(), h.state)
+    return h._json(reply, code)

@@ -1,4 +1,4 @@
-/* Live's Getting started (L5, #296), after Joe's approved design: a card with a progress bar and the six steps. */
+/* Live's Getting started: a card with a progress bar and the six steps. */
 .card {
   max-width: 720px;
   margin: 0 auto 20px;
@@ -84,7 +84,7 @@
     flex-wrap: wrap;
   }
   /* the text takes the row beside the dot, so a step's button goes under it instead of squeezing it to a word a
-     line (#478) */
+     line */
   .text {
     flex-basis: calc(100% - 42px);
   }

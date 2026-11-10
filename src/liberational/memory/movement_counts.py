@@ -4,6 +4,11 @@ Only supported image-boundary edges count. Track birth, disappearance, query bou
 and camera motion do not become entries or exits. Counts on partial coverage are observed lower bounds,
 never unique people or room-wide totals. Reads include bounded neighbor context for pairwise co-arrivals;
 no permanent day cache can hide late fragments or a purge. Source IDs remain evidence links, not identities.
+
+Coverage is the dense input (a row about every second a camera) and is read as columns. Nearly every row is plain: the
+camera was steady, tracking was complete, and its one supported span has no gap. Those rows only add their span to
+the camera's support, which `_plain` and `_coverage` do on whole columns; every other row goes through the same
+row-by-row checks as before, as a record. Tracks are a few rows a minute and stay records.
 """
 
 import bisect
@@ -11,6 +16,8 @@ import math
 from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
+
+import numpy as np
 
 from liberational import segment_log
 from liberational.domain.kernel import check_span
@@ -108,7 +115,7 @@ def _near(
 
 
 class _Index:
-    """A day's supported spans and barriers, arranged once so each track's checks are lookups (#1591)."""
+    """A day's supported spans and barriers, arranged once so each track's checks are lookups."""
 
     def __init__(self, supported: Sequence[Span], barriers: Sequence[Span]) -> None:
         self.supported = list(supported)  # _subtract's output: sorted and non-overlapping
@@ -190,20 +197,65 @@ def _identity(record: Mapping[str, Any]) -> tuple[str, str, Span]:
     return cam, source, _span([record.get("ts_start"), record.get("ts_end")])
 
 
+COVERAGE_COLUMNS = tuple(name for name, _ in segment_log.STREAMS[segment_log.MOVEMENT_COVERAGE].schema)
+
+
+def _plain(columns: Mapping[str, Any]) -> np.ndarray:
+    """Which of a camera's coverage rows only add support: steady camera, complete tracking, frames seen, no gap, and
+    one supported span inside the row's own. Checked on the stored nanoseconds, which is stricter than the row
+    checks' float comparison, so a row this passes is one they pass."""
+    rows = len(columns["ts_ns"])
+    spans = np.fromiter((len(v) for v in columns["supported_ns"]), dtype=np.int64, count=rows)
+    gaps = np.fromiter((len(v) for v in columns["gaps_ns"]), dtype=np.int64, count=rows)
+    plain = (
+        (np.array(columns["tracking"], dtype=object) == "complete")
+        & (np.array(columns["camera_motion"], dtype=object) == "stable")
+        & (columns["frames"] > 0)
+        & (spans == 2)
+        & (gaps == 0)
+        & np.array([bool(i) for i in columns["id"]], dtype=bool)
+    )
+    if plain.any():
+        at = np.flatnonzero(plain)
+        inner = np.array([columns["supported_ns"][i] for i in at.tolist()], dtype=np.int64).reshape(-1, 2)
+        first, last = columns["ts_ns"][at], columns["end_ns"][at]
+        plain[at] = (first >= 0) & (first <= inner[:, 0]) & (inner[:, 0] <= inner[:, 1]) & (inner[:, 1] <= last)
+    return plain
+
+
+def _coverage(camera: str, columns: Mapping[str, Any] | None) -> tuple[list[Span], list[str], list[dict[str, Any]]]:
+    """A camera's coverage columns as (the plain rows' supported spans, the plain rows' ids, a record of every other
+    row, oldest first)."""
+    if columns is None or not len(columns["ts_ns"]):
+        return [], [], []
+    plain = _plain(columns)
+    at = np.flatnonzero(plain).tolist()
+    spans = [
+        (segment_log.secs(int(columns["supported_ns"][i][0])), segment_log.secs(int(columns["supported_ns"][i][1])))
+        for i in at
+    ]
+    codec = segment_log.STREAMS[segment_log.MOVEMENT_COVERAGE].to_record
+    rest = [
+        codec({name: columns[name][i] for name in COVERAGE_COLUMNS}, camera) for i in np.flatnonzero(~plain).tolist()
+    ]
+    rest.sort(key=lambda r: (r["ts_start"], r.get("id", "")))
+    return spans, [columns["id"][i] for i in at], rest
+
+
 def _camera(
     camera: str,
     records: Sequence[dict[str, Any]],
-    coverage: Sequence[dict[str, Any]],
+    columns: Mapping[str, Any] | None,
     start: float,
     end: float,
     group_window: float,
 ) -> dict[str, Any]:
-    support: list[Span] = []
-    complete: list[Span] = []
+    support, plain_ids, coverage = _coverage(camera, columns)
+    complete: list[Span] = list(support)
     barriers: list[Span] = []
     unknown: list[dict[str, Any]] = []
     errors: list[str] = []
-    coverage_ids: set[str] = set()
+    coverage_ids: set[str] = set(plain_ids)
 
     def uncertain(span: Span, reason: str, source: str | None = None) -> None:
         value = _unknown(span, reason, source, start, end)
@@ -424,19 +476,19 @@ def collect(
         lo, hi = max(0.0, start - window), end + window
         # The producer appends every contributing track before its coverage; appends never change what's already
         # there, so reading coverage first can't pair old empty tracks with newly appended complete coverage.
-        coverage = log.range(segment_log.MOVEMENT_COVERAGE, lo, hi)
+        coverage = log.table(segment_log.MOVEMENT_COVERAGE, lo, hi, COVERAGE_COLUMNS)
         tracks = log.range(segment_log.MOVEMENT_TRACKS, lo, hi)
     except (OSError, TimeoutError, RuntimeError, ValueError) as error:
         result["errors"] = [type(error).__name__]
         return result
     names = sorted(
-        set(cameras) or {r["cam"] for r in [*tracks, *coverage] if isinstance(r.get("cam"), str) and r["cam"]}
+        set(cameras) or {r["cam"] for r in tracks if isinstance(r.get("cam"), str) and r["cam"]} | set(coverage)
     )
     for camera in names:
         data = _camera(
             camera,
             [r for r in tracks if r.get("cam") == camera],
-            [r for r in coverage if r.get("cam") == camera],
+            coverage.get(camera),
             start,
             end,
             window,

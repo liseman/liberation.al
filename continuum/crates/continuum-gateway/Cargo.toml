@@ -20,7 +20,7 @@ axum = { version = "0.8", features = ["ws"] }
 clap.workspace = true
 continuum-client = { path = "../continuum-client" }
 continuum-core.workspace = true
-# Overlay streams in the segment store (src/segment_overlays.rs, #1791).
+# Overlay streams in the segment store (src/segment_overlays.rs).
 continuum-segments = { path = "../continuum-segments" }
 continuum-shm.workspace = true
 continuum-tier.workspace = true

@@ -125,23 +125,23 @@ so they do not masquerade as live sensor observations. Use synthetic data for re
 Host tests cover wire framing/checksums, C/Python golden vectors, AD decoding, malformed/oversized input, multiple
 sensor clocks, boot/counter wrap and gaps, unplug/reconnect, bounded aggregation/rates, native identifiers,
 unconfirmed candidate provenance, service gating, and Continuum header/inline encoding. Firmware protocol tests
-run with sanitizers, and all release variants are cross-compiled. Devbox has no Bluetooth adapter, and no ESP32
-was attached for these checks. A plugged-in board test remains required before claiming hardware validation.
+run with sanitizers, and all release variants are cross-compiled. The Linux machine has no Bluetooth adapter, and no
+ESP32 was attached for these checks. A plugged-in board test remains required before claiming hardware validation.
 Fake D-Bus and CoreBluetooth/libdispatch tests cover discovery lifecycle, native identifiers, unavailable/invalid
-fields, duplicate delivery, bounded queues/caches, cancellation and cleanup. No host radio was scanned for #1342;
+fields, duplicate delivery, bounded queues/caches, cancellation and cleanup. No host radio was scanned;
 first Linux/macOS hardware and permission checks remain operator work. Wireless sensor transport is separate work.
 
-## Linking devices to people and things (#1329)
+## Linking devices to people and things
 
 `pack-devices list` shows every device seen (linked or not, with counts), and `pack-devices link <selector> <value>
 --person NAME` or `--thing NAME` links one. A link is an owner assertion on `device.link`, revised in place and
 retired with `pack-devices unlink`; sightings are never changed. Selectors: `ble_identifier` (a static address),
 `ble_fingerprint` (the exact payload fingerprint the candidates use, for a device whose address rotates), `ble_name`
-(the advertised name), and `net_mac` (a MAC from the router's client list, #1328).
+(the advertised name), and `net_mac` (a MAC from the router's client list).
 
 The optional `pack-device-presence` service (on with `bluetooth.enabled`) turns each linked person's sightings into
 stays: sightings no more than `devices.gap_s` apart. Each closed stay becomes an unconfirmed `presence.device_span`
-candidate whose parents are its first and last sightings and the link. Ask answers "is Joe home", "when did Sam get
+candidate whose parents are its first and last sightings and the link. Ask answers "is Dana home", "when did Sam get
 here", and "where did I last have my AirPods" from the sightings, joined with face visits for people. When no sensor
 or complete router poll was running, it says it can't tell. A device seen is not proof of who carried it, and every
 answer says so. Nothing alerts.

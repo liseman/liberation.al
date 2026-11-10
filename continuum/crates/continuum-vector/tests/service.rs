@@ -1,6 +1,6 @@
 //! The vector worker service against a real broker: it waits for an embedding stream that isn't registered yet, files
 //! what's committed to it once it is, answers a live query with it, and stops cleanly when asked; and it files the
-//! journal's entry text and its prefixed embedding streams (#550).
+//! journal's entry text and its prefixed embedding streams.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};

@@ -244,7 +244,7 @@ describe('the list', () => {
 
 describe("what waits in Who's this?", () => {
   // The lists are read once; later reads wait until the test opens the gate, as the server's face groups can take
-  // half a minute after a name (#2330). The roster's count must drop on the server's OK alone. The fake server drops
+  // half a minute after a name. The roster's count must drop on the server's OK alone. The fake server drops
   // what was named or put aside, as the real one does.
   const waiting = (id: number, label: string) => ({
     id,
@@ -399,7 +399,7 @@ describe("what waits in Who's this?", () => {
     renderPage(<PeopleTab />);
     await userEvent.dblClick(await roster().findByRole('button', { name: /^Dana/ }));
     await screen.findByRole('article', { name: 'Profile of Dana' });
-    navigate('/people#whos-this'); // People stays mounted between tabs (#330)
+    navigate('/people#whos-this'); // People stays mounted between tabs
     expect(await screen.findByRole('heading', { name: "Who's this?" })).toBeInTheDocument();
     expect(screen.queryByRole('article')).not.toBeInTheDocument();
     expect(location.hash).toBe('');
@@ -573,7 +573,7 @@ describe('loading and errors (#250)', () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     renderPage(<PeopleTab />);
     expect(roster().getByLabelText('Loading people')).toHaveAttribute('aria-busy', 'true');
-    expect(roster().getByRole('status')).toBeEmptyDOMElement(); // a quick load says nothing (#2469)
+    expect(roster().getByRole('status')).toBeEmptyDOMElement(); // a quick load says nothing
     await act(async () => {
       await vi.advanceTimersByTimeAsync(PAGE_SLOW_MS);
     });

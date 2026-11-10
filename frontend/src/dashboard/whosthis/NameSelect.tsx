@@ -1,4 +1,4 @@
-// Who's this?'s name box (#2047): the shared person name box (lib/PersonNameInput.tsx), searchable over the people
+// Who's this?'s name box: the shared person name box (lib/PersonNameInput.tsx), searchable over the people
 // Liberational knows, its guesses first, with "Add <name>" when what's typed is nobody's name yet. Enter takes what was
 // typed: a known name it matches exactly, else the new name; the arrow keys reach the other matches.
 import { type NameSuggestion, PersonNameInput } from '../lib/PersonNameInput';

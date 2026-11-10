@@ -206,7 +206,7 @@ describe('a general question', () => {
     const jobs = jobServer();
     jobs.replies.push({ status: 'completed', question: Q, created_at: ASKED, result: { status: 'ok', answer: 'Hi.' } });
     await user.type(screen.getByRole('textbox'), Q);
-    await user.click(screen.getByRole('radio', { name: 'Friends' })); // friends is general; local searches (#2307)
+    await user.click(screen.getByRole('radio', { name: 'Friends' })); // friends is general; local searches
     await user.click(screen.getByRole('button', { name: 'Ask' }));
     await waitFor(() => expect(jobs.posts).toHaveLength(1));
     await wait(1000);

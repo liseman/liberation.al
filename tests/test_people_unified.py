@@ -22,7 +22,7 @@ from PIL import Image
 
 from liberational import config as cfg
 from liberational import segment_log, vision_log
-from liberational.dashboard import server
+from liberational.dashboard import call_log, context, server
 from liberational.domain.identity import Basis
 from liberational.people import registry, voice_edits
 from liberational.see import face_boxes
@@ -64,7 +64,7 @@ CLIP = np.eye(1, segment_log.VOICE_DIM, 1, dtype=np.float32)[0]  # what an uploa
 
 
 def in_process_voice_edits(monkeypatch):
-    """Puts people/voice_edits.py in place of the dashboard's child process, run on server.STATE with the embedding
+    """Puts people/voice_edits.py in place of the dashboard's child process, run on context.STATE with the embedding
     store and the voice model stood in for (an enroll files CLIP). Returns the commands it was given."""
     ran = []
 
@@ -82,7 +82,7 @@ def in_process_voice_edits(monkeypatch):
             ran.append([*map(str, c)])
             with redirect_stdout(io.StringIO()) as out:
                 try:
-                    voice_edits.main(["--state-dir", str(server.STATE), *ran[-1]])
+                    voice_edits.main(["--state-dir", str(context.STATE), *ran[-1]])
                 except SystemExit as e:
                     return False, str(e)
             outs.append(out.getvalue().strip())
@@ -94,7 +94,7 @@ def in_process_voice_edits(monkeypatch):
 
 @pytest.fixture
 def ran(monkeypatch):
-    """The voice edits, run in process on server.STATE. Returns the commands they were given."""
+    """The voice edits, run in process on context.STATE. Returns the commands they were given."""
     return in_process_voice_edits(monkeypatch)
 
 
@@ -122,15 +122,15 @@ def state(tmp_path, monkeypatch, pack, faces, ran):
     state = tmp_path / "state"
     state.mkdir()
     files = {
-        "STATE": ".",
         "CONTACTS_FILE": "contacts.json",
         "PEOPLE_ADDED": "people_added.json",
         "INBOX_SKIPS": "inbox_skips.json",
-        "CALLS_DIR": "calls",
         "_clones_dir": "clones",
     }
     for name, path in files.items():
         monkeypatch.setattr(server, name, state / path)
+    monkeypatch.setattr(call_log, "CALLS_DIR", state / "calls")
+    monkeypatch.setattr(context, "STATE", state)
     monkeypatch.setattr(server, "_face_last_seen_at", lambda: {"alice": (300.0, "cam0")})
     with cfg.override({"paths": {"state": str(state), "faces": str(tmp_path / "faces")}}):
         yield state
@@ -196,7 +196,7 @@ def test_unnamed_voices_with_no_audio_left_are_not_listed(people):
 
 def test_speakers_counts_each_voices_lines_and_names_it_by_its_person_newest_first(state):
     # GET /speakers keeps the shape the browser reads (frontend/src/dashboard/live/reduce.ts). A voice the event log
-    # names with no line of its own is listed, never heard; nothing is ever merged (#772).
+    # names with no line of its own is listed, never heard; nothing is ever merged.
     write_voices(state, {1: "Alice", 2: None, 3: "Dana Cole"})
     write_lines(
         state,
@@ -230,7 +230,7 @@ def test_rename_relabels_voices_faces_phone_without_a_restart(people, faces, ran
 
 
 def test_renaming_into_someone_gives_them_both_voices(people, ran):
-    # The people merge in the event log carries her voice along: no voice command (#772).
+    # The people merge in the event log carries her voice along: no voice command.
     registry.at(people).claim(registry.voiceprint(2), "Erin", Basis.OWNER_TAG, "test")
     code, body = server.rename_person("Dana Cole", "erin", control=True)
     assert (code, body["name"], body["merged"]) == (200, "Erin", True)
@@ -284,7 +284,7 @@ def test_the_live_voice_rename_takes_its_own_automatic_label_and_tidies_the_name
 
 
 def test_claiming_a_voice_for_someone_who_has_one_names_it_for_them_from_any_machine(people, ran):
-    # Naming replaces merging: a person may have several voices (#772).
+    # Naming replaces merging: a person may have several voices.
     assert server.claim_identity("voice", 2, "Dana Cole", control=False)[0] == 200
     assert ran == [["label", "2", "Dana Cole"]]
     assert (label(2), label(3)) == ("Dana Cole", "Dana Cole")
@@ -377,7 +377,7 @@ def test_voice_commands_run_in_order_in_a_child_and_stop_at_a_failure(monkeypatc
 
     monkeypatch.setattr(server, "subprocess", SimpleNamespace(run=run))
     ok, _ = server._speaker_cmds([["label", 2, "bad"], ["label", 3, "Dana"]])
-    voices = [server.PY, "-m", "liberational.people.voice_edits", "--state-dir", str(server.STATE)]
+    voices = [server.PY, "-m", "liberational.people.voice_edits", "--state-dir", str(context.STATE)]
     assert ok is False
     assert ran == [[*voices, "label", "2", "bad"]]
 
@@ -387,7 +387,7 @@ def restarted(monkeypatch):
     restarted = threading.Event()
     monkeypatch.setattr(
         server.settings,
-        "restart",  # restart(log, names, dashboard, before): what a save restarts (#400, #423)
+        "restart",  # restart(log, names, dashboard, before): what a save restarts
         lambda log=print, names=(), dashboard=True, before=None: restarted.set(),
     )
     return restarted
@@ -434,7 +434,7 @@ def test_a_settings_rename_carries_the_owner_along(people, pack, faces, ran, sav
 
 
 def test_a_settings_rename_that_raises_still_answers_and_keeps_one_owner(people, pack, ran, save_owner, restarted):
-    # Codex on PR #54: an exception in the owner rename escaped the save with no reply and no restart. A failure before
+    # An exception in the owner rename escaped the save with no reply and no restart. A failure before
     # anything moved puts pack.toml back; one after the voice moved keeps the new name, since putting it back would
     # split the owner again.
     alice, before = registry.at(people).person_id("Alice"), pack.read_text()
@@ -477,7 +477,7 @@ def test_a_clone_under_an_existing_name_is_a_voice_of_its_own(state, dana_record
 
 def test_same_person_as_leaves_a_clone_a_clone(state, dana_recorded, ran):
     # Review 2, findings 13 and 18: merging Dana into Eve folded Dana's clone into Eve's voice too. The people merge
-    # in the event log carries every voice of Dana's along, and runs no voice command (#772).
+    # in the event log carries every voice of Dana's along, and runs no voice command.
     write_voices(state, {7: "Eve"})
     clone = server.clone_record(b"RIFF", "Dana")[1]["id"]
     code, body = server.rename_person("Dana", "Eve", control=True)
@@ -855,8 +855,8 @@ def test_selected_face_claim_failure_withdraws_only_its_new_photo(people, faces,
     for name, data in old.items():
         (folder / name).write_bytes(data)
     old_ref = registry.photo("1000000000000")
-    registry.at(server.STATE).claim(old_ref, "Dana Cole", Basis.OWNER_TAG, "dashboard")
-    old_person = registry.at(server.STATE).person_of(old_ref).person
+    registry.at(context.STATE).claim(old_ref, "Dana Cole", Basis.OWNER_TAG, "dashboard")
+    old_person = registry.at(context.STATE).person_of(old_ref).person
     recorded = []
     record = server._record_person_photo
 
@@ -873,8 +873,8 @@ def test_selected_face_claim_failure_withdraws_only_its_new_photo(people, faces,
     assert code == 404
     assert {p.name: p.read_bytes() for p in folder.glob("*.jpg")} == old
     assert len(recorded) == 1
-    assert registry.at(server.STATE).person_of(registry.photo(recorded[0])).person is None
-    assert registry.at(server.STATE).person_of(old_ref).person == old_person
+    assert registry.at(context.STATE).person_of(registry.photo(recorded[0])).person is None
+    assert registry.at(context.STATE).person_of(old_ref).person == old_person
     assert faces.named == []
 
 
@@ -1027,7 +1027,7 @@ def test_known_rename_through_https_proxy_preserves_write_gates(people, serve, m
 def test_known_rename_follows_remote_teaching_like_inbox_skip(
     people, serve, monkeypatch, remote, teaching, status, name
 ):
-    # #2766: a rename is teaching, so a password-checked remote page may rename only with dashboard.remote_teaching on.
+    # A rename is teaching, so a password-checked remote page may rename only with dashboard.remote_teaching on.
     monkeypatch.setattr(server, "DASH_PASSWORD", "pw")
     monkeypatch.setattr(server, "remote_teaching", lambda: teaching)
     host = serve(server.H).removeprefix("http://")
@@ -1037,7 +1037,7 @@ def test_known_rename_follows_remote_teaching_like_inbox_skip(
             "X-Forwarded-For": "100.64.0.9",
             "Authorization": "Bas" + "ic " + base64.b64encode(b"viewer:pw").decode(),
         }
-    connection = http.client.HTTPConnection(host, timeout=120)  # generous: devbox can be loaded
+    connection = http.client.HTTPConnection(host, timeout=120)  # generous: the Linux machine can be loaded
     try:
         connection.request("POST", "/people/rename", json.dumps({"from": "Dana Cole", "to": "Dana Gray"}), headers)
         response = connection.getresponse()
@@ -1165,7 +1165,7 @@ def settle():
 
 
 def settled_people():
-    """people_view after a refresh started now (not one already running) has finished (#1458)."""
+    """people_view after a refresh started now (not one already running) has finished."""
     settle()
     server.people_view()
     settle()

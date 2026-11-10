@@ -1,7 +1,7 @@
-// Settings' Services (#386, drawn as cards in #787): a summary card with the counts and the bulk actions, then a card
+// Settings' Services: a summary card with the counts and the bulk actions, then a card
 // per group (Continuum core, Workers, and so on), with an uptime history card. Each row has its state, a switch to
 // start or stop it now, and a menu with the log and Disable; a failed or looping row opens a box with the error and
-// Start again (#297). The ones stopped and not enabled here are listed under Turned off, with Enable. This machine's
+// Start again. The ones stopped and not enabled here are listed under Turned off, with Enable. This machine's
 // load is its own section (Machine.tsx). It replaces the top bar's Services drawer, whose bulk actions it keeps.
 import {
   ActionIcon,
@@ -215,7 +215,7 @@ function ServiceRow({
             </>
           )}
         </div>
-        {/* Its switch or Enable is off for this, and a disabled control can't take focus: so it's said here (#2271). */}
+        {/* Its switch or Enable is off for this, and a disabled control can't take focus: so it's said here. */}
         {control && byHand && (
           <Text component="p" m={0} size="xs" c="dimmed" id={handId(s.name)}>
             {BY_HAND}
@@ -396,7 +396,7 @@ export function needsAttention(services: readonly Service[]): boolean {
   return groupCount(services).tone !== 'ok' || services.some(s => looping(s) || !!s.last_error);
 }
 
-/** A group of services (#2728, Joe's Settings board idea 4): one that's all running and quiet starts folded to its
+/** A group of services: one that's all running and quiet starts folded to its
  *  heading and count, so the page leads with what needs attention; one with a problem starts open, and a problem
  *  appearing opens it. Show or Hide is the owner's. */
 function GroupCard({ group, children }: { group: ReturnType<typeof grouped>[number]; children: ReactNode }) {

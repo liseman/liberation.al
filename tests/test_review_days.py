@@ -7,7 +7,7 @@ import urllib.request
 import pytest
 
 from liberational import speech_log
-from liberational.dashboard import server
+from liberational.dashboard import context, server
 from speech_fake import fake
 
 
@@ -48,7 +48,7 @@ def test_a_fresh_state_has_no_days(tmp_path, vision):
 
 
 def test_the_route_lists_the_days(state, serve, monkeypatch):
-    monkeypatch.setattr(server, "STATE", state)
+    monkeypatch.setattr(context, "STATE", state)
     monkeypatch.setattr(server, "DASH_PASSWORD", "")
     with urllib.request.urlopen(serve(server.H) + "/review/days", timeout=5) as r:
         body = json.loads(r.read())

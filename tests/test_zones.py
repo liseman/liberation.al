@@ -1,4 +1,4 @@
-"""Owner-drawn zones on a camera's view (#1316): checking a zone, saving a camera's set, and its audit trail."""
+"""Owner-drawn zones on a camera's view: checking a zone, saving a camera's set, and its audit trail."""
 
 from itertools import pairwise
 
@@ -68,7 +68,7 @@ def test_reading_zones_of_a_state_with_no_knowledge_store_finds_none_and_creates
 
 def test_a_set_imported_from_the_broker_export_is_the_cameras_current_set(tmp_path, vision):
     # pack-knowledge import writes the broker's zone.defined records as they were exported: the payload id, the
-    # camera as key, the header time, and the body (#1796); the zones read after the catalog reset are those.
+    # camera as key, the header time, and the body; the zones read after the catalog reset are those.
     from liberational.people import registry
 
     body = {"cam": "garden", "zones": [{"id": "zone-1a2b3c", **litter()}], "source": "owner"}
@@ -194,9 +194,9 @@ def http_(serve, monkeypatch, tmp_path, vision):
     import json
     import urllib.parse
 
-    from liberational.dashboard import server
+    from liberational.dashboard import context, server
 
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     monkeypatch.setattr(server, "DASH_PASSWORD", "")
     netloc = urllib.parse.urlsplit(serve(server.H)).netloc
 
@@ -227,7 +227,7 @@ def test_the_dashboard_refuses_a_zone_save_from_another_site(http_, vision):
     assert not vision.records
 
 
-# Visits (#1316): the pure pipeline, fed frames as the worker would.
+# Visits: the pure pipeline, fed frames as the worker would.
 
 IN = [0.18, 0.7, 0.22, 0.8]  # a box whose bottom centre (0.2, 0.8) is in the litter box
 OUT = [0.58, 0.2, 0.62, 0.4]  # bottom centre (0.6, 0.4): elsewhere

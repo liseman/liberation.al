@@ -1,4 +1,4 @@
-//! The opt-in AV1 archive pass (#1479; docs/STORAGE.md, "AV1 archive"), behind the `ffmpeg` feature.
+//! The opt-in AV1 archive pass (docs/STORAGE.md, "AV1 archive"), behind the `ffmpeg` feature.
 //!
 //! [`encode_chunk`] turns one closed [`ChunkFormat::H264Au`] chunk into AV1: it decodes the chunk's H.264 in
 //! software and encodes each picture with SVT-AV1 (preset 8, CRF 52 by default, the measured recommendation), one

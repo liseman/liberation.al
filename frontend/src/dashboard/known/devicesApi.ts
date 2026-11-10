@@ -1,4 +1,4 @@
-// Known › Devices' reads beyond the link card (#1326): Wi-Fi comings and goings today, and where each linked thing
+// Known › Devices' reads beyond the link card: Wi-Fi comings and goings today, and where each linked thing
 // and person was last seen (GET /device-comings and /device-whereabouts, dashboard/device_links.py). Both are
 // read-only and passive: what the router and the Bluetooth sensors already recorded.
 import { queryOptions } from '@tanstack/react-query';
@@ -17,7 +17,7 @@ export interface WifiDevice {
   place: string | null; // the access point: the owner's name for it, else the router's, else its MAC
   place_id?: string | null; // the access point's MAC, to rename it by
   linked: { id: string; target: Target; name: string } | null;
-  location?: DeviceLocation | null; // where the owner said it lives (#3274)
+  location?: DeviceLocation | null; // where the owner said it lives
   stays: Stay[]; // oldest first
 }
 

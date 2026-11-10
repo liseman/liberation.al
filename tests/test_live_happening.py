@@ -1,4 +1,4 @@
-"""Live's "What's happening" (#354, dashboard/happening.py): arrivals and departures from the camera views,
+"""Live's "What's happening" (dashboard/happening.py): arrivals and departures from the camera views,
 finished conversations told as one named line, never first person, and a cursor of when each row was written, so a
 tab polling since=updated gets every row, however late it lands. Synthetic visits and transcript lines with a fake
 model in a temp state dir; never the real data/."""
@@ -340,9 +340,9 @@ def test_named_lines_start_with_who_and_never_say_i(text, ok):
 
 
 def test_the_route_answers_and_refuses_a_bad_since(state, rewrites, monkeypatch, serve):
-    from liberational.dashboard import server
+    from liberational.dashboard import context, server
 
-    monkeypatch.setattr(server, "STATE", state)
+    monkeypatch.setattr(context, "STATE", state)
     _, rw = rewrites({})
     monkeypatch.setitem(happening._talk_lines, str(state), rw)  # never the model
     base = urllib.parse.urlsplit(serve(server.H))

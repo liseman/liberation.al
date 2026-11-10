@@ -1,4 +1,4 @@
-//! v1's video recordings registered as Tier 1 chunks in place, and read back by GOP, for the vision port (#549).
+//! v1's video recordings registered as Tier 1 chunks in place, and read back by GOP, for the vision port.
 //!
 //! v1 recorded each camera as H.264 MP4 segments of about five minutes (`video/<cam>/<day>/<HHMMSS>.mp4`, with
 //! B-frames and `+faststart`), each with its exact start in `video/index.jsonl` (`{"cam", "file", "start", "fps",

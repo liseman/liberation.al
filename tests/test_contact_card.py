@@ -1,4 +1,4 @@
-"""The contact card (#307): face shot quality (vision/face_quality.py), the best shots and the main photo
+"""The contact card: face shot quality (vision/face_quality.py), the best shots and the main photo
 (vision/sightings.py, over the face worker's faces on the vision log), and GET /people/<name>/card. Made-up names and
 synthetic faces; never the real data/."""
 
@@ -19,7 +19,7 @@ from hypothesis import strategies as hs
 import speech_fake
 from liberational import config as cfg
 from liberational import segment_log, speech_log, vision_log
-from liberational.dashboard import server
+from liberational.dashboard import call_log, context, server
 from liberational.memory import clip_labels
 from liberational.people import face_shots, registry, video_thumbs
 from liberational.vision import face_quality as fq
@@ -168,12 +168,12 @@ def card_state(tmp_path, monkeypatch, vision):
     tmp = tmp_path
     (tmp / "speakers.json").write_text(json.dumps({"speakers": []}))
     for name, path in {
-        "STATE": ".",
-        "CALLS_DIR": "calls",
         "CONTACTS_FILE": "contacts.json",
         "PEOPLE_ADDED": "people_added.json",
     }.items():
         monkeypatch.setattr(server, name, tmp / path)
+    monkeypatch.setattr(call_log, "CALLS_DIR", tmp / "calls")
+    monkeypatch.setattr(context, "STATE", tmp)
     monkeypatch.setattr(server, "_here_since", {})  # each test starts with no one in view
     monkeypatch.setattr(server, "_here_cam", {})
     monkeypatch.setattr(server, "_faces_mod", lambda: NO_FACES)

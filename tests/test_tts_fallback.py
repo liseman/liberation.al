@@ -1,4 +1,4 @@
-"""Speaking when the owner's voice reference goes missing or can't be read under a running voice service (#301):
+"""Speaking when the owner's voice reference goes missing or can't be read under a running voice service:
 that reply is Kokoro, with one warning, and cloning resumes once the reference is back."""
 
 import logging

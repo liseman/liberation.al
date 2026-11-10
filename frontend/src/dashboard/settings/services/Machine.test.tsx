@@ -8,7 +8,7 @@ import type { Stats, UsageHistory } from '../../sources/api';
 import { stats } from '../../sources/fixtures';
 import { Machine } from './Machine';
 
-/** Every process's models open: each folds to one line (#2728); these tests read the models under it. */
+/** Every process's models open: each folds to one line; these tests read the models under it. */
 async function openModels() {
   await screen.findByRole('heading', { name: 'Models in memory' });
   for (const t of screen.queryAllByRole('button', { expanded: false })) await userEvent.click(t);

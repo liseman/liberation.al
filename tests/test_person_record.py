@@ -1,4 +1,4 @@
-"""One person record (issue #28): a person's phone number, added mark, and old names live on their `Person` in the
+"""One person record: a person's phone number, added mark, and old names live on their `Person` in the
 registry, so a rename or a merge carries them. contacts.json and people_added.json are read models, written beside
 the registry and read only for a name the registry has nothing for."""
 
@@ -8,7 +8,7 @@ from unittest.mock import patch
 import pytest
 
 from liberational import config as cfg
-from liberational.dashboard import server
+from liberational.dashboard import call_log, context, server
 from liberational.people import contacts, profiles, registry
 from liberational.phone import outbound
 
@@ -270,12 +270,12 @@ def dashboard(tmp_path, monkeypatch):
     state = tmp_path / "state"
     (state / "people").mkdir(parents=True)
     for name, path in {
-        "STATE": ".",
-        "CALLS_DIR": "calls",
         "PEOPLE_ADDED": "people_added.json",
         "CONTACTS_FILE": "contacts.json",
     }.items():
         monkeypatch.setattr(server, name, state / path)
+    monkeypatch.setattr(call_log, "CALLS_DIR", state / "calls")
+    monkeypatch.setattr(context, "STATE", state)
     # conftest supplies an empty speech log; keep the real readers with this fixture's temporary call storage so
     # direct roster reads and mutation replies (which pass a shared raw/view snapshot) exercise the same path.
     monkeypatch.setattr(server, "_face_last_seen_at", dict)

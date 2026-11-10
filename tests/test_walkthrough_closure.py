@@ -31,3 +31,20 @@ def test_a_four_minute_walk_that_returns_to_its_start_closes_within_the_toleranc
     assert run["before_m"] > 5.0 and run["before_deg"] > W.GATE_MAX_DEG, "the drift is past what the gate lets in"
     assert run["kept"] == run["revisits"] > 0
     assert run["after_m"] <= W.CLOSE_M and run["after_deg"] <= W.CLOSE_DEG
+
+
+def test_a_six_minute_single_loop_is_bent_less_than_the_tolerance_only_with_its_walls():
+    held = wc.simulate(360, seed=0, one_lap=True)
+    assert held["walls"] > 100
+    assert held["bend_m"] <= W.BEND_SHARE * held["metres"]
+    loose = wc.simulate(360, seed=0, one_lap=True, walls=False)
+    assert loose["bend_m"] > 5 * W.BEND_SHARE * loose["metres"], "revisits alone leave its middle metres off"
+
+
+def test_bend_ignores_where_the_walk_points_and_measures_what_a_rigid_move_cant_fix():
+    true = wc.route(120)
+    moved = np.einsum("ij,njk->nik", wc.upright(0.7, 3.0, -2.0), true)
+    assert wc.bend(moved, true).max() == pytest.approx(0.0, abs=1e-9)
+    kinked = true.copy()
+    kinked[60, :3, 3] += [0.0, 0.0, 2.0]
+    assert wc.bend(kinked, true).max() == pytest.approx(2.0, abs=0.05)

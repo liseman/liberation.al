@@ -7,10 +7,10 @@ export interface LiveBoxesProps {
   cam: string;
   mirror?: boolean;
   onPick?: ((pick: BoxPick) => void) | null;
-  /** Change a box before it is drawn (Live's large view labels an unknown face "Who's this?", #352). With it, every
+  /** Change a box before it is drawn (Live's large view labels an unknown face "Who's this?"). With it, every
    *  face is pickable, not only unknown ones. */
   relabel?: ((box: Box) => Box) | null;
-  /** Draw the people's skeletons too (#520): vision then poses every frame it analyzes. */
+  /** Draw the people's skeletons too: vision then poses every frame it analyzes. */
   skeletons?: boolean;
   pickObjects?: boolean;
 }
