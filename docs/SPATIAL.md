@@ -88,28 +88,49 @@ doing is in `state/surroundings/status.json` (`spatial/surroundings_worker.py`).
    alike to every kept frame is kept: that takes a new viewpoint, an uncovered area, and a scene or light that
    changed, and drops the copies. A frame at least 0.85 alike to a kept one replaces it when it's 1.5 times as
    sharp (better detail), and is dropped otherwise (`spatial/surroundings_frames.py`).
-2. *Once it has a pose* (in the map step), by the map itself: the current splat is drawn from the frame's pose.
-   The share of the frame the splat doesn't cover is the uncovered area, and the error of what it does draw is the
-   change or the missing detail. A frame the splat already draws well is dropped. The map step's pull request sets
-   those two thresholds from measurements.
+2. *Once it has a pose* (in the map step), by the map itself. The frame's pose is first fitted to the current splat,
+   then the splat is drawn from it: the share of the frame it doesn't cover is the uncovered area, and the error of
+   what it does draw is the change or the missing detail. A frame the splat covers 0.97 of and draws at 21 dB or
+   better adds nothing, and is dropped (`surroundings_map.well_drawn` has the measurements: copies of kept frames
+   drew at 21.6 to 24.7 dB, the same view in changed light at 11.7 to 20.1 dB, and a new viewpoint at 11.4 dB with
+   0.67 of it covered).
 
 Kept frames are JPEGs with their descriptors under `state/surroundings/`, at most 300 in all and 4 per view (frames
 at least 0.5 alike are one view, and a fifth look at it pushes out its oldest). At the bound, the frame most like
 another kept frame goes first. They are machine-made: a reset deletes them with the places.
 
-**The map** (#258). One step at a time, niced, on the GPU with the most free memory, started by the sampler when
-new frames are waiting, never on a schedule.
+**The map** (#258, `spatial/surroundings_map.py`). One step at a time, niced, on the GPU with the most free memory,
+started by the sampler when kept frames are waiting (at most one a minute), never on a schedule; `pack-surroundings-map`
+runs one by hand. A step takes up to 12 waiting frames.
 
 - *Poses come from the frames.* A camera may be on a moving rig or on a fixed mount, so neither is assumed. A
-  place's first frame founds its map: Depth Anything 3's metric depth lifted to points, the frame's own pose the
-  origin. A later frame is paired with the kept frames it's most like through MASt3R, whose pair pose, scaled by the
-  kept frame's depth, gives the frame's pose in the map. A frame no pair places is dropped. The splat trainer's own
-  pose refinement takes up what's left.
-- *The splat is continued, not rebuilt.* The trainer starts from the place's current splat, adds points where a new
-  frame shows what the map lacked, and trains a short while on the old and new views. Each step writes one revision
-  of the place (`memory/places.py`); the newest two maps and splats are kept, as before.
-- *Places.* Frames that register with a place's kept frames join that place. Frames that register with each other
-  and with no place found a new one. Telling places apart by the rig's signals is not part of this.
+  place's first frame founds its map, its own pose the origin (so the map isn't levelled until its floor is found,
+  #260). A later frame is paired with the three kept frames it's most like through MASt3R, whose pair pose, scaled
+  to metres by Depth Anything 3's metric depth of both frames, gives the frame's pose in the map. Frames are placed
+  outward from the ones that have a pose, each through its pair with the most agreeing matches. A frame no pair
+  places is tried in three steps, then dropped. The splat trainer's pose refinement takes up what's left.
+- *A camera's optics.* Its held intrinsics (`lens.Held`, taught state) give its focal and the lens to undo; a lens in
+  the device manifest is undone the same way. A camera with neither gets its focal from MASt3R, once, kept from then
+  on. Two fixed cameras with held intrinsics came out 2.9 m apart; with MASt3R's focals (7% and 15% off) 4.8 m.
+- *The splat is continued, not rebuilt.* The trainer starts from the place's current splat, adds each new frame's
+  depth points as new Gaussians, and trains 1,500 steps on the old and new views (3,000 for a place's first), each
+  against its depth. Each step writes one revision of the place (`memory/places.py`) in the place's frame, which
+  never moves; the newest two maps and splats are kept, as before.
+- *Places.* Frames that register with a place's kept frames join that place. Three or more that register with each
+  other and with no place found a new one. A first learned map takes the one listed place that has no map (an
+  owner's plan kept across a reset). Telling places apart by the rig's signals is not part of this.
+
+Measured on the Linux machine, shared with the live services (one place, two fixed cameras, frames 640 px wide): a
+step founding a place from two frames took 53 s in all, 27 s of it training, to 50,000 Gaussians at 23.2 dB on its
+own views; a step adding two frames, one from the second camera, 69 s, 29 s training, to 93,000 Gaussians at 24.0 dB;
+a step taking eight near-copies of kept frames 75 s, 19 s training, dropping five of them as already drawn; and a step
+with nothing waiting does nothing. The trainer used 0.1 to 0.3 GiB of GPU memory. With the newest of seven views
+held out, 1,500 steps resumed from the place's earlier splat took 23 s and scored 12.1 dB on it, against 38 s and
+9.9 dB for 3,000 steps from the map's points.
+
+`surroundings_map.summary` and `surroundings_map.views` are what a page and the position layer read: whether
+learning is on, how many frames are kept and waiting, whether a step is running, and each place's newest revision,
+views, and when it last improved; and each view's camera, time, pose, and focal.
 
 **The 3D view** (#259) shows the newest splat, reloads when a newer one is written, and says whether learning is on,
 how many views the map has, and when it last improved.
