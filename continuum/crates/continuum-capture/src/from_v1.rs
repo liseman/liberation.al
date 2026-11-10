@@ -1,4 +1,4 @@
-//! A device manifest from v1's camera settings, for the switch to Continuum (#549): `continuum-capture --from-v1`
+//! A device manifest from v1's camera settings, for the switch to Continuum: `continuum-capture --from-v1`
 //! prints one for a person to check and save as `config/devices.toml`.
 //!
 //! v1 read `[vision]` from `config/defaults.toml` with `pack.toml` over it: the cameras to open as OS indexes

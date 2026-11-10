@@ -1,6 +1,6 @@
 //! The scheduler's view of the catalog: the few questions the planner asks, and nothing else.
 //!
-//! The broker implements [`CatalogView`] on top of the real catalog (`continuum-catalog`, #540) plus its own
+//! The broker implements [`CatalogView`] on top of the real catalog (`continuum-catalog`) plus its own
 //! runtime state: whether a stream is live, and how far its producer has written, are matters of heartbeats and
 //! ring state, not of anything stored. The scheduler never depends on the catalog crate or on shared memory, so
 //! it tests against [`crate::fake::FakeCatalog`].

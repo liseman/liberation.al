@@ -286,7 +286,7 @@ function LoadedSettings({
     lastCloseRequest.current = closeRequest;
     close();
   });
-  // Which sections are open: remembered per browser, plus any with an unsaved change or something to fix (#262).
+  // Which sections are open: remembered per browser, plus any with an unsaved change or something to fix.
   const [open, setOpen] = useState<string[]>(loadOpen);
   useEffect(() => saveOpen(open), [open]);
   // A feature switch lives under New features (its own section only links to it), so it marks only that item.
@@ -504,7 +504,7 @@ function LoadedSettings({
           style={{
             position: 'sticky',
             bottom: 0,
-            // The surface it sits on: the page for first-run setup, the drawer's card otherwise (#210).
+            // The surface it sits on: the page for first-run setup, the drawer's card otherwise.
             background: setup ? 'var(--mantine-color-body)' : 'var(--lib-card)',
             paddingBlock: 12,
             zIndex: 1,

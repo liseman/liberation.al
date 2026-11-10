@@ -572,7 +572,7 @@ def test_suggestions_come_only_from_data_and_skip_what_is_on_the_page(tmp_path):
     for kind in ("whos_around", "conversations", "activity"):
         view.build(kind, DAY)
     page.save_layout(view.store, [{"id": "mine", "kind": "activity", "arg": "event:pushups", "title": "Pushups"}])
-    # Pushups are on the page, and a person's presence is Who's around's filter, not a card of its own (#2582).
+    # Pushups are on the page, and a person's presence is Who's around's filter, not a card of its own.
     assert page.suggestions(view) == []
 
 
@@ -765,7 +765,7 @@ def test_suggestions_offer_new_kinds_only_when_their_aggregates_have_positive_ob
     view.build("person_activity", DAY)
     view.build("devices", DAY)
     found = page.suggestions(view)
-    # Walk-bys and people's activity are one card each, with a filter (#2621 board, idea 2).
+    # Walk-bys and people's activity are one card each, with a filter.
     assert [(s["id"], s["kind"], s["arg"]) for s in found] == [
         ("walkbys", "walkbys", None),
         ("person_activity", "person_activity", None),
@@ -970,7 +970,7 @@ def test_activity_promotion_settings_change_the_cached_evidence_mark(tmp_path, s
         assert src.identity_mark() != before
 
 
-# ---- the worker process (#2458) ----
+# ---- the worker process ----
 
 
 class FakePool:

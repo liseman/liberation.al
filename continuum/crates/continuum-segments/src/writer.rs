@@ -248,7 +248,7 @@ impl Writer {
     /// Ends a part's stream, syncs it, and renames it closed; then records the next `row_seq` and rewrites the part as
     /// one batch ([`crate::compact_closed`]). A forget that came
     /// while the part was open only hid the rows it named there (forgets rewrite closed parts only), so a part closed
-    /// after one is rewritten without them (#3210).
+    /// after one is rewritten without them.
     fn finish(&self, mut open: Open) -> Result<()> {
         open.writer.finish()?;
         open.writer.get_ref().sync_data().map_err(io(&open.path))?;

@@ -4,7 +4,7 @@
 // bit 2 rotate 180 degrees, bit 3 a media context id follows, bit 4 from the connection's `watch` set, bit 5 a
 // request id follows), two zero bytes, and capture_us u64 at 8, read with getBigUint64 and turned into a number
 // (exact until the year 2255). After the 16 bytes come the u32 extensions the flags announce, the media context id
-// first and then the request id (#2384); the payload follows them.
+// first and then the request id; the payload follows them.
 
 export const HEADER_LEN = 16;
 

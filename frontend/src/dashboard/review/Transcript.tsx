@@ -1,6 +1,6 @@
 // The day's transcript: the shared transcript (transcript/Transcript.tsx) over a day's lines. A line seeks there and
 // plays when clicked; the current line follows the playhead (the engine marks it, so following never re-renders the
-// list). Review for one person (#2057) shows only their turns, or everyone's with the others dimmed. A name or a
+// list). Review for one person shows only their turns, or everyone's with the others dimmed. A name or a
 // correction reads the day's lines again, so it shows here and on the timeline. A search dims the turns without a match.
 import { Switch } from '@mantine/core';
 import { useQueryClient } from '@tanstack/react-query';
@@ -14,7 +14,7 @@ import { getTranscript, reviewKey } from './api';
 import { useEngine, useReview } from './context';
 import classes from './review.module.css';
 
-/** query: Review's search, dimming the turns without a match and highlighting the matches in place (#2593). */
+/** query: Review's search, dimming the turns without a match and highlighting the matches in place. */
 export function Transcript({ entries, query = '' }: { entries: TranscriptEntry[] | null; query?: string }) {
   const engine = useEngine();
   const client = useQueryClient();

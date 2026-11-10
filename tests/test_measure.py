@@ -231,7 +231,7 @@ def test_answer_excludes_fail_when_collect_gives_no_answer_text(state, labels, m
 ENTRY = dict(kind="journal", source="journal", ts=1000.0, start=1000.0, end=1030.0, quote="Dana planted tomatoes.")
 LINE = dict(ts=1015.0, text="tomatoes", source="transcript")
 NO_SPAN = dict(ts=1000.0, start="1000", end=None, text="x")
-# A segment-backed item says which stream it came from (#1909); its `source` stays camera.
+# A segment-backed item says which stream it came from; its `source` stays camera.
 WALK = dict(ts=1000.0, source="camera", stream="walkby.span", quote="Walked past cam0's counting line.")
 
 
@@ -752,7 +752,7 @@ def test_a_label_in_a_renamed_persons_current_name_scores_as_right(state, labels
     assert (score["tp"], score["fp"], score["fn"]) == (2, 0, 0)
 
 
-# Identification by threshold (#291)
+# Identification by threshold
 
 
 @pytest.fixture

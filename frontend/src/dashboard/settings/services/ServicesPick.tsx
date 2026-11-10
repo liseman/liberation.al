@@ -1,4 +1,4 @@
-// The controls for services.enable ("Also run") and services.disable ("Don't run") (#386): a pick from this
+// The controls for services.enable ("Also run") and services.disable ("Don't run"): a pick from this
 // machine's services, so a name can't be mistyped. Also run offers the services that are off by default, Don't run
 // the ones that are on; one another setting needs (Whisper, for ASR) is offered by neither. Saved with the draft.
 import { MultiSelect, TagsInput } from '@mantine/core';

@@ -1,4 +1,4 @@
-// What reaches outside this machine, for Settings (#2728, Joe's Settings board ideas 1 and 2): Phone's line saying
+// What reaches outside this machine, for Settings: Phone's line saying
 // whether calls work, and People and privacy's short list of what leaves. Both read what the page already has: the
 // services (is the phone bridge or the GitHub backup set to run), the config (an agent's address), and the imported
 // media sources (Google Photos signed in). Nothing here changes anything; a link goes to where it can be.
@@ -9,7 +9,7 @@ import { getIngest, INGEST_KEY } from '../ingest/api';
 import { useDraft } from './draft';
 import { SettingsRow, SettingsSection } from './layout';
 import layout from './layout.module.css';
-import { BADGE_POLL_MS, servicesQuery } from './services/api';
+import { servicesStatusQuery } from './services/api';
 import type { Service } from './services/model';
 import classes from './settings.module.css';
 
@@ -17,7 +17,7 @@ const RUNNING = new Set(['active', 'running', 'activating', 'reloading']);
 const running = (s: Service | undefined): boolean => !!s && RUNNING.has(s.state);
 
 function useServices() {
-  return useQuery(servicesQuery(BADGE_POLL_MS)).data?.services;
+  return useQuery(servicesStatusQuery()).data?.services;
 }
 
 /** Phone: whether calls work, from the phone bridge's state, with the way to turn it on when they don't. */

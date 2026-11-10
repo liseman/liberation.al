@@ -119,7 +119,7 @@ def test_when_the_search_cant_answer_the_line_is_unmatched_and_no_voiceprint_ope
     with caplog.at_level(logging.WARNING, logger=voices.log.name):
         assert asyncio.run(m.match(A, *SECOND)) is None
     assert m.prints.next == 3
-    # #3073: the timeout has no text, so the line names its type rather than reading "unavailable ()".
+    # The timeout has no text, so the line names its type rather than reading "unavailable ()".
     assert "voice search unavailable (TimeoutError); 1 lines unmatched so far" in caplog.messages
 
 
@@ -613,7 +613,7 @@ def test_a_confirmed_turn_teaches_its_majority_but_not_an_unrelated_tv_voice(tmp
 
 
 def test_a_named_turn_whose_voices_agree_on_nothing_is_named_but_teaches_nothing(tmp_path):
-    """The owner named a turn whose lines sound like nobody in particular (Joe 2026-11-06: a turn named Carly stayed
+    """The owner named a turn whose lines sound like nobody in particular (so a turn named Carly would otherwise stay
     Unmatched). With no majority voice there is no outlier to leave out: every line takes the name, and no voice is
     learned from audio that disagrees with itself."""
     m, _first = _setup(tmp_path)
@@ -664,7 +664,7 @@ C = unit(0, 0, 1)
 
 
 def test_a_named_turn_keeps_its_majority_and_splits_the_rest_off_as_a_voice_to_name_later(tmp_path):
-    """Joe 2026-11-06: "split the lines into multiple people and keep the ones that match"."""
+    """Split the lines into multiple people and keep the ones that match the majority voice."""
     m, _first = _setup(tmp_path)
     lines = _turn_of(tmp_path, m, A, A, B)
     asyncio.run(voices.VoiceTags(tmp_path, m).poll())
@@ -1250,7 +1250,7 @@ def test_words_are_runs_of_letters_digits_and_apostrophes(text, words):
     assert voices.word_count(text) == words
 
 
-# ---- naming a voice teaches it (#3247)
+# ---- naming a voice teaches it
 
 
 def _heard(state: Path, vectors: Sequence[np.ndarray]) -> list[dict[str, Any]]:

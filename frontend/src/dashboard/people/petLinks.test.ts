@@ -9,7 +9,7 @@ const VIEW = {
   species: ['cat', 'dog', 'rabbit'],
 };
 
-// #1986: an animal word opens Pets, at the pet or for its species; anything else isn't Pets' to open.
+// An animal word opens Pets, at the pet or for its species; anything else isn't Pets' to open.
 describe('petHref', () => {
   it.each([
     ['a taught pet, by name whatever the case', 'moe meerkat', '/pets#pet=Moe%20Meerkat'],

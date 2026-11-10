@@ -1,4 +1,4 @@
-// The command palette's "go to a day in Review" (#2586): a typed day read as a date, as people say it. "today",
+// The command palette's "go to a day in Review": a typed day read as a date, as people say it. "today",
 // "yesterday", a weekday ("monday" is the last one, today included), an ISO date ("2026-11-03"), or a month and day
 // ("nov 3", "3 november", "11/3"), taken as this year's unless that's still ahead, then last year's.
 import { isoDay } from '../lib/format';

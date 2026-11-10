@@ -1,6 +1,6 @@
-// Each camera's picture shape, width over height (#2299): learnt from a still or a played canvas, and kept per
+// Each camera's picture shape, width over height: learnt from a still or a played canvas, and kept per
 // camera so its other clips open at the right shape. A module of its own, apart from clip.ts, so a poster can size
-// itself without loading Review's engine (#3127).
+// itself without loading Review's engine.
 const ratios = new Map<string, number>();
 export const WIDE = 16 / 9;
 

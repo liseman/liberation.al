@@ -1,4 +1,4 @@
-//! Worker state against the real broker and a file catalog (#1547): a checkpoint is one row, replaced in place, kept
+//! Worker state against the real broker and a file catalog: a checkpoint is one row, replaced in place, kept
 //! only while its inputs' revisions hold, and deleted by a purge of one of them.
 
 use std::time::Duration;

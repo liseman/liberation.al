@@ -1,4 +1,4 @@
-//! Continuum's segment store (#1755): machine time series (detections, poses, motion, face rows, embeddings,
+//! Continuum's segment store: machine time series (detections, poses, motion, face rows, embeddings,
 //! captions, coverage) as columnar files, one stream, one camera, and one UTC hour per file, outside the broker's
 //! catalog.
 //!

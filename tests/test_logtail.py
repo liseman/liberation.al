@@ -1,4 +1,4 @@
-"""The Debug tab's log tail: dashboard/logtail.py and GET /logs/stream (issue #111)."""
+"""The Debug tab's log tail: dashboard/logtail.py and GET /logs/stream."""
 
 import http.client
 import json

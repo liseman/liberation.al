@@ -1,4 +1,4 @@
-// Open the top bar's Ask from anywhere, with something to start from (#2594 follow-up, for the Inbox's "Ask a
+// Open the top bar's Ask from anywhere, with something to start from (for the Inbox's "Ask a
 // follow-up"). The Ask panel opens, shows the context as a chip over the box ("Following up on: <question>"), and puts
 // the draft in the box. Questions asked while the chip is there carry the report's id, and the server reads the
 // report itself (memory/ask.py followup_report), so the page never sends the report's text.

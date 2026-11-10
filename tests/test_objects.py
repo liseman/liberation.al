@@ -333,7 +333,7 @@ def test_a_chosen_box_runs_sam2_once_and_its_selection_is_bound_to_the_snapshot(
 
 
 def test_there_is_no_automatic_proposal_endpoint(monkeypatch):
-    # Joe (#1481): segmentation only ever runs for a box or point the owner chose.
+    # Segmentation only ever runs for a box or point the owner chose.
     body = json.dumps({"snapshot": "any"}).encode()
 
     class Handler:

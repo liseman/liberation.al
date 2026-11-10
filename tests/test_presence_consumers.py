@@ -65,7 +65,7 @@ def test_same_day_counts_reach_chips_and_ask_and_voice_agree(detector_day, monke
     reviewed = chips.presence(DAY, state)
     assert (historical["query"]["start"], historical["query"]["end"]) == (start, end)
     assert (reviewed["start"], reviewed["end"]) == (start, end)
-    # Ask answers walk-bys from see-actions' walk-by spans and movement, never the sampled visits (#1591).
+    # Ask answers walk-bys from see-actions' walk-by spans and movement, never the sampled visits.
     assert "presence" not in historical and "presence" not in asked
     assert {camera: row["count"] for camera, row in summary["cameras"].items()} == {"cam0": 2, "cam1": 1}
     assert {camera: row["unknown_seconds"] for camera, row in summary["cameras"].items()} == {
@@ -106,7 +106,7 @@ def test_switch_off_removes_the_review_outputs(detector_day):
 
 
 def walk_by(vision, at, *, cam="cam0", direction="left_to_right", followed=True, line=None):
-    """A "Walked past" span as the walk-by worker writes one to the segment store (#1779)."""
+    """A "Walked past" span as the walk-by worker writes one to the segment store."""
     attributes = {"direction": direction, "line": line or {"kind": "vertical", "position": 0.5}, "crossings": 1}
     return vision.add(
         segment_log.WALKBY_SPANS,

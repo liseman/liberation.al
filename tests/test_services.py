@@ -152,14 +152,14 @@ def test_path_has_venv_first_and_no_duplicates(monkeypatch):
     ],
 )
 def test_path_keeps_system_directories_whatever_the_installing_shell_had(monkeypatch, darwin, tail):
-    # Bob's Mac (#1386): a shell PATH ending at /usr/bin:/bin left sysctl (/usr/sbin) out of every plist.
+    # Bob's Mac: a shell PATH ending at /usr/bin:/bin left sysctl (/usr/sbin) out of every plist.
     monkeypatch.setattr(s, "DARWIN", darwin)
     monkeypatch.setenv("PATH", "/opt/tool/bin:/usr/bin:/bin")
     path = s.environment({})["PATH"].split(os.pathsep)
     assert path[2:] == ["/opt/tool/bin", "/usr/bin", "/bin", *tail]
 
 
-# ---- stopping and starting in a few systemctl calls, not several per service (#252) ----
+# ---- stopping and starting in a few systemctl calls, not several per service ----
 
 
 @pytest.fixture
@@ -236,7 +236,7 @@ def test_a_service_that_fails_is_named_and_the_others_still_run(systemd, capsys,
 
 
 def test_a_failed_restart_never_restarts_the_others_twice(systemd):
-    """Local review of #252: retrying a failed restart batch one by one restarted the healthy ones again (a second
+    """Retrying a failed restart batch one by one must not restart the healthy ones again (a second
     model load for vision or listen)."""
     sent, fail = systemd
     fail.add(("restart", "pack-b.service"))
@@ -259,7 +259,7 @@ def test_services_run_without_progress_bars():
     assert (env["HF_HUB_DISABLE_PROGRESS_BARS"], env["TQDM_DISABLE"]) == ("1", "1")
 
 
-# ---- crash loops: restart counts and each service's last error (#297, #386) ----
+# ---- crash loops: restart counts and each service's last error ----
 
 
 def show(*blocks: str):
@@ -474,7 +474,7 @@ def test_errors_count_from_a_running_service_s_start(monkeypatch, state, run, si
     assert s._run_began(state, run) == since
 
 
-# ---- stop now versus turn off (#423): a stop leaves the unit installed, so it comes back on a restart ----
+# ---- stop now versus turn off: a stop leaves the unit installed, so it comes back on a restart ----
 
 
 def test_stop_stops_the_units_but_leaves_them_installed_and_enabled(systemd, tmp_path, capsys):
@@ -682,7 +682,7 @@ def test_gpu_services_wait_for_the_driver_before_exec():
 
 
 def test_see_actions_waits_for_the_driver_at_boot():
-    # Its models need the GPU and it has no useful CPU fallback, so a boot whose driver comes up late waits (#2964)
+    # Its models need the GPU and it has no useful CPU fallback, so a boot whose driver comes up late waits
     assert s.declared()["see-actions"].get("wait_for_gpu")
 
 
@@ -755,7 +755,7 @@ def test_installed_tier_launcher_reads_settings_changes_on_each_start_without_re
 
 
 def test_the_tier_launcher_fills_the_av1_archive_settings_in_at_each_start(monkeypatch):
-    """#1479: the archive's settings go by environment (an older worker ignores them), filled in at start, so a
+    """The archive's settings go by environment (an older worker ignores them), filled in at start, so a
     Settings change reaches the worker on its next restart without reinstalling the unit."""
     execute = create_autospec(os.execve)
     monkeypatch.setattr(s.os, "execve", execute)
@@ -792,7 +792,7 @@ def test_fresh_service_launcher_reports_exec_failure(monkeypatch):
 
 
 def test_last_error_reads_dated_stamps_as_written_and_old_ones_back_from_them(systemd, tmp_path):
-    # A log from before #1696 (time only) continued in dated stamps; mtime is far later, so only the dated line
+    # An earlier time-only log continued in dated stamps; mtime is far later, so only the dated line
     # can place the old ones: the one before 23:59 is the day before the dated 00:01 line.
     write_log(
         tmp_path,

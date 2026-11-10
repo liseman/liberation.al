@@ -1,7 +1,7 @@
-// Known's Pets tab, in People's form (#2019): the named pets on the left, as People's roster, and on the right either
+// Known's Pets tab, in People's form: the named pets on the left, as People's roster, and on the right either
 // a pet's card (as a contact card) or "Sightings to name", the animal groups nobody has named yet (as Who's this?).
-// A link in (#1986): #pet=<name> opens that pet's card, #species=<species> lists only that species. Labeling a group
-// takes it off at once, with Undo in the toast; only sightings still waiting for a label are listed (#2016).
+// A link in: #pet=<name> opens that pet's card, #species=<species> lists only that species. Labeling a group
+// takes it off at once, with Undo in the toast; only sightings still waiting for a label are listed.
 import { VisuallyHidden } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -69,7 +69,7 @@ export function Pets() {
   const pets = query.data?.pets ?? [];
   const options = query.data?.species ?? [];
   // A pet's id, '?' for the sightings waiting for a name, or null (that list, on wide windows).
-  // On a phone, the sightings waiting for a name come first (#2584), unless a link asked for one pet or species.
+  // On a phone, the sightings waiting for a name come first, unless a link asked for one pet or species.
   const [sel, setSel] = useState<string | null>(() => (oneColumn() && !petInHash(location.hash).pet ? '?' : null));
   // The selected roster card (single-click). Enter, I, or a double-click opens it.
   const [cursor, setCursor] = useState<string | null>(() =>
@@ -133,7 +133,7 @@ export function Pets() {
     }
     refresh();
   };
-  // By pet's save (#2366): the checked sightings are labeled as the pet, the unchecked ones marked not it. One toast,
+  // By pet's save: the checked sightings are labeled as the pet, the unchecked ones marked not it. One toast,
   // one Undo for both halves.
   const bulk = async (id: string, checked: string[], unchecked: string[]) => {
     const who = nameOf(id, { ...names, ...Object.fromEntries(pets.map(p => [p.id, p.name])) });
@@ -160,7 +160,7 @@ export function Pets() {
     }
     refresh();
   };
-  // A group in Sightings to name that isn't the pet guessed (#2366): it stays, guessed afresh without that pet.
+  // A group in Sightings to name that isn't the pet guessed: it stays, guessed afresh without that pet.
   const notGroup = async (tracks: string[], id: string) => {
     const who = nameOf(id, { ...names, ...Object.fromEntries(pets.map(p => [p.id, p.name])) });
     setSaid(null);
@@ -177,7 +177,7 @@ export function Pets() {
     }
     refresh();
   };
-  // A sighting on a pet's card that isn't that pet (#2364): it leaves the card, and its label too if it had one.
+  // A sighting on a pet's card that isn't that pet: it leaves the card, and its label too if it had one.
   const notPet = async (p: Pet, track: string) => {
     const labeled = data?.seen?.[p.id]?.find(s => s.track_id === track)?.how === 'labeled';
     setSaid(null);
@@ -195,7 +195,7 @@ export function Pets() {
     }
     refresh();
   };
-  // A pet card's photo choices (#2363), with Undo back to how the card was.
+  // A pet card's photo choices, with Undo back to how the card was.
   const photo = async (p: Pet, action: 'main' | 'newest' | 'hide', track: string) => {
     setSaid(null);
     const before = { photo: p.photo ?? null, hidden: p.hidden ?? [] };
@@ -225,7 +225,7 @@ export function Pets() {
     refresh();
   };
   const remove = async (p: Pet) => {
-    // Asked first, as deleting a person is (#2538, Joe's call).
+    // Asked first, as deleting a person is.
     const sure = await confirm({
       id: `remove-pet-${p.id}`,
       title: `Remove ${p.name}`,

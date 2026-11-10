@@ -22,7 +22,7 @@ import { Setup, StartButton } from './Setup';
 import { Stage } from './Stage';
 import { Transcript } from './Transcript';
 
-/** The microphone off, as a state of the conversation header's mic line (#2485): it takes that line's place
+/** The microphone off, as a state of the conversation header's mic line: it takes that line's place
  *  instead of a notice above the page, which pushed everything down when it came and up when it went. */
 function MicOff() {
   return (
@@ -63,10 +63,10 @@ export function LiveTab() {
   const listening = micStatus(ambient, now).state === 'on';
   const activeCams = useActiveCameras();
   const v1 = camStatus(scene, activeCams, now);
-  // Continuum's word on which cameras have live video, alongside v1's captions while both run (#549)
+  // Continuum's word on which cameras have live video, alongside v1's captions while both run
   const viaGateway = useGatewayLiveCams(CAM_FRESH_S);
   const cams = { ...v1, live: [...new Set([...v1.live, ...viaGateway.filter(c => activeCams.includes(c))])] };
-  const trouble = camTrouble(vision, now); // a camera starting or being reopened: say so, not "off" (#324)
+  const trouble = camTrouble(vision, now); // a camera starting or being reopened: say so, not "off"
   const last: Record<string, LiveScene> = Object.create(null);
   for (const e of scene) if (!last[e.cam] || e.ts >= (last[e.cam]?.ts ?? 0)) last[e.cam] = e;
 
@@ -82,7 +82,7 @@ export function LiveTab() {
         <VisuallyHidden component="h1">Live</VisuallyHidden>
         <GettingStarted onNameFace={nameFace} />
         {/* Wide screens: the cameras on the left with who's here under them, and the conversation and what's
-            happening in a full-height right rail (#2456, #2473). Narrow ones stack cameras, conversation, then
+            happening in a full-height right rail. Narrow ones stack cameras, conversation, then
             who's here. */}
         <div className="live-main">
           <Stage last={last} live={cams.live} trouble={trouble} naming={naming} sceneKnown={sceneRead !== undefined} />
@@ -99,7 +99,7 @@ export function LiveTab() {
                 )
               }
             />
-            {/* Not a landmark of its own: the card inside is the "What's happening" region (one name each, #2621) */}
+            {/* Not a landmark of its own: the card inside is the "What's happening" region (one name each) */}
             <div className="rail">
               <Happening />
             </div>

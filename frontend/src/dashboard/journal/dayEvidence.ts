@@ -1,6 +1,6 @@
-// A day page's cited evidence (#2808, #2838): what each source behind its citations can show now, from
-// GET /journal/evidence?day=, for Review's player. Each one is shown with the Journal tab's SourceMedia (evidence.tsx,
-// #2811), so both age the same way: the recording while it's kept, then a promoted clip or still, then why not.
+// A day page's cited evidence: what each source behind its citations can show now, from
+// GET /journal/evidence?day=, for Review's player. Each one is shown with the Journal tab's SourceMedia (evidence.tsx),
+// so both age the same way: the recording while it's kept, then a promoted clip or still, then why not.
 import { queryOptions } from '@tanstack/react-query';
 import { HttpError, request } from '../../shared/http';
 import type { MediaSource } from './evidence';
@@ -37,7 +37,7 @@ export const journalEvidenceQuery = (day: string) =>
 
 /** How far from the playhead a source's moment may be and still be shown there: a promoted clip spans 6 s around its
  *  moment (CLIP_S), plus a little slack. A source's whole span isn't used: a long one (an action over minutes) would
- *  show a clip from minutes away as if it were now (the review of #2846). */
+ *  show a clip from minutes away as if it were now. */
 export const NEAR_S = 5;
 
 /** The cited source of `camera` whose moment is nearest `t`, within NEAR_S of it; null for none. `camera` is Review's

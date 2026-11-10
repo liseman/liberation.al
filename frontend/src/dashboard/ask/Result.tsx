@@ -178,7 +178,7 @@ export function Evidence({ item }: { item: unknown }) {
 
 /** The answer with each citation of recorded evidence ("C6", "J3") linked to that item's moment in Review, as the
  *  evidence list links it: a code no evidence item has stays text, and code spans and links already in the answer
- *  are left alone (#2661). */
+ *  are left alone. */
 export function citeLinks(text: string, evidence: readonly unknown[]): string {
   const to = new Map<string, string>();
   for (const e of evidence) {
@@ -220,9 +220,9 @@ export function Result({
   history?: boolean;
   answer?: boolean;
   folded?: boolean;
-  /** No "Answer" heading or status badge, for a page that frames the answer itself (the Inbox reader, #2674) */
+  /** No "Answer" heading or status badge, for a page that frames the answer itself (the Inbox reader) */
   bare?: boolean;
-  /** Shown in the answer's box under its text: the Inbox reader's cited moments (#2674) */
+  /** Shown in the answer's box under its text: the Inbox reader's cited moments */
   after?: ReactNode;
 }) {
   if (!isRec(result)) return null;

@@ -1,6 +1,6 @@
-//! Chunk files no catalog row names (#1957): the leftovers of the catalog's crash window.
+//! Chunk files no catalog row names: the leftovers of the catalog's crash window.
 //!
-//! The catalog fsyncs about once a second (#1958), so a broker crash or power loss can roll back a chunk commit the
+//! The catalog fsyncs about once a second, so a broker crash or power loss can roll back a chunk commit the
 //! broker had already acknowledged. The tier worker's saved positions roll back with it and the frames still in
 //! Tier 0 are absorbed again, so nothing is lost but the first chunk file, which no catalog row names any more.
 //!

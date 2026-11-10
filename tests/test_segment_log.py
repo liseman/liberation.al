@@ -676,7 +676,7 @@ def as_rows(records):
 
 
 def test_a_window_still_going_reads_its_ended_hours_once_and_answers_as_a_plain_read(store, kept_hours, monkeypatch):
-    """#2398: Review rereads today's history every minute; its ended hours' records are kept."""
+    """Review rereads today's history every minute; its ended hours' records are kept."""
     now = time.time()
     hour = (now // 3600) * 3600
     start = hour - 3 * 3600
@@ -714,7 +714,7 @@ def test_an_ended_window_keeps_nothing(store, kept_hours):
 
 
 def test_a_part_listed_then_renamed_before_open_is_retried(store, monkeypatch):
-    """#3100: a pass lists an open part, the writer seals it, the read's ENOENT is retried once."""
+    """A pass lists an open part, the writer seals it, the read's ENOENT is retried once."""
     continuum_py = pytest.importorskip("continuum_py")
     record = one(S.FACE_MATCHES, ts_start=T, ts_end=T)
     writers = S.Writers(store)
@@ -755,7 +755,7 @@ def test_a_part_still_missing_after_retry_raises(store, monkeypatch):
 
 
 def test_a_part_sealed_while_a_range_read_runs(store):
-    """#3100: sealing an open part under a concurrent range read still returns its rows."""
+    """Sealing an open part under a concurrent range read still returns its rows."""
     record = one(S.FACE_MATCHES, ts_start=T, ts_end=T)
     writers = S.Writers(store)
     writers.append(S.FACE_MATCHES, "living-room", [record])
@@ -784,7 +784,7 @@ def test_a_part_sealed_while_a_range_read_runs(store):
 
 @pytest.fixture
 def folded(tmp_path, monkeypatch):
-    """A group store where Face 5 was folded into Face 3 (vision/faces.py, #3181)."""
+    """A group store where Face 5 was folded into Face 3 (vision/faces.py)."""
     from liberational.vision import faces
 
     monkeypatch.setattr(faces, "UNK_DB", tmp_path / "unknown_clusters.npz")

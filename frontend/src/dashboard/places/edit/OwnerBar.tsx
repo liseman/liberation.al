@@ -1,4 +1,4 @@
-// Above a real place's plan (#2859, #3285): whose plan it is and what the owner can do about it. Edit plan opens the
+// Above a real place's plan: whose plan it is and what the owner can do about it. Edit plan opens the
 // editor on the plan that holds. Revert plan puts back the previous owner plan in the place's history, written as a
 // new record (so the one it replaces stays in the history, and a second Revert puts that back); with no earlier owner
 // plan it offers the machine's, when there is one, and is hidden when there's neither, so a place is never left with

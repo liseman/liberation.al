@@ -113,7 +113,7 @@ def enrollment(dims):
     return {"dims": dims, "vector": unit(dims), "model": "test-model", "source_id": "source-1"}
 
 
-# One record of each collection the owner teaches, as its writer stores it (#3262: pet.not and transcript.correction
+# One record of each collection the owner teaches, as its writer stores it (pet.not and transcript.correction
 # made the live export fail, and face.not, voice.not, and activity.kind are newer).
 OWNER_MEDIA_MARK = Record(
     "tc",

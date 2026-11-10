@@ -1,11 +1,11 @@
-"""Bench see-actions' per-frame work on this machine's vision backend at a paced frame rate (#1879).
+"""Bench see-actions' per-frame work on this machine's vision backend at a paced frame rate.
 
     .venv/bin/python tools/bench_actions.py --streams 1 --seconds 30
     .venv/bin/python tools/bench_actions.py --backend apple --streams 3 --video clip.mp4
 
 Each stream runs on its own thread with its own backend, as pack-see-actions runs each camera: on CUDA the thread
 makes its own CUDA stream before loading, so its ONNX Runtime sessions queue on it without host waits and its frame
-work replays as CUDA graphs (#3230); on the default stream both fall back to the eager, synchronized path, which is
+work replays as CUDA graphs; on the default stream both fall back to the eager, synchronized path, which is
 not what runs live. Backends load and capture their graphs one at a time (`actions_worker.GpuGate.loading`), and
 each frame runs inside `GpuGate.running`, as live. Each stream is paced at `--fps` (30 by default): a frame slot that
 passes while an earlier frame runs is dropped, not caught up, so the rate it reaches is what the machine sustains.

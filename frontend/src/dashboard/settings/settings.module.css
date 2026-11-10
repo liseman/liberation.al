@@ -151,8 +151,8 @@
   gap: 8px;
   flex-shrink: 0;
 }
-/* The link back to the menu, at phone width only (#787). */
-/* Back to the menu, on a narrow screen only: Mantine's subtle Button (#2041), at a 44 px touch height. */
+/* The link back to the menu, at phone width only. */
+/* Back to the menu, on a narrow screen only: Mantine's subtle Button, at a 44 px touch height. */
 .back {
   display: none;
   align-self: flex-start;
@@ -266,7 +266,7 @@
   padding: 24px 28px 96px;
 }
 
-/* On a wide drawer the menu's column runs the full height (#2450 board item 5): the column is painted on the page,
+/* On a wide drawer the menu's column runs the full height: the column is painted on the page,
    so the menu itself can stay sticky at its own height. */
 @media (min-width: 901px) {
   .drawerBody .page {
@@ -312,7 +312,7 @@
   }
 }
 
-/* People and privacy's list (#2728): what it is on the left, On or Off on the right */
+/* People and privacy's list: what it is on the left, On or Off on the right */
 .leaves {
   display: flex;
   align-items: center;
@@ -320,7 +320,7 @@
   gap: 16px;
 }
 
-/* Advanced's folded sections (#2728): how many settings, and Show or Hide */
+/* Advanced's folded sections: how many settings, and Show or Hide */
 .advancedTrail {
   display: inline-flex;
   align-items: center;

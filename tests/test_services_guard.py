@@ -73,7 +73,7 @@ def temp_root(tmp_path, monkeypatch):
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
     # Only the checkout guard sees this root. Mutating the shared config module let lazy imports keep a temp
-    # manifest path after monkeypatch restored ROOT (#1129).
+    # manifest path after monkeypatch restored ROOT.
     monkeypatch.setattr(services, "cfg", SimpleNamespace(ROOT=tmp_path))
     monkeypatch.setattr(services, "preflight", lambda names: None)
     monkeypatch.setattr(services, "DARWIN", False)
@@ -119,7 +119,7 @@ def test_temp_files_go_under_the_session_root():
 
 
 def test_a_broker_socket_under_a_long_named_tests_state_dir_binds_with_room_to_spare(tmp_path):
-    # #2781: a test that points paths.state at tmp_path puts the broker's socket at <tmp_path>/state/continuum/
+    # A test that points paths.state at tmp_path puts the broker's socket at <tmp_path>/state/continuum/
     # broker.sock. Under the old temp root that came to about 118 bytes, past the 108 a unix socket path may use, and
     # a broker client's connect failed in a background thread. This test's name is long on purpose (pytest keeps 30
     # characters of it), and the 20 extra bytes leave room for a longer user name or a deeper state path.

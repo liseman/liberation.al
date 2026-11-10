@@ -1,6 +1,6 @@
 //! Read-only census of a Tier 0 arena: per class, how many slots are free, being written, ready (flushed or not),
 //! reclaiming, or pinned, and per owner tag how many it holds and whether that owner is a live process.
-//! Diagnostic for #2347; it only loads atomics, never claims, publishes, or reclaims.
+//! Read-only diagnostic: it only loads atomics, never claims, publishes, or reclaims.
 //!
 //!   cargo run --release -p continuum-shm --example tier0_census -- /cnt.<id>.<generation>
 

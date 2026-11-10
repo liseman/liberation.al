@@ -43,7 +43,7 @@ def test_gate_takes_its_threshold_from_the_sensitivity_and_its_minimum_from_conf
     assert (g.threshold, g.min_speech_s) == (pytest.approx(0.46), 0.3)  # 0.6 - 0.0035 * 40
 
 
-# The voice password is never written down as said (#194): only a line that matches it reads "[password]".
+# The voice password is never written down as said: only a line that matches it reads "[password]".
 VOICE = 4  # the voice the stand-in speaker database matches every line to
 
 

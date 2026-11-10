@@ -1,4 +1,4 @@
-"""Each fixed camera's pose over time (#3289): observations stored and read back, split into still stretches where the
+"""Each fixed camera's pose over time: observations stored and read back, split into still stretches where the
 camera moved, smoothed within a stretch, the owner's measured spots, and the seats a place's revisions already hold."""
 
 import math

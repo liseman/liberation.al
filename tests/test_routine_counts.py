@@ -106,7 +106,7 @@ def test_single_window_counts_named_model_events_with_times_and_camera_filter(tm
     [
         ("how many times did I get up to use the bathroom", "Bathroom"),  # the drawn zone wins
         ("how many times did I say get up today", None),  # talk is the transcript's
-        ("how many times did I stand up today", "stand_up"),  # see-actions' model kinds (#1856)
+        ("how many times did I stand up today", "stand_up"),  # see-actions' model kinds
         ("how often do I usually sit down", "sit_down"),
         ("how many times did I open the door", None),
     ],
