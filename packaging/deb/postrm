@@ -1,0 +1,53 @@
+# After the package's files are gone.
+#
+# remove: each user's environment goes too (it is the package's code, several gigabytes of it, and pack-setup makes
+# it again), and so does the login entry that opens it. The settings, the device manifest, and the data stay.
+# purge: lists each user's settings and data with their sizes, and deletes them only after a "y" typed at the
+# terminal. With no terminal, or DEBIAN_FRONTEND=noninteractive, it deletes nothing and says how to.
+case "$1" in
+  remove | purge)
+    for entry in $(users_with "$ENV_DIR" "$AUTOSTART"); do
+      user="${entry%%:*}" home="${entry#*:}"
+      as_user "$user" "$home" rm -rf "${home:?}/$ENV_DIR" "$home/$AUTOSTART" || true
+      echo "Removed Liberational's environment for $user ($home/$ENV_DIR)"
+    done
+    ;;
+esac
+
+if [ "$1" = remove ]; then
+  kept="$(users_with "$CONFIG_DIR" "$DATA_DIR")"
+  if [ -n "$kept" ]; then
+    echo "Kept: each user's settings (~/$CONFIG_DIR) and data (~/$DATA_DIR)."
+    echo "\`apt purge liberational\` lists them and asks before deleting them."
+  fi
+fi
+
+if [ "$1" = purge ]; then
+  entries="$(users_with "$CONFIG_DIR" "$DATA_DIR")"
+  if [ -n "$entries" ]; then
+    echo
+    echo "Liberational's settings and data (recordings, the people and voices it was taught, and models):"
+    for entry in $entries; do
+      user="${entry%%:*}" home="${entry#*:}"
+      as_user "$user" "$home" du -sh "$home/$CONFIG_DIR" "$home/$DATA_DIR" 2> /dev/null | sed 's/^/    /' || true
+    done
+    answer=""
+    if [ "${DEBIAN_FRONTEND:-}" != noninteractive ] && (exec < /dev/tty) 2> /dev/null; then
+      printf "Delete all of the above? This cannot be undone. [y/N] " > /dev/tty
+      read -r answer < /dev/tty || answer=""
+    fi
+    case "$answer" in
+      y | Y | yes | Yes)
+        for entry in $entries; do
+          user="${entry%%:*}" home="${entry#*:}"
+          as_user "$user" "$home" rm -rf "${home:?}/$CONFIG_DIR" "$home/$DATA_DIR" || true
+        done
+        echo "Deleted."
+        ;;
+      *)
+        echo "Kept. To delete them yourself, as each user: rm -rf ~/$CONFIG_DIR ~/$DATA_DIR"
+        ;;
+    esac
+  fi
+fi
+exit 0

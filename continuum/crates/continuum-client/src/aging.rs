@@ -1,4 +1,4 @@
-//! Aging (docs/CONTINUUM.md, "Aging"): age out whole payloads ([`Client::age_out`]), and the reads the video
+//! Aging (docs/CONTINUUM-STORAGE.md): age out whole payloads ([`Client::age_out`]), and the reads the video
 //! window makes: the commit clock and a stream's aged-out spans. Also a chunk's frames and copies
 //! ([`Client::get_chunk`]) and the catalog's page stats. These need broker schema minor 23 or later.
 //! [`Client::resolve_frames`], the source identity an analysis receipt names, needs 26.

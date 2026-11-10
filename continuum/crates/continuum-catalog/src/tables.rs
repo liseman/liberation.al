@@ -88,7 +88,7 @@ tables! {
     PURGE_REMOVED = "purge_removed";
     // (purge id, frame id) -> (): absorbed frames removed so far
     PURGE_REMOVED_FRAMES = "purge_removed_frames";
-    // ---- age-out (docs/CONTINUUM.md, "Aging") ----
+    // ---- age-out (docs/CONTINUUM-STORAGE.md) ----
     // UTC ns u64 -> head commit sequence u64 at that time, about one a minute
     COMMIT_CLOCK = "commit_clock";
     // (stream u32, start u64) -> end u64: spans an age-out removed, merged

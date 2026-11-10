@@ -1,4 +1,4 @@
-//! The Continuum Broker's catalog (docs/CONTINUUM.md, "Catalog"): every payload's header, where its bytes are, what
+//! The Continuum Broker's catalog (docs/CONTINUUM-BROKER.md): every payload's header, where its bytes are, what
 //! it came from, which time ranges each stage has processed, and the purge that removes everything derived from what
 //! it purges.
 //!
@@ -399,7 +399,7 @@ pub trait Catalog: Send + Sync {
         Ok(None)
     }
 
-    /// Adds a part to a chunk that is still being written (docs/CONTINUUM.md, "Video chunks"): `part.frames` are
+    /// Adds a part to a chunk that is still being written (docs/CONTINUUM-STORAGE.md): `part.frames` are
     /// the chunk's frames from index `first_frame` on, `absorbed` the Tier 0 payloads behind them, and `part`'s
     /// header and location the chunk's own again, with its new end and length. In one transaction the frames join
     /// the chunk's frame index (and `provenance` its provenance, a side that attested nothing reading as unknown),

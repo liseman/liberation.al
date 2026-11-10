@@ -39,7 +39,7 @@ STORAGE_S = 1800.0
 HOURS_SHOWN = 14 * 24  # the hourly charts show the last two weeks
 UPTIME_DAYS = 30
 KEEP_S = 400 * 86400.0  # samples older than this are dropped
-# docs/STORAGE.md, "Footprint under the 30-day window": six cameras' video (about 38 GB a day) for the window, and
+# docs/STORAGE.md, "How much disk": six cameras' video (about 38 GB a day) for the window, and
 # one microphone's Opus audio (about 0.76 GB a day), which is kept.
 PLAN_FRESH_GB = 38.76
 PLAN_AGED_GB = 0.76

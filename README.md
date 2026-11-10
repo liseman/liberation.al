@@ -68,6 +68,10 @@ A successful install is not a hardware validation: check the service status and 
 
 ## Install
 
+These steps install from a clone, which is also the development setup. To install a release instead, with no
+clone and nothing to compile, see [docs/RELEASES.md](docs/RELEASES.md): `apt install liberational` from the
+project's apt repository on Ubuntu and Debian, or `uv tool install` anywhere.
+
 1. **Install the base OS compiler, `curl`, `git`, and [mise](https://mise.jdx.dev)**, which installs the project's
    tools (`uv`, `node`, `ollama`, `ffmpeg`, and the rest of `mise.toml`). On Ubuntu or Debian, install `curl`, `git`,
    and `build-essential` first (`node` needs `libatomic1`, and `cargo` needs a C linker); on macOS, install the Xcode
@@ -165,21 +169,22 @@ Try the dashboard on its own first. It works with an empty `data/` directory:
 mise run dashboard
 ```
 
-Open <http://localhost:8765/>. Then install the background services (launchd on macOS, systemd on Linux) and check
-them:
+Open <http://localhost:8765/>. Then open the application, which runs every service and stops them all when you
+quit it:
 
 ```bash
-uv run pack-services list       # what will be installed, and why
-uv run pack-services install
+uv run pack-services list       # what will run, and why
+uv run pack-app                 # the application window; `uv run pack-supervisor run` is the same without one
 uv run pack-services status
 ```
+
+Nothing starts at login unless you turn on "Start at login" in Settings.
 
 The Live tab shows a **Getting started** card with six steps, each with a button to the control that does it:
 system packages installed, models downloaded, pick a camera and a microphone, name yourself, record your voice
 reference, and tag your face. Live fills in as each one is done.
 
-`pack-services stop <name>` stops a service until the next restart, `start <name>` starts it again, and
-`uninstall <name>` keeps it off.
+`pack-services stop <name>` stops a service, `start <name>` starts it again, and `disable <name>` keeps it off.
 
 ## Add cameras
 

@@ -1,4 +1,4 @@
-//! Fitting a device's clock to the host's (docs/CONTINUUM.md, "Timestamps").
+//! Fitting a device's clock to the host's (docs/CONTINUUM-CAPTURE.md).
 //!
 //! - [`LinearFit`]: least squares over a window of (device position, host time) points, giving an offset and a rate.
 //! - [`AudioClock`]: a sample-count clock, anchored to the driver's capture times and re-fitted continuously, with

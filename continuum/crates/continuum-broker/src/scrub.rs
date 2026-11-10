@@ -1,6 +1,6 @@
 //! The catalog scrubber: decides when the catalog file is copied into a fresh one (which gives redb's freed pages
 //! back to the disk and leaves no purged bytes in them), and runs that copy as small low-priority steps on a thread
-//! of its own (docs/CONTINUUM.md, "Catalog" and "Forgetting").
+//! of its own (docs/CONTINUUM-BROKER.md).
 //!
 //! The copy and catch-up steps never take the catalog's writer lock: they read a snapshot of the live file and write
 //! the fresh one, so ingest commits and reads go on beside them. Only the swap at the end excludes every other call,

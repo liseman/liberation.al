@@ -17,8 +17,10 @@ Gaussians' starting centres and colours), `steps`, `cap` (the most Gaussians), `
 optionally `holdout` (indices into `views` scored but not trained on, for measuring), `reg` (the opacity and scale
 regularizers' weight, REG_WEIGHT by default: a walkthrough's many views train better without them), `bound` (true to
 keep the Gaussians inside the start points' box), `depth_unit` (what one count of a depth image is in the poses'
-units, 0.001 by default: millimetres in a metric scene), and `pose_opt` (true to refine every training view's pose
-while the splat trains).
+units, 0.001 by default: millimetres in a metric scene), `pose_opt` (true to refine every training view's pose
+while the splat trains), and `render` (a directory: every view as the trained splat draws it at its given pose,
+`f000.png` on, and for a view with a depth map its drawn depth, `d000.png` on, at that map's size and unit; a walk
+whose frames sit exactly at their poses, for checking what the refinement reports).
 
 The training is the minimal trainer on gsplat's `rasterization`: gsplat's MCMC strategy with a capped Gaussian count,
 an L1 plus 0.2 SSIM loss with small opacity and scale regularizers (none for a walk: `reg`), and SH degree raised one
@@ -54,6 +56,17 @@ once the Gaussians have a rough shape to align to. The corrections are rows of o
 SparseAdam, so each view's row moves only on the steps that render it, about `POSE_LR` a visit, the rate decaying
 to 1% over the run like the means'. Without it the poses are taken as they are. It was worth 1.3 dB on held-out
 frames at 7,000 steps (21.3 against 20.0).
+
+The correction it reports (`pose_shift`, `pose_turn_deg`) is what the frames need, not the step's own wandering
+(#197; one LiDAR walk, 105 training views, 7,000 steps, `tools/splat_walk_check.py`). A copy of the walk drawn from
+its trained splat, so every frame sits exactly at its pose (`render`), reports 0.3 cm and 0.04 degrees; with every
+pose then moved 2 cm and 0.3 degrees in its own direction it reports 1.9 cm and 0.29 degrees, and the refined poses
+end a median 0.5 cm and 0.09 degrees from the truth. On the walk's own frames it reports 2.4 cm and 0.38 degrees
+(4.7 px for a point 2.5 m away), and two runs with different seeds agree view by view: the part they share is 3.0 cm
+and 0.56 degrees RMS, the part they don't 0.45 cm and 0.10 degrees. So the reading's floor is about half a
+centimetre and a tenth of a degree, and what's above it is in the poses (or in what a pose can stand in for: a
+rolling shutter, the lens). A smaller step lowers the reading only by not reaching the frames: at an eighth of the
+rate a known 2 cm reads 1.3 cm, and the held-out score drops 0.1 dB.
 
 **Scores** (PSNR) count only the pixels the loss counts: a view's covered pixels (its "mask") are never trained, so
 counting them only measured how much of the frame they cover (a camera with a wide lens undone scored 17 dB for a
@@ -152,6 +165,7 @@ def main(argv: Sequence[str]) -> int:
                 "covered": None if covered is None else torch.from_numpy(covered[..., None]).to(dev),
                 "depth_at": at,
                 "depth": metres,
+                "depth_shape": d.shape if v.get("depth") else None,
             }
         )
     train = [v for v in views if not v["test"]]
@@ -372,6 +386,21 @@ def main(argv: Sequence[str]) -> int:
         rel = torch.stack([corrected(torch.eye(4, device=dev), d)[:3, :3] for d in moved])
         cos = ((rel.diagonal(dim1=1, dim2=2).sum(1) - 1) / 2).clamp(-1, 1)
         turn = round(float(torch.rad2deg(torch.arccos(cos)).median()), 3)
+    if job.get("render"):
+        drawn = Path(job["render"])
+        drawn.mkdir(parents=True, exist_ok=True)
+        with torch.no_grad():
+            for i, v in enumerate(views):
+                img, seen, _ = render(v, sh_degree, depth=True, delta=torch.zeros(9, device=dev))
+                Image.fromarray((img * 255).round().byte().cpu().numpy()).save(drawn / f"f{i:03d}.png")
+                if v["depth_shape"] is None:
+                    continue
+                # Each depth pixel takes the drawn depth at the image pixel its centre lands on, as the loss reads it.
+                dh, dw = v["depth_shape"]
+                x = ((torch.arange(dw, device=dev) + 0.5) * v["w"] / dw - 0.5).round().clamp(0, v["w"] - 1).long()
+                y = ((torch.arange(dh, device=dev) + 0.5) * v["h"] / dh - 0.5).round().clamp(0, v["h"] - 1).long()
+                counts = (seen[y][:, x] / depth_unit).round().clamp(0, 65535).cpu().numpy().astype(np.uint16)
+                Image.fromarray(counts).save(drawn / f"d{i:03d}.png")
     m = len(params["means"])
     sh_rest = params["shN"].detach().transpose(1, 2).reshape(m, -1)  # channel by channel, as the 3DGS PLY has it
     cols = [

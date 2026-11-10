@@ -3,7 +3,7 @@
 //! Everything lives in a few maps keyed by the ids the engine mints, and every call walks only what it must: an
 //! ingest notice looks up the promises armed on its stream, a system state change scans the active leases, a tick
 //! scans promises and leases once. Nothing allocates on a path that has nothing to do, so the broker's loop can call
-//! the engine at ring rate while the catalog is busy elsewhere (docs/CONTINUUM.md, "Scheduler").
+//! the engine at ring rate while the catalog is busy elsewhere (docs/CONTINUUM-BROKER.md).
 //!
 //! The planner is here too. It turns a missing range into steps (capture, hydrate, compute) by walking the
 //! capability registry from the wanted stream down to inputs that exist, prices them with the cost model, and
@@ -36,7 +36,7 @@ use crate::state::SystemState;
 const NS_PER_US: u64 = 1_000;
 const NS_PER_S: u64 = 1_000_000_000;
 
-/// Tunables with their defaults from docs/CONTINUUM.md. Every one is a setting, not a constant.
+/// Tunables with their defaults. Every one is a setting, not a constant.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Settings {
     /// How long a quote stays committable (2 seconds).

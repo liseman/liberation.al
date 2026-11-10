@@ -6,7 +6,7 @@
 //! resampling) it divides by a power of two, so the f32 samples are exactly integers at the native depth. A batch whose every sample round-trips exactly through 16 or 24 bit integers is
 //! stored as FLAC at the smallest depth that holds it; anything else (software gain, resampling, a float source) is
 //! stored as LZ4 of the batch, and the worker logs the fallback. On the Wave 3 (mono, 48 kHz, 24 bit) FLAC is about
-//! 231 MB an hour against 352 MB as LZ4 f32 (docs/CONTINUUM.md, the audio row).
+//! 231 MB an hour against 352 MB as LZ4 f32.
 //!
 //! A record is self-describing, so one chunk can hold both kinds. [`decode_batch`] gives back the batch's bytes
 //! exactly as they were in the ring, stamps included, so a reader never sees the difference.

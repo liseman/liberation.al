@@ -1,4 +1,4 @@
-//! The capture supervisor's rules (docs/CONTINUUM.md, "One process per physical device"), as a state machine.
+//! The capture supervisor's rules (docs/CONTINUUM-CAPTURE.md), as a state machine.
 //!
 //! It is given events (a device appeared or went, a worker said its device is open, a worker exited, time passed)
 //! and answers with actions (start a worker, stop one). It holds no devices and no processes itself, so every rule is

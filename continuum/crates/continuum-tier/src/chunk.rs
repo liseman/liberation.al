@@ -823,7 +823,7 @@ pub fn finalize(path: &Path) -> Result<Vec<Record>, ChunkError> {
 /// given a footer, so a crash in between leaves the moved records in both files, never in neither. Returns the new
 /// file's records; an empty list (and no new file) when there is nothing past `keep` to move.
 ///
-/// For a part the catalog refused for good (docs/CONTINUUM.md, "Video chunks"): the chunk keeps what the catalog
+/// For a part the catalog refused for good (docs/CONTINUUM-STORAGE.md): the chunk keeps what the catalog
 /// holds of it, and the rest becomes a chunk of its own.
 ///
 /// # Errors

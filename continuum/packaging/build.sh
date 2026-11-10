@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
-# Builds Continuum's two wheels for the platform it runs on (docs/CONTINUUM.md, "Wheels"):
+# Builds Continuum's two wheels for the platform it runs on (docs/CONTINUUM-SDK.md):
 #
 #   continuum_py-<version>-cp314-cp314-<platform>.whl      the Python SDK, with the H.264 decoder
 #   continuum_daemons-<version>-py3-none-<platform>.whl    the daemons, installed onto the environment's PATH
 #
 # On Linux it runs inside packaging/Dockerfile's image (packaging/wheels.sh starts it), whose glibc is the oldest the
-# wheels support. On macOS it runs as is, and needs rustup, uv, pkg-config, and protoc.
+# wheels support. On macOS it runs as is, and needs rustup, uv, pkg-config, protoc, cmake, meson, and ninja.
 #
-# It needs python3.14 (uv's), maturin, cargo, and what packaging/ffmpeg.sh needs (a C and C++ compiler, make, nasm on
-# x86-64, curl). Wheels go to continuum/dist/; everything else it makes stays under continuum/target/wheels/.
+# It needs python3.14 (uv's), maturin, cargo, and what packaging/ffmpeg.sh needs (a C and C++ compiler, make, cmake,
+# meson, ninja, nasm on x86-64, curl). Wheels go to continuum/dist/; everything else it makes stays under
+# continuum/target/wheels/.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -31,6 +32,7 @@ case "$(uname -s)" in
   Darwin)
     export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-14.0}"
     platform="macosx_${MACOSX_DEPLOYMENT_TARGET//./_}_${arch}"
+    # macOS ships bash 3.2, where expanding an empty array is an error under set -u: see its use below.
     compatibility=()
     ;;
   *)
@@ -39,12 +41,14 @@ case "$(uname -s)" in
     ;;
 esac
 
-# The private FFmpeg, rebuilt only when its recipe changes.
+# The private FFmpeg, rebuilt only when its recipe changes. Cargo can't see that its libraries changed (the path
+# pkg-config gives it is the same), so the crate that links them is cleaned, and everything that uses it relinks.
 prefix="$work/ffmpeg-$arch"
 recipe=$(cksum < packaging/ffmpeg.sh)
 if [ "$(cat "$prefix/.recipe" 2>/dev/null)" != "$recipe" ]; then
   rm -rf "$prefix"
   packaging/ffmpeg.sh "$prefix" "$work/ffmpeg-src"
+  cargo clean --release --target-dir "$work/target" -p ffmpeg-sys-next
   printf '%s\n' "$recipe" > "$prefix/.recipe"
 fi
 
@@ -59,7 +63,7 @@ python="$(uv python find 3.14)"
 version=$("$python" -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["workspace"]["package"]["version"])')
 
 rm -f "$out"/continuum_py-*-"$platform".whl "$out"/continuum_daemons-*-"$platform".whl
-maturin build --release --features ffmpeg-static --interpreter "$python" "${compatibility[@]}" --out "$out"
+maturin build --release --features ffmpeg-static --interpreter "$python" ${compatibility[@]+"${compatibility[@]}"} --out "$out"
 sdk=("$out"/continuum_py-*.whl)
 "$python" packaging/pack_wheel.py licenses "${sdk[0]}" "$prefix/licenses"
 

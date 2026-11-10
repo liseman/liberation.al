@@ -1,4 +1,4 @@
-//! Aging (docs/CONTINUUM.md, "Aging"): the reads the video window makes (`ListAgedOut`, `CommitSeqAt`), and the
+//! Aging (docs/CONTINUUM-STORAGE.md): the reads the video window makes (`ListAgedOut`, `CommitSeqAt`), and the
 //! catalog reads that share its reply path: `GetChunk`, `GetCatalogStats`, recording applicability pages, and
 //! `ResolveFrames`, the source identity an analysis receipt names. An age-out of whole payloads is a `Purge`
 //! (see `core::forget`).

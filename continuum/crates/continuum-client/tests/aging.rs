@@ -1,4 +1,4 @@
-//! Aging against the real broker (docs/CONTINUUM.md, "Aging"): an age-out of whole payloads goes only by the commit
+//! Aging against the real broker (docs/CONTINUUM-STORAGE.md): an age-out of whole payloads goes only by the commit
 //! clock, and its spans read as aged out. Also frame resolution and the catalog's page stats.
 
 use std::time::Duration;

@@ -1,4 +1,4 @@
-//! Reading frames out of a raw camera's video chunks (docs/CONTINUUM.md, "Storage tiers"), behind the `ffmpeg`
+//! Reading frames out of a raw camera's video chunks (docs/CONTINUUM-STORAGE.md), behind the `ffmpeg`
 //! feature.
 //!
 //! [`read_frames`] decodes only the GOPs that overlap a range and returns the frames in it. It reads a raw camera's

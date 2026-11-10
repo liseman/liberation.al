@@ -1,5 +1,4 @@
-//! The worker flow: leases, what a worker reports when it commits, and ingest notices (docs/CONTINUUM.md, "Worker
-//! flow: jobs and leases" and "Ingest").
+//! The worker flow: leases, what a worker reports when it commits, and ingest notices (docs/CONTINUUM-BROKER.md).
 //!
 //! A dispatched job carries its output lease inside the [`crate::Dispatch`] action, so only work a worker starts
 //! itself (a backfill over coverage gaps) goes through [`LeaseReq`] and [`LeaseDecision`]. Capture holds a standing

@@ -732,7 +732,7 @@ fn recovery_stops_at_each_streams_newest_finished_chunk() {
     assert!(!ChunkReader::open(&behind).expect("open").finalized(), "left as it was, unopened by recovery");
 }
 
-/// docs/CONTINUUM.md, "Video chunks": an open H.264 chunk hands over its new records every `part_ns`, only ever
+/// docs/CONTINUUM-STORAGE.md: an open H.264 chunk hands over its new records every `part_ns`, only ever
 /// before a keyframe (so a part decodes from its start and never presents before the last one), and the file closes
 /// on the first keyframe after `chunk_ns`.
 #[test]

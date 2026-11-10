@@ -1,4 +1,4 @@
-//! Continuum Broker capture (docs/CONTINUUM.md, "Capture"): a supervisor that starts one capture worker per
+//! Continuum Broker capture (docs/CONTINUUM-CAPTURE.md): a supervisor that starts one capture worker per
 //! physical device from a manifest, and the workers, which stamp every sample on the host monotonic clock and write
 //! the device's native payload into Tier 0.
 //!

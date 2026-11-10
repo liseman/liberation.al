@@ -1,5 +1,5 @@
-//! Machine profiles: the memory and compute budgets the scheduler admits leases against (docs/CONTINUUM.md,
-//! "Leases and budgets" and "Hardware and platforms").
+//! Machine profiles: the memory and compute budgets the scheduler admits leases against (docs/CONTINUUM-BROKER.md,
+//! "Scheduler").
 //!
 //! Running the Linux rig under [`Profile::mac_mini_64gb`] enforces the Mac's limits there, which is the point of
 //! profiles: nothing built on two 3090s should surprise the 64 GB Mac. Every number here is a setting with a first
@@ -108,7 +108,7 @@ mod tests {
 
     #[test]
     fn linux_arena_matches_the_design_doc() {
-        // 256 MB + 2 GB + 8 GB, the "10.25 GB, not the chat's 16 GB" from docs/CONTINUUM.md.
+        // 256 MB + 2 GB + 8 GB, 10.25 GB in all.
         let gib = 1024 * 1024 * 1024;
         assert_eq!(Profile::linux_dual_3090().arena_bytes(), 10 * gib + gib / 4);
     }

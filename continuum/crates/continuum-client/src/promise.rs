@@ -1,4 +1,4 @@
-//! The consumer's promises (docs/CONTINUUM.md, "Consumer flow: query, quote, and commit"): a query in a quoting
+//! The consumer's promises (docs/CONTINUUM-BROKER.md): a query in a quoting
 //! mode (`QuoteIfMissing`) is answered by its `QueryResult` and, when something missing can be made, a
 //! `PromiseQuote` for it; [`Client::query_quoted`] returns both. [`Client::commit_promise`] runs the plan (or a
 //! chosen alternative), and [`Client::cancel_promise`] calls it off; both are answered with where the promise stands
