@@ -49,6 +49,7 @@ from typing import Any
 
 from liberational import config as cfg
 from liberational import json_state, knowledge, locking
+from liberational.spatial import plan_scene
 
 # A camera name as the segment store takes it (continuum-segments' check_name).
 NAME = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9._-]{0,127}")
@@ -103,7 +104,13 @@ def rename_json(value: Any, names: Mapping[str, str]) -> Any:
 
 
 def rename_plan(text: str, names: Mapping[str, str]) -> str:
-    """A plan's DSL with each `x-camera <name>` spot's camera renamed (spatial/plan_import.py)."""
+    """A plan with each camera spot's camera renamed: a scene's own records (spatial/plan_scene.py), or each
+    `x-camera <name>` line of a DSL plan (spatial/plan_import.py). A scene that doesn't read is left as it is."""
+    if plan_scene.is_scene(text):
+        try:
+            return plan_scene.rename_cameras(text, names)
+        except plan_scene.SceneError:
+            return text
     return _X_CAMERA.sub(lambda m: m.group(1) + names.get(m.group(2), m.group(2)), text)
 
 

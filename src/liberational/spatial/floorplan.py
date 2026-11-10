@@ -41,6 +41,8 @@ from collections.abc import Iterable, Mapping, Sequence
 import numpy as np
 from scipy import ndimage
 
+from liberational.spatial import plan_scene
+
 
 @dataclasses.dataclass(frozen=True)
 class Settings:
@@ -688,7 +690,14 @@ _NUM = r"(-?\d+(?:\.\d+)?)"
 
 def rooms_from_dsl(text: str) -> list[tuple[str, str, tuple[tuple[float, float], ...]]]:
     """Each room in a plan's DSL (`to_dsl`'s, or an owner's edit of it) as (id, name, polygon in plan metres), in order.
-    Only `rect x,y WxH` and `poly x,y x,y ...` rooms are read; any other line, or a room it can't read, is skipped."""
+    Only `rect x,y WxH` and `poly x,y x,y ...` rooms are read; any other line, or a room it can't read, is skipped.
+    A plan that is a Pascal scene (spatial/plan_scene.py) gives its zones the same way, and none when it doesn't
+    read."""
+    if plan_scene.is_scene(text):
+        try:
+            return [(room_id, name, poly) for room_id, name, _, poly in plan_scene.rooms(plan_scene.load(text))]
+        except plan_scene.SceneError:
+            return []
     out = []
     for line in text.splitlines():
         m = _ROOM.match(line)

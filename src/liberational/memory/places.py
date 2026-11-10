@@ -438,6 +438,14 @@ def camera_places(state: Path) -> dict[str, str]:
 _SPOT = re.compile(r"^x-camera[ \t]+(\S+)", re.MULTILINE)
 
 
+def _spot_cameras(plan: str) -> list[str]:
+    """The cameras with a spot on a plan: a scene's records (spatial/plan_scene.py), or a DSL plan's `x-camera`
+    lines."""
+    from liberational.spatial import plan_scene  # the standard library only, but spatial imports this module
+
+    return plan_scene.spot_names(plan) if plan_scene.is_scene(plan) else _SPOT.findall(plan)
+
+
 def spot_places(state: Path) -> dict[str, str]:
     """Each camera the owner gave a spot on a place's plan (`x-camera <camera> ...` in an owner plan that holds),
     with that place. The owner said where the camera is, so it outranks a registration in any map
@@ -446,7 +454,7 @@ def spot_places(state: Path) -> dict[str, str]:
     out: dict[str, str] = {}
     for held in places(state):
         if held.plan_source == "owner" and held.plan:
-            out.update(dict.fromkeys(_SPOT.findall(held.plan), held.id))
+            out.update(dict.fromkeys(_spot_cameras(held.plan), held.id))
     return out
 
 

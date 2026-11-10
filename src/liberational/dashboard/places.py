@@ -86,6 +86,7 @@ from urllib.parse import urlencode
 from liberational import logs
 from liberational.dashboard import routes
 from liberational.memory import places
+from liberational.spatial import plan_scene
 
 if TYPE_CHECKING:
     from liberational.dashboard.server import H
@@ -308,7 +309,10 @@ def scene(state: Path, place: str) -> Reply:
     }
 
 
-MAX_PLAN_BYTES = 64 * 1024  # a hand-corrected plan is a few KB; anything this big isn't one
+MAX_PLAN_BYTES = 64 * 1024  # a hand-corrected DSL plan is a few KB; anything this big isn't one
+# A scene (spatial/plan_scene.py) holds every default of every node: about 1.5 KB a door, so a large home's is a few
+# hundred KB.
+MAX_SCENE_BYTES = 2 * 1024 * 1024
 
 
 def correct(body: Mapping[str, Any], control: bool, state: Path, now: float | None = None) -> Reply:
@@ -323,7 +327,7 @@ def correct(body: Mapping[str, Any], control: bool, state: Path, now: float | No
     place, plan, base = body.get("place"), body.get("plan"), body.get("base")
     if not isinstance(place, str) or not isinstance(plan, str) or not (base is None or isinstance(base, str)):
         return 400, {"ok": False, "error": "send the place's id, its plan as text, and the revision it was drawn in"}
-    if len(plan.encode()) > MAX_PLAN_BYTES:
+    if len(plan.encode()) > (MAX_SCENE_BYTES if plan_scene.is_scene(plan) else MAX_PLAN_BYTES):
         return 400, {"ok": False, "error": "that plan is too long to be a floorplan"}
     if places.get(state, place) is None:
         return 404, {"ok": False, "error": "no such place"}
@@ -429,12 +433,11 @@ def _plan_text(value: Mapping[str, Any]) -> str:
 
 
 def _from_page(text: str, view: places.PageView) -> str:
-    """An owner plan's DSL edited on its page, moved into the plan frame (spatial/plan_import.py). Raises ValueError
-    for a plan it can't read."""
+    """An owner plan edited on its page, moved into the plan frame in the format it is in (spatial/plan_import.py).
+    Raises ValueError for a plan it can't read."""
     from liberational.spatial import plan_import
 
-    parsed = plan_import.parse(text)
-    return plan_import.to_dsl(parsed, plan_import.Move(view.turn, view.shift, view.mirror), parsed.title)
+    return plan_import.moved(text, plan_import.Move(view.turn, view.shift, view.mirror))
 
 
 def _kind(entity: str) -> str:
