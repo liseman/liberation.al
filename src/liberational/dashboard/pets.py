@@ -10,11 +10,13 @@ from typing import TYPE_CHECKING, Any
 import continuum_py
 
 from liberational import logs
+from liberational.dashboard import routes
 from liberational.people import pets
 
 LOG = logs.get("pets")
 
 if TYPE_CHECKING:
+    from liberational.dashboard.server import H
     from liberational.people.pet_recognition import Sighting
 
 
@@ -238,3 +240,46 @@ def photo(track: str, state: Path, *, sighting: Sighting | None = None) -> bytes
     if jpg is not None:
         write(state, track, pet_shots.revision(state), jpg, pet_shots.KIND)
     return jpg
+
+
+# ---- routes (dashboard/routes.py): what the server answers for this area ----
+
+
+@routes.get("/pets")
+def _get_pets(h: H) -> None:
+    code, reply = listing(h.state)
+    return h._json(reply, code)
+
+
+@routes.post("/pets/sightings/label")
+def _post_pets_sightings_label(h: H, body: Any) -> None:
+    if not h._same_origin_json():
+        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
+    code, reply = label(body, h._can_teach(), h.state)
+    return h._json(reply, code)
+
+
+@routes.post("/pets/sightings/not")
+def _post_pets_sightings_not(h: H, body: Any) -> None:
+    if not h._same_origin_json():
+        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
+    code, reply = deny(body, h._can_teach(), h.state)
+    return h._json(reply, code)
+
+
+@routes.post("/pets/photo")
+def _post_pets_photo(h: H, body: Any) -> None:
+    if not h._same_origin_json():
+        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
+    code, reply = card(body, h._can_teach(), h.state)
+    return h._json(reply, code)
+
+
+@routes.post("/pets/save", "/pets/remove")
+def _post_pets_save(h: H, body: Any) -> None:
+    p = h.path.split("?")[0]
+    if not h._same_origin_json():
+        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
+    action = save if p == "/pets/save" else remove
+    code, reply = action(body, h._can_teach(), h.state)
+    return h._json(reply, code)

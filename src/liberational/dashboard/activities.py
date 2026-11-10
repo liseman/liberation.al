@@ -2,10 +2,14 @@
 
 import datetime as dt
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from liberational import config as cfg
+from liberational.dashboard import routes
 from liberational.memory import activity_kinds, events
+
+if TYPE_CHECKING:
+    from liberational.dashboard.server import H
 
 
 def name(body: object, control: bool) -> tuple[int, dict[str, Any]]:
@@ -225,3 +229,41 @@ def listings(days: str, state: Path) -> tuple[int, dict[str, Any]]:
             return code, reply
         out[day] = reply
     return 200, {"days": out}
+
+
+# ---- routes (dashboard/routes.py): what the server answers for this area ----
+
+
+@routes.get("/activities")
+def _get_activities(h: H) -> None:
+    query = h._query()
+    if "days" in query:  # several days in one answer (#52)
+        code, reply = listings(query["days"], h.state)
+        return h._json(reply, code)
+    code, reply = listing(query.get("day", ""), h.state, kind=query.get("kind"), unrated=query.get("unrated") == "1")
+    return h._json(reply, code)
+
+
+@routes.get("/activity/kinds")
+def _get_activity_kinds(h: H) -> None:
+    code, reply = kinds(h.state)
+    return h._json(reply, code)
+
+
+@routes.post("/activity/name", "/activity/feedback")
+def _post_activity_name(h: H, body: Any) -> None:
+    p = h.path.split("?")[0]
+    if not h._same_origin_json():
+        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
+    action = feedback if p == "/activity/feedback" else name
+    code, reply = action(body, h._can_teach())
+    return h._json(reply, code)
+
+
+@routes.post("/activity/kinds", "/activity/kinds/delete", "/activity/kinds/restore")
+def _post_activity_kinds(h: H, body: Any) -> None:
+    p = h.path.split("?")[0]
+    if not h._same_origin_json():
+        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
+    code, reply = edit_kind(p, body, h._can_teach(), h.state)
+    return h._json(reply, code)
