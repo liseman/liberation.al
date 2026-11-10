@@ -10,6 +10,7 @@ from unittest.mock import create_autospec
 import pytest
 
 import test_network_worker as net
+from asking import query
 from liberational import config as cfg
 from liberational import segment_log
 from liberational.dashboard import context, device_links, photo_files, server
@@ -377,8 +378,8 @@ def test_voice_sends_a_linked_device_question_to_the_history_answer(home):
 
 
 def test_a_question_about_someone_with_no_linked_device_goes_its_usual_way(home, tmp_path):
-    assert device_answers.asked("is Dana home?", tmp_path) is None
-    assert device_answers.asked("where is the meeting?", tmp_path) is None
+    assert device_answers.asked(query("is Dana home?", tmp_path), tmp_path) is None
+    assert device_answers.asked(query("where is the meeting?", tmp_path), tmp_path) is None
 
 
 def test_a_router_cache_row_is_history_not_presence():

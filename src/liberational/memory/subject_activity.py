@@ -16,7 +16,6 @@ recognizes as the pet count too, and no others.
 """
 
 import dataclasses
-import re
 import time
 from collections.abc import Callable, Mapping
 from pathlib import Path
@@ -27,23 +26,6 @@ from liberational import segment_log
 from liberational.memory import zone_counts
 
 LATELY_DAYS = 7
-WHAT = re.compile(
-    r"\bwhat\s+(?:has|have|had|did|does|is|was)\s+(?P<a>.+?)\s+(?:been\s+)?(?:doing|up to|done)\b"
-    r"|\bwhat's\s+(?P<b>.+?)\s+been\s+(?:doing|up to)\b"
-    r"|\bhow\s+(?:has|is)\s+(?P<c>.+?)\s+been(?:\s+doing)?\b",
-    re.I,
-)
-# "when did I last see the cat", "when was May last seen", "where is the cat", "have you seen May lately", "when did
-# the cat last use the litter box": the subject is group s; a zone named after "last" is group z.
-LAST = re.compile(
-    r"\bwhen\s+(?:did|have)\s+(?:i|we|you)\s+last\s+(?:see|seen|spot|spotted)\s+(?P<a>.+?)\s*(?:\?|$|\btoday\b|\bthis\b)"
-    r"|\bwhen\s+(?:was|were|is)\s+(?P<b>.+?)\s+last\s+seen\b"
-    r"|\bwhere(?:\s+is|'s|\s+was)\s+(?P<c>.+?)\s*(?:\?|$|\bnow\b|\bright now\b)"
-    r"|\b(?:have|did)\s+(?:you|i|we)\s+seen?\s+(?P<d>.+?)\s*(?:\?|$|\blately\b|\btoday\b|\brecently\b)"
-    r"|\bwhen\s+did\s+(?P<e>.+?)\s+last\s+(?:use|go\s+to|visit|go\s+in(?:to)?|sit\s+in|get\s+in(?:to)?)\s+(?P<z>.+?)\s*(?:\?|$)",
-    re.I,
-)
-DETERMINERS = frozenset({"the", "my", "our", "a", "your"})
 MAX_EVIDENCE = 30
 
 
@@ -57,75 +39,33 @@ def _pets(state: Path) -> list[dict[str, Any]]:
         return []
 
 
-# Time and camera qualifiers history_qa.parse reads for the window and cameras: never part of a subject or zone name
-# ("when did I last see the cat yesterday", "the cat on camera 2", "the litter box today").
-QUALIFIERS = re.compile(
-    r"\b(?:on|from|in)\s+(?:the\s+)?cam(?:era)?\s*[\w-]+"
-    r"|\b(?:this|last|past|yesterday|today|tonight)\s+(?:morning|afternoon|evening|night|week|month|weekend)\b"
-    r"|\b(?:on\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b"
-    r"|\b(?:today|yesterday|tonight|lately|recently|now|earlier|so far|anymore|again)\b"
-    r"|\b(?:in\s+the\s+)?(?:last|past)\s+\d+\s+(?:minutes?|hours?|days?|weeks?)\b"
-    r"|\b(?:since|before|after|at|around|by)\s+\S+",
-    re.I,
-)
-
-
-def bare(phrase: str) -> str:
-    """The phrase without time and camera qualifiers, or configured camera names said as cameras."""
-    from liberational.vision import views
-
-    try:
-        phrase = views.configured_camera_mentions(phrase)[1]
-    except Exception:
-        pass
-    return " ".join(QUALIFIERS.sub(" ", phrase).replace("?", " ").split())
-
-
-def subject(phrase: str, state: Path) -> tuple[str, str | None] | None:
-    """(species, pet name) for a phrase naming one animal ("the cat", "May"), or None. A pet's name is looked for
-    before time qualifiers are stripped, so a pet called Friday is still Friday ("where is Friday yesterday")."""
-    roster = _pets(state)
-    said = [w for w in re.findall(r"[a-z']+", phrase.lower()) if w not in DETERMINERS]
-    if said:
-        first = said[0].removesuffix("'s")
-        for p in roster:
-            if str(p.get("name", "")).casefold() == first and (len(said) == 1 or bare(" ".join(said[1:])) == ""):
-                return str(p["species"]), str(p["name"])
-    words = [w for w in re.findall(r"[a-z']+", bare(phrase).lower()) if w not in DETERMINERS]
-    if len(words) != 1:
+def subject(query: Mapping[str, Any], state: Path) -> tuple[str, str | None] | None:
+    """(species, pet name) for the animal the reading picked ("the cat", or a pet by its name), or None. A species
+    with exactly one named pet is that pet."""
+    subjects = query.get("subjects") or {}
+    species = subjects.get("species")
+    if species is None:
         return None
-    word = words[0].removesuffix("'s")
-    for p in roster:
-        if str(p.get("name", "")).casefold() == word:
-            return str(p["species"]), str(p["name"])
-    species = word.removesuffix("s") if word.removesuffix("s") in zone_counts.ANIMALS else word
-    if species not in zone_counts.ANIMALS:
-        return None
-    named = [p for p in roster if p.get("species") == species]
-    return species, (str(named[0]["name"]) if len(named) == 1 else None)
+    if subjects.get("pet") is not None:
+        return str(species), str(subjects["pet"])
+    named = [p for p in _pets(state) if p.get("species") == species]
+    return str(species), (str(named[0]["name"]) if len(named) == 1 else None)
 
 
-def asked(question: str, state: Path) -> tuple[str, str | None] | None:
+def asked(query: Mapping[str, Any], state: Path) -> tuple[str, str | None] | None:
     """(species, pet name) the question asks about, or None when it isn't asking what an animal has been doing."""
-    m = WHAT.search(question)
-    return None if m is None else subject(m["a"] or m["b"] or m["c"], state)
+    return subject(query, state) if query.get("measure") == "doing" else None
 
 
-def last_asked(question: str, state: Path) -> tuple[str, str | None, str | None] | None:
-    """(species, pet name, zone name or None) when the question asks when an animal was last seen, or last used a
-    zone; None otherwise (a person's last-seen question is the timeline's)."""
-    m = LAST.search(question.strip())
-    if m is None:
+def last_asked(query: Mapping[str, Any], state: Path) -> tuple[str, str | None, str | None] | None:
+    """(species, pet name, zone name or None) when the question asks when an animal was last seen, where it is, or
+    when it last used a zone; None otherwise (a person's last-seen question is the timeline's)."""
+    if query.get("measure") not in ("last_time", "where"):
         return None
-    found = subject(m["a"] or m["b"] or m["c"] or m["d"] or m["e"] or "", state)
+    found = subject(query, state)
     if found is None:
         return None
-    zone = None
-    if m["z"]:
-        zone = next((n for n in zone_counts.names(state) if _same(n, bare(m["z"]))), None)
-        if zone is None:
-            return None
-    return found[0], found[1], zone
+    return found[0], found[1], (query.get("subjects") or {}).get("zone")
 
 
 def _same(name: str | None, phrase: str) -> bool:
