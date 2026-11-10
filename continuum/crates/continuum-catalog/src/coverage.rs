@@ -41,6 +41,10 @@ impl CoverageSet {
     /// frame apart become one run (an age-out's `merge_gap_ns`).
     pub fn insert_within(&mut self, span: Interval, gap_ns: u64) {
         let (mut start, mut end) = (span.start_ns(), span.end_ns());
+        if self.spans.last_key_value().is_none_or(|(_, &e)| e.saturating_add(gap_ns) < start) {
+            self.spans.insert(start, end);
+            return;
+        }
         // The interval starting at or before `start` may reach it.
         if let Some((&s, &e)) = self.spans.range(..=start).next_back()
             && e.saturating_add(gap_ns) >= start
