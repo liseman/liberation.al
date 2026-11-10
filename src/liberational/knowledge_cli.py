@@ -31,6 +31,7 @@ _DOCUMENTS = frozenset(
         "identity.record",
         "pet.profile",
         "pet.sighting",
+        "pet.photo",  # a labeled sighting's saved photo, to embed its reference again (people/pet_recognition.py)
         "zone.defined",
         "place.named",
         "place.plan",

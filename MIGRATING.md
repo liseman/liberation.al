@@ -8,14 +8,16 @@ procedures are retired. Do not run an old catch-up script against current data.
 ## The model fetcher is a command: `pack-models`
 
 `tools/fetch_models.py` moved into the package as `pack-models`, so an installed package has it with no checkout.
-`mise run models` and `mise run setup` run it as before. Anything that ran the script by its path runs the command:
+`mise run models` and `mise run setup` run it as before. Anything that ran the script by its path runs the module,
+which works straight after the pull:
 
 ```sh
-.venv/bin/pack-models --list
+.venv/bin/python -m liberational.fetch_models --list
 ```
 
-The command appears in `.venv/bin` the next time the environment is synced (`mise run models` does it; so does the
-sync under "Build and restart matching components"). Nothing stored changes, and no service needs a restart.
+The `pack-models` command itself appears in `.venv/bin` the next time the environment is synced (`mise run models`
+does it; so does the sync under "Build and restart matching components"). Nothing stored changes, and no service
+needs a restart.
 
 ## Continuum's daemons are found in the environment, not the checkout
 
@@ -55,24 +57,51 @@ The Python SDK's in-place registration calls are renamed (`register_v1_index` to
 restart matching components") and restart every service after the pull. Stream names (`<stream>.audio_v1`,
 `<stream>.video_v1`) and stored data are unchanged; nothing is dropped.
 
-## The pet embedding model is fetched from an ungated copy
+## Pet embeddings are DINOv2 (2026-11-09)
 
-`[models.hf.animal_embedding]` now names an ungated copy of the same DINOv3 ViT-S/16 files (`repo`, pinned by
-`revision`), the publisher's checksum of the weights (`sha256`), and the embedding space's name (`space`, still the
-publisher's repository name). The weights are byte for byte the same, and the space name stored in every animal
-embedding row and taught pet reference doesn't change, so nothing is re-embedded, reset, or taught again.
+The pet embedding model is now Meta's DINOv2 ViT-S/14 (`facebook/dinov2-small`, Apache-2.0, ungated) in place of
+DINOv3 ViT-S/16 and its DINOv3 License. `[models.hf.animal_embedding]` pins its revision and the checksum of its
+weights, and names a new embedding space (`space = "facebook/dinov2-small"`). Recognition's thresholds are set for
+it (`MATCH_SIM` 0.55, `GROUP_SIM` 0.65, `MIN_GALLERY_SIM` 0.60 in `people/pet_recognition.py`).
 
-The pet workers load the weights from the repository the config names, so fetch the copy (86 MB) before restarting
-them, or they start without pet embeddings and say the weights are missing:
+What it drops: every stored animal embedding and taught pet example (`pet.reference`) of the DINOv3 space stops being
+read. They stay on disk, and nothing is deleted. Pet profiles and the owner's labels are untouched. Until a species
+has examples in the new space, its pets aren't told apart by appearance.
+
+The examples taught so far are vectors with no photo kept, so they can't be embedded again. Instead, carry the pets
+over: the tool below takes the unlabeled sightings that still have a saved photo (`state/pet_shots`), names each by
+the old examples (embedding the photo with DINOv3, which must still be in the Hugging Face cache), and gives the ones
+it is sure of (0.75 or more alike, 0.10 clear of any other pet, where recognition itself asked 0.65 and 0.05) to that
+pet as new DINOv2 examples. In order:
 
 ```sh
-.venv/bin/pack-models --no-ollama
+# 1. After the pull, before restarting anything: fetch DINOv2 (88 MB; its checksum is verified).
+.venv/bin/python -m liberational.fetch_models --no-ollama
+
+# 2. See what the carry-over would do (writes nothing), then do it. It takes a few minutes on the CPU.
+.venv/bin/python tools/restore_pet_references.py --carry-from facebook/dinov3-vits16-pretrain-lvd1689m:tight \
+    --old-model facebook/dinov3-vits16-pretrain-lvd1689m --dry-run
+.venv/bin/python tools/restore_pet_references.py --carry-from facebook/dinov3-vits16-pretrain-lvd1689m:tight \
+    --old-model facebook/dinov3-vits16-pretrain-lvd1689m
+
+# 3. Restart every config-reading service (the model entry changed), the dashboard and gateway included.
 ```
 
-Then restart every config-reading service (`space` and `sha256` are new keys). The old download in the Hugging Face
-cache (`models--facebook--dinov3-vits16-pretrain-lvd1689m`) is no longer read and can be deleted. A `pack.toml` that
-sets `models.hf.animal_embedding.repo` to another model must also set `space` to that model's own name, or its
-vectors would be stored under DINOv3's.
+`--old-model` is the DINOv3 repository in the cache: `facebook/dinov3-vits16-pretrain-lvd1689m`, or
+`computer-vision-ai-lab/dinov3-vits16-pretrain-lvd1689m` on an install that fetched the ungated copy. The tool prints
+how many examples each pet got and whether each species' held-out check passes. A pet it lists with fewer than 6
+needs teaching again on People's Pets page. The carried labels show there like any label (each records
+`carried_from`), and a wrong one can be cleared.
+
+From now on a label keeps its sighting's saved photo in the knowledge store (`pet.photo`), which a catalog reset and
+`pack-knowledge export` keep. A later model change is then
+`.venv/bin/python tools/restore_pet_references.py` with no arguments, which embeds every labeled sighting's kept
+photo again.
+
+DINOv3 is no longer in the model list, and nothing reads it after the carry-over: delete its download when you like
+(`models--facebook--dinov3-vits16-pretrain-lvd1689m` or `models--computer-vision-ai-lab--dinov3-vits16-pretrain-lvd1689m`
+under `~/.cache/huggingface/hub`). A `pack.toml` that sets `models.hf.animal_embedding.repo` to another model must
+also set `space` to that model's name and drop or replace `sha256`.
 
 ## The gateway's stream listing comes from the catalog
 
@@ -319,7 +348,7 @@ cannot reuse their predecessors' embeddings:
 |---|---|---|
 | Faces | AdaFace IR50 WebFace4M RGB | ArcFace/buffalo_l recognition vectors |
 | Voices | ReDimNet2 B3 VoxCeleb2 large-margin, 192 values | CAM++ vectors |
-| Pets | DINOv3 ViT-S/16 on tight box crops, 384 values | DINOv2 vectors, and DINOv3 on square crops, despite the same dimensions |
+| Pets | DINOv2 ViT-S/14 (`facebook/dinov2-small`) on tight box crops, 384 values | DINOv3 vectors, and any model's on square crops, despite the same dimensions |
 | Journal retrieval | Qwen3-Embedding 0.6B, 1024 values | Qwen3-Embedding 4B index and embeddings |
 
 Preserve owner names, profiles, photos, reference media, zones, and Objects while
@@ -338,9 +367,8 @@ vector-bearing teaching bundle wholesale afterward.
 
 AdaFace requires a local ONNX export after its declared source and checkpoint are
 fetched; follow `uv run tools/export_adaface.py --help` and use the configured model paths.
-Review the checkpoint's dataset-license conditions. DINOv3 is under the DINOv3
-License, fetched beside its weights; the operator reads and accepts those terms, and
-an agent does not accept them for them.
+Review the checkpoint's dataset-license conditions; the operator reads and accepts a
+model's terms, and an agent does not accept them for them.
 
 Deep transcription now uses Qwen3-ASR in the scheduled process and writes
 `transcript_revisions_qwen.sqlite3`; the old `transcript_revisions.sqlite3` is not

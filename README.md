@@ -111,11 +111,9 @@ A successful install is not a hardware validation: check the service status and 
    the Python dependencies, builds `whisper-server` and the dashboard, turns on the Git hooks, and fetches the models
    for your platform. The first run downloads several GB; later runs skip what's already there.
 
-   No model needs a Hugging Face account. The pet embedding model (DINOv3 ViT-S/16) is under Meta's DINOv3 License,
-   which is fetched beside its weights: read it before you use the model. Its publisher's repository is gated, so
-   setup fetches an ungated copy of the same files and refuses it unless the weights match the publisher's checksum
-   (`[models.hf.animal_embedding]` in `config/defaults.toml`). If you point a model at a gated repository yourself,
-   setup still fetches every other model, then lists the gated ones and exits with an error.
+   No model needs a Hugging Face account: every default model is fetched without one. If you point a model at a
+   gated repository yourself, setup still fetches every other model, then lists the gated ones and exits with an
+   error.
 
    ```bash
    mise run setup

@@ -110,7 +110,17 @@ def presence(monkeypatch):
 
     spec = {BROKER: {"command": "b"}, CAPTURE: {"command": "c"}, "listen": {"command": "l"}}
     app = supervisor.App(supervisor.Supervisor(spec, spawn=spawn, kill=kill))
-    made = Harness(app_window.Presence(app, paused=lambda: {"camera": ([], 1)}, open_url=opened.append), procs, opened)
+    made = Harness(
+        app_window.Presence(
+            app,
+            paused=lambda: {"camera": ([], 1)},
+            open_url=opened.append,
+            starts_at_login=lambda: False,
+            set_start_at_login=lambda on: "unused",
+        ),
+        procs,
+        opened,
+    )
     yield made
     made.quit()
     if made.thread is not None:
@@ -167,10 +177,22 @@ WINDOW = textwrap.dedent(
     supervisor.TICK_S = 0.01
     app_window.REFRESH_MS = 20
     spec = {"continuum-broker": {"command": "b"}, "continuum-capture": {"command": "c"}}
+    login = {"on": False, "asked": []}
+    def set_login(on):
+        login["asked"].append(on); login["on"] = on; return "set"
     presence = app_window.Presence(
-        supervisor.App(supervisor.Supervisor(spec, spawn=spawn, kill=kill)), paused=lambda: {"camera": ([], 1)}
+        supervisor.App(supervisor.Supervisor(spec, spawn=spawn, kill=kill)), paused=lambda: {"camera": ([], 1)},
+        starts_at_login=lambda: login["on"], set_start_at_login=set_login,
     )
     window = app_window.Window(presence)
+    assert window.at_login.get() is False  # off unless the owner ticks it
+    window.login.invoke()
+    assert login["asked"] == [True] and window.at_login.get() is True
+    window.login.invoke()
+    assert login["asked"] == [True, False] and window.at_login.get() is False
+    login["on"] = True  # turned on somewhere else (Settings): the box follows at the next refresh
+    window.show()
+    assert window.at_login.get() is True
     presence.start()
     seen = []
 
@@ -228,6 +250,7 @@ def test_main_refuses_without_a_display_before_starting_any_service(monkeypatch)
     monkeypatch.setattr(app_window.logs, "setup", lambda: None)
     monkeypatch.setattr(app_window.logs, "adopt", lambda name: None)
     monkeypatch.setattr(app_window.signal, "signal", lambda *a: None)
+    monkeypatch.setattr(app_window.login_item, "sync", lambda: pytest.fail("touched the login entry"))
     with pytest.raises(SystemExit, match="can't open a window"):
         app_window.main()
     assert started == []

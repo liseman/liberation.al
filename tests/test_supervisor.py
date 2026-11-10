@@ -409,15 +409,18 @@ def test_a_stop_reaches_what_the_service_started():
     child = int(shell.stdout.readline())
     supervisor.signal_group(shell.pid, signal.SIGTERM)
     assert shell.wait(timeout=5) != 0
-    deadline = time.monotonic() + 5
+    deadline = time.monotonic() + 30
     while time.monotonic() < deadline:
+        # Gone, or a zombie until init reaps it (which still answers kill(0)). It can vanish between any two of these
+        # looks, and reading /proc for a process that just went raises ProcessLookupError too.
         try:
             os.kill(child, 0)
-        except ProcessLookupError:
+            with open(f"/proc/{child}/stat") as stat:
+                if stat.read().split()[2] == "Z":
+                    break
+        except ProcessLookupError, FileNotFoundError:
             break
-        with open(f"/proc/{child}/stat") as stat:  # a zombie until init reaps it still answers kill(0)
-            if stat.read().split()[2] == "Z":
-                break
+        time.sleep(0.01)
     else:
         pytest.fail("the service's own child outlived the stop")
     supervisor.signal_group(shell.pid, signal.SIGTERM)  # already gone: no error

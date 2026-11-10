@@ -3,7 +3,7 @@
   pack-app    # open the application: start the services (supervisor.py) and show its window
 
 The window says whether the system is running and recording (and when cameras or microphones are paused for
-privacy), opens the dashboard, and has Quit. Quit, and closing the window, ask the supervisor to drain, then stop,
+privacy), opens the dashboard, has a Start at login checkbox (login_item.py, off by default), and has Quit. Quit, and closing the window, ask the supervisor to drain, then stop,
 every service; the window stays, saying it is stopping, until they are gone. So nothing records with no window: the
 window is there for as long as any service runs, and if the supervisor stops by itself the window says so.
 
@@ -35,7 +35,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from liberational import config as cfg
-from liberational import logs, supervisor
+from liberational import login_item, logs, supervisor
 from liberational.service_cascade import CAPTURE
 
 LOG = logs.get("app")
@@ -114,6 +114,12 @@ def summary(
     return Summary("Running and recording", f"{count}{extra}.{trouble}", True)
 
 
+def save_start_at_login(on: bool) -> str:
+    """Save the setting (pack.toml's app.start_at_login) and make the desktop's entry match it."""
+    cfg.save({login_item.KEY: on})
+    return login_item.sync(on)
+
+
 @dataclass
 class Presence:
     """The application behind the window: the supervisor's App, the thread that runs it, and what phase it is in."""
@@ -122,6 +128,8 @@ class Presence:
     missed: Sequence[str] = ()
     paused: Callable[[], Mapping[str, tuple[Sequence[str], int]]] = paused_devices
     open_url: Callable[[str], object] = webbrowser.open
+    starts_at_login: Callable[[], bool] = login_item.enabled
+    set_start_at_login: Callable[[bool], str] = save_start_at_login
     thread: threading.Thread | None = None
     started: bool = False
     asked: bool = False  # someone asked to quit (the button, closing the window, or a signal)
@@ -187,6 +195,17 @@ class Window:
         self.dashboard.grid(row=2, column=1, sticky="w", pady=(0, 16))
         self.quit = tk.Button(root, text="Quit and stop recording", command=self.ask_quit)
         self.quit.grid(row=2, column=2, sticky="e", padx=(8, 16), pady=(0, 16))
+        # Start at login (#157): off unless the owner ticks it. Shown as the entry on disk is, so a change made in
+        # Settings shows here too.
+        self.at_login = tk.BooleanVar(root, value=presence.starts_at_login())
+        self.login = tk.Checkbutton(
+            root,
+            text="Start at login" if login_item.supported() else "Start at login (not on this platform yet)",
+            variable=self.at_login,
+            command=self.toggle_login,
+            state="normal" if login_item.supported() else "disabled",
+        )
+        self.login.grid(row=3, column=1, columnspan=2, sticky="w", pady=(0, 12))
         root.protocol("WM_DELETE_WINDOW", self.ask_quit)
         self.refresh()
 
@@ -198,7 +217,17 @@ class Window:
         self.presence.quit()
         self.show()
 
+    def toggle_login(self) -> None:
+        """The checkbox changed: save the setting and add or remove the desktop's entry. A failure leaves the box as
+        the entry on disk is."""
+        try:
+            LOG.info(self.presence.set_start_at_login(bool(self.at_login.get())))
+        except Exception as error:
+            LOG.error(f"start at login not changed: {logs.reason(error)}")
+        self.at_login.set(self.presence.starts_at_login())
+
     def show(self) -> None:
+        self.at_login.set(self.presence.starts_at_login())
         now = self.presence.summary()
         self.headline.config(text=now.headline)
         self.detail.config(text=now.detail)
@@ -236,6 +265,7 @@ def main() -> None:
                 f"can't open a window ({logs.reason(error)}). The application needs a desktop session; "
                 "`pack-supervisor run` runs the services without one."
             ) from error
+        LOG.info(login_item.sync())  # the desktop's entry follows the setting, whoever changed it last
         presence.start()
         try:
             window.run()

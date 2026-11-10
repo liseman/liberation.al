@@ -160,6 +160,13 @@ os.execv, os.execve = _guarded_execv, _guarded_execve  # ty: ignore[invalid-assi
 
 
 @pytest.fixture(autouse=True)
+def _no_real_login_entry(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A test never adds or removes the real desktop's autostart entry (login_item.py, #157): the desktop's config
+    directory is a temporary one for every test."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path_factory.mktemp("xdg")))
+
+
+@pytest.fixture(autouse=True)
 def speech(monkeypatch):
     """Every test reads and writes an in-memory speech log, never a broker: `speech.say({...})` puts an utterance
     there, `speech.reply({...})` a reply."""
