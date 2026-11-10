@@ -1,4 +1,4 @@
-"""Questions about an animal (#1318): what it has been doing, and when it was last seen or last in a zone."""
+"""Questions about an animal: what it has been doing, and when it was last seen or last in a zone."""
 
 import datetime as dt
 from zoneinfo import ZoneInfo

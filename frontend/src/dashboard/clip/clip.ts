@@ -1,4 +1,4 @@
-// One recorded clip played by Review's engine outside Review (#2476): an Activities card, its popup, and a People
+// One recorded clip played by Review's engine outside Review: an Activities card, its popup, and a People
 // card's floating video all open a clip the same way. useClip owns the engine and the listing; the views around it
 // (a card, a floating window) only arrange it.
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -24,8 +24,8 @@ export interface Moment {
 export const GONE = 'This recording is no longer kept.';
 
 /** The shortest window a clip opens with, in seconds. A People card's sighting can be a single moment (0 s long):
- *  a tenth of a second of video holds no frame the decoder can show, so the player said "No video at 01:03:14"
- *  (#2547). Shorter clips run on to this length. */
+ *  a tenth of a second of video holds no frame the decoder can show, so the player said "No video at 01:03:14".
+ *  Shorter clips run on to this length. */
 export const MIN_CLIP_S = 5;
 
 /** The camera's segments over [start, end] in time order, the last one cut off at end, so playback stops there. */
@@ -80,7 +80,7 @@ export function useClip({
     else {
       setLoading(true);
       const to = Math.max(end, start + MIN_CLIP_S);
-      // By default only the clip's own camera is listed: one spans request, not one per camera (#2552).
+      // By default only the clip's own camera is listed: one spans request, not one per camera.
       const load: LoadSegments = loadSegments ?? ((a, b, signal) => daySegments(a, b, { signal, cams: [cam] }));
       void load(start, to, ctl.signal)
         .then(segments => {

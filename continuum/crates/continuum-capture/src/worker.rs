@@ -165,7 +165,7 @@ pub fn run(args: &WorkerArgs, stop: &AtomicBool) -> WorkerEnd {
                     &clocks,
                     stop,
                 );
-                // Release the device first, timed and logged, before anything else can hold up the exit (#1388).
+                // Release the device first, timed and logged, before anything else can hold up the exit.
                 crate::teardown::close(&device.name, || drop(source));
                 end
             }
@@ -301,7 +301,7 @@ pub fn open_microphone(node: &str) -> std::io::Result<(Box<dyn Microphone>, PcmF
 
 /// The bytes a camera claims its Tier 0 slot class by: its planned frame size (`continuum_core::camera_frame_bound`, the
 /// size the broker reserved its slots at), or the driver's buffer if that's bigger. Claiming by the driver's buffer
-/// alone picked a smaller class the broker never reserved for it whenever another camera added one (#2001).
+/// alone picked a smaller class the broker never reserved for it whenever another camera added one.
 #[must_use]
 pub fn slot_need(max_frame_bytes: u32, width: u32, height: u32, shape: &str) -> u64 {
     let raw = cfg!(target_os = "macos") || shape == "UYVY";
@@ -414,7 +414,7 @@ pub fn camera(
         anchor,
         residual_offset_ns: device.residual_offset_ns.get("video").copied().unwrap_or(0),
     };
-    // No handles ring until the broker carves rings (#634): live readers query the stream meanwhile.
+    // No handles ring until the broker carves rings: live readers query the stream meanwhile.
     let stream = VideoStream::new(meta, arena, class, u64::from(std::process::id()), None);
     #[cfg(feature = "ffmpeg")]
     let mut stream: Box<dyn crate::video::CameraPublisher> = match pipeline {
@@ -432,7 +432,7 @@ pub fn camera(
         slot_bytes,
     };
     let mut counts = CameraCounts::default();
-    // Auto exposure (#535): the camera's own thread, offered a frame a second.
+    // Auto exposure: the camera's own thread, offered a frame a second.
     let mut steer = crate::steer::start(
         crate::steer::SteerSetup {
             camera: device.name.clone(),
@@ -635,7 +635,7 @@ mod tests {
     #[cfg(not(target_os = "macos"))] // a Mac's frames are raw, planned and claimed at their own size
     fn a_camera_claims_the_class_its_planned_frame_size_was_reserved_in() {
         use continuum_client::SizeClass;
-        // devbox's cam0 (#2001): 960x540 MJPEG whose driver buffer is 1,036,800 bytes, which an RTSP camera's 1 MiB
+        // A 960x540 MJPEG camera (cam0) whose driver buffer is 1,036,800 bytes, which an RTSP camera's 1 MiB
         // class would hold. Its planned size, 960 x 2 x 540 + 64 KiB, is 1,102,336: the 2 MiB class the broker
         // reserved its slots in. A buffer bigger than the plan still wins.
         assert_eq!(slot_need(1_036_800, 960, 540, "MJPEG"), 1_102_336);

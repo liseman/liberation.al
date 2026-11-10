@@ -1,7 +1,7 @@
-// The boxes over Review's large camera (#374): who and what it saw at the playhead, drawn by the shared box layer
+// The boxes over Review's large camera: who and what it saw at the playhead, drawn by the shared box layer
 // (camera/BoxLayer, Live's style: named green with their name, unknown amber "Who's this?", things in their own
 // colour). Naming freezes the displayed pixels and their actual timestamp, not the asynchronously moving playhead.
-// A box matched to someone (a person or a pet) shows "Not <name>" when hovered or tapped (#2607): it unmatches that
+// A box matched to someone (a person or a pet) shows "Not <name>" when hovered or tapped: it unmatches that
 // track through the corrections People and Pets already use, redraws the box unnamed at once, and offers Undo.
 import { Button, Text } from '@mantine/core';
 import { IconUserMinus } from '@tabler/icons-react';

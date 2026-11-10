@@ -20,7 +20,7 @@ function hiddenClasses(): string[] {
 }
 
 // The stacked layout (a window under 4:3, 900 px wide, or 600 px tall) hides the inline hints; the "?" table of keys
-// must not be caught by it, since a narrow window can still have a keyboard (#2597 regression).
+// must not be caught by it, since a narrow window can still have a keyboard.
 it("shows the shortcuts in the '?' popover however the window is shaped", async () => {
   renderPage(<ReviewHelp timeline />);
   await userEvent.click(screen.getByRole('button', { name: 'Shortcuts and timeline help' }));
@@ -31,7 +31,7 @@ it("shows the shortcuts in the '?' popover however the window is shaped", async 
     for (const name of hiddenNames) expect(el.classList.contains(name ?? '')).toBe(false);
 });
 
-// The accessibility pass (#2621): the panel is read and scrolled, so it takes focus as it opens and gives it back.
+// The accessibility pass: the panel is read and scrolled, so it takes focus as it opens and gives it back.
 it("moves focus into the '?' panel as it opens, and back to '?' when Escape closes it", async () => {
   renderPage(<ReviewHelp timeline />);
   const button = screen.getByRole('button', { name: 'Shortcuts and timeline help' });

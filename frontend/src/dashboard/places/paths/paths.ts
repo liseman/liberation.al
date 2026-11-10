@@ -1,5 +1,5 @@
-// Paths on a plan (#2831): what to draw for a window of positions at the scrubber's time. Each path is drawn as one
-// smooth curve per segment (#3296), with an arrowhead where it ends showing which way they went: its points are cleaned
+// Paths on a plan: what to draw for a window of positions at the scrubber's time. Each path is drawn as one
+// smooth curve per segment, with an arrowhead where it ends showing which way they went: its points are cleaned
 // (a foot point that jumps out and straight back is dropped, and points closer than a step to the last are let go, so
 // standing still isn't a scribble), split only where the track went quiet for minutes or jumped further than anyone
 // could have walked, and joined by a centripetal Catmull-Rom spline, which never loops or overshoots between close
@@ -235,8 +235,8 @@ export const PLAIN_SCALE = 40;
 export const PLAIN_MARGIN_M = 0.5;
 export const PLAIN_MIN_M = 3;
 
-/** Where a place with no plan yet draws its paths (#3169): plain floor metres around every point of the window, in
- *  the position layer's own floor frame (#3157), x to the right and y down as a plan's are. */
+/** Where a place with no plan yet draws its paths: plain floor metres around every point of the window, in
+ *  the position layer's own floor frame, x to the right and y down as a plan's are. */
 export interface PlainFrame {
   /** The floor point at the frame's top left, in metres. */
   minX: number;

@@ -1,4 +1,4 @@
-"""The see-actions bench (tools/bench_actions.py, #1879): its frames are real NV12, its pacing counts what a slow
+"""The see-actions bench (tools/bench_actions.py): its frames are real NV12, its pacing counts what a slow
 machine misses, and its report says so."""
 
 import importlib.util
@@ -136,7 +136,7 @@ def test_a_frame_that_captures_a_graph_runs_alone_and_the_rest_inside_the_shared
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="needs a CUDA device")
 def test_a_streams_backend_loads_on_a_cuda_stream_of_its_own_thread(monkeypatch):
-    # #3230's sessions queue on, and its graphs replay on, the loading thread's own stream; on the default stream
+    # Sessions queue on, and their graphs replay on, the loading thread's own stream; on the default stream
     # they take the eager, synchronized path, which is not what runs live.
     import threading
 

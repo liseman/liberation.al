@@ -1,9 +1,9 @@
-// Known (#1970): who and what the house knows by name, one page with a tab each for People, Pets, Objects, Activities
-// (#2283), Devices (phones, watches, and tags, Joe 2026-11-06), and Places (floorplans, #2796). Each tab is its own path
+// Known: who and what the house knows by name, one page with a tab each for People, Pets, Objects, Activities,
+// Devices (phones, watches, and tags), and Places (floorplans). Each tab is its own path
 // (/people, /pets, /objects, /activities, /devices, /places), so a link or a reload opens
 // the right one and Back steps through them. A tab's content is the page it was before, as is. Like the app's own pages, each mounts on its first visit
-// and then stays mounted while hidden (an Activity), so switching back shows it as it was (#330). The page is one wide
-// PageFrame (#2469), so its tabs start at the same left edge as every other page, each with its own PageHeader.
+// and then stays mounted while hidden (an Activity), so switching back shows it as it was. The page is one wide
+// PageFrame, so its tabs start at the same left edge as every other page, each with its own PageHeader.
 import { Tabs } from '@mantine/core';
 import { useElementSize, useIntersection } from '@mantine/hooks';
 import { useQuery } from '@tanstack/react-query';
@@ -57,17 +57,17 @@ const PANELS: Record<KnownTab, ReactNode> = {
   ),
 };
 
-/** A sub-tab's count of what waits there, the same number its list shows (#2451), saying what it counts ("201 to
+/** A sub-tab's count of what waits there, the same number its list shows, saying what it counts ("201 to
  *  name"): a bare number beside "People" read as how many people there are. It sits on its own line under the tab's
- *  title (#3243), a line every tab has from the first paint, loaded or not and counted or not, and every tab is one
+ *  title, a line every tab has from the first paint, loaded or not and counted or not, and every tab is one
  *  fixed width, so a count arriving late (they read their lists seconds after Known opens) never widens a tab or slides
- *  the row under a pointer that hadn't moved (#2828). Nothing shows when none waits. */
+ *  the row under a pointer that hadn't moved. Nothing shows when none waits. */
 export function Waiting({ n, what }: { n: number | null | undefined; what: string }) {
   return <span className={classes.count}>{n ? `${n} ${what}` : null}</span>;
 }
 
 // Each badge reads the list its tab reads, so the badge and the list agree. On its own tab the badge only follows
-// that read (the tab decides when to start it: People's roster must come first, #2236). On another tab it reads the
+// that read (the tab decides when to start it: People's roster must come first). On another tab it reads the
 // list itself, but only BADGE_DELAY_MS after Known opens, so a cold read never takes a slot from the open tab's own.
 const BADGE_DELAY_MS = 4000;
 
@@ -95,7 +95,7 @@ function PetsBadge({ read }: { read: boolean }) {
   return <Waiting n={waitingGroups(sightings.data)} what="to name" />;
 }
 
-/** The clips of the last week Clips to check lists (#2283): counted kinds by their spot-check sample (#2441). */
+/** The clips of the last week Clips to check lists: counted kinds by their spot-check sample. */
 function ActivitiesBadge() {
   const recent = useRecentActivities();
   return <Waiting n={toCheck(recent.items, recent.promotion).length} what="to check" />;

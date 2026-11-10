@@ -3,7 +3,7 @@
 //!
 //! [`read_frames`] decodes only the GOPs that overlap a range and returns the frames in it. It reads a raw camera's
 //! Tier 1 ([`ChunkFormat::H264Au`], one access unit per record), each GOP assembled from its keyframe's record
-//! ([`for_each_gop`]), and the same chunk after the opt-in archive pass made it AV1 ([`ChunkFormat::Av1Au`], #1479).
+//! ([`for_each_gop`]), and the same chunk after the opt-in archive pass made it AV1 ([`ChunkFormat::Av1Au`]).
 
 use std::path::Path;
 

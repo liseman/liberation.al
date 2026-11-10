@@ -89,7 +89,7 @@
     margin-left: 0;
   }
 }
-/* The status pill (#2453): state first, the privacy menu second. */
+/* The status pill: state first, the privacy menu second. */
 .pill {
   display: inline-flex;
   align-items: center;
@@ -136,7 +136,7 @@
   font-weight: 500;
 }
 
-/* The one menu (#2453): a gear with a dot while a service needs attention. */
+/* The one menu: a gear with a dot while a service needs attention. */
 .gear {
   position: relative;
 }
@@ -166,7 +166,7 @@
   text-overflow: ellipsis;
 }
 
-/* A phone's bottom bar (#2453). */
+/* A phone's bottom bar. */
 :root {
   --bottom-h: 0px;
 }
@@ -242,7 +242,7 @@
   .right [data-ask-trigger] :global(.mantine-Button-section[data-position="right"]) {
     display: none;
   }
-  /* The command palette's button (#2598): just its icon on a phone, the same 44px square as the gear. */
+  /* The command palette's button: just its icon on a phone, the same 44px square as the gear. */
   .right [data-palette-trigger] {
     width: 44px;
     min-width: 44px;

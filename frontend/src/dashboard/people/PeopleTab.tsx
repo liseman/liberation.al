@@ -36,7 +36,7 @@ export function PeopleTab() {
   const [faceDraft, setFaceDraft] = useState<LiveFaceDraft | null>(null);
   const people = useQuery({ queryKey: PEOPLE_KEY, queryFn: getPeople, refetchInterval: 30000 });
   // A person's name, '?' for Who's this?, or null (Who's this? on wide windows). A link opens a card: /people#card=Kara.
-  // On a phone, what waits for a name comes first (#2584), unless a link opened a card.
+  // On a phone, what waits for a name comes first, unless a link opened a card.
   const [sel, setSel] = useState<string | null>(() => cardInHash() ?? (oneColumn() ? '?' : null));
   // The selected roster card (single-click). Enter, I, or a double-click opens it.
   const [cursor, setCursor] = useState<string | null>(() => cardInHash() ?? (oneColumn() ? '?' : null));
@@ -85,7 +85,8 @@ export function PeopleTab() {
     setCursor(s);
     setSel(s);
   };
-  // Follow links in (Live's "Here now", #356, and its Who's this? link) on any in-app hashchange: People stays mounted between tabs (#330).
+  // Follow links in (Live's "Here now", and its Who's this? link) on any in-app hashchange: People stays mounted
+  // between tabs.
   useEffect(() => {
     const follow = () => {
       if (knownTabOf(location.pathname) !== 'people') return;
@@ -130,7 +131,7 @@ export function PeopleTab() {
   // Who's this? stays unmounted until the roster view is on screen. Its group reads would otherwise take both JSON
   // slots ahead of /people, and mounting it when the roster has failed leaves the loading placeholder up.
   // On a phone, .picked hides the roster. Selecting Who's this before that view exists would hide the loader
-  // and, if the load fails, Retry. Keep the list layout until the view is here, then open Who's this (#1230).
+  // and, if the load fails, Retry. Keep the list layout until the view is here, then open Who's this.
   const openDetail = shown != null && !(shown === '?' && view == null);
   return (
     <div className={`${classes.page} ${openDetail ? classes.picked : ''}`}>

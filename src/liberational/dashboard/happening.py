@@ -1,4 +1,4 @@
-"""Live's "What's happening" (#354): a plain log of the last few hours, newest at the bottom.
+"""Live's "What's happening": a plain log of the last few hours, newest at the bottom.
 
 GET /live/happening?since=&limit= gives {"items": [...], "updated": cursor}, items in time order:
 
@@ -26,7 +26,7 @@ restart starts the journal and the cursor over: a tab whose cursor is past the n
 model is asked again for the talk lines. The log is built at most once every BUILD_S seconds (every open Live tab
 polls it), reads only the transcript's last LOOKBACK_S, and never waits on the model. Only the first build waits;
 after that a poll answers from the last build while one background build at a time brings it up to date (a build
-takes 1 to 5 s under load, #1458).
+takes 1 to 5 s under load).
 """
 
 import pathlib
@@ -51,7 +51,7 @@ BUILD_S = 8.0
 MAX_TALK_LINES, MAX_TALK_CHARS = 20, 1500
 # Face sightings older than SETTLED_S are read again only every SETTLED_REFRESH_S, or at once when a purge, a hidden
 # record, or a name given moves their key: rereading the window's seven hours each build was most of what the
-# dashboard decoded at idle, about 190,000 records a minute with Live open (#1516).
+# dashboard decoded at idle, about 190,000 records a minute with Live open.
 SETTLED_S = 900.0
 SETTLED_REFRESH_S = 300.0
 _built: dict[str, tuple[float, list[dict[str, Any]]]] = {}

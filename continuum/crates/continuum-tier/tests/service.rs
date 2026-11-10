@@ -278,7 +278,7 @@ fn every_ring_batch_a_microphone_writes_reaches_a_committed_chunk() {
 fn a_ring_carved_after_the_worker_subscribed_ends_its_run_and_the_next_run_in_the_process_reads_it() {
     // After the broker restarts, the worker can subscribe to a microphone before capture registers it again: the
     // catalog knows the stream, but the new broker has carved no ring for it, so the subscription has none, and the
-    // ring capture carves next was never read (devbox, 2026-10-30).
+    // ring capture carves next was never read.
     const BLOCK: usize = 16 + 480 * 4;
     let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(3).enable_all().build().unwrap();
     let dir = tempfile::tempdir().unwrap();
@@ -362,7 +362,7 @@ fn a_ring_carved_after_the_worker_subscribed_ends_its_run_and_the_next_run_in_th
     assert!(matches!(ended, ServiceError::Lost(_)), "{ended}");
     assert!(continuum_tier::service::rides_through(&ended), "a cascade's lost run starts again in the process");
 
-    // The next run, in the same process as the program now does (#3097): it subscribes with the ring, and the batch
+    // The next run, in the same process as the program now does: it subscribes with the ring, and the batch
     // the lost run never acknowledged reaches a chunk.
     service.shutdown().expect("the lost run shuts down");
     drop(service);
@@ -719,7 +719,7 @@ fn derived_copy_case(late_after_purge: bool, register_after_start: bool) {
     rt.block_on(running).unwrap();
 }
 
-/// The opt-in AV1 archive pass (#1479) against a real broker: a camera's native H.264 is committed as an `H264Au`
+/// The opt-in AV1 archive pass against a real broker: a camera's native H.264 is committed as an `H264Au`
 /// chunk, the pass (with a 3 second wait instead of a day) re-encodes it, and the catalog's frame index and length
 /// follow the new file, so every frame still reads back by the catalog's offsets and decodes.
 #[cfg(feature = "ffmpeg")]
@@ -872,7 +872,7 @@ fn the_av1_archive_pass_converts_a_committed_chunk_and_the_catalog_follows() {
     assert_eq!(decoded.len(), N as usize, "every frame decodes from the AV1 chunk");
 }
 
-/// #2350: an H.264 P-frame that comes with no chunk open (a camera reconnecting mid-GOP, or a capture drop) can never
+/// An H.264 P-frame that comes with no chunk open (a camera reconnecting mid-GOP, or a capture drop) can never
 /// be archived, so the worker drops it as undecodable. Its Tier 0 slot must still become reusable. A reader that pinned
 /// it and went away leaves a pin behind; the broker evicts an expired pin only on a slot it may reclaim, which an
 /// unflushed one never is. Left unmarked, a class filled with them stayed full until the broker restarted, dropping

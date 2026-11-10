@@ -1,4 +1,4 @@
-//! Canonical MJPEG-camera H.264 adapter. The hardware encoder is NVENC, or VideoToolbox on macOS (#1915); its
+//! Canonical MJPEG-camera H.264 adapter. The hardware encoder is NVENC, or VideoToolbox on macOS; its
 //! failure, at open or at run time, selects CPU H.264 (libx264), never raw JPEG.
 //! Each JPEG is decoded on the CPU straight to NV12, its own Y, Cb, and Cr repacked with no trip through RGB
 //! (`continuum_tier::JpegNv12`), into buffers kept from frame to frame.
@@ -15,7 +15,7 @@ const MAX_PIXELS: u64 = 16_777_216;
 /// The hardware encoders capture uses; a run-time failure of either falls back to libx264.
 const HARDWARE: [&str; 2] = ["h264_nvenc", "h264_videotoolbox"];
 
-/// This platform's hardware H.264 encoder: VideoToolbox on macOS (the rig's Mac mini), NVENC elsewhere.
+/// This platform's hardware H.264 encoder: VideoToolbox on macOS (the Mac), NVENC elsewhere.
 #[must_use]
 pub const fn hardware_encoder() -> &'static str {
     if cfg!(target_os = "macos") { "h264_videotoolbox" } else { "h264_nvenc" }
@@ -365,7 +365,7 @@ mod tests {
     #[test]
     #[cfg(target_os = "macos")]
     fn real_videotoolbox_jpegs_emit_one_immediate_au_and_force_idr_at_every_reference_break() {
-        // The rig's Mac mini (#1915): VideoToolbox must open, give one decodable access unit per frame, honor every
+        // On the Mac: VideoToolbox must open, give one decodable access unit per frame, honor every
         // keyframe request, and never fall back to the CPU.
         const W: u16 = 256;
         const H: u16 = 144;
@@ -517,7 +517,7 @@ mod tests {
             "unflushed bytes must not be overwritten even without a pin"
         );
         // Flushed, and nobody reclaims it: the publisher recycles the slot itself rather than waiting for the
-        // broker's sweep (#1931).
+        // broker's sweep.
         arena.0.mark_flushed(published.slot).unwrap();
         let third = Capture { duration_ns: 0, ..capture(1_960_000_000, first.device_seq + 2, 23) };
         let next = publisher.publish_frame(third, &picture, &mut notices).unwrap();

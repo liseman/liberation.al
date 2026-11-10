@@ -1,4 +1,4 @@
-//! The segment store in Python (#1755, `continuum_segments`): `SegmentWriter(root, stream, camera, schema)` with
+//! The segment store in Python (`continuum_segments`): `SegmentWriter(root, stream, camera, schema)` with
 //! `append(columns)`, `read_segments(root, stream, t0, t1, cameras)`, and `SegmentFollower(...).poll()`.
 //!
 //! A schema is a list of `(name, type)` pairs. It must have `ts_ns` as `"i64"`; the store adds `row_seq`. Types:
@@ -583,6 +583,13 @@ pub(crate) fn segment_tail(
 #[pyfunction]
 pub(crate) fn segment_revision(py: Python<'_>, root: PathBuf) -> PyResult<u64> {
     py.detach(|| continuum_segments::revision(&root)).map_err(err)
+}
+
+/// Rewrites every closed part under `root` that holds more than one record batch as one, and returns how many it
+/// rewrote. Writers do this as they close a part; this is for parts closed before they did.
+#[pyfunction]
+pub(crate) fn compact_segments(py: Python<'_>, root: PathBuf) -> PyResult<u64> {
+    py.detach(|| continuum_segments::compact(&root)).map_err(err)
 }
 
 /// Follows a stream's rows from a cursor (`{camera: next row_seq}`): `poll()` gives what was written since, as

@@ -19,25 +19,20 @@ import { activityChips } from './lanes';
 import { dayBounds, type View } from './time';
 import type { Chip, DayData } from './types';
 
-/** Visible and playback days with one neighboring day on each side; speculative future days are omitted. */
+/** The playback day and the days the visible range touches, the playback day first. A day outside the view is read
+ *  when a pan or the playhead reaches it, not ahead of time (#52): opening Review asked for the day before as well,
+ *  and every read of it queued ahead of the page's own. */
 export function windowDays(day: string | null, range: View | null, today = isoDay()): string[] {
   if (!day) return [];
   const first = range ? isoDay(new Date(range.t0 * 1000)) : day;
   const last = range ? isoDay(new Date((range.t1 - 0.001) * 1000)) : day;
-  const end = calendarStep(last, 1);
-  const days = new Set<string>([day, calendarStep(day, -1), calendarStep(day, 1)]);
-  for (let d = calendarStep(first, -1); d <= end; d = calendarStep(d, 1)) days.add(d);
-  const visible = (d: string) => d >= first && d <= last;
-  return [
-    day,
-    ...[...days]
-      .filter(d => d !== day && d <= today)
-      .sort((a, b) => Number(visible(b)) - Number(visible(a)) || a.localeCompare(b)),
-  ];
+  const days: string[] = [];
+  for (let d = first; d <= last; d = calendarStep(d, 1)) if (d !== day && d <= today) days.push(d);
+  return [day, ...days];
 }
 
-/** Whether a window day's reads poll (#2414): only today, and only while it's the day picked or within the visible
- *  range. As a neighbor kept for panning, today loads once like any other day: before, viewing yesterday still read
+/** Whether a window day's reads poll: only today, and only while it's the day picked or within the visible
+ *  range. Any other day in the window loads once: before, viewing yesterday still read
  *  today's lines, video, and audio every few seconds, and each read merged the whole window's video list again. An
  *  ended day never polls; its data stays fresh until a correction invalidates it (staleTime Infinity, perOpening). */
 export function pollsLive(d: string, day: string | null, range: View | null, today = isoDay()): boolean {
@@ -64,9 +59,9 @@ export function useReviewWindow(engine: ReviewEngine) {
   const segments = useQueries({ queries: wanted.map((d, i) => segmentsQuery(d, live(d), i)) });
   const spans = useQueries({ queries: wanted.map((d, i) => spansQuery(d, live(d), i)) });
   const chips = useQueries({ queries: wanted.map((d, i) => chipsQuery(d, live(d), i)) });
-  const activities = useQueries({ queries: wanted.map((d, i) => activitiesQuery(d, live(d), i)) });
+  const activities = useQueries({ queries: wanted.map(d => activitiesQuery(d, live(d))) });
   // A day read before it ended (today kept as a neighbor, or shown until midnight) holds that snapshot forever once
-  // it's over, since an ended day never polls: it's read once more after its end, then it's settled (Codex on #2416).
+  // it's over, since an ended day never polls: it's read once more after its end, then it's settled.
   const client = useQueryClient();
   useEffect(() => {
     const all: [UseQueryResult<unknown>[], (d: string) => QueryKey][] = [

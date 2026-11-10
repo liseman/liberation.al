@@ -1,4 +1,4 @@
-"""Frozen pre-#79 oracles: caller-specific ordering, endpoints and grouping must survive extraction.
+"""Frozen pre-extraction oracles: caller-specific ordering, endpoints, and grouping must survive extraction.
 
 The SQL oracle deliberately retains SQLite's peer-row window semantics. The Python
 oracles retain the original loops instead of calling any shared merge helper.

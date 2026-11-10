@@ -1,7 +1,7 @@
-"""Stop and start capture once, and say how each device's teardown went and whether it came back (#1388).
+"""Stop and start capture once, and say how each device's teardown went and whether it came back.
 
 On the Mac, stopping and starting Continuum has wedged the UVC cameras (a hub port cycle fixed them) and the
-reSpeaker (a coreaudiod restart fixed it). Each capture worker logs its teardown step by step (#1452), and this reads
+reSpeaker (a coreaudiod restart fixed it). Each capture worker logs its teardown step by step, and this reads
 those lines for one stop and start:
 
     .venv/bin/python tools/capture_restart_check.py

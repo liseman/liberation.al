@@ -1,4 +1,4 @@
-// Settings' Voice clones panel (#2455; People's sidebar before): pick any voice heard, named or not, hear or build its
+// Settings' Voice clones panel (People's sidebar before): pick any voice heard, named or not, hear or build its
 // reference, have it say something, or record a new voice. A person's own clone is on their card. The status line keeps its height so building and speaking don't move the
 // page. Ported from Clones in static/dashboard/voice-tools.js.
 import { Box, Button, Group, Radio, Stack, Text, Textarea, Tooltip } from '@mantine/core';

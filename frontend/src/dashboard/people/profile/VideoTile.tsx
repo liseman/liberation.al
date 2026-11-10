@@ -1,6 +1,6 @@
-// One recent video on a card (#2058): its recorded frame, a play badge, its length, what was happening, and when and
+// One recent video on a card: its recorded frame, a play badge, its length, what was happening, and when and
 // on which camera. Playing it opens the floating player. People's card and a pet's card both show these. The player
-// (Review's engine underneath) loads on the first play, so a page of cards doesn't fetch it (#3127).
+// (Review's engine underneath) loads on the first play, so a page of cards doesn't fetch it.
 import { Text, UnstyledButton } from '@mantine/core';
 import { lazy, type ReactNode, Suspense, useState } from 'react';
 import { ClipPoster } from '../../clip/ClipPoster';

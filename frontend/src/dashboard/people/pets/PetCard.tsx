@@ -1,6 +1,6 @@
-// A named pet's card, in the contact card's form (#2019, ../profile/Profile.tsx): its photo, name, species, and where
+// A named pet's card, in the contact card's form (../profile/Profile.tsx): its photo, name, species, and where
 // it was last seen, Edit and Remove, then its recent sightings and whether its species is recognized yet. Each sighting
-// has People's ⋯ menu (#2363): Use as main photo, Not <name>, and Hide from the card.
+// has People's ⋯ menu: Use as main photo, Not <name>, and Hide from the card.
 
 import { ActionIcon, Button, Group, Menu, Text, Title } from '@mantine/core';
 import { IconDots, IconUserMinus } from '@tabler/icons-react';
@@ -46,8 +46,8 @@ export function PetCard({
   onBack: () => void;
   onEdit: () => void;
   onRemove: () => void;
-  onPhoto?: (action: 'main' | 'newest' | 'hide', track: string) => void; // the card's photo choices (#2363)
-  onNot?: (track: string) => void; // a sighting that isn't this pet (#2364)
+  onPhoto?: (action: 'main' | 'newest' | 'hide', track: string) => void; // the card's photo choices
+  onNot?: (track: string) => void; // a sighting that isn't this pet
 }) {
   const newest = seen[0];
   const hidden = new Set(pet.hidden ?? []);

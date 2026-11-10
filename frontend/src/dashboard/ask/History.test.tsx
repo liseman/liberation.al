@@ -9,7 +9,7 @@ import { History } from './History';
 import type { HistoryEntry } from './historyApi';
 import { PackAsk } from './PackAsk';
 
-/** The saved answer's line, whose "[C1]" is now a link to its moment (#2661): matched as the paragraph reads. */
+/** The saved answer's line, whose "[C1]" is now a link to its moment: matched as the paragraph reads. */
 const visitorLeft = (_: string, el: Element | null) =>
   el?.tagName === 'P' && el.textContent === 'The visitor left at C1.';
 const citation = { label: 'C1', ts: 1200, camera: 'cam0', source: 'camera', removed: false, verified: true };
@@ -74,7 +74,7 @@ it('fetches past answers after remount without posting or changing the new promp
   await userEvent.type(input, 'A different question');
   await userEvent.click(await open());
   expect(await screen.findByText(visitorLeft)).toBeInTheDocument();
-  expect(screen.getByRole('link', { name: 'C1' })).toHaveAttribute('href', '/review#t=1200'); // its citation (#2661)
+  expect(screen.getByRole('link', { name: 'C1' })).toHaveAttribute('href', '/review#t=1200'); // its citation
   expect(input).toHaveValue('A different question');
   expect(net.reads).toHaveLength(2);
   // No POST handler: a model submission would fail strict network teardown.

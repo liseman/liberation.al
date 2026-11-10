@@ -1,4 +1,4 @@
-// The anchor (#2797): how a plan's coordinates map into its place's point-cloud frame, so things measured in the
+// The anchor: how a plan's coordinates map into its place's point-cloud frame, so things measured in the
 // frame (the walked path, fixed-camera person dots, object positions) land in the right room, and back.
 //
 // Plan coordinates are metres with y growing south (down the page, the library's convention). The frame is

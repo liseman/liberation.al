@@ -382,7 +382,7 @@ def test_friends_authorization_and_optional(monkeypatch):
 
 @pytest.mark.parametrize("named_by", ["introduction", "merge"])
 def test_a_voice_that_only_names_the_owner_gets_no_owner_path(tmp_path, monkeypatch, named_by):
-    """#94: a second voice whose person is the owner, but not by the owner's own tag, asks like a guest, keeps its own
+    """A second voice whose person is the owner, but not by the owner's own tag, asks like a guest, keeps its own
     pending request, and can't answer it on the owner's behalf. The owner can still cancel it."""
     state = tmp_path / "state"
     write_voices(state, {1: "Alice", 2: "Guest", 3: None})

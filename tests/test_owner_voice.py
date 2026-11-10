@@ -192,7 +192,7 @@ def test_the_owners_voice_still_needs_a_good_match(tmp_path, monkeypatch):
     assert voice.owner_entry(voice.canonical_entry({"speaker_id": 1, "speaker_sim": voice.OWNER_MIN_SIM}))
 
 
-# ---- holes an adversarial review found (issue #30), each closed: none of these makes a voice the owner's ----
+# ---- holes an adversarial review found, each closed: none of these makes a voice the owner's ----
 
 
 def guest_named_owner_by_introduction(state):
@@ -332,7 +332,7 @@ def test_a_cross_site_voice_label_is_refused(tmp_path, dash, serve):
 
 @pytest.mark.parametrize("scheme", ["http", "https"])
 def test_the_dashboards_own_page_labels_a_voice_over_http_or_https(tmp_path, dash, serve, scheme):
-    """Codex on #95: the dashboard is served over HTTPS too, and Live's rename sends that Origin."""
+    """The dashboard is served over HTTPS too, and Live's rename sends that Origin."""
     ran = dash
     base = serve(server.H)
     write_voices(tmp_path, {1: "Alice", 2: "Dana"})
@@ -354,7 +354,7 @@ def test_the_owners_voice_is_renamed_only_from_this_machine(tmp_path, dash):
     ran = dash
     write_voices(tmp_path, {1: "Alice", 2: "Dana"})
     assert server.label_speaker(1, "Erin", control=False)[0] == 403
-    assert server.label_speaker("1", "Erin", control=False)[0] == 403  # the id as a request sends it (#175)
+    assert server.label_speaker("1", "Erin", control=False)[0] == 403  # the id as a request sends it
     assert voice.owner_voice(1, tmp_path)
     assert not any(registry.owner_voice(tmp_path, v) for v in ("1", " 1", "+1", "\u0661", True))  # only a real int
     assert server.label_speaker(2, "Erin", control=False)[0] == 200  # anyone else's voice is fine
@@ -397,7 +397,7 @@ def test_the_owners_name_in_settings_never_takes_someone_elses(tmp_path, dash):
 def test_that_voice_is_mine_makes_a_voice_the_owners_when_its_name_only_looks_like_theirs(
     tmp_path, dash, owner_voice_too
 ):
-    """Codex on #95: a voice that names the owner through a person merge reads "Alice", so "That voice is mine" said
+    """A voice that names the owner through a person merge reads "Alice", so "That voice is mine" said
     it was already theirs and wrote nothing, while the owner check (rightly) refused it."""
     write_voices(tmp_path, {1: "Alice" if owner_voice_too else None, 2: "Dana"})
     registry.at(tmp_path).merge("Dana", "Alice", "dashboard")

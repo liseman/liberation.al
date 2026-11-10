@@ -1,4 +1,4 @@
-// Known › Activities (#3244): the owner's list of activities, which the panel adds to and deletes from. The server
+// Known › Activities: the owner's list of activities, which the panel adds to and deletes from. The server
 // keeps it in the knowledge store (memory/activity_kinds.py), so it survives a reset; see-actions rereads it each
 // minute and looks for each activity by its model classes, the ones its name matched and the ones it learned from
 // the owner's answers.

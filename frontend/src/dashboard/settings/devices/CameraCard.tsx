@@ -1,4 +1,4 @@
-// One card pattern for every camera in Settings' Devices (#2728 idea 3): a plugged-in camera and a network camera both
+// One card pattern for every camera in Settings' Devices: a plugged-in camera and a network camera both
 // show their live preview, a Use checkbox, and a Name row in the same places.
 import { Checkbox, TextInput } from '@mantine/core';
 import { type ReactNode, useId, useState } from 'react';
@@ -95,7 +95,7 @@ export function CameraName({
       <TextInput
         id={id}
         placeholder={cam}
-        // With no name, every page calls the camera by a generic id like cam0 (#2585). It's one angle on the rig, so
+        // With no name, every page calls the camera by a generic id like cam0. It's one angle on the rig, so
         // the name is for the view, not a room.
         description={
           unnamed([cam], { [cam]: saved }).length

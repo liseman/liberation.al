@@ -1,6 +1,6 @@
 // A Mac's filesystem ignores case, so two modules in one folder whose import names differ only by case (Chips.tsx
 // and chips.ts, both imported without an extension) resolve to either one there, and the build broke on a Mac while
-// passing on Linux (2026-10-28). This keeps any such pair out of the tree.
+// passing on Linux. This keeps any such pair out of the tree.
 import { readdirSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { expect, it } from 'vitest';

@@ -46,7 +46,7 @@ def _format(value: str) -> tuple[str, str]:
 
 def _inventory(format: str, fresh: bool) -> dict[str, Any]:
     """The capture binary's capability list for a format. A cached one older than _TTL answers at once and is read
-    again in the background, one read per format at a time (#2568): the read is a child process that took about a
+    again in the background, one read per format at a time: the read is a child process that took about a
     second, which Settings > Devices waited for every 5 s. A `fresh` ask, and the first, read it now. No read holds
     the lock while its child runs."""
     with _lock:

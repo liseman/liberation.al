@@ -326,7 +326,7 @@ def test_the_voice_password_is_written_as_password_and_marked(tmp_path: Path) ->
 
 
 def test_every_setting_pack_listen_reads_has_a_default() -> None:
-    # pack-listen crash-looped on a setting read at startup that config/defaults.toml lacked (2026-10-30): a key
+    # pack-listen crash-looped when a setting read at startup was missing from config/defaults.toml: a key
     # missing from the defaults raises KeyError, whatever pack.toml holds.
     import re
 
@@ -358,7 +358,7 @@ def test_a_quiet_candidate_is_brought_to_a_normal_level_with_bounded_gain_and_no
 
 
 def test_quiet_speech_gets_past_a_level_sensitive_gate_and_is_transcribed(caplog: pytest.LogCaptureFixture) -> None:
-    # On devbox nothing was transcribed: Silero found no speech in -59 dBFS audio until it was levelled.
+    # On the Linux machine nothing was transcribed: Silero found no speech in -59 dBFS audio until it was levelled.
     from liberational.listen import worker as w
 
     heard = []
@@ -390,7 +390,7 @@ def test_each_microphone_logs_its_levels_every_so_often(caplog: pytest.LogCaptur
     assert line.startswith("testmic.audio: levels p50 -40.") and "candidates" in line
 
 
-# ---- Auto gain (#798): each microphone's gain rides along in its pipeline
+# ---- Auto gain: each microphone's gain rides along in its pipeline
 
 
 class FakeControl:
@@ -452,7 +452,8 @@ def test_software_gain_reaches_the_samples_the_pipeline_hears(pack_toml, monkeyp
 
 
 def test_the_vads_floor_moves_with_the_gain_so_a_step_up_is_not_heard_as_speech(pack_toml) -> None:
-    # devbox: the Wave 3 went from 0 to 30 dB, every frame read as loud, and the VAD stayed open in 20 s stretches.
+    # On the Linux machine, the Wave 3 went from 0 to 30 dB, every frame read as loud, and the VAD stayed open in 20 s
+    # stretches.
     from liberational.audio import gain
 
     control = FakeControl(0.0)

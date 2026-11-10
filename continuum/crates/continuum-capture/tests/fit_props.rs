@@ -50,7 +50,7 @@ proptest! {
         // 256 up, PipeWire's smallest quantum at its defaults. The clock calls a block jitter up to half a block
         // late (240 samples here, pinned by fit.rs's unit tests), and each gap is measured from timing, so it can
         // be off by the 12 samples allowed below; the fit carries that into the count. A loss within that error of
-        // half a block can land either side of it, so the losses start clear of it (#1372). What readers use is
+        // half a block can land either side of it, so the losses start clear of it. What readers use is
         // each block's time, which follows the driver's times whatever the count does.
         let mut c = AudioClock::new(48_000.0);
         let sample_ns = 1e9 / 48_000.0 / (1.0 + ppm * 1e-6);

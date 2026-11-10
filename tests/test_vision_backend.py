@@ -1,4 +1,4 @@
-"""see-actions' backend choice (src/liberational/see/vision_backend.py, #1879): CUDA, then an Apple Silicon Mac, and
+"""see-actions' backend choice (src/liberational/see/vision_backend.py): CUDA, then an Apple Silicon Mac, and
 the CPU only by name."""
 
 import pathlib

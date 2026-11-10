@@ -1,4 +1,4 @@
-/* Known › Places (#2796): the place list beside the plan on a wide screen, above it on a phone. */
+/* Known › Places: the place list beside the plan on a wide screen, above it on a phone. */
 .layout {
   display: grid;
   grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
@@ -107,7 +107,7 @@
   border-top-color: #f59e0b;
 }
 
-/* Paths (#2831): a second SVG over the plan with the plan's viewBox, so the two scale together. */
+/* Paths: a second SVG over the plan with the plan's viewBox, so the two scale together. */
 .drawingWrap {
   position: relative;
   max-width: max-content;
@@ -169,7 +169,7 @@
   color: var(--mantine-color-dimmed);
 }
 
-/* Correcting a plan (#2859): grips over the plan, and the rooms, doors, and findings beside it. */
+/* Correcting a plan: grips over the plan, and the rooms, doors, and findings beside it. */
 .editor {
   margin-top: 4px;
 }
@@ -259,7 +259,7 @@
   margin-bottom: 10px;
 }
 
-/* The 3D view (#2876): a canvas that fills the panel's width, a little shorter than wide. */
+/* The 3D view: a canvas that fills the panel's width, a little shorter than wide. */
 .cloud {
   position: relative;
   width: 100%;

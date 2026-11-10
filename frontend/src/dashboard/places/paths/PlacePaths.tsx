@@ -1,5 +1,5 @@
-// Paths on a place's plan (#2831), Strava style: where each person and pet went over a window of time, in their own
-// colour, each a smooth curve with an arrowhead for the way they went (#3296), fading with age, with a dot where they
+// Paths on a place's plan, Strava style: where each person and pet went over a window of time, in their own
+// colour, each a smooth curve with an arrowhead for the way they went, fading with age, with a dot where they
 // were at the scrubber's time and their name on hover. Someone known only by the room they were in (a zone visit) lights
 // that room up instead of drawing a point. The window is the last hour, day, or week up to now, or around the moment a
 // link asked for (/places?place=&t=, as the Journal's "where" links).
@@ -70,7 +70,7 @@ interface Surface {
   rooms: { id: string; name: string; poly: [number, number][] }[];
 }
 
-/** A place with no plan yet (#3169): plain floor, a line every metre, and a metre's scale bar, under its paths. */
+/** A place with no plan yet: plain floor, a line every metre, and a metre's scale bar, under its paths. */
 function PlainGrid({ frame }: { frame: PlainFrame }) {
   const w = frame.width * PLAIN_SCALE;
   const h = frame.height * PLAIN_SCALE;
@@ -204,7 +204,7 @@ function Overlay({
 }
 
 /** A place's plan with its paths, the scrubber, and who's on it. `svg` is the plan as drawn (drawPlan), and `result`
- *  the plan it drew; a place with neither (no plan yet) draws its paths on plain floor fitted to them (#3169). */
+ *  the plan it drew; a place with neither (no plan yet) draws its paths on plain floor fitted to them. */
 export function PlacePaths({
   place,
   example,

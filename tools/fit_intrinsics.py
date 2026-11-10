@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fit each fixed camera's own intrinsics (focal and lens) once, to hold them (#3289; spatial/lens.py `Held`).
+"""Fit each fixed camera's own intrinsics (focal and lens) once, to hold them (spatial/lens.py `Held`).
 
 A camera's focal and lens are its own, true wherever it stands, so every registration after this keeps them and fits
 only the camera's pose. They're fitted here against a Stray Scanner (LiDAR) walk: each camera's frame is paired by

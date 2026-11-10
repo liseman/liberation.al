@@ -1,8 +1,8 @@
-// A confirmation that floats at the bottom of the window instead of taking a line in the page (#1984), so saying it
-// never moves what's under it. Every page's toasts share Mantine's one queue (#2596): they stack bottom-centre
+// A confirmation that floats at the bottom of the window instead of taking a line in the page, so saying it
+// never moves what's under it. Every page's toasts share Mantine's one queue: they stack bottom-centre
 // rather than replacing each other, the clock holds while the pointer or focus is on one (so its Undo can be
 // reached), and each goes by itself after a while. An error stays until it's closed or replaced. The callers keep
-// the controlled API from #2536: a Toast says what it is given, and onClose says when it went.
+// a controlled API: a Toast says what it is given, and onClose says when it went.
 import { Button } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { type ReactNode, useEffect, useId, useRef } from 'react';

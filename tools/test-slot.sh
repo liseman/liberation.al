@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Run a non-Rust test, check, or build in one of TEST_SLOTS (default 2) slots shared by every worktree and agent on
 # this machine, at the lowest CPU and disk priority (AGENTS.md, "Share the machine"). Stacked worker test runs pushed
-# devbox's load average past 50; this caps them like tools/build-slot.sh caps Cargo (which stays at standard priority
-# and doesn't use this).
+# the Linux machine's load average past 50; this caps them like tools/build-slot.sh caps Cargo (which stays at standard
+# priority and doesn't use this).
 #
 #   tools/test-slot.sh .venv/bin/python -m pytest -q tests/test_objects.py
 #   tools/test-slot.sh npx vitest run src/objects

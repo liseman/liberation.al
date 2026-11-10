@@ -130,7 +130,7 @@ describe("Settings' sources (#1331)", () => {
     );
     const { client } = renderPage(<NetworkCameras />);
     client.setQueryData(CONFIG_KEY, { stale: true });
-    // The form is folded until it's asked for (#2728)
+    // The form is folded until it's asked for
     await userEvent.click(await screen.findByRole('button', { name: 'Set up Wyze cameras' }));
     expect(await screen.findByLabelText('Wyze password')).toHaveAttribute('placeholder', 'Saved; type to replace');
     await userEvent.type(screen.getByLabelText('Wyze email'), 'dana@example.com');

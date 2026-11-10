@@ -1,4 +1,4 @@
-//! A raw camera's Tier 1 (#900): UYVY frames through the worker loop come out as H.264, one access unit per record
+//! A raw camera's Tier 1: UYVY frames through the worker loop come out as H.264, one access unit per record
 //! in `H264Au` chunks that each start on a keyframe, and decode back to the pictures that went in. A worker killed
 //! mid-GOP leaves a chunk recovery reads back whole. Short: 3 seconds of 320x240 at 30 fps.
 #![cfg(feature = "ffmpeg")]
@@ -277,8 +277,8 @@ fn a_worker_killed_mid_gop_leaves_a_chunk_recovery_reads_whole() {
     assert_eq!(frames.len() as u64, appended);
 }
 
-/// Each encoder this machine has (NVENC and libx264 on devbox; VideoToolbox on a Mac): a keyframe first and then every
-/// second exactly, every frame back in order with its own times, decoding close to the input.
+/// Each encoder this machine has (NVENC and libx264 on the Linux machine; VideoToolbox on the Mac): a keyframe first
+/// and then every second exactly, every frame back in order with its own times, decoding close to the input.
 #[test]
 fn each_h264_encoder_here_keys_every_second_and_decodes_back() {
     let _gpu = gpu();

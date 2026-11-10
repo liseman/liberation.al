@@ -16,7 +16,7 @@
   border-radius: var(--mantine-radius-xs);
 }
 
-/* Inside Known's page frame (#2469): the frame sets the edges, so the page adds none of its own. */
+/* Inside Known's page frame: the frame sets the edges, so the page adds none of its own. */
 .page {
   max-width: 1600px;
   padding-bottom: 20px;

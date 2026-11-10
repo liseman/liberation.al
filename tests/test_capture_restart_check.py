@@ -1,4 +1,4 @@
-"""The capture stop-and-start check (tools/capture_restart_check.py, #1388): it reads capture's teardown lines (#1452)
+"""The capture stop-and-start check (tools/capture_restart_check.py): it reads capture's teardown lines
 and tells a teardown that hung from a device the OS kept wedged."""
 
 import importlib.util

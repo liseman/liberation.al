@@ -1,7 +1,7 @@
-"""Who a person's zone visit was (#1497): "how many times do I go to the bathroom at night" counts only the owner's.
+"""Who a person's zone visit was: "how many times do I go to the bathroom at night" counts only the owner's.
 
 A zone visit (see/zones.py) is a see-actions track inside a drawn zone, with no identity of its own. see-actions
-matches faces on the same tracks (see/head_faces.py), so each `face.match` names its `pose.track` id (#1846): the
+matches faces on the same tracks (see/head_faces.py), so each `face.match` names its `pose.track` id: the
 matches on a visit's track, within LOOK_S before it started or after it ended, say who it was. The track's person is
 the name most of its matches had, when at least MIN_SHARE of them agree; two people on one track (a handoff of the
 track) leave it unknown rather than guessed.

@@ -1,4 +1,4 @@
-"""Voice-group reads leave the dashboard process, while failed workers remain retryable (#2418)."""
+"""Voice-group reads leave the dashboard process, while failed workers remain retryable."""
 
 from concurrent.futures import Future
 from concurrent.futures.process import BrokenProcessPool

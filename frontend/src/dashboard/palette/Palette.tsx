@@ -1,9 +1,9 @@
-// The command palette (#2586): Ctrl+K (Cmd+K on a Mac), or the Go to button in the top bar, opens Mantine's Spotlight
+// The command palette: Ctrl+K (Cmd+K on a Mac), or the Go to button in the top bar, opens Mantine's Spotlight
 // to jump anywhere: a page, a Settings section, a person's or a pet's card by name, a day in Review ("yesterday",
 // "nov 3"), or a common next step (what waits to be named, clips to check). Everything here only navigates. People and
 // pets are read while it's open. It loads after the page (lazily), so the first page's own reads come first.
 //
-// Built from Spotlight's parts rather than its all-in-one component (the review of #2592), so that:
+// Built from Spotlight's parts rather than its all-in-one component, so that:
 // - a screen reader can follow it: the dialog is named, the search box is a combobox pointing at the selected option,
 //   and a polite status line says how many match and which is selected;
 // - each group shows at most a few until something is typed, so people and pets don't push Settings off the list;

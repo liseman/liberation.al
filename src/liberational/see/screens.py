@@ -1,4 +1,4 @@
-"""People on a screen (#2468): a face or body a TV or laptop shows is not someone in the room.
+"""People on a screen: a face or body a TV or laptop shows is not someone in the room.
 
 The person detector scores every COCO class in the same inference that finds people, so each frame carries the
 screens it saw (`People.screens`: tv and laptop boxes). A camera's zones can also mark a screen by hand (a zone of
@@ -83,7 +83,7 @@ def on_screen(
 
 @dataclass
 class Counts:
-    """What the mask did since the last report, for the log (#2468's measurement)."""
+    """What the mask did since the last report, for the log."""
 
     detections: int = 0  # person detections assigned to a track
     inside: int = 0  # of them, inside a screen
@@ -92,7 +92,7 @@ class Counts:
     released: int = 0  # screen tracks found to be real
 
 
-RELEASE_NS = 10**9  # a screen track is real once its box has been outside every known screen this long (Codex, #2489)
+RELEASE_NS = 10**9  # a screen track is real once its box has been outside every known screen this long
 SCREEN_HOLD_NS = 2 * 10**9  # a detected screen is still there this long after the detector last found it
 
 
@@ -161,7 +161,7 @@ class ScreenTracks:
 @dataclass
 class HeldScreens:
     """The screens a camera saw lately: one the detector misses for a frame or two is still there, for
-    SCREEN_HOLD_NS after it last found it (Codex, #2489)."""
+    SCREEN_HOLD_NS after it last found it."""
 
     held: list[tuple[NDArray[np.float32], int]] = field(default_factory=list)  # (screen row, last found)
 
@@ -181,7 +181,7 @@ class HeldScreens:
         self.held.clear()
 
 
-# ---- whether a screen is on (#2468): a screen box whose pixels keep changing ----
+# ---- whether a screen is on: a screen box whose pixels keep changing ----
 
 SAMPLE_NS = 500_000_000  # each screen's pixels are compared this often
 THUMB = (24, 16)  # a screen is compared as a grey thumbnail this size (width, height)
@@ -191,14 +191,14 @@ MOVING = 3  # of which at least this many moved: the screen is on
 OFF_NS = 10 * 10**9  # off for this long, the span ends: a still scene or a pause between shows
 SAME_SCREEN = 0.5  # a box overlapping a remembered screen this much (IoU) is that screen
 MIN_ON_NS = 30 * 10**9  # a span is written once it has lasted this long: a show runs minutes, while people passing an
-# off TV, or its reflections, gave cam0 bursts of 1 to 25 s (Nov 5, 18:30)
+# off TV, or its reflections, gave cam0 bursts of 1 to 25 s
 PLAYING = 62  # the class a screen zone's box is watched as: a TV
 
 
 def playing(zones: Sequence[Sequence[Point]] = ()) -> NDArray[np.float32]:
     """The screens to watch for a moving picture: each screen zone the owner drew, by its bounding box. A detected TV
-    isn't one: the detector's TV class also finds computer monitors, and a monitor in use changes as a show does (Nov
-    6: cam0's desk monitor and a patio reflection made 39 of the day's 41 screen-on minutes, #2669)."""
+    isn't one: the detector's TV class also finds computer monitors, and a monitor in use changes as a show does
+    (cam0's desk monitor and a patio reflection made 39 of one day's 41 screen-on minutes)."""
     rows = []
     for z in zones:
         xs, ys = [p[0] for p in z], [p[1] for p in z]
@@ -221,7 +221,7 @@ VISIBLE = 1 / 3  # a screen sample counts only when at least this much of it is 
 
 def covered(screen: Box, real: Sequence[Box]) -> NDArray[np.bool_]:
     """Which cells of a screen's THUMB grid someone in the room is in front of: a person passing a dark TV, or typing
-    at a laptop, changes its pixels as a picture does (cam0, Nov 5: a laptop with someone at it changed in 92% of
+    at a laptop, changes its pixels as a picture does (on cam0, a laptop with someone at it changed in 92% of
     samples, the TV playing in 73%, the TV off in 18%). `real` is the person boxes not on a screen: those a TV shows
     don't block it."""
     w, h = THUMB
@@ -350,7 +350,7 @@ class ScreensOn:
                 return
             self.written = now
             body = json.dumps({"cams": self.cams, "at": now}, separators=(",", ":"))
-            # Written under the lock (#3093): two cameras writing at once would race on the file, and the slower
+            # Written under the lock: two cameras writing at once would race on the file, and the slower
             # one's older map would replace the newer. The temporary name is this thread's own besides.
             tmp = self.path.with_name(f".{self.path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
             try:

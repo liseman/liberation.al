@@ -21,7 +21,7 @@ T0 = time.mktime(time.strptime(DAY, "%Y-%m-%d")) + 20 * 3600  # 20:00 that day
 
 @pytest.fixture(autouse=True)
 def presence_on():
-    """Presence is off by default while it is rebuilt (#1808); these tests are of its chips."""
+    """Presence is off by default while it is rebuilt; these tests are of its chips."""
     with cfg.override({"presence": {"enabled": True}}):
         yield
 
@@ -102,7 +102,7 @@ def test_people_merge_visits_and_lines_across_case_and_skip_unnamed(state):
 
 
 def test_a_person_chip_says_when_each_camera_view_saw_them(state, vision):
-    """#328: one lane per camera view. Speech has no camera, so a person only heard carries no "cams"."""
+    """One lane per camera view. Speech has no camera, so a person only heard carries no "cams"."""
     vision.visit("Alice", T0 + 500, T0 + 520, "cam1", best_sim=0.8, samples=3)
     got = chips(state)
     assert got["person:alice"]["cams"] == {"cam0": [[T0, T0 + 90]], "cam1": [[T0 + 500, T0 + 520]]}
@@ -299,7 +299,7 @@ def test_presence_playback_context_clips_to_day_end_and_excludes_preexisting_sta
 
 
 def test_an_unchanged_ended_day_is_answered_without_reading_anything_again(state, vision):
-    """#2398: the movement read alone took 8 to 12 s a load; an ended day whose records didn't change skips it."""
+    """The movement read alone took 8 to 12 s a load; an ended day whose records didn't change skips it."""
     add(vision, [detector_frame(T0)])
     first = pr.presence(DAY, state)
     reads = vision.reads
@@ -575,7 +575,7 @@ def test_long_day_job_stays_fresh_from_completion_not_submission(tmp_path, monke
 
 
 def test_reviews_answer_leaves_out_what_the_page_never_reads():
-    """#2398: movement's tracks and the chips' evidence were 25 MB a day, sent to a page that reads neither."""
+    """Movement's tracks and the chips' evidence were 25 MB a day, sent to a page that reads neither."""
     full = {
         "day": DAY,
         "chips": [{"id": "movement:visible:cam0", "spans": [[1, 2]], "source_ids": ["a"], "evidence": [{"k": 1}]}],

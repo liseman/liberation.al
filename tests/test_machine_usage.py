@@ -1,4 +1,4 @@
-"""This machine's per-service usage over time (dashboard/machine_usage.py, #2245)."""
+"""This machine's per-service usage over time (dashboard/machine_usage.py)."""
 
 import subprocess
 

@@ -1,12 +1,15 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { HttpResponse, http } from 'msw';
-import { expect, it } from 'vitest';
+import { beforeEach, expect, it } from 'vitest';
 import { renderPage } from '../../test/render';
 import { server } from '../../test/server';
 import { hm } from '../lib/format';
 import { allDay, splitDay, staysText, Whereabouts, WhoIsHome, WifiToday } from './DeviceSections';
 import type { Comings, WifiDevice } from './devicesApi';
+
+// Whose a device is comes from the people known by name.
+beforeEach(() => server.use(http.get('/people', () => HttpResponse.json({ people: [{ name: 'Dana' }] }))));
 
 const MIDNIGHT = 1_800_000_000;
 const NOW = MIDNIGHT + 12 * 3600;
@@ -89,7 +92,7 @@ it('tells two devices of the same name apart, counting the link listing too, and
   expect(await screen.findByText('iPhone (00:02)')).toBeInTheDocument();
   await user.click(screen.getByRole('button', { name: 'Whose is iPhone (00:02)?' }));
   const form = screen.getByRole('form', { name: 'Link iPhone (00:02)' });
-  await user.type(within(form).getByLabelText('Whose is it?'), 'Dana');
+  await user.type(await within(form).findByRole('combobox', { name: 'Whose is it?' }), 'Dana');
   await user.click(within(form).getByRole('button', { name: 'Link' }));
   await waitFor(() =>
     expect(sent).toMatchObject({ kind: 'net_mac', value: phone.mac, target: 'person', name: 'Dana' }),

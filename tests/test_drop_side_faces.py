@@ -1,4 +1,4 @@
-"""tools/drop_side_faces.py (#3155): which unnamed groups and learned rows came from the side or back of a head."""
+"""tools/drop_side_faces.py: which unnamed groups and learned rows came from the side or back of a head."""
 
 import importlib.util
 import json
@@ -79,7 +79,7 @@ def owner(tmp_path, monkeypatch):
 
 
 def test_every_group_the_owner_touched_is_kept(owner, monkeypatch):
-    # #3186: the tool kept only put-aside groups and the window's rejected shots, so a group marked not someone or
+    # The tool kept only put-aside groups and the window's rejected shots, so a group marked not someone or
     # with its name undone could go
     from liberational.people import face_nots
     from liberational.vision import faces

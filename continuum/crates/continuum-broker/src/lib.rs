@@ -3,7 +3,7 @@
 //! This is the control plane so far: length-prefixed `ControlEnvelope`s over a Unix socket (framing from continuum-wire,
 //! [`protocol`]), and a session per connection that handles `Hello`, `Welcome`, `Heartbeat`, `Goodbye`, and
 //! `Error` ([`server`]). The catalog (continuum-catalog), the scheduler (continuum-sched), and the shared memory data
-//! plane (continuum-shm) are wired in as they land (#542).
+//! plane (continuum-shm) are wired in as they land.
 
 pub mod core;
 pub mod costs;

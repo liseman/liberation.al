@@ -1,4 +1,4 @@
-"""Calibrate a wide-lens fixed camera's radial distortion from straight edges in its own frame (#2998): a plumb-line fit,
+"""Calibrate a wide-lens fixed camera's radial distortion from straight edges in its own frame: a plumb-line fit,
 so no checkerboard is needed. spatial/lens.py says how the calibration is used.
 
     uv run tools/calibrate_lens.py --view bedroom.png:bedroom-lines.json --view kitchen.png:kitchen-lines.json
@@ -18,7 +18,7 @@ its length, read as pixels of the frame along that length), each line also held 
 scored), so the score that counts is of lines the fit didn't see:
 
 - **division** (one or two terms): Fitzgibbon's division model, what spatial/lens.py uses and `--write` writes.
-- **brown** (k1, k2, or k1 alone): OpenCV's standard radial polynomial. On the Reolinks (#2998) it folds before the
+- **brown** (k1, k2, or k1 alone): OpenCV's standard radial polynomial. On the Reolinks it folds before the
   frame's edges at the barrel they need (`folds`), so it can't undistort a whole frame.
 - **fisheye**: OpenCV's equidistant fisheye model (see/fisheye.py's), its focal and k1, k2 free.
 

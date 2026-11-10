@@ -184,7 +184,7 @@ def test_a_ring_stream_with_a_clock_anchor_registers(socket: str) -> None:
                 kind="sensor",
                 format="RawBytes",
                 shape_name="PCM_S16LE",
-                nominal_rate_hz=50.0,  # 20 ms records; the broker sizes the ring from it (#634)
+                nominal_rate_hz=50.0,  # 20 ms records; the broker sizes the ring from it
                 ring_stride_bytes=1920,
                 ring_seconds=10.0,
                 anchor=anchor,

@@ -1,4 +1,4 @@
-// What a call row says (the Calls notes, #2621 board): which way the call went and with whom, when, and how long,
+// What a call row says (the Calls notes): which way the call went and with whom, when, and how long,
 // in the app's words. Pure, so the row stays thin and this is tested on its own.
 import { capitalize, dayWords, hm, isoDay, secondsText } from '../lib/format';
 import type { Call, Person } from '../people/api';

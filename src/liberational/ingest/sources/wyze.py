@@ -6,7 +6,7 @@ cameras only (V4L2, AVFoundation), not RTSP, so the cameras don't go through cap
 `ingest.wyze_cameras` gets an ffmpeg that copies its stream, without re-encoding, into segments of
 `ingest.wyze_segment_s` seconds under `<paths.ingest>/wyze/<camera>/`, named by their start time in UTC
 (`20261101-083000Z.mp4`). Local names repeat the hour clocks fall back, which lost that hour's segments as already
-seen (#3122); segments recorded with the old local names (no `Z`) are still read in local time. A segment
+seen; segments recorded with the old local names (no `Z`) are still read in local time. A segment
 is new once it's finished (a newer one has started, or this source's tracked recorder has exited); the pipeline
 then takes it (moving it out of the recording directory) onto the camera's own streams,
 `wyze-<camera>.video_v1` and `.audio_v1`.
@@ -37,7 +37,7 @@ from liberational.ingest.sources import NotConfigured, RemoteItem, SourceState, 
 
 LOG = logs.get("ingest-wyze")
 SEGMENT_NAME = "%Y%m%d-%H%M%SZ"  # in UTC: the recorder runs with TZ=UTC0, so ffmpeg's -strftime fills it in UTC
-LOCAL_SEGMENT_NAME = "%Y%m%d-%H%M%S"  # segments named before #3122, in local time
+LOCAL_SEGMENT_NAME = "%Y%m%d-%H%M%S"  # segments named before the switch to UTC, in local time
 RESTART_S = 60.0
 
 

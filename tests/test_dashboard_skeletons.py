@@ -1,4 +1,4 @@
-"""The skeleton playback page's reads (dashboard/skeletons.py, #1987) on a real segment store."""
+"""The skeleton playback page's reads (dashboard/skeletons.py) on a real segment store."""
 
 from pathlib import Path
 

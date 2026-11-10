@@ -1,4 +1,4 @@
-"""The Live tab's microphone status and live levels on Continuum (#548, #796): from the listen worker and each
+"""The Live tab's microphone status and live levels on Continuum: from the listen worker and each
 microphone stream's freshness on the broker, not v1's ambient.status.json."""
 
 import json

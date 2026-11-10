@@ -1,4 +1,4 @@
-"""A face's filmstrip on People (issue #60): people/face_photos.sightings_of and its dashboard route, and the photo a
+"""A face's filmstrip on People: people/face_photos.sightings_of and its dashboard route, and the photo a
 face group gets, cut from a camera frame."""
 
 import json
@@ -58,7 +58,7 @@ def test_a_groups_strip_is_its_unnamed_sightings_newest_first(state, gid, kwargs
 
 
 def test_the_strip_reaches_past_newer_sightings_of_other_faces(state, vision):
-    # Codex on PR #71: a face seen before a busy stretch of other faces must still get its strip.
+    # A face seen before a busy stretch of other faces must still get its strip.
     for k in range(50):
         vision.face(T + 1000 + k, cluster="Face 6")
     assert [s["id"] for s in face_photos.sightings_of(5)] == [state["b"], state["a"]]
@@ -117,7 +117,7 @@ def test_the_dashboard_serves_the_strip_as_saved_shot_urls(state, strip, tmp_pat
     for key in ("a", "b"):
         face_shots.write(tmp_path / "state", state[key], "0", b"jpeg")
     body, _ = strip(5)
-    # Each picture is the sighting's saved shot, newest first (Codex on PR #71).
+    # Each picture is the sighting's saved shot, newest first.
     assert [x["url"] for x in body["sightings"]] == [f"/faces/shot/{state['b']}.jpg", f"/faces/shot/{state['a']}.jpg"]
     assert (body["total"], body["shots_pending"]) == (2, 0)
 

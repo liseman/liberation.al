@@ -76,4 +76,4 @@ def test_a_note_stored_while_the_view_was_unchanged_shows_its_last_real_caption(
     vision.caption(NOW - 300, "cam0", "Two people on the couch.")
     vision.caption(NOW - 2, "cam0", "Two people on the couch.", unchanged=True, since=NOW - 300, gated=True)
     cam = server.history_at(NOW, 20)["cams"]["cam0"]
-    assert (cam["caption"], cam["unchanged"], cam["since"]) == ("Two people on the couch.", True, NOW - 300)  # #379
+    assert (cam["caption"], cam["unchanged"], cam["since"]) == ("Two people on the couch.", True, NOW - 300)

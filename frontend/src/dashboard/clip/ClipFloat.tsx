@@ -1,4 +1,4 @@
-// A clip opened bigger (#2476): a floating window that grows out of what was clicked (a People card's video, an
+// A clip opened bigger: a floating window that grows out of what was clicked (a People card's video, an
 // Activities card's clip) and shrinks back into it on close, sized to the camera's own shape. It plays the clip in
 // an engine of its own (useClip), keeps the poster until the first frame paints, offers Retry when that's slow, and
 // links to the same moment in Review. Closing hands back where it was and whether it was playing.
@@ -19,7 +19,7 @@ import { cameraRatio, learnRatio, ratioOf, WIDE } from './ratio';
 
 const DURATION = 320;
 // Just under Mantine's modal layer (200; popovers, menus, and tooltips are 300), so what the player opens over
-// itself (the help popover, face naming's modal) sits above the window rather than behind it (#2507).
+// itself (the help popover, face naming's modal) sits above the window rather than behind it.
 export const FLOAT_Z = getDefaultZIndex('modal') - 10;
 const FIRST_FRAME_WAIT_MS = 15_000;
 const COMPACT_CHROME = 84; // the padding and the compact control row around the stage

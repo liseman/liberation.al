@@ -142,7 +142,7 @@ it("draws each person's and pet's path, and lights up the room of one known only
 });
 
 it('draws the paths of a place with no plan yet on plain floor fitted to them', async () => {
-  // A lone camera's people have x and y on its floor without a plan (#3157)
+  // A lone camera's people have x and y on its floor without a plan
   serve([{ ...HOME, name: 'Place 3', named: false, plan: null, plan_source: null }], q => {
     const end = Number(q.get('end'));
     return {
@@ -356,7 +356,7 @@ it('offers no 3D view of an example plan', async () => {
 });
 
 it("says when a place was last in use: the owner's visit, or anyone its cameras saw since", () => {
-  // #2905: a place only fixed cameras watch has no visits, and read "No visits yet" with hundreds of tracks.
+  // A place only fixed cameras watch has no visits, and read "No visits yet" with hundreds of tracks.
   const now = Date.now() / 1000;
   const at = (visit: number | null, activity: number | null) =>
     lastVisit({ id: 'p', name: 'P', plan: null, example: false, lastVisit: visit, lastActivity: activity });

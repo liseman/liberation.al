@@ -236,7 +236,7 @@ def test_two_microphones_lines_in_one_millisecond_are_two_marks(folder):
     ]
 
 
-# ---- events (#287, #518): a span of one camera where something happened, counted by watching ----
+# ---- events: a span of one camera where something happened, counted by watching ----
 
 FRIDGE = {
     "kind": "event",

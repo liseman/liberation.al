@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 use crate::supervisor::{Action, DeviceInfo, Event, Supervisor, WorkerId};
 
-/// How often the supervisor reads the manifest's privacy pauses (#2260).
+/// How often the supervisor reads the manifest's privacy pauses.
 const PAUSE_POLL: Duration = Duration::from_secs(1);
 
 /// Starting and signalling workers. A started worker's `opened` and its exit come back as events on the driver's
@@ -103,7 +103,7 @@ impl<L: Launcher> Driver<L> {
         let _ = request.reply.send(reply);
     }
 
-    /// Also writes the pauses in effect to `path` (#2260), so the dashboard can tell a saved pause from an applied one.
+    /// Also writes the pauses in effect to `path`, so the dashboard can tell a saved pause from an applied one.
     #[must_use]
     pub fn with_pause_status(mut self, path: PathBuf) -> Self {
         self.pause_status = Some((path, None));
@@ -128,7 +128,7 @@ impl<L: Launcher> Driver<L> {
         }
     }
 
-    /// Follows the manifest's `paused` flags (#2260): reads it again and applies a changed paused set. A manifest that
+    /// Follows the manifest's `paused` flags: reads it again and applies a changed paused set. A manifest that
     /// can't be read or parsed keeps the current set, so a bad edit never resumes a paused device.
     fn follow_pauses(&mut self, manifest: &std::path::Path, now_ms: u64) {
         let fresh = match std::fs::read_to_string(manifest)
