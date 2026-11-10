@@ -276,7 +276,7 @@ class CoarseMixer:
         return f"Mono: Capture 0 [0%] [{self.db:.2f}dB] [on]\n"
 
 
-# ---- Devices.toml names to PipeWire nodes, and MicGain as the listen worker runs it
+# ---- devices.toml names to PipeWire nodes, and MicGain as the listen worker runs it
 
 IPHONE = "alsa_input.usb-Apple_iPhone-00.mono-fallback"
 NODES = [

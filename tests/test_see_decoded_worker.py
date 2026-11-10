@@ -816,7 +816,7 @@ def test_a_run_of_unreadable_frames_resets_the_decoder_once_until_it_decodes_aga
 
 class FlakyNvdec(FakeNvdec):
     """FakeNvdec whose NVDEC instances do what `plan` says, one entry per NVDEC start: "ok", "no-start" (cuCtxCreate
-    out of memory), "dies" (fails on its first unit, as 11-06's did), or "ok-then-dies" (decodes one unit, then
+    out of memory), "dies" (fails on its first unit, as a live one once did), or "ok-then-dies" (decodes one unit, then
     fails). Any NVDEC instance fails a unit of b"oom". The CPU one always works."""
 
     plan: ClassVar[list[str]] = []
@@ -854,7 +854,7 @@ def flaky(monkeypatch, plan, start=0.0):
 
 
 def test_after_nvdec_fails_the_cpu_decodes_and_nvdec_is_tried_again_until_it_is_back(monkeypatch, capsys) -> None:
-    # One CUDA out-of-memory error on 11-06 meant 18 hours of CPU decoding, until a restart.
+    # A single CUDA out-of-memory error once meant 18 hours of CPU decoding, until a restart.
     at = flaky(monkeypatch, ["dies", "no-start", "ok"], start=1000.0)
     assert at(0) == ("software", 1)  # NVDEC died on this unit, and the CPU decoded it
     assert at(59) == ("software", 1)  # not a minute yet

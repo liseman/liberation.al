@@ -177,7 +177,7 @@ def dashboard(serve, monkeypatch):
 
 
 def test_the_page_says_whether_hotkeys_are_on(tree):
-    # Dashboard.hotkeys, off by default, reaches the page as NAMES.hotkeys.
+    # dashboard.hotkeys, off by default, reaches the page as NAMES.hotkeys.
     tree.build()
     assert names(server.app_page()[1].decode())["hotkeys"] is False
     with cfg.override({"dashboard": {"hotkeys": True}}):
@@ -222,7 +222,7 @@ def test_calls_tab_serves_html_navigation_and_preserves_the_json_api(tree, dashb
 
 @pytest.mark.parametrize("accept", ["application/json", "*/*"])
 def test_devices_tab_reloads_as_the_app_and_keeps_the_json_api(tree, dashboard, monkeypatch, accept):
-    # Devices.handle answered GET /devices before the page check, so reloading the Devices tab got JSON.
+    # devices.handle answered GET /devices before the page check, so reloading the Devices tab got JSON.
     tree.build()
     seen = {"control": False, "mics": [], "cameras": []}
     monkeypatch.setattr(devices, "view", create_autospec(devices.view, return_value=seen))  # it reads the hardware

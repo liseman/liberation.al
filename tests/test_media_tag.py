@@ -65,7 +65,7 @@ def scores(**kw: float) -> dict[str, float]:
             False,
             id="a-room-conversation-takes-it-down",
         ),
-        # One voice close to the desk microphone reads as a monologue (Nov 6): it isn't a broadcast.
+        # One voice close to the desk microphone reads as a monologue: it isn't a broadcast.
         pytest.param(scores(**{"Narration, monologue": 0.39, "Music": 0.03}), False, id="close-mic-monologue"),
         pytest.param(scores(Speech=0.9), False, id="plain-speech"),
     ],

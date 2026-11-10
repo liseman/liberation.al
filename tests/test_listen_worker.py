@@ -452,7 +452,8 @@ def test_software_gain_reaches_the_samples_the_pipeline_hears(pack_toml, monkeyp
 
 
 def test_the_vads_floor_moves_with_the_gain_so_a_step_up_is_not_heard_as_speech(pack_toml) -> None:
-    # On the Linux machine, the Wave 3 went from 0 to 30 dB, every frame read as loud, and the VAD stayed open in 20 s stretches.
+    # On the Linux machine, the Wave 3 went from 0 to 30 dB, every frame read as loud, and the VAD stayed open in 20 s
+    # stretches.
     from liberational.audio import gain
 
     control = FakeControl(0.0)

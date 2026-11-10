@@ -610,7 +610,7 @@ def _tv_zone() -> tuple[tuple[float, float], ...]:
 
 
 def test_a_detected_tv_alone_is_never_on(tmp_path, monkeypatch):
-    """The detector's TV class also finds monitors (Nov 6): only a drawn screen zone counts as a TV that's on."""
+    """The detector's TV class also finds monitors: only a drawn screen zone counts as a TV that's on."""
     from liberational.see import screens
 
     monkeypatch.setattr(screens, "MIN_ON_NS", 0)
@@ -665,7 +665,7 @@ def test_a_still_tv_is_never_on():
 
 
 def test_a_tv_the_detector_misses_for_a_few_frames_releases_nobody():
-    # Someone on the TV, and three frames where the detector found no TV: still on it (Codex).
+    # Someone on the TV, and three frames where the detector found no TV: still on it.
     frames = [shown(person(0.1))] * 20 + [person(0.1)] * 3 + [shown(person(0.1))] * 20
     poses, _, pipeline = run_with(frames)
     assert poses.appends == []

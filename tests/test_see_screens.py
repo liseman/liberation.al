@@ -287,7 +287,7 @@ def test_a_burst_shorter_than_a_show_is_not_reported():
 
 
 def test_only_screen_zones_are_watched_for_a_moving_picture():
-    """A detected TV may be a computer monitor (Nov 6: cam0's desk monitor): only a drawn screen zone counts."""
+    """A detected TV may be a computer monitor (cam0's desk monitor): only a drawn screen zone counts."""
     zone = ((0.0, 0.0), (0.3, 0.05), (0.2, 0.3))
     np.testing.assert_allclose(screens.playing([zone])[:, :4], [[0.0, 0.0, 0.3, 0.3]], atol=1e-6)
     assert screens.playing([]).shape == (0, 6)

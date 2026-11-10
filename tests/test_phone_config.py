@@ -1091,9 +1091,8 @@ def callers_turns(call):
 
 @pytest.mark.parametrize("owner", [False, True], ids=["mission", "owner"])
 def test_a_caller_who_goes_on_while_the_reply_is_made_is_answered_for_all_of_it(pausing, owner):
-    # When a caller paused 1.2 s inside "That was a very
-    # ridiculous ... limerick, Bob, I think you can do better", got a reply to the first half (taken as praise), and
-    # Bob talked over the rest.
+    # A caller who paused 1.2 s inside "That was a very ridiculous ... limerick, Bob, I think you can do better" got
+    # a reply to the first half (taken as praise), and Bob talked over the rest.
     pausing.run(50, owner=owner)
     assert pausing.spoken == ["Fair, that one fell flat."]
     assert pausing.asked == [FIRST_HALF, WHOLE]

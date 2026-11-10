@@ -16,8 +16,8 @@ def dbfs_rms(x: np.ndarray) -> float:
 
 
 def quiet_room(seconds: float = 10.0, speech_dbfs: float = -55.0, slam_at: float | None = None) -> np.ndarray:
-    """Like the Linux machine's Wave 3: a -80 dBFS floor, speech-like bursts at speech_dbfs (RMS) half the time, and maybe one
-    -2 dBFS door slam."""
+    """Like the Linux machine's Wave 3: a -80 dBFS floor, speech-like bursts at speech_dbfs (RMS) half the time, and
+    maybe one -2 dBFS door slam."""
     rng = np.random.default_rng(7)
     n = int(seconds * SR)
     x = rng.normal(0, 10 ** (-80 / 20), n)

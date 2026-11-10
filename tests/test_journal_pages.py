@@ -564,7 +564,7 @@ def test_what_happened_is_told_a_part_of_the_day_at_a_time_from_the_parts_own_ho
 
 
 def test_a_sentence_the_schema_stopped_near_its_cap_ends_at_its_last_full_sentence(env):
-    # Live on 11-05, parts came back at their cap mid-sentence, one ending "in any room,所有"; qwen3:14b's stopped two
+    # Live, parts once came back at their cap mid-sentence, one ending "in any room,所有"; qwen3:14b's stopped two
     # characters short of it, "present in".
     hour(env, at(TUE, 9), "I read.")
     first = "Alice read a long book by the window in the study all morning while the rain fell outside."
@@ -685,7 +685,7 @@ def test_the_reply_budget_holds_the_longest_reply_the_schema_allows(level):
     assert journal_pages.reply_budget(level) >= longest / journal_pages.CHARS_PER_TOKEN + 100
 
 
-# ---- fit() always ends, and fits (it spun forever on 11-05 and stopped the journal) --------------------------
+# ---- fit() always ends, and fits (it once spun forever and stopped the journal) ----------------------------
 def _hours(n, chars):
     words = ("alice read by the window while bob cooked dinner and the cat slept " * (chars // 60 + 1))[:chars]
     return [
