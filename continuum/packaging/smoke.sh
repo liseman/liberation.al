@@ -28,7 +28,8 @@ continuum-gateway --version
 continuum-export --version
 continuum-vector-worker --version
 continuum-capture --capabilities
-continuum-tier-worker --capabilities
+continuum-tier-worker --capabilities | tee /tmp/tier
+grep -q '"av1_archive":true' /tmp/tier || { echo "the tier worker has no AV1 encoder" >&2; exit 1; }
 # The capture worker has no query: without its arguments it says how it's called and exits 2 or more.
 continuum-capture-worker 2>&1 | grep -q '^usage: continuum-capture-worker' && echo "continuum-capture-worker starts"
 EOF

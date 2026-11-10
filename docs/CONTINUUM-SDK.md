@@ -82,7 +82,8 @@ glibc, so a private build is the one way to ship a single wheel per platform.
 What that costs in a wheel install:
 
 - **No libx264** (it is GPL). The software H.264 encoder is OpenH264. Hardware encoders are unchanged.
-- **No AV1**, so the opt-in archive is unavailable.
+- **Size.** SVT-AV1 and dav1d, for the opt-in AV1 archive, add about 9 MB to each program that links FFmpeg (the
+  SDK, the tier worker, the capture worker, and export).
 - **No TLS**, so cameras must be `rtsp://`, not `rtsps://`.
 
 | Platform | Wheel tag |

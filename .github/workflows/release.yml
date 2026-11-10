@@ -128,7 +128,7 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           set -euo pipefail
-          brew install pkg-config protobuf
+          brew install cmake meson ninja pkg-config protobuf
           rustup toolchain install stable --profile minimal && rustup default stable
           uv python install 3.14
           uv tool install "maturin>=1.16,<2"
