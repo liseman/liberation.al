@@ -3,9 +3,10 @@
   pack-app    # open the application: start the services (supervisor.py) and show its window
 
 The window says whether the system is running and recording (and when cameras or microphones are paused for
-privacy, or declared but sending nothing), opens the dashboard, has a Start at login checkbox (login_item.py, off by default), and has Quit. Quit, and closing the window, ask the supervisor to drain, then stop,
-every service; the window stays, saying it is stopping, until they are gone. So nothing records with no window: the
-window is there for as long as any service runs, and if the supervisor stops by itself the window says so.
+privacy, or declared but sending nothing), opens the dashboard, has a Start at login checkbox (login_item.py, off by default), and has Quit. Quit drains and stops every service without a second question; closing the window
+asks first ("Stop recording and quit?"). The window stays, saying it is stopping, until the services are gone. When
+they have stopped, Close ends the window and Start again runs them once more. If the supervisor stops by itself, the
+window stays up and says so.
 
 Toolkit: Tk, through `tkinter`. It comes with the Python the project already installs (Tk 9 in uv's builds, on
 Linux and macOS alike), so it adds no package, no system library, and no compiler step. The alternatives each cost
@@ -50,12 +51,16 @@ TITLE = "Liberational"
 # Where the application is: starting its services, running, stopping them, or ended.
 STARTING, RUNNING, STOPPING, STOPPED = "starting", "running", "stopping", "stopped"
 
+# What colour the status dot is (recording, a recording problem, or idle).
+DOT_RECORDING, DOT_WARNING, DOT_IDLE = "recording", "warning", "idle"
+
 
 @dataclass(frozen=True)
 class Summary:
     headline: str  # the one line that answers "is it recording?"
-    detail: str  # how many services are up, and what is paused or wrong
+    detail: str  # what the owner can act on (pauses, a device not sending, and the like)
     recording: bool  # capture is running and something it reads isn't paused
+    dot: str = DOT_IDLE  # DOT_RECORDING, DOT_WARNING, or DOT_IDLE for the status dot
 
 
 def paused_devices() -> dict[str, tuple[list[str], int]]:
@@ -98,6 +103,36 @@ def _listed(items: Sequence[str]) -> str:
     return ", ".join(items[:-1]) + f", and {items[-1]}"
 
 
+def _device_problem(kind: str, name: str) -> str:
+    if kind == "camera":
+        return f"The {name} camera isn't sending pictures."
+    return f"The {name} microphone isn't sending audio."
+
+
+def _owner_pause_detail(paused: Mapping[str, tuple[Sequence[str], int]]) -> str:
+    """What is paused, in words for the owner (no counts of services)."""
+    lines: list[str] = []
+    for kind, plural in (("camera", "cameras"), ("microphone", "microphones")):
+        names, total = paused.get(kind, ((), 0))
+        if not names:
+            continue
+        if len(names) == total:
+            if total > 1:
+                lines.append(f"All {plural} are paused for privacy.")
+            else:
+                lines.append(f"The {kind} is paused for privacy.")
+        else:
+            unit = f"{kind}s" if len(names) > 1 else kind
+            lines.append(f"{_listed(list(names))} {unit} paused for privacy.")
+    return " ".join(lines)
+
+
+def _log_still_starting(daemons: Mapping[str, Mapping[str, Any]]) -> None:
+    waiting = sorted(name for name, s in daemons.items() if s.get("state") == "activating")
+    if waiting:
+        LOG.info(f"services still starting: {', '.join(waiting)}")
+
+
 def summary(
     phase: str, status: Mapping[str, Any] | None, paused: Mapping[str, tuple[Sequence[str], int]] | None = None
 ) -> Summary:
@@ -105,41 +140,48 @@ def summary(
     services = dict((status or {}).get("services") or {})
     daemons = {name: s for name, s in services.items() if not s.get("scheduled")}
     up = sum(1 for s in daemons.values() if s.get("state") == "running")
-    count = f"{up} of {len(daemons)} services running"
     if phase == STOPPED:
-        return Summary("Stopped. Nothing is recording.", "The services have stopped. Close this window.", False)
+        return Summary(
+            "Stopped. Nothing is recording.",
+            "You can close this window or start the services again.",
+            False,
+            DOT_IDLE,
+        )
     if phase == STOPPING:
-        return Summary("Stopping...", f"Saving what was recorded, then stopping. {count}.", False)
+        return Summary("Stopping...", "Saving what was recorded, then stopping the services.", False, DOT_IDLE)
     capture = services.get(CAPTURE, {}).get("state") == "running"
-    waiting = sorted(name for name, s in daemons.items() if s.get("state") == "activating")
-    trouble = f" Restarting: {', '.join(waiting)}." if waiting else ""
+    _log_still_starting(daemons)
     if phase == STARTING:
-        return Summary("Starting...", f"{count}.{trouble}", False)
-    text, everything = _paused_text(paused or {})
+        return Summary("Starting...", "Starting the services.", False, DOT_IDLE)
+    _text, everything = _paused_text(paused or {})
     if not capture and (status or {}).get("restarting"):
         # A restart someone asked for (Settings, a deploy): capture being down is planned, not a fault.
         return Summary(
             f"Restarting ({up} of {len(daemons)} up)",
             "Restarting the services, as asked. Recording resumes once capture is back.",
             False,
+            DOT_IDLE,
         )
     if not capture:
-        why = "Capture is off." if CAPTURE not in services else "Capture isn't running."
-        return Summary("Running, not recording", f"{why} {count}.{trouble}", False)
+        why = "Recording is off." if CAPTURE not in services else "Recording isn't running yet."
+        return Summary("Running, not recording", why, False, DOT_IDLE)
     if everything:
-        return Summary("Running, paused for privacy", f"Nothing is recording: {text}. {count}.{trouble}", False)
-    extra = f" ({text})" if text else ""
+        return Summary("Running, paused for privacy", _owner_pause_detail(paused or {}), False, DOT_IDLE)
+    pause_line = _owner_pause_detail(paused or {})
     resting = {name for names, _ in (paused or {}).values() for name in names}
     missing = [d for d in (status or {}).get("unregistered") or [] if d["name"] not in resting]
     if missing:
         # A device the manifest declares that capture never registered (#183): capture runs on without it, so
         # only this says the microphone, or a camera, isn't being recorded.
-        named = _listed([f"{d['kind']} {d['name']}" for d in missing])
+        problems = " ".join(_device_problem(d["kind"], d["name"]) for d in missing)
+        detail = problems + (f" {pause_line}" if pause_line else "")
         total = sum(n for _, n in (paused or {}).values())
         some = not total or len(missing) + len(resting) < total
         headline = "Recording, but not from every device" if some else "Running, not recording"
-        return Summary(headline, f"Nothing is coming from the {named}. {count}{extra}.{trouble}", some)
-    return Summary("Running and recording", f"{count}{extra}.{trouble}", True)
+        dot = DOT_WARNING if some else DOT_IDLE
+        return Summary(headline, detail.strip(), some, dot)
+    detail = pause_line or "Everything declared is recording."
+    return Summary("Running and recording", detail, True, DOT_RECORDING)
 
 
 def save_start_at_login(on: bool) -> str:
@@ -195,6 +237,16 @@ class Presence:
         self.asked = True
         self.app.quitting.set()
 
+    def restart(self) -> None:
+        """After everything has stopped, start the supervisor again in a new thread."""
+        if not self.finished:
+            return
+        self.asked = False
+        self.app.quitting.clear()
+        self.thread = None
+        self.started = False
+        self.start()
+
     @property
     def finished(self) -> bool:
         return self.thread is not None and not self.thread.is_alive()
@@ -219,6 +271,7 @@ BODY_RANGE = (10.0, 12.0)
 HEADING_STEP = 5.0  # the heading is this many points larger than the body
 LINE_SPACING = 1.25  # line height over the font's ascent plus descent
 WRAP_PT = 300  # the detail wraps at this width
+FRAME_MIN_WIDTH_PT = 380  # the window stays at least this wide so the headline does not jump between states
 SANS = ("Inter", "Cantarell", "Ubuntu Sans", "Noto Sans", "DejaVu Sans", "Liberation Sans")
 FIGTREE = "Figtree-Variable*.woff2"  # in the built dashboard's assets (frontend/src/shared/fonts)
 CHECKBOX_PT = 11  # the tick box's side
@@ -245,16 +298,37 @@ class Palette:
     border: str
     accent: str  # the ticked checkbox
     field: str  # the unticked checkbox
-    recording: str  # the dot while recording
-    idle: str  # the dot while not
+    recording: str  # the dot while recording healthily
+    warning: str  # the dot while recording with a problem
+    idle: str  # the dot while not recording
 
 
 # GNOME's (libadwaita's) window colours, flattened onto the window background. Both pass WCAG AA for every text pair.
 LIGHT = Palette(
-    "#fafafa", "#1e1e1e", "#5e5c64", "#e6e6e6", "#d6d6d6", "#c6c6c6", "#3584e4", "#ffffff", "#c01c28", "#9a9996"
+    "#fafafa",
+    "#1e1e1e",
+    "#5e5c64",
+    "#e6e6e6",
+    "#d6d6d6",
+    "#c6c6c6",
+    "#3584e4",
+    "#ffffff",
+    "#c01c28",
+    "#e5a50a",
+    "#9a9996",
 )
 DARK = Palette(
-    "#242424", "#ffffff", "#c0bfbc", "#383838", "#454545", "#1a1a1a", "#3584e4", "#2e2e2e", "#f66151", "#77767b"
+    "#242424",
+    "#ffffff",
+    "#c0bfbc",
+    "#383838",
+    "#454545",
+    "#1a1a1a",
+    "#3584e4",
+    "#2e2e2e",
+    "#f66151",
+    "#f8e45c",
+    "#77767b",
 )
 
 
@@ -562,9 +636,9 @@ class Look:
         )
 
     @property
-    def dot_colours(self) -> tuple[str, str]:
-        """(recording, idle) for the status dot."""
-        return self.palette.recording, self.palette.idle
+    def dot_colours(self) -> tuple[str, str, str]:
+        """(recording, warning, idle) for the status dot."""
+        return self.palette.recording, self.palette.warning, self.palette.idle
 
     @property
     def background(self) -> str:
@@ -572,7 +646,7 @@ class Look:
 
 
 class Window:
-    """The Tk window over a Presence. Closing it is Quit: the window never goes while a service runs."""
+    """The Tk window over a Presence. Quit stops the services; closing the window asks first."""
 
     def __init__(self, presence: Presence, desktop: Desktop | None = None) -> None:
         import tkinter as tk
@@ -596,7 +670,7 @@ class Window:
         self.detail.grid(row=1, column=1, columnspan=2, sticky="w", pady=("4p", "14p"))
         self.dashboard = ttk.Button(frame, text="Open the dashboard", command=presence.open_dashboard)
         self.dashboard.grid(row=2, column=1, sticky="w")
-        self.quit = ttk.Button(frame, text="Quit and stop recording", command=self.ask_quit)
+        self.quit = ttk.Button(frame, text="Quit and stop recording", command=self.quit_recording)
         self.quit.grid(row=2, column=2, sticky="e", padx=("10p", 0))
         frame.columnconfigure(2, weight=1)
         # Start at login (#157): off unless the owner ticks it. Shown as the entry on disk is, so a change made in
@@ -613,7 +687,10 @@ class Window:
         for button in (self.dashboard, self.quit):
             self.typeset(button, button.cget("text"), "button")
         self.typeset(self.login, self.login.cget("text"), "button")
-        root.protocol("WM_DELETE_WINDOW", self.ask_quit)
+        root.protocol("WM_DELETE_WINDOW", self.on_window_close)
+        self.root.update_idletasks()
+        self.root.minsize(round(FRAME_MIN_WIDTH_PT * look.scaling), 0)
+        self._action_labels: tuple[str, str] | None = ("Open the dashboard", "Quit and stop recording")
         self.refresh()
 
     def typeset(self, widget: Any, text: str, role: str, secondary: bool = False, wrap: int | None = None) -> None:
@@ -634,13 +711,69 @@ class Window:
         normal, disabled = images[0][1], images[1][1]
         widget.configure(image=(normal, "disabled", disabled), compound="image")
 
-    def ask_quit(self) -> None:
-        """Quit, from the button or from closing the window. Once the services have stopped, closing just closes."""
+    def on_window_close(self) -> None:
+        """Title bar close: ask before stopping recording. When everything has stopped, close."""
+        if self.presence.finished and self.presence.asked:
+            self.root.destroy()
+            return
+        if self.presence.phase == STOPPED:
+            self.root.destroy()
+            return
+        if not self.presence.finished and not self._confirm_stop():
+            return
+        self.quit_recording()
+
+    def _confirm_stop(self) -> bool:
+        """True when the owner chose to quit and stop recording."""
+        from tkinter import ttk
+
+        answer = {"quit": False}
+        dialog = self.tk.Toplevel(self.root)
+        dialog.title(TITLE)
+        dialog.transient(self.root)
+        dialog.grab_set()
+        dialog.resizable(False, False)
+        ttk.Label(dialog, text="Stop recording and quit?", padding=("18p", "16p", "18p", "10p")).pack()
+        row = ttk.Frame(dialog, padding=("18p", "0", "18p", "14p"))
+        row.pack()
+        ttk.Button(row, text="Keep recording", command=dialog.destroy).pack(side="left", padx=(0, "10p"))
+        ttk.Button(
+            row,
+            text="Quit",
+            command=lambda: (answer.__setitem__("quit", True), dialog.destroy()),
+        ).pack(side="left")
+        self.root.wait_window(dialog)
+        return answer["quit"]
+
+    def quit_recording(self) -> None:
+        """Quit button: drain and stop without a second question."""
         if self.presence.finished:
             self.root.destroy()
             return
         self.presence.quit()
         self.show()
+
+    def close_window(self) -> None:
+        self.root.destroy()
+
+    def start_again(self) -> None:
+        self.presence.restart()
+        self.show()
+
+    def _set_action_buttons(self, dashboard: str, quit_label: str) -> None:
+        if self._action_labels == (dashboard, quit_label):
+            return
+        self._action_labels = (dashboard, quit_label)
+        if dashboard == "Start again":
+            self.dashboard.configure(command=self.start_again)
+        else:
+            self.dashboard.configure(command=self.presence.open_dashboard)
+        if quit_label == "Close":
+            self.quit.configure(command=self.close_window)
+        else:
+            self.quit.configure(command=self.quit_recording)
+        self.typeset(self.dashboard, dashboard, "button")
+        self.typeset(self.quit, quit_label, "button")
 
     def toggle_login(self) -> None:
         """The checkbox changed: save the setting and add or remove the desktop's entry. A failure leaves the box as
@@ -659,11 +792,22 @@ class Window:
         if self.detail.cget("text") != now.detail:
             wrap = round(WRAP_PT * self.look.scaling)
             self.typeset(self.detail, now.detail, "body", secondary=True, wrap=wrap)
-        recording, idle = self.look.dot_colours
-        self.dot.itemconfigure("light", fill=recording if now.recording else idle)
-        busy = self.presence.phase in (STOPPING, STOPPED)
-        self.quit.configure(state="disabled" if busy else "normal")
-        self.dashboard.configure(state="disabled" if busy else "normal")
+        recording, warning, idle = self.look.dot_colours
+        dot_fill = recording if now.dot == DOT_RECORDING else warning if now.dot == DOT_WARNING else idle
+        self.dot.itemconfigure("light", fill=dot_fill)
+        phase = self.presence.phase
+        if phase == STOPPED:
+            self._set_action_buttons("Start again", "Close")
+            self.quit.configure(state="normal")
+            self.dashboard.configure(state="normal")
+        elif phase == STOPPING:
+            self._set_action_buttons("Open the dashboard", "Quit and stop recording")
+            self.quit.configure(state="disabled")
+            self.dashboard.configure(state="disabled")
+        else:
+            self._set_action_buttons("Open the dashboard", "Quit and stop recording")
+            self.quit.configure(state="normal")
+            self.dashboard.configure(state="normal")
         self.root.title(f"{TITLE}: {now.headline}")
 
     def refresh(self) -> None:
