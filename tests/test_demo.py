@@ -94,7 +94,7 @@ def test_environment_points_every_path_into_the_demo_dir(tmp_path):
     root = tmp_path / "d"
     real = {"PACK_PATHS_STATE": "/real/state", "PACK_STATE": "/real/state", "OLLAMA_HOST": "127.0.0.1:11434"}
 
-    env = cli.environment(root, 8766, base=real)
+    env = cli.environment(root, cli.PORT, base=real)
 
     path_vars = [k for k in env if k.startswith("PACK_PATHS_")]
     assert sorted(path_vars) == sorted(f"PACK_PATHS_{k.upper()}" for k in cfg.load()["paths"])
@@ -102,6 +102,7 @@ def test_environment_points_every_path_into_the_demo_dir(tmp_path):
     assert env["PACK_STATE"] == str(root / "state")
     assert env["PACK_CONFIG"] == str(root / "pack.toml")
     assert env["PACK_OLLAMA_URL"] == cli.NO_OLLAMA
+    assert env["PACK_PORTS_GATEWAY"] == str(cli.NO_GATEWAY)
     assert "OLLAMA_HOST" not in env
     assert env["CONTINUUM_SOCKET"] == str(root / "state" / "continuum" / "broker.sock")
 
@@ -109,7 +110,7 @@ def test_environment_points_every_path_into_the_demo_dir(tmp_path):
 def test_a_socket_path_too_long_for_a_socket_goes_to_a_short_dir(tmp_path):
     root = tmp_path / ("x" * 120)
 
-    sock = Path(cli.environment(root, 8766, base={})["CONTINUUM_SOCKET"])
+    sock = Path(cli.environment(root, cli.PORT, base={})["CONTINUUM_SOCKET"])
 
     assert not sock.is_relative_to(root)
     assert len(str(sock).encode()) <= cli.SOCKET_MAX
@@ -135,3 +136,56 @@ def test_an_empty_or_seeded_dir_is_accepted(tmp_path, marker):
         (tmp_path / cli.SEEDED).write_text("pack-demo\n")
 
     cli.check_dir(tmp_path)
+
+
+@pytest.fixture
+def listening():
+    """A socket listening on a free port, as another program would: its port."""
+    import socket
+
+    with socket.socket() as other:
+        other.bind(("0.0.0.0", 0))
+        other.listen()
+        yield other.getsockname()[1]
+
+
+def test_an_asked_port_that_is_taken_is_refused_before_anything_starts(listening):
+    with pytest.raises(SystemExit, match=f"port {listening} is in use"):
+        cli.choose_port(listening)
+
+
+def test_an_asked_port_that_is_free_is_used():
+    import socket
+
+    with socket.socket() as probe:
+        probe.bind(("0.0.0.0", 0))
+        free = probe.getsockname()[1]
+
+    assert cli.choose_port(free) == free
+
+
+def test_the_default_port_is_none_of_the_packs(monkeypatch):
+    monkeypatch.setattr(cli, "port_free", lambda port: True)
+
+    port = cli.choose_port(None)
+
+    assert port == cli.PORT
+    assert port not in {8765, 8766, 8767, 8776, 8790, 8081, 8082, 11435, 5173}
+
+
+def test_a_taken_default_moves_to_a_free_port_the_pack_does_not_use(monkeypatch, listening, capsys):
+    monkeypatch.setattr(cli, "PORT", listening)
+
+    port = cli.choose_port(None)
+
+    assert port != listening
+    assert port not in cli.reserved_ports()
+    assert cli.port_free(port)
+    assert f"takes port {port}" in capsys.readouterr().out
+
+
+def test_the_default_port_skips_one_this_install_gave_a_service(monkeypatch):
+    monkeypatch.setattr(cli, "port_free", lambda port: True)
+    monkeypatch.setattr(cli, "any_free_port", lambda reserved: 40000)
+    with cfg.override({"ports": {"vlm": cli.PORT}}):
+        assert cli.choose_port(None) == 40000

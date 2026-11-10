@@ -116,6 +116,8 @@ friends_agent = ""
 [ports]
 # Local ports for each service. The dashboard is the web UI.
 dashboard = 8765
+# The camera gateway (continuum-gateway): live and recorded video for the dashboard's page, which is told this port.
+gateway = 8766
 vlm = 8081
 whisper = 8082
 # Ask's own Ollama (the ask-ollama service), when ask.ollama_url points at it.

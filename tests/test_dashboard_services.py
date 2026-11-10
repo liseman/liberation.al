@@ -80,6 +80,26 @@ def test_processes_match_repo_commands_by_their_path_here_and_count_their_childr
     assert s.processes() == {"continuum-broker": [1], "continuum-capture": [2, 3], "continuum-gateway": [4]}
 
 
+def test_the_demo_and_everything_under_it_are_not_the_installs_services(monkeypatch):
+    # pack-demo runs the real broker binary on a made-up household; counting it stopped the application from starting
+    broker = str(cfg.program("continuum-broker"))
+    procs = [
+        SimpleNamespace(info={"pid": 1, "ppid": 0, "cmdline": [broker, "--state-dir", "data/state"]}),
+        SimpleNamespace(info={"pid": 10, "ppid": 0, "cmdline": ["uv", "run", "pack-demo"]}),
+        SimpleNamespace(
+            info={"pid": 11, "ppid": 10, "cmdline": ["/repo/.venv/bin/python", "/repo/.venv/bin/pack-demo"]}
+        ),
+        SimpleNamespace(info={"pid": 12, "ppid": 11, "cmdline": [broker, "--state-dir", "/tmp/pack-demo-x/state"]}),
+        SimpleNamespace(info={"pid": 13, "ppid": 12, "cmdline": ["sleep", "1"]}),
+        SimpleNamespace(
+            info={"pid": 20, "ppid": 0, "cmdline": ["python", "-m", "liberational.demo.cli", "--seed-here"]}
+        ),
+        SimpleNamespace(info={"pid": 21, "ppid": 20, "cmdline": ["pack-listen"]}),
+    ]
+    monkeypatch.setattr(proc_table, "table", as_table(create_autospec(lambda: None, return_value=procs)))
+    assert s.processes() == {"continuum-broker": [1]}
+
+
 def test_a_daemon_started_by_its_build_path_counts_when_the_environment_links_to_it(tmp_path, monkeypatch):
     built = tmp_path / "target" / "continuum-broker"
     built.parent.mkdir()

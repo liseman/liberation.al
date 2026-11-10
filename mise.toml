@@ -197,7 +197,7 @@ description = "Run the pack dashboard on http://localhost:8765/"
 run = "uv run pack-dashboard"
 
 [tasks.demo]
-description = "Run the dashboard on the made-up demo household (http://localhost:8766/), apart from any real data"
+description = "Run the dashboard on the made-up demo household (http://localhost:8780/ unless that port is taken), apart from any real data"
 run = "uv run pack-demo"
 
 [tasks.dev]

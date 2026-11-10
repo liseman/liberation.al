@@ -10,6 +10,7 @@ export interface Shell {
   views: Record<string, string>; // each named camera's name (vision.camera_names), like "front camera"
   hotkeys: boolean; // dashboard.hotkeys: single-key shortcuts, off by default
   needsSetup: boolean; // no pack.toml yet: first-run setup owns the page
+  gatewayPort?: number; // ports.gateway: where the page finds the camera gateway (player/protocol.ts reads it)
 }
 
 const DEFAULTS: Shell = {
