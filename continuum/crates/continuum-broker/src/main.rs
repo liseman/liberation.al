@@ -38,7 +38,8 @@ struct Args {
     /// behind at most one step, so keep it small.
     #[arg(long, default_value_t = 5)]
     step_target_ms: u64,
-    /// The machine profile the scheduler budgets for: mac_mini_64gb or linux_dual_3090 (default: this machine's).
+    /// The machine profile the scheduler budgets for: mac_mini_64gb or linux_dual_3090 (default: this machine's,
+    /// with its Tier 0 headroom fitted to /dev/shm; a profile named here is used whole).
     #[arg(long)]
     profile: Option<String>,
     /// The Tier 0 arena's slot classes as SIZExCOUNT, comma separated (like 16384x64,2097152x8), instead of the
@@ -61,9 +62,10 @@ struct Args {
     /// purged bytes in them). On by default; see the scrub module for when it runs.
     #[arg(long)]
     no_catalog_scrub: bool,
-    /// MiB reserved in the Tier 0 arena for rings carved when streams register (PCM, IMU).
-    #[arg(long, default_value_t = continuum_broker::server::DEFAULT_RING_BYTES >> 20)]
-    tier0_ring_mib: u64,
+    /// MiB reserved in the Tier 0 arena for rings carved when streams register (PCM, IMU). Default 64, or less when
+    /// nothing captures and /dev/shm is small.
+    #[arg(long)]
+    tier0_ring_mib: Option<u64>,
 }
 
 fn parse_classes(s: &str) -> Result<Vec<continuum_sched::SlotClass>, String> {
@@ -77,52 +79,61 @@ fn parse_classes(s: &str) -> Result<Vec<continuum_sched::SlotClass>, String> {
         .collect()
 }
 
-fn capture_classes(
-    args: &Args,
-    profile: &str,
-    ring_bytes: u64,
-) -> Result<Option<Vec<continuum_sched::SlotClass>>, String> {
+/// The Tier 0 layout to create: the slot classes (None: the profile's own) and the ring region's bytes.
+type Layout = (Option<Vec<continuum_sched::SlotClass>>, u64);
+
+/// Chooses the arena's layout. `--tier0-classes` is used as given. Otherwise the plan is the profile's headroom
+/// plus what the manifest's devices ask for; when the profile is this machine's default (no `--profile`), the
+/// headroom is fitted to `/dev/shm` (`capture_sizing::fit`), so a machine or a container with little shared memory
+/// still starts. A named `--profile` and an explicit `--tier0-ring-mib` are never shrunk.
+fn capture_layout(args: &Args, profile: &str, ring_bytes: u64) -> Result<Layout, String> {
     if let Some(explicit) = &args.tier0_classes {
         let classes = parse_classes(explicit)?;
         if args.print_tier0_plan {
             let plan = capture_sizing::plan("", &classes, false, 0, ring_bytes)?;
-            print_plan("explicit --tier0-classes", &plan, ring_bytes);
+            print_plan("explicit --tier0-classes", &plan, ring_bytes, 0);
         }
-        return Ok(Some(classes)); // Overrides deliberately bypass manifest sizing and its budget.
-    }
-    if args.manifest.is_none() && !args.print_tier0_plan {
-        return Ok(None);
+        return Ok((Some(classes), ring_bytes)); // Overrides deliberately bypass manifest sizing and its budget.
     }
     let baseline =
         continuum_sched::Profile::named(profile).ok_or_else(|| format!("no machine profile named {profile}"))?;
-    let Some(path) = &args.manifest else {
-        let plan = capture_sizing::plan("", &baseline.slot_classes, false, 0, ring_bytes)?;
-        print_plan("profile (no --manifest)", &plan, ring_bytes);
-        return Ok(None);
-    };
     let budget = args.tier0_camera_mib.checked_mul(1 << 20).ok_or("--tier0-camera-mib overflows bytes")?;
-    match capture_sizing::load(path, &baseline.slot_classes, cfg!(target_os = "macos"), budget, ring_bytes)? {
-        Some(plan) => {
-            info!(manifest = %path.display(), cameras = plan.cameras.len(), camera_bytes = plan.camera_bytes,
-                total_arena_bytes = plan.total_bytes, ring_bytes, "sized Tier 0 from capture settings");
-            if args.print_tier0_plan {
-                print_plan(&path.display().to_string(), &plan, ring_bytes);
+    let (source, text) = match &args.manifest {
+        None => ("profile (no --manifest)".to_owned(), String::new()),
+        Some(path) => match std::fs::read_to_string(path) {
+            Ok(text) => (path.display().to_string(), text),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                warn!(manifest = %path.display(), "capture manifest is missing; sizing Tier 0 for no devices until device setup and broker restart");
+                ("profile (missing manifest)".to_owned(), String::new())
             }
-            Ok(Some(plan.classes))
-        }
-        None => {
-            warn!(manifest = %path.display(), "capture manifest is missing; using profile Tier 0 classes until device setup and broker restart");
-            if args.print_tier0_plan {
-                let plan = capture_sizing::plan("", &baseline.slot_classes, false, 0, ring_bytes)?;
-                print_plan("profile (missing manifest)", &plan, ring_bytes);
-            }
-            Ok(None)
-        }
+            Err(error) => return Err(format!("{}: {error}", path.display())),
+        },
+    };
+    let room = if args.profile.is_some() { None } else { continuum_broker::tier0::shm_capacity() };
+    let fit = capture_sizing::fit(&text, &baseline.slot_classes, cfg!(target_os = "macos"), budget, ring_bytes, room)
+        .map_err(|error| if args.manifest.is_some() { format!("{source}: {error}") } else { error })?;
+    let ring = if args.tier0_ring_mib.is_some() { ring_bytes } else { fit.ring_bytes };
+    if fit.shrink > 0 {
+        info!(
+            shrink = fit.shrink,
+            total_arena_bytes = fit.plan.total_bytes,
+            shm_bytes = room.unwrap_or(0),
+            "the profile's Tier 0 headroom doesn't fit half of /dev/shm; halved it this many times"
+        );
     }
+    if !fit.plan.cameras.is_empty() {
+        info!(manifest = %source, cameras = fit.plan.cameras.len(), camera_bytes = fit.plan.camera_bytes,
+            total_arena_bytes = fit.plan.total_bytes, ring_bytes = ring, "sized Tier 0 from capture settings");
+    }
+    if args.print_tier0_plan {
+        print_plan(&source, &fit.plan, ring, fit.shrink);
+    }
+    Ok((Some(fit.plan.classes), ring))
 }
 
-fn print_plan(source: &str, plan: &capture_sizing::Plan, ring_bytes: u64) {
+fn print_plan(source: &str, plan: &capture_sizing::Plan, ring_bytes: u64, shrink: u32) {
     println!("tier0 source={source}");
+    println!("profile_headroom_halvings={shrink}");
     println!(
         "baseline_bytes={} camera_increment_bytes={} ring_region_bytes={} total_arena_bytes={}",
         plan.baseline_bytes, plan.camera_bytes, ring_bytes, plan.total_bytes
@@ -154,12 +165,13 @@ async fn main() -> ExitCode {
     continuum_log::init("continuum-broker");
     let args = Args::parse();
     let profile = args.profile.clone().unwrap_or_else(|| continuum_broker::server::default_profile().to_owned());
-    let Some(ring_bytes) = args.tier0_ring_mib.checked_mul(1 << 20) else {
+    let ring_mib = args.tier0_ring_mib.unwrap_or(continuum_broker::server::DEFAULT_RING_BYTES >> 20);
+    let Some(ring_bytes) = ring_mib.checked_mul(1 << 20) else {
         error!("--tier0-ring-mib overflows bytes");
         return ExitCode::FAILURE;
     };
-    let tier0 = match capture_classes(&args, &profile, ring_bytes) {
-        Ok(classes) => classes,
+    let (tier0, ring_bytes) = match capture_layout(&args, &profile, ring_bytes) {
+        Ok(layout) => layout,
         Err(error) => {
             error!("Tier 0 configuration: {error}");
             return ExitCode::FAILURE;
@@ -229,14 +241,41 @@ mod tests {
             "0",
         ]);
         assert_eq!(
-            capture_classes(&args, "not-a-profile", 0).unwrap(),
-            Some(vec![continuum_sched::SlotClass { size_bytes: 16384, count: 4 }])
+            capture_layout(&args, "not-a-profile", 0).unwrap(),
+            (Some(vec![continuum_sched::SlotClass { size_bytes: 16384, count: 4 }]), 0)
         );
     }
 
     #[test]
     fn invalid_explicit_classes_are_not_replaced_with_defaults() {
         let args = Args::parse_from(["broker", "--tier0-classes", "broken"]);
-        assert!(capture_classes(&args, "mac_mini_64gb", 0).is_err());
+        assert!(capture_layout(&args, "mac_mini_64gb", 0).is_err());
+    }
+
+    #[test]
+    fn a_named_profile_and_an_explicit_ring_region_are_used_whole() {
+        // With --profile the headroom is not fitted to /dev/shm: the classes are the profile's, whatever this
+        // machine's shared memory holds, and an explicit ring region is the one asked for.
+        let args = Args::parse_from(["broker", "--profile", "linux_dual_3090", "--tier0-ring-mib", "3"]);
+        let (classes, ring) = capture_layout(&args, "linux_dual_3090", 3 << 20).unwrap();
+        assert_eq!(classes, Some(continuum_sched::Profile::linux_dual_3090().slot_classes));
+        assert_eq!(ring, 3 << 20);
+    }
+
+    #[test]
+    fn a_missing_manifest_is_sized_as_no_devices_and_an_unreadable_one_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("devices.toml");
+        let args = Args::parse_from([
+            std::ffi::OsString::from("broker"),
+            "--profile".into(),
+            "linux_dual_3090".into(),
+            "--manifest".into(),
+            missing.clone().into_os_string(),
+        ]);
+        let (classes, _) = capture_layout(&args, "linux_dual_3090", 0).unwrap();
+        assert_eq!(classes, Some(continuum_sched::Profile::linux_dual_3090().slot_classes));
+        std::fs::write(&missing, "bad [").unwrap();
+        assert!(capture_layout(&args, "linux_dual_3090", 0).unwrap_err().contains("devices.toml"));
     }
 }
