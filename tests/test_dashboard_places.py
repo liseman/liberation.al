@@ -368,11 +368,8 @@ def test_a_correction_holds_over_the_machine_plan_until_withdrawn(tmp_path, home
     code, reply = view.correct({"place": place, "plan": mine}, True, tmp_path, now=T + 10)
     assert (code, reply["plan"], reply["plan_source"]) == (200, mine, "owner")
     row = view.listing(tmp_path, now=T + 60)[1]["places"][0]
-    assert (row["plan"], row["plan_source"], row["machine_plan"]) == (
-        mine,
-        "owner",
-        PLAN,
-    )  # the machine's kept, to compare
+    # the owner's plan is the place's only plan: the machine's isn't offered beside it
+    assert (row["plan"], row["plan_source"], row["machine_plan"]) == (mine, "owner", None)
     code, reply = view.correct({"place": place, "plan": "  "}, True, tmp_path, now=T + 20)
     assert (code, reply["plan"], reply["plan_source"]) == (200, PLAN, "machine")
     assert view.listing(tmp_path, now=T + 60)[1]["places"][0]["machine_plan"] is None
@@ -401,7 +398,7 @@ def test_correcting_again_after_a_newer_revision_keeps_the_frame_the_text_is_in(
     assert view.correct({"place": place, "plan": mine, "base": first}, True, tmp_path, now=T + 10)[0] == 200
     newer = places.revise(tmp_path, place, producer="footprints-v1", plan=PLAN.replace("4x6", "4x7"), now=T + 100)
     row = view.listing(tmp_path, now=T + 200)[1]["places"][0]
-    assert (row["plan_revision"], row["machine_newer"]) == (first, True)
+    assert (row["plan_revision"], row["machine_newer"]) == (first, False), "no machine plan is offered over the owner's"
     # The owner corrects their own plan again: the text is still in the first revision's frame, not the newer one's.
     again = mine.replace('"Study"', '"Office"')
     assert (
@@ -620,25 +617,6 @@ def test_the_scene_says_what_its_splat_was_trained_from_as_the_trainer_named_it(
     places.write_splat(tmp_path, later, master=b"ply", web=b"sog-bytes", source="cameras")
     reply = view.scene(tmp_path, place)[1]
     assert (reply["splat_revision"], reply["splat_from"]) == (later.id, "cameras")
-
-
-def test_the_scene_carries_the_owners_plan_only_in_the_frame_it_was_drawn_in(tmp_path, mapped):
-    place, rev = mapped
-    mine = PLAN.replace('"Den"', '"Living room"')
-    view.correct({"place": place, "plan": mine, "base": rev}, True, tmp_path, now=T + 10)
-    assert view.scene(tmp_path, place)[1]["plan"] == mine
-    # A new map and plan (a new frame): the 3D view shows them, so the outline is the machine's plan in that frame.
-    places.revise(
-        tmp_path,
-        place,
-        producer="mapper v1",
-        plan=PLAN.replace("4x6", "4x5"),
-        map_bytes=CLOUD,
-        map_format="ply",
-        now=T + 100,
-    )
-    reply = view.scene(tmp_path, place)[1]
-    assert (reply["plan_source"], "4x5" in reply["plan"]) == ("machine", True)
 
 
 def test_an_owner_plan_drawn_on_a_map_with_no_plan_of_its_own_is_outlined_in_the_floors_frame(tmp_path, mapped):
@@ -876,3 +854,41 @@ def test_without_the_map_step_installed_the_scene_reads_the_switch_alone(tmp_pat
     assert view.scene(tmp_path, place)[1]["learning"] == {
         "on": False, "cameras": 0, "improving": False, "views": None, "improved": None,
     }  # fmt: skip
+
+
+def test_a_learned_map_on_a_place_with_an_owners_plan_still_serves_the_owners_plan(tmp_path, monkeypatch):
+    told(monkeypatch)
+    # A place as a reset leaves it: listed with the owner's plan and no map. Then the cameras found its first map.
+    kept = places.revise(tmp_path, None, producer="places reset v1", now=T - 100)
+    mine = PLAN.replace('"Den"', '"Lounge"')
+    places.correct_plan(tmp_path, kept.place, mine, now=T - 90)
+    _, rev = learned(tmp_path, kept.place)
+    reply = view.scene(tmp_path, kept.place)[1]
+    assert (reply["revision"], reply["plan"], reply["plan_source"]) == (rev.id, mine, "owner")
+    # not lined up with the map yet: nothing to lay the plan on it by, and why
+    assert (reply["plan_aligned"], reply["plan_transform"]) == (False, None)
+    assert (reply["plan_lineup"]["state"], reply["plan_lineup"]["reason"]) == ("unaligned", "no_floor")
+    row = view.listing(tmp_path, now=T + 60)[1]["places"][0]
+    assert (row["plan"], row["plan_source"], row["machine_plan"], row["machine_newer"]) == (mine, "owner", None, False)
+
+
+def test_a_machine_plan_made_after_the_owners_is_never_served_in_its_place(tmp_path, mapped):
+    place, rev = mapped
+    mine = PLAN.replace('"Den"', '"Lounge"')
+    view.correct({"place": place, "plan": mine, "base": rev}, True, tmp_path, now=T + 10)
+    places.revise(
+        tmp_path, place, producer="mapper v1", plan=PLAN.replace("4x6", "4x5"), map_bytes=CLOUD, map_format="ply",
+        now=T + 100,
+    )  # fmt: skip
+    reply = view.scene(tmp_path, place)[1]
+    assert (reply["plan"], reply["plan_source"], reply["plan_transform"]) == (mine, "owner", None)
+    assert reply["plan_lineup"] is None, "a map with a plan of the machine's isn't one the line-up works on"
+
+
+def test_an_owners_plan_lined_up_with_the_map_is_laid_on_it(tmp_path, mapped):
+    place, rev = mapped
+    mine = PLAN.replace('"Den"', '"Lounge"')
+    view.correct({"place": place, "plan": mine, "base": rev}, True, tmp_path, now=T + 10)
+    reply = view.scene(tmp_path, place)[1]
+    assert (reply["plan"], reply["plan_source"], reply["plan_aligned"]) == (mine, "owner", True)
+    assert reply["plan_transform"] == list(TRANSFORM)

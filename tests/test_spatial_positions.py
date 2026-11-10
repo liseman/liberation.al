@@ -315,12 +315,15 @@ def test_a_rig_rows_room_comes_from_the_plan_of_the_revision_its_point_is_in(tmp
 OWNER_PLAN = 'plan "Home" walls 0.2/0.1\nroom r1 "Lounge" other rect 0,0 4x3\n'
 
 
-def test_the_owners_plan_names_rooms_only_while_no_newer_machine_plan_moved_the_frame(tmp_path, vision):
+def test_a_newer_machine_plan_never_names_rooms_on_a_place_with_an_owners_plan(tmp_path, vision):
     place = home(tmp_path)
     places.correct_plan(tmp_path, place, OWNER_PLAN, now=T - 50)
     foot(vision, T)
     assert [p.room for p in P.derive(tmp_path, T - 1, T + 5)] == ["Lounge"]
+    # a machine plan in a new frame: the owner's plan isn't drawn there, and the machine's rooms don't stand in
     places.revise(tmp_path, place, producer="test", plan=PLAN_2, plan_transform=TO_PLAN, now=T - 10)
+    assert [p.room for p in P.derive(tmp_path, T - 1, T + 5)] == [None]
+    places.correct_plan(tmp_path, place, "", now=T - 5)  # the owner withdraws theirs: the machine's holds again
     assert [p.room for p in P.derive(tmp_path, T - 1, T + 5)] == ["Den"]
 
 
@@ -408,10 +411,11 @@ def test_the_owners_plan_names_rooms_in_any_revision_drawn_in_its_frame(tmp_path
     places.revise(tmp_path, place, producer="test", cameras={"cam0": LEVEL}, now=T + 20)  # same frame, carried over
     foot(vision, T + 1, v=1.0)  # plan (3, 2) in the newest frame, (1, 2) in the first
     # The correction was made on the newest revision's plan, so it names rooms in that frame (and in the later
-    # revision that carries the same plan over); the first revision's own machine plan names them in its frame.
+    # revision that carries the same plan over). In the first revision's frame the owner's plan isn't drawn, and
+    # that revision's machine plan doesn't stand in for it: no room.
     assert [p.room for p in P.derive(tmp_path, T, T + 5, place, frame_revision=newest.id)] == ["Lounge"]
     assert [p.room for p in P.derive(tmp_path, T, T + 5, place)] == ["Lounge"]
-    assert [p.room for p in P.derive(tmp_path, T, T + 5, place, frame_revision=first.id)] == ["Living"]
+    assert [p.room for p in P.derive(tmp_path, T, T + 5, place, frame_revision=first.id)] == [None]
 
 
 def test_a_rig_row_from_another_plan_with_equal_transform_values_is_out_of_frame(tmp_path, vision):

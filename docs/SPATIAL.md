@@ -158,6 +158,10 @@ revisions carry the transform over, so the 3D view, the plan, and the positions 
   (a median of 10 cm from a wall's face). Until then the place is unaligned and its status says why (no map, no
   floor, too little of the plan, more than one fit, or a poor fit): the 3D view and positions stay in the map's own
   frame, and the plan is drawn on its own. A fit is tried again only after the map's walls grew by a fifth.
+- *The owner's plan is the place's only plan.* While a place has one, the Places page, the 3D view's scene, and
+  the position layer use that plan and no other: no machine plan is offered beside it or stands in for it. Until
+  the map is lined up, the 3D view draws the map with no plan on it and says why, and the plan view shows the plan
+  as the owner drew it.
 - *Checked as it grows.* Each later map is measured on the plan through the transform it has, with no search. A map
   that left its plan is fitted once more; when that finds nothing the line-up stays and is flagged as drifted.
 
