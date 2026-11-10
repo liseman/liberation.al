@@ -433,9 +433,9 @@ fn forgetting_a_person_drops_their_rows_at_any_time_and_keeps_everyone_elses() {
     let mut w = Writer::open(root, "voice.embedding", "wave3", people_schema()).unwrap();
     w.append(&people(&[(T0 + 1, Some(0xaa)), (T0 + 2, Some(0xbb)), (T0 + 3, None)])).unwrap();
     w.append(&people(&[(T0 + 5 * H, Some(0xaa))])).unwrap(); // hours later: closes the first part
-    let joe = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
-    let d = forget_where(root, Some(&["voice.embedding"]), None, "person", joe, DeletionKind::Forget).unwrap();
-    assert_eq!((d.column.as_deref(), d.value.as_deref(), d.t0, d.t1), (Some("person"), Some(joe), 0, u64::MAX));
+    let sam = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+    let d = forget_where(root, Some(&["voice.embedding"]), None, "person", sam, DeletionKind::Forget).unwrap();
+    assert_eq!((d.column.as_deref(), d.value.as_deref(), d.t0, d.t1), (Some("person"), Some(sam), 0, u64::MAX));
     let left = read(root, "voice.embedding", None, 0, u64::MAX).unwrap();
     assert_eq!(ts_of(&left), [T0 + 2, T0 + 3], "another person's row and a row naming nobody stay");
     assert!(left.parts.iter().any(|p| p.version == 1), "the closed part rewritten");

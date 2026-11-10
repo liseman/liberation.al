@@ -145,7 +145,7 @@ TYPED = {
     "Alice and Dana": None,
     "Dana O'Neil": None,
     "Bob the plumber": None,
-    "Joe the intern": None,
+    "Sam the intern": None,
     "Dana the Cook": None,
     "Dana, Bob's lawyer": None,
     "Dana, I work at Acme": None,
@@ -286,7 +286,7 @@ def test_a_spoken_tag_gives_the_person_attributes_only_with_the_flag_on(tmp_path
     monkeypatch.setattr(voice, "owner_answer", lambda *a, **k: "the agent's answer")
     monkeypatch.setattr(voice, "optional_module", lambda name: None)
     with cfg.override({"identity": {"command_attributes": on}}):
-        reply = voice.handle("Hey Bob, " + text, None, {"speaker": "joe"})
+        reply = voice.handle("Hey Bob, " + text, None, {"speaker": "sam"})
     assert (reply == "the agent's answer") is not on  # off by default: the agent answers, as before step 6
     alice = person(tmp_path, "Alice")
     assert ((alice.role, alice.organization) if alice else None) == want

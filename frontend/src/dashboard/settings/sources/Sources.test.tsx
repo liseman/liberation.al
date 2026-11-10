@@ -53,7 +53,7 @@ const rowNames = (card: HTMLElement) =>
 // Each configured network camera's card reads capture's word on it, for its preview and status.
 beforeEach(() => server.use(http.get('/vision', () => HttpResponse.json({}))));
 
-describe("Settings' sources (#1331)", () => {
+describe("Settings' sources", () => {
   it('shows camera sources on Network cameras and the rest under imported media, never links', async () => {
     serve(view());
     renderPage(
@@ -74,7 +74,7 @@ describe("Settings' sources (#1331)", () => {
     expect(screen.queryByText('Link')).not.toBeInTheDocument();
   });
 
-  it('lists what can be connected first, and the sources with no way in yet as one line (#2728)', async () => {
+  it('lists what can be connected first, and the sources with no way in yet as one line', async () => {
     const later = { later: true, message: 'Not yet' };
     serve(
       view({

@@ -488,7 +488,7 @@ def test_scrfd_adapter_keeps_five_points_and_unit_embedding_for_head_faces(recog
     assert result[0].det == pytest.approx(0.9)
     np.testing.assert_array_equal(result[0].kps, LANDMARKS)
     np.testing.assert_allclose(result[0].emb[:3], [0.6, 0.8, 0], atol=1e-7)
-    assert result[0].norm == pytest.approx(5.0), "AdaFace's raw norm, before the unit vector (#2355)"
+    assert result[0].norm == pytest.approx(5.0), "AdaFace's raw norm, before the unit vector"
 
 
 def tagged(*people, faces=3):

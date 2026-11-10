@@ -41,7 +41,7 @@ const view = (agentUrl: string): ConfigView =>
     ],
   }) as ConfigView;
 
-describe("Phone's status (#2728)", () => {
+describe("Phone's status", () => {
   it.each([
     ['active', true, 'Calls work: the phone bridge is running.', null],
     ['failed', true, 'Calls are off: the phone bridge stopped.', 'See Services'],
@@ -63,7 +63,7 @@ describe("Phone's status (#2728)", () => {
   );
 });
 
-describe('What leaves this machine (#2728)', () => {
+describe('What leaves this machine', () => {
   const row = (label: string) => screen.getByText(label).closest('div')?.parentElement as HTMLElement;
 
   it('says each way out on or off, and that everything else stays', async () => {

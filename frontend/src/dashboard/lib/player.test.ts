@@ -173,7 +173,7 @@ describe('the playback guard', () => {
   });
 });
 
-it("plays a line by its key when it has one, so not the other microphone's (#247)", () => {
+it("plays a line by its key when it has one, so not the other microphone's", () => {
   playLine({ ts_start: 1700000000.5, line: 'mic-a@1700000000.500' });
   expect(state().key).toBe('line:mic-a@1700000000.500');
   expect(lineKey({ ts_start: 1700000000.5 })).toBe('ts:1700000000.5');
@@ -204,7 +204,7 @@ it.each([
   [' ', true],
   ['Enter', true],
 ])(
-  'lets %s through from a checkbox in a [data-review-keys] area only when it is not the toggle key (#2287)',
+  'lets %s through from a checkbox in a [data-review-keys] area only when it is not the toggle key',
   (key, blocked) => {
     const area = document.body.appendChild(document.createElement('div'));
     area.setAttribute('data-review-keys', '');
@@ -234,7 +234,7 @@ it.each([
   ['text', ' ', true],
   ['search', ' ', true],
   ['radio', 'ArrowRight', true], // a radio group keeps its arrows
-])('over controls, a focused %s input with %j blocks playback: %s (#2352)', (type, key, blocked) => {
+])('over controls, a focused %s input with %j blocks playback: %s', (type, key, blocked) => {
   const input = document.body.appendChild(document.createElement('input'));
   input.type = type;
   const seen: boolean[] = [];
@@ -263,7 +263,7 @@ it('leaves a textarea its Space over controls too', () => {
   }
 });
 
-describe('where it is (Calls, #2621 board)', () => {
+describe('where it is (Calls)', () => {
   it('follows the audio as it plays, seeks within what is playing, and leaves another key alone', () => {
     play('/calls/audio?x=1', 'call:a');
     const a = audio();

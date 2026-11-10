@@ -72,7 +72,7 @@ describe('progress', () => {
   });
 });
 
-describe('spotChecked (#2441)', () => {
+describe('spotChecked', () => {
   it('picks the same clips every time, by their ids (worked out apart from this code)', () => {
     const ids = Array.from({ length: 20 }, (_, i) => `walk-${i}`);
     expect(ids.filter(spotChecked)).toEqual(['walk-7', 'walk-14']);
@@ -84,7 +84,7 @@ describe('spotChecked (#2441)', () => {
   });
 });
 
-describe('toCheck (#2451)', () => {
+describe('toCheck', () => {
   it("keeps unanswered clips, all of a learning kind's and only the spot-checked sample of a counted kind's", () => {
     const rows = [
       clip('walk-7', 'walked_past'), // sampled (see spotChecked)

@@ -48,14 +48,14 @@ it.each([
   expect(restartDestination(reply, current)).toBe(expected);
 });
 
-it('reloads after a restart that comes back to the same page, whatever its hash (#382)', () => {
+it('reloads after a restart that comes back to the same page, whatever its hash', () => {
   expect([
     sameDocument('http://example.test/settings#phone', 'http://example.test/settings#you'),
     sameDocument('http://example.test:9000/settings#phone', 'http://example.test/settings#phone'),
   ]).toEqual([true, false]);
 });
 
-describe("a feature's help (#385)", () => {
+describe("a feature's help", () => {
   const feature = (help: string, on: boolean): Setting => ({
     key: 'journal.enabled',
     type: 'bool',
@@ -67,7 +67,7 @@ describe("a feature's help (#385)", () => {
     help,
   });
 
-  it("is the feature's own words, without its default (#2728)", () => {
+  it("is the feature's own words, without its default", () => {
     expect([helpOf(feature('Keep a diary', true)), helpOf(feature('', false))]).toEqual(['Keep a diary', '']);
   });
 });

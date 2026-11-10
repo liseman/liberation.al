@@ -156,7 +156,7 @@ function renderDevices(control = true, settings: { cams?: number[] } = {}) {
   return page;
 }
 
-describe('Settings: Cameras and microphones (#384)', () => {
+describe('Settings: Cameras and microphones', () => {
   beforeEach(() => {
     useLiveStatus.setState({ now: NOW });
     server.use(http.get('/devices', () => HttpResponse.json(devices)));
@@ -171,7 +171,7 @@ describe('Settings: Cameras and microphones (#384)', () => {
     expect(screen.queryByText('On')).toBeNull();
   });
 
-  it('lists every card on the page in On this page, Network cameras and Bluetooth too (#2695)', async () => {
+  it('lists every card on the page in On this page, Network cameras and Bluetooth too', async () => {
     renderDevices();
     const jump = (await screen.findByText(/^On this page:/)).closest('p') as HTMLElement;
     expect(
@@ -197,7 +197,7 @@ describe('Settings: Cameras and microphones (#384)', () => {
     expect(within(preview as HTMLElement).getByText('Front camera')).toBeInTheDocument();
   });
 
-  it('asks for a name for the view while a camera has none, until one is typed (#2585)', async () => {
+  it('asks for a name for the view while a camera has none, until one is typed', async () => {
     renderDevices();
     const hint = 'No name yet, so pages call it cam1. Name the view, like front or desk.';
     expect(await screen.findByLabelText('Name (Room cam)')).toHaveAccessibleDescription(hint);
@@ -206,7 +206,7 @@ describe('Settings: Cameras and microphones (#384)', () => {
     expect(screen.queryByText(hint)).not.toBeInTheDocument();
   });
 
-  it('renames the camera on this page once the name is saved, without a reload (#2595)', async () => {
+  it('renames the camera on this page once the name is saved, without a reload', async () => {
     vi.stubGlobal('NAMES', { cams: ['cam0', 'cam1'], views: { cam0: 'front camera' } });
     server.use(
       http.get('/health', () => HttpResponse.json({ boot: 'b1' })),
@@ -226,7 +226,7 @@ describe('Settings: Cameras and microphones (#384)', () => {
     expect(draft()).toMatchObject({ places: 'cam0: front camera, cam1: rear camera' });
   });
 
-  it('opens the zone editor for the camera whose Zones was pressed (#1316)', async () => {
+  it('opens the zone editor for the camera whose Zones was pressed', async () => {
     server.use(http.get('/zones', () => HttpResponse.json({ cameras: {} })));
     renderDevices();
     await screen.findByLabelText('Name (Room cam)');
@@ -281,7 +281,7 @@ describe('Settings: Cameras and microphones (#384)', () => {
     expect(within(room).getAllByRole('checkbox')).toHaveLength(1);
   });
 
-  it('hides the settings of a camera that is not used, and shows them again as they were once it is (#1331)', async () => {
+  it('hides the settings of a camera that is not used, and shows them again as they were once it is', async () => {
     const [front, roomRow] = devices.cameras;
     const video = { width: 1280, height: 720, fps: 30, format: 'MJPEG', auto_exposure: true, exposure_target: 110 };
     const camera = (selected: boolean) => ({ ...roomRow, selected, flip: true, video });
@@ -309,7 +309,7 @@ describe('Settings: Cameras and microphones (#384)', () => {
     expect(within(room).getAllByText(/Resolution/).length).toBeGreaterThan(0);
   });
 
-  it('hides the settings of a microphone it does not listen with, and shows them again once it does (#1331)', async () => {
+  it('hides the settings of a microphone it does not listen with, and shows them again once it does', async () => {
     const [wave, desk] = devices.mics;
     const mic = (selected: boolean) => ({ ...desk, selected, auto_gain: true });
     server.use(
@@ -331,7 +331,7 @@ describe('Settings: Cameras and microphones (#384)', () => {
     expect(within(deskMic).getByRole('slider')).toBeInTheDocument();
   });
 
-  it('turns auto gain on for a microphone at once, and says which gain it moves (#410)', async () => {
+  it('turns auto gain on for a microphone at once, and says which gain it moves', async () => {
     const posted: unknown[] = [];
     server.use(
       http.post('/devices/auto_gain', async ({ request }) => {
@@ -747,7 +747,7 @@ describe('live levels on the microphone meters', () => {
     expect(stream?.readyState).toBe(FakeEventSource.CLOSED);
   });
 
-  it('moves the meter at most every METER_MS, not every frame (#486)', async () => {
+  it('moves the meter at most every METER_MS, not every frame', async () => {
     const { container, unmount } = renderDevices();
     await waitFor(() => expect(container.querySelector('[data-level-key="wave"]')).not.toBeNull());
     const bar = container.querySelector<HTMLElement>('[data-level-key="wave"]')?.firstElementChild as HTMLElement;

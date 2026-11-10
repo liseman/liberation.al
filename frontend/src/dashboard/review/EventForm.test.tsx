@@ -93,7 +93,7 @@ beforeEach(() => {
   );
 });
 
-describe('marking an event (#287, #518)', () => {
+describe('marking an event', () => {
   it('marks with the pointer tool from anywhere on the timeline, with a crosshair, for the shown camera', async () => {
     const { track, dragAt, page } = open();
     await userEvent.click(within(page.container).getByRole('button', { name: 'Mark an event' }));

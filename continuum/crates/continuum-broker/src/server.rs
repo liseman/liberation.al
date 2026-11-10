@@ -254,11 +254,11 @@ impl Server {
                     info!(
                         streams = ?opened.recording_restored(),
                         "recording history restored: these streams were marked unknown with no original left as the \
-                         reason (#1669)"
+                         reason"
                     );
                 }
                 for (stream, why) in opened.recording_held() {
-                    info!(stream, why = %why, "recording history still unknown: the repair held this stream back (#1669)");
+                    info!(stream, why = %why, "recording history still unknown: the repair held this stream back");
                 }
                 Arc::new(opened)
             }

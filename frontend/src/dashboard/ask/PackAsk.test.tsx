@@ -377,7 +377,7 @@ describe('restoring a saved job', () => {
   it.each([
     ['a friends job with recordings', { ...general, scope: 'history' }],
     ['a job saved before scopes', { ...general, scope: undefined }],
-    ['a local general job from before #2307', { ...general, mode: 'local' }],
+    ['an older local general job', { ...general, mode: 'local' }],
   ])('never resumes %s on Live', async (_, active) => {
     const net = jobServer();
     store(GENERAL, { active, question: 'Q' });

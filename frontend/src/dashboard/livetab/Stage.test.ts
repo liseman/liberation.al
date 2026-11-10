@@ -5,7 +5,7 @@ import { follow, relabel } from './Stage';
 
 const at = { left: 0, top: 0, width: 10, height: 10 };
 
-describe('face boxes on the large camera (#352)', () => {
+describe('face boxes on the large camera', () => {
   afterEach(() => history.replaceState(null, '', '/'));
 
   it("labels an unknown face Who's this? and leaves a named one and objects as they are", () => {

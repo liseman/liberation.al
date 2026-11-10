@@ -19,7 +19,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-it('marks every people query out of date after a naming change, the People list included (#330)', async () => {
+it('marks every people query out of date after a naming change, the People list included', async () => {
   server.use(http.get('/transcript', () => HttpResponse.json({ entries: [] })));
   const c = client();
   c.setQueryData(['people'], { people: [] });

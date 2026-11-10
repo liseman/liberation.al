@@ -105,7 +105,7 @@ describe('the Debug tab', () => {
     expect(stream().closed).toBe(false);
   });
 
-  it('holds the chips and the tail behind one loading line until the stream says which services it has (#2485)', async () => {
+  it('holds the chips and the tail behind one loading line until the stream says which services it has', async () => {
     renderPage(<DebugTab />);
     expect(screen.getByLabelText('Loading the logs')).toBeInTheDocument();
     expect(screen.queryByRole('log', { name: 'Service logs' })).toBeNull();
@@ -175,7 +175,7 @@ describe('the Debug tab', () => {
   });
 });
 
-describe('the Ollama alert (#221)', () => {
+describe('the Ollama alert', () => {
   it('says Ollama is down and how to start it', async () => {
     serveStats(
       stats({
@@ -206,7 +206,7 @@ describe('the Ollama alert (#221)', () => {
   });
 });
 
-describe('log levels (#240)', () => {
+describe('log levels', () => {
   async function startLevels() {
     const page = renderPage(<DebugTab />);
     await stream().send('hello', { ts: 1, services: ['ambient', 'vision'], missing: [] });

@@ -140,7 +140,7 @@ describe('top bar', () => {
     expect(scroll.mock.contexts).toContain(live);
   });
 
-  it('keeps Ask, the status, and one menu in the bar, with Settings in the menu (#2453)', async () => {
+  it('keeps Ask, the status, and one menu in the bar, with Settings in the menu', async () => {
     renderApp('/');
     const header = document.querySelector('header') as HTMLElement;
     expect(within(header).getByRole('button', { name: 'Ask' })).toHaveAttribute('aria-keyshortcuts', '/');
@@ -168,7 +168,7 @@ describe('top bar', () => {
     expect(within(nav).getByRole('link', { name: 'Live' })).toHaveAttribute('aria-current', 'page');
   });
 
-  it("keeps the Resource monitor open across tabs until it's closed (#2258)", async () => {
+  it("keeps the Resource monitor open across tabs until it's closed", async () => {
     server.use(
       http.get('/stats/history', () =>
         HttpResponse.json({ step: 5, window: 1800, cpu_count: 4, mem_total: 1, gpus: [], samples: [] }),
@@ -195,7 +195,7 @@ describe('top bar', () => {
     expect(document.title).toBe('Liberational: Review');
   });
 
-  it('shows People, Pets, and Objects as tabs of Known, each at its own path (#1970)', async () => {
+  it('shows People, Pets, and Objects as tabs of Known, each at its own path', async () => {
     renderApp('/objects'); // the old Objects route opens Known on its Objects tab
     const nav = screen.getByRole('navigation', { name: 'Sections' });
     expect(within(nav).getByRole('link', { name: 'Known' })).toHaveAttribute('aria-current', 'page');
@@ -245,7 +245,7 @@ describe('top bar', () => {
     expect(screen.queryByRole('heading', { name: 'Calls' })).not.toBeInTheDocument();
   });
 
-  it('opens People again without asking for its fresh lists (#330)', async () => {
+  it('opens People again without asking for its fresh lists', async () => {
     const asked: string[] = [];
     const lists = ['/people', '/faces/unknown/groups', '/voices/unknown/groups'];
     const count = ({ request }: { request: Request }) => {
@@ -268,7 +268,7 @@ describe('top bar', () => {
     }
   });
 
-  it('keeps a visited tab as it was, hidden, and asks the server nothing again for fresh data (#330)', async () => {
+  it('keeps a visited tab as it was, hidden, and asks the server nothing again for fresh data', async () => {
     const asked: string[] = [];
     const count = ({ request }: { request: Request }) => void asked.push(new URL(request.url).pathname);
     server.events.on('request:start', count);
@@ -532,7 +532,7 @@ describe('Ask', () => {
     expect(within(within(dialog).getByRole('region', { name: 'Ask' })).queryByRole('heading')).toBeNull();
   });
 
-  it('names its question box on Live after Review was opened, with Review kept hidden (#330)', async () => {
+  it('names its question box on Live after Review was opened, with Review kept hidden', async () => {
     renderApp('/review');
     await screen.findByRole('slider', { name: /Timeline/ });
     await userEvent.click(screen.getByRole('link', { name: 'Live' }));
