@@ -65,6 +65,8 @@ case "$(uname -s)" in
       --enable-encoder=h264_nvenc --enable-decoder=h264_cuvid --enable-hwaccel=h264_nvdec)
     ;;
   Darwin)
+    # OpenH264's pkg-config file names GNU's C++ library; macOS has only libc++.
+    sed -i '' 's/-lstdc++/-lc++/g' "$prefix/lib/pkgconfig/openh264.pc"
     hardware=(--enable-videotoolbox --enable-encoder=h264_videotoolbox)
     ;;
 esac
