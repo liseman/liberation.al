@@ -6,8 +6,7 @@ scale and full walls. This page says which places need one, how to record it, an
 ## Which places need a walk
 
 Known › Places marks each place that has never been walked ("Not walked") and each place with rooms no LiDAR walk
-has covered yet ("2 rooms not walked"). Open the place to see which rooms, and the command that imports a walk into
-it with its id filled in.
+has covered yet ("2 rooms not walked"). Open the place to see which rooms, and to drop a walk on it.
 
 A room counts as walked when a LiDAR walk saw at least 30% of its floor (`plan_import.room_coverage`, read from the
 fused map's per-voxel walk counts). A plain video walk (below) gives no LiDAR depth, so it doesn't mark rooms walked.
@@ -30,25 +29,33 @@ place's map), walk through the missing rooms, and come back.
 
 ## Import
 
-AirDrop or copy the export folder to this machine, somewhere outside the repo. Use the folder that contains
-`rgb.mp4` and `odometry.csv` (and its depth frames), not the video on its own. From the repo:
+In Stray Scanner, share the recording: it exports a zip. On Known › Places, open the place and drop that zip on
+"Import a walk" (or choose it there). The page shows the upload's progress, then the import's, and the new walk when
+it's done; it takes a few minutes and keeps going if you leave the page. One import runs at a time.
 
-```
-uv run pack-walkthrough <folder>
-```
+The zip is checked before anything is imported: it must hold one recording with `rgb.mp4`, `odometry.csv`, its
+`depth/` frames, and the camera's intrinsics (`camera_matrix.csv`, or per-frame ones in the odometry). A zip that
+isn't that is refused with what is missing. The zip is removed once it's unpacked, and the unpacked recording once
+its import succeeds; a failed import keeps it, so Try again needs no second upload, until you dismiss it or drop
+another walk. Uploads take up to `ingest.max_mb` (4 GB by default).
 
-That starts a new place. To add the walk to a place that is already there, pass its id (the Places page shows the
-command with it filled in):
+A walk that doesn't register against the place's map, or by the fixed cameras both see, is stored as a place of its
+own, and the page says so.
+
+By hand, the same import is `pack-walkthrough`. Copy the export folder to this machine, somewhere outside the repo
+(the folder that contains `rgb.mp4` and `odometry.csv` and its depth frames, not the video on its own), and from the
+repo:
 
 ```
 uv run pack-walkthrough <folder> --place <id>
 ```
 
-An id that is not a place is refused. A walk that doesn't register against the place's map, or by the fixed cameras
-both see, is stored as a place of its own, and the run says so.
+Without `--place` it starts a new place, which the page can't do: a drop always goes into the place it's dropped on.
+An id that is not a place is refused.
 
-A plain phone video also works, as `uv run pack-walkthrough <video>`. That path uses CUT3R, needs CUDA, and drifts
-on a long walk. A Stray Scanner export gives metric, gravity-aligned poses. It needs CUDA only when a revisit is
+A plain phone video (.mp4, .mov, or .m4v) also works, dropped the same way or as
+`uv run pack-walkthrough <video>`. That path uses CUT3R, needs CUDA, and drifts on a long walk, and the page refuses
+a video on a Mac. A Stray Scanner export gives metric, gravity-aligned poses. It needs CUDA only when a revisit is
 closed, and on a Mac it is the path that runs (`--keyframes-only` also runs there; a video does not).
 
 ## A plain video, or a recording with tracked poses

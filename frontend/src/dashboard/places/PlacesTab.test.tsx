@@ -366,7 +366,7 @@ it("says when a place was last in use: the owner's visit, or anyone its cameras 
   expect(at(null, null)).toBe('Nothing seen yet');
 });
 
-it('marks a place never walked, names the rooms a walked one is missing, and links to the walk steps', async () => {
+it('marks a place never walked, names the rooms a walked one is missing, and offers the walk drop', async () => {
   serve([HOME, { ...OFFICE, walks: 2, unwalked_rooms: [{ id: 'den', name: 'Den' }] }]);
   renderPage(<PlacesTab />);
   await screen.findByRole('button', { name: /^Home/ });
@@ -374,18 +374,28 @@ it('marks a place never walked, names the rooms a walked one is missing, and lin
   expect(within(row(/^Office/)).getByText('1 room not walked')).toBeTruthy();
   const note = screen.getByRole('note', { name: 'Walkthrough' });
   expect(note.textContent).toContain('never been walked');
-  expect(note.textContent).toContain('--place p1');
-  expect(within(note).getByRole('link', { name: 'How to record and import a walk' }).getAttribute('href')).toMatch(
+  expect(note.textContent).not.toContain('pack-walkthrough'); // a walk is dropped here now, not imported by hand
+  const drop = screen.getByRole('region', { name: 'Import a walk' });
+  expect(drop.textContent).toContain('Drop the zip Stray Scanner exports here');
+  expect(within(drop).getByRole('link', { name: 'How to record a walk' }).getAttribute('href')).toMatch(
     /docs\/WALKTHROUGH\.md$/,
   );
   fireEvent.click(row(/^Office/));
   expect(screen.getByRole('note', { name: 'Walkthrough' }).textContent).toContain('Not walked yet: Den.');
 });
 
-it('marks nothing on a place whose walks covered every room, or the examples', async () => {
+it('marks nothing on a place whose walks covered every room, which can still take another walk', async () => {
   serve([{ ...HOME, walks: 1, unwalked_rooms: [] }]);
   renderPage(<PlacesTab />);
   await screen.findByRole('button', { name: /^Home/ });
   expect(screen.queryByText(/not walked/i)).toBeNull();
   expect(screen.queryByRole('note', { name: 'Walkthrough' })).toBeNull();
+  expect(screen.getByRole('region', { name: 'Import a walk' })).toBeTruthy();
+});
+
+it('offers no walk drop on the examples', async () => {
+  serve([]);
+  renderPage(<PlacesTab />);
+  await screen.findByRole('img', { name: /^Floor plan/ });
+  expect(screen.queryByRole('region', { name: 'Import a walk' })).toBeNull();
 });
