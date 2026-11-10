@@ -23,8 +23,8 @@ it registers fixed cameras:
    Spark (the 3D view's renderer) reads an SPZ as it is, so the view turns the splat 180 degrees about x, which
    undoes that negation exactly (positions, rotations, and SH), to put it back on the map.
 
-Measured on the Linux machine with these settings (Place 1: two fixed cameras, 10 daytime frames each, 21k start points,
-one GPU shared with the live services): about 2 to 2.5 minutes and 0.2 GiB of GPU memory a place, 244k Gaussians, a 24 MB
+Measured with these settings (Place 1: two fixed cameras, 10 daytime frames each, 21k start points, one RTX
+3090 shared with the live services): about 2 to 2.5 minutes and 0.2 GiB of GPU memory a place, 244k Gaussians, a 24 MB
 PLY and a 4.4 MB SPZ, and 27.1 dB PSNR on a frame per camera held out from the same day. Two cameras with little overlap give no new views: the splat looks right from where the cameras
 stand, not from between them (6.6 dB from one camera's view trained on the other's). Nothing fills what no camera
 sees.

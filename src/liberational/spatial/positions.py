@@ -77,7 +77,8 @@ track named by 240 faces against one named by a single face). It renamed 4 group
 from 1,159 to 651.
 
 Retention: positions are dense (a tracked person or pet is a row a second), so past the 30-day window the nightly
-retention pass (retention.py) thins each track to one sample per 10 s and its last, kept like the other condensed streams.
+retention pass (retention.py) thins each track to one sample per 10 s and its last, kept like the other condensed
+streams.
 """
 
 from __future__ import annotations
@@ -114,15 +115,16 @@ MIN_SHARE = 0.75  # this share of a track's named faces must agree on one name
 # - by where: over their seconds both were put on the plan, it was the only such track within JOIN_M (median
 #   distance) and no other was within RIVAL_M. Over 7.2 h of tracks, placed through reprojection
 #   registration, the two named 45 more tracks (23 by time alone); hiding named people's entities, the joins put back
-#   29 of 29 rightly (28 of 29 at 0.75 m and 1.25 m). Before reprojection registration, plan distance couldn't tell two people apart.
+#   29 of 29 rightly (28 of 29 at 0.75 m and 1.25 m). Before reprojection registration, plan distance couldn't tell two
+# people apart.
 CO_MIN_S = 5
 CO_SHARE = 0.8
 JOIN_M = 0.9
 RIVAL_M = 1.4
 # One entity's tracks on two cameras of a place are one path when they were seen together for CO_MIN_S seconds
-# at a median plan distance of FUSE_M or less (80 of 88 such pairs in one day's tracks, whose median was 0.58 m). In each
-# second both cameras placed it, the path's point is their mean weighted by confidence times the squared sine of each
-# camera's ray to the floor: a steep ray's point moves less for a pixel's error than a grazing one's. Over those
+# at a median plan distance of FUSE_M or less (80 of 88 such pairs in one day's tracks, whose median was 0.58 m). In
+# each second both cameras placed it, the path's point is their mean weighted by confidence times the squared sine of
+# each camera's ray to the floor: a steep ray's point moves less for a pixel's error than a grazing one's. Over those
 # seconds the fused point's step-to-step wobble (second difference) was 0.105 m against 0.155 m for one camera alone,
 # and the step where the path went from one camera to both was 0.22 m (0.34 m with equal weights). A camera whose foot
 # point sits on an occluding edge (`footprints.at_edge`) is left out of a second another camera's isn't.

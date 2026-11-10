@@ -25,7 +25,9 @@ run works at any hour.
    paired with itself, with its up and floor found from its surfaces, since one camera can be pitched far down and
    see more furniture top than floor; one whose view shows no floor (a blocked lens) is left out. Outdoor cameras
    (`mount.outdoor` in the manifest, spatial/rig.py) take no part.
-2a. **Registration.** A group of two or more cameras is then registered again by reprojection (spatial/registration.py): from MASt3R's matches and depths, each camera's pose, focal, and lens are fitted to one reference camera,
+2a. **Registration.** A group of two or more cameras is then registered again by reprojection
+   (spatial/registration.py): from MASt3R's matches and depths, each camera's pose, focal, and lens are fitted to one
+   reference camera,
    since MASt3R's alignment takes every camera as a pinhole and a wide one bends the whole group (Place 1: the same
    person 0.7 to 1.2 m apart across the room). The group's cloud is re-cast along the fitted rays, and its floor is the
    reference camera's lowest flat layer, tilted to keep the measured camera heights' ratios. A group that can't be
@@ -124,7 +126,8 @@ RUN_TIMEOUT_S = 1800.0
 
 
 def fixed_cameras(manifest: Path) -> list[str]:
-    """The enabled fixed cameras in the capture manifest, in manifest order: not on a rig (`mount.rig`, spatial/rig.py), whose poses change as it moves, and with no `fisheye` calibration, which MASt3R's pinhole model can't take."""
+    """The enabled fixed cameras in the capture manifest, in manifest order: not on a rig (`mount.rig`, spatial/rig.py,
+    #5), whose poses change as it moves, and with no `fisheye` calibration, which MASt3R's pinhole model can't take."""
     try:
         parsed = tomllib.loads(manifest.read_text())
     except FileNotFoundError:
@@ -194,7 +197,7 @@ PERSON_GROW = 0.1
 ALL_DAY = (0, 24 * 60)
 #: A camera's view has changed (it was moved, or something stood in front of its lens) when its frame's small grey
 #: picture correlates with its last lit frame's less than this (`view_match`: 1 for the same view at any brightness,
-#: about 0 for unrelated ones). When a bottle stood in front of the kitchen lens over midday, and the camera
+#: about 0 for unrelated ones). Once, a bottle stood in front of the kitchen lens over midday, and the camera
 #: was moved and cleared at 16:05: every midday frame showed no floor, while a 17:00 one gave a good one.
 VIEW_SAME = 0.5
 VIEW_SIZE = (32, 18)  # the small grey picture views are compared at, width by height

@@ -490,8 +490,9 @@ def walked(state: Path, cameras: Sequence[str], now: float, days: float = WALK_D
     """The `cameras`' recorded people's footprints over the last `days` as Cells (the walkable floor projects them;
     animals' are left out): read as columns a day at a time and quantized as they're read, never a record per
     footprint. A fortnight of two busy cameras is about 740,000 footprints, which made the nightly run build that
-    many objects. The store applies forgets as it reads, as `segment_log.Log` does. It reads the raw stream only, not retention's
-    `.condensed` companion, which holds rows past the 30-day window: WALK_DAYS must stay under that window."""
+    many objects. The store applies forgets as it reads, as `segment_log.Log` does. It reads the raw stream only, not
+    retention's `.condensed` companion, which holds rows past the 30-day window: WALK_DAYS must stay under that
+    window."""
     from continuum_py import read_segments
 
     from liberational.spatial import positions

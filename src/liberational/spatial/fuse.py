@@ -3,8 +3,8 @@ place's map.
 
 A place's revisions come from different reconstructions: a phone walkthrough (`pack-walkthrough`), the fixed
 cameras' daily snapshot (`pack-spatial-cameras`), and later the rig. Each MASt3R run has its own frame, scale,
-and coverage. MASt3R's scale is not metric: on Place 1's fixed cameras people measured 0.68 of its units tall. `refine` brings the newest one into the place's fused map and writes the result as a
-new revision:
+and coverage. MASt3R's scale is not metric: on Place 1's fixed cameras people measured 0.68 of its units tall. `refine`
+brings the newest one into the place's fused map and writes the result as a new revision:
 
 1. **Level.** The new cloud is turned so its floor (the revision's floor plane, else one fitted) is z = 0 with +z
    up. The fused map is kept in this levelled frame, so its floor is (0, 0, 1, 0).
@@ -18,11 +18,12 @@ new revision:
 3. **Register.** Otherwise the new cloud is registered against the fused map: a coarse search over yaw (every
    `YAW_STEP` degrees) and floor-plane shift, by cross-correlating top-down wall images (`COARSE_CELL` cells, the
    wall band only), then point-to-point ICP with scale, turning only about z (Umeyama on trimmed nearest neighbours,
-   with no tilt: both clouds are levelled), on top of each cloud's own MASt3R alignment. The registration is kept when at least `MIN_FITNESS` of the new cloud over the map's
-   footprint lies within `INLIER_M` of the map (so a whole-home walkthrough registers onto a first map of one room)
-   and at least `MIN_INLIERS` points do; otherwise nothing is fused and the place keeps the new revision as it
-   stands. A cloud its caller already placed another way (`fuse_in`'s `seated`: a walkthrough the fixed cameras
-   seat) is only polished by ICP against the map around there, and its seat stands when that doesn't hold.
+   with no tilt: both clouds are levelled), on top of each cloud's own MASt3R alignment. The registration is kept when
+   at least `MIN_FITNESS` of the new cloud over the map's footprint lies within `INLIER_M` of the map (so a whole-home
+   walkthrough registers onto a first map of one room) and at least `MIN_INLIERS` points do; otherwise nothing is fused
+   and the place keeps the new revision as it stands. A cloud its caller already placed another way (`fuse_in`'s
+   `seated`: a walkthrough the fixed cameras seat) is only polished by ICP against the map around there, and its seat
+   stands when that doesn't hold.
 4. **Fuse and re-derive.** The registered cloud is merged into the map voxel by voxel (`merge`): each `VOXEL` cell
    keeps its mean position and colour and counts how many fusions saw it and how many missed it while it was in
    view, so things that come and go (a person, a moved chair) fade out after a couple of visits; the counts ride in
@@ -33,11 +34,12 @@ new revision:
    points moved Place 1's two cameras 1.1 m apart at floor landmarks both see. A fused map whose own floor has drifted
    more than `RELEVEL_DEG` off level is turned level again,
    with its cameras (`relevel`). The floorplan is derived again from the fused cloud (spatial/floorplan.py,
-   through `cameras.layout`, on the levelled floor at z = 0). The new revision carries the fused map, its plan and transform, the floor, the place's
-   signals, and the registered fixed cameras moved into the fused frame (the new revision's own, else the fused map's
-   last ones), kept rigid: the registration's scale moves a camera but doesn't scale its axes. Where people walked (the fused cameras' footprints) goes in beside the cloud. The new revision keeps the fused map's `frame` (memory/places.py) while the map isn't rescaled or turned level,
-   so a splat made for an earlier revision of that frame still fits it; otherwise it starts a frame of its
-   own.
+   through `cameras.layout`, on the levelled floor at z = 0). The new revision carries the fused map, its plan and
+   transform, the floor, the place's signals, and the registered fixed cameras moved into the fused frame (the new
+   revision's own, else the fused map's last ones), kept rigid: the registration's scale moves a camera but doesn't
+   scale its axes. Where people walked (the fused cameras' footprints) goes in beside the cloud. The new revision keeps
+   the fused map's `frame` (memory/places.py) while the map isn't rescaled or turned level, so a splat made for an
+   earlier revision of that frame still fits it; otherwise it starts a frame of its own.
 
 **Joining places**: `join` merges other places into one, each other place's fused map moved by a transform
 its caller found (`pack-walkthrough`'s `join_places`: a walk MASt3R seats both in), as a tier 1 revision of the
@@ -1184,12 +1186,12 @@ def seat(
     tonight's filled from the one it had, never a sparser one (`footprints.kept`). Each seated camera gets
     tonight's pose as the seat placed it, and the seat records those poses as `seat` observations (spatial/poses.py,
     quality the fitness): the owner's measured spots (`measured_spots`) are evidence of where a camera was,
-    read with them, not a pin. Only the snapshot's points a LiDAR walk didn't already see better go in (`gate`). Every other
-    camera of the place keeps its pose, the place keeps its signals with the group's cameras among them, and its frame holds unless
-    the map is rescaled or turned level, as in `refine`. A run that seats several groups (one a room) writes one
-    revision for each, each built on the one before.
-    None, with nothing written, when the place has no fused map, the cameras can't place the cloud, the cloud doesn't
-    register, or ICP moves it off where its cameras put it (SEAT_SHIFT_M, SEAT_TURN_DEG)."""
+    read with them, not a pin. Only the snapshot's points a LiDAR walk didn't already see better go in (`gate`). Every
+    other camera of the place keeps its pose, the place keeps its signals with the group's cameras among them, and its
+    frame holds unless the map is rescaled or turned level, as in `refine`. A run that seats several groups (one a room)
+    writes one revision for each, each built on the one before. None, with nothing written, when the place has no fused
+    map, the cameras can't place the cloud, the cloud doesn't register, or ICP moves it off where its cameras put it
+    (SEAT_SHIFT_M, SEAT_TURN_DEG)."""
     fused_rev = fused_revision(state, place)
     if fused_rev is None:
         return None

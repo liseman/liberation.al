@@ -789,7 +789,7 @@ def inside(plan: Parsed, q: np.ndarray) -> np.ndarray:
     return out
 
 
-# Walk coverage: which rooms of a plan a LiDAR walk has seen. A room's floor is counted in COVER_CELL cells, and a
+# Walk coverage (#3): which rooms of a plan a LiDAR walk has seen. A room's floor is counted in COVER_CELL cells, and a
 # cell is walked when a voxel a walk saw (a fused map's `walked` count) lies over it, at any height.
 COVER_CELL = 0.1  # metres
 WALKED_SHARE = 0.3  # a room is walked when a walk saw at least this share of its cells

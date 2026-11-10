@@ -1,4 +1,4 @@
-"""How each camera is mounted: a camera is a view, not a room.
+"""How each camera is mounted (#5): a camera is a view, not a room.
 
 A camera is an angle on something that holds it. Some cameras sit on a **rig** that moves (a backpack, a cart): a
 rig carries its cameras together, each camera's pose is fixed relative to the rig, and the rig's own pose in a place

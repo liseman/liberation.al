@@ -2,12 +2,12 @@
 it burns into its frames, so MASt3R, the footprints, and the splats see it as the pinhole they assume.
 
 MASt3R, `places.CameraPose`, `places.floor_point`, and the splat trainer all take a camera as a pinhole with its
-principal point at the frame's centre. A wide lens (the Reolink cameras: bedroom and kitchen on the Linux machine) bends straight
-lines towards the frame's edges, which bends its share of a place's cloud and misplaces foot points near the edges. So
-a camera with a `lens` calibration in its `config/devices.toml` entry has its frames undistorted before MASt3R and the
-splats see them, and its foot points undistorted before they're projected onto the floor. A camera registered with
-others (spatial/registration.py) can also carry a lens the registration fitted, kept the same way on its pose:
-its frames go to MASt3R as they are, and only its rays are undone.
+principal point at the frame's centre. A wide lens (the Reolink cameras: bedroom and kitchen on the Linux machine) bends
+straight lines towards the frame's edges, which bends its share of a place's cloud and misplaces foot points near the
+edges. So a camera with a `lens` calibration in its `config/devices.toml` entry has its frames undistorted before MASt3R
+and the splats see them, and its foot points undistorted before they're projected onto the floor. A camera registered
+with others (spatial/registration.py) can also carry a lens the registration fitted, kept the same way on its pose: its
+frames go to MASt3R as they are, and only its rays are undone.
 
 **The model** is the one-parameter division model (Fitzgibbon, 2001): a point seen at normalized position (x, y)
 (pixels from the principal point over the focal length) is really at (x, y) / (1 + lambda r^2), with r^2 = x^2 + y^2.
@@ -19,8 +19,8 @@ It's stored the way `tools/calibrate_lens.py` writes it, in the pixels of the fr
 fixes the distortion but not the focal length, so `k`'s focal is only the scale `division` is in: MASt3R finds the
 undistorted frame's own focal. Why not OpenCV's standard (Brown-Conrady) k1, k2: on the Reolinks the barrel needs a k1
 of about -0.15 at this scale, where the polynomial stops growing before the frame's edges (it folds), so the edges and
-corners would have no undistorted point; the division model never folds and undoes in closed form both ways (chosen after
-comparing the fits).
+corners would have no undistorted point; the division model never folds and undoes in closed form both ways (chosen
+after comparing the fits).
 
 **The undistorted frame** is the same size as the frame, its principal point where the calibration's is, and its scale
 `out_scale` times the calibration's, chosen so the whole frame stays in it, every edge and corner on both axes:
@@ -33,8 +33,8 @@ its width and height, so any resolution of the stream works) to where it is in t
 
 A calibration is only good where the model is: the division model's undistortion runs to infinity where
 1 + lambda r^2 reaches 0, and past it gives nothing. A barrel fitted on edges near the middle of a frame can put that
-pole inside it (living-room's portrait frame on the Linux machine: its top and bottom were past it), so `lens_of` refuses
-a calibration whose frame reaches past MIN_DENOMINATOR of it.
+pole inside it (living-room's portrait frame on the Linux machine: its top and bottom were past it), so `lens_of`
+refuses a calibration whose frame reaches past MIN_DENOMINATOR of it.
 
 **Overlays** (a timestamp, the camera's name, a logo) are rectangles of the frame, `masks = [[x1, y1, x2, y2], ...]`
 in fractions of its width and height, in the same manifest entry. They are painted over from their surroundings
