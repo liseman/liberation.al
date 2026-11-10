@@ -101,7 +101,7 @@ function open(onSave?: (plan: string) => void) {
 }
 
 async function saved(user: ReturnType<typeof userEvent.setup>, plans: string[]) {
-  await user.click(screen.getByRole('button', { name: 'Save my plan' }));
+  await user.click(screen.getByRole('button', { name: 'Save plan' }));
   await waitFor(() => expect(plans).toHaveLength(1));
   return plans[0] as string;
 }
@@ -110,7 +110,7 @@ it('shows each spot with a cone for its facing, and selecting one opens its form
   const user = userEvent.setup();
   const { container } = open();
   expect(container.querySelectorAll('[data-camera] path')).toHaveLength(1); // cam1 has no facing: no cone
-  expect(screen.getByRole('button', { name: 'Save my plan' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Save plan' })).toBeDisabled();
   await user.click(screen.getByRole('button', { name: 'cam1 (no facing)' }));
   expect(screen.getByRole('textbox', { name: 'Camera' })).toHaveValue('cam1');
   expect(screen.getByRole('textbox', { name: 'Camera' })).toHaveAttribute('readonly');

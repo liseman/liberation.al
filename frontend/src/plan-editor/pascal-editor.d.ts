@@ -17,6 +17,8 @@ export interface EditorProps {
   sidebarTabs?: (SidebarTab & { component: ComponentType })[];
   /** Host-owned SVG content mounted in the 2D plan, in the plan's own coordinates (metres). */
   floorplanSceneSlot?: ReactNode;
+  /** Show the scene with editing off: the editor's own mode for looking at a saved version. */
+  isVersionPreviewMode?: boolean;
   onLoad?: () => Promise<Scene | null>;
   onSave?: (scene: Scene, options?: { keepalive?: boolean }) => Promise<void>;
 }

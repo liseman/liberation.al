@@ -124,11 +124,15 @@ it('changes the selected spot from the form, one number at a time, and clears an
   render(<CamerasTab />);
   fireEvent.click(screen.getByRole('button', { name: 'Front porch' }));
   const field = (label: string) => screen.getByLabelText(label) as HTMLInputElement;
-  expect([field('X, m').value, field('Height, m').value, field('Facing, °').value]).toEqual(['1', '2.2', '90']);
+  expect([field('X, m').value, field('Height, m').value, field('Facing, degrees (0 is up)').value]).toEqual([
+    '1',
+    '2.2',
+    '90',
+  ]);
   fireEvent.change(field('X, m'), { target: { value: '3.25' } });
   fireEvent.blur(field('X, m'));
-  fireEvent.change(field('Facing, °'), { target: { value: '450' } });
-  fireEvent.keyDown(field('Facing, °'), { key: 'Enter' });
+  fireEvent.change(field('Facing, degrees (0 is up)'), { target: { value: '450' } });
+  fireEvent.keyDown(field('Facing, degrees (0 is up)'), { key: 'Enter' });
   expect(held().porch).toEqual({ at: [3.25, 2], height: 2.2, yaw: 90, fov: 100 }); // 450 is 90 again
   fireEvent.change(field('Height, m'), { target: { value: '' } });
   fireEvent.blur(field('Height, m'));
@@ -146,7 +150,33 @@ it('says a spot with no facing places nobody, and removes a spot', () => {
   expect(screen.getByText(/places nobody until it has a facing/)).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Remove this spot' }));
   expect(held()).toEqual({});
-  expect(screen.getByText('No camera has a spot on this plan yet.')).toBeTruthy();
+  expect(screen.getByText(/No cameras are set up yet. Add one in/)).toBeTruthy();
+  expect(screen.getByRole('link', { name: 'Devices' }).getAttribute('href')).toBe('/devices');
+});
+
+it('says how to add a spot when the house has cameras and none is on the plan, and names the field of view', () => {
+  open(plan());
+  useSpotsUi.setState({ cameras: [{ id: 'porch', name: 'Front porch' }] });
+  render(<CamerasTab />);
+  expect(
+    screen.getByText('No camera has a spot yet. Pick a camera below, then click the plan where it is.'),
+  ).toBeTruthy();
+  fireEvent.change(screen.getByLabelText('Add a camera'), { target: { value: 'porch' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Put it in the middle' }));
+  expect(screen.getByLabelText('Field of view, degrees')).toBeTruthy();
+});
+
+it('draws the spots of a scene opened to look at without letting them be moved', () => {
+  open(plan(SPOTTED));
+  const { container } = render(
+    <svg>
+      <title>plan</title>
+      <CameraMarks locked />
+    </svg>,
+  );
+  expect(container.querySelector('[data-camera="porch"]')).not.toBeNull();
+  expect(container.querySelector('[data-camera-spots]')?.getAttribute('pointer-events')).toBe('none');
+  expect(screen.getByRole('button', { name: 'porch: move' }).getAttribute('tabindex')).toBe('-1');
 });
 
 it("offers the house's cameras that have no spot, and puts one in the plan's middle", () => {

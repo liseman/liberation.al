@@ -82,7 +82,7 @@ it('saves the edited plan as the owner correction, and undoes back to the start'
   );
   let done = 0;
   renderPage(<PlanEditor place="p1" text={PLAN} frame="r1" options={{}} onDone={() => (done += 1)} />);
-  const save = screen.getByRole('button', { name: 'Save my plan' });
+  const save = screen.getByRole('button', { name: 'Save plan' });
   expect(save).toBeDisabled(); // nothing changed yet
   const den = screen.getByLabelText('Name of Den');
   fireEvent.change(den, { target: { value: 'Study' } });
@@ -92,7 +92,7 @@ it('saves the edited plan as the owner correction, and undoes back to the start'
   fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
   expect(screen.getByRole('button', { name: /Remove the door between Kitchen and Study/ })).toBeTruthy();
   fireEvent.click(save);
-  await screen.findByRole('button', { name: 'Save my plan' });
+  await screen.findByRole('button', { name: 'Save plan' });
   await new Promise(r => setTimeout(r, 0));
   expect(saved).toHaveLength(1);
   const body = saved[0] as { place: string; plan: string; base: string };
@@ -160,10 +160,10 @@ it('keeps a wall dragged with the pointer: a drag is one step, undone in one', (
     fireEvent.pointerMove(grip, { clientX: x + 10, clientY: y, pointerId: 1 });
     fireEvent.pointerMove(grip, { clientX: x + 20, clientY: y, pointerId: 1 });
     fireEvent.pointerUp(grip, { clientX: x + 20, clientY: y, pointerId: 1 });
-    expect(screen.getByRole('button', { name: 'Save my plan' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Save plan' })).toBeEnabled();
     fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
     expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled(); // the whole drag was one step
-    expect(screen.getByRole('button', { name: 'Save my plan' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Save plan' })).toBeDisabled();
   } finally {
     for (const r of restore) r();
   }
@@ -190,7 +190,7 @@ it('undoes and redoes each edit with Ctrl+Z, Ctrl+Shift+Z, and Ctrl+Y, and Cmd t
   expect(shown()).toEqual({ rooms: ['Kitchen', 'Den'], doors: 2 }); // the name back
   key('z');
   expect(shown()).toEqual({ rooms: ['Kitchen', 'Den'], doors: 2 }); // nothing before the start
-  expect(screen.getByRole('button', { name: 'Save my plan' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Save plan' })).toBeDisabled();
   key('Z', { shiftKey: true });
   expect(shown()).toEqual({ rooms: ['Kitchen', 'Study'], doors: 2 });
   key('y');
@@ -241,23 +241,23 @@ const OWNED: Place = {
   origin: { source: 'owner', at: 1762500000, machineNewer: false },
   example: false,
 };
-it('offers Edit plan alone over a plan with no machine plan to compare, with no Revert', () => {
-  renderPage(<OwnerBar place={OWNED} showing="mine" onShow={() => {}} onEdit={() => {}} />);
-  expect(screen.getAllByRole('button').map(b => b.textContent)).toEqual(['Edit plan']);
+it('shows nothing over a plan the machine has no version of its own beside', () => {
+  const { container } = renderPage(<OwnerBar place={OWNED} showing="mine" onShow={() => {}} />);
+  expect(container.querySelector('button')).toBeNull();
 });
 
 it("takes the machine's plan only from the comparison, and only for an owner's plan", () => {
   const compared = { ...OWNED, machinePlanText: PLAN };
-  const first = renderPage(<OwnerBar place={compared} showing="mine" onShow={() => {}} onEdit={() => {}} />);
+  const first = renderPage(<OwnerBar place={compared} showing="mine" onShow={() => {}} />);
+  expect(screen.getByRole('radio', { name: "The machine's" })).toBeTruthy();
   expect(screen.queryByRole('button', { name: "Use the machine's plan" })).toBeNull();
   first.unmount();
-  const second = renderPage(<OwnerBar place={compared} showing="machine" onShow={() => {}} onEdit={() => {}} />);
+  const second = renderPage(<OwnerBar place={compared} showing="machine" onShow={() => {}} />);
   expect(screen.getByRole('button', { name: "Use the machine's plan" })).toBeTruthy();
-  expect(screen.getByRole('button', { name: 'Edit plan' })).toBeDisabled();
   second.unmount();
   const machines = { ...compared, origin: { source: 'machine' as const, at: 1762500000, machineNewer: false } };
-  renderPage(<OwnerBar place={machines} showing="machine" onShow={() => {}} onEdit={() => {}} />);
-  expect(screen.queryByRole('button', { name: "Use the machine's plan" })).toBeNull();
+  const { container } = renderPage(<OwnerBar place={machines} showing="machine" onShow={() => {}} />);
+  expect(container.querySelector('button')).toBeNull();
 });
 
 /** Replace `obj[key]` for one test; returns the undo. */

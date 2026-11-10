@@ -22,9 +22,10 @@ function arrow(event: KeyboardEvent): Pt | null {
   return (d as Pt | undefined) ?? null;
 }
 
-export function CameraMarks() {
+/** `locked`: draw the spots without letting them be moved, turned, or added (a scene opened to look at). */
+export function CameraMarks({ locked = false }: { locked?: boolean }) {
   const { spots, set } = useSpots();
-  const selecting = useEditor(state => state.mode === 'select');
+  const selecting = useEditor(state => state.mode === 'select') && !locked;
   const { selected, adding, cameras, select, setAdding } = useSpotsUi();
   const group = useRef<SVGGElement>(null);
   // a drag shows where the spot is going without writing it: one change to the scene when the pointer lifts
