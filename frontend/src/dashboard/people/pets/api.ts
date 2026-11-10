@@ -173,9 +173,13 @@ export const photoUrl = (track: string, grid = false) =>
 
 export const CLIP_MIN_S = 5; // a sighting of one look is played as this long a clip, so there's something to see
 
+/** A pet's newest sightings the server offers video of. One without a camera (a label carried over from its saved
+ * photo alone) has no video and no status, and gives its place to the next one that has. */
+export const videoSightings = (seen: Seen[], max = 4) => seen.filter(s => s.video_status).slice(0, max);
+
 /** Saved clips among a pet's newest sightings; unprepared thumbnails never enter the card. */
 export function petVideos(seen: Seen[], max = 4) {
-  return seen.slice(0, max).flatMap(s => {
+  return videoSightings(seen, max).flatMap(s => {
     if (s.video_status !== 'ready' || !s.video_thumb) return [];
     const end = Math.max(s.end, s.start + CLIP_MIN_S);
     return [

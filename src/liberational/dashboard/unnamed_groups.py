@@ -71,9 +71,23 @@ def audio_s(e: dict[str, Any]) -> float:
     return max(0.0, (int(a.get("end_ns") or a["start_ns"]) - int(a["start_ns"])) / 1e9)
 
 
+BAD_CAMERAS_LOGGED = 32  # the most unusable camera values _video_status says once each; the rest pass silently
+_bad_cameras: set[str] = set()
+_bad_cameras_lock = threading.Lock()
+
+
 def _video_status(row: Mapping[str, Any], revision: str, saved: frozenset[str]) -> tuple[str, str | None]:
     """A listed video's current thumbnail readiness; a miss only queues work, never decodes on the request."""
-    cam, start, end = str(row["cam"]), round(float(row["start"]), 3), round(float(row["end"]), 3)
+    cam, start, end = str(row.get("cam") or ""), round(float(row["start"]), 3), round(float(row["end"]), 3)
+    if not video_thumbs.CAMERA.fullmatch(cam):
+        # No file can be named for it, and one such row must not fail the whole listing: no thumbnail, said once.
+        with _bad_cameras_lock:
+            fresh = cam not in _bad_cameras and len(_bad_cameras) < BAD_CAMERAS_LOGGED
+            if fresh:
+                _bad_cameras.add(cam)
+        if fresh:
+            LOG.warning("no video thumbnail for a row whose camera is %r: not a camera name", cam)
+        return "unavailable", None
     path = video_thumbs.path(context.STATE, cam, start, revision)
     if path.name in saved and path.is_file():
         url = "/people/video-thumb.jpg?" + urllib.parse.urlencode(
@@ -160,7 +174,9 @@ def _ready_pet_view(code: int, body: dict[str, Any]) -> Reply:
     saved_videos = video_thumbs.saved(context.STATE, revision)
     videos_pending = videos_unavailable = 0
     for rows in seen.values():
-        for row in rows[:CARD_VIDEOS]:
+        # A sighting known only from its saved photo (a label carried over from another embedding model) has no
+        # camera and so no video: the card's videos are the newest sightings that have one.
+        for row in [row for row in rows if row.get("cam")][:CARD_VIDEOS]:
             video = {**row, "end": max(row["end"], row["start"] + 5)}  # pet clips keep at least five seconds
             status, thumb = _video_status(video, revision, saved_videos)
             row.update(video_status=status, video_thumb=thumb)
