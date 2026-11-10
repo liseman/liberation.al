@@ -14,7 +14,8 @@ import pytest
 
 from liberational import config as cfg
 from liberational import model_runtime
-from liberational.vision import faces
+from liberational.vision import face_examples, faces
+from liberational.vision.face_examples import Example
 
 
 def test_enroll_skips_an_image_it_cannot_read(tmp_path):
@@ -656,6 +657,84 @@ def test_renaming_or_forgetting_a_person_moves_or_drops_their_learned_views_and_
     faces.forget("Bob")
     assert set(faces.load_learned()["names"]) == {"Alicia"}
     assert faces.unlearn() == faces.LEARN_PER_TRACK and faces.load_learned()["names"] == []
+
+
+def kept_picture(folder, key):
+    path = face_examples.picture(folder, key)
+    assert path is not None, "the row has no picture kept"
+    return path.read_bytes()
+
+
+def with_a_wrong_row():
+    """Alice gets a second view and a face that isn't hers (axis 7), each with where it came from. The wrong row's
+    key."""
+    faces.add_row("Alice", blend(0, 100, 0.9), Example("correction", cam="cam0", at=5.0, ref="shot:s1", jpg=b"view"))
+    faces.add_row("Alice", unit(7), Example("group", ref="group:4", jpg=b"wrong"))
+    return face_examples.key(unit(7))
+
+
+def test_a_persons_training_set_lists_every_row_with_its_source_and_the_odd_one_out_first(named, tmp_path):
+    wrong = with_a_wrong_row()
+    faces.learn_from_track(views(0, 0, 5), [None] * 5, "porch:7")
+    rows = faces.examples("alice")
+    assert rows[0]["key"] == wrong and rows[0]["similarity"] == pytest.approx(0.0, abs=0.01)
+    assert [r["kind"] for r in rows].count("learned") == faces.LEARN_PER_TRACK
+    by_source = {r["source"]: r for r in rows}
+    assert by_source["correction"] | {"key": "", "similarity": 0} == {
+        "key": "",
+        "kind": "owner",
+        "source": "correction",
+        "at": 5.0,
+        "cam": "cam0",
+        "ref": "shot:s1",
+        "picture": True,
+        "similarity": 0,
+    }
+    # The row from before pictures were kept is listed as it is, and a learned row says its camera and track.
+    assert (by_source["owner"]["picture"], by_source["owner"]["at"]) == (False, None)
+    assert (by_source["learned"]["cam"], by_source["learned"]["ref"]) == ("porch", "porch:7")
+    assert kept_picture(tmp_path, wrong) == b"wrong"
+    assert [r["source"] for r in faces.examples("Bob")] == ["owner"]
+
+
+def test_removing_a_training_image_takes_the_row_and_its_picture_out_and_the_matcher_follows(named, tmp_path):
+    wrong = with_a_wrong_row()
+    faces.learn_from_track(views(0, 0, 5), [None] * 5, "porch:7")
+    learned = [r["key"] for r in faces.examples("Alice") if r["kind"] == "learned"]
+    bob = faces.examples("Bob")[0]["key"]
+    assert faces.match(unit(7))[0] == "Alice"
+    assert faces.remove_examples("alice", [wrong, learned[0], bob, "0" * 24]) == 2, "Bob's row is not Alice's"
+    assert faces.match(unit(7))[0] is None, "the matcher rereads the file that changed"
+    assert faces.counts() == {"Alice": 2, "Bob": 1}
+    assert len(faces.load_learned()["names"]) == faces.LEARN_PER_TRACK - 1
+    assert face_examples.picture(tmp_path, wrong) is None and face_examples.read(tmp_path, wrong) is None
+    assert wrong not in [r["key"] for r in faces.examples("Alice")]
+
+
+def test_a_rows_picture_follows_a_rename_and_goes_with_an_undo_or_a_forget(named, tmp_path):
+    wrong = with_a_wrong_row()
+    faces.rename("Alice", "Alicia")
+    assert next(r for r in faces.examples("Alicia") if r["key"] == wrong)["picture"] is True
+    assert faces.remove_row("Alicia", unit(7)) is True
+    assert face_examples.picture(tmp_path, wrong) is None
+    kept = [r["key"] for r in faces.examples("Alicia") if r["picture"]]
+    faces.forget("Alicia")
+    assert len(kept) == 1 and face_examples.picture(tmp_path, kept[0]) is None
+
+
+def test_a_reference_photo_and_a_named_group_keep_the_picture_their_row_was_made_from(named, tmp_path, monkeypatch):
+    image = tmp_path / "ref.jpg"
+    cv2.imwrite(str(image), np.full((80, 120, 3), 200, np.uint8))
+    box = np.array([40, 20, 80, 60])
+    monkeypatch.setattr(faces, "embed", lambda img: [(box, blend(0, 200, 0.8))])
+    assert faces.enroll_reference("Alice", image)["result"] == "added"
+    faces._unk_save([9], unit(300)[None], [4], 10)
+    faces._name_cluster_files(9, "Alice", None, True, Example("group", ref="group:9", jpg=b"group nine"))
+    rows = {r["source"]: r for r in faces.examples("Alice")}
+    assert rows["reference"]["picture"] is True and rows["group"]["ref"] == "group:9"
+    crop = cv2.imdecode(np.frombuffer(kept_picture(tmp_path, rows["reference"]["key"]), np.uint8), 1)
+    assert crop is not None and crop.shape[:2] == (60, 60), "the face's box with a quarter of its size around it"
+    assert kept_picture(tmp_path, rows["group"]["key"]) == b"group nine"
 
 
 def learned_alice_at(axis):

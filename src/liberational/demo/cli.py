@@ -159,6 +159,7 @@ def seed_here(today: dt.date | None = None) -> dt.date:
         mic.sync()
     finally:
         mic.close()
+    dataset.seed_faces(cfg.path("paths.faces"), time.time())
     print(f"pack-demo: seeded the demo household, with a journal and a transcript for {day.isoformat()}")
     return day
 

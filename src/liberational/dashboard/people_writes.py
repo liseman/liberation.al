@@ -95,6 +95,7 @@ TEACHING_ROUTES = frozenset(
         "/people/reference-url",
         "/people/reference-attach",
         "/people/reference-remove",
+        "/people/examples/remove",
         "/speakers/refine",
         "/transcript/unlabel",
     }
@@ -718,6 +719,7 @@ def _claim(kind: object, gid: Any, name: object, control: bool, selected_image: 
     if kind == "face":
         had_photo, before = photo_files._unknown_photo(int(gid)).exists(), {p.name for p in photo_files._photos(name)}
         selected_path = None
+        picture = selected_image
         if selected_image is not None:
             if not any(group["id"] == int(gid) for group in people_list._faces_mod().unknown_groups()):
                 return 409, {"ok": False, "error": "That face group has changed. Select the face again."}
@@ -728,10 +730,12 @@ def _claim(kind: object, gid: Any, name: object, control: bool, selected_image: 
             # Record the durable picture before consuming the unknown group, so a failed registry write can retry.
             people_corrections._record_person_photo(name, selected_path, prune=False)
         else:
+            # The group's picture is read first: saving the person's photo may move it, and the row keeps it too.
+            picture = people_corrections.group_picture(int(gid))
             people_corrections.save_person_photo(name, f"Face {int(gid)}", int(gid), prune=False)
         enrolled: dict[str, Any] = {}
         try:
-            people_list._faces_mod().name_cluster(int(gid), name, enrolled)
+            people_list._faces_mod().name_cluster(int(gid), name, enrolled, picture=picture)
         except BaseException as exc:
             if selected_path is not None:
                 selected_path.unlink(missing_ok=True)

@@ -214,6 +214,56 @@ def deny(body: object, control: bool, state: Path) -> tuple[int, dict[str, Any]]
         return 503, {"ok": False, "error": "Pet sightings are unavailable. Reload before trying again."}
 
 
+def examples(pet: object, state: Path) -> tuple[int, dict[str, Any]]:
+    """GET /pets/examples?pet=: the pet's training set, every sighting labeled as it, the least like the rest first
+    (`pet_recognition.examples`)."""
+    from liberational.people import pet_recognition
+
+    if not isinstance(pet, str) or not pet:
+        return 400, {"error": "name a pet"}
+    try:
+        rows = pet_recognition.examples(state, pet, pets.at(state).listing())
+        return 200, {"pet": pet, "count": len(rows), "examples": rows}
+    except LookupError as error:
+        return 404, {"error": str(error)}
+    except (continuum_py.ContinuumError, TimeoutError, RuntimeError) as error:
+        LOG.warning("pet training images unavailable: %s", logs.reason(error))
+        return 503, {"error": "Pet sightings are unavailable. Retry when the broker is ready."}
+
+
+def remove_examples(body: object, control: bool, state: Path) -> tuple[int, dict[str, Any]]:
+    """POST /pets/examples/remove {pet, track_ids}: take these sightings out of the pet's training set: label cleared,
+    marked not the pet, and the example's vector and photo erased (`pet_recognition.remove_examples`)."""
+    from liberational.people import pet_recognition
+
+    if not control:
+        return 403, {"ok": False, "error": "pets can only be changed on this machine"}
+    if not isinstance(body, dict):
+        return 400, {"ok": False, "error": "send a JSON object"}
+    try:
+        count = pet_recognition.remove_examples(
+            state,
+            body.get("track_ids"),  # ty: ignore[invalid-argument-type]
+            body.get("pet"),  # ty: ignore[invalid-argument-type]
+            pets.at(state).listing(),
+        )
+        return 200, {"ok": True, "removed": count}
+    except ValueError as error:
+        return 400, {"ok": False, "error": str(error)}
+    except LookupError as error:
+        return 404, {"ok": False, "error": str(error)}
+    except (continuum_py.ContinuumError, TimeoutError, RuntimeError) as error:
+        LOG.warning("pet training image removal unavailable: %s", logs.reason(error))
+        return 503, {"ok": False, "error": "Pet sightings are unavailable. Reload before trying again."}
+
+
+def example_photo(track: str, state: Path) -> bytes | None:
+    """GET /pets/examples/photo?track=: the labeled sighting's kept photo (`pet.photo`), or None."""
+    from liberational.people import pet_recognition
+
+    return pet_recognition.kept_photo(state, track) if pets.TRACK.fullmatch(track) else None
+
+
 @functools.lru_cache(maxsize=4)
 def _photo_tracks(state: Path, revision: str, second: int) -> dict[str, Sighting]:
     from liberational.people import pet_recognition
@@ -264,6 +314,34 @@ def _post_pets_sightings_not(h: H, body: Any) -> None:
     if not h._same_origin_json():
         return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
     code, reply = deny(body, h._can_teach(), h.state)
+    return h._json(reply, code)
+
+
+@routes.get("/pets/examples")
+def _get_pets_examples(h: H) -> None:
+    code, reply = examples(h._query().get("pet"), h.state)
+    return h._json(reply, code)
+
+
+@routes.get("/pets/examples/photo")
+def _get_pets_examples_photo(h: H) -> None:
+    jpg = example_photo(h._query().get("track", ""), h.state)
+    if jpg is None:
+        return h._send(404, "text/plain", b"")
+    h.send_response(200)
+    h.send_header("Content-Type", "image/jpeg")
+    h.send_header("Cache-Control", "private, max-age=86400")
+    h.send_header("Content-Length", str(len(jpg)))
+    h.end_headers()
+    if h.command != "HEAD":
+        h.wfile.write(jpg)
+
+
+@routes.post("/pets/examples/remove")
+def _post_pets_examples_remove(h: H, body: Any) -> None:
+    if not h._same_origin_json():
+        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
+    code, reply = remove_examples(body, h._can_teach(), h.state)
     return h._json(reply, code)
 
 

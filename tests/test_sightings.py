@@ -312,6 +312,24 @@ def test_an_owner_correction_teaches_the_gallery_and_its_undo_takes_it_back(tmp_
     assert faces.load_db()[0] == []
 
 
+def test_a_corrections_row_keeps_the_sightings_crop_camera_and_time(tmp_path, vision, now, monkeypatch):
+    from liberational.people import face_shots
+    from liberational.vision import face_examples
+
+    monkeypatch.setattr(faces, "DB", tmp_path / "db.npz")
+    monkeypatch.setattr(faces, "LEARNED_DB", tmp_path / "learned.npz")
+    d = vision.face(T, name="Kara", sim=0.6)
+    vec = np.zeros(512, np.float32)
+    vec[7] = 1.0
+    vision.add(segment_log.FACE_EMBEDDINGS, ts_start=T, cam="cam0", match_id=d["id"], vector=vec.tolist())
+    face_shots.write(tmp_path, d["id"], "1", b"the saved crop")
+    sightings.correct([d["id"]], "Luca", tmp_path)
+    (row,) = faces.examples("Luca")
+    assert (row["source"], row["cam"], row["at"], row["ref"]) == ("correction", "cam0", T, f"shot:{d['id']}")
+    picture = face_examples.picture(tmp_path, row["key"])
+    assert picture is not None and picture.read_bytes() == b"the saved crop"
+
+
 def test_not_kara_on_a_shot_makes_its_face_her_negative_and_its_undo_takes_it_back(tmp_path, vision, now, monkeypatch):
     # "Not <name>" teaches the matcher that this face isn't them
     monkeypatch.setattr(faces, "DB", tmp_path / "db.npz")

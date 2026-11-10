@@ -14,6 +14,7 @@ A place is a chain of revisions under `state/places/<place>/` (`memory/places.py
 | `<revision>.map` | The point cloud (binary PLY) |
 | `<revision>.plan` | The floorplan DSL |
 | `<revision>.gs.ply`, `<revision>.sog` | An optional Gaussian splat and its copy for the 3D view |
+| `splat.note` | Why the newest splat pass made no splat for the revision it tried (too few lit daytime frames, no cameras to take frames from, no trainer, or a failed run), for the 3D view to say |
 
 The newest two maps and splats are kept; plans and revision records stay. All of it is machine-made and a reset
 deletes it. The owner's place names and plan corrections (`place.named`, `place.plan`) live in the knowledge store

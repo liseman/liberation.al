@@ -66,6 +66,15 @@ POST /faces/not             {name, groups, shots, not}: these face groups are no
                             Not <name>: {ok, marked, undo: [tokens for the shots]}
 POST /people/photo          {name, action: main|newest|hide|show, shot}: the card's photo choices, with /pets/photo's
                             verbs: {ok, undo, card}
+GET  /people/examples?name=   Training images (dashboard/face_examples.py): every face row naming matches the person
+                            against, the least like the rest first: {name, count, examples: [{key, kind, source, at,
+                            cam, picture, similarity}]}; each picture is /people/examples/photo?key=
+POST /people/examples/remove  {name, keys}: take those rows out of the gallery: {ok, removed, count, examples}
+GET  /pets/examples?pet=    a pet's training set, every sighting labeled as it: {pet, count, examples: [{track_id,
+                            cam, start, source, picture, example, similarity}]}; a kept photo is
+                            /pets/examples/photo?track=
+POST /pets/examples/remove  {pet, track_ids}: clear those labels, mark them not the pet, and erase their example
+                            vectors and photos: {ok, removed}
 POST /faces/unknown/reject  {group, ids}: "Not this person": those shots leave the group for good, and its face is
                             rebuilt from the rest: {ok, removed, left, ignored}
 GET  /people/<name>/shots?before=&limit=   every shot of them the face worker found (vision/sightings.py), newest
@@ -270,6 +279,7 @@ routes.load(
     "liberational.dashboard.roster_read",
     "liberational.dashboard.people_corrections",
     "liberational.dashboard.people_references",
+    "liberational.dashboard.face_examples",
     "liberational.dashboard.activities",
     "liberational.dashboard.ask_routes",
     "liberational.dashboard.call_log",
