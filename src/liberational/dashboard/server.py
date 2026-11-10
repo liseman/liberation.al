@@ -260,6 +260,7 @@ from liberational.dashboard import (
     marks,
     network_cameras,
     reports,
+    routes,
     settings,
     shell_status,
     slow,
@@ -6618,6 +6619,11 @@ class H(http.server.BaseHTTPRequestHandler):
     def log_message(self, format: str, *args: Any) -> None:
         pass
 
+    @property
+    def state(self) -> pathlib.Path:
+        """The state directory, for a route registered by another module (dashboard/routes.py)."""
+        return STATE
+
     def _local(self) -> bool:
         """A direct request from this machine, not one Tailscale proxied in."""
         return self.client_address[0] in ("127.0.0.1", "::1") and not self.headers.get("X-Forwarded-For")
@@ -6950,513 +6956,13 @@ class H(http.server.BaseHTTPRequestHandler):
             or reports.handle(self, log)
         ):
             return
-        if p == "/objects" or p.startswith("/objects/"):
-            from liberational.dashboard import objects as objects_page
-
-            objects_page.handle(self, "GET")  # the Objects page and its API, on Continuum
-            return
         if _pack_ask(self) or _research(self):
             return  # history Q&A: /pack-ask/jobs, and research for the Inbox: /research/jobs
-        if p == "/people/references" or p.startswith("/people/reference-media/"):
-            from liberational.people import references
-
-            try:
-                if p == "/people/references":
-                    return self._json(
-                        {
-                            "references": references.listing(
-                                STATE,
-                                urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("person", [""])[0],
-                            )
-                        }
-                    )
-                token = p.removeprefix("/people/reference-media/")
-                meta = references.metadata(STATE, token)
-                return self._media(
-                    references.entry(STATE, token) / meta["file"], meta["mime"], {"X-Content-Type-Options": "nosniff"}
-                )
-            except (ValueError, OSError) as exc:
-                return self._json({"error": str(exc)}, 400)
-        if p in ("/skeletons/api/spans", "/skeletons/api/poses"):
-            from liberational.dashboard import skeletons
-
-            q = self._query()
-            try:
-                if p == "/skeletons/api/spans":
-                    return self._json({"spans": skeletons.spans(STATE, hours=float(q.get("hours", "24")))})
-                return self._json(
-                    skeletons.poses(
-                        STATE,
-                        cam=q["cam"],
-                        track_id=q["track"],
-                        start=float(q["start"]),
-                        end=float(q["end"]),
-                    )
-                )
-            except (KeyError, ValueError) as exc:
-                return self._json({"error": f"bad query: {exc}"}, 400)
-        if p == "/audio/levels":
-            return self.levels()
-        if p == "/events":
-            return self.sse()
-        if p == "/logs/stream":
-            return self.log_stream()
-        if p == "/history/at":
-            # Camera history is as sensitive as /camera/query: this machine only, unless the owner opted in for
-            # password-checked remote browsers (dashboard.remote_camera_history).
-            if not self._may_see_camera_history():
-                return self._json({"error": "camera history is only shown on this machine"}, 403)
-            q = self._query()
-            try:
-                ts, window = float(q.get("ts", "")), float(q.get("window", "30"))
-            except ValueError:
-                return self._json({"error": "bad ts or window"}, 400)
-            return self._json(history_at(ts, window))
-        if p == "/scene":
-            return self._json(scene_entries())
-        if p == "/ambient":
-            return self._json(mic_status())
-        if p == "/vision":
-            return self._json(camera_status())
-        if p == "/transcript":
-            q = self._query()
-            try:
-                n = max(1, min(1000, int(q.get("n", "80"))))
-            except ValueError:
-                n = 80
-            if q.get("around"):  # the moment a summary link points at: n/2 utterances either side of ts
-                try:
-                    ts = float(q["around"])
-                except ValueError:
-                    return self._json({"error": "bad around"}, 400)
-                return self._json(transcript_around(ts, n))
-            return self._json({"entries": merged_tail(n), "reset": True})
-        if p == "/clones":
-            return self._json(clones_list())
-        if p == "/clones/render":
-            f = self._query().get("f", "")
-            if not re.fullmatch(r"say-\d+-\d+\.wav", f):
-                return self._json({"error": "bad file"}, 400)
-            from liberational.dashboard import clone_stream
-
-            r = clone_stream.live(f)
-            if r is not None and not r.done and clone_stream.waits(self.headers.get("User-Agent") or ""):
-                r.wait()  # Safari: the finished file, a few seconds later
-            if r is None or (r.done and not r.error):
-                return self._wav_file(CLONES / f)  # 404 when the cleanup took it
-            if r.done:
-                return self._json({"error": r.error}, 502)
-            return self._stream_render(r)
-        if m := re.fullmatch(r"/clones/(\d{1,6})/lines", p):
-            from liberational.speech import clone_say
-
-            try:
-                return self._json({"lines": clone_say.pickable(int(m.group(1)))})
-            except Exception as ex:
-                log("clones: lines unreadable:", repr(ex), level=logs.ERROR)
-                return self._json({"error": "Could not read their lines."}, 500)
-        if p == "/clones/audio":
-            try:
-                from liberational.speech import clone_say
-
-                ref = clone_say.ref_for(int(self._query().get("id", 0)), make=False)
-                return self._wav_file(ref) if ref else self._json({"error": "no reference for that voice yet"}, 404)
-            except ValueError:
-                return self._json({"error": "bad id"}, 400)
-        if p == "/calls/audio":
-            q = self._query()
-            day, name, which = q.get("day", ""), q.get("dir", ""), q.get("which", "mixed")
-            if not (_safe_name(day) and _safe_name(name)) or which not in ("mixed", "bot", "caller"):
-                return self._json({"error": "bad call"}, 400)
-            return self._wav_file(CALLS_DIR / day / name / f"{which}.wav")
-        if p == "/clip":
-            q = self._query()
-            info = q.get("info") in ("1", "true")
-            if q.get("line"):  # the line's key: one microphone's line, never another's in the same millisecond
-                e = find_line(q["line"])
-                if e is None:
-                    return self._json({"ok": False, "error": "no transcript line with that key"}, 404)
-                return self.clip(entry=e, info=info)
-            if "ts_start" in q:
-                try:
-                    ts = float(q["ts_start"])
-                except ValueError:
-                    return self._json({"ok": False, "error": "bad ts_start"}, 400)
-                e = find_entry(ts)
-                if e is None:
-                    return self._json({"ok": False, "error": "no transcript entry at that ts_start"}, 404)
-                return self.clip(entry=e, info=info)
-            return self._json({"ok": False, "error": "need line=<key> or ts_start=<unix seconds>"}, 400)
-        m = re.fullmatch(r"/speaker/(\d{1,6})/(latest|latest-clip)", p)
-        if m:
-            e = latest_for_speaker(int(m.group(1)))
-            if e is None:
-                return self._json({"ok": False, "error": "no utterance with audio for that speaker"}, 404)
-            return (
-                self._json(e)
-                if m.group(2) == "latest"
-                else self.clip(entry=e, info=self._query().get("info") in ("1", "true"))
-            )
-        if p == "/calls":
-            return self._json(calls_list())
-        if p == "/calls/live":
-            return self._json(calls_live())
-        if p == "/calls/detail":
-            q = dict(kv.split("=", 1) for kv in (self.path.split("?", 1) + [""])[1].split("&") if "=" in kv)
-            t = call_transcript(q.get("day", ""), q.get("dir", ""))
-            return self._json(t or {"error": "not found"}, 200 if t else 404)
-        if p == "/inbox/unnamed":  # not under /people/, where it would be the page of someone named "unnamed"
-            return self._json(people_unnamed())
-        if p == "/people":
-            view = people_view(cold=True)
-            _CARD_READS.warm([str(person["name"]) for person in view.get("people", [])[:CARD_WARM]])
-            return self._json(view)
-        if p == "/inbox/skips":
-            counts = skip_counts(inbox_skips())
-            return self._json({k: counts[k] for k in ("face", "voice", "line")})
-        if p == "/faces/unknown/groups":
-            code, o = _ready_face_groups(*_FACE_GROUPS.poll())
-            return self._json(o, code)
-        if p == "/voices/unknown/groups":
-            code, o = _VOICE_GROUPS.poll()
-            return self._json(o, code)
-        if m := re.fullmatch(r"/faces/unknown/(\d{1,9})/sightings", p):
-            from liberational.people import face_photos
-
-            q = self._query()
-            try:
-                offset = max(0, int(q.get("offset", "0")))
-                limit = max(1, min(SIGHTINGS_PAGE_MAX, int(q.get("limit", str(face_photos.STRIP_MAX)))))
-            except ValueError:
-                return self._json({"error": "bad offset or limit"}, 400)
-            found = [f for f in face_photos._unnamed(STATE) if face_photos._group(f["cluster"]) == int(m.group(1))]
-            ready, pending, unavailable = _ready_faces(found)
-            page = ready[offset : offset + limit]
-            return self._json(
-                {
-                    "sightings": [{"id": s["id"], "ts": s["ts"], "url": f"/faces/shot/{s['id']}.jpg"} for s in page],
-                    "total": len(ready),
-                    "shots_pending": pending,
-                    "shots_unavailable": unavailable,
-                }
-            )
-        if p.startswith("/faces/unknown/") and p.endswith(".jpg"):
-            gid = p[len("/faces/unknown/") : -len(".jpg")]
-            f = _unknown_photo(gid) if gid.isdigit() else None
-            return (
-                self._send(200, "image/jpeg", f.read_bytes())
-                if f and f.exists()
-                else self._send(404, "text/plain", b"")
-            )
-        if p == "/people/video-thumb.jpg":
-            return self._video_thumb()
-        if m := re.fullmatch(r"/faces/shot/([0-9A-Za-z-]{1,64})\.jpg", p):
-            if self._query().get("size") == "80":
-                return self._grid_photo(m.group(1), "shots_grid")
-            try:
-                path, etag = _shot_file(m.group(1))
-            except ShotsBusy:
-                self.send_response(503)
-                self.send_header("Retry-After", "2")
-                self.send_header("Content-Length", "0")
-                self.end_headers()
-                return
-            if path is None:
-                return self._send(404, "text/plain", b"")
-            tags = {tag.strip() for tag in self.headers.get("If-None-Match", "").split(",")}
-            if etag is not None and tags.intersection({etag, f"W/{etag}", "*"}):
-                self.send_response(304)
-                self.send_header("Cache-Control", "private, max-age=86400")
-                self.send_header("ETag", etag)
-                self.end_headers()
-                return
-            b = path.read_bytes()
-            self.send_response(200)
-            self.send_header("Content-Type", "image/jpeg")
-            # A day: a crop's pixels don't change, and a deleted sighting's is no longer on any page that asks.
-            self.send_header("Cache-Control", "private, max-age=86400")
-            if etag is not None:
-                self.send_header("ETag", etag)
-            self.send_header("Content-Length", str(len(b)))
-            self.end_headers()
-            if self.command != "HEAD":
-                self.wfile.write(b)
-            return
-        if p.startswith("/faces/shot/"):
+        found = routes.find("GET", p)  # every other route is registered in dashboard/routes.py's table (#61)
+        if found is None:
             return self._send(404, "text/plain", b"")
-        if m := re.fullmatch(r"/people/([^/]+)/photos/(\d{10,16})\.jpg", p):  # the card's photo URLs
-            nm = urllib.parse.unquote(m.group(1))
-            if not _safe_name(nm):
-                return self._json({"error": "bad name"}, 400)
-            pick = [f for f in _photos(nm) if f.stem == m.group(2)][:1]
-            return self._send(200, "image/jpeg", pick[0].read_bytes()) if pick else self._send(404, "text/plain", b"")
-        if m := re.fullmatch(r"/people/([^/]+)/card", p):
-            card = _CARD_READS.get(urllib.parse.unquote(m.group(1)))
-            return self._json(card or {"error": "bad name"}, 200 if card else 400)
-        if p == "/identity/why":  # why a line or a recorded face has its name; read only
-            return self._json(*why_name_view(self._query()))
-        if p.startswith("/people/"):
-            from urllib.parse import unquote
-
-            s2 = person_summary(unquote(p[len("/people/") :]))
-            return self._json(s2 or {"error": "bad name"}, 200 if s2 else 400)
-        if p == "/speakers":
-            return self._json(speakers_public())
-        if p == "/speakers/refine/log":
-            # GET: labels given in Lines to check and not undone, newest first
-            return self._json(refine_log_list(min(500, max(1, int(self._query().get("limit", 50) or 50)))))
-        if p == "/speakers/refine":
-            # GET: returns ambiguous utterances (low speaker_sim, borderline between speakers)
-            try:
-                return self._json(speakers_refine_list())
-            except Exception as ex:
-                return self._json({"ok": False, "error": str(ex)}, 500)
-        if p == "/review/boxes":
-            from liberational.dashboard import review_boxes
-
-            q = self._query()
-            try:
-                start, end = float(q.get("start") or ""), float(q.get("end") or "")
-                return self._json(review_boxes.boxes(q.get("cam", ""), start, end, STATE))
-            except (TypeError, ValueError) as ex:
-                return self._json({"error": str(ex)}, 400)
-        if p == "/live/happening":
-            from liberational.dashboard import happening
-
-            q = self._query()
-            try:
-                since = float(q["since"]) if q.get("since") else None
-                limit = max(1, min(200, int(q.get("limit") or 50)))
-            except ValueError:
-                return self._json({"error": "since is a time in seconds, and limit a number"}, 400)
-            if since is not None and not math.isfinite(since):
-                return self._json({"error": "since is a time in seconds"}, 400)
-            try:
-                return self._json(happening.happening(STATE, since, limit))
-            except Exception as ex:
-                log("live happening failed:", repr(ex), level=logs.ERROR)
-                return self._json({"error": "Couldn't read what's been happening."}, 500)
-        if p == "/review/search":
-            q = self._query()
-            code, reply = review_search(q.get("day", ""), q.get("q", ""))
-            return self._json(reply, code)
-        if p == "/journal/today":
-            from liberational.memory import ask, journal_pages
-
-            try:
-                day = ask.validate_day(self._query().get("day", ""))
-            except ValueError:
-                return self._json({"error": "day must be YYYY-MM-DD"}, 400)
-            code, reply = journal_pages.today_page(STATE, time.time(), dt.date.fromisoformat(day) if day else None)
-            return self._json(reply, code)
-        if p == "/review/summary":
-            q = self._query()
-            if "day" in q:
-                from liberational.memory import ask, journal
-
-                try:
-                    if ask.validate_day(q["day"]) is None:
-                        raise ValueError("day must be YYYY-MM-DD")
-                    start, end = journal.day_bounds(q["day"])
-                except ValueError, OverflowError:
-                    return self._json({"error": "day must be YYYY-MM-DD"}, 400)
-            else:
-                try:
-                    start, end = float(q.get("start", "")), float(q.get("end", ""))
-                except ValueError:
-                    return self._json({"error": "start and end are times in seconds"}, 400)
-            if not (math.isfinite(start) and math.isfinite(end) and start < end <= start + REVIEW_SUMMARY_MAX_S):
-                return self._json({"error": "end must come after start, and within 31 days of it"}, 400)
-            try:
-                return self._json(review_summary_kept(start, end))
-            except Exception as ex:
-                log("review summary failed:", repr(ex), level=logs.ERROR)
-                return self._json({"error": "Couldn't read the journal for that stretch."}, 500)
-        if p == "/device-links":
-            from liberational.dashboard import device_links
-
-            code, reply = device_links.listing(self._query().get("hours", ""), state=STATE)
-            return self._json(reply, code)
-        if p == "/device-presence":
-            from liberational.dashboard import device_links
-
-            code, reply = device_links.presence()
-            return self._json(reply, code)
-        if p in ("/device-whereabouts", "/device-comings"):  # Known › Devices
-            from liberational.dashboard import device_links
-
-            code, reply = device_links.whereabouts() if p == "/device-whereabouts" else device_links.comings()
-            return self._json(reply, code)
-        if p in ("/zones", "/zones/history"):
-            from liberational.dashboard import zones as zone_routes
-
-            if p == "/zones":
-                code, reply = zone_routes.listing(STATE)
-            else:
-                code, reply = zone_routes.history(self._query().get("cam", ""), STATE)
-            return self._json(reply, code)
-        if p == "/places":
-            from liberational.dashboard import places as places_view
-
-            code, reply = places_view.listing(STATE)
-            return self._json(reply, code)
-        if p == "/places/scene":
-            from liberational.dashboard import places as places_view
-
-            code, reply = places_view.scene(STATE, self._query().get("place", ""))
-            return self._json(reply, code)
-        if p in ("/places/map", "/places/splat"):
-            from liberational.dashboard import places as places_view
-
-            q = self._query()
-            files = places_view.map_file if p == "/places/map" else places_view.splat_file
-            found = files(STATE, q.get("place", ""), q.get("revision", ""))
-            if found is None:
-                return self._json({"error": f"no such {p.rsplit('/', 1)[1]}"}, 404)
-            # A revision's map and splat never change once written: its id is their ETag, and they can be kept for good.
-            tag = f'"{q.get("revision", "")}"'
-            if self.headers.get("If-None-Match") == tag:
-                self.send_response(304)
-                self.send_header("ETag", tag)
-                self.end_headers()
-                return None
-            return self._media(
-                found, "application/octet-stream", {"ETag": tag}, cache="private, max-age=31536000, immutable"
-            )
-        if p == "/places/positions":
-            from liberational.dashboard import places as places_view
-            from liberational.spatial import positions
-
-            try:
-                code, reply = places_view.positions_view(self._query(), STATE, cancelled=self._client_gone)
-            except positions.Cancelled:
-                self.close_connection = True  # nobody is reading: nothing to send
-                return log("places positions read stopped: the client hung up", level=logs.DEBUG)
-            return self._json(reply, code)
-        if p == "/places/plan/history":
-            from liberational.dashboard import places as places_view
-
-            code, reply = places_view.plan_versions(STATE, self._query().get("place", ""))
-            return self._json(reply, code)
-        if p == "/journal":
-            from liberational.dashboard import journal as journal_view
-
-            code, reply = journal_view.listing(self._query(), STATE)
-            return self._json(reply, code)
-        if p == "/activities":
-            from liberational.dashboard import activities
-
-            query = self._query()
-            if "days" in query:  # several days in one answer (#52)
-                code, reply = activities.listings(query["days"], STATE)
-                return self._json(reply, code)
-            code, reply = activities.listing(
-                query.get("day", ""), STATE, kind=query.get("kind"), unrated=query.get("unrated") == "1"
-            )
-            return self._json(reply, code)
-        if p == "/activity/kinds":
-            from liberational.dashboard import activities
-
-            code, reply = activities.kinds(STATE)
-            return self._json(reply, code)
-        if p == "/pets":
-            from liberational.dashboard import pets
-
-            code, reply = pets.listing(STATE)
-            return self._json(reply, code)
-        if p == "/pets/sightings":
-            from liberational.dashboard import pets
-
-            code, reply = _ready_pet_view(*pets.sightings(STATE))
-            return self._json(reply, code)
-        if p == "/pets/sightings/photo":
-            return self._pet_photo(self._query().get("track", ""))
-        if p == "/review/presence":
-            from liberational.dashboard import presence
-
-            day = self._query().get("day") or None
-            if day and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
-                return self._json({"error": "day must be YYYY-MM-DD"}, 400)
-            return self._json(presence.for_request(day, STATE))
-        if p == "/journal/evidence":
-            from liberational.memory import journal_evidence
-
-            day = self._query().get("day") or ""
-            if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
-                return self._json({"error": "day must be YYYY-MM-DD"}, 400)
-            return self._json({"day": day, "sources": journal_evidence.resolve_day(STATE, day)})
-        if m := re.fullmatch(r"/journal/evidence/(\d{4}-\d{2}-\d{2})/([0-9A-Za-z_.-]{1,96})", p):
-            from liberational.memory import journal_evidence
-
-            found = journal_evidence.file(STATE, m.group(1), m.group(2))
-            if found is None:
-                return self._send(404, "text/plain", b"")
-            # Byte ranges (206), which Safari and iOS need to play an mp4 at all.
-            return self._media(found, "video/mp4" if found.suffix == ".mp4" else "image/jpeg")
-        if p == "/review/days":
-            return self._json({"days": recorded_days(STATE), "today": time.strftime("%Y-%m-%d")})
-        if p == "/transcript/day":
-            day = self._query().get("day") or time.strftime("%Y-%m-%d")
-            if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
-                return self._json({"error": "bad day"}, 400)
-            t0 = time.mktime(time.strptime(day, "%Y-%m-%d"))
-            es = [
-                e
-                for e in heard_lines(t0 - 3600, t0 + 90000)
-                if time.strftime("%Y-%m-%d", time.localtime(e["ts_start"])) == day
-            ]
-            return self._json({"day": day, "entries": transcript_view.once(_view().lines(es))})  # once each
-        if p == "/audio/range":
-            q = self._query()
-            try:
-                wav, _info = audio_range(q.get("start"), q.get("end"))
-            except TypeError, ValueError:
-                return self._json({"error": "start and end must be timestamps, end after start"}, 400)
-            except FileNotFoundError as ex:
-                return self._json({"error": str(ex)}, 404)
-            except Exception as ex:
-                return self._json({"error": str(ex)}, 500)
-            # Browsers fetch media with Range requests and give up on a plain 200 (Review's room audio never loaded,
-            # with networkState stuck at 2); _media answers 206 like /clip does.
-            return self._media(wav, "audio/wav", {"Cache-Control": "no-store"})
-        if p == "/audio/spans":
-            # each microphone's kept audio for a day, so the timeline shows coverage
-            day = self._query().get("day") or time.strftime("%Y-%m-%d")
-            spans = audio_spans(day) if re.fullmatch(r"\d{4}-\d{2}-\d{2}", day) else []
-            return self._json({"day": day, "spans": spans})
-        if p == "/stats":
-            snapshot = STATS.snapshot()
-            USAGE.record(snapshot)
-            return self._json(snapshot)
-        if p == "/stats/history":  # SAMPLER keeps the history going from dashboard start
-            try:
-                since = float(self._query().get("since") or 0)
-            except ValueError:
-                since = 0.0
-            return self._json(USAGE.view(since if math.isfinite(since) else 0.0))
-        if p == "/services/history":
-            code, body = service_history_view(self._query().get("hours", "24"))
-            return self._json(body, code)
-        if p == "/services":
-            return self._json(services_view(self._can_control()))
-        if p == "/health":
-            return self._json(
-                {
-                    "ok": True,
-                    "ts": time.time(),
-                    "clients": SSE_CLIENTS[0],
-                    "boot": devreload.BOOT,
-                    "people_warmup": _people_warm_status(),
-                }
-            )
-        if p.startswith("/static/app/") and DEV and (got := vite(self.path)) is not None:
-            # --dev: the new frontend's modules, styles, and fonts come from Vite, through this server, so the page
-            # loads them from its own origin (over Tailscale too). Its hot reload talks to Vite's port directly.
-            return self._send(200, got[1], got[0])
-        if p.startswith("/static/"):
-            hit = assets.read(p)
-            return self._send(200, hit[1], hit[0]) if hit else self._send(404, "text/plain", b"")
-        self._send(404, "text/plain", b"")
+        route, match = found
+        return route.handler(self, match) if route.kind == "pattern" else route.handler(self)
 
     def _stream_render(self, r: Any) -> None:
         """A clone line still being made (clone_stream.Render): a WAV of open length, each piece sent as it comes, with
@@ -7523,30 +7029,9 @@ class H(http.server.BaseHTTPRequestHandler):
             self.close_connection = True  # its body is never read
             code, o = teaching_refused()
             return self._json(o, code)
-        if p == "/objects" or p.startswith("/objects/"):
-            from liberational.dashboard import objects as objects_page
-
-            objects_page.handle(self, "POST")
-            return
-        if p == "/people/reference-upload":
-            from liberational.people import references
-
-            origin = self.headers.get("Origin")
-            host = self.headers.get("Host") or ""
-            if origin and origin not in (f"http://{host}", f"https://{host}"):
-                return self._json({"error": "same-origin upload only"}, 403)
-            try:
-                length = int(self.headers.get("Content-Length") or 0)
-                if not 0 < length <= references.MAX_BYTES:
-                    self.close_connection = True
-                    return self._json({"error": "Choose a nonempty file up to 20 MB."}, 413)
-                self.connection.settimeout(30)
-                raw = self.rfile.read(length)
-                if len(raw) != length:
-                    raise ValueError("Upload interrupted. Please retry.")
-                return self._json(references.stage(STATE, raw, "Local upload"))
-            except (ValueError, OSError) as exc:
-                return self._json({"error": str(exc)}, 400)
+        found = routes.find("POST", p)  # every other route is registered in dashboard/routes.py's table (#61)
+        if found is not None and found[0].raw:
+            return found[0].handler(self)  # reads its own body: an upload, raw audio, or the Objects API
         if p.startswith("/people/reference-") or p == "/people/search":
             try:
                 length = int(self.headers.get("Content-Length") or 0)
@@ -7555,17 +7040,6 @@ class H(http.server.BaseHTTPRequestHandler):
             if not 0 <= length <= 4096:
                 self.close_connection = True
                 return self._json({"error": "Reference request too large"}, 413)
-        # /clones/record handles raw audio, not JSON
-        if p == "/clones/record":
-            clen = int(self.headers.get("Content-Length") or 0)
-            raw = self.rfile.read(clen) if clen > 0 else b""
-            if len(raw) < 48000:  # less than ~16ms of audio
-                return self._json({"ok": False, "error": "too little data; need at least a few seconds of audio"}, 400)
-            try:
-                code, o = clone_record(raw, urllib.parse.unquote_plus(self._query().get("name", "")))
-                return self._json(o, code)
-            except Exception as ex:
-                return self._json({"ok": False, "error": str(ex)}, 500)
         # All other POST endpoints: JSON body
         try:
             n = int(self.headers.get("Content-Length") or 0)
@@ -7574,357 +7048,9 @@ class H(http.server.BaseHTTPRequestHandler):
                 raise ValueError("object required")
         except Exception:
             return self._json({"ok": False, "error": "bad json"}, 400)
-        if p == "/services":
-            origin = self.headers.get("Origin")
-            if not self._can_control():
-                return self._json({"ok": False, "error": "services can only be changed from this machine"}, 403)
-            if self.headers.get_content_type() != "application/json" or (
-                origin and origin != "http://" + (self.headers.get("Host") or "")
-            ):
-                return self._json({"ok": False, "error": "same-origin JSON only"}, 403)
-            with SERVICES_LOCK:  # one action at a time: two Disables at once would each rewrite pack.toml
-                if "all" in body:
-                    code, o = all_services(str(body.get("all")))
-                else:
-                    code, o = service_action(str(body.get("name", "")), str(body.get("action", "")))
-            return self._json(o, code)
-        if p == "/speakers/tag":
-            if not self._same_origin_json():
-                return self._json({"ok": False, "error": "same-origin JSON only"}, 403)
-            code, o = request_voice_tags(
-                body.get("ts_starts"), body.get("name"), self._can_teach(), lines=body.get("lines")
-            )
-            return self._json(o, code)
-        if p in (
-            "/transcript/reject",
-            "/transcript/undo",
-            "/transcript/media",
-            "/transcript/not-media",
-            "/voices/unknown/media",
-        ):
-            if not self._same_origin_json():
-                return self._json({"ok": False, "error": "same-origin JSON only"}, 403)
-            if not self._can_teach():
-                return self._json({"ok": False, "error": "Controls unavailable"}, 403)
-            if not isinstance(body, dict):
-                return self._json({"ok": False, "error": "Send a JSON object."}, 400)
-            action = {
-                "/transcript/reject": reject_transcript,
-                "/transcript/undo": undo_transcript,
-                "/transcript/media": media_transcript,
-                "/transcript/not-media": not_media,
-                "/voices/unknown/media": media_voice,
-            }[p]
-            try:
-                code, result = action(body)
-            except (OSError, RuntimeError) as error:
-                LOG.exception("transcript correction failed")
-                return self._json({"ok": False, "error": f"The correction could not be saved: {error}"}, 500)
-            return self._json(result, code)
-        if p == "/speakers/label":
-            if not self._same_origin_json():
-                return self._json({"ok": False, "error": "same-origin JSON only"}, 403)
-            code, o = label_speaker(body.get("id"), str(body.get("name", "")), self._can_teach())
-            return self._json(o, code)
-        if p == "/speakers/refine/undo":
-            # POST: {"ts_starts": [...]} or {"since": ts}; same-origin JSON from this machine only
-            origin = self.headers.get("Origin")
-            if not self._can_teach():
-                return self._json({"ok": False, "error": "labels can only be undone from this machine"}, 403)
-            if self.headers.get_content_type() != "application/json" or (
-                origin and origin != "http://" + (self.headers.get("Host") or "")
-            ):
-                return self._json({"ok": False, "error": "same-origin JSON only"}, 403)
-            code, o = speakers_refine_undo(body)
-            return self._json(o, code)
-        if p == "/speakers/refine":
-            # POST: {action: "assign"|"skip"|"multi", id:<speaker_id>, ts_start:<float>}
-            try:
-                action = str(body.get("action", "")).strip()
-                code, o = speakers_refine(action, body)
-                return self._json(o, code)
-            except Exception as ex:
-                return self._json({"ok": False, "error": str(ex)}, 500)
-        if p.startswith("/people/") and p.endswith("/lookup"):
-            from urllib.parse import unquote
-
-            nm = unquote(p[len("/people/") : -len("/lookup")])
-            if nm not in {x["name"] for x in people_roster()}:
-                return self._json({"error": "only people already on the People list"}, 400)
-            return self._json(public_lookup(nm))
-        if p == "/transcript/unlabel":
-            # Detach one utterance from its speaker: it reads as unknown, with no voice. An event in the log; the line
-            # is never rewritten (step 4). Does not touch the speaker DB (centroids are running means; the next
-            # utterances outweigh one bad one).
-            line = body.get("line")  # the line's key, or its time alone as before
-            try:
-                ts = None if isinstance(line, str) and line else float(body.get("ts_start"))
-            except Exception:
-                return self._json({"error": "line (or ts_start) required"}, 400)
-            try:
-                found = _line_at(ts, line)
-                if found is None:
-                    return self._json({"error": "no such utterance"}, 404)
-                stored, _, view = found
-                voice = view.canonical(stored.get("speaker_id"))
-                _label_line(registry.utterance_of(stored), None, voice, label=transcript_view.UNKNOWN)
-                hit = _view().line(stored)
-                transcript_view.rebuild_quietly(STATE, [transcript_view.day_of(hit["ts_start"])])
-                return self._json({"ok": True, "entry": hit})
-            except AmbiguousLine as ex:
-                return self._json({"error": str(ex)}, 409)
-            except Exception as ex:
-                return self._json({"error": str(ex)}, 500)
-        if p == "/clones/say":
-            try:
-                sid, text = int(body.get("id")), str(body.get("text", "")).strip()[:600]
-            except Exception:
-                return self._json({"error": "id and text required"}, 400)
-            if not text:
-                return self._json({"error": "nothing to say"}, 400)
-            code, o = clone_say(sid, text)
-            return self._json(o, code)
-        if p == "/playback/start":
-            # The browser is about to play dashboard audio out of the speakers: open a window that covers it, so the
-            # room mic's transcript drops those words instead of re-including them.
-            from liberational.speech import playback_guard as pg
-
-            secs = max(1.0, min(300.0, float(body.get("seconds") or 10)))
-            tok = pg.open_window(secs)
-            return self._json({"ok": True, "token": tok})
-        if p == "/playback/stop":
-            from liberational.speech import playback_guard as pg
-
-            pg.close_window(str(body.get("token") or ""))
-            return self._json({"ok": True})
-        if p == "/clones/remove":
-            try:
-                sid = int(body.get("id"))
-            except Exception:
-                return self._json({"error": "id required"}, 400)
-            code, o = clone_remove(sid)
-            return self._json(o, code)
-        if p == "/clones/pick":
-            code, o = clone_pick(body.get("id"), body.get("lines"))
-            return self._json(o, code)
-        if p == "/clones/build":
-            try:
-                sid = int(body.get("id"))
-            except Exception:
-                return self._json({"error": "id required"}, 400)
-            code, o = clone_build(sid)
-            return self._json(o, code)
-        if p == "/calls/hangup":
-            if not self._same_origin_json():
-                return self._json({"error": "same-origin JSON only"}, 403)
-            if body.get("confirmed") is not True:
-                return self._json({"error": "Confirm the selected call first"}, 400)
-            code, result = calls_hangup(str(body.get("day") or ""), str(body.get("dir") or ""))
-            return self._json(result, code)
-        if p == "/calls/place":
-            if not self._same_origin_json():
-                return self._json({"error": "same-origin JSON only"}, 403)
-            if body.get("confirmed") is not True:
-                return self._json({"error": "Confirm the exact call target first"}, 400)
-            name, msg = str(body.get("name", "")).strip(), str(body.get("message", "")).strip()[:500]
-            number = str(body.get("number", "")).strip()
-            if not number:
-                return self._json({"error": "confirmed number required"}, 400)
-            try:
-                from liberational.phone import outbound as outbound_call
-
-                ok, detail = outbound_call.place(name, msg, number=number)
-                return self._json({"ok": ok, "detail": detail}, 200 if ok else 409)
-            except Exception as ex:
-                return self._json({"ok": False, "error": str(ex)}, 500)
-        if p in (
-            "/device-links",
-            "/device-links/remove",
-            "/device-locations",
-            "/device-locations/remove",
-            "/device-access-point",
-        ):
-            if not self._same_origin_json():
-                return self._json({"ok": False, "error": "same-origin JSON only"}, 403)
-            from liberational.dashboard import device_links
-
-            act = {
-                "/device-links": device_links.save,
-                "/device-links/remove": device_links.remove,
-                "/device-locations": lambda b, c: device_links.locate(b, c, STATE),
-                "/device-locations/remove": device_links.unlocate,
-                "/device-access-point": device_links.name_access_point,
-            }[p]
-            code, reply = act(body, self._can_teach())
-            return self._json(reply, code)
-        if p == "/zones":
-            if not self._same_origin_json():
-                return self._json({"ok": False, "error": "same-origin JSON only"}, 403)
-            from liberational.dashboard import zones as zone_routes
-
-            code, reply = zone_routes.save(body, self._can_teach(), STATE)
-            return self._json(reply, code)
-        if p in ("/activity/name", "/activity/feedback"):
-            if not self._same_origin_json():
-                return self._json({"ok": False, "error": "same-origin JSON only"}, 403)
-            from liberational.dashboard import activities
-
-            action = activities.feedback if p == "/activity/feedback" else activities.name
-            code, reply = action(body, self._can_teach())
-            return self._json(reply, code)
-        if p in ("/activity/kinds", "/activity/kinds/delete", "/activity/kinds/restore"):
-            if not self._same_origin_json():
-                return self._json({"ok": False, "error": "same-origin JSON only"}, 403)
-            from liberational.dashboard import activities
-
-            code, reply = activities.edit_kind(p, body, self._can_teach(), STATE)
-            return self._json(reply, code)
-        if p == "/pets/sightings/label":
-            if not self._same_origin_json():
-                return self._json({"ok": False, "error": "same-origin JSON only"}, 403)
-            from liberational.dashboard import pets
-
-            code, reply = pets.label(body, self._can_teach(), STATE)
-            return self._json(reply, code)
-        if p == "/pets/sightings/not":
-            if not self._same_origin_json():
-                return self._json({"ok": False, "error": "same-origin JSON only"}, 403)
-            from liberational.dashboard import pets
-
-            code, reply = pets.deny(body, self._can_teach(), STATE)
-            return self._json(reply, code)
-        if p == "/pets/photo":
-            if not self._same_origin_json():
-                return self._json({"ok": False, "error": "same-origin JSON only"}, 403)
-            from liberational.dashboard import pets
-
-            code, reply = pets.card(body, self._can_teach(), STATE)
-            return self._json(reply, code)
-        if p in ("/pets/save", "/pets/remove"):
-            if not self._same_origin_json():
-                return self._json({"ok": False, "error": "same-origin JSON only"}, 403)
-            from liberational.dashboard import pets
-
-            action = pets.save if p == "/pets/save" else pets.remove
-            code, reply = action(body, self._can_teach(), STATE)
-            return self._json(reply, code)
-        if p in ("/faces/not", "/people/photo"):
-            if not self._same_origin_json():
-                return self._json({"ok": False, "error": "same-origin JSON only"}, 403)
-            action = faces_not if p == "/faces/not" else people_photo
-            code, o = action(body, self._can_teach())
-            return self._json(o, code)
-        if p == "/places/plan":
-            from liberational.dashboard import places as places_view
-
-            if not self._same_origin_json():
-                return self._json({"ok": False, "error": "same-origin JSON only"}, 403)
-            code, o = places_view.correct(body, self._can_teach(), STATE)
-            return self._json(o, code)
-        if p == "/places/plan/restore":
-            from liberational.dashboard import places as places_view
-
-            if not self._same_origin_json():
-                return self._json({"ok": False, "error": "same-origin JSON only"}, 403)
-            code, o = places_view.restore(body, self._can_teach(), STATE)
-            return self._json(o, code)
-        if p == "/faces/unknown/reject":
-            if not self._same_origin_json():
-                return self._json({"ok": False, "error": "same-origin JSON only"}, 403)
-            code, o = reject_shots(body.get("group"), body.get("ids"), self._can_teach())
-            return self._json(o, code)
-        if p == "/measurement/mark":
-            if not self._same_origin_json():
-                return self._json({"ok": False, "error": "same-origin JSON only"}, 403)
-            code, o = marks.mark(body, self._can_teach())
-            return self._json(o, code)
-        if p in (
-            "/people/rename",
-            "/people/me",
-            "/people/claim",
-            "/people/delete",
-            "/people/describe",
-            "/inbox/skip",
-            "/people/assign",
-            "/people/assign-many",
-            "/people/correct",
-            "/people/undo",
-        ):
-            if not self._same_origin_json():
-                return self._json({"ok": False, "error": "same-origin JSON only"}, 403)
-            if p == "/people/rename":
-                code, o = rename_person(body.get("from"), body.get("to"), self._can_teach())
-            elif p == "/people/me":
-                code, o = merge_into_owner(body.get("name"), body.get("voices"), control=self._can_control())
-            elif p == "/people/delete":
-                code, o = delete_person(body.get("name"), self._can_teach())
-            elif p == "/inbox/skip":
-                code, o = inbox_skip(body.get("kind"), body.get("id"), self._can_teach())
-            elif p == "/people/assign":
-                code, o = assign_to(body)
-            elif p == "/people/assign-many":
-                code, o = assign_many(body)
-            elif p == "/people/correct":
-                code, o = correct_card(body)
-            elif p == "/people/undo":
-                code, o = undo_people(body)
-            elif p == "/people/describe":
-                code, o = describe_person(
-                    body.get("name"), body.get("role"), body.get("organization"), control=self._can_teach()
-                )
-            else:
-                code, o = claim_identity(
-                    body.get("kind"),
-                    body.get("id"),
-                    body.get("name"),
-                    self._can_control(),  # claiming a voice as the owner's stays on this machine
-                    body.get("face_source"),
-                    body.get("face_image"),
-                )
-            return self._json(o, code)
-        if p in ("/people/reference-url", "/people/reference-attach", "/people/reference-remove"):
-            from liberational.people import references
-
-            if not self._same_origin_json():
-                return self._json({"error": "same-origin JSON only"}, 403)
-            try:
-                if p == "/people/reference-url":
-                    url = str(body.get("url", ""))
-                    return self._json(references.stage(STATE, references.fetch_media(url), url))
-                token = str(body.get("id", ""))
-                if p == "/people/reference-remove":
-                    _unteach_reference(token)
-                    references.remove(STATE, token)
-                    return self._json({"ok": True})
-                person = str(body.get("person", ""))
-                with _PERSON_CHANGES:
-                    if not any(row["name"] == person for row in people_view()["people"]):
-                        raise ValueError("Choose an existing target person before attaching.")
-                    result = references.attach(STATE, token, person)
-                    # Under the same lock, so a delete of the person can't land between the attach and the row
-                    result = _teach_reference(token, result)
-                return self._json(result)
-            except (ValueError, OSError) as exc:
-                return self._json({"error": str(exc)}, 400)
-        if p == "/people/search":
-            if not self._same_origin_json():
-                return self._json({"error": "same-origin JSON only"}, 403)
-            name = str(body.get("name", "")).strip()
-            context = str(body.get("context", "")).strip()
-            if not name or len(name) > 120 or len(context) > 400:
-                return self._json({"error": "Supply a name (up to 120 characters) and context (up to 400)."}, 400)
-            return self._json(public_lookup(name, context, candidates=True))
-        if p == "/people/add":
-            tag = _typed_tag(body.get("name"))
-            nm = tag.name if tag else _person_name(body.get("name"))
-            num = str(body.get("number", "")).strip()
-            if not nm:
-                return self._json({"error": "Names start with a letter and use letters, spaces, . ' or -"}, 400)
-            if num and not contacts.PHONE.fullmatch(num):
-                return self._json({"error": "phone must look like +14155550123"}, 400)
-            add_person(nm, num, **(tag.attributes() if tag else {}))
-            return self._json({"name": nm})
-        self._json({"ok": False, "error": "unknown endpoint"}, 404)
+        if found is None:
+            return self._json({"ok": False, "error": "unknown endpoint"}, 404)
+        return found[0].handler(self, body)
 
     # -- server-sent events: one thread per client, file watch at 0.5 s
     def levels(self) -> None:
@@ -8135,6 +7261,1214 @@ class H(http.server.BaseHTTPRequestHandler):
         finally:
             with SSE_LOCK:
                 SSE_CLIENTS[0] -= 1
+
+
+# ---------------------------------------------------------------- routes ----
+# Every route this module answers, registered in dashboard/routes.py's table (#61). The patterns and tests are
+# tried in this order, after the exact paths, so a catch-all (/people/<name>) comes after the narrower routes.
+
+
+@routes.get_when("/objects, /objects/...", lambda p: p == "/objects" or p.startswith("/objects/"))
+def _get_objects(h: H) -> None:
+    from liberational.dashboard import objects as objects_page
+
+    objects_page.handle(h, "GET")  # the Objects page and its API, on Continuum
+
+
+@routes.get_when(
+    "/people/references, /people/reference-media/<id>",
+    lambda p: p == "/people/references" or p.startswith("/people/reference-media/"),
+)
+def _get_people_references(h: H) -> None:
+    p = h.path.split("?")[0]
+    from liberational.people import references
+
+    try:
+        if p == "/people/references":
+            return h._json(
+                {
+                    "references": references.listing(
+                        STATE,
+                        urllib.parse.parse_qs(urllib.parse.urlsplit(h.path).query).get("person", [""])[0],
+                    )
+                }
+            )
+        token = p.removeprefix("/people/reference-media/")
+        meta = references.metadata(STATE, token)
+        return h._media(
+            references.entry(STATE, token) / meta["file"], meta["mime"], {"X-Content-Type-Options": "nosniff"}
+        )
+    except (ValueError, OSError) as exc:
+        return h._json({"error": str(exc)}, 400)
+
+
+@routes.get("/skeletons/api/spans", "/skeletons/api/poses")
+def _get_skeletons_api_spans(h: H) -> None:
+    p = h.path.split("?")[0]
+    from liberational.dashboard import skeletons
+
+    q = h._query()
+    try:
+        if p == "/skeletons/api/spans":
+            return h._json({"spans": skeletons.spans(STATE, hours=float(q.get("hours", "24")))})
+        return h._json(
+            skeletons.poses(
+                STATE,
+                cam=q["cam"],
+                track_id=q["track"],
+                start=float(q["start"]),
+                end=float(q["end"]),
+            )
+        )
+    except (KeyError, ValueError) as exc:
+        return h._json({"error": f"bad query: {exc}"}, 400)
+
+
+@routes.get("/audio/levels")
+def _get_audio_levels(h: H) -> None:
+    return h.levels()
+
+
+@routes.get("/events")
+def _get_events(h: H) -> None:
+    return h.sse()
+
+
+@routes.get("/logs/stream")
+def _get_logs_stream(h: H) -> None:
+    return h.log_stream()
+
+
+@routes.get("/history/at")
+def _get_history_at(h: H) -> None:
+    if not h._may_see_camera_history():
+        return h._json({"error": "camera history is only shown on this machine"}, 403)
+    q = h._query()
+    try:
+        ts, window = float(q.get("ts", "")), float(q.get("window", "30"))
+    except ValueError:
+        return h._json({"error": "bad ts or window"}, 400)
+    return h._json(history_at(ts, window))
+
+
+@routes.get("/scene")
+def _get_scene(h: H) -> None:
+    return h._json(scene_entries())
+
+
+@routes.get("/ambient")
+def _get_ambient(h: H) -> None:
+    return h._json(mic_status())
+
+
+@routes.get("/vision")
+def _get_vision(h: H) -> None:
+    return h._json(camera_status())
+
+
+@routes.get("/transcript")
+def _get_transcript(h: H) -> None:
+    q = h._query()
+    try:
+        n = max(1, min(1000, int(q.get("n", "80"))))
+    except ValueError:
+        n = 80
+    if q.get("around"):  # the moment a summary link points at: n/2 utterances either side of ts
+        try:
+            ts = float(q["around"])
+        except ValueError:
+            return h._json({"error": "bad around"}, 400)
+        return h._json(transcript_around(ts, n))
+    return h._json({"entries": merged_tail(n), "reset": True})
+
+
+@routes.get("/clones")
+def _get_clones(h: H) -> None:
+    return h._json(clones_list())
+
+
+@routes.get("/clones/render")
+def _get_clones_render(h: H) -> None:
+    f = h._query().get("f", "")
+    if not re.fullmatch(r"say-\d+-\d+\.wav", f):
+        return h._json({"error": "bad file"}, 400)
+    from liberational.dashboard import clone_stream
+
+    r = clone_stream.live(f)
+    if r is not None and not r.done and clone_stream.waits(h.headers.get("User-Agent") or ""):
+        r.wait()  # Safari: the finished file, a few seconds later
+    if r is None or (r.done and not r.error):
+        return h._wav_file(CLONES / f)  # 404 when the cleanup took it
+    if r.done:
+        return h._json({"error": r.error}, 502)
+    return h._stream_render(r)
+
+
+@routes.get_re(r"/clones/(\d{1,6})/lines")
+def _get_clones_x_lines(h: H, m: re.Match[str]) -> None:
+    from liberational.speech import clone_say
+
+    try:
+        return h._json({"lines": clone_say.pickable(int(m.group(1)))})
+    except Exception as ex:
+        log("clones: lines unreadable:", repr(ex), level=logs.ERROR)
+        return h._json({"error": "Could not read their lines."}, 500)
+
+
+@routes.get("/clones/audio")
+def _get_clones_audio(h: H) -> None:
+    try:
+        from liberational.speech import clone_say
+
+        ref = clone_say.ref_for(int(h._query().get("id", 0)), make=False)
+        return h._wav_file(ref) if ref else h._json({"error": "no reference for that voice yet"}, 404)
+    except ValueError:
+        return h._json({"error": "bad id"}, 400)
+
+
+@routes.get("/calls/audio")
+def _get_calls_audio(h: H) -> None:
+    q = h._query()
+    day, name, which = q.get("day", ""), q.get("dir", ""), q.get("which", "mixed")
+    if not (_safe_name(day) and _safe_name(name)) or which not in ("mixed", "bot", "caller"):
+        return h._json({"error": "bad call"}, 400)
+    return h._wav_file(CALLS_DIR / day / name / f"{which}.wav")
+
+
+@routes.get("/clip")
+def _get_clip(h: H) -> None:
+    q = h._query()
+    info = q.get("info") in ("1", "true")
+    if q.get("line"):  # the line's key: one microphone's line, never another's in the same millisecond
+        e = find_line(q["line"])
+        if e is None:
+            return h._json({"ok": False, "error": "no transcript line with that key"}, 404)
+        return h.clip(entry=e, info=info)
+    if "ts_start" in q:
+        try:
+            ts = float(q["ts_start"])
+        except ValueError:
+            return h._json({"ok": False, "error": "bad ts_start"}, 400)
+        e = find_entry(ts)
+        if e is None:
+            return h._json({"ok": False, "error": "no transcript entry at that ts_start"}, 404)
+        return h.clip(entry=e, info=info)
+    return h._json({"ok": False, "error": "need line=<key> or ts_start=<unix seconds>"}, 400)
+
+
+@routes.get_re(r"/speaker/(\d{1,6})/(latest|latest-clip)")
+def _get_speaker_x_x(h: H, m: re.Match[str]) -> None:
+    e = latest_for_speaker(int(m.group(1)))
+    if e is None:
+        return h._json({"ok": False, "error": "no utterance with audio for that speaker"}, 404)
+    return h._json(e) if m.group(2) == "latest" else h.clip(entry=e, info=h._query().get("info") in ("1", "true"))
+
+
+@routes.get("/calls")
+def _get_calls(h: H) -> None:
+    return h._json(calls_list())
+
+
+@routes.get("/calls/live")
+def _get_calls_live(h: H) -> None:
+    return h._json(calls_live())
+
+
+@routes.get("/calls/detail")
+def _get_calls_detail(h: H) -> None:
+    q = dict(kv.split("=", 1) for kv in (h.path.split("?", 1) + [""])[1].split("&") if "=" in kv)
+    t = call_transcript(q.get("day", ""), q.get("dir", ""))
+    return h._json(t or {"error": "not found"}, 200 if t else 404)
+
+
+# not under /people/, where it would be the page of someone named "unnamed"
+@routes.get("/inbox/unnamed")
+def _get_inbox_unnamed(h: H) -> None:
+    return h._json(people_unnamed())
+
+
+@routes.get("/people")
+def _get_people(h: H) -> None:
+    view = people_view(cold=True)
+    _CARD_READS.warm([str(person["name"]) for person in view.get("people", [])[:CARD_WARM]])
+    return h._json(view)
+
+
+@routes.get("/inbox/skips")
+def _get_inbox_skips(h: H) -> None:
+    counts = skip_counts(inbox_skips())
+    return h._json({k: counts[k] for k in ("face", "voice", "line")})
+
+
+@routes.get("/faces/unknown/groups")
+def _get_faces_unknown_groups(h: H) -> None:
+    code, o = _ready_face_groups(*_FACE_GROUPS.poll())
+    return h._json(o, code)
+
+
+@routes.get("/voices/unknown/groups")
+def _get_voices_unknown_groups(h: H) -> None:
+    code, o = _VOICE_GROUPS.poll()
+    return h._json(o, code)
+
+
+@routes.get_re(r"/faces/unknown/(\d{1,9})/sightings")
+def _get_faces_unknown_x_sightings(h: H, m: re.Match[str]) -> None:
+    from liberational.people import face_photos
+
+    q = h._query()
+    try:
+        offset = max(0, int(q.get("offset", "0")))
+        limit = max(1, min(SIGHTINGS_PAGE_MAX, int(q.get("limit", str(face_photos.STRIP_MAX)))))
+    except ValueError:
+        return h._json({"error": "bad offset or limit"}, 400)
+    found = [f for f in face_photos._unnamed(STATE) if face_photos._group(f["cluster"]) == int(m.group(1))]
+    ready, pending, unavailable = _ready_faces(found)
+    page = ready[offset : offset + limit]
+    return h._json(
+        {
+            "sightings": [{"id": s["id"], "ts": s["ts"], "url": f"/faces/shot/{s['id']}.jpg"} for s in page],
+            "total": len(ready),
+            "shots_pending": pending,
+            "shots_unavailable": unavailable,
+        }
+    )
+
+
+@routes.get_when("/faces/unknown/<group>.jpg", lambda p: p.startswith("/faces/unknown/") and p.endswith(".jpg"))
+def _get_faces_unknown_photo(h: H) -> None:
+    p = h.path.split("?")[0]
+    gid = p[len("/faces/unknown/") : -len(".jpg")]
+    f = _unknown_photo(gid) if gid.isdigit() else None
+    return h._send(200, "image/jpeg", f.read_bytes()) if f and f.exists() else h._send(404, "text/plain", b"")
+
+
+@routes.get("/people/video-thumb.jpg")
+def _get_people_video_thumb_jpg(h: H) -> None:
+    return h._video_thumb()
+
+
+@routes.get_re(r"/faces/shot/([0-9A-Za-z-]{1,64})\.jpg")
+def _get_faces_shot_x_jpg(h: H, m: re.Match[str]) -> None:
+    if h._query().get("size") == "80":
+        return h._grid_photo(m.group(1), "shots_grid")
+    try:
+        path, etag = _shot_file(m.group(1))
+    except ShotsBusy:
+        h.send_response(503)
+        h.send_header("Retry-After", "2")
+        h.send_header("Content-Length", "0")
+        h.end_headers()
+        return
+    if path is None:
+        return h._send(404, "text/plain", b"")
+    tags = {tag.strip() for tag in h.headers.get("If-None-Match", "").split(",")}
+    if etag is not None and tags.intersection({etag, f"W/{etag}", "*"}):
+        h.send_response(304)
+        h.send_header("Cache-Control", "private, max-age=86400")
+        h.send_header("ETag", etag)
+        h.end_headers()
+        return
+    b = path.read_bytes()
+    h.send_response(200)
+    h.send_header("Content-Type", "image/jpeg")
+    # A day: a crop's pixels don't change, and a deleted sighting's is no longer on any page that asks.
+    h.send_header("Cache-Control", "private, max-age=86400")
+    if etag is not None:
+        h.send_header("ETag", etag)
+    h.send_header("Content-Length", str(len(b)))
+    h.end_headers()
+    if h.command != "HEAD":
+        h.wfile.write(b)
+    return
+
+
+@routes.get_when("/faces/shot/...", lambda p: p.startswith("/faces/shot/"))
+def _get_faces_shot_missing(h: H) -> None:
+    return h._send(404, "text/plain", b"")
+
+
+# the card's photo URLs
+@routes.get_re(r"/people/([^/]+)/photos/(\d{10,16})\.jpg")
+def _get_people_x_photos_x_jpg(h: H, m: re.Match[str]) -> None:
+    nm = urllib.parse.unquote(m.group(1))
+    if not _safe_name(nm):
+        return h._json({"error": "bad name"}, 400)
+    pick = [f for f in _photos(nm) if f.stem == m.group(2)][:1]
+    return h._send(200, "image/jpeg", pick[0].read_bytes()) if pick else h._send(404, "text/plain", b"")
+
+
+@routes.get_re(r"/people/([^/]+)/card")
+def _get_people_x_card(h: H, m: re.Match[str]) -> None:
+    card = _CARD_READS.get(urllib.parse.unquote(m.group(1)))
+    return h._json(card or {"error": "bad name"}, 200 if card else 400)
+
+
+# why a line or a recorded face has its name; read only
+@routes.get("/identity/why")
+def _get_identity_why(h: H) -> None:
+    return h._json(*why_name_view(h._query()))
+
+
+@routes.get_when("/people/<name>", lambda p: p.startswith("/people/"))
+def _get_people_summary(h: H) -> None:
+    p = h.path.split("?")[0]
+    from urllib.parse import unquote
+
+    s2 = person_summary(unquote(p[len("/people/") :]))
+    return h._json(s2 or {"error": "bad name"}, 200 if s2 else 400)
+
+
+@routes.get("/speakers")
+def _get_speakers(h: H) -> None:
+    return h._json(speakers_public())
+
+
+@routes.get("/speakers/refine/log")
+def _get_speakers_refine_log(h: H) -> None:
+    return h._json(refine_log_list(min(500, max(1, int(h._query().get("limit", 50) or 50)))))
+
+
+@routes.get("/speakers/refine")
+def _get_speakers_refine(h: H) -> None:
+    try:
+        return h._json(speakers_refine_list())
+    except Exception as ex:
+        return h._json({"ok": False, "error": str(ex)}, 500)
+
+
+@routes.get("/review/boxes")
+def _get_review_boxes(h: H) -> None:
+    from liberational.dashboard import review_boxes
+
+    q = h._query()
+    try:
+        start, end = float(q.get("start") or ""), float(q.get("end") or "")
+        return h._json(review_boxes.boxes(q.get("cam", ""), start, end, STATE))
+    except (TypeError, ValueError) as ex:
+        return h._json({"error": str(ex)}, 400)
+
+
+@routes.get("/live/happening")
+def _get_live_happening(h: H) -> None:
+    from liberational.dashboard import happening
+
+    q = h._query()
+    try:
+        since = float(q["since"]) if q.get("since") else None
+        limit = max(1, min(200, int(q.get("limit") or 50)))
+    except ValueError:
+        return h._json({"error": "since is a time in seconds, and limit a number"}, 400)
+    if since is not None and not math.isfinite(since):
+        return h._json({"error": "since is a time in seconds"}, 400)
+    try:
+        return h._json(happening.happening(STATE, since, limit))
+    except Exception as ex:
+        log("live happening failed:", repr(ex), level=logs.ERROR)
+        return h._json({"error": "Couldn't read what's been happening."}, 500)
+
+
+@routes.get("/review/search")
+def _get_review_search(h: H) -> None:
+    q = h._query()
+    code, reply = review_search(q.get("day", ""), q.get("q", ""))
+    return h._json(reply, code)
+
+
+@routes.get("/journal/today")
+def _get_journal_today(h: H) -> None:
+    from liberational.memory import ask, journal_pages
+
+    try:
+        day = ask.validate_day(h._query().get("day", ""))
+    except ValueError:
+        return h._json({"error": "day must be YYYY-MM-DD"}, 400)
+    code, reply = journal_pages.today_page(STATE, time.time(), dt.date.fromisoformat(day) if day else None)
+    return h._json(reply, code)
+
+
+@routes.get("/review/summary")
+def _get_review_summary(h: H) -> None:
+    q = h._query()
+    if "day" in q:
+        from liberational.memory import ask, journal
+
+        try:
+            if ask.validate_day(q["day"]) is None:
+                raise ValueError("day must be YYYY-MM-DD")
+            start, end = journal.day_bounds(q["day"])
+        except ValueError, OverflowError:
+            return h._json({"error": "day must be YYYY-MM-DD"}, 400)
+    else:
+        try:
+            start, end = float(q.get("start", "")), float(q.get("end", ""))
+        except ValueError:
+            return h._json({"error": "start and end are times in seconds"}, 400)
+    if not (math.isfinite(start) and math.isfinite(end) and start < end <= start + REVIEW_SUMMARY_MAX_S):
+        return h._json({"error": "end must come after start, and within 31 days of it"}, 400)
+    try:
+        return h._json(review_summary_kept(start, end))
+    except Exception as ex:
+        log("review summary failed:", repr(ex), level=logs.ERROR)
+        return h._json({"error": "Couldn't read the journal for that stretch."}, 500)
+
+
+@routes.get("/device-links")
+def _get_device_links(h: H) -> None:
+    from liberational.dashboard import device_links
+
+    code, reply = device_links.listing(h._query().get("hours", ""), state=STATE)
+    return h._json(reply, code)
+
+
+@routes.get("/device-presence")
+def _get_device_presence(h: H) -> None:
+    from liberational.dashboard import device_links
+
+    code, reply = device_links.presence()
+    return h._json(reply, code)
+
+
+# Known › Devices
+@routes.get("/device-whereabouts", "/device-comings")
+def _get_device_whereabouts(h: H) -> None:
+    p = h.path.split("?")[0]
+    from liberational.dashboard import device_links
+
+    code, reply = device_links.whereabouts() if p == "/device-whereabouts" else device_links.comings()
+    return h._json(reply, code)
+
+
+@routes.get("/zones", "/zones/history")
+def _get_zones(h: H) -> None:
+    p = h.path.split("?")[0]
+    from liberational.dashboard import zones as zone_routes
+
+    if p == "/zones":
+        code, reply = zone_routes.listing(STATE)
+    else:
+        code, reply = zone_routes.history(h._query().get("cam", ""), STATE)
+    return h._json(reply, code)
+
+
+@routes.get("/places")
+def _get_places(h: H) -> None:
+    from liberational.dashboard import places as places_view
+
+    code, reply = places_view.listing(STATE)
+    return h._json(reply, code)
+
+
+@routes.get("/places/scene")
+def _get_places_scene(h: H) -> None:
+    from liberational.dashboard import places as places_view
+
+    code, reply = places_view.scene(STATE, h._query().get("place", ""))
+    return h._json(reply, code)
+
+
+@routes.get("/places/map", "/places/splat")
+def _get_places_map(h: H) -> None:
+    p = h.path.split("?")[0]
+    from liberational.dashboard import places as places_view
+
+    q = h._query()
+    files = places_view.map_file if p == "/places/map" else places_view.splat_file
+    found = files(STATE, q.get("place", ""), q.get("revision", ""))
+    if found is None:
+        return h._json({"error": f"no such {p.rsplit('/', 1)[1]}"}, 404)
+    # A revision's map and splat never change once written: its id is their ETag, and they can be kept for good.
+    tag = f'"{q.get("revision", "")}"'
+    if h.headers.get("If-None-Match") == tag:
+        h.send_response(304)
+        h.send_header("ETag", tag)
+        h.end_headers()
+        return None
+    return h._media(found, "application/octet-stream", {"ETag": tag}, cache="private, max-age=31536000, immutable")
+
+
+@routes.get("/places/positions")
+def _get_places_positions(h: H) -> None:
+    from liberational.dashboard import places as places_view
+    from liberational.spatial import positions
+
+    try:
+        code, reply = places_view.positions_view(h._query(), STATE, cancelled=h._client_gone)
+    except positions.Cancelled:
+        h.close_connection = True  # nobody is reading: nothing to send
+        return log("places positions read stopped: the client hung up", level=logs.DEBUG)
+    return h._json(reply, code)
+
+
+@routes.get("/places/plan/history")
+def _get_places_plan_history(h: H) -> None:
+    from liberational.dashboard import places as places_view
+
+    code, reply = places_view.plan_versions(STATE, h._query().get("place", ""))
+    return h._json(reply, code)
+
+
+@routes.get("/journal")
+def _get_journal(h: H) -> None:
+    from liberational.dashboard import journal as journal_view
+
+    code, reply = journal_view.listing(h._query(), STATE)
+    return h._json(reply, code)
+
+
+@routes.get("/activities")
+def _get_activities(h: H) -> None:
+    from liberational.dashboard import activities
+
+    query = h._query()
+    if "days" in query:  # several days in one answer (#52)
+        code, reply = activities.listings(query["days"], STATE)
+        return h._json(reply, code)
+    code, reply = activities.listing(
+        query.get("day", ""), STATE, kind=query.get("kind"), unrated=query.get("unrated") == "1"
+    )
+    return h._json(reply, code)
+
+
+@routes.get("/activity/kinds")
+def _get_activity_kinds(h: H) -> None:
+    from liberational.dashboard import activities
+
+    code, reply = activities.kinds(STATE)
+    return h._json(reply, code)
+
+
+@routes.get("/pets")
+def _get_pets(h: H) -> None:
+    from liberational.dashboard import pets
+
+    code, reply = pets.listing(STATE)
+    return h._json(reply, code)
+
+
+@routes.get("/pets/sightings")
+def _get_pets_sightings(h: H) -> None:
+    from liberational.dashboard import pets
+
+    code, reply = _ready_pet_view(*pets.sightings(STATE))
+    return h._json(reply, code)
+
+
+@routes.get("/pets/sightings/photo")
+def _get_pets_sightings_photo(h: H) -> None:
+    return h._pet_photo(h._query().get("track", ""))
+
+
+@routes.get("/review/presence")
+def _get_review_presence(h: H) -> None:
+    from liberational.dashboard import presence
+
+    day = h._query().get("day") or None
+    if day and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
+        return h._json({"error": "day must be YYYY-MM-DD"}, 400)
+    return h._json(presence.for_request(day, STATE))
+
+
+@routes.get("/journal/evidence")
+def _get_journal_evidence(h: H) -> None:
+    from liberational.memory import journal_evidence
+
+    day = h._query().get("day") or ""
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
+        return h._json({"error": "day must be YYYY-MM-DD"}, 400)
+    return h._json({"day": day, "sources": journal_evidence.resolve_day(STATE, day)})
+
+
+@routes.get_re(r"/journal/evidence/(\d{4}-\d{2}-\d{2})/([0-9A-Za-z_.-]{1,96})")
+def _get_journal_evidence_x_x(h: H, m: re.Match[str]) -> None:
+    from liberational.memory import journal_evidence
+
+    found = journal_evidence.file(STATE, m.group(1), m.group(2))
+    if found is None:
+        return h._send(404, "text/plain", b"")
+    # Byte ranges (206), which Safari and iOS need to play an mp4 at all.
+    return h._media(found, "video/mp4" if found.suffix == ".mp4" else "image/jpeg")
+
+
+@routes.get("/review/days")
+def _get_review_days(h: H) -> None:
+    return h._json({"days": recorded_days(STATE), "today": time.strftime("%Y-%m-%d")})
+
+
+@routes.get("/transcript/day")
+def _get_transcript_day(h: H) -> None:
+    day = h._query().get("day") or time.strftime("%Y-%m-%d")
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
+        return h._json({"error": "bad day"}, 400)
+    t0 = time.mktime(time.strptime(day, "%Y-%m-%d"))
+    es = [
+        e for e in heard_lines(t0 - 3600, t0 + 90000) if time.strftime("%Y-%m-%d", time.localtime(e["ts_start"])) == day
+    ]
+    return h._json({"day": day, "entries": transcript_view.once(_view().lines(es))})  # once each
+
+
+@routes.get("/audio/range")
+def _get_audio_range(h: H) -> None:
+    q = h._query()
+    try:
+        wav, _info = audio_range(q.get("start"), q.get("end"))
+    except TypeError, ValueError:
+        return h._json({"error": "start and end must be timestamps, end after start"}, 400)
+    except FileNotFoundError as ex:
+        return h._json({"error": str(ex)}, 404)
+    except Exception as ex:
+        return h._json({"error": str(ex)}, 500)
+    # Browsers fetch media with Range requests and give up on a plain 200 (Review's room audio never loaded,
+    # with networkState stuck at 2); _media answers 206 like /clip does.
+    return h._media(wav, "audio/wav", {"Cache-Control": "no-store"})
+
+
+@routes.get("/audio/spans")
+def _get_audio_spans(h: H) -> None:
+    day = h._query().get("day") or time.strftime("%Y-%m-%d")
+    spans = audio_spans(day) if re.fullmatch(r"\d{4}-\d{2}-\d{2}", day) else []
+    return h._json({"day": day, "spans": spans})
+
+
+@routes.get("/stats")
+def _get_stats(h: H) -> None:
+    snapshot = STATS.snapshot()
+    USAGE.record(snapshot)
+    return h._json(snapshot)
+
+
+# SAMPLER keeps the history going from dashboard start
+@routes.get("/stats/history")
+def _get_stats_history(h: H) -> None:
+    try:
+        since = float(h._query().get("since") or 0)
+    except ValueError:
+        since = 0.0
+    return h._json(USAGE.view(since if math.isfinite(since) else 0.0))
+
+
+@routes.get("/services/history")
+def _get_services_history(h: H) -> None:
+    code, body = service_history_view(h._query().get("hours", "24"))
+    return h._json(body, code)
+
+
+@routes.get("/services")
+def _get_services(h: H) -> None:
+    return h._json(services_view(h._can_control()))
+
+
+@routes.get("/health")
+def _get_health(h: H) -> None:
+    return h._json(
+        {
+            "ok": True,
+            "ts": time.time(),
+            "clients": SSE_CLIENTS[0],
+            "boot": devreload.BOOT,
+            "people_warmup": _people_warm_status(),
+        }
+    )
+
+
+@routes.get_when("/static/...", lambda p: p.startswith("/static/"))
+def _get_static(h: H) -> None:
+    p = h.path.split("?")[0]
+    if p.startswith("/static/app/") and DEV and (got := vite(h.path)) is not None:
+        # --dev: the new frontend's modules, styles, and fonts come from Vite, through this server, so the page
+        # loads them from its own origin (over Tailscale too). Its hot reload talks to Vite's port directly.
+        return h._send(200, got[1], got[0])
+    hit = assets.read(p)
+    return h._send(200, hit[1], hit[0]) if hit else h._send(404, "text/plain", b"")
+
+
+@routes.post_raw_when("/objects, /objects/...", lambda p: p == "/objects" or p.startswith("/objects/"))
+def _post_objects(h: H) -> None:
+    from liberational.dashboard import objects as objects_page
+
+    objects_page.handle(h, "POST")
+
+
+@routes.post_raw("/people/reference-upload")
+def _post_people_reference_upload(h: H) -> None:
+    from liberational.people import references
+
+    origin = h.headers.get("Origin")
+    host = h.headers.get("Host") or ""
+    if origin and origin not in (f"http://{host}", f"https://{host}"):
+        return h._json({"error": "same-origin upload only"}, 403)
+    try:
+        length = int(h.headers.get("Content-Length") or 0)
+        if not 0 < length <= references.MAX_BYTES:
+            h.close_connection = True
+            return h._json({"error": "Choose a nonempty file up to 20 MB."}, 413)
+        h.connection.settimeout(30)
+        raw = h.rfile.read(length)
+        if len(raw) != length:
+            raise ValueError("Upload interrupted. Please retry.")
+        return h._json(references.stage(STATE, raw, "Local upload"))
+    except (ValueError, OSError) as exc:
+        return h._json({"error": str(exc)}, 400)
+
+
+@routes.post_raw("/clones/record")
+def _post_clones_record(h: H) -> None:
+    clen = int(h.headers.get("Content-Length") or 0)
+    raw = h.rfile.read(clen) if clen > 0 else b""
+    if len(raw) < 48000:  # less than ~16ms of audio
+        return h._json({"ok": False, "error": "too little data; need at least a few seconds of audio"}, 400)
+    try:
+        code, o = clone_record(raw, urllib.parse.unquote_plus(h._query().get("name", "")))
+        return h._json(o, code)
+    except Exception as ex:
+        return h._json({"ok": False, "error": str(ex)}, 500)
+
+
+@routes.post("/services")
+def _post_services(h: H, body: Any) -> None:
+    origin = h.headers.get("Origin")
+    if not h._can_control():
+        return h._json({"ok": False, "error": "services can only be changed from this machine"}, 403)
+    if h.headers.get_content_type() != "application/json" or (
+        origin and origin != "http://" + (h.headers.get("Host") or "")
+    ):
+        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
+    with SERVICES_LOCK:  # one action at a time: two Disables at once would each rewrite pack.toml
+        if "all" in body:
+            code, o = all_services(str(body.get("all")))
+        else:
+            code, o = service_action(str(body.get("name", "")), str(body.get("action", "")))
+    return h._json(o, code)
+
+
+@routes.post("/speakers/tag")
+def _post_speakers_tag(h: H, body: Any) -> None:
+    if not h._same_origin_json():
+        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
+    code, o = request_voice_tags(body.get("ts_starts"), body.get("name"), h._can_teach(), lines=body.get("lines"))
+    return h._json(o, code)
+
+
+@routes.post(
+    "/transcript/reject",
+    "/transcript/undo",
+    "/transcript/media",
+    "/transcript/not-media",
+    "/voices/unknown/media",
+)
+def _post_transcript_reject(h: H, body: Any) -> None:
+    p = h.path.split("?")[0]
+    if not h._same_origin_json():
+        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
+    if not h._can_teach():
+        return h._json({"ok": False, "error": "Controls unavailable"}, 403)
+    if not isinstance(body, dict):
+        return h._json({"ok": False, "error": "Send a JSON object."}, 400)
+    action = {
+        "/transcript/reject": reject_transcript,
+        "/transcript/undo": undo_transcript,
+        "/transcript/media": media_transcript,
+        "/transcript/not-media": not_media,
+        "/voices/unknown/media": media_voice,
+    }[p]
+    try:
+        code, result = action(body)
+    except (OSError, RuntimeError) as error:
+        LOG.exception("transcript correction failed")
+        return h._json({"ok": False, "error": f"The correction could not be saved: {error}"}, 500)
+    return h._json(result, code)
+
+
+@routes.post("/speakers/label")
+def _post_speakers_label(h: H, body: Any) -> None:
+    if not h._same_origin_json():
+        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
+    code, o = label_speaker(body.get("id"), str(body.get("name", "")), h._can_teach())
+    return h._json(o, code)
+
+
+@routes.post("/speakers/refine/undo")
+def _post_speakers_refine_undo(h: H, body: Any) -> None:
+    origin = h.headers.get("Origin")
+    if not h._can_teach():
+        return h._json({"ok": False, "error": "labels can only be undone from this machine"}, 403)
+    if h.headers.get_content_type() != "application/json" or (
+        origin and origin != "http://" + (h.headers.get("Host") or "")
+    ):
+        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
+    code, o = speakers_refine_undo(body)
+    return h._json(o, code)
+
+
+@routes.post("/speakers/refine")
+def _post_speakers_refine(h: H, body: Any) -> None:
+    try:
+        action = str(body.get("action", "")).strip()
+        code, o = speakers_refine(action, body)
+        return h._json(o, code)
+    except Exception as ex:
+        return h._json({"ok": False, "error": str(ex)}, 500)
+
+
+@routes.post_when("/people/<name>/lookup", lambda p: p.startswith("/people/") and p.endswith("/lookup"))
+def _post_people_lookup(h: H, body: Any) -> None:
+    p = h.path.split("?")[0]
+    from urllib.parse import unquote
+
+    nm = unquote(p[len("/people/") : -len("/lookup")])
+    if nm not in {x["name"] for x in people_roster()}:
+        return h._json({"error": "only people already on the People list"}, 400)
+    return h._json(public_lookup(nm))
+
+
+@routes.post("/transcript/unlabel")
+def _post_transcript_unlabel(h: H, body: Any) -> None:
+    line = body.get("line")  # the line's key, or its time alone as before
+    try:
+        ts = None if isinstance(line, str) and line else float(body.get("ts_start"))
+    except Exception:
+        return h._json({"error": "line (or ts_start) required"}, 400)
+    try:
+        found = _line_at(ts, line)
+        if found is None:
+            return h._json({"error": "no such utterance"}, 404)
+        stored, _, view = found
+        voice = view.canonical(stored.get("speaker_id"))
+        _label_line(registry.utterance_of(stored), None, voice, label=transcript_view.UNKNOWN)
+        hit = _view().line(stored)
+        transcript_view.rebuild_quietly(STATE, [transcript_view.day_of(hit["ts_start"])])
+        return h._json({"ok": True, "entry": hit})
+    except AmbiguousLine as ex:
+        return h._json({"error": str(ex)}, 409)
+    except Exception as ex:
+        return h._json({"error": str(ex)}, 500)
+
+
+@routes.post("/clones/say")
+def _post_clones_say(h: H, body: Any) -> None:
+    try:
+        sid, text = int(body.get("id")), str(body.get("text", "")).strip()[:600]
+    except Exception:
+        return h._json({"error": "id and text required"}, 400)
+    if not text:
+        return h._json({"error": "nothing to say"}, 400)
+    code, o = clone_say(sid, text)
+    return h._json(o, code)
+
+
+@routes.post("/playback/start")
+def _post_playback_start(h: H, body: Any) -> None:
+    from liberational.speech import playback_guard as pg
+
+    secs = max(1.0, min(300.0, float(body.get("seconds") or 10)))
+    tok = pg.open_window(secs)
+    return h._json({"ok": True, "token": tok})
+
+
+@routes.post("/playback/stop")
+def _post_playback_stop(h: H, body: Any) -> None:
+    from liberational.speech import playback_guard as pg
+
+    pg.close_window(str(body.get("token") or ""))
+    return h._json({"ok": True})
+
+
+@routes.post("/clones/remove")
+def _post_clones_remove(h: H, body: Any) -> None:
+    try:
+        sid = int(body.get("id"))
+    except Exception:
+        return h._json({"error": "id required"}, 400)
+    code, o = clone_remove(sid)
+    return h._json(o, code)
+
+
+@routes.post("/clones/pick")
+def _post_clones_pick(h: H, body: Any) -> None:
+    code, o = clone_pick(body.get("id"), body.get("lines"))
+    return h._json(o, code)
+
+
+@routes.post("/clones/build")
+def _post_clones_build(h: H, body: Any) -> None:
+    try:
+        sid = int(body.get("id"))
+    except Exception:
+        return h._json({"error": "id required"}, 400)
+    code, o = clone_build(sid)
+    return h._json(o, code)
+
+
+@routes.post("/calls/hangup")
+def _post_calls_hangup(h: H, body: Any) -> None:
+    if not h._same_origin_json():
+        return h._json({"error": "same-origin JSON only"}, 403)
+    if body.get("confirmed") is not True:
+        return h._json({"error": "Confirm the selected call first"}, 400)
+    code, result = calls_hangup(str(body.get("day") or ""), str(body.get("dir") or ""))
+    return h._json(result, code)
+
+
+@routes.post("/calls/place")
+def _post_calls_place(h: H, body: Any) -> None:
+    if not h._same_origin_json():
+        return h._json({"error": "same-origin JSON only"}, 403)
+    if body.get("confirmed") is not True:
+        return h._json({"error": "Confirm the exact call target first"}, 400)
+    name, msg = str(body.get("name", "")).strip(), str(body.get("message", "")).strip()[:500]
+    number = str(body.get("number", "")).strip()
+    if not number:
+        return h._json({"error": "confirmed number required"}, 400)
+    try:
+        from liberational.phone import outbound as outbound_call
+
+        ok, detail = outbound_call.place(name, msg, number=number)
+        return h._json({"ok": ok, "detail": detail}, 200 if ok else 409)
+    except Exception as ex:
+        return h._json({"ok": False, "error": str(ex)}, 500)
+
+
+@routes.post(
+    "/device-links",
+    "/device-links/remove",
+    "/device-locations",
+    "/device-locations/remove",
+    "/device-access-point",
+)
+def _post_device_links(h: H, body: Any) -> None:
+    p = h.path.split("?")[0]
+    if not h._same_origin_json():
+        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
+    from liberational.dashboard import device_links
+
+    act = {
+        "/device-links": device_links.save,
+        "/device-links/remove": device_links.remove,
+        "/device-locations": lambda b, c: device_links.locate(b, c, STATE),
+        "/device-locations/remove": device_links.unlocate,
+        "/device-access-point": device_links.name_access_point,
+    }[p]
+    code, reply = act(body, h._can_teach())
+    return h._json(reply, code)
+
+
+@routes.post("/zones")
+def _post_zones(h: H, body: Any) -> None:
+    if not h._same_origin_json():
+        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
+    from liberational.dashboard import zones as zone_routes
+
+    code, reply = zone_routes.save(body, h._can_teach(), STATE)
+    return h._json(reply, code)
+
+
+@routes.post("/activity/name", "/activity/feedback")
+def _post_activity_name(h: H, body: Any) -> None:
+    p = h.path.split("?")[0]
+    if not h._same_origin_json():
+        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
+    from liberational.dashboard import activities
+
+    action = activities.feedback if p == "/activity/feedback" else activities.name
+    code, reply = action(body, h._can_teach())
+    return h._json(reply, code)
+
+
+@routes.post("/activity/kinds", "/activity/kinds/delete", "/activity/kinds/restore")
+def _post_activity_kinds(h: H, body: Any) -> None:
+    p = h.path.split("?")[0]
+    if not h._same_origin_json():
+        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
+    from liberational.dashboard import activities
+
+    code, reply = activities.edit_kind(p, body, h._can_teach(), STATE)
+    return h._json(reply, code)
+
+
+@routes.post("/pets/sightings/label")
+def _post_pets_sightings_label(h: H, body: Any) -> None:
+    if not h._same_origin_json():
+        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
+    from liberational.dashboard import pets
+
+    code, reply = pets.label(body, h._can_teach(), STATE)
+    return h._json(reply, code)
+
+
+@routes.post("/pets/sightings/not")
+def _post_pets_sightings_not(h: H, body: Any) -> None:
+    if not h._same_origin_json():
+        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
+    from liberational.dashboard import pets
+
+    code, reply = pets.deny(body, h._can_teach(), STATE)
+    return h._json(reply, code)
+
+
+@routes.post("/pets/photo")
+def _post_pets_photo(h: H, body: Any) -> None:
+    if not h._same_origin_json():
+        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
+    from liberational.dashboard import pets
+
+    code, reply = pets.card(body, h._can_teach(), STATE)
+    return h._json(reply, code)
+
+
+@routes.post("/pets/save", "/pets/remove")
+def _post_pets_save(h: H, body: Any) -> None:
+    p = h.path.split("?")[0]
+    if not h._same_origin_json():
+        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
+    from liberational.dashboard import pets
+
+    action = pets.save if p == "/pets/save" else pets.remove
+    code, reply = action(body, h._can_teach(), STATE)
+    return h._json(reply, code)
+
+
+@routes.post("/faces/not", "/people/photo")
+def _post_faces_not(h: H, body: Any) -> None:
+    p = h.path.split("?")[0]
+    if not h._same_origin_json():
+        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
+    action = faces_not if p == "/faces/not" else people_photo
+    code, o = action(body, h._can_teach())
+    return h._json(o, code)
+
+
+@routes.post("/places/plan")
+def _post_places_plan(h: H, body: Any) -> None:
+    from liberational.dashboard import places as places_view
+
+    if not h._same_origin_json():
+        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
+    code, o = places_view.correct(body, h._can_teach(), STATE)
+    return h._json(o, code)
+
+
+@routes.post("/places/plan/restore")
+def _post_places_plan_restore(h: H, body: Any) -> None:
+    from liberational.dashboard import places as places_view
+
+    if not h._same_origin_json():
+        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
+    code, o = places_view.restore(body, h._can_teach(), STATE)
+    return h._json(o, code)
+
+
+@routes.post("/faces/unknown/reject")
+def _post_faces_unknown_reject(h: H, body: Any) -> None:
+    if not h._same_origin_json():
+        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
+    code, o = reject_shots(body.get("group"), body.get("ids"), h._can_teach())
+    return h._json(o, code)
+
+
+@routes.post("/measurement/mark")
+def _post_measurement_mark(h: H, body: Any) -> None:
+    if not h._same_origin_json():
+        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
+    code, o = marks.mark(body, h._can_teach())
+    return h._json(o, code)
+
+
+@routes.post(
+    "/people/rename",
+    "/people/me",
+    "/people/claim",
+    "/people/delete",
+    "/people/describe",
+    "/inbox/skip",
+    "/people/assign",
+    "/people/assign-many",
+    "/people/correct",
+    "/people/undo",
+)
+def _post_people_rename(h: H, body: Any) -> None:
+    p = h.path.split("?")[0]
+    if not h._same_origin_json():
+        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
+    if p == "/people/rename":
+        code, o = rename_person(body.get("from"), body.get("to"), h._can_teach())
+    elif p == "/people/me":
+        code, o = merge_into_owner(body.get("name"), body.get("voices"), control=h._can_control())
+    elif p == "/people/delete":
+        code, o = delete_person(body.get("name"), h._can_teach())
+    elif p == "/inbox/skip":
+        code, o = inbox_skip(body.get("kind"), body.get("id"), h._can_teach())
+    elif p == "/people/assign":
+        code, o = assign_to(body)
+    elif p == "/people/assign-many":
+        code, o = assign_many(body)
+    elif p == "/people/correct":
+        code, o = correct_card(body)
+    elif p == "/people/undo":
+        code, o = undo_people(body)
+    elif p == "/people/describe":
+        code, o = describe_person(body.get("name"), body.get("role"), body.get("organization"), control=h._can_teach())
+    else:
+        code, o = claim_identity(
+            body.get("kind"),
+            body.get("id"),
+            body.get("name"),
+            h._can_control(),  # claiming a voice as the owner's stays on this machine
+            body.get("face_source"),
+            body.get("face_image"),
+        )
+    return h._json(o, code)
+
+
+@routes.post("/people/reference-url", "/people/reference-attach", "/people/reference-remove")
+def _post_people_reference_url(h: H, body: Any) -> None:
+    p = h.path.split("?")[0]
+    from liberational.people import references
+
+    if not h._same_origin_json():
+        return h._json({"error": "same-origin JSON only"}, 403)
+    try:
+        if p == "/people/reference-url":
+            url = str(body.get("url", ""))
+            return h._json(references.stage(STATE, references.fetch_media(url), url))
+        token = str(body.get("id", ""))
+        if p == "/people/reference-remove":
+            _unteach_reference(token)
+            references.remove(STATE, token)
+            return h._json({"ok": True})
+        person = str(body.get("person", ""))
+        with _PERSON_CHANGES:
+            if not any(row["name"] == person for row in people_view()["people"]):
+                raise ValueError("Choose an existing target person before attaching.")
+            result = references.attach(STATE, token, person)
+            # Under the same lock, so a delete of the person can't land between the attach and the row
+            result = _teach_reference(token, result)
+        return h._json(result)
+    except (ValueError, OSError) as exc:
+        return h._json({"error": str(exc)}, 400)
+
+
+@routes.post("/people/search")
+def _post_people_search(h: H, body: Any) -> None:
+    if not h._same_origin_json():
+        return h._json({"error": "same-origin JSON only"}, 403)
+    name = str(body.get("name", "")).strip()
+    context = str(body.get("context", "")).strip()
+    if not name or len(name) > 120 or len(context) > 400:
+        return h._json({"error": "Supply a name (up to 120 characters) and context (up to 400)."}, 400)
+    return h._json(public_lookup(name, context, candidates=True))
+
+
+@routes.post("/people/add")
+def _post_people_add(h: H, body: Any) -> None:
+    tag = _typed_tag(body.get("name"))
+    nm = tag.name if tag else _person_name(body.get("name"))
+    num = str(body.get("number", "")).strip()
+    if not nm:
+        return h._json({"error": "Names start with a letter and use letters, spaces, . ' or -"}, 400)
+    if num and not contacts.PHONE.fullmatch(num):
+        return h._json({"error": "phone must look like +14155550123"}, 400)
+    add_person(nm, num, **(tag.attributes() if tag else {}))
+    return h._json({"name": nm})
 
 
 _PEOPLE_WARM_LOCK = threading.Lock()
