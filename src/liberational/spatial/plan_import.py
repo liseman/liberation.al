@@ -1,4 +1,4 @@
-"""An owner-supplied floorplan, registered into a place's plan frame (#3276, part of spatial memory, goal #2794).
+"""An owner-supplied floorplan, registered into a place's plan frame (part of spatial memory).
 
 An owner may have an accurate plan of their home from elsewhere, such as a phone LiDAR scan app's export redrawn in
 the floorplan DSL. It becomes the place's owner plan (memory/places.py `correct_plan`), so positions name its rooms,
@@ -44,7 +44,7 @@ opening between, `in_sight`; a share inside any room let a view pass through the
 walls. The best turn is the view's own evidence of which way the camera looks, beside its registered yaw; the
 same fit against the view reflected across its line of sight (`mirrored`) says whether its video is mirrored, which
 makes its reconstruction a reflection no turn undoes. Fixed cameras mostly look down at floor and furniture, so the
-evidence is often broad (`View.spread`). On Place 1 (2026-11-09) it agreed with the registration within 2 degrees for
+evidence is often broad (`View.spread`). On Place 1 it agreed with the registration within 2 degrees for
 one camera and showed a 4 m misregistration as a view that fit no better at the measured spot, so it is a check on a
 registration, not a replacement for one.
 """
@@ -517,7 +517,7 @@ def register(
     from it is left out (`Fit.dropped`). `mirror` fixes whether the plan's page is mirrored into the frame (True for a
     right-handed frame seen from above, as every map here is: the page's y grows south); None tries both. `start`, when
     given, is where the fine fit starts instead of the coarse search or the spots (a map already near the plan, as a
-    walk placed in the plan's own frame is, #3286). See the module docstring."""
+    walk placed in the plan's own frame is). See the module docstring."""
     if not 0.0 <= anchor_share <= 1.0:
         raise ValueError("anchor_share is 0 to 1")
     seen = dict(seen or {})
@@ -789,7 +789,7 @@ def inside(plan: Parsed, q: np.ndarray) -> np.ndarray:
     return out
 
 
-# Walk coverage (#3): which rooms of a plan a LiDAR walk has seen. A room's floor is counted in COVER_CELL cells, and a
+# Walk coverage: which rooms of a plan a LiDAR walk has seen. A room's floor is counted in COVER_CELL cells, and a
 # cell is walked when a voxel a walk saw (a fused map's `walked` count) lies over it, at any height.
 COVER_CELL = 0.1  # metres
 WALKED_SHARE = 0.3  # a room is walked when a walk saw at least this share of its cells

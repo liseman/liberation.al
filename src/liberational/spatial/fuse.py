@@ -1,9 +1,9 @@
-"""Tier 1 refinement (#2801, part of the spatial memory goal #2794): each new revision of a place is fused into the
+"""Tier 1 refinement (part of spatial memory): each new revision of a place is fused into the
 place's map.
 
-A place's revisions come from different reconstructions: a phone walkthrough (`pack-walkthrough`, #2787), the fixed
-cameras' daily snapshot (`pack-spatial-cameras`, #2825), and later the rig. Each MASt3R run has its own frame, scale,
-and coverage. MASt3R's scale is not metric: on Place 1's fixed cameras people measured 0.68 of its units tall (#2960). `refine` brings the newest one into the place's fused map and writes the result as a
+A place's revisions come from different reconstructions: a phone walkthrough (`pack-walkthrough`), the fixed
+cameras' daily snapshot (`pack-spatial-cameras`), and later the rig. Each MASt3R run has its own frame, scale,
+and coverage. MASt3R's scale is not metric: on Place 1's fixed cameras people measured 0.68 of its units tall. `refine` brings the newest one into the place's fused map and writes the result as a
 new revision:
 
 1. **Level.** The new cloud is turned so its floor (the revision's floor plane, else one fitted) is z = 0 with +z
@@ -13,33 +13,33 @@ new revision:
    the cloud's floor. The new cloud is scaled by it, and so is the fused map when it is off by more than RESCALE_TOL,
    so registration meets two metric clouds. A cloud with no known camera (a walkthrough) keeps its scale. Walking
    people's median height is logged beside it as a check (STATURE_M at the right scale): they measure short while a
-   camera's pitch is off (#2960).
+   camera's pitch is off.
 2. **First map.** With no fused map yet, the levelled cloud, thinned to `VOXEL` (3 cm), is the map.
 3. **Register.** Otherwise the new cloud is registered against the fused map: a coarse search over yaw (every
    `YAW_STEP` degrees) and floor-plane shift, by cross-correlating top-down wall images (`COARSE_CELL` cells, the
    wall band only), then point-to-point ICP with scale, turning only about z (Umeyama on trimmed nearest neighbours,
-   with no tilt: both clouds are levelled, #2897), on top of each cloud's own MASt3R alignment. The registration is kept when at least `MIN_FITNESS` of the new cloud over the map's
+   with no tilt: both clouds are levelled), on top of each cloud's own MASt3R alignment. The registration is kept when at least `MIN_FITNESS` of the new cloud over the map's
    footprint lies within `INLIER_M` of the map (so a whole-home walkthrough registers onto a first map of one room)
    and at least `MIN_INLIERS` points do; otherwise nothing is fused and the place keeps the new revision as it
    stands. A cloud its caller already placed another way (`fuse_in`'s `seated`: a walkthrough the fixed cameras
-   seat, #3252) is only polished by ICP against the map around there, and its seat stands when that doesn't hold.
+   seat) is only polished by ICP against the map around there, and its seat stands when that doesn't hold.
 4. **Fuse and re-derive.** The registered cloud is merged into the map voxel by voxel (`merge`): each `VOXEL` cell
    keeps its mean position and colour and counts how many fusions saw it and how many missed it while it was in
    view, so things that come and go (a person, a moved chair) fade out after a couple of visits; the counts ride in
    the map's PLY. The fixed cameras keep the poses their own MASt3R run gave them, moved with the cloud: nothing
    shifts them toward each other by the people they see. A second in which each of two cameras sees one person is
    most often two people, each hidden from the other camera (on Place 1, half of such seconds, checked by eye in the
-   frames, #2960), and a seated person's feet are on a footstool, not the floor; shifting the cameras onto those
+   frames), and a seated person's feet are on a footstool, not the floor; shifting the cameras onto those
    points moved Place 1's two cameras 1.1 m apart at floor landmarks both see. A fused map whose own floor has drifted
    more than `RELEVEL_DEG` off level is turned level again,
-   with its cameras (`relevel`, #2897). The floorplan is derived again from the fused cloud (spatial/floorplan.py,
-   through `cameras.layout`, on the levelled floor at z = 0, #3045). The new revision carries the fused map, its plan and transform, the floor, the place's
+   with its cameras (`relevel`). The floorplan is derived again from the fused cloud (spatial/floorplan.py,
+   through `cameras.layout`, on the levelled floor at z = 0). The new revision carries the fused map, its plan and transform, the floor, the place's
    signals, and the registered fixed cameras moved into the fused frame (the new revision's own, else the fused map's
-   last ones), kept rigid: the registration's scale moves a camera but doesn't scale its axes. Where people walked (the fused cameras' footprints, #2800) goes in beside the cloud. The new revision keeps the fused map's `frame` (memory/places.py) while the map isn't rescaled or turned level,
-   so a splat made for an earlier revision of that frame still fits it (#2877); otherwise it starts a frame of its
+   last ones), kept rigid: the registration's scale moves a camera but doesn't scale its axes. Where people walked (the fused cameras' footprints) goes in beside the cloud. The new revision keeps the fused map's `frame` (memory/places.py) while the map isn't rescaled or turned level,
+   so a splat made for an earlier revision of that frame still fits it; otherwise it starts a frame of its
    own.
 
-**Joining places** (#2997): `join` merges other places into one, each other place's fused map moved by a transform
+**Joining places**: `join` merges other places into one, each other place's fused map moved by a transform
 its caller found (`pack-walkthrough`'s `join_places`: a walk MASt3R seats both in), as a tier 1 revision of the
 place they go into; the others are retired (memory/places.py).
 
@@ -49,20 +49,20 @@ the frame of the plan that holds there and turned to the nearest quarter turn (r
 directions), and saved as a correction with source "merge". The joined place's own owner rooms hold where both have
 rooms; a carried owner room replaces machine rooms it covers.
 
-**Seating a room's cameras** (#3115): after a join, the joined place's rooms come back from the daily fixed-camera run
+**Seating a room's cameras**: after a join, the joined place's rooms come back from the daily fixed-camera run
 as separate groups (their cameras never match each other), and the coarse wall search can't find one room in a whole
 home. `seat` fuses such a group's snapshot in from where its cameras are registered in the map (`by_cameras`), with
 ICP to polish it, refused when ICP moves them more than SEAT_SHIFT_M or SEAT_TURN_DEG off those poses. A camera whose
 seat is refused night after night has moved; `release` takes it out of the place so it can be registered on its own.
 
-**LiDAR walks hold, and a map can be rebuilt from them** (#3286): a Stray Scanner walk's cloud is fused `walked`,
+**LiDAR walks hold, and a map can be rebuilt from them**: a Stray Scanner walk's cloud is fused `walked`,
 and each voxel counts the walks that saw it (`Fused.walked`, a `walked` count in the map's PLY). A fixed camera's
 MASt3R snapshot is several centimetres softer, so it never fades a walked voxel (`merge`), and its points go in only
 where no walk saw or next to the walk's voxels (`gate`); otherwise its walls a few centimetres off would thicken the
 walk's into two, night by night. `rebuild` makes a place's map again from its walks and tonight's snapshots alone,
 in the frame its owner plan is drawn in, with each fixed camera standing on the spot the owner measured
 (tools/rebuild_place.py runs it, dry run first). After that a camera's pose is a time series, not pinned: each `seat`
-records its cameras' poses as observations (spatial/poses.py, #3289), and the owner's measured spots
+records its cameras' poses as observations (spatial/poses.py), and the owner's measured spots
 (`measured_spots`) are evidence of where a camera was, read with them, not a pin. While the owner's plan is drawn on a fused map's frame with no plan file, tier 1 derives no
 machine plan for it (`_revise`), so the frame stays the owner plan's.
 
@@ -106,11 +106,11 @@ INLIER_M = 0.05  # metres: a new point this close to the map after registration 
 # lets a whole-home walkthrough register onto a first map of one room; the count keeps a sliver of overlap from passing.
 MIN_FITNESS = 0.35
 MIN_INLIERS = 1000
-RELEVEL_DEG = 0.3  # a fused map whose own floor is tilted more than this off z is turned level again (#2897)
+RELEVEL_DEG = 0.3  # a fused map whose own floor is tilted more than this off z is turned level again
 #: A candidate floor with more than this share of the map more than UNDER_FLOOR_M below it is no floor (`relevel`).
 UNDER_FLOOR_SHARE, UNDER_FLOOR_M = 0.05, 0.05
 COLUMN = 0.10  # metres: the top-down column a voxel is in view by (see `merge`)
-# Checking the scale by people (#2960):
+# Checking the scale by people:
 STATURE_M = 1.65  # metres from a walking adult's heels to their head joint (halpe26's top of the head): a check
 CALIBRATE_S = 2 * 86400.0  # how far back the fixed cameras' people are read
 MIN_WALKERS = 200  # walking people's heights the check needs
@@ -164,7 +164,7 @@ def umeyama(src: np.ndarray, dst: np.ndarray, scale: bool = True) -> np.ndarray:
     """The 4x4 similarity that best maps `src` onto `dst` (least squares), turning only about z: a yaw, a uniform
     scale, and a 3D shift. Both clouds are levelled (floor at z = 0, up +z) before they're registered, so a tilt could
     only come from noise, and fused maps build on themselves: a free rotation let each fusion tilt the map a little
-    further, and pulled each new, level cloud along with it (#2897: 1.05, 1.36, then 1.6 degrees on Place 1)."""
+    further, and pulled each new, level cloud along with it (1.05, 1.36, then 1.6 degrees on Place 1)."""
     mu_s, mu_d = src.mean(axis=0), dst.mean(axis=0)
     a, b = src - mu_s, dst - mu_d
     # The yaw maximizing sum(b . R a) over rotations about z: atan2 of the xy cross-covariance's antisymmetric part
@@ -326,7 +326,7 @@ def _moved(poses: Mapping[str, places.CameraPose], transform: np.ndarray) -> dic
 @dataclass(frozen=True)
 class Fused:
     """A fused map: one point per VOXEL cube, its colour, how many fusions saw it and missed it, and how many of those
-    were LiDAR walks (`walked`, #3286; None for none)."""
+    were LiDAR walks (`walked`; None for none)."""
 
     points: np.ndarray
     colors: np.ndarray | None
@@ -361,7 +361,7 @@ def _cell(keys: np.ndarray) -> np.ndarray:
 #: Cells' edges are moved down by this share of a cell (3 micrometres at VOXEL) when points are binned. A voxel's
 #: position is the running mean of its points, and a mean of points on a cell's lower edge can round a hair below it
 #: (1.65 m, 55 cells exactly, averaged back as 1.6499999999999997 m), putting the voxel in the cell next door on the
-#: next fusion (#3002); so can the float32 the map is stored in. Snapping keeps it in its own cell.
+#: next fusion; so can the float32 the map is stored in. Snapping keeps it in its own cell.
 SNAP = 1e-4
 
 
@@ -372,7 +372,7 @@ def _keys(points: np.ndarray, size: float) -> np.ndarray:
 
 def merge(old: Fused, new_points: np.ndarray, new_colors: np.ndarray | None, walked: bool = False) -> Fused:
     """`new_points` (registered, in the map's frame) fused into `old`, voxel by voxel; `walked` for a LiDAR walk's
-    cloud (a Stray Scanner export's, #3286).
+    cloud (a Stray Scanner export's).
 
     A voxel the new cloud has is seen once more, its position and colour averaged in by how often it was seen. A
     voxel of the map with no point of the new cloud within one cell (in it or in one of its 26 neighbours, since
@@ -442,7 +442,7 @@ GATE_M = 0.06
 
 
 def gate(fused: Fused, points: np.ndarray) -> np.ndarray:
-    """Which of a camera cloud's `points` (placed in the map) to fuse into `fused` (#3286): all of them where no LiDAR
+    """Which of a camera cloud's `points` (placed in the map) to fuse into `fused`: all of them where no LiDAR
     walk saw (no walked voxel in their top-down COLUMN), and those within GATE_M of a walked voxel where one did. A
     walk is sharper than a fixed camera's MASt3R snapshot, so where both saw, the walk holds; a snapshot's wall a few
     centimetres off the walk's would otherwise thicken it into two."""
@@ -471,7 +471,7 @@ def relevel(
     fused: Fused, cams: Mapping[str, places.CameraPose], place: str = ""
 ) -> tuple[Fused, dict[str, places.CameraPose]]:
     """The fused map and its cameras turned so the map's own floor is level again (z = 0, up +z), when it has drifted
-    more than RELEVEL_DEG off; else as they are. Fusions register only in yaw (#2897), but a map that drifted before
+    more than RELEVEL_DEG off; else as they are. Fusions register only in yaw, but a map that drifted before
     that (Place 1: 1.59 degrees), or one whose first cloud was levelled by a poor floor, is put right here, with its
     camera poses moved by the same rigid turn so they stay registered in it."""
     try:
@@ -482,7 +482,7 @@ def relevel(
     if tilt <= RELEVEL_DEG:
         return fused, dict(cams)
     # A floor has nothing under it. A plane with much of the map below it is a table or dresser top, or a slice through
-    # the walls: one camera's view of a room can hold more furniture top than floor (#3000), and turning the map onto
+    # the walls: one camera's view of a room can hold more furniture top than floor, and turning the map onto
     # such a plane would tip a correctly levelled map over.
     below = float(np.mean(fused.points @ normal - d < -UNDER_FLOOR_M))
     if below > UNDER_FLOOR_SHARE:
@@ -526,7 +526,7 @@ def stature(cam: places.CameraPose, s: footprints.Sighting) -> float | None:
     if feet is None or s.head is None:
         return None
     m = np.asarray(cam.pose, dtype=np.float64).reshape(4, 4)
-    hu, hv = places.undistorted(cam, *s.head)  # a wide lens undone, as floor_point does the feet (#2998)
+    hu, hv = places.undistorted(cam, *s.head)  # a wide lens undone, as floor_point does the feet
     d = np.array([(hu - 0.5) * cam.width / cam.focal, (hv - 0.5) * cam.height / cam.focal, 1.0])
     ray, origin = m[:3, :3] @ d, m[:3, 3]
     w = origin - np.asarray(feet)
@@ -619,7 +619,7 @@ def fuse_in(
 ) -> places.Revision | None:
     """A cloud (`points` in its own frame, with its `floor` and the cameras `cams` registered in it) fused into
     `place`'s map as a tier 1 revision: `refine`'s steps for a cloud that is a revision of the place (`sources` names
-    it), or one that isn't written yet (a walkthrough into a place already there, #3252). `seated` is where the
+    it), or one that isn't written yet (a walkthrough into a place already there). `seated` is where the
     cloud's levelled frame stands in the fused map's frame when its caller found it another way (the fixed cameras
     both see, `pack-walkthrough`'s seats): ICP polishes it against the map around there (SEAT_PAD_M), kept when it
     registers within SEAT_SHIFT_M and SEAT_TURN_DEG of the seat, else the seat stands as found (a map too soft for a
@@ -631,7 +631,7 @@ def fuse_in(
     seen = _sightings(state, sorted({*cams, *(fused_rev.cameras if fused_rev else {})}), at)
     scale = metric(_moved(cams, level), f"{place}'s new map", seen=seen)
     if not cameras.SCALE_BOUNDS[0] <= scale[0, 0] <= cameras.SCALE_BOUNDS[1]:
-        # A scale this far from 1 is a wrong floor or a broken cloud, not MASt3R's scale (#2960: 8.3 on a kitchen)
+        # A scale this far from 1 is a wrong floor or a broken cloud, not MASt3R's scale (8.3 on a kitchen)
         LOG.warning("%s: the new map would be scaled by %.2f to its cameras' heights; not fused", place, scale[0, 0])
         return None
     level = scale @ level
@@ -732,18 +732,18 @@ def _revise(
     """Tier 1's revision of `place`: the fused map with its counts, its plan derived again, the floor at z = 0, and
     `cams` registered in it; `signals` replace the place's when given. `plan_frame` is the map-to-plan transform it
     keeps when no plan is derived (`join`, for an owner plan carried in). No plan is derived while the owner's plan
-    is drawn on this map's frame with no plan file (an imported one, #3276): a machine plan file would make the
+    is drawn on this map's frame with no plan file (an imported one): a machine plan file would make the
     revision a plan frame of its own (`places.same_plan_frame`), so positions and the 3D view would stop drawing on
-    the owner's plan, which holds over it anyway (#3286)."""
+    the owner's plan, which holds over it anyway."""
     known = places.get(state, place)
     plan_text, transform = None, plan_frame
     if not _owner_frame(state, known, frame):
-        # Where people walked (#2800): the fused cameras' recorded footprints, cast onto the fused floor through their
+        # Where people walked: the fused cameras' recorded footprints, cast onto the fused floor through their
         # poses in this frame, close rooms whose walls the clouds don't hold.
-        feet = footprints.walked(state, sorted(cams), at) if cams else []  # counted cells of each frame (#2857)
+        feet = footprints.walked(state, sorted(cams), at) if cams else []  # counted cells of each frame
         walked = (lambda floor: footprints.project(feet, cams, floor)) if feet else None
         # The fused map stands on its floor at z = 0 (levelled), so that is its floor: a fit to the cloud can take a
-        # flat furniture top that outnumbers the floor, as `relevel` refuses to (#3045: Place 2's sat 0.88 m up).
+        # flat furniture top that outnumbers the floor, as `relevel` refuses to (Place 2's sat 0.88 m up).
         name = (known.name if known else "") or "Place"
         found = cameras.layout(fused.points, (0.0, 0.0, 1.0), name, walked, floor=LEVEL_FLOOR)
         if found.plan is not None:
@@ -800,7 +800,7 @@ def join(
     others: Mapping[str, np.ndarray],
     now: float | None = None,
 ) -> places.Revision:
-    """Merge the places `others` into `into` (#2997): each other place's fused map, moved into `into`'s fused map's
+    """Merge the places `others` into `into`: each other place's fused map, moved into `into`'s fused map's
     frame by its 4x4 transform in `others` (from the other place's frame to `into`'s), fused into `into`'s map voxel by
     voxel (`merge`). The new revision is tier 1's, so later fusions build on it: the merged map with its counts, its
     plan derived again, the floor at z = 0, every place's cameras (each other place's moved rigidly, as `refine` moves
@@ -853,7 +853,7 @@ def join(
 
 #: A carried owner plan's turn is rounded to the nearest quarter turn when it is within this (degrees) of one: rooms of
 #: one home share their walls' directions, and every plan is drawn square to its walls, so what is left over is the
-#: join's own error (the walk's seats agree within 15 degrees, #3114).
+#: join's own error (the walk's seats agree within 15 degrees).
 PLAN_SNAP_DEG = 10.0
 #: Two rooms clash when one covers at least this share of the other (`_clash`): a carried room that clashes with the
 #: joined place's own owner rooms is left out, kept as comments (the owner's rooms of the place joined into hold),
@@ -931,8 +931,8 @@ def _owner_plan(state: Path, held: places.Place | None, fused: places.Revision, 
         return None
     drawn = next((r for r in places.revisions(state, held.id) if r.id == held.plan_revision), None)
     into_fused = frame_between(drawn, fused) if drawn is not None else None
-    # An owner plan drawn on a map with no plan file of its own (an imported one, #3276) is in that map's floor frame
-    # (`places.plan_frame`), not in no frame (#3284)
+    # An owner plan drawn on a map with no plan file of its own (an imported one) is in that map's floor frame
+    # (`places.plan_frame`), not in no frame
     return _Carry(
         held.name,
         held.plan,
@@ -976,10 +976,10 @@ def _carry_plans(state: Path, target: places.Place, joined: places.Revision, car
         frame = joined
     base = (target.plan or "") if owner else (places.machine_plan(state, joined) or "")
     to_frame = frame_between(joined, frame)
-    frame_plan = places.plan_frame(frame)  # an owner plan drawn on a plan-less map is in its floor's frame (#3284)
+    frame_plan = places.plan_frame(frame)  # an owner plan drawn on a plan-less map is in its floor's frame
     mine = floorplan.rooms_from_dsl(base)
     # Ids already taken: a place joined before holds the m<n>_ ids its carried plans got, and the floorplan library
-    # keeps only the last of two rooms with one id (#3173)
+    # keeps only the last of two rooms with one id
     taken = floorplan.plan_ids(base)
     pieces: list[str] = []
     theirs: list[tuple[str, str, tuple[tuple[float, float], ...]]] = []
@@ -1026,7 +1026,7 @@ def _carry_plans(state: Path, target: places.Place, joined: places.Revision, car
         if made:
             LOG.info("%s: %d machine rooms left out under the carried owner rooms", target.id, len(made))
     text = "\n\n".join(part for part in (base.rstrip("\n"), *pieces) if part) + "\n"
-    # An owner plan shown as drawn on its page (#3282) keeps its page, with the carried rooms drawn on it too (#3284)
+    # An owner plan shown as drawn on its page keeps its page, with the carried rooms drawn on it too
     view = None
     if owner and target.view is not None:
         added = "\n".join(pieces)
@@ -1064,7 +1064,7 @@ def _on_page(text: str, view: places.PageView) -> str:
 SEAT_SHIFT_M = 0.5
 SEAT_TURN_DEG = 10.0
 #: A seat registers its snapshot against the map within this (metres) of where its cameras put it: `register` thins
-#: each cloud to REG_POINTS, and a whole home's map thinned that far leaves one room too few points to fit (#3205).
+#: each cloud to REG_POINTS, and a whole home's map thinned that far leaves one room too few points to fit.
 #: More than SEAT_SHIFT_M, so the map covers any seat that can hold.
 SEAT_PAD_M = 1.0
 
@@ -1108,7 +1108,7 @@ def _backgrounds(
     poses: Mapping[str, places.CameraPose], held: Mapping[str, places.CameraPose], place: str
 ) -> dict[str, places.CameraPose]:
     """`poses` with each camera's background as `footprints.kept` keeps it against the one `held` has: a seated
-    camera is where it was, so tonight's snapshot fills in its background and never leaves it sparser (#3220)."""
+    camera is where it was, so tonight's snapshot fills in its background and never leaves it sparser."""
     out = {}
     for cam, pose in poses.items():
         was = held[cam].background if cam in held else None
@@ -1177,15 +1177,14 @@ def seat(
     now: float | None = None,
 ) -> places.Revision | None:
     """A snapshot of some of `place`'s own cameras (a cloud in their run's frame, its `floor`, and their `poses` in it)
-    fused into the place's map by where those cameras are registered in it (#3115), as a tier 1 revision. A joined
-    place (#2997) holds rooms whose cameras never match each other, so each night brings it one group a room, and the
+    fused into the place's map by where those cameras are registered in it, as a tier 1 revision. A joined
+    place holds rooms whose cameras never match each other, so each night brings it one group a room, and the
     coarse wall search can't find one room in a home: the cameras' registered poses give the start instead
     (`by_cameras`), and ICP polishes it against the map around there (SEAT_PAD_M). Each seated camera's background is
-    tonight's filled from the one it had, never a sparser one (`footprints.kept`, #3220). Each seated camera gets
+    tonight's filled from the one it had, never a sparser one (`footprints.kept`). Each seated camera gets
     tonight's pose as the seat placed it, and the seat records those poses as `seat` observations (spatial/poses.py,
-    #3289, quality the fitness): the owner's measured spots (`measured_spots`) are evidence of where a camera was,
-    read with them, not a pin. Only the snapshot's points a LiDAR walk didn't already see better go in (`gate`,
-    #3286). Every other
+    quality the fitness): the owner's measured spots (`measured_spots`) are evidence of where a camera was,
+    read with them, not a pin. Only the snapshot's points a LiDAR walk didn't already see better go in (`gate`). Every other
     camera of the place keeps its pose, the place keeps its signals with the group's cameras among them, and its frame holds unless
     the map is rescaled or turned level, as in `refine`. A run that seats several groups (one a room) writes one
     revision for each, each built on the one before.
@@ -1286,7 +1285,7 @@ def repose(
 ) -> places.Revision | None:
     """`place` with `poses` replacing those of its cameras, as a tier 1 revision of its fused map (unchanged) with its
     plan derived again from the cameras' footprints. The frame holds. The repair for a seat that wrote a camera off
-    its own cloud (#3228): the map kept the room where it was, so the camera goes back to the pose that fits it. None
+    its own cloud: the map kept the room where it was, so the camera goes back to the pose that fits it. None
     when the place has no fused map or one of `poses`' cameras isn't the place's."""
     fused_rev = fused_revision(state, place)
     old = _cloud(state, fused_rev) if fused_rev is not None else None
@@ -1303,7 +1302,7 @@ def repose(
 def restore(state: Path, place: str, revision: str, now: float | None = None) -> places.Revision | None:
     """`place` back on its tier 1 revision `revision`: a new tier 1 revision of that revision's map (its file must still
     be there), with its cameras and signals and its plan derived again. The frame holds. The repair for a revision that
-    took the place's map away from its cameras (#3252: a walk into the place that didn't register stood as the place's
+    took the place's map away from its cameras (a walk into the place that didn't register stood as the place's
     map, with none of its fixed cameras). None when `revision` isn't one of `place`'s tier 1 revisions with its map."""
     held = next((r for r in places.revisions(state, place) if r.id == revision and r.producer == PRODUCER), None)
     old = _cloud(state, held) if held is not None else None
@@ -1339,8 +1338,8 @@ def move_room(
     """`place` with `camera` and its room moved by `transform` (a rigid 4x4 in the fused map's frame, turning only about
     z): the camera's pose, and the map's voxels of its room (`room_of`), so the map doesn't hold the room twice once
     the right one is fused in. Where a moved voxel lands on one already there, the one there stays. Every other camera
-    keeps its pose, and the place keeps its signals and frame. The repair for a room joined in the wrong spot (#3260:
-    a LiDAR walk's seats of the camera disagreed with its registration by 79 degrees). Returns the revision and how
+    keeps its pose, and the place keeps its signals and frame. The repair for a room joined in the wrong spot (a
+    LiDAR walk's seats of the camera disagreed with its registration by 79 degrees). Returns the revision and how
     many of the room's voxels are in the map where they moved to; None when the place has no fused map or doesn't register `camera`."""
     fused_rev = fused_revision(state, place)
     old = _cloud(state, fused_rev) if fused_rev is not None else None
@@ -1390,7 +1389,7 @@ def release(state: Path, place: str, gone: Sequence[str], now: float | None = No
     return _revise(state, place, _fused(old), cams, [fused_rev.id], fused_rev.frame, at, now, signals)
 
 
-# Rebuilding a place's map from its sharpest sources (#3286).
+# Rebuilding a place's map from its sharpest sources.
 
 
 @dataclass(frozen=True)
@@ -1447,7 +1446,7 @@ def rebuild(
     inside: Callable[[np.ndarray], np.ndarray] | None = None,
     held: Mapping[str, places.CameraPose] | None = None,
 ) -> Rebuilt:
-    """A place's map made again from its sharpest sources only (#3286), in the frame `spots` are in: the LiDAR walks,
+    """A place's map made again from its sharpest sources only, in the frame `spots` are in: the LiDAR walks,
     each moved by its 4x4 (its map into this frame), then each fixed-camera group's snapshot (`levelled`) placed where
     the owner measured its cameras (`spots`: each fixed camera's pose there, the owner's spot and height with its
     registered or given facing, `by_cameras`) and polished by ICP against the walks around there when that holds
@@ -1530,7 +1529,7 @@ def _xyz(pose: places.CameraPose) -> tuple[float, float, float]:
 
 
 def measured_spots(state: Path, place: str) -> dict[str, tuple[float, float, float]]:
-    """The owner's measured camera spots in `place`'s fused map (#3286): the `x-camera` statements with a height in
+    """The owner's measured camera spots in `place`'s fused map: the `x-camera` statements with a height in
     its owner plan, when that plan holds drawn on the fused map's frame with no plan file (`_owner_frame`); {}
     otherwise."""
     from liberational.spatial import plan_import  # the owner plan reader
@@ -1567,7 +1566,7 @@ PLAN_INSIDE = 0.9
 
 def by_plan(state: Path, place: str, points: np.ndarray) -> tuple[np.ndarray, str] | None:
     """Where a LiDAR walk's levelled cloud (`points`, floor at z = 0, metres) stands in `place`'s fused map by the
-    owner's plan (#3286): its wall band registered to the plan (plan_import.register, every turn and shift), when the
+    owner's plan: its wall band registered to the plan (plan_import.register, every turn and shift), when the
     plan holds drawn on the fused map's frame and the fit passes PLAN_MEDIAN_M, PLAN_NEAR_SHARE, and PLAN_INSIDE. The
     4x4 from the levelled cloud into the fused map, with what it found for the log; None otherwise."""
     from liberational.spatial import plan_import  # the owner plan reader
