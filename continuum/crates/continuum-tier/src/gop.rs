@@ -1,5 +1,5 @@
-//! Unit records: how a raw camera's H.264 and Opus audio sit in the chunk container (docs/CONTINUUM.md,
-//! "Storage tiers").
+//! Unit records: how a raw camera's H.264 and Opus audio sit in the chunk container (docs/CONTINUUM-STORAGE.md,
+//! "Chunk files").
 //!
 //! A raw camera's Tier 1 ([`ChunkFormat::H264Au`](crate::ChunkFormat::H264Au)) keeps one access unit per record, and
 //! Opus ([`ChunkFormat::Opus`](crate::ChunkFormat::Opus)) keeps about a second of packets per record, in the same

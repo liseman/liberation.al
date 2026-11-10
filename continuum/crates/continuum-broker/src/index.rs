@@ -2,7 +2,7 @@
 //! of each source stream each stage has processed.
 //!
 //! The scheduler's thread asks these questions on every query and replan, and it must never wait on disk, so they
-//! are answered from memory, not from the catalog (docs/CONTINUUM.md, the broker's no-stall rule). The index follows
+//! are answered from memory, not from the catalog (docs/CONTINUUM-BROKER.md, the no-stall rule). The index follows
 //! the catalog: the broker applies each change after the catalog has committed it (an ingest, a tier move, a chunk
 //! rewrite, a purge step), and loads it from the catalog at startup before accepting connections.
 //!

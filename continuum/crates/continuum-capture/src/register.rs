@@ -1,4 +1,4 @@
-//! Registering capture streams with the broker (docs/CONTINUUM.md, "Registration"): a stream's `StreamSpec` from
+//! Registering capture streams with the broker (docs/CONTINUUM-BROKER.md): a stream's `StreamSpec` from
 //! the manifest and the device's actual format, with the clock anchor taken when capture starts.
 
 use continuum_client::{StreamSpec, StreamStorage};

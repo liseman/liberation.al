@@ -48,7 +48,7 @@ background_max_wait_s = 30.0
 # Runtime state, logs, and media live under data/ by default (gitignored), so the repo
 # root holds only code and config.
 # Relative paths are relative to the repo root; ~ is expanded. In an installed package (no checkout), data/ is the
-# user's data directory, ~/.local/share/liberational (docs/ARCHITECTURE.md, Where data lives).
+# user's data directory, ~/.local/share/liberational (docs/SERVICES.md, Install layout).
 state = "data/state"
 logs = "data/logs"
 faces = "data/faces"
@@ -159,8 +159,7 @@ hotkeys = false
 
 # Journal (memory/journal.py, pack-journal): a first-person entry for every 30 s of the day, written by the local
 # model from what was said and what the cameras captioned, and rolled up into longer levels. Entries and rollups
-# are journal.entry records on the broker; source speech and captions are in the segment store. After WorldMM;
-# see docs/research/worldmm-long-video-memory.md.
+# are journal.entry records on the broker; source speech and captions are in the segment store. After WorldMM.
 [journal]
 # New feature: The journal
 # Write the journal, and use it in answers. Off stops both; forgetting a person still purges it.
@@ -813,7 +812,7 @@ path = "data/models/voices-v1.0.bin"
 skip_on = ["darwin-arm64"]
 
 # RF-DETR Small person/animal detector (Roboflow code/weights Apache-2.0), fixed 512x512 RGB ONNX.
-# Immutable third-party conversion, checked against the official Roboflow checkpoint (see ARCHITECTURE.md).
+# Immutable third-party conversion, checked against the official Roboflow checkpoint.
 # Raw COCO boxes/logits; sigmoid/global top-300 decoding, without YOLOX grids or NMS.
 [models.files.person_detector]
 url = "https://huggingface.co/Deeds67/rfdetr-small/resolve/eb76679daa78e76b4b9ef358ef18bed7b65e383a/detection/model.onnx"

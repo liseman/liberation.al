@@ -1,4 +1,4 @@
-//! The Rust client SDK for Continuum Broker (docs/CONTINUUM.md, "SDKs").
+//! The Rust client SDK for Continuum Broker (docs/CONTINUUM-SDK.md).
 //!
 //! [`Client::connect`] opens the broker's Unix socket, sends `Hello`, and reads `Welcome` together with the arena
 //! file descriptors passed alongside it (SCM_RIGHTS), mapping each arena once. After that, one task reads the socket
@@ -785,7 +785,7 @@ impl Client {
         self.commit_chunk_part(chunk, 0, absorbed, provenance).await
     }
 
-    /// Commits a part of a chunk that is still being written (schema minor 35; docs/CONTINUUM.md, "Video chunks"):
+    /// Commits a part of a chunk that is still being written (schema minor 35; docs/CONTINUUM-STORAGE.md):
     /// `chunk.frames` are the chunk's frames from index `first_frame` on, `absorbed` and `provenance` go with
     /// them, and `chunk`'s header and location are the chunk's own, with its new end and length. A `first_frame` of
     /// 0 commits a new chunk, as [`Client::commit_chunk_with_provenance`] does.

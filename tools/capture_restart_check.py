@@ -13,7 +13,7 @@ then prints, for each device:
 - whether the supervisor had to kill it ("ignored the stop") or gave up on it ("did not exit after SIGKILL");
 - whether it opened again after the start (a camera's size and frame period, or a microphone's rate).
 
-A device whose teardown finished but didn't come back points at the OS (recover it as docs/CONTINUUM.md says). A
+A device whose teardown finished but didn't come back points at the OS (recover it as docs/CONTINUUM-CAPTURE.md says). A
 teardown that hung names the step, and that is the bug to fix. Send the whole output either way. It exits 1 when a
 device didn't come back or a teardown didn't finish.
 """

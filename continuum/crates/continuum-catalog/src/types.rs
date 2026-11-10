@@ -256,8 +256,8 @@ pub enum PurgeSelector {
     Entity(Uuid),
     /// These payloads (or absorbed frames), and everything derived from them.
     Ids(Vec<Uuid>),
-    /// These payloads only, aged out by a retention policy: nothing derived from them goes (docs/CONTINUUM.md,
-    /// "Aging"). An id that isn't a payload (an absorbed frame, or unknown), or whose commit sequence is above
+    /// These payloads only, aged out by a retention policy: nothing derived from them goes (docs/CONTINUUM-BROKER.md,
+    /// "Forgetting"). An id that isn't a payload (an absorbed frame, or unknown), or whose commit sequence is above
     /// `committed_by_seq`, is skipped, so a payload committed after the policy's cutoff (a backdated ingest or an
     /// import, whose start is years old) is never aged out early.
     AgeOut {

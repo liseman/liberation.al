@@ -2,7 +2,7 @@
 //!
 //! A hydrate job decodes exactly the requested frames into Tier 0 slots. This module gives the bytes; the worker
 //! copies them into the slots the broker leased and commits new payloads whose parent is the chunk, so anything
-//! computed from them records `source_tier` as the tier they came from (docs/CONTINUUM.md, "Storage tiers").
+//! computed from them records `source_tier` as the tier they came from (docs/CONTINUUM-STORAGE.md).
 
 use std::path::Path;
 

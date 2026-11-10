@@ -27,9 +27,9 @@ or a model), and 0 otherwise; Ollama alone doesn't fail it, since the applicatio
 In a checkout, `mise run setup` is the path: it also builds what a checkout builds (whisper-server, the frontend)
 and syncs the extras from uv.lock. Here step 2 only says so; the other steps work the same.
 
-LOCK is written by the release workflow (tools/release.py, docs/RELEASES.md). Seams for the packaging work that isn't
-done yet: where uv is found (beside the interpreter, which is where a package that bundles it puts it, else on
-PATH), and step 3, which only checks.
+LOCK is written by the release workflow (tools/release.py, docs/RELEASES.md). uv is the one beside the interpreter,
+else the one on PATH: the .deb's launcher (packaging/deb/launch) builds the environment and links the uv the package
+carries there before it runs this, so an apt install needs no uv of its own.
 """
 
 import argparse

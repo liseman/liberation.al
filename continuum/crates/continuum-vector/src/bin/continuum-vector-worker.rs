@@ -1,4 +1,4 @@
-//! The vector worker (docs/CONTINUUM.md, "Vector worker"): answers similarity and text searches, files embeddings
+//! The vector worker (docs/CONTINUUM-STORAGE.md): answers similarity and text searches, files embeddings
 //! from the embedding streams, and carries out purges on its rows (see `continuum_vector::service`).
 //!
 //! ```sh

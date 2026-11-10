@@ -35,7 +35,7 @@ pub fn hour_label(ns: u64) -> String {
 /// The catalog id of the chunk in the file named `<stream>-<created_ns>-<counter>.cnk`: a UUIDv7 at the file's
 /// creation time whose other bits are a hash of the three, so it is the same every time it is derived. Every part of
 /// a chunk names the same id, and a recovery after a crash asks the catalog what it holds under it
-/// (docs/CONTINUUM.md, "Video chunks").
+/// (docs/CONTINUUM-STORAGE.md).
 #[must_use]
 pub fn chunk_id(stream: StreamId, created_ns: u64, counter: u64) -> continuum_core::Uuid {
     // FNV-1a, written out: the id must not change with the compiler or a dependency.

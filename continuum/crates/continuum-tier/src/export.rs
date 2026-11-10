@@ -1,7 +1,7 @@
 //! Exporting a time range of a video stream as an ordinary MP4, behind the `ffmpeg` feature.
 //!
-//! Chunks are the tier worker's own container, which no video player or ffprobe opens (docs/CONTINUUM.md, "Storage
-//! tiers", says why). [`export`] writes a range of one stream's chunks as an MP4 that does open, for when a person
+//! Chunks are the tier worker's own container, which no video player or ffprobe opens (docs/CONTINUUM-STORAGE.md
+//! says why). [`export`] writes a range of one stream's chunks as an MP4 that does open, for when a person
 //! wants a clip in a player. The `continuum-export` command is the way to run it.
 //!
 //! - [`ExportCodec::Copy`]: a raw camera's H.264 access units ([`ChunkFormat::H264Au`]) are muxed as they are, with

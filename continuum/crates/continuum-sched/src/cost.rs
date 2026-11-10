@@ -1,5 +1,5 @@
-//! The cost model: what the scheduler learns about each capability and how it prices a plan (docs/CONTINUUM.md,
-//! "Cost model").
+//! The cost model: what the scheduler learns about each capability and how it prices a plan (docs/CONTINUUM-BROKER.md,
+//! "Scheduler").
 //!
 //! The quote formula is `est_latency = storage_fetch + sum over steps of (cold_start + (queue_depth + 1) * items *
 //! ema_per_item)`, with the p95 in place of the EMA under a strict budget. Cost units are compute time weighted by

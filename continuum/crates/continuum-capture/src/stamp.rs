@@ -1,4 +1,4 @@
-//! Each device's timestamps, turned into host monotonic nanoseconds (docs/CONTINUUM.md, "Timestamps"). Pure
+//! Each device's timestamps, turned into host monotonic nanoseconds (docs/CONTINUUM-CAPTURE.md). Pure
 //! functions over what the device API hands back, so they're tested without a device.
 
 /// `V4L2_BUF_FLAG_TIMESTAMP_MASK`: which clock a buffer's timestamp is on.

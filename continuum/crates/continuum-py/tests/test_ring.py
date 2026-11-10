@@ -27,7 +27,7 @@ PRODUCER = Path(
 )
 STAMP = struct.Struct("<QQ")  # publish time (CLOCK_MONOTONIC ns), block number
 STRIDE = 1920  # 20 ms of 48 kHz mono s16
-TARGET_MS = 25.0  # capture to live reader (docs/CONTINUUM.md)
+TARGET_MS = 25.0  # capture to live reader (docs/CONTINUUM-BROKER.md, "Rings")
 # The 25 ms target is asserted only on request (CONTINUUM_LATENCY_STRICT=1, on an otherwise idle machine): a shared
 # box under load can delay a few wakes past it. By default the test asserts the bound a missed wake would break.
 STRICT = os.environ.get("CONTINUUM_LATENCY_STRICT") == "1"

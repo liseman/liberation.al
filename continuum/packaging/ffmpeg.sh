@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds the private FFmpeg the wheels link statically (docs/CONTINUUM.md, "Wheels"): an LGPL build with only what
+# Builds the private FFmpeg the wheels link statically (docs/CONTINUUM-SDK.md): an LGPL build with only what
 # the Rust code calls, so it carries no GPL part and nothing a distribution's FFmpeg would pull in.
 #
 #   packaging/ffmpeg.sh <prefix> <work directory>
@@ -28,11 +28,11 @@ FFMPEG=8.0.3
 FFMPEG_SHA=6136812ea6d4e68bdba27e33c2a94382711cdf4f8602ffef056ff792bd6f9818
 OPENH264=2.6.0
 OPENH264_SHA=558544ad358283a7ab2930d69a9ceddf913f4a51ee9bf1bfb9e377322af81a69
-# The oldest headers FFmpeg 8 accepts, so the oldest NVIDIA driver (530 and later) still encodes.
 SVTAV1=4.3.0
 SVTAV1_SHA=95ce8fc2381ba707e65ac8b9b2e165915bfbe9cd4d2f7b0f58d64ce31bd98f6d
 DAV1D=1.5.4
 DAV1D_SHA=686616b7c69eb88d44459391ab25cac13b6647a3b288835c5784e71c1514a5c5
+# The oldest headers FFmpeg 8 accepts, so the oldest NVIDIA driver (530 and later) still encodes.
 NVCODEC=12.1.14.0
 NVCODEC_SHA=62b30ab37e4e9be0d0c5b37b8fee4b094e38e570984d56e1135a6b6c2c164c9f
 
@@ -88,6 +88,8 @@ case "$(uname -s)" in
       --enable-encoder=h264_nvenc --enable-decoder=h264_cuvid --enable-hwaccel=h264_nvdec)
     ;;
   Darwin)
+    # OpenH264's pkg-config file names GNU's C++ library; macOS has only libc++.
+    sed -i '' 's/-lstdc++/-lc++/g' "$prefix/lib/pkgconfig/openh264.pc"
     hardware=(--enable-videotoolbox --enable-encoder=h264_videotoolbox)
     ;;
 esac

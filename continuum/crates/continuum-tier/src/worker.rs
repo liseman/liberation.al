@@ -1,4 +1,4 @@
-//! The tier worker's loop (docs/CONTINUUM.md, "Storage tiers"): payloads in, chunks out. It knows nothing about
+//! The tier worker's loop (docs/CONTINUUM-STORAGE.md): payloads in, chunks out. It knows nothing about
 //! sockets or shared memory: the program feeds it each payload it read from Tier 0 and a clock tick, and it hands
 //! back, through [`Outputs`], the ids whose records are now durable (mark those slots `flushed`) and each closed
 //! chunk (commit it to the catalog through the broker). So every rule is tested against the in-memory catalog.

@@ -1,6 +1,5 @@
 """Facts about people: relationships, roles, habits, and preferences, distilled from the journal's hourly entries.
-Step 6 of the WorldMM porting plan (docs/research/worldmm-long-video-memory.md), after WorldMM's semantic
-memory, on Continuum. Each hour's say on a fact is one `person.fact` payload on the memory log
+After WorldMM's semantic memory, on Continuum. Each hour's say on a fact is one `person.fact` payload on the memory log
 (liberational/memory_log.py): its parent is that 1 hour journal entry, its subject the person. Body:
     fact      one sentence that names the person ("Dana manages the Acme account")
     kind      relationship, role, habit, or preference

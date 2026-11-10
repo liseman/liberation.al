@@ -1,4 +1,4 @@
-//! `continuum-gateway`: the browser gateway (docs/CONTINUUM.md, "Browser gateway").
+//! `continuum-gateway`: the browser gateway (docs/CONTINUUM-GATEWAY.md).
 //!
 //! ```text
 //! continuum-gateway --state-dir data/state                       # WebSockets on 127.0.0.1:8766
