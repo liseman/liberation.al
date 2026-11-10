@@ -110,8 +110,8 @@ def test_save_coerces_and_writes_only_non_defaults(pack_toml):
     written, overridden = cfg.save(
         {
             "ports.dashboard": "9000",
-            "vision.hold_fps": "no",
-            "vision.cams": "0, 1, 2",
+            "vision.objects": "no",
+            "journal.levels": "60, 120",
             "presence.gap_s": 45,
             "audio.exclude_devices": ["usb"],
             "assistant.name": "Bob",  # the default, so not written
@@ -119,16 +119,17 @@ def test_save_coerces_and_writes_only_non_defaults(pack_toml):
     )
     data = tomllib.loads(pack_toml.read_text())
     assert data["ports"] == {"dashboard": 9000}
-    assert data["vision"] == {"hold_fps": False, "cams": [0, 1, 2]}
+    assert data["vision"] == {"objects": False}
+    assert data["journal"] == {"levels": [60, 120]}
     assert data["presence"] == {"gap_s": 45.0}
     assert data["audio"] == {"exclude_devices": ["usb"]}
     assert "assistant" not in data
     assert sorted(written) == [
         "audio.exclude_devices",
+        "journal.levels",
         "ports.dashboard",
         "presence.gap_s",
-        "vision.cams",
-        "vision.hold_fps",
+        "vision.objects",
     ]
     assert overridden == []
     assert cfg.get("ports.dashboard") == 9000  # the cache was cleared
@@ -167,10 +168,10 @@ def test_save_with_an_empty_secret_keeps_the_current_one(pack_toml):
         pytest.param({"ports.dashboard": "abc"}, "ports.dashboard", id="int-from-text"),
         pytest.param({"ports.dashboard": 8765.5}, "ports.dashboard", id="int-from-fraction"),
         pytest.param({"ports.dashboard": True}, "ports.dashboard", id="int-from-bool"),
-        pytest.param({"vision.hold_fps": "maybe"}, "vision.hold_fps", id="bool-from-word"),
+        pytest.param({"vision.objects": "maybe"}, "vision.objects", id="bool-from-word"),
         pytest.param({"owner.name": 5}, "owner.name", id="text-from-number"),
-        pytest.param({"vision.cams": ["a"]}, "vision.cams", id="int-list-from-text"),
-        pytest.param({"vision.cams": {"a": 1}}, "vision.cams", id="list-from-dict"),
+        pytest.param({"journal.levels": ["a"]}, "journal.levels", id="int-list-from-text"),
+        pytest.param({"journal.levels": {"a": 1}}, "journal.levels", id="list-from-dict"),
         pytest.param({"tts.voice": "am_adam", "presence.gap_s": "wide"}, "presence.gap_s", id="one-bad-of-two"),
     ],
 )
@@ -386,8 +387,10 @@ def test_a_camera_goes_by_its_place_name_or_else_its_id():
 def test_camera_places_set_by_hand_never_block_saving_something_else(pack_toml, hand):
     pack_toml.write_text(f'[vision]\ncamera_names = ["{hand}"]\n')
     cfg.load.cache_clear()
-    cfg.save({"vision.fps": "10", "vision.camera_names": hand})  # the form sends every field, as it shows them
-    assert tomllib.loads(pack_toml.read_text())["vision"] == {"camera_names": [hand], "fps": 10}
+    cfg.save(
+        {"vision.shared_decode_gpu": "1", "vision.camera_names": hand}
+    )  # the form sends every field, as it shows them
+    assert tomllib.loads(pack_toml.read_text())["vision"] == {"camera_names": [hand], "shared_decode_gpu": 1}
 
 
 def test_a_line_break_in_a_camera_place_is_a_space():

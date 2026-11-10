@@ -71,6 +71,7 @@ fn run(args: &Args) -> Result<String, String> {
 }
 
 fn main() -> ExitCode {
+    continuum_log::init("continuum-export");
     let args = Args::parse();
     match run(&args) {
         Ok(line) => {

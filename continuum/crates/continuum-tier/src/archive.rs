@@ -322,7 +322,7 @@ impl Archive {
         let c = &self.counts;
         let mb = |b: u64| b as f64 / 1e6;
         Some(format!(
-            "tier worker: AV1 archive: {} chunks converted ({:.1} MB to {:.1} MB), kept as H.264 {:?}, {} dropped for \
+            "AV1 archive: {} chunks converted ({:.1} MB to {:.1} MB), kept as H.264 {:?}, {} dropped for \
              a purge, {} catalog rewrites sent again, {} queued, backlog {}",
             c.converted,
             mb(c.bytes_before),

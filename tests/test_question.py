@@ -207,13 +207,21 @@ def test_a_movement_the_question_doesnt_hold_is_dropped(asked, movement, kept):
     assert question.from_reply(reply(source="cameras", movement=movement), asked).movement == kept
 
 
-@pytest.mark.parametrize("usual", [True, False], ids=["marked-usual", "only-the-phrase-says-so"])
-def test_a_usual_phrase_filed_as_a_time_is_no_window_and_not_a_refusal(usual):
+@pytest.mark.parametrize(
+    "fields",
+    [
+        pytest.param(dict(usual=True, time_kind="other"), id="marked-usual"),
+        pytest.param(dict(usual=False, time_kind="other"), id="only-the-phrase-says-so"),
+        pytest.param(dict(usual=True, time_kind="calendar", day="this week"), id="filed-as-a-day-nobody-said"),
+    ],
+)
+def test_a_usual_phrase_filed_as_a_time_is_no_window_and_not_a_refusal(fields):
     r = question.from_reply(
-        reply(usual=usual, measure="count", time_phrase="per day", time_kind="other"),
+        reply(measure="count", time_phrase="per day", **fields),
         "how often does the cat typically use the litter box per day",
     )
-    assert (r.usual, r.other_time) == (True, "")
+    assert (r.usual, r.other_time, r.day) == (True, "", "")
+    assert history_qa.window_of(r, NOW)[2] == "all available retained history"
 
 
 HOUSE = question.Vocabulary(

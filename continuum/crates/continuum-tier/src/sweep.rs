@@ -146,7 +146,7 @@ pub fn sweep(files: &[&Candidate], named: &BTreeSet<String>, dry_run: bool, repo
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => {
-                eprintln!("tier worker: sweep: couldn't remove {}: {e}", c.path.display());
+                tracing::warn!("sweep: couldn't remove {}: {e}", c.path.display());
                 report.skipped += 1;
             }
         }

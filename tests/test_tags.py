@@ -14,7 +14,15 @@ import pytest
 from liberational import config as cfg
 from liberational.assistant import voice
 from liberational.assistant.voice_auth import Grant
-from liberational.dashboard import context, known_voices, people_list, people_reads, people_writes, server
+from liberational.dashboard import (
+    context,
+    known_voices,
+    people_cards,
+    people_corrections,
+    people_list,
+    people_writes,
+    server,
+)
 from liberational.people import identity, registry, tags
 from speech_fake import fake
 from voices import write_voices
@@ -311,8 +319,8 @@ def roster():
 def test_adding_a_person_typed_with_a_role(dash):
     tag = people_writes._typed_tag("Alice, CEO of Acme")
     assert tag is not None
-    people_writes.add_person("Alice", **tag.attributes())
-    people_writes.add_person("Dana Cole")
+    people_corrections.add_person("Alice", **tag.attributes())
+    people_corrections.add_person("Dana Cole")
     people = roster()
     assert (people["Alice"]["role"], people["Alice"]["organization"]) == ("CEO", "Acme")
     assert "role" not in people["Dana Cole"]
@@ -326,7 +334,7 @@ def test_the_roster_opens_no_log_that_is_not_there(dash):
 
 
 def test_describing_a_person_sets_and_clears_role_and_organization(dash):
-    people_writes.add_person("Dana")
+    people_corrections.add_person("Dana")
     code, body = people_writes.describe_person("dana", role="CTO", organization="Initech", control=True)
     assert (code, body["name"], body["role"], body["organization"]) == (200, "Dana", "CTO", "Initech")
     code, body = people_writes.describe_person("Dana", role="", control=True)
@@ -335,7 +343,7 @@ def test_describing_a_person_sets_and_clears_role_and_organization(dash):
     assert people_writes.describe_person("Dana", control=True)[0] == 400
     assert people_writes.describe_person("Dana", role="x" * 81, control=True)[0] == 400
     assert people_writes.describe_person("Dana", role=7, control=True)[0] == 400
-    summary = people_reads.person_summary("Dana")
+    summary = people_cards.person_summary("Dana")
     assert summary is not None
     assert (summary.get("role"), summary["organization"]) == (None, "Initech")
 
@@ -346,7 +354,7 @@ def test_describing_a_person_sets_and_clears_role_and_organization(dash):
 )
 def test_the_describe_route_writes_only_for_this_machine(dash, serve, monkeypatch, host, code, role):
     monkeypatch.setattr(server, "DASH_PASSWORD", "")
-    people_writes.add_person("Dana")
+    people_corrections.add_person("Dana")
     c = http.client.HTTPConnection("127.0.0.1", urllib.parse.urlsplit(serve(server.H)).port, timeout=5)
     body = json.dumps({"name": "Dana", "role": "CTO"})
     c.request("POST", "/people/describe", body, {"Content-Type": "application/json", "Host": host})

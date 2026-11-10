@@ -113,7 +113,7 @@ fn native(format: ChunkFormat, raw: Vec<u8>) -> Result<Vec<u8>, TierError> {
 /// reading a flushed query item itself: a query hands back a chunk as one payload (its Chunk locator names the whole
 /// file), and its records are the payloads it absorbed, each with its own id. Records a purge cut are left out. `None`
 /// when the file is gone (a purge took the whole chunk), so the caller asks for the chunk again. The file is open
-/// only during the call, so it never holds up a purge's rewrite (a new file renamed over the old) or unlink. A v1 FLAC
+/// only during the call, so it never holds up a purge's rewrite (a new file renamed over the old) or unlink. A FLAC
 /// file registered in place is one record, the whole file, with zero times and the nil id (its query item's header
 /// has its span and id).
 ///
@@ -135,20 +135,23 @@ pub fn read_chunk(path: &Path, start_ns: u64, end_ns: u64) -> Result<Option<Vec<
     }
 }
 
-/// A v1 FLAC file registered in place ([`crate::v1audio`]): the whole file, as the one record of a chunk whose
+/// A FLAC file registered in place ([`crate::inplace_audio`]): the whole file, as the one record of a chunk whose
 /// times live in the catalog (the record's are 0), or `None` for any other file.
 fn foreign_flac(path: &Path) -> Result<Option<Hydrated>, TierError> {
     use std::io::Read;
     let mut magic = [0u8; 4];
     let mut file = std::fs::File::open(path)?;
-    if file.read_exact(&mut magic).is_err() || !crate::v1audio::is_flac(&magic) {
+    if file.read_exact(&mut magic).is_err() || !crate::inplace_audio::is_flac(&magic) {
         return Ok(None);
     }
-    // v1's files are minutes of audio, tens of MB; a path past this was registered by mistake.
+    // These files are minutes of audio, tens of MB; a path past this was registered by mistake.
     const MAX_FOREIGN_BYTES: u64 = 1 << 30;
     let size = file.metadata()?.len();
     if size > MAX_FOREIGN_BYTES {
-        return Err(TierError::Codec(format!("{}: {size} bytes is too big for a v1 FLAC file", path.display())));
+        return Err(TierError::Codec(format!(
+            "{}: {size} bytes is too big for a FLAC file registered in place",
+            path.display()
+        )));
     }
     let bytes = std::fs::read(path)?;
     let len = u32::try_from(bytes.len()).map_err(|_| TierError::Codec(format!("{}: too big", path.display())))?;
@@ -157,9 +160,11 @@ fn foreign_flac(path: &Path) -> Result<Option<Hydrated>, TierError> {
     Ok(Some(Hydrated { index: 0, record, bytes, pcm: None }))
 }
 
-/// An MP4 is registered in place, never written into a chunk file: its GOPs are read through [`crate::v1video`].
+/// An MP4 is registered in place, never written into a chunk file: its GOPs are read through [`crate::inplace_video`].
 fn mp4_in_a_chunk() -> TierError {
-    TierError::Codec("an MP4 frame in a chunk file: read v1 recordings with v1video::gop_units".to_owned())
+    TierError::Codec(
+        "an MP4 frame in a chunk file: read a file registered in place with inplace_video::gop_units".to_owned(),
+    )
 }
 
 /// A decoded picture.
@@ -231,8 +236,8 @@ impl JpegNv12 {
         if decoder.input_colorspace() != Some(ColorSpace::YCbCr) {
             if !self.warned {
                 self.warned = true;
-                eprintln!(
-                    "jpeg: WARN a JPEG that isn't YCbCr ({:?}): decoding through RGB, increased CPU load expected",
+                tracing::warn!(
+                    "jpeg: a JPEG that isn't YCbCr ({:?}): decoding through RGB, increased CPU load expected",
                     decoder.input_colorspace()
                 );
             }

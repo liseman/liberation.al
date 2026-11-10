@@ -1,4 +1,4 @@
-"""Ingested media registered on a real Continuum broker, the way the v1 importers register recordings."""
+"""Ingested media registered in place on a real Continuum broker."""
 
 import asyncio
 import shutil

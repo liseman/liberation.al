@@ -43,6 +43,7 @@ from continuum_py._native import (
     encode_header,
     forget_segments,
     forget_segments_where,
+    gop_units,
     h264_decoder_available,
     open_h264_window,
     read_segments,
@@ -50,7 +51,6 @@ from continuum_py._native import (
     segment_revision,
     segment_tail,
     stage_id,
-    v1_gop_units,
 )
 from continuum_py.schema import (
     AcceptedCapability,
@@ -163,6 +163,7 @@ __all__ = [
     "encode_header",
     "forget_segments",
     "forget_segments_where",
+    "gop_units",
     "h264_decoder_available",
     "open_h264_window",
     "read_segments",
@@ -170,5 +171,4 @@ __all__ = [
     "segment_revision",
     "segment_tail",
     "stage_id",
-    "v1_gop_units",
 ]

@@ -8,16 +8,11 @@
 //! continuum-capture --restart-camera facecam --state-dir data/state   # accepted, not proof of reopening
 //! continuum-capture --list --json [--format MJPEG]  # read-only Linux camera modes and exact intervals
 //! continuum-capture --list    # the devices hotplug sees, to write the manifest's match rules from
-//! continuum-capture --from-v1 [ROOT]    # a manifest from v1's [vision] and the cameras seen now, to check and save
 //! ```
-//!
-//! `--from-v1` reads `ROOT/config/defaults.toml` and `pack.toml` (`$PACK_CONFIG`, or `ROOT/pack.toml`; ROOT is the
-//! checkout, `.` by default) and prints to stdout (see `continuum_capture::from_v1`).
 
 #[path = "../listing.rs"]
 mod listing;
 
-use continuum_capture::eprintln;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::mpsc::channel;
@@ -29,7 +24,7 @@ use continuum_capture::supervisor::{Event, Supervisor};
 use continuum_capture::worker::{STOP, install_stop_signals};
 
 fn main() -> ExitCode {
-    continuum_capture::log::stamp_lines();
+    continuum_log::init("continuum-capture");
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.iter().any(|arg| arg == "--capabilities") {
         println!(
@@ -51,10 +46,6 @@ fn main() -> ExitCode {
                 ExitCode::from(2)
             }
         };
-    }
-    if std::env::args().nth(1).as_deref() == Some("--from-v1") {
-        let root = PathBuf::from(std::env::args().nth(2).unwrap_or_else(|| ".".into()));
-        return from_v1(&root);
     }
     let (mut manifest_path, mut socket, mut state_dir, mut control_socket) =
         (None, None, None::<PathBuf>, None::<PathBuf>);
@@ -82,7 +73,7 @@ fn main() -> ExitCode {
     {
         Ok(m) => m,
         Err(e) => {
-            eprintln!("continuum-capture: {}: {e}", manifest_path.display());
+            tracing::error!("{}: {e}", manifest_path.display());
             return ExitCode::from(2);
         }
     };
@@ -90,7 +81,7 @@ fn main() -> ExitCode {
     let mac_raw_share = match continuum_capture::mac_bandwidth::manifest_share(&manifest) {
         Ok(share) => share,
         Err(error) => {
-            eprintln!("continuum-capture: macOS bandwidth admission: {error}");
+            tracing::error!("macOS bandwidth admission: {error}");
             return ExitCode::from(2);
         }
     };
@@ -102,7 +93,7 @@ fn main() -> ExitCode {
     let (_control_server, requests) = match continuum_capture::control::ControlServer::bind(&control_socket) {
         Ok(server) => server,
         Err(error) => {
-            eprintln!("continuum-capture: control {}: {error}", control_socket.display());
+            tracing::error!("control {}: {error}", control_socket.display());
             return ExitCode::from(2);
         }
     };
@@ -137,7 +128,7 @@ fn restart_camera(args: &[String]) -> ExitCode {
             return ExitCode::from(2);
         };
         if !seen.insert(flag) {
-            eprintln!("continuum-capture: duplicate argument {flag}");
+            tracing::error!("duplicate argument {flag}");
             return ExitCode::from(2);
         }
         match flag.as_str() {
@@ -146,7 +137,7 @@ fn restart_camera(args: &[String]) -> ExitCode {
             "--socket" => broker = Some(PathBuf::from(value)),
             "--control-socket" => control = Some(PathBuf::from(value)),
             _ => {
-                eprintln!("continuum-capture: unknown argument {flag}");
+                tracing::error!("unknown argument {flag}");
                 return ExitCode::from(2);
             }
         }
@@ -156,7 +147,7 @@ fn restart_camera(args: &[String]) -> ExitCode {
         .or_else(|| broker.map(|path| path.with_file_name("capture.sock")))
         .or_else(|| state_dir.map(|path| path.join("continuum/capture.sock")));
     let Some(control) = control else {
-        eprintln!("continuum-capture: --state-dir, --socket, or --control-socket is required");
+        tracing::error!("--state-dir, --socket, or --control-socket is required");
         return ExitCode::from(2);
     };
     let reply = continuum_capture::control::restart_camera(&control, device);
@@ -168,7 +159,7 @@ fn restart_camera(args: &[String]) -> ExitCode {
     match serde_json::to_string(&reply) {
         Ok(json) => println!("{json}"),
         Err(error) => {
-            eprintln!("continuum-capture: encoding control reply: {error}");
+            tracing::error!("encoding control reply: {error}");
             return ExitCode::FAILURE;
         }
     }
@@ -212,14 +203,14 @@ fn watch_hotplug(tx: &std::sync::mpsc::Sender<Event>) {
     let socket = match UeventSocket::open() {
         Ok(s) => Some(s),
         Err(e) => {
-            eprintln!("continuum-capture: no uevent socket, so no camera hotplug: {e}");
+            tracing::warn!("no uevent socket, so no camera hotplug: {e}");
             None
         }
     };
     let mut reported = BTreeSet::new();
     resync(&roots, &mut reported, tx);
     if let Err(e) = continuum_capture::pipewire::watch_sources(tx.clone()) {
-        eprintln!("continuum-capture: no PipeWire watcher, so no microphones: {e}");
+        tracing::warn!("no PipeWire watcher, so no microphones: {e}");
     }
     let Some(socket) = socket else { return };
     // The reader only drains the socket, so the kernel's buffer never fills while the describer waits for udev; the
@@ -233,7 +224,7 @@ fn watch_hotplug(tx: &std::sync::mpsc::Sender<Event>) {
                 // The kernel dropped uevents because the buffer was full: the describer rescans.
                 Err(e) if e.raw_os_error() == Some(libc::ENOBUFS) => Raw::Overrun,
                 Err(e) => {
-                    eprintln!("continuum-capture: uevents: {e}");
+                    tracing::warn!("uevents: {e}");
                     return;
                 }
             };
@@ -243,7 +234,7 @@ fn watch_hotplug(tx: &std::sync::mpsc::Sender<Event>) {
         }
     });
     if let Err(e) = reader {
-        eprintln!("continuum-capture: no uevent thread: {e}");
+        tracing::warn!("no uevent thread: {e}");
         return;
     }
     let tx = tx.clone();
@@ -253,7 +244,7 @@ fn watch_hotplug(tx: &std::sync::mpsc::Sender<Event>) {
         for item in raw_rx {
             let event = match item {
                 Raw::Overrun => {
-                    eprintln!("continuum-capture: uevents were dropped (the socket overran): rescanning the cameras");
+                    tracing::warn!("uevents were dropped (the socket overran): rescanning the cameras");
                     if resync(&roots, &mut reported, &tx) {
                         continue;
                     }
@@ -277,7 +268,7 @@ fn watch_hotplug(tx: &std::sync::mpsc::Sender<Event>) {
         }
     });
     if let Err(e) = describer {
-        eprintln!("continuum-capture: no uevent thread: {e}");
+        tracing::warn!("no uevent thread: {e}");
     }
 }
 
@@ -304,51 +295,13 @@ fn watch_hotplug(tx: &std::sync::mpsc::Sender<Event>) {
         }
     });
     if let Err(e) = spawned {
-        eprintln!("continuum-capture: no device list thread, so no hotplug: {e}");
+        tracing::warn!("no device list thread, so no hotplug: {e}");
     }
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn watch_hotplug(_: &std::sync::mpsc::Sender<Event>) {
-    eprintln!("continuum-capture: no hotplug on this OS");
-}
-
-/// Prints a manifest from v1's camera settings and the cameras seen now.
-fn from_v1(root: &std::path::Path) -> ExitCode {
-    let defaults_path = root.join("config").join("defaults.toml");
-    let defaults = match std::fs::read_to_string(&defaults_path) {
-        Ok(t) => t,
-        Err(e) => {
-            eprintln!("continuum-capture: {}: {e}", defaults_path.display());
-            return ExitCode::from(2);
-        }
-    };
-    let pack_path = std::env::var_os("PACK_CONFIG").map_or_else(|| root.join("pack.toml"), PathBuf::from);
-    // No pack.toml is fine (v1 ran on its defaults); one that can't be read is an error, not a reason to print a
-    // manifest from the defaults alone.
-    let pack = match std::fs::read_to_string(&pack_path) {
-        Ok(t) => Some(t),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
-        Err(e) => {
-            eprintln!("continuum-capture: {}: {e}", pack_path.display());
-            return ExitCode::from(2);
-        }
-    };
-    let v1 = match continuum_capture::from_v1::v1_vision(&defaults, pack.as_deref()) {
-        Ok(v) => v,
-        Err(e) => {
-            eprintln!("continuum-capture: {e}");
-            return ExitCode::from(2);
-        }
-    };
-    #[cfg(target_os = "linux")]
-    let seen = continuum_capture::hotplug::Roots::default().cameras();
-    #[cfg(target_os = "macos")]
-    let seen = objc2::rc::autoreleasepool(|_| continuum_capture::avfoundation::cameras());
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-    let seen: Vec<continuum_capture::supervisor::DeviceInfo> = Vec::new();
-    print!("{}", continuum_capture::from_v1::render(&v1, &seen, cfg!(target_os = "macos")));
-    ExitCode::SUCCESS
+    tracing::info!("no hotplug on this OS");
 }
 
 /// Prints every device hotplug sees now, one a line: what a manifest's match rules can name.
@@ -392,13 +345,13 @@ fn list_devices(options: &listing::Options) -> ExitCode {
         match listing::json(&devices, diagnostics, options) {
             Ok(json) => println!("{json}"),
             Err(error) => {
-                eprintln!("continuum-capture: serializing devices: {error}");
+                tracing::error!("serializing devices: {error}");
                 return ExitCode::FAILURE;
             }
         }
     } else {
         for diagnostic in diagnostics {
-            eprintln!("continuum-capture: {diagnostic}");
+            tracing::warn!("{diagnostic}");
         }
         for d in devices {
             println!("{}", listing::text(&d));

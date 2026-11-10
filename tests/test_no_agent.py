@@ -9,7 +9,7 @@ import requests
 from liberational import config as cfg
 from liberational.assistant import ask_friends, voice
 from liberational.assistant.voice_auth import Grant
-from liberational.dashboard import people_writes
+from liberational.dashboard import people_references
 from liberational.memory import ask, history_qa
 from liberational.people import identity
 from liberational.phone import bridge
@@ -32,7 +32,7 @@ def requests_made(monkeypatch):
 
 
 def test_dashboard_lookup_reports_missing_agent():
-    assert people_writes.public_lookup("Dana") == {"error": "No agent is configured (see [agent] in settings)."}
+    assert people_references.public_lookup("Dana") == {"error": "No agent is configured (see [agent] in settings)."}
 
 
 def test_ask_friends_says_it_needs_an_agent(monkeypatch):

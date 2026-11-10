@@ -151,7 +151,7 @@ async fn main() -> ExitCode {
         println!("{}", serde_json::json!({"version": 1, "rtsp_h264": true}));
         return ExitCode::SUCCESS;
     }
-    continuum_broker::log::init();
+    continuum_log::init("continuum-broker");
     let args = Args::parse();
     let profile = args.profile.clone().unwrap_or_else(|| continuum_broker::server::default_profile().to_owned());
     let Some(ring_bytes) = args.tier0_ring_mib.checked_mul(1 << 20) else {

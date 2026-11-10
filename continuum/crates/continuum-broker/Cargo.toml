@@ -11,6 +11,7 @@ name = "continuum-broker"
 path = "src/main.rs"
 
 [dependencies]
+continuum-log.workspace = true
 chrono.workspace = true
 clap.workspace = true
 continuum-catalog.workspace = true

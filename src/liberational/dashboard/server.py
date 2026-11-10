@@ -196,7 +196,6 @@ import errno
 import html
 import http.server
 import json
-import math
 import os
 import pathlib
 import re
@@ -213,6 +212,8 @@ from collections.abc import Callable
 from concurrent.futures import Executor
 from types import FrameType
 from typing import Any
+
+from liberational.dashboard import people_cards, roster_read
 
 try:
     import psutil
@@ -237,19 +238,14 @@ from liberational import (
 from liberational.dashboard import (
     assets,
     context,
-    devices,
     devreload,
-    frontend_log,
     inbox_state,
-    ingest,
     live_status,
     machine_stats,
-    network_cameras,
     people_list,
     people_reads,
     people_writes,
     photo_files,
-    reports,
     routes,
     service_control,
     settings,
@@ -264,39 +260,51 @@ from liberational.people import (
     face_shots,
     registry,
     transcript_view,
-    video_thumbs,
 )
 from liberational.vision import views
 
-# The areas whose modules register their own routes (dashboard/routes.py); the rest are still registered below.
+# Every module that registers routes (dashboard/routes.py), named once so the table is whole however the server
+# is imported; this module registers its own few at its end.
 routes.load(
-    "people_writes",
-    "speaker_lines",
-    "people_reads",
-    "unnamed_groups",
-    "people_list",
-    "inbox_state",
-    "fresh_reads",
-    "photo_files",
-    "voice_clones",
-    "known_voices",
-    "review_reads",
-    "playback",
-    "live_status",
-    "transcript_lines",
-    "call_log",
-    "service_control",
-    "machine_stats",
+    "people_cards",
+    "roster_read",
+    "people_corrections",
+    "people_references",
     "activities",
+    "ask_routes",
+    "call_log",
     "device_links",
+    "devices",
+    "fresh_reads",
+    "frontend_log",
     "happening",
+    "inbox_state",
+    "ingest",
     "journal",
+    "known_voices",
+    "live_status",
+    "machine_stats",
     "marks",
+    "network_cameras",
+    "people_list",
+    "people_reads",
+    "people_writes",
     "pets",
+    "photo_files",
     "places",
+    "playback",
     "presence",
+    "reports",
+    "research",
     "review_boxes",
+    "review_reads",
+    "service_control",
+    "settings",
     "skeletons",
+    "speaker_lines",
+    "transcript_lines",
+    "unnamed_groups",
+    "voice_clones",
     "zones",
 )
 
@@ -370,7 +378,7 @@ def _warm_devices() -> None:
     """Read Known › Devices' device list once at start, at low priority, so its day of settled hours is tallied
     (proximity/devices.py) before anyone opens the tab: the first read after a start is about 30 s, later ones about
     a second."""
-    photo_files._low_priority(19)
+    context.low_priority(19)
     try:
         from liberational.dashboard import device_links
 
@@ -382,32 +390,6 @@ def _warm_devices() -> None:
 def _shot_path(sid: str) -> pathlib.Path:
     """Where sighting sid's crop is under the current deletion revision."""
     return face_shots.path(context.STATE, sid, photo_files._shot_revision())
-
-
-def _research(handler: H) -> bool:
-    """Delegate /research* (the Inbox's research jobs) to dashboard/research.py."""
-    if not handler.path.startswith("/research"):
-        return False
-    from liberational.dashboard import research as research_routes
-
-    return research_routes.handle(handler)
-
-
-def _pack_ask(handler: H) -> bool:
-    """Delegate /pack-ask* to liberational/memory/ask.py when present; never raises into the server."""
-    if not handler.path.startswith("/pack-ask"):
-        return False
-    try:
-        from liberational.memory.ask import handle_http
-
-        return bool(handle_http(handler))
-    except Exception as ex:
-        log("pack_ask failed:", ex, level=logs.ERROR)
-        try:
-            handler._json({"error": f"pack_ask unavailable: {ex}"}, 503)
-        except Exception:
-            pass
-        return True
 
 
 AUTONAME_EVERY_S = 60.0  # how often clear face matches are named without a tag
@@ -484,7 +466,7 @@ def _warm_faces() -> threading.Thread:
     """Import vision/faces.py (and cv2) in the background at start, so the first GET /people doesn't."""
 
     def run() -> None:
-        photo_files._low_priority(19)
+        context.low_priority(19)
         voice_turn.wait_quiet()
         try:
             people_list._faces_mod()
@@ -618,7 +600,7 @@ class DashboardServer(http.server.ThreadingHTTPServer):
         if not self._people_warm_started:
             self._people_warm_started = True
             try:
-                photo_files._crop_jobs.start(lambda: photo_files._low_priority(19))
+                photo_files._crop_jobs.start(lambda: context.low_priority(19))
             except Exception as error:
                 log("thumbnail worker could not start:", repr(error), level=logs.ERROR)
             try:
@@ -659,11 +641,11 @@ class H(http.server.BaseHTTPRequestHandler):
                 LOG.error(f"{route}: the client gave up after {took:.1f} s")
             elif _client_left(ex):
                 LOG.debug(f"{route}: the client left ({type(ex).__name__})")
-            elif isinstance(ex, people_reads.Starting) or continuum_link.broker_outage(ex):
-                if not isinstance(ex, people_reads.Starting):
+            elif isinstance(ex, roster_read.Starting) or continuum_link.broker_outage(ex):
+                if not isinstance(ex, roster_read.Starting):
                     continuum_link.OUTAGE.lost(ex)  # one WARN for the outage, not a traceback per request
                 if self._headers_at is None:
-                    self._starting(str(ex) if isinstance(ex, people_reads.Starting) else "The data broker is starting.")
+                    self._starting(str(ex) if isinstance(ex, roster_read.Starting) else "The data broker is starting.")
             else:
                 LOG.exception(f"{route} failed")
             self.close_connection = True
@@ -780,92 +762,6 @@ class H(http.server.BaseHTTPRequestHandler):
             self.close_connection = True
             return False
         return ok
-
-    def _video_thumb(self) -> None:
-        """Serve a prepared scene thumbnail. A cache miss admits background work and gives the connection back."""
-        q = self._query()
-        try:
-            cam, start, end = q.get("cam", ""), float(q.get("start", "")), float(q.get("end", ""))
-            if not video_thumbs.CAMERA.fullmatch(cam) or not math.isfinite(start) or not math.isfinite(end):
-                raise ValueError
-            if start < 0 or end < start:
-                raise ValueError
-        except TypeError, ValueError:
-            return self._send(400, "text/plain", b"Invalid video bounds.")
-        revision = photo_files._shot_revision()
-        saved = video_thumbs.path(context.STATE, cam, start, revision)
-        try:
-            data = saved.read_bytes()
-        except FileNotFoundError:
-            key = json.dumps([cam, round(start, 3), round(end, 3)], separators=(",", ":"))
-            pending = photo_files._crop_jobs.offer(context.STATE, video_thumbs.KIND, key, revision)
-            self.send_response(202 if pending else 404)
-            self.send_header("Cache-Control", "no-store")
-            if pending:
-                self.send_header("Retry-After", "2")
-            self.send_header("Content-Length", "0")
-            self.end_headers()
-            return
-        self.send_response(200)
-        self.send_header("Content-Type", "image/jpeg")
-        self.send_header("Cache-Control", "private, max-age=86400")
-        self.send_header("Content-Length", str(len(data)))
-        self.end_headers()
-        if self.command != "HEAD":
-            self.wfile.write(data)
-
-    def _grid_photo(self, sid: str, kind: str) -> None:
-        revision = photo_files._shot_revision()
-        path = face_shots.path(context.STATE, sid, revision, kind)
-        original = face_shots.path(context.STATE, sid, revision, kind.removesuffix("_grid"))
-        if path.is_file() and original.is_file():
-            import hashlib
-
-            body = path.read_bytes()
-            etag = '"' + hashlib.sha256(body).hexdigest() + '"'
-            tags = {tag.strip() for tag in self.headers.get("If-None-Match", "").split(",")}
-            unchanged = bool(tags.intersection({etag, f"W/{etag}", "*"}))
-            self.send_response(304 if unchanged else 200)
-            self.send_header("Cache-Control", "private, max-age=86400")
-            self.send_header("ETag", etag)
-            if not unchanged:
-                self.send_header("Content-Type", "image/jpeg")
-                self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            if not unchanged and self.command != "HEAD":
-                self.wfile.write(body)
-            return
-        pending = photo_files._crop_jobs.offer(context.STATE, kind, sid, revision)
-        self.send_response(202 if pending else 404)
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("Retry-After", "2")
-        self.send_header("Content-Length", "0")
-        self.end_headers()
-
-    def _pet_photo(self, track: str) -> None:
-        """GET /pets/sightings/photo?track=: the track's saved crop under the current deletion revision with no
-        lookup; else, in one of the cut turns faces use (a 503 after SHOT_WAIT_S), looked up and cut."""
-        if self._query().get("size") == "80":
-            if not photo_files.PET_TRACK.fullmatch(track):
-                return self._send(404, "text/plain", b"")
-            return self._grid_photo(track, "pet_shots_grid")
-        try:
-            b = photo_files._pet_file(track, context.STATE)
-        except photo_files.ShotsBusy:
-            self.send_response(503)
-            self.send_header("Retry-After", "2")
-            self.send_header("Content-Length", "0")
-            self.end_headers()
-            return
-        if b is None:
-            return self._send(404, "text/plain", b"")
-        self.send_response(200)
-        self.send_header("Content-Type", "image/jpeg")
-        self.send_header("Cache-Control", "private, max-age=86400")
-        self.send_header("Content-Length", str(len(b)))
-        self.end_headers()
-        if self.command != "HEAD":
-            self.wfile.write(b)
 
     def _send(self, code: int, ct: str, b: bytes) -> None:
         # Compress only source assets/page shells, not private API data or media ranges.
@@ -1038,16 +934,6 @@ class H(http.server.BaseHTTPRequestHandler):
             # The app is one page; its router reads the tab from the path.
             code, body = app_page()
             return self._send(code, "text/html; charset=utf-8", body)
-        if (
-            settings.handle(self, log)
-            or devices.handle(self, log)
-            or network_cameras.handle(self, log)
-            or ingest.handle(self, log)
-            or reports.handle(self, log)
-        ):
-            return
-        if _pack_ask(self) or _research(self):
-            return  # history Q&A: /pack-ask/jobs, and research for the Inbox: /research/jobs
         found = routes.find("GET", p)  # every other route is registered in dashboard/routes.py's table (#61)
         if found is None:
             return self._send(404, "text/plain", b"")
@@ -1082,8 +968,10 @@ class H(http.server.BaseHTTPRequestHandler):
         return self._media(b, "audio/wav", {"Cache-Control": "no-store"})
 
     def do_DELETE(self) -> None:
-        if not _pack_ask(self):
-            self._json({"error": "Method not supported."}, 405)
+        found = routes.find("DELETE", self.path.split("?")[0])
+        if found is None:
+            return self._json({"error": "Method not supported."}, 405)
+        return found[0].handler(self)
 
     def do_POST(self) -> None:
         # A registry write that failed (registry.recorded) wasn't done, or was undone: said, never answered as done.
@@ -1091,27 +979,16 @@ class H(http.server.BaseHTTPRequestHandler):
         # reads afresh) and after (so a read that began during it is dropped, _CardReads.epoch).
         edit = self.path.split("?")[0].startswith(people_writes.CARD_EDITS)
         if edit:
-            people_reads._CARD_READS.clear()
+            people_cards._CARD_READS.clear()
         try:
             self._post()
         except registry.WriteFailed as e:
             self._json({"ok": False, "error": str(e)}, 500)
         finally:
             if edit:
-                people_reads._CARD_READS.clear()
+                people_cards._CARD_READS.clear()
 
     def _post(self) -> None:
-        if (
-            settings.handle(self, log, carry_owner=people_writes.rename_owner)
-            or devices.handle(self, log)
-            or network_cameras.handle(self, log)
-            or ingest.handle(self, log)
-            or reports.handle(self, log)
-            or frontend_log.handle(self)
-        ):
-            return
-        if _pack_ask(self) or _research(self):
-            return
         p = self.path.split("?")[0]
         if p in people_writes.TEACHING_ROUTES and not self._can_teach(
             people_writes.UPLOAD_TYPE if p == "/people/reference-upload" else "application/json"
@@ -1433,7 +1310,7 @@ def _stop_worker_pools() -> None:
     pools: list[Executor | None] = [
         unnamed_groups._groups_executor,
         unnamed_groups._voices_executor,
-        people_reads._people_executor,
+        roster_read._people_executor,
         review_presence._executor,
         report_days._executor,
     ]

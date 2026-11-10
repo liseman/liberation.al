@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import json
+import logging
 import shutil
 import subprocess
 import sys
@@ -23,9 +24,9 @@ from liberational.listen.worker import (
     Heard,
     Mic,
     MicPipeline,
+    StateChecks,
     Transcriber,
     Twin,
-    V1Checks,
     Worker,
     mics_from_manifest,
     ring_batches,
@@ -278,19 +279,19 @@ def test_speech_played_through_a_microphone_is_committed_as_an_utterance(
     assert line["ts_end"] - line["ts_start"] == pytest.approx(1.2 + 0.6, abs=0.5)
 
 
-def v1_checks(state: Path) -> V1Checks:
+def state_checks(state: Path) -> StateChecks:
     salt, iterations = b"test salt only", 100_000
     digest = hashlib.pbkdf2_hmac("sha256", b"open sesame", salt, iterations).hex()
     verifier = state / "voice_auth.json"
     verifier.write_text(json.dumps({"version": 1, "salt": salt.hex(), "iterations": iterations, "hash": digest}))
     verifier.chmod(0o600)
-    return V1Checks(state)
+    return StateChecks(state)
 
 
 def test_a_span_overlapping_playback_is_echo(tmp_path: Path) -> None:
     from liberational.speech import playback_guard
 
-    checks = v1_checks(tmp_path)
+    checks = state_checks(tmp_path)
     now = time.time()
     token = playback_guard.open_window(2.0)
     try:
@@ -309,18 +310,18 @@ def test_a_span_overlapping_playback_is_echo(tmp_path: Path) -> None:
     ],
 )
 def test_captions_are_not_speech(tmp_path: Path, text: str, expected: tuple[str, bool] | None) -> None:
-    assert v1_checks(tmp_path).heard("wave3", 10.0, 11.0, text) == expected
+    assert state_checks(tmp_path).heard("wave3", 10.0, 11.0, text) == expected
 
 
 def test_another_mics_copy_of_a_line_just_heard_is_dropped(tmp_path: Path) -> None:
-    checks = v1_checks(tmp_path)
+    checks = state_checks(tmp_path)
     assert checks.heard("wave3", 100.0, 102.0, "turn the lights off") == ("turn the lights off", False)
     assert checks.heard("xvf", 100.1, 102.1, "turn the lights off") == Twin("wave3", 100.0), "names the line it copies"
     assert checks.heard("xvf", 200.0, 202.0, "turn the lights off") == ("turn the lights off", False), "much later"
 
 
 def test_the_voice_password_is_written_as_password_and_marked(tmp_path: Path) -> None:
-    checks = v1_checks(tmp_path)
+    checks = state_checks(tmp_path)
     assert checks.heard("wave3", 10.0, 11.0, "Password is open sesame.") == ("[password]", True)
     assert checks.heard("wave3", 20.0, 21.0, "password is wrong guess") == ("password is wrong guess", False)
 
@@ -360,6 +361,8 @@ def test_a_quiet_candidate_is_brought_to_a_normal_level_with_bounded_gain_and_no
 def test_quiet_speech_gets_past_a_level_sensitive_gate_and_is_transcribed(caplog: pytest.LogCaptureFixture) -> None:
     # On the Linux machine nothing was transcribed: Silero found no speech in -59 dBFS audio until it was levelled.
     from liberational.listen import worker as w
+
+    caplog.set_level(logging.DEBUG, logger=w.log.name)  # a clip's line is DEBUG (#59)
 
     heard = []
 

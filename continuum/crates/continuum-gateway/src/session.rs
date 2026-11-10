@@ -685,9 +685,10 @@ impl Session {
         let Some(client) = link.client_or_reconnect_blocking() else { return Ok(recorded) };
         let asked = std::time::Instant::now();
         let listed = link.rt.block_on(client.list_streams());
-        // Which part a slow listing spent its time in, the chunk directory or the broker.
+        // Which part a slow listing spent its time in, the chunk directory or the broker. DEBUG: a loaded machine
+        // makes most listings slow, and at INFO they were most of the gateway's log (#59).
         if started.elapsed() > SLOW_LISTING {
-            tracing::info!(chunks = ?chunks, broker = ?asked.elapsed(), "a slow stream listing");
+            tracing::debug!(chunks = ?chunks, broker = ?asked.elapsed(), "a slow stream listing");
         }
         let listed = match listed {
             Ok(l) => l,
@@ -793,7 +794,7 @@ impl Session {
         let mut skipped = 0;
         let mut codec: Option<&'static str> = None;
         let mut chunks_seen = HashSet::new();
-        // Where a v1 recording's GOPs were cut off by the budget, so the range continues there.
+        // Where the GOPs of a file registered in place were cut off by the budget, so the range continues there.
         let mut continue_at: Option<u64> = None;
         // Items come in time order, so once one more frame than the cap is in hand (with a later key to cut at)
         // the rest can wait for the next request: nothing past the cut is read.
@@ -860,8 +861,8 @@ impl Session {
                     }
                     let path = &continuum_core::chunk_path::resolve(&self.data_root, uri);
                     let budget = max.saturating_add(1).saturating_sub(keyed.len());
-                    // A v1 recording registered in place: an MP4 at its own path, read by GOP.
-                    if item.header.shape_name() == continuum_tier::v1video::SHAPE {
+                    // A file registered in place: an MP4 at its own path, read by GOP.
+                    if item.header.shape_name() == continuum_tier::inplace_video::SHAPE {
                         let (mut frames, more_skipped, more) =
                             mp4_frames(path, stream, start, start_ns, end_ns, budget, &mut codec)?;
                         for (_, frame) in &mut frames {
@@ -1207,14 +1208,14 @@ impl Session {
 /// What [`mp4_frames`] read: the frames by GOP start, how many units it couldn't classify, and where to continue.
 type Mp4Read = (Vec<(u64, Frame)>, usize, Option<u64>);
 
-/// The frames of a v1 recording registered in place (`continuum_tier::v1video`), which starts at `file_start_ns`:
+/// The frames of an MP4 registered in place (`continuum_tier::inplace_video`), which starts at `file_start_ns`:
 /// every GOP whose frames overlap `[start_ns, end_ns)`, whole from its keyframe, its access units in decode order
 /// with their presentation times, each keyed by its GOP's start so a cut never splits a GOP; at most about `budget`
 /// frames (always at least one GOP). Also returns the start of the first GOP left for a later request, when the
 /// budget stopped it, so the range can say where to continue.
 ///
 /// Known, won't fix: GOPs a purge cut in the catalog are still served from the file (the file is never rewritten,
-/// and the cut flags don't reach the gateway); v1's recordings are deleted once Continuum is done.
+/// and the cut flags don't reach the gateway).
 fn mp4_frames(
     path: &Path,
     stream: u32,
@@ -1226,7 +1227,7 @@ fn mp4_frames(
 ) -> Result<Mp4Read, String> {
     let mut file = std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let video = continuum_tier::mp4::read_video(&mut file).map_err(|e| e.to_string())?;
-    let frames = continuum_tier::v1video::gop_frames(&video, file_start_ns);
+    let frames = continuum_tier::inplace_video::gop_frames(&video, file_start_ns);
     let gops = video.gops();
     let mut out = Vec::new();
     let mut skipped = 0;
@@ -1240,7 +1241,7 @@ fn mp4_frames(
         if !out.is_empty() && out.len() >= budget {
             return Ok((out, skipped, Some(f.start_ns)));
         }
-        let units = continuum_tier::v1video::gop_units(path, file_start_ns, i).map_err(|e| e.to_string())?;
+        let units = continuum_tier::inplace_video::gop_units(path, file_start_ns, i).map_err(|e| e.to_string())?;
         for u in units {
             match classify(ChunkFormat::Passthrough, &u.bytes, *codec) {
                 Some((payload_type, _, name)) => {
@@ -1700,7 +1701,8 @@ impl Session {
             && m.streams().contains(&"pose.track")
         {
             let path = if poses_live { "the pose.boxes ring" } else { "pose.track segments, until the ring appears" };
-            tracing::info!(camera = %m.camera(), "live poses from {path}");
+            // Per camera per connection, so DEBUG (#59).
+            tracing::debug!(camera = %m.camera(), "live poses from {path}");
         }
         let segments = match (&self.segments, vision.as_ref(), from_segments.is_empty()) {
             (Some(root), Some(m), false) => {
