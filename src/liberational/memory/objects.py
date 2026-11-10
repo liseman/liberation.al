@@ -9,7 +9,7 @@ cameras, and "where did I leave my wallet?" answered from where each was last se
   rows in the segment store. `sightings` reads both.
 - A snapshot (the view the owner crops from) is the camera's newest frame, kept in this process for SNAPSHOT_TTL.
 
-Matching is v1's (`memory/object_memory.py`): CPU SIFT features and a RANSAC homography, confirmed in two
+Matching is by CPU SIFT features and a RANSAC homography, confirmed in two
 distinct frames in a row; no person recognition.
 """
 
@@ -51,7 +51,7 @@ def camera_names() -> list[str]:
     return [c.name for c in cameras_from_manifest(cfg.ROOT / "config" / "devices.toml")]
 
 
-# ---- matching (v1's) ---------------------------------------------------------------------------------------------
+# ---- matching ----------------------------------------------------------------------------------------------------
 
 
 def features(image: MatLike, mask: MatLike | None = None) -> tuple[Sequence[cv2.KeyPoint], MatLike | None]:
@@ -577,7 +577,7 @@ class Store:
         raise FileNotFoundError(ref)
 
     def query(self, question: str) -> dict[str, Any]:
-        """Where an object named in the question was last seen, as v1 answered it."""
+        """Where an object named in the question was last seen."""
         q = str(question).casefold()
         objects = self.objects()
         matches = [

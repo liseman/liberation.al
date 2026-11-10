@@ -1,8 +1,7 @@
 """The memory log: the journal's interpretations on Continuum, the way `speech_log` and
-`vision_log` hold speech and vision. Layer 3 payloads with parents, where v1 kept `interpretations.sqlite3` and
-`summaries/`. B1 of the plan: the streams, their codecs, and the read API that `recall`, `history_qa`, the Review
-summary, and the dashboard code against; the journal worker writes them, its day, week, and month pages included
-(memory/journal_pages.py).
+`vision_log` hold speech and vision. Layer 3 payloads with parents. It holds the streams, their codecs, and the read API
+that `recall`, `history_qa`, the Review summary, and the dashboard code against; the journal worker writes them, its
+day, week, and month pages included (memory/journal_pages.py).
 
 Streams (format Text, shape name = stream name, an inline JSON body of at most MAX_BODY; layer 3 except Ask's
 human question roots at layer 1 and answer/state records at layer 2):

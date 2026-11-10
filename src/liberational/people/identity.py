@@ -28,8 +28,7 @@ A tag can carry a role and an organization ("that's Alice, CEO of Acme"), parsed
 log once the name is applied; a plain name tag works as before.
 
 Every proposal and what became of it is a record in the knowledge store's `identity.record` collection
-(`paths.state/knowledge.sqlite3`, outside the broker's reset; append-only, the latest record per id wins), where v1
-kept identity.jsonl:
+(`paths.state/knowledge.sqlite3`, outside the broker's reset; append-only, the latest record per id wins):
   {id, ts, kind: self_intro|third_party|badge|collar, name, status: applied|pending|ambiguous|rejected,
    confidence, speaker_id, speaker_label, faces:[{cluster, cam, cams, ts, sim, n, detections}],
    attributes:{role, organization} (only when the tag said them),
@@ -121,7 +120,7 @@ class Paths:
 # ---------------------------------------------------------------- records ----
 class Records:
     """The identity records in the knowledge store (`identity.record`, outside the broker's reset): one
-    record per version, keyed by the record's id, the latest per id winning, as v1's identity.jsonl lines did. These
+    record per version, keyed by the record's id, the latest per id winning. These
     are the same records `pack-knowledge import` writes from the broker's old stream."""
 
     def __init__(self, store: knowledge.Store) -> None:

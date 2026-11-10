@@ -1,10 +1,9 @@
 """Microphone selection rules: which input devices count as microphones to record (the dashboard's device page,
-dashboard/devices.py). What's left of v1's microphone service after the switch to Continuum.
+dashboard/devices.py).
 
 Capture, ASR, and the transcript moved to Continuum: continuum-capture records the microphones, the listen worker
-(listen/worker.py, with v1's VAD and speech gate in listen/gate.py) transcribes them onto the broker's speech log,
-and voices are voiceprints matched through the vector worker (listen/voices.py). v1's voice list (`SpeakerDB` over
-`state/voices.sqlite3`) and its `speakers` command line were removed with it.
+(listen/worker.py, with the VAD and speech gate in listen/gate.py) transcribes them onto the broker's speech log,
+and voices are voiceprints matched through the vector worker (listen/voices.py).
 """
 
 import json

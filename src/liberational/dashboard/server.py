@@ -378,8 +378,8 @@ def mtime(p: pathlib.Path) -> int:
 
 # ------------------------------------------------------------ transcript ----
 # What was heard and what the assistant said come from the broker's speech log (speech_log.shared()): utterances
-# on speech.utterance, replies on assistant.reply, each a v1-shaped line with its payload `id`. A line names its voice
-# (speaker_id, "Speaker n"), never a person; who said it is read through the event log (_view).
+# on speech.utterance, replies on assistant.reply, each a transcript line (a dict) with its payload `id`. A line names
+# its voice (speaker_id, "Speaker n"), never a person; who said it is read through the event log (_view).
 TAIL_S = 7 * 86400  # how far back a tail looks first; the whole log only when that holds too few lines
 END_OF_TIME = float(2**32)  # 2106: "to the end" for a read of every line, whatever the clock says
 
@@ -5201,15 +5201,15 @@ _mic_cache: dict[str, Any] = {"at": 0.0, "value": None}
 
 
 def camera_status() -> dict[str, Any]:
-    """The cameras capture is sending, from their `<name>.video` streams (dashboard/cameras.py), in the shape v1's
-    vision.status.json had: {"ts", "cameras": {name: {"state", "size", "fps"}}}."""
+    """The cameras capture is sending, from their `<name>.video` streams (dashboard/cameras.py), in the shape the
+    page reads: {"ts", "cameras": {name: {"state", "size", "fps"}}}."""
     from liberational.dashboard import cameras, devices
 
     return cameras.states(devices._link())
 
 
 def mic_status() -> dict[str, Any]:
-    """The microphones as the Live tab shows them, in the shape v1's ambient.status.json had: {"ts", "devices":
+    """The microphones as the Live tab shows them: {"ts", "devices":
     {name: {"name", "healthy", "gain"?}}}, "gain" from the listen worker's auto gain status. A microphone is healthy
     while the listen worker runs and its `<name>.audio` stream on the broker has audio from the last MIC_FRESH_S; "ts"
     is now while any is, and absent otherwise (not listening). Asked of the broker at most every 2 s."""
