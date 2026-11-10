@@ -30,6 +30,8 @@ export type WallDrawVariant = string;
 export interface EditorState {
   mode: string;
   tool: string | null;
+  /** The room picked on the plan (a room is the editor's own selection, not the viewer's), or null. */
+  room: { levelId: string; zoneId: string } | null;
   setPhase: (phase: 'site' | 'building') => void;
   setMode: (mode: 'select' | 'build') => void;
   setTool: (tool: string | null) => void;
@@ -40,6 +42,7 @@ export interface EditorState {
 export const useEditor: {
   <T>(selector: (state: EditorState) => T): T;
   getState: () => EditorState;
+  subscribe: (listener: (state: EditorState, before: EditorState) => void) => () => void;
 };
 
 /** Select the scene's first building and its ground level, as the editor does when it enters its building phase. */
