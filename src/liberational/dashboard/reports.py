@@ -22,7 +22,8 @@ from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any
 
 from liberational import config as cfg
-from liberational.dashboard import report_health
+from liberational.dashboard import report_health, routes
+from liberational.dashboard.context import log
 from liberational.memory import reports
 
 if TYPE_CHECKING:
@@ -319,3 +320,12 @@ def handle(handler: H, log: Callable[..., None] = print, view: reports.Reports |
 def _reply(handler: H, code: int, body: dict[str, Any]) -> bool:
     handler._json(body, code)
     return True
+
+
+# ---- routes (dashboard/routes.py) ----
+
+
+@routes.get_when(PREFIX + "...", lambda p: p.startswith(PREFIX))
+@routes.post_raw_when(PREFIX + "...", lambda p: p.startswith(PREFIX))
+def _route(h: H) -> None:
+    handle(h, log)

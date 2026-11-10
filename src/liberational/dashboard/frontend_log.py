@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from liberational import config as cfg
+from liberational.dashboard import routes
 
 PATH = "/frontend/log"
 MAX_BODY = 64 * 1024
@@ -143,3 +144,11 @@ def handle(handler: Any) -> bool:
         return True
     handler._json({"kept": append(events)})
     return True
+
+
+# ---- routes (dashboard/routes.py) ----
+
+
+@routes.post_raw(PATH)
+def _route(h: Any) -> None:
+    handle(h)
