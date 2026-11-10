@@ -1,0 +1,192 @@
+# The checks a change gets on GitHub-hosted runners (CONTRIBUTING.md, "Checks before merging"): Ruff and ty over the
+# changed Python, the Python tests that cover the changed files (the same selection as mise run test-changed, on the
+# CPU), the frontend's lint, production build, and related Vitest tests when frontend/ changed, and the Continuum
+# workspace's cargo check and tests when Rust changed. Anything that needs a GPU, models, or Ollama stays local.
+name: checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      base: ${{ steps.diff.outputs.base }}
+      python: ${{ steps.diff.outputs.python }}
+      python_config: ${{ steps.diff.outputs.python_config }}
+      frontend: ${{ steps.diff.outputs.frontend }}
+      rust: ${{ steps.diff.outputs.rust }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: List what changed
+        id: diff
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -euo pipefail
+          # A push with no usable "before" (a new branch, or a force push) compares with the parent commit.
+          if ! git cat-file -e "${BASE}^{commit}" 2>/dev/null; then BASE=$(git rev-parse HEAD^); fi
+          git diff --name-only --diff-filter=d "$(git merge-base "$BASE" HEAD)" HEAD > "$RUNNER_TEMP/changed.txt"
+          cat "$RUNNER_TEMP/changed.txt"
+          has() { grep -qE "$1" "$RUNNER_TEMP/changed.txt" && echo true || echo false; }
+          {
+            echo "base=$BASE"
+            echo "python=$(has '\.py$')"
+            echo "python_config=$(has '^(pyproject\.toml|uv\.lock)$')"
+            echo "frontend=$(has '^frontend/')"
+            echo "rust=$(has '^continuum/|(^|/)Cargo\.(toml|lock)$')"
+          } >> "$GITHUB_OUTPUT"
+
+  python:
+    needs: changes
+    if: needs.changes.outputs.python == 'true' || needs.changes.outputs.python_config == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      BASE: ${{ needs.changes.outputs.base }}
+      UV_FROZEN: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # PortAudio for sounddevice and FFmpeg for the media tests; OpenCV's wheels need libGL.
+      - name: Install system packages
+        run: sudo apt-get update -q && sudo apt-get install -yq --no-install-recommends libportaudio2 ffmpeg libgl1
+
+      # The cache keeps the continuum-py wheel that uv sync builds from continuum/ (maturin, with the runner's Rust).
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          python-version: "3.14"
+          enable-cache: true
+          cache-dependency-glob: |
+            uv.lock
+            continuum/Cargo.lock
+            continuum/crates/**/*.rs
+            continuum/python/**
+
+      - name: Install the Python dependencies (no extras)
+        run: uv sync
+
+      - name: List the changed Python
+        run: |
+          set -euo pipefail
+          git diff --name-only --diff-filter=d "$(git merge-base "$BASE" HEAD)" HEAD -- '*.py' > "$RUNNER_TEMP/py.txt"
+          # ty checks only what [tool.ty.src] includes, so it gets the files under src/, tests/, and tools/.
+          grep -E '^(src|tests|tools)/' "$RUNNER_TEMP/py.txt" > "$RUNNER_TEMP/ty.txt" || true
+          cat "$RUNNER_TEMP/py.txt"
+
+      # A change to pyproject.toml or uv.lock can change what Ruff and ty report anywhere, so it checks the whole tree.
+      - name: Ruff
+        env:
+          WHOLE: ${{ needs.changes.outputs.python_config }}
+        run: |
+          set -euo pipefail
+          if [ "$WHOLE" = true ]; then uv run ruff check && uv run ruff format --check; exit; fi
+          [ -s "$RUNNER_TEMP/py.txt" ] || { echo "no changed Python"; exit 0; }
+          xargs -a "$RUNNER_TEMP/py.txt" uv run ruff check --force-exclude
+          xargs -a "$RUNNER_TEMP/py.txt" uv run ruff format --check --force-exclude
+
+      - name: ty
+        env:
+          WHOLE: ${{ needs.changes.outputs.python_config }}
+        run: |
+          set -euo pipefail
+          if [ "$WHOLE" = true ]; then uv run ty check; exit; fi
+          [ -s "$RUNNER_TEMP/ty.txt" ] || { echo "no changed Python under src/, tests/, or tools/"; exit 0; }
+          xargs -a "$RUNNER_TEMP/ty.txt" uv run ty check
+
+      - name: Tests that cover the change
+        run: uv run tools/test_changed.py --base "$BASE" --only python
+
+  frontend:
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      BASE: ${{ needs.changes.outputs.base }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: node # the newest release, as mise.toml's node = "latest"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install the frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Biome and tsc
+        working-directory: frontend
+        run: npm run lint && npx --no-install biome format
+
+      - name: Production build
+        working-directory: frontend
+        run: npm run build
+
+      - name: Tests related to the change
+        run: python3 tools/test_changed.py --base "$BASE" --only frontend
+
+  rust:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: continuum
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # protoc for LanceDB's build (continuum-vector).
+      - name: Install system packages
+        run: sudo apt-get update -q && sudo apt-get install -yq --no-install-recommends protobuf-compiler
+
+      # continuum-py's PyO3 build needs a Python to build against.
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        id: python
+        with:
+          python-version: "3.14"
+
+      - name: Rust toolchain
+        run: rustup toolchain install stable --profile minimal -c rustfmt && rustup default stable
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: continuum
+
+      - name: rustfmt
+        run: cargo fmt --all --check
+
+      - name: cargo check
+        env:
+          PYO3_PYTHON: ${{ steps.python.outputs.python-path }}
+        run: cargo check --workspace --all-targets
+
+      - name: cargo test
+        env:
+          PYO3_PYTHON: ${{ steps.python.outputs.python-path }}
+        run: cargo test --workspace

@@ -54,14 +54,34 @@ Issue numbers in comments and docs written before this repository was published 
 
 ## Checks before merging
 
-One check runs on GitHub: `privacy`, the same `tools/privacy_check.py` the hooks
-run, on every push and pull request (the whole tree, the pushed commits and
-their messages, and a pull request's title and description). It must pass
-before a merge. It can only report: by the time it runs, the push is already
-public, so when it fails, follow "If something private gets out" in
+Two workflows run on GitHub-hosted runners (`ubuntu-latest`).
+
+`privacy` runs `tools/privacy_check.py`, the same check the hooks run, on every
+push and pull request (the whole tree, the pushed commits and their messages,
+and a pull request's title and description). It must pass before a merge. It
+can only report: by the time it runs, the push is already public, so when it
+fails, follow "If something private gets out" in
 [docs/CONVENTIONS.md](docs/CONVENTIONS.md) before anything else.
 
-Nothing else is hosted, and there is no waiting for a GitHub-side review: every
+`checks` runs on every pull request and every push to `main`, and looks only at
+what changed against the base, and its jobs must pass before a merge too:
+
+| Job | Runs when | What it does |
+|---|---|---|
+| `python` | a `.py` file, `pyproject.toml`, or `uv.lock` changed | `uv sync` (no extras), Ruff and `ruff format --check` on the changed Python, `ty check` on the changed files under `src/`, `tests/`, and `tools/` (the whole tree for both when `pyproject.toml` or `uv.lock` changed), then `tools/test_changed.py --only python`: the same tests `mise run test-changed` picks, on the CPU |
+| `frontend` | anything under `frontend/` changed | `npm ci`, Biome and tsc (`npm run lint`), `biome format`, the production build (`npm run build`), and `vitest related` on the changed files |
+| `rust` | anything under `continuum/`, or a `Cargo.toml` or `Cargo.lock`, changed | `cargo fmt --check`, `cargo check --workspace --all-targets`, and `cargo test --workspace`, with the build cached between runs |
+
+The hosted runner has no GPU, no models, no Ollama, and none of the optional
+extras (`faces`, `segmentation`, `deep-asr`, `voice-clone`, and the rest). Tests
+that need one skip themselves there (`pytest.importorskip`, or a `skipif` on the
+model files or the device), so a skip in the hosted log is expected, and those
+tests still run locally. What stays local: anything that needs a GPU, a model,
+or Ollama, the FFmpeg build of Continuum (`continuum-check`'s clippy with the
+`ffmpeg` feature), clippy itself, `ty check` with the MLX dependencies on an
+Apple Silicon Mac, and checks on real hardware.
+
+There is no waiting for a GitHub-side review: every
 change is reviewed and checked locally before it merges. Review the diff
 locally (a review agent, a local `codex review`, or a careful read), validate what it finds with a
 failing test, and fix the real problems. Then merge `main` in and run
