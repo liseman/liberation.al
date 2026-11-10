@@ -1,4 +1,4 @@
-// Every saved version of a place's plan, newest first, beside the plan editor: when each was saved, what changed
+// Every saved version of a place's plan, newest first, in a popover of the plan editor: when each was saved, what changed
 // from the one before, and which one is the plan now. Picking one shows it in the editor without changing anything
 // (PlaceEditor.tsx); restoring it saves it again on top, so nothing here is ever rewritten.
 import { Badge, Text, UnstyledButton } from '@mantine/core';
@@ -24,7 +24,7 @@ export function Versions({
   const history = useQuery(planHistoryQuery(place));
   const versions = [...(history.data?.versions ?? [])].reverse();
   return (
-    <aside className={classes.versions} aria-labelledby="plan-versions-h">
+    <section className={classes.versions} aria-labelledby="plan-versions-h">
       <h3 id="plan-versions-h" className={classes.panelTitle}>
         Versions
       </h3>
@@ -71,6 +71,6 @@ export function Versions({
           })}
         </ol>
       )}
-    </aside>
+    </section>
   );
 }

@@ -5,7 +5,7 @@
 import './plan-editor.css';
 import icons from 'virtual:pascal-icons';
 import { addCollection } from '@iconify/react';
-import { loadPlugin, useScene } from '@pascal-app/core';
+import { emitter, loadPlugin, useScene } from '@pascal-app/core';
 import { Editor, selectDefaultBuildingAndLevel, useAudio, useEditor } from '@pascal-app/editor';
 import { registerBundledLocales } from '@pascal-app/editor/locales';
 import { builtinPlugin } from '@pascal-app/nodes';
@@ -19,7 +19,7 @@ import { type Changed, fromHash, type Open, ours, type Ready, type Scene } from 
 import { useSpotsUi } from './spotsUi';
 
 const assets = `${location.origin}${import.meta.env.BASE_URL}pascal`;
-const { view, scheme } = fromHash(location.hash);
+const { view, scheme, look } = fromHash(location.hash);
 
 // The editor's chrome follows a `dark` class, and its menus are added to <body>.
 document.documentElement.classList.toggle('dark', scheme === 'dark');
@@ -55,9 +55,35 @@ const tabIcon = (name: string) => <img alt="" className="h-8 w-8 object-contain"
 const TABS = [
   // the editor's own panel of levels and rooms
   { id: 'site', label: 'Plan', icon: tabIcon('floorplan'), component: () => null },
-  { id: 'build', label: 'Build', icon: tabIcon('wall'), component: BuildTab },
-  { id: 'cameras', label: 'Cameras', icon: tabIcon('topview'), component: CamerasTab },
+  // a scene opened to look at has nothing that changes it: no Build panel and no Cameras panel
+  ...(look
+    ? []
+    : [
+        { id: 'build', label: 'Build', icon: tabIcon('wall'), component: BuildTab },
+        { id: 'cameras', label: 'Cameras', icon: tabIcon('topview'), component: CamerasTab },
+      ]),
 ];
+
+/** The box around the plan's walls and rooms (metres), or null with neither. */
+function planBounds(): { min: [number, number, number]; max: [number, number, number] } | null {
+  const xs: number[] = [];
+  const zs: number[] = [];
+  let height = 0;
+  for (const node of Object.values(useScene.getState().nodes) as unknown as Record<string, unknown>[]) {
+    const points = node.type === 'wall' ? [node.start, node.end] : node.type === 'zone' ? node.polygon : null;
+    if (typeof node.height === 'number') height = Math.max(height, node.height);
+    for (const p of Array.isArray(points) ? points : [])
+      if (Array.isArray(p) && typeof p[0] === 'number' && typeof p[1] === 'number') {
+        xs.push(p[0]);
+        zs.push(p[1]);
+      }
+  }
+  if (!xs.length) return null;
+  return { min: [Math.min(...xs), 0, Math.min(...zs)], max: [Math.max(...xs), height || 2.4, Math.max(...zs)] };
+}
+
+/** How long after a scene opens the views have laid themselves out and can be asked to frame the plan. */
+const FRAME_AFTER_MS = 400;
 
 /** Run `then` once the editor holds a scene: it sets its own layout and selection as it loads one, so what this
  *  page wants (the storey to work on, and the view asked for) goes in after. */
@@ -81,6 +107,11 @@ function show(): void {
     editor.showView('2d');
     editor.showView('3d', { beside: true });
   } else editor.showView(view);
+  // Fill the view with the plan itself: the editor's own first fit is to the whole site, which leaves a home small.
+  setTimeout(() => {
+    const bounds = planBounds();
+    if (bounds) emitter.emit('camera-controls:frame', { bounds });
+  }, FRAME_AFTER_MS);
 }
 
 function App() {
@@ -90,7 +121,8 @@ function App() {
         layoutVersion="v2"
         projectId="place-plan"
         sidebarTabs={TABS}
-        floorplanSceneSlot={<CameraMarks />}
+        floorplanSceneSlot={<CameraMarks locked={look} />}
+        isVersionPreviewMode={look}
         onLoad={async () => {
           const scene = await opened;
           onceLoaded(show);

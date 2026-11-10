@@ -505,7 +505,7 @@ export function PlanEditor({
           disabled={text === initial || !!drawn.error}
           title={errors ? 'The plan still has problems; you can save it and fix them later.' : undefined}
         >
-          Save my plan
+          Save plan
         </Button>
       </Group>
     </div>

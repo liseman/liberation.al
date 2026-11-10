@@ -2,17 +2,18 @@
 // while it knows none, and one place's plan, drawn by the vendored floorplan library (src/vendor/floorplan), with where people and pets
 // went on it over time (paths/). A link can open a place at a moment: /places?place=<id>&t=<epoch>. Places is
 // places and plans only: what happened where belongs to the journal.
-import { Badge, NavLink, Paper, SegmentedControl, Text, useComputedColorScheme } from '@mantine/core';
+import { Badge, Button, Group, NavLink, Paper, SegmentedControl, Text, useComputedColorScheme } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
 import { lazy, Suspense, useMemo, useState } from 'react';
 import type { Scene } from '../../plan-editor/protocol';
 import type { FloorplanResult, RenderOptions } from '../../vendor/floorplan/index.js';
+import { confirm } from '../lib/confirm';
 import { ago, plural } from '../lib/format';
+import { BlockSkeleton } from '../lib/loading';
 import { PageHeader, PageLoading } from '../lib/page';
 import { useRoute } from '../router';
 import { type PlaceSummary, placesQuery } from './api';
 import { OwnerBar, type Showing } from './edit/OwnerBar';
-import { PlanEditor } from './edit/PlanEditor';
 import { EXAMPLE_PLACES, type Place } from './examples';
 import { LearningBadge, LearningPanel, useLearning } from './learning';
 import { PlacePaths } from './paths/PlacePaths';
@@ -63,8 +64,8 @@ export function fromServer(p: PlaceSummary): Place {
   return out;
 }
 
-/** How a place shows: its plan with paths, the plan editor, the plan in 3D, or the place's map in 3D. */
-export type View = 'plan' | 'editor' | 'model' | 'map';
+/** How a place shows, for looking: its plan with paths, or the place's map in 3D. */
+export type View = 'plan' | 'map';
 
 /** A list row's "6 rooms · 62.4 m² · ", from whichever way the plan was drawn, or null with no drawing. */
 function summaryOf(result: FloorplanResult | undefined, scened: SceneDrawing | null | undefined): string | null {
@@ -167,12 +168,33 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
   const selected = picked ?? linked.place ?? places[0]?.id;
   const place = places.find(p => p.id === selected) ?? places[0];
   const drawn = useMemo(() => new Map(places.map(p => [p.id, drawOrNull(p, scheme)])), [places, scheme]);
-  // Correcting a plan, and which of the two plans shows while the owner's holds over a newer machine one.
-  const [editing, setEditing] = useState<string | null>(null);
+  // Which of the two plans shows while the owner's holds over a newer machine one.
   const [showing, setShowing] = useState<Showing>('mine');
-  // How the place shows: its plan with paths, the plan editor, the plan in 3D (scene/PlaceEditor.tsx), or the place's
-  // map in 3D (real places only: the examples have no map).
+  // How the place shows, for looking: its plan with paths, or its map in 3D (real places only: the examples have no
+  // map). Neither can change the plan.
   const [view, setView] = useState<View>('plan');
+  // The plan editor (scene/PlaceEditor.tsx), opened by Edit plan: the one way into changing a plan. `unsaved` is
+  // whether it holds changes that leaving it would drop.
+  const [editing, setEditing] = useState(false);
+  const [unsaved, setUnsaved] = useState(false);
+  /** Leave the editor (to look, or for another place), asking first when that drops unsaved changes. */
+  const leave = async (then: () => void) => {
+    if (
+      editing &&
+      unsaved &&
+      !(await confirm({
+        title: 'Discard your unsaved changes?',
+        body: "The changes to this plan that you haven't saved will be lost.",
+        confirm: 'Discard changes',
+        danger: true,
+        id: 'plan-leave',
+      }))
+    )
+      return;
+    setEditing(false);
+    setUnsaved(false);
+    then();
+  };
   // A plan stored as a Pascal scene is drawn from it (scene/draw.ts); one in the old format by the floorplan library.
   const sceneDrawn = useMemo(
     () => new Map(places.map(p => [p.id, p.scene && !p.plan ? drawScene(p.scene, p.name) : null])),
@@ -189,19 +211,23 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
   const drawing = place ? drawn.get(place.id) : null;
   const result = drawing?.result;
   const scened = place ? (sceneDrawn.get(place.id) ?? null) : null;
-  // The new editor opens on a place's own plan, in either format, and on the example that has a scene.
+  // The editor opens on a place's own plan, in either format, and on the example that has a scene.
   const editable = !!place && (place.example ? !!place.scene : !!(place.plan || place.scene));
-  const views: { value: View; label: string }[] = [
-    { value: 'plan', label: 'Plan' },
-    ...(editable
+  const views: { value: View; label: string }[] =
+    place && !place.example
       ? [
-          { value: 'editor' as const, label: 'Editor' },
-          { value: 'model' as const, label: '3D plan' },
+          { value: 'plan', label: 'Plan' },
+          { value: 'map', label: '3D map' },
         ]
-      : []),
-    ...(place && !place.example ? [{ value: 'map' as const, label: '3D map' }] : []),
-  ];
+      : [];
   const shown: View = views.some(v => v.value === view) ? view : 'plan';
+  const facts = place
+    ? [
+        originText(place),
+        result ? planSummary(result) : scened ? sceneSummary(scened) : null,
+        drawing ? revisionText(drawing.ext) : null,
+      ].filter(Boolean)
+    : [];
   return (
     <section aria-labelledby="places-h">
       <PageHeader
@@ -237,12 +263,13 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
                           type="button"
                           active={p.id === place?.id}
                           aria-current={p.id === place?.id ? 'true' : undefined}
-                          onClick={() => {
-                            setPicked(p.id);
-                            setView('plan');
-                            setEditing(null);
-                            setShowing('mine');
-                          }}
+                          onClick={() =>
+                            leave(() => {
+                              setPicked(p.id);
+                              setView('plan');
+                              setShowing('mine');
+                            })
+                          }
                           label={
                             <span className={classes.name}>
                               {p.name}
@@ -266,71 +293,66 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
             {place && (
               <Paper withBorder radius="md" className={classes.plan}>
                 <div className={classes.planHead}>
-                  <Text fw={600} component="h2" className={classes.planTitle}>
-                    <span className={classes.name}>{place.name}</span>
-                  </Text>
-                  {result && (
-                    <Text size="sm" c="dimmed">
-                      {[originText(place), planSummary(result), drawing && revisionText(drawing.ext)]
-                        .filter(Boolean)
-                        .join(' · ')}
+                  <div className={classes.planNamed}>
+                    <Text fw={600} component="h2" className={classes.planTitle}>
+                      <span className={classes.name}>{place.name}</span>
                     </Text>
-                  )}
-                  {scened && (
-                    <Text size="sm" c="dimmed">
-                      {[originText(place), sceneSummary(scened)].filter(Boolean).join(' · ')}
-                    </Text>
-                  )}
-                  {views.length > 1 && editing !== place.id && (
-                    <SegmentedControl
-                      size="xs"
-                      value={views.some(v => v.value === view) ? view : 'plan'}
-                      onChange={v => setView(v as View)}
-                      data={views}
-                      aria-label="Show the place as"
-                    />
-                  )}
-                </div>
-                {editable && (shown === 'editor' || shown === 'model') ? (
-                  <PlaceEditor
-                    key={`${place.id}-${shown}`}
-                    place={place}
-                    view={shown === 'editor' ? '2d' : '3d'}
-                    scheme={scheme}
-                    onSaved={() => setView('plan')}
-                  />
-                ) : !place.example && shown === 'map' && editing !== place.id ? (
-                  <Suspense
-                    fallback={
+                    {facts.length > 0 && (
                       <Text size="sm" c="dimmed">
-                        Loading the 3D view…
+                        {facts.join(' · ')}
                       </Text>
-                    }
-                  >
+                    )}
+                  </div>
+                  <Group gap="xs" wrap="wrap">
+                    {views.length > 1 && (
+                      <SegmentedControl
+                        size="xs"
+                        value={editing ? '' : shown}
+                        onChange={v => leave(() => setView(v as View))}
+                        data={views}
+                        aria-label="Show the place as"
+                      />
+                    )}
+                    {editable &&
+                      (editing ? (
+                        <Button size="compact-sm" variant="default" onClick={() => leave(() => {})}>
+                          Close editor
+                        </Button>
+                      ) : (
+                        <Button
+                          size="compact-sm"
+                          variant="light"
+                          disabled={showing === 'machine'}
+                          onClick={() => setEditing(true)}
+                        >
+                          Edit plan
+                        </Button>
+                      ))}
+                  </Group>
+                </div>
+                {editable && editing ? (
+                  <PlaceEditor
+                    key={place.id}
+                    place={place}
+                    view="2d"
+                    scheme={scheme}
+                    onUnsaved={setUnsaved}
+                    onSaved={() => {
+                      setEditing(false);
+                      setUnsaved(false);
+                      setView('plan');
+                    }}
+                  />
+                ) : !place.example && shown === 'map' ? (
+                  <Suspense fallback={<BlockSkeleton label="the 3D view" />}>
                     <CloudView key={place.id} place={place.id} />
                   </Suspense>
                 ) : (
                   <>
-                    {!place.example && place.planText && editing !== place.id && (
-                      <OwnerBar
-                        key={place.id}
-                        place={place}
-                        showing={showing}
-                        onShow={setShowing}
-                        // a plan stored as a scene has one editor, the new one
-                        onEdit={() => (place.scene ? setView('editor') : setEditing(place.id))}
-                      />
+                    {!place.example && place.planText && (
+                      <OwnerBar key={place.id} place={place} showing={showing} onShow={setShowing} />
                     )}
-                    {editing === place.id && place.planText ? (
-                      <PlanEditor
-                        key={place.planText}
-                        place={place.id}
-                        text={place.planText}
-                        frame={place.planRevision ?? null}
-                        options={renderOptions(scheme)}
-                        onDone={() => setEditing(null)}
-                      />
-                    ) : showing === 'machine' && machine ? (
+                    {showing === 'machine' && machine ? (
                       <>
                         <Text size="sm" c="dimmed" mb="xs">
                           The newest machine plan, to compare. Yours holds unless you take this one.

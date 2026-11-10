@@ -1,4 +1,4 @@
-import { fireEvent, screen, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { HttpResponse, http } from 'msw';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { renderPage } from '../../test/render';
@@ -303,14 +303,56 @@ it('lists everyone not identified yet as one legend entry that hides or shows th
   expect(dots()).toBe(1);
 });
 
-it('opens the editor on a machine plan, and Cancel goes back to the paths', async () => {
+it("opens the plan editor from Edit plan, the one way in, and closes it back to the plan's paths", async () => {
   serve([HOME]);
+  server.use(
+    http.get('/places/plan/scene', () =>
+      HttpResponse.json({ place: 'p1', scene: SCENE, converted: true, left: [], base: 'r1' }),
+    ),
+  );
+  const { container } = renderPage(<PlacesTab />);
+  await screen.findByRole('img', { name: /^Floor plan Home/ });
+  expect(container.querySelector('iframe')).toBeNull(); // nothing of the editor loads until it is asked for
+  expect(screen.getAllByRole('button', { name: 'Edit plan' })).toHaveLength(1);
+  fireEvent.click(screen.getByRole('button', { name: 'Edit plan' }));
+  expect((await screen.findByTitle('Plan editor')).getAttribute('src')).toContain('#view=2d');
+  expect(screen.getByRole('button', { name: 'Save plan' })).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Edit plan' })).toBeNull();
+  // the facts stay where they were, under the place's name
+  expect(screen.getByText(/Machine-made plan.*2 rooms · 21.0 m²/)).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Close editor' }));
+  expect(await screen.findByRole('img', { name: /^Floor plan Home/ })).toBeTruthy();
+  expect(container.querySelector('iframe')).toBeNull();
+});
+
+it('asks before leaving the editor with unsaved changes, for a view or for another place', async () => {
+  serve([SCENED, OFFICE]);
+  server.use(
+    http.get('/places/plan/scene', () =>
+      HttpResponse.json({ place: 'p1', scene: SCENE, converted: false, left: [], base: 'r1' }),
+    ),
+  );
   renderPage(<PlacesTab />);
   fireEvent.click(await screen.findByRole('button', { name: 'Edit plan' }));
-  expect(screen.getByRole('button', { name: 'Save my plan' })).toBeTruthy();
-  expect(screen.queryByRole('list', { name: 'Who' })).toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-  expect(screen.queryByRole('button', { name: 'Save my plan' })).toBeNull();
+  const frame = (await screen.findByTitle('Plan editor')) as HTMLIFrameElement;
+  act(() => {
+    dispatchEvent(
+      new MessageEvent('message', {
+        origin: location.origin,
+        data: { type: 'plan-editor:changed', scene: SCENE },
+        source: frame.contentWindow,
+      }),
+    );
+  });
+  expect(await screen.findByText('Unsaved changes')).toBeTruthy();
+  fireEvent.click(row(/Office/));
+  const dialog = await screen.findByRole('dialog', { name: 'Discard your unsaved changes?' });
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  expect(screen.getByTitle('Plan editor')).toBe(frame); // still editing, with the changes
+  fireEvent.click(screen.getByRole('radio', { name: '3D map' }));
+  fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Discard changes' }));
+  await waitFor(() => expect(screen.queryByTitle('Plan editor')).toBeNull());
 });
 
 it("shows when a newer machine plan exists, compares the two, and takes the machine's on confirm", async () => {
@@ -345,7 +387,7 @@ it("switches a real place between its plan and its map in 3D, but not an example
   await screen.findByRole('button', { name: 'Edit plan' });
   fireEvent.click(screen.getByRole('radio', { name: '3D map' }));
   expect(await screen.findByText(/No 3D map of this place yet/)).toBeTruthy();
-  expect(screen.queryByRole('button', { name: 'Edit plan' })).toBeNull();
+  expect(screen.getByRole('button', { name: 'Edit plan' })).toBeTruthy(); // the way into editing stays put
   fireEvent.click(screen.getByRole('radio', { name: 'Plan' }));
   expect(await screen.findByRole('button', { name: 'Edit plan' })).toBeTruthy();
   vi.restoreAllMocks();
@@ -357,22 +399,19 @@ it("offers no map in 3D for an example plan, and no editor for one that isn't a 
   await screen.findAllByRole('img', { name: /^Floor plan/ });
   fireEvent.click(row(/Example cabin/));
   expect(screen.queryByRole('radio', { name: '3D map' })).toBeNull();
-  expect(screen.queryByRole('radio', { name: 'Editor' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Edit plan' })).toBeNull();
 });
 
-it('opens the example flat in the new plan editor and in its 3D view, each in a frame made only then', async () => {
+it('opens the example flat in the plan editor, with nothing to save and no view to switch to', async () => {
   serve([]);
   const { container } = renderPage(<PlacesTab />);
   await screen.findAllByRole('img', { name: /^Floor plan/ });
-  expect(container.querySelector('iframe')).toBeNull(); // nothing of the editor loads until it is asked for
-  fireEvent.click(screen.getByRole('radio', { name: 'Editor' }));
+  expect(screen.queryByRole('radiogroup', { name: 'Show the place as' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Edit plan' }));
   expect(screen.getByTitle('Plan editor').getAttribute('src')).toContain('plan-editor/index.html#view=2d');
   expect(screen.getByText(/Nothing drawn here is saved/)).toBeTruthy();
   expect(screen.queryByRole('button', { name: 'Save plan' })).toBeNull(); // an example has nothing to save to
-  expect(screen.queryByRole('radio', { name: '3D map' })).toBeNull(); // nor a map
-  fireEvent.click(screen.getByRole('radio', { name: '3D plan' }));
-  expect(screen.getByTitle('The plan in 3D').getAttribute('src')).toContain('plan-editor/index.html#view=3d');
-  fireEvent.click(screen.getByRole('radio', { name: 'Plan' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Close editor' }));
   expect(container.querySelector('iframe')).toBeNull();
   expect(drawing()).toBeTruthy();
 });
@@ -415,35 +454,18 @@ it('draws a plan stored as a scene from the scene, with its rooms, area, and cam
   serve([SCENED]);
   renderPage(<PlacesTab />);
   expect(await screen.findByRole('img', { name: 'Floor plan of Home' })).toBeTruthy();
-  // 4x3 + 3x3 = 21 m², in the list row and over the plan
+  // 4x3 + 3x3 = 21 m², in the list row and under the place's name
   expect(row(/Home/).textContent).toContain('2 rooms · 21.0 m²');
   expect(screen.getByText(/Your corrected plan · 2 rooms · 21.0 m²/)).toBeTruthy();
   expect(within(screen.getByRole('list', { name: 'Key' })).getByText('Camera')).toBeTruthy();
 });
 
-it("opens a place's own plan in the new editor, from the view switch and from Edit plan when it is a scene", async () => {
-  serve([SCENED]);
-  server.use(
-    http.get('/places/plan/scene', () =>
-      HttpResponse.json({ place: 'p1', scene: SCENE, converted: false, left: [], base: 'r1' }),
-    ),
-  );
-  renderPage(<PlacesTab />);
-  fireEvent.click(await screen.findByRole('button', { name: 'Edit plan' }));
-  expect((await screen.findByTitle('Plan editor')).getAttribute('src')).toContain('#view=2d');
-  expect(screen.getByRole('button', { name: 'Save plan' })).toBeTruthy();
-  fireEvent.click(screen.getByRole('radio', { name: '3D plan' }));
-  expect((await screen.findByTitle('The plan in 3D')).getAttribute('src')).toContain('#view=3d');
-  fireEvent.click(screen.getByRole('radio', { name: 'Plan' }));
-  expect(await screen.findByRole('img', { name: 'Floor plan of Home' })).toBeTruthy();
-});
-
-it('offers the new editor for a plan still in the old format, beside its own editor', async () => {
+it('keeps the view switch for looking: the plan and the map in 3D, and nothing that edits', async () => {
   serve([HOME]);
   renderPage(<PlacesTab />);
   await screen.findByRole('button', { name: 'Edit plan' });
   const views = within(screen.getByRole('radiogroup', { name: 'Show the place as' })).getAllByRole('radio');
-  expect(views.map(r => (r as HTMLInputElement).value)).toEqual(['plan', 'editor', 'model', 'map']);
+  expect(views.map(r => (r as HTMLInputElement).value)).toEqual(['plan', 'map']);
 });
 
 it("says when a place was last in use: the owner's visit, or anyone its cameras saw since", () => {
@@ -478,11 +500,15 @@ it('says nobody can be placed while no camera has a spot or a pose, and only the
   expect(
     await screen.findByText(/No camera has a spot on this place's plan or a fixed pose in its map yet/),
   ).toBeTruthy();
+  // with nobody placeable there is no time to move through: the window and the slider are not shown
+  expect(screen.queryByRole('radiogroup', { name: 'How far back' })).toBeNull();
+  expect(screen.queryByRole('slider')).toBeNull();
   first.unmount();
   serve([HOME], empty(2));
   renderPage(<PlacesTab />);
   expect(await screen.findByText('Nobody was placed here in this window.')).toBeTruthy();
   expect(screen.queryByText(/No camera has a spot/)).toBeNull();
+  expect(screen.getByRole('radiogroup', { name: 'How far back' })).toBeTruthy();
 });
 
 it('says what each camera with a spot is missing, and not that no camera has a spot', async () => {
