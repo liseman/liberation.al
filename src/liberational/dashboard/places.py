@@ -7,7 +7,7 @@
                                        floorplan DSL (the owner's correction if there is one, else the newest machine
                                        plan; null before the first), when the owner was last there (a `place.visit`,
                                        the rig's), and when anyone was last seen there by its fixed cameras (a
-                                       position sample; within ACTIVITY_LOOKBACKS_S), each null when unknown (a page
+                                       position record; within ACTIVITY_LOOKBACKS_S), each null when unknown (a page
                                        load with text/html gets the app instead)
     POST /places/plan {place, plan, base}
                                        the owner's corrected plan (DSL), saved as taught state over the machine's
@@ -23,8 +23,8 @@
                                        one it replaces stays in the history (memory/places.py `restore_plan`)
     GET /places/scene?place=           the 3D view's scene (#2876): the newest revision with a map, its map's URL and
                                        size, its splat's when it has one (its own, else the newest made in the same
-                                       map frame; one from another frame is only named, `splat_stale`), its floor
-                                       plane, plan transform, registered cameras, and the plan in its frame;
+                                       map frame; one from another frame is only named, `splat_stale`) and what
+                                       it was trained from (`splat_from`: "walk" or "cameras"), its floor plane, plan transform, registered cameras, and the plan in its frame;
                                        {revision: null} while the place has no map
     GET /places/map?place=&revision=   that revision's map file (a point cloud, PLY), with byte ranges, an ETag, and
                                        caching for good: a revision's files never change once written
@@ -32,7 +32,8 @@
                                        scene names it (`splat`, null while the revision has none)
     GET /places/positions?place=&start=&end=[&entity=]
                                        {place, start, end, entities, tracks, rooms}: where each entity was on the
-                                       place's plan over [start, end) (spatial/positions.py)
+                                       place's plan over [start, end), from the position layer's stored records
+                                       (spatial/positions.py); the read stops if the client hangs up
 
 The GETs only read state. The POSTs are teaching, so they follow dashboard.remote_teaching like the rest (#2788).
 
@@ -49,10 +50,10 @@ track's path; a zone visit (room only, no x and y) is a span in `rooms`, with th
 the zone's name either way. A long window is thinned so a week stays drawable, by distance and time (`moved`): a path
 keeps each point that moved MOVED_M from the last one kept, so a walk keeps its shape (#3296), and otherwise one point
 every span / MAX_POINTS seconds, with its last; the reader first thins to FINE_SHARE times finer than that (its
-`every`) for it to choose from. What's left is capped at MAX_POINTS per path, evenly, keeping its first and last point.
+`every`) as it scans the stored records, for it to choose from. What's left is capped at MAX_POINTS per path, evenly, keeping its first and last point.
 
-Points come back in the frame of the plan the tab draws (the place's `plan_revision`: the reader re-projects camera
-rows into it, #2854), turned onto the owner's page when the plan is drawn on one (an imported plan, upright and with
+Points come back in the frame of the plan the tab draws (the place's `plan_revision`: records are placed in it when
+written, and the reader moves one placed in an earlier frame onto it), turned onto the owner's page when the plan is drawn on one (an imported plan, upright and with
 the page's handedness, #3276: `GET /places` gives that page's DSL as `plan`; the 3D scene keeps the plan frame). A point that can't be put in that frame (`in_frame` false: a camera that revision doesn't
 register) would land off the drawn plan, so it's left out; a room-only span is kept either way.
 """
@@ -60,7 +61,7 @@ register) would land off the drawn plan, so it's left out; a room-only span is k
 import math
 import re
 import time
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
@@ -86,31 +87,13 @@ ACTIVITY_LOOKBACKS_S = (3600, 86400, 7 * 86400)
 
 
 def last_activity(state: Path, now: float, ids: Iterable[str]) -> dict[str, float]:
-    """When anyone was last seen in each place, by the newest position sample (spatial/positions.py) tagged with the
-    place or from a fixed camera registered to it (#2905). A place visit is the owner's (the rig was there), so a
-    place only its fixed cameras watch had none, and read "No visits yet" with hundreds of tracks on its plan; this is
-    the activity, apart from visits. Read newest first, over ACTIVITY_LOOKBACKS_S, stopping once every place is
-    found; a place not seen in the longest is left out. Only those places' cameras' slots and the rig's are read, so
-    a place never seen (one with no registered camera) costs the rig's week, not every camera's; and a place found in
-    a newer pass drops its cameras from the older ones (nothing older can be its last), so a busy place's cameras are
-    read for an hour, not a week."""
+    """When anyone was last seen in each place, by the position layer's newest record there
+    (spatial/positions.py's `last_seen`). A place visit is the owner's (the rig was there), so a place only its fixed
+    cameras watch has none; this is the activity, apart from visits. Read newest first, over ACTIVITY_LOOKBACKS_S,
+    each place only until it's found and only its own records; a place not seen in the longest is left out."""
     from liberational.spatial import positions
 
-    want = set(ids)
-    cams = {cam: place for cam, place in places.camera_places(state).items() if place in want}
-    found: dict[str, float] = {}
-    upto = now
-    for back in ACTIVITY_LOOKBACKS_S:
-        if not want - found.keys():
-            break
-        lo = now - back
-        slots = [*(cam for cam, place in cams.items() if place not in found), positions.RIG]
-        for r in positions.samples(state, lo, upto, cameras=slots):
-            place = r.place or cams.get(r.camera or "")
-            if place in want:
-                found[place] = max(found.get(place, 0.0), min(r.end, now))
-        upto = lo
-    return found
+    return positions.last_seen(state, sorted(set(ids)), now, ACTIVITY_LOOKBACKS_S)
 
 
 #: Rooms not walked, per (fused map revision, plan revision, plan text): a map is read once per new revision, not on
@@ -234,6 +217,19 @@ def splat_file(state: Path, place: str, revision: str) -> Path | None:
     return places.splat_path(state, rev, "spz") if rev and places.has_splat(state, rev) else None
 
 
+WALK_PREFIX = "walk-"  # a walk's look-from views (spatial/splats.py LOOK_PREFIX), not fixed cameras
+
+
+def _walk_splat(chain: Sequence[places.Revision], splatted: places.Revision) -> bool:
+    """Whether `splatted`'s splat was trained from a walk's frames rather than the fixed cameras' (#44): a walk's
+    splat is made for the revision its import wrote (spatial/splats.py `splat_walk`), the first to hold the walk's
+    look-from cameras, while the daily fixed-camera splat lands on a later revision, which inherits them. So it's a
+    walk's when `splatted` has walk cameras that the revision before it in `chain` lacks."""
+    at = next((i for i, r in enumerate(chain) if r.id == splatted.id), None)
+    before = set(chain[at - 1].cameras) if at else set()
+    return any(cam.startswith(WALK_PREFIX) and cam not in before for cam in splatted.cameras)
+
+
 def scene(state: Path, place: str) -> Reply:
     """GET /places/scene: what the 3D view draws for a place, all in its map's frame (metres). The plan is the one in
     that revision's frame: the owner's correction when it's drawn in this revision's frame (its plan_revision uses the
@@ -262,6 +258,7 @@ def scene(state: Path, place: str) -> Reply:
     except FileNotFoundError:  # pruned since it was found
         shown, splat_size = None, None
     stale = with_splat[-1] if shown is None and with_splat else None
+    walk_splat = shown is not None and _walk_splat(chain, shown)
     # an owner plan drawn in a revision with no plan file is in its floor's frame (#3276)
     transform = places.plan_frame(rev) if owner else rev.plan_transform
     return 200, {
@@ -276,6 +273,7 @@ def scene(state: Path, place: str) -> Reply:
         "splat_bytes": splat_size,
         "splat_revision": None if shown is None else shown.id,
         "splat_stale": None if stale is None else {"revision": stale.id, "at": stale.at},
+        "splat_from": None if shown is None else ("walk" if walk_splat else "cameras"),
         "floor": list(rev.floor) if rev.floor else None,
         "plan_transform": list(transform) if transform else None,
         "cameras": {cam: pose.as_dict() for cam, pose in rev.cameras.items()},
@@ -450,8 +448,9 @@ def _epoch(value: str) -> float:
     return t
 
 
-def positions_view(query: Mapping[str, str], state: Path) -> Reply:
-    """GET /places/positions: one place's positions over a window, grouped by who they are."""
+def positions_view(query: Mapping[str, str], state: Path, cancelled: Callable[[], bool] | None = None) -> Reply:
+    """GET /places/positions: one place's positions over a window, grouped by who they are. `cancelled` says whether
+    the client has gone: the read asks it as it goes and raises `positions.Cancelled` when so."""
     from liberational.spatial import positions
 
     place = query.get("place") or ""
@@ -475,6 +474,7 @@ def positions_view(query: Mapping[str, str], state: Path) -> Reply:
             entity=query.get("entity") or None,
             every=fine if fine >= 1 else None,
             frame_revision=held.plan_revision,
+            cancelled=cancelled,
         )
     except ValueError as e:  # a frame the reader can't use: an unknown revision, or one of another place
         return 400, {"error": str(e)}

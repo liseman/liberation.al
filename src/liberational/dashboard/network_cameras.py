@@ -6,7 +6,7 @@ Protect is read from its own console (`[unifi_protect]`) when set, else `[unifi]
 RTSP URLs contain bearer credentials. Public replies expose only host and scheme; Add resolves opaque IDs and
 writes an owner-only capture manifest. Discovery never enables streams or opens media.
 
-Configured IDs remain stream identities; vision.places supplies display aliases. The local use endpoint retains
+Configured IDs remain stream identities; vision.camera_names supplies display aliases. The local use endpoint retains
 disabled devices and their private credentials in place, guarded by the native enabled-field capability, and
 explicitly restarts capture. Public replies contain only the redacted URL and the active camera roster.
 """
@@ -30,7 +30,7 @@ from liberational.dashboard import cameras, settings
 from liberational.proximity.network import ip_address
 from liberational.proximity.unifi_network import UniFiNetwork
 from liberational.unifi import UniFiError, configured_session, local_origin, protect_section, setting
-from liberational.vision import places
+from liberational.vision import views
 from liberational.vision.onvif import MAX_UNICAST_HOSTS, OnvifDiscoverySource, probe_host
 from liberational.vision.unifi_protect import UniFiProtect
 
@@ -94,7 +94,7 @@ def _configured(doc: Any) -> list[dict[str, Any]]:
     rows = [row for row in devices if row.get("kind") == "rtsp"]
     if any(
         not isinstance(row.get("name"), str)
-        or not places.valid_camera_id(row["name"])
+        or not views.valid_camera_id(row["name"])
         or not isinstance(row.get("enabled", True), bool)
         or not isinstance(row.get("rtsp", {}), dict)
         or not isinstance(row.get("rtsp", {}).get("url", ""), str)
@@ -118,7 +118,7 @@ def view() -> dict[str, Any]:
             "capture_ready": False,
             "error": "Capture manifest cannot be read; repair it before adding cameras.",
         }
-    aliases = places.names()
+    aliases = views.names()
     rows = [
         dict(
             id=row["name"],
@@ -147,8 +147,8 @@ def use(body: dict[str, Any], log: Callable[..., None]) -> tuple[int, dict[str, 
             if not any(row["name"] == name for row in rows):
                 return 404, {"error": "No such configured network camera."}
             row = next(row for row in doc["device"] if row.get("kind") == "rtsp" and row.get("name") == name)
-            ordered = places.manifest_camera_names(path) or []
-            active = set(places.manifest_camera_names(path, active_only=True) or [])
+            ordered = views.manifest_camera_names(path) or []
+            active = set(views.manifest_camera_names(path, active_only=True) or [])
             if row.get("enabled", True) == enabled:
                 return 200, {
                     "ok": True,

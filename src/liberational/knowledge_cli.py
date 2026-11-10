@@ -7,7 +7,7 @@ bytes under content hashes, then puts each taught file back where it lives when 
 allowlisted taught paths.
 
 Every collection the knowledge store holds must be listed here (`_DOCUMENTS`, or one `validate` checks by shape): an
-export refuses a store with any other, naming every unknown collection at once (#3262), rather than leave out what
+export refuses a store with any other, naming every unknown collection at once, rather than leave out what
 the owner taught. Machine-made rows written into an owner collection stay out of the bundle (`_machine`). Owner state
 kept in files is the allowlist in `knowledge_attachments.collect_files`; what is deliberately left out (the face
 matcher's learned rows, place revisions and maps, hand-made measurements) is listed in docs/ARCHITECTURE.md.
@@ -37,7 +37,7 @@ _DOCUMENTS = frozenset(
         "activity.named",
         "activity.feedback",
         "device.link",
-        "device.location",  # where the owner said a device lives (proximity/devices.py, #3274)
+        "device.location",  # where the owner said a device lives (proximity/devices.py)
         "object.sighting",
         "journal.entry",
         "person.fact",
@@ -46,12 +46,12 @@ _DOCUMENTS = frozenset(
         "ask.question",
         "ask.state",
         "ask.answer",
-        "voice.not",  # the owner's "this line isn't them" (listen/voices.deny, #3258)
-        "face.not",  # the owner's "this face group isn't them" (people/face_nots.py, #2368)
-        "pet.not",  # the owner's "this sighting isn't that pet" (people/pet_recognition.py, #2364)
+        "voice.not",  # the owner's "this line isn't them" (listen/voices.deny)
+        "face.not",  # the owner's "this face group isn't them" (people/face_nots.py)
+        "pet.not",  # the owner's "this sighting isn't that pet" (people/pet_recognition.py)
         "transcript.correction",  # the owner's rejections and TV marks of transcript lines (listen/revisions.py)
-        "activity.kind",  # the activities the owner added or deleted (memory/activity_kinds.py, #3259)
-        "camera.intrinsics",  # each camera's held focal and lens (spatial/lens.py, #3289)
+        "activity.kind",  # the activities the owner added or deleted (memory/activity_kinds.py)
+        "camera.intrinsics",  # each camera's held focal and lens (spatial/lens.py)
     }
 )
 

@@ -1,4 +1,4 @@
-"""Opt-in, finite CPU-weighted stack sampling for the current process (#1743).
+"""Opt-in, finite CPU-weighted stack sampling for the current process.
 
 Linux procfs counters are exact OS clock ticks, read independently (not an atomic process snapshot). Python stacks
 are instantaneous statistical evidence: a thread's CPU since the previous tick is assigned to its sampled stack
@@ -9,7 +9,7 @@ unattributed, without redistribution. Native code retains its Python caller when
 threads without a Python mapping remain separately unattributed. Exited, newly observed, reused, or unreadable threads never acquire
 invented deltas. The signed process-minus-observed-thread residual includes those gaps and counter read skew.
 
-A separate wait-site table answers where threads block between short wakeups (#3180). Each thread's voluntary
+A separate wait-site table answers where threads block between short wakeups. Each thread's voluntary
 context switch delta from /proc/<tid>/status counts its wakeups since the previous sample; when its endpoint is
 not running, those wakeups and its non-running CPU ticks are recorded against that wait-site stack, whose leaf
 carries the blocking call's current line. This table never feeds the CPU function estimates or collapsed stacks.

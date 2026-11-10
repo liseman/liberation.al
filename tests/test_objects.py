@@ -951,10 +951,10 @@ def test_find_objects_without_a_crop_looks_at_the_whole_frame(monkeypatch):
 
 
 def test_status_names_each_camera_by_its_place_and_falls_back_to_its_id(store, vision, monkeypatch):
-    from liberational.vision import places
+    from liberational.vision import views
 
     monkeypatch.setattr(page, "_store", store)
-    monkeypatch.setattr(places, "names", lambda: {"cam0": "living room"})
+    monkeypatch.setattr(views, "names", lambda: {"cam0": "living room"})
     vision.frame_now("cam0", frame(), time.time() - 1, "frame-7")
     cameras = page.status()["cameras"]
     assert [(c["camera"], c["name"], c["available"]) for c in cameras] == [

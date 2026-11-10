@@ -214,11 +214,15 @@ def test_config_edits_name_devices_and_every_camera_setting(tmp_path: Path, monk
     devices = tmp_path / "devices.toml"
     devices.write_text('[[device]]\nname = "attic"\nkind = "camera"\n[[device]]\nname = "garage"\nkind = "rtsp"\n')
     pack = tmp_path / "pack.toml"
-    pack.write_text('[spatial]\ncamera_heights_m = { attic = 1.5, garage = 2.0 }\n[vision]\nplaces = ["attic: Desk"]\n')
+    pack.write_text('[vision]\ncamera_names = ["attic: Desk"]\nactions_camera_gpus = { attic = 0, garage = 1 }\n')
     monkeypatch.setenv("PACK_CONFIG", str(pack))
     settings = {
-        "spatial": {"camera_heights_m": {"attic": 1.5, "garage": 2.0}, "outdoor_cameras": ["garage"]},
-        "vision": {"places": ["attic: Desk"], "actions_camera_fps": {"attic": 30.0}, "fps": 30},
+        "vision": {
+            "camera_names": ["attic: Desk"],
+            "actions_camera_gpus": {"attic": 0, "garage": 1},
+            "actions_camera_fps": {"attic": 30.0},
+            "fps": 30,
+        },
     }
 
     edits = camera_rename.config_edits(NAMES, devices, settings)
@@ -226,8 +230,8 @@ def test_config_edits_name_devices_and_every_camera_setting(tmp_path: Path, monk
     assert edits == [
         f'{devices}: [[device]] name = "attic"  ->  name = "loft"',
         f"{devices}: no device named porch-cam",
-        "pack.toml: [spatial] camera_heights_m = {loft = 1.5, garage = 2.0}   (now from pack.toml)",
-        'pack.toml: [vision] places = ["loft: Desk"]   (now from pack.toml)',
+        'pack.toml: [vision] camera_names = ["loft: Desk"]   (now from pack.toml)',
+        "pack.toml: [vision] actions_camera_gpus = {loft = 0, garage = 1}   (now from pack.toml)",
         "pack.toml: [vision] actions_camera_fps = {loft = 30.0}   (now from defaults.toml; add it to pack.toml)",
     ]
 

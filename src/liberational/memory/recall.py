@@ -67,7 +67,7 @@ from liberational import ollama_health
 from liberational.domain.memory import Modality
 from liberational.memory import ask, embedding, history_qa, journal, summarize, timeline
 from liberational.people import transcript_view
-from liberational.vision import places
+from liberational.vision import views
 
 if TYPE_CHECKING:
     from continuum_py.search import Hit
@@ -688,7 +688,7 @@ def _camera_id(text: object) -> str:
     if not isinstance(text, str):
         raise ValueError("camera id must be a string")
     s = text.strip()
-    if places.valid_camera_id(s):
+    if views.valid_camera_id(s):
         return s
     m = history_qa.CAM.fullmatch(s)
     if not m:

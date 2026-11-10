@@ -56,7 +56,7 @@ export function Remember({
   draft = null,
 }: {
   cameras: string[];
-  /** Each camera's place name (vision.places), by id: what the select and captions show. */
+  /** Each camera's name (vision.camera_names), by id: what the select and captions show. */
   cameraNames?: Record<string, string>;
   onSaved: () => void;
   draft?: ObjectDraft | null;

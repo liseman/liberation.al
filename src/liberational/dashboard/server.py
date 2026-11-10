@@ -68,18 +68,18 @@ GET  /people/<name>/shots?before=&limit=   every shot of them the face worker fo
                             first, one per camera per second: {total, shots: [{id, ts, cam, sim}], next}
 GET  /faces/shot/<id>.jpg   a square face crop of one sighting (state/shots/, see people/face_shots.py)
 GET  /people/<name>/card    the contact card (#307): {name, photo: Shot | null, shots: [Shot] (up to 6, best first, one
-                            per day until days run out), videos: [{cam, place, start, end, duration_s, thumb, what,
+                            per day until days run out), videos: [{cam, camera_name, start, end, duration_s, thumb, what,
                             review}]
                             (up to 4, newest first), voices: [{line, ts_start, text, mic}] (up to 4, newest first),
-                            last_seen: {ts, cam, place} | null, here_now: {cam, place, since} | null}. A place is where the
-                            camera is (vision.places), or its id when it has none. Shot = {id, url, ts, cam, score};
+                            last_seen: {ts, cam, camera_name} | null, here_now: {cam, camera_name, since} | null}.
+                            camera_name is the camera's name (vision.camera_names), or its id when it has none. Shot = {id, url, ts, cam, score};
                             id, cam, and score are null only for a saved crop (no recorded shot yet). The main photo
                             is the best-scoring shot (vision/face_quality.py); /people's "photo" is its url.
                             Each video also has "id": "<cam>@<start .2f>", for /people/correct
 GET  /inbox/unnamed         what nobody is named for (#309), each newest first: {faces: [{id, photos: [up to 4
-                            urls], count, last_seen, cam, place}] (up to 24), voices: [{id, label: "Unnamed voice A",
+                            urls], count, last_seen, cam, camera_name}] (up to 24), voices: [{id, label: "Unnamed voice A",
                             lines, last_heard, sample: {line, ts_start, text} | null}] (up to 12), videos: [{id, cam,
-                            place, start, end, duration_s, thumb, what}] (up to 12: a camera's stretch of faces nobody
+                            camera_name, start, end, duration_s, thumb, what}] (up to 12: a camera's stretch of faces nobody
                             is named for)}
 POST /people/assign         {"name", "faces": [ids], "voices": [ids], "videos": [ids]}: give them all to one person (a
                             new name adds them), with one undo: {ok, name, assigned: {faces, voices, videos}, failed:
@@ -107,7 +107,7 @@ GET  /journal/evidence?day=  {sources: [{label, stream, ts_start, ts_end, stage,
                             or "expired" with a note (memory/journal_evidence.py, #2808)
 GET  /journal/evidence/<day>/<file>   a promoted clip (.mp4) or still (.jpg) of a cited moment
 GET  /live/happening?since=&limit=  Live's What's happening (dashboard/happening.py): {items: [{id, ts, kind:
-                            arrival | departure | talk, text, people, cam, place}], updated}, oldest first; since
+                            arrival | departure | talk, text, people, cam, camera_name}], updated}, oldest first; since
                             is exclusive, and polling with since=updated never repeats or drops a row
 GET  /journal/today[?day=]   the Journal tab's current day (memory/journal_pages.py, #2837): {day, status: settled |
                             ready | empty | pending | error, md, coverage: {through, hours, elapsed}}. The day's
@@ -279,7 +279,7 @@ from liberational.people import (
     voice_list,
 )
 from liberational.see.faces import VISIT_GAP_S
-from liberational.vision import places
+from liberational.vision import views
 
 if TYPE_CHECKING:
     from liberational.vision.sightings import FaceBatch
@@ -2163,7 +2163,7 @@ def people_roster(
     for nm, number in book.phones().items():  # so the dashboard can place calls to them
         person(nm)["number"] = number
     seen, owner, described, here = _face_last_seen_at(), _owner_keys(), _attributes(), _here_now()
-    named = places.names()  # where each camera is (#313); a camera with no name goes by its id
+    named = views.names()  # each camera's name (#313); a camera with no name goes by its id
     saved_shots = face_shots.saved(STATE, revision=_shot_revision()) if saved_shots is None else saved_shots
     for key, b in by.items():
         cam = seen[key][1] if key in seen else None
@@ -2171,9 +2171,9 @@ def people_roster(
             last_heard=b["last"] or None,
             last_seen=seen[key][0] if key in seen else None,
             last_seen_cam=cam,
-            last_seen_place=named.get(cam, cam) if cam else None,
+            last_seen_camera_name=named.get(cam, cam) if cam else None,
             here_now=(
-                {"cam": here[key][0], "place": named.get(here[key][0], here[key][0]), "since": here[key][1]}
+                {"cam": here[key][0], "camera_name": named.get(here[key][0], here[key][0]), "since": here[key][1]}
                 if key in here
                 else None
             ),
@@ -3987,7 +3987,7 @@ def person_card(name: str) -> dict[str, Any] | None:
         [r for r in sightings.ranked(name, STATE) if r["id"] not in prefs["hidden"]["shot"]], saved_shots
     )
     hidden_videos = set(prefs["hidden"]["video"])
-    named = places.names()
+    named = views.names()
     videos = []
     for v in sightings.recent_visits(name, CARD_VIDEOS + len(hidden_videos), STATE):
         if _video_id(v["cam"], v["start"]) in hidden_videos or len(videos) >= CARD_VIDEOS:
@@ -3999,7 +3999,7 @@ def person_card(name: str) -> dict[str, Any] | None:
             {
                 "id": _video_id(v["cam"], v["start"]),
                 "cam": v["cam"],
-                "place": named.get(v["cam"], v["cam"]),
+                "camera_name": named.get(v["cam"], v["cam"]),
                 "start": v["start"],
                 "end": v["end"],
                 "duration_s": round(v["end"] - v["start"], 1),
@@ -4026,7 +4026,9 @@ def person_card(name: str) -> dict[str, Any] | None:
         **({"videos_pending": videos_pending} if videos_pending else {}),
         **({"videos_unavailable": videos_unavailable} if videos_unavailable else {}),
         "voices": _recent_voice(name, skip=prefs["hidden"]["voice"], named_lines=named_lines),
-        "last_seen": {"ts": seen, "cam": cam, "place": me.get("last_seen_place") if me else None} if seen else None,
+        "last_seen": {"ts": seen, "cam": cam, "camera_name": me.get("last_seen_camera_name") if me else None}
+        if seen
+        else None,
         "here_now": me.get("here_now") if me else None,
     }
 
@@ -4242,7 +4244,7 @@ def people_unnamed() -> dict[str, Any]:
         recent = {}
     faces, named, shots_pending, shots_unavailable, saved_shots = (
         [],
-        places.names(),
+        views.names(),
         0,
         0,
         face_shots.saved(STATE, revision=_shot_revision()),
@@ -4261,7 +4263,7 @@ def people_unnamed() -> dict[str, Any]:
                 "count": g["count"],
                 "last_seen": seen[0]["ts"] if seen else None,
                 "cam": seen[0]["cam"] if seen else None,
-                "place": named.get(seen[0]["cam"], seen[0]["cam"]) if seen else None,
+                "camera_name": named.get(seen[0]["cam"], seen[0]["cam"]) if seen else None,
                 **({"shots_pending": count} if count else {}),
                 **({"shots_unavailable": gone} if gone else {}),
             }
@@ -4298,7 +4300,7 @@ def people_unnamed() -> dict[str, Any]:
         {
             "id": k["id"],
             "cam": k["cam"],
-            "place": named.get(k["cam"], k["cam"]),
+            "camera_name": named.get(k["cam"], k["cam"]),
             "start": k["start"],
             "end": k["end"],
             "duration_s": round(k["end"] - k["start"], 1),
@@ -6438,13 +6440,13 @@ def fill(s: str) -> str:
     """An HTML page with the assistant and owner names filled in, and NAMES for its scripts (with the cameras and
     whether dashboard.hotkeys is on)."""
     names = {"assistant": cfg.assistant_name(), "owner": cfg.owner_name()}
-    cams = places.camera_ids()
-    # views: each camera's name (vision.places, #313), for Review's lane labels; a page load picks up a rename
+    cams = views.camera_ids()
+    # views: each camera's name (vision.camera_names, #313), for Review's lane labels; a page load picks up a rename
     shell = {
         **names,
         "cams": cams,
-        "activeCams": places.camera_ids(active_only=True),
-        "views": places.names(),
+        "activeCams": views.camera_ids(active_only=True),
+        "views": views.names(),
         "hotkeys": bool(cfg.get("dashboard.hotkeys")),
     }
     # JSON.parse retains literal __proto__ keys; a JavaScript object literal silently drops a string alias.
@@ -6824,6 +6826,18 @@ class H(http.server.BaseHTTPRequestHandler):
 
     def _json(self, o: Any, code: int = 200) -> None:
         self._send(code, "application/json", jdump(o))
+
+    def _client_gone(self) -> bool:
+        """Whether the client closed its side while a GET is still being worked on (a page that gave up waiting, or
+        moved on to another window): its socket reads as ended. Bytes waiting there are a next request on a
+        kept-alive connection, so it's still here. A long read asks this as it goes, to stop work nobody will get."""
+        try:
+            ready, _, _ = select.select([self.connection], [], [], 0)
+            return bool(ready) and self.connection.recv(1, socket.MSG_PEEK | socket.MSG_DONTWAIT) == b""
+        except BlockingIOError:
+            return False
+        except OSError, ValueError:  # reset, or already closed
+            return True
 
     def _media(
         self, b: bytes | pathlib.Path, ct: str, extra: dict[str, Any] | None = None, cache: str = "no-store"
@@ -7311,8 +7325,13 @@ class H(http.server.BaseHTTPRequestHandler):
             )
         if p == "/places/positions":
             from liberational.dashboard import places as places_view
+            from liberational.spatial import positions
 
-            code, reply = places_view.positions_view(self._query(), STATE)
+            try:
+                code, reply = places_view.positions_view(self._query(), STATE, cancelled=self._client_gone)
+            except positions.Cancelled:
+                self.close_connection = True  # nobody is reading: nothing to send
+                return log("places positions read stopped: the client hung up", level=logs.DEBUG)
             return self._json(reply, code)
         if p == "/places/plan/history":
             from liberational.dashboard import places as places_view

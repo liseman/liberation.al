@@ -107,17 +107,7 @@ export function NewPerson({
 }
 
 /** One person's row: avatar, name, and where they are, were last seen, or what's known. */
-function Row({
-  p,
-  current,
-  onPick,
-  onOpen,
-}: {
-  p: Person;
-  current: boolean;
-  onPick: () => void;
-  onOpen: () => void;
-}) {
+function Row({ p, current, onPick, onOpen }: { p: Person; current: boolean; onPick: () => void; onOpen: () => void }) {
   // While identity is still rematching faces, an old last-seen time would mislead; personMeta says it's updating.
   const where = p.here_now || !(p.last_seen_pending || p.last_seen_error) ? whereabouts(p) : '';
   const sub = where ? [roleLine(p), where].filter(Boolean).join(', ') : personMeta(p);

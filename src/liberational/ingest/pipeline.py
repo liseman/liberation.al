@@ -47,7 +47,7 @@ def slot(item_id: int) -> str:
 
 
 def forget_slot(item_id: int) -> None:
-    """Forgets every row of the item's slot, every stream and all time (#1817): its lines and voice embeddings go with
+    """Forgets every row of the item's slot, every stream and all time: its lines and voice embeddings go with
     it, and the vector worker drops the embeddings from its index."""
     from continuum_py import forget_segments
 
@@ -179,7 +179,7 @@ class Pipeline:
     def process(self, item_id: int) -> Item:
         """Converts and registers one item, recording how it went. A failure is the item's status, never raised:
         anything unexpected too, or one bad item left `converting` would raise again first on every resume and stop
-        `pack-ingest poll` for good (#3121). Only ItemGone (the item is gone, or was removed meanwhile) and a store
+        `pack-ingest poll` for good. Only ItemGone (the item is gone, or was removed meanwhile) and a store
         failure, which every item would hit, are raised. A KeyError is a bug like any other: the item fails with it."""
         with self.store.item_lock(item_id):
             item = self.store.get(item_id)

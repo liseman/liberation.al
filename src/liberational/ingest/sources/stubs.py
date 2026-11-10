@@ -2,8 +2,8 @@
 
 - icloud_photos: not built yet. Apple has no public Photos API for a personal library; the likely way in is the
   same as google_photos (a browser profile signed in once), or an export from Photos.app on a Mac.
-- allsound, thinking_hat: nothing in this repo or on GitHub says how their recordings can be read (searched
-  2026-10-31). Once there's an export, an API, or a folder they sync to, an adapter replaces the stub.
+- allsound, thinking_hat: nothing in this repo or on GitHub says how their recordings can be read. Once there's an
+  export, an API, or a folder they sync to, an adapter replaces the stub.
 """
 
 from dataclasses import dataclass

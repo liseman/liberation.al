@@ -550,7 +550,7 @@ describe('recent video', () => {
   });
 
   it('names the camera that saw it, by its name when it has one', async () => {
-    serve({ card: { ...EMPTY, videos: [video(1, { what: null, place: 'front camera' })] } });
+    serve({ card: { ...EMPTY, videos: [video(1, { what: null, camera_name: 'front camera' })] } });
     show();
     const box = await region('Recent video');
     expect(within(box).getByText('Seen by Front camera')).toBeInTheDocument();

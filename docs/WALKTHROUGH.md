@@ -51,4 +51,25 @@ A plain phone video also works, as `uv run pack-walkthrough <video>`. That path 
 on a long walk. A Stray Scanner export gives metric, gravity-aligned poses. It needs CUDA only when a revisit is
 closed, and on a Mac it is the path that runs (`--keyframes-only` also runs there; a video does not).
 
+## A plain video, or a recording with tracked poses
+
+A plain video has no tracked poses. CUT3R's heading drifts about half a degree a frame, and only the walk's revisits
+pull it back. Record it so they can: cross your own path every half minute or so, end where you started, and walk on
+a few seconds past the start, facing the way you set out. Such a walk closes within 0.75 m and 10 degrees of heading
+at its start. The "Long walks" part of the `walkthrough.py` docstring has the measurements,
+`tools/walkthrough_closure.py` reproduces them on simulated walks of 2 to 10 minutes, and the run prints `closed`,
+and logs a walk that didn't close.
+
+Closing the walk has limits. A walk that sees its start again only at the end closes there, but stays metres off in
+the middle. And no closure sharpens CUT3R's soft depth, which is what doubles a wall.
+
+Prefer the Stray Scanner export whenever the device is to hand, and always for:
+
+- a walk longer than about two minutes;
+- a walk that can't cross its own path;
+- a place that fixed cameras or an owner plan must register against; and
+- rooms with plain walls and little texture.
+
+A plain video is for a first look at a place when only a phone without LiDAR is there.
+
 What the import does, step by step, is in the docstring of `src/liberational/spatial/walkthrough.py`.
