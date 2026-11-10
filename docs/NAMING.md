@@ -44,7 +44,8 @@ The keys work while the card is selected. The arrow keys move between cards.
 
 ## Leave some pictures out of an answer
 
-A card with several pictures shows its buttons once you select it. Selecting it opens every picture, all selected.
+A card with several pictures is folded, and says "N pictures. Select to answer." where its buttons will be. Selecting
+it opens every picture, all selected.
 
 1. Click each picture that does not belong. It is deselected.
 2. Answer the card. The answer covers only the pictures still selected.
@@ -91,8 +92,9 @@ For a pet, use "New pet" in Known, then Pets, and name a group of its sightings.
 A wrong picture among a person's or a pet's examples pulls matches the wrong way.
 
 1. Open the person's card (Known, then People) or the pet's card (Known, then Pets).
-2. In "Training images", press "View all". The examples are listed with the least typical first, which is where a
-   wrong one usually is.
+2. In "Training images", press "Show". The examples are listed with the least typical first, which is where a
+   wrong one usually is. Each says how alike it is to the rest, and one far below the others is marked "Unlike the
+   rest".
 3. Select each wrong picture and press "Remove N selected".
 4. Confirm. Removal cannot be undone.
 

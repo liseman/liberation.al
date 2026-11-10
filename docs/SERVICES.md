@@ -18,10 +18,10 @@ another setting (`whisper` when `asr.engine = "whisper"`), adds `services.enable
 
 `pack-app` (`app_window.py`) is the application the owner opens: the supervisor plus a small Tk window that stays on
 screen for as long as any service runs. The window shows whether the pack is recording, paused for privacy, or missing
-a declared camera or microphone (`continuum-capture` keeps running when one device fails to open, so the window is what
-surfaces a silent device), opens the dashboard, and quits. **Quit and stop recording** and closing the window both
-drain Tier 0 and stop every service, so nothing records without the window. `pack-supervisor run` runs the same
-supervisor without a window.
+a declared camera or microphone (`continuum-capture` keeps running when one device fails to open, so the window is
+what surfaces a silent device), opens the dashboard, and quits. **Quit and stop recording** and closing the window
+(which asks first) both drain Tier 0 and stop every service, so nothing records without the window. `pack-supervisor
+run` runs the same supervisor without a window.
 
 Tk (`tkinter`) ships with `uv`'s Python on Linux and macOS, so the window needs no system GTK bindings, C build step,
 or extra GUI wheels, and appears on Wayland desktops where tray icons require extra extensions. The supervisor runs in

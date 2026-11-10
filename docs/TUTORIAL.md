@@ -102,7 +102,7 @@ doesn't know her voice yet for a voice clone, which is a different thing: a voic
 
 1. Click the **Pets** tab, then **Rex**. His card opens. It names a camera, demo-cam, and videos that can't be shown:
    the demo's records name a made-up camera, and there is no video behind them.
-2. Find **Training images** on the card, and click **View all**.
+2. Find **Training images** on the card, and click **Show**.
 
    The card says "7 examples, the least like the rest first: a wrong one is usually near the top." There are seven
    tiles. Six are coloured and numbered R1 to R6. The first is grey, with a question mark: it is the one that
