@@ -5,6 +5,22 @@ This guide covers the current Continuum installation. Fresh setup is in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). The old genericize and v1 import
 procedures are retired. Do not run an old catch-up script against current data.
 
+## Segment parts close as one batch
+
+A segment part used to keep one record batch for every append for good, so a stream appended a row at a time (the
+coverage streams) cost about 770 bytes a row on disk and seconds to read a day of. Writers now rewrite a part as one
+batch when it closes, and its name ends `-v1`. This needs the Rust binaries and the Python SDK rebuilt
+(`mise run continuum-release` and `mise run continuum-py`, the latter with the FFmpeg decoder where the install has
+it) and every service restarted, since each one reads or writes the segment store.
+
+Parts closed before the upgrade keep the old layout and still read correctly, only slower. To rewrite them once, after
+the restart, from the live checkout (safe while the services run; it touches closed parts only, deletes nothing, and
+prints how many it rewrote):
+
+```sh
+.venv/bin/python -c "import continuum_py; from liberational import segment_log; print(continuum_py.compact_segments(segment_log.root()))"
+```
+
 ## Positions are placed when written
 
 The Places page reads where people and pets were from the position layer (`position.placed`), which the nightly

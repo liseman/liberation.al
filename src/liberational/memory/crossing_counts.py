@@ -16,7 +16,7 @@ they are chained (`chains`, `qualifies`, `walk`, which see/walk_bys.py applies a
 - A chain counts at most once, however many times it crossed. Its time and direction are its first crossing's.
 """
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Sequence
 from typing import Any
 
 from liberational.vision import crossings as X
@@ -43,17 +43,6 @@ def link(ts: float) -> str:
     from liberational.memory.history_qa import stamp
 
     return "/review#" + urlencode(dict(day=stamp(ts)[:10], t=ts))
-
-
-def _merge_spans(spans: Iterable[Sequence[float]], gap: float) -> list[list[float]]:
-    """Spans (a row's instant is [t, t]) merged where they are within `gap` of each other."""
-    out: list[list[float]] = []
-    for a, b in sorted((float(a), float(b)) for a, b in spans):
-        if out and a - out[-1][1] <= gap:
-            out[-1][1] = max(out[-1][1], b)
-        else:
-            out.append([a, b])
-    return out
 
 
 def _complement(intervals: Sequence[Sequence[float]], start: float, end: float) -> list[list[float]]:
@@ -143,8 +132,8 @@ def from_spans(state: Any, start: float, end: float, cameras: Sequence[str] = ()
         for r in log.range(segment_log.WALKBY_SPANS, start, end)
         if isinstance(r.get("ts_start"), int | float) and start <= r["ts_start"] < end
     ]
-    covered = log.range(segment_log.WALKBY_COVERAGE, start, end)
-    cams = sorted(set(cameras) or {str(r.get("cam")) for r in spans} | {str(r.get("cam")) for r in covered})
+    covered = log.covered(segment_log.WALKBY_COVERAGE, start, end, join_s=SCAN_GAP_S, instants=True)
+    cams = sorted(set(cameras) or {str(r.get("cam")) for r in spans} | set(covered))
     conf = X.settings()
     out: dict[str, dict[str, Any]] = {}
     for cam in cams:
@@ -176,15 +165,8 @@ def from_spans(state: Any, start: float, end: float, cameras: Sequence[str] = ()
             ):
                 direction_walks.setdefault(direction, w)
         counts = {n: sum(w["direction"] == n for w in walks) for n in names}
-        stretches = [
-            [max(start, float(r["ts_start"])), min(end, float(r["ts_end"]))]
-            for r in covered
-            if r.get("cam") == cam
-            and isinstance(r.get("ts_start"), int | float)
-            and isinstance(r.get("ts_end"), int | float)
-        ]
-        scanned = _merge_spans([x for x in stretches if x[1] >= x[0]], SCAN_GAP_S)
-        frames = sum(int(r.get("frames") or 0) for r in covered if r.get("cam") == cam)
+        scanned = [list(span) for span in covered[cam].spans] if cam in covered else []
+        frames = covered[cam].frames if cam in covered else 0
         scanned_s = sum(b - a for a, b in scanned)
         gaps = _complement(scanned, start, end)
         out[cam] = dict(

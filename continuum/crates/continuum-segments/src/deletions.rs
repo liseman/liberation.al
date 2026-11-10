@@ -335,7 +335,7 @@ fn append(root: &Path, make: impl FnOnce(u64) -> Deletion) -> Result<Deletion> {
 }
 
 /// The streams under `root`.
-fn streams_of(root: &Path) -> Result<Vec<String>> {
+pub(crate) fn streams_of(root: &Path) -> Result<Vec<String>> {
     let mut out = Vec::new();
     for entry in std::fs::read_dir(root).map_err(io(root))? {
         let entry = entry.map_err(io(root))?;
