@@ -36,7 +36,7 @@ from typing import Any, Protocol
 
 import numpy as np
 
-from liberational import logs, model_runtime, speech_log, voice_turn
+from liberational import json_state, logs, model_runtime, speech_log, voice_turn
 from liberational.continuum import keyed_id
 from liberational.ingest.pipeline import slot as item_slot
 
@@ -559,10 +559,7 @@ class Ledger:
         self.done = json.loads(self.path.read_text()) if self.path.exists() else {}
 
     def _write(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(self.done, indent=1))
-        tmp.replace(self.path)
+        json_state.write(self.path, self.done, indent=1)
 
     @contextmanager
     def _locked(self) -> Generator[None]:

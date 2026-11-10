@@ -34,7 +34,6 @@ import os
 import re
 import secrets
 import stat
-import tempfile
 import threading
 import time
 import uuid
@@ -53,7 +52,7 @@ from fastapi.responses import Response
 from scipy.signal import resample_poly
 
 from liberational import config as cfg
-from liberational import logs, model_runtime, ollama, speech_log, vision_log
+from liberational import json_state, logs, model_runtime, ollama, speech_log, vision_log
 from liberational.assistant import voice_auth
 from liberational.memory import ask_history, remembered
 from liberational.people import transcript_view
@@ -478,10 +477,7 @@ def first_setup(call_sid: str, now: float) -> bool:
     seen[call_sid] = now
     kept = dict(sorted(seen.items(), key=lambda kv: kv[1])[-SEEN_MAX:])
     try:
-        fd, tmp = tempfile.mkstemp(dir=SEEN_CALLS.parent, prefix=".phone_seen_calls.")  # 0600
-        with os.fdopen(fd, "w") as f:
-            json.dump(kept, f)
-        os.replace(tmp, SEEN_CALLS)
+        json_state.write(SEEN_CALLS, kept, private=True)
     except OSError as e:
         log.warning("seen calls %s not saved (%s)", SEEN_CALLS, e)
     return True
@@ -539,10 +535,8 @@ def notice_lockout(number: str, now: float) -> None:
     count = int(d["count"]) + 1 if d and now - float(d["first"]) <= LOCKOUT_NOTICE_KEEP_S else 1
     first = float(d["first"]) if d and count > 1 else now
     try:
-        fd, tmp = tempfile.mkstemp(dir=LOCKOUT_NOTICE.parent, prefix=".phone_lockout_notice.")  # 0600
-        with os.fdopen(fd, "w") as f:
-            json.dump({"count": count, "first": first, "last": now}, f)  # numbers only: the words are made when said
-        os.replace(tmp, LOCKOUT_NOTICE)
+        # numbers only: the words are made when said
+        json_state.write(LOCKOUT_NOTICE, {"count": count, "first": first, "last": now}, private=True)
     except OSError as e:
         log.warning("phone lockout notice not saved (%s)", e)
     if cfg.agent_configured() and now - _last_agent_notice[0] >= LOCKOUT_AGENT_EVERY_S:
@@ -1072,12 +1066,8 @@ class Call:
             "since": self.started,
             "pid": os.getpid(),
         }
-        path = self.dir / LIVE_FILE
         try:
-            tmp = path.with_suffix(".tmp")
-            tmp.write_text(json.dumps(live))
-            os.chmod(tmp, 0o600)
-            os.replace(tmp, path)
+            json_state.write(self.dir / LIVE_FILE, live, private=True)
         except OSError as e:
             log.warning("[%s] couldn't mark the call live: %s", self.call_sid, e)
 
@@ -1108,10 +1098,8 @@ class Call:
         if isinstance(label, str) and self.speakers.get(label):
             self.speakers[label] -= 1
         if self.dir:
-            path = self.dir / "transcript.jsonl"
-            tmp = path.with_suffix(".tmp")
-            tmp.write_text("".join(json.dumps(e) + "\n" for e in self.transcript))
-            tmp.replace(path)
+            lines = "".join(json.dumps(e) + "\n" for e in self.transcript)
+            json_state.write_text(self.dir / "transcript.jsonl", lines)
 
     def going_on(self) -> bool:
         """Whether this turn should drop its reply for the speech that started while it was made (see went_on): the

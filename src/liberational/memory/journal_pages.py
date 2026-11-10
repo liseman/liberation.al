@@ -89,7 +89,7 @@ from typing import TYPE_CHECKING, Any
 import requests
 
 from liberational import config as cfg
-from liberational import logs, memory_log, nvml, ollama, ollama_health
+from liberational import json_state, logs, memory_log, nvml, ollama, ollama_health
 from liberational.listen import revisions
 from liberational.memory import history_qa, journal, journal_counts, places, summarize, timeline
 
@@ -813,7 +813,7 @@ def open_window(state: pathlib.Path) -> dict[str, Any]:
             {"name": m.get("name"), "context_length": m.get("context_length"), "always": _always(m)} for m in loaded
         ],
     }
-    _write_json(state / WINDOW_FILE, window)
+    json_state.write(state / WINDOW_FILE, window)
     log(f"sleep window: stopping {', '.join(window['stopped']) or 'no services'}, unloading every Ollama model")
     try:
         if window["stopped"]:
@@ -931,21 +931,12 @@ def batch(state: pathlib.Path | None = None, *, may_sleep: bool = False) -> Gene
 
 
 def _batch_record(state: pathlib.Path) -> dict[str, Any]:
-    try:
-        record = json.loads((state / BATCH_FILE).read_text())
-    except OSError, ValueError:
-        return {}
+    record = json_state.read(state / BATCH_FILE)
     return record if isinstance(record, dict) else {}
 
 
-def _write_json(path: pathlib.Path, record: Mapping[str, Any]) -> None:
-    tmp = path.with_name(f"{path.name}.tmp")
-    tmp.write_text(json.dumps(record))
-    tmp.replace(path)
-
-
 def _write_batch(state: pathlib.Path, record: Mapping[str, Any]) -> None:
-    _write_json(state / BATCH_FILE, record)
+    json_state.write(state / BATCH_FILE, record)
 
 
 def due(state: pathlib.Path, now: float) -> bool:

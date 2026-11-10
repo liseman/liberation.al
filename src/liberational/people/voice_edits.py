@@ -34,7 +34,7 @@ from collections.abc import Callable, Sequence
 import numpy as np
 
 from liberational import config as cfg
-from liberational import knowledge, segment_log
+from liberational import json_state, knowledge, segment_log
 from liberational.domain.identity import Basis
 from liberational.listen import voices
 from liberational.people import registry, transcript_view
@@ -144,9 +144,7 @@ def _file(embedding: np.ndarray, n: int, state: pathlib.Path, at: float, clone: 
     if (old := enrolled.get(str(n))) and old != new:
         voices.forget_embedding(old, base=base)
     enrolled[str(n)] = new
-    tmp = state / f"{ENROLLMENTS}.{os.getpid()}.tmp"
-    tmp.write_text(json.dumps(enrolled))
-    os.replace(tmp, state / ENROLLMENTS)
+    json_state.write(state / ENROLLMENTS, enrolled, durable=True)
     return new
 
 
@@ -235,11 +233,8 @@ def enroll(
     if n is None:
         n = voiceprints(state).new()
         if clone:  # marked first: no process ever reads it as the person's voice
-            (state / "clones").mkdir(parents=True, exist_ok=True)
             meta = {"label": name, "source": "recorded", "made_at": round(now)}
-            tmp = state / "clones" / f"{n}.json.tmp"
-            tmp.write_text(json.dumps(meta))
-            os.replace(tmp, state / "clones" / f"{n}.json")
+            json_state.write(state / "clones" / f"{n}.json", meta, durable=True)
     enrollment_id = _file(embedding, n, state, now, clone=clone)
     reg = registry.at(state)
     reg.claim_many([registry.Claim(registry.voiceprint(n), name)], Basis.OWNER_TAG, ENROLL_SOURCE)

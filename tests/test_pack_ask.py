@@ -1681,7 +1681,7 @@ def test_short_result_file_is_private_atomic_and_immutable(tmp_path):
     write({"answer": "4 visits."})
     assert json.loads(path.read_text()) == {"answer": "3 visits."}
     assert path.stat().st_mode & 0o777 == 0o600
-    assert not path.with_suffix(".tmp").exists()
+    assert [f.name for f in tmp_path.iterdir()] == ["short.json"]
 
 
 def test_voice_speaks_short_with_coverage_before_the_explanation_is_ready(owner_voice, monkeypatch):

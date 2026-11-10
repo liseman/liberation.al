@@ -71,7 +71,7 @@ from typing import Any, Protocol
 
 import numpy as np
 
-from liberational import logs, segment_log, speech_log
+from liberational import json_state, logs, segment_log, speech_log
 from liberational.domain.identity import Basis
 from liberational.people import registry
 
@@ -793,9 +793,7 @@ class Voiceprints:
             self._grow(self._saved())  # what another process handed out since
             n = self.next
             self._grow(n + 1)
-            temporary = self.path.with_name(f"{self.path.name}.{os.getpid()}.tmp")
-            temporary.write_text(json.dumps({"next": self.next}))
-            os.replace(temporary, self.path)
+            json_state.write(self.path, {"next": self.next}, durable=True)  # a voice id is never handed out twice
         return n
 
     def number(self, entity: str) -> int | None:

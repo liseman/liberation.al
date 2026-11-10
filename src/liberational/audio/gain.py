@@ -49,6 +49,7 @@ from typing import Any, Protocol
 import numpy as np
 
 from liberational import config as cfg
+from liberational import json_state
 from liberational.audio import sensitivity
 
 log = logging.getLogger(__name__)
@@ -600,9 +601,7 @@ FRESH_S = 30.0  # an older status file means the listen worker isn't running
 def write_status(path: Path, gains: Iterable[MicGain]) -> None:
     """Each mic's gain status, by device name (else devices.toml name), for Settings: replaced whole."""
     mics = {g.device or g.name: g.status() for g in gains}
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps({"ts": time.time(), "mics": mics}))
-    tmp.replace(path)
+    json_state.write(path, {"ts": time.time(), "mics": mics})
 
 
 def read_status(path: Path) -> dict[str, dict[str, Any]]:

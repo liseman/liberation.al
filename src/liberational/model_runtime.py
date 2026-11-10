@@ -23,7 +23,7 @@ from typing import Any, Self
 import psutil
 
 from liberational import config as cfg
-from liberational import logs
+from liberational import json_state, logs
 
 LOG = logs.get("model-runtime")
 _lock = threading.RLock()
@@ -99,7 +99,6 @@ def _write() -> None:
         current: set[Path] = set()
         for pid, models in holders.items():
             path = _directory() / f"{pid}.json"
-            path.parent.mkdir(parents=True, exist_ok=True)
             body = {
                 "version": 1,
                 "writer": _writer,
@@ -111,14 +110,9 @@ def _write() -> None:
                 "since": _started,
                 "models": models,
             }
-            temporary = path.with_suffix(f".{uuid.uuid4().hex}.tmp")
-            try:
-                temporary.write_text(json.dumps(body))
-                temporary.replace(path)
-                status = path.stat()
-                _written[path] = (status.st_dev, status.st_ino, body["created"], _writer)
-            finally:
-                temporary.unlink(missing_ok=True)
+            json_state.write(path, body)
+            status = path.stat()
+            _written[path] = (status.st_dev, status.st_ino, body["created"], _writer)
             current.add(path)
         _discard_owned([path for path in _written if path not in current])
     except (OSError, psutil.Error) as error:

@@ -12,12 +12,12 @@ again only when it changes.
 from __future__ import annotations
 
 import json
-import os
 import threading
 from collections.abc import Iterable
 from pathlib import Path
 
 from liberational import config as cfg
+from liberational import json_state
 
 MAX_IDS = 100_000  # far more than an owner rejects; the oldest go first past it
 _lock = threading.Lock()
@@ -69,8 +69,5 @@ def reject(ids: Iterable[str]) -> int:
         known = set(have)
         new = [i for i in dict.fromkeys(str(i) for i in ids) if i not in known]
         if new:
-            p.parent.mkdir(parents=True, exist_ok=True)
-            tmp = p.with_suffix(".tmp")
-            tmp.write_text(json.dumps({"ids": [*have, *new][-MAX_IDS:]}))
-            os.replace(tmp, p)
+            json_state.write(p, {"ids": [*have, *new][-MAX_IDS:]}, durable=True)  # the owner's rejections
     return len(new)

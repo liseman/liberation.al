@@ -42,7 +42,7 @@ from pathlib import Path
 from typing import Any
 
 from liberational import config as cfg
-from liberational import logs, ollama, ollama_health, voice_turn
+from liberational import json_state, logs, ollama, ollama_health, voice_turn
 
 LOG = logs.get("research")
 MAX_QUESTION = 1200
@@ -212,10 +212,8 @@ class Store:
         return job
 
     def _write(self, job: Mapping[str, Any]) -> None:
-        path = self._path(str(job["id"]))
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps({k: v for k, v in job.items() if k != "read"}, ensure_ascii=False))
-        os.replace(tmp, path)
+        saved = {k: v for k, v in job.items() if k != "read"}
+        json_state.write(self._path(str(job["id"])), saved, ensure_ascii=False)
 
     def _all(self) -> list[dict[str, Any]]:
         jobs = [j for p in self.dir.glob("*.json") if (j := self._read(p.stem)) is not None]
