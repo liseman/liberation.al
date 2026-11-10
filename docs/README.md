@@ -23,6 +23,7 @@ current contract or procedure. Current-system documents describe `main`.
 |---|---|
 | [Manifesto](../MANIFESTO.md) | Understand the product's purpose |
 | [Roadmap](ROADMAP.md) | Understand product goals and remaining work; the linked project board tracks assignments |
+| [Releases](RELEASES.md) | Install a release, make one, or see what an upgrade resets |
 | [Domain model](DOMAIN-MODEL.md) | Understand identity, observations, evidence, correction, and forgetting |
 | [Continuum](CONTINUUM.md) | Look up broker, capture, SDK, storage, and gateway contracts |
 | [Vision streams](VISION-STREAMS.md) | Look up vision records, model producers, and coverage semantics |

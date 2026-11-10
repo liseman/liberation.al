@@ -75,6 +75,17 @@ def test_each_missing_part_is_named(tmp_path, files, lacking):
     assert check_wheel.check(wheel(tmp_path, files)) == lacking
 
 
+def test_a_release_wheel_without_its_lock_is_incomplete(tmp_path):
+    lacking = check_wheel.check(wheel(tmp_path, COMPLETE), lock=True)
+    assert len(lacking) == 1
+    assert "constraints.txt" in lacking[0]
+
+
+def test_a_release_wheel_with_its_lock_is_complete(tmp_path):
+    locked = {**COMPLETE, "liberational/resources/constraints.txt": "numpy==2.4.1\n"}
+    assert check_wheel.check(wheel(tmp_path, locked), lock=True) == []
+
+
 def test_a_wheel_built_without_the_frontend_says_to_build_it_and_lists_no_files(tmp_path):
     python_only = {name: text for name, text in COMPLETE.items() if not name.startswith(APP)}
     lacking = check_wheel.check(wheel(tmp_path, python_only))
