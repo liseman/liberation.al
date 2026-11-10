@@ -416,6 +416,42 @@ def test_pet_photo_readiness_preserves_video_metadata_and_counts_each_track_once
     assert "video_status" not in b  # the cached metadata snapshot remains unchanged
 
 
+def test_pet_sighting_without_a_camera_gives_its_video_place_to_the_next_one(tmp_path, monkeypatch):
+    from liberational.dashboard import context, photo_files, unnamed_groups
+
+    monkeypatch.setattr(context, "STATE", tmp_path)
+    monkeypatch.setattr(photo_files, "_crop_jobs", face_shots.Pending(lambda key: face_shots.CropResult(True)))
+    # A label carried over from a saved photo alone: no camera, and its times are the photo's.
+    carried = [{"track_id": f"0a1b2c3d4e5f:dog:{n}", "cam": "", "start": 900 - n, "end": 900 - n} for n in range(2)]
+    filmed = [{"track_id": f"t{n}", "cam": "cam0", "start": 100 - 10 * n, "end": 102 - 10 * n} for n in range(5)]
+    code, view = unnamed_groups._ready_pet_view(200, {"seen": {"rex": [*carried, *filmed]}, "groups": []})
+    assert code == 200
+    rows = view["seen"]["rex"]
+    assert [r["track_id"] for r in rows] == [r["track_id"] for r in [*carried, *filmed]]
+    assert [r.get("video_status") for r in rows] == [None, None, "pending", "pending", "pending", "pending", None]
+    assert view["videos_pending"] == 4 and view["videos_unavailable"] == 0
+
+
+def test_video_row_with_an_unusable_camera_is_unavailable_and_said_once(tmp_path, monkeypatch, caplog):
+    from liberational.dashboard import context, photo_files, unnamed_groups
+
+    monkeypatch.setattr(context, "STATE", tmp_path)
+    monkeypatch.setattr(photo_files, "_crop_jobs", face_shots.Pending(lambda key: face_shots.CropResult(True)))
+    monkeypatch.setattr(unnamed_groups, "_bad_cameras", set())
+    monkeypatch.setattr(context.LOG, "propagate", True)
+    bad = {"track_id": "t0", "cam": "front door/2", "start": 30, "end": 32}
+    good = {"track_id": "t1", "cam": "cam0", "start": 20, "end": 22}
+    with caplog.at_level("WARNING"):
+        first = unnamed_groups._ready_pet_view(200, {"seen": {"rex": [bad, good]}, "groups": []})[1]
+        unnamed_groups._ready_pet_view(200, {"seen": {"rex": [bad, good]}, "groups": []})
+    assert [(r["video_status"], r["video_thumb"]) for r in first["seen"]["rex"]] == [
+        ("unavailable", None),
+        ("pending", None),
+    ]
+    assert first["videos_unavailable"] == first["videos_pending"] == 1
+    assert sum("front door/2" in r.getMessage() for r in caplog.records) == 1
+
+
 def test_pet_video_preparation_is_independent_of_photo_availability(tmp_path, monkeypatch, vision):
     from liberational.dashboard import context, photo_files, unnamed_groups
     from liberational.people import pet_shots

@@ -24,6 +24,21 @@ it('uses only server-prepared thumbnails among the newest four sightings, indepe
   expect(petVideos([seen('unprepared')])).toEqual([]);
 });
 
+it('passes over sightings the server offers no video of, such as one without a camera', () => {
+  const ready = (id: string, start: number) =>
+    seen(id, { start, end: start + 1, video_status: 'ready', video_thumb: `/saved/${id}.jpg` });
+  const list = [
+    seen('photo-only-a', { cam: '' }),
+    seen('photo-only-b', { cam: '' }),
+    ready('a', 400),
+    ready('b', 300),
+    ready('c', 200),
+    ready('d', 100),
+    ready('fifth', 50),
+  ];
+  expect(petVideos(list).map(v => v.thumb)).toEqual(['/saved/a.jpg', '/saved/b.jpg', '/saved/c.jpg', '/saved/d.jpg']);
+});
+
 it('says when sightings were in 24-hour time, the day once', () => {
   const t = (h: number, m: number) => new Date(2026, 10, 6, h, m).getTime() / 1000;
   expect(span(t(13, 9), t(13, 9))).toMatch(/^\S+ \S+, 13:09$/);
