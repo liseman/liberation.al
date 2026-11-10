@@ -544,7 +544,7 @@ def test_shared_newest_reads_at_the_cameras_rate_and_keeps_gaps_without_private_
 def test_shared_newest_asks_the_decoder_for_its_rate_and_takes_what_it_sends(
     monkeypatch, every_ns, min_interval_s, asked_ns
 ):
-    # #3218: the decoder paces a shared reader, so a picture it sends a moment after the last is the next one, not
+    # The decoder paces a shared reader, so a picture it sends a moment after the last is the next one, not
     # one to drop for the model's interval or slot.
     import asyncio
     from types import SimpleNamespace

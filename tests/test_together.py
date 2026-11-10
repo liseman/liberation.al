@@ -1,4 +1,4 @@
-"""Who was heard while a face was in view, and seen while a voice spoke (#225): people/together.py."""
+"""Who was heard while a face was in view, and seen while a voice spoke: people/together.py."""
 
 import pytest
 

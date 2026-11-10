@@ -1,4 +1,4 @@
-"""People on a screen (#2468): which boxes a TV, laptop, or screen zone holds (see/screens.py), screen zones
+"""People on a screen: which boxes a TV, laptop, or screen zone holds (see/screens.py), screen zones
 (see/zones.py), and a camera's screen zones read again as they change (see/actions_worker.py)."""
 
 import threading
@@ -165,7 +165,7 @@ def test_a_cameras_screen_zones_are_read_again_once_a_minute_and_kept_through_a_
     assert read() == [] and len(reads) == 3, "a failed read keeps the last zones"
 
 
-# ---- whether a screen is on (#2468) ----
+# ---- whether a screen is on ----
 
 S = screens.SAMPLE_NS
 TV_BOX = (0.54, 0.086, 0.738, 0.296)
@@ -287,14 +287,14 @@ def test_a_burst_shorter_than_a_show_is_not_reported():
 
 
 def test_only_screen_zones_are_watched_for_a_moving_picture():
-    """A detected TV may be a computer monitor (Nov 6: cam0's desk monitor, #2669): only a drawn screen zone counts."""
+    """A detected TV may be a computer monitor (Nov 6: cam0's desk monitor): only a drawn screen zone counts."""
     zone = ((0.0, 0.0), (0.3, 0.05), (0.2, 0.3))
     np.testing.assert_allclose(screens.playing([zone])[:, :4], [[0.0, 0.0, 0.3, 0.3]], atol=1e-6)
     assert screens.playing([]).shape == (0, 6)
 
 
 def test_two_cameras_writing_at_once_both_keep_their_spans(tmp_path, monkeypatch):
-    # #3093: the first camera's write stalls; the second's, made after with both cameras' spans, must not be
+    # The first camera's write stalls; the second's, made after with both cameras' spans, must not be
     # replaced by the first's older map.
     path = tmp_path / "screens_on.json"
     on = screens.ScreensOn(path, WallClock(20_000.0))
@@ -317,7 +317,7 @@ def test_two_cameras_writing_at_once_both_keep_their_spans(tmp_path, monkeypatch
 
 
 def test_cameras_starting_at_once_share_one_spans_writer(tmp_path, monkeypatch):
-    # #3093: two camera threads that both find no writer yet must not each make one.
+    # Two camera threads that both find no writer yet must not each make one.
     made, second = [], threading.Event()
 
     def slow_writer(path: Path) -> object:

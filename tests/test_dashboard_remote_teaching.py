@@ -28,7 +28,7 @@ def post(serve, monkeypatch, tmp_path, request):
             headers["Origin"] = f"{request.param}://{netloc}"
         else:
             headers["Origin"] = "https://evil.example"
-        conn = http.client.HTTPConnection(netloc, timeout=120)  # generous: devbox can be loaded
+        conn = http.client.HTTPConnection(netloc, timeout=120)  # generous: the Linux machine can be loaded
         data = raw if raw is not None else json.dumps(body or {"kind": "face", "id": 3})
         conn.request("POST", path, body=data, headers=headers)
         code = conn.getresponse().status
@@ -64,7 +64,7 @@ def test_never_without_a_password(post, monkeypatch):
     assert post("/inbox/skip", auth=False) == 403
 
 
-# Each route the handler gates itself (#2788), and the action behind it.
+# Each route the handler gates itself, and the action behind it.
 TEACHING_ACTIONS = {
     "/people/assign": "assign_to",
     "/people/assign-many": "assign_many",
@@ -116,7 +116,7 @@ def test_a_refused_teaching_route_answers_like_a_refused_inbox_skip():
     assert (code, body.keys(), body["ok"]) == (skip_code, skip_body.keys(), False)
 
 
-# The teaching routes #2804 put on the same gate: each one's body, and what it calls once the gate lets it through.
+# Additional teaching routes on the same gate: each one's body, and what it calls once the gate lets it through.
 MORE_ROUTES = {
     "/speakers/refine": ({"action": "assign", "line": "mic@1.0", "name": "Dana"}, "speakers_refine"),
     "/transcript/unlabel": ({"line": "mic@1.0"}, "_line_at"),
@@ -190,7 +190,7 @@ def test_a_remote_upload_must_not_be_a_type_another_site_can_send(post, taught_m
     ],
 )
 def test_this_is_me_stays_on_this_machine_even_with_remote_teaching(post, monkeypatch, remote, teaching, control):
-    # Owner identity isn't teaching (#2804): This is me decides who the assistant answers as the owner.
+    # Owner identity isn't teaching: This is me decides who the assistant answers as the owner.
     calls = []
     monkeypatch.setattr(
         server, "merge_into_owner", lambda name, voices, *, control: calls.append(control) or (200, {"ok": True})

@@ -1,4 +1,4 @@
-"""Walkthrough video to place (#2787, #2931): frame choice, revisit proposals, loop closure, the CUT3R and MASt3R jobs,
+"""Walkthrough video to place: frame choice, revisit proposals, loop closure, the CUT3R and MASt3R jobs,
 and the place written. Neither model runs here: fake runtimes stand in for them at the subprocess boundary."""
 
 import itertools
@@ -881,7 +881,7 @@ def test_the_walk_is_written_and_joined_under_the_places_lock(tmp_path, runtime,
 
 
 def test_a_lidar_walk_into_a_place_with_an_owner_plan_is_placed_by_the_plan(tmp_path, monkeypatch):
-    # #3286: the place's map has nothing like the walk's room, and no camera sees it, but the owner's plan has the room
+    # The place's map has nothing like the walk's room, and no camera sees it, but the owner's plan has the room
     monkeypatch.setattr(W.fuse.cameras, "layout", lambda *a, **k: W.fuse.cameras.Layout(None, None, fuse.LEVEL_FLOOR))
     old = unrelated_place(tmp_path, {"s2": POSE})
     assert old.plan is None

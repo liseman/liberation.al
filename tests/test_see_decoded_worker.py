@@ -854,7 +854,7 @@ def flaky(monkeypatch, plan, start=0.0):
 
 
 def test_after_nvdec_fails_the_cpu_decodes_and_nvdec_is_tried_again_until_it_is_back(monkeypatch, capsys) -> None:
-    # #2903: one CUDA out-of-memory error on 11-06 meant 18 hours of CPU decoding, until a restart.
+    # One CUDA out-of-memory error on 11-06 meant 18 hours of CPU decoding, until a restart.
     at = flaky(monkeypatch, ["dies", "no-start", "ok"], start=1000.0)
     assert at(0) == ("software", 1)  # NVDEC died on this unit, and the CPU decoded it
     assert at(59) == ("software", 1)  # not a minute yet
@@ -880,7 +880,7 @@ def test_nvdec_that_stays_unavailable_is_tried_at_the_longest_wait_without_a_lin
 
 
 def test_nvdec_that_starts_but_fails_its_first_unit_each_try_goes_quiet_too(monkeypatch, capsys) -> None:
-    # The review of #2916: a context made but a decode out of memory, on every try.
+    # A context made but a decode out of memory, on every try.
     at = flaky(monkeypatch, ["dies"] * 7)
     for t in (0, 60, 360, 1260, 2160, 3060):
         assert at(t) == ("software", 1)
@@ -891,7 +891,7 @@ def test_nvdec_that_starts_but_fails_its_first_unit_each_try_goes_quiet_too(monk
 
 
 def test_nvdec_that_comes_back_and_fails_again_keeps_its_longer_wait(monkeypatch) -> None:
-    # The review of #2916: reset on the first picture, this flapped every minute.
+    # When reset on the first picture, this flapped every minute.
     at = flaky(monkeypatch, ["no-start", "ok-then-dies", "ok-then-dies", "ok"])
     assert at(60) == ("cuda", 1)  # back after a minute, for one picture
     assert at(61) == ("software", 1)  # failed again
@@ -966,7 +966,7 @@ def test_a_reader_asking_a_negative_rate_is_refused(tmp_path) -> None:
 
 
 def test_each_reader_is_sent_its_own_rate_and_a_picture_nobody_takes_is_never_downloaded(tmp_path, monkeypatch):
-    # #3218: two readers of a 30 fps camera, at 10 and 5 fps. Every unit is decoded (P pictures are references), but
+    # Two readers of a 30 fps camera, at 10 and 5 fps. Every unit is decoded (P pictures are references), but
     # only one some reader's schedule takes is downloaded (keep) and published, and only for the readers that took it.
     headers = at_fps(30, 13)  # 0 to 400 ms
 
@@ -1049,7 +1049,7 @@ def decoding(monkeypatch, headers, kept):
 
 
 def test_units_already_waiting_are_decoded_in_one_wakeup_and_published_in_order(tmp_path, monkeypatch):
-    # #3235: the camera's thread takes every unit waiting on its subscription at once, not one per wakeup.
+    # The camera's thread takes every unit waiting on its subscription at once, not one per wakeup.
     headers = at_fps(30, 5)
 
     async def run():

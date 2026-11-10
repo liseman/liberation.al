@@ -1,4 +1,4 @@
-"""The identity worker (people/identity.py, #776): names from introductions, badges, and the owner's word, over the
+"""The identity worker (people/identity.py): names from introductions, badges, and the owner's word, over the
 broker's face matches and speech lines; its records in the knowledge store."""
 
 import json
@@ -68,7 +68,7 @@ def sighting(cluster: int, ts: float, cam: str = "cam1", detection: str | None =
     }
 
 
-# label_speaker reads a voice's name from the event log (issue #30): speakers.json holds no names.
+# label_speaker reads a voice's name from the event log: speakers.json holds no names.
 @pytest.mark.parametrize("owner, said", [("Alice", "Alice"), ("Mary Ann", "mary  ann")], ids=["exact", "respaced"])
 def test_an_introduction_never_names_a_voice_as_the_owner(tmp_path, paths, owner, said):
     write_voices(tmp_path, {7: None})
@@ -538,7 +538,7 @@ def consume(brain, items, settle=0.0):
 
 
 def test_the_consumer_ticks_while_records_keep_coming(tmp_path, monkeypatch):
-    """Codex on #794: matches arrive about once a second per camera, so a tick that waited for the queue to go quiet
+    """Matches arrive about once a second per camera, so a tick that waited for the queue to go quiet
     never came, and introductions were never resolved."""
     monkeypatch.setattr(identity, "POLL_S", 0.05)
     brain = daemon(tmp_path)
@@ -558,7 +558,7 @@ def test_the_consumer_ticks_while_records_keep_coming(tmp_path, monkeypatch):
 
 
 def test_a_failed_line_holds_the_acknowledgments_back_until_it_goes_through(tmp_path, monkeypatch):
-    """Codex on #794: an acknowledgment covers every position before it, so acknowledging a later line would have
+    """An acknowledgment covers every position before it, so acknowledging a later line would have
     skipped a line whose measurements could not be written. The failed line is tried again each tick and nothing
     after it is acknowledged until it is handled."""
     monkeypatch.setattr(identity, "POLL_S", 0.05)

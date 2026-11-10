@@ -1,4 +1,4 @@
-"""tools/restore_pet_references.py (#3018, #3024): which saved photo a stranded label is restored from, and which of
+"""tools/restore_pet_references.py: which saved photo a stranded label is restored from, and which of
 the detector's animals in it is the track's."""
 
 import importlib.util

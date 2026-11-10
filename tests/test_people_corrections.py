@@ -1,4 +1,4 @@
-"""People's corrections and "pick what's theirs" (#309): GET /inbox/unnamed, POST /people/assign, /people/correct,
+"""People's corrections and "pick what's theirs": GET /inbox/unnamed, POST /people/assign, /people/correct,
 and /people/undo, with the sighting corrections they rest on (vision/sightings.py: the owner's claims in the people
 registry on the face worker's detections), the card's choices (people/card_prefs.py), and the face rows they add and
 take back (vision/faces.py). A temp state dir, the voice CLI run in process, made-up names, and synthetic faces on the
@@ -594,7 +594,7 @@ def test_the_unnamed_list_is_not_a_person_named_unnamed(state):
 
 # ---- from the local review ----
 def test_a_voice_for_someone_who_has_one_joins_it_and_its_undo_leaves_their_voice_named(state):
-    code, out = server.assign_to({"name": "Kara", "voices": [2]})  # from any machine: nothing restarts (#349)
+    code, out = server.assign_to({"name": "Kara", "voices": [2]})  # from any machine: nothing restarts
     assert code == 200, out
     code, back = server.undo_people({"undo": out["undo"]})
     assert (code, back["ok"]) == (200, False)
@@ -739,7 +739,7 @@ def test_warm_unnamed_picks_follow_group_claims_corrections_new_matches_and_purg
 
 
 def test_naming_a_voice_teaches_listen_its_line_and_the_undo_takes_it_back(state):
-    # #3247: the claim confirms the voice's lines (here its one line) as the person's, as /speakers/tag would
+    # The claim confirms the voice's lines (here its one line) as the person's, as /speakers/tag would
     from liberational.listen import voices
 
     with patch.object(voices, "confirm_lines", autospec=True, return_value=1) as confirm:

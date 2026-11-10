@@ -1,5 +1,5 @@
 """Owner names and ratings on activity spans, written to and read from the knowledge store as memory/events.py keeps
-them (#1832), for tests that set them up directly instead of through events.name_activity and feedback_activity."""
+them, for tests that set them up directly instead of through events.name_activity and feedback_activity."""
 
 import time
 import uuid
@@ -40,7 +40,7 @@ def rate(
     **fields: Any,
 ) -> dict[str, Any]:
     """The owner rates `span` Right or Wrong, with its kind and camera as events writes them. `stream=None` writes a
-    rating from before #1832, which calibration leaves out."""
+    legacy rating without a stream, which calibration leaves out."""
     value = {"verdict": verdict, "kind": span.get("kind"), "cam": span.get("cam"), **fields}
     if stream is not None:
         value["stream"] = stream

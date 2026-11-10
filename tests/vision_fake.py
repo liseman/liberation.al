@@ -88,7 +88,7 @@ class FakeVisionLog:
         cluster: str | None = None,
         **fields: Any,
     ) -> dict[str, Any]:
-        """Adds a `face.match` as see-actions writes it (#1846): one look at a tracked head, its box as shares of the
+        """Adds a `face.match` as see-actions writes it: one look at a tracked head, its box as shares of the
         frame, and who it is; its `detection` is its own id. Returns it."""
         m = self.add(
             segment_log.FACE_MATCHES,
@@ -108,7 +108,7 @@ class FakeVisionLog:
     def visit(
         self, name: str, start: float, end: float, cam: str = "cam0", best_sim: float = 0.6, samples: int = 1
     ) -> dict[str, Any]:
-        """Adds a `face.visit` (in the segment store, #1846)."""
+        """Adds a `face.visit` (in the segment store)."""
         return self.add(
             segment_log.FACE_VISITS,
             ts_start=start,

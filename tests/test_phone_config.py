@@ -226,7 +226,7 @@ def test_mission_opening_keeps_instructions_private_and_identity_truthful(monkey
 
 
 def test_mission_opening_tells_the_model_the_disclosure_was_already_said(monkeypatch):
-    # calls/2026-11-06/155604_CAe3d02169546baf03ad1d37902ad83bf3: not told, the model greeted and introduced itself again
+    # Without being told the disclosure was already spoken, the model greeted and introduced itself again
     seen = []
 
     def answer(history, system):
@@ -267,7 +267,7 @@ def test_explicit_target_normalized_and_contact_change_refused(tmp_path, monkeyp
 
 
 def test_a_placed_call_keeps_whom_the_owner_asked_for_and_their_words(tmp_path, monkeypatch, env_file):
-    """For the call's record (#2682): the mission keeps the owner's words and the contact's name beside what to say."""
+    """For the call's record: the mission keeps the owner's words and the contact's name beside what to say."""
     env_file.write_text("TWILIO_ACCOUNT_SID=fake\nTWILIO_AUTH_TOKEN=fake\nTWILIO_FROM_NUMBER=+15555550100\n")
     monkeypatch.setattr(outbound_call, "MISSIONS", tmp_path / "missions.json")
     monkeypatch.setattr(outbound_call, "contacts", lambda: {"dana": "+15555550199"})
@@ -303,7 +303,7 @@ def dialable(tmp_path, monkeypatch, env_file):
 
 
 def test_two_processes_placing_calls_at_once_both_keep_their_mission(dialable, monkeypatch):
-    """#3125: the second writer waits for the first one's read-modify-write instead of overwriting it."""
+    """The second writer waits for the first one's read-modify-write instead of overwriting it."""
     first_read, release, second_read = threading.Event(), threading.Event(), threading.Event()
 
     class Missions(type(dialable)):
@@ -340,7 +340,7 @@ def test_a_bad_missions_file_never_stops_a_call(dialable, bad):
 
 
 def test_a_bad_missions_file_is_kept_aside_not_written_over(dialable, caplog):
-    # #3144: the next call's write used to replace a file it couldn't read, and every mission in it was gone unseen
+    # The next call's write used to replace a file it couldn't read, and every mission in it was gone unseen
     garbled = '{"15555550177": {"say": "Bring the ladder", "created": 17'
     dialable.write_text(garbled)
     assert outbound_call.place("dana", "Dinner at seven") == (True, "Calling dana now.")
@@ -407,7 +407,7 @@ def test_a_call_answered_saves_its_direction_and_no_outcome_without_instructions
 
 
 def test_a_call_is_marked_live_while_it_is_on_and_not_after(tmp_path):
-    """The dashboard's "on a call" reads this mark (#2696)."""
+    """The dashboard's "on a call" reads this mark."""
     call = phone_call(STRANGER)
     call.dir = tmp_path
     call.direction, call.to_name = "out", "Dana"
@@ -497,7 +497,7 @@ def test_a_call_we_placed_is_recognized_whatever_the_format_of_our_number(webhoo
     assert (placed["remote"], incoming["remote"]) == (STRANGER, STRANGER)
 
 
-# Owner treatment needs the owner's number AND grade A caller-ID attestation (#122). Twilio signs Direction and
+# Owner treatment needs the owner's number AND grade A caller-ID attestation. Twilio signs Direction and
 # StirVerstat, so a caller can spoof From but not those.
 A, B, C = "TN-Validation-Passed-A", "TN-Validation-Passed-B", "TN-Validation-Passed-C"
 
@@ -568,7 +568,7 @@ def test_spoofing_a_new_number_per_call_still_hits_the_phones_lockout_but_not_th
     for n in range(voice_auth.EVERYONE_TRIES):
         phone_call(f"+1555555{n:04d}").try_password("password is guess")
     assert phone_call("+15555559999").try_password("password is open sesame") == phone_bridge.LOCKED_OUT
-    assert not voice_auth.Lockouts(auth.path).locked("voice:1")  # people in the room have their own budget (#204)
+    assert not voice_auth.Lockouts(auth.path).locked("voice:1")  # people in the room have their own budget
 
 
 def test_an_in_person_lockout_leaves_the_phone_alone(auth):
@@ -749,7 +749,7 @@ def test_after_a_wrong_try_the_next_line_is_not_a_try(talk):
     assert talk.model == ["how's the weather"]
 
 
-# A captured, signed /bridge/voice request replayed later can't set the call up again (#205).
+# A captured, signed /bridge/voice request replayed later can't set the call up again.
 INBOUND = dict(From=STRANGER, To=TWILIO, Direction="inbound")
 
 
@@ -792,7 +792,7 @@ def test_an_unreadable_record_of_seen_calls_starts_over_rather_than_refusing_cal
     assert webhook(CallSid="CA1", **INBOUND)["remote"] == STRANGER
 
 
-# Telling the owner when the phone locks out a password guesser (#204).
+# Telling the owner when the phone locks out a password guesser.
 def lock_out(number=STRANGER):
     for _ in range(voice_auth.TRIES):
         reply = phone_call(number).try_password("password is guess")
@@ -1070,7 +1070,7 @@ def pausing(auth, monkeypatch):
             assert await asyncio.to_thread(held.wait, 120), "the turn never got to the held step"
             await frames(8000, went_on)  # said while the turn is made
             made.set()
-            deadline = time.monotonic() + 120  # generous: devbox can be loaded
+            deadline = time.monotonic() + 120  # generous: the Linux machine can be loaded
             while not spoken:  # the line goes quiet until something is said back
                 assert time.monotonic() < deadline, "nothing was said back"
                 await frames(0, 1)
@@ -1091,7 +1091,7 @@ def callers_turns(call):
 
 @pytest.mark.parametrize("owner", [False, True], ids=["mission", "owner"])
 def test_a_caller_who_goes_on_while_the_reply_is_made_is_answered_for_all_of_it(pausing, owner):
-    # calls/2026-10-30/125036_CA037a13a30b1bbdb58883f99c2d096215: the owner paused 1.2 s inside "That was a very
+    # When a caller paused 1.2 s inside "That was a very
     # ridiculous ... limerick, Bob, I think you can do better", got a reply to the first half (taken as praise), and
     # Bob talked over the rest.
     pausing.run(50, owner=owner)
@@ -1165,7 +1165,7 @@ def test_going_on_past_the_longest_utterance_answers_the_first_part_and_keeps_th
 
 
 def test_the_loop_keeps_serving_while_twilio_is_slow_to_place_a_call(talk, dialable, monkeypatch):
-    """#3126: the owner's "call Dana" waits on Twilio in a thread, so the event loop (other calls, this call's media
+    """The owner's "call Dana" waits on Twilio in a thread, so the event loop (other calls, this call's media
     stream) keeps running meanwhile. The fake Twilio answers only once the loop has run something else."""
     entered, served = threading.Event(), threading.Event()
     answered = []

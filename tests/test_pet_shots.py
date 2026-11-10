@@ -1,4 +1,4 @@
-"""Pet thumbnails (#2038): each animal track's photo saved as its largest box comes, served with no lookup, and cut
+"""Pet thumbnails: each animal track's photo saved as its largest box comes, served with no lookup, and cut
 from recorded video only for a track without one. Synthetic frames and made-up tracks."""
 
 import http.client

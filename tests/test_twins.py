@@ -1,4 +1,4 @@
-"""The same speech heard on two microphones (audio/twins.py, #285): the rule, and the transcriber writing it once."""
+"""The same speech heard on two microphones (audio/twins.py): the rule, and the transcriber writing it once."""
 
 import json
 

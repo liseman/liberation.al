@@ -1,4 +1,4 @@
-"""The Journal tab's reads (dashboard/journal.py, #2811): months down to events, pages, and evidence."""
+"""The Journal tab's reads (dashboard/journal.py): months down to events, pages, and evidence."""
 
 import datetime as dt
 import http.client

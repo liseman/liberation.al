@@ -147,7 +147,7 @@ def looked_up(*args, **kwargs):
 
 
 def test_a_crop_written_under_the_current_revision_is_served_without_a_lookup(tmp_path, monkeypatch):
-    # What see-actions leaves with each sighting (#2018): served as is, with no lookup and no decode.
+    # What see-actions leaves with each sighting: served as is, with no lookup and no decode.
     monkeypatch.setattr(server, "STATE", tmp_path)
     sid = "01a18c4d-4f51-740b-9b2e-d84e49271b7d"
     face_shots.write(tmp_path, sid, server._shot_revision(), b"cut")
@@ -279,7 +279,7 @@ def test_old_geometry_cache_is_not_reused_after_pixel_mapping_changes(dashboard,
 
 
 def test_a_shot_that_would_wait_too_long_for_a_cut_is_told_to_come_back(dashboard, monkeypatch):
-    # Every turn to cut is taken (a grid of old sightings): the request gives its connection back at once (#2018).
+    # Every turn to cut is taken (a grid of old sightings): the request gives its connection back at once.
     base, ids = dashboard
     monkeypatch.setattr(server, "SHOT_WAIT_S", 0.05)
     held = [server._shot_decode.acquire(timeout=1) for _ in range(2)]

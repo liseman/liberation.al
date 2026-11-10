@@ -1,4 +1,4 @@
-"""Typical counts over days or nights for Ask (#1318): "how many times do I generally get up to use the bathroom at
+"""Typical counts over days or nights for Ask: "how many times do I generally get up to use the bathroom at
 night"."""
 
 import datetime as dt

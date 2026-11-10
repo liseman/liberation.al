@@ -1,4 +1,4 @@
-"""Live's "What's happening" (#354, dashboard/happening.py): arrivals and departures from the camera views,
+"""Live's "What's happening" (dashboard/happening.py): arrivals and departures from the camera views,
 finished conversations told as one named line, never first person, and a cursor of when each row was written, so a
 tab polling since=updated gets every row, however late it lands. Synthetic visits and transcript lines with a fake
 model in a temp state dir; never the real data/."""
