@@ -107,7 +107,7 @@ export function NewPerson({
 }
 
 /** One person's row: avatar, name, and where they are, were last seen, or what's known. */
-function Row({ p, current, onPick, onOpen }: { p: Person; current: boolean; onPick: () => void; onOpen: () => void }) {
+function Row({ p, current, onOpen }: { p: Person; current: boolean; onOpen: () => void }) {
   // While identity is still rematching faces, an old last-seen time would mislead; personMeta says it's updating.
   const where = p.here_now || !(p.last_seen_pending || p.last_seen_error) ? whereabouts(p) : '';
   const sub = where ? [roleLine(p), where].filter(Boolean).join(', ') : personMeta(p);
@@ -126,7 +126,6 @@ function Row({ p, current, onPick, onOpen }: { p: Person; current: boolean; onPi
       }
       description={sub}
       current={current}
-      onPick={onPick}
       onOpen={onOpen}
     />
   );
@@ -163,9 +162,7 @@ export function Roster({
   errorDetail = null,
   retrying,
   onRetry,
-  cursor,
   sel,
-  onPick,
   onOpen,
   onAdded,
 }: {
@@ -175,10 +172,8 @@ export function Roster({
   errorDetail?: string | null; // the server's reason, behind Show details
   retrying: boolean;
   onRetry: () => void;
-  cursor: string | null; // the selected roster row
   sel: string | null; // a person's name, '?' for Who's this?, or null
-  onPick: (sel: string) => void; // single-click selection
-  onOpen: (sel: string) => void; // Enter, I, or double-click
+  onOpen: (sel: string) => void; // a click, Enter, or I on a row
   onAdded: (name: string) => void;
 }) {
   const [query, setQuery] = useState('');
@@ -203,9 +198,7 @@ export function Roster({
         voices.isError ? null : (voices.data?.count ?? null),
         unavailable,
       );
-  const row = (p: Person) => (
-    <Row key={p.name} p={p} current={cursor === p.name} onPick={() => onPick(p.name)} onOpen={() => onOpen(p.name)} />
-  );
+  const row = (p: Person) => <Row key={p.name} p={p} current={sel === p.name} onOpen={() => onOpen(p.name)} />;
   return (
     <RosterColumn
       title="People"

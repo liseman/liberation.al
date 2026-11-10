@@ -209,7 +209,7 @@ it('uses the newest ready pet photo while keeping later pending sightings in vid
   const user = userEvent.setup();
   renderPage(<Pets />);
   const roster = await screen.findByRole('list', { name: 'Named pets' });
-  await user.dblClick(within(roster).getByRole('button', { name: /^Mia/ }));
+  await user.click(within(roster).getByRole('button', { name: /^Mia/ }));
   const card = await screen.findByRole('article', { name: 'Card of Mia' });
   expect(card.querySelector('img[src="/pets/sightings/photo?track=waiting"]')).toBeNull();
   expect(card.querySelector('img[src="/pets/sightings/photo?track=ready"]')).not.toBeNull();
@@ -230,7 +230,7 @@ it('does not call unavailable pet photos processing when the queue reports no pe
   const user = userEvent.setup();
   renderPage(<Pets />);
   const roster = await screen.findByRole('list', { name: 'Named pets' });
-  await user.dblClick(within(roster).getByRole('button', { name: /^Mia/ }));
+  await user.click(within(roster).getByRole('button', { name: /^Mia/ }));
   const card = await screen.findByRole('article', { name: 'Card of Mia' });
   expect(card.querySelector('img[src="/pets/sightings/photo?track=gone"]')).toBeNull();
   expect(within(card).queryByText(/Processing .* detection/)).toBeNull();
@@ -275,7 +275,7 @@ describe("Pets in People's form", () => {
     await user.type(screen.getByRole('textbox', { name: 'Search pets' }), 're');
     expect(within(list).queryByRole('button', { name: /^Mia/ })).toBeNull();
     await user.clear(screen.getByRole('textbox', { name: 'Search pets' }));
-    await user.dblClick(within(list).getByRole('button', { name: /^Mia/ }));
+    await user.click(within(list).getByRole('button', { name: /^Mia/ }));
     const card = await screen.findByRole('article', { name: 'Card of Mia' });
     expect(within(card).getByRole('heading', { name: 'Mia' })).toBeVisible();
     expect(within(card).getByRole('region', { name: 'Recent sightings' })).toBeVisible();
@@ -283,30 +283,25 @@ describe("Pets in People's form", () => {
     expect(within(list).getByRole('button', { name: /^Mia/ })).toHaveAttribute('aria-current', 'true');
   });
 
-  it('selects a pet card on one click, and opens it with I', async () => {
-    serve();
-    const user = userEvent.setup();
-    renderPage(<Pets />);
-    const list = await screen.findByRole('list', { name: 'Named pets' });
-    const mia = within(list).getByRole('button', { name: /^Mia/ });
-    await user.click(mia);
-    expect(mia).toHaveAttribute('aria-current', 'true');
-    expect(screen.queryByRole('article', { name: 'Card of Mia' })).toBeNull();
-    mia.focus();
-    await user.keyboard('i');
-    expect(await screen.findByRole('article', { name: 'Card of Mia' })).toBeVisible();
-  });
-
-  it("opens a pet's card when its name is clicked, and only selects it on a click off the name", async () => {
+  it('opens a pet card on one click anywhere on the row', async () => {
     serve();
     const user = userEvent.setup();
     renderPage(<Pets />);
     const list = await screen.findByRole('list', { name: 'Named pets' });
     const mia = within(list).getByRole('button', { name: /^Mia/ });
     await user.click(within(mia).getByText(/^Cat/));
+    expect(await screen.findByRole('article', { name: 'Card of Mia' })).toBeVisible();
     expect(mia).toHaveAttribute('aria-current', 'true');
-    expect(screen.queryByRole('article', { name: 'Card of Mia' })).toBeNull();
-    await user.click(within(mia).getByText('Mia'));
+  });
+
+  it('opens the focused pet card with I', async () => {
+    serve();
+    const user = userEvent.setup();
+    renderPage(<Pets />);
+    const list = await screen.findByRole('list', { name: 'Named pets' });
+    const mia = within(list).getByRole('button', { name: /^Mia/ });
+    mia.focus();
+    await user.keyboard('i');
     expect(await screen.findByRole('article', { name: 'Card of Mia' })).toBeVisible();
   });
 
@@ -314,7 +309,7 @@ describe("Pets in People's form", () => {
     serve();
     const user = userEvent.setup();
     renderPage(<Pets />);
-    await user.dblClick(await screen.findByRole('button', { name: /^Mia/ }));
+    await user.click(await screen.findByRole('button', { name: /^Mia/ }));
     const card = await screen.findByRole('article', { name: 'Card of Mia' });
     const video = within(card).getByRole('region', { name: 'Recent video' });
     const play = within(video).getByRole('button', { name: /^Play video: Seen by cam1/ });
@@ -326,7 +321,7 @@ describe("Pets in People's form", () => {
     serve();
     const user = userEvent.setup();
     renderPage(<Pets />);
-    await user.dblClick(await screen.findByRole('button', { name: /^Mia/ }));
+    await user.click(await screen.findByRole('button', { name: /^Mia/ }));
     const card = await screen.findByRole('article', { name: 'Card of Mia' });
     await user.click(within(card).getByRole('button', { name: 'Edit' }));
     const dialog = await screen.findByRole('dialog', { name: 'Edit Mia' });
@@ -1056,7 +1051,7 @@ it('shows each naming row its newest picture large while avatars stay small', as
   await waitFor(() => expect(naming.querySelector('img')).toHaveAttribute('src', '/pets/sightings/photo?track=a'));
   const roster = await screen.findByRole('list', { name: 'Named pets' });
   expect(roster.querySelector('img')).toHaveAttribute('src', '/pets/sightings/photo?track=m1&size=80');
-  await user.dblClick(within(roster).getByRole('button', { name: /^Mia/ }));
+  await user.click(within(roster).getByRole('button', { name: /^Mia/ }));
   const card = await screen.findByRole('article', { name: 'Card of Mia' });
   expect(within(card).getByRole('img', { name: 'Mia' })).toHaveAttribute('src', '/pets/sightings/photo?track=m1');
 });
@@ -1079,7 +1074,7 @@ it('keeps a ready main pet photo visible while its compact avatar and naming til
   expect(naming.querySelector('img[src="/pets/sightings/photo?track=a"]')).not.toBeNull();
   const roster = await screen.findByRole('list', { name: 'Named pets' });
   expect(roster.querySelector('img')).toBeNull();
-  await user.dblClick(within(roster).getByRole('button', { name: /^Mia/ }));
+  await user.click(within(roster).getByRole('button', { name: /^Mia/ }));
   const card = await screen.findByRole('article', { name: 'Card of Mia' });
   expect(within(card).getByRole('img', { name: 'Mia' })).toHaveAttribute('src', '/pets/sightings/photo?track=m1');
 });
@@ -1115,7 +1110,7 @@ describe("a pet card's photo menu", () => {
     const user = userEvent.setup();
     renderPage(<Pets />);
     const roster = await screen.findByRole('list', { name: 'Named pets' });
-    await user.dblClick(within(roster).getByRole('button', { name: /^Mia/ }));
+    await user.click(within(roster).getByRole('button', { name: /^Mia/ }));
     const card = await screen.findByRole('article', { name: 'Card of Mia' });
     return { user, card };
   }
@@ -1201,7 +1196,7 @@ describe('links in, as the command palette jumps (the review)', () => {
     history.replaceState(null, '', '/pets');
     renderPage(<Pets />);
     const roster = await screen.findByRole('list', { name: 'Named pets' });
-    await userEvent.dblClick(within(roster).getByRole('button', { name: /^Mia/ }));
+    await userEvent.click(within(roster).getByRole('button', { name: /^Mia/ }));
     await screen.findByRole('article', { name: 'Card of Mia' });
     act(() => navigate('/pets#pet=Rex'));
     expect(await screen.findByRole('article', { name: 'Card of Rex' })).toBeInTheDocument();
@@ -1212,7 +1207,7 @@ describe('links in, as the command palette jumps (the review)', () => {
     history.replaceState(null, '', '/pets');
     renderPage(<Pets />);
     const roster = await screen.findByRole('list', { name: 'Named pets' });
-    await userEvent.dblClick(within(roster).getByRole('button', { name: /^Mia/ }));
+    await userEvent.click(within(roster).getByRole('button', { name: /^Mia/ }));
     await screen.findByRole('article', { name: 'Card of Mia' });
     act(() => navigate('/pets#sightings'));
     expect(await inbox()).toBeInTheDocument();
