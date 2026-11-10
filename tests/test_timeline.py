@@ -669,6 +669,12 @@ def test_is_someone_home_says_when_they_were_last_seen_and_how_much_was_watched_
         cam="cam0",
         supported=[[T + 120, T + 1920]],
         camera_motion="stable",
+        version="movement-1",
+        frames=18000,
+        gaps=[],
+        tracking="complete",
+        finished=True,
+        closure="open",
     )
     r = history.ask("Is Alice home?")
     assert r["answer"].startswith(

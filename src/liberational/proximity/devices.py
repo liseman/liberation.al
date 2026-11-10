@@ -646,21 +646,38 @@ class Devices:
             where = {"place": prior.place, "place_name": prior.place_name, "room": prior.room}
             write_location(self.knowledge, prior.id, {"kind": prior.kind, "value": prior.value}, where, False)
 
-    def read(self, start: float, end: float) -> tuple[dict[str, list[dict[str, Any]]], list[dict[str, Any]]]:
-        """(sightings by source, sensing coverage) over [start, end)."""
+    def read(
+        self, start: float, end: float, links: Sequence[Link] | None = None, *, coverage: bool = True
+    ) -> tuple[dict[str, list[dict[str, Any]]], list[dict[str, Any]]]:
+        """(sightings by source, sensing coverage) over [start, end). With `links`, only what those links can match
+        (`seen` reads nothing else): a source none of them names isn't read, and a Bluetooth sighting is parsed only
+        when its text holds a linked address or name, unless a link matches by payload fingerprint, which takes the
+        parsed payload. Without `coverage`, no sensing coverage is read."""
 
         log = segment_log.Log(self.segments)
-        records = {s: log.range(s, start, end) for s in (BLE_SIGHTINGS, NET_OBSERVATIONS)}
+        kinds = None if links is None else {link.kind for link in links}
+        records: dict[str, list[dict[str, Any]]] = {BLE_SIGHTINGS: [], NET_OBSERVATIONS: []}
+        if kinds is None or "ble_fingerprint" in kinds:
+            records[BLE_SIGHTINGS] = log.range(BLE_SIGHTINGS, start, end)
+        elif kinds & {"ble_identifier", "ble_name"}:
+            wanted = sorted(
+                {segment_log.json_text(x.value) for x in links or () if x.kind in ("ble_identifier", "ble_name")}
+            )
+            records[BLE_SIGHTINGS] = log.containing(BLE_SIGHTINGS, start, end, wanted)
+        if kinds is None or "net_mac" in kinds:
+            records[NET_OBSERVATIONS] = log.range(NET_OBSERVATIONS, start, end)
+        if not coverage:
+            return records, []
         # Preserve partial/inactive states and source provenance; consumers decide applicability.
-        coverage = [{**row, "stream": s} for s in (BLE_COVERAGE, NET_INVENTORY) for row in log.range(s, start, end)]
-        return records, coverage
+        sources = (BLE_COVERAGE, NET_INVENTORY) if links is None else sorted({_link_source(x) for x in links})
+        return records, [{**row, "stream": s} for s in sources for row in log.range(s, start, end)]
 
     def target(self, name: str, target: str, start: float, end: float) -> Seen | None:
         """What the sightings say about the person or thing called `name`, or None when no link names it."""
         mine = [x for x in self.links() if x.target == target and x.name.casefold() == name.casefold()]
         if not mine:
             return None
-        records, coverage = self.read(start, end)
+        records, coverage = self.read(start, end, mine)
         return seen(mine, records, coverage, gap_s())
 
     def people(self, start: float, end: float) -> list[tuple[str, Seen]]:
@@ -671,7 +688,7 @@ class Devices:
                 groups.setdefault(link.name.casefold(), []).append(link)
         if not groups:
             return []
-        records, coverage = self.read(start, end)
+        records, coverage = self.read(start, end, [link for mine in groups.values() for link in mine])
         gap = gap_s()
         return [(mine[0].name, seen(mine, records, coverage, gap)) for _, mine in sorted(groups.items())]
 
@@ -691,7 +708,8 @@ class Devices:
             if all(v is not None for v in newest.values()):
                 break
             lo = hi - 86400.0
-            records, _ = self.read(lo, hi)
+            unseen = [link for key, links in groups.items() if newest[key] is None for link in links]
+            records, _ = self.read(lo, hi, unseen, coverage=False)
             for key, links in groups.items():
                 if newest[key] is None:
                     newest[key] = seen(links, records, (), gap).last

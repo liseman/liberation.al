@@ -292,7 +292,7 @@ def test_a_model_action_is_listed_rated_in_review_and_then_counted_by_ask(vision
 
     state = registry.knowledge_path().parent
     start, _ = day_bounds("2027-01-15")
-    vision.add(segment_log.ACTION_COVERAGE, ts_start=start, ts_end=start + 3600, cam="cam0", frames=100)
+    vision.add(segment_log.ACTION_COVERAGE, ts_start=start, ts_end=start + 3600, cam="cam0", frames=100, model="test")
     spans = [
         vision.add(segment_log.ACTION_SPANS, ts_start=start + 60 * n, ts_end=start + 60 * n + 2, cam="cam0",
                    kind="sit_down", candidate=True, track_id=str(n), subject_type="person", camera_moved=False)

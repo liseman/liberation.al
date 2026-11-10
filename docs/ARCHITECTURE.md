@@ -69,7 +69,9 @@ rewrites it as one batch (so a closed part normally ends `-v1`), which is what k
 such as a coverage stream, small on disk and quick to read. `continuum_py.compact_segments(root)` does the same for
 closed parts written before that. Readers that show rows take records (`segment_log.Log.range`); readers that count,
 sum, or join spans over a window take columns (`Log.table`, and `Log.covered` for a coverage stream's watched
-stretches), and build no record per row. see-zones keeps a checkpoint holding each of its writers' next `row_seq` (`state/see-zones.json`, replaced by an
+stretches, with a row filter for a stream such as zone coverage), and build no record per row. A stream whose
+record is JSON text (Bluetooth sightings) is read for one device with `Log.containing`, which parses only the rows
+whose text holds the device's address or name. see-zones keeps a checkpoint holding each of its writers' next `row_seq` (`state/see-zones.json`, replaced by an
 atomic rename), so a restart reopens its writers there and never repeats an output; see-actions keeps none, and a
 restart starts new tracks.
 
