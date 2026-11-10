@@ -1,4 +1,4 @@
-"""One full-rate shared decoder per manifest camera, with a bounded transient host-frame fanout (#1738).
+"""One full-rate shared decoder per manifest camera, with a bounded transient host-frame fanout.
 
 H.264 cameras decode once on NVDEC (one shared software decoder if CUDA is unavailable). MJPEG and UYVY
 cameras, such as cam0 until capture encodes it as H.264, decode once on the CPU with OpenCV and are
@@ -12,7 +12,7 @@ recording continues independently of this service, which never publishes derived
 any manifest camera can be read with `shared_frames.decoded_frames`.
 
 Each reader asks for a rate (`every_ns`), and the decoder runs that reader's `shared_frames.Schedule` on each
-picture's capture time as its unit arrives (#3218). Every access unit still goes to NVDEC (the cameras' P pictures are
+picture's capture time as its unit arrives. Every access unit still goes to NVDEC (the cameras' P pictures are
 all references, so none can be left undecoded), but a picture no reader takes is never downloaded from the GPU,
 copied, converted, or published, and each reader is sent only the pictures its own schedule took: see-actions reads
 the 30 fps cameras at 10, and see-captions takes one picture a second.
@@ -20,7 +20,7 @@ the 30 fps cameras at 10, and see-captions takes one picture a second.
 Each camera's decoder thread waits on its broker subscription itself (`Subscription.take`, every unit already waiting
 in one wakeup) and decodes in place; the event loop hears from it only with pictures to publish or a break to note,
 once per batch. The NVDEC decoders on a GPU share its one CUDA context, whose driver thread wakes hundreds of times a
-second whether or not it has work (#3235).
+second whether or not it has work.
 """
 
 import asyncio
@@ -60,7 +60,7 @@ MAX_CLIENTS = 512
 WAITING_REPLY_S = 10.0
 # Source shapes decoded on the CPU, one picture per payload. Anything else but H264AnnexB stops the camera.
 STILL_SHAPES = ("MJPEG", "UYVY")
-# A BGR reader gets a picture at most this often, by capture time, whatever rate it asks for (#1939): BGR is
+# A BGR reader gets a picture at most this often, by capture time, whatever rate it asks for: BGR is
 # converted on the CPU, and converting and copying every 30 fps frame to BGR was most of see-decode's cost.
 BGR_EVERY_NS = 500_000_000
 # How long a camera's decode thread waits on its subscription before looking whether it should stop (leaving the
@@ -76,14 +76,14 @@ PICKS_HELD = 64
 UNREADABLE_REPORT_S = 60.0
 # How far behind the oldest picture a decoder holds its H.264 references can reach: the longest keyframe interval
 # capture allows (VideoEncodingSettings, 10 s), with a margin. A purge whose spans all end before that never touches
-# see-decode's copies (#2370).
+# see-decode's copies.
 REFERENCE_REACH_NS = 15_000_000_000
 # After a purge that does touch them, how long to gather the rest of a burst before acknowledging it all at once.
 PURGE_SETTLE_S = 1.0
 # After NVDEC fails, how long the camera decodes on the CPU before NVDEC is tried again: the next wait each time it
 # fails again, the last one repeating, and the first again once NVDEC has decoded steadily for the last wait (so one
-# that comes back, decodes a picture, and fails again doesn't flap every minute: the review of #2916). One CUDA out-of-memory error (GPU memory
-# is shared with Ollama and the vision models) used to mean the CPU until a restart: 18 hours on 11-06 (#2903).
+# that comes back, decodes a picture, and fails again doesn't flap every minute). One CUDA out-of-memory error (GPU
+# memory is shared with Ollama and the vision models) used to mean the CPU until a restart (18 hours, once).
 NVDEC_RETRY_S = (60.0, 300.0, 900.0)
 _monotonic = time.monotonic  # a name of its own, so a test can stand in for the clock
 
@@ -96,7 +96,7 @@ class NativeDecoder:
         self.name = name  # the camera's, for its decoder's log lines
         self.breaks = 0
         # Reset after a loss and not yet decoding again. Further losses in that state are only counted: a reset is
-        # expensive on NVDEC, and resetting on every unreadable frame made see-decode fall further behind (#1934).
+        # expensive on NVDEC, and resetting on every unreadable frame made see-decode fall further behind.
         self.waiting = False
         self.lost = 0
         self.decoder: frames.H264Frames | None = None
@@ -137,8 +137,7 @@ class NativeDecoder:
     def _to_cpu(self, error: ValueError) -> None:
         """NVDEC failed while decoding: decode on the CPU from the next IDR, and try NVDEC again later. A failure after
         NVDEC had been decoding is the switch, and warns; one on a try's first unit (it started, then ran out of
-        memory) is logged like a try that couldn't start, so a GPU that keeps doing that goes quiet too (review of
-        #2916)."""
+        memory) is logged like a try that couldn't start, so a GPU that keeps doing that goes quiet too."""
         decoding = self.on_gpu and self.retries == 0  # steady on NVDEC, not on a try
         quiet = self.retries >= len(NVDEC_RETRY_S)
         self.gpu_since = None
@@ -294,7 +293,7 @@ class Channel:
         self.layout: tuple[int, int] | None = None
         self.source_breaks = 0
         self.warned_colors = False
-        # The copies this camera holds, for purges (#2370): each format's cache slot -> its source payload's id and
+        # The copies this camera holds, for purges: each format's cache slot -> its source payload's id and
         # capture start, and the capture start of the newest payload given to the decoder since it was last reset.
         self.held: dict[str, dict[int, tuple[str, int]]] = {"nv12": {}, "bgr": {}}
         self.pushed_ns: int | None = None
@@ -553,7 +552,7 @@ class DecoderService:
         waiting, decode them in order, and `post` the event loop that batch's steps (publish a picture, note a break,
         or drop what was published), in order, once, or not at all when no reader took any of them. Waiting here
         rather than on the event loop wakes this thread once per batch, where each unit used to be handed from the
-        broker's thread to asyncio, then to this thread and back (#3235). Ends when the subscription does, or `stop`
+        broker's thread to asyncio, then to this thread and back. Ends when the subscription does, or `stop`
         is set."""
         idle = False
         unreadable, report_at = 0, _monotonic() + UNREADABLE_REPORT_S
@@ -783,7 +782,7 @@ class DecoderService:
                     handler.cancel()
                 outcomes.extend(await asyncio.gather(*handlers, return_exceptions=True))
                 # Close the consumers' transports here, not in their deallocators after the server is gone: there,
-                # Python 3.14 logs "TypeError: 'NoneType' object is not iterable" for each one (#2370).
+                # Python 3.14 logs "TypeError: 'NoneType' object is not iterable" for each one.
                 server.close_clients()
                 await server.wait_closed()
                 if address.exists() and address.stat().st_ino == inode:
@@ -796,7 +795,7 @@ class DecoderService:
 
 
 class Purges:
-    """Answers the broker's purge notices for the decoders' copies (#2370). A purge that can't touch them (an age-out
+    """Answers the broker's purge notices for the decoders' copies. A purge that can't touch them (an age-out
     of old video: see-decode holds seconds of pictures) is acknowledged at once. One that can stops the running
     decoder epoch (`restart`) and waits in `pending` until the epoch has dropped its copies, with any others that
     arrive meanwhile, so a burst is one stop, and the process stays up."""
@@ -843,7 +842,7 @@ async def serve(
 ) -> None:
     """Run decoder epochs until `terminating` or the broker connection ends. A purge that reaches the copies ends an
     epoch, which drops them; its acknowledgement follows, with the rest of its burst, and the next epoch starts afresh
-    in this process (#2370). An epoch that didn't clean up returns without acknowledging: a fresh process starts clean."""
+    in this process. An epoch that didn't clean up returns without acknowledging: a fresh process starts clean."""
     watching = asyncio.create_task(purges.watch())
     try:
         first = True

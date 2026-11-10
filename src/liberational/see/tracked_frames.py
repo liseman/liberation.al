@@ -1,8 +1,8 @@
-"""see-actions' analyzed frames, rebuilt from its segment rows (#1825): who was tracked where in each frame, and the
+"""see-actions' analyzed frames, rebuilt from its segment rows: who was tracked where in each frame, and the
 frames where nobody was.
 
 see-actions writes one `pose.track` row per tracked person per frame and `action.coverage` spans of the frames it
-analyzed (#1745: consecutive rows of a run share their boundary). A frame inside coverage with no pose row had nobody
+analyzed (consecutive rows of a run share their boundary). A frame inside coverage with no pose row had nobody
 tracked in it, so a reader can't see empty frames from the pose rows alone. This module puts them back: each
 coverage row gives the frames of its pose rows, grouped by capture time, and an empty frame at its end when nobody
 was tracked there, so a stretch with nobody in view still counts as looked at. Outside coverage is unknown.
