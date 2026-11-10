@@ -5,6 +5,7 @@
 import { Badge, NavLink, Paper, SegmentedControl, Text, useComputedColorScheme } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
 import { lazy, Suspense, useMemo, useState } from 'react';
+import type { Scene } from '../../plan-editor/protocol';
 import type { FloorplanResult, RenderOptions } from '../../vendor/floorplan/index.js';
 import { ago, plural } from '../lib/format';
 import { PageHeader, PageLoading } from '../lib/page';
@@ -19,7 +20,8 @@ import classes from './places.module.css';
 import { parsePlaceDsl } from './plan/dsl';
 import type { Extensions } from './plan/ext';
 import { drawPlace, looks, type PlaceDrawing } from './plan/render';
-import { PlanFrame } from './scene/PlanFrame';
+import { drawScene, type SceneDrawing } from './scene/draw';
+import { PlaceEditor } from './scene/PlaceEditor';
 
 // The 3D view is its own chunk: the viewer and its engine load only when someone opens it.
 const CloudView = lazy(() => import('./cloud/CloudView'));
@@ -52,12 +54,35 @@ export function fromServer(p: PlaceSummary): Place {
   out.machinePlanText = p.machine_plan;
   out.planRevision = p.plan_revision;
   try {
-    out.plan = parsePlaceDsl(p.plan);
+    // a plan stored as a Pascal scene is JSON; one still in the old format is the floorplan library's DSL
+    if (p.plan.trimStart().startsWith('{')) out.scene = sceneOf(p.plan);
+    else out.plan = parsePlaceDsl(p.plan);
   } catch (e) {
     out.planError = e instanceof Error ? e.message : String(e);
   }
   return out;
 }
+
+/** How a place shows: its plan with paths, the plan editor, the plan in 3D, or the place's map in 3D. */
+export type View = 'plan' | 'editor' | 'model' | 'map';
+
+/** A list row's "6 rooms · 62.4 m² · ", from whichever way the plan was drawn, or null with no drawing. */
+function summaryOf(result: FloorplanResult | undefined, scened: SceneDrawing | null | undefined): string | null {
+  if (result) return `${planSummary(result)} · `;
+  return scened ? `${sceneSummary(scened)} · ` : null;
+}
+
+/** A stored plan's text read as a Pascal scene. Throws when it isn't one. */
+export function sceneOf(text: string): Scene {
+  const scene = JSON.parse(text) as Partial<Scene> | null;
+  if (!scene || typeof scene.nodes !== 'object' || scene.nodes === null || !Array.isArray(scene.rootNodeIds))
+    throw new Error('the plan is not a scene');
+  return scene as Scene;
+}
+
+/** "6 rooms · 62.4 m²" for a plan drawn from a scene (floor area on wall centrelines). */
+export const sceneSummary = (drawing: SceneDrawing): string =>
+  `${plural(drawing.rooms, 'room', 'rooms')} · ${drawing.area.toFixed(1)} m²`;
 
 /** Whose plan this is, for its heading: a first real plan is a rough machine baseline, so it says so. */
 export function originText(place: Place): string | null {
@@ -145,11 +170,14 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
   // Correcting a plan, and which of the two plans shows while the owner's holds over a newer machine one.
   const [editing, setEditing] = useState<string | null>(null);
   const [showing, setShowing] = useState<Showing>('mine');
-  // The plan, or the place's map in 3D (real places only: the examples have no map).
-  const [view, setView] = useState<'plan' | '3d'>('plan');
-  // A place whose plan is a Pascal scene (the example flat, for now): the plan as drawn, or in the new editor or its
-  // 3D view (scene/PlanFrame.tsx).
-  const [sceneView, setSceneView] = useState<'plan' | '2d' | '3d'>('plan');
+  // How the place shows: its plan with paths, the plan editor, the plan in 3D (scene/PlaceEditor.tsx), or the place's
+  // map in 3D (real places only: the examples have no map).
+  const [view, setView] = useState<View>('plan');
+  // A plan stored as a Pascal scene is drawn from it (scene/draw.ts); one in the old format by the floorplan library.
+  const sceneDrawn = useMemo(
+    () => new Map(places.map(p => [p.id, p.scene && !p.plan ? drawScene(p.scene, p.name) : null])),
+    [places],
+  );
   const machine = useMemo(() => {
     if (!place?.machinePlanText || showing !== 'machine') return null;
     try {
@@ -160,6 +188,20 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
   }, [place, showing, scheme]);
   const drawing = place ? drawn.get(place.id) : null;
   const result = drawing?.result;
+  const scened = place ? (sceneDrawn.get(place.id) ?? null) : null;
+  // The new editor opens on a place's own plan, in either format, and on the example that has a scene.
+  const editable = !!place && (place.example ? !!place.scene : !!(place.plan || place.scene));
+  const views: { value: View; label: string }[] = [
+    { value: 'plan', label: 'Plan' },
+    ...(editable
+      ? [
+          { value: 'editor' as const, label: 'Editor' },
+          { value: 'model' as const, label: '3D plan' },
+        ]
+      : []),
+    ...(place && !place.example ? [{ value: 'map' as const, label: '3D map' }] : []),
+  ];
+  const shown: View = views.some(v => v.value === view) ? view : 'plan';
   return (
     <section aria-labelledby="places-h">
       <PageHeader
@@ -197,7 +239,7 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
                           aria-current={p.id === place?.id ? 'true' : undefined}
                           onClick={() => {
                             setPicked(p.id);
-                            setSceneView('plan');
+                            setView('plan');
                             setEditing(null);
                             setShowing('mine');
                           }}
@@ -212,7 +254,7 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
                               {!p.example && <LearningBadge status={learning} place={p.id} />}
                             </span>
                           }
-                          description={`${r ? `${planSummary(r)} · ` : p.plan ? '' : 'No plan yet · '}${lastVisit(p)}`}
+                          description={`${summaryOf(r, sceneDrawn.get(p.id)) ?? (p.plan || p.scene ? '' : 'No plan yet · ')}${lastVisit(p)}`}
                         />
                       </li>
                     );
@@ -237,42 +279,30 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
                         .join(' · ')}
                     </Text>
                   )}
-                  {place.scene && (
-                    <SegmentedControl
-                      size="xs"
-                      value={sceneView}
-                      onChange={v => setSceneView(v as 'plan' | '2d' | '3d')}
-                      data={[
-                        { value: 'plan', label: 'Plan' },
-                        { value: '2d', label: 'Editor' },
-                        { value: '3d', label: '3D' },
-                      ]}
-                      aria-label="Show the plan as"
-                    />
+                  {scened && (
+                    <Text size="sm" c="dimmed">
+                      {[originText(place), sceneSummary(scened)].filter(Boolean).join(' · ')}
+                    </Text>
                   )}
-                  {!place.example && editing !== place.id && (
+                  {views.length > 1 && editing !== place.id && (
                     <SegmentedControl
                       size="xs"
-                      value={view}
-                      onChange={v => setView(v as 'plan' | '3d')}
-                      data={[
-                        { value: 'plan', label: 'Plan' },
-                        { value: '3d', label: '3D' },
-                      ]}
+                      value={views.some(v => v.value === view) ? view : 'plan'}
+                      onChange={v => setView(v as View)}
+                      data={views}
                       aria-label="Show the place as"
                     />
                   )}
                 </div>
-                {place.scene && sceneView !== 'plan' ? (
-                  <>
-                    <Text size="sm" c="dimmed" mb="xs">
-                      {sceneView === '2d'
-                        ? 'The new plan editor, on the example flat. Nothing drawn here is saved yet.'
-                        : 'The example flat in 3D, from the same plan.'}
-                    </Text>
-                    <PlanFrame key={`${place.id}-${sceneView}`} scene={place.scene} view={sceneView} scheme={scheme} />
-                  </>
-                ) : !place.example && view === '3d' && editing !== place.id ? (
+                {editable && (shown === 'editor' || shown === 'model') ? (
+                  <PlaceEditor
+                    key={`${place.id}-${shown}`}
+                    place={place}
+                    view={shown === 'editor' ? '2d' : '3d'}
+                    scheme={scheme}
+                    onSaved={() => setView('plan')}
+                  />
+                ) : !place.example && shown === 'map' && editing !== place.id ? (
                   <Suspense
                     fallback={
                       <Text size="sm" c="dimmed">
@@ -290,7 +320,8 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
                         place={place}
                         showing={showing}
                         onShow={setShowing}
-                        onEdit={() => setEditing(place.id)}
+                        // a plan stored as a scene has one editor, the new one
+                        onEdit={() => (place.scene ? setView('editor') : setEditing(place.id))}
                       />
                     )}
                     {editing === place.id && place.planText ? (
@@ -312,6 +343,34 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
                           // biome-ignore lint/security/noDangerouslySetInnerHtml: the library's own SVG, which escapes every label
                           dangerouslySetInnerHTML={{ __html: machine.svg }}
                         />
+                      </>
+                    ) : scened ? (
+                      <>
+                        <PlacePaths
+                          key={`${place.id}-${linked.t ?? ''}`}
+                          place={place.id}
+                          example={place.example}
+                          svg={scened.svg}
+                          drawn={scened.surface}
+                          options={renderOptions(scheme)}
+                          linked={place.id === (linked.place ?? place.id) ? linked.t : null}
+                        />
+                        {(Object.keys(scened.cameras).length > 0 || scened.unexplored) && (
+                          <ul className={classes.legend} aria-label="Key">
+                            {scened.unexplored && (
+                              <li>
+                                <span className={classes.swatch} data-mark="unexplored" aria-hidden />
+                                Not seen yet
+                              </li>
+                            )}
+                            {Object.keys(scened.cameras).length > 0 && (
+                              <li>
+                                <span className={classes.swatch} data-mark="camera" aria-hidden />
+                                Camera
+                              </li>
+                            )}
+                          </ul>
+                        )}
                       </>
                     ) : drawing && result ? (
                       <>
@@ -340,11 +399,11 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
                         <Text size="sm" c="dimmed">
                           {place.planError
                             ? `This place's plan couldn't be read: ${place.planError}`
-                            : place.plan
+                            : place.plan || place.scene
                               ? "This place's plan couldn't be drawn."
                               : 'No floorplan yet. It appears once the place has been mapped. Until then, paths are drawn on plain floor.'}
                         </Text>
-                        {!place.plan && !place.example && (
+                        {!place.plan && !place.scene && !place.example && (
                           // A lone camera's people are placed on its floor without a plan
                           <PlacePaths
                             key={`${place.id}-${linked.t ?? ''}`}

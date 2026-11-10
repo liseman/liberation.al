@@ -385,6 +385,39 @@ def plan_versions(state: Path, place: str) -> Reply:
     return 200, {"place": held.id, "versions": versions, "previous": previous}
 
 
+def plan_as_scene(state: Path, place: str, record: str | None = None) -> Reply:
+    """GET /places/plan/scene?place=[&record=]: a place's plan as a Pascal scene (spatial/plan_scene.py), for the plan
+    editor to open: the plan that holds, as the owner draws it (on its own page when it has one), or with `record`
+    one of the place's earlier owner plans (`plan_versions`), to look at before putting it back. A plan still stored
+    as DSL is converted on the way out (spatial/plan_import.py `to_scene`), changing nothing stored: `converted` says
+    so, and `left` lists the statements a scene has no place for. `base` is the revision the plan is drawn in, which
+    a save sends back."""
+    from liberational.spatial import plan_import
+
+    held = places.get(state, place)
+    if held is None:
+        return 404, {"error": "no such place"}
+    if record is None:
+        text = (held.view.plan if held.view is not None else held.plan) or ""
+    else:
+        found = next((r for r in places.plan_history(state, place) if r.id == record), None)
+        if found is None:
+            return 404, {"error": "no such version of this place's plan"}
+        view = places.page_view(found.value.get("view"))
+        text = view.plan if view is not None else _plan_text(found.value)
+    if not text.strip():
+        return 404, {"error": "this place has no plan" if record is None else "that version withdrew the plan"}
+    try:
+        if plan_scene.is_scene(text):
+            scene, converted, left = plan_scene.load(text), False, []
+        else:
+            made = plan_import.to_scene(text)
+            scene, converted, left = plan_scene.load(made.scene), True, list(made.left)
+    except ValueError as e:  # PlanError and SceneError both are
+        return 422, {"error": f"this plan can't be opened in the editor: {e}"}
+    return 200, {"place": held.id, "scene": scene, "converted": converted, "left": left, "base": held.plan_revision}
+
+
 def restore(body: Mapping[str, Any], control: bool, state: Path, now: float | None = None) -> Reply:
     """POST /places/plan/restore {place, record}: make an earlier owner plan hold again (Revert plan), written as the
     newest record (memory/places.py `restore_plan`), so the one it replaces stays in the history and can be put back
@@ -612,6 +645,13 @@ def _get_places_positions(h: H) -> None:
 @routes.get("/places/plan/history")
 def _get_places_plan_history(h: H) -> None:
     code, reply = plan_versions(h.state, h._query().get("place", ""))
+    return h._json(reply, code)
+
+
+@routes.get("/places/plan/scene")
+def _get_places_plan_scene(h: H) -> None:
+    query = h._query()
+    code, reply = plan_as_scene(h.state, query.get("place", ""), query.get("record") or None)
     return h._json(reply, code)
 
 

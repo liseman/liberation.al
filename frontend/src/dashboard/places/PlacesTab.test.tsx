@@ -7,6 +7,7 @@ import { hm } from '../lib/format';
 import type { PlaceSummary, Positions } from './api';
 import { EXAMPLE_PLACES, type Place } from './examples';
 import { drawPlan, lastVisit, linkedFrom, PlacesTab, planSummary } from './PlacesTab';
+import { buildScene } from './scene/build';
 
 const drawing = () => screen.getByRole('img', { name: /^Floor plan/ });
 const rows = () => within(screen.getByRole('navigation', { name: 'Places' })).getAllByRole('button');
@@ -340,7 +341,7 @@ it("switches a real place between its plan and its map in 3D, but not an example
   server.use(http.get('/places/scene', () => HttpResponse.json({ place: 'p1', revision: null })));
   renderPage(<PlacesTab />);
   await screen.findByRole('button', { name: 'Edit plan' });
-  fireEvent.click(screen.getByRole('radio', { name: '3D' }));
+  fireEvent.click(screen.getByRole('radio', { name: '3D map' }));
   expect(await screen.findByText(/No 3D map of this place yet/)).toBeTruthy();
   expect(screen.queryByRole('button', { name: 'Edit plan' })).toBeNull();
   fireEvent.click(screen.getByRole('radio', { name: 'Plan' }));
@@ -353,7 +354,7 @@ it("offers no map in 3D for an example plan, and no editor for one that isn't a 
   renderPage(<PlacesTab />);
   await screen.findAllByRole('img', { name: /^Floor plan/ });
   fireEvent.click(row(/Example cabin/));
-  expect(screen.queryByRole('radio', { name: '3D' })).toBeNull();
+  expect(screen.queryByRole('radio', { name: '3D map' })).toBeNull();
   expect(screen.queryByRole('radio', { name: 'Editor' })).toBeNull();
 });
 
@@ -364,12 +365,83 @@ it('opens the example flat in the new plan editor and in its 3D view, each in a 
   expect(container.querySelector('iframe')).toBeNull(); // nothing of the editor loads until it is asked for
   fireEvent.click(screen.getByRole('radio', { name: 'Editor' }));
   expect(screen.getByTitle('Plan editor').getAttribute('src')).toContain('plan-editor/index.html#view=2d');
-  expect(screen.getByText(/Nothing drawn here is saved yet/)).toBeTruthy();
-  fireEvent.click(screen.getByRole('radio', { name: '3D' }));
+  expect(screen.getByText(/Nothing drawn here is saved/)).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Save plan' })).toBeNull(); // an example has nothing to save to
+  expect(screen.queryByRole('radio', { name: '3D map' })).toBeNull(); // nor a map
+  fireEvent.click(screen.getByRole('radio', { name: '3D plan' }));
   expect(screen.getByTitle('The plan in 3D').getAttribute('src')).toContain('plan-editor/index.html#view=3d');
   fireEvent.click(screen.getByRole('radio', { name: 'Plan' }));
   expect(container.querySelector('iframe')).toBeNull();
   expect(drawing()).toBeTruthy();
+});
+
+/** HOME with its plan stored as a Pascal scene: two rooms, a camera spot, and an owner's plan. */
+const SCENE = buildScene({
+  height: 2.4,
+  walls: [
+    { from: [0, 0], to: [7, 0], thickness: 0.2 },
+    { from: [4, 0], to: [4, 3], thickness: 0.1 },
+  ],
+  openings: [{ kind: 'door', at: [4, 1.5], width: 0.8 }],
+  rooms: [
+    {
+      id: 'kitchen',
+      name: 'Kitchen',
+      outline: [
+        [0, 0],
+        [4, 0],
+        [4, 3],
+        [0, 3],
+      ],
+    },
+    {
+      id: 'den',
+      name: 'Den',
+      outline: [
+        [4, 0],
+        [7, 0],
+        [7, 3],
+        [4, 3],
+      ],
+    },
+  ],
+  extras: { cameras: { porch: { at: [1, 1], yaw: 90 } } },
+});
+const SCENED: PlaceSummary = { ...HOME, plan: JSON.stringify(SCENE), plan_source: 'owner' };
+
+it('draws a plan stored as a scene from the scene, with its rooms, area, and camera key', async () => {
+  serve([SCENED]);
+  renderPage(<PlacesTab />);
+  expect(await screen.findByRole('img', { name: 'Floor plan of Home' })).toBeTruthy();
+  // 4x3 + 3x3 = 21 m², in the list row and over the plan
+  expect(row(/Home/).textContent).toContain('2 rooms · 21.0 m²');
+  expect(screen.getByText(/Your corrected plan · 2 rooms · 21.0 m²/)).toBeTruthy();
+  expect(within(screen.getByRole('list', { name: 'Key' })).getByText('Camera')).toBeTruthy();
+});
+
+it("opens a place's own plan in the new editor, from the view switch and from Edit plan when it is a scene", async () => {
+  serve([SCENED]);
+  server.use(
+    http.get('/places/plan/scene', () =>
+      HttpResponse.json({ place: 'p1', scene: SCENE, converted: false, left: [], base: 'r1' }),
+    ),
+  );
+  renderPage(<PlacesTab />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit plan' }));
+  expect((await screen.findByTitle('Plan editor')).getAttribute('src')).toContain('#view=2d');
+  expect(screen.getByRole('button', { name: 'Save plan' })).toBeTruthy();
+  fireEvent.click(screen.getByRole('radio', { name: '3D plan' }));
+  expect((await screen.findByTitle('The plan in 3D')).getAttribute('src')).toContain('#view=3d');
+  fireEvent.click(screen.getByRole('radio', { name: 'Plan' }));
+  expect(await screen.findByRole('img', { name: 'Floor plan of Home' })).toBeTruthy();
+});
+
+it('offers the new editor for a plan still in the old format, beside its own editor', async () => {
+  serve([HOME]);
+  renderPage(<PlacesTab />);
+  await screen.findByRole('button', { name: 'Edit plan' });
+  const views = within(screen.getByRole('radiogroup', { name: 'Show the place as' })).getAllByRole('radio');
+  expect(views.map(r => (r as HTMLInputElement).value)).toEqual(['plan', 'editor', 'model', 'map']);
 });
 
 it("says when a place was last in use: the owner's visit, or anyone its cameras saw since", () => {
