@@ -1,13 +1,15 @@
-// One card of the naming inbox: the lead picture (or a
-// voice's play button), then the guess ("Maybe Mia 67%") with "Yes, Mia" right beside it, a bar, why, a voice's
-// words, and when it was seen or heard. The name box sits at the card's top right, and the kind's answers in one row
-// of buttons under it, each an icon over a caption and its key ("Not N", a voice's "Multi M", "Ignore I"), with a
-// popover on hover and on keyboard focus that says what it does. With the card focused (not its name box), Y says
-// yes, N says not, I ignores, and each answer's own key runs it; `hotkeys` adds keys with no button (a picture's A
-// for Show all). The arrows move the selection to the card beside, above, or below on screen, and Space runs the
-// kind's own Space answer (a voice's play, a picture's Show all). A card that leaves the list (Yes, a name,
-// Ignore) first moves focus to the next one, without scrolling. Anything below the card (every picture, to
-// pick the wrong ones out) is its children.
+// One card of the naming inbox: the lead picture (or a voice's play button), then the guess ("Maybe Mia 67%"), a
+// bar, why, a voice's words, and when it was seen or heard, and at the card's top right its answers.
+//
+// A card of pictures (a face group, a pet's sightings) has exactly two buttons, its `choices`: "<Name>" and
+// "Not <Name>" when it has a guess, else "Ignore" and "Block" under the name box. One with several pictures is
+// `foldable`: it shows no buttons until it is the selected card (a click, or focus coming to it), which expands it
+// to every picture (its children). A voice's card keeps its own answers: "Yes, <name>" beside the guess, the name
+// box, and one row of buttons under it, each an icon over a caption and its key ("Not N", "Multi M", "Ignore I").
+// Every button says what it does in a popover on hover and on keyboard focus. With the card focused (not its name
+// box), each button's own key runs it (Y and N, or I and B, for a card of pictures); `hotkeys` adds keys with no
+// button. The arrows move the selection to the card beside, above, or below on screen, and Space runs the kind's own
+// Space answer (a voice's play). A card that leaves the list first moves focus to the next one, without scrolling.
 import { Button, Kbd, Progress, Text, Tooltip, UnstyledButton } from '@mantine/core';
 import { IconUserMinus, IconX } from '@tabler/icons-react';
 import type { KeyboardEvent, MouseEvent, ReactNode } from 'react';
@@ -43,6 +45,46 @@ export interface CardAnswer {
   icon: ReactNode;
   shortcut: string; // its one key, run on the focused card
   onClick: () => void;
+}
+
+/** One of a picture card's two buttons: its exact words ("Mia", "Not Mia", "Ignore", "Block"). */
+export interface CardChoice {
+  label: string; // the button's words, and its accessible name
+  hint: string; // what it does, in its popover
+  shortcut: string; // its one key, run on the focused card
+  onClick: () => void;
+  leaves?: boolean; // the card leaves the list with it: focus moves to the next card first
+}
+
+/** One of the two buttons, with its key cap and a popover saying what it does. */
+function ChoiceButton({ choice, disabled }: { choice: CardChoice; disabled: boolean }) {
+  const key = choice.shortcut.toUpperCase();
+  return (
+    <Tooltip
+      label={`${choice.label} (${key}): ${choice.hint}`}
+      multiline
+      w={260}
+      withArrow
+      openDelay={150}
+      events={{ hover: true, focus: true, touch: false }}
+    >
+      <Button
+        className={classes.choice}
+        size="compact-sm"
+        variant="default"
+        disabled={disabled}
+        aria-keyshortcuts={key}
+        rightSection={
+          <Kbd className={classes.kbd} aria-hidden>
+            {key}
+          </Kbd>
+        }
+        onClick={choice.onClick}
+      >
+        {choice.label}
+      </Button>
+    </Tooltip>
+  );
 }
 
 const ARROWS: Record<string, Direction> = {
@@ -94,7 +136,9 @@ export function NamingRow({
   done,
   picker,
   answers = [],
-  pictureAnswers = [],
+  choices,
+  choicesDisabled = false,
+  foldable = false,
   hotkeys = {},
   onYes,
   onNot,
@@ -119,27 +163,31 @@ export function NamingRow({
   hidden?: boolean; // held while its answer saves: out of sight, still in the list
   kind?: string; // `data-kind`, for a list of several kinds
   answers?: CardAnswer[]; // the kind's own answers, after Not and before Ignore (a voice's Multi, Noise, and TV)
-  pictureAnswers?: CardAnswer[]; // the lead picture's own answers, after Ignore
-  hotkeys?: Record<string, () => void>; // keys with no button of their own (a picture's A, Show all)
+  // A card of pictures: its two buttons, in place of Yes, Not, Ignore, and `answers`.
+  choices?: CardChoice[];
+  choicesDisabled?: boolean; // no picture is selected: there's nothing for the buttons to act on
+  foldable?: boolean; // several pictures: no buttons, name box, or children until it is the selected card
+  hotkeys?: Record<string, () => void>; // keys with no button of their own
   quote?: ReactNode; // what a voice said, under its guess (its play button is the picture)
   meta: ReactNode; // when and where it was seen, and any links under the picture
   guess: InboxGuess | null;
   reason?: ReactNode;
-  picker: ReactNode;
+  picker?: ReactNode; // the name box; a card of pictures with a guess has none
   onYes?: (guess: InboxGuess) => void;
   onNot?: (guess: InboxGuess) => void;
   notHint?: (name: string) => string; // what Not <name> does, in its popover
-  onIgnore: () => void;
-  ignoreHint: string; // what Ignore does, in its popover
-  onSpace?: () => void; // Space on the focused card: a voice plays or stops its clip, a picture shows them all
-  children?: ReactNode;
+  onIgnore?: () => void;
+  ignoreHint?: string; // what Ignore does, in its popover
+  onSpace?: () => void; // Space on the focused card: a voice plays or stops its clip
+  children?: ReactNode | ((expanded: boolean) => ReactNode); // below the card: every picture, to choose from
 }) {
   const leaving = useLeaving();
   const { cursor, select } = useCursor();
   const guessed = guess && guess.band !== 'none' ? guess : null;
   const text = said ?? guessWords(guessed);
+  const expanded = !foldable || cursor === rowKey;
   const yes =
-    guessed && onYes
+    !choices && guessed && onYes
       ? () => {
           leaving(rowKey);
           onYes(guessed);
@@ -148,35 +196,50 @@ export function NamingRow({
   const not = guessed && onNot ? () => onNot(guessed) : undefined;
   const ignore = () => {
     leaving(rowKey);
-    onIgnore();
+    onIgnore?.();
   };
-  const buttons: CardAnswer[] = [
-    ...(not && guessed
-      ? [
-          {
-            label: `Not ${guessed.name}`,
-            caption: 'Not',
-            hint: notHint?.(guessed.name) ?? `This isn't ${guessed.name}.`,
-            icon: <IconUserMinus size={16} aria-hidden />,
-            shortcut: 'N',
-            onClick: not,
-          },
-        ]
-      : []),
-    ...answers,
-    {
-      label: 'Ignore',
-      caption: 'Ignore',
-      hint: ignoreHint,
-      icon: <IconX size={16} aria-hidden />,
-      shortcut: 'I',
-      onClick: ignore,
+  const chosen = (choices ?? []).map(c => ({
+    ...c,
+    onClick: () => {
+      if (choicesDisabled) return;
+      if (c.leaves) leaving(rowKey);
+      c.onClick();
     },
-    ...pictureAnswers,
-  ];
+  }));
+  const buttons: CardAnswer[] = choices
+    ? []
+    : [
+        ...(not && guessed
+          ? [
+              {
+                label: `Not ${guessed.name}`,
+                caption: 'Not',
+                hint: notHint?.(guessed.name) ?? `This isn't ${guessed.name}.`,
+                icon: <IconUserMinus size={16} aria-hidden />,
+                shortcut: 'N',
+                onClick: not,
+              },
+            ]
+          : []),
+        ...answers,
+        ...(onIgnore
+          ? [
+              {
+                label: 'Ignore',
+                caption: 'Ignore',
+                hint: ignoreHint ?? '',
+                icon: <IconX size={16} aria-hidden />,
+                shortcut: 'I',
+                onClick: ignore,
+              },
+            ]
+          : []),
+      ];
   const shortcuts = new Map<string, () => void>(Object.entries(hotkeys).map(([k, run]) => [k.toLowerCase(), run]));
   if (yes) shortcuts.set('y', yes);
   for (const b of buttons) shortcuts.set(b.shortcut.toLowerCase(), b.onClick);
+  // A folded card has no buttons on screen, so their keys do nothing until it is selected (focus selects it).
+  if (expanded) for (const c of chosen) shortcuts.set(c.shortcut.toLowerCase(), c.onClick);
   const keys = (e: KeyboardEvent<HTMLLIElement>) => {
     if (e.altKey || e.ctrlKey || e.metaKey || e.nativeEvent.isComposing) return;
     const target = e.target as HTMLElement;
@@ -224,6 +287,7 @@ export function NamingRow({
       data-row={rowKey}
       data-kind={kind}
       data-media={!lead && media ? '' : undefined}
+      data-folded={foldable && !expanded ? '' : undefined}
       tabIndex={-1}
       aria-label={`${label}: ${text}`}
       aria-keyshortcuts={`ArrowUp ArrowDown ArrowLeft ArrowRight${onSpace ? ' Space' : ''}`}
@@ -303,17 +367,27 @@ export function NamingRow({
                 </Text>
               )}
             </div>
-            <div className={classes.side}>
-              <div className={classes.name}>{picker}</div>
-              <div className={classes.answers}>
-                {buttons.map(b => (
-                  <AnswerButton key={`${b.shortcut}-${b.label}`} answer={b} disabled={busy} />
-                ))}
+            {expanded && (
+              <div className={classes.side}>
+                {picker && <div className={classes.name}>{picker}</div>}
+                {choices ? (
+                  <div className={classes.choices}>
+                    {chosen.map(c => (
+                      <ChoiceButton key={c.shortcut} choice={c} disabled={busy || choicesDisabled} />
+                    ))}
+                  </div>
+                ) : (
+                  <div className={classes.answers}>
+                    {buttons.map(b => (
+                      <AnswerButton key={`${b.shortcut}-${b.label}`} answer={b} disabled={busy} />
+                    ))}
+                  </div>
+                )}
               </div>
-            </div>
+            )}
           </>
         )}
-        {children}
+        {typeof children === 'function' ? children(expanded && !done) : children}
       </div>
     </li>
   );

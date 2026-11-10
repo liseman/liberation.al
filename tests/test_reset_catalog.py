@@ -134,6 +134,7 @@ def derived_state(state: Path) -> None:
         "continuum/vector/index",
         "segments/x.arrows",
         "places/p/r.map",
+        "surroundings/index.json",
         "cache/device_tallies.json",
     ):
         (state / path).parent.mkdir(parents=True, exist_ok=True)
@@ -156,6 +157,7 @@ def test_a_reset_deletes_the_derived_state_and_restarts_what_ran(house):
         "continuum/vector",
         "segments",
         "places",
+        "surroundings",
         "see-zones.json",
         "identity.speech.cursor",
         "cache",
@@ -268,6 +270,7 @@ def test_keep_places_keeps_the_places_and_resets_the_rest(house):
     assert plan.state / "places" not in reset_catalog.deleted(plan)
     reset_catalog.run(plan, host, say=lambda line: None, socket_wait_s=10)
     assert (plan.state / "places/p/r.map").read_bytes() == b"old"
+    assert (plan.state / "surroundings/index.json").exists()  # the frames those maps were learned from stay with them
     assert not (plan.state / "segments").exists() and not (plan.state / "continuum/tier").exists()
 
 

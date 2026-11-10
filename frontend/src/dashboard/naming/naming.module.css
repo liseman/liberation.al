@@ -79,6 +79,15 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+/* A card of pictures has two buttons, side by side, sharing the name box's width. */
+.choices {
+  display: flex;
+  gap: 6px;
+}
+.choice {
+  flex: 1 1 0;
+  min-width: max-content;
+}
 .icon {
   display: flex;
 }
@@ -134,7 +143,7 @@
 :global(.who-wide) .card > :not(.pic, .info, .side) {
   grid-column: 1 / -1; /* every picture (Show all) spans the card */
 }
-/* A card showing every picture takes the whole width of the list, so the pictures have room to pick from. */
+/* A card showing every picture takes the whole width of the list, so the pictures have room to choose from. */
 :global(.who-wide) .row:has(> .card > :not(.pic, .info, .side)) {
   grid-column: 1 / -1;
 }
@@ -192,6 +201,10 @@
   :global(.who-wide .who-group).row {
     padding: 12px;
   }
+}
+/* A folded card (several pictures, not selected) is one thing to click: selecting it opens it. */
+.row[data-folded] {
+  cursor: pointer;
 }
 .row:focus-visible {
   outline: 2px solid var(--mantine-primary-color-filled);

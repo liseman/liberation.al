@@ -30,6 +30,7 @@ GET /faces/shot/...
 GET /faces/unknown/(\d{1,9})/sightings
 GET /faces/unknown/<group>.jpg
 GET /faces/unknown/groups
+GET /faces/unknown/hidden
 GET /health
 GET /history/at
 GET /identity/why
@@ -57,6 +58,7 @@ GET /pets
 GET /pets/examples
 GET /pets/examples/photo
 GET /pets/sightings
+GET /pets/sightings/hidden
 GET /pets/sightings/photo
 GET /places
 GET /places/map
@@ -117,7 +119,10 @@ POST /devices/mic
 POST /devices/privacy
 POST /devices/sensitivity
 POST /faces/not
+POST /faces/unknown/hide
 POST /faces/unknown/reject
+POST /faces/unknown/restore
+POST /faces/unknown/split
 POST /frontend/log
 POST /inbox/skip
 POST /ingest/api/...
@@ -149,6 +154,7 @@ POST /pets/examples/remove
 POST /pets/photo
 POST /pets/remove
 POST /pets/save
+POST /pets/sightings/block
 POST /pets/sightings/label
 POST /pets/sightings/not
 POST /places/plan

@@ -1,0 +1,40 @@
+/* "Show ignored and blocked" under a naming inbox (HiddenItems): the switch, then small tiles, each with its
+   pictures, what it is, and the button that brings it back. */
+.hidden {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 16px;
+}
+.list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+}
+.item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-sm);
+  min-width: 0;
+}
+.pictures {
+  display: flex;
+  gap: 4px;
+  min-height: 56px;
+}
+.picture {
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: var(--mantine-radius-sm);
+  background: var(--lib-bg2);
+}
+.label {
+  overflow-wrap: anywhere;
+}

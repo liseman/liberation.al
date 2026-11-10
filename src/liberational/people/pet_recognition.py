@@ -117,6 +117,11 @@ from liberational.people.pets import offered
 # track's photo was a median 0.85 to 0.90 alike to its own live sightings), so check them again against live
 # sightings once the owner has labeled some. Another model needs its own: DINOv3 ViT-S/16 sat about 0.10 higher
 # (0.65, 0.75, and 0.70).
+# - BLOCK_SIM: "Block" on Sightings to name hides every waiting sighting at least this like a blocked one. It sits
+#   0.10 above GROUP_SIM, the bar at which grouping put no sighting in another pet's group, and 0.20 above MATCH_SIM:
+#   at 0.65 no recognition answer was wrong, and another animal's nearest photo was at most 0.54 alike, so 0.75 hides
+#   the same thing seen again (a toy, a picture on the wall, the same animal in the same pose) and leaves a look-alike
+#   waiting. A block hides only what waits for a name: a named pet is still recognized.
 GROUP_SIM = 0.65  # a sighting joins a group whose centroid is at least this similar
 MATCH_SIM = 0.55  # recognition's nearest labeled sighting must be at least this similar
 MARGIN = 0.05  # and beat the nearest of any other class by this much
@@ -133,6 +138,9 @@ SEEN_MAX = 12  # a named pet's newest sightings the dashboard shows
 EVIDENCE_LOCK = Path("continuum/pet-evidence")
 LABELS = "pet.sighting"  # owner labels, in the knowledge store
 NOTS = "pet.not"  # the owner's "this sighting is not that pet", in the knowledge store
+BLOCKS = "pet.block"  # the owner's blocked sightings, each with its embedding, in the knowledge store
+BLOCK_SIM = 0.75  # a waiting sighting at least this like a blocked one is not listed
+HIDDEN_MAX = 200  # the most ignored and the most blocked sightings one listing gives, newest first
 REFERENCES = "pet.reference"  # labeled tracks' embeddings from before the reset
 PHOTOS = "pet.photo"  # labeled tracks' saved photos, so a reference can be embedded again by another model
 GALLERY_TTL_S = 300.0  # the longest a cached reference gallery is used before it's read again
@@ -446,6 +454,107 @@ def nots(state: Any) -> dict[str, set[str]]:
     return latest_nots({**r.value, "ts_start": r.start_ns / 1e9} for r in _query(state, NOTS))
 
 
+def blocks(state: Any) -> dict[str, dict[str, Any]]:
+    """Every blocked sighting's newest active `pet.block` row in the current embedding space, by track id, with its
+    vector as an array and `ts`, when it was blocked. A row of another space doesn't compare, so it blocks nothing."""
+    space = embedding_model()
+    newest: dict[str, dict[str, Any]] = {}
+    for r in sorted(_query(state, BLOCKS), key=lambda r: r.start_ns):
+        if isinstance(r.value.get("track_id"), str) and r.value.get("source") == "owner":
+            newest[r.value["track_id"]] = {**r.value, "ts": r.start_ns / 1e9}
+    out = {}
+    for tid, row in newest.items():
+        if row.get("active") is True and row.get("model") == space and isinstance(row.get("vector"), list):
+            out[tid] = {**row, "vector": np.asarray(row["vector"], dtype=np.float32)}
+    return out
+
+
+def blocked(found: Sequence[Sighting], rows: Mapping[str, Mapping[str, Any]]) -> set[str]:
+    """The tracks among `found` at least BLOCK_SIM like a blocked sighting of their species (`rows`, from
+    `blocks`), in one product per species."""
+    out: set[str] = set()
+    for species in {str(r.get("species")) for r in rows.values()}:
+        mine = [s for s in found if s.species == species]
+        walls = [r["vector"] for r in rows.values() if r.get("species") == species]
+        walls = [w for w in walls if mine and w.shape == mine[0].mean.shape]
+        if not mine or not walls:
+            continue
+        nearest = (_means(mine) @ np.stack(walls).T).max(axis=1)
+        out |= {s.track_id for s, sim in zip(mine, nearest, strict=True) if sim >= BLOCK_SIM}
+    return out
+
+
+def block(
+    state: Any,
+    track_ids: Sequence[str],
+    pets: Sequence[Mapping[str, Any]],
+    active: bool = True,
+    now: float | None = None,
+) -> int:
+    """Block these sightings: each one's embedding is kept, and a waiting sighting at least BLOCK_SIM like it is no
+    longer listed for a name (`blocked`). With `active` False, take the block back, which needs no recording of
+    the sighting. Returns how many were written."""
+    now = time.time() if now is None else now
+    if not isinstance(track_ids, list) or not track_ids or len(track_ids) > 500:
+        raise ValueError("send 1 to 500 sighting ids")
+    if not all(isinstance(t, str) and t for t in track_ids):
+        raise ValueError("a sighting id is text")
+    found: dict[str, Sighting] = {}
+    if active:
+        active_labels = labels(state)
+        found = {s.track_id: s for s in _recorded(state, now, active_labels, set(track_ids))}  # before the lock
+        _teach(list(found.values()), active_labels, pets)  # the species the listing shows, so a block matches it
+        missing = [t for t in track_ids if t not in found]
+        if missing:
+            raise LookupError(f"{len(missing)} sightings are no longer recorded")
+    with evidence_lock(state):
+        records = []
+        for k, tid in enumerate(track_ids):
+            at = int((now + k * 1e-6) * 1e9)  # newest wins
+            body: dict[str, Any] = {"track_id": tid, "active": active, "source": "owner"}
+            if active:
+                s = found[tid]
+                body.update(
+                    species=s.species,
+                    cam=s.cam,
+                    sighting_start=s.start,
+                    sighting_end=s.end,
+                    vector=[float(v) for v in s.mean],
+                    model=embedding_model(),
+                )
+            records.append(knowledge.Record(str(uuid.uuid7()), BLOCKS, tid, at, at, at, body))
+        _store(state).put(records)
+        return len(track_ids)
+
+
+def hidden(state: Any) -> dict[str, Any]:
+    """What the owner hid from Sightings to name, newest first, for the list that brings them back: the sightings
+    ignored one by one (the IGNORED label) and the blocked ones (`blocks`), at most HIDDEN_MAX of each, with how many
+    there are in all."""
+
+    def item(tid: str, row: Mapping[str, Any], at: float) -> dict[str, Any]:
+        return {
+            "track_id": tid,
+            "species": str(row.get("species") or ""),
+            "cam": str(row.get("cam") or ""),
+            "start": _finite(row.get("sighting_start")),
+            "end": _finite(row.get("sighting_end")),
+            "at": at,
+        }
+
+    ignored = [item(t, r, float(r["ts_start"])) for t, r in labels(state).items() if r.get("label") == IGNORED]
+    walls = [item(t, r, float(r["ts"])) for t, r in blocks(state).items()]
+    ignored.sort(key=lambda r: -r["at"])
+    walls.sort(key=lambda r: -r["at"])
+    return {
+        "ignored": ignored[:HIDDEN_MAX],
+        "ignored_count": len(ignored),
+        "blocked": walls[:HIDDEN_MAX],
+        "blocked_count": len(walls),
+        "block_similarity": BLOCK_SIM,
+    }
+
+
 def label_days() -> float:
     """How many days unlabeled sightings are listed for labeling; owner-labeled references have no time cutoff."""
     value = config.get("pets.label_days")
@@ -690,7 +799,7 @@ def view(state: Any, pets: Sequence[Mapping[str, Any]], now: float | None = None
     sighting leaves the groups and serves as recognition's reference.
 
     Without `now` (the dashboard's poll) the last answer is given again while nothing it was made from has changed:
-    the owner's labels, references, and "not" marks (the knowledge store's generation), the segment store's
+    the owner's labels, references, "not" marks, and blocks (the knowledge store's generation), the segment store's
     embedding files (`_files`), the pets, `pets.label_days`, and the embedding space. Only the time moves under it,
     which takes a sighting off the list `pets.label_days` after it was seen, so an answer is used for at most
     VIEW_TTL_S. With `now` it is always worked out. The answer is shared: callers must not change it."""
@@ -698,7 +807,7 @@ def view(state: Any, pets: Sequence[Mapping[str, Any]], now: float | None = None
         return _view(state, pets, now)
     base = segment_log.root(state)
     key = (
-        _generation(state, (LABELS, REFERENCES, NOTS)),
+        _generation(state, (LABELS, REFERENCES, NOTS, BLOCKS)),
         _files(base),
         json.dumps(pets, sort_keys=True, default=str),
         label_days(),
@@ -755,7 +864,9 @@ def _view(state: Any, pets: Sequence[Mapping[str, Any]], now: float) -> dict[str
         rows.sort(key=lambda r: -r["end"])
         del rows[SEEN_MAX:]
     listed = []
-    for members in groups([s for s in found if s.track_id not in named and s.track_id not in ignored]):
+    waiting = [s for s in found if s.track_id not in named and s.track_id not in ignored]
+    walled = blocked(waiting, blocks(state))  # like something the owner blocked: not asked about
+    for members in groups([s for s in waiting if s.track_id not in walled]):
         rows = [items[s.track_id] for s in members]
         listed.append(
             {

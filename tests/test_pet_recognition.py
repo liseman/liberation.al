@@ -345,6 +345,88 @@ def listed_now(state, now):
     return {s["track_id"] for g in R.view(state, PETS, now=now)["groups"] for s in g["sightings"]}
 
 
+def test_a_blocked_sighting_and_the_ones_like_it_leave_the_list_until_it_is_unblocked(log):
+    now = T + 30000
+    assert {"m0", "m-new", "p0"} <= listed_now(log.state, now)
+    assert R.block(log.state, ["m0"], PETS, now=now) == 1
+    after = listed_now(log.state, now + 1)
+    assert not after & {"m0", "m1", "m2", "m3", "m-new"}  # the same animal, about 0.90 alike
+    assert {"p0", "p-new", "dog"} <= after  # another cat and a dog: nothing like it
+    R.block(log.state, ["m0"], PETS, active=False, now=now + 2)
+    assert "m-new" in listed_now(log.state, now + 3)
+
+
+def test_a_block_hides_only_what_waits_for_a_name(log):
+    now = T + 30000
+    R.label(log.state, [f"m{k}" for k in range(4)], MIA, PETS, now=now)
+    R.label(log.state, [f"p{k}" for k in range(4)], POPPY, PETS, now=now + 1)
+    R.block(log.state, ["m-new"], PETS, now=now + 2)
+    seen = R.view(log.state, PETS, now=now + 3)["seen"]
+    assert "m-new" in {r["track_id"] for r in seen[MIA]}  # a named pet is still recognized
+
+
+@pytest.mark.parametrize(
+    ("alike", "hidden"),
+    [
+        pytest.param(0.90, True, id="the-same-animal"),
+        pytest.param(0.76, True, id="just-over"),
+        pytest.param(0.74, False, id="just-under"),
+        pytest.param(0.66, False, id="alike-enough-to-group-but-not-to-block"),
+    ],
+)
+def test_a_sighting_is_blocked_only_at_high_confidence(alike, hidden):
+    wall = np.zeros(DIM, np.float32)
+    wall[0] = 1.0
+    v = np.zeros(DIM)
+    v[[0, 50]] = alike, np.sqrt(1 - alike**2)
+    (s,) = R.sightings([{**row("t", 0, 1, T), "vector": v.tolist()}])
+    walls = {"w": {"species": "cat", "vector": wall}}
+    assert R.blocked([s], walls) == ({"t"} if hidden else set())
+    assert R.blocked([s], {"w": {"species": "dog", "vector": wall}}) == set()  # another species' block
+
+
+def test_the_block_threshold_sits_above_grouping_and_recognition():
+    assert R.BLOCK_SIM > R.GROUP_SIM > R.MATCH_SIM
+
+
+def test_ignored_and_blocked_sightings_are_listed_newest_first_for_taking_back(log):
+    now = T + 30000
+    R.label(log.state, ["p0"], R.IGNORED, PETS, now=now)
+    R.label(log.state, ["p1"], R.IGNORED, PETS, now=now + 1)
+    R.block(log.state, ["m0"], PETS, now=now + 2)
+    hidden = R.hidden(log.state)
+    assert [r["track_id"] for r in hidden["ignored"]] == ["p1", "p0"]
+    assert [(r["track_id"], r["species"], r["cam"]) for r in hidden["blocked"]] == [("m0", "cat", "cam0")]
+    assert (hidden["ignored_count"], hidden["blocked_count"], hidden["block_similarity"]) == (2, 1, R.BLOCK_SIM)
+    R.label(log.state, ["p0"], None, PETS, now=now + 3)  # un-ignore
+    R.block(log.state, ["m0"], PETS, active=False, now=now + 4)  # unblock
+    hidden = R.hidden(log.state)
+    assert [r["track_id"] for r in hidden["ignored"]] == ["p1"] and hidden["blocked"] == []
+
+
+def test_a_block_is_taught_state_in_the_knowledge_store(log):
+    from liberational import knowledge_cli
+
+    R.block(log.state, ["m0"], PETS, now=T + 30000)
+    (record,) = [r.record for r in knowledge.Store(log.state / "knowledge.sqlite3").query(R.BLOCKS)]
+    assert record.key == "m0" and record.value["model"] == R.embedding_model()
+    assert R.BLOCKS in knowledge_cli._DOCUMENTS
+
+
+@pytest.mark.parametrize(
+    ("tracks", "error"),
+    [
+        pytest.param([], ValueError, id="none"),
+        pytest.param(["gone"], LookupError, id="not-recorded"),
+        pytest.param([7], ValueError, id="not-an-id"),
+    ],
+)
+def test_a_block_that_cannot_be_made_writes_nothing(log, tracks, error):
+    with pytest.raises(error):
+        R.block(log.state, tracks, PETS, now=T + 30000)
+    assert R.blocks(log.state) == {}
+
+
 def test_the_species_offered_are_the_household_ones_and_any_a_pet_already_is():
     from liberational.people import pets
 

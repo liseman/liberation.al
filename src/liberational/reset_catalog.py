@@ -151,6 +151,8 @@ def targets(plan: Plan) -> list[Path]:
         continuum / "decoded",  # where the shared decode kept its frame ring before it moved to paths.decoded
         plan.state / "segments",  # the segment store
         *([] if plan.keep_places else [plan.state / "places"]),  # place revisions, maps, plans, and splats
+        # the frames kept for learning surroundings (spatial/surroundings_frames.py), which the places' maps are made of
+        *([] if plan.keep_places else [plan.state / "surroundings"]),
         plan.state / "identity.speech.cursor",  # identity's place in the speech stream
         plan.state / "see-zones.json",  # the zones worker's checkpoint of its input positions
         plan.state / "cache",  # caches of what the segment store held, such as the device tallies
