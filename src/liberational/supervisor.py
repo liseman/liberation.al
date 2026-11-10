@@ -208,6 +208,11 @@ class Supervisor:
     def __post_init__(self) -> None:
         self.started_at = self.now()
         self.workers = {name: Worker(name, svc) for name, svc in self.spec.items()}
+        if self.directory is not None:
+            # A supervisor that was killed left no exits: its history is unknown from its last event to here.
+            self.directory.mkdir(parents=True, exist_ok=True)
+            with (self.directory / "events.jsonl").open("a") as out:
+                out.write(json.dumps({"ts": self.started_at, "name": "", "event": "open"}) + "\n")
 
     # ---- one service
 
@@ -243,7 +248,8 @@ class Supervisor:
         if code is None:
             return
         pid, worker.proc = worker.proc.pid, None
-        self._event(worker, "exit", pid=pid, code=code)
+        # wanted: the supervisor still meant it to run, so this exit is a crash, not a stop (services.history)
+        self._event(worker, "exit", pid=pid, code=code, wanted=worker.wanted)
         if worker.scheduled:
             worker.last_exit = code
             LOG.log(logs.INFO if code == 0 else logs.WARN, f"{worker.name}: job ended ({code})")
@@ -718,3 +724,77 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+def _span(spans: list[dict[str, Any]], a: float, b: float, state: str) -> None:
+    """Add [a, b) in `state` to a service's spans, joined to the one before when it continues it."""
+    if b <= a:
+        return
+    if spans and spans[-1]["end"] == a and spans[-1]["state"] == state:
+        spans[-1]["end"] = b
+    else:
+        spans.append({"start": a, "end": b, "state": state})
+
+
+def history(directory: Path, names: Sequence[str], start: float, end: float) -> dict[str, Any]:
+    """Each service's runs between two times, from events.jsonl, in the shape services.history gives (HistoryView): up
+    from a start to its exit, stopped from an exit to the next start, and unknown before the first event and from a
+    supervisor's last word to the next one's opening (it was killed, or the machine went down). An exit the
+    supervisor didn't ask for is a crash."""
+    per: dict[str, list[dict[str, Any]]] = {name: [] for name in names}
+    opens: list[float] = []
+    try:
+        lines = (directory / "events.jsonl").read_text().splitlines()
+    except OSError:
+        lines = []
+    for line in lines:
+        with contextlib.suppress(ValueError, KeyError, TypeError):
+            event = json.loads(line)
+            if event["event"] == "open":
+                opens.append(float(event["ts"]))
+            elif event["name"] in per:
+                per[event["name"]].append(event)
+    services_out = []
+    for name in sorted(names):
+        spans: list[dict[str, Any]] = []
+        events: list[dict[str, Any]] = []
+        state, at, crashed = "unknown", start, False
+
+        def span(until: float, state_now: str, since: float, spans: list[dict[str, Any]] = spans) -> None:
+            _span(spans, max(since, start), min(until, end), state_now)
+
+        marks = sorted(
+            [(float(e["ts"]), 1, e) for e in per[name]] + [(ts, 0, {"event": "open"}) for ts in opens],
+            key=lambda m: (m[0], m[1]),
+        )
+        for ts, _, event in marks:
+            if event["event"] == "open":
+                if state == "up":  # the last supervisor never said it exited
+                    span(ts, "unknown", at)
+                    state, at = "unknown", ts
+                continue
+            span(ts, state, at)
+            at = ts
+            if event["event"] == "start":
+                kind = "restart" if crashed else "started"
+                state, crashed = "up", False
+                reason = None
+            else:
+                crashed = bool(event.get("wanted"))
+                kind = "crashed" if crashed else "stopped"
+                reason = f"exit {event.get('code')}" if crashed else None
+                state = "stopped"
+            if start <= ts <= end:
+                events.append({"at": ts, "kind": kind, "reason": reason})
+        span(end, state, at)
+        services_out.append({"name": name, "spans": spans, "events": events})
+    return {
+        "start": start,
+        "end": end,
+        "source": "journal",
+        "available": True,
+        "sample_s": None,
+        "truncated": False,
+        "note": "From the application's own record of each start and exit.",
+        "services": services_out,
+    }
