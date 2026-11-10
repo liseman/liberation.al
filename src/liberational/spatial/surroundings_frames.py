@@ -34,8 +34,8 @@ from __future__ import annotations
 
 import time
 import uuid
-from collections.abc import Mapping, Sequence
-from dataclasses import asdict, dataclass, field, replace
+from collections.abc import Sequence
+from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from typing import Any, Literal, Protocol
 
@@ -119,8 +119,8 @@ class Decision:
 
 @dataclass(frozen=True)
 class Kept:
-    """A kept frame: which camera took it, when (Unix seconds), how sharp it was, why it was kept, and anything a
-    later step notes on it (`notes`: the map step's pose and whether the map has it yet)."""
+    """A kept frame: which camera took it, when (Unix seconds), how sharp it was, why it was kept, and its size.
+    What the map step makes of it (its place and pose) is that step's to keep (spatial/surroundings_map.py)."""
 
     id: str
     camera: str
@@ -129,7 +129,9 @@ class Kept:
     reason: str
     width: int
     height: int
-    notes: Mapping[str, Any] = field(default_factory=dict)
+
+
+_FIELDS = tuple(f.name for f in fields(Kept))
 
 
 def decide(descriptor: np.ndarray, sharp: float, kept: Sequence[Kept], descriptors: np.ndarray) -> Decision:
@@ -169,7 +171,7 @@ class Store:
         self._rows: list[np.ndarray] = []
         for row in json_state.read(folder / "index.json", []) or []:
             try:
-                frame = Kept(**row)
+                frame = Kept(**{k: row[k] for k in _FIELDS})  # a field of an earlier version is passed by
                 descriptor = np.load(folder / f"{frame.id}.npy")
             except TypeError, OSError, ValueError:
                 continue  # a row from another version, or a frame whose files are gone: not kept
@@ -211,14 +213,6 @@ class Store:
         self._save()
         self._unlink(gone)
         return decision, frame
-
-    def note(self, frame_id: str, **notes: Any) -> None:
-        """Add to a kept frame's notes (the map step's pose, say); an id no longer kept is ignored."""
-        for i, frame in enumerate(self.kept):
-            if frame.id == frame_id:
-                self.kept[i] = replace(frame, notes={**frame.notes, **notes})
-                self._save()
-                return
 
     def remove(self, frame_id: str) -> None:
         """Drop a kept frame (one the map step couldn't place, or found the map already draws)."""
