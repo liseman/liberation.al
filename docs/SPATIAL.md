@@ -1,245 +1,149 @@
 # Spatial memory
 
-How the pack keeps a map and floorplan of each indoor place and puts people on it. Paths are relative to
-`src/liberational/`. Everything here is optional, and the model runtimes need CUDA.
+Why the pack keeps a map and a plan of each indoor place, how the cameras learn the map, and how a person a camera
+sees ends up as a point on the plan. Paths are relative to `src/liberational/`. Everything here is optional, and the
+model runtimes need CUDA. To do it on your own install, follow [Places](PLACES.md).
 
-Spatial memory is being built again from what the cameras see. Phone walks, the nightly fixed-camera registration,
-and the fusion of their maps are gone, and no job writes a place's map at present. What stays is what the new job
-builds on: the place store, the owner's plans, the splat trainer, the model runtimes, and the position layer.
+A camera sees a person as pixels. Saying which room they are in takes two things: where the floor is under that
+pixel, and where that floor is on a plan. So each place has a map the cameras refine as they see it, a plan, and a
+pose for every camera that places people. The owner can supply the plan and each camera's spot on it, and whatever
+the owner supplies outranks what the machine works out.
 
 ## What a place is
 
-A place is a chain of revisions under `state/places/<place>/` (`memory/places.py`). Each revision is written once:
+A place is an indoor place, such as a home. The machine's view of it is a chain of revisions under
+`state/places/<place>/` (`memory/places.py`). A revision is written once and never edited:
 
 | File | Contents |
 |---|---|
 | `<revision>.json` | Producer, source visits, identifying signals, the floor plane, the map-to-plan transform, and each registered fixed camera's pose |
 | `<revision>.map` | The point cloud (binary PLY) |
-| `<revision>.plan` | The floorplan DSL |
-| `<revision>.gs.ply`, `<revision>.sog` | An optional Gaussian splat and its copy for the 3D view |
-| `splat.note` | Why the newest splat pass made no splat for the revision it tried (too few lit daytime frames, no cameras to take frames from, no trainer, or a failed run), for the 3D view to say |
+| `<revision>.plan` | A machine-made plan, in the floorplan DSL |
+| `<revision>.gs.ply`, `<revision>.sog` | A Gaussian splat of the map and its copy for the 3D view |
 
-The newest two maps and splats are kept; plans and revision records stay. All of it is machine-made and a reset
-deletes it: `pack-reset-places` (`spatial/reset.py`) deletes every place's maps, splats, camera registrations, and
-stored positions, and keeps a place whose owner plan holds, with that plan and no map. Without `--yes` it lists what
-would go and what would stay. The owner's place names and plan corrections (`place.named`, `place.plan`) live in the knowledge store
-and supersede the machine's view without changing it.
+A revision that changes only the floor, the cameras, or the transform points at the earlier map. The newest two maps
+and splats are kept; plans and revision records stay.
 
-## Jobs
-
-`pack-positions` runs every hour (the `positions` service) and by hand. `pack-spatial-splat` runs by hand:
-
-| Job | Does |
-|---|---|
-| `pack-spatial-splat [--place ID]` (`spatial/splats.py`) | Trains one Gaussian splat per revision that registers fixed cameras, from a day of their recorded frames, with gsplat and a Depth Anything 3 depth prior. `train_views` trains one from many posed views of a moving camera |
-| `pack-positions` (`spatial/positions.py`) | Works out the tilt of each camera with a spot on its place's plan (`spatial/spots.py`), gives each learned map its floor and fixed cameras (`spatial/surroundings_positions.py`), records the fixed cameras' raw footprints (`spatial/footprints.py`), and runs the placer, which places people's and pets' foot points on the plan. `--dry-run` prints what it would place per camera and changes nothing |
-
-`spatial/cameras.py` is what jobs that work from recorded frames share: which cameras are fixed, reading a camera's
-recorded frame, whether a frame is lit (`daylight`) and sharp (`sharpness`), the people in it (`detector`,
-`person_mask`), running MASt3R (`run_mast3r`), and a cloud's floor and floorplan (`floor_along`, `layout`).
-`spatial/retrieval.py` scores how alike two frames' places look (MegaLoc). `spatial/poses.py` stores each camera's
-pose over time for the placer to read; nothing writes it at present.
-
-`state/places.lock` keeps two jobs from writing places at once.
-
-## Positions
-
-`spatial/footprints.py` records raw foot points as cameras saw them (`position.sample`). A foot point is placed
-through its camera's pose, which comes from one of two things:
-
-- **The owner's spot on the plan** (`spatial/spots.py`). A plan's `x-camera <camera> at x,y height <m> yaw <deg>` line
-  says where the camera is, how high, and which way it faces, and that is enough: the camera has a pose in the plan's
-  own frame, with its held focal and lens, and its foot points land on the plan's floor with no map. The one thing a
-  spot doesn't say is how far the camera is tilted. That is worked out once per camera from the people it sees
-  walking: someone walking is upright and as tall at the far end of the room as at the near end, and only one tilt
-  makes them so. The fit is checked against the spot's height (people must come out a person's height) and kept in
-  `state/places/aims.json`. A spot outranks any pose a map gives the camera: a map may refine it only within 0.3 m
-  and 5 degrees, and whoever applies that logs it.
-- **A map's registration** (a revision's `cameras`), for a camera with no spot.
-
-A camera with neither places nobody. A spot that lacks something says what, per camera: no height, no facing (yaw),
-no known lens, too few people seen walking to work out the tilt yet, or people who come out the wrong height. The
-Places page lists those under the plan, and the rest of the place's cameras place people as usual. The placer maps
-foot points to plan coordinates and writes `position.placed` and `position.path`: who or what, place, room,
-coordinates, time, confidence, and source. When a spot or a registration moves a camera's placement by more than
-0.25 m, the placer places that place's samples again into a new generation, so a path is always in one frame.
-
-`memory/places.py:places_for_span` tells the journal which places and rooms a span touched.
-
-## Hand tools
-
-Each defaults to a dry run that prints what would change. Their docstrings have the options.
-
-| Tool | Does |
-|---|---|
-| `tools/import_owner_plan.py` | Registers an owner-supplied floorplan into a place's map and saves it as the owner plan |
-| `tools/calibrate_lens.py`, `tools/calibrate_fisheye.py` | Calibrate a camera's lens |
+All of that is an interpretation, so it can be deleted and made again. What the owner taught is in the knowledge
+store and supersedes it without changing it: a place's name (`place.named`), its plan (`place.plan`, with every
+earlier version), and each camera's held focal and lens. While a place has an owner's plan, that is its only plan:
+the Places page, the 3D view, and the position layer use it and no machine plan stands in for it.
 
 ## Learning surroundings
 
-The design for a place's map that the cameras refine as they see it (#254). It replaces the walk import and the
-nightly pass (#252), and each part below says which issue builds it. Until a part is built, its readers say so.
+A map is learned from pictures the cameras already take, with no walk-through and no schedule. Two live settings
+switch it, `spatial.learn_surroundings` and `spatial.learn_cameras` (`spatial/surroundings.py`): no restart.
 
-**The switch** (#255). `spatial.learn_surroundings` (off by default) and `spatial.learn_cameras` (camera names; empty
-means the first camera in the device manifest). Both are live settings: the sampler reads `pack.toml` again when it
-changes, so the Live tab's button and camera picker take effect in about a second with no restart.
+**The sampler** (`pack-surroundings`, `spatial/surroundings_worker.py`) looks at a picture from each chosen camera
+every few seconds and drops most of them, cheapest check first: a dark or night-mode frame, a frame that looks like
+the camera's last judged one, a frame much less sharp than the camera's usual, and a frame more than a quarter
+covered by people or animals. A frame with someone in a smaller part of it goes on with those pixels marked, and the
+map leaves them out. Dropping every frame with a person in it would never learn a room someone sits in.
 
-**The sampler** (#256). `pack-surroundings` holds no decoder connection while the switch is off. While it's on it
-takes one BGR picture every 5 s from each chosen camera, from see-decode's shared pictures. It skips, cheapest check
-first: a dark or night-mode frame, a frame whose 32 x 18 thumbnail matches the camera's last look that reached the
-gate, while the kept frame for that view is still kept (a still camera costs a few milliseconds a sample), a frame
-much less sharp than the camera's usual, and a frame more than a quarter covered by people or animals (the person
-detector's boxes, each grown a little). A frame with someone in a smaller part of it goes on to the gate with those
-pixels marked, and the map step leaves them out of its depth, its points, and its losses: skipping every such frame
-starved the cameras of a room someone sits in. What it's
-doing is in `state/surroundings/status.json` (`spatial/surroundings_worker.py`).
+**The first gate** (`spatial/surroundings_frames.py`) asks whether a frame is likely to improve the map before it has
+a pose, by its place-recognition descriptor (MegaLoc). A frame under 0.85 alike to every kept frame is kept: that
+takes a new viewpoint and a known view that looks different, and drops the copies. A copy replaces the kept frame it
+matches only when it is 1.5 times as sharp. Kept frames live under `state/surroundings/`, at most 300 in all and 4 a
+view (a fifth look at a view pushes out its oldest), so a view's frames follow how it looks today.
 
-**The gate** (#257). "Likely to improve the map" is measured twice, cheaply first.
+**The map step** (`pack-surroundings-map`, `spatial/surroundings_map.py`) is started by the sampler when kept frames
+are waiting, one at a time. It takes up to 12 of them and writes one revision:
 
-1. *Before a pose is known*, by the frame's place-recognition descriptor (MegaLoc, on the CPU, about 0.26 s): its
-   novelty is 1 minus its highest cosine similarity to the kept frames. Measured on six live cameras, read only:
-   a still camera's frames 5 s apart are 0.95 to 0.99 alike (54 pairs), the same view one to three hours apart under
-   changing daylight 0.61 to 0.83 (9 pairs), and two different cameras at most 0.18 (15 pairs). So a frame under 0.85
-   alike to every kept frame is kept: that takes a new viewpoint, an uncovered area, and a scene or light that
-   changed, and drops the copies. A frame at least 0.85 alike to a kept one replaces it when it's 1.5 times as
-   sharp (better detail), and is dropped otherwise (`spatial/surroundings_frames.py`).
-2. *Once it has a pose* (in the map step), by the map itself. The frame's pose is first fitted to the current splat,
-   then the splat is drawn from it: the share of the frame it doesn't cover is the uncovered area, and the error of
-   what it does draw is the change or the missing detail. A frame the splat covers 0.97 of and draws at 21 dB or
-   better adds nothing, and is dropped (`surroundings_map.well_drawn` has the measurements: copies of kept frames
-   drew at 21.6 to 24.7 dB, the same view in changed light at 11.7 to 20.1 dB, and a new viewpoint at 11.4 dB with
-   0.67 of it covered).
+- *Poses come from the frames.* A camera may be fixed or on a moving rig, so neither is assumed. A waiting frame is
+  paired with the kept frames it is most alike, MASt3R measures each pair, and Depth Anything 3's metric depth scales
+  the result to metres. Frames are placed outward from the ones that have a pose. A place's first frame founds its
+  map with its own camera as the origin. A camera's held lens, or the one in the device manifest, is undone first; a
+  camera with neither gets its focal from MASt3R once and keeps it.
+- *The splat is continued, not rebuilt.* Training starts from the place's current splat and adds the new frames'
+  depth points, which is quicker than training again from the map's points.
+- *The second gate.* Once a new frame has a pose, the current splat is drawn from it. A frame the splat already
+  covers (0.97 of it) and draws well (21 dB) adds nothing and is dropped.
+- *Places.* A frame that pairs with a place's frames joins that place. Three or more that pair only with each other
+  found a new one. A first learned map takes the one listed place that has no map (an owner plan kept by a reset).
 
-Kept frames are JPEGs with their descriptors under `state/surroundings/`, at most 300 in all and 4 per view (frames
-at least 0.5 alike are one view, and a fifth look at it pushes out its oldest). At the bound, the frame most like
-another kept frame goes first. They are machine-made: a reset deletes them with the places.
+**A camera with a spot needs no pair.** Fixed cameras in different rooms overlap nowhere, so pairing alone gives a
+home several unconnected maps, or none. A camera whose spot on the owner's plan gives a pose (below) has its frames
+placed at that pose, in the plan's own frame. Its depth is checked against the plan: the floor it shows must come
+out at the plan's floor, and the depth is scaled to put it there, since the height is tape-measured and the depth
+model's metres are not. A scale outside 0.75 to 1.35 refuses the view. A place with such a view stands in its
+plan's frame from then on, and a map learned earlier in a frame of its own is started again there.
 
-**The map** (#258, `spatial/surroundings_map.py`). One step at a time, niced, on the GPU with the most free memory,
-started by the sampler when kept frames are waiting (at most one a minute), never on a schedule; `pack-surroundings-map`
-runs one by hand. A step takes up to 12 waiting frames.
+**A frame nothing places is parked.** It stays kept, with the reason: its view overlaps nothing in a map and its
+camera has no spot, the spot lacks something, or its floor doesn't fit the plan's. A step for it would find what the
+last one found, so none starts until a map gains a view or the camera's spot changes. After a day it is dropped and
+the camera's next frame takes its place.
 
-- *Poses come from the frames.* A camera may be on a moving rig or on a fixed mount, so neither is assumed. A
-  place's first frame founds its map, its own pose the origin (so the map isn't levelled until its floor is found,
-  #260). A later frame is paired with the three kept frames it's most like through MASt3R, whose pair pose, scaled
-  to metres by Depth Anything 3's metric depth of both frames, gives the frame's pose in the map. Frames are placed
-  outward from the ones that have a pose, each through its pair with the most agreeing matches. The splat trainer's
-  pose refinement takes up what's left.
-- *A camera with a spot on the owner's plan needs no pair.* A fixed camera whose spot gives a pose (where it is,
-  its measured height, its facing, and the tilt fitted from people walking, `spatial/spots.py`) has its kept frames
-  placed at that pose, in the plan's own frame. Its depth is lifted through the pose and checked: the floor it shows
-  must come out at the plan's, and the depth is scaled about the camera to put it there (the height is
-  tape-measured, the depth model's metres aren't); a scale outside 0.75 to 1.35 refuses the view. A place with such
-  a view stands in its plan's frame: the plan's floor, no transform to find, its cameras at their spots, and the
-  owner's plan saved as drawn in it, so the line-up reads it as lined up and searches for nothing. That is what
-  gives a house whose fixed cameras overlap nowhere one map. Read only on the Linux machine's four kept frames:
-  three placed from their spots with their floors 0.10, 0.20, and 0.23 m under the plan's before the fix (depth
-  scaled 0.90, 0.88, and 0.90), the fourth, whose spot has no facing, placed through its overlap with one of them,
-  and one splat of the four views at 35.0 dB on them, in two steps of 59 and 36 s. The views' walls are measured
-  against the plan's and not judged: the measure can't tell a right spot from a wrong one yet (#292).
-- *A frame nothing places is parked.* It stays kept, with the reason (its view overlaps nothing in a map and its
-  camera has no spot; or the spot lacks its facing, its height, a lens, or a tilt; or its floor doesn't fit the
-  plan's), and no step starts for it until a map has gained a view, its camera's spot changes, or it has been
-  parked for a day (it's dropped, and its camera's next frame takes its place). The Places page lists the parked
-  cameras with the reason.
-- *A camera's optics.* Its held intrinsics (`lens.Held`, taught state) give its focal and the lens to undo; a lens in
-  the device manifest is undone the same way. A camera with neither gets its focal from MASt3R, once, kept from then
-  on. Two fixed cameras with held intrinsics came out 2.9 m apart; with MASt3R's focals (7% and 15% off) 4.8 m.
-- *The splat is continued, not rebuilt.* The trainer starts from the place's current splat, adds each new frame's
-  depth points as new Gaussians, and trains 1,500 steps on the old and new views (3,000 for a place's first), each
-  against its depth. Each step writes one revision of the place (`memory/places.py`) in the place's frame, which
-  never moves; the newest two maps and splats are kept, as before.
-- *Places.* Frames that register with a place's kept frames join that place. Three or more that register with each
-  other and with no place found a new one. A first learned map takes the one listed place that has no map (an
-  owner's plan kept across a reset). Telling places apart by the rig's signals is not part of this.
+## Positions
 
-Measured on the Linux machine, shared with the live services (one place, two fixed cameras, frames 640 px wide): a
-step founding a place from two frames took 53 s in all, 27 s of it training, to 50,000 Gaussians at 23.2 dB on its
-own views; a step adding two frames, one from the second camera, 69 s, 29 s training, to 93,000 Gaussians at 24.0 dB;
-a step taking eight near-copies of kept frames 75 s, 19 s training, dropping five of them as already drawn; and a step
-with nothing waiting does nothing. The trainer used 0.1 to 0.3 GiB of GPU memory. With the newest of seven views
-held out, 1,500 steps resumed from the place's earlier splat took 23 s and scored 12.1 dB on it, against 38 s and
-9.9 dB for 3,000 steps from the map's points.
+`spatial/footprints.py` records raw foot points as each fixed camera saw them (`position.sample`). The placer
+(`spatial/positions.py`) puts each on the floor through its camera's pose and writes `position.placed` and
+`position.path`: who or what, place, room, coordinates, time, confidence, and source. A camera's pose comes from one
+of two things:
 
-`surroundings_map.summary` and `surroundings_map.views` are what a page and the position layer read: whether
-learning is on, how many frames are kept and waiting, whether a step is running, and each place's newest revision,
-views, and when it last improved; and each view's camera, time, pose, and focal.
+- **The owner's spot on the plan** (`spatial/spots.py`). A plan's `x-camera <camera> at x,y height <m> yaw <deg>`
+  line says where the camera is, how high, and which way it faces. With the camera's held focal and lens (or the
+  spot's `fov`) that is a pose in the plan's own frame, and its foot points land on the plan with no map at all. The
+  one thing a spot doesn't say is how far the camera is tilted. That is fitted once per camera from the people it
+  sees walking: someone walking is upright and as tall at the far end of the room as at the near end, and only one
+  tilt makes them so. Nobody's height is assumed, and people sitting don't count. The fit is checked against the
+  spot's height (people must come out a person's height) and kept in `state/places/aims.json`.
+- **A map's registration** (a revision's `cameras`), for a camera with no spot.
 
-**The 3D view** (#259) shows the newest splat, reloads when a newer one is written, and says whether learning is on,
-how many views the map has, and when it last improved. `GET /places/scene` carries that as `learning`, from the map
-step's `summary` (`dashboard/places.py`), also for a place with no map, where the page says what would start one.
-While the view is open it asks for the scene again every 10 s with learning on (every 60 s with it off). A newer
-map and splat are drawn once all their bytes are here, the ones before staying drawn until then, from where the
-person was looking. A splat that learning is still adding views to is in the state `improving`.
+The owner measured the spot, so it outranks the map: a map may refine a spot's pose only within 0.3 m and 5 degrees,
+and past that the spot holds and the disagreement is logged. A camera with neither places nobody, and no position is
+guessed: the placer and the Places page say what each camera lacks.
 
-**What learning is doing** (#283). While the switch is on, the Places page marks each place "Learning" and says what
-is going on, from `GET /surroundings/status` (the map step's `summary`): the cameras sampled, the frames kept and
-waiting, what a running step is doing, and when the last one ended. A running step writes its phase (`pairing`,
-`depth`, `training`, `writing`) to `state/surroundings/progress.json`, and the trainer its step count to
-`training.json` beside it, so training shows a measured bar and the other phases an unmeasured one. Both are read
-only while a step holds its lock. The sampler's status carries each camera's last 12 looks by outcome, and the page
-says why a camera's frames aren't being kept (a person or an animal in view, nothing new, dark, or blurred) when
-none of them was. The page asks every 3 s while a step runs, every 10 s while learning is on, and every 60 s
-while it's off.
+**A learned map's floor and fixed cameras** (`spatial/surroundings_positions.py`). A map founded on a camera frame
+isn't level and registers no camera. Up is found from the map's own flat surfaces, and the floor is the lowest layer
+of the surfaces that face up; the revision's floor plane is the levelling, and the map file isn't rewritten. A camera
+that is on no rig and whose kept views all sit at one pose (within 0.5 m and 8 degrees) is registered as fixed at
+that pose. A camera on a rig, or seen from several poses, needs a pose for each moment: it isn't registered, and its
+foot points stay unplaced.
 
-The panel sits under the place list (#294): one state with what happens next, the numbers (views in the maps, and
-frames kept, waiting, and parked), and a row a camera with its newest kept frame as a small picture
-(`GET /surroundings/thumb/<frame id>.jpg`, dashboard/surroundings.py). The server paints over the pixels the sampler
-marked as someone in view before it serves one, and serves none when the sampler's person detector is missing, since
-then nobody was ever marked. While learning is off the panel stays, saying so, once something has been learned.
+When a spot or a registration moves where a camera puts people by more than 0.25 m, the placer places that place's
+samples again into a new generation, so a path is always in one frame. `memory/places.py:places_for_span` tells the
+journal which places and rooms a span touched.
 
-**Positions** (#260, `spatial/surroundings_positions.py`). Foot points keep being recorded as each camera saw them. At
-the end of each map step, and when `pack-positions` runs, a learned map gets what placing takes:
+## The owner's plan and the map
 
-- *A floor.* The map isn't level (its first frame's camera is the origin), so up is found from the map's own flat
-  surfaces, starting from the views' rough up, and the floor is the lowest layer of the surfaces that face up. It
-  must lie under every view. The map file isn't rewritten: the revision's floor plane is the levelling.
-- *Its fixed cameras.* A camera that's on no rig in the device manifest and whose kept views all sit at one pose
-  (within 0.5 m and 8 degrees, `spatial/poses.py`'s measure of a move) is registered in the revision at that pose,
-  and its foot points are placed on the map's floor in metres, through the same geometry as before. A camera on a
-  rig, or seen from several poses, needs a pose for each moment (#7): it isn't registered, and its foot points stay
-  unplaced.
+A learned map with no spot view stands in a frame of its own, and the owner's plan in a frame no map made.
+`spatial/plan_lineup.py` finds the move between them on the floor (a turn, a shift, and a scale) and writes it as
+the `plan_transform` of a revision, so the 3D view, the plan, and the positions share one frame.
 
-They're written as one revision with no map of its own (producer `surroundings positions v1`), which later learned
-revisions carry over. A floor found again replaces the held one only when it moved 5 cm or tilted 2 degrees, and a
-camera's pose only past 10 cm or 2 degrees, so a map that grows without changing shape writes nothing. A camera
-with an owner's spot on the plan is still placed through the spot; once the map is lined up with the plan, how far
-the map's pose of it is from the spot is logged (a warning past 0.3 m or 5 degrees), and the spot holds. While a
-place has no map and no camera spot, the Places page says it has no map yet; a camera that can't place anyone is
-listed with why (on something that moves, or a map with no floor yet), and no position is guessed.
+- *Evidence.* Two or more fixed cameras with a measured spot give the line-up outright: each camera registered in
+  the map must land on its spot. Otherwise the map's walls are fitted to the plan's, and a single spot rules out the
+  fits that put its camera elsewhere.
+- *Enough to tell.* A wall fit is kept only when the map lies on at least 30% of the plan's wall length, scores 1.15
+  times better than the best different fit (a square room fits its plan four ways), and then sits on the walls.
+  Until then the place is unaligned and its status says why: the 3D view draws the map with no plan on it, and the
+  plan view shows the plan as drawn.
+- *Found once, then checked.* Each later map is measured on the plan through the transform it has, with no search.
+  A map that left its plan is fitted once more; when that finds nothing the line-up stays and is flagged as drifted.
+  A place that stands in its plan's frame (a spot view put it there) needs no search at all.
 
-**The owner's plan** (#261) is kept as taught state, and a learned map is lined up with it
-(`spatial/plan_lineup.py`): a turn, a shift, and a scale on the floor, written as the `plan_transform` of a revision
-with no map of its own, with the owner's plan saved again, unchanged, as drawn in that revision's frame. Learned
-revisions carry the transform over, so the 3D view, the plan, and the positions share one frame from then on.
+## Jobs
 
-- *Evidence.* Two or more fixed cameras the plan has a measured spot for (`x-camera`) give the line-up outright: each
-  camera registered in the map must land on its spot. Otherwise the map's wall band is fitted to the plan's walls,
-  and a single measured spot rules out the fits that put its camera elsewhere.
-- *Found once.* A wall fit is kept only when the map lies on at least 30% of the plan's wall length, scores 1.15
-  times better than the best different fit (one square room fits its plan four ways), and then sits on the walls
-  (a median of 10 cm from a wall's face). Until then the place is unaligned and its status says why (no map, no
-  floor, too little of the plan, more than one fit, or a poor fit): the 3D view and positions stay in the map's own
-  frame, and the plan is drawn on its own. A fit is tried again only after the map's walls grew by a fifth.
-- *The owner's plan is the place's only plan.* While a place has one, the Places page, the 3D view's scene, and
-  the position layer use that plan and no other: no machine plan is offered beside it or stands in for it. Until
-  the map is lined up, the 3D view draws the map with no plan on it and says why, and the plan view shows the plan
-  as the owner drew it.
-- *Checked as it grows.* Each later map is measured on the plan through the transform it has, with no search. A map
-  that left its plan is fitted once more; when that finds nothing the line-up stays and is flagged as drifted.
+[Components](COMPONENTS.md) lists each job with what it reads and writes. Two are services
+([services/services.toml](../services/services.toml)): `surroundings` runs the sampler, which starts the map steps,
+and `positions` runs `pack-positions` every hour. `pack-surroundings-map`, `pack-positions`, `pack-spatial-splat`,
+and `pack-reset-places` run by hand; each module's docstring has its options. `spatial/cameras.py` holds what the
+jobs share, and `spatial/poses.py` reads a camera's pose over time (no job records observations there, so a camera
+is read at the pose its revision holds).
 
-`plan_lineup.advance(state)` does all of it, is called at the end of every map step, and costs one small read when
-nothing changed; `plan_lineup.status(state, place)` is what a reader says. The made-up maps in its tests (noise of a
-few centimetres, a scale 8% to 17% off) line up within a centimetre or two at the rooms' corners, in under 4 s for a
-whole home on the Linux machine.
+## Hand tools
+
+`tools/import_owner_plan.py` registers an owner-supplied floorplan into a place's map and saves it as the owner
+plan. `tools/calibrate_lens.py` and `tools/calibrate_fisheye.py` calibrate a camera's lens. Each prints what it found
+and writes only with `--write`; their docstrings have the options.
 
 ## Model runtimes
 
-Each runs in its own environment, set up by a mise task, with weights under `data/models/`.
+MASt3R and gsplat each run in their own environment. `mise run models` fetches the weights into `data/models/`.
 
 | Model | Task | License |
 |---|---|---|
 | MASt3R (pair matching and alignment) | `mise run mast3r` | CC BY-NC-SA 4.0 |
-| gsplat with Depth Anything 3 (splats) | `mise run gsplat` | Apache-2.0 |
-| MegaLoc (place recognition between frames, CPU) | Fetched with the models | MIT |
+| gsplat with Depth Anything 3 (splats and metric depth) | `mise run gsplat` | Apache-2.0 |
+| MegaLoc (place recognition between frames, CPU) | `mise run models` | MIT |
 
-MASt3R is non-commercial. That is accepted for now.
+MASt3R's code and weights are non-commercial. The project accepts that.

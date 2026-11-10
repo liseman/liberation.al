@@ -5,6 +5,9 @@ overlays, Review, Ask, and the dashboard's pages. Every vision stream lives in t
 what the cameras saw (zones, pet labels, activity names and ratings) is in the knowledge store, not here: see [Owner
 records](#owner-records).
 
+`segment_log.STREAMS` also declares the speech, place-visit, network, Bluetooth, and Wi-Fi streams. This document
+covers the vision streams only.
+
 ## Where the frames come from
 
 `see-decode` (`see/decoded_worker.py`, `see/shared_frames.py`, `see/decoded_cache.py`) decodes each camera once
@@ -19,8 +22,10 @@ decode's UUID for it. Frames are upright: capture's `flip` is applied before any
   row and back (`segment_log.STREAMS`). see-actions' `pose.track` is declared in `see/actions.py` (`POSE_SCHEMA`).
 - **Time.** Every row has `ts_ns` (UTC nanoseconds) and a writer-assigned `row_seq`. Span streams also have
   `end_ns`. A record read back has `ts_start` and `ts_end` in seconds. A point (one frame) has `end_ns == ts_ns`.
-- **Ids.** Span-shaped rows have their own `id`; naming and ratings name a span by it.
-  `action.window` and `action.coverage` have none: their record id is built from camera, track, and start.
+- **Ids.** Span-shaped rows have their own `id`; naming and ratings name a span by it. `action.window` and
+  `action.coverage` have no `id` column: a record's id is built on read, from camera, track, start, and model for a
+  window, and from camera and start for coverage. `pose.track`, `animal.detection`, `animal.embedding`,
+  `animal.grounding`, and `animal.grounding_embedding` rows have no id.
 - **No parents.** A row names no broker parents or span dependencies. Forgetting a person reaches the segment
   store through its own deletions.
 - **Boxes** are normalized to the frame, `[x1, y1, x2, y2]`, top left to bottom right, as shares 0 to 1 of the
@@ -33,24 +38,15 @@ decode's UUID for it. Frames are upright: capture's `flip` is applied before any
 
 ## see-actions: people
 
-`see-actions` (`see/actions_worker.py`, `see/actions.py`, `see/gpu_pose.py`) runs on every configured camera at its
-analysis rate (`vision.actions_fps`, overridden by `vision.actions_camera_fps`): it finds people and their halpe26
-skeletons, tracks them (ByteTrack-style), and scores each track's recent joints with ST-GCN++ (`see/stgcn.py`,
-`see/action_classes.py`). When the backend loads MoViNet-A2, `see/action_clips.py` also scores person crops for
-reading, watching TV, phone use, and sleep.
-
-The detector uses no NMS, so adjacent people are both kept. [VISION.md](VISION.md#see-actions) describes the
-pipeline.
-
-On CUDA, the highest-rate camera runs on the last visible GPU and the others on the first.
-`vision.actions_camera_gpus` under `[vision]` in `pack.toml` overrides that per camera, for example
-`actions_camera_gpus = { front = 0 }`. Restart see-actions after changing it.
+`see-actions` (`see/actions_worker.py`, `see/actions.py`, `see/gpu_pose.py`) writes these streams for every manifest
+camera at its analysis rate (`vision.actions_fps`, `vision.actions_camera_fps`, and `vision.actions_camera_gpus` in
+[config/defaults.toml](../config/defaults.toml)). [VISION.md](VISION.md#see-actions) describes the pipeline.
 
 | Stream | Fields |
 |---|---|
 | `pose.track` | One row per tracked person per frame: `ts_ns`, `frame_id`, `track_id` (int), `box` (normalized x1, y1, x2, y2, and the detector's score), `joints` (26 joints of x, y, and confidence, each times 10,000 as int16; a joint not placed is -1, -1, 0; see [halpe26](#the-halpe26-joint-order)), `model`. |
-| `action.window` | One scored window of one track (ST-GCN++ every 0.5 s; MoViNet crop windows every 2 s): `ts_ns` and `end_ns` (the window's first and last frame), `track_id`, `classes` (the top 5 class indices, most likely first; NTU-120 for ST-GCN++, Kinetics-600 for MoViNet, as identified by `model`), `scores` (their probabilities), `model`. |
-| `action.span` | A model action: consecutive qualifying skeleton windows, or a crop action retained by the clip model's hold/minimum-observation rules (`see/action_clips.py`). `id`, `track_id`, `subject_type`, `species`, `animals_visible`, `kind` (`sit_down`, `stand_up`, `pick_up`, `put_down`, `fall`, `drink`, `eat`, `phone_call`, `phone_use`, `read`, `watch_tv`, or `sleep`), `direction`, `supported` (intervals), `observations`, `interpretation`. Read back with `candidate` true and `camera_moved` false. |
+| `action.window` | One scored window of one track (ST-GCN++ every 0.5 s; MoViNet crop windows every 2 s): `ts_ns` and `end_ns` (the window's first and last frame), `track_id` (an int column, read back as a string), `classes` (the top 5 class indices, most likely first; NTU-120 for ST-GCN++, Kinetics-600 for MoViNet, as identified by `model`), `scores` (their probabilities), `model`. |
+| `action.span` | A model action: consecutive qualifying skeleton windows, or a crop action retained by the clip model's hold/minimum-observation rules (`see/action_clips.py`). `id`, `track_id`, `subject_type` (`person`), `species`, `person` (a person id when the track's face was recognized, else None), `person_name` (the name the face matched), `animals_visible`, `kind` (a kind from the owner's activity list in `memory/activity_kinds.py`; the starting list is `sit_down`, `stand_up`, `pick_up`, `put_down`, `fall`, `drink`, `eat`, `phone_call`, `phone_use`, `read`, `watch_tv`, and `sleep`), `direction`, `supported` (intervals), `observations`, `interpretation`. Read back with `candidate` true, `camera_moved` false, `direction`, `supported`, and `observations` under `attributes`, and `interpretation` under `uncertainty`. |
 | `action.coverage` | The frames see-actions analyzed: `ts_ns`, `end_ns`, `frames`, `model`. A gap in the frames ends every track and the coverage run. Presence answers read it. |
 
 Person tracks born inside detected TV/laptop boxes or owner-drawn screen zones are withheld from these outputs
@@ -67,7 +63,7 @@ see-actions keeps no checkpoint: a restart starts new tracks from the live frame
 |---|---|
 | `movement.track` | `id`, `track_id`, `version`, `points` (`[time, x, y]` foot anchors), `supported` visible intervals, `gaps`, `entry` and `exit` boundaries, `direction`, `camera_motion`, `finished`, `closure`. A boundary has `status`, `reason`, and, when known, the image `edge` and uncertainty `time: [lo, hi]`; an unknown boundary has a reason and no invented time. Overlapping fragments are unioned for dwell and deduplicated by track and boundary, never added as separate arrivals. |
 | `movement.coverage` | `id`, `version`, `frames`, `supported`, `gaps`, `tracking` (`complete` or `partial`), `camera_motion`, `finished`, `closure`. Missing tracked or stable-camera evidence leaves coverage unknown. |
-| `walkby.span` | One walk-by, kind `crossing`: `id`, `track_id`, `version`, `direction`, the crossing `line` (vertical, horizontal, or a segment), `crossings` and `tracks` counts, `followed`, `camera_moved`, and whether camera motion was unknown. A walk-by while the camera moved, or with motion unknown, isn't counted. |
+| `walkby.span` | One walk-by, kind `crossing`: `id`, `track_id`, `version`, `direction`, the crossing `line` (vertical, horizontal, or a segment), `crossings` and `tracks` counts, `followed`, `camera_moved`, and `motion_unknown`. Read back with `candidate` false, and `direction`, `line`, `crossings`, `tracks`, and `followed` under `attributes`. A walk-by while the camera moved, or with motion unknown, is not counted. |
 | `walkby.coverage` | A stretch where walk-bys could have been seen: `id` and `frames`. Failed or missing inputs split it. |
 
 ## see-actions: faces
@@ -111,14 +107,17 @@ peak, and the image check).
 
 ## see-captions and see-objects
 
-`see-captions` (`see/caption_worker.py`, `see/captions.py`) describes views with the VLM
-and grounds the objects in view; `see-objects` (`see/object_worker.py`) finds the owner's remembered objects.
+`see-captions` (`see/caption_worker.py`, `see/captions.py`, `see/caption_animals.py`) describes views with the VLM,
+grounds the objects in view, and boxes the animals a caption names. `see-objects` (`see/object_worker.py`) finds the
+owner's remembered objects.
 
 | Stream | Fields |
 |---|---|
-| `camera.caption` | One looked-at frame: `id`, `frame_id`, `frame_seq`, `yaw_deg` (0), `caption`, `objects` (the grounded boxes, as `camera.objects` has them; None when grounding is off), `source`, `synthetic`, `gated` (the change gate skipped the VLM), `observation` (`status`: `fresh`, `not_observed`, or `error`; `observed_at`, `backend`, `prompt_version`), `change` (`mad`, `frac`: how far the view moved since the last caption), `brightness` (`mean` 0 to 255, `dark_fraction`), `ms` (`vlm`). A repeat has `unchanged` true and `since` (the repeated caption's time). `deferred` true marks a repeat whose view changed but whose caption interval (`vision.network_caption_every_s`, `[vision.caption_every_s]`) held the VLM back. `faces` is always None. |
+| `camera.caption` | One looked-at frame: `id`, `frame_id`, `frame_seq`, `yaw_deg` (0), `caption`, `objects` (the grounded boxes, as `camera.objects` has them; None when grounding is off), `source`, `synthetic`, `gated` (the change gate skipped the VLM), `observation` (`status`: `fresh`, `not_observed`, or `error`; `observed_at`, `camera`, `backend`, `prompt_version`), `change` (`mad`, `frac`: how far the view moved since the last caption), `brightness` (`mean` 0 to 255, `dark_fraction`), `ms` (`vlm`). A repeat has `unchanged` true and `since` (the repeated caption's time). `deferred` true marks a repeat whose view changed but whose caption interval (`vision.network_caption_every_s`, `[vision.caption_every_s]`) held the VLM back. `faces` is always None. |
 | `camera.objects` | The boxes in a camera's view at a frame, which the gateway draws over Live: `id`, `frame_id`, `frame_seq`, `objects` (each `label`, `bbox` in frame pixels, `bbox_norm`, and `ts`, the grounding time), `source` (the VLM backend), `observation` (`status`: `fresh`, `cached`, `failed`, or `unevaluated`; `observed_at`, `attempted_at`, optional `reason`). A fresh empty list is grounder output; an unknown status is not evidence of absence. |
-| `object.match` | A visual match of a remembered object, a moment: `id`, `object_id`, `name`, `bbox` (source pixels), `score`, `frame_id`, `frame_seq`, `evidence` (the frame as a small JPEG, base64). Read back with `kind` `visual_match`. |
+| `object.match` | A visual match of a remembered object, a moment: `id`, `object_id`, `name`, `bbox` (source pixels), `score`, `frame_id`, `frame_seq`, `evidence` (the frame as a small JPEG, base64). Read back with `kind` `visual_match` and `bbox_space` `source`. |
+| `animal.grounding` | One animal box from the VLM: the fields of `animal.detection`. `verified` is true: the VLM's look is the image check. |
+| `animal.grounding_embedding` | One appearance embedding of a grounded box: the fields of `animal.embedding`. Pet recognition reads it. |
 
 ## Owner records
 
@@ -128,16 +127,17 @@ What the owner taught about the video lives in `knowledge.sqlite3` (`knowledge.p
   "polygon"}`: a stable `zone-<hex>` id, a name unique on that camera ignoring case, and 3 to 32 normalized `[x, y]`
   corners of a simple polygon covering at least 0.01% of the frame; at most 16 zones; optional `kind` is `area` or
   `screen`), and `source` (`owner`). Screen zones mask screen-content tracks and are excluded from ordinary
-  zone-visit counting. The
-  newest per camera holds. `POST /zones` takes the id of the version edited, so a save over a newer version is
-  refused.
+  zone-visit counting. The newest per camera holds. `POST /zones` takes the id of the version edited, so a save over
+  a newer version is refused.
 - `activity.named` and `activity.feedback`: the owner's names and Right/Wrong ratings on walk-bys and model actions,
   keyed by the span's id over its time, with `activity`, `name` or `verdict`, `source` (`owner`), and the span's
   `kind`, `cam`, and `stream`. The latest per span wins. A Wrong span is left out of Ask's counts.
 - `pet.profile` (`people/pets.py`): a named pet, with `pet_id`, `name`, `species`, `active`, and `source`.
 - `pet.sighting` (`people/pet_recognition.py`): the owner's label for one animal track: `cam`, `track_id`,
-  `species`, `label` (a named pet's id, `other`, or empty when cleared), `active`, `source`, and `sighting_start`.
-  The newest per track wins.
+  `species`, `label` (a named pet's id, `other`, `ignored`, or empty when cleared), `active`, `source`, and
+  `sighting_start`. The newest per track wins.
+- `pet.reference` and `pet.photo`: a labeled sighting's mean embedding and its saved photo.
+- `pet.not` and `pet.block`: a sighting the owner said is not a pet, and a blocked sighting with its embedding.
 - `object.sighting`: the owner's own crops of remembered objects.
 
 ## The halpe26 joint order
