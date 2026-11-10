@@ -6,6 +6,7 @@ import { server } from '../../../test/server';
 import CloudView from './CloudView';
 import { coverFov, frustum, heightColour, heightOf, planFrame, planOutline, robustRange, type V3 } from './geometry';
 import { canDraw, canDrawSplat, openingCamera, parseCloud } from './load';
+import { dolly, slide, turn } from './orbit';
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -112,12 +113,11 @@ function ply(): ArrayBuffer {
 }
 
 it("reads a place map's points and colours from its PLY", () => {
-  const g = parseCloud(ply(), 'ply');
-  expect(Array.from(g.getAttribute('position').array)).toEqual([1, 2, 3, -1, 0.5, 0]);
-  // kept as bytes the GPU scales to 0 to 1, a quarter of the memory of floats
-  const c = g.getAttribute('color');
-  expect(c.normalized).toBe(true);
-  expect([0, 1].flatMap(i => [c.getX(i), c.getY(i), c.getZ(i)])).toEqual([1, 0, 0, 0, 0, 1]);
+  const cloud = parseCloud(ply(), 'ply');
+  expect(cloud.count).toBe(2);
+  expect(Array.from(cloud.positions)).toEqual([1, 2, 3, -1, 0.5, 0]);
+  // kept as bytes the GPU scales to 0 to 1, a quarter of the memory of floats; the counts after them are skipped
+  expect(Array.from(cloud.colours ?? [])).toEqual([255, 0, 0, 0, 0, 255]);
 });
 
 it('draws only the formats it can read', () => {
@@ -126,8 +126,9 @@ it('draws only the formats it can read', () => {
   expect(canDraw(null)).toBe(false);
 });
 
-it('draws splats only in the formats Spark is given', () => {
-  expect(canDrawSplat('spz')).toBe(true);
+it('draws splats only in the format PlayCanvas is given', () => {
+  expect(canDrawSplat('sog')).toBe(true);
+  expect(canDrawSplat('spz')).toBe(false);
   expect(canDrawSplat('ply')).toBe(false);
   expect(canDrawSplat(null)).toBe(false);
 });
@@ -143,7 +144,7 @@ it('offers the splat, and a look from each camera, when the revision has one', a
         map: '/places/map?place=p1&revision=r1',
         map_format: 'ply',
         splat: '/places/splat?place=p1&revision=r1',
-        splat_format: 'spz',
+        splat_format: 'sog',
         splat_bytes: 4_400_000,
         cameras: { cam0: cam, hall: cam },
       }),
@@ -171,7 +172,7 @@ it("falls back to the points, saying why, when the splat can't be read", async (
         map: '/places/map?place=p3&revision=r3',
         map_format: 'ply',
         splat: '/places/splat?place=p3&revision=r3',
-        splat_format: 'spz',
+        splat_format: 'sog',
       }),
     ),
     http.get('/places/map', () => new Promise<never>(() => {})),
@@ -232,4 +233,36 @@ it('opens a splat from a view it trained on: a walk splat from the walk, else a 
   expect(openingCamera(names, null)).toBe('dining');
   expect(openingCamera(['dining'], 'walk')).toBeNull();
   expect(openingCamera([], 'cameras')).toBeNull();
+});
+
+it('turns the eye about its target, level with the floor or over the top, keeping its distance', () => {
+  const up: V3 = [0, 0, 1];
+  // a quarter turn about up takes an eye on +x round to +y, at the same height and distance
+  near(turn([2, 0, 1], [0, 0, 1], up, Math.PI / 2, 0), [0, 2, 1]);
+  // pitching down from level swings it toward the floor: lower, nearer the axis, still 2 m away
+  const lowered = turn([2, 0, 1], [0, 0, 1], up, 0, Math.PI / 6);
+  near(lowered, [2 * Math.cos(Math.PI / 6), 0, 1 - 2 * Math.sin(Math.PI / 6)]);
+  // it never goes over the pole, however far the drag: straight up is as far as it gets, short of it
+  const top = turn([2, 0, 1], [0, 0, 1], up, 0, -10);
+  expect(top[2]).toBeGreaterThan(2.99);
+  expect(Math.hypot(top[0], top[1])).toBeGreaterThan(0);
+  expect(Math.hypot(top[0], top[1], top[2] - 1)).toBeCloseTo(2, 9);
+});
+
+it('turns about whatever the floor says is up', () => {
+  // up along y: a quarter turn takes an eye on +z round to +x
+  near(turn([0, 0, 3], [0, 0, 0], [0, 1, 0], Math.PI / 2, 0), [3, 0, 0]);
+});
+
+it('moves the eye in and out along its line of sight, never onto its target', () => {
+  near(dolly([4, 0, 0], [0, 0, 0], 0.5), [2, 0, 0]);
+  near(dolly([4, 0, 0], [0, 0, 0], 2), [8, 0, 0]);
+  expect(dolly([4, 0, 0], [0, 0, 0], 0)[0]).toBeCloseTo(0.02, 9);
+});
+
+it('slides the eye and its target together across the view', () => {
+  // looking along +y with z up: dragging right moves the scene right, so both go to -x; dragging down, both go up
+  const { eye, target } = slide([0, -3, 1], [0, 0, 1], [0, 0, 1], 0.5, 0.25);
+  near(eye, [-0.5, -3, 1.25]);
+  near(target, [-0.5, 0, 1.25]);
 });
