@@ -1264,12 +1264,14 @@ impl Service {
                 continue;
             };
             let spec = continuum_client::QuerySpec::hit_only(name.clone(), hull);
-            let mut named = BTreeSet::new();
-            for item in self.rt.block_on(client.query_all(&spec))?.items {
-                if let Some(StorageLocator::Chunk { uri, .. }) = &item.locator {
-                    named.insert(local_uri(&root, uri)?);
-                }
-            }
+            let items = self.rt.block_on(client.query_all(&spec))?.items;
+            let named = sweep::named_files(
+                &root,
+                items.iter().filter_map(|item| match &item.locator {
+                    Some(StorageLocator::Chunk { uri, .. }) => Some(uri.as_str()),
+                    _ => None,
+                }),
+            );
             sweep::sweep(&files, &named, dry_run, &mut report);
         }
         eprintln!(
