@@ -44,7 +44,7 @@ class TTS:
     Without MLX, cloning runs on CUDA (speech/qwen3_cuda.py) when available, and Kokoro runs on kokoro-onnx.
 
     The clone needs the owner's voice reference (owner.voice_ref), which can be deleted, re-recorded, or left unreadable
-    while the service runs (#301). Each reply checks it: while it's missing or can't be read, replies are spoken with
+    while the service runs. Each reply checks it: while it's missing or can't be read, replies are spoken with
     Kokoro and one warning is logged; once it's back (or recorded again), cloning resumes. When the clone itself fails
     (its model won't load, or a reply fails before any audio), Kokoro speaks for RETRY_S, or until the reference
     changes, with one warning. The models load on first use, so a service started without a reference loads the
