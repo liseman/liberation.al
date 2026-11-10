@@ -9,20 +9,201 @@
 @source "../../node_modules/@pascal-app/viewer/dist";
 @source "./";
 
-/* The dashboard's own look where the editor's page meets it: its font (bundled, so nothing is fetched), its 4 px
-   corners, its accent on focus rings, and its dim text for hints (fonts.css is imported above). The values are
-   theme.ts's; this page is a document of its own, so the dashboard's variables don't reach it. */
-:root {
-  --font-barlow: "Figtree", system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
-  --radius: 0.25rem;
-  --ring: #3454d1;
-  --muted-foreground: #5f6b67;
-  --lib-accent: #3454d1;
+/* The dashboard's theme, in one place. theme.ts puts the dashboard's own variables (every --mantine-* and --lib-*
+   token, with its light and its dark value) into this page; the rules below map the editor's theme onto them, so
+   nothing here names a colour and a change to shared/theme.ts reaches the editor by itself. Both selectors carry
+   the map: the editor sets its own values on `.dark`, which is on <body> as well as <html>. */
+:root,
+.dark {
+  color-scheme: light;
+
+  /* The editor's chrome (shadcn's names, which Pascal's classes use): its panels, toolbar, menus, and controls. */
+  --background: var(--lib-card);
+  --foreground: var(--mantine-color-text);
+  --card: var(--lib-card);
+  --card-foreground: var(--mantine-color-text);
+  --popover: var(--lib-card);
+  --popover-foreground: var(--mantine-color-text);
+  --primary: var(--mantine-primary-color-filled);
+  --primary-foreground: var(--lib-acc-ink);
+  --secondary: var(--lib-raise);
+  --secondary-foreground: var(--mantine-color-text);
+  --muted: var(--lib-raise);
+  --muted-foreground: var(--mantine-color-dimmed); /* AA on cards in both schemes; --lib-dim is not, in dark */
+  --accent: var(--mantine-color-default-hover);
+  --accent-foreground: var(--mantine-color-text);
+  --destructive: var(--lib-bad);
+  --border: var(--mantine-color-default-border);
+  --input: var(--mantine-color-default-border);
+  --ring: var(--mantine-color-anchor);
+  --sidebar: var(--lib-card);
+  --sidebar-foreground: var(--mantine-color-text);
+  --sidebar-primary: var(--mantine-primary-color-filled);
+  --sidebar-primary-foreground: var(--lib-acc-ink);
+  --sidebar-accent: var(--mantine-color-default-hover);
+  --sidebar-accent-foreground: var(--mantine-color-text);
+  --sidebar-border: var(--mantine-color-default-border);
+  --sidebar-ring: var(--mantine-color-anchor);
+  --radius: var(--mantine-radius-md);
+  --font-barlow: var(--mantine-font-family);
+
+  /* Its elevation scale, on the dashboard's shadows. */
+  --shadow-elevation-0: none;
+  --shadow-elevation-1: var(--mantine-shadow-xs);
+  --shadow-elevation-2: var(--mantine-shadow-xs);
+  --shadow-elevation-3: var(--mantine-shadow-sm);
+  --shadow-elevation-4: var(--mantine-shadow-md);
+  --shadow-elevation-5: var(--mantine-shadow-lg);
+  --shadow-elevation-6: var(--mantine-shadow-xl);
+
+  /* The 2D plan, as the dashboard draws a plan (places.module.css, .scene-plan): the card's ground, walls in the
+     text colour, openings cut out of them, and the accent for what is picked or being drawn. The grid is a faint
+     tint of the text colour, well under any wall or opening, with the minor lines fainter than the major. */
+  --plan-ground: var(--lib-card);
+  --plan-ink: var(--mantine-color-text);
+  --plan-wall: color-mix(in srgb, var(--mantine-color-text) 82%, var(--plan-ground));
+  --plan-opening: var(--mantine-color-dimmed);
+  --plan-accent: var(--mantine-color-anchor);
+  --plan-bad: var(--lib-bad);
+  --plan-grid-minor: color-mix(in srgb, var(--mantine-color-text) 5%, var(--plan-ground));
+  --plan-grid-major: color-mix(in srgb, var(--mantine-color-text) 11%, var(--plan-ground));
 }
 
 .dark {
-  --ring: #7f9cf5;
-  --muted-foreground: #95a39f;
+  color-scheme: dark;
+}
+
+/* The 2D plan. The editor draws it with fixed colours as SVG attributes, one set for a light scene and one for a
+   dark one; a style outranks an attribute, so each of those colours is mapped here onto the plan's tokens above,
+   value for value, and a state the editor draws in a colour of its own keeps meaning what it meant. */
+div:has(> svg > g[data-floorplan-scene]) {
+  background: var(--plan-ground);
+}
+
+svg:has(> g[data-floorplan-scene]) {
+  /* the ground, and openings, halos, and handles drawn in it */
+  & [fill="#ffffff"],
+  & [fill="#0a0e1b"],
+  & [fill="rgba(255, 255, 255, 0.96)"],
+  & [fill="#fff7ed"] {
+    fill: var(--plan-ground);
+  }
+  & [stroke="#ffffff"],
+  & [stroke="#0a0e1b"] {
+    stroke: var(--plan-ground);
+  }
+
+  /* walls, and the frames of windows set in them */
+  & [fill="#374151"],
+  & [fill="#1f2937"],
+  & [fill="#d8dee9"] {
+    fill: var(--plan-wall);
+  }
+  & [stroke="#1f2937"],
+  & [stroke="rgba(31, 41, 55, 0.92)"],
+  & [stroke="rgba(31, 41, 55, 0.9)"],
+  & [stroke="#f8fafc"] {
+    stroke: var(--plan-wall);
+  }
+
+  /* doors (their leaves and swings) and other thin lines */
+  & [stroke="rgba(100, 116, 139, 0.82)"],
+  & [stroke="#171717"] {
+    stroke: var(--plan-opening);
+  }
+  & [fill="rgba(100, 116, 139, 0.82)"] {
+    fill: var(--plan-opening);
+  }
+
+  /* measurements, hover outlines, and the handles' dots */
+  & [stroke="#334155"],
+  & [stroke="#e2e8f0"] {
+    stroke: var(--plan-ink);
+  }
+  & [fill="#334155"],
+  & [fill="#e2e8f0"] {
+    fill: var(--plan-ink);
+  }
+
+  /* rooms' outlines, what is selected, and what is being drawn */
+  & [stroke="#3b82f6"],
+  & [stroke="#60a5fa"],
+  & [stroke="#93c5fd"],
+  & [stroke="#2563eb"],
+  & [stroke="#7dd3fc"],
+  & [stroke="#6366f1"],
+  & [stroke="#818cf8"],
+  & [stroke="#4338ca"],
+  & [stroke="#c7d2fe"],
+  & [stroke="#c2410c"],
+  & [stroke="#f97316"],
+  & [stroke="#fb923c"] {
+    stroke: var(--plan-accent);
+  }
+  & [fill="#3b82f6"],
+  & [fill="#6366f1"],
+  & [fill="#818cf8"],
+  & [fill="#4338ca"] {
+    fill: var(--plan-accent);
+  }
+
+  /* the tint over a room or stair that is hovered or picked */
+  & [fill="rgba(59, 130, 246, 0.14)"],
+  & [fill="rgba(59, 130, 246, 0.16)"],
+  & [fill="rgba(96, 165, 250, 0.18)"] {
+    fill: color-mix(in srgb, var(--plan-accent) 16%, transparent);
+  }
+
+  /* what a delete would remove */
+  & [stroke="#ef4444"],
+  & [stroke="#dc2626"],
+  & [stroke="#f87171"],
+  & [stroke="#fca5a5"] {
+    stroke: var(--plan-bad);
+  }
+  & [fill="#ef4444"],
+  & [fill="#f87171"],
+  & [fill="#fca5a5"] {
+    fill: var(--plan-bad);
+  }
+
+  /* the site's dashed edge: a quiet line, under the walls */
+  & g[data-site-boundary] polygon:not([stroke="#ffffff"], [stroke="#0a0e1b"]) {
+    stroke: var(--plan-opening);
+  }
+
+  /* the grid: fainter than anything drawn on it, and faded out past the plan (gridFade.ts) */
+  & > g[data-floorplan-scene] > path[shape-rendering="crispEdges"] {
+    opacity: 1;
+    stroke: var(--plan-grid-major);
+  }
+  & > g[data-floorplan-scene] > path[shape-rendering="crispEdges"][stroke-width="0.14"] {
+    stroke: var(--plan-grid-minor);
+  }
+}
+
+:root[data-grid-fade] g[data-floorplan-scene] > path[shape-rendering="crispEdges"] {
+  mask: url(#plan-grid-fade);
+}
+
+/* Room labels on the plan: chips in the text colour on the card's, so they invert with the scheme and read before
+   the grid. */
+button:has(> [data-room-label-dot]),
+div:has(> [data-room-label-dot]) {
+  border-color: transparent;
+  background-color: color-mix(in srgb, var(--mantine-color-text) 88%, transparent);
+  color: var(--lib-card);
+
+  & > :last-child {
+    color: color-mix(in srgb, var(--lib-card) 78%, transparent);
+  }
+}
+
+/* Small text the editor dims further than the theme's dimmed colour, which would fall under AA. */
+.text-muted-foreground\/70,
+.text-muted-foreground\/60,
+.text-muted-foreground\/50 {
+  color: var(--muted-foreground);
 }
 
 /* The editor's own plugin directory has nothing for a home's plan: its rail entry, and the rule above it, are not
@@ -36,4 +217,9 @@ body,
 #plan-editor {
   height: 100%;
   margin: 0;
+}
+
+body {
+  background: var(--lib-card);
+  color: var(--mantine-color-text);
 }

@@ -89,7 +89,7 @@ export function CamerasTab() {
               key={id}
               type="button"
               aria-pressed={id === selected}
-              className={`${BUTTON} ${id === selected ? 'border-transparent bg-[var(--lib-accent)] text-white hover:bg-[var(--lib-accent)]' : ''}`}
+              className={`${BUTTON} ${id === selected ? 'border-transparent bg-primary text-primary-foreground hover:bg-primary' : ''}`}
               onClick={() => select(id === selected ? null : id)}
             >
               {cameraName(cameras, id)}
