@@ -8,7 +8,7 @@ current contract or procedure. Current-system documents describe `main`.
 | Document | Use it for |
 |---|---|
 | [Contributing](../CONTRIBUTING.md) | Install the toolchain, run services, and validate changes |
-| [Upgrading](../MIGRATING.md) | Update an existing installation, handle model-space changes, and inspect reset scope |
+| [Upgrading](../MIGRATING.md) | Update an existing installation, and see what a reset keeps |
 | [Architecture](ARCHITECTURE.md) | Start here: the parts, how data flows, where code lives, components, and state paths |
 | [Services](SERVICES.md) | Understand startup, the supervisor, restarts, logs, and the install layout |
 | [Walkthrough](WALKTHROUGH.md) | Record a LiDAR walk, import it into a place, and see which places and rooms still need one |
@@ -26,7 +26,7 @@ current contract or procedure. Current-system documents describe `main`.
 | [Roadmap](ROADMAP.md) | Understand product goals and remaining work; the linked project board tracks assignments |
 | [Releases](RELEASES.md) | Install a release, make one, or see what an upgrade resets |
 | [Domain model](DOMAIN-MODEL.md) | Understand identity, observations, evidence, correction, and forgetting |
-| [Continuum](CONTINUUM.md) | Look up broker, capture, SDK, storage, and gateway contracts |
+| [Continuum](CONTINUUM.md) | Understand the data layer; links to its broker, storage, capture, gateway, and SDK documents |
 | [Vision pipeline](VISION.md) | Understand decoding, the person pipeline, captions, objects, and zones |
 | [People](PEOPLE.md) | Understand the knowledge store and how voices and faces are named |
 | [Answers](ANSWERS.md) | Understand Ask, counts, activities, the journal, and the voice turn |
