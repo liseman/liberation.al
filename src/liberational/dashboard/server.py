@@ -257,7 +257,6 @@ from liberational.dashboard import (
     frontend_log,
     ingest,
     machine_usage,
-    marks,
     network_cameras,
     reports,
     routes,
@@ -288,6 +287,21 @@ if TYPE_CHECKING:
     from liberational.vision.sightings import FaceBatch
 
 type Reply = tuple[int, dict[str, Any]]  # (HTTP status, JSON body)
+
+# The areas whose modules register their own routes (dashboard/routes.py); the rest are still registered below.
+routes.load(
+    "activities",
+    "device_links",
+    "happening",
+    "journal",
+    "marks",
+    "pets",
+    "places",
+    "presence",
+    "review_boxes",
+    "skeletons",
+    "zones",
+)
 
 STATE = cfg.path("paths.state")  # PACK_STATE= for tests
 STATIC = assets.STATIC
@@ -7302,28 +7316,6 @@ def _get_people_references(h: H) -> None:
         return h._json({"error": str(exc)}, 400)
 
 
-@routes.get("/skeletons/api/spans", "/skeletons/api/poses")
-def _get_skeletons_api_spans(h: H) -> None:
-    p = h.path.split("?")[0]
-    from liberational.dashboard import skeletons
-
-    q = h._query()
-    try:
-        if p == "/skeletons/api/spans":
-            return h._json({"spans": skeletons.spans(STATE, hours=float(q.get("hours", "24")))})
-        return h._json(
-            skeletons.poses(
-                STATE,
-                cam=q["cam"],
-                track_id=q["track"],
-                start=float(q["start"]),
-                end=float(q["end"]),
-            )
-        )
-    except (KeyError, ValueError) as exc:
-        return h._json({"error": f"bad query: {exc}"}, 400)
-
-
 @routes.get("/audio/levels")
 def _get_audio_levels(h: H) -> None:
     return h.levels()
@@ -7637,53 +7629,10 @@ def _get_speakers_refine(h: H) -> None:
         return h._json({"ok": False, "error": str(ex)}, 500)
 
 
-@routes.get("/review/boxes")
-def _get_review_boxes(h: H) -> None:
-    from liberational.dashboard import review_boxes
-
-    q = h._query()
-    try:
-        start, end = float(q.get("start") or ""), float(q.get("end") or "")
-        return h._json(review_boxes.boxes(q.get("cam", ""), start, end, STATE))
-    except (TypeError, ValueError) as ex:
-        return h._json({"error": str(ex)}, 400)
-
-
-@routes.get("/live/happening")
-def _get_live_happening(h: H) -> None:
-    from liberational.dashboard import happening
-
-    q = h._query()
-    try:
-        since = float(q["since"]) if q.get("since") else None
-        limit = max(1, min(200, int(q.get("limit") or 50)))
-    except ValueError:
-        return h._json({"error": "since is a time in seconds, and limit a number"}, 400)
-    if since is not None and not math.isfinite(since):
-        return h._json({"error": "since is a time in seconds"}, 400)
-    try:
-        return h._json(happening.happening(STATE, since, limit))
-    except Exception as ex:
-        log("live happening failed:", repr(ex), level=logs.ERROR)
-        return h._json({"error": "Couldn't read what's been happening."}, 500)
-
-
 @routes.get("/review/search")
 def _get_review_search(h: H) -> None:
     q = h._query()
     code, reply = review_search(q.get("day", ""), q.get("q", ""))
-    return h._json(reply, code)
-
-
-@routes.get("/journal/today")
-def _get_journal_today(h: H) -> None:
-    from liberational.memory import ask, journal_pages
-
-    try:
-        day = ask.validate_day(h._query().get("day", ""))
-    except ValueError:
-        return h._json({"error": "day must be YYYY-MM-DD"}, 400)
-    code, reply = journal_pages.today_page(STATE, time.time(), dt.date.fromisoformat(day) if day else None)
     return h._json(reply, code)
 
 
@@ -7713,139 +7662,6 @@ def _get_review_summary(h: H) -> None:
         return h._json({"error": "Couldn't read the journal for that stretch."}, 500)
 
 
-@routes.get("/device-links")
-def _get_device_links(h: H) -> None:
-    from liberational.dashboard import device_links
-
-    code, reply = device_links.listing(h._query().get("hours", ""), state=STATE)
-    return h._json(reply, code)
-
-
-@routes.get("/device-presence")
-def _get_device_presence(h: H) -> None:
-    from liberational.dashboard import device_links
-
-    code, reply = device_links.presence()
-    return h._json(reply, code)
-
-
-# Known › Devices
-@routes.get("/device-whereabouts", "/device-comings")
-def _get_device_whereabouts(h: H) -> None:
-    p = h.path.split("?")[0]
-    from liberational.dashboard import device_links
-
-    code, reply = device_links.whereabouts() if p == "/device-whereabouts" else device_links.comings()
-    return h._json(reply, code)
-
-
-@routes.get("/zones", "/zones/history")
-def _get_zones(h: H) -> None:
-    p = h.path.split("?")[0]
-    from liberational.dashboard import zones as zone_routes
-
-    if p == "/zones":
-        code, reply = zone_routes.listing(STATE)
-    else:
-        code, reply = zone_routes.history(h._query().get("cam", ""), STATE)
-    return h._json(reply, code)
-
-
-@routes.get("/places")
-def _get_places(h: H) -> None:
-    from liberational.dashboard import places as places_view
-
-    code, reply = places_view.listing(STATE)
-    return h._json(reply, code)
-
-
-@routes.get("/places/scene")
-def _get_places_scene(h: H) -> None:
-    from liberational.dashboard import places as places_view
-
-    code, reply = places_view.scene(STATE, h._query().get("place", ""))
-    return h._json(reply, code)
-
-
-@routes.get("/places/map", "/places/splat")
-def _get_places_map(h: H) -> None:
-    p = h.path.split("?")[0]
-    from liberational.dashboard import places as places_view
-
-    q = h._query()
-    files = places_view.map_file if p == "/places/map" else places_view.splat_file
-    found = files(STATE, q.get("place", ""), q.get("revision", ""))
-    if found is None:
-        return h._json({"error": f"no such {p.rsplit('/', 1)[1]}"}, 404)
-    # A revision's map and splat never change once written: its id is their ETag, and they can be kept for good.
-    tag = f'"{q.get("revision", "")}"'
-    if h.headers.get("If-None-Match") == tag:
-        h.send_response(304)
-        h.send_header("ETag", tag)
-        h.end_headers()
-        return None
-    return h._media(found, "application/octet-stream", {"ETag": tag}, cache="private, max-age=31536000, immutable")
-
-
-@routes.get("/places/positions")
-def _get_places_positions(h: H) -> None:
-    from liberational.dashboard import places as places_view
-    from liberational.spatial import positions
-
-    try:
-        code, reply = places_view.positions_view(h._query(), STATE, cancelled=h._client_gone)
-    except positions.Cancelled:
-        h.close_connection = True  # nobody is reading: nothing to send
-        return log("places positions read stopped: the client hung up", level=logs.DEBUG)
-    return h._json(reply, code)
-
-
-@routes.get("/places/plan/history")
-def _get_places_plan_history(h: H) -> None:
-    from liberational.dashboard import places as places_view
-
-    code, reply = places_view.plan_versions(STATE, h._query().get("place", ""))
-    return h._json(reply, code)
-
-
-@routes.get("/journal")
-def _get_journal(h: H) -> None:
-    from liberational.dashboard import journal as journal_view
-
-    code, reply = journal_view.listing(h._query(), STATE)
-    return h._json(reply, code)
-
-
-@routes.get("/activities")
-def _get_activities(h: H) -> None:
-    from liberational.dashboard import activities
-
-    query = h._query()
-    if "days" in query:  # several days in one answer (#52)
-        code, reply = activities.listings(query["days"], STATE)
-        return h._json(reply, code)
-    code, reply = activities.listing(
-        query.get("day", ""), STATE, kind=query.get("kind"), unrated=query.get("unrated") == "1"
-    )
-    return h._json(reply, code)
-
-
-@routes.get("/activity/kinds")
-def _get_activity_kinds(h: H) -> None:
-    from liberational.dashboard import activities
-
-    code, reply = activities.kinds(STATE)
-    return h._json(reply, code)
-
-
-@routes.get("/pets")
-def _get_pets(h: H) -> None:
-    from liberational.dashboard import pets
-
-    code, reply = pets.listing(STATE)
-    return h._json(reply, code)
-
-
 @routes.get("/pets/sightings")
 def _get_pets_sightings(h: H) -> None:
     from liberational.dashboard import pets
@@ -7857,37 +7673,6 @@ def _get_pets_sightings(h: H) -> None:
 @routes.get("/pets/sightings/photo")
 def _get_pets_sightings_photo(h: H) -> None:
     return h._pet_photo(h._query().get("track", ""))
-
-
-@routes.get("/review/presence")
-def _get_review_presence(h: H) -> None:
-    from liberational.dashboard import presence
-
-    day = h._query().get("day") or None
-    if day and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
-        return h._json({"error": "day must be YYYY-MM-DD"}, 400)
-    return h._json(presence.for_request(day, STATE))
-
-
-@routes.get("/journal/evidence")
-def _get_journal_evidence(h: H) -> None:
-    from liberational.memory import journal_evidence
-
-    day = h._query().get("day") or ""
-    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
-        return h._json({"error": "day must be YYYY-MM-DD"}, 400)
-    return h._json({"day": day, "sources": journal_evidence.resolve_day(STATE, day)})
-
-
-@routes.get_re(r"/journal/evidence/(\d{4}-\d{2}-\d{2})/([0-9A-Za-z_.-]{1,96})")
-def _get_journal_evidence_x_x(h: H, m: re.Match[str]) -> None:
-    from liberational.memory import journal_evidence
-
-    found = journal_evidence.file(STATE, m.group(1), m.group(2))
-    if found is None:
-        return h._send(404, "text/plain", b"")
-    # Byte ranges (206), which Safari and iOS need to play an mp4 at all.
-    return h._media(found, "video/mp4" if found.suffix == ".mp4" else "image/jpeg")
 
 
 @routes.get("/review/days")
@@ -8228,105 +8013,6 @@ def _post_calls_place(h: H, body: Any) -> None:
         return h._json({"ok": False, "error": str(ex)}, 500)
 
 
-@routes.post(
-    "/device-links",
-    "/device-links/remove",
-    "/device-locations",
-    "/device-locations/remove",
-    "/device-access-point",
-)
-def _post_device_links(h: H, body: Any) -> None:
-    p = h.path.split("?")[0]
-    if not h._same_origin_json():
-        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
-    from liberational.dashboard import device_links
-
-    act = {
-        "/device-links": device_links.save,
-        "/device-links/remove": device_links.remove,
-        "/device-locations": lambda b, c: device_links.locate(b, c, STATE),
-        "/device-locations/remove": device_links.unlocate,
-        "/device-access-point": device_links.name_access_point,
-    }[p]
-    code, reply = act(body, h._can_teach())
-    return h._json(reply, code)
-
-
-@routes.post("/zones")
-def _post_zones(h: H, body: Any) -> None:
-    if not h._same_origin_json():
-        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
-    from liberational.dashboard import zones as zone_routes
-
-    code, reply = zone_routes.save(body, h._can_teach(), STATE)
-    return h._json(reply, code)
-
-
-@routes.post("/activity/name", "/activity/feedback")
-def _post_activity_name(h: H, body: Any) -> None:
-    p = h.path.split("?")[0]
-    if not h._same_origin_json():
-        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
-    from liberational.dashboard import activities
-
-    action = activities.feedback if p == "/activity/feedback" else activities.name
-    code, reply = action(body, h._can_teach())
-    return h._json(reply, code)
-
-
-@routes.post("/activity/kinds", "/activity/kinds/delete", "/activity/kinds/restore")
-def _post_activity_kinds(h: H, body: Any) -> None:
-    p = h.path.split("?")[0]
-    if not h._same_origin_json():
-        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
-    from liberational.dashboard import activities
-
-    code, reply = activities.edit_kind(p, body, h._can_teach(), STATE)
-    return h._json(reply, code)
-
-
-@routes.post("/pets/sightings/label")
-def _post_pets_sightings_label(h: H, body: Any) -> None:
-    if not h._same_origin_json():
-        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
-    from liberational.dashboard import pets
-
-    code, reply = pets.label(body, h._can_teach(), STATE)
-    return h._json(reply, code)
-
-
-@routes.post("/pets/sightings/not")
-def _post_pets_sightings_not(h: H, body: Any) -> None:
-    if not h._same_origin_json():
-        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
-    from liberational.dashboard import pets
-
-    code, reply = pets.deny(body, h._can_teach(), STATE)
-    return h._json(reply, code)
-
-
-@routes.post("/pets/photo")
-def _post_pets_photo(h: H, body: Any) -> None:
-    if not h._same_origin_json():
-        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
-    from liberational.dashboard import pets
-
-    code, reply = pets.card(body, h._can_teach(), STATE)
-    return h._json(reply, code)
-
-
-@routes.post("/pets/save", "/pets/remove")
-def _post_pets_save(h: H, body: Any) -> None:
-    p = h.path.split("?")[0]
-    if not h._same_origin_json():
-        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
-    from liberational.dashboard import pets
-
-    action = pets.save if p == "/pets/save" else pets.remove
-    code, reply = action(body, h._can_teach(), STATE)
-    return h._json(reply, code)
-
-
 @routes.post("/faces/not", "/people/photo")
 def _post_faces_not(h: H, body: Any) -> None:
     p = h.path.split("?")[0]
@@ -8337,39 +8023,11 @@ def _post_faces_not(h: H, body: Any) -> None:
     return h._json(o, code)
 
 
-@routes.post("/places/plan")
-def _post_places_plan(h: H, body: Any) -> None:
-    from liberational.dashboard import places as places_view
-
-    if not h._same_origin_json():
-        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
-    code, o = places_view.correct(body, h._can_teach(), STATE)
-    return h._json(o, code)
-
-
-@routes.post("/places/plan/restore")
-def _post_places_plan_restore(h: H, body: Any) -> None:
-    from liberational.dashboard import places as places_view
-
-    if not h._same_origin_json():
-        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
-    code, o = places_view.restore(body, h._can_teach(), STATE)
-    return h._json(o, code)
-
-
 @routes.post("/faces/unknown/reject")
 def _post_faces_unknown_reject(h: H, body: Any) -> None:
     if not h._same_origin_json():
         return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
     code, o = reject_shots(body.get("group"), body.get("ids"), h._can_teach())
-    return h._json(o, code)
-
-
-@routes.post("/measurement/mark")
-def _post_measurement_mark(h: H, body: Any) -> None:
-    if not h._same_origin_json():
-        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
-    code, o = marks.mark(body, h._can_teach())
     return h._json(o, code)
 
 

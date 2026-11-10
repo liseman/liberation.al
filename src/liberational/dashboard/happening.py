@@ -29,18 +29,22 @@ after that a poll answers from the last build while one background build at a ti
 takes 1 to 5 s under load).
 """
 
+import math
 import pathlib
 import threading
 import time
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from liberational import logs, speech_log
-from liberational.dashboard import presence
+from liberational.dashboard import presence, routes
 from liberational.intervals import interval_groups
 from liberational.memory import plain_text
 from liberational.people import registry, transcript_view
 from liberational.vision import sightings, views
+
+if TYPE_CHECKING:
+    from liberational.dashboard.server import H
 
 LOOKBACK_S = 6 * 3600
 EDGE_S = 3600  # read this much before the window too, so what is cut at its start never reads as new
@@ -386,3 +390,23 @@ def _refresh(state: pathlib.Path, now: float, rewrites: plain_text.Rewrites) -> 
     finally:
         with _lock:
             _building.pop(key, None)
+
+
+# ---- routes (dashboard/routes.py): what the server answers for this area ----
+
+
+@routes.get("/live/happening")
+def _get_live_happening(h: H) -> None:
+    q = h._query()
+    try:
+        since = float(q["since"]) if q.get("since") else None
+        limit = max(1, min(200, int(q.get("limit") or 50)))
+    except ValueError:
+        return h._json({"error": "since is a time in seconds, and limit a number"}, 400)
+    if since is not None and not math.isfinite(since):
+        return h._json({"error": "since is a time in seconds"}, 400)
+    try:
+        return h._json(happening(h.state, since, limit))
+    except Exception as ex:
+        LOG.error(f"live happening failed: {ex!r}")
+        return h._json({"error": "Couldn't read what's been "}, 500)
