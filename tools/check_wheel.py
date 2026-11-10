@@ -27,7 +27,16 @@ RESOURCES = ("defaults.toml", "labels.toml", "services.toml", "system-packages.t
 APP = f"{PACKAGE}/dashboard/static/app"
 MANIFEST = f"{APP}/.vite/manifest.json"
 PAGES = ("index.html",)
-COMMANDS = ("pack-config", "pack-dashboard", "pack-models", "pack-services", "pack-supervisor", "pack-system")
+COMMANDS = (
+    "pack-app",
+    "pack-config",
+    "pack-dashboard",
+    "pack-models",
+    "pack-services",
+    "pack-setup",
+    "pack-supervisor",
+    "pack-system",
+)
 
 
 def built_files(manifest: Mapping[str, Any]) -> set[str]:

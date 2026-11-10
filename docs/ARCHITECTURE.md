@@ -77,6 +77,17 @@ the wheel into `dist/`, and runs `tools/check_wheel.py`, which fails on a wheel 
 page or any file its manifest names, or a command. The hosted `wheel` check does the same and then reads the settings
 and the model list from the wheel installed alone, outside the checkout.
 
+An installed package is set up by `pack-setup` (`pack_setup.py`), which builds nothing: it lists the system packages
+the machine is missing and the command that installs them, installs this machine's Python extras with uv as the
+extras of the package already installed (pinned to `resources/constraints.txt` when the release build wrote one),
+says whether Continuum's SDK and daemons are in the environment, fetches the models (a file download that was cut
+off carries on from where it stopped), says whether Ollama is there and how to get it, and ends with how to open the
+application (`pack-app`). `mise run setup` stays the checkout's path. Three things differ in an installed package,
+each decided by `config.CHECKOUT`: a system package marked `build` (a compiler, headers) isn't needed and a tool mise
+provides in a checkout comes from apt or Homebrew (`system_packages.py`); a service marked `source_build`
+(`whisper`, whose server is built by `mise run whisper`) isn't declared; and services don't get mise's shims on
+their `PATH` (`services.py`).
+
 | Store | Path | What's in it | Kept |
 |---|---|---|---|
 | Recordings | `state/continuum/tier/`, `tier2/` | Camera video and microphone audio, as chunk files the broker catalogs | Video for 30 days (the video window, below), audio indefinitely less silent audio past 30 days, both until a reset |

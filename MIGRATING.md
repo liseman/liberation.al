@@ -5,6 +5,18 @@ This guide covers the current Continuum installation. Fresh setup is in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). The old genericize and v1 import
 procedures are retired. Do not run an old catch-up script against current data.
 
+## `pack-setup` sets up an installed package; a checkout is unchanged
+
+`pack-setup` is new: the setup command for a package installed with no checkout (docs/ARCHITECTURE.md, "A checkout
+and an installed package"). `mise run setup` is still how a checkout is set up, and nothing in a checkout behaves
+differently: its services keep mise's shims on their `PATH`, `pack-system` lists the same packages, and the
+`whisper` service is declared as before (its server is now named by its whole path, the same file). No setting was
+added, nothing stored changes, and no service needs a restart.
+
+`config/system-packages.toml` has a new field, `build = true`, for a package only a build from source needs, and
+`services/services.toml` has `source_build = true`, for a service whose program a checkout builds. An installed
+package leaves both kinds out.
+
 ## The model fetcher is a command: `pack-models`
 
 `tools/fetch_models.py` moved into the package as `pack-models`, so an installed package has it with no checkout.
