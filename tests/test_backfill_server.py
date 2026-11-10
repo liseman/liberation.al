@@ -1,6 +1,6 @@
 """The dashboard prefers who the face worker found (its visits on the vision log) for history_at and last seen."""
 
-from liberational.dashboard import context, live_status, server
+from liberational.dashboard import context, live_status, people_list
 
 
 def test_recorded_visits_come_first_and_give_last_seen(tmp_path, monkeypatch, vision):
@@ -13,4 +13,4 @@ def test_recorded_visits_come_first_and_give_last_seen(tmp_path, monkeypatch, vi
     faces = out["cams"]["cam0"]["faces"]
     assert [(f["name"], f.get("source")) for f in faces] == [("Alice", "recordings"), ("Face 3", None)]  # one Alice
     assert "cam1" not in out["cams"]  # Bob was seen at another time
-    assert server._face_last_seen_at().get("bob") == (5100, "cam1")  # the camera it was seen on, for People
+    assert people_list._face_last_seen_at().get("bob") == (5100, "cam1")  # the camera it was seen on, for People

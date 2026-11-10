@@ -15,7 +15,7 @@ from unittest.mock import create_autospec
 import pytest
 
 from liberational import config as cfg
-from liberational.dashboard import assets, call_log, context, devices, server
+from liberational.dashboard import assets, call_log, context, devices, inbox_state, people_list, server
 
 INDEX = (
     "<!doctype html><html><head><script>window.NAMES={{names_json}};</script><title>{{assistant}}</title></head>"
@@ -138,12 +138,11 @@ def isolated_paths(tmp_path, monkeypatch):
     """Keep config defaults and import-time paths temporary until the HTTP servers have stopped."""
     state = tmp_path / "state"
     calls = tmp_path / "calls"
-    for name, value in {
-        "PEOPLE_ADDED": state / "people_added.json",
-        "CONTACTS_FILE": state / "contacts.json",
-        "INBOX_SKIPS": state / "inbox_skips.json",
-    }.items():
+    for name, value in {}.items():
         monkeypatch.setattr(server, name, value)
+    monkeypatch.setattr(people_list, "PEOPLE_ADDED", state / "people_added.json")
+    monkeypatch.setattr(inbox_state, "INBOX_SKIPS", state / "inbox_skips.json")
+    monkeypatch.setattr(people_list, "CONTACTS_FILE", state / "contacts.json")
     monkeypatch.setattr(call_log, "CALLS_DIR", calls)
     monkeypatch.setattr(context, "STATE", state)
     with cfg.override(
@@ -210,7 +209,7 @@ def test_a_fetch_of_a_tab_path_gets_the_api(dashboard, monkeypatch, people_api_b
 
     # This route test needs the real empty read path, without a detached photo worker outliving its settings.
     monkeypatch.setattr(face_photos, "refresh_async", face_photos.refresh)
-    monkeypatch.setattr(server, "_faces_mod", lambda: SimpleNamespace(counts=dict, unknown_groups=list))
+    monkeypatch.setattr(people_list, "_faces_mod", lambda: SimpleNamespace(counts=dict, unknown_groups=list))
     _, headers, body = get(dashboard, "/people", {"Accept": "*/*"})  # fetch() from the People tab
     assert headers["content-type"] == "application/json"
     assert json.loads(body)["people"] == []

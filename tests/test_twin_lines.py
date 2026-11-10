@@ -5,7 +5,7 @@ from unittest.mock import create_autospec
 
 import pytest
 
-from liberational.dashboard import context, server, transcript_lines
+from liberational.dashboard import context, inbox_state, people_reads, server, transcript_lines, unnamed_groups
 from liberational.domain.identity import Basis
 from liberational.people import registry, transcript_view
 from speech_fake import fake
@@ -68,7 +68,7 @@ def test_one_line_read_with_the_lines_around_it_borrows_its_copys_label(state):
 
 def test_why_this_name_explains_a_copy_by_the_label_it_borrowed(state):
     label(state, 1000.0, "Kitchen", "Eve")
-    body, code = server.why_name_view({"line": "hall@1000.400"})
+    body, code = people_reads.why_name_view({"line": "hall@1000.400"})
     assert code == 200
     assert (body["name"], body["via"], body["basis"]) == ("Eve", "line", "correction")
 
@@ -105,16 +105,16 @@ def with_audio(state):
 
 def test_the_people_inbox_asks_about_speech_heard_on_two_mics_once(state, monkeypatch):
     with_audio(state)
-    monkeypatch.setattr(server, "inbox_skips", lambda: {"voice": [], "line": [], "face": []})
-    clips, total = server.voice_clips([{"id": 1, "label": "Speaker 1"}])
+    monkeypatch.setattr(inbox_state, "inbox_skips", lambda: {"voice": [], "line": [], "face": []})
+    clips, total = unnamed_groups.voice_clips([{"id": 1, "label": "Speaker 1"}])
     assert total == 2  # "Lights on, please." once, and "Is dinner ready?"
     assert sorted(c["text"] for c in clips) == ["Is dinner ready?", "Lights on, please."]
 
 
 def test_who_was_seen_together_counts_speech_heard_on_two_mics_once(state):
     write_voices(state, {1: "Dana"})  # the voice is Dana's now
-    server._named_cache.update(key=None, value=[])
-    spoken = server._named_lines(0)
+    unnamed_groups._named_cache.update(key=None, value=[])
+    spoken = unnamed_groups._named_lines(0)
     assert [(t, who) for t, _end, who in spoken] == [(1000.0, "Dana"), (1100.0, "Dana")]
 
 

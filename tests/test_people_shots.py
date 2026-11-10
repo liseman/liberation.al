@@ -12,7 +12,7 @@ import cv2
 import numpy as np
 import pytest
 
-from liberational.dashboard import context, server
+from liberational.dashboard import context, people_reads, photo_files, server
 from liberational.people import face_shots, video_thumbs
 from liberational.vision import sightings
 from liberational.vision import sightings as st
@@ -59,7 +59,7 @@ def dashboard(tmp_path, monkeypatch, serve, vision):
     """The dashboard over a state dir with one 160 by 120 frame whose only "face" is a white square, a sighting of
     Alice in it, and one whose frame is gone."""
     monkeypatch.setattr(context, "STATE", tmp_path)
-    monkeypatch.setattr(server, "_crop_jobs", face_shots.Pending(server._crop_process))
+    monkeypatch.setattr(photo_files, "_crop_jobs", face_shots.Pending(photo_files._crop_process))
     frame = np.zeros((120, 160, 3), np.uint8)
     frame[30:70, 40:80] = 255
     vision.frames[("cam0", T + 0.5)] = frame
@@ -137,7 +137,7 @@ def test_a_shot_whose_frame_has_no_geometry_is_404_and_not_cached(dashboard, unm
 
 def test_a_scene_photo_whose_frame_has_no_geometry_is_skipped(dashboard, unmappable, tmp_path):
     dest = tmp_path / "photo.jpg"
-    assert server._crop("cam0", T + 0.5, BOX, dest) is False
+    assert people_reads._crop("cam0", T + 0.5, BOX, dest) is False
     assert not dest.exists()
 
 
@@ -149,9 +149,9 @@ def test_a_crop_written_under_the_current_revision_is_served_without_a_lookup(tm
     # What see-actions leaves with each sighting: served as is, with no lookup and no decode.
     monkeypatch.setattr(context, "STATE", tmp_path)
     sid = "01a18c4d-4f51-740b-9b2e-d84e49271b7d"
-    face_shots.write(tmp_path, sid, server._shot_revision(), b"cut")
+    face_shots.write(tmp_path, sid, photo_files._shot_revision(), b"cut")
     monkeypatch.setattr(sightings, "shot", looked_up)
-    path, _etag = server._shot_file(sid)
+    path, _etag = photo_files._shot_file(sid)
     assert path is not None and path.read_bytes() == b"cut"
 
 
@@ -159,8 +159,8 @@ def test_a_crop_from_before_a_forget_is_checked_once_and_kept(dashboard, tmp_pat
     base, ids = dashboard
     url = f"/faces/shot/{ids.kept}.jpg"
     _, _, pixels = get(base, url)
-    monkeypatch.setattr(server, "_shot_revision", lambda state=None: "9")  # a forget elsewhere moved the revision
-    monkeypatch.setattr(server.vision_log, "at", lambda state: looked_up())  # kept, not cut again
+    monkeypatch.setattr(photo_files, "_shot_revision", lambda state=None: "9")  # a forget elsewhere moved the revision
+    monkeypatch.setattr(photo_files.vision_log, "at", lambda state: looked_up())  # kept, not cut again
     assert get(base, url)[2] == pixels
     assert [p.name.rsplit("-r", 1)[1] for p in (tmp_path / "shots").rglob("*.jpg")] == ["9.jpg"]
     monkeypatch.setattr(sightings, "shot", looked_up)  # checked under this revision: no lookup after
@@ -173,11 +173,11 @@ def test_purged_crop_returns_404_and_removes_cached_file_even_with_old_etag(dash
     code, headers, _ = get(base, f"/faces/shot/{ids.kept}.jpg")
     assert code == 200
     assert path.exists()
-    vision.records[server.segment_log.FACE_MATCHES] = [
-        row for row in vision.records[server.segment_log.FACE_MATCHES] if row["id"] != ids.kept
+    vision.records[photo_files.segment_log.FACE_MATCHES] = [
+        row for row in vision.records[photo_files.segment_log.FACE_MATCHES] if row["id"] != ids.kept
     ]
     monkeypatch.setattr(
-        server, "_shot_revision", lambda state=None: "1"
+        photo_files, "_shot_revision", lambda state=None: "1"
     )  # the forget that removed it moved the revision
     assert get(base, f"/faces/shot/{ids.kept}.jpg", {"If-None-Match": headers["ETag"]})[0] == 404
     assert not list((tmp_path / "shots").rglob("*.jpg"))
@@ -212,7 +212,7 @@ def test_a_changed_face_revision_changes_etag_even_when_crop_pixels_are_the_same
     url = f"/faces/shot/{ids.kept}.jpg"
     assert get(base, url)[0] == 200
     revision = ["0"]
-    monkeypatch.setattr(server, "_shot_revision", lambda state=None: revision[0])
+    monkeypatch.setattr(photo_files, "_shot_revision", lambda state=None: revision[0])
     _, before, pixels = get(base, url)
     revision[0] = "1"
     code, after, body = get(base, url, {"If-None-Match": before["ETag"]})
@@ -235,8 +235,8 @@ def test_video_thumbnail_recovers_a_real_frame_after_the_visit_start(tmp_path, m
             assert end <= 105.0
             return [[101.0, 104.0]]
 
-    monkeypatch.setattr(server.vision_log, "at", lambda state: Recording())
-    data = server.video_thumb_jpeg("cam0", 100.0, 110.0)
+    monkeypatch.setattr(photo_files.vision_log, "at", lambda state: Recording())
+    data = photo_files.video_thumb_jpeg("cam0", 100.0, 110.0)
     assert data is not None
     image = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
     assert image is not None and image.shape[:2] == (180, 320)
@@ -247,7 +247,7 @@ def test_video_thumbnail_recovers_a_real_frame_after_the_visit_start(tmp_path, m
 @pytest.mark.parametrize("cam,start,end", [("../x", 100, 101), ("cam0", float("nan"), 101), ("cam0", 101, 100)])
 def test_video_thumbnail_refuses_invalid_bounds(cam, start, end):
     with pytest.raises(ValueError):
-        server.video_thumb_jpeg(cam, start, end)
+        photo_files.video_thumb_jpeg(cam, start, end)
 
 
 def test_video_scene_thumbnail_is_served_for_a_recorded_frame(dashboard, tmp_path):
@@ -256,7 +256,7 @@ def test_video_scene_thumbnail_is_served_for_a_recorded_frame(dashboard, tmp_pat
     assert shot is not None
     query = urllib.parse.urlencode({"cam": shot["cam"], "start": shot["ts"], "end": shot["ts"] + 2})
     assert get(base, "/people/video-thumb.jpg?" + query)[0] == 202
-    assert server._crop_jobs.one()
+    assert photo_files._crop_jobs.one()
     code, headers, body = get(base, "/people/video-thumb.jpg?" + query)
     assert code == 200
     assert headers["Content-Type"] == "image/jpeg"
@@ -281,24 +281,24 @@ def test_old_geometry_cache_is_not_reused_after_pixel_mapping_changes(dashboard,
 def test_a_shot_that_would_wait_too_long_for_a_cut_is_told_to_come_back(dashboard, monkeypatch):
     # Every turn to cut is taken (a grid of old sightings): the request gives its connection back at once.
     base, ids = dashboard
-    monkeypatch.setattr(server, "SHOT_WAIT_S", 0.05)
-    held = [server._shot_decode.acquire(timeout=1) for _ in range(2)]
+    monkeypatch.setattr(photo_files, "SHOT_WAIT_S", 0.05)
+    held = [photo_files._shot_decode.acquire(timeout=1) for _ in range(2)]
     try:
         code, headers, _ = get(base, f"/faces/shot/{ids.kept}.jpg")
     finally:
         for _ in held:
-            server._shot_decode.release()
+            photo_files._shot_decode.release()
     assert (code, headers["Retry-After"]) == (503, "2")
     assert get(base, f"/faces/shot/{ids.kept}.jpg")[0] == 200
 
 
 def test_backfill_cuts_the_crops_sightings_lack_and_skips_the_rest(dashboard, tmp_path):
     _, ids = dashboard
-    revision = server._shot_revision()
+    revision = photo_files._shot_revision()
     face_shots.write(tmp_path, "had", revision, b"x")  # not a sighting: left alone
     done = face_shots.backfill(tmp_path, per_second=1000, now=T + 60)
     assert done == {"rows": 2, "had": 0, "cut": 1, "gone": 1}  # the kept sighting cut, the other's frame gone
-    path, _ = server._shot_file(ids.kept)
+    path, _ = photo_files._shot_file(ids.kept)
     assert path is not None and path == face_shots.path(tmp_path, ids.kept, revision)
     img = cv2.imdecode(np.frombuffer(path.read_bytes(), np.uint8), cv2.IMREAD_GRAYSCALE)
     assert img is not None
@@ -322,33 +322,33 @@ def video_thumb_url(cam="cam0", start=T + 0.5):
 
 def test_card_admits_video_jobs_but_lists_only_ready_thumbnails(dashboard, tmp_path, monkeypatch):
     base, ids = dashboard
-    revision = server._shot_revision()
+    revision = photo_files._shot_revision()
     face_shots.write(tmp_path, ids.kept, revision, b"face")
     face_shots.write(tmp_path, ids.gone, revision, b"face")
-    jobs = face_shots.Pending(server._crop_process)
-    monkeypatch.setattr(server, "_crop_jobs", jobs)
-    card = server.person_card("Alice")
+    jobs = face_shots.Pending(photo_files._crop_process)
+    monkeypatch.setattr(photo_files, "_crop_jobs", jobs)
+    card = people_reads.person_card("Alice")
     assert card is not None
     assert card["videos"] == []
     assert card["videos_pending"] == 1
     assert not video_thumbs.folder(tmp_path).exists()  # listing never cuts recorded video
     assert jobs.one()
-    after = server.person_card("Alice")
+    after = people_reads.person_card("Alice")
     assert after is not None and len(after["videos"]) == 1
     assert after.get("videos_pending", 0) == 0
-    held = [server._shot_decode.acquire(), server._shot_decode.acquire()]
+    held = [photo_files._shot_decode.acquire(), photo_files._shot_decode.acquire()]
     try:
         assert get(base, after["videos"][0]["thumb"])[0] == 200  # a ready tile needs no decode turn
     finally:
         for _ in held:
-            server._shot_decode.release()
+            photo_files._shot_decode.release()
 
 
 def test_a_video_thumbnail_is_decoded_once_then_read_from_its_file(dashboard, tmp_path, monkeypatch):
     base, _ = dashboard
     assert get(base, video_thumb_url())[0] == 202
     assert not video_thumbs.folder(tmp_path).exists()
-    assert server._crop_jobs.one()
+    assert photo_files._crop_jobs.one()
     code, headers, first = get(base, video_thumb_url())
     assert code == 200 and headers["Cache-Control"] == "private, max-age=86400"
     (saved,) = video_thumbs.folder(tmp_path).glob("*.jpg")
@@ -357,37 +357,37 @@ def test_a_video_thumbnail_is_decoded_once_then_read_from_its_file(dashboard, tm
     def no_decode(*args, **kwargs):
         raise AssertionError("a saved thumbnail is read, not decoded again")
 
-    monkeypatch.setattr(server, "video_thumb_jpeg", no_decode)
+    monkeypatch.setattr(photo_files, "video_thumb_jpeg", no_decode)
     assert get(base, video_thumb_url())[:3:2] == (200, first)
 
 
 def test_a_forget_cuts_a_video_thumbnail_again_from_what_the_video_still_has(dashboard, tmp_path, monkeypatch):
     base, _ = dashboard
     assert get(base, video_thumb_url())[0] == 202
-    assert server._crop_jobs.one()
+    assert photo_files._crop_jobs.one()
     assert get(base, video_thumb_url())[0] == 200
-    monkeypatch.setattr(server, "_shot_revision", lambda state=None: "9")  # a forget elsewhere moved the revision
-    monkeypatch.setattr(server, "video_thumb_jpeg", lambda *a, **k: None)  # and took that moment's video
+    monkeypatch.setattr(photo_files, "_shot_revision", lambda state=None: "9")  # a forget elsewhere moved the revision
+    monkeypatch.setattr(photo_files, "video_thumb_jpeg", lambda *a, **k: None)  # and took that moment's video
     assert get(base, video_thumb_url())[0] == 202
-    assert server._crop_jobs.one()
+    assert photo_files._crop_jobs.one()
     assert get(base, video_thumb_url())[0] == 404
     assert list(video_thumbs.folder(tmp_path).glob("*.jpg")) == []  # the old one isn't served, or kept
 
 
 def test_a_video_thumbnail_admits_background_work_while_all_decode_turns_are_taken(dashboard, monkeypatch):
     base, _ = dashboard
-    monkeypatch.setattr(server, "SHOT_WAIT_S", 0.05)
-    held = [server._shot_decode.acquire(), server._shot_decode.acquire()]  # both turns busy
+    monkeypatch.setattr(photo_files, "SHOT_WAIT_S", 0.05)
+    held = [photo_files._shot_decode.acquire(), photo_files._shot_decode.acquire()]  # both turns busy
     try:
         code, headers, _ = get(base, video_thumb_url())
         assert (code, headers["Retry-After"]) == (202, "2")
         assert headers["Cache-Control"] == "no-store"
-        assert server._crop_jobs.one()  # contention leaves the admitted job pending, never a broken tile
-        assert server._crop_jobs.pending
+        assert photo_files._crop_jobs.one()  # contention leaves the admitted job pending, never a broken tile
+        assert photo_files._crop_jobs.pending
     finally:
         for _ in held:
-            server._shot_decode.release()
-    assert server._crop_jobs.one()
+            photo_files._shot_decode.release()
+    assert photo_files._crop_jobs.one()
     assert get(base, video_thumb_url())[0] == 200
 
 

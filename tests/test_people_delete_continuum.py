@@ -5,7 +5,7 @@ from pathlib import Path
 import continuum_py
 import pytest
 
-from liberational.dashboard import server
+from liberational.dashboard import people_writes
 
 
 async def note(client: continuum_py.Client, stream_id: int, about: str, at_ns: int) -> str:
@@ -52,16 +52,16 @@ def test_their_payloads_are_purged_from_continuum_and_others_stay(
 
     asyncio.run(setup())
     monkeypatch.setenv("CONTINUUM_SOCKET", str(broker))
-    assert server._purge_continuum({dana}) == (1, 0)
+    assert people_writes._purge_continuum({dana}) == (1, 0)
     assert asyncio.run(left()) == [[alice]]
 
 
 def test_with_no_broker_running_there_is_nothing_to_purge(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CONTINUUM_SOCKET", str(tmp_path / "missing.sock"))
-    assert server._purge_continuum({str(uuid.uuid7())}) == (0, 0)
+    assert people_writes._purge_continuum({str(uuid.uuid7())}) == (0, 0)
 
 
 def test_a_purge_that_fails_is_counted_and_the_rest_still_go(broker: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CONTINUUM_SOCKET", str(broker))
     # Not a UUID, so the broker refuses it; the valid one is still asked.
-    assert server._purge_continuum({"not-an-id", str(uuid.uuid7())}) == (0, 1)
+    assert people_writes._purge_continuum({"not-an-id", str(uuid.uuid7())}) == (0, 1)
