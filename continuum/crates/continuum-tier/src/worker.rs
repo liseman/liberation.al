@@ -18,7 +18,9 @@
 //! - Chunks a crash left open come back from [`crate::recover`], with each stream's newest finished one. Each is
 //!   committed once its stream is declared again (its header needs the stream's shape, which the first payload
 //!   brings): whole when the catalog doesn't know it, or only the records past what the catalog holds of it
-//!   ([`Outputs::committed_frames`]). A payload already in one is reported back rather than appended twice.
+//!   ([`Outputs::committed_frames`]). A payload already in one is reported back rather than appended twice. When
+//!   the catalog lacks part of a stream's newest finished chunk, commits were failing as the last run ended, so the
+//!   stream's older finished chunks are rechecked the same way, newest first, back to one the catalog holds whole.
 //! - On shutdown every open chunk is closed and committed.
 //! - A raw camera's frames (UYVY, YUYV, or NV12) are encoded as they land, with the `ffmpeg` feature: low-delay
 //!   H.264 with a keyframe every second ([`crate::raw::RawEncoder`], hardware first), one access unit per record in a
@@ -167,6 +169,8 @@ pub struct Counts {
     pub rejected: u64,
     /// Chunks recovered at startup and committed.
     pub recovered: u64,
+    /// Older finished chunks opened at startup because the catalog lacked part of a newer one.
+    pub walked_back: u64,
     /// Payloads refused (an undeclared stream, a codec error).
     pub refused: u64,
     /// Microphone batches stored as LZ4 because their samples weren't exact integers ([`crate::pcm`]).
@@ -178,8 +182,21 @@ pub struct Counts {
     pub opus_fallbacks: u64,
 }
 
+/// What rechecking one chunk file found at startup against the catalog came to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Rechecked {
+    /// The catalog holds all of it: nothing to commit.
+    Whole,
+    /// The catalog lacked part of it, which was committed or queued to be.
+    Committed,
+    /// It couldn't be rechecked or committed, or the catalog refused it.
+    Stopped,
+}
+
 /// The tier worker's loop over one chunk directory.
 pub struct WorkerLoop<O: Outputs> {
+    /// The chunk directory.
+    dir: std::path::PathBuf,
     flusher: Flusher,
     out: O,
     formats: BTreeMap<StreamId, (ChunkFormat, Option<PcmLayout>)>,
@@ -249,6 +266,7 @@ impl<O: Outputs> WorkerLoop<O> {
             }
         }
         Ok(Self {
+            dir: dir.to_path_buf(),
             flusher,
             out,
             formats: BTreeMap::new(),
@@ -312,71 +330,131 @@ impl<O: Outputs> WorkerLoop<O> {
         #[cfg(feature = "ffmpeg")]
         let shape = self.raw_shape(stream, shape);
         self.formats.insert(stream, (shape.chunk_format, shape.pcm));
-        for r in self.recovered.remove(&stream).unwrap_or_default() {
-            // What the catalog holds of it already: parts committed before the crash.
-            let held = match crate::layout::chunk_id_of(&r.path).map(|id| self.out.committed_frames(id)) {
-                Some(Ok(held)) => held.unwrap_or(0),
-                None => 0,
-                Some(Err(e)) => {
-                    let why = format!("asking the catalog about recovered chunk {} failed: {e}", r.path.display());
-                    tracing::warn!("{why}");
-                    self.recovery_errors.insert(stream, why);
-                    continue;
-                }
-            };
-            let from = held.min(r.records.len());
-            let known: Vec<Uuid> = r.records[..from].iter().map(|rec| rec.id).collect();
-            self.out.settled(&known);
-            if from == r.records.len() {
-                continue;
-            }
-            if camera && r.format == ChunkFormat::Lz4 && from == 0 {
-                let aside = r.path.with_extension(format!("{}.layout-unknown", uuid::Uuid::now_v7()));
-                // A hard link refuses to overwrite an existing quarantine; only remove the original after success.
-                let renamed = (|| -> std::io::Result<()> {
-                    std::fs::File::open(&r.path)?.sync_all()?;
-                    std::fs::hard_link(&r.path, &aside)?;
-                    std::fs::File::open(aside.parent().expect("chunk directory"))?.sync_all()?;
-                    std::fs::remove_file(&r.path)?;
-                    std::fs::File::open(aside.parent().expect("chunk directory"))?.sync_all()
-                })();
-                let mut why = Self::layout_error(if renamed.is_ok() { &aside } else { &r.path });
-                if let Err(error) = renamed {
-                    why.push_str(&format!("; quarantine durability failed: {error}"));
-                    self.recovery_errors.insert(stream, why.clone());
-                } else {
-                    self.quarantined.extend(r.records.iter().map(|record| record.id));
-                }
-                tracing::warn!("{why}");
-                for record in r.records {
-                    self.recovered_ids.remove(&record.id);
-                }
-                continue;
-            }
-            let records = r.records[from..].to_vec();
-            let absorbed: Vec<Uuid> = crate::flush::catalog_records(&records).iter().map(|rec| rec.id).collect();
-            match crate::flush::new_part(&r.path, stream, &shape, &r.records, from, r.created_ns) {
-                Ok(chunk) => {
-                    // Frames the chunk file has no provenance record for stay unknown.
-                    let provenance = crate::flush::provenance_of(&absorbed, &r.provenance);
-                    let closed = Closed {
-                        path: r.path,
-                        stream,
-                        records,
-                        chunk,
-                        first_frame: u32::try_from(from).unwrap_or(u32::MAX),
-                        more: false,
-                        absorbed,
-                        durable: Vec::new(),
-                        provenance,
-                    };
-                    self.counts.recovered += 1;
-                    self.finish(closed);
-                }
-                Err(e) => tracing::warn!("recovered chunk {} has no header: {e}", r.path.display()),
-            }
+        let found = self.recovered.remove(&stream).unwrap_or_default();
+        // The oldest of them is the stream's newest finished chunk from before this run (or, with none, the first it
+        // left open). When the catalog lacks part of it, commits were failing as the last run ended.
+        let oldest = found.first().map(|r| r.path.clone());
+        let mut walk_back = false;
+        for (i, r) in found.into_iter().enumerate() {
+            let lacking = self.commit_recovered_file(stream, &shape, camera, r) == Rechecked::Committed;
+            walk_back |= i == 0 && lacking;
+        }
+        if let (true, Some(oldest)) = (walk_back, oldest) {
+            self.walk_back(stream, &shape, camera, &oldest);
         }
         self.flusher.declare(stream, shape);
+    }
+
+    /// Parts queued behind a failing commit can belong to more than one chunk file, and a start hands back only each
+    /// stream's newest finished one. So when the catalog lacked part of that one (`newest`), this goes back through
+    /// the stream's older finished chunks, newest first, committing what the catalog lacks of each. It stops at the
+    /// first one the catalog holds whole, so a start after a clean stop opens no older file, and at the first one the
+    /// catalog refuses or can't be asked about, so chunk files a catalog no longer knows (after a reset, say) aren't
+    /// each opened and set aside.
+    fn walk_back(&mut self, stream: StreamId, shape: &StreamShape, camera: bool, newest: &Path) {
+        let older = match crate::recover::older_chunks(&self.dir, stream, newest) {
+            Ok(paths) => paths,
+            Err(e) => {
+                tracing::warn!("listing stream {}'s older chunks failed: {e}", stream.0);
+                return;
+            }
+        };
+        for path in older {
+            let r = match crate::recover::finished(&path) {
+                Ok(Some(r)) if r.stream == stream => r,
+                Ok(_) => continue,
+                Err(e) => {
+                    tracing::warn!("reading older chunk {} failed: {e}", path.display());
+                    return;
+                }
+            };
+            self.counts.walked_back += 1;
+            self.recovered_ids.extend(r.records.iter().map(|rec| rec.id));
+            if self.commit_recovered_file(stream, shape, camera, r) != Rechecked::Committed {
+                return;
+            }
+        }
+    }
+
+    /// Commits what the catalog lacks of one chunk file found at startup, and says which it was.
+    fn commit_recovered_file(
+        &mut self,
+        stream: StreamId,
+        shape: &StreamShape,
+        camera: bool,
+        r: Recovered,
+    ) -> Rechecked {
+        // What the catalog holds of it already: parts committed before the crash.
+        let held = match crate::layout::chunk_id_of(&r.path).map(|id| self.out.committed_frames(id)) {
+            Some(Ok(held)) => held.unwrap_or(0),
+            None => 0,
+            Some(Err(e)) => {
+                let why = format!("asking the catalog about recovered chunk {} failed: {e}", r.path.display());
+                tracing::warn!("{why}");
+                self.recovery_errors.insert(stream, why);
+                return Rechecked::Stopped;
+            }
+        };
+        let from = held.min(r.records.len());
+        let known: Vec<Uuid> = r.records[..from].iter().map(|rec| rec.id).collect();
+        self.out.settled(&known);
+        if from == r.records.len() {
+            return Rechecked::Whole;
+        }
+        if camera && r.format == ChunkFormat::Lz4 && from == 0 {
+            let aside = r.path.with_extension(format!("{}.layout-unknown", uuid::Uuid::now_v7()));
+            // A hard link refuses to overwrite an existing quarantine; only remove the original after success.
+            let renamed = (|| -> std::io::Result<()> {
+                std::fs::File::open(&r.path)?.sync_all()?;
+                std::fs::hard_link(&r.path, &aside)?;
+                std::fs::File::open(aside.parent().expect("chunk directory"))?.sync_all()?;
+                std::fs::remove_file(&r.path)?;
+                std::fs::File::open(aside.parent().expect("chunk directory"))?.sync_all()
+            })();
+            let mut why = Self::layout_error(if renamed.is_ok() { &aside } else { &r.path });
+            if let Err(error) = renamed {
+                why.push_str(&format!("; quarantine durability failed: {error}"));
+                self.recovery_errors.insert(stream, why.clone());
+            } else {
+                self.quarantined.extend(r.records.iter().map(|record| record.id));
+            }
+            tracing::warn!("{why}");
+            for record in r.records {
+                self.recovered_ids.remove(&record.id);
+            }
+            return Rechecked::Stopped;
+        }
+        let records = r.records[from..].to_vec();
+        let absorbed: Vec<Uuid> = crate::flush::catalog_records(&records).iter().map(|rec| rec.id).collect();
+        match crate::flush::new_part(&r.path, stream, shape, &r.records, from, r.created_ns) {
+            Ok(chunk) => {
+                // Frames the chunk file has no provenance record for stay unknown.
+                let provenance = crate::flush::provenance_of(&absorbed, &r.provenance);
+                let closed = Closed {
+                    path: r.path,
+                    stream,
+                    records,
+                    chunk,
+                    first_frame: u32::try_from(from).unwrap_or(u32::MAX),
+                    more: false,
+                    absorbed,
+                    durable: Vec::new(),
+                    provenance,
+                };
+                self.counts.recovered += 1;
+                let refused = (self.counts.rejected, self.counts.rehomed);
+                self.finish(closed);
+                if refused == (self.counts.rejected, self.counts.rehomed) {
+                    Rechecked::Committed
+                } else {
+                    Rechecked::Stopped
+                }
+            }
+            Err(e) => {
+                tracing::warn!("recovered chunk {} has no header: {e}", r.path.display());
+                Rechecked::Stopped
+            }
+        }
     }
 
     /// Appends one payload, committing a chunk it closed on the way.

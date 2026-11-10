@@ -1558,7 +1558,10 @@ only.
 more: it is a UUIDv7 built from the file's creation time, stream, and counter (the three parts of its name), the
 same every time it is derived. At start, recovery finalizes an open file as before, then asks the catalog for that
 id (`GetChunk`): a chunk it knows with `n` frames gets the file's remaining records as its last part, and one it
-doesn't know is committed whole.
+doesn't know is committed whole. Each stream's newest finished file is asked about too. When the catalog lacks part
+of that one, commits were failing as the last run ended and parts of older files may have been queued behind it, so
+the worker goes back through the stream's older finished files the same way, newest first, and stops at the first
+one the catalog holds whole (a start after a clean stop opens no older file) or refuses.
 
 **When a part is refused for good.** A range forget that covers everything an open chunk has committed hides the
 whole chunk, and the frames that arrived after it still need a home; so do frames the catalog won't take in order.
