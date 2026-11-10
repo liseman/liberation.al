@@ -206,8 +206,8 @@ application and its services.
   URL. The URL often contains a password: it belongs only in `config/devices.toml`, with `chmod 600`.
 
 Each camera is a view, not a room: name it for what it sees. A camera can be paused from the header's status menu,
-and nothing from it is recorded until it's resumed. [docs/NETWORK.md](docs/NETWORK.md) covers network cameras in
-full.
+and nothing from it is recorded until it's resumed. [docs/CAMERAS.md](docs/CAMERAS.md) is the full guide, lens
+calibration included.
 
 ## Name people
 
