@@ -218,6 +218,13 @@ _SCHEMA = (
 )
 
 
+# Every record read selects its subjects in the same statement, so a page of N rows is one statement, not N + 1.
+_RECORD = (
+    "SELECT r.*, (SELECT json_group_array(s.subject ORDER BY s.subject) FROM subjects s WHERE s.record_id=r.id) "
+    "AS subject_list FROM records r"
+)
+
+
 class _Handle:
     """TLS owns this holder; its finalizer retains only the connection, never the holder or its Store."""
 
@@ -448,10 +455,8 @@ class Store:
         return replace(record, value=json.loads(encoded), subjects=subjects), encoded
 
     @staticmethod
-    def _stored(db: sqlite3.Connection, row: sqlite3.Row) -> StoredRecord:
-        subjects = tuple(
-            r[0] for r in db.execute("SELECT subject FROM subjects WHERE record_id=? ORDER BY subject", (row["id"],))
-        )
+    def _stored(row: sqlite3.Row) -> StoredRecord:
+        """Decode one row read through `_RECORD`."""
         return StoredRecord(
             row["position"],
             Record(
@@ -462,16 +467,16 @@ class Store:
                 row["end_ns"],
                 row["recorded_ns"],
                 json.loads(row["value"]),
-                subjects,
+                tuple(json.loads(row["subject_list"])),
             ),
         )
 
     def _put(self, db: sqlite3.Connection, record: Record, encoded: str) -> int:
         if db.execute("SELECT 1 FROM erased WHERE id=?", (record.id,)).fetchone():
             raise Deleted("knowledge record was erased")
-        old = db.execute("SELECT * FROM records WHERE id=?", (record.id,)).fetchone()
+        old = db.execute(f"{_RECORD} WHERE r.id=?", (record.id,)).fetchone()
         if old is not None:
-            if old["value"] != encoded or self._stored(db, old).record != record:
+            if old["value"] != encoded or self._stored(old).record != record:
                 raise Conflict("knowledge ID already identifies different content")
             return old["position"]
         change = db.execute(
@@ -509,10 +514,10 @@ class Store:
         positions: list[int] = []
         with self._connection(write=True) as db:
             for record, encoded in prepared:
-                old = db.execute("SELECT * FROM records WHERE id=?", (record.id,)).fetchone()
+                old = db.execute(f"{_RECORD} WHERE r.id=?", (record.id,)).fetchone()
                 if old is None:
                     raise KeyError(f"no knowledge record {record.id}")
-                was = self._stored(db, old).record
+                was = self._stored(old).record
                 if (record.collection, record.start_ns, record.end_ns, record.recorded_ns, record.subjects) != (
                     was.collection,
                     was.start_ns,
@@ -534,16 +539,14 @@ class Store:
 
     def get(self, id: str) -> StoredRecord | None:
         with self._connection() as db:
-            row = db.execute("SELECT * FROM records WHERE id=?", (_text(id, "id"),)).fetchone()
-            return self._stored(db, row) if row is not None else None
+            row = db.execute(f"{_RECORD} WHERE r.id=?", (_text(id, "id"),)).fetchone()
+            return self._stored(row) if row is not None else None
 
     def snapshot(self) -> Snapshot:
         """One consistent low-rate record cut, including erasure barriers, for an explicit portable export."""
         with self._connection() as db:
             revision = int(db.execute("SELECT COALESCE(MAX(position),0) FROM changes").fetchone()[0])
-            records = tuple(
-                self._stored(db, row) for row in db.execute("SELECT * FROM records ORDER BY position").fetchall()
-            )
+            records = tuple(self._stored(row) for row in db.execute(f"{_RECORD} ORDER BY r.position").fetchall())
             erased = tuple(row[0] for row in db.execute("SELECT id FROM erased ORDER BY id"))
             return Snapshot(revision, records, erased)
 
@@ -596,12 +599,12 @@ class Store:
         if wanted:
             terms.append(f"r.id IN (SELECT record_id FROM subjects WHERE subject IN ({','.join('?' for _ in wanted)}))")
             parameters.extend(wanted)
-        sql = "SELECT r.* FROM records r WHERE " + " AND ".join(terms) + " ORDER BY r.position"
+        sql = f"{_RECORD} WHERE " + " AND ".join(terms) + " ORDER BY r.position"
         if limit is not None:
             sql += " LIMIT ?"
             parameters.append(limit)
         with self._connection() as db:
-            return [self._stored(db, row) for row in db.execute(sql, parameters).fetchall()]
+            return [self._stored(row) for row in db.execute(sql, parameters).fetchall()]
 
     def collections(self, prefix: str = "") -> list[str]:
         if not isinstance(prefix, str):
@@ -675,8 +678,8 @@ class Store:
             parameters.append(_integer(before_ns, "before_ns"))
         prepared = self._prepare(audit)[0] if audit is not None else None
         with self._connection(write=True) as db:
-            rows = db.execute("SELECT r.* FROM records r WHERE " + " AND ".join(terms), parameters).fetchall()
-            selected = [row["id"] for row in rows if predicate is None or predicate(self._stored(db, row).record)]
+            rows = db.execute(f"{_RECORD} WHERE " + " AND ".join(terms), parameters).fetchall()
+            selected = [row["id"] for row in rows if predicate is None or predicate(self._stored(row).record)]
             return self._remove(db, selected, prepared)
 
     def changes(self, after: int = 0, *, limit: int = 1000, collections: Iterable[str] = ()) -> list[Change]:
