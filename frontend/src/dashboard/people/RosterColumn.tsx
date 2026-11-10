@@ -14,11 +14,6 @@ export function oneColumn(): boolean {
   return typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 820px)').matches;
 }
 
-/** Whether a click landed on a roster card's name, which opens the card rather than only selecting it. */
-function opensCard(target: EventTarget): boolean {
-  return target instanceof Element && target.closest('[data-opens]') != null;
-}
-
 /** One group of rows under its heading ("Here now", "Everyone"); a group with no rows isn't shown. */
 export interface RosterGroup {
   title: string;
@@ -32,22 +27,20 @@ export function RosterRow({
   label,
   description,
   current,
-  onPick,
   onOpen,
 }: {
   avatar: ReactNode;
   label: ReactNode;
   description: ReactNode;
   current: boolean;
-  onPick: () => void;
-  onOpen?: () => void;
+  onOpen: () => void;
 }) {
+  // A click (or Enter, the button's own) opens the card; I does too, for the row the keyboard is on.
   const onKey = (e: KeyboardEvent<HTMLButtonElement>) => {
     if (e.altKey || e.ctrlKey || e.metaKey || e.nativeEvent.isComposing) return;
-    const key = e.key.toLowerCase();
-    if (e.key === 'Enter' || key === 'i') {
+    if (e.key.toLowerCase() === 'i') {
       e.preventDefault();
-      onOpen?.();
+      onOpen();
     }
   };
   return (
@@ -59,23 +52,11 @@ export function RosterRow({
         classNames={{ label: classes.name, description: classes.meta }}
         active={current}
         aria-current={current ? 'true' : undefined}
-        aria-keyshortcuts={onOpen ? 'I' : undefined}
-        // A click on the name opens the card, as it always did; a click elsewhere on the card only selects it, the
-        // cursor Enter and I open. At one column the roster and the card aren't shown together, and a
-        // touchscreen has no Enter or I, so a tap anywhere opens the card there.
-        onClick={e => (onOpen && (oneColumn() || opensCard(e.target)) ? onOpen() : onPick())}
-        onDoubleClick={onOpen}
+        aria-keyshortcuts="I"
+        onClick={onOpen}
         onKeyDown={onKey}
         leftSection={avatar}
-        label={
-          onOpen ? (
-            <span className={classes.opens} data-opens>
-              {label}
-            </span>
-          ) : (
-            label
-          )
-        }
+        label={label}
         description={description}
       />
     </li>

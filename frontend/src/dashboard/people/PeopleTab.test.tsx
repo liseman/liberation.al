@@ -211,16 +211,13 @@ describe('the list', () => {
     expect(roster().queryByText('Nobody matches “zed”')).not.toBeInTheDocument();
   });
 
-  it("selects a person's card on one click, and opens it with I", async () => {
+  it("opens a person's card on one click anywhere on the row", async () => {
     serve();
     renderPage(<PeopleTab />);
     const dana = await roster().findByRole('button', { name: /^Dana/ });
-    await userEvent.click(dana);
-    expect(dana).toHaveAttribute('aria-current', 'true');
-    expect(screen.queryByRole('article', { name: 'Profile of Dana' })).not.toBeInTheDocument();
-    dana.focus();
-    await userEvent.keyboard('i');
+    await userEvent.click(within(dana).getByText(/CEO at Acme/));
     expect(await screen.findByRole('article', { name: 'Profile of Dana' })).toBeInTheDocument();
+    expect(dana).toHaveAttribute('aria-current', 'true');
   });
 
   it("opens a person's card when their name is clicked", async () => {
@@ -232,13 +229,13 @@ describe('the list', () => {
     expect(dana).toHaveAttribute('aria-current', 'true');
   });
 
-  it('only selects a card clicked off the name, on the line under it', async () => {
+  it("opens the focused person's card with I", async () => {
     serve();
     renderPage(<PeopleTab />);
     const dana = await roster().findByRole('button', { name: /^Dana/ });
-    await userEvent.click(within(dana).getByText(/CEO at Acme/));
-    expect(dana).toHaveAttribute('aria-current', 'true');
-    expect(screen.queryByRole('article', { name: 'Profile of Dana' })).not.toBeInTheDocument();
+    dana.focus();
+    await userEvent.keyboard('i');
+    expect(await screen.findByRole('article', { name: 'Profile of Dana' })).toBeInTheDocument();
   });
 });
 
@@ -397,7 +394,7 @@ describe("what waits in Who's this?", () => {
   it("opens Who's this? from Live's link, even over a card that was showing, and tidies the address", async () => {
     serve();
     renderPage(<PeopleTab />);
-    await userEvent.dblClick(await roster().findByRole('button', { name: /^Dana/ }));
+    await userEvent.click(await roster().findByRole('button', { name: /^Dana/ }));
     await screen.findByRole('article', { name: 'Profile of Dana' });
     navigate('/people#whos-this'); // People stays mounted between tabs
     expect(await screen.findByRole('heading', { name: "Who's this?" })).toBeInTheDocument();
@@ -408,7 +405,7 @@ describe("what waits in Who's this?", () => {
   it("leaves Live's own #whos-this alone", async () => {
     serve();
     renderPage(<PeopleTab />);
-    await userEvent.dblClick(await roster().findByRole('button', { name: /^Dana/ }));
+    await userEvent.click(await roster().findByRole('button', { name: /^Dana/ }));
     await screen.findByRole('article', { name: 'Profile of Dana' });
     navigate('/#whos-this'); // Live's rail section, with People still mounted behind it
     expect(location.hash).toBe('#whos-this');
@@ -429,7 +426,7 @@ describe("what waits in Who's this?", () => {
   it("goes back to Who's this? from a card", async () => {
     serve();
     renderPage(<PeopleTab />);
-    await userEvent.dblClick(await roster().findByRole('button', { name: /^Dana/ }));
+    await userEvent.click(await roster().findByRole('button', { name: /^Dana/ }));
     await screen.findByRole('article', { name: 'Profile of Dana' });
     await userEvent.click(roster().getByRole('button', { name: '3 faces and 2 voices need a name' }));
     expect(await screen.findByRole('heading', { name: "Who's this?" })).toBeInTheDocument();
@@ -439,7 +436,7 @@ describe("what waits in Who's this?", () => {
     serve({ ...VIEW, unknown: NOTHING_WAITS }, 0, 0);
     renderPage(<PeopleTab />);
     expect(await screen.findByRole('heading', { name: "Who's this?" })).toBeInTheDocument();
-    await userEvent.dblClick(await roster().findByRole('button', { name: /^Alice/ }));
+    await userEvent.click(await roster().findByRole('button', { name: /^Alice/ }));
     await screen.findByRole('article', { name: 'Profile of Alice' });
     await userEvent.click(roster().getByRole('button', { name: "Who's this?" }));
     expect(await screen.findByRole('heading', { name: "Who's this?" })).toBeInTheDocument();
@@ -467,7 +464,7 @@ describe('deleting someone', () => {
       ),
     );
     renderPage(<PeopleTab />);
-    await userEvent.dblClick(await roster().findByRole('button', { name: /^Dana/ }));
+    await userEvent.click(await roster().findByRole('button', { name: /^Dana/ }));
     await screen.findByRole('article', { name: 'Profile of Dana' });
     await userEvent.click(screen.getByRole('button', { name: 'More for Dana' }));
     await userEvent.click(await screen.findByRole('menuitem', { name: 'Delete' }));
@@ -499,11 +496,11 @@ describe('New person', () => {
     expect(
       await screen.findByText("New. Pick the photos, video, and voice that are Erin's, and the card fills in."),
     ).toBeInTheDocument();
-    await userEvent.dblClick(await roster().findByRole('button', { name: /^Dana/ }));
+    await userEvent.click(await roster().findByRole('button', { name: /^Dana/ }));
     expect(await screen.findByRole('region', { name: 'Photos' })).toBeInTheDocument();
     expect(screen.queryByText(/^New\. Pick/)).not.toBeInTheDocument();
     // Back to Erin later: no longer new, so the plain card.
-    await userEvent.dblClick(roster().getByRole('button', { name: /^Erin/ }));
+    await userEvent.click(roster().getByRole('button', { name: /^Erin/ }));
     expect(await screen.findByRole('article', { name: 'Profile of Erin' })).toBeInTheDocument();
     expect(await screen.findByRole('region', { name: 'Photos' })).toBeInTheDocument();
     expect(screen.queryByText(/Pick the photos/)).not.toBeInTheDocument();
@@ -768,9 +765,9 @@ describe('a link to a card (/people#card=<name>)', () => {
     history.replaceState(null, '', '/people');
     const before = history.length;
     renderPage(<PeopleTab />);
-    await userEvent.dblClick(await roster().findByRole('button', { name: /^Dana/ }));
+    await userEvent.click(await roster().findByRole('button', { name: /^Dana/ }));
     await waitFor(() => expect(location.hash).toBe('#card=Dana'));
-    await userEvent.dblClick(roster().getByRole('button', { name: /^Alice/ }));
+    await userEvent.click(roster().getByRole('button', { name: /^Alice/ }));
     await waitFor(() => expect(location.hash).toBe('#card=Alice'));
     expect(history.length).toBe(before); // replaced, not pushed: Back still leaves People
     await userEvent.click(roster().getByRole('button', { name: /need a name|Who's this\?/ }));
