@@ -114,7 +114,7 @@ def test_an_unrated_model_kind_is_not_counted_and_says_how_to_check_it(tmp_path,
     answer = reply["answer"]
     assert f"I can't count {what} yet" in answer
     assert (
-        f"Answer {cfg.get('activity.promotion_min_ratings')} more of them Yes or No in Known on Activities "
+        f"Answer {cfg.get('activity.promotion_min_ratings')} more of them Yes or No in Known, Activities "
         "(Not sure sets one aside), and I'll count them."
     ) in answer
     assert "Right or Wrong" not in answer

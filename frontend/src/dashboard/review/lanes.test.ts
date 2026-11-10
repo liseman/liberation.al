@@ -499,12 +499,12 @@ const ratingItem = {
 };
 
 it.each([
-  ['reading', 'needs_ratings', 3, 7, 6, 6 / 7, 'Needs 3 more Yes or No answers in Known on Activities'],
-  ['reading', 'needs_ratings', 1, 9, 8, 8 / 9, 'Needs 1 more Yes or No answer in Known on Activities'],
-  ['reading', 'needs_ratings', 0, 10, 7, 0.7, 'Not counted in Ask: more Yes or No answers in Known on Activities'],
-  ['reading', 'needs_correct_ratings', null, 10, 7, 0.7, 'Not counted in Ask: more Yes answers in Known on Activities'],
+  ['reading', 'needs_ratings', 3, 7, 6, 6 / 7, 'Needs 3 more Yes or No answers in Known, Activities'],
+  ['reading', 'needs_ratings', 1, 9, 8, 8 / 9, 'Needs 1 more Yes or No answer in Known, Activities'],
+  ['reading', 'needs_ratings', 0, 10, 7, 0.7, 'Not counted in Ask: more Yes or No answers in Known, Activities'],
+  ['reading', 'needs_correct_ratings', null, 10, 7, 0.7, 'Not counted in Ask: more Yes answers in Known, Activities'],
   ['reading', 'disabled', null, 10, 9, 0.9, 'Not counted in Ask'],
-  ['crossing', 'counted', null, 0, 0, null, 'Counted in Ask; clips answered No in Known on Activities are left out'],
+  ['crossing', 'counted', null, 0, 0, null, 'Counted in Ask; clips answered No in Known, Activities are left out'],
   [
     'crossing',
     'needs_correct_ratings',
@@ -512,9 +512,9 @@ it.each([
     10,
     7,
     0.7,
-    'Not counted in Ask: more Yes answers in Known on Activities',
+    'Not counted in Ask: more Yes answers in Known, Activities',
   ],
-  [null, 'needs_ratings', 10, 0, 0, null, 'Needs 10 more Yes or No answers in Known on Activities'],
+  [null, 'needs_ratings', 10, 0, 0, null, 'Needs 10 more Yes or No answers in Known, Activities'],
 ] as const)(
   'shows authoritative %s / %s counting status without deriving it from displayed candidates',
   (kind, status, remaining, rated, right, precision, expected) => {
@@ -573,7 +573,7 @@ it('lists effective angle overrides without claiming all cameras are counted', (
   );
   if (!chip) throw new Error('missing chip');
   expect(chipTitle(chip)).toContain(
-    'Default: Not counted in Ask: more Yes answers in Known on Activities. Front camera: Counted in Ask; clips answered No in Known on Activities are left out. Rear camera: Not counted in Ask: more Yes answers in Known on Activities.',
+    'Default: Not counted in Ask: more Yes answers in Known, Activities. Front camera: Counted in Ask; clips answered No in Known, Activities are left out. Rear camera: Not counted in Ask: more Yes answers in Known, Activities.',
   );
   expect(chipTitle(chip)).not.toContain('Other camera');
 });

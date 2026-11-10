@@ -240,7 +240,7 @@ def _model_kind_unchecked(
     cameras: list[str],
     stamp: Callable[[float], str],
 ) -> dict[str, Any]:
-    """The answer for a model kind the owner has not checked with Yes or No in Known on Activities: what it saw,
+    """The answer for a model kind the owner has not checked with Yes or No in Known, Activities: what it saw,
     unverified, and how to check it, never a count."""
     what = kind.replace("_", " ")
     seen = [
@@ -251,7 +251,7 @@ def _model_kind_unchecked(
     watched = sum(max(0.0, min(c["end"], end) - max(c["start"], start)) for c in coverage["covered"])
     text = (
         f"I can't count {what} yet: the camera model's {what} detections aren't checked. "
-        f"Answer {remaining} more of them Yes or No in Known on Activities "
+        f"Answer {remaining} more of them Yes or No in Known, Activities "
         f"(Not sure sets one aside), and I'll count them."
     )
     text += (

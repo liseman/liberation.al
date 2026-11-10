@@ -1890,6 +1890,6 @@ it('passes backend kind promotion status through fetched activity chips to Show-
   const chip = await within(filters).findByRole('checkbox', { name: /Reading book/ });
   act(() => chip.focus());
   const tooltip = await screen.findByRole('tooltip');
-  expect(tooltip).toHaveTextContent('Not counted in Ask: more Yes answers in Known on Activities');
+  expect(tooltip).toHaveTextContent('Not counted in Ask: more Yes answers in Known, Activities');
   expect(tooltip).not.toHaveTextContent('needs 0');
 });
