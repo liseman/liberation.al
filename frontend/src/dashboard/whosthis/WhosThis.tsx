@@ -21,7 +21,7 @@ import { type QueryClient, useQuery, useQueryClient } from '@tanstack/react-quer
 import { useEffect, useId, useRef, useState } from 'react';
 import { messageOf } from '../../shared/http';
 import { ProcessingImages } from '../../shared/ProcessingImages';
-import { plural } from '../lib/format';
+import { capitalize, plural, seenAt } from '../lib/format';
 import { useSlow } from '../lib/loading';
 import { PlayClip } from '../lib/PlayToggle';
 import { LoadError, PAGE_SLOW_MS } from '../lib/page';
@@ -89,22 +89,6 @@ export function guessText(g: Pick<UnknownGroup, 'guess' | 'band' | 'score' | 'to
     return `Maybe ${g.together.name}, together ${g.together.moments} ${g.together.moments === 1 ? 'time' : 'times'}`;
   if (!g.guess || g.band === 'none') return 'No good guess';
   return `${g.band === 'probable' ? 'Probably' : 'Maybe'} ${g.guess.name} ${g.score}%`;
-}
-
-// Made once: toLocale*String builds a new formatter per call, and Live renders every row's time on every scene
-// update (most of Who's this?'s render time).
-const HM = new Intl.DateTimeFormat([], { hour: '2-digit', minute: '2-digit', hour12: false }); // 24-hour, as lib/format
-const DAY = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
-
-/** When a face was last seen: "today 18:40", "yesterday 18:40", or "Mon 26 Oct 18:40". */
-export function seenAt(ts: number, now = Date.now() / 1000): string {
-  const d = new Date(ts * 1000);
-  const hm = HM.format(d);
-  const day = (t: Date) => new Date(t.getFullYear(), t.getMonth(), t.getDate()).getTime();
-  const days = Math.round((day(new Date(now * 1000)) - day(d)) / 86_400_000);
-  if (days === 0) return `today ${hm}`;
-  if (days === 1) return `yesterday ${hm}`;
-  return `${DAY.format(d)} ${hm}`;
 }
 
 interface InView extends SceneFace {
@@ -411,6 +395,12 @@ function WhoRow({
       choices={choices}
       choicesDisabled={pictures > 0 && out.size >= pictures}
       foldable={g.kind === 'face' && pictures > 1}
+      count={pictures}
+      note={
+        g.kind === 'face' && !guess
+          ? 'Ignore skips the selected pictures. Block also hides any face very like them from now on.'
+          : undefined
+      }
       meta={
         <Text size="xs" c="dimmed">
           {seen}
@@ -741,7 +731,8 @@ export function WhosThis({
     setGone(new Set());
     refreshNames(client);
     void client.invalidateQueries({ queryKey: UNKNOWN_GROUPS_KEY });
-    say({ text: kind === 'blocked' ? `Unblocked ${item.label}.` : `${item.label} is no longer ignored.` });
+    const what = item.name ?? item.label;
+    say({ text: kind === 'blocked' ? `Unblocked ${what}.` : `${capitalize(what)} is no longer ignored.` });
   };
   // By person: face groups guessed as each person, as tiles. Saving claims the checked ones and records the
   // unchecked ones as not that person, with one Undo for both.
@@ -1049,13 +1040,18 @@ export function WhosThis({
               queryKey={HIDDEN_FACES_KEY}
               load={async signal => {
                 const found = await hiddenFaces(signal);
-                const face = (group: number | null) => (group == null ? 'A face' : `Face ${group}`);
+                // An ignored picture is named by when it was ignored: "A face" says nothing the picture doesn't.
                 return {
-                  ignored: found.ignored.map(i => ({ key: i.id, label: face(i.group), pictures: [i.url] })),
+                  ignored: found.ignored.map(i => ({
+                    key: i.id,
+                    label: `Ignored ${seenAt(i.at)}`,
+                    name: `the picture ignored ${seenAt(i.at)}`,
+                    pictures: [i.url],
+                  })),
                   ignoredCount: found.ignored_count,
                   blocked: found.blocked.map(b => ({
                     key: b.id,
-                    label: `${face(b.group)}, ${plural(b.count, 'picture', 'pictures')}`,
+                    label: `${b.group == null ? `A face blocked ${seenAt(b.at)}` : `Face ${b.group}`}, ${plural(b.count, 'picture', 'pictures')}`,
                     pictures: b.shots.map(shot => shot.url),
                   })),
                   blockedCount: found.blocked_count,

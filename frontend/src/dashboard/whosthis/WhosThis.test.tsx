@@ -19,7 +19,8 @@ import {
   unknownVoicesQuery,
 } from './api';
 import { FacePictures } from './FacePictures';
-import { guessText, seenAt, shotSrc, togetherText, WhosThis } from './WhosThis';
+import { seenAt } from '../lib/format';
+import { guessText, shotSrc, togetherText, WhosThis } from './WhosThis';
 
 const NOW = new Date(2026, 9, 28, 20, 0).getTime() / 1000;
 const at = (h: number, m: number, day = 28) => new Date(2026, 9, day, h, m).getTime() / 1000;
@@ -1573,13 +1574,17 @@ describe('Show ignored and blocked', () => {
     renderPage(<WhosThis last={{}} live={[]} wide />);
     await userEvent.click(await toggle());
     const ignored = await screen.findByRole('region', { name: 'Ignored' });
-    expect(within(ignored).getByRole('listitem', { name: 'Face 9' })).toBeVisible();
+    // An ignored picture says when it was ignored, not "A face" or its group's number.
+    expect(within(ignored).getByRole('listitem', { name: `Ignored ${seenAt(NOW)}` })).toBeVisible();
     const blocked = screen.getByRole('region', { name: 'Blocked' });
     expect(within(blocked).getByRole('listitem', { name: 'Face 4, 3 pictures' })).toBeVisible();
-    await userEvent.click(within(ignored).getByRole('button', { name: 'Un-ignore Face 9' }));
+    await userEvent.click(within(ignored).getByRole('button', {
+      name: `Un-ignore the picture ignored ${seenAt(NOW)}`,
+    }));
     await waitFor(() =>
       expect(posts).toEqual([{ url: '/faces/unknown/restore', body: { kind: 'ignored', keys: ['s1'] } }]),
     );
+    expect(await screen.findByText(`The picture ignored ${seenAt(NOW)} is no longer ignored.`)).toBeVisible();
     await userEvent.click(within(blocked).getByRole('button', { name: 'Unblock Face 4, 3 pictures' }));
     await waitFor(() =>
       expect(posts.at(-1)).toEqual({ url: '/faces/unknown/restore', body: { kind: 'blocked', keys: ['block-1'] } }),
