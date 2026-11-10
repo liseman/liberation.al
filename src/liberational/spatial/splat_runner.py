@@ -1,4 +1,4 @@
-"""A 3D Gaussian splat of a place from its registered cameras' frames, run in gsplat's own runtime (#2877).
+"""A 3D Gaussian splat of a place from its registered cameras' frames, run in gsplat's own runtime.
 spatial/splats.py runs it; nothing that runs in the pack's environment imports it.
 
     <runtime>/.venv/bin/python splat_runner.py job.json
@@ -10,13 +10,13 @@ standard library at module level; numpy, torch, Pillow, and gsplat are imported 
 The job (JSON): `views` ([{"image": path, "pose": 16 numbers, camera to world row by row, the camera looking along
 its +z (OpenCV), "focal": px, "width": px, "height": px}], every image already that size, its principal point at its
 centre unless the view gives "fx", "fy", "cx", and "cy" (a phone's own intrinsics: a Stray Scanner walk's), and
-optionally "mask": a PNG the same size whose white pixels (a camera's burned-in overlays, #2998) are left
+optionally "mask": a PNG the same size whose white pixels (a camera's burned-in overlays) are left
 out of the loss), `init` (an npz of `points`, N x 3 float32 metres, and `colors`, N x 3 uint8: the Gaussians' starting
 centres and colours), `steps`, `cap` (the most Gaussians), `sh_degree`, `out` (a directory), and optionally
 `holdout` (indices into `views` scored but not trained on, for measuring) and `reg` (the opacity and scale
-regularizers' weight, REG_WEIGHT by default: a walkthrough's many views train better without them, #2877).
+regularizers' weight, REG_WEIGHT by default: a walkthrough's many views train better without them).
 
-The training is the minimal trainer measured on #2877 (on gsplat's `rasterization`): gsplat's MCMC
+The training is the minimal trainer on gsplat's `rasterization`: gsplat's MCMC
 strategy with a capped Gaussian count, an L1 plus 0.2 SSIM loss with small opacity and scale regularizers (none for a
 walk: `reg`), and SH
 degree raised one band every 1,000 steps. The poses are taken as they are (no pose refinement yet).

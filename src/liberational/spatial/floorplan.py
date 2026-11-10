@@ -1,6 +1,6 @@
 """Classical floorplan baseline: a point cloud in metres to room polygons and openings, written as floorplan DSL.
 
-Part of spatial memory (goal #2794, #2795). The learned plan models (RoomFormer, CAGE) have to beat this. Pure numpy
+Part of spatial memory. The learned plan models (RoomFormer, CAGE) have to beat this. Pure numpy
 and scipy, no model, no daemon. The steps:
 
 1. **Floor plane.** RANSAC over planes whose normal is within 25 degrees of `Settings.up` (the cloud's rough up
@@ -131,12 +131,12 @@ def floor_plane(
         raise ValueError("no floor: no plane within 25 degrees of horizontal has enough points")
     # Three noisy points close together can span a plane tilted several degrees off the floor (or the ceiling) that
     # still cuts through enough of it to win, so each candidate is refitted to its inliers before any is compared: a
-    # floor whose raw plane was 6 degrees off was once ruled not parallel to the ceiling and dropped (#2851).
+    # floor whose raw plane was 6 degrees off was once ruled not parallel to the ceiling and dropped.
     planes = [(*_refit(points, n, d, tolerance, upv), count) for n, d, count in planes]
     # The best-supported plane is the floor or the ceiling. A runner-up only competes when it is parallel to it
     # (within PARALLEL_DEG): a tilted plane cutting through the walls would otherwise win by being "lowest". The lowest
     # is the one lowest under the cloud's centre, along up: a plane's offset d is its height at the origin, which can
-    # be metres from the room, where a few degrees of tilt moves it by a metre (#2851: a 4 degree slice through the
+    # be metres from the room, where a few degrees of tilt moves it by a metre (a 4 degree slice through the
     # walls, 12 m from the origin, read 0.6 m lower than the floor and was taken for it).
     centre = sample.mean(axis=0)
     best_n, _, most = max(planes, key=lambda plane: plane[2])
@@ -184,7 +184,7 @@ def _horizontal_ransac(
         return None
     # Of the best-supported candidates, the one whose inliers cover the most area: a floor or ceiling covers the
     # room, while a plane tilted a few degrees through it meets the floor in a strip and the walls in lines, and on a
-    # sparsely seen floor can gather more raw inliers than the floor itself (#2851).
+    # sparsely seen floor can gather more raw inliers than the floor itself.
     best, widest = int(np.argmax(counts)), -1
     for i in np.argsort(counts)[::-1][:FOOTPRINT_CANDIDATES]:
         if counts[i] < max(50, 0.3 * counts.max()):
@@ -729,7 +729,7 @@ def room_at(
     return None
 
 
-# Carrying an owner's plan into another plan frame (#2997): when two places are joined, the merged-away place's
+# Carrying an owner's plan into another plan frame: when two places are joined, the merged-away place's
 # corrected plan is moved into the joined place's plan frame, statement by statement.
 
 _TOKEN = re.compile(r'"(?:[^"\\]|\\.)*"|\S+')
