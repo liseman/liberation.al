@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Liberational
+GenericName=Ambient assistant
+Comment=Start recording and open the Liberational window
+Exec=pack-app
+Icon=liberational
+Terminal=false
+Categories=Utility;
+Keywords=assistant;camera;microphone;memory;
+StartupNotify=false

@@ -88,3 +88,8 @@ The installed directories follow `XDG_CONFIG_HOME` and `XDG_DATA_HOME`. On macOS
   a wheel missing a resource, the frontend, or a command.
 - A release is that wheel plus Continuum's SDK and daemons per platform. [RELEASES.md](RELEASES.md) covers
   installing and making one.
+- On Ubuntu and Debian a release also installs with apt. The `.deb` (`tools/apt_package.py`, `packaging/deb/`)
+  carries the wheels, the lock, a pinned uv, a desktop entry, and the `pack-*` commands as links to one launcher,
+  and registers nothing with systemd. `pack-setup` builds each user's environment in `~/.local/lib/liberational`.
+  An upgrade has a running application drain and quit, rebuilds that environment, and says to open it again.
+  [RELEASES.md](RELEASES.md) has the repository, the signing key, and the container test.

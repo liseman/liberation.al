@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <title>Liberational</title>
+  <rect x="8" y="8" width="112" height="112" rx="26" fill="#1c2733"/>
+  <circle cx="64" cy="64" r="34" fill="none" stroke="#e9eef3" stroke-width="8"/>
+  <circle cx="64" cy="64" r="13" fill="#e5484d"/>
+  <path d="M30 100c9 9 21 14 34 14s25-5 34-14" fill="none" stroke="#7d8b99" stroke-width="6" stroke-linecap="round"/>
+</svg>

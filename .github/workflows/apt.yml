@@ -1,0 +1,159 @@
+# Builds the .deb for each architecture from a release's files, tests it in clean containers, and publishes the
+# signed apt repository (docs/RELEASES.md, "The apt repository").
+#
+# The release workflow calls it once the release's smoke tests have passed: on a tag it publishes, and on a rehearsal
+# it builds and tests only. Run by hand with a tag (workflow_dispatch), it packages that published release's files
+# and publishes: that is how a release made before the signing key existed gets into the repository, and how a
+# package-only fix (a new revision) goes out.
+#
+#   deb       tools/apt_smoke.sh per architecture: build, then install, set up, run, upgrade, remove, and purge in
+#             ubuntu:24.04 and debian:12 containers, from a repository signed with a key made for that run
+#   publish   sign the index with the project's key (the APT_SIGNING_KEY secret) and upload it, the public key, and
+#             the .deb files to the `apt` release, whose assets are the repository
+name: apt
+
+on:
+  workflow_call:
+    inputs:
+      publish:
+        description: Publish the repository (a tag's run); false builds and tests only
+        type: boolean
+        default: false
+    secrets:
+      APT_SIGNING_KEY:
+        required: false
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The published release to package and publish, such as v0.1.0
+        required: true
+      revision:
+        description: The package's revision of that release (raise it to publish a packaging fix)
+        default: "1"
+
+permissions:
+  contents: read
+
+jobs:
+  deb:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux-x86_64
+            runner: ubuntu-24.04
+          - arch: arm64
+            platform: linux-aarch64
+            runner: ubuntu-24.04-arm
+    name: deb (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          python-version: "3.14"
+
+      # Called by the release workflow: the files it has just built.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: inputs.tag == ''
+        with:
+          name: package
+          path: dist
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: inputs.tag == ''
+        with:
+          name: continuum-${{ matrix.platform }}
+          path: dist
+
+      # Run by hand: a published release's files, checked against its SHA256SUMS.
+      - name: Download the release
+        if: inputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release download "$TAG" -D dist
+          (cd dist && sha256sum -c --ignore-missing SHA256SUMS)
+
+      - name: Build the package and test it in clean containers
+        env:
+          APT_SMOKE_WORK: ${{ runner.temp }}/apt
+          REVISION: ${{ inputs.revision || '1' }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          tools/apt_smoke.sh dist
+          # What is published is built the same way at the asked revision (the test's two are revisions 1 and 2).
+          uv run tools/apt_package.py build dist --arch "$ARCH" --out debs --revision "$REVISION" \
+            --uv "$APT_SMOKE_WORK/uv"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: deb-${{ matrix.arch }}
+          path: debs/*.deb
+          if-no-files-found: error
+
+  publish:
+    needs: deb
+    # In a called workflow github.event_name is the caller's, so a rehearsal is told apart by the inputs alone.
+    if: inputs.publish || inputs.tag != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    concurrency:
+      group: apt-repository
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          python-version: "3.14"
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: deb-*
+          path: repo
+          merge-multiple: true
+
+      - name: Sign the index and publish the repository
+        env:
+          APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [ -z "$APT_SIGNING_KEY" ]; then
+            echo "::error::The APT_SIGNING_KEY secret isn't set: docs/RELEASES.md, 'The signing key', says how to make it. Nothing was published; run this workflow by hand with the tag once it is set."
+            exit 1
+          fi
+          export GNUPGHOME="$RUNNER_TEMP/gnupg"
+          mkdir -m 700 "$GNUPGHOME"
+          trap 'gpgconf --kill all || true; rm -rf "$GNUPGHOME"' EXIT
+          printf '%s\n' "$APT_SIGNING_KEY" | gpg --batch --quiet --import
+          key="$(gpg --batch --list-secret-keys --with-colons | awk -F: '$1 == "fpr" { print $10; exit }')"
+
+          # The versions already published stay listed: their .deb files are the release's other assets.
+          if gh release view apt > /dev/null 2>&1; then
+            gh release download apt --pattern Packages --dir "$RUNNER_TEMP/published" || true
+          else
+            gh release create apt --target "$GITHUB_SHA" --latest=false --title "apt repository" \
+              --notes "The files of the apt repository for Ubuntu and Debian. docs/RELEASES.md says how to use it; the releases themselves are the versioned ones."
+          fi
+          uv run tools/apt_package.py index repo --key "$key" --keep "$RUNNER_TEMP/published/Packages"
+          # The .deb files first and the signed index last, so apt never reads an index naming a file not yet there.
+          gh release upload apt --clobber repo/*.deb
+          gh release upload apt --clobber repo/liberational-archive-keyring.gpg repo/Packages repo/Packages.gz \
+            repo/Release repo/Release.gpg repo/InRelease
+          echo "Published with key $key:" && grep -E '^(Version|Architecture|Filename):' repo/Packages

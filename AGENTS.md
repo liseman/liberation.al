@@ -70,6 +70,7 @@ This is research. Building the right thing directly beats preserving what exists
 | `config/` | `defaults.toml` (every setting, documented), examples, and `system-packages.toml` |
 | `services/services.toml` | Every daemon, declared once |
 | `src/liberational/resources/` | Symlinks to the `config/` and `services/` files the code reads at run time |
+| `packaging/` | What a platform's package holds beyond the wheels: `deb/` is the `.deb`'s launcher, maintainer scripts, desktop entry, icon, and container test ([docs/RELEASES.md](docs/RELEASES.md)) |
 | `docs/` | Documents ([docs/README.md](docs/README.md) is the map) |
 | `scratch/` | Gitignored: experiments you won't keep |
 
