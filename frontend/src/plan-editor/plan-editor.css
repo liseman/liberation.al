@@ -167,9 +167,9 @@ svg:has(> g[data-floorplan-scene]) {
     fill: var(--plan-bad);
   }
 
-  /* the site's dashed edge: a quiet line, under the walls */
+  /* the site's dashed edge: a border's weight, no louder than the grid's major lines */
   & g[data-site-boundary] polygon:not([stroke="#ffffff"], [stroke="#0a0e1b"]) {
-    stroke: var(--plan-opening);
+    stroke: var(--mantine-color-default-border);
   }
 
   /* the grid: fainter than anything drawn on it, and faded out past the plan (gridFade.ts) */
@@ -186,17 +186,29 @@ svg:has(> g[data-floorplan-scene]) {
   mask: url(#plan-grid-fade);
 }
 
-/* Room labels on the plan: chips in the text colour on the card's, so they invert with the scheme and read before
-   the grid. */
+/* Room labels on the plan: a raised chip in the text colour with a border, as the dashboard's own chips are, so
+   they read without outweighing the walls; the room's colour dot stays. */
 button:has(> [data-room-label-dot]),
 div:has(> [data-room-label-dot]) {
-  border-color: transparent;
-  background-color: color-mix(in srgb, var(--mantine-color-text) 88%, transparent);
-  color: var(--lib-card);
+  border-color: var(--mantine-color-default-border);
+  background-color: var(--lib-raise);
+  color: var(--mantine-color-text);
 
   & > :last-child {
-    color: color-mix(in srgb, var(--lib-card) 78%, transparent);
+    color: var(--mantine-color-dimmed);
   }
+}
+
+/* The editor's chosen segment (its 3D and 2D switch, and the like) is a faint tint of black, which hardly shows
+   on a white card: in light it takes the dashboard's second ground, as the dashboard's own switches do. */
+:root:not(.dark) .bg-black\/6 {
+  background-color: var(--lib-bg2);
+}
+
+/* Two of the editor's icons are white renders that vanish on a white card (the top view, for the Cameras panel,
+   and the plan, on its 2D switch): in light they are drawn as a dark silhouette, near the dimmed text colour. */
+:root:not(.dark) img:is([src$="/icons/topview.webp"], [src$="/icons/blueprint.webp"]) {
+  filter: brightness(0) opacity(0.75);
 }
 
 /* Small text the editor dims further than the theme's dimmed colour, which would fall under AA. */

@@ -15,6 +15,7 @@ import { createRoot } from 'react-dom/client';
 import { BuildTab, icon } from './BuildTab';
 import { CameraMarks } from './CameraMarks';
 import { CamerasTab } from './CamerasTab';
+import { framing } from './fit';
 import { installGridFade } from './gridFade';
 import { type Changed, fromHash, type Open, ours, type Ready, type Scene } from './protocol';
 import { useSpotsUi } from './spotsUi';
@@ -126,10 +127,14 @@ function show(): void {
   });
 }
 
-/** Fit the views to the plan. */
+/** Fit the views to the plan: the 2D editor alone clear of its floating controls (fit.ts); a 3D view frames the plan
+ *  itself, and the 2D one beside it follows that view. */
 function frame(): void {
   const bounds = planBounds();
-  if (bounds) emitter.emit('camera-controls:frame', { bounds });
+  if (!bounds) return;
+  const canvas = document.querySelector('svg:has(> g[data-floorplan-scene])')?.getBoundingClientRect();
+  const clear = view === '2d' && canvas ? framing(bounds, canvas.width, canvas.height) : null;
+  emitter.emit('camera-controls:frame', { bounds: clear ?? bounds });
 }
 
 function App() {
