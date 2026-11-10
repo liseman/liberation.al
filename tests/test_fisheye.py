@@ -1,4 +1,4 @@
-"""Fisheye rectification (src/liberational/see/fisheye.py, #1891): the lens model is OpenCV's, a person's virtual
+"""Fisheye rectification (src/liberational/see/fisheye.py): the lens model is OpenCV's, a person's virtual
 view resamples what that view would see, and joints map back to where the lens put them. With no fisheye here, the
 frames are synthetic renders through a known lens."""
 

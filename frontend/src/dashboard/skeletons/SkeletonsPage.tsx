@@ -1,4 +1,4 @@
-// Skeleton playback (#1987), a test page at /skeletons that's not in the nav: pick a recent action or walk-by span and
+// Skeleton playback, a test page at /skeletons that's not in the nav: pick a recent action or walk-by span and
 // watch its track's poses as a stick figure at real speed, with LEAD_S either side. Pose rows outlive the 30-day video
 // window, so this plays spans whose video is gone.
 import {

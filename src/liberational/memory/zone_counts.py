@@ -1,4 +1,4 @@
-"""How many times something visited a zone (#1316): "how many times did the cat use the litter box today".
+"""How many times something visited a zone: "how many times did the cat use the litter box today".
 
 memory/event_counts.py routes a count question here when it names one of the zones drawn on a camera's view
 (see/zones.py) and no detected event has that name. The answer counts the segment store's `zone.visit` candidates
@@ -13,17 +13,20 @@ could have been seen:
   use the litter box") counts the visits of May's species that are May by memory/subject_activity.py's attribution
   (labels, recognition, or "probably" the only named pet of the species); otherwise every subject's, split by what
   it was. A question naming a person ("how many times did I go to the bathroom") counts that person's visits: a
-  visit's track is theirs when the faces seen on it name them (memory/zone_people.py, #1497). Visits whose track no
+  visit's track is theirs when the faces seen on it name them (memory/zone_people.py). Visits whose track no
   face names are reported apart, never counted as theirs or dropped silently.
 These are detected visits, not confirmed ones, and the answer says that.
 """
 
 import datetime as dt
+import json
 import time
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
+
+import numpy as np
 
 from liberational import segment_log
 from liberational.see import zones
@@ -190,14 +193,23 @@ def answer(
     unknown_whose: list[dict[str, Any]] = []
     if narrowed:
         visits, unknown_whose = _theirs(state, visits, person)
-    rows = [
-        c
-        for c in log.range(segment_log.ZONE_COVERAGE, start, end)
-        if c.get("subject_kind") in kinds and set(c.get("zones") or []) & set(wanted)
-    ]
-    spans = [(max(float(c["ts_start"]), start), min(float(c["ts_end"]), end), c.get("cam")) for c in rows]
-    unlooked = sorted(kinds - {str(c.get("subject_kind")) for c in rows})
-    covered = _union([(a, b) for a, b, _ in spans if b > a])
+    looked: set[str] = set()
+
+    def checked(columns: Mapping[str, Any]) -> np.ndarray:
+        """The coverage rows that looked for one of `kinds` in one of the zones asked about."""
+        keep = np.array(
+            [
+                kind in kinds and not wanted.keys().isdisjoint(json.loads(zones))
+                for kind, zones in zip(columns["subject_kind"], columns["zones"], strict=True)
+            ],
+            dtype=bool,
+        )
+        looked.update(kind for kind, kept in zip(columns["subject_kind"], keep.tolist(), strict=True) if kept)
+        return keep
+
+    found = log.covered(segment_log.ZONE_COVERAGE, start, end, where=(("subject_kind", "zones"), checked))
+    unlooked = sorted(kinds - looked)
+    covered = _union([span for cam in found.values() for span in cam.spans])
     seconds = sum(b - a for a, b in covered)
     coverage["covered"] = [{"start": a, "end": b} for a, b in covered]
     coverage["seconds"] = seconds

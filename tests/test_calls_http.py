@@ -125,7 +125,7 @@ def test_call_route_requires_auth_origin_and_confirmation(serve, monkeypatch):
 
 
 def test_the_call_list_reads_an_older_call_without_a_direction_as_unknown(tmp_path, monkeypatch):
-    """#2682: calls saved before direction, to, instructions, and outcome were kept aren't migrated."""
+    """Calls saved before direction, to, instructions, and outcome were kept aren't migrated."""
     old = tmp_path / "2026-11-01" / "090000-CA1"
     new = tmp_path / "2026-11-06" / "130200-CA2"
     for d in (old, new):
@@ -161,7 +161,7 @@ def _live(folder, **over):
 
 
 def test_the_call_on_now_says_which_way_who_and_since_when(tmp_path, monkeypatch):
-    """GET /calls/live for the Calls page's "on a call" row: from the bridge's live mark (#2696)."""
+    """GET /calls/live for the Calls page's "on a call" row: from the bridge's live mark."""
     monkeypatch.setattr(server, "CALLS_DIR", tmp_path)
     assert server.calls_live() == {"live": None, "count": 0}
     _live(tmp_path / "2026-11-06" / "130200_CA9")

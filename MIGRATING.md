@@ -5,6 +5,32 @@ This guide covers the current Continuum installation. Fresh setup is in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). The old genericize and v1 import
 procedures are retired. Do not run an old catch-up script against current data.
 
+## Questions are read by the local model
+
+Ask and the voice loop no longer read a question's time, people, and kind with patterns. The local model reads each
+question once into a structured query (`memory/question.py`, #60), so every history question needs the model that
+`recall.model` names (empty means `ask.model`, else `models.ollama.llm`), also with `recall.enabled` off. When that
+model doesn't answer, Ask says it couldn't read the question, and a spoken question is answered as a general one.
+There is nothing to migrate and no data to reset. After pulling, restart the dashboard, the voice loop, and research
+(`pack-services restart dashboard voice research`, or the names your install uses), since each holds the old parser
+in memory.
+
+## Segment parts close as one batch
+
+A segment part used to keep one record batch for every append for good, so a stream appended a row at a time (the
+coverage streams) cost about 770 bytes a row on disk and seconds to read a day of. Writers now rewrite a part as one
+batch when it closes, and its name ends `-v1`. This needs the Rust binaries and the Python SDK rebuilt
+(`mise run continuum-release` and `mise run continuum-py`, the latter with the FFmpeg decoder where the install has
+it) and every service restarted, since each one reads or writes the segment store.
+
+Parts closed before the upgrade keep the old layout and still read correctly, only slower. To rewrite them once, after
+the restart, from the live checkout (safe while the services run; it touches closed parts only, deletes nothing, and
+prints how many it rewrote):
+
+```sh
+.venv/bin/python -c "import continuum_py; from liberational import segment_log; print(continuum_py.compact_segments(segment_log.root()))"
+```
+
 ## Positions are placed when written
 
 The Places page reads where people and pets were from the position layer (`position.placed`), which the nightly
@@ -41,7 +67,7 @@ Then `uv run --no-sync pack-services install continuum-gateway`, so the unit's `
 The process does not read `pack.toml` itself. Cameras then show for a dashboard opened on the tailnet. From outside
 the tailnet they stay unavailable.
 
-## Cameras are views: mounts and rigs in devices.toml (2026-11-09)
+## Cameras are views: mounts and rigs in devices.toml
 
 A camera is an angle on whatever holds it, not a room (#5). Its fixed-mount settings moved from `pack.toml` onto its
 own entry in `config/devices.toml`, as `mount`, and a camera on a moving rig now says where it sits on the rig
@@ -61,9 +87,9 @@ Delete the old keys from `pack.toml` after moving them. Capture refuses a `mount
 `mount.rig` with no `[[rig]]`, so restart `continuum-capture` once the manifest is edited, and then every
 config-reading service, dashboard included (the renamed `vision.camera_names` key). No machine-made data changes.
 
-## Pet embeddings are cut tight (2026-11-08)
+## Pet embeddings are cut tight
 
-Animal embeddings now crop the detector's box itself instead of a square with context (#3024), a new embedding space
+Animal embeddings now crop the detector's box itself instead of a square with context, a new embedding space
 (`<repo>:tight` in each row's and `pet.reference`'s `model`). References of the old space are ignored, so pet
 recognition is off until the owner's labels get new ones. After pulling, restart `see-actions`, `see-captions`, and the
 dashboard, then run once:
@@ -77,7 +103,7 @@ It finds each labeled track's animal in its saved photo (`state/pet_shots`, kept
 reference; a photo with no animal found leaves its label without one. Square-crop embeddings of unlabeled sightings
 age out with `pets.label_days`.
 
-## The shared Ollama is a pack service (2026-11-08)
+## The shared Ollama is a pack service
 
 The Ollama at `ollama.url` now runs as the `ollama` pack service, which waits for the NVIDIA driver before it starts.
 On Linux, stop and disable the system one so the two don't fight over port 11434, keep its model store, and install:

@@ -201,7 +201,7 @@ function CallLog({ calls, people }: { calls: readonly Call[]; people: readonly P
   );
 }
 
-const LIVE_POLL_MS = 3000; // how often Calls looks for a call in progress while it's open (#2699)
+const LIVE_POLL_MS = 3000; // how often Calls looks for a call in progress while it's open
 const SAVED_AGAIN_MS = 5000; // when a call ends, the log is read again now and once more after this, as it's saved
 
 /** How long a call has been on, ticking each second: only this re-renders as the time goes. */
@@ -214,7 +214,7 @@ function Elapsed({ since }: { since: number }) {
   return <time className={classes.liveClock}>{clipLength(Math.max(0, now - since))}</time>;
 }
 
-/** A call in progress, pinned at the top while it's on ("On a call with Dana · 2:14"), from GET /calls/live (#2697).
+/** A call in progress, pinned at the top while it's on ("On a call with Dana · 2:14"), from GET /calls/live.
  *  It takes its place only while there's a call. When the call ends, the log is read again, where it's now the newest
  *  row. Polling stops when Calls is hidden (React Query pauses in a hidden tab; a hidden page drops its queries). */
 function LiveCallRow({ people }: { people: readonly Person[] }) {
@@ -320,7 +320,7 @@ export function Calls({ people }: { people: Person[] | undefined }): JSX.Element
   const [composing, setComposing] = useState(false);
   const folded = !!calls?.length && !composing;
   const [who, setWho] = useState('');
-  // Person or Number: the owner's pick, else Number while nobody has one to pick (#2668), else Person
+  // Person or Number: the owner's pick, else Number while nobody has one to pick, else Person
   const [chosen, setMode] = useState<string | null>(null);
   const [number, setNumber] = useState('');
   const [left, setLeft] = useState(false); // the number field was left: its error may show
@@ -338,7 +338,7 @@ export function Calls({ people }: { people: Person[] | undefined }): JSX.Element
   // The button says who it calls: "Call Carly", "Call +14155550123", or "Call" until someone is picked.
   const typed = mode === 'number' ? callNumber(number) : null;
   const callLabel = mode === 'contact' && who ? `Call ${who}` : typed ? `Call ${typed}` : 'Call';
-  // Call waits for someone to call: a person with a number picked, or a whole number typed (#2668)
+  // Call waits for someone to call: a person with a number picked, or a whole number typed
   const ready = mode === 'contact' ? callable.some(p => p.name === who) : !!typed;
 
   const place = async (e: FormEvent) => {
@@ -417,7 +417,7 @@ export function Calls({ people }: { people: Person[] | undefined }): JSX.Element
         style={folded ? { display: 'none' } : undefined}
       >
         <Title order={2}>Have {assistant} call someone</Title>
-        {/* One choice, Person or Number, then only the field that applies (#2457 board, proposal 4). */}
+        {/* One choice, Person or Number, then only the field that applies. */}
         <SegmentedControl
           aria-label="Call a person or a number"
           w="fit-content"

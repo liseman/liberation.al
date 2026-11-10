@@ -1,5 +1,5 @@
 """Acknowledged ingest, the sequence query, the stream list, and purges with their records, from Python against a real
-broker (what the event log adapter needs, #547). These go through continuum-client, so they test its calls too.
+broker (what the event log adapter needs). These go through continuum-client, so they test its calls too.
 
 Run with `mise run continuum-test`, which builds the broker first.
 """

@@ -1,5 +1,5 @@
 // "Pick what's theirs": after New person (or from a card's More menu), the faces, video, and voices nobody has named
-// yet, to pick from and give to this person in one go (POST /people/assign, #309).
+// yet, to pick from and give to this person in one go (POST /people/assign).
 import { Button, Group, Switch, Text } from '@mantine/core';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { type ReactNode, useState } from 'react';

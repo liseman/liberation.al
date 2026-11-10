@@ -1,4 +1,4 @@
-/* Journal (#2811): a Finder-style column view. Columns sit side by side and the preview takes the rest; past the
+/* Journal: a Finder-style column view. Columns sit side by side and the preview takes the rest; past the
    page's width the row scrolls sideways. The picked row in the column the keys act on is filled; in the others, tinted. */
 .browser {
   display: flex;

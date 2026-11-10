@@ -1,4 +1,4 @@
-"""ingest/analyze.py: ingested media through the live workers' analysis (2026-10-31)."""
+"""ingest/analyze.py: ingested media through the live workers' analysis."""
 
 import asyncio
 import io
@@ -303,7 +303,7 @@ def test_a_waiting_item_connects_before_the_models_load(monkeypatch, tmp_path):
 
 
 def test_a_broker_gone_when_an_item_waits_is_an_exit_for_restart_not_a_traceback(monkeypatch, tmp_path):
-    # #2941's readers exit EXIT_OUTAGE with one WARN when the broker goes; ingest-analyze raised a traceback instead.
+    # Live readers exit EXIT_OUTAGE with one WARN when the broker goes; ingest-analyze raised a traceback instead.
     waiting = FakeItem(1, "photo", [{"kind": "video", "path": "p", "chunk_id": "c", "stream": "s"}])
     _patch_main(monkeypatch, tmp_path, [waiting])
 

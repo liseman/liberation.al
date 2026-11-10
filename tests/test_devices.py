@@ -1,4 +1,4 @@
-"""Devices linked to people and things (#1329): links on the broker, stays, things' last sightings, presence
+"""Devices linked to people and things: links on the broker, stays, things' last sightings, presence
 candidates, and Ask's answers. Every sighting here is synthetic: no board has recorded a real one yet."""
 
 import threading
@@ -55,7 +55,7 @@ def network(at: float, mac: str, connected: bool | None = True) -> dict:
         "id": str(uuid.uuid7()),
         "start": at,
         "end": at,
-        "mac": mac.upper(),  # the router's canonical form (#1328)
+        "mac": mac.upper(),  # the router's canonical form
         "hostname": "sams-phone",
         "ap_name": "Hall",
         "connected": connected,
@@ -68,7 +68,7 @@ def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(devices, "at", lambda state=None: reg)
 
     def record(stream: str, rows: list[dict[str, Any]]) -> None:
-        """Rows written where their workers write them: the segment store (#1755)."""
+        """Rows written where their workers write them: the segment store."""
         writers = segment_log.Writers(reg.segments)
         if stream == devices.NET_OBSERVATIONS:
             filled = [
@@ -87,7 +87,7 @@ def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         writers.close()
 
     # Questions route by who the configured state's registry knows ("is Dana home?"): its own, not the run's shared
-    # one, where an earlier test's Dana made this one fail only when that test ran first (#2013).
+    # one, where an earlier test's Dana made this one fail only when that test ran first.
     with cfg.override({"paths": {"state": str(tmp_path)}}):
         yield reg, record
 
@@ -197,7 +197,7 @@ def test_a_summary_row_says_how_to_link_it_and_which_link_it_has(home):
 
 
 def test_a_summary_row_and_a_wifi_device_say_who_made_them(home, monkeypatch):
-    """Known › Devices names a device nobody named by its maker (#3267): the Bluetooth company in its payload, the
+    """Known › Devices names a device nobody named by its maker: the Bluetooth company in its payload, the
     network address's IEEE block."""
     reg, record = home
     known = vendors.Registry(prefixes={6: {"001122": "Acme Radios"}}, companies={0x004C: "Apple, Inc."})
@@ -219,7 +219,7 @@ def a_place(state: Path) -> str:
 
 
 def test_a_located_device_keeps_its_thing_link_and_lists_where_it_lives(home, tmp_path):
-    """A device that lives in a room (#3274): a location beside its person or thing link, not instead of it."""
+    """A device that lives in a room: a location beside its person or thing link, not instead of it."""
     reg, record = home
     tv = reg.save("ble_identifier", WATCH, "thing", "Living room TV")
     home_id = a_place(tmp_path)
@@ -390,7 +390,7 @@ def test_a_router_cache_row_is_history_not_presence():
 
 
 def test_the_network_workers_own_records_drive_a_stay_and_its_sensing():
-    """The worker (#1328) and this reader agree on the record shape: a field renamed on either side fails here."""
+    """The worker and this reader agree on the record shape: a field renamed on either side fails here."""
 
     def run(at: float, devices_: list) -> list:
         sink = net.Sink()
@@ -402,7 +402,7 @@ def test_the_network_workers_own_records_drive_a_stay_and_its_sensing():
         "mac_address", PHONE.upper(), mac=PHONE.upper(), connected=True, hostname="sams-phone", access_point_name="Hall"
     )
     cached = NetworkDevice("mac_address", "02:00:00:00:00:09", mac="02:00:00:00:00:09", connected=None)
-    # A poll holding a cached row (connection unknown) claims no coverage (#1328), so the router polls are separate.
+    # A poll holding a cached row (connection unknown) claims no coverage, so the router polls are separate.
     rows = run(NOW, [phone]) + run(NOW + 60, [phone]) + run(NOW + 120, [cached])
     observations = [r for r in rows if r["stream"] == OBSERVATIONS]
     inventory = [r for r in rows if r["stream"] == INVENTORY and r.get("complete") and r.get("authoritative")]
@@ -495,7 +495,7 @@ def test_people_snapshot_groups_names_case_insensitively_and_reads_one_shared_wi
             devices.Link("watch", "ble_identifier", WATCH, "person", "alice", "b"),
         ]
 
-    def read(start, end):
+    def read(start, end, links=None, *, coverage=True):
         calls.append((start, end))
         return {devices.NET_OBSERVATIONS: [network(NOW - 10, PHONE)]}, []
 
@@ -508,7 +508,7 @@ def test_people_snapshot_groups_names_case_insensitively_and_reads_one_shared_wi
 
 
 def test_comings_lists_each_wifi_device_with_its_stays_today(home):
-    """Known › Devices' "comes and goes" (#1326): a stay a run of connected rows no more than devices.gap_s apart."""
+    """Known › Devices' "comes and goes": a stay a run of connected rows no more than devices.gap_s apart."""
     reg, record = home
     gap = devices.gap_s()
     reg.save("net_mac", PHONE, "person", "Sam")
@@ -562,7 +562,7 @@ def test_a_bad_access_point_name_is_refused(entry):
 
 
 def test_comings_and_whereabouts_show_an_access_point_by_the_owners_name(home):
-    """Known › Devices showed an access point by its MAC when the router gave it no name (#2664)."""
+    """Known › Devices showed an access point by its MAC when the router gave it no name."""
     reg, record = home
     reg.save("net_mac", PHONE, "person", "Sam")
     named, unnamed = "aa:bb:cc:00:00:01", "aa:bb:cc:00:00:02"
@@ -855,3 +855,37 @@ def test_a_tally_that_cant_be_saved_still_answers(tmp_path, cached):
     assert cached().summary(PAST - 1800, PAST + 3 * 3600)["total"] == 1
     assert not (tmp_path / devices.TALLY_CACHE).exists()
     assert list((tmp_path / devices.TALLY_CACHE).parent.iterdir()) == []  # no temporary file left behind
+
+
+def test_a_read_for_links_takes_only_the_sightings_those_links_can_match(home):
+    reg, record = home
+    tag = 'Dana\'s "tag"'  # a name JSON text escapes
+    named = {**sighting(NOW + 20, "11:22:33:44:55:66"), "local_name": tag}
+    record(devices.BLE_SIGHTINGS, [sighting(NOW, WATCH), sighting(NOW + 10, "DE:AD:BE:EF:00:02"), named])
+    record(devices.BLE_COVERAGE, [coverage(NOW)])
+    record(devices.NET_OBSERVATIONS, [network(NOW, PHONE)])
+    watch = devices.Link("l1", "ble_identifier", WATCH, "person", "Alice", "e1")
+    by_name = devices.Link("l2", "ble_name", tag, "thing", "Tag", "e2")
+    phone = devices.Link("l3", "net_mac", PHONE, "person", "Sam", "e3")
+
+    records, sensing = reg.read(NOW - 60, NOW + 60, [watch, by_name])
+    assert [r["identifier"] for r in records[devices.BLE_SIGHTINGS]] == [WATCH, "11:22:33:44:55:66"]
+    assert records[devices.NET_OBSERVATIONS] == [], "no link names a network device"
+    assert [row["stream"] for row in sensing] == [devices.BLE_COVERAGE]
+
+    records, sensing = reg.read(NOW - 60, NOW + 60, [phone], coverage=False)
+    assert records[devices.BLE_SIGHTINGS] == [] and len(records[devices.NET_OBSERVATIONS]) == 1
+    assert sensing == []
+
+    everything, _ = reg.read(NOW - 60, NOW + 60)
+    assert len(everything[devices.BLE_SIGHTINGS]) == 3 and len(everything[devices.NET_OBSERVATIONS]) == 1
+
+
+def test_a_fingerprint_link_reads_every_sighting_since_only_the_payload_says_which_match(home):
+    reg, record = home
+    record(devices.BLE_SIGHTINGS, [sighting(NOW, "AA:00:00:00:00:01", data=AIRPODS_DATA), sighting(NOW + 10, WATCH)])
+    fingerprint = devices.ble.payload_fingerprint(sighting(NOW, "x", data=AIRPODS_DATA))
+    pods = reg.save("ble_fingerprint", str(fingerprint), "thing", "AirPods")
+    assert len(reg.read(NOW - 60, NOW + 60, [pods])[0][devices.BLE_SIGHTINGS]) == 2
+    found = reg.target("AirPods", "thing", NOW - 60, NOW + 60)
+    assert found is not None and found.last is not None and found.last["identifier"] == "AA:00:00:00:00:01"

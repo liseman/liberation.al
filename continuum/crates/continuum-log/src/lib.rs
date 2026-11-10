@@ -180,7 +180,7 @@ mod tests {
         assert_eq!(levels, ["ERROR", "WARN", "INFO", "DEBUG", "DEBUG"]);
         for line in &got {
             let (time, tag, _, _) = parse(line);
-            // ISO local date and time to the second with its offset, e.g. 2026-11-03T02:20:15-08:00 (#1696).
+            // ISO local date and time to the second with its offset, e.g. 2026-11-03T02:20:15-08:00.
             let stamped = chrono::DateTime::parse_from_rfc3339(time).expect(line);
             assert_eq!(time.len(), "2026-11-03T02:20:15-08:00".len(), "{line}");
             assert!((chrono::Utc::now() - stamped.to_utc()).num_seconds().abs() < 60, "{line}");

@@ -22,21 +22,15 @@ const at = (day: string, hour = 12) => new Date(`${day}T${String(hour).padStart(
 afterEach(() => vi.unstubAllEnvs());
 
 describe('windowDays', () => {
-  it('keeps the playback day and loads visible dates with a margin in either direction', () => {
-    expect(windowDays(DAY, { t0: at('2026-10-20'), t1: at('2026-10-21') })).toEqual([
-      DAY,
-      '2026-10-20',
-      '2026-10-21',
-      '2026-10-19',
-      '2026-10-22',
-      '2026-10-26',
-      '2026-10-28',
-    ]);
+  it('is the playback day and the days in view, with no day read ahead (#52)', () => {
+    expect(windowDays(DAY, { t0: at('2026-10-20'), t1: at('2026-10-21') })).toEqual([DAY, '2026-10-20', '2026-10-21']);
+    expect(windowDays(DAY, { t0: at(DAY), t1: at(DAY) + 3600 })).toEqual([DAY]);
+    expect(windowDays(DAY, null)).toEqual([DAY]);
     expect(windowDays(null, null)).toEqual([]);
   });
 
-  it('does not prefetch future calendar days beyond the latest day', () => {
-    expect(windowDays(DAY, { t0: at(DAY), t1: at(DAY) + 3600 }, DAY)).toEqual([DAY, '2026-10-26']);
+  it('leaves out calendar days after today, even in view', () => {
+    expect(windowDays(DAY, { t0: at('2026-10-26', 20), t1: at('2026-10-28', 4) }, DAY)).toEqual([DAY, '2026-10-26']);
   });
 
   it.each(['2026-03-08', '2026-11-01'])('uses local dates rather than fixed-length days across %s', day => {
@@ -44,10 +38,10 @@ describe('windowDays', () => {
     const start = new Date(`${day}T00:00:00`);
     const end = new Date(start);
     end.setDate(end.getDate() + 1);
-    const days = windowDays(day, { t0: start.getTime() / 1000, t1: end.getTime() / 1000 });
-    expect(days).toHaveLength(3);
-    expect(days[0]).toBe(day);
-    expect(days).toContain(day === '2026-03-08' ? '2026-03-09' : '2026-11-02');
+    // The whole local day, 23 or 25 hours long: its end is the next midnight, which is not in view.
+    expect(windowDays(day, { t0: start.getTime() / 1000, t1: end.getTime() / 1000 })).toEqual([day]);
+    const next = day === '2026-03-08' ? '2026-03-09' : '2026-11-02';
+    expect(windowDays(day, { t0: start.getTime() / 1000, t1: end.getTime() / 1000 + 1 })).toEqual([day, next]);
   });
 });
 
@@ -64,7 +58,7 @@ describe('pollsLive (#2414)', () => {
   });
 });
 
-it("keeps today as yesterday's neighbor without polling it, and polls it once it's the day shown", async () => {
+it("doesn't read today while yesterday is shown, and polls it once it's the day shown", async () => {
   server.use(
     http.get('/transcript/day', () => HttpResponse.json({ entries: [] })),
     http.get('/audio/spans', () => HttpResponse.json({ spans: [] })),
@@ -90,8 +84,7 @@ it("keeps today as yesterday's neighbor without polling it, and polls it once it
   });
   try {
     await waitFor(() => expect(result.current.initialized).toBe(true));
-    await waitFor(() => expect(client.getQueryCache().find({ queryKey: reviewKey.transcript(today) })).toBeDefined());
-    expect(polling()).toEqual([false, false, false]); // loaded once, as a neighbor
+    expect(client.getQueryCache().find({ queryKey: reviewKey.transcript(today) })).toBeUndefined(); // not in view
     act(() => engine.pickDay(today));
     await waitFor(() => expect(polling()).toEqual([5000, 5000, 5000]));
   } finally {
@@ -101,7 +94,7 @@ it("keeps today as yesterday's neighbor without polling it, and polls it once it
   }
 });
 
-it('reads a neighbor fetched before its day ended once more after midnight, then leaves it settled', async () => {
+it('reads a day fetched before it ended once more after midnight, then leaves it settled', async () => {
   const reads = new Map<string, number>();
   server.use(
     http.get('/transcript/day', ({ request }) => {
@@ -115,7 +108,7 @@ it('reads a neighbor fetched before its day ended once more after midnight, then
   );
   vi.mocked(daySegments).mockResolvedValue([]);
   vi.useFakeTimers({ toFake: ['Date'] });
-  vi.setSystemTime(new Date('2026-10-28T23:59:30')); // 10-28 is today, kept as 10-27's neighbor
+  vi.setSystemTime(new Date('2026-10-28T23:59:30')); // 10-28 is today, in view beside 10-27
   const client = newQueryClient();
   client.setDefaultOptions({ queries: { retry: false } });
   const engine = new ReviewEngine({ cams: [], fetchNotes: async () => ({ cams: {} }) });
@@ -129,11 +122,12 @@ it('reads a neighbor fetched before its day ended once more after midnight, then
   });
   try {
     await waitFor(() => expect(result.current.initialized).toBe(true));
+    act(() => engine.setView(at(DAY, 20), at('2026-10-28', 4), true)); // a pan that brings today into view
     await waitFor(() => expect(reads.get('2026-10-28')).toBe(1));
     vi.setSystemTime(new Date('2026-10-29T00:00:30')); // midnight: 10-28 is over, and its snapshot is from before
-    act(() => engine.setView(at(DAY, 9), at(DAY, 10), true)); // anything that draws the window again
+    act(() => engine.setView(at(DAY, 21), at('2026-10-28', 3), true)); // anything that draws the window again
     await waitFor(() => expect(reads.get('2026-10-28')).toBe(2));
-    act(() => engine.setView(at(DAY, 10), at(DAY, 11), true));
+    act(() => engine.setView(at(DAY, 22), at('2026-10-28', 2), true));
     await new Promise(resolve => setTimeout(resolve, 50));
     expect(reads.get('2026-10-28')).toBe(2); // read after its end: settled, never again
     expect(reads.get(DAY)).toBe(1); // a day read after it ended is left alone
@@ -171,8 +165,8 @@ it('loads days lazily in either direction and restores cached chunks when pannin
   });
   try {
     await waitFor(() => expect(result.current.initialized).toBe(true));
-    await waitFor(() => expect(engine.entries.map(e => e.text)).toContain('2026-10-26'));
-    expect(reads.has('2026-10-20')).toBe(false);
+    await waitFor(() => expect(engine.entries.map(e => e.text)).toContain(DAY));
+    expect([...reads.keys()]).toEqual([DAY]); // neither neighbor is read before a pan reaches it
     act(() => engine.setView(at('2026-10-20'), at('2026-10-20') + 3600, true));
     await waitFor(() => expect(engine.entries.map(e => e.text)).toContain('2026-10-20'));
     expect(reads.get('2026-10-20')).toBe(1);

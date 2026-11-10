@@ -1,4 +1,4 @@
-"""Known › Places' reads (dashboard/places.py, #2848 and #2831): the places listing and one place's positions."""
+"""Known › Places' reads (dashboard/places.py): the places listing and one place's positions."""
 
 import http.client
 import json
@@ -152,7 +152,7 @@ def window(place, span=3600.0):
 
 
 def test_an_unnamed_face_groups_tracks_are_one_person_in_the_list(tmp_path, reader, home):
-    # #2981: "face:3" is someone, if unnamed: its own entry, not folded in with the strangers
+    # "face:3" is someone, if unnamed: its own entry, not folded in with the strangers
     reader.rows = [
         position(T + 1, entity="face:3", name="Face 3", track="cam0:4", x=1.0, y=2.0, room="Den", room_id="den"),
         position(T + 2, entity="face:3", name="Face 3", track="porch:7", x=1.5, y=2.5, room="Den", room_id="den"),
@@ -165,7 +165,7 @@ def test_an_unnamed_face_groups_tracks_are_one_person_in_the_list(tmp_path, read
 
 
 def test_one_entitys_tracks_the_reader_fused_are_one_path(tmp_path, reader, home):
-    # #2981: cam0:4 alone, then a fused point (no track of its own), then porch:7 alone: one path, in time order (a
+    # cam0:4 alone, then a fused point (no track of its own), then porch:7 alone: one path, in time order (a
     # step of half a metre a second apart, so none is thinned away as standing still)
     joined = "cam0:4+porch:7"
     reader.rows = [
@@ -182,7 +182,7 @@ def test_one_entitys_tracks_the_reader_fused_are_one_path(tmp_path, reader, home
 
 
 def test_an_uncertain_point_is_left_off_its_path_and_an_unnamed_joined_path_is_its_own_entry(tmp_path, reader, home):
-    # #3070: a foot on an occluding edge no other camera settled can be metres off
+    # A foot on an occluding edge no other camera settled can be metres off
     joined = "cam0:4+porch:7"
     reader.rows = [
         position(T + 1, entity="person:dana", name="Dana", track="cam0:2", x=1.0, y=2.0),
@@ -236,7 +236,7 @@ def test_a_long_track_is_thinned_evenly_keeping_its_ends(tmp_path, reader, home)
 
 def test_a_days_path_keeps_a_walks_shape_but_one_point_every_43_s_standing_still(tmp_path, reader, home):
     # 100 s shuffling on the spot (5 cm of foot jitter), then a 20 s walk at half a metre a second: on a Day's plan the
-    # walk is every step, not a line between two points 43.2 s apart (#3296)
+    # walk is every step, not a line between two points 43.2 s apart
     still = [position(T + i, entity="person:dana", x=0.05 * (i % 2), y=0.0) for i in range(100)]
     walk = [position(T + 100 + j, entity="person:dana", x=0.5 * j, y=0.0) for j in range(1, 21)]
     reader.rows = still + walk
@@ -558,7 +558,7 @@ def test_the_scene_gives_the_newest_maps_frame_cameras_and_plan(tmp_path, mapped
 
 
 def test_a_newer_map_in_the_same_frame_shows_the_last_splat_and_one_in_another_frame_names_it_stale(tmp_path, mapped):
-    # #2877: a nightly fusion with too few lit frames for a splat kept the map's frame, so the last splat still fits.
+    # A nightly fusion with too few lit frames for a splat kept the map's frame, so the last splat still fits.
     place, rev_id = mapped
     first = places.revisions(tmp_path, place)[-1]
     places.write_splat(tmp_path, first, master=b"ply", web=b"spz-bytes")
@@ -623,7 +623,7 @@ def test_the_scene_carries_the_owners_plan_only_in_the_frame_it_was_drawn_in(tmp
 
 
 def test_an_owner_plan_drawn_on_a_map_with_no_plan_of_its_own_is_outlined_in_the_floors_frame(tmp_path, mapped):
-    # #3276: an imported plan drawn in a fused map's floor frame (the map has no plan file, so no plan transform)
+    # An imported plan drawn in a fused map's floor frame (the map has no plan file, so no plan transform)
     place, _ = mapped
     bare = places.revise(tmp_path, place, producer="tier1 fuse v1", map_bytes=CLOUD, map_format="ply", now=T + 5)
     places.revise(tmp_path, place, producer="tier1 fuse v1", floor=(0.0, 0.0, 1.0, 0.0), now=T + 6)
@@ -684,7 +684,7 @@ def test_one_persons_tracks_on_two_cameras_stay_two_paths(tmp_path, reader, home
     ]
 
 
-# An owner plan drawn on its own page (#3276): the page's x and y become the plan frame's y + 10 and x, the page
+# An owner plan drawn on its own page: the page's x and y become the plan frame's y + 10 and x, the page
 # mirrored and given a quarter turn, as an imported plan's fit does.
 PAGE = 'plan "Home" walls 0.2/0.1\nroom den "Den" living rect 0,0 4x6\n'
 TURNED = {"turn": 1.5707963267948966, "shift": [10.0, 0.0], "mirror": True}

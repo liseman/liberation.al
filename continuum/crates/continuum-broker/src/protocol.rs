@@ -272,7 +272,7 @@ pub fn ingest(n: &IngestNotice<'_>) -> Result<(HeaderBuf, Option<StorageLocator>
     Ok((header, locator))
 }
 
-/// A notice's dependencies (minor 31, #1535). Only an acknowledged notice (a nonzero request id) may carry them: a
+/// A notice's dependencies (minor 31). Only an acknowledged notice (a nonzero request id) may carry them: a
 /// sender that hears nothing back couldn't learn they were refused.
 ///
 /// # Errors

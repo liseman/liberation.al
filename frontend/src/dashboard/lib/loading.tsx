@@ -1,12 +1,12 @@
-// Loading and error states shared by the tabs (#250): skeletons shaped like what is coming, a loader that shows only
+// Loading and error states shared by the tabs: skeletons shaped like what is coming, a loader that shows only
 // when a wait runs long (so a quick load doesn't flash one), and an error with a retry, so a failed request never
-// leaves a skeleton up for good. The error itself is LoadError in page.tsx (#2450).
+// leaves a skeleton up for good. The error itself is LoadError in page.tsx.
 import { Group, Loader, Skeleton, Stack, Text } from '@mantine/core';
 import { useEffect, useState } from 'react';
 
 /** How long a load runs before the loader joins the skeleton. */
 export const SLOW_MS = 1200;
-/** The space every loading state keeps around it, so none sits flush against what is around it (#335). Skeletons keep it on every side; the loader and the error keep it above and below. */
+/** The space every loading state keeps around it, so none sits flush against what is around it. Skeletons keep it on every side; the loader and the error keep it above and below. */
 export const ROOM = 'xs';
 
 /** True once `active` has been true for `ms` without a break. */

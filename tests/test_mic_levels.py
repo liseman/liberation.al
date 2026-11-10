@@ -81,7 +81,7 @@ class _Client:
 
 
 def test_the_audio_subscription_has_a_connection_of_its_own(monkeypatch, tmp_path):
-    """#1267: the meters never consume their audio subscriptions' events, and a full subscription queue blocks that
+    """The meters never consume their audio subscriptions' events, and a full subscription queue blocks that
     connection's socket reader, so its requests time out. Subscriptions and their rings are on one connection;
     every request is on another (the gate state is read from the segment store, not the broker)."""
     import continuum_py

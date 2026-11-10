@@ -28,7 +28,7 @@ pub struct SeqWait<'a> {
 const FOREVER: Duration = Duration::from_secs(100 * 365 * 24 * 60 * 60);
 
 /// When a wait of `timeout` from now ends. A timeout past what an [`Instant`] holds (`Duration::MAX`, the usual
-/// "forever", or a huge one from Python) waits about a century instead of panicking on the overflow (#3210).
+/// "forever", or a huge one from Python) waits about a century instead of panicking on the overflow.
 #[must_use]
 pub fn deadline_after(timeout: Duration) -> Instant {
     let now = Instant::now();
@@ -148,7 +148,7 @@ mod tests {
         assert!(SeqWait::new(&seq, &waiters).wait(5, Duration::from_secs(5)));
     }
 
-    /// #3210: `Duration::MAX` (the usual "forever") overflowed `Instant::now() + timeout` and panicked.
+    /// `Duration::MAX` (the usual "forever") overflowed `Instant::now() + timeout` and panicked.
     #[test]
     fn a_wait_with_a_timeout_past_what_an_instant_holds_still_wakes_on_a_change() {
         let words = Arc::new((AtomicU32::new(0), AtomicU32::new(0)));

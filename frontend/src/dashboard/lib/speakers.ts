@@ -36,7 +36,7 @@ export function badgeText(label: string | null | undefined): string {
 }
 
 /** What a voice no person was matched to is called: never its placeholder ("Speaker 261"), "unknown", or "multiple
- *  speakers" (#2580). */
+ *  speakers". */
 export const UNMATCHED = 'Unmatched';
 
 /** Whether a label is someone's name, not a placeholder for a voice nobody was matched to. */

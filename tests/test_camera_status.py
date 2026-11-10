@@ -1,5 +1,5 @@
 """Camera status (dashboard/cameras.py `states`): read from the broker at most every STATUS_EVERY_S, and a stale one
-answered at once while it is read again in the background (#2568)."""
+answered at once while it is read again in the background."""
 
 import threading
 import types

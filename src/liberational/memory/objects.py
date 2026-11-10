@@ -1,4 +1,4 @@
-"""Object memory on Continuum (#778): objects the owner names and crops on the Objects page, found again in the
+"""Object memory on Continuum: objects the owner names and crops on the Objects page, found again in the
 cameras, and "where did I leave my wallet?" answered from where each was last seen.
 
 - An object is an event on the `objects` stream (`ObjectRemembered`, `ObjectForgotten`), through the registry's
@@ -6,10 +6,10 @@ cameras, and "where did I leave my wallet?" answered from where each was last se
 - A sighting is the object, the camera, its box, and the frame it was seen in as a small inline JPEG (`evidence`), so
   it outlives the frame's recompression. The owner's own crop is the first (`manual_label`), an `object.sighting`
   record in the knowledge store (taught state, outside the broker's reset); the object worker (`see.object_worker`) adds the rest (`visual_match`) as `object.match`
-  rows in the segment store (#1791). `sightings` reads both.
+  rows in the segment store. `sightings` reads both.
 - A snapshot (the view the owner crops from) is the camera's newest frame, kept in this process for SNAPSHOT_TTL.
 
-Matching is v1's (`memory/object_memory.py`, #66): CPU SIFT features and a RANSAC homography, confirmed in two
+Matching is by CPU SIFT features and a RANSAC homography, confirmed in two
 distinct frames in a row; no person recognition.
 """
 
@@ -51,7 +51,7 @@ def camera_names() -> list[str]:
     return [c.name for c in cameras_from_manifest(cfg.ROOT / "config" / "devices.toml")]
 
 
-# ---- matching (v1's) ---------------------------------------------------------------------------------------------
+# ---- matching ----------------------------------------------------------------------------------------------------
 
 
 def features(image: MatLike, mask: MatLike | None = None) -> tuple[Sequence[cv2.KeyPoint], MatLike | None]:
@@ -577,7 +577,7 @@ class Store:
         raise FileNotFoundError(ref)
 
     def query(self, question: str) -> dict[str, Any]:
-        """Where an object named in the question was last seen, as v1 answered it."""
+        """Where an object named in the question was last seen."""
         q = str(question).casefold()
         objects = self.objects()
         matches = [

@@ -3,25 +3,26 @@
 GET  / and each tab's path (APP_PATHS), with Accept text/html   the dashboard app (frontend/): static/app/index.html
                             from the Vite build, filled in; the tab comes from the path. In --dev, Vite's page
                             instead, with /static/app/* passed through to it
-GET  /events                server-sent events: hello, transcript, scene, speakers, ambient, vision, ping
+GET  /events                server-sent events: hello, transcript, scene, speakers, ambient, vision, ping, and the
+                            shell's status (privacy, services, research: dashboard/shell_status.py), then ready
 GET  /scene                 state/scene.json
 GET  /people/video-thumb.jpg?cam=&start=&end= prepared full-scene thumbnail; 202 queues background preparation
 GET  /transcript?n=80       the last N lines heard and said (the broker's speech log)
 POST /transcript/reject     {lines: [exact line keys]}: owner correction, hide the turn without deleting raw speech;
                             {ok, lines, undo} with one durable Undo token for the atomic batch
-POST /transcript/media      {lines: [exact line keys]}: "This is TV" (#2468): the lines stay in the transcript, marked
+POST /transcript/media      {lines: [exact line keys]}: "This is TV": the lines stay in the transcript, marked
                             `media`, and leave people, voices, the journal, and Ask; {ok, lines, undo}
 POST /voices/unknown/media  {group}: "This is TV" for every line of an unnamed voice; {ok, lines, undo}
 POST /transcript/not-media  {lines: [exact line keys]}: "Not TV": these lines, and no others, are a TV's no more,
-                            whoever marked them (#2468); {ok, lines, undo}, 404 when none of them is marked
+                            whoever marked them; {ok, lines, undo}, 404 when none of them is marked
 POST /transcript/undo       {undo: token}: restore the rejected batch, or unmark the TV lines; {ok, lines}, 409 if
                             already undone
 GET  /speakers              the voice list (people/voice_list.py), each voice labeled with its person
 POST /speakers/label        {"id": 4, "name": "Sarah"}  -> runs ambient.py speakers label <id> <name>
-POST /speakers/tag          {"lines": [keys], "name"} (or "ts_starts", as before #247): lines with no voice were NAME; queued in voice_tags.jsonl for
+POST /speakers/tag          {"lines": [keys], "name"} (or "ts_starts"): lines with no voice were NAME; queued in voice_tags.jsonl for
                             the microphone service, which relabels them and learns the voice
 POST /speakers/me           {"id": 2}: "that was me"; names voice 2 as the owner (this machine only)
-GET  /review/boxes?cam=&start=&end=  people and things one camera saw then, as boxes (at most 120 s; #374)
+GET  /review/boxes?cam=&start=&end=  people and things one camera saw then, as boxes (at most 120 s)
 GET  /audio/range?start=&end= the room's audio between two timestamps as WAV (at most 330 s), for Review under video
 GET  /people                {people: [one entry per person: voices, faces, number, lines, last heard and seen],
                              unknown: {voices, faces}} (unnamed voice clusters and face groups)
@@ -53,21 +54,21 @@ GET  /faces/unknown/groups    {groups: [{id, label, count, last_seen, shots, sho
                             Both group routes return 202 {pending: true, groups: [], count: null, skipped: []}
                             while their first snapshot warms; this is unknown, not an empty result. After an owner change
                             the face route serves its last answer less what was named or put aside, with
-                            refreshing: true, while the full one is worked out (#2332).
+                            refreshing: true, while the full one is worked out.
 GET  /faces/unknown/<id>.jpg   latest crop of an unnamed face group (refreshed while it's in view)
 GET  /faces/unknown/<id>/sightings?offset=&limit=   that group's sightings, newest first, a page at a time (at most 200):
                             {"sightings": [{id, ts, url}], "total"}, each url its shot (/faces/shot/<sighting>.jpg)
 POST /faces/not             {name, groups, shots, not}: these face groups are not that person (never their guess, never
                             named them automatically; not:false takes it back), and these shots are the card's own
-                            Not <name> (#2368): {ok, marked, undo: [tokens for the shots]}
+                            Not <name>: {ok, marked, undo: [tokens for the shots]}
 POST /people/photo          {name, action: main|newest|hide|show, shot}: the card's photo choices, with /pets/photo's
-                            verbs (#2368): {ok, undo, card}
+                            verbs: {ok, undo, card}
 POST /faces/unknown/reject  {group, ids}: "Not this person": those shots leave the group for good, and its face is
-                            rebuilt from the rest (#2008): {ok, removed, left, ignored}
+                            rebuilt from the rest: {ok, removed, left, ignored}
 GET  /people/<name>/shots?before=&limit=   every shot of them the face worker found (vision/sightings.py), newest
                             first, one per camera per second: {total, shots: [{id, ts, cam, sim}], next}
 GET  /faces/shot/<id>.jpg   a square face crop of one sighting (state/shots/, see people/face_shots.py)
-GET  /people/<name>/card    the contact card (#307): {name, photo: Shot | null, shots: [Shot] (up to 6, best first, one
+GET  /people/<name>/card    the contact card: {name, photo: Shot | null, shots: [Shot] (up to 6, best first, one
                             per day until days run out), videos: [{cam, camera_name, start, end, duration_s, thumb, what,
                             review}]
                             (up to 4, newest first), voices: [{line, ts_start, text, mic}] (up to 4, newest first),
@@ -76,7 +77,7 @@ GET  /people/<name>/card    the contact card (#307): {name, photo: Shot | null, 
                             id, cam, and score are null only for a saved crop (no recorded shot yet). The main photo
                             is the best-scoring shot (vision/face_quality.py); /people's "photo" is its url.
                             Each video also has "id": "<cam>@<start .2f>", for /people/correct
-GET  /inbox/unnamed         what nobody is named for (#309), each newest first: {faces: [{id, photos: [up to 4
+GET  /inbox/unnamed         what nobody is named for, each newest first: {faces: [{id, photos: [up to 4
                             urls], count, last_seen, cam, camera_name}] (up to 24), voices: [{id, label: "Unnamed voice A",
                             lines, last_heard, sample: {line, ts_start, text} | null}] (up to 12), videos: [{id, cam,
                             camera_name, start, end, duration_s, thumb, what}] (up to 12: a camera's stretch of faces nobody
@@ -96,7 +97,7 @@ POST /people/correct        {"name", "kind": "shot"|"video"|"voice"|"track", "id
                             so it keeps that name. {ok, undo, to (a move's person), card}
 POST /people/undo           {"undo": token}: put a claim, correction, or assignment back. {ok, errors, people, card | null};
                             409 when it was undone already
-GET  /clones/<id>/lines      a voice's recent lines that could go into its clone's reference, newest first (#312):
+GET  /clones/<id>/lines      a voice's recent lines that could go into its clone's reference, newest first:
                             {lines: [{line, ts_start, text, dur_s, confirmed}]}
 POST /clones/pick           {"id", "lines": [line keys]}: make that voice's clone reference from the lines picked, in that
                             order (clone_say.pick), and count each as the owner's word that it is theirs. {ok, seconds,
@@ -104,12 +105,12 @@ POST /clones/pick           {"id", "lines": [line keys]}: make that voice's clon
 GET  /review/presence?day=   people, objects, and notable events of a day as time spans (Review's chips)
 GET  /journal/evidence?day=  {sources: [{label, stream, ts_start, ts_end, stage, caption, ...}]}: what each source
                             behind the day page's citations can show now: "video", "clip" or "still" (url), "audio",
-                            or "expired" with a note (memory/journal_evidence.py, #2808)
+                            or "expired" with a note (memory/journal_evidence.py)
 GET  /journal/evidence/<day>/<file>   a promoted clip (.mp4) or still (.jpg) of a cited moment
 GET  /live/happening?since=&limit=  Live's What's happening (dashboard/happening.py): {items: [{id, ts, kind:
                             arrival | departure | talk, text, people, cam, camera_name}], updated}, oldest first; since
                             is exclusive, and polling with since=updated never repeats or drops a row
-GET  /journal/today[?day=]   the Journal tab's current day (memory/journal_pages.py, #2837): {day, status: settled |
+GET  /journal/today[?day=]   the Journal tab's current day (memory/journal_pages.py): {day, status: settled |
                             ready | empty | pending | error, md, coverage: {through, hours, elapsed}}. The day's
                             journal page once written, else a today-so-far page built in the background (202 pending,
                             with the last one built as md, until it's ready). Today, or yesterday until its page is
@@ -121,17 +122,16 @@ GET  /review/summary?start=&end=  what happened over that stretch, as timeline b
                             timezone's midnight-to-midnight bounds, including 23/25-hour clock-change days.
 GET  /places                 Known › Places' places (dashboard/places.py): {places: [{id, name, named, plan (DSL),
                             plan_source, machine_newer, revision, last_visit}]}; a page load with text/html gets the app
-POST /places/plan            {place, plan}: the owner's corrected plan (DSL) as taught state, or "" to withdraw it
-                            (#2859); a teaching write, so it follows dashboard.remote_teaching; {ok, plan, plan_source}
+POST /places/plan            {place, plan}: the owner's corrected plan (DSL) as taught state, or "" to withdraw it; a teaching write, so it follows dashboard.remote_teaching; {ok, plan, plan_source}
 GET  /places/plan/history?place=  the place's owner plans, oldest first ({id, at, rooms, source, withdrawn}), and
                             `previous`, the one Revert plan puts back (or null)
 POST /places/plan/restore    {place, record}: make that earlier owner plan hold again, as a new record (Revert plan);
                             a teaching write like POST /places/plan; {ok, plan, plan_source}
-GET  /places/scene?place=     the Places 3D view's scene (#2876): the newest revision with a map, its floor, plan
+GET  /places/scene?place=     the Places 3D view's scene: the newest revision with a map, its floor, plan
                             transform, cameras, and plan in its frame; {revision: null} with no map
 GET  /places/map?place=&revision=  that revision's map (PLY), with byte ranges, an ETag, and immutable caching
-GET  /places/splat?place=&revision=  that revision's 3D Gaussian splat (SPZ, #2877), served like its map
-GET  /places/positions?place=&start=&end=[&entity=]  where people and pets were on that place's plan (#2831):
+GET  /places/splat?place=&revision=  that revision's 3D Gaussian splat (SPZ), served like its map
+GET  /places/positions?place=&start=&end=[&entity=]  where people and pets were on that place's plan:
                             {place, start, end, entities, tracks: [{entity, points}], rooms: [zone spans]}, at most
                             2,000 points an entity; 400 for no place or a bad window (at most 31 days)
 GET  /journal[?month=|week=|day=|hour=]  the Journal tab's column view (dashboard/journal.py): {items, page}, the
@@ -167,7 +167,7 @@ POST /services              {"name": "vision", "action": "on"} -> pack-services 
                             installed one; the dashboard and services running by hand are left alone either way
 GET  /devices               source picker: this machine's cameras and microphones, which are chosen and in use
 POST /devices/sensitivity   {"mic": name, "sensitivity": 0..100 or null} -> audio.mic_sensitivity; applied live
-POST /devices/auto_gain     {"mic": name, "on": bool} -> audio.mic_auto_gain (#410); applied live
+POST /devices/auto_gain     {"mic": name, "on": bool} -> audio.mic_auto_gain; applied live
 GET  /research/jobs          the Inbox: research jobs and their reports (dashboard/research.py, memory/research.py);
                              POST queues one; POST .../<id>/read marks one, .../<id>/delete removes it
 GET  /device-links           Settings' phones, watches, and tags: devices seen (?hours=, 24 by default) and every link
@@ -175,7 +175,7 @@ GET  /device-links           Settings' phones, watches, and tags: devices seen (
 POST /device-links           {"kind", "value", "target", "name"} -> link a device to a person or name it as a thing;
                              POST /device-links/remove {"id"} retires a link; this machine only
 POST /device-locations       {"kind", "value", "place", "room"} -> say a device lives in a place or a room of its plan
-                             ("" for the whole place, #3274); POST /device-locations/remove {"id"}; this machine only
+                             ("" for the whole place); POST /device-locations/remove {"id"}; this machine only
 POST /device-access-point    {"mac", "name"} -> name a Wi-Fi access point (devices.access_points; "" clears it); this
                              machine only. /device-comings and /device-whereabouts show it as each stay's `place`, with
                              the MAC as `place_id`, and list every name set as `access_points`
@@ -183,7 +183,7 @@ GET  /zones                  every camera's owner-drawn zones (dashboard/zones.p
                              a camera's saved versions, newest first
 POST /zones                  {"cam", "zones", "base"} -> a new version of that camera's zone set; this machine only
 GET  /ingest/api/...         the Ingest tab: uploads, links, sources, and Google Photos (dashboard/ingest.py)
-GET  /reports/api/...        the Reports tab: report figures and the chosen layout (dashboard/reports.py, #1340)
+GET  /reports/api/...        the Reports tab: report figures and the chosen layout (dashboard/reports.py)
 GET  /config                settings page: every editable setting, "control", and "needs_setup" (dashboard/settings.py)
 POST /config                {"values": {"owner.name": "Alice"}} -> write pack.toml and restart; this machine only
 """
@@ -216,6 +216,7 @@ import urllib.parse
 import urllib.request
 import uuid
 from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
+from collections.abc import Set as AbstractSet
 from concurrent.futures import Executor, Future, ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass, field
@@ -256,10 +257,11 @@ from liberational.dashboard import (
     frontend_log,
     ingest,
     machine_usage,
-    marks,
     network_cameras,
     reports,
+    routes,
     settings,
+    shell_status,
     slow,
 )
 from liberational.domain.identity import Basis, SubjectRef
@@ -286,6 +288,21 @@ if TYPE_CHECKING:
 
 type Reply = tuple[int, dict[str, Any]]  # (HTTP status, JSON body)
 
+# The areas whose modules register their own routes (dashboard/routes.py); the rest are still registered below.
+routes.load(
+    "activities",
+    "device_links",
+    "happening",
+    "journal",
+    "marks",
+    "pets",
+    "places",
+    "presence",
+    "review_boxes",
+    "skeletons",
+    "zones",
+)
+
 STATE = cfg.path("paths.state")  # PACK_STATE= for tests
 STATIC = assets.STATIC
 SCENE_POLL_S = 2.0  # how often the live feed asks the vision log for new captions
@@ -306,17 +323,17 @@ APP_PATHS = (
     "/review",
     "/people",
     "/pets",
-    "/activities",  # Known › Activities (#2283); GET /activities?day= without text/html stays the JSON API
-    "/devices",  # Known › Devices: phones, watches, and tags (Joe 2026-11-06); /devices/... stay the API
-    "/places",  # Known › Places: floorplans of the indoor places the Pack has been (#2796)
-    "/journal",  # the Journal tab (#2811); GET /journal?... without text/html stays the JSON API
+    "/activities",  # Known › Activities; GET /activities?day= without text/html stays the JSON API
+    "/devices",  # Known › Devices: phones, watches, and tags; /devices/... stay the API
+    "/places",  # Known › Places: floorplans of the indoor places the Pack has been
+    "/journal",  # the Journal tab; GET /journal?... without text/html stays the JSON API
     "/calls",
     "/inbox",
     "/ingest",
     "/reports",
     "/settings",
     "/debug",
-    "/skeletons",  # the skeleton playback test page (#1987), not in the nav
+    "/skeletons",  # the skeleton playback test page, not in the nav
 )  # one page app; the tab comes from the path
 APP_PAGE = "index.html"  # the app (frontend/), built into static/app/
 DEV = False  # main() sets it for --dev: auto-reload (dashboard/devreload.py)
@@ -360,9 +377,9 @@ def mtime(p: pathlib.Path) -> int:
 
 
 # ------------------------------------------------------------ transcript ----
-# What was heard and what the assistant said come from the broker's speech log (speech_log.shared(), #548): utterances
-# on speech.utterance, replies on assistant.reply, each a v1-shaped line with its payload `id`. A line names its voice
-# (speaker_id, "Speaker n"), never a person; who said it is read through the event log (_view).
+# What was heard and what the assistant said come from the broker's speech log (speech_log.shared()): utterances
+# on speech.utterance, replies on assistant.reply, each a transcript line (a dict) with its payload `id`. A line names
+# its voice (speaker_id, "Speaker n"), never a person; who said it is read through the event log (_view).
 TAIL_S = 7 * 86400  # how far back a tail looks first; the whole log only when that holds too few lines
 END_OF_TIME = float(2**32)  # 2106: "to the end" for a read of every line, whatever the clock says
 
@@ -397,7 +414,7 @@ def reject_transcript(body: Mapping[str, Any]) -> Reply:
 
 
 def media_transcript(body: Mapping[str, Any]) -> Reply:
-    """The owner's "This is TV" on transcript lines (#2468): one atomic, undoable mark."""
+    """The owner's "This is TV" on transcript lines: one atomic, undoable mark."""
     from liberational.listen import revisions
 
     keys = body.get("lines")
@@ -417,7 +434,7 @@ def media_transcript(body: Mapping[str, Any]) -> Reply:
 
 
 def media_voice(body: Mapping[str, Any]) -> Reply:
-    """The owner's "This is TV" on an unnamed voice (#2468): every line it has that isn't a TV's already."""
+    """The owner's "This is TV" on an unnamed voice: every line it has that isn't a TV's already."""
     from liberational.listen import revisions
 
     group = body.get("group")
@@ -440,7 +457,7 @@ def media_voice(body: Mapping[str, Any]) -> Reply:
 
 
 def not_media(body: Mapping[str, Any]) -> Reply:
-    """The owner's Not TV on transcript lines (#2468): every mark on them is taken back, so the tagger's mistakes are undone."""
+    """The owner's Not TV on transcript lines: every mark on them is taken back, so the tagger's mistakes are undone."""
     from liberational.listen import revisions
 
     keys = body.get("lines")
@@ -498,7 +515,7 @@ def _view() -> transcript_view.View:
 
 def merged_tail(n: int = 80) -> list[dict[str, Any]]:
     """The last n lines of what was heard and what the assistant said, in time order."""
-    heard_once = transcript_view.once(_view().lines(heard_tail(n)))  # another mic's copy of a line shows once (#284)
+    heard_once = transcript_view.once(_view().lines(heard_tail(n)))  # another mic's copy of a line shows once
     return sorted(heard_once + said_tail(n), key=lambda e: e.get("ts_start") or 0)[-n:]
 
 
@@ -518,7 +535,7 @@ def log_mark() -> tuple[int, ...]:
 
 
 def label_marks(lines: list[dict]) -> dict[str, tuple]:
-    """How each heard line reads, by its key (registry.key_of, #247: two microphones' lines in one millisecond are
+    """How each heard line reads, by its key (registry.key_of: two microphones' lines in one millisecond are
     two lines): the fields a label changes."""
     return {
         registry.key_of(e): tuple(e.get(f) for f in LABEL_FIELDS)
@@ -549,7 +566,7 @@ REVIEW_TODAY_VIDEO_S = 60.0  # and whether today has video yet, at most this oft
 
 @dataclass
 class _Days:
-    """What recorded_days keeps between requests (#2850): each day's speech kinds, read in full once per state, purge,
+    """What recorded_days keeps between requests: each day's speech kinds, read in full once per state, purge,
     and review revision and then followed line by line, and the days with video, asked again every
     REVIEW_VIDEO_DAYS_S (today's every REVIEW_TODAY_VIDEO_S until it has some)."""
 
@@ -578,7 +595,7 @@ def recorded_days(state: pathlib.Path) -> list[dict[str, Any]]:
     true when the day has it: a camera's video on the broker (`<cam>.video`, any tier), and the speech log's lines by
     local day, with audio when a line has it.
 
-    Reading every line and asking the broker for every day each time cost about 0.4 s of CPU a request (#2850). The
+    Reading every line and asking the broker for every day each time cost about 0.4 s of CPU a request. The
     speech part is read in full only when the state, a purge, or a review correction could have taken lines; otherwise
     only the lines committed since are added, so a line for any day shows at once. The days with video are asked again
     every REVIEW_VIDEO_DAYS_S or when the local day changes, and today's every REVIEW_TODAY_VIDEO_S until it has video.
@@ -638,7 +655,7 @@ def find_entry(ts_start: float, tol: float = 0.002) -> dict[str, Any] | None:
 
 
 def find_line(line: str) -> dict[str, Any] | None:
-    """The transcript line with this key (registry.key_of, #247), newest first like find_entry."""
+    """The transcript line with this key (registry.key_of), newest first like find_entry."""
     for e in iter_back():
         if isinstance(e.get("ts_start"), int | float) and registry.key_of(e) == line:
             return e
@@ -646,7 +663,7 @@ def find_line(line: str) -> dict[str, Any] | None:
 
 
 def lines_near(e: dict[str, Any], n: int = 200) -> list[dict[str, Any]]:
-    """The n lines stored on each side of e in the transcript, where another mic's copy of it is (#284): written a
+    """The n lines stored on each side of e in the transcript, where another mic's copy of it is: written a
     moment apart live, or together by a re-transcription."""
     key = registry.key_of(e)
     after: collections.deque[dict[str, Any]] = collections.deque(maxlen=n)
@@ -668,7 +685,7 @@ def lines_near(e: dict[str, Any], n: int = 200) -> list[dict[str, Any]]:
 def latest_for_speaker(sid: int) -> dict[str, Any] | None:
     view = _view()
     for e in iter_back():
-        # A rejected line, or one with no voice, has no speaker_id (#3051).
+        # A rejected line, or one with no voice, has no speaker_id.
         if has_audio(e) and (e := view.line(e)).get("speaker_id") == sid:
             return e
     return None
@@ -676,7 +693,7 @@ def latest_for_speaker(sid: int) -> dict[str, Any] | None:
 
 def speakers_with_audio(raw: list[dict[str, Any]] | None = None, view: transcript_view.View | None = None) -> set[int]:
     """The (merged-resolved) speaker ids that still have at least one line with audio, not counting lines marked as
-    a TV's (#2468): a voice heard only from one is nobody to name."""
+    a TV's: a voice heard only from one is nobody to name."""
     view = view if view is not None else _view()
     lines = reversed(raw) if raw is not None else iter_back()
     # Match independent line() reads: audio availability does not borrow labels from another microphone's copy.
@@ -714,8 +731,8 @@ def _channel(stream: str) -> int:
 
 
 def wav(rate: int, samples: Any, loud: bool = True) -> bytes:
-    """Float samples as a 16-bit mono WAV, brought up to a listening level unless `loud` is False (audio/loudness.py,
-    #336: some mics record speech near -55 dBFS, which plays as silence)."""
+    """Float samples as a 16-bit mono WAV, brought up to a listening level unless `loud` is False (audio/loudness.py:
+    some mics record speech near -55 dBFS, which plays as silence)."""
     import numpy
 
     pcm = (numpy.clip(numpy.asarray(samples, numpy.float32), -1.0, 1.0) * 32767).astype(numpy.int16)
@@ -789,7 +806,7 @@ _VOICES = voice_list.VoiceList(lambda: speech_log.shared())
 def _speakers() -> dict[str, Any]:
     """The voice list (people/voice_list.py: each voiceprint the speech log or the event log knows) as the dashboard
     reads it: each voice with its name as "label" (its person by person_of, else "Speaker <id>"). "merged" is always
-    empty: a voice is claimed by naming it, never folded into another (#772). When the speech log can't be read the
+    empty: a voice is claimed by naming it, never folded into another. When the speech log can't be read the
     list is the event log's voices alone, and when the event log can't be read every voice reads as unnamed; both
     failures are logged, so the rest of the dashboard keeps working."""
     known: list[int] = []
@@ -850,7 +867,7 @@ def _speakers_key() -> tuple[Any, ...]:
 
 def speakers_public() -> dict[str, Any]:
     """GET /speakers: every voice, most recently heard first, named as `_speakers` names it. Worked out once per change
-    and shared (#2546): every open page's event stream asked for it on each line heard, about 235 registry lookups
+    and shared: every open page's event stream asked for it on each line heard, about 235 registry lookups
     (15 ms of Python) each, a dozen at a time, and the requests behind them waited seconds on the registry's lock."""
     global _speakers_shared
     key = _speakers_key()
@@ -868,12 +885,11 @@ CALLS_DIR = cfg.path("paths.calls")
 MEMORY_FILE = STATE / "memory.jsonl"
 
 
-SHOTS = face_shots.folder(STATE)  # face crops of sightings: see-actions writes them, the rest are cut on request
 SHOT_PX = face_shots.PX
 _shot_decode = threading.BoundedSemaphore(2)  # at most two frames read and decoded at once
 # A shot request with no crop on disk waits this long for a turn to look its sighting up and cut it, then is told to
 # come back (503): a grid of old sightings held every one of the browser's six connections for seconds at a time, and
-# every other request of the page waited behind them (#2018).
+# every other request of the page waited behind them.
 SHOT_WAIT_S = 1.0
 
 
@@ -890,7 +906,7 @@ VIDEO_THUMB_PRUNE_EVERY = 200  # thumbnails saved between prunes of their cache 
 def _warm_devices() -> None:
     """Read Known › Devices' device list once at start, at low priority, so its day of settled hours is tallied
     (proximity/devices.py) before anyone opens the tab: the first read after a start is about 30 s, later ones about
-    a second (#2875)."""
+    a second."""
     _low_priority(19)
     try:
         from liberational.dashboard import device_links
@@ -929,7 +945,7 @@ def _shot_path(sid: str) -> pathlib.Path:
 def _shot_file(
     sid: str, state: pathlib.Path | None = None, *, on_decode: Callable[[], None] | None = None
 ) -> tuple[pathlib.Path | None, str | None]:
-    """Sighting sid's crop and its ETag (#2018). A crop checked under the current deletion revision is served with no
+    """Sighting sid's crop and its ETag. A crop checked under the current deletion revision is served with no
     lookup: see-actions writes one with each sighting, so People's grids read files. Otherwise the sighting is looked
     up first, so a crop of a deleted one is never served: a crop from before a forget is kept when its sighting still
     is, and one with none is cut from its recorded frame."""
@@ -1128,7 +1144,7 @@ def _ready_videos(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int
 
 
 def _ready_faces(
-    rows: list[dict[str, Any]], saved: frozenset[str] | None = None, *, grid: bool = False
+    rows: list[dict[str, Any]], saved: AbstractSet[str] | None = None, *, grid: bool = False
 ) -> tuple[list[dict[str, Any]], int, int]:
     """Saved face crops only; schedule missing IDs without reading video on this request."""
     revision = _shot_revision()
@@ -1335,7 +1351,7 @@ def clone_build(sid: int) -> Reply:
 
 def clone_pick(sid: object, keys: object) -> Reply:
     """(code, body) for POST /clones/pick {"id", "lines": [line keys]}: make a voice's clone reference from the lines
-    the owner picked (clone_say.pick, #312), and record each as the owner's word that it is that person's (an owner
+    the owner picked (clone_say.pick), and record each as the owner's word that it is that person's (an owner
     tag on the line, given as a voice tag so it stays with its voice), so it also counts as theirs everywhere else, a
     clone build included. In process: the picked
     lines' own transcripts are the reference's words, so nothing loads a model, and the warm clone voice takes the
@@ -1386,7 +1402,7 @@ def clone_remove(sid: int) -> Reply:
     """(code, body): delete a voice's clone reference (<id>.wav/.txt/.json) and its renders. The speaker, its
     transcript lines and its voice embedding stay; the reference can be rebuilt from speech at any time. A voice made
     from one uploaded recording keeps <id>.json, its clone-only mark: it has no room speech to rebuild from, and
-    without the mark it would be matched to room speech (2026-10-27). Recording it again restores the reference."""
+    without the mark it would be matched to room speech. Recording it again restores the reference."""
     gone = []
     keep = {f"{sid}.json"} if sid in _clone_only_ids() else set()
     for p in list((STATE / "clones").glob(f"{sid}.*")) + list((STATE / "clones").glob(f"say-{sid}-*.wav")):
@@ -1425,8 +1441,8 @@ def clone_record(raw_bytes: bytes, name: str) -> Reply:
                 "ok": False,
                 "error": f"the recording is nearly silent ({heard:.1f} s with any sound); check the microphone and record again",
             }
-        # A running microphone service once saved over a new voice and reused its id ("trump" became "Speaker 44",
-        # 2026-10-26); now every change is a transaction that takes in the others first (#349), so it runs on.
+        # A running microphone service once saved over a new voice and reused its id;
+        # now every change is a transaction that takes in the others first, so it runs on.
         # A clone is a voice of its own, even under a person's name: enrolled by label it took over their room voice,
         # which then was never matched again. Its id comes from the command, since the name may belong to others.
         ok, out = _speaker_cmds([["enroll-clone", name, str(tmp)]])
@@ -1461,7 +1477,7 @@ def _age(f: pathlib.Path) -> int:
 
 def clone_say(sid: int, text: str) -> Reply:
     """(code, body): speak text in voice sid. From the voice service's warm model when it's running, streamed, so it
-    starts playing in a second or two (dashboard/clone_stream.py, #333); else in a new process that loads the model
+    starts playing in a second or two (dashboard/clone_stream.py); else in a new process that loads the model
     first. Either way the answer's url is the render, played by the browser, which opens the playback window itself
     (/playback/start) so the room microphone drops what it hears of it."""
     from liberational.dashboard import clone_stream
@@ -1485,7 +1501,7 @@ def clone_say(sid: int, text: str) -> Reply:
 
 def services_view(control: bool, fresh: bool = False) -> dict[str, Any]:
     """The admin sidebar's view: every service for this platform, and whether this viewer may switch them. The
-    actions ask for fresh pids, so a service started or stopped by hand a moment ago counts (#433)."""
+    actions ask for fresh pids, so a service started or stopped by hand a moment ago counts."""
     try:
         return {"ok": True, "control": control, "platform": cfg.platform_key(), "services": services.snapshot(fresh)}
     except services.ProcessScanPending as ex:
@@ -1505,7 +1521,7 @@ def service_history_view(hours: str = "24") -> Reply:
         return 503, {"error": "Could not read service history."}
 
 
-# What each action on one service does (#423): its pack-services command, and the words its log line says it in.
+# What each action on one service does: its pack-services command, and the words its log line says it in.
 SERVICE_ACTIONS: dict[str, tuple[str, str]] = {
     "on": ("install", "installed and started; runs at every login"),
     "off": ("uninstall", "uninstalled; stays off until turned on"),
@@ -1515,7 +1531,7 @@ SERVICE_ACTIONS: dict[str, tuple[str, str]] = {
 
 
 def _logged(action: str, what: str, why: str, ok: bool | None, out: str) -> None:
-    """One INFO line per service action from the dashboard, done or not, so the log says what changed (#423)."""
+    """One INFO line per service action from the dashboard, done or not, so the log says what changed."""
     lines = out.strip().splitlines()
     bad = next((line for line in lines if "FAILED" in line), lines[-1] if lines else "?")  # the error, not a note after
     result = "done" if ok else "timed out" if ok is None else f"failed: {bad}"
@@ -1695,7 +1711,7 @@ def calls_list(limit: int = 100) -> list[dict[str, Any]]:
         except Exception:
             continue
         m["day"], m["dir"] = meta.parent.parent.name, meta.parent.name
-        # A call saved before these were kept reads as unknown (#2682): no direction, nobody called, no instructions.
+        # A call saved before these were kept reads as unknown: no direction, nobody called, no instructions.
         m["direction"] = m.get("direction") if m.get("direction") in ("in", "out") else "unknown"
         for key in ("to", "instructions", "outcome"):
             m.setdefault(key, None)
@@ -1803,7 +1819,7 @@ def _room_lines(
         view = view if view is not None else _view()
         named_lines = view.named(raw[-ROOM_TAIL:] if raw is not None else heard_tail(ROOM_TAIL))
     for e in named_lines:
-        if e.get("media"):  # a TV's line is nobody's (#2468)
+        if e.get("media"):  # a TV's line is nobody's
             continue
         try:
             who = e.get("speaker") or "unknown"
@@ -1838,7 +1854,7 @@ def _call_lines(view: transcript_view.View | None = None) -> list[dict[str, Any]
             if e.get("speaker") == "bot" or not (e.get("text") or "").strip():
                 continue
             if not e.get("speaker_label"):
-                continue  # an unnamed far end is not a person; it made a "Caller" entry in People (2026-10-26)
+                continue  # an unnamed far end is not a person; it made a "Caller" entry in People
             if (who := profiles.call_name(view, e["speaker_label"], profiles.call_at(start, e.get("t")), memo)) is None:
                 continue
             rows.append(
@@ -1863,10 +1879,10 @@ _scene_cache: dict[str, Any] = {"at": -math.inf, "value": None, "log": None}
 
 def scene_entries() -> list[dict[str, Any]]:
     """The newest captions for Live (`camera.caption` on the vision log, as scene.json had them): an unchanged view
-    shows its last real caption, unchanged since then (#379). Empty when the broker can't be asked.
+    shows its last real caption, unchanged since then. Empty when the broker can't be asked.
 
     Every open Live feed asks every SCENE_POLL_S, and each answer decodes the last hour of captions, so one read
-    serves every caller for SCENE_POLL_S (#1499): more tabs no longer mean more decoding. A failed read isn't kept."""
+    serves every caller for SCENE_POLL_S: more tabs no longer mean more decoding. A failed read isn't kept."""
     with _scene_lock:
         source = vision_log.at(STATE)  # one per broker, shared: the answer kept is this log's
         cached = _scene_cache["value"]
@@ -1936,7 +1952,7 @@ def review_search(day: str, query: str) -> Reply:
 def history_at(ts: float, window: float = 30.0) -> dict[str, Any]:
     """What each camera saw nearest wall-clock ts, within +-window seconds (at most 600), from the vision log's
     captions: {"ts", "cams": {cam: {"ts", "dt", "caption", "unchanged", "since", "faces"}}}. faces is None when no
-    faces were checked. A view that hadn't changed shows its last real caption, unchanged since then (#379)."""
+    faces were checked. A view that hadn't changed shows its last real caption, unchanged since then."""
     window = max(1.0, min(600.0, window))
     out: dict[str, Any] = {"ts": ts, "window": window, "cams": {}}
     try:
@@ -1993,11 +2009,11 @@ def _faces_mod() -> ModuleType:
     return faces
 
 
-AUTONAME_EVERY_S = 60.0  # how often clear face matches are named without a tag (#2244)
+AUTONAME_EVERY_S = 60.0  # how often clear face matches are named without a tag
 
 
 def autoname_faces_once() -> list[dict[str, Any]]:
-    """One round of automatic face naming (#2244): the waiting groups that clearly match a named person, by the live
+    """One round of automatic face naming: the waiting groups that clearly match a named person, by the live
     match gate, are named as an embedding match, each with its own undo. Put-aside groups are left alone."""
     named = _faces_mod().autoname(inbox_skips()["face"], state=STATE)
     if named:
@@ -2005,14 +2021,14 @@ def autoname_faces_once() -> list[dict[str, Any]]:
     return named
 
 
-CHECK_START_S = 120.0  # the faces' held-out check waits this long after a start (#2022)
+CHECK_START_S = 120.0  # the faces' held-out check waits this long after a start
 
 
 CHECK_TIMEOUT_S = 600.0  # the check's child is given this long (it takes seconds; a month of faces at idle priority)
 
 
 def _run_check() -> dict[str, Any]:
-    """The faces' held-out check, run in a child process at idle priority (#2325): it decodes a month of face
+    """The faces' held-out check, run in a child process at idle priority: it decodes a month of face
     embeddings, and in the dashboard's own process that held every request up for seconds every CHECK_EVERY_S. The
     child saves faces/check.json for live naming and autoname, and prints the result."""
     done = subprocess.run(
@@ -2028,7 +2044,7 @@ def _run_check() -> dict[str, Any]:
 
 
 def check_faces_once(last: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Rerun the faces' held-out check over the owner's tags (#2274), which live naming and automatic naming obey, and
+    """Rerun the faces' held-out check over the owner's tags, which live naming and automatic naming obey, and
     log it when its status or its suspected mis-tags change from `last`."""
     check = _run_check()
     seen = (check["status"], [s["gid"] for s in check["suspects"]])
@@ -2045,7 +2061,7 @@ def check_faces_once(last: dict[str, Any] | None = None) -> dict[str, Any]:
 def _autoname_faces_forever() -> None:
     """Every AUTONAME_EVERY_S: a group that forms or reaches two sightings, or a tag that teaches the gallery, can make
     a clear match. The held-out check reruns every CHECK_EVERY_S, first CHECK_START_S after a start: it decodes a
-    month of face embeddings (about 4 s alone, 24 s while the start's warm-ups run, #2022), and the saved one holds
+    month of face embeddings (about 4 s alone, 24 s while the start's warm-ups run), and the saved one holds
     until then. A failed round is logged and the next one tries again."""
     check: dict[str, Any] | None = None
     checked = time.monotonic() - _faces_mod().CHECK_EVERY_S + CHECK_START_S
@@ -2064,7 +2080,7 @@ def _autoname_faces_forever() -> None:
 
 
 def _warm_faces() -> threading.Thread:
-    """Import vision/faces.py (and cv2) in the background at start, so the first GET /people doesn't (#433)."""
+    """Import vision/faces.py (and cv2) in the background at start, so the first GET /people doesn't."""
 
     def run() -> None:
         _low_priority(19)
@@ -2111,7 +2127,7 @@ def people_roster(
     speakers: list[dict[str, Any]] | None = None,
     *,
     named_lines: list[dict[str, Any]] | None = None,
-    saved_shots: frozenset[str] | None = None,
+    saved_shots: AbstractSet[str] | None = None,
 ) -> list[dict[str, Any]]:
     """One entry per person, joining their voices (by person_of, through _speakers), tagged faces (the face
     database), the lines they said, and their record in the person registry: added by hand, phone, role,
@@ -2119,8 +2135,8 @@ def people_roster(
     the fallback before the backfill). Keyed by normalized name; the display name keeps capitals."""
     by = {}
     # A voice made from one uploaded recording is a clone, listed under Voice clones only: not a person here, and not a
-    # name offered when tagging (2026-10-27). Its voice and the room lines once filed under it are left out, so a name
-    # only a clone carries is too. A person who shares the name keeps everything else (2026-10-28).
+    # name offered when tagging. Its voice and the room lines once filed under it are left out, so a name
+    # only a clone carries is too. A person who shares the name keeps everything else.
     clone_ids = _clone_only_ids()
 
     def person(name: str) -> dict[str, Any]:
@@ -2163,7 +2179,7 @@ def people_roster(
     for nm, number in book.phones().items():  # so the dashboard can place calls to them
         person(nm)["number"] = number
     seen, owner, described, here = _face_last_seen_at(), _owner_keys(), _attributes(), _here_now()
-    named = views.names()  # each camera's name (#313); a camera with no name goes by its id
+    named = views.names()  # each camera's name; a camera with no name goes by its id
     saved_shots = face_shots.saved(STATE, revision=_shot_revision()) if saved_shots is None else saved_shots
     for key, b in by.items():
         cam = seen[key][1] if key in seen else None
@@ -2245,12 +2261,12 @@ class Skips(TypedDict):
 
     face: list[float]
     voice: list[float]
-    line: list[float | str]  # each by its key (registry.key_of, #247), or by its ts_start as before
+    line: list[float | str]  # each by its key (registry.key_of), or by its ts_start as before
 
 
 def inbox_skips() -> Skips:
-    """What People's inbox put aside: face and voice ids, and lines, each by its key (registry.key_of, #247) or, as
-    before #247, by its ts_start, which puts aside every line that starts in that millisecond."""
+    """What People's inbox put aside: face and voice ids, and lines, each by its key (registry.key_of) or,
+    for older entries, by its ts_start, which puts aside every line that starts in that millisecond."""
     d = read_json(INBOX_SKIPS, {})
 
     def numbers(k: str) -> list[float]:
@@ -2284,7 +2300,7 @@ def put_aside(e: dict[str, Any], skipped: set[float | str]) -> bool:
 
 
 # Teaching routes the handler gates itself, before it reads their body (the others take _can_teach as their control
-# argument): with dashboard.remote_teaching off only this machine may use them, like the Inbox (#2788, #2804). Owner
+# argument): with dashboard.remote_teaching off only this machine may use them, like the Inbox. Owner
 # identity is not teaching: This is me (/people/me) and claiming a voice as the owner's (inside /people/claim) take
 # _can_control, so they stay on this machine even with remote teaching on, since they decide who the assistant answers
 # as the owner.
@@ -2323,7 +2339,7 @@ def inbox_skip(kind: Any, ident: object, control: bool) -> Reply:
     if kind == "clear":
         INBOX_SKIPS.unlink(missing_ok=True)
         return 200, {"ok": True, "skipped": 0}
-    if kind == "line" and isinstance(ident, str):  # a line by its key (#247); one with no device is its millisecond
+    if kind == "line" and isinstance(ident, str):  # a line by its key; one with no device is its millisecond
         try:
             slug, at = registry.split_key(ident)
         except ValueError:
@@ -2352,7 +2368,7 @@ REJECT_MAX = 500  # shots one "Not this person" can take out
 
 
 def faces_not(body: Mapping[str, Any], control: bool) -> Reply:
-    """(code, reply) for POST /faces/not {name, groups, shots, not} (#2368): these face groups (and shots) are not the
+    """(code, reply) for POST /faces/not {name, groups, shots, not}: these face groups (and shots) are not the
     person called `name`. A group marked so never has them as its guess and is never named them automatically
     (people/face_nots.py); `not` false takes a group's mark back (Undo). A shot is the card's own "Not <name>"
     (correct_card's "remove"), whose undo tokens come back as `undo`, for /people/undo. Reply: {ok, marked, undo}."""
@@ -2386,7 +2402,7 @@ def faces_not(body: Mapping[str, Any], control: bool) -> Reply:
 
 
 def people_photo(body: Mapping[str, Any], control: bool) -> Reply:
-    """(code, reply) for POST /people/photo {name, action, shot} (#2368): a contact card's photo choices with the verbs
+    """(code, reply) for POST /people/photo {name, action, shot}: a contact card's photo choices with the verbs
     a pet card's /pets/photo has. "main" and "hide" are correct_card's (with an undo token); "newest" goes back to the
     best-scoring shot and "show" puts a hidden shot back. Reply: {ok, undo, card}."""
     if not control:
@@ -2409,7 +2425,7 @@ def people_photo(body: Mapping[str, Any], control: bool) -> Reply:
 
 
 def reject_shots(gid: Any, ids: Any, control: bool) -> Reply:
-    """(code, reply) for POST /faces/unknown/reject {group, ids}: "Not this person" (#2008). The shots leave face group
+    """(code, reply) for POST /faces/unknown/reject {group, ids}: "Not this person". The shots leave face group
     `group` for good (vision/face_rejects.py), its embedding is rebuilt from the shots it keeps, so naming it teaches
     only those, and its photo is cut again from them. A group left with no shots is put aside, like Ignore. Reply:
     {ok, removed, left, ignored}."""
@@ -2438,7 +2454,7 @@ def reject_shots(gid: Any, ids: Any, control: bool) -> Reply:
     return 200, {"ok": True, "removed": len(take), "left": left, "ignored": not left}
 
 
-FACES_SHOWN = 24  # the most face groups Who's this? lists at once; the count says how many wait in all (#2236)
+FACES_SHOWN = 24  # the most face groups Who's this? lists at once; the count says how many wait in all
 
 
 def faces_waiting(skipped: set[float]) -> list[dict[str, int]]:
@@ -2452,7 +2468,7 @@ _named_cache: dict[str, Any] = {"key": None, "value": []}
 
 
 class _People:
-    """People's current names for #225's suggestions: a line's person, a recorded face's name as the face gallery
+    """People's current names for Who's this? suggestions: a line's person, a recorded face's name as the face gallery
     spelled it (resolved through the event log, so a rename or a merge gives the person's name now), and the owner.
     Without an event log, names are as written and nobody is renamed."""
 
@@ -2499,7 +2515,7 @@ def _named_lines(since: float) -> list[tuple[float, float, str]]:
             value=sorted(
                 (float(e["ts_start"]), float(e.get("ts_end") or e["ts_start"]), view.people[pid].display_name)
                 for e, pid in view.speakers(heard)
-                if pid is not None and pid in view.people and not e.get("twin_of")  # the same speech once (#476)
+                if pid is not None and pid in view.people and not e.get("twin_of")  # the same speech once
             ),
         )
     lines: list[tuple[float, float, str]] = _named_cache["value"]
@@ -2540,7 +2556,7 @@ def _with_together(
     *,
     face_batch: FaceBatch | None = None,
 ) -> None:
-    """Give each "Who's this?" row its suggestion from who was seen or heard with it (#225, people/together.py), and
+    """Give each "Who's this?" row its suggestion from who was seen or heard with it (people/together.py), and
     sort a row with one among the maybes. The named faces are read once, within `pad` of the given spans: the named
     lines for faces, the waiting voices' lines for voices."""
     windows = ((a - pad, b + pad) for a, b in spans)
@@ -2572,8 +2588,8 @@ class _Fresh:
     With `patch`, an owner change it can apply to the last answer is served at once too: patch(answer, owner key it was
     worked out for, owner key now) returns the answer brought up to date as far as is cheap, or None when it can't be
     (then the read waits for the full answer, as without one). The full answer is worked out in the background
-    meanwhile, and published even if the owner changed again while it ran, since the next read patches it again
-    (#2332)."""
+    meanwhile, and published even if the owner changed again while it ran, since the next read patches it
+    again."""
 
     def __init__(
         self,
@@ -2650,7 +2666,7 @@ class _Fresh:
 
     def ready(self) -> bool:
         """Whether a successful snapshot was published for the current owner (data may refresh behind it), or one the
-        patch brings up to it (#2332)."""
+        patch brings up to it."""
         owner = self.owner()
         with self.lock:
             value, kept = self.value, self.keys
@@ -2709,7 +2725,7 @@ def _faces_owner_key(groups: bool = True) -> tuple[Any, ...]:
     """What the owner changes that the face rows show: the names and decisions (the event log), the skips, and the
     unknown face groups (merged, named, or cleared). A purge bypasses stale results immediately. Without `groups`,
     the groups are left out: the face worker also adds them and evicts the least seen, so the set moves with no
-    owner change, and naming or undoing one writes the event log anyway (/people, #1458)."""
+    owner change, and naming or undoing one writes the event log anyway (/people)."""
     mark = registry.at(STATE).mark() if registry.log_exists(STATE) else None
     try:
         st = INBOX_SKIPS.stat()
@@ -2728,14 +2744,14 @@ def _faces_owner_key(groups: bool = True) -> tuple[Any, ...]:
         # Do not serve a former good snapshot for an unreadable database. The computation returns its existing
         # actionable HTTP error; keeping key sampling non-throwing also preserves People's other usable results.
         ids = None
-    # A purge only of camera video (the nightly window, an age-out) takes no sighting or face row: left out (#2915), as
+    # A purge only of camera video (the nightly window, an age-out) takes no sighting or face row: left out, as
     # the voice groups' key leaves it out, so the next read is patched rather than waiting for the full answer.
     purge = speech_log.shared().newest_voice_purge()
     return str(STATE), mark, skips, ids, face_rejects.stamp(), purge, _face_nots_stamp()
 
 
 def _face_nots_stamp() -> tuple[str, int, int] | None:
-    """Where the owner's "not <person>" marks on face groups stand (people/face_nots.py, #2368): None without a store."""
+    """Where the owner's "not <person>" marks on face groups stand (people/face_nots.py): None without a store."""
     from liberational import knowledge
     from liberational.people import face_nots
 
@@ -2846,10 +2862,10 @@ def _unknown_groups() -> tuple[int, dict[str, Any]]:
             rows, pairs, [(s, e) for s, e, _ in lines], people, pad=2 * together.WINDOW_S, face_batch=face_batch
         )
     except Exception as ex:
-        LOG.exception(f"who's this: {logs.reason(ex)}")  # a 500 is an error, with its traceback (#3147)
+        LOG.exception(f"who's this: {logs.reason(ex)}")  # a 500 is an error, with its traceback
         return 500, {"error": "Could not read the faces waiting for a name."}
     rows = [r for r in rows if not _certain(r)]
-    # Only groups seen in the last faces.unnamed_days (#3004), by the newer of when a face last started or joined it
+    # Only groups seen in the last faces.unnamed_days, by the newer of when a face last started or joined it
     # and its newest recorded sighting: the store keeps up to UNK_MAX groups however long ago they were seen. A group
     # neither dates hasn't been seen since the store began dating them, so it's older than the window. Older groups
     # stay in the store and come back when seen again.
@@ -2862,21 +2878,21 @@ def _unknown_groups() -> tuple[int, dict[str, Any]]:
     ]
     # Count every group that is still asked about, by the same filters as the listed ones, then list the first
     # FACES_SHOWN: counting only the listed rows pinned the count at FACES_SHOWN while each name pulled the next group
-    # in (#2236), and counting unfiltered groups counted resolved or certain ones (Codex on #2240).
+    # in, and counting unfiltered groups counted resolved or certain ones.
     return 200, {
         "groups": rows[:FACES_SHOWN],
         "count": len(rows),
         "skipped": sorted(int(i) for i in skipped),
-        "_counted": [r["id"] for r in rows],  # every group the count counts, so a patch can recount (#2332)
+        "_counted": [r["id"] for r in rows],  # every group the count counts, so a patch can recount
     }
 
 
 def _patch_face_groups(answer: Reply, before: Any, now: Any) -> Reply | None:
-    """The last Who's this? face answer after an owner change, as far as is cheap to know (#2332): the groups no longer
+    """The last Who's this? face answer after an owner change, as far as is cheap to know: the groups no longer
     unknown (named, merged, or cleared) or now put aside leave the rows and the count, and `refreshing` says the full
     answer (new groups, guesses that moved with a name) is being worked out. None, so the read waits for the full
     answer, after a purge, a face rejects change (the pictures shown), or a change of state directory, or when the
-    groups can't be read. A "not <person>" mark (#2368) is applied too: the row lists it, and a guess it rules out goes.
+    groups can't be read. A "not <person>" mark is applied too: the row lists it, and a guess it rules out goes.
     The owner key is _faces_owner_key's: (state, mark, skips, ids, rejects, purge, nots)."""
     from liberational.people import face_nots
 
@@ -2921,15 +2937,15 @@ def _unknown_groups_job() -> Reply:
     if multiprocessing.parent_process() is not None:
         cfg.load.cache_clear()  # a setting saved since: the dashboard rereads its pack.toml, and so does this
         _low_priority(10)
-        memtrim.start()  # what a refresh freed goes back to the system (#2850)
+        memtrim.start()  # what a refresh freed goes back to the system
     return _unknown_groups()
 
 
 def _unknown_groups_worked_out() -> Reply:
-    """The face groups' full answer (_unknown_groups), worked out in one process of its own (#2418). Run on a dashboard
+    """The face groups' full answer (_unknown_groups), worked out in one process of its own. Run on a dashboard
     thread, each refresh was 1.5 to 10 s of pure Python every 30 s holding the interpreter lock every request needs:
-    a 5 ms request took up to 1.5 s while it ran. The patched answers (a name, an Ignore, a not-mark, #2333 and
-    #2372) stay in the dashboard's process; only this moves. A worker that died, or ran past GROUPS_WORKER_TIMEOUT_S,
+    a 5 ms request took up to 1.5 s while it ran. The patched answers (a name, an Ignore, a not-mark)
+    stay in the dashboard's process; only this moves. A worker that died, or ran past GROUPS_WORKER_TIMEOUT_S,
     is replaced on the next refresh, and this one answers the same error a failed read does."""
     global _groups_executor
     if not _groups_in_worker:
@@ -2957,7 +2973,7 @@ _groups_data: dict[str, Any] = {"at": -math.inf, "key": None}
 def _face_groups_data() -> tuple[Any, ...]:
     """What new data the face rows are worked out from: the unknown face groups the face worker writes (a new or
     grown group), the newest speech line (who was heard near a sighting), and the time in GROUPS_STALE_S steps. Read
-    at most every GROUPS_REFRESH_S, so a refresh starts at most that often, and only when one of them moved (#2418):
+    at most every GROUPS_REFRESH_S, so a refresh starts at most that often, and only when one of them moved:
     a quiet room no longer works every row out again every 30 s."""
     now = time.monotonic()
     with _groups_lock:
@@ -2984,7 +3000,7 @@ _FACE_GROUPS = _Fresh(
 
 
 def _certain(row: dict[str, Any]) -> bool:
-    """A Who's this? row whose best guess is already 100%: nothing to ask, so it isn't listed (2026-10-29)."""
+    """A Who's this? row whose best guess is already 100%: nothing to ask, so it isn't listed."""
     return row.get("band") == "probable" and (row.get("score") or 0) >= 100
 
 
@@ -3052,7 +3068,7 @@ def unknown_voices_view() -> tuple[int, dict[str, Any]]:
     (people/voice_guess.py), best guess first, each with its most useful clips to play, and how many. The voices
     /people lists as unknown.voices (unnamed, a line left to play, not put aside) that have a clip worth playing, the
     24 heard most recently. Guessed against the named voices that are people, not voice clones made from one uploaded
-    recording (the live matcher leaves those out too, 2026-10-27). Live polls this, and it reads the whole transcript,
+    recording (the live matcher leaves those out too). Live polls this, and it reads the whole transcript,
     so the rows are kept (_Fresh): a line heard since is taken in in the background, the owner's own changes at
     once."""
     return _VOICE_GROUPS.get()
@@ -3109,13 +3125,13 @@ def _unknown_voices() -> tuple[int, dict[str, Any]]:
 
 
 def _patch_voice_groups(answer: Reply, before: Any, now: Any) -> Reply | None:
-    """The last Who's this? voice answer after an owner change, as far as is cheap to know (#2346): the voices named
+    """The last Who's this? voice answer after an owner change, as far as is cheap to know: the voices named
     since, or put aside, leave the rows and the count, as do clips answered "Nobody", given to someone, or marked
     "Multiple speakers", and `refreshing` says the full
     answer (new voices, guesses that moved with a name) is being worked out. A new voiceprint handed out (listen writes voiceprints.json as it hears a
     new voice) or a new clone needs nothing taken out. After a purge or a transcript revision, a clip whose line is no
     longer kept (purged, or taken off by a correction) leaves too, so what was deleted never plays: the page answers at
-    once rather than waiting about 25 s for the full answer (#2895). None, so the read waits for it, after a change of
+    once rather than waiting about 25 s for the full answer. None, so the read waits for it, after a change of
     state directory, or when the names or the kept lines can't be read. The owner key is _voices_key's: (state,
     voiceprints, skips, clones, mark, purge, review revision)."""
     code, body = answer
@@ -3140,7 +3156,7 @@ def _patch_voice_groups(answer: Reply, before: Any, now: Any) -> Reply | None:
         log("who's this (voices): names unreadable, waiting for the full answer:", repr(e), level=logs.WARN)
         return None
     # A clip answered "Nobody" (a line put aside) leaves its row at once too, and a row left with no clip goes, as the
-    # full answer leaves out a voice with nothing to play (Codex on #2358).
+    # full answer leaves out a voice with nothing to play.
     lines = set(inbox_skips()["line"])
 
     def kept(clip: Mapping[str, Any]) -> bool:
@@ -3181,12 +3197,12 @@ def _unknown_voices_job() -> Reply:
     if multiprocessing.parent_process() is not None:
         cfg.load.cache_clear()
         _low_priority(10)
-        memtrim.start()  # what a refresh freed goes back to the system (#2850)
+        memtrim.start()  # what a refresh freed goes back to the system
     return _unknown_voices()
 
 
 def _unknown_voices_worked_out() -> Reply:
-    """Keep voice-group recomputation off the dashboard's interpreter lock (#2418).
+    """Keep voice-group recomputation off the dashboard's interpreter lock.
 
     A separate spawned worker reads the retained speech, voiceprints, and sightings. Owner-edit patches and the
     cache's publication checks stay in the dashboard, so naming, skipping, or correcting a clip still applies
@@ -3218,7 +3234,7 @@ _VOICE_GROUPS = _Fresh(
 )
 
 
-# Review's summaries, kept (#2398): {(start, end): (stamp, answer)}. Reading a day's journal off the broker took 2 to 5 s
+# Review's summaries, kept: {(start, end): (stamp, answer)}. Reading a day's journal off the broker took 2 to 5 s
 # a request, every request.
 _summaries: dict[tuple[float, float], tuple[Any, dict[str, Any]]] = {}
 _summaries_lock = threading.Lock()
@@ -3256,8 +3272,8 @@ class Starting(Exception):
     `starting`, which the frontend waits out."""
 
 
-PEOPLE_WAIT_S = 2.0  # a /people request waits this long for its read, then answers from the last one (#1355)
-# While only speech moved the key, the last roster read is refreshed at most this often (#2440). A read is about a
+PEOPLE_WAIT_S = 2.0  # a /people request waits this long for its read, then answers from the last one
+# While only speech moved the key, the last roster read is refreshed at most this often. A read is about a
 # second of Python holding the GIL, and every request after a speech commit started one (every 30 to 60 s). A name,
 # a contact, a skip, or a purge still reads at once: it moves `fresh`.
 PEOPLE_REFRESH_S = 120.0
@@ -3265,13 +3281,13 @@ PEOPLE_REFRESH_S = 120.0
 
 class _PeopleReads:
     """Share only overlapping roster computations. A read runs on its own thread, so a request that can't wait for
-    it (a cold start's 7 to 30 s, #1355) answers from the last roster read, marked `stale`, or raises Starting when
+    it (a cold start's 7 to 30 s) answers from the last roster read, marked `stale`, or raises Starting when
     there is none yet; the read goes on and the next request has it.
 
     `fresh` is the part of the key a person's own change moves (a name given, a contact added). While it matches the
     last read, a request answers from that read at once and one read at a time refreshes it in the background (a
     later request starts the next), for new speech and for what the key doesn't cover, such as new unknown faces.
-    Speech moves the key every few seconds, and relabeling the transcript for every request made each one wait (#1458).
+    Speech moves the key every few seconds, and relabeling the transcript for every request made each one wait.
     A changed `fresh` still waits for its own read, so an edit shows in the answer to it."""
 
     def __init__(self) -> None:
@@ -3319,7 +3335,7 @@ class _PeopleReads:
             return self.last if self.last is not None and self.last_fresh == fresh else None
 
     def cold(self, read: Callable[[], dict[str, Any]], wait_s: float) -> dict[str, Any] | None:
-        """Before any read has finished (a cold start), answer without working out the key (#2022): building it
+        """Before any read has finished (a cold start), answer without working out the key: building it
         reads the registry, which the start's warm-ups keep busy for seconds, so "still loading" took 6 to 10 s.
         One background `read` is shared; it answers when it finishes within `wait_s`, else Starting. None once a
         read has finished: the key's normal path applies from then on."""
@@ -3393,12 +3409,12 @@ def _people_view_job() -> dict[str, Any]:
     if multiprocessing.parent_process() is not None:
         cfg.load.cache_clear()  # a setting saved since: the dashboard rereads its pack.toml, and so does this
         _low_priority(10)
-        memtrim.start()  # what a refresh freed goes back to the system (#2850)
+        memtrim.start()  # what a refresh freed goes back to the system
     return _people_view()
 
 
 def _people_view_worked_out() -> dict[str, Any]:
-    """The people list's full read (_people_view), worked out in one process of its own (#2418), as the face and
+    """The people list's full read (_people_view), worked out in one process of its own, as the face and
     voice groups are. It relabels the retained speech for the roster's counts and the unnamed voices' clips: 1.6 to 4 s
     of pure Python every PEOPLE_REFRESH_S while a page polls /people, holding the interpreter lock every request
     needs. _PeopleReads stays in the dashboard, so a person's own change still waits for its own read. A worker that
@@ -3446,7 +3462,7 @@ def _people_view() -> dict[str, Any]:
     skips = inbox_skips()
     sp = _speakers()["speakers"]
     # Only voices with a line left to play: the backfill and refine move lines to named people, which can leave an
-    # unnamed voice with nothing behind it (2026-10-24: five such voices, every play button a 404).
+    # unnamed voice with nothing behind it.
     audible = speakers_with_audio(raw, view)
     voices = [
         {"id": s["id"], "label": s["label"], "n": s.get("n", 0), "last_seen": s.get("last_seen")}
@@ -3491,19 +3507,19 @@ def voice_clips(
 ) -> tuple[list[dict[str, Any]], int]:
     """Playable clips of unnamed voices, most useful to label first (value ranking below), and the total available.
     sims, when given, gets every playable line's match to its voice, per voice (what "Who's this?" reads to tell a
-    voice whose lines don't sound alike); spans, every line's (start, end), per voice (who was seen then, #225)."""
+    voice whose lines don't sound alike); spans, every line's (start, end), per voice (who was seen then)."""
     want = {v["id"] for v in voices}
     if not want:
         return [], 0
     aside = set(inbox_skips()["line"])  # clips answered "Nobody" are not asked about again
     lines = {}
-    # Another mic's copy of a line is the same speech (#284): asked about once (#476).
+    # Another mic's copy of a line is the same speech: asked about once.
     view = view if view is not None else _view()
     for e in transcript_view.once(view.lines(raw[-60000:] if raw is not None else heard_tail(60000))):
         sid = e.get("speaker_id")  # merges followed; None once someone labeled the line
         if sid is None:
             continue
-        if put_aside(e, aside) or e.get("media"):  # answered "Nobody", or a TV's (#2468)
+        if put_aside(e, aside) or e.get("media"):  # answered "Nobody", or a TV's
             continue
         if spans is not None and sid in want and isinstance(e.get("ts_start"), int | float):
             spans.setdefault(sid, []).append((float(e["ts_start"]), float(e.get("ts_end") or e["ts_start"])))
@@ -3540,7 +3556,7 @@ def voice_clips(
                         "id": sid,
                         "label": label.get(sid),
                         "ts": e["ts_start"],
-                        "line": registry.key_of(e),  # what /clip?line= and a skip take (#247)
+                        "line": registry.key_of(e),  # what /clip?line= and a skip take
                         "text": e["text"].strip(),
                         "dur": round(audio_s(e), 1),
                         "sim": round(float(e.get("speaker_sim") or 0.0), 2),
@@ -3740,7 +3756,7 @@ def _photos_from_scene() -> None:
 def _roster_row(name: str) -> dict[str, Any] | None:
     """Their row of the people list, from the list's last read: opening a person reads the roster GET /people already
     answered from, the way a pet's page reads the Pets list, instead of building a roster of its own (2 to 10 s on a
-    busy machine, #2397), and starts no refresh of it. After a change to names or contacts, it waits for the list's
+    busy machine), and starts no refresh of it. After a change to names or contacts, it waits for the list's
     own read of the change (people_view); before any read has finished, it builds one."""
     last = _PEOPLE_READS.peek(_people_fresh(speech_log.shared().mark()[1]))
     if last is not None:
@@ -3791,7 +3807,7 @@ def person_summary(name: str) -> dict[str, Any] | None:
     }
 
 
-# ---- the contact card (#307): best face shots, recent video, recent voice ----
+# ---- the contact card: best face shots, recent video, recent voice ----
 CARD_SHOTS, CARD_VIDEOS, CARD_VOICES = 6, 4, 4
 HERE_NOW_S = 30  # "here now" means the face worker found and named them in the last 30 s
 
@@ -3808,7 +3824,7 @@ def _shot(row: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def main_photo(
-    name: str, *, ready: list[dict[str, Any]] | None = None, saved_shots: frozenset[str] | None = None
+    name: str, *, ready: list[dict[str, Any]] | None = None, saved_shots: AbstractSet[str] | None = None
 ) -> dict[str, Any] | None:
     """A person's main photo as a Shot: their best-scoring recorded shot (sightings.best), else, for someone tagged
     live with no shot found yet, their newest saved crop (id, cam, and score None). A shot
@@ -3941,7 +3957,7 @@ def _recent_voice(
     named_lines: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """The person's newest room lines with words, newest first: [{line, ts_start, text, mic}]. line is the line key
-    (registry.key_of, #247); the frontend plays it by ts_start until /clip takes line keys."""
+    (registry.key_of); the frontend plays it by ts_start until /clip takes line keys."""
     nm, out = _norm(name), []
     if named_lines is None:
         lines = raw[-ROOM_TAIL:] if raw is not None else heard_tail(ROOM_TAIL)
@@ -3978,7 +3994,7 @@ def person_card(name: str) -> dict[str, Any] | None:
     # Share raw speech and one fresh identity snapshot across roster and media readers. Cache only raw rows:
     # retained() follows commits and purges, while a new View sees renames without waiting for new speech.
     raw, view = speech_log.retained(), _view()
-    named_lines = view.named(raw[-ROOM_TAIL:])  # for recent voices (#2071)
+    named_lines = view.named(raw[-ROOM_TAIL:])  # for recent voices
     saved_shots = face_shots.saved(STATE, revision=_shot_revision())
     me = _roster_row(name)
     name = me["name"] if me else name.strip()
@@ -4040,7 +4056,7 @@ CARD_EDITS = ("/people", "/faces", "/speakers", "/voices", "/inbox", "/identity"
 
 
 class _CardReads:
-    """The last card read per person, so opening one answers from it at once (#2411), the way the people list does
+    """The last card read per person, so opening one answers from it at once, the way the people list does
     (_PeopleReads). A card older than CARD_REFRESH_S is answered as is, marked `refreshing` so the page asks again, and
     read again in the background, one read per
     person at a time. A card is read on the request only the first time, or when its key moved: names, contacts, or a
@@ -4048,7 +4064,7 @@ class _CardReads:
     POST clears them all (CARD_EDITS), and a read that started before a clear is never kept. When GET /people is
     served, the first CARD_WARM people's cards that aren't cached under the current key are read in the background, so
     the first open is a cached one too. A cached card isn't read again ahead however old it is: its open answers from
-    it, marked `refreshing`, and reads it behind (#2418: reading the first eight again every 5 minutes, whether or not
+    it, marked `refreshing`, and reads it behind (reading the first eight again every 5 minutes, whether or not
     anyone opened them, was about 2% of a core while a page polled the list)."""
 
     def __init__(self) -> None:
@@ -4072,8 +4088,8 @@ class _CardReads:
             with self.lock:
                 reading = k in self.reading
             card = copy.deepcopy(hit[2])
-            # An older card is answered as is, marked so the page asks again for the one read behind it (Codex on
-            # #2415: a complete card polled no more, and showed the old one for the whole visit).
+            # An older card is answered as is, marked so the page asks again for the one read behind it (a
+            # complete card polled no more, and showed the old one for the whole visit).
             return {**card, "refreshing": True} if old or reading else card
         return self._read(name)
 
@@ -4144,7 +4160,7 @@ def _card_key() -> tuple[Any, ...]:
 _CARD_READS = _CardReads()
 
 
-# ---- corrections and "pick what's theirs" (#309): GET /people/unnamed, POST /people/assign, /correct, /undo ----
+# ---- corrections and "pick what's theirs": GET /people/unnamed, POST /people/assign, /correct, /undo ----
 UNNAMED_FACES, UNNAMED_VOICES, UNNAMED_VIDEOS = 24, 12, 12
 
 
@@ -4353,7 +4369,7 @@ def _voices_of(name: str) -> list[int]:
 
 
 def _voice_teaching(sid: int) -> list[dict[str, Any]]:
-    """The lines naming voice `sid` will confirm as its person's (#3247, listen/voices.py `teaching_lines`): the clip
+    """The lines naming voice `sid` will confirm as its person's (listen/voices.py `teaching_lines`): the clip
     Who's this? offers for it, then its most typical lines, as stored. Read before the voice is named, so they are the
     lines the owner was asked about. [] when the transcript can't be read: the naming still stands, untaught."""
     from liberational.listen import voices
@@ -4379,7 +4395,7 @@ def _voice_teaching(sid: int) -> list[dict[str, Any]]:
 
 
 def _teach_voice(lines: list[dict[str, Any]], name: str) -> list[str]:
-    """Confirm `lines` as `name`'s (`voices.teach`), so the voice the owner just named teaches listen (#3247). Returns
+    """Confirm `lines` as `name`'s (`voices.teach`), so the voice the owner just named teaches listen. Returns
     their keys, which an undo releases (`_untaught`); [] when nothing could be written (logged, never raised: the
     naming itself stands)."""
     from liberational.listen import voices
@@ -4467,7 +4483,7 @@ def _undo_op(op: Mapping[str, Any]) -> str | None:
                 return f"{name}'s face row is gone already"
         elif kind == "face_group":
             fid = _faces_mod()
-            # An automatic name enrolled no row (#2244): only the group comes back.
+            # An automatic name enrolled no row: only the group comes back.
             gone = op.get("enrolled") is False or fid.remove_row(str(name), op["vec"], op.get("dropped"))
             fid.unname_cluster(op["gid"], op["vec"], op["count"])
             if op.get("photo") and (p := _photo_dir(str(name)) / op["photo"]).exists():
@@ -4492,15 +4508,15 @@ def _undo_op(op: Mapping[str, Any]) -> str | None:
         elif kind == "voice_joined":
             return f"Voice {op['sid']} is part of {name}'s voice now; that can't be undone (Delete on People can)"
         elif kind == "line":
-            ask = {"lines": [op["line"]]} if op.get("line") else {"ts_starts": [op["ts_start"]]}  # by key since #230
+            ask = {"lines": [op["line"]]} if op.get("line") else {"ts_starts": [op["ts_start"]]}  # by key when present
             code, body = speakers_refine_undo(ask)
             if code != 200 or not body.get("undone"):
                 return body.get("error") or "; ".join(body.get("errors") or []) or "the line's label is gone"
-        elif kind == "lines":  # a split's labels (#230), all at once
+        elif kind == "lines":  # a split's labels, all at once
             code, body = speakers_refine_undo({"lines": op["lines"]})
             if code != 200:
                 return body.get("error") or "; ".join(body.get("errors") or []) or "the lines' labels are gone"
-        elif kind == "voice_split":  # voice split is gone (#772): one made before can't be undone here
+        elif kind == "voice_split":  # voice split is gone: one made before can't be undone here
             return "a voice split can't be undone any more"
         elif kind == "main":
             card_prefs.set_main(STATE, str(name), op["before"])
@@ -4666,7 +4682,7 @@ def _shot_is(name: str, sid: str) -> bool:
 
 
 TRACK_REF = re.compile(r"([A-Za-z0-9_-]+):([0-9A-Za-z_-]{1,64})@(\d+(?:\.\d+)?)")  # a box's "<cam>:<track>@<ts>"
-TRACK_REACH_S = 600.0  # how far either side of a box's moment its track's faces are looked for (#2607)
+TRACK_REACH_S = 600.0  # how far either side of a box's moment its track's faces are looked for
 
 
 def _track_sightings(name: str, cam: str, track: str, at: float) -> list[str]:
@@ -4690,8 +4706,8 @@ def correct_card(body: Mapping[str, Any]) -> Reply:
     "remove" (just not <name>), "main" (use as main photo), or "hide" (hide from the card), on one shot, video, or
     voice line of `name`. Replies with an undo and the fresh card. Everything is checked before anything changes, and
     a new person is added only then. A voice line of a voice no person was matched to ("Speaker 4", "unknown") is
-    moved or removed the same way, named by its label, with no card in the reply (Joe 2026-11-06). A "track" is a
-    person's box in Review (#2607): its pose track's sightings of `name`, moved or removed together."""
+    moved or removed the same way, named by its label, with no card in the reply. A "track" is a
+    person's box in Review: its pose track's sightings of `name`, moved or removed together."""
     from liberational.vision import sightings
 
     name, kind, ident, action = body.get("name"), body.get("kind"), body.get("id"), body.get("action")
@@ -4916,7 +4932,7 @@ def add_person(name: str, number: str = "", **attributes: str) -> None:
 
 SYSTEM_S = 300.0  # how often /stats checks for missing system packages again
 # CPU is measured "since the last call", so two pages polling a moment apart read nearly nothing: a /stats within this
-# long of the last one gets that one again, and every measurement spans at least this long (#787).
+# long of the last one gets that one again, and every measurement spans at least this long.
 STATS_MIN_S = 1.0
 OLLAMA_BLOB = re.compile(r"sha256-[0-9a-f]{64}")  # the file an Ollama model's weights are in, as a runner loads it
 
@@ -4978,7 +4994,7 @@ class Stats:
         self.system: dict[str, Any] = {}
         self.system_t = 0.0
         # The machine's CPU times at the last snapshot, for the busy share since. Kept here, not psutil.cpu_percent's own:
-        # psutil 7 keeps that per thread, and each /stats request is a new server thread, so it read 0% (#2694).
+        # psutil 7 keeps that per thread, and each /stats request is a new server thread, so it read 0%.
         self.cpu_t: Any = psutil.cpu_times() if psutil else None
 
     def cpu_since(self) -> float:
@@ -5003,7 +5019,7 @@ class Stats:
         from liberational import proc_table  # psutil's, and psutil is optional here
 
         found = {}
-        # Every process, each one's command line read once (proc_table, #2277); only the ones named here are measured.
+        # Every process, each one's command line read once (proc_table); only the ones named here are measured.
         for entry in proc_table.table().values():
             cmd, name = list(entry.cmdline), entry.name
             role = owner.get(entry.pid) or daemon_role(cmd)
@@ -5054,8 +5070,8 @@ class Stats:
             self.model_of = self.weights(d.get("models", []))
         except Exception as e:
             self.ollama = {"models": [], "error": str(e)[:120]}
-        # Up, and the configured models it lacks, in words the owner can act on (#221). /api/tags is cached in
-        # ollama_health for 5 minutes while Ollama answers (#3072), and /api/ps failures force a fresh check.
+        # Up, and the configured models it lacks, in words the owner can act on. /api/tags is cached in
+        # ollama_health for 5 minutes while Ollama answers, and /api/ps failures force a fresh check.
         health = ollama_health.status(refresh=bool(self.ollama["error"]))
         self.ollama |= {"up": health["up"], "missing": health["missing"], "message": health["message"]}
         return self.ollama
@@ -5149,8 +5165,8 @@ class Stats:
 
 
 STATS = Stats()
-USAGE = machine_usage.History()  # This machine's per-service usage over time (#2245)
-SAMPLER = machine_usage.Sampler(USAGE, STATS.snapshot)  # the history's samples from dashboard start, always (#2277)
+USAGE = machine_usage.History()  # This machine's per-service usage over time
+SAMPLER = machine_usage.Sampler(USAGE, STATS.snapshot)  # the history's samples from dashboard start, always
 
 
 # ---------------------------------------------------------- summarize job ----
@@ -5174,18 +5190,18 @@ _mic_cache: dict[str, Any] = {"at": 0.0, "value": None}
 
 
 def camera_status() -> dict[str, Any]:
-    """The cameras capture is sending, from their `<name>.video` streams (dashboard/cameras.py), in the shape v1's
-    vision.status.json had: {"ts", "cameras": {name: {"state", "size", "fps"}}}."""
+    """The cameras capture is sending, from their `<name>.video` streams (dashboard/cameras.py), in the shape the
+    page reads: {"ts", "cameras": {name: {"state", "size", "fps"}}}."""
     from liberational.dashboard import cameras, devices
 
     return cameras.states(devices._link())
 
 
 def mic_status() -> dict[str, Any]:
-    """The microphones as the Live tab shows them, in the shape v1's ambient.status.json had: {"ts", "devices":
-    {name: {"name", "healthy", "gain"?}}}, "gain" from the listen worker's auto gain status (#798). A microphone is healthy while the listen worker runs and its `<name>.audio` stream
-    on the broker has audio from the last MIC_FRESH_S; "ts" is now while any is, and absent otherwise (not
-    listening). Asked of the broker at most every 2 s."""
+    """The microphones as the Live tab shows them: {"ts", "devices":
+    {name: {"name", "healthy", "gain"?}}}, "gain" from the listen worker's auto gain status. A microphone is healthy
+    while the listen worker runs and its `<name>.audio` stream on the broker has audio from the last MIC_FRESH_S; "ts"
+    is now while any is, and absent otherwise (not listening). Asked of the broker at most every 2 s."""
     if time.monotonic() - _mic_cache["at"] < 2.0 and _mic_cache["value"] is not None:
         return _mic_cache["value"]
     try:
@@ -5219,7 +5235,7 @@ def request_voice_tags(ts_starts: object, name: object, control: bool = False, l
         return 400, {"ok": False, "error": "Names start with a letter and use letters, spaces, . ' or -"}
     if _norm(name) in _owner_keys() and not control:
         return 403, {"ok": False, "error": "Lines can be tagged as you only from this machine."}
-    # Each line by its key (#247), or by its time alone as before: then the first line in that millisecond.
+    # Each line by its key, or by its time alone as before: then the first line in that millisecond.
     asked = lines if lines is not None else ts_starts
     if not isinstance(asked, list) or not 0 < len(asked) <= 200:
         return 400, {"ok": False, "error": "send the lines' keys (or ts_start values), 1 to 200"}
@@ -5300,7 +5316,7 @@ def _face_cmd(args: Sequence[object]) -> tuple[bool, str]:
 
 
 def _teach_reference(token: str, data: dict[str, Any]) -> dict[str, Any]:
-    """A photo just attached to a person teaches their face (#3245): its one face becomes one of their owner rows
+    """A photo just attached to a person teaches their face: its one face becomes one of their owner rows
     (`faces.enroll_reference`, in a child process). A group photo, audio, or video never does, and a photo attached
     before keeps what it did then. Returns the reference as stored, with "face" saying what happened."""
     from liberational.people import references
@@ -5320,7 +5336,7 @@ def _teach_reference(token: str, data: dict[str, Any]) -> dict[str, Any]:
 
 
 def _unteach_reference(token: str) -> None:
-    """Remove reference takes back the face row attaching it added (#3245), under the person it names now."""
+    """Remove reference takes back the face row attaching it added, under the person it names now."""
     from liberational.people import references
 
     try:
@@ -5377,7 +5393,7 @@ def rename_person(old: object, new: object, control: bool) -> Reply:
     are added to theirs. The survivor keeps their own phone number, and `notes` says when the other person's number
     was not kept. The owner is renamed only in capitals or spacing: their name is what the owner check matches
     (owner.name). Like the Inbox, a rename is teaching: control is the handler's _can_teach, so with
-    dashboard.remote_teaching off only this machine may rename (#2766)."""
+    dashboard.remote_teaching off only this machine may rename."""
     if not control:
         return 403, {"ok": False, "error": "people can only be renamed from this machine"}
     new = _person_name(new)
@@ -5441,7 +5457,7 @@ def _rename(old: str, new: str) -> Reply:
 def _with_roster(reply: Reply) -> Reply:
     """A rename's reply with the roster after it, read once the caller's locks are let go: the roster read takes the
     registry's lock, and waiting for it while holding that lock stalled every merge into the owner for PEOPLE_WAIT_S
-    and answered with the roster from before it (#1458)."""
+    and answered with the roster from before it."""
     code, body = reply
     return (code, {**body, **people_view()}) if code == 200 else reply
 
@@ -5506,8 +5522,8 @@ def _rename_locked(old: str, new: str, *, owner_voices: list[int] | None = None)
             for p in (roster[_norm(old)], target):
                 if p.get("number"):
                     registry.at(STATE).contact(p["name"], "dashboard", phone=p["number"], fill=True)
-    # A voice's name is its person's (issue #30), so a rename, and the person merge below, rename every voice of
-    # theirs with no voice command: after a merge, every voice of either reads as the one person (#772).
+    # A voice's name is its person's, so a rename, and the person merge below, rename every voice of
+    # theirs with no voice command: after a merge, every voice of either reads as the one person.
     try:
         if owner_voices is not None:
             registry.at(STATE).merge_as_owner(old, owner_voices, "dashboard")
@@ -5523,7 +5539,7 @@ def _rename_locked(old: str, new: str, *, owner_voices: list[int] | None = None)
         _faces_mod().rename(old, new)
     except Exception as e:
         log("people: face rename failed:", e, level=logs.ERROR)
-    try:  # their card choices go with them (#309); corrections are claims on their person, so they follow already
+    try:  # their card choices go with them; corrections are claims on their person, so they follow already
         card_prefs.rename(STATE, old, new)
     except Exception as e:
         log("people: card prefs rename failed:", e, level=logs.ERROR)
@@ -5686,8 +5702,8 @@ def _delete_person_locked(name: object, control: bool) -> Reply:
             if isinstance(e.get("ts_start"), int | float)
             and (pid in group if pid is not None else _norm(e.get("speaker")) == _norm(name))
         }
-        # A line the log labels as them by its millisecond alone (before #247) is in `mine` when it still reads as
-        # theirs. The millisecond alone would also take the other microphone's line in it, so it's kept only for a
+        # A line the log labels as them by its millisecond alone (without a line key) is in `mine` when it still reads
+        # as theirs. The millisecond alone would also take the other microphone's line in it, so it's kept only for a
         # line with no device.
         keyed = {
             registry.line_key(e["ts_start"])
@@ -5790,10 +5806,8 @@ def _delete_person_locked(name: object, control: bool) -> Reply:
         log("people: keeping the forgotten name's hash failed:", e, level=logs.ERROR)
     # A face crop of the current revision is served without a lookup, so a deleted person's own crops go now. Everyone
     # else's stay: clearing them all made the dashboard cut every face again from video, thousands of jobs that kept
-    # the pets' photos waiting for hours (#2579).
-    for crop in SHOTS.glob("*.jpg"):
-        if their_shots is None or crop.name.split(f"-{face_shots.VERSION}", 1)[0] in their_shots:
-            crop.unlink(missing_ok=True)
+    # the pets' photos waiting for hours.
+    face_shots.remove(STATE, their_shots)
     # PersonForgotten, and their events purged from the log (open decision 1). Last, so a failure anywhere before it
     # leaves them in the registry, and deleting them again finds everything still theirs; a failure here is said.
     try:
@@ -5811,7 +5825,7 @@ def _delete_person_locked(name: object, control: bool) -> Reply:
 
 def _forget_voice_embeddings(subjects: set[str]) -> int:
     """Forgets, in the segment store, every voice embedding filed under one of `subjects` (a person's ids and prints)
-    as its person or its voiceprint (#1817). Returns how many subjects couldn't be forgotten."""
+    as its person or its voiceprint. Returns how many subjects couldn't be forgotten."""
     from continuum_py import forget_segments_where
 
     from liberational import segment_log
@@ -6019,7 +6033,7 @@ def _claim(kind: object, gid: Any, name: object, control: bool, selected_image: 
         }
     if refused := _someone_elses(voice, name):
         return refused
-    # Naming it is the claim: a person may have several voices (#772). It teaches listen the voice too (#3247).
+    # Naming it is the claim: a person may have several voices. It teaches listen the voice too.
     teach = _voice_teaching(sid) if _norm(voice.get("label")) != _norm(name) else []
     ok, out = _speaker_cmds([["label", sid, name]])
     if not ok:
@@ -6037,7 +6051,7 @@ def _claim(kind: object, gid: Any, name: object, control: bool, selected_image: 
 
 def confirm_owner_voice(sid: Any) -> Reply:
     """(code, body): the owner says voice sid is theirs. It is named after the owner (an owner tag), so its lines read
-    as the owner's and listen's matches of it are the owner's from then on (#772)."""
+    as the owner's and listen's matches of it are the owner's from then on."""
     owner = cfg.owner_label()
     if not owner:
         return 400, {"ok": False, "error": "Set the owner's name in Settings first."}
@@ -6056,7 +6070,7 @@ def confirm_owner_voice(sid: Any) -> Reply:
         return 200, {"ok": True, "speakers": speakers_public(), "note": "That voice is already yours."}
     if refused := _someone_elses(voices[sid], cfg.owner_name() or owner):
         return refused
-    # Named as the owner: another of the owner's voices, beside any they have (#772). A name it has already is
+    # Named as the owner: another of the owner's voices, beside any they have. A name it has already is
     # withdrawn first, so the owner tag is written even when the voice reads as the owner's some other way (the log
     # would otherwise count that name as already given).
     named = _norm(voices[sid]["label"]) in _owner_keys()
@@ -6120,7 +6134,7 @@ MULTI = transcript_view.MULTI
 
 
 class AmbiguousLine(LookupError):
-    """A time alone that names lines from more than one microphone (#247): the caller has to send the line's key."""
+    """A time alone that names lines from more than one microphone: the caller has to send the line's key."""
 
 
 AMBIGUOUS = "more than one line starts then; send its line"
@@ -6268,7 +6282,7 @@ def speakers_refine(action: object, body: dict[str, Any]) -> Reply:
     event in the log (the line is never rewritten), and is logged with what it replaced (refine_log.jsonl), so
     speakers_refine_undo can put it back."""
     action = str(action).strip()
-    ts, line = body.get("ts_start"), body.get("line")  # the line's key (#247), or its time alone as before
+    ts, line = body.get("ts_start"), body.get("line")  # the line's key, or its time alone as before
     if line is not None and not isinstance(line, str):
         return 400, {"ok": False, "error": "line must be a line key"}
     if action == "skip":
@@ -6292,7 +6306,7 @@ def speakers_refine(action: object, body: dict[str, Any]) -> Reply:
         was = _was(said)
         _label_line(registry.utterance_of(stored), name, view.canonical(stored.get("speaker_id")))
         if action == "assign" and registry.is_name(name):
-            # The owner's word on the line teaches listen its person's voice (#3247): its embedding becomes one of
+            # The owner's word on the line teaches listen its person's voice: its embedding becomes one of
             # their confirmed references. The undo puts the line back, and with it the reference goes.
             _teach_voice([stored], name)
         denied = _deny_voice(stored, said.person if said is not None else None, name) if action == "assign" else None
@@ -6319,7 +6333,7 @@ def speakers_refine(action: object, body: dict[str, Any]) -> Reply:
 
 def _deny_voice(line: dict[str, Any], was: PersonId | None, name: str) -> str | None:
     """The owner took `line` from the person it was (`was`) by labeling it `name` (someone else, unknown): its voice
-    becomes one of their negatives (`voices.deny`, #3258), so a line like it isn't named them. Returns their id for the
+    becomes one of their negatives (`voices.deny`), so a line like it isn't named them. Returns their id for the
     undo (`speakers_refine_undo` releases it), or None when nothing was kept (logged, never raised: the label stands)."""
     from liberational.listen import voices
 
@@ -6337,9 +6351,9 @@ def _deny_voice(line: dict[str, Any], was: PersonId | None, name: str) -> str | 
 
 
 def speakers_refine_undo(body: dict[str, Any]) -> Reply:
-    """Put lines back the way they were before their latest label: {"lines": [their keys]}, {"ts_starts": [...]} as
-    before #247, or {"since": ts} (every label given after that time). Newest labels are undone first, so repeated
-    labels unwind in order. A label logged before #247 has no line key: a key finds it by its millisecond."""
+    """Put lines back the way they were before their latest label: {"lines": [their keys]}, {"ts_starts": [...]}
+    by timestamp, or {"since": ts} (every label given after that time). Newest labels are undone first, so repeated
+    labels unwind in order. An older label logged without a line key is found by its millisecond."""
     lines, ts_starts, since = body.get("lines"), body.get("ts_starts"), body.get("since")
     if since is not None and not isinstance(since, (int, float)):
         return 400, {"ok": False, "error": "since must be a time"}
@@ -6391,7 +6405,7 @@ def speakers_refine_undo(body: dict[str, Any]) -> Reply:
                 continue
             stored, _, view = found
             _restore(stored, old, e.get("was"), view, e.get("ts"))
-            if e.get("denied"):  # the line's "not them" goes with its label (#3258)
+            if e.get("denied"):  # the line's "not them" goes with its label
                 from liberational.listen import voices
 
                 voices.deny(STATE, [stored], str(e["denied"]), active=False)
@@ -6441,13 +6455,14 @@ def fill(s: str) -> str:
     whether dashboard.hotkeys is on)."""
     names = {"assistant": cfg.assistant_name(), "owner": cfg.owner_name()}
     cams = views.camera_ids()
-    # views: each camera's name (vision.camera_names, #313), for Review's lane labels; a page load picks up a rename
+    # views: each camera's name (vision.camera_names), for Review's lane labels; a page load picks up a rename
     shell = {
         **names,
         "cams": cams,
         "activeCams": views.camera_ids(active_only=True),
         "views": views.names(),
         "hotkeys": bool(cfg.get("dashboard.hotkeys")),
+        "needsSetup": not cfg.local_config().exists(),  # first run: the shell shows setup without asking /config
     }
     # JSON.parse retains literal __proto__ keys; a JavaScript object literal silently drops a string alias.
     shell_json = json.dumps(json.dumps(shell)).replace("<", "\\u003c")
@@ -6494,7 +6509,7 @@ def _client_left(ex: BaseException | None) -> bool:
     return isinstance(ex, ConnectionError) or (isinstance(ex, OSError) and ex.errno == errno.EPROTOTYPE)
 
 
-SLOW_REQUEST_S = 5.0  # a request slower than this is logged as a warning, with its route and duration (#334)
+SLOW_REQUEST_S = 5.0  # a request slower than this is logged as a warning, with its route and duration
 
 
 def _route(path: object) -> str:
@@ -6502,12 +6517,12 @@ def _route(path: object) -> str:
     return str(path or "?").split("?", 1)[0]
 
 
-MEDIA_CHUNK = 1 << 20  # a media file is sent a MiB at a time, never read whole (#439)
+MEDIA_CHUNK = 1 << 20  # a media file is sent a MiB at a time, never read whole
 
 
 def _server_time(kind: str, headers_after: float | None, done_after: float) -> float:
     """How long the server itself took over a request: for audio and video, until its headers went out, since a
-    browser keeps a media response open while it plays (a 5 min segment read over a minute is not slow, #439)."""
+    browser keeps a media response open while it plays (a 5 min segment read over a minute is not slow)."""
     if kind.startswith(("video/", "audio/")) and headers_after is not None:
         return headers_after
     return done_after
@@ -6515,8 +6530,8 @@ def _server_time(kind: str, headers_after: float | None, done_after: float) -> f
 
 class DashboardServer(http.server.ThreadingHTTPServer):
     # Python's default listen backlog is 5: a browser opening a dozen connections at once (page assets, event stream,
-    # camera mux) got some refused, which Tailscale Funnel reports as 502, and the remote page never finished loading
-    # (2026-10-28). 128 is macOS's kern.ipc.somaxconn.
+    # camera mux) got some refused, which Tailscale Funnel reports as 502, and the remote page never finished
+    # loading. 128 is macOS's kern.ipc.somaxconn.
     request_queue_size = 128
     daemon_threads = True
 
@@ -6551,19 +6566,19 @@ class DashboardServer(http.server.ThreadingHTTPServer):
 
 class H(http.server.BaseHTTPRequestHandler):
     server_version = "pack-dashboard/1"
-    _t_req: float | None = None  # when this request's line arrived (parse_request), for its duration (#433)
+    _t_req: float | None = None  # when this request's line arrived (parse_request), for its duration
 
     def handle_one_request(self) -> None:
         """One request. A client that hangs up mid-response is one debug line, or one error line when the request
         was slow (it likely gave up waiting); any other failure is one error line naming the route, with its
         traceback, and the connection is closed. A request slower than SLOW_REQUEST_S is a warning with its
-        duration (#334), except a stream, which is long on purpose. The duration counts from when the request line
-        arrived, not from when the connection opened (a browser can open one and send on it seconds later, #433);
+        duration, except a stream, which is long on purpose. The duration counts from when the request line
+        arrived, not from when the connection opened (a browser can open one and send on it seconds later);
         while it runs, slow.py's watchdog can say what it waits on."""
         self._content_type, self._headers_at, self._t_req, t0 = "", None, None, time.monotonic()
-        self._left: OSError | None = None  # the client hung up while _send wrote the reply (#459)
+        self._left: OSError | None = None  # the client hung up while _send wrote the reply
         try:
-            with knowledge.lock_wait(knowledge.REQUEST_WAIT_S):  # fail fast, don't queue behind a lock (#2898)
+            with knowledge.lock_wait(knowledge.REQUEST_WAIT_S):  # fail fast, don't queue behind a lock
                 super().handle_one_request()
         except Exception as ex:
             took = self._took(self._t_req or t0)
@@ -6575,7 +6590,7 @@ class H(http.server.BaseHTTPRequestHandler):
                 LOG.debug(f"{route}: the client left ({type(ex).__name__})")
             elif isinstance(ex, Starting) or continuum_link.broker_outage(ex):
                 if not isinstance(ex, Starting):
-                    continuum_link.OUTAGE.lost(ex)  # one WARN for the outage, not a traceback per request (#1355)
+                    continuum_link.OUTAGE.lost(ex)  # one WARN for the outage, not a traceback per request
                 if self._headers_at is None:
                     self._starting(str(ex) if isinstance(ex, Starting) else "The data broker is starting.")
             else:
@@ -6610,13 +6625,18 @@ class H(http.server.BaseHTTPRequestHandler):
         return kind.startswith(("text/event-stream", "multipart/"))
 
     def _long_on_purpose(self) -> bool:
-        """A stream, or audio or video whose headers have gone out (the browser holds it open while it plays, #439):
+        """A stream, or audio or video whose headers have gone out (the browser holds it open while it plays):
         never reported as stuck by the watchdog."""
         kind = getattr(self, "_content_type", "")
         return self._streamed() or (kind.startswith(("video/", "audio/")) and self._headers_at is not None)
 
     def log_message(self, format: str, *args: Any) -> None:
         pass
+
+    @property
+    def state(self) -> pathlib.Path:
+        """The state directory, for a route registered by another module (dashboard/routes.py)."""
+        return STATE
 
     def _local(self) -> bool:
         """A direct request from this machine, not one Tailscale proxied in."""
@@ -6638,7 +6658,7 @@ class H(http.server.BaseHTTPRequestHandler):
 
     def _can_teach(self, content_type: str = "application/json") -> bool:
         """Teaching writes (names, faces, voices, pets, people and their reference photos, the Inbox, zones, transcript
-        fixes): what _can_control allows, or, with dashboard.remote_teaching on (2026-11-05), a request that
+        fixes): what _can_control allows, or, with dashboard.remote_teaching on, a request that
         passed the dashboard password and came as JSON (or content_type) from this dashboard's own page, so another
         site can't post it. Never without a password. Owner identity changes are not teaching and take _can_control
         alone (TEACHING_ROUTES)."""
@@ -6682,7 +6702,7 @@ class H(http.server.BaseHTTPRequestHandler):
 
     def parse_request(self) -> bool:
         ok = super().parse_request()
-        if ok:  # the request line is in: the request's own time starts now (#433)
+        if ok:  # the request line is in: the request's own time starts now
             self._t_req = time.monotonic()
             slow.WATCH.begin(f"{self.command} {_route(self.path)}", self._long_on_purpose, self._t_req)
         if ok and not self._authed():
@@ -6752,7 +6772,7 @@ class H(http.server.BaseHTTPRequestHandler):
         self.end_headers()
 
     def _pet_photo(self, track: str) -> None:
-        """GET /pets/sightings/photo?track= (#2038): the track's saved crop under the current deletion revision with no
+        """GET /pets/sightings/photo?track=: the track's saved crop under the current deletion revision with no
         lookup; else, in one of the cut turns faces use (a 503 after SHOT_WAIT_S), looked up and cut."""
         if self._query().get("size") == "80":
             if not PET_TRACK.fullmatch(track):
@@ -6798,7 +6818,7 @@ class H(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(b)))
         # A browser that left (a reload, a closed tab) is one debug line here, never an error: a route writing its
         # reply inside its own try (GET /live/happening, /review/summary) would otherwise log it and write a 500 to
-        # the dead socket (#459).
+        # the dead socket.
         try:
             self.end_headers()
             if self.command != "HEAD":
@@ -6843,7 +6863,7 @@ class H(http.server.BaseHTTPRequestHandler):
         self, b: bytes | pathlib.Path, ct: str, extra: dict[str, Any] | None = None, cache: str = "no-store"
     ) -> None:
         """Whole body or a single byte range (Safari fetches media with Range requests and expects 206). A file is
-        sent from disk, only the bytes asked for and a MiB at a time (#439): a video segment is 30 to 70 MB, and a
+        sent from disk, only the bytes asked for and a MiB at a time: a video segment is 30 to 70 MB, and a
         browser holds its range open while it plays."""
         # A file is opened before anything is sent: retention deleting it after this is fine (an open file outlives
         # its name), and one already gone is a plain 404.
@@ -6930,7 +6950,7 @@ class H(http.server.BaseHTTPRequestHandler):
             if "=" in kv:
                 k, v = kv.split("=", 1)
                 # Decoded: the app sends encodeURIComponent values, so a clip's line key arrives with "@" as %40 and
-                # was never found ("no transcript line with that key", Who's this? clips wouldn't play, 2026-10-29).
+                # was never found ("no transcript line with that key", so Who's this? clips wouldn't play).
                 q[k] = urllib.parse.unquote(v)
         return q
 
@@ -6938,7 +6958,7 @@ class H(http.server.BaseHTTPRequestHandler):
         p = self.path.split("?")[0]
         if p in APP_PATHS and (p == "/" or "text/html" in (self.headers.get("Accept") or "")):
             # Page loads only, ahead of every module's routes: a tab whose module also serves its path as JSON
-            # (GET /devices, /people, /calls) keeps it for fetch(), and a reload of the tab still gets the app (#2816).
+            # (GET /devices, /people, /calls) keeps it for fetch(), and a reload of the tab still gets the app.
             # The app is one page; its router reads the tab from the path.
             code, body = app_page()
             return self._send(code, "text/html; charset=utf-8", body)
@@ -6950,510 +6970,13 @@ class H(http.server.BaseHTTPRequestHandler):
             or reports.handle(self, log)
         ):
             return
-        if p == "/objects" or p.startswith("/objects/"):
-            from liberational.dashboard import objects as objects_page
-
-            objects_page.handle(self, "GET")  # the Objects page and its API, on Continuum (#778)
-            return
         if _pack_ask(self) or _research(self):
             return  # history Q&A: /pack-ask/jobs, and research for the Inbox: /research/jobs
-        if p == "/people/references" or p.startswith("/people/reference-media/"):
-            from liberational.people import references
-
-            try:
-                if p == "/people/references":
-                    return self._json(
-                        {
-                            "references": references.listing(
-                                STATE,
-                                urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("person", [""])[0],
-                            )
-                        }
-                    )
-                token = p.removeprefix("/people/reference-media/")
-                meta = references.metadata(STATE, token)
-                return self._media(
-                    references.entry(STATE, token) / meta["file"], meta["mime"], {"X-Content-Type-Options": "nosniff"}
-                )
-            except (ValueError, OSError) as exc:
-                return self._json({"error": str(exc)}, 400)
-        if p in ("/skeletons/api/spans", "/skeletons/api/poses"):
-            from liberational.dashboard import skeletons
-
-            q = self._query()
-            try:
-                if p == "/skeletons/api/spans":
-                    return self._json({"spans": skeletons.spans(STATE, hours=float(q.get("hours", "24")))})
-                return self._json(
-                    skeletons.poses(
-                        STATE,
-                        cam=q["cam"],
-                        track_id=q["track"],
-                        start=float(q["start"]),
-                        end=float(q["end"]),
-                    )
-                )
-            except (KeyError, ValueError) as exc:
-                return self._json({"error": f"bad query: {exc}"}, 400)
-        if p == "/audio/levels":
-            return self.levels()
-        if p == "/events":
-            return self.sse()
-        if p == "/logs/stream":
-            return self.log_stream()
-        if p == "/history/at":
-            # Camera history is as sensitive as /camera/query: this machine only, unless the owner opted in for
-            # password-checked remote browsers (dashboard.remote_camera_history, 2026-11-05).
-            if not self._may_see_camera_history():
-                return self._json({"error": "camera history is only shown on this machine"}, 403)
-            q = self._query()
-            try:
-                ts, window = float(q.get("ts", "")), float(q.get("window", "30"))
-            except ValueError:
-                return self._json({"error": "bad ts or window"}, 400)
-            return self._json(history_at(ts, window))
-        if p == "/scene":
-            return self._json(scene_entries())
-        if p == "/ambient":
-            return self._json(mic_status())
-        if p == "/vision":
-            return self._json(camera_status())
-        if p == "/transcript":
-            q = self._query()
-            try:
-                n = max(1, min(1000, int(q.get("n", "80"))))
-            except ValueError:
-                n = 80
-            if q.get("around"):  # the moment a summary link points at: n/2 utterances either side of ts
-                try:
-                    ts = float(q["around"])
-                except ValueError:
-                    return self._json({"error": "bad around"}, 400)
-                return self._json(transcript_around(ts, n))
-            return self._json({"entries": merged_tail(n), "reset": True})
-        if p == "/clones":
-            return self._json(clones_list())
-        if p == "/clones/render":
-            f = self._query().get("f", "")
-            if not re.fullmatch(r"say-\d+-\d+\.wav", f):
-                return self._json({"error": "bad file"}, 400)
-            from liberational.dashboard import clone_stream
-
-            r = clone_stream.live(f)
-            if r is not None and not r.done and clone_stream.waits(self.headers.get("User-Agent") or ""):
-                r.wait()  # Safari: the finished file, a few seconds later
-            if r is None or (r.done and not r.error):
-                return self._wav_file(CLONES / f)  # 404 when the cleanup took it
-            if r.done:
-                return self._json({"error": r.error}, 502)
-            return self._stream_render(r)
-        if m := re.fullmatch(r"/clones/(\d{1,6})/lines", p):
-            from liberational.speech import clone_say
-
-            try:
-                return self._json({"lines": clone_say.pickable(int(m.group(1)))})
-            except Exception as ex:
-                log("clones: lines unreadable:", repr(ex), level=logs.ERROR)
-                return self._json({"error": "Could not read their lines."}, 500)
-        if p == "/clones/audio":
-            try:
-                from liberational.speech import clone_say
-
-                ref = clone_say.ref_for(int(self._query().get("id", 0)), make=False)
-                return self._wav_file(ref) if ref else self._json({"error": "no reference for that voice yet"}, 404)
-            except ValueError:
-                return self._json({"error": "bad id"}, 400)
-        if p == "/calls/audio":
-            q = self._query()
-            day, name, which = q.get("day", ""), q.get("dir", ""), q.get("which", "mixed")
-            if not (_safe_name(day) and _safe_name(name)) or which not in ("mixed", "bot", "caller"):
-                return self._json({"error": "bad call"}, 400)
-            return self._wav_file(CALLS_DIR / day / name / f"{which}.wav")
-        if p == "/clip":
-            q = self._query()
-            info = q.get("info") in ("1", "true")
-            if q.get("line"):  # the line's key (#247): one microphone's line, never another's in the same millisecond
-                e = find_line(q["line"])
-                if e is None:
-                    return self._json({"ok": False, "error": "no transcript line with that key"}, 404)
-                return self.clip(entry=e, info=info)
-            if "ts_start" in q:
-                try:
-                    ts = float(q["ts_start"])
-                except ValueError:
-                    return self._json({"ok": False, "error": "bad ts_start"}, 400)
-                e = find_entry(ts)
-                if e is None:
-                    return self._json({"ok": False, "error": "no transcript entry at that ts_start"}, 404)
-                return self.clip(entry=e, info=info)
-            return self._json({"ok": False, "error": "need line=<key> or ts_start=<unix seconds>"}, 400)
-        m = re.fullmatch(r"/speaker/(\d{1,6})/(latest|latest-clip)", p)
-        if m:
-            e = latest_for_speaker(int(m.group(1)))
-            if e is None:
-                return self._json({"ok": False, "error": "no utterance with audio for that speaker"}, 404)
-            return (
-                self._json(e)
-                if m.group(2) == "latest"
-                else self.clip(entry=e, info=self._query().get("info") in ("1", "true"))
-            )
-        if p == "/calls":
-            return self._json(calls_list())
-        if p == "/calls/live":
-            return self._json(calls_live())
-        if p == "/calls/detail":
-            q = dict(kv.split("=", 1) for kv in (self.path.split("?", 1) + [""])[1].split("&") if "=" in kv)
-            t = call_transcript(q.get("day", ""), q.get("dir", ""))
-            return self._json(t or {"error": "not found"}, 200 if t else 404)
-        if p == "/inbox/unnamed":  # not under /people/, where it would be the page of someone named "unnamed"
-            return self._json(people_unnamed())
-        if p == "/people":
-            view = people_view(cold=True)
-            _CARD_READS.warm([str(person["name"]) for person in view.get("people", [])[:CARD_WARM]])
-            return self._json(view)
-        if p == "/inbox/skips":
-            counts = skip_counts(inbox_skips())
-            return self._json({k: counts[k] for k in ("face", "voice", "line")})
-        if p == "/faces/unknown/groups":
-            code, o = _ready_face_groups(*_FACE_GROUPS.poll())
-            return self._json(o, code)
-        if p == "/voices/unknown/groups":
-            code, o = _VOICE_GROUPS.poll()
-            return self._json(o, code)
-        if m := re.fullmatch(r"/faces/unknown/(\d{1,9})/sightings", p):
-            from liberational.people import face_photos
-
-            q = self._query()
-            try:
-                offset = max(0, int(q.get("offset", "0")))
-                limit = max(1, min(SIGHTINGS_PAGE_MAX, int(q.get("limit", str(face_photos.STRIP_MAX)))))
-            except ValueError:
-                return self._json({"error": "bad offset or limit"}, 400)
-            found = [f for f in face_photos._unnamed(STATE) if face_photos._group(f["cluster"]) == int(m.group(1))]
-            ready, pending, unavailable = _ready_faces(found)
-            page = ready[offset : offset + limit]
-            return self._json(
-                {
-                    "sightings": [{"id": s["id"], "ts": s["ts"], "url": f"/faces/shot/{s['id']}.jpg"} for s in page],
-                    "total": len(ready),
-                    "shots_pending": pending,
-                    "shots_unavailable": unavailable,
-                }
-            )
-        if p.startswith("/faces/unknown/") and p.endswith(".jpg"):
-            gid = p[len("/faces/unknown/") : -len(".jpg")]
-            f = _unknown_photo(gid) if gid.isdigit() else None
-            return (
-                self._send(200, "image/jpeg", f.read_bytes())
-                if f and f.exists()
-                else self._send(404, "text/plain", b"")
-            )
-        if p == "/people/video-thumb.jpg":
-            return self._video_thumb()
-        if m := re.fullmatch(r"/faces/shot/([0-9A-Za-z-]{1,64})\.jpg", p):
-            if self._query().get("size") == "80":
-                return self._grid_photo(m.group(1), "shots_grid")
-            try:
-                path, etag = _shot_file(m.group(1))
-            except ShotsBusy:
-                self.send_response(503)
-                self.send_header("Retry-After", "2")
-                self.send_header("Content-Length", "0")
-                self.end_headers()
-                return
-            if path is None:
-                return self._send(404, "text/plain", b"")
-            tags = {tag.strip() for tag in self.headers.get("If-None-Match", "").split(",")}
-            if etag is not None and tags.intersection({etag, f"W/{etag}", "*"}):
-                self.send_response(304)
-                self.send_header("Cache-Control", "private, max-age=86400")
-                self.send_header("ETag", etag)
-                self.end_headers()
-                return
-            b = path.read_bytes()
-            self.send_response(200)
-            self.send_header("Content-Type", "image/jpeg")
-            # A day: a crop's pixels don't change, and a deleted sighting's is no longer on any page that asks.
-            self.send_header("Cache-Control", "private, max-age=86400")
-            if etag is not None:
-                self.send_header("ETag", etag)
-            self.send_header("Content-Length", str(len(b)))
-            self.end_headers()
-            if self.command != "HEAD":
-                self.wfile.write(b)
-            return
-        if p.startswith("/faces/shot/"):
+        found = routes.find("GET", p)  # every other route is registered in dashboard/routes.py's table (#61)
+        if found is None:
             return self._send(404, "text/plain", b"")
-        if m := re.fullmatch(r"/people/([^/]+)/photos/(\d{10,16})\.jpg", p):  # the card's photo URLs
-            nm = urllib.parse.unquote(m.group(1))
-            if not _safe_name(nm):
-                return self._json({"error": "bad name"}, 400)
-            pick = [f for f in _photos(nm) if f.stem == m.group(2)][:1]
-            return self._send(200, "image/jpeg", pick[0].read_bytes()) if pick else self._send(404, "text/plain", b"")
-        if m := re.fullmatch(r"/people/([^/]+)/card", p):
-            card = _CARD_READS.get(urllib.parse.unquote(m.group(1)))
-            return self._json(card or {"error": "bad name"}, 200 if card else 400)
-        if p == "/identity/why":  # why a line or a recorded face has its name (#288); read only
-            return self._json(*why_name_view(self._query()))
-        if p.startswith("/people/"):
-            from urllib.parse import unquote
-
-            s2 = person_summary(unquote(p[len("/people/") :]))
-            return self._json(s2 or {"error": "bad name"}, 200 if s2 else 400)
-        if p == "/speakers":
-            return self._json(speakers_public())
-        if p == "/speakers/refine/log":
-            # GET: labels given in Lines to check and not undone, newest first
-            return self._json(refine_log_list(min(500, max(1, int(self._query().get("limit", 50) or 50)))))
-        if p == "/speakers/refine":
-            # GET: returns ambiguous utterances (low speaker_sim, borderline between speakers)
-            try:
-                return self._json(speakers_refine_list())
-            except Exception as ex:
-                return self._json({"ok": False, "error": str(ex)}, 500)
-        if p == "/review/boxes":
-            from liberational.dashboard import review_boxes
-
-            q = self._query()
-            try:
-                start, end = float(q.get("start") or ""), float(q.get("end") or "")
-                return self._json(review_boxes.boxes(q.get("cam", ""), start, end, STATE))
-            except (TypeError, ValueError) as ex:
-                return self._json({"error": str(ex)}, 400)
-        if p == "/live/happening":
-            from liberational.dashboard import happening
-
-            q = self._query()
-            try:
-                since = float(q["since"]) if q.get("since") else None
-                limit = max(1, min(200, int(q.get("limit") or 50)))
-            except ValueError:
-                return self._json({"error": "since is a time in seconds, and limit a number"}, 400)
-            if since is not None and not math.isfinite(since):
-                return self._json({"error": "since is a time in seconds"}, 400)
-            try:
-                return self._json(happening.happening(STATE, since, limit))
-            except Exception as ex:
-                log("live happening failed:", repr(ex), level=logs.ERROR)
-                return self._json({"error": "Couldn't read what's been happening."}, 500)
-        if p == "/review/search":
-            q = self._query()
-            code, reply = review_search(q.get("day", ""), q.get("q", ""))
-            return self._json(reply, code)
-        if p == "/journal/today":
-            from liberational.memory import ask, journal_pages
-
-            try:
-                day = ask.validate_day(self._query().get("day", ""))
-            except ValueError:
-                return self._json({"error": "day must be YYYY-MM-DD"}, 400)
-            code, reply = journal_pages.today_page(STATE, time.time(), dt.date.fromisoformat(day) if day else None)
-            return self._json(reply, code)
-        if p == "/review/summary":
-            q = self._query()
-            if "day" in q:
-                from liberational.memory import ask, journal
-
-                try:
-                    if ask.validate_day(q["day"]) is None:
-                        raise ValueError("day must be YYYY-MM-DD")
-                    start, end = journal.day_bounds(q["day"])
-                except ValueError, OverflowError:
-                    return self._json({"error": "day must be YYYY-MM-DD"}, 400)
-            else:
-                try:
-                    start, end = float(q.get("start", "")), float(q.get("end", ""))
-                except ValueError:
-                    return self._json({"error": "start and end are times in seconds"}, 400)
-            if not (math.isfinite(start) and math.isfinite(end) and start < end <= start + REVIEW_SUMMARY_MAX_S):
-                return self._json({"error": "end must come after start, and within 31 days of it"}, 400)
-            try:
-                return self._json(review_summary_kept(start, end))
-            except Exception as ex:
-                log("review summary failed:", repr(ex), level=logs.ERROR)
-                return self._json({"error": "Couldn't read the journal for that stretch."}, 500)
-        if p == "/device-links":
-            from liberational.dashboard import device_links
-
-            code, reply = device_links.listing(self._query().get("hours", ""), state=STATE)
-            return self._json(reply, code)
-        if p == "/device-presence":
-            from liberational.dashboard import device_links
-
-            code, reply = device_links.presence()
-            return self._json(reply, code)
-        if p in ("/device-whereabouts", "/device-comings"):  # Known › Devices (#1326)
-            from liberational.dashboard import device_links
-
-            code, reply = device_links.whereabouts() if p == "/device-whereabouts" else device_links.comings()
-            return self._json(reply, code)
-        if p in ("/zones", "/zones/history"):
-            from liberational.dashboard import zones as zone_routes
-
-            if p == "/zones":
-                code, reply = zone_routes.listing(STATE)
-            else:
-                code, reply = zone_routes.history(self._query().get("cam", ""), STATE)
-            return self._json(reply, code)
-        if p == "/places":
-            from liberational.dashboard import places as places_view
-
-            code, reply = places_view.listing(STATE)
-            return self._json(reply, code)
-        if p == "/places/scene":
-            from liberational.dashboard import places as places_view
-
-            code, reply = places_view.scene(STATE, self._query().get("place", ""))
-            return self._json(reply, code)
-        if p in ("/places/map", "/places/splat"):
-            from liberational.dashboard import places as places_view
-
-            q = self._query()
-            files = places_view.map_file if p == "/places/map" else places_view.splat_file
-            found = files(STATE, q.get("place", ""), q.get("revision", ""))
-            if found is None:
-                return self._json({"error": f"no such {p.rsplit('/', 1)[1]}"}, 404)
-            # A revision's map and splat never change once written: its id is their ETag, and they can be kept for good.
-            tag = f'"{q.get("revision", "")}"'
-            if self.headers.get("If-None-Match") == tag:
-                self.send_response(304)
-                self.send_header("ETag", tag)
-                self.end_headers()
-                return None
-            return self._media(
-                found, "application/octet-stream", {"ETag": tag}, cache="private, max-age=31536000, immutable"
-            )
-        if p == "/places/positions":
-            from liberational.dashboard import places as places_view
-            from liberational.spatial import positions
-
-            try:
-                code, reply = places_view.positions_view(self._query(), STATE, cancelled=self._client_gone)
-            except positions.Cancelled:
-                self.close_connection = True  # nobody is reading: nothing to send
-                return log("places positions read stopped: the client hung up", level=logs.DEBUG)
-            return self._json(reply, code)
-        if p == "/places/plan/history":
-            from liberational.dashboard import places as places_view
-
-            code, reply = places_view.plan_versions(STATE, self._query().get("place", ""))
-            return self._json(reply, code)
-        if p == "/journal":
-            from liberational.dashboard import journal as journal_view
-
-            code, reply = journal_view.listing(self._query(), STATE)
-            return self._json(reply, code)
-        if p == "/activities":
-            from liberational.dashboard import activities
-
-            query = self._query()
-            code, reply = activities.listing(
-                query.get("day", ""), STATE, kind=query.get("kind"), unrated=query.get("unrated") == "1"
-            )
-            return self._json(reply, code)
-        if p == "/activity/kinds":
-            from liberational.dashboard import activities
-
-            code, reply = activities.kinds(STATE)
-            return self._json(reply, code)
-        if p == "/pets":
-            from liberational.dashboard import pets
-
-            code, reply = pets.listing(STATE)
-            return self._json(reply, code)
-        if p == "/pets/sightings":
-            from liberational.dashboard import pets
-
-            code, reply = _ready_pet_view(*pets.sightings(STATE))
-            return self._json(reply, code)
-        if p == "/pets/sightings/photo":
-            return self._pet_photo(self._query().get("track", ""))
-        if p == "/review/presence":
-            from liberational.dashboard import presence
-
-            day = self._query().get("day") or None
-            if day and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
-                return self._json({"error": "day must be YYYY-MM-DD"}, 400)
-            return self._json(presence.for_request(day, STATE))
-        if p == "/journal/evidence":
-            from liberational.memory import journal_evidence
-
-            day = self._query().get("day") or ""
-            if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
-                return self._json({"error": "day must be YYYY-MM-DD"}, 400)
-            return self._json({"day": day, "sources": journal_evidence.resolve_day(STATE, day)})
-        if m := re.fullmatch(r"/journal/evidence/(\d{4}-\d{2}-\d{2})/([0-9A-Za-z_.-]{1,96})", p):
-            from liberational.memory import journal_evidence
-
-            found = journal_evidence.file(STATE, m.group(1), m.group(2))
-            if found is None:
-                return self._send(404, "text/plain", b"")
-            # Byte ranges (206), which Safari and iOS need to play an mp4 at all.
-            return self._media(found, "video/mp4" if found.suffix == ".mp4" else "image/jpeg")
-        if p == "/review/days":
-            return self._json({"days": recorded_days(STATE), "today": time.strftime("%Y-%m-%d")})
-        if p == "/transcript/day":
-            day = self._query().get("day") or time.strftime("%Y-%m-%d")
-            if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
-                return self._json({"error": "bad day"}, 400)
-            t0 = time.mktime(time.strptime(day, "%Y-%m-%d"))
-            es = [
-                e
-                for e in heard_lines(t0 - 3600, t0 + 90000)
-                if time.strftime("%Y-%m-%d", time.localtime(e["ts_start"])) == day
-            ]
-            return self._json({"day": day, "entries": transcript_view.once(_view().lines(es))})  # once each (#284)
-        if p == "/audio/range":
-            q = self._query()
-            try:
-                wav, _info = audio_range(q.get("start"), q.get("end"))
-            except TypeError, ValueError:
-                return self._json({"error": "start and end must be timestamps, end after start"}, 400)
-            except FileNotFoundError as ex:
-                return self._json({"error": str(ex)}, 404)
-            except Exception as ex:
-                return self._json({"error": str(ex)}, 500)
-            # Browsers fetch media with Range requests and give up on a plain 200 (Review's room audio never loaded,
-            # networkState stuck at 2, 2026-10-24); _media answers 206 like /clip does.
-            return self._media(wav, "audio/wav", {"Cache-Control": "no-store"})
-        if p == "/audio/spans":
-            # each microphone's kept audio for a day, so the timeline shows coverage
-            day = self._query().get("day") or time.strftime("%Y-%m-%d")
-            spans = audio_spans(day) if re.fullmatch(r"\d{4}-\d{2}-\d{2}", day) else []
-            return self._json({"day": day, "spans": spans})
-        if p == "/stats":
-            snapshot = STATS.snapshot()
-            USAGE.record(snapshot)
-            return self._json(snapshot)
-        if p == "/stats/history":  # SAMPLER keeps the history going from dashboard start
-            try:
-                since = float(self._query().get("since") or 0)
-            except ValueError:
-                since = 0.0
-            return self._json(USAGE.view(since if math.isfinite(since) else 0.0))
-        if p == "/services/history":
-            code, body = service_history_view(self._query().get("hours", "24"))
-            return self._json(body, code)
-        if p == "/services":
-            return self._json(services_view(self._can_control()))
-        if p == "/health":
-            return self._json(
-                {
-                    "ok": True,
-                    "ts": time.time(),
-                    "clients": SSE_CLIENTS[0],
-                    "boot": devreload.BOOT,
-                    "people_warmup": _people_warm_status(),
-                }
-            )
-        if p.startswith("/static/app/") and DEV and (got := vite(self.path)) is not None:
-            # --dev: the new frontend's modules, styles, and fonts come from Vite, through this server, so the page
-            # loads them from its own origin (over Tailscale too). Its hot reload talks to Vite's port directly.
-            return self._send(200, got[1], got[0])
-        if p.startswith("/static/"):
-            hit = assets.read(p)
-            return self._send(200, hit[1], hit[0]) if hit else self._send(404, "text/plain", b"")
-        self._send(404, "text/plain", b"")
+        route, match = found
+        return route.handler(self, match) if route.kind == "pattern" else route.handler(self)
 
     def _stream_render(self, r: Any) -> None:
         """A clone line still being made (clone_stream.Render): a WAV of open length, each piece sent as it comes, with
@@ -7520,30 +7043,9 @@ class H(http.server.BaseHTTPRequestHandler):
             self.close_connection = True  # its body is never read
             code, o = teaching_refused()
             return self._json(o, code)
-        if p == "/objects" or p.startswith("/objects/"):
-            from liberational.dashboard import objects as objects_page
-
-            objects_page.handle(self, "POST")
-            return
-        if p == "/people/reference-upload":
-            from liberational.people import references
-
-            origin = self.headers.get("Origin")
-            host = self.headers.get("Host") or ""
-            if origin and origin not in (f"http://{host}", f"https://{host}"):
-                return self._json({"error": "same-origin upload only"}, 403)
-            try:
-                length = int(self.headers.get("Content-Length") or 0)
-                if not 0 < length <= references.MAX_BYTES:
-                    self.close_connection = True
-                    return self._json({"error": "Choose a nonempty file up to 20 MB."}, 413)
-                self.connection.settimeout(30)
-                raw = self.rfile.read(length)
-                if len(raw) != length:
-                    raise ValueError("Upload interrupted. Please retry.")
-                return self._json(references.stage(STATE, raw, "Local upload"))
-            except (ValueError, OSError) as exc:
-                return self._json({"error": str(exc)}, 400)
+        found = routes.find("POST", p)  # every other route is registered in dashboard/routes.py's table (#61)
+        if found is not None and found[0].raw:
+            return found[0].handler(self)  # reads its own body: an upload, raw audio, or the Objects API
         if p.startswith("/people/reference-") or p == "/people/search":
             try:
                 length = int(self.headers.get("Content-Length") or 0)
@@ -7552,17 +7054,6 @@ class H(http.server.BaseHTTPRequestHandler):
             if not 0 <= length <= 4096:
                 self.close_connection = True
                 return self._json({"error": "Reference request too large"}, 413)
-        # /clones/record handles raw audio, not JSON
-        if p == "/clones/record":
-            clen = int(self.headers.get("Content-Length") or 0)
-            raw = self.rfile.read(clen) if clen > 0 else b""
-            if len(raw) < 48000:  # less than ~16ms of audio
-                return self._json({"ok": False, "error": "too little data; need at least a few seconds of audio"}, 400)
-            try:
-                code, o = clone_record(raw, urllib.parse.unquote_plus(self._query().get("name", "")))
-                return self._json(o, code)
-            except Exception as ex:
-                return self._json({"ok": False, "error": str(ex)}, 500)
         # All other POST endpoints: JSON body
         try:
             n = int(self.headers.get("Content-Length") or 0)
@@ -7571,357 +7062,9 @@ class H(http.server.BaseHTTPRequestHandler):
                 raise ValueError("object required")
         except Exception:
             return self._json({"ok": False, "error": "bad json"}, 400)
-        if p == "/services":
-            origin = self.headers.get("Origin")
-            if not self._can_control():
-                return self._json({"ok": False, "error": "services can only be changed from this machine"}, 403)
-            if self.headers.get_content_type() != "application/json" or (
-                origin and origin != "http://" + (self.headers.get("Host") or "")
-            ):
-                return self._json({"ok": False, "error": "same-origin JSON only"}, 403)
-            with SERVICES_LOCK:  # one action at a time: two Disables at once would each rewrite pack.toml
-                if "all" in body:
-                    code, o = all_services(str(body.get("all")))
-                else:
-                    code, o = service_action(str(body.get("name", "")), str(body.get("action", "")))
-            return self._json(o, code)
-        if p == "/speakers/tag":
-            if not self._same_origin_json():
-                return self._json({"ok": False, "error": "same-origin JSON only"}, 403)
-            code, o = request_voice_tags(
-                body.get("ts_starts"), body.get("name"), self._can_teach(), lines=body.get("lines")
-            )
-            return self._json(o, code)
-        if p in (
-            "/transcript/reject",
-            "/transcript/undo",
-            "/transcript/media",
-            "/transcript/not-media",
-            "/voices/unknown/media",
-        ):
-            if not self._same_origin_json():
-                return self._json({"ok": False, "error": "same-origin JSON only"}, 403)
-            if not self._can_teach():
-                return self._json({"ok": False, "error": "Controls unavailable"}, 403)
-            if not isinstance(body, dict):
-                return self._json({"ok": False, "error": "Send a JSON object."}, 400)
-            action = {
-                "/transcript/reject": reject_transcript,
-                "/transcript/undo": undo_transcript,
-                "/transcript/media": media_transcript,
-                "/transcript/not-media": not_media,
-                "/voices/unknown/media": media_voice,
-            }[p]
-            try:
-                code, result = action(body)
-            except (OSError, RuntimeError) as error:
-                LOG.exception("transcript correction failed")
-                return self._json({"ok": False, "error": f"The correction could not be saved: {error}"}, 500)
-            return self._json(result, code)
-        if p == "/speakers/label":
-            if not self._same_origin_json():
-                return self._json({"ok": False, "error": "same-origin JSON only"}, 403)
-            code, o = label_speaker(body.get("id"), str(body.get("name", "")), self._can_teach())
-            return self._json(o, code)
-        if p == "/speakers/refine/undo":
-            # POST: {"ts_starts": [...]} or {"since": ts}; same-origin JSON from this machine only
-            origin = self.headers.get("Origin")
-            if not self._can_teach():
-                return self._json({"ok": False, "error": "labels can only be undone from this machine"}, 403)
-            if self.headers.get_content_type() != "application/json" or (
-                origin and origin != "http://" + (self.headers.get("Host") or "")
-            ):
-                return self._json({"ok": False, "error": "same-origin JSON only"}, 403)
-            code, o = speakers_refine_undo(body)
-            return self._json(o, code)
-        if p == "/speakers/refine":
-            # POST: {action: "assign"|"skip"|"multi", id:<speaker_id>, ts_start:<float>}
-            try:
-                action = str(body.get("action", "")).strip()
-                code, o = speakers_refine(action, body)
-                return self._json(o, code)
-            except Exception as ex:
-                return self._json({"ok": False, "error": str(ex)}, 500)
-        if p.startswith("/people/") and p.endswith("/lookup"):
-            from urllib.parse import unquote
-
-            nm = unquote(p[len("/people/") : -len("/lookup")])
-            if nm not in {x["name"] for x in people_roster()}:
-                return self._json({"error": "only people already on the People list"}, 400)
-            return self._json(public_lookup(nm))
-        if p == "/transcript/unlabel":
-            # Detach one utterance from its speaker: it reads as unknown, with no voice. An event in the log; the line
-            # is never rewritten (step 4). Does not touch the speaker DB (centroids are running means; the next
-            # utterances outweigh one bad one).
-            line = body.get("line")  # the line's key (#247), or its time alone as before
-            try:
-                ts = None if isinstance(line, str) and line else float(body.get("ts_start"))
-            except Exception:
-                return self._json({"error": "line (or ts_start) required"}, 400)
-            try:
-                found = _line_at(ts, line)
-                if found is None:
-                    return self._json({"error": "no such utterance"}, 404)
-                stored, _, view = found
-                voice = view.canonical(stored.get("speaker_id"))
-                _label_line(registry.utterance_of(stored), None, voice, label=transcript_view.UNKNOWN)
-                hit = _view().line(stored)
-                transcript_view.rebuild_quietly(STATE, [transcript_view.day_of(hit["ts_start"])])
-                return self._json({"ok": True, "entry": hit})
-            except AmbiguousLine as ex:
-                return self._json({"error": str(ex)}, 409)
-            except Exception as ex:
-                return self._json({"error": str(ex)}, 500)
-        if p == "/clones/say":
-            try:
-                sid, text = int(body.get("id")), str(body.get("text", "")).strip()[:600]
-            except Exception:
-                return self._json({"error": "id and text required"}, 400)
-            if not text:
-                return self._json({"error": "nothing to say"}, 400)
-            code, o = clone_say(sid, text)
-            return self._json(o, code)
-        if p == "/playback/start":
-            # The browser is about to play dashboard audio out of the speakers: open a window that covers it, so the
-            # room mic's transcript drops those words instead of re-including them (2026-10-26).
-            from liberational.speech import playback_guard as pg
-
-            secs = max(1.0, min(300.0, float(body.get("seconds") or 10)))
-            tok = pg.open_window(secs)
-            return self._json({"ok": True, "token": tok})
-        if p == "/playback/stop":
-            from liberational.speech import playback_guard as pg
-
-            pg.close_window(str(body.get("token") or ""))
-            return self._json({"ok": True})
-        if p == "/clones/remove":
-            try:
-                sid = int(body.get("id"))
-            except Exception:
-                return self._json({"error": "id required"}, 400)
-            code, o = clone_remove(sid)
-            return self._json(o, code)
-        if p == "/clones/pick":
-            code, o = clone_pick(body.get("id"), body.get("lines"))
-            return self._json(o, code)
-        if p == "/clones/build":
-            try:
-                sid = int(body.get("id"))
-            except Exception:
-                return self._json({"error": "id required"}, 400)
-            code, o = clone_build(sid)
-            return self._json(o, code)
-        if p == "/calls/hangup":
-            if not self._same_origin_json():
-                return self._json({"error": "same-origin JSON only"}, 403)
-            if body.get("confirmed") is not True:
-                return self._json({"error": "Confirm the selected call first"}, 400)
-            code, result = calls_hangup(str(body.get("day") or ""), str(body.get("dir") or ""))
-            return self._json(result, code)
-        if p == "/calls/place":
-            if not self._same_origin_json():
-                return self._json({"error": "same-origin JSON only"}, 403)
-            if body.get("confirmed") is not True:
-                return self._json({"error": "Confirm the exact call target first"}, 400)
-            name, msg = str(body.get("name", "")).strip(), str(body.get("message", "")).strip()[:500]
-            number = str(body.get("number", "")).strip()
-            if not number:
-                return self._json({"error": "confirmed number required"}, 400)
-            try:
-                from liberational.phone import outbound as outbound_call
-
-                ok, detail = outbound_call.place(name, msg, number=number)
-                return self._json({"ok": ok, "detail": detail}, 200 if ok else 409)
-            except Exception as ex:
-                return self._json({"ok": False, "error": str(ex)}, 500)
-        if p in (
-            "/device-links",
-            "/device-links/remove",
-            "/device-locations",
-            "/device-locations/remove",
-            "/device-access-point",
-        ):
-            if not self._same_origin_json():
-                return self._json({"ok": False, "error": "same-origin JSON only"}, 403)
-            from liberational.dashboard import device_links
-
-            act = {
-                "/device-links": device_links.save,
-                "/device-links/remove": device_links.remove,
-                "/device-locations": lambda b, c: device_links.locate(b, c, STATE),
-                "/device-locations/remove": device_links.unlocate,
-                "/device-access-point": device_links.name_access_point,
-            }[p]
-            code, reply = act(body, self._can_teach())
-            return self._json(reply, code)
-        if p == "/zones":
-            if not self._same_origin_json():
-                return self._json({"ok": False, "error": "same-origin JSON only"}, 403)
-            from liberational.dashboard import zones as zone_routes
-
-            code, reply = zone_routes.save(body, self._can_teach(), STATE)
-            return self._json(reply, code)
-        if p in ("/activity/name", "/activity/feedback"):
-            if not self._same_origin_json():
-                return self._json({"ok": False, "error": "same-origin JSON only"}, 403)
-            from liberational.dashboard import activities
-
-            action = activities.feedback if p == "/activity/feedback" else activities.name
-            code, reply = action(body, self._can_teach())
-            return self._json(reply, code)
-        if p in ("/activity/kinds", "/activity/kinds/delete", "/activity/kinds/restore"):
-            if not self._same_origin_json():
-                return self._json({"ok": False, "error": "same-origin JSON only"}, 403)
-            from liberational.dashboard import activities
-
-            code, reply = activities.edit_kind(p, body, self._can_teach(), STATE)
-            return self._json(reply, code)
-        if p == "/pets/sightings/label":
-            if not self._same_origin_json():
-                return self._json({"ok": False, "error": "same-origin JSON only"}, 403)
-            from liberational.dashboard import pets
-
-            code, reply = pets.label(body, self._can_teach(), STATE)
-            return self._json(reply, code)
-        if p == "/pets/sightings/not":
-            if not self._same_origin_json():
-                return self._json({"ok": False, "error": "same-origin JSON only"}, 403)
-            from liberational.dashboard import pets
-
-            code, reply = pets.deny(body, self._can_teach(), STATE)
-            return self._json(reply, code)
-        if p == "/pets/photo":
-            if not self._same_origin_json():
-                return self._json({"ok": False, "error": "same-origin JSON only"}, 403)
-            from liberational.dashboard import pets
-
-            code, reply = pets.card(body, self._can_teach(), STATE)
-            return self._json(reply, code)
-        if p in ("/pets/save", "/pets/remove"):
-            if not self._same_origin_json():
-                return self._json({"ok": False, "error": "same-origin JSON only"}, 403)
-            from liberational.dashboard import pets
-
-            action = pets.save if p == "/pets/save" else pets.remove
-            code, reply = action(body, self._can_teach(), STATE)
-            return self._json(reply, code)
-        if p in ("/faces/not", "/people/photo"):
-            if not self._same_origin_json():
-                return self._json({"ok": False, "error": "same-origin JSON only"}, 403)
-            action = faces_not if p == "/faces/not" else people_photo
-            code, o = action(body, self._can_teach())
-            return self._json(o, code)
-        if p == "/places/plan":
-            from liberational.dashboard import places as places_view
-
-            if not self._same_origin_json():
-                return self._json({"ok": False, "error": "same-origin JSON only"}, 403)
-            code, o = places_view.correct(body, self._can_teach(), STATE)
-            return self._json(o, code)
-        if p == "/places/plan/restore":
-            from liberational.dashboard import places as places_view
-
-            if not self._same_origin_json():
-                return self._json({"ok": False, "error": "same-origin JSON only"}, 403)
-            code, o = places_view.restore(body, self._can_teach(), STATE)
-            return self._json(o, code)
-        if p == "/faces/unknown/reject":
-            if not self._same_origin_json():
-                return self._json({"ok": False, "error": "same-origin JSON only"}, 403)
-            code, o = reject_shots(body.get("group"), body.get("ids"), self._can_teach())
-            return self._json(o, code)
-        if p == "/measurement/mark":
-            if not self._same_origin_json():
-                return self._json({"ok": False, "error": "same-origin JSON only"}, 403)
-            code, o = marks.mark(body, self._can_teach())
-            return self._json(o, code)
-        if p in (
-            "/people/rename",
-            "/people/me",
-            "/people/claim",
-            "/people/delete",
-            "/people/describe",
-            "/inbox/skip",
-            "/people/assign",
-            "/people/assign-many",
-            "/people/correct",
-            "/people/undo",
-        ):
-            if not self._same_origin_json():
-                return self._json({"ok": False, "error": "same-origin JSON only"}, 403)
-            if p == "/people/rename":
-                code, o = rename_person(body.get("from"), body.get("to"), self._can_teach())
-            elif p == "/people/me":
-                code, o = merge_into_owner(body.get("name"), body.get("voices"), control=self._can_control())
-            elif p == "/people/delete":
-                code, o = delete_person(body.get("name"), self._can_teach())
-            elif p == "/inbox/skip":
-                code, o = inbox_skip(body.get("kind"), body.get("id"), self._can_teach())
-            elif p == "/people/assign":
-                code, o = assign_to(body)
-            elif p == "/people/assign-many":
-                code, o = assign_many(body)
-            elif p == "/people/correct":
-                code, o = correct_card(body)
-            elif p == "/people/undo":
-                code, o = undo_people(body)
-            elif p == "/people/describe":
-                code, o = describe_person(
-                    body.get("name"), body.get("role"), body.get("organization"), control=self._can_teach()
-                )
-            else:
-                code, o = claim_identity(
-                    body.get("kind"),
-                    body.get("id"),
-                    body.get("name"),
-                    self._can_control(),  # claiming a voice as the owner's stays on this machine
-                    body.get("face_source"),
-                    body.get("face_image"),
-                )
-            return self._json(o, code)
-        if p in ("/people/reference-url", "/people/reference-attach", "/people/reference-remove"):
-            from liberational.people import references
-
-            if not self._same_origin_json():
-                return self._json({"error": "same-origin JSON only"}, 403)
-            try:
-                if p == "/people/reference-url":
-                    url = str(body.get("url", ""))
-                    return self._json(references.stage(STATE, references.fetch_media(url), url))
-                token = str(body.get("id", ""))
-                if p == "/people/reference-remove":
-                    _unteach_reference(token)
-                    references.remove(STATE, token)
-                    return self._json({"ok": True})
-                person = str(body.get("person", ""))
-                with _PERSON_CHANGES:
-                    if not any(row["name"] == person for row in people_view()["people"]):
-                        raise ValueError("Choose an existing target person before attaching.")
-                    result = references.attach(STATE, token, person)
-                    # Under the same lock, so a delete of the person can't land between the attach and the row
-                    result = _teach_reference(token, result)
-                return self._json(result)
-            except (ValueError, OSError) as exc:
-                return self._json({"error": str(exc)}, 400)
-        if p == "/people/search":
-            if not self._same_origin_json():
-                return self._json({"error": "same-origin JSON only"}, 403)
-            name = str(body.get("name", "")).strip()
-            context = str(body.get("context", "")).strip()
-            if not name or len(name) > 120 or len(context) > 400:
-                return self._json({"error": "Supply a name (up to 120 characters) and context (up to 400)."}, 400)
-            return self._json(public_lookup(name, context, candidates=True))
-        if p == "/people/add":
-            tag = _typed_tag(body.get("name"))
-            nm = tag.name if tag else _person_name(body.get("name"))
-            num = str(body.get("number", "")).strip()
-            if not nm:
-                return self._json({"error": "Names start with a letter and use letters, spaces, . ' or -"}, 400)
-            if num and not contacts.PHONE.fullmatch(num):
-                return self._json({"error": "phone must look like +14155550123"}, 400)
-            add_person(nm, num, **(tag.attributes() if tag else {}))
-            return self._json({"name": nm})
-        self._json({"ok": False, "error": "unknown endpoint"}, 404)
+        if found is None:
+            return self._json({"ok": False, "error": "unknown endpoint"}, 404)
+        return found[0].handler(self, body)
 
     # -- server-sent events: one thread per client, file watch at 0.5 s
     def levels(self) -> None:
@@ -8009,6 +7152,25 @@ class H(http.server.BaseHTTPRequestHandler):
         finally:
             tail.close()
 
+    def _shell_status(self) -> shell_status.Status:
+        """This feed's shell status: what GET /devices/privacy, /services, and /research/jobs would answer this
+        viewer, each read once for every feed open at the same time. Research is the owner's alone, as its route is."""
+        from liberational.dashboard import privacy
+        from liberational.dashboard import research as research_routes
+
+        control = self._can_control()
+        periods = shell_status.PERIOD_S
+        sources: dict[str, Callable[[], Any]] = {
+            "privacy": lambda: privacy.view(control),
+            "services": lambda: shell_status.shared(
+                ("services", control), periods["services"], lambda: services_view(control)
+            ),
+        }
+        # As ask._owner_http decides the route: this machine, or a viewer who passed the dashboard password.
+        if self._local() or bool(DASH_PASSWORD):
+            sources["research"] = lambda: shell_status.shared("research", periods["research"], research_routes.view)
+        return shell_status.Status(sources)
+
     def sse(self) -> None:
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
@@ -8043,6 +7205,11 @@ class H(http.server.BaseHTTPRequestHandler):
             ev("ambient", mics)
             cams = camera_status()
             ev("vision", cams)
+            # The shell's status (#52): pauses, the services badge, and the Inbox's jobs, sent when they change.
+            status = self._shell_status()
+            for kind, value in status.changed():
+                ev(kind, value)
+            ev("ready", {"ts": time.time()})  # the opening snapshot is complete: a kind not sent yet won't be
             # The scene is asked of the vision log every SCENE_POLL_S, and sent when its newest captions change.
             scene_at, scene_seen = time.monotonic(), _scene_key(scene_entries())
             purge_at = time.monotonic()
@@ -8065,9 +7232,7 @@ class H(http.server.BaseHTTPRequestHandler):
                     voices_due = True
                     heard_now = _view().lines(heard_now)
                     seen.update(label_marks(heard_now))
-                    heard_now = transcript_view.once(
-                        heard_now
-                    )  # another mic's copy in the same batch shows once (#284)
+                    heard_now = transcript_view.once(heard_now)  # another mic's copy in the same batch shows once
                     ev("transcript", {"entries": heard_now, "reset": False})
                 if replies := [e for e in new if e.get("assistant")]:  # the assistant's replies, in the same feed
                     ev("transcript", {"entries": replies, "reset": False})
@@ -8081,7 +7246,7 @@ class H(http.server.BaseHTTPRequestHandler):
                         changed, seen = relabeled_tail(seen)
                         if changed:
                             ev("transcript", {"entries": changed, "reset": False, "replace": True})
-                    if (now_voices := speakers_public()) != voices:  # a voice's name lives in the log (issue #30)
+                    if (now_voices := speakers_public()) != voices:  # a voice's name lives in the log
                         voices = now_voices
                         ev("speakers", voices)
                 if time.monotonic() - scene_at >= SCENE_POLL_S:
@@ -8099,6 +7264,8 @@ class H(http.server.BaseHTTPRequestHandler):
                 if (now_cams := camera_status())["cameras"] != cams["cameras"] or now_cams["ts"] - cams["ts"] > 5:
                     cams = now_cams  # sent when it changes, and every 5 s so the page knows it's fresh
                     ev("vision", cams)
+                for kind, value in status.changed():
+                    ev(kind, value)
                 # An event, not a comment, so pages can tell a quiet stream from a dead one.
                 if time.time() - last_ping > 15:
                     last_ping = time.time()
@@ -8110,9 +7277,861 @@ class H(http.server.BaseHTTPRequestHandler):
                 SSE_CLIENTS[0] -= 1
 
 
+# ---------------------------------------------------------------- routes ----
+# Every route this module answers, registered in dashboard/routes.py's table (#61). The patterns and tests are
+# tried in this order, after the exact paths, so a catch-all (/people/<name>) comes after the narrower routes.
+
+
+@routes.get_when("/objects, /objects/...", lambda p: p == "/objects" or p.startswith("/objects/"))
+def _get_objects(h: H) -> None:
+    from liberational.dashboard import objects as objects_page
+
+    objects_page.handle(h, "GET")  # the Objects page and its API, on Continuum
+
+
+@routes.get_when(
+    "/people/references, /people/reference-media/<id>",
+    lambda p: p == "/people/references" or p.startswith("/people/reference-media/"),
+)
+def _get_people_references(h: H) -> None:
+    p = h.path.split("?")[0]
+    from liberational.people import references
+
+    try:
+        if p == "/people/references":
+            return h._json(
+                {
+                    "references": references.listing(
+                        STATE,
+                        urllib.parse.parse_qs(urllib.parse.urlsplit(h.path).query).get("person", [""])[0],
+                    )
+                }
+            )
+        token = p.removeprefix("/people/reference-media/")
+        meta = references.metadata(STATE, token)
+        return h._media(
+            references.entry(STATE, token) / meta["file"], meta["mime"], {"X-Content-Type-Options": "nosniff"}
+        )
+    except (ValueError, OSError) as exc:
+        return h._json({"error": str(exc)}, 400)
+
+
+@routes.get("/audio/levels")
+def _get_audio_levels(h: H) -> None:
+    return h.levels()
+
+
+@routes.get("/events")
+def _get_events(h: H) -> None:
+    return h.sse()
+
+
+@routes.get("/logs/stream")
+def _get_logs_stream(h: H) -> None:
+    return h.log_stream()
+
+
+@routes.get("/history/at")
+def _get_history_at(h: H) -> None:
+    if not h._may_see_camera_history():
+        return h._json({"error": "camera history is only shown on this machine"}, 403)
+    q = h._query()
+    try:
+        ts, window = float(q.get("ts", "")), float(q.get("window", "30"))
+    except ValueError:
+        return h._json({"error": "bad ts or window"}, 400)
+    return h._json(history_at(ts, window))
+
+
+@routes.get("/scene")
+def _get_scene(h: H) -> None:
+    return h._json(scene_entries())
+
+
+@routes.get("/ambient")
+def _get_ambient(h: H) -> None:
+    return h._json(mic_status())
+
+
+@routes.get("/vision")
+def _get_vision(h: H) -> None:
+    return h._json(camera_status())
+
+
+@routes.get("/transcript")
+def _get_transcript(h: H) -> None:
+    q = h._query()
+    try:
+        n = max(1, min(1000, int(q.get("n", "80"))))
+    except ValueError:
+        n = 80
+    if q.get("around"):  # the moment a summary link points at: n/2 utterances either side of ts
+        try:
+            ts = float(q["around"])
+        except ValueError:
+            return h._json({"error": "bad around"}, 400)
+        return h._json(transcript_around(ts, n))
+    return h._json({"entries": merged_tail(n), "reset": True})
+
+
+@routes.get("/clones")
+def _get_clones(h: H) -> None:
+    return h._json(clones_list())
+
+
+@routes.get("/clones/render")
+def _get_clones_render(h: H) -> None:
+    f = h._query().get("f", "")
+    if not re.fullmatch(r"say-\d+-\d+\.wav", f):
+        return h._json({"error": "bad file"}, 400)
+    from liberational.dashboard import clone_stream
+
+    r = clone_stream.live(f)
+    if r is not None and not r.done and clone_stream.waits(h.headers.get("User-Agent") or ""):
+        r.wait()  # Safari: the finished file, a few seconds later
+    if r is None or (r.done and not r.error):
+        return h._wav_file(CLONES / f)  # 404 when the cleanup took it
+    if r.done:
+        return h._json({"error": r.error}, 502)
+    return h._stream_render(r)
+
+
+@routes.get_re(r"/clones/(\d{1,6})/lines")
+def _get_clones_x_lines(h: H, m: re.Match[str]) -> None:
+    from liberational.speech import clone_say
+
+    try:
+        return h._json({"lines": clone_say.pickable(int(m.group(1)))})
+    except Exception as ex:
+        log("clones: lines unreadable:", repr(ex), level=logs.ERROR)
+        return h._json({"error": "Could not read their lines."}, 500)
+
+
+@routes.get("/clones/audio")
+def _get_clones_audio(h: H) -> None:
+    try:
+        from liberational.speech import clone_say
+
+        ref = clone_say.ref_for(int(h._query().get("id", 0)), make=False)
+        return h._wav_file(ref) if ref else h._json({"error": "no reference for that voice yet"}, 404)
+    except ValueError:
+        return h._json({"error": "bad id"}, 400)
+
+
+@routes.get("/calls/audio")
+def _get_calls_audio(h: H) -> None:
+    q = h._query()
+    day, name, which = q.get("day", ""), q.get("dir", ""), q.get("which", "mixed")
+    if not (_safe_name(day) and _safe_name(name)) or which not in ("mixed", "bot", "caller"):
+        return h._json({"error": "bad call"}, 400)
+    return h._wav_file(CALLS_DIR / day / name / f"{which}.wav")
+
+
+@routes.get("/clip")
+def _get_clip(h: H) -> None:
+    q = h._query()
+    info = q.get("info") in ("1", "true")
+    if q.get("line"):  # the line's key: one microphone's line, never another's in the same millisecond
+        e = find_line(q["line"])
+        if e is None:
+            return h._json({"ok": False, "error": "no transcript line with that key"}, 404)
+        return h.clip(entry=e, info=info)
+    if "ts_start" in q:
+        try:
+            ts = float(q["ts_start"])
+        except ValueError:
+            return h._json({"ok": False, "error": "bad ts_start"}, 400)
+        e = find_entry(ts)
+        if e is None:
+            return h._json({"ok": False, "error": "no transcript entry at that ts_start"}, 404)
+        return h.clip(entry=e, info=info)
+    return h._json({"ok": False, "error": "need line=<key> or ts_start=<unix seconds>"}, 400)
+
+
+@routes.get_re(r"/speaker/(\d{1,6})/(latest|latest-clip)")
+def _get_speaker_x_x(h: H, m: re.Match[str]) -> None:
+    e = latest_for_speaker(int(m.group(1)))
+    if e is None:
+        return h._json({"ok": False, "error": "no utterance with audio for that speaker"}, 404)
+    return h._json(e) if m.group(2) == "latest" else h.clip(entry=e, info=h._query().get("info") in ("1", "true"))
+
+
+@routes.get("/calls")
+def _get_calls(h: H) -> None:
+    return h._json(calls_list())
+
+
+@routes.get("/calls/live")
+def _get_calls_live(h: H) -> None:
+    return h._json(calls_live())
+
+
+@routes.get("/calls/detail")
+def _get_calls_detail(h: H) -> None:
+    q = dict(kv.split("=", 1) for kv in (h.path.split("?", 1) + [""])[1].split("&") if "=" in kv)
+    t = call_transcript(q.get("day", ""), q.get("dir", ""))
+    return h._json(t or {"error": "not found"}, 200 if t else 404)
+
+
+# not under /people/, where it would be the page of someone named "unnamed"
+@routes.get("/inbox/unnamed")
+def _get_inbox_unnamed(h: H) -> None:
+    return h._json(people_unnamed())
+
+
+@routes.get("/people")
+def _get_people(h: H) -> None:
+    view = people_view(cold=True)
+    _CARD_READS.warm([str(person["name"]) for person in view.get("people", [])[:CARD_WARM]])
+    return h._json(view)
+
+
+@routes.get("/inbox/skips")
+def _get_inbox_skips(h: H) -> None:
+    counts = skip_counts(inbox_skips())
+    return h._json({k: counts[k] for k in ("face", "voice", "line")})
+
+
+@routes.get("/faces/unknown/groups")
+def _get_faces_unknown_groups(h: H) -> None:
+    code, o = _ready_face_groups(*_FACE_GROUPS.poll())
+    return h._json(o, code)
+
+
+@routes.get("/voices/unknown/groups")
+def _get_voices_unknown_groups(h: H) -> None:
+    code, o = _VOICE_GROUPS.poll()
+    return h._json(o, code)
+
+
+@routes.get_re(r"/faces/unknown/(\d{1,9})/sightings")
+def _get_faces_unknown_x_sightings(h: H, m: re.Match[str]) -> None:
+    from liberational.people import face_photos
+
+    q = h._query()
+    try:
+        offset = max(0, int(q.get("offset", "0")))
+        limit = max(1, min(SIGHTINGS_PAGE_MAX, int(q.get("limit", str(face_photos.STRIP_MAX)))))
+    except ValueError:
+        return h._json({"error": "bad offset or limit"}, 400)
+    found = [f for f in face_photos._unnamed(STATE) if face_photos._group(f["cluster"]) == int(m.group(1))]
+    ready, pending, unavailable = _ready_faces(found)
+    page = ready[offset : offset + limit]
+    return h._json(
+        {
+            "sightings": [{"id": s["id"], "ts": s["ts"], "url": f"/faces/shot/{s['id']}.jpg"} for s in page],
+            "total": len(ready),
+            "shots_pending": pending,
+            "shots_unavailable": unavailable,
+        }
+    )
+
+
+@routes.get_when("/faces/unknown/<group>.jpg", lambda p: p.startswith("/faces/unknown/") and p.endswith(".jpg"))
+def _get_faces_unknown_photo(h: H) -> None:
+    p = h.path.split("?")[0]
+    gid = p[len("/faces/unknown/") : -len(".jpg")]
+    f = _unknown_photo(gid) if gid.isdigit() else None
+    return h._send(200, "image/jpeg", f.read_bytes()) if f and f.exists() else h._send(404, "text/plain", b"")
+
+
+@routes.get("/people/video-thumb.jpg")
+def _get_people_video_thumb_jpg(h: H) -> None:
+    return h._video_thumb()
+
+
+@routes.get_re(r"/faces/shot/([0-9A-Za-z-]{1,64})\.jpg")
+def _get_faces_shot_x_jpg(h: H, m: re.Match[str]) -> None:
+    if h._query().get("size") == "80":
+        return h._grid_photo(m.group(1), "shots_grid")
+    try:
+        path, etag = _shot_file(m.group(1))
+    except ShotsBusy:
+        h.send_response(503)
+        h.send_header("Retry-After", "2")
+        h.send_header("Content-Length", "0")
+        h.end_headers()
+        return
+    if path is None:
+        return h._send(404, "text/plain", b"")
+    tags = {tag.strip() for tag in h.headers.get("If-None-Match", "").split(",")}
+    if etag is not None and tags.intersection({etag, f"W/{etag}", "*"}):
+        h.send_response(304)
+        h.send_header("Cache-Control", "private, max-age=86400")
+        h.send_header("ETag", etag)
+        h.end_headers()
+        return
+    b = path.read_bytes()
+    h.send_response(200)
+    h.send_header("Content-Type", "image/jpeg")
+    # A day: a crop's pixels don't change, and a deleted sighting's is no longer on any page that asks.
+    h.send_header("Cache-Control", "private, max-age=86400")
+    if etag is not None:
+        h.send_header("ETag", etag)
+    h.send_header("Content-Length", str(len(b)))
+    h.end_headers()
+    if h.command != "HEAD":
+        h.wfile.write(b)
+    return
+
+
+@routes.get_when("/faces/shot/...", lambda p: p.startswith("/faces/shot/"))
+def _get_faces_shot_missing(h: H) -> None:
+    return h._send(404, "text/plain", b"")
+
+
+# the card's photo URLs
+@routes.get_re(r"/people/([^/]+)/photos/(\d{10,16})\.jpg")
+def _get_people_x_photos_x_jpg(h: H, m: re.Match[str]) -> None:
+    nm = urllib.parse.unquote(m.group(1))
+    if not _safe_name(nm):
+        return h._json({"error": "bad name"}, 400)
+    pick = [f for f in _photos(nm) if f.stem == m.group(2)][:1]
+    return h._send(200, "image/jpeg", pick[0].read_bytes()) if pick else h._send(404, "text/plain", b"")
+
+
+@routes.get_re(r"/people/([^/]+)/card")
+def _get_people_x_card(h: H, m: re.Match[str]) -> None:
+    card = _CARD_READS.get(urllib.parse.unquote(m.group(1)))
+    return h._json(card or {"error": "bad name"}, 200 if card else 400)
+
+
+# why a line or a recorded face has its name; read only
+@routes.get("/identity/why")
+def _get_identity_why(h: H) -> None:
+    return h._json(*why_name_view(h._query()))
+
+
+@routes.get_when("/people/<name>", lambda p: p.startswith("/people/"))
+def _get_people_summary(h: H) -> None:
+    p = h.path.split("?")[0]
+    from urllib.parse import unquote
+
+    s2 = person_summary(unquote(p[len("/people/") :]))
+    return h._json(s2 or {"error": "bad name"}, 200 if s2 else 400)
+
+
+@routes.get("/speakers")
+def _get_speakers(h: H) -> None:
+    return h._json(speakers_public())
+
+
+@routes.get("/speakers/refine/log")
+def _get_speakers_refine_log(h: H) -> None:
+    return h._json(refine_log_list(min(500, max(1, int(h._query().get("limit", 50) or 50)))))
+
+
+@routes.get("/speakers/refine")
+def _get_speakers_refine(h: H) -> None:
+    try:
+        return h._json(speakers_refine_list())
+    except Exception as ex:
+        return h._json({"ok": False, "error": str(ex)}, 500)
+
+
+@routes.get("/review/search")
+def _get_review_search(h: H) -> None:
+    q = h._query()
+    code, reply = review_search(q.get("day", ""), q.get("q", ""))
+    return h._json(reply, code)
+
+
+@routes.get("/review/summary")
+def _get_review_summary(h: H) -> None:
+    q = h._query()
+    if "day" in q:
+        from liberational.memory import ask, journal
+
+        try:
+            if ask.validate_day(q["day"]) is None:
+                raise ValueError("day must be YYYY-MM-DD")
+            start, end = journal.day_bounds(q["day"])
+        except ValueError, OverflowError:
+            return h._json({"error": "day must be YYYY-MM-DD"}, 400)
+    else:
+        try:
+            start, end = float(q.get("start", "")), float(q.get("end", ""))
+        except ValueError:
+            return h._json({"error": "start and end are times in seconds"}, 400)
+    if not (math.isfinite(start) and math.isfinite(end) and start < end <= start + REVIEW_SUMMARY_MAX_S):
+        return h._json({"error": "end must come after start, and within 31 days of it"}, 400)
+    try:
+        return h._json(review_summary_kept(start, end))
+    except Exception as ex:
+        log("review summary failed:", repr(ex), level=logs.ERROR)
+        return h._json({"error": "Couldn't read the journal for that stretch."}, 500)
+
+
+@routes.get("/pets/sightings")
+def _get_pets_sightings(h: H) -> None:
+    from liberational.dashboard import pets
+
+    code, reply = _ready_pet_view(*pets.sightings(STATE))
+    return h._json(reply, code)
+
+
+@routes.get("/pets/sightings/photo")
+def _get_pets_sightings_photo(h: H) -> None:
+    return h._pet_photo(h._query().get("track", ""))
+
+
+@routes.get("/review/days")
+def _get_review_days(h: H) -> None:
+    return h._json({"days": recorded_days(STATE), "today": time.strftime("%Y-%m-%d")})
+
+
+@routes.get("/transcript/day")
+def _get_transcript_day(h: H) -> None:
+    day = h._query().get("day") or time.strftime("%Y-%m-%d")
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
+        return h._json({"error": "bad day"}, 400)
+    t0 = time.mktime(time.strptime(day, "%Y-%m-%d"))
+    es = [
+        e for e in heard_lines(t0 - 3600, t0 + 90000) if time.strftime("%Y-%m-%d", time.localtime(e["ts_start"])) == day
+    ]
+    return h._json({"day": day, "entries": transcript_view.once(_view().lines(es))})  # once each
+
+
+@routes.get("/audio/range")
+def _get_audio_range(h: H) -> None:
+    q = h._query()
+    try:
+        wav, _info = audio_range(q.get("start"), q.get("end"))
+    except TypeError, ValueError:
+        return h._json({"error": "start and end must be timestamps, end after start"}, 400)
+    except FileNotFoundError as ex:
+        return h._json({"error": str(ex)}, 404)
+    except Exception as ex:
+        return h._json({"error": str(ex)}, 500)
+    # Browsers fetch media with Range requests and give up on a plain 200 (Review's room audio never loaded,
+    # with networkState stuck at 2); _media answers 206 like /clip does.
+    return h._media(wav, "audio/wav", {"Cache-Control": "no-store"})
+
+
+@routes.get("/audio/spans")
+def _get_audio_spans(h: H) -> None:
+    day = h._query().get("day") or time.strftime("%Y-%m-%d")
+    spans = audio_spans(day) if re.fullmatch(r"\d{4}-\d{2}-\d{2}", day) else []
+    return h._json({"day": day, "spans": spans})
+
+
+@routes.get("/stats")
+def _get_stats(h: H) -> None:
+    snapshot = STATS.snapshot()
+    USAGE.record(snapshot)
+    return h._json(snapshot)
+
+
+# SAMPLER keeps the history going from dashboard start
+@routes.get("/stats/history")
+def _get_stats_history(h: H) -> None:
+    try:
+        since = float(h._query().get("since") or 0)
+    except ValueError:
+        since = 0.0
+    return h._json(USAGE.view(since if math.isfinite(since) else 0.0))
+
+
+@routes.get("/services/history")
+def _get_services_history(h: H) -> None:
+    code, body = service_history_view(h._query().get("hours", "24"))
+    return h._json(body, code)
+
+
+@routes.get("/services")
+def _get_services(h: H) -> None:
+    return h._json(services_view(h._can_control()))
+
+
+@routes.get("/health")
+def _get_health(h: H) -> None:
+    return h._json(
+        {
+            "ok": True,
+            "ts": time.time(),
+            "clients": SSE_CLIENTS[0],
+            "boot": devreload.BOOT,
+            "people_warmup": _people_warm_status(),
+        }
+    )
+
+
+@routes.get_when("/static/...", lambda p: p.startswith("/static/"))
+def _get_static(h: H) -> None:
+    p = h.path.split("?")[0]
+    if p.startswith("/static/app/") and DEV and (got := vite(h.path)) is not None:
+        # --dev: the new frontend's modules, styles, and fonts come from Vite, through this server, so the page
+        # loads them from its own origin (over Tailscale too). Its hot reload talks to Vite's port directly.
+        return h._send(200, got[1], got[0])
+    hit = assets.read(p)
+    return h._send(200, hit[1], hit[0]) if hit else h._send(404, "text/plain", b"")
+
+
+@routes.post_raw_when("/objects, /objects/...", lambda p: p == "/objects" or p.startswith("/objects/"))
+def _post_objects(h: H) -> None:
+    from liberational.dashboard import objects as objects_page
+
+    objects_page.handle(h, "POST")
+
+
+@routes.post_raw("/people/reference-upload")
+def _post_people_reference_upload(h: H) -> None:
+    from liberational.people import references
+
+    origin = h.headers.get("Origin")
+    host = h.headers.get("Host") or ""
+    if origin and origin not in (f"http://{host}", f"https://{host}"):
+        return h._json({"error": "same-origin upload only"}, 403)
+    try:
+        length = int(h.headers.get("Content-Length") or 0)
+        if not 0 < length <= references.MAX_BYTES:
+            h.close_connection = True
+            return h._json({"error": "Choose a nonempty file up to 20 MB."}, 413)
+        h.connection.settimeout(30)
+        raw = h.rfile.read(length)
+        if len(raw) != length:
+            raise ValueError("Upload interrupted. Please retry.")
+        return h._json(references.stage(STATE, raw, "Local upload"))
+    except (ValueError, OSError) as exc:
+        return h._json({"error": str(exc)}, 400)
+
+
+@routes.post_raw("/clones/record")
+def _post_clones_record(h: H) -> None:
+    clen = int(h.headers.get("Content-Length") or 0)
+    raw = h.rfile.read(clen) if clen > 0 else b""
+    if len(raw) < 48000:  # less than ~16ms of audio
+        return h._json({"ok": False, "error": "too little data; need at least a few seconds of audio"}, 400)
+    try:
+        code, o = clone_record(raw, urllib.parse.unquote_plus(h._query().get("name", "")))
+        return h._json(o, code)
+    except Exception as ex:
+        return h._json({"ok": False, "error": str(ex)}, 500)
+
+
+@routes.post("/services")
+def _post_services(h: H, body: Any) -> None:
+    origin = h.headers.get("Origin")
+    if not h._can_control():
+        return h._json({"ok": False, "error": "services can only be changed from this machine"}, 403)
+    if h.headers.get_content_type() != "application/json" or (
+        origin and origin != "http://" + (h.headers.get("Host") or "")
+    ):
+        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
+    with SERVICES_LOCK:  # one action at a time: two Disables at once would each rewrite pack.toml
+        if "all" in body:
+            code, o = all_services(str(body.get("all")))
+        else:
+            code, o = service_action(str(body.get("name", "")), str(body.get("action", "")))
+    return h._json(o, code)
+
+
+@routes.post("/speakers/tag")
+def _post_speakers_tag(h: H, body: Any) -> None:
+    if not h._same_origin_json():
+        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
+    code, o = request_voice_tags(body.get("ts_starts"), body.get("name"), h._can_teach(), lines=body.get("lines"))
+    return h._json(o, code)
+
+
+@routes.post(
+    "/transcript/reject",
+    "/transcript/undo",
+    "/transcript/media",
+    "/transcript/not-media",
+    "/voices/unknown/media",
+)
+def _post_transcript_reject(h: H, body: Any) -> None:
+    p = h.path.split("?")[0]
+    if not h._same_origin_json():
+        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
+    if not h._can_teach():
+        return h._json({"ok": False, "error": "Controls unavailable"}, 403)
+    if not isinstance(body, dict):
+        return h._json({"ok": False, "error": "Send a JSON object."}, 400)
+    action = {
+        "/transcript/reject": reject_transcript,
+        "/transcript/undo": undo_transcript,
+        "/transcript/media": media_transcript,
+        "/transcript/not-media": not_media,
+        "/voices/unknown/media": media_voice,
+    }[p]
+    try:
+        code, result = action(body)
+    except (OSError, RuntimeError) as error:
+        LOG.exception("transcript correction failed")
+        return h._json({"ok": False, "error": f"The correction could not be saved: {error}"}, 500)
+    return h._json(result, code)
+
+
+@routes.post("/speakers/label")
+def _post_speakers_label(h: H, body: Any) -> None:
+    if not h._same_origin_json():
+        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
+    code, o = label_speaker(body.get("id"), str(body.get("name", "")), h._can_teach())
+    return h._json(o, code)
+
+
+@routes.post("/speakers/refine/undo")
+def _post_speakers_refine_undo(h: H, body: Any) -> None:
+    origin = h.headers.get("Origin")
+    if not h._can_teach():
+        return h._json({"ok": False, "error": "labels can only be undone from this machine"}, 403)
+    if h.headers.get_content_type() != "application/json" or (
+        origin and origin != "http://" + (h.headers.get("Host") or "")
+    ):
+        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
+    code, o = speakers_refine_undo(body)
+    return h._json(o, code)
+
+
+@routes.post("/speakers/refine")
+def _post_speakers_refine(h: H, body: Any) -> None:
+    try:
+        action = str(body.get("action", "")).strip()
+        code, o = speakers_refine(action, body)
+        return h._json(o, code)
+    except Exception as ex:
+        return h._json({"ok": False, "error": str(ex)}, 500)
+
+
+@routes.post_when("/people/<name>/lookup", lambda p: p.startswith("/people/") and p.endswith("/lookup"))
+def _post_people_lookup(h: H, body: Any) -> None:
+    p = h.path.split("?")[0]
+    from urllib.parse import unquote
+
+    nm = unquote(p[len("/people/") : -len("/lookup")])
+    if nm not in {x["name"] for x in people_roster()}:
+        return h._json({"error": "only people already on the People list"}, 400)
+    return h._json(public_lookup(nm))
+
+
+@routes.post("/transcript/unlabel")
+def _post_transcript_unlabel(h: H, body: Any) -> None:
+    line = body.get("line")  # the line's key, or its time alone as before
+    try:
+        ts = None if isinstance(line, str) and line else float(body.get("ts_start"))
+    except Exception:
+        return h._json({"error": "line (or ts_start) required"}, 400)
+    try:
+        found = _line_at(ts, line)
+        if found is None:
+            return h._json({"error": "no such utterance"}, 404)
+        stored, _, view = found
+        voice = view.canonical(stored.get("speaker_id"))
+        _label_line(registry.utterance_of(stored), None, voice, label=transcript_view.UNKNOWN)
+        hit = _view().line(stored)
+        transcript_view.rebuild_quietly(STATE, [transcript_view.day_of(hit["ts_start"])])
+        return h._json({"ok": True, "entry": hit})
+    except AmbiguousLine as ex:
+        return h._json({"error": str(ex)}, 409)
+    except Exception as ex:
+        return h._json({"error": str(ex)}, 500)
+
+
+@routes.post("/clones/say")
+def _post_clones_say(h: H, body: Any) -> None:
+    try:
+        sid, text = int(body.get("id")), str(body.get("text", "")).strip()[:600]
+    except Exception:
+        return h._json({"error": "id and text required"}, 400)
+    if not text:
+        return h._json({"error": "nothing to say"}, 400)
+    code, o = clone_say(sid, text)
+    return h._json(o, code)
+
+
+@routes.post("/playback/start")
+def _post_playback_start(h: H, body: Any) -> None:
+    from liberational.speech import playback_guard as pg
+
+    secs = max(1.0, min(300.0, float(body.get("seconds") or 10)))
+    tok = pg.open_window(secs)
+    return h._json({"ok": True, "token": tok})
+
+
+@routes.post("/playback/stop")
+def _post_playback_stop(h: H, body: Any) -> None:
+    from liberational.speech import playback_guard as pg
+
+    pg.close_window(str(body.get("token") or ""))
+    return h._json({"ok": True})
+
+
+@routes.post("/clones/remove")
+def _post_clones_remove(h: H, body: Any) -> None:
+    try:
+        sid = int(body.get("id"))
+    except Exception:
+        return h._json({"error": "id required"}, 400)
+    code, o = clone_remove(sid)
+    return h._json(o, code)
+
+
+@routes.post("/clones/pick")
+def _post_clones_pick(h: H, body: Any) -> None:
+    code, o = clone_pick(body.get("id"), body.get("lines"))
+    return h._json(o, code)
+
+
+@routes.post("/clones/build")
+def _post_clones_build(h: H, body: Any) -> None:
+    try:
+        sid = int(body.get("id"))
+    except Exception:
+        return h._json({"error": "id required"}, 400)
+    code, o = clone_build(sid)
+    return h._json(o, code)
+
+
+@routes.post("/calls/hangup")
+def _post_calls_hangup(h: H, body: Any) -> None:
+    if not h._same_origin_json():
+        return h._json({"error": "same-origin JSON only"}, 403)
+    if body.get("confirmed") is not True:
+        return h._json({"error": "Confirm the selected call first"}, 400)
+    code, result = calls_hangup(str(body.get("day") or ""), str(body.get("dir") or ""))
+    return h._json(result, code)
+
+
+@routes.post("/calls/place")
+def _post_calls_place(h: H, body: Any) -> None:
+    if not h._same_origin_json():
+        return h._json({"error": "same-origin JSON only"}, 403)
+    if body.get("confirmed") is not True:
+        return h._json({"error": "Confirm the exact call target first"}, 400)
+    name, msg = str(body.get("name", "")).strip(), str(body.get("message", "")).strip()[:500]
+    number = str(body.get("number", "")).strip()
+    if not number:
+        return h._json({"error": "confirmed number required"}, 400)
+    try:
+        from liberational.phone import outbound as outbound_call
+
+        ok, detail = outbound_call.place(name, msg, number=number)
+        return h._json({"ok": ok, "detail": detail}, 200 if ok else 409)
+    except Exception as ex:
+        return h._json({"ok": False, "error": str(ex)}, 500)
+
+
+@routes.post("/faces/not", "/people/photo")
+def _post_faces_not(h: H, body: Any) -> None:
+    p = h.path.split("?")[0]
+    if not h._same_origin_json():
+        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
+    action = faces_not if p == "/faces/not" else people_photo
+    code, o = action(body, h._can_teach())
+    return h._json(o, code)
+
+
+@routes.post("/faces/unknown/reject")
+def _post_faces_unknown_reject(h: H, body: Any) -> None:
+    if not h._same_origin_json():
+        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
+    code, o = reject_shots(body.get("group"), body.get("ids"), h._can_teach())
+    return h._json(o, code)
+
+
+@routes.post(
+    "/people/rename",
+    "/people/me",
+    "/people/claim",
+    "/people/delete",
+    "/people/describe",
+    "/inbox/skip",
+    "/people/assign",
+    "/people/assign-many",
+    "/people/correct",
+    "/people/undo",
+)
+def _post_people_rename(h: H, body: Any) -> None:
+    p = h.path.split("?")[0]
+    if not h._same_origin_json():
+        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
+    if p == "/people/rename":
+        code, o = rename_person(body.get("from"), body.get("to"), h._can_teach())
+    elif p == "/people/me":
+        code, o = merge_into_owner(body.get("name"), body.get("voices"), control=h._can_control())
+    elif p == "/people/delete":
+        code, o = delete_person(body.get("name"), h._can_teach())
+    elif p == "/inbox/skip":
+        code, o = inbox_skip(body.get("kind"), body.get("id"), h._can_teach())
+    elif p == "/people/assign":
+        code, o = assign_to(body)
+    elif p == "/people/assign-many":
+        code, o = assign_many(body)
+    elif p == "/people/correct":
+        code, o = correct_card(body)
+    elif p == "/people/undo":
+        code, o = undo_people(body)
+    elif p == "/people/describe":
+        code, o = describe_person(body.get("name"), body.get("role"), body.get("organization"), control=h._can_teach())
+    else:
+        code, o = claim_identity(
+            body.get("kind"),
+            body.get("id"),
+            body.get("name"),
+            h._can_control(),  # claiming a voice as the owner's stays on this machine
+            body.get("face_source"),
+            body.get("face_image"),
+        )
+    return h._json(o, code)
+
+
+@routes.post("/people/reference-url", "/people/reference-attach", "/people/reference-remove")
+def _post_people_reference_url(h: H, body: Any) -> None:
+    p = h.path.split("?")[0]
+    from liberational.people import references
+
+    if not h._same_origin_json():
+        return h._json({"error": "same-origin JSON only"}, 403)
+    try:
+        if p == "/people/reference-url":
+            url = str(body.get("url", ""))
+            return h._json(references.stage(STATE, references.fetch_media(url), url))
+        token = str(body.get("id", ""))
+        if p == "/people/reference-remove":
+            _unteach_reference(token)
+            references.remove(STATE, token)
+            return h._json({"ok": True})
+        person = str(body.get("person", ""))
+        with _PERSON_CHANGES:
+            if not any(row["name"] == person for row in people_view()["people"]):
+                raise ValueError("Choose an existing target person before attaching.")
+            result = references.attach(STATE, token, person)
+            # Under the same lock, so a delete of the person can't land between the attach and the row
+            result = _teach_reference(token, result)
+        return h._json(result)
+    except (ValueError, OSError) as exc:
+        return h._json({"error": str(exc)}, 400)
+
+
+@routes.post("/people/search")
+def _post_people_search(h: H, body: Any) -> None:
+    if not h._same_origin_json():
+        return h._json({"error": "same-origin JSON only"}, 403)
+    name = str(body.get("name", "")).strip()
+    context = str(body.get("context", "")).strip()
+    if not name or len(name) > 120 or len(context) > 400:
+        return h._json({"error": "Supply a name (up to 120 characters) and context (up to 400)."}, 400)
+    return h._json(public_lookup(name, context, candidates=True))
+
+
+@routes.post("/people/add")
+def _post_people_add(h: H, body: Any) -> None:
+    tag = _typed_tag(body.get("name"))
+    nm = tag.name if tag else _person_name(body.get("name"))
+    num = str(body.get("number", "")).strip()
+    if not nm:
+        return h._json({"error": "Names start with a letter and use letters, spaces, . ' or -"}, 400)
+    if num and not contacts.PHONE.fullmatch(num):
+        return h._json({"error": "phone must look like +14155550123"}, 400)
+    add_person(nm, num, **(tag.attributes() if tag else {}))
+    return h._json({"name": nm})
+
+
 _PEOPLE_WARM_LOCK = threading.Lock()
 _PEOPLE_WARMED = threading.Event()  # the people warm-up finished (done or incomplete)
-WARM_FIRST_MAX_S = 90.0  # the later warm-ups wait at most this long for it (#2022)
+WARM_FIRST_MAX_S = 90.0  # the later warm-ups wait at most this long for it
 _PEOPLE_WARM_STATUS: dict[str, Any] = {"state": "pending", "stage": None, "elapsed_s": None, "errors": []}
 
 
@@ -8179,7 +8198,7 @@ def _warm_people() -> None:
 
 
 def _after_people_warm(name: str, start: Callable[[], Any]) -> threading.Thread:
-    """Start `start` once the people warm-up has finished, or WARM_FIRST_MAX_S after the start at most (#2022). The
+    """Start `start` once the people warm-up has finished, or WARM_FIRST_MAX_S after the start at most. The
     page waits on /people first; background warm-ups that read the same registry and history ran alongside it and
     kept its first answers waiting for the GIL and the registry."""
 
@@ -8198,7 +8217,7 @@ def _after_people_warm(name: str, start: Callable[[], Any]) -> threading.Thread:
 def _stop_worker_pools() -> None:
     """Stop the dashboard's worker processes (face groups, voice groups, the people list, Review presence, and Reports'
     days) at shutdown. Each pool's queues hold named semaphores that only a normal exit unlinks: a stop that skipped
-    this left the resource tracker to find 20 of them and warn on every shutdown (#3166). A worker's job is only a
+    this left the resource tracker to find 20 of them and warn on every shutdown. A worker's job is only a
     read, so one still running is stopped rather than waited for."""
     from liberational.dashboard import presence as review_presence
     from liberational.memory import reports as report_days
@@ -8238,29 +8257,29 @@ def main() -> None:
     )
     from liberational.dashboard import presence as review_presence
 
-    _after_people_warm("review presence", lambda: review_presence.keep_warm(STATE))  # today's Review answer (#334)
+    _after_people_warm("review presence", lambda: review_presence.keep_warm(STATE))  # today's Review answer
     from liberational.dashboard import report_health
 
-    report_health.start(STATE)  # System health's samples for the Reports tab (#1340)
-    memtrim.start()  # what requests and reads freed goes back to the system (#2850)
-    threading.Thread(target=_warm_devices, name="devices-warm", daemon=True).start()  # Known › Devices (#2875)
-    SAMPLER.start()  # the Resource monitor's last half hour, always (#2277)
+    report_health.start(STATE)  # System health's samples for the Reports tab
+    memtrim.start()  # what requests and reads freed goes back to the system
+    threading.Thread(target=_warm_devices, name="devices-warm", daemon=True).start()  # Known › Devices
+    SAMPLER.start()  # the Resource monitor's last half hour, always
     global _groups_in_worker
-    _groups_in_worker = True  # face groups, voice groups, and the people list: a worker process each (#2418)
+    _groups_in_worker = True  # face groups, voice groups, and the people list: a worker process each
     from liberational.memory import reports as report_days
 
-    report_days.READ_IN_WORKER = True  # and Reports' days (#2458)
-    readers.warm()  # which services read which settings, for Settings' save bar (#400)
+    report_days.READ_IN_WORKER = True  # and Reports' days
+    readers.warm()  # which services read which settings, for Settings' save bar
     _warm_faces()
     _after_people_warm(
         "faces autoname",
         lambda: threading.Thread(target=_autoname_faces_forever, daemon=True, name="faces-autoname").start(),
     )
-    slow.watch(LOG.warning, LOG.info)  # what a slow request waits on (#433), and each route's CPU (#2418)
+    slow.watch(LOG.warning, LOG.info)  # what a slow request waits on, and each route's CPU
 
     def stop(signum: int, frame: FrameType | None) -> None:
         # A stop (SIGTERM) ends the serving loop and exits normally, so the worker pools are closed and their
-        # semaphores unlinked (#3166); Python's default for SIGTERM ends the process without either. shutdown() waits
+        # semaphores unlinked; Python's default for SIGTERM ends the process without either. shutdown() waits
         # for the loop to end, so it runs on a thread of its own, not in this handler on the loop's thread.
         threading.Thread(target=srv.shutdown, name="dashboard-stop", daemon=True).start()
 

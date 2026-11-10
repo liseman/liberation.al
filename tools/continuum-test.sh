@@ -5,9 +5,9 @@
 # status, registry, and forgotten-name tests. Rust steps keep standard priority; Python checks stay niced. The gate's CARGO_BUILD_JOBS default is set below.
 set -euo pipefail
 # The caller holds the single shared build lock (tools/build-slot.sh) for this entire gate. Rust commands run
-# at standard priority with 8 build jobs by default (#1097); set CARGO_BUILD_JOBS to override.
+# at standard priority with 8 build jobs by default; set CARGO_BUILD_JOBS to override.
 export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-8}"
-# Every gate builds into one target directory shared by all worktrees (#623), so dependencies compile once instead of
+# Every gate builds into one target directory shared by all worktrees, so dependencies compile once instead of
 # once per worktree. The gate lock (tools/gated.sh) keeps two gates from building into it at once. Set CARGO_TARGET_DIR
 # to override.
 cd "$(dirname "$0")/../continuum"

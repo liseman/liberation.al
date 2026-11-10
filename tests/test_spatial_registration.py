@@ -1,4 +1,4 @@
-"""Fixed cameras registered by reprojection, each with its own lens (#3069): a synthetic room seen by a pinhole camera
+"""Fixed cameras registered by reprojection, each with its own lens: a synthetic room seen by a pinhole camera
 and a wide one with a barrel, as MASt3R's pair inference would hand them over."""
 
 import math
@@ -107,7 +107,7 @@ def test_the_fit_finds_the_pose_focals_and_barrel_of_the_wide_camera():
 
 
 def test_as_a_pinhole_the_barrel_drags_the_reference_focal_off(monkeypatch):
-    # #3069: without a lens for the wide camera the same fit puts the reference's focal where MASt3R did
+    # Without a lens for the wide camera the same fit puts the reference's focal where MASt3R did
     start = np.linalg.inv(MAST3R_POSES["wide"])[:3, :3]
     focals = (MAST3R_FOCALS["cam0"], MAST3R_FOCALS["wide"])
     with_lens = R.fit(pair(room()), REF_SIZE, CAM_SIZE, start, focals)
@@ -240,7 +240,7 @@ def test_a_background_round_trips_and_finds_a_points_cell():
 
 
 def test_a_cameras_masked_pixels_stay_out_of_its_cloud_and_background():
-    # #3085: someone in the frame a camera is registered from isn't its furniture
+    # Someone in the frame a camera is registered from isn't its furniture
     pts = room()
     pairs = {("cam0", "wide"): pair(pts), ("wide", "cam0"): pair(pts, flip=True)}
     clear = R.register(["cam0", "wide"], pairs, SIZES, images(), MAST3R_POSES, MAST3R_FOCALS)
@@ -255,7 +255,7 @@ def test_a_cameras_masked_pixels_stay_out_of_its_cloud_and_background():
 
 
 def test_a_fitted_cameras_background_map_is_its_own_sides_where_the_references_side_is_unsure():
-    # #3220: from the reference's side, MASt3R was sure of 3% of cam0's pixels; from cam0's own side, of 83%. The own
+    # From the reference's side, MASt3R was sure of 3% of cam0's pixels; from cam0's own side, of 83%. The own
     # side's inference has a scale of its own (here 2.5 times the reference side's), which the matches settle.
     pts = room()
     theirs, mine = pair(pts), pair(pts, flip=True)
@@ -273,7 +273,7 @@ def test_a_fitted_cameras_background_map_is_its_own_sides_where_the_references_s
     assert np.median(near) < 0.02, "and at the reference's scale"
 
 
-# A camera's own intrinsics held (#3289)
+# A camera's own intrinsics held
 
 
 def test_a_held_focal_and_lens_are_kept_and_only_the_pose_is_fitted():

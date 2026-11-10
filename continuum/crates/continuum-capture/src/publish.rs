@@ -121,7 +121,7 @@ impl StreamMeta {
 /// Where an audio batch ends: the fit's time for its next sample, unless the fit puts that at or before the batch's
 /// start (a fit that changed mode or re-anchored mid-batch), and then its nominal end, start plus samples over rate.
 /// A batch with no duration gives the catalog no bound on the audio it holds, which marks the microphone's whole
-/// recording history unknown and blocks aging on every camera that reads it (#1669: a 60 ms wave3 batch).
+/// recording history unknown and blocks aging on every camera that reads it (a 60 ms wave3 batch).
 fn batch_end(start_mono_ns: u64, fitted: Option<u64>, nominal_end: u64) -> u64 {
     match fitted {
         Some(end) if end > start_mono_ns => end,
@@ -221,7 +221,7 @@ pub const HANDLE_RECORD: usize = 16;
 enum Claim {
     /// A raw camera's own ring: take the oldest unpinned slot, flushed or not, so the camera never waits.
     Overwrite,
-    /// An encoded camera (#1931): take the oldest unpinned slot already flushed to Tier 1, never an unflushed one, so
+    /// An encoded camera: take the oldest unpinned slot already flushed to Tier 1, never an unflushed one, so
     /// the ring recycles without waiting for the broker's reclaim sweep and the archive keeps every access unit.
     Recycle,
     /// Only a free slot.

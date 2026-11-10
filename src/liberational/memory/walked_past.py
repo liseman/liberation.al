@@ -1,4 +1,4 @@
-"""Plain sentences about people walking by a camera, from crossing and movement counts (#1398, #1403): the day
+"""Plain sentences about people walking by a camera, from crossing and movement counts: the day
 summary's "People walking by" section, and Ask's and voice's answer to "how many times did someone walk by"."""
 
 import collections
@@ -90,7 +90,7 @@ def answer_text(
     *,
     entries: bool = False,
 ) -> str:
-    """Ask's and voice's walk-by answer (#1591): walked_past_text, or what can be said when it has nothing, and that
+    """Ask's and voice's walk-by answer: walked_past_text, or what can be said when it has nothing, and that
     these are times, not people. With `entries` (the question asked about coming into view, not walking by), a camera
     that wasn't watching is said in those words."""
     said = walked_past_text(crossed, moved, elapsed_s, tz, so_far=so_far)

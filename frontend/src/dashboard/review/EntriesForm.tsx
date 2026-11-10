@@ -1,4 +1,4 @@
-// Label a window's entries and exits (#1472): every time someone came into or went out of one camera's view in a span
+// Label a window's entries and exits: every time someone came into or went out of one camera's view in a span
 // of the timeline, and the stretches that could not be told. Saved in entries.jsonl (POST /measurement/mark, kind
 // "entries", dashboard/marks.py) for tools/measure.py --part entries. A side drawer with no overlay, so the player
 // and the timeline stay usable: scrub to each one and add it at the playhead.

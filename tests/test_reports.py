@@ -1,6 +1,7 @@
 """memory/reports.py: day aggregates for the Reports tab, over a fake Sources (made-up people, no broker)."""
 
 import asyncio
+import datetime as dt
 import logging
 import time
 from concurrent.futures import Future
@@ -571,7 +572,7 @@ def test_suggestions_come_only_from_data_and_skip_what_is_on_the_page(tmp_path):
     for kind in ("whos_around", "conversations", "activity"):
         view.build(kind, DAY)
     page.save_layout(view.store, [{"id": "mine", "kind": "activity", "arg": "event:pushups", "title": "Pushups"}])
-    # Pushups are on the page, and a person's presence is Who's around's filter, not a card of its own (#2582).
+    # Pushups are on the page, and a person's presence is Who's around's filter, not a card of its own.
     assert page.suggestions(view) == []
 
 
@@ -764,7 +765,7 @@ def test_suggestions_offer_new_kinds_only_when_their_aggregates_have_positive_ob
     view.build("person_activity", DAY)
     view.build("devices", DAY)
     found = page.suggestions(view)
-    # Walk-bys and people's activity are one card each, with a filter (#2621 board, idea 2).
+    # Walk-bys and people's activity are one card each, with a filter.
     assert [(s["id"], s["kind"], s["arg"]) for s in found] == [
         ("walkbys", "walkbys", None),
         ("person_activity", "person_activity", None),
@@ -969,7 +970,7 @@ def test_activity_promotion_settings_change_the_cached_evidence_mark(tmp_path, s
         assert src.identity_mark() != before
 
 
-# ---- the worker process (#2458) ----
+# ---- the worker process ----
 
 
 class FakePool:
@@ -1070,3 +1071,29 @@ def test_the_event_activity_leads_with_is_not_suggested_while_activity_is_on_the
     view.build("activity", DAY)
     events = [s["title"] for s in page.suggestions(view) if s["arg"].startswith("event:")]
     assert events == ["fridge, day by day"]  # the default page has Activity, which leads with "walked past"
+
+
+def test_zone_coverage_is_each_kinds_stretches_joined_and_cut_to_the_window(tmp_path, vision):
+    t = dt.datetime(2026, 10, 20, 9, tzinfo=dt.UTC).timestamp()
+    for a, b, kind, cam in (
+        (0, 60, "person", "cam0"),
+        (60, 120, "person", "cam0"),
+        (30, 90, "animal", "cam0"),
+        (0, 30, "animal", "cam1"),
+    ):
+        vision.add(
+            segment_log.ZONE_COVERAGE,
+            ts_start=t + a,
+            ts_end=t + b,
+            cam=cam,
+            subject_kind=kind,
+            definition="d",
+            zones=["z1"],
+            frames=10,
+        )
+    got = reports.LiveSources(tmp_path).zone_coverage(t + 10, t + 100)
+    assert [(c["subject_kind"], c["cam"], c["ts_start"] - t, c["ts_end"] - t) for c in got] == [
+        ("person", "cam0", 10, 100),
+        ("animal", "cam1", 10, 30),
+        ("animal", "cam0", 30, 90),
+    ]

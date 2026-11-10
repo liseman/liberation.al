@@ -1,8 +1,8 @@
-"""The Counts tables of the journal's day and week pages (memory/journal_pages.py, #2806): numbers from code reading
-structured streams, never from the model (goal #2805, #2807). The model only decides which counts are worth a
+"""The Counts tables of the journal's day and week pages (memory/journal_pages.py): numbers from code reading
+structured streams, never from the model. The model only decides which counts are worth a
 sentence in the prose; it never computes or edits a number here.
 
-What is counted, by default only what the owner has named (Joe's decision 4): the names the owner gave detected
+What is counted, by default only what the owner has named: the names the owner gave detected
 events (`activity.named`, read through memory/event_counts.py) and the zones the owner drew and named
 (memory/zone_counts.py). Presence episodes (memory/presence_counts.py) are per camera "someone came into view"
 counts that nobody named, so they stay out of the default table.

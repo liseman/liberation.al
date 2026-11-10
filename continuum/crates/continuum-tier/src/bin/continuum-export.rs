@@ -1,4 +1,4 @@
-//! Writes a time range of one video stream's chunks as an ordinary MP4, for a player or ffprobe (#553).
+//! Writes a time range of one video stream's chunks as an ordinary MP4, for a player or ffprobe.
 //!
 //! ```text
 //! continuum-export --out clip.mp4 [--from-ns N] [--to-ns N] [--codec auto|copy|h264] [--force] CHUNK...

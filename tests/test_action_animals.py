@@ -1,4 +1,4 @@
-"""see-actions' animals (see/action_animals.py, #1745): the old body worker's animal rules on the GPU detector's
+"""see-actions' animals (see/action_animals.py): the old body worker's animal rules on the GPU detector's
 boxes, written to the segment store."""
 
 import subprocess

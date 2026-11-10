@@ -105,7 +105,7 @@ beforeEach(() => {
       }),
     ),
     http.get('/health', () => HttpResponse.json({ boot: 'b1' })),
-    http.get('/vision', () => HttpResponse.json({})), // Cameras and microphones' menu badge (#384)
+    http.get('/vision', () => HttpResponse.json({})), // Cameras and microphones' menu badge
     http.get('/ambient', () => HttpResponse.json({})),
     http.get('/stats', () =>
       HttpResponse.json({ cpu: 12, cpu_count: 8, load: [1, 1, 1], mem_used: 2e9, mem_total: 8e9 }),
@@ -154,7 +154,7 @@ async function openSection(hash = '#services') {
   return { ...page, section };
 }
 
-/** Every group of services open: a quiet one starts folded (#2728); these tests read its rows. */
+/** Every group of services open: a quiet one starts folded; these tests read its rows. */
 async function showAll() {
   const toggles = await screen.findAllByRole('button', { name: /^(Show|Hide) / }).catch(() => []);
   for (const t of toggles) if (t.getAttribute('aria-expanded') === 'false') await userEvent.click(t);
@@ -454,7 +454,7 @@ describe('which services run here (#386)', () => {
   });
 
   it('opens a link to one of the lists in Advanced, where its field is', async () => {
-    // Codex on #815: Services no longer draws them, so a link that opened Services found nothing to focus.
+    // Services no longer draws them, so a link that opened Services found nothing to focus.
     serve();
     for (const key of ['services.enable', 'services.disable']) {
       history.replaceState(null, '', `/settings#set-${key}`);
@@ -542,7 +542,7 @@ describe('the services', () => {
     expect(within(row('vision')).getByText('Stopped after an error.')).toBeInTheDocument();
     expect(within(row('notes')).getByText('off')).toBeInTheDocument();
 
-    // One switch per service: on while it runs, and it says which way it goes (#423).
+    // One switch per service: on while it runs, and it says which way it goes.
     const voice = screen.getByRole('switch', { name: 'Run voice' });
     expect(voice).toBeChecked();
     await expectTooltip(voice, 'Stops it now. It starts again when the computer restarts, or on Repair.');

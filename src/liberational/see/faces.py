@@ -1,11 +1,11 @@
 """The face models and rules see-actions' head faces use (`see/head_faces.py`).
 
 - `Detector`: finds the faces in a BGR image, each with its box, confidence, five landmarks, and unit embedding.
-  `InsightFaceDetector` is v1's SCRFD detection and AdaFace recognition, run on a head crop.
+  `InsightFaceDetector` is SCRFD detection and AdaFace recognition, run on a head crop.
 - `Matcher`: names an embedding. `V1Matcher` reads v1's `faces/db.npz` and unknown clusters (`vision/faces.py`): the
   nearest enrolled face over 0.45 is a match, and an unnamed face joins or starts an unknown cluster ("Face N").
 - `readable`: whether a look reads as a face well enough to learn from, name, or show as a photo.
-- `VisitBuilder` is v1's visit rule (`sightings.visits`): one person's matches on one camera, closed once 10 s pass
+- `VisitBuilder` is the visit rule: one person's matches on one camera, closed once 10 s pass
   with no match.
 
 The whole-frame face worker and its IoU face tracker are gone: see-actions' pose tracks follow people now.
@@ -17,8 +17,8 @@ from typing import Any, Protocol
 
 import numpy as np
 
-UNKNOWN_EVERY_S = 3.0  # how often an unnamed track's cluster is looked up (v1's lookup writes a file)
-VISIT_GAP_S = 10.0  # a visit ends when its person isn't matched on its camera for this long (v1's backfill.visit_gap_s)
+UNKNOWN_EVERY_S = 3.0  # how often an unnamed track's cluster is looked up (a lookup writes a file)
+VISIT_GAP_S = 10.0  # a visit ends when its person isn't matched on its camera for this long
 
 NS = 1_000_000_000
 
@@ -67,7 +67,7 @@ class Matcher(Protocol):
 
 
 class InsightFaceDetector:
-    """v1's SCRFD detection and AdaFace recognition on ONNX Runtime, on CoreML, CUDA, or the CPU as v1 picks."""
+    """SCRFD detection and AdaFace recognition on ONNX Runtime, on CoreML, CUDA, or the CPU, whichever is there."""
 
     def detect(self, frame: np.ndarray) -> list[Face]:
         from liberational.vision import faces
@@ -117,7 +117,7 @@ class _Open:
 
 
 class VisitBuilder:
-    """`face.visit` records from `face.match` records, as v1's `sightings.visits`: one named person's matches on one
+    """`face.visit` records from `face.match` records: one named person's matches on one
     camera, joined while each follows the last within `gap_s`. A visit is put out once it's closed: a later match comes
     after the gap, or `close_before` passes its end plus the gap. Its `shots` are the VISIT_SHOTS best-quality faces
     fed with one (recorded detections: {detection, ts, bbox, quality, sim}), best first: the photos People picks from."""

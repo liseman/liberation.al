@@ -2,14 +2,14 @@ import { Skeleton } from '@mantine/core';
 import { IconPhotoOff } from '@tabler/icons-react';
 import { type ComponentPropsWithoutRef, type ReactNode, useEffect, useState } from 'react';
 
-/** How long a failed image waits before each of its `retries` (a face crop the dashboard was too busy to cut, #2018). */
+/** How long a failed image waits before each of its `retries` (a face crop the dashboard was too busy to cut). */
 export const RETRY_MS = [2000, 5000];
 
 /** Missing retained media gets a neutral placeholder, and a new URL gets its own load attempt. With `retries`, a
  *  failed load is tried again that many times (at most RETRY_MS.length) before the placeholder.
  *  An explicit null fallback omits an unavailable image.
  *
- *  While it loads, and through its retries, a skeleton holds the image's place (#2049): the box the caller sizes
+ *  While it loads, and through its retries, a skeleton holds the image's place: the box the caller sizes
  *  (its className, width, and height, or a `[data-safe-image]` rule, as for the placeholder) shows Mantine's
  *  Skeleton until the picture arrives, so nothing shifts and no box sits blank. An image the caller sizes fills that
  *  box; an unsized one keeps its own size, set by the caller's `img` rules or the picture itself. */

@@ -22,11 +22,11 @@ use crate::jobs::{TEXT_QUERY, VECTOR_QUERY};
 use crate::worker::{INDEX_SUBSCRIPTION, SearchWorker, WorkerError, register};
 
 /// The broker embedding streams followed when none are named: none now. Voice and face embeddings are in the segment
-/// store (`Settings::segment_embeddings`: voice, #1817; faces from see-actions' head faces, #1738).
+/// store (`Settings::segment_embeddings`: voice; faces from see-actions' head faces).
 pub const DEFAULT_EMBEDDINGS: [&str; 0] = [];
-/// The embedding streams followed by prefix when none are named: the journal's, one per embedding model (#550).
+/// The embedding streams followed by prefix when none are named: the journal's, one per embedding model.
 pub const DEFAULT_EMBEDDING_PREFIXES: [&str; 1] = ["journal.embedding."];
-/// The text streams filed for full-text search when none are named: the journal's entries (#550).
+/// The text streams filed for full-text search when none are named: the journal's entries.
 pub const DEFAULT_TEXTS: [&str; 1] = ["journal.entry"];
 
 /// What the service needs.

@@ -22,7 +22,7 @@ export function reduceTranscript(prev: Transcript | undefined, event: Transcript
   if (event?.reset) return { entries: incoming.slice(-MAX_LINES), resets: state.resets + 1 };
   if (event?.replace) {
     // Lines read differently since they were sent (a label in the event log): swap the ones shown, add none.
-    // By key (#247): two microphones' lines in one millisecond are two lines. A line with no key goes by its time.
+    // By key: two microphones' lines in one millisecond are two lines. A line with no key goes by its time.
     const id = (e: TranscriptEntry) => e.line ?? e.ts_start;
     const byLine = new Map(incoming.map(e => [id(e), e]));
     const entries = state.entries.map(e => {

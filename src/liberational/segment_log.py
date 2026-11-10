@@ -6,6 +6,10 @@ column schema and how one record (the dict its producers and readers already use
 call `at(state).range(stream, start, end)` and get the same records `vision_log` gave them, so moving a stream is a
 change of where it is read, not of what a reader does with it.
 
+`range` builds a record a row, which is right for the rows a page shows and wrong for a count over a day of a dense
+stream. A reader that counts, sums, or joins spans asks for columns: `Log.table` gives a window's columns by camera
+as arrays, and `Log.covered` joins a coverage stream's spans into each camera's watched stretches.
+
 Span streams have `end_ns` and are read with `overlapping=True`, so a span that started before a window but reaches
 into it is found. Times are kept as nanoseconds: epoch seconds in float32 would lose about two minutes. Optional
 values with no nullable column type (a boundary's time, a count that can be unknown) are lists that are empty when
@@ -14,6 +18,7 @@ absent. A record's `id` is its column `id`: activity naming and feedback name a 
 
 from __future__ import annotations
 
+import itertools
 import json
 import math
 import re
@@ -1783,36 +1788,143 @@ class Log:
         out.sort(key=lambda r: (r["ts_start"], r.get("id", "")))
         return out
 
-    def _read(self, stream: str, start: float, end: float, cameras: Sequence[str] | None) -> list[Record]:
+    def _segments(
+        self,
+        stream: str,
+        schema: list[tuple[str, str]],
+        start: float,
+        end: float,
+        cameras: Sequence[str] | None,
+    ) -> dict[str, Any]:
+        """`read_segments` for the rows overlapping [start, end), read again once when a part moved under it."""
         from continuum_py import read_segments
 
-        got = None
-        for attempt in range(2):
-            try:
-                got = read_segments(
-                    self.base,
-                    stream,
-                    STREAMS[stream].schema,
-                    ns(start),
-                    ns(end),
-                    list(cameras) if cameras is not None else None,
-                    overlapping=True,
-                )
-                break
-            except (OSError, RuntimeError) as e:
-                if not _segment_moved(e):
-                    raise
-                if attempt == 0:
-                    continue
+        cams = list(cameras) if cameras is not None else None
+        try:
+            return read_segments(self.base, stream, schema, ns(start), ns(end), cams, overlapping=True)
+        except (OSError, RuntimeError) as e:
+            if not _segment_moved(e):
                 raise
-        assert got is not None
-        out = records(stream, got)
+        return read_segments(self.base, stream, schema, ns(start), ns(end), cams, overlapping=True)
+
+    def _read(self, stream: str, start: float, end: float, cameras: Sequence[str] | None) -> list[Record]:
+        out = records(stream, self._segments(stream, STREAMS[stream].schema, start, end, cameras))
         if stream in CONDENSED:  # its condensed history too
             out = sorted(
                 [*out, *self._read(condensed(stream), start, end, cameras)],
                 key=lambda r: (r["ts_start"], str(r.get("id", ""))),
             )
         return out
+
+    def table(
+        self, stream: str, start: float, end: float, names: Sequence[str], cameras: Sequence[str] | None = None
+    ) -> dict[str, dict[str, Any]]:
+        """The columns `names` of every row of `stream` overlapping [start, end), by camera, as the store holds them:
+        a NumPy array for a numeric column (`ts_ns` and `end_ns` in nanoseconds; a fixed-size list is a (rows, N)
+        array) and a list for a text one, each camera's rows in the order they were written. No record is built for
+        a row, so a reader that counts, sums, or joins spans works on whole columns; `range` is for the few rows a
+        page shows. A stream's condensed history is read with it. A camera with no row in the window isn't there."""
+        if end <= start:
+            return {}
+        kinds = dict(STREAMS[stream].schema)
+        schema = [(name, kinds[name]) for name in names]
+        out: dict[str, dict[str, Any]] = {}
+        for source in (stream, condensed(stream)) if stream in CONDENSED else (stream,):
+            got = self._segments(source, schema, start, end, cameras)
+            at = 0
+            for cam, run in itertools.groupby(got["camera"]):  # a camera's rows are together
+                upto = at + sum(1 for _ in run)
+                mine = {name: got[name][at:upto] for name in names}
+                if cam in out:
+                    mine = {name: _joined(out[cam][name], column) for name, column in mine.items()}
+                out[cam] = mine
+                at = upto
+        return out
+
+    def covered(
+        self,
+        stream: str,
+        start: float,
+        end: float,
+        cameras: Sequence[str] | None = None,
+        *,
+        join_s: float = 0.0,
+        instants: bool = False,
+        where: tuple[Sequence[str], Callable[[Mapping[str, Any]], np.ndarray]] | None = None,
+    ) -> dict[str, Covered]:
+        """Each camera's coverage of [start, end) from a coverage stream: its rows' spans cut to the window and
+        joined where they meet or lie within `join_s` of each other, oldest first, with the frames its rows counted.
+        A row with no length (one frame analyzed on its own) is no stretch and joins nothing, unless `instants`
+        keeps it as a span of no length. The spans are joined as columns (a day of see-actions' coverage is about
+        100,000 rows a camera, and a few stretches once joined). A camera with no coverage row in the window isn't
+        there. `where` keeps only some rows: the columns it reads, and a function from a camera's columns to a mask
+        of the rows that count (a zone's coverage of one kind of subject, say)."""
+        has_frames = any(name == "frames" for name, _ in STREAMS[stream].schema)
+        names = ["ts_ns", "end_ns", *(["frames"] if has_frames else []), *(where[0] if where else ())]
+        out: dict[str, Covered] = {}
+        for cam, columns in self.table(stream, start, end, list(dict.fromkeys(names)), cameras).items():
+            first, last = columns["ts_ns"], columns["end_ns"]
+            frames = columns["frames"] if has_frames else None
+            if where is not None:
+                mask = np.asarray(where[1](columns), dtype=bool)
+                first, last = first[mask], last[mask]
+                frames = frames[mask] if frames is not None else None
+                if not mask.any():
+                    continue
+            if not instants:
+                first, last = first[last > first], last[last > first]
+            order = np.argsort(first, kind="stable")
+            first, last = first[order], last[order]
+            reach = np.maximum.accumulate(last)  # how far the rows up to each one go
+            spans: list[tuple[float, float]] = []
+            if len(first):
+                begins = np.flatnonzero(np.r_[True, first[1:] - reach[:-1] > ns(join_s)])
+                spans = [
+                    (lo, hi)
+                    for a, b in zip(first[begins].tolist(), np.maximum.reduceat(last, begins).tolist(), strict=True)
+                    if (hi := min(end, secs(b))) > (lo := max(start, secs(a))) or (instants and hi == lo)
+                ]
+            out[cam] = Covered(spans, int(frames.sum()) if frames is not None else 0)
+        return out
+
+    def containing(
+        self, stream: str, start: float, end: float, texts: Sequence[str], column: str = "record"
+    ) -> list[Record]:
+        """`range`, for the rows whose `column` (text) holds one of `texts`: a record is built only for those. For a
+        stream whose record is JSON text (Bluetooth sightings: a day is some 400,000 rows, and a reader that wants
+        one device's parsed every one of them). A caller passes each value as the text holds it (`json_text`) and
+        still checks the records it gets: the test finds a value anywhere in the text."""
+        spec = STREAMS[stream]
+        names = [name for name, _ in spec.schema]
+        out: list[Record] = []
+        for cam, columns in self.table(stream, start, end, names).items():
+            for i, text in enumerate(columns[column]):
+                if any(t in text for t in texts):
+                    out.append(spec.to_record({name: columns[name][i] for name in names}, cam))
+        out.sort(key=lambda r: (r["ts_start"], str(r.get("id", ""))))
+        return out
+
+
+@dataclass(frozen=True)
+class Covered:
+    """One camera's coverage of a window (`Log.covered`)."""
+
+    spans: list[tuple[float, float]]  # [start, end) in seconds, oldest first, none touching another
+    frames: int  # the frames its coverage rows counted, 0 for a stream that doesn't count them
+
+    @property
+    def seconds(self) -> float:
+        return sum(b - a for a, b in self.spans)
+
+
+def json_text(value: str) -> str:
+    """A string as JSON text holds it, without its quotes: what `Log.containing` looks for."""
+    return json.dumps(value, ensure_ascii=False)[1:-1]
+
+
+def _joined(a: Any, b: Any) -> Any:
+    """Two runs of one column, as one."""
+    return [*a, *b] if isinstance(a, list) else np.concatenate([a, b])
 
 
 _FACE_GROUP = re.compile(r"Face (\d+)")

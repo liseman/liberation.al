@@ -7,6 +7,7 @@ import {
   activitiesQuery,
   chipsQuery,
   dayBlocksQuery,
+  getActivities,
   prioritizeDayReads,
   SUMMARY_MS,
   segmentsQuery,
@@ -283,3 +284,56 @@ it.each([
     }
   },
 );
+
+describe('getActivities (#52)', () => {
+  const listing = (id: string) => ({ items: [{ id }], truncated: false });
+
+  it('asks for every day wanted in the same turn in one request, and gives each its own listing', async () => {
+    const urls: string[] = [];
+    server.use(
+      http.get('/activities', ({ request }) => {
+        const url = new URL(request.url);
+        urls.push(url.pathname + url.search);
+        const days = (url.searchParams.get('days') ?? '').split(',');
+        return HttpResponse.json({ days: Object.fromEntries(days.map(day => [day, listing(day)])) });
+      }),
+    );
+    const replies = await Promise.all([
+      getActivities('2026-10-27'),
+      getActivities('2026-10-26'),
+      getActivities('2026-10-27'),
+    ]);
+    expect(urls).toEqual(['/activities?days=2026-10-27,2026-10-26']);
+    expect(replies.map(r => r.items[0]?.id)).toEqual(['2026-10-27', '2026-10-26', '2026-10-27']);
+  });
+
+  it('asks for a day wanted alone in the single-day form', async () => {
+    const urls: string[] = [];
+    server.use(
+      http.get('/activities', ({ request }) => {
+        const url = new URL(request.url);
+        urls.push(url.pathname + url.search);
+        return HttpResponse.json(listing('alone'));
+      }),
+    );
+    expect((await getActivities('2026-10-27')).items[0]?.id).toBe('alone');
+    expect(urls).toEqual(['/activities?day=2026-10-27']);
+  });
+
+  it("fails every day of a request that failed, with the server's message", async () => {
+    server.use(http.get('/activities', () => HttpResponse.json({ error: 'day must be YYYY-MM-DD' }, { status: 400 })));
+    const results = await Promise.allSettled([getActivities('2026-10-27'), getActivities('nope')]);
+    expect(results.map(r => r.status)).toEqual(['rejected', 'rejected']);
+    expect((results[0] as PromiseRejectedResult).reason).toMatchObject({ message: 'day must be YYYY-MM-DD' });
+  });
+
+  it('gives up a cancelled ask without failing the others', async () => {
+    server.use(http.get('/activities', () => HttpResponse.json(listing('kept'))));
+    const abort = new AbortController();
+    const dropped = getActivities('2026-10-26', abort.signal);
+    const kept = getActivities('2026-10-27');
+    abort.abort();
+    await expect(dropped).rejects.toMatchObject({ name: 'AbortError' });
+    expect((await kept).items[0]?.id).toBe('kept'); // the day left is asked for alone
+  });
+});

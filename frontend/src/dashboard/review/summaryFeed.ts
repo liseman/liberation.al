@@ -1,4 +1,4 @@
-// Review's Summary as one story feed (#2275): the written stretches of what the timeline shows, in time order, each
+// Review's Summary as one story feed: the written stretches of what the timeline shows, in time order, each
 // with the detected activities that fall inside it. An activity outside every stretch shown (nothing written there
 // yet, or a stretch filtered out) is a row of its own at its time, so every activity in view is in the one list.
 import { hm } from '../lib/format';
@@ -42,8 +42,8 @@ export function spanWords(start: number, end: number): string {
 /** A run of chips as Summary shows it: one chip, or 3 or more unconfirmed ones of a kind folded together. */
 export type ChipRun<T> = { kind: 'one'; item: T } | { kind: 'fold'; name: string; items: T[] };
 
-/** What an activity chip says happened: who did it, when the activity knows (its person, or the faces on its track,
- *  #2577 follow-up), then the activity in lower case ("Joe walked past"); else the activity alone ("Walked past"). */
+/** What an activity chip says happened: who did it, when the activity knows (its person, or the faces on its track),
+ *  then the activity in lower case ("Dana walked past"); else the activity alone ("Walked past"). */
 export function activityWords(item: DetectedActivity): string {
   const what = item.name ?? activityKind(item);
   const who = item.person_name?.trim();

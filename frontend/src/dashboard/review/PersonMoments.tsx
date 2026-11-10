@@ -1,4 +1,4 @@
-// Review for one person (#2057): their visits of the day (their lines, the camera views that saw them, and the
+// Review for one person: their visits of the day (their lines, the camera views that saw them, and the
 // actions put down to them, merged when close), and the summary blocks that mention them. A visit or a block seeks
 // there, on the camera that saw them most.
 import { Button, Group, Stack, Text, Timeline, Title, UnstyledButton } from '@mantine/core';

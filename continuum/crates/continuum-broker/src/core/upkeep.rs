@@ -1,5 +1,5 @@
 //! Upkeep on the scheduler's tick: saving the cost models now and then, sampling the host clock into `CLOCK_MAP`,
-//! and sweeping the `FRAMES` rows of old absorbed frames nothing names (#851). All are handed to the writer; the
+//! and sweeping the `FRAMES` rows of old absorbed frames nothing names. All are handed to the writer; the
 //! scheduler thread only reads clocks and memory.
 
 use std::sync::Arc;
@@ -24,7 +24,7 @@ const WAKE_JUMP_NS: u64 = 1_000_000_000;
 /// How often a sweep of the `FRAMES` rows starts (and once at startup), unless one is still running.
 const PRUNE_FRAMES_EVERY: Duration = Duration::from_secs(600);
 /// How long after its chunk ends an absorbed frame keeps its `FRAMES` row whatever: a child naming it as a parent
-/// (ASR, a VLM, seconds late) still finds it. One per frame (#849) is about 10 million rows a day on four cameras.
+/// (ASR, a VLM, seconds late) still finds it. One per frame is about 10 million rows a day on four cameras.
 const FRAME_ROWS_KEPT: Duration = Duration::from_secs(3600);
 
 /// The upkeep's state.
@@ -169,7 +169,7 @@ impl SortedCosts for continuum_sched::Engine {
 /// The sweep's job: `Catalog::prune_frames_until` a writer step at a time from where the last step stopped, logging
 /// how many rows went. Like a purge, each step fills a cooperative work window (up to `max_budget` frames, stopping
 /// once `step_target` has passed) instead of taking the writer's adaptive row budget: that budget counts the commit's
-/// fsync, which on devbox's catalog drove it to one row a commit, so a sweep never finished (#1803). `pruning` is set
+/// fsync, which on a large catalog drove it to one row a commit, so a sweep never finished. `pruning` is set
 /// until the job is dropped, however it ends (done, failed, panicked, or never queued), so a second sweep never
 /// starts while one runs.
 fn frame_sweep(cutoff: u64, pruning: &Arc<AtomicBool>, config: super::WriterConfig) -> super::BackgroundJob {
@@ -282,7 +282,7 @@ mod tests {
         let pruning = Arc::new(AtomicBool::new(false));
         let mut job = frame_sweep(1_000, &pruning, super::super::WriterConfig::default());
         assert!(pruning.load(Ordering::Acquire), "set while the sweep runs");
-        // The writer's adaptive budget falls to 1 when commits are slow (#1803); the sweep's work window ignores it.
+        // The writer's adaptive budget falls to 1 when commits are slow; the sweep's work window ignores it.
         let mut steps = 1;
         while job(&c, 1) {
             steps += 1;

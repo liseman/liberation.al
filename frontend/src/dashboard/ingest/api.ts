@@ -20,8 +20,8 @@ export interface IngestItem {
   detail: string;
   stream: string;
   outputs: { kind: string; stream: string; chunk_id: string }[];
-  /** What reading it found (#2719), from the analysis ledger; null while it's still being brought in. Absent from a
-   *  server before #2737. */
+  /** What reading it found, from the analysis ledger; null while it's still being brought in. Optional for
+   *  compatibility with older responses. */
   analysis?: Analysis | null;
 }
 
@@ -36,7 +36,7 @@ export interface SourceInfo {
   label: string;
   ongoing: boolean;
   blocked?: boolean; // setting it up can't go on from here (a package missing on this machine): its sign-in waits
-  later?: boolean; // no way to bring it in yet (a stub): Settings lists it under Coming later (#2728)
+  later?: boolean; // no way to bring it in yet (a stub): Settings lists it under Coming later
   configured: boolean;
   message: string;
   seen: number;
@@ -93,7 +93,7 @@ export interface RemotePhoto {
 
 export const getIngest = (signal?: AbortSignal) => request<IngestView>('/ingest/api/items', undefined, signal);
 
-/** One file, its bytes the request's body, with how much of it is sent so far (#2718). */
+/** One file, its bytes the request's body, with how much of it is sent so far. */
 export const uploadFile = (file: File, onProgress?: (share: number) => void) =>
   upload<{ item: IngestItem; new: boolean }>(
     `/ingest/api/upload?name=${encodeURIComponent(file.name)}`,

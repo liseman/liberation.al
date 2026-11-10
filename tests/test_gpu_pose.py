@@ -21,7 +21,7 @@ pytest.importorskip("onnxruntime")
 from liberational.see import gpu_pose
 
 MODELS = pathlib.Path(__file__).resolve().parents[1] / "data" / "models"
-# Every device this machine's torch has: the CPU always, a CUDA GPU on devbox, MPS on an Apple Silicon Mac (#1879).
+# Every device this machine's torch has: the CPU always, a CUDA GPU on the Linux machine, MPS on the Mac.
 DEVICES = [
     torch.device("cpu"),
     *([torch.device("cuda", torch.cuda.device_count() - 1)] if torch.cuda.is_available() else []),
@@ -245,7 +245,7 @@ def test_people_mask_strong_neighbors_across_batches_but_preserve_overlap_and_we
         (23, 21),
         (24, 22),
         (25, 23),
-        (72, 62),  # tv (#2468)
+        (72, 62),  # tv
         (73, 63),  # laptop
     ],
 )

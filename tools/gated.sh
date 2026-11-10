@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs a command holding the Continuum gate lock (#611), so only one full `continuum-check` or `continuum-test`
+# Runs a command holding the Continuum gate lock, so only one full `continuum-check` or `continuum-test`
 # runs at a time on a machine: every worktree shares the repository's common git directory, and the lock is a file
 # there. While another worktree holds it, this says so and waits.
 #

@@ -1,4 +1,4 @@
-// The moments a research answer cites, as a short timeline under it (#2674, Joe's Inbox board, idea 1): each row is
+// The moments a research answer cites, as a short timeline under it: each row is
 // the moment's time (opening it in Review), a still of the camera then (or what kind of source it is), the evidence's
 // own words on one line, and where it came from. It shows what happened, and when, without opening the folded list of
 // everything the research looked at.
@@ -62,7 +62,7 @@ export function citedMoments(answer: string, evidence: readonly Record<string, u
 
 /** A camera's frame at the moment, once the row is near the screen: the shared scene-thumbnail route, which queues a
  *  decode it hasn't made yet (202) and is asked again with backoff. A 404 means the moment's video isn't kept (past
- *  the retention window, or dropped in a reset), and the box says so rather than naming the source (#3165). */
+ *  the retention window, or dropped in a reset), and the box says so rather than naming the source. */
 function Still({ m }: { m: Moment }) {
   const box = useRef<HTMLSpanElement>(null);
   const near = useNearScreen(box);

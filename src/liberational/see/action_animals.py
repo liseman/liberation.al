@@ -104,7 +104,7 @@ class Animals:
     def _start(self) -> None:
         """A fresh run: new trackers, and track ids no earlier run used."""
         # The UUID's random tail: a UUIDv7's head is its time, and track numbers restart at 1 with each run.
-        self.run = uuid.uuid7().hex[-12:]
+        self.run = uuid.uuid7().hex[:20]  # starts with the run's time: its photos' hour (face_shots.hour)
         self.trackers = {
             species: crossings.Tracker(max_gap=self.max_gap) for species in crossings.COCO_ANIMALS.values()
         }

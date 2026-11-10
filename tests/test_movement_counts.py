@@ -481,7 +481,7 @@ _spans = st.lists(
 
 @given(support=_spans, barriers=_spans, observed=_spans.filter(bool), gaps=_spans, at=_spans.filter(bool))
 def test_the_day_index_answers_as_the_whole_day_lists_do(support, barriers, observed, gaps, at):
-    """The per-camera index (#1591) is only a faster way to ask the same questions of a day's spans."""
+    """The per-camera index is only a faster way to ask the same questions of a day's spans."""
     supported = movement._subtract(support, barriers)
     index = movement._Index(supported, barriers)
     span = (min(lo for lo, _ in observed + gaps), max(hi for _, hi in observed + gaps))

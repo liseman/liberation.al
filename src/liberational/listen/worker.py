@@ -2,11 +2,11 @@
 as utterances on `speech.utterance` in the segment store.
 
 Per microphone, a `MicPipeline` takes ring records as they land through a continuity check, a resample to 16 kHz, and
-v1's energy VAD, and puts out candidate utterances with their UTC span. The reader drains whatever has landed, then
+an energy VAD, and puts out candidate utterances with their UTC span. The reader drains whatever has landed, then
 sleeps `READ_PACE_S` (`ring_batches`), so the loop wakes about 20 times a second instead of once per 10 ms block;
 caught up, it waits on the ring's sequence word, never a poll. Each record keeps its own stamp, so the gate's
 timing doesn't move; a candidate only reaches ASR up to `READ_PACE_S` later. A `Transcriber` on one dedicated thread (MLX models are thread-affine) runs each
-candidate through v1's Silero speech gate, ASR, and a ReDimNet2 B3 embedding, and a `Matcher` names the speaker. The
+candidate through the Silero speech gate, ASR, and a ReDimNet2 B3 embedding, and a `Matcher` names the speaker. The
 utterance is then written through a `speech_log.Writer` under the mic's device name, which also gets the energy
 gate's state on `speech.activity` (transitions at once, else once a second). The line names its audio (`audio`, the
 mic stream and span); it has no broker parents. Its embedding goes to the segment store too (listen/voices.py), so
@@ -20,13 +20,12 @@ Each microphone's auto gain (audio/gain.py's `MicGain`) rides along in its `MicP
 confirmed transcriptions, moves the mic's own capture volume between utterances (or scales the samples before the
 VAD, for a mic without one), and `Worker` writes where each gain is to `listen.gain.json` for Settings.
 
-Around the transcription, `Checks` keeps v1's rules: a candidate overlapping playback is dropped before ASR (echo and
+Around the transcription, `Checks` keeps these rules: a candidate overlapping playback is dropped before ASR (echo and
 barge-in over the assistant's own voice), a sound-effect caption is not speech, another microphone's copy of a line
 just committed is dropped, and a line that is the voice password is written "[password]" with `password: true`.
-`V1Checks` does that exactly as v1's ambient service does, through its playback windows and password window, now
-moved onto broker streams. The service's `Matcher` is `voices.VoiceMatcher`: each line's
-voiceprint from the vector worker's search, and its embedding filed on `voice.embedding` (listen/voices.py, which
-also handles the dashboard's voice tags).
+`V1Checks` does that through the playback windows and the password window, which are on broker streams. The service's
+`Matcher` is `voices.VoiceMatcher`: each line's voiceprint from the vector worker's search, and its embedding filed on
+`voice.embedding` (listen/voices.py, which also handles the dashboard's voice tags).
 """
 
 import asyncio
@@ -82,7 +81,7 @@ class Mic:
 
 def mics_from_manifest(path: Path, channels: dict[str, int] | None = None) -> list[Mic]:
     """The microphones in capture's device manifest (`config/devices.toml`), with their block length, and the
-    channel to transcribe from `channels` (pack.toml's `[audio.mic_channel]`, by device name; 0 by default, as v1)."""
+    channel to transcribe from `channels` (pack.toml's `[audio.mic_channel]`, by device name; 0 by default)."""
     manifest = tomllib.loads(path.read_text())
     channels = channels or {}
     out = []
@@ -280,7 +279,7 @@ def dbfs(audio: np.ndarray) -> float:
 
 def level(audio: np.ndarray) -> np.ndarray:
     """`audio` brought to TARGET_DBFS, raised by at most MAX_GAIN_DB and kept under PEAK. Auto gain (MicGain) raises
-    a quiet mic itself now, as v1 did, but slowly: until it has (and for a mic it is off for), Silero's gate found
+    a quiet mic itself, but slowly: until it has (and for a mic it is off for), Silero's gate found
     no speech in such quiet audio (on a Wave 3 at 0 dB, a second of speech at -59 dBFS read as 0 s raw,
     1.0 s levelled), so nothing was transcribed. With the gain right, this moves a candidate a few dB at most."""
     gain_db = min(MAX_GAIN_DB, TARGET_DBFS - dbfs(audio))
@@ -300,7 +299,7 @@ class Heard:
 
 class Transcriber:
     """The gate, ASR, and embedding for every microphone, on one dedicated thread (MLX models must be used on the
-    thread that made them). `gate` (v1's Silero speech gate) drops a candidate with too little speech; `asr` is
+    thread that made them). `gate` (the Silero speech gate) drops a candidate with too little speech; `asr` is
     `speech.asr.ASR` or a test's stand-in; `embed` makes the ReDimNet2 B3 voiceprint (None to skip it)."""
 
     def __init__(
@@ -385,7 +384,7 @@ _CAPTION = re.compile(r"[\(\[][^\)\]]*[\)\]]")
 
 
 class V1Checks:
-    """v1's rules around a transcription (audio/ambient.py's Transcriber.handle), with its state files: playback
+    """The rules around a transcription, with their state: playback
     windows (speech/playback_guard), the password verifier and window (assistant/voice_auth), and two-mic dedup
     (audio/twins)."""
 
@@ -706,7 +705,8 @@ class SpeakerEmbedding:
 @model_runtime.reporting("listen")
 def main(argv: Sequence[str] | None = None) -> None:
     """`pack-listen`: the audio worker as a service. It reads the microphones in capture's manifest from the broker
-    (run continuum-broker and continuum-capture with it), with v1's per-mic sensitivity, speech gate, and ASR engine."""
+    (run continuum-broker and continuum-capture with it), with the per-mic sensitivity, speech gate, and ASR engine from
+    the settings."""
     import argparse
 
     from continuum_py.search import Searcher

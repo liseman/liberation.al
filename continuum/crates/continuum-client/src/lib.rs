@@ -11,7 +11,7 @@
 //!
 //! So far it covers connecting, the session (`Heartbeat`, `Goodbye`, `Error`), `RegisterStream`, and ingest (a
 //! one-way `IngestNotice`, whose rejections arrive as events). The query,
-//! promise, lease, and worker flows come as the broker wires them in (#542).
+//! promise, lease, and worker flows come as the broker wires them in.
 
 pub mod aging;
 mod applicability;
@@ -38,7 +38,7 @@ use tokio::net::UnixStream;
 use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::sync::{mpsc, oneshot};
 
-/// The schema minor that stores an ingest's dependencies (#1535).
+/// The schema minor that stores an ingest's dependencies.
 pub const DEPENDENCIES_SCHEMA_MINOR: u16 = 31;
 
 /// A payload's dependency on a stretch of a stream ([`Client::ingest_dependent`]).
@@ -910,7 +910,7 @@ impl Client {
 
     /// Ingests a payload and waits for its commit: the payload's commit sequence (the position subscribers and
     /// sequence queries see). A repeat with identical header bytes is idempotent and gets the existing sequence (a
-    /// frame a chunk absorbed meanwhile, sent again at its start, gets the chunk's, #685). For
+    /// frame a chunk absorbed meanwhile, sent again at its start, gets the chunk's). For
     /// a client with no shared memory, `at` can be a [`continuum_core::StorageLocator::Inline`] of up to 64 KiB ([`continuum_core::MAX_INLINE_BYTES`]).
     ///
     /// # Errors
@@ -926,7 +926,7 @@ impl Client {
         self.ingest_dependent(header, at, &[]).await
     }
 
-    /// [`Client::ingest_acked`] with what the payload depends on (#1535): stretches of streams, each with the stream's
+    /// [`Client::ingest_acked`] with what the payload depends on: stretches of streams, each with the stream's
     /// invalidation revision read before the producer checked what it used. The broker stores them with the payload in
     /// one commit before it answers, and refuses the notice (Conflict) if a revision moved, so a purge in between is
     /// never missed. A later purge removing anything on a stream inside a dependency's range takes the payload too.

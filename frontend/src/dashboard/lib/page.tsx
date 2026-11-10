@@ -1,4 +1,4 @@
-// One page frame and one look each for loading, empty, and error (#2450). Every page starts at the same left edge
+// One page frame and one look each for loading, empty, and error. Every page starts at the same left edge
 // with the same header row; a load shows its skeleton under the real heading and says one quiet thing only when it
 // runs long; an empty page says what will appear and how; an error says what didn't load in plain words, on the
 // theme's tinted ground, with the raw reason kept behind "Show details".

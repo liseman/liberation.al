@@ -1,4 +1,4 @@
-"""The skeleton playback test page's reads (/skeletons, #1987): recent movement spans, and one span's poses.
+"""The skeleton playback test page's reads (/skeletons): recent movement spans, and one span's poses.
 
 `spans` lists see-actions' `action.span` and `walkby.span` rows, newest first. `poses` gives one track's `pose.track`
 rows in a window (the span plus its lead-in and lead-out) as frames of stick-figure keypoints. Pose rows outlive the
@@ -9,11 +9,15 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from liberational import segment_log
+from liberational.dashboard import routes
 from liberational.see.actions import POSE_SCHEMA, SCALE
 from liberational.see.actions_worker import POSES
+
+if TYPE_CHECKING:
+    from liberational.dashboard.server import H
 
 NS = 1_000_000_000
 MAX_SPANS = 300
@@ -67,3 +71,26 @@ def poses(state: str | Path, *, cam: str, track_id: str, start: float, end: floa
         )
     frames.sort(key=lambda f: f["ts"])
     return {"cam": cam, "track_id": track_id, "start": start, "end": end, "frames": frames}
+
+
+# ---- routes (dashboard/routes.py): what the server answers for this area ----
+
+
+@routes.get("/skeletons/api/spans", "/skeletons/api/poses")
+def _get_skeletons_api_spans(h: H) -> None:
+    p = h.path.split("?")[0]
+    q = h._query()
+    try:
+        if p == "/skeletons/api/spans":
+            return h._json({"spans": spans(h.state, hours=float(q.get("hours", "24")))})
+        return h._json(
+            poses(
+                h.state,
+                cam=q["cam"],
+                track_id=q["track"],
+                start=float(q["start"]),
+                end=float(q["end"]),
+            )
+        )
+    except (KeyError, ValueError) as exc:
+        return h._json({"error": f"bad query: {exc}"}, 400)

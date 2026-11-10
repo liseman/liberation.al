@@ -1,4 +1,4 @@
-//! Forgetting rows, and the deletion feed (#1755).
+//! Forgetting rows, and the deletion feed.
 //!
 //! A forget is logical first and physical after: [`forget`] appends a deletion to `<root>/.deletions` (an append-only
 //! log of JSON lines under a lock), and from then on every read, follow, and append leaves out the rows it names, so a
@@ -134,7 +134,7 @@ pub(crate) fn filters(deletions: &[Deletion], stream: &str, camera: &str) -> Vec
         .collect()
 }
 
-/// The log as last read, for a reader that filters every poll (#3211): read again only when its length changed,
+/// The log as last read, for a reader that filters every poll: read again only when its length changed,
 /// which every deletion appended does (the writer keys its own copy the same way), instead of parsing it for each
 /// camera of each poll.
 #[derive(Default)]
@@ -335,7 +335,7 @@ fn append(root: &Path, make: impl FnOnce(u64) -> Deletion) -> Result<Deletion> {
 }
 
 /// The streams under `root`.
-fn streams_of(root: &Path) -> Result<Vec<String>> {
+pub(crate) fn streams_of(root: &Path) -> Result<Vec<String>> {
     let mut out = Vec::new();
     for entry in std::fs::read_dir(root).map_err(io(root))? {
         let entry = entry.map_err(io(root))?;

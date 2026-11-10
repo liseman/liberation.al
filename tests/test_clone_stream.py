@@ -1,4 +1,4 @@
-"""Clone speech from the voice service's warm model (#333): speech/clone_server.py in the voice service, and
+"""Clone speech from the voice service's warm model: speech/clone_server.py in the voice service, and
 dashboard/clone_stream.py with POST /clones/say and GET /clones/render in the dashboard. A fake model stands in for
 Qwen3-TTS; it yields half-second chunks as the real one does."""
 
@@ -203,9 +203,6 @@ def test_without_the_warm_voice_the_line_is_made_the_old_way(clones, serve, monk
 def test_a_voice_whose_clip_isnt_ready_is_made_the_old_way(voice, clones, monkeypatch):
     monkeypatch.setattr(clone_stream, "_reference", lambda sid: None)
     assert not clone_stream.start(7, "Hello there.", clones / "say-7-2.wav")
-
-
-# From the review of #333
 
 
 @pytest.fixture

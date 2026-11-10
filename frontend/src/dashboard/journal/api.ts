@@ -1,4 +1,4 @@
-// The Journal tab's reads (#2811): one GET /journal per column (dashboard/journal.py). Each reply is the next column's
+// The Journal tab's reads: one GET /journal per column (dashboard/journal.py). Each reply is the next column's
 // rows and the page of the period they belong to.
 import { queryOptions } from '@tanstack/react-query';
 import { HttpError, request } from '../../shared/http';
@@ -91,7 +91,7 @@ export const evidenceQuery = (id: string, start: number) =>
     staleTime: 60_000,
   });
 
-/** The current day's page (GET /journal/today, #2837): the written page once it's settled, else a today-so-far page
+/** The current day's page (GET /journal/today): the written page once it's settled, else a today-so-far page
  *  built in the background ("pending" while it builds, with the last one as md). Today, or yesterday until its page is
  *  written; any other day is a 404. */
 export interface TodayPage {

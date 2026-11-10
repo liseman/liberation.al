@@ -1,12 +1,12 @@
-//! Self-contained Opus microphone batches using libopus (#553). A microphone's PCM chunk becomes Opus as it closes
-//! ([`pcm_chunk_to_opus`], called by [`crate::worker`]), before it is committed (#1942).
+//! Self-contained Opus microphone batches using libopus. A microphone's PCM chunk becomes Opus as it closes
+//! ([`pcm_chunk_to_opus`], called by [`crate::worker`]), before it is committed.
 //!
 //! Each batch starts a fresh encoder/decoder, so a range read or purge never needs earlier audio. The header
 //! stores a magic, source rate (u32), channels (u16), reserved zero (u16), ring stride (u32), record count (u32),
 //! and encoder lookahead in samples per channel (u32), all little-endian. Decode removes lookahead and final
 //! padding, restoring the exact number and layout of ring records. Stamps are lossless; samples are lossy.
 //!
-//! `COP2` (written since #1437) follows the header with the first record's 16-byte stamp, then two zigzag LEB128
+//! `COP2` follows the header with the first record's 16-byte stamp, then two zigzag LEB128
 //! varints per further record: its capture-time step less the previous step (the nominal block duration for the
 //! second record), and its sample-index step less the block's frame count. A steady microphone costs two bytes a
 //! record instead of sixteen, and any stamps at all still round-trip exactly (the arithmetic wraps). Then come one
@@ -241,7 +241,7 @@ pub fn format_of(record: &[u8]) -> Result<crate::pcm::PcmFormat, TierError> {
 }
 
 /// How many sample frames an Opus batch record holds, with its format, from its header alone: the header keeps the
-/// source batch's exact record count and layout, so the count matches the PCM the batch was encoded from (#1711).
+/// source batch's exact record count and layout, so the count matches the PCM the batch was encoded from.
 ///
 /// # Errors
 /// A malformed or unsupported header.

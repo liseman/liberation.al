@@ -36,14 +36,14 @@
 
 .delete:hover,
 .delete:focus-visible {
-  color: var(--lib-bad); /* turns red only when meant (#2715) */
+  color: var(--lib-bad); /* turns red only when meant */
 }
 
 .bar {
   max-width: 24rem;
 }
 
-/* The whole page while files are dragged over it (#2721); events pass through to the window's drop handler. */
+/* The whole page while files are dragged over it; events pass through to the window's drop handler. */
 .page {
   position: fixed;
   inset: 8px;

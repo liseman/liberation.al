@@ -1,4 +1,4 @@
-//! The tier worker's library (docs/CONTINUUM.md, "Storage tiers"; issue #552).
+//! The tier worker's library (docs/CONTINUUM.md, "Storage tiers").
 //!
 //! The tier worker drains Tier 0 into frame-indexed Tier 1 chunks before slots are reclaimed, and carries out purges
 //! on its files. A microphone's chunk becomes Opus ([`opus`]) as it closes, before it is committed. This crate is the part of it that needs no

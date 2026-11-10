@@ -1,4 +1,4 @@
-"""The VLM behind the caption worker, moved here from v1's vision loop: the backends (Ollama, mlx-vlm in
+"""The VLM behind the caption worker: the backends (Ollama, mlx-vlm in
 process, and the mlx-vlm server, vision/vlm_server.py), the caption prompt, and the tile and JPEG helpers they use.
 
 `make_vlm` picks a backend with fallbacks; each backend has `caption(tile, memory)`, and Ollama's has `ground(frame)`

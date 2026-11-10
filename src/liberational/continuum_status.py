@@ -46,9 +46,9 @@ AUDIO = (
     "listen",
     "voice",
 )
-"""What the audio port's switch (#548) runs, in the order it's turned on."""
+"""What the audio port's switch runs, in the order it's turned on."""
 VISION = (*AUDIO, "see-decode", "see-actions", "see-captions", "continuum-gateway")
-"""What the vision port's switch (#549) adds."""
+"""What the vision port's switch adds."""
 PORTS = {"audio": AUDIO, "vision": VISION}
 SERVICES = VISION
 """Every Continuum service this checks."""

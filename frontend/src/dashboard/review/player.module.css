@@ -1,4 +1,4 @@
-/* The Review player (R2, #327): one camera large and the others as tiles beside it, then the controls. */
+/* The Review player (R2): one camera large and the others as tiles beside it, then the controls. */
 .player {
   display: flex;
   flex-direction: column;
@@ -26,7 +26,7 @@
 .big {
   grid-column: 1;
   grid-row: var(--row);
-  aspect-ratio: var(--player-ratio, 16 / 9); /* an embedding sets its clip's own shape (activities, #2299) */
+  aspect-ratio: var(--player-ratio, 16 / 9); /* an embedding sets its clip's own shape (activities) */
   border-radius: 8px;
 }
 .tile {
@@ -222,7 +222,7 @@ canvas[data-standby] {
 .spacer {
   flex: 1 1 0;
 }
-/* Play/pause is Mantine's ActionIcon and speed its Button (#2041): only their place in the row is ours. */
+/* Play/pause is Mantine's ActionIcon and speed its Button: only their place in the row is ours. */
 .play {
   flex: none;
 }
@@ -244,7 +244,7 @@ canvas[data-standby] {
 .skip + .skip {
   margin-left: 0;
 }
-/* Phones (#2454 follow-up): the large camera on top, the others in one row under it that swipes sideways. The
+/* Phones: the large camera on top, the others in one row under it that swipes sideways. The
    stage scrolls; the large camera spans the tiles' columns but stays one screen wide and pinned at the left. */
 @media (max-width: 700px) {
   .stage[data-tiles] {
@@ -287,7 +287,7 @@ canvas[data-standby] {
   pointer-events: none;
 }
 
-/* A matched box's actions over its label (#2607): "Not <name>", and a person's card. Shown on hover or tap. */
+/* A matched box's actions over its label: "Not <name>", and a person's card. Shown on hover or tap. */
 .boxMenu {
   position: absolute;
   z-index: 3;
@@ -298,7 +298,7 @@ canvas[data-standby] {
   background: color-mix(in srgb, var(--mantine-color-dark-9) 72%, transparent);
 }
 
-/* What the journal kept of a moment whose video expired (#2838): its promoted clip or still (the Journal tab's
+/* What the journal kept of a moment whose video expired: its promoted clip or still (the Journal tab's
    SourceMedia) filling the camera's space, letterboxed, with what was seen under it. */
 .kept {
   position: absolute;

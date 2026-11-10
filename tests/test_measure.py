@@ -11,7 +11,7 @@ import pytest
 import speech_fake
 from liberational import config as cfg
 from liberational import segment_log
-from liberational.memory import ask, history_qa, recall
+from liberational.memory import ask, history_qa, question, recall
 from voices import write_voices
 
 _spec = importlib.util.spec_from_file_location("measure", cfg.ROOT / "tools" / "measure.py")
@@ -231,7 +231,7 @@ def test_answer_excludes_fail_when_collect_gives_no_answer_text(state, labels, m
 ENTRY = dict(kind="journal", source="journal", ts=1000.0, start=1000.0, end=1030.0, quote="Dana planted tomatoes.")
 LINE = dict(ts=1015.0, text="tomatoes", source="transcript")
 NO_SPAN = dict(ts=1000.0, start="1000", end=None, text="x")
-# A segment-backed item says which stream it came from (#1909); its `source` stays camera.
+# A segment-backed item says which stream it came from; its `source` stays camera.
 WALK = dict(ts=1000.0, source="camera", stream="walkby.span", quote="Walked past cam0's counting line.")
 
 
@@ -752,7 +752,7 @@ def test_a_label_in_a_renamed_persons_current_name_scores_as_right(state, labels
     assert (score["tp"], score["fp"], score["fn"]) == (2, 0, 0)
 
 
-# Identification by threshold (#291)
+# Identification by threshold
 
 
 @pytest.fixture
@@ -849,3 +849,137 @@ def test_a_label_can_expect_a_source_or_a_segment_stream(source):
 def test_a_label_naming_another_stream_is_refused():
     with pytest.raises(measure.LabelError, match="evidence source must be one of"):
         measure._expected({"at": 1000.0, "source": "body.detection"})
+
+
+def read_labels(labels, *lines):
+    (labels / "readings.jsonl").write_text("".join(json.dumps(line) + "\n" for line in lines))
+    return measure.load(labels, "readings")
+
+
+WHO = {
+    "id": "who",
+    "question": "who was here at 3pm",
+    "reading": {"source": "people", "measure": "who", "clock": "3pm"},
+}
+WHO_AGAIN = {"id": "who-again", "question": "who was around at 3pm", "same_as": "who"}
+WHO_READ = question.Reading(source="people", measure="who", clock="3pm")
+
+
+def test_a_reading_is_scored_field_by_field_against_its_label(labels, readings):
+    readings["who was here at 3pm"] = question.Reading(source="people", measure="who", clock="3", people=("Dana",))
+    r = measure.score_readings(read_labels(labels, WHO))
+    assert (r["questions"], r["exact"], r["unreadable"]) == (1, 0, 0)
+    assert r["per_question"][0]["wrong"] == {
+        "people": {"expected": [], "got": ["dana"]},
+        "clock": {"expected": "3pm", "got": "3"},
+    }
+    assert r["fields"]["clock"] == {"right": 0, "of": 1}
+    assert r["fields"]["source"] == {"right": 1, "of": 1}
+
+
+def test_a_reworded_copy_is_scored_on_its_originals_reading_and_whether_the_two_agree(labels, readings):
+    readings["who was here at 3pm"] = WHO_READ
+    readings["who was around at 3pm"] = question.Reading(source="people", measure="who", clock="3pm", now=True)
+    r = measure.score_readings(read_labels(labels, WHO, WHO_AGAIN))
+    assert (r["exact"], r["pairs"], r["pairs_agreed"]) == (1, 1, 0)
+    assert r["per_question"][1]["wrong"] == {"now": {"expected": False, "got": True}}
+    readings["who was around at 3pm"] = WHO_READ
+    r = measure.score_readings(read_labels(labels, WHO, WHO_AGAIN))
+    assert (r["exact"], r["pairs_agreed"]) == (2, 1)
+
+
+def test_names_are_compared_without_case_or_order_and_a_refused_time_by_being_refused(labels, readings):
+    label = {
+        "id": "q",
+        "question": "what did Dana and Sam say on Friday",
+        "reading": {"people": ["Dana", "Sam"], "other_time": "on Friday"},
+    }
+    readings[label["question"]] = question.Reading(people=("sam", "dana"), other_time="Friday")
+    assert measure.score_readings(read_labels(labels, label))["exact"] == 1
+
+
+def test_a_question_that_isnt_history_is_scored_on_that_alone(labels, readings):
+    label = {"id": "joke", "question": "tell me a joke", "reading": {"history": False}}
+    readings["tell me a joke"] = question.Reading(history=False, people=("me",), source="both")
+    r = measure.score_readings(read_labels(labels, label))
+    assert r["exact"] == 1
+    assert r["fields"]["history"] == {"right": 1, "of": 1}
+    assert r["fields"]["source"] == {"right": 0, "of": 0}
+
+
+def test_no_reading_from_the_model_counts_every_field_wrong(labels, monkeypatch):
+    def down(asked):
+        raise question.Unreadable("TimeoutError")
+
+    monkeypatch.setattr(question, "read", down)
+    r = measure.score_readings(read_labels(labels, WHO))
+    assert (r["exact"], r["unreadable"]) == (0, 1)
+    assert r["fields"]["history"] == {"right": 0, "of": 1}
+    assert "MISREAD who: no reading" in measure.report({"readings": r}, labels, labels)
+
+
+@pytest.mark.parametrize(
+    ("line", "message"),
+    [
+        pytest.param({"id": "a", "question": "q"}, "reading .* or same_as", id="neither"),
+        pytest.param({"id": "a", "question": "q", "reading": {}, "same_as": "b"}, "not both", id="both"),
+        pytest.param({"id": "a", "question": "q", "reading": {"mood": "curious"}}, "doesn't", id="unknown-field"),
+        pytest.param(
+            {"id": "a", "question": "q", "reading": {"source": "memories"}}, "reading.source", id="bad-choice"
+        ),
+    ],
+)
+def test_a_readings_label_that_cant_be_scored_is_refused(labels, line, message):
+    with pytest.raises(measure.LabelError, match=message):
+        read_labels(labels, line)
+
+
+def test_a_copy_of_a_label_that_isnt_there_is_refused(labels):
+    with pytest.raises(measure.LabelError, match="same_as 'who'"):
+        measure.score_readings(read_labels(labels, WHO_AGAIN))
+
+
+def test_the_readings_report_names_the_weakest_fields_and_the_misread_questions(labels, readings):
+    readings["who was here at 3pm"] = question.Reading(source="people", measure="who")
+    readings["who was around at 3pm"] = WHO_READ
+    out = measure.report({"readings": measure.score_readings(read_labels(labels, WHO, WHO_AGAIN))}, labels, labels)
+    assert "read exactly right 1 of 2; no reading for 0" in out
+    assert "reworded copies read like their original 0 of 1" in out
+    assert "  clock: 1 of 2" in out
+    assert "MISREAD who: clock '3pm' read as ''" in out
+    assert "MISREAD who-again" not in out
+
+
+def test_readings_run_only_when_named(state, labels, monkeypatch):
+    monkeypatch.setattr(
+        measure, "score_readings", create_autospec(measure.score_readings, return_value={"questions": 0})
+    )
+    assert "readings" not in measure.run(FIXTURES, state)
+    assert measure.run(FIXTURES, state, ["readings"]) == {"readings": {"questions": 0}}
+
+
+def test_the_made_up_readings_load_and_every_copy_has_its_original():
+    made_up = measure.load(FIXTURES, "readings")
+    originals = {label.id for label in made_up if label.reading is not None}
+    assert len(made_up) > 20
+    assert {label.same_as for label in made_up if label.same_as} <= originals
+    # A label that repeats one of the reader's worked examples would score the prompt against itself.
+    examples = {" ".join(asked.lower().rstrip("?").split()) for asked, _ in question.SHOTS}
+    assert not {label.id for label in made_up if " ".join(label.question.lower().rstrip("?").split()) in examples}
+
+
+def test_a_retrieval_row_keeps_the_query_and_its_reading(state, labels):
+    (labels / "retrieval.jsonl").write_text(
+        json.dumps(
+            {
+                "id": "who",
+                "question": "Who was here yesterday?",
+                "asked_at": "2026-10-21T09:00:00-07:00",
+                "answer_includes": ["Alice"],
+            }
+        )
+        + "\n"
+    )
+    row = measure.score_retrieval(measure.load(labels, "retrieval"), state)["per_question"][0]
+    assert row["query"]["reading"]["source"] == "people"
+    assert row["query"]["window"] == "yesterday"

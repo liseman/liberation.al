@@ -47,7 +47,7 @@ pub fn input_devices() -> Vec<DeviceInfo> {
 /// A CoreAudio input stream, running.
 pub struct CoreAudioSource {
     chunks: ChannelSource,
-    // Taken on drop, so the audio unit is stopped and then released as separate, timed steps (#1388).
+    // Taken on drop, so the audio unit is stopped and then released as separate, timed steps.
     stream: Option<cpal::Stream>,
 }
 

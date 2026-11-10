@@ -11,6 +11,7 @@
   uv run tools/measure.py --part retrieval --vectors off --json  # retrieval with the semantic index off
   uv run tools/measure.py --part retrieval --ask --journal off --json  # Ask with the journal off
   uv run tools/measure.py --compare single.json loop.json    # retrieval in two --json results, side by side
+  uv run tools/measure.py --part readings       # how well the model reads questions (calls the local model)
 
 For entry/exit scoring, select a counter and tolerance explicitly. Run as a module
 so callbacks in the repository's tools namespace can be imported:
@@ -27,7 +28,9 @@ docs/DOMAIN-MODEL.md, which steps 3, 7, and 8 need before they change what the u
   on see-actions' face matches (`face.match` in the segment store, read through vision/sightings.py) for a camera clip, and resolved speaker labels on transcript
   lines for a voice clip. It reports precision, recall, counts per person, and a confusion list (labeled name -> predicted name).
 - Retrieval asks each labeled question through memory/history_qa.collect(), the answering code the dashboard and the
-  voice loop use, at the question's own time, and checks the answer text and the evidence it returned. Recorded-frame
+  voice loop use, at the question's own time, and checks the answer text and the evidence it returned. collect()
+  has the local model read each question once (memory/question.py), so every run needs it, and each row keeps
+  the reading it got under query.reading. Recorded-frame
   analysis is turned off for the run, because that path writes caches and can queue scans; --as-configured keeps it.
   With --ask, each question goes through memory/ask.execute() in local mode instead, so the answer checks read the
   words the user hears, the evidence checks read the evidence Ask answered from (the search rounds' finds included),
@@ -77,7 +80,7 @@ from liberational.domain import kernel
 PARTS = ("identification", "retrieval", "events")
 MODALITIES = ("face", "voice")
 SOURCES = ("transcript", "camera", "call", "journal")
-# Segment streams an expected evidence item can name as its source (#1909): Ask's evidence items say which stream
+# Segment streams an expected evidence item can name as its source: Ask's evidence items say which stream
 # they came from (`stream`), so a label can expect a walk-by, a zone visit, a model action, or movement.
 STREAM_SOURCES = ("walkby.span", "zone.visit", "action.span", "action.window", "movement.track", "movement.coverage")
 NOBODY = "nobody"
@@ -363,7 +366,46 @@ def _event(d: dict[str, Any], _frame_window: float) -> Event:
     )
 
 
-PARSERS = {"identification": _clip, "retrieval": _question, "events": _event}
+@dataclasses.dataclass(frozen=True)
+class ReadLabel:
+    """A question and the reading a person agreed is right (memory/question.py's Reading), or `same_as`: the id of
+    the label it is a reworded copy of, whose reading it shares."""
+
+    id: str
+    question: str
+    reading: Any  # question.Reading; None for a reworded copy, which takes its original's
+    same_as: str | None = None
+
+
+def _read_label(d: dict[str, Any], _frame_window: float) -> ReadLabel:
+    from liberational.memory import question
+
+    same_as = _text(d, "same_as", required=False)
+    fields = d.get("reading")
+    if (fields is None) == (same_as is None):
+        raise LabelError("give reading (the fields that differ from the defaults) or same_as, not both")
+    reading = None
+    if fields is not None:
+        if not isinstance(fields, dict):
+            raise LabelError("reading must be an object")
+        reading = question.handed(fields)
+        choices = dict(
+            source=question.SOURCES,
+            measure=question.MEASURES,
+            movement=question.MOVEMENTS,
+            part=question.PARTS,
+            span_unit=question.UNITS,
+            span_kind=question.SPAN_KINDS,
+        )
+        if reading is None:
+            raise LabelError(f"reading has a field the form doesn't: {sorted(fields)}")
+        for name, allowed in choices.items():
+            if getattr(reading, name) not in allowed:
+                raise LabelError(f"reading.{name} must be one of {list(allowed)}")
+    return ReadLabel(_text(d, "id"), _text(d, "question"), reading, same_as)
+
+
+PARSERS = {"identification": _clip, "retrieval": _question, "events": _event, "readings": _read_label}
 
 
 def load(directory: str | pathlib.Path, part: str, frame_window: float = 1.0) -> list[Any]:
@@ -859,7 +901,7 @@ def _tally(
     }
 
 
-# Today's thresholds (#291): voice names a line at speaker_sim >= 0.55 (audio/ambient.py THRESHOLD), a face at
+# Today's thresholds: voice names a line at speaker_sim >= 0.55 (audio/ambient.py THRESHOLD), a face at
 # sim > 0.45 (vision/faces.py THRESH, vision/sightings.py FACE_THRESH). Copied here so this reads no model code.
 TODAY = {"voice": 0.55, "face": 0.45}
 SWEEP_TOP, SWEEP_STEP = 0.90, 0.05
@@ -877,7 +919,7 @@ def sweep_identification(
     clips: Sequence[Clip], state: str | pathlib.Path, top: float = SWEEP_TOP, step: float = SWEEP_STEP
 ) -> dict[str, Any]:
     """Precision and recall per modality at thresholds from today's up to top, from the similarities stored on each
-    transcript line and sighting (#291). Read-only, and it changes no default.
+    transcript line and sighting. Read-only, and it changes no default.
 
     Only today's threshold and stricter ones can be swept: a record today left unnamed keeps no candidate name, so
     what a lower threshold would have named isn't stored."""
@@ -1047,6 +1089,7 @@ def score_retrieval(
             answer = r.get("answer") or ""
             evidence = r.get("evidence") or []
             row["is_history"] = r.get("is_history", True)
+            row["query"] = r.get("query") or {}  # its "reading" is how the model read the question
             if not row["is_history"]:
                 row["failures"].append(f"{fn} did not treat this as a history question")
             row["answer"], row["evidence_returned"] = answer, len(evidence)
@@ -1295,6 +1338,105 @@ def _sweep_lines(sweep: dict[str, Any]) -> list[str]:
     return out
 
 
+# The fields of a reading that are scored. `text` (the journal's search words) has more than one right wording, so it
+# isn't. A refused time is scored as refused or not, since the phrase it carries is only for the message.
+READ_FIELDS = (
+    "history",
+    "source",
+    "measure",
+    "movement",
+    "direction",
+    "intent",
+    "now",
+    "people",
+    "day",
+    "part",
+    "clock",
+    "clock_end",
+    "since",
+    "span",
+    "span_unit",
+    "span_kind",
+    "other_time",
+)
+
+
+def _read_value(reading: Any, field: str) -> Any:
+    value = getattr(reading, field)
+    if field == "people":
+        return sorted(p.casefold() for p in value)
+    if field == "other_time":
+        return bool(value)
+    return value
+
+
+def score_readings(labels: Sequence[ReadLabel]) -> dict[str, Any]:
+    """Read each labeled question with the model (memory/question.py's read: one call each to recall.model) and
+    compare the reading with the label, field by field.
+
+    A reworded copy (`same_as`) is scored against its original's labeled reading, and the pair agrees when the
+    model gave both the same reading, right or wrong. A question the model gives no reading for counts every field
+    as wrong, and a question labeled as not about history is scored on that field alone. Returns per-field counts, the number read exactly right, the pairs that agreed, how long a call took,
+    and one row per question with the fields it got wrong (expected and got)."""
+    from liberational.memory import question
+
+    by_id = {label.id: label for label in labels}
+    for label in labels:
+        if label.same_as is not None and (label.same_as not in by_id or by_id[label.same_as].reading is None):
+            raise LabelError(
+                f"readings.jsonl: {label.id!r} is same_as {label.same_as!r}, which is not a labeled reading"
+            )
+    question.forget()  # every question is read by the model in this run, never taken from an earlier one
+    got: dict[str, Any] = {}
+    fields = {name: {"right": 0, "of": 0} for name in READ_FIELDS}
+    rows: list[dict[str, Any]] = []
+    seconds: list[float] = []
+    for label in labels:
+        expected = label.reading if label.reading is not None else by_id[str(label.same_as)].reading
+        row: dict[str, Any] = {"id": label.id, "question": label.question, "wrong": {}}
+        started = time.monotonic()
+        try:
+            got[label.id] = question.read(label.question)
+        except question.Unreadable as error:
+            got[label.id] = None
+            row["unreadable"] = str(error)
+        seconds.append(time.monotonic() - started)
+        # A question that isn't about history is routed elsewhere, so only that one field matters for it.
+        for name in READ_FIELDS if expected.history else ("history",):
+            want = _read_value(expected, name)
+            have = None if got[label.id] is None else _read_value(got[label.id], name)
+            fields[name]["of"] += 1
+            if got[label.id] is not None and have == want:
+                fields[name]["right"] += 1
+            else:
+                row["wrong"][name] = {"expected": want, "got": have}
+        row["exact"] = not row["wrong"]
+        if label.same_as is not None:
+            row["same_as"] = label.same_as
+        rows.append(row)
+    pairs = [label for label in labels if label.same_as is not None]
+    for label in pairs:
+        ours, theirs = got[label.id], got[str(label.same_as)]
+        agreed = (
+            ours is not None
+            and theirs is not None
+            and all(_read_value(ours, name) == _read_value(theirs, name) for name in READ_FIELDS)
+        )
+        next(row for row in rows if row["id"] == label.id)["agrees_with_original"] = agreed
+    return {
+        "questions": len(labels),
+        "exact": sum(row["exact"] for row in rows),
+        "unreadable": sum("unreadable" in row for row in rows),
+        "fields": fields,
+        "pairs": len(pairs),
+        "pairs_agreed": sum(bool(row.get("agrees_with_original")) for row in rows),
+        "seconds_median": statistics.median(seconds) if seconds else None,
+        "seconds_max": max(seconds) if seconds else None,
+        "settings": {k: cfg.get(k, None) for k in ("recall.model", "ask.model", "models.ollama.llm")},
+        "per_question": rows,
+    }
+
+
 def report(results: dict[str, dict[str, Any]], directory: str | pathlib.Path, state: str | pathlib.Path) -> str:
     out = [f"Measurement set: {directory}", f"State: {state}", ""]
     if (r := results.get("identification")) is not None:
@@ -1344,6 +1486,21 @@ def report(results: dict[str, dict[str, Any]], directory: str | pathlib.Path, st
                 if not q["passed"]:
                     draft = " (draft)" if q.get("draft") else ""
                     out.append(f"  FAIL {q['id']}{draft}: " + "; ".join(q["failures"]))
+        out.append("")
+    if (r := results.get("readings")) is not None:
+        out.append(f"Readings: {r['questions']} labeled questions, read by the model (memory/question.py)")
+        if r["questions"]:
+            out.append(f"  read exactly right {r['exact']} of {r['questions']}; no reading for {r['unreadable']}")
+            out.append(f"  reworded copies read like their original {r['pairs_agreed']} of {r['pairs']}")
+            out.append(f"  one reading: median {r['seconds_median']:.1f} s, max {r['seconds_max']:.1f} s")
+            worst = sorted(r["fields"].items(), key=lambda item: item[1]["right"] - item[1]["of"])
+            for name, counts in worst:
+                if counts["right"] < counts["of"]:
+                    out.append(f"  {name}: {counts['right']} of {counts['of']}")
+            for q in r["per_question"]:
+                if not q["exact"]:
+                    wrong = "; ".join(f"{k} {v['expected']!r} read as {v['got']!r}" for k, v in q["wrong"].items())
+                    out.append(f"  MISREAD {q['id']}: " + (q.get("unreadable") and "no reading" or wrong))
         out.append("")
     if (r := results.get("entries")) is not None:
         out.append(f"Entries/exits: {r['windows']} labeled camera windows; tolerance {r['tolerance_s']:g} s")
@@ -1469,6 +1626,8 @@ def run(
         if entry_counter is None or entry_tolerance is None:
             raise RunError("entries requires an explicit counter and tolerance")
         results["entries"] = score_entries(load(directory, "entries"), state, entry_counter, entry_tolerance)
+    if "readings" in parts:
+        results["readings"] = score_readings(load(directory, "readings"))
     if "identification" in parts:
         clips = load(directory, "identification", frame_window)
         results["identification"] = score_identification(clips, state)
@@ -1493,7 +1652,12 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--dir", help="label directory (default: paths.measurement)")
     ap.add_argument("--state-dir", help="state to score (default: paths.state)")
-    ap.add_argument("--part", choices=(*PARTS, "entries"), action="append", help="score only this part (repeatable)")
+    ap.add_argument(
+        "--part",
+        choices=(*PARTS, "entries", "readings"),
+        action="append",
+        help="score only this part (repeatable); entries and readings run only when named",
+    )
     ap.add_argument("--entry-counter", help="explicit module:function entry/exit counter")
     ap.add_argument("--entry-tolerance", type=float, help="explicit matching tolerance in seconds")
     ap.add_argument("--event-counter", help="explicit module:function event counter")

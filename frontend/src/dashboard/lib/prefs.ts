@@ -19,15 +19,15 @@ export interface LivePrefs extends Prefs {
   timestamps?: 'hover' | 'always';
   statusLine?: boolean;
   mirror?: boolean; // every camera, from before cameras were mirrored one by one; mirrorCams overrides it
-  mirrorCams?: Record<string, boolean>; // each camera's own choice (Live's button, Settings' Mirror, #384)
-  gettingStartedHidden?: string; // Live's Getting started, hidden with these steps open ("models,voice"), #296
+  mirrorCams?: Record<string, boolean>; // each camera's own choice (Live's button, Settings' Mirror)
+  gettingStartedHidden?: string; // Live's Getting started, hidden with these steps open ("models,voice")
   gettingStartedDone?: boolean; // all six were done once: Getting started stays away for good
-  reviewBoxes?: boolean; // Review draws people and things boxes on the large camera (default on, #374)
+  reviewBoxes?: boolean; // Review draws people and things boxes on the large camera (default on)
   reviewMarkers?: ('people' | 'pets' | 'objects')[]; // per-viewer Review overlays; people only when unset
-  reviewTimeline?: 'compact' | 'expanded'; // Review's timeline: one strip, or a lane per camera (#2111)
+  reviewTimeline?: 'compact' | 'expanded'; // Review's timeline: one strip, or a lane per camera
   reviewObjectsKnownOnly?: boolean; // Review's Objects shows only remembered objects, not the camera's labels (default on)
-  usagePanel?: UsagePanelPref; // the Resource monitor, closed when unset (#2258)
-  skeletons?: boolean; // Live and Review draw body skeletons over the camera (default on, #520, #519)
+  usagePanel?: UsagePanelPref; // the Resource monitor, closed when unset
+  skeletons?: boolean; // Live and Review draw body skeletons over the camera (default on)
   liveTiles?: boolean; // Live's camera overview plays every camera live, not a picture every few seconds (default on)
 }
 

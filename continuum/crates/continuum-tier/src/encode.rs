@@ -1,5 +1,5 @@
 //! The H.264 encoder core behind [`crate::h264`] (the `ffmpeg` feature), and the AV1 one behind the archive pass
-//! ([`crate::av1`], #1479).
+//! ([`crate::av1`]).
 //!
 //! NV12 frames (full-range BT.601, as [`crate::hydrate::rgb_to_nv12`] makes them) with their times go in; Annex B
 //! access units come out, one per frame and in order. What it promises:
@@ -18,7 +18,7 @@
 //! independent after the guard is dropped. FFmpeg initialization runs once because ffmpeg-next rewrites a global
 //! error-string table on each initialization, including while another thread could be formatting an error.
 //!
-//! Closing the first of several overlapping NVENC sessions can crash the process (#1114). The native owner
+//! Closing the first of several overlapping NVENC sessions can crash the process. The native owner
 //! retains that first session if its caller finishes early, then closes it after the remaining sessions close.
 //! This holds at most one retired native context (and its NVENC session allocation), including across replacement
 //! camera opens. Software and VideoToolbox sessions keep their ordinary lifetime; frame processing stays parallel.

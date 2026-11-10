@@ -1,4 +1,4 @@
-"""Known › Places' reads (#2848, #2831): the places the house knows, and where people and pets were in one.
+"""Known › Places' reads: the places the house knows, and where people and pets were in one.
 
     GET /places                        {places: [{id, name, named, plan, plan_source, machine_newer, revision,
                                        last_visit, last_activity, walks, unwalked_rooms}]}: every place
@@ -11,51 +11,52 @@
                                        load with text/html gets the app instead)
     POST /places/plan {place, plan, base}
                                        the owner's corrected plan (DSL), saved as taught state over the machine's
-                                       (memory/places.py `correct_plan`, #2859): it holds until withdrawn, and the
+                                       (memory/places.py `correct_plan`): it holds until withdrawn, and the
                                        machine's plan is never edited. `base` is the revision whose frame the edited
                                        text is in (the plan's plan_revision when the editor opened it). An empty plan
                                        withdraws the correction. An edit of a plan drawn on its own page (an
-                                       imported one, #3276) is on that page, and is moved into the plan frame.
+                                       imported one) is on that page, and is moved into the plan frame.
     GET /places/plan/history?place=    {place, versions: [{id, at, rooms, source, withdrawn}], previous}: the owner's
                                        plans, oldest first, and the one Revert plan puts back (`plan_versions`)
     POST /places/plan/restore {place, record}
                                        make that earlier owner plan hold again, written as the newest record, so the
                                        one it replaces stays in the history (memory/places.py `restore_plan`)
-    GET /places/scene?place=           the 3D view's scene (#2876): the newest revision with a map, its map's URL and
+    GET /places/scene?place=           the 3D view's scene: the newest revision with a map, its map's URL and
                                        size, its splat's when it has one (its own, else the newest made in the same
                                        map frame; one from another frame is only named, `splat_stale`) and what
                                        it was trained from (`splat_from`: "walk" or "cameras"), its floor plane, plan transform, registered cameras, and the plan in its frame;
                                        {revision: null} while the place has no map
     GET /places/map?place=&revision=   that revision's map file (a point cloud, PLY), with byte ranges, an ETag, and
                                        caching for good: a revision's files never change once written
-    GET /places/splat?place=&revision= that revision's 3D Gaussian splat (SPZ, #2877), served the same way; the
+    GET /places/splat?place=&revision= that revision's 3D Gaussian splat (SPZ), served the same way; the
                                        scene names it (`splat`, null while the revision has none)
     GET /places/positions?place=&start=&end=[&entity=]
                                        {place, start, end, entities, tracks, rooms}: where each entity was on the
                                        place's plan over [start, end), from the position layer's stored records
                                        (spatial/positions.py); the read stops if the client hangs up
 
-The GETs only read state. The POSTs are teaching, so they follow dashboard.remote_teaching like the rest (#2788).
+The GETs only read state. The POSTs are teaching, so they follow dashboard.remote_teaching like the rest.
 
 Positions are grouped by entity: a known one by its id ("person:<id>", "pet:<id>", "rig", named from faces and pet
 labels when read, spatial/positions.py's `identify`), someone not known yet by their camera track. Each path
 (`tracks[].track`) is a camera track, or tracks on several cameras that the reader fused into one (positions.py's
-`joined`, #2981: one entity's, or one unnamed person's seen by two cameras at once; their "+"-joined ids, one point a
+`joined`: one entity's, or one unnamed person's seen by two cameras at once; their "+"-joined ids, one point a
 second where both cameras saw them), keyed by its entity, else its path; tracks the reader didn't join stay separate
 paths, since joining them would zig-zag between where each camera put them. A point the reader marks uncertain (a foot
-on an occluding edge no other camera settled, #3070) is left off its path: it can be metres off. A point with neither
+on an occluding edge no other camera settled) is left off its path: it can be metres off. A point with neither
 an entity nor a track can't be joined to anyone's path (joining them zig-zags between people), so it's left out; a
 room-only span with neither still says someone was in the room. A sample with plan coordinates is a point on its
 track's path; a zone visit (room only, no x and y) is a span in `rooms`, with the plan's room id when it has one and
 the zone's name either way. A long window is thinned so a week stays drawable, by distance and time (`moved`): a path
-keeps each point that moved MOVED_M from the last one kept, so a walk keeps its shape (#3296), and otherwise one point
+keeps each point that moved MOVED_M from the last one kept, so a walk keeps its shape, and otherwise one point
 every span / MAX_POINTS seconds, with its last; the reader first thins to FINE_SHARE times finer than that (its
 `every`) as it scans the stored records, for it to choose from. What's left is capped at MAX_POINTS per path, evenly, keeping its first and last point.
 
 Points come back in the frame of the plan the tab draws (the place's `plan_revision`: records are placed in it when
 written, and the reader moves one placed in an earlier frame onto it), turned onto the owner's page when the plan is drawn on one (an imported plan, upright and with
-the page's handedness, #3276: `GET /places` gives that page's DSL as `plan`; the 3D scene keeps the plan frame). A point that can't be put in that frame (`in_frame` false: a camera that revision doesn't
-register) would land off the drawn plan, so it's left out; a room-only span is kept either way.
+the page's handedness: `GET /places` gives that page's DSL as `plan`; the 3D scene keeps the plan frame). A point that
+can't be put in that frame (`in_frame` false: a camera that revision doesn't register) would land off the drawn plan, so
+it's left out; a room-only span is kept either way.
 """
 
 import math
@@ -63,12 +64,17 @@ import re
 import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
 
 import numpy as np
 
+from liberational import logs
+from liberational.dashboard import routes
 from liberational.memory import places
+
+if TYPE_CHECKING:
+    from liberational.dashboard.server import H
 
 Reply = tuple[int, dict[str, Any]]
 
@@ -82,7 +88,7 @@ MAX_SPAN_S = 31 * 86400  # the longest window a query may ask for
 _LATEST = 4102444800.0  # 2100-01-01: well past any recording, far inside what a float time can hold
 LAST_VISIT_LOOKBACK_S = 365 * 86400  # how far back "last visit" looks
 #: How far back "last activity" looks, in widening steps: a place seen in the last hour costs an hour's read, and one
-#: not seen all week costs a week's, never more (#2905).
+#: not seen all week costs a week's, never more.
 ACTIVITY_LOOKBACKS_S = (3600, 86400, 7 * 86400)
 
 
@@ -247,8 +253,8 @@ def scene(state: Path, place: str) -> Reply:
         size = (places.root(state) / place / rev.map).stat().st_size
     except FileNotFoundError:  # pruned since it was found
         return 200, {"place": place, "revision": None}
-    # The revision's own splat, else the newest one made in the same map frame (a later fusion that kept the frame,
-    # #2877); a splat of another frame (or an unknown one) would sit out of place, so it's only named as stale.
+    # The revision's own splat, else the newest one made in the same map frame (a later fusion that kept the
+    # frame); a splat of another frame (or an unknown one) would sit out of place, so it's only named as stale.
     chain = places.revisions(state, place)
     with_splat = [r for r in chain if places.has_splat(state, r)]
     fits = [r for r in with_splat if r.id == rev.id or (rev.frame is not None and r.frame == rev.frame)]
@@ -259,7 +265,7 @@ def scene(state: Path, place: str) -> Reply:
         shown, splat_size = None, None
     stale = with_splat[-1] if shown is None and with_splat else None
     walk_splat = shown is not None and _walk_splat(chain, shown)
-    # an owner plan drawn in a revision with no plan file is in its floor's frame (#3276)
+    # an owner plan drawn in a revision with no plan file is in its floor's frame
     transform = places.plan_frame(rev) if owner else rev.plan_transform
     return 200, {
         "place": place,
@@ -413,7 +419,7 @@ def _from_page(text: str, view: places.PageView) -> str:
 
 def _kind(entity: str) -> str:
     head = entity.split(":", 1)[0]
-    if head == "face":  # an unnamed face group (#2981): one person, drawn and listed as one
+    if head == "face":  # an unnamed face group: one person, drawn and listed as one
         return "person"
     return head if head in ("person", "pet", "rig") else "unknown"
 
@@ -524,3 +530,70 @@ def positions_view(query: Mapping[str, str], state: Path, cancelled: Callable[[]
         "tracks": [{"entity": k, "track": path, "points": thin(moved(v, every))} for (k, path), v in tracks.items()],
         "rooms": rooms,
     }
+
+
+# ---- routes (dashboard/routes.py): what the server answers for this area ----
+
+
+@routes.get("/places")
+def _get_places(h: H) -> None:
+    code, reply = listing(h.state)
+    return h._json(reply, code)
+
+
+@routes.get("/places/scene")
+def _get_places_scene(h: H) -> None:
+    code, reply = scene(h.state, h._query().get("place", ""))
+    return h._json(reply, code)
+
+
+@routes.get("/places/map", "/places/splat")
+def _get_places_map(h: H) -> None:
+    p = h.path.split("?")[0]
+    q = h._query()
+    files = map_file if p == "/places/map" else splat_file
+    found = files(h.state, q.get("place", ""), q.get("revision", ""))
+    if found is None:
+        return h._json({"error": f"no such {p.rsplit('/', 1)[1]}"}, 404)
+    # A revision's map and splat never change once written: its id is their ETag, and they can be kept for good.
+    tag = f'"{q.get("revision", "")}"'
+    if h.headers.get("If-None-Match") == tag:
+        h.send_response(304)
+        h.send_header("ETag", tag)
+        h.end_headers()
+        return None
+    return h._media(found, "application/octet-stream", {"ETag": tag}, cache="private, max-age=31536000, immutable")
+
+
+@routes.get("/places/positions")
+def _get_places_positions(h: H) -> None:
+    from liberational.spatial import positions
+
+    try:
+        code, reply = positions_view(h._query(), h.state, cancelled=h._client_gone)
+    except positions.Cancelled:
+        h.close_connection = True  # nobody is reading: nothing to send
+        return logs.get("dashboard").debug("places positions read stopped: the client hung up")
+    return h._json(reply, code)
+
+
+@routes.get("/places/plan/history")
+def _get_places_plan_history(h: H) -> None:
+    code, reply = plan_versions(h.state, h._query().get("place", ""))
+    return h._json(reply, code)
+
+
+@routes.post("/places/plan")
+def _post_places_plan(h: H, body: Any) -> None:
+    if not h._same_origin_json():
+        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
+    code, o = correct(body, h._can_teach(), h.state)
+    return h._json(o, code)
+
+
+@routes.post("/places/plan/restore")
+def _post_places_plan_restore(h: H, body: Any) -> None:
+    if not h._same_origin_json():
+        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
+    code, o = restore(body, h._can_teach(), h.state)
+    return h._json(o, code)

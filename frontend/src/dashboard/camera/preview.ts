@@ -277,7 +277,7 @@ function binary(packet: ArrayBuffer): void {
 
 // Without WebCodecs (a page on plain http under a name other than localhost, such as http://<host>.local:8765) the
 // archived H.264 keyframe can't be decoded, and every tile said "Preview unavailable" while Live, whose raw cameras
-// arrive as JPEG, still worked (2026-11-05). Then a tile takes one live JPEG frame, the way Live does.
+// arrive as JPEG, still worked. Then a tile takes one live JPEG frame, the way Live does.
 const NO_DECODER = 'This page can’t decode camera video here; open the dashboard over https or on this computer.';
 
 function startLive(tile: Tile): void {

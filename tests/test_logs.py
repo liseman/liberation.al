@@ -50,7 +50,7 @@ def test_a_line_is_time_tag_level_message(captured):
         ["[backfill]", "ERROR", "four"],
         ["[backfill]", "ERROR", "five"],
     ]
-    # The stamp is ISO local date and time with its offset, and reads back as now (#1696).
+    # The stamp is ISO local date and time with its offset, and reads back as now.
     for line in lines(captured):
         stamp = line.split(" ", 1)[0]
         assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-]\d\d:\d\d", stamp), line
@@ -366,7 +366,7 @@ def test_a_fast_request_is_not_logged(captured, serve, monkeypatch):
     ids=["broken-pipe", "reset"],
 )
 def test_a_client_leaving_before_a_json_reply_is_one_debug_line_and_never_reaches_the_route(captured, ex):
-    """#459: a route that writes its reply inside its own try (GET /live/happening, /review/summary) logged the
+    """A route that writes its reply inside its own try (GET /live/happening, /review/summary) logged the
     client leaving as its own ERROR, then wrote a 500 to the dead socket."""
     h = object.__new__(server.H)
     h.command, h.path, h.headers, h.request_version = "GET", "/live/happening?since=1", cast(Any, {}), "HTTP/1.1"
@@ -403,7 +403,7 @@ def test_another_reply_write_failure_is_not_swallowed(captured):
     ],
 )
 def test_a_logged_reason_is_never_empty(error, expected):
-    # #3073: a bare TimeoutError logged as "voice search unavailable ()".
+    # A bare TimeoutError logged as "voice search unavailable ()".
     assert logs.reason(error) == expected
 
 

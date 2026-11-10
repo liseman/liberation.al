@@ -1,4 +1,4 @@
-// Says when Ollama is down or lacks a configured model (#221), above the logs its callers would otherwise fill.
+// Says when Ollama is down or lacks a configured model, above the logs its callers would otherwise fill.
 import { Alert } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
 import { getStats, STATS_KEY } from '../sources/api';

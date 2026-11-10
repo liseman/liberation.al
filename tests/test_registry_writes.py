@@ -1,4 +1,4 @@
-"""A registry write that fails is never reported as done (#858): registry.recorded raises it, what it was for isn't
+"""A registry write that fails is never reported as done: registry.recorded raises it, what it was for isn't
 written, and a dashboard request answers with an error that says so."""
 
 import http.client

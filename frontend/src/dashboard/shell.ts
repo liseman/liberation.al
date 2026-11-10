@@ -7,8 +7,9 @@ export interface Shell {
   owner: string;
   cams: string[]; // exact native camera/RTSP manifest names, or legacy vision.cams IDs when no manifest exists
   activeCams: string[]; // Live/status only; disabled cameras stay in cams for recorded history
-  views: Record<string, string>; // each named camera's name (vision.camera_names, #313), like "front camera"
+  views: Record<string, string>; // each named camera's name (vision.camera_names), like "front camera"
   hotkeys: boolean; // dashboard.hotkeys: single-key shortcuts, off by default
+  needsSetup: boolean; // no pack.toml yet: first-run setup owns the page
 }
 
 const DEFAULTS: Shell = {
@@ -18,6 +19,7 @@ const DEFAULTS: Shell = {
   activeCams: ['cam0'],
   views: {},
   hotkeys: false,
+  needsSetup: false,
 };
 
 /** The shell values, read when called (tests set window.NAMES before rendering). */
@@ -57,7 +59,7 @@ function subscribeCameraNames(notify: () => void): () => void {
   return () => window.removeEventListener('liberational:camera-names', notify);
 }
 
-/** The camera names, following a save in Settings (Live's "Name cam0" link, #2595). */
+/** The camera names, following a save in Settings (Live's "Name cam0" link). */
 export function useCameraNames(): Record<string, string> {
   return useSyncExternalStore(subscribeCameraNames, () => shell().views);
 }

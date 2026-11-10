@@ -118,7 +118,7 @@ pub fn pipewire_capture_ns(
 /// [`pipewire_capture_ns`] for every buffer one `process` call took, oldest first: the time report is the newest
 /// graph cycle's, so the newest buffer ends where the report says and each earlier one ends where the next begins.
 /// A callback that runs late finds several buffers queued; stamping each of them from the report as if it were the
-/// newest made them look late, and the audio clock took the lateness for lost samples (Wave 3, 2026-10-30).
+/// newest made them look late, and the audio clock took the lateness for lost samples (on the Wave 3).
 #[must_use]
 pub fn pipewire_batch_ns(
     now_ns: i64,

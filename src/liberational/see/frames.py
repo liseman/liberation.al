@@ -3,7 +3,7 @@ camera's newest frame, read from its Tier 0 slot and decoded.
 
 `newest` follows one camera's `<name>.video` stream with a pinned subscription (retried until capture registers it)
 and yields only the newest frame each time the caller is ready for one: a model slower than the camera skips frames
-rather than falling behind, as v1's live path did. A frame is read from its slot under a short lease, decoded (MJPEG,
+rather than falling behind. A frame is read from its slot under a short lease, decoded (MJPEG,
 or raw UYVY at the header's size), and flipped when capture says so. H264AnnexB streams feed every access unit
 through the optional native stateful decoder before newest-frame sampling, retaining the original presentation header.
 """

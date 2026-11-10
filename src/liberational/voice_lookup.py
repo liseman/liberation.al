@@ -1,11 +1,11 @@
 """Whose voice a clip is, on Continuum: for code outside the audio worker that has a clip and wants a name.
 
-v1 kept a voice list with a centroid per voice (`voices.sqlite3`) that the phone bridge, the assistant loop, and the
-voice clone's check each loaded and matched against. On Continuum a voice is a voiceprint: every embedding filed
-under it on `voice.embedding` in the segment store, indexed by the vector worker. So a clip is embedded with ReDimNet2 B3 and the nearest
-stored embedding can group an unnamed voice, but a person is named only by listen/voices.py's confirmed-reference
-policy (minimum reference count, calibrated consistency, similarity floor, and competing-voice margin). A cluster
-label or a high automatic index score is never enough. Names still come from the registry.
+The phone bridge, the assistant loop, and the voice clone's check use this. A voice is a voiceprint: every embedding
+filed under it on `voice.embedding` in the segment store, indexed by the vector worker. So a clip is embedded with
+ReDimNet2 B3 and the nearest stored embedding can group an unnamed voice, but a person is named only by
+listen/voices.py's confirmed-reference policy (minimum reference count, calibrated consistency, similarity floor, and
+competing-voice margin). A cluster label or a high automatic index score is never enough. Names still come from the
+registry.
 
 A lookup is read-only (it never opens a voiceprint or files an embedding) and opens its own broker session per call,
 so it suits a thread of synchronous code; it must not run on a thread with a running event loop. With the vector

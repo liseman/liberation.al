@@ -1,6 +1,6 @@
-// One name box for people (#2450 duplicates item 7): the transcript's name box, Who's this?, a face's name, and an
+// One name box for people: the transcript's name box, Who's this?, a face's name, and an
 // event's "Who". It searches the people Liberational knows, with any guesses first; what's typed comes first as an
-// exact match or, where a new name is allowed, "Add “<name>”" (#2047's creatable pattern), so Enter keeps the typed
+// exact match or, where a new name is allowed, "Add “<name>”", so Enter keeps the typed
 // name while the arrow keys reach the other matches. Escape cancels; a box that saves as it's left can commit on blur.
 import { Combobox, TextInput, useCombobox } from '@mantine/core';
 import { type KeyboardEvent, type ReactNode, useEffect, useRef } from 'react';
@@ -156,7 +156,7 @@ export function PersonNameInput({
       </Combobox.Target>
       <Combobox.Dropdown hidden={!options.length && !value.trim()}>
         {/* Mantine keeps a closed Combobox's dropdown mounted; rendering its options only while open keeps a page of
-            name boxes (Who's this? has one per row) from holding every known name once per box (#3214). */}
+            name boxes (Who's this? has one per row) from holding every known name once per box. */}
         <Combobox.Options>
           {!box.dropdownOpened ? null : options.length ? (
             options.map(o => (

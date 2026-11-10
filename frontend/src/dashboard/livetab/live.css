@@ -121,11 +121,11 @@
   align-items: start;
   min-width: 0;
 }
-/* Wide windows (#2456, #2473): the cameras with who's here under them on the left, and a rail on the right that
+/* Wide windows: the cameras with who's here under them on the left, and a rail on the right that
    fills the window under the top bar: the conversation on top (its feed scrolls inside it), what's happening
    under it. */
 @media (min-width: 981px) {
-  /* Exactly the window under the top bar (#2485): no page scrollbar while everything fits. The rail and Who's here
+  /* Exactly the window under the top bar: no page scrollbar while everything fits. The rail and Who's here
      scroll inside it instead; the cameras keep their own height cap (--cam-max-h). */
   .live-tab {
     box-sizing: border-box;
@@ -180,7 +180,7 @@
   }
   .live-side > .rail {
     position: static;
-    flex: 0 0 35%; /* a fixed share, so what's happening filling in doesn't squeeze the conversation (#2485) */
+    flex: 0 0 35%; /* a fixed share, so what's happening filling in doesn't squeeze the conversation */
     max-height: 35%;
     min-height: 0;
     overflow-y: auto;
@@ -204,7 +204,7 @@
   margin-bottom: 14px;
 }
 .transcript-head h2 {
-  font: 600 18px / 1.45 var(--mantine-font-family); /* a section heading, as theme.ts h2 (#2594) */
+  font: 600 18px / 1.45 var(--mantine-font-family); /* a section heading, as theme.ts h2 */
   margin: 0 0 4px;
 }
 .transcript-head p {
@@ -261,7 +261,7 @@
   min-width: 0;
 }
 .rail-sec h2 {
-  font: 600 18px / 1.45 var(--mantine-font-family); /* a section heading, as theme.ts h2 (#2594) */
+  font: 600 18px / 1.45 var(--mantine-font-family); /* a section heading, as theme.ts h2 */
   margin: 0 0 6px;
 }
 .rail-sec > p {
@@ -383,7 +383,7 @@
   margin-bottom: 18px;
 }
 
-/* ---- Live's cameras: livetab/cameras.css (#352). The note shown when no camera is up: */
+/* ---- Live's cameras: livetab/cameras.css. The note shown when no camera is up: */
 .stage-off {
   display: flex;
   align-items: center;

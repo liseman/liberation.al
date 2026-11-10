@@ -154,8 +154,8 @@ fn the_binary_keeps_its_catalog_beside_the_socket_across_restarts() {
 
 /// redb keeps a "recovery required" bit in its header's god byte (offset 9) while a writer has the file open, and
 /// clears it only when the `Database` closes. A file left with it set is repaired on the next open: a full checksum
-/// walk of the whole file (a few minutes on a busy machine for a catalog of several GiB), the path on which devbox's
-/// catalog failed to open on 2026-11-01 (#1383).
+/// walk of the whole file (a few minutes on a busy machine for a catalog of several GiB), which can keep a large
+/// catalog from opening before its startup timeout.
 fn redb_recovery_required(catalog: &std::path::Path) -> bool {
     let header = std::fs::read(catalog).unwrap();
     header[9] & 2 != 0

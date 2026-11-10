@@ -279,7 +279,7 @@ impl SessionResources {
             return;
         }
         use crate::teardown::step;
-        // Each step is timed while a worker closes its camera (#1388): stopRunning is synchronous, so its return is
+        // Each step is timed while a worker closes its camera: stopRunning is synchronous, so its return is
         // the session's own completion, and a hang shows in the log as the step a kill cut off.
         // SAFETY: all configuration guards have left scope. Stop delivery before detaching the delegate and
         // removing this session's inputs/outputs; the AvfSource still retains delegate/queue during teardown.
@@ -420,7 +420,7 @@ unsafe fn apply_format(
 
 /// Why AVFoundation didn't keep the chosen format and rate after commit/start, or `None` if it did. The preset is
 /// not required to read back as inputPriority: on macOS 27 it reads otherwise even while the device keeps the exact
-/// activeFormat and frame durations (2026-10-31), and those are what capture depends on.
+/// activeFormat and frame durations, and those are what capture depends on.
 unsafe fn format_lost(
     session: &AVCaptureSession,
     device: &AVCaptureDevice,
@@ -553,7 +553,7 @@ impl AvfSource {
                 }
                 resources.session.addOutput(&resources.output);
                 // macOS often answers canSetSessionPreset(inputPriority) = false (seen on macOS 27 with three Arducam
-                // UVC cameras, 2026-10-31), yet setting activeFormat on a device in the session switches the preset to
+                // UVC cameras), yet setting activeFormat on a device in the session switches the preset to
                 // inputPriority by itself. Ask for it when allowed; format_lost verifies the format and frame durations after
                 // start either way, so a camera that really can't keep the format still fails there.
                 if resources.session.canSetSessionPreset(AVCaptureSessionPresetInputPriority) {
@@ -568,7 +568,7 @@ impl AvfSource {
             if format_lost(&resources.session, &device, &format, duration, video.hold_fps).is_some() {
                 // startRunning can reset the frame durations to the format's default (1/30 on these Arducams). Set them
                 // again on the running device under its own lock only: a session begin/commit here re-applies the
-                // preset and resets them once more (2026-10-31).
+                // preset and resets them once more.
                 apply_format(&device, &format, &resources.output, width, height, duration, video.hold_fps)?;
                 std::thread::sleep(Duration::from_millis(200));
                 if let Some(why) = format_lost(&resources.session, &device, &format, duration, video.hold_fps) {

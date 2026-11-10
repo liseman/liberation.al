@@ -1,8 +1,8 @@
-/* Known (#1970): the tab row above People, Pets, Objects, and Activities. Each tab's own page keeps its own layout below it. The
+/* Known: the tab row above People, Pets, Objects, and Activities. Each tab's own page keeps its own layout below it. The
    row stays at the top while the page scrolls, under the app bar (--top-h), on a solid background; once it's stuck
    it gets a bottom edge. Its height is --known-h, which sticky parts below it and anchor jumps leave room for.
    The frame's space above the row (--page-top) is the row's own top padding, so the row's top is the app bar's bottom
-   before it sticks and after: sticking moves nothing and changes no size (it used to jump up by that space, #3270). */
+   before it sticks and after: sticking moves nothing and changes no size (it used to jump up by that space). */
 .root {
   display: flex;
   flex-direction: column;
@@ -36,7 +36,7 @@
 
 .list {
   padding: 0;
-  /* one row of tabs at any width (four since Activities, #2283): it scrolls sideways on a phone rather than wrap */
+  /* one row of tabs at any width (four since Activities): it scrolls sideways on a phone rather than wrap */
   flex-wrap: nowrap;
   overflow-x: auto;
   scrollbar-width: none;
@@ -56,8 +56,8 @@
 }
 /* Every tab one fixed width, wide enough for the longest title over the longest count ("Activities" over "1234 to
    check"), with the title on the first line and the count on a second line every tab has, empty until its count loads
-   and on tabs that never count (#3243): a count arriving changes neither a tab's width nor the row's height, so
-   nothing moves under the pointer (#2828). In rem, so it grows with the text. */
+   and on tabs that never count: a count arriving changes neither a tab's width nor the row's height, so
+   nothing moves under the pointer. In rem, so it grows with the text. */
 .tab {
   width: 8rem;
   padding-inline: var(--mantine-spacing-xs);

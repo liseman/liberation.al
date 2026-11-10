@@ -5,7 +5,7 @@
 //! broker closes). A session that sends nothing for the heartbeat timeout is closed, which is how a client that hung
 //! or died without closing its socket is noticed; so is one whose replies go unread for that long (a write that
 //! can't finish). `Goodbye` is accepted before `Hello` too: it closes without a reply. Every other message is
-//! answered with an `Error` until the catalog, scheduler, and data plane are wired in (#542).
+//! answered with an `Error` until the catalog, scheduler, and data plane are wired in.
 //!
 //! Binding: two brokers must never share one socket. The broker holds an exclusive lock on `<socket>.lock` for its
 //! whole life and refuses to start when another process holds it, so two brokers started together can't both pass
@@ -54,8 +54,8 @@ const INDEX_PAGE: usize = 1024;
 const CLOSE_WAIT: Duration = Duration::from_secs(10);
 
 /// How long a clean stop may spend fencing, encoding, and admitting the restart projection, between the writer drain
-/// and the catalog close (each of which keeps its own `CLOSE_WAIT`). Encoding and publishing ran about 2 s for 136 MB
-/// (#1722); this covers a projection near its 2 GiB cap. The broker's `stop_timeout` in services.toml covers all three.
+/// and the catalog close (each of which keeps its own `CLOSE_WAIT`). Encoding and publishing ran about 2 s for 136 MB;
+/// this covers a projection near its 2 GiB cap. The broker's `stop_timeout` in services.toml covers all three.
 const CHECKPOINT_WAIT: Duration = Duration::from_secs(45);
 
 /// Yield between transient shutdown-fence refusals while session-close commands settle.
@@ -485,7 +485,7 @@ impl Server {
 
     /// Commits what the sessions handed over before they closed. A notice the broker has read is queued for the
     /// writer, not yet in the catalog; closing the catalog under it lost the last frames a producer sent before a
-    /// stop (#1451). New work can't arrive (the sessions are gone), so one sync covers everything queued.
+    /// stop. New work can't arrive (the sessions are gone), so one sync covers everything queued.
     async fn drain_writer(&self, deadline: tokio::time::Instant) {
         loop {
             match tokio::time::timeout_at(deadline, self.core.sync_writer()).await {
@@ -507,8 +507,8 @@ impl Server {
 
     /// Closes the catalog's file before the process exits. The core's threads are never joined, and the process
     /// exits under them, so without this the redb file was left exactly as a crash leaves it on every stop, and every
-    /// start ran redb's repair over the whole file, which is how devbox's catalog failed to open on 2026-11-01
-    /// (#1383). The scrubber stops first (a scrub in progress throws its fresh file away), then the catalog waits
+    /// start ran redb's repair over the whole file, which can keep a multi-GiB catalog from opening in time.
+    /// The scrubber stops first (a scrub in progress throws its fresh file away), then the catalog waits
     /// for the writes and reads in flight and closes; anything the core tries after that fails, moments before exit.
     async fn close_catalog(&mut self) {
         let started = std::time::Instant::now();
@@ -834,7 +834,7 @@ async fn handshake(stream: &mut UnixStream, timeout: Duration, core: &CoreHandle
 }
 
 /// The `Error` frame that replaces a message the broker built over [`continuum_wire::MAX_FRAME`]: the client hears
-/// which request failed and why, and the session stays open (#1270). Replies that page (query results, purge and
+/// which request failed and why, and the session stays open. Replies that page (query results, purge and
 /// stream lists) stay under the limit themselves; this is the backstop for any other builder that outgrows it.
 fn oversized_reply(bytes: &[u8]) -> Vec<u8> {
     // A buffer that fails verification still gets an answer, just without a request to name.
@@ -1421,7 +1421,7 @@ mod tests {
         assert_eq!(attempts, 2);
     }
 
-    /// #1270: a reply the broker built over the frame limit used to close the session with nothing said. The client
+    /// A reply the broker built over the frame limit used to close the session with nothing said. The client
     /// gets an `Error` naming its request instead, and the session keeps delivering what comes after.
     #[tokio::test]
     async fn an_oversized_reply_becomes_an_error_for_its_request_and_the_session_stays_open() {

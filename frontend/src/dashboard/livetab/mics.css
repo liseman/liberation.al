@@ -1,4 +1,4 @@
-/* Live's microphone chips (#353): one per microphone, with its live level, the threshold speech has to pass, and
+/* Live's microphone chips: one per microphone, with its live level, the threshold speech has to pass, and
    whether it hears speech now. */
 .mics {
   display: flex;
@@ -48,7 +48,7 @@
 }
 
 /* Live, the bar and the peak mark span the meter and move by transform, so a level changing every frame costs no
-   layout or paint (#486); the mark is the box's left edge. */
+   layout or paint; the mark is the box's left edge. */
 .mic-meter[data-live] > b {
   transition: none;
   width: 100%;
@@ -111,7 +111,7 @@
   color: var(--lib-bad);
 }
 
-/* Auto gain's gain now (#410): small, beside the meter. */
+/* Auto gain's gain now: small, beside the meter. */
 .mic-gain {
   font-size: 11px;
   font-variant-numeric: tabular-nums;
@@ -140,18 +140,18 @@
   width: 88px;
 }
 
-/* A microphone paused for privacy from the header (#2260): capture has stopped it, so there's no level to show. */
+/* A microphone paused for privacy from the header: capture has stopped it, so there's no level to show. */
 .mic-paused {
   color: var(--lib-bad);
   gap: 4px;
 }
 
-/* In the conversation's header (#2456): one short line per microphone. */
+/* In the conversation's header: one short line per microphone. */
 .mics-compact {
   gap: 4px 10px;
   margin: 2px 0 0;
 }
-/* In the conversation's header the mic line has its place before it has anything to say (#2485), and on a narrow
+/* In the conversation's header the mic line has its place before it has anything to say, and on a narrow
    rail it always takes its own line under the heading, so it never wraps in later and moves the conversation. */
 .conv-title > .mics-compact {
   min-height: 22px;

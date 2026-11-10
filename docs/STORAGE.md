@@ -16,14 +16,14 @@ Face references use `paths.faces`, and imported originals and converted media us
 | Vector index | `continuum/vector` | Face, voice, and journal search, rebuilt from segment embeddings and broker memory-log streams. | Until a catalog reset |
 | Knowledge store | `knowledge.sqlite3` | What the owner taught: people and identity records, pet profiles and sighting labels, drawn zones, activity names and ratings, device links, object crops, and confirmed voice references (`src/liberational/knowledge.py`). | Preserved by `--keep-taught`; removed by `--fresh` |
 | Face references | `faces/db.npz` | The face matcher's reference embeddings. | Preserved by `--keep-taught`; removed by `--fresh` |
-| Places | `places/<place>/` | Spatial memory's machine view of each indoor place (`memory/places.py`): revision records, `.map` point clouds, and `.plan` floorplans. The fixed cameras' places (`pack-spatial-cameras`, daily at midday, #2825) write a binary PLY cloud of about 2 MB per place per run, with each camera's pose, the floor plane, and the plan's frame in the revision record. A phone walkthrough (`pack-walkthrough`, by hand, #2787, #2931) writes one revision per video, its cloud at 3 cm like a fused map: a two-minute walk through a whole home came to 1.6 million points, about 24 MB. Tier 1 (#2801) follows each with a fused revision: the place's map so far, one point per 3 cm cube with how often it was seen and missed. A whole home's surfaces at 3 cm come to roughly 1 to 2 million points, about 15 to 30 MB a fused map; things that come and go fade out, so it stops growing once the home is covered. | Revision records and plans until a reset; the newest 2 maps per place, so a few MB per place however long it runs |
+| Places | `places/<place>/` | Spatial memory's machine view of each indoor place (`memory/places.py`): revision records, `.map` point clouds, and `.plan` floorplans. The fixed cameras' places (`pack-spatial-cameras`, daily at midday) write a binary PLY cloud of about 2 MB per place per run, with each camera's pose, the floor plane, and the plan's frame in the revision record. A phone walkthrough (`pack-walkthrough`, by hand) writes one revision per video, its cloud at 3 cm like a fused map: a two-minute walk through a whole home came to 1.6 million points, about 24 MB. Tier 1 follows each with a fused revision: the place's map so far, one point per 3 cm cube with how often it was seen and missed. A whole home's surfaces at 3 cm come to roughly 1 to 2 million points, about 15 to 30 MB a fused map; things that come and go fade out, so it stops growing once the home is covered. | Revision records and plans until a reset; the newest 2 maps per place, so a few MB per place however long it runs |
 
 Outside `paths.state`, under the repo's `data/`: model files (`data/models`, `mise run models`), including MASt3R's
 2.75 GB checkpoint and CUT3R's 3.2 GB one on CUDA machines, and MASt3R's and CUT3R's own runtimes (`data/mast3r` and
 `data/cut3r`, about 7 GB each: pinned code and a venv with its own torch, `mise run mast3r` and `mise run cut3r`). All
 are rebuilt by those tasks and untouched by a reset.
 
-Machine-made data is expendable. The catalog reset (`pack-reset-catalog --keep-taught`, #1755) deletes the catalog,
+Machine-made data is expendable. The catalog reset (`pack-reset-catalog --keep-taught`) deletes the catalog,
 the recordings it indexes, the vector index, the shared decode's frame ring, the segment store, and the derived
 workers' checkpoints, then restarts. This mode preserves `knowledge.sqlite3` and `faces/db.npz`.
 The separate `--fresh` mode removes taught state too, including face and voice references; see
@@ -37,16 +37,16 @@ age-out: the chunks and their frame rows go, the spans are recorded as aged out,
 video stays. Review and Ask say the footage expired for those spans. If free space on the recordings volume drops
 below 15% (`video_window.free_floor_percent`), the oldest video goes early, an hour at a time, never the newest day.
 
-Before it ages anything out, each run keeps the moments the journal's day pages cite (memory/journal_evidence.py,
-#2808): a 6 s clip (480 px wide, 8 fps, H.264 at CRF 32), a still (640 px JPEG), and the caption, in
+Before it ages anything out, each run keeps the moments the journal's day pages cite (`memory/journal_evidence.py`):
+a 6 s clip (480 px wide, 8 fps, H.264 at CRF 32), a still (640 px JPEG), and the caption, in
 `state/journal_evidence/<YYYY-MM-DD>/`, kept for good. At most 3 camera moments per cited hour are kept. A day page
 citing about 10 hours is about 30 moments; at an estimated 50 to 150 KB a clip and 15 to 60 KB a still, that is
 **about 2 to 6 MB a day**, under 2.2 GB a year. The run's log line counts what it promoted (`promoted_clip`,
 `promoted_still`, `promoted_gone`) and `promoted_bytes`; the per-clip figure is an estimate until a month of those
 lines gives a measured one.
 
-Past the same window, the meaning is kept and the measurement dropped (#2809, Joe 2026-11-07; this replaces the
-2026-11-03 keep-everything rule for per-frame rows and silent audio). The nightly `video-window` run then takes each
+Past the same window, the meaning is kept and the measurement dropped (replacing the earlier keep-everything rule for
+per-frame rows and silent audio). The nightly `video-window` run then takes each
 ended local day older than the window whose day page (`journal.page`) is written, oldest first, at most 7 a night
 (`src/liberational/retention.py`):
 
@@ -54,7 +54,7 @@ ended local day older than the window whose day page (`journal.page`) is written
 | --- | --- |
 | Dense coverage (`action.coverage`, `walkby.coverage`, `animal.coverage`, `zone.coverage`) | Condensed to contiguous intervals (rows at most 2 s apart, within one UTC hour, frames summed) in a `<stream>.condensed` companion that every segment read merges in; the originals are dropped |
 | Device sightings (`network.device_observation`, `bluetooth.sighting`) | Condensed to visits (one device's identical polls at most 60 s apart, within one UTC hour) the same way |
-| Positions (`position.sample`, #2831: about one row a second per tracked person or pet, some 30,000 rows a day for a busy camera) | Thinned to paths the same way: each track's (or entity's) first sample in every 10 s, and its last |
+| Positions (`position.sample`: about one row a second per tracked person or pet, some 30,000 rows a day for a busy camera) | Thinned to paths the same way: each track's (or entity's) first sample in every 10 s, and its last |
 | Per-frame rows (`pose.track`, `face.match`, `face.signal`) and per-frame face embeddings (`face.embedding`) | Dropped: the kept spans already condense them |
 | Spans and events (`action.span`, `walkby.span`, `zone.visit`, `presence.span`, `face.visit`), captions, transcripts, voice embeddings, the journal | Kept |
 | Audio | Chunks that no speech touches (an utterance, or a second the voice gate heard speech, with 5 s either side) are aged out like old video; speech stays |
@@ -65,7 +65,7 @@ was learned from the rows (the vector index, the journal) stands. `state/retenti
 with what went; the log names each stream's rows and bytes per day. `movement.*` and `action.window` are not touched
 yet. Explicit deletion and resets remain separate operations.
 
-## Six-camera archive baseline (2026-11-03)
+## Six-camera archive baseline
 
 A bounded inventory of the original camera and five native H.264 network cameras. Each row uses 64 closed chunks
 and reads container metadata, not decoded pictures. The two rates divide file bytes by the capture hull and by the
@@ -86,7 +86,7 @@ Audio, the catalog, the segment store, temporary predecessor overlap, and other 
 H.264 Tier 2 regrouping copies compressed pictures; it does not lower their bitrate. At this rate the 30-day video
 window holds about **1.15 TB** of video.
 
-## Recommendation and measured candidates (#1479)
+## Recommendation and measured candidates
 
 Keep the current encoding. Thirty days of video at the sampled six-camera rate is about **1.15 TB**, which fits the
 measured **1.7 TB free** (decimal) with room to spare; the window's 15% free-space floor is a safety net, not the
@@ -130,7 +130,7 @@ The two sample cohorts are combined by bytes within each camera. Fixed CNK/index
 remodeled. These are short-sample projections, not a full-day audit or a total-storage cap. All 48 GPU outputs
 contain exactly the selected source-frame count; no frame-rate reduction is part of this candidate table.
 
-## AV1 archive (#1479)
+## AV1 archive
 
 The tier worker can re-encode camera video to AV1 (SVT-AV1) once it is a day old. It is off by default
 (`video_archive.av1 = false` in `config/defaults.toml`); turn it on in `pack.toml` and restart the tier worker
@@ -141,7 +141,7 @@ The tier worker can re-encode camera video to AV1 (SVT-AV1) once it is a day old
 av1 = true
 ```
 
-**Tradeoff.** AV1 saves disk at a sustained CPU cost. The dated measurements above found that 30 days of
+**Tradeoff.** AV1 saves disk at a sustained CPU cost. The measurements above found that 30 days of
 H.264 fit the measured installation; they do not establish current free space or another machine's capacity.
 Measure the actual disk and CPU budget before enabling the archive.
 
@@ -158,13 +158,13 @@ Measure the actual disk and CPU budget before enabling the archive.
 parallelism capped at `threads` (4), so it only takes CPU nothing else wants; if that isn't enough, it falls behind
 rather than slowing anything, and the oldest backlog is the part left as H.264.
 
-- Disk: on 12 live chunks from four cameras (night, 2026-11-04), preset 8 and CRF 52 left 44% of the H.264's bytes.
+- Disk: on 12 live chunks from four cameras at night, preset 8 and CRF 52 left 44% of the H.264's bytes.
   Each chunk (about 2 to 4 seconds) is its own GOP, so a chunk decodes alone; that costs about 20% against the
   10-second GOPs measured above (a 14-second trial: 328 KB in four chunk-sized encodes, 273 KB in one).
 - CPU: on the same chunks, about 0.042 core-seconds a frame, H.264 decode included. Across six cameras (about 140
   frames a second in all) that is about 140 core-hours a day, or 5.8 cores all day: more than the table's 82, which
-  used SVT-AV1 4.2 on 12-second clips; the tier worker links the system's SVT-AV1 (2.3 on devbox) and opens one
-  encoder per chunk. Preset 10 took 0.017 core-seconds a frame (about 2.4 cores) and left 35% of the bytes, but a
+  used SVT-AV1 4.2 on 12-second clips; the tier worker links the system's SVT-AV1 (2.3 on the Linux machine) and opens
+  one encoder per chunk. Preset 10 took 0.017 core-seconds a frame (about 2.4 cores) and left 35% of the bytes, but a
   faster preset at the same CRF is a softer picture: compare stills before choosing it.
 - Logs: a summary line every 10 minutes (`[continuum-tier-worker] INFO AV1 archive: ...`): chunks converted, bytes before and after,
   chunks kept as H.264 by reason, and whether the backlog is done.
@@ -177,7 +177,7 @@ browser can't play". Exports re-encode AV1 to H.264, so clips play everywhere.
 The tier worker reads them from its environment at start (`CONTINUUM_AV1_*`, filled from config by the service
 launcher), so a binary from before this change ignores them.
 
-## Archive codec comparison method (#1479)
+## Archive codec comparison method
 
 The offline comparison uses twelve immutable video copies: two non-overlapping windows from each of the six
 sources. Low/high labels select container bitrate, not visually verified quiet/motion scenes. Each source copy
@@ -186,7 +186,7 @@ cannot establish daytime motion quality or a steady-state annual storage rate.
 
 The full-rate comparison uses x264 `slow` CRF 24/30/36 and SVT-AV1 presets 6/8, normal random-access prediction,
 lookahead, and closed ten-second GOPs. AV1 CRF values span a different range because CRF numbers do not represent
-equal quality across codecs. The installed measurement stack is FFmpeg 9.0.2 and SVT-AV1 4.2.0 on a Core i9-7900X host. A separate
+equal quality across codecs. The installed measurement stack is FFmpeg 9.0.2 and SVT-AV1 4.2.0 on the Linux machine (Core i9-7900X). A separate
 low-delay, one-second-GOP CBR experiment is not evidence for the offline archive policy.
 
 SSIM and luma XPSNR compare decoded output against decoded stored H.264, measuring **additional generation loss**,
@@ -214,9 +214,9 @@ The measured GPU is an RTX 3090. Runtime probes succeeded for `h264_nvenc` and `
 "Codec not supported" and "Provided device doesn't support required NVENC features". A compiled encoder name
 is not hardware support. No alternate GPU or software codec was silently substituted.
 
-## Measured media and disk occupancy (2026-11-02)
+## Measured media and disk occupancy
 
-A single-camera, single-microphone inventory taken at 2026-11-02 16:00:11 UTC. It read 8.605 MB of chunk headers and
+A single-camera, single-microphone inventory read 8.605 MB of chunk headers and
 CRC-checked footers, not video frames or audio bodies. Files were deduplicated by inode. Two unfinished files
 contribute to occupancy but not the closed-file rate samples. These are files present on disk, including residual
 or grace-period copies.

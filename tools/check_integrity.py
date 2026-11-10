@@ -1,4 +1,4 @@
-"""Check that the stores agree with each other (#479): references that point nowhere, read-only.
+"""Check that the stores agree with each other: references that point nowhere, read-only.
 
     uv run tools/check_integrity.py                     # the state in paths.state
     uv run tools/check_integrity.py --state-dir DIR     # another state (a copy, say)
@@ -6,12 +6,12 @@
 
 Each check compares what one store says with another and counts the references that resolve to nothing:
 
-- transcript.jsonl: lines it can't read, two lines with one key (#247), and a speaker_id no voiceprint has (the
+- transcript.jsonl: lines it can't read, two lines with one key, and a speaker_id no voiceprint has (the
   numbers listen handed out, state/voiceprints.json);
 - the event log (on the broker): identity assertions about a line or voice that doesn't exist, or for a person nobody
   registered;
 - sightings.sqlite3 (v1's, which holds speech's voice_lines): a cached line embedding for a line the transcript
-  doesn't have. Faces are on the vision log now (#549), with nothing here to cross-check;
+  doesn't have. Faces are on the vision log now, with nothing here to cross-check;
 - the face store (paths.faces): names in db.npz, and photo folders, that resolve to no person;
 - interpretations.sqlite3 (the journal): an active entry citing a line, an entry, or an assistant reply that's gone.
 
@@ -74,7 +74,7 @@ class Report:
 
 
 class Lines:
-    """The transcript's lines, and what a reference to one may be: its key, or (before #247 and #305) its
+    """The transcript's lines, and what a reference to one may be: its key, or (in older rows) its
     millisecond alone, which names it while no other line starts in that millisecond."""
 
     def __init__(self, path: pathlib.Path, report: Report) -> None:
