@@ -49,9 +49,13 @@ GET /people
 GET /people/([^/]+)/card
 GET /people/([^/]+)/photos/(\d{10,16})\.jpg
 GET /people/<name>
+GET /people/examples
+GET /people/examples/photo
 GET /people/references, /people/reference-media/<id>
 GET /people/video-thumb.jpg
 GET /pets
+GET /pets/examples
+GET /pets/examples/photo
 GET /pets/sightings
 GET /pets/sightings/photo
 GET /places
@@ -131,6 +135,7 @@ POST /people/claim
 POST /people/correct
 POST /people/delete
 POST /people/describe
+POST /people/examples/remove
 POST /people/me
 POST /people/photo
 POST /people/reference-attach
@@ -140,6 +145,7 @@ POST /people/reference-url
 POST /people/rename
 POST /people/search
 POST /people/undo
+POST /pets/examples/remove
 POST /pets/photo
 POST /pets/remove
 POST /pets/save

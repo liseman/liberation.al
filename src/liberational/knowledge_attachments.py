@@ -4,7 +4,8 @@ Collection is a small file allowlist plus numeric clone files and confirmed pers
 walks raw recordings, unknown face clusters, pending previews, generated profiles, models, or environment files. Of
 the face gallery it takes the owner's rows (`db.npz`, which reference photos also teach) and the owner's
 negatives (`nots.npz`), not the rows the matcher learned from confident tracks (`learned.npz`), which are
-machine-made and grow back.
+machine-made and grow back. Each owner row's picture and source (`faces/examples/`, vision/face_examples.py) go with
+the rows, so Training images still shows them after an import.
 Managed import stores only content hashes on disk; logical names never become filesystem extraction paths. Putting
 taught files back (`restore_files`) maps each allowlisted logical name to its one home under the given state, faces,
 and voice-reference paths, writes only where nothing is, and leaves settings TOML in the bundle.
@@ -41,6 +42,7 @@ _TOKEN = re.compile(r"[0-9a-f]{32}")
 _HASH = re.compile(r"[0-9a-f]{64}")
 _MEDIA = {"media.jpg", "media.wav", "media.mp4"}
 _FACE_FILES = ("db.npz", "nots.npz")  # the owner's face rows and negatives; learned.npz is the matcher's own
+_FACE_EXAMPLE = re.compile(r"[0-9a-f]{24}\.(?:json|jpg)")  # a face row's kept source and picture, by its key
 
 
 def _name(value: object) -> str:
@@ -223,6 +225,9 @@ def collect_files(
     if collected.directory(faces):
         for filename in _FACE_FILES:
             collected.add(f"faces/{filename}", faces / filename)
+        for path in collected.children(faces / "examples"):
+            if _FACE_EXAMPLE.fullmatch(path.name):
+                collected.add(f"faces/examples/{path.name}", path)
     for name, path in (("config/pack.toml", config_file), ("config/devices.toml", devices_file)):
         if path is not None:
             if path.suffix.lower() != ".toml":
@@ -250,6 +255,8 @@ def _home(name: str, state: Path, faces: Path, voice_reference: Path) -> tuple[P
             return state, state / "person_references" / token / filename
         case ("faces", filename) if filename in _FACE_FILES:
             return faces, faces / filename
+        case ("faces", "examples", filename) if _FACE_EXAMPLE.fullmatch(filename):
+            return faces, faces / "examples" / filename
         case ("voices", "owner_ref.wav"):
             return voice_reference.parent, voice_reference
         case ("voices", "owner_ref.txt"):
