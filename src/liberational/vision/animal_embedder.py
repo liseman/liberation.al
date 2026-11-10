@@ -21,7 +21,7 @@ Recognition needs new reference evidence after that reset.
 
 The weights are installed by `mise run models` and never downloaded here. The publisher's repository is gated
 behind a manual approval, so the default `repo` is an ungated copy of the same files, pinned to a revision and
-checked against the publisher's checksum when fetched (tools/fetch_models.py). The space keeps the publisher's name
+checked against the publisher's checksum when fetched (fetch_models.py). The space keeps the publisher's name
 (`space` in the config), so rows and references made from either source compare. It runs where the animal check does
 (`vision.animal_models_device`). Configured weights and preprocessing use the same revision; an explicitly
 supplied repository or local snapshot does not inherit the configured model's revision.

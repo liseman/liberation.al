@@ -1,11 +1,11 @@
-#!/usr/bin/env python3
-"""Fetch the models declared in config/defaults.toml (and pack.toml overrides), including Ask and Research.
+"""Fetch the models declared in defaults.toml (and pack.toml overrides), including Ask and Research.
 
-  uv run tools/fetch_models.py            # fetch anything missing for this platform
-  uv run tools/fetch_models.py --list     # show what's declared and what's present
-  uv run tools/fetch_models.py --no-ollama
+  pack-models            # fetch anything missing for this platform
+  pack-models --list     # show what's declared and what's present
+  pack-models --no-ollama
 
-Idempotent: models already present are skipped. Usually run via `mise run models`.
+Idempotent: models already present are skipped. In a checkout, `mise run models` runs it. Files go where
+config.owner_file() puts a model's path: data/models in a checkout, the user's data directory when installed.
 
 A gated Hugging Face repository this machine can't read yet doesn't stop the run: everything else is fetched, the
 gated ones are listed at the end with how to get access, and the exit status is 1.
@@ -173,7 +173,7 @@ def gated_help(gated: Mapping[str, str]) -> str:
     lines += [
         "Sign in to Hugging Face, accept the license on each page above (some are approved by hand, which can take",
         "a while), then set HF_TOKEN to a token of that account (or run `uvx --from huggingface_hub hf auth login`)",
-        "and run `mise run models` again. Everything else was fetched.",
+        "and run `pack-models` again. Everything else was fetched.",
     ]
     return "\n".join(lines)
 

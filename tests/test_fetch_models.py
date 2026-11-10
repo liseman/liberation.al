@@ -1,5 +1,4 @@
 import hashlib
-import importlib.util
 import pathlib
 import sys
 import zipfile
@@ -7,12 +6,7 @@ from unittest.mock import create_autospec
 
 import pytest
 
-_spec = importlib.util.spec_from_file_location(
-    "fetch_models", pathlib.Path(__file__).parents[1] / "tools/fetch_models.py"
-)
-assert _spec and _spec.loader
-fetch_models = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(fetch_models)
+from liberational import fetch_models
 
 
 @pytest.fixture

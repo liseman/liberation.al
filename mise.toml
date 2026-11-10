@@ -36,7 +36,7 @@ depends = ["system", "whisper", "frontend", "hooks"]
 # The voice-clone extra (CUDA PyTorch, a few GB) only where there's an NVIDIA GPU to run it.
 run = [
     "uv sync --extra faces --extra segmentation --extra deep-asr $(command -v nvidia-smi >/dev/null && echo --extra voice-clone)",
-    "uv run tools/fetch_models.py",
+    "uv run pack-models",
 ]
 
 [tasks.system]
@@ -182,9 +182,17 @@ description = "Use the repo's git hooks in .githooks/ (pre-commit refuses gitign
 wait_for = ["system"]
 run = ["git config core.hooksPath .githooks", "python3 tools/privacy_check.py denylist"]
 
+[tasks.wheel]
+description = "Build the frontend, then the package's wheel into dist/, and check the wheel carries the settings, the service declarations, the frontend build, and the commands (tools/check_wheel.py)"
+depends = ["frontend"]
+run = [
+    "uv build --wheel --out-dir dist",
+    "python3 tools/check_wheel.py dist",
+]
+
 [tasks.models]
 description = "Fetch any missing models declared in config/defaults.toml (safe to re-run)"
-run = "uv run tools/fetch_models.py"
+run = "uv run pack-models"
 
 # The checks below run at the lowest CPU and disk priority (tools/niced.sh: nice and ionice on Linux, nice and
 # taskpolicy on macOS), so they never crowd out the live services or the person at the computer.

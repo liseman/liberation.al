@@ -157,7 +157,7 @@ model = ""
 # The Ollama model that writes the settled day, week, and month pages (memory/journal_pages.py), once a day in one
 # batch at page_batch_at: loaded for the batch and unloaded right after, so it needs GPU memory only then. When it
 # doesn't fit beside Ollama's other models, the daily batch opens a sleep window (page_window_services). A
-# pack-journal --day rebuild never opens one. When it isn't pulled (tools/fetch_models.py, `mise run models`),
+# pack-journal --day rebuild never opens one. When it isn't pulled (`pack-models`, which `mise run models` runs),
 # won't fit even then, or fails to load, the pages are written with the entries' model (journal.model, else
 # models.ollama.llm), and that is logged once. Entries and today so far always use the entries' model. Empty: every
 # page is written with the entries' model, on every pass. On the Linux machine qwen3.8:27b (17 GB) writes the best
