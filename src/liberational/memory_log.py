@@ -1,8 +1,8 @@
-"""The memory log: the journal's interpretations on Continuum (#550 part B, #777), the way `speech_log` and
+"""The memory log: the journal's interpretations on Continuum, the way `speech_log` and
 `vision_log` hold speech and vision. Layer 3 payloads with parents, where v1 kept `interpretations.sqlite3` and
 `summaries/`. B1 of the plan: the streams, their codecs, and the read API that `recall`, `history_qa`, the Review
 summary, and the dashboard code against; the journal worker writes them, its day, week, and month pages included
-(memory/journal_pages.py, #2806).
+(memory/journal_pages.py).
 
 Streams (format Text, shape name = stream name, an inline JSON body of at most MAX_BODY; layer 3 except Ask's
 human question roots at layer 1 and answer/state records at layer 2):
@@ -95,7 +95,7 @@ STREAMS = {
         ),
         StreamDef(FACTS, ("fact", "kind", "person", "same", "supersedes", "transcript_revision")),
         StreamDef(PAGES, ("level", "period", "md", "sections", "status", "supersedes", "transcript_revision")),
-        # A Review summary line (#778): one per journal entry it was written from (its parent, its window), with the
+        # A Review summary line: one per journal entry it was written from (its parent, its window), with the
         # hash of the entry text it came from and its topic tags; status `rejected` when the model broke the rules.
         StreamDef(REVIEW_SUMMARY, ("level", "text", "status", "source_hash", "topics", "evidence")),
         StreamDef(
@@ -289,7 +289,7 @@ async def follow(
     """(stream, record) as each is committed: from now, from `since`, or after a durable name's saved position. Each
     record has its `position`; under a durable name a record's position is acknowledged when the caller asks for the
     next one (at least once). Each record is read through `client`, so it can't be a Backpressure reader; a durable
-    catch-up that can pass the SDK's 4,096-event subscription queue belongs on `MemoryLog.drain` instead (#1267)."""
+    catch-up that can pass the SDK's 4,096-event subscription queue belongs on `MemoryLog.drain` instead."""
     sub = await client.subscribe(
         list(streams), start=start, start_ns=to_ns(since), durable_name=durable_name, pinned=True
     )
@@ -385,7 +385,7 @@ class MemoryLog:
         self._ids: dict[str, tuple[Client, int]] = {}
         self._marks: dict[tuple[str, ...], int] = {}
         self._lock = threading.Lock()
-        # `range` answers kept until a commit overlaps them or a purge takes from their stream (#2440): Review's
+        # `range` answers kept until a commit overlaps them or a purge takes from their stream: Review's
         # summary read each day's whole journal every minute, decoding thousands of records on this link's loop.
         # Touched only on that loop; pickled, so every caller gets records of its own to change.
         self._cached: OrderedDict[tuple[str, float, float, tuple[str, ...]], bytes] = OrderedDict()
@@ -509,8 +509,8 @@ class MemoryLog:
         async def go(client: Client) -> int:
             await self._stream_id(client, stream)
             # A backlog past the SDK's subscription queue blocks that connection's socket reader, so the subscription
-            # gets a connection of its own, and every request (the handler's, and record reads) stays on `client`
-            # (#1267). That connection makes no requests, so it holds its backlog with backpressure instead of the
+            # gets a connection of its own, and every request (the handler's, and record reads) stays on `client`.
+            # That connection makes no requests, so it holds its backlog with backpressure instead of the
             # default policy, which closes a connection whose subscription queue overflows.
             async with await Client.connect(
                 str(self.link.socket),
@@ -615,7 +615,7 @@ class MemoryLog:
                 changed = True
             # The purge history is read once for every stream, so each purge since the last look drops the kept ranges
             # of every stream it may have taken from, not only this one's: a later read of another stream won't see
-            # that purge again (#2444). Their epochs move too, so a read of theirs in flight isn't kept.
+            # that purge again. Their epochs move too, so a read of theirs in flight isn't kept.
             touched = await self._purged(client)
             hit = {name for name, (_, sid) in self._ids.items() if sid in touched}
             for k in [k for k in self._cached if k[0] in hit]:

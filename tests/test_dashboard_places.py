@@ -582,6 +582,27 @@ def test_the_scene_names_the_revisions_splat_once_it_has_one(tmp_path, mapped):
     assert (reply["splat_format"], reply["splat_bytes"]) == ("spz", len(b"spz-bytes"))
 
 
+def test_the_scene_says_whether_its_splat_was_trained_from_a_walk_or_the_fixed_cameras(tmp_path, mapped):
+    # #44: a walk's import writes the revision that first holds its look-from cameras and trains its splat there; a
+    # later revision inherits those cameras, and a splat made for it is the daily fixed-camera one.
+    place, _ = mapped
+    first = places.revisions(tmp_path, place)[-1]
+    places.write_splat(tmp_path, first, master=b"ply", web=b"spz-bytes")
+    assert view.scene(tmp_path, place)[1]["splat_from"] == "cameras"
+    walked = places.revise(
+        tmp_path, place, producer="tier1 fuse v1", cameras={"cam0": CAM, "walk-0m00s": CAM, "walk-0m10s": CAM},
+        frame=first.frame, now=T + 10,
+    )  # fmt: skip
+    places.write_splat(tmp_path, walked, master=b"ply", web=b"spz-bytes")
+    reply = view.scene(tmp_path, place)[1]
+    assert (reply["splat_revision"], reply["splat_from"]) == (walked.id, "walk")
+    daily = places.revise(tmp_path, place, producer="tier1 fuse v1", frame=first.frame, now=T + 20)
+    places.write_splat(tmp_path, daily, master=b"ply", web=b"spz-bytes")
+    reply = view.scene(tmp_path, place)[1]
+    assert (reply["splat_revision"], reply["splat_from"]) == (daily.id, "cameras")
+    assert "walk-0m00s" in reply["cameras"]  # the walk's views are still there to look from
+
+
 def test_the_scene_carries_the_owners_plan_only_in_the_frame_it_was_drawn_in(tmp_path, mapped):
     place, rev = mapped
     mine = PLAN.replace('"Den"', '"Living room"')

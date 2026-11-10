@@ -157,6 +157,8 @@ export interface Scene {
   splat_revision?: string | null;
   /** The newest splat when it was made in another map frame, so it would sit out of place: named, not drawn. */
   splat_stale?: { revision: string; at: number } | null;
+  /** What the splat was trained from (#44): a walk's own frames, or the fixed cameras'. */
+  splat_from?: 'walk' | 'cameras' | null;
   /** The floor plane: a unit normal and its offset (a, b, c, d), in the map's frame. */
   floor?: number[] | null;
   /** Map to plan, 3x4 row by row. */
