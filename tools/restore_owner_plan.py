@@ -9,8 +9,9 @@ it already happened to.
 It writes the newest fused map again as a new revision in the frame the owner's plan is drawn in, with its cameras
 and signals as they are and no machine plan. Nothing the map gained since (a walk's points) is lost, the owner's plan
 isn't rewritten, and no earlier revision is touched. It refuses when the place has no owner plan drawn on a map
-frame, when the plan is already on the newest map, or when the fixed cameras stand more than `fuse.BACK_M` from
-where they stood on the owner's frame (the map moved by more than a levelling turn or a rescale).
+frame, when the plan is already on the newest map, or when the map's frame moved its fixed cameras more than
+`fuse.BACK_M` in all since the owner's (measured at each change of frame; a nightly seat that re-posed the cameras
+in a frame doesn't count).
 
 A splat made for a revision in the frame left behind isn't shown on the restored one (the 3D view names it as made
 for another frame); `pack-spatial-splat --place <id>` makes the restored revision's.

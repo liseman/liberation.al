@@ -1341,6 +1341,19 @@ def measure(walk: Walk, pairs: Sequence[tuple[int, int]], out: Path, required: b
     return [{**m, "a": index[m["a"]], "b": index[m["b"]], "seconds": answer.get("seconds")} for m in answer["pairs"]]
 
 
+def walk_cloud(walk: Walk, closed: Closure) -> tuple[np.ndarray, np.ndarray]:
+    """The walk's cloud in its own frame: its points within `MAX_DEPTH` of their camera, moved by the corrected
+    poses and thinned to `VOXEL`, with their colours."""
+    pts = walk.points
+    n = len(walk.counts)
+    near = (pts[:, 2] > 0) & (pts[:, 2] <= MAX_DEPTH)
+    frame = np.repeat(np.arange(n), walk.counts)
+    world = rebuild(pts[near], np.bincount(frame[near], minlength=n).tolist(), closed.poses)
+    points, colors = fuse.voxelize(world, walk.colors[near], VOXEL)
+    assert colors is not None
+    return points.astype(np.float32), colors
+
+
 def finish(
     state: Path,
     place: str | None,
@@ -1359,15 +1372,9 @@ def finish(
     stored as its own new place, and `place` keeps its revision and its cameras. With `match` and no `place`, the
     walk goes into the place it registers in (`match_place`), and is a new place only when it registers in none.
     `out` is a folder for MASt3R's work. Returns what it did."""
-    pts = walk.points
     n = len(walk.counts)
-    near = (pts[:, 2] > 0) & (pts[:, 2] <= MAX_DEPTH)
-    frame = np.repeat(np.arange(n), walk.counts)
-    world = rebuild(pts[near], np.bincount(frame[near], minlength=n).tolist(), closed.poses)
-    points, colors = fuse.voxelize(world, walk.colors[near], VOXEL)
-    assert colors is not None
+    points, colors = walk_cloud(walk, closed)
     g = np.asarray(up, dtype=np.float64)
-    points = points.astype(np.float32)
     registered: str | None = None
     meant: str | None = None
     matched: str | None = None
@@ -1743,6 +1750,109 @@ def _grab(
     return out, size
 
 
+@dataclass(frozen=True)
+class StrayPicked:
+    """A Stray Scanner export's frames, chosen: each decoded frame's recorded row (`rows`), the frames picked, the
+    quarter turn that stands them upright (`turn`, with `code`, the cv2.rotate code for their images), and how many
+    posed frames they were picked from."""
+
+    rows: Mapping[int, stray.Frame]
+    picked: list[int]
+    turn: np.ndarray
+    code: int | None
+    posed: int
+
+
+def pick_stray(folder: Path) -> StrayPicked:
+    """The frames of a Stray Scanner export to make its walk of (step 1, on the frames ARKit posed). RuntimeError
+    for a recording that doesn't move."""
+    recorded = stray.read_odometry(folder)
+    scored = score(folder / "rgb.mp4")
+    # Each decoded frame's own row: a decoder can skip the recording's first frame (stray.py's docstring).
+    rows = stray.by_video_frame(recorded, [(s.index, s.t) for s in scored])
+    scored = [s for s in scored if s.index in rows]
+    picked = pick(scored)
+    if len(picked) < MIN_FRAMES:
+        raise RuntimeError(f"only {len(picked)} frames: the recording needs to move through the place")
+    turn, code = stray.upright(np.stack([rows[i].c2w for i in picked]))
+    skipped = rows[picked[0]].frame - picked[0]
+    LOG.info(
+        "%d frames from %d posed frames of %s%s",
+        len(picked),
+        len(scored),
+        folder.name,
+        f" (the video starts {skipped} recorded frames in)" if skipped else "",
+    )
+    return StrayPicked(rows, picked, turn, code, len(scored))
+
+
+@dataclass(frozen=True)
+class StrayWalk:
+    """A Stray Scanner export read into a walk, with nothing written: the walk on ARKit's poses (`walk`, upright),
+    its revisits closed (`closed`), each saved frame's intrinsics and size (`frames`), its views to look from
+    (`looks`, at the closed poses), and what the closure measured (`loops`, `measured`)."""
+
+    walk: Walk
+    closed: Closure
+    frames: list[tuple[np.ndarray, tuple[int, int]]]
+    looks: dict[str, places.CameraPose]
+    loops: list[tuple[int, int]]
+    measured: list[dict[str, Any]]
+
+
+def read_stray(folder: Path, chosen: StrayPicked, out: Path) -> StrayWalk:
+    """A Stray Scanner export's chosen frames as a walk: their images saved under `out`, ARKit's poses, the LiDAR's
+    points, and revisits closed with MASt3R where it can run (`run_stray` says why each prior is on or off). `out`
+    also takes MASt3R's work."""
+    rows, picked, turn, code = chosen.rows, chosen.picked, chosen.turn, chosen.code
+    video = folder / "rgb.mp4"
+    images = save_frames(video, picked, out, turn=code)
+    paths = [images[n] for n in sorted(images)]
+    colours, size = _grab(video, picked)
+    points, colors, counts = [], [], []
+    for i in picked:
+        p, c = stray.points(folder, rows[i].frame, rows[i].k, size, colours.get(i))
+        points.append(p @ turn)  # the sensor camera's coordinates into the turned camera's: turn^T p, row by row
+        colors.append(c)
+        counts.append(len(p))
+    c2w = np.stack([stray.turned(rows[i].c2w, turn) for i in picked])
+    walk = Walk(paths, c2w, np.concatenate(points), np.concatenate(colors), counts)
+    loops = retrieval.proposals(paths, required=False)
+    measured = measure(walk, loops, out / "mast3r", required=False)
+    depths = frame_depths(walk.points, counts)
+    closed = close_loops(
+        c2w,
+        measured,
+        loops,
+        depths,
+        gravity=False,
+        height=False,
+        clouds=near_clouds(walk.points, counts),  # only revisits are measured, so this only fits them
+        up=stray.WORLD_UP,
+        step_deg=ARKIT_STEP_DEG,
+        step_m=ARKIT_STEP_M,
+    )
+    frames = [stray.saved_intrinsics(rows[i].k, size, FRAME_SIDE, code, turn) for i in picked]
+    times = [rows[i].t for i in picked]
+    looks = splats.look_from(closed.poses, frames, times)
+    return StrayWalk(walk, closed, frames, looks, list(loops), measured)
+
+
+def stray_piece(
+    folder: Path,
+) -> tuple[np.ndarray, np.ndarray, tuple[float, float, float, float] | None, dict[str, places.CameraPose]]:
+    """A Stray Scanner export as a piece to rebuild a place's map from (tools/rebuild_place.py), read as an import
+    reads it but with no place written: the walk's cloud (`walk_cloud`: points and colours, in the walk's frame), its
+    floor there (`level_floor`; None when it has none), and its views to look from. RuntimeError for a recording
+    that doesn't move."""
+    chosen = pick_stray(folder)
+    with tempfile.TemporaryDirectory(prefix="walkthrough-") as tmp:
+        got = read_stray(folder, chosen, Path(tmp))
+    points, colors = walk_cloud(got.walk, got.closed)
+    up = np.asarray(stray.WORLD_UP, dtype=np.float64)
+    return points, colors, level_floor(points, up), got.looks
+
+
 def run_stray(
     state: Path,
     folder: Path,
@@ -1759,59 +1869,17 @@ def run_stray(
     (`ARKIT_STEP_DEG`, `ARKIT_STEP_M`).
     Revisits are still closed with MASt3R where it can run, since ARKit's heading drifts too, about 1% of the walk."""
     began = time.monotonic()
-    video = folder / "rgb.mp4"
-    recorded = stray.read_odometry(folder)
-    scored = score(video)
-    # Each decoded frame's own row: a decoder can skip the recording's first frame (stray.py's docstring).
-    rows = stray.by_video_frame(recorded, [(s.index, s.t) for s in scored])
-    scored = [s for s in scored if s.index in rows]
-    picked = pick(scored)
-    if len(picked) < MIN_FRAMES:
-        raise RuntimeError(f"only {len(picked)} frames: the recording needs to move through the place")
-    turn, code = stray.upright(np.stack([rows[i].c2w for i in picked]))
-    skipped = rows[picked[0]].frame - picked[0]
-    LOG.info(
-        "%d frames from %d posed frames of %s%s",
-        len(picked),
-        len(scored),
-        folder.name,
-        f" (the video starts {skipped} recorded frames in)" if skipped else "",
-    )
+    chosen = pick_stray(folder)
+    rows, picked, turn, code = chosen.rows, chosen.picked, chosen.turn, chosen.code
     if keyframes_only is not None:
         keyframes_only.mkdir(parents=True, exist_ok=True)
-        images = save_frames(video, picked, keyframes_only, turn=code)
+        images = save_frames(folder / "rgb.mp4", picked, keyframes_only, turn=code)
         return {"keyframes": len(images), "folder": str(keyframes_only)}
     with tempfile.TemporaryDirectory(prefix="walkthrough-") as tmp:
         out = Path(tmp)
-        images = save_frames(video, picked, out, turn=code)
-        paths = [images[n] for n in sorted(images)]
-        colours, size = _grab(video, picked)
-        points, colors, counts = [], [], []
-        for i in picked:
-            p, c = stray.points(folder, rows[i].frame, rows[i].k, size, colours.get(i))
-            points.append(p @ turn)  # the sensor camera's coordinates into the turned camera's: turn^T p, row by row
-            colors.append(c)
-            counts.append(len(p))
-        c2w = np.stack([stray.turned(rows[i].c2w, turn) for i in picked])
-        walk = Walk(paths, c2w, np.concatenate(points), np.concatenate(colors), counts)
-        loops = retrieval.proposals(paths, required=False)
-        measured = measure(walk, loops, out / "mast3r", required=False)
-        depths = frame_depths(walk.points, counts)
-        closed = close_loops(
-            c2w,
-            measured,
-            loops,
-            depths,
-            gravity=False,
-            height=False,
-            clouds=near_clouds(walk.points, counts),  # only revisits are measured, so this only fits them
-            up=stray.WORLD_UP,
-            step_deg=ARKIT_STEP_DEG,
-            step_m=ARKIT_STEP_M,
-        )
-        frames = [stray.saved_intrinsics(rows[i].k, size, FRAME_SIDE, code, turn) for i in picked]
-        times = [rows[i].t for i in picked]
-        looks = splats.look_from(closed.poses, frames, times)
+        got = read_stray(folder, chosen, out)
+        walk, closed, frames, looks = got.walk, got.closed, got.frames, got.looks
+        paths, c2w, loops, measured = walk.paths, walk.c2w, got.loops, got.measured
         with places.writing(state):  # the nightly fixed-camera run waits for the join
             did = finish(
                 state,

@@ -1056,6 +1056,44 @@ def test_the_owners_plan_is_put_back_on_a_map_that_was_turned_off_it(tmp_path, m
     )
 
 
+def reseated(tmp_path, rev, shift, at):
+    """A later fusion in `rev`'s frame that wrote its camera somewhere else, as a nightly seat does."""
+    old = fuse._cloud(tmp_path, rev)
+    assert old is not None
+    there = np.eye(4)
+    there[:3, 3] = shift
+    cams = fuse._moved(rev.cameras, there)
+    return fuse._revise(tmp_path, rev.place, fuse._fused(old), cams, [rev.id], rev.frame, at, at)
+
+
+def test_seats_that_re_posed_the_cameras_in_the_moved_frame_dont_stop_the_plan_going_back(tmp_path, monkeypatch):
+    # #227: the nightly pass ran on the turned map and wrote each camera 0.3 m from where it had been, in that frame
+    home = owner_place(tmp_path, monkeypatch)
+    broken = off_the_owners_plan(tmp_path, monkeypatch, home, tilt(0.5))
+    seated = reseated(tmp_path, broken, [0.3, 0.1, 0.0], T + 22)
+    assert seated.frame == broken.frame and seated.plan is not None
+    rev, found = fuse.onto_owner_plan(tmp_path, home.place, now=T + 30)
+    assert rev is not None and "changed frame 1 time since" in found
+    assert rev.frame == home.frame and rev.plan is None and places.same_plan_frame(home, rev)
+    assert rev.cameras == seated.cameras, "tonight's poses, as the seat wrote them"
+    held = places.get(tmp_path, home.place)
+    assert held is not None and held.plan_source == "owner" and not held.machine_newer
+
+
+def test_each_change_of_frame_adds_to_how_far_the_map_moved(tmp_path, monkeypatch):
+    home = owner_place(tmp_path, monkeypatch)
+    slid = np.eye(4)
+    slid[0, 3] = 0.15
+    once = off_the_owners_plan(tmp_path, monkeypatch, home, slid)
+    old = fuse._cloud(tmp_path, once)
+    assert old is not None
+    moved = replace(fuse._fused(old), points=fuse.apply(slid, old[0]))
+    twice = fuse._revise(tmp_path, home.place, moved, fuse._moved(once.cameras, slid), [once.id], None, T + 24, T + 24)
+    assert twice.frame not in (home.frame, once.frame)
+    rev, found = fuse.onto_owner_plan(tmp_path, home.place, now=T + 30)
+    assert rev is None and "changed frame 2 times since" in found and "0.300 m" in found and "not restored" in found
+
+
 def test_a_map_that_moved_too_far_isnt_relabelled_as_the_owners_frame(tmp_path, monkeypatch):
     home = owner_place(tmp_path, monkeypatch)
     broken = off_the_owners_plan(tmp_path, monkeypatch, home, similarity(40, [3.0, 0.0, 0.0]))
