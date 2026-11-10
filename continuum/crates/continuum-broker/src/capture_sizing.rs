@@ -6,7 +6,6 @@
 //! camera reserves capacity in every offered class, covering smaller JPEG buffers and larger raw strides.
 
 use std::collections::BTreeSet;
-use std::path::Path;
 
 use continuum_sched::SlotClass;
 use serde::Deserialize;
@@ -111,22 +110,6 @@ fn frame_bytes(width: u32, height: u32, format: &str, mac: bool) -> Result<u64, 
     }
     continuum_core::camera_frame_bound(width, height, mac || format == "UYVY")
         .ok_or_else(|| "Tier 0 sizing arithmetic overflow".into())
-}
-
-/// Missing manifests are an explicit fresh-install fallback; all other read/parse/sizing failures are errors.
-pub fn load(
-    path: &Path,
-    baseline: &[SlotClass],
-    mac: bool,
-    budget: u64,
-    ring_bytes: u64,
-) -> Result<Option<Plan>, String> {
-    let text = match std::fs::read_to_string(path) {
-        Ok(text) => text,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(format!("{}: {error}", path.display())),
-    };
-    plan(&text, baseline, mac, budget, ring_bytes).map(Some).map_err(|error| format!("{}: {error}", path.display()))
 }
 
 pub fn plan(text: &str, baseline: &[SlotClass], mac: bool, budget: u64, ring_bytes: u64) -> Result<Plan, String> {
@@ -327,6 +310,87 @@ pub fn plan(text: &str, baseline: &[SlotClass], mac: bool, budget: u64, ring_byt
     Ok(Plan { classes, cameras, baseline_bytes, camera_bytes, total_bytes })
 }
 
+/// How many times the profile's headroom may be halved to fit a small `/dev/shm`: at 10 the Linux profile's 11 GB
+/// is under 20 MB, which a container's default 64 MB holds.
+pub const MAX_SHRINK: u32 = 10;
+/// The ring region is never shrunk below this: the memory log's and the demo's rings fit in it.
+const MIN_RING_BYTES: u64 = 1 << 20;
+
+/// A plan chosen to fit the shared memory there is.
+#[derive(Debug)]
+pub struct Fit {
+    pub plan: Plan,
+    /// The profile's slot counts were halved this many times (0: the whole profile).
+    pub shrink: u32,
+    /// The ring region the plan was laid out with: the caller's, or less when nothing captures and it was shrunk.
+    pub ring_bytes: u64,
+}
+
+/// The profile's classes with each count halved `shrink` times, never below one slot: the sizes and their order
+/// stay, since a stream names its class by index.
+fn shrunk(baseline: &[SlotClass], shrink: u32) -> Vec<SlotClass> {
+    baseline
+        .iter()
+        .map(|class| SlotClass { size_bytes: class.size_bytes, count: (class.count >> shrink).max(1) })
+        .collect()
+}
+
+/// Whether the manifest has a device that captures: only then is the ring region (PCM, IMU) kept whole.
+fn captures(text: &str) -> bool {
+    toml::from_str::<Manifest>(text).is_ok_and(|manifest| manifest.devices.iter().any(|device| device.enabled))
+}
+
+/// The plan for this manifest that the shared memory can hold. The configured devices always get what their
+/// settings ask for (`plan`); what shrinks is the profile's headroom beyond them. The whole profile is kept when
+/// the arena then takes no more than half of `room` (the rest of `/dev/shm` is see-decode's frame ring and other
+/// programs'), else it is halved until it does, up to `MAX_SHRINK` times. With nothing capturing, the ring region
+/// shrinks with it. When even the smallest plan is larger than all of `room`, the error names what to change.
+/// `room` is `None` where shared memory has no size to fit (macOS): the whole profile, as before.
+pub fn fit(
+    text: &str,
+    baseline: &[SlotClass],
+    mac: bool,
+    budget: u64,
+    ring_bytes: u64,
+    room: Option<u64>,
+) -> Result<Fit, String> {
+    // The whole profile first: it validates the manifest and holds the camera budget to what it always meant,
+    // the bytes cameras add to the profile.
+    let whole = plan(text, baseline, mac, budget, ring_bytes)?;
+    let Some(room) = room else { return Ok(Fit { plan: whole, shrink: 0, ring_bytes }) };
+    if whole.total_bytes <= room / 2 {
+        return Ok(Fit { plan: whole, shrink: 0, ring_bytes });
+    }
+    let idle = !captures(text);
+    let mut smallest = None;
+    for shrink in 1..=MAX_SHRINK {
+        let ring = if idle { (ring_bytes >> shrink).max(MIN_RING_BYTES.min(ring_bytes)) } else { ring_bytes };
+        let candidate = plan(text, &shrunk(baseline, shrink), mac, u64::MAX, ring)?;
+        if candidate.total_bytes <= room / 2 {
+            return Ok(Fit { plan: candidate, shrink, ring_bytes: ring });
+        }
+        smallest = Some(Fit { plan: candidate, shrink, ring_bytes: ring });
+    }
+    let smallest = smallest.ok_or("no Tier 0 plan")?;
+    if smallest.plan.total_bytes <= room {
+        return Ok(smallest);
+    }
+    let needs = smallest.plan.total_bytes;
+    Err(if smallest.plan.cameras.is_empty() {
+        format!(
+            "the Tier 0 arena needs at least {needs} bytes but /dev/shm holds {room}: give /dev/shm more room (a \
+             container: --shm-size)"
+        )
+    } else {
+        format!(
+            "the Tier 0 arena needs {needs} bytes for the {} cameras in the device manifest but /dev/shm holds \
+             {room}: lower ring_seconds, fps, or the frame size under [video] (or a camera's own video settings) \
+             there, turn a camera off with enabled = false, or give /dev/shm more room",
+            smallest.plan.cameras.len()
+        )
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -463,15 +527,6 @@ mod tests {
     }
 
     #[test]
-    fn only_a_missing_manifest_gets_the_fresh_install_fallback() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("devices.toml");
-        assert!(load(&file, &[], true, DEFAULT_CAMERA_BYTES, 0).unwrap().is_none());
-        std::fs::write(&file, "bad [").unwrap();
-        assert!(load(&file, &[], true, DEFAULT_CAMERA_BYTES, 0).unwrap_err().contains("devices.toml"));
-    }
-
-    #[test]
     fn a_bounded_real_arena_uses_the_planned_classes_and_accounted_layout() {
         let text = "[[device]]\nname='cam'\nkind='camera'\nvideo={width=64,height=48,fps=1,ring_seconds=1,fallback=[]}";
         let plan = plan(text, &[], true, DEFAULT_CAMERA_BYTES, 16 << 10).unwrap();
@@ -582,5 +637,110 @@ mod network_tests {
         let error = plan(&malformed, &[], false, DEFAULT_CAMERA_BYTES, 0).unwrap_err();
         assert!(!error.contains("private-password"));
         assert!(!error.contains("private-token"));
+    }
+}
+
+#[cfg(test)]
+mod fit_tests {
+    use super::tests::raw;
+    use super::*;
+
+    const GIB: u64 = 1 << 30;
+    const RING: u64 = 64 << 20;
+
+    fn linux() -> Vec<SlotClass> {
+        continuum_sched::Profile::linux_dual_3090().slot_classes
+    }
+
+    fn mjpeg(cameras: usize) -> String {
+        let mut text = String::new();
+        for index in 0..cameras {
+            text.push_str(&format!("[[device]]\nname='cam{index}'\nkind='camera'\n"));
+        }
+        text
+    }
+
+    #[test]
+    fn a_machine_with_room_keeps_the_whole_profile_exactly_as_before() {
+        for text in [String::new(), mjpeg(1), raw(2, "")] {
+            let before = plan(&text, &linux(), false, DEFAULT_CAMERA_BYTES, RING).unwrap();
+            for room in [None, Some(before.total_bytes * 2), Some(64 * GIB)] {
+                let fit = fit(&text, &linux(), false, DEFAULT_CAMERA_BYTES, RING, room).unwrap();
+                assert_eq!((fit.shrink, fit.ring_bytes), (0, RING));
+                assert_eq!(fit.plan.classes, before.classes);
+                assert_eq!(fit.plan.total_bytes, before.total_bytes);
+            }
+        }
+    }
+
+    #[test]
+    fn with_no_devices_the_headroom_and_the_ring_region_shrink_until_half_of_shm_holds_them() {
+        // Docker's default /dev/shm (64 MiB), a small machine (2 GiB of it), and a middling one (16 GiB).
+        for (room, shrink) in [(64 << 20, 9), (2 * GIB, 4), (16 * GIB, 1)] {
+            let fit = fit("", &linux(), false, DEFAULT_CAMERA_BYTES, RING, Some(room)).unwrap();
+            assert_eq!(fit.shrink, shrink, "room {room}");
+            assert!(fit.plan.total_bytes <= room / 2);
+            // One step less would not have fit: it is the most headroom that does.
+            let larger = plan("", &shrunk(&linux(), shrink - 1), false, u64::MAX, RING >> (shrink - 1)).unwrap();
+            assert!(larger.total_bytes > room / 2);
+            // The classes keep their sizes and order (a stream names its class by index), and none is empty.
+            assert_eq!(
+                fit.plan.classes.iter().map(|c| c.size_bytes).collect::<Vec<_>>(),
+                linux().iter().map(|c| c.size_bytes).collect::<Vec<_>>()
+            );
+            assert!(fit.plan.classes.iter().all(|c| c.count >= 1));
+        }
+    }
+
+    #[test]
+    fn configured_cameras_keep_every_slot_their_settings_ask_for_whatever_the_headroom() {
+        let text = "[[device]]\nname='cam'\nkind='camera'\nvideo={ring_seconds=1}"; // 30 + 8 + 8 = 46 slots a class
+        let whole = plan(text, &linux(), false, DEFAULT_CAMERA_BYTES, RING).unwrap();
+        let fit = fit(text, &linux(), false, DEFAULT_CAMERA_BYTES, RING, Some(4 * GIB)).unwrap();
+        assert!(fit.shrink > 0 && fit.plan.total_bytes <= 2 * GIB);
+        assert_eq!(fit.ring_bytes, RING, "a capturing install keeps its whole ring region");
+        assert_eq!(fit.plan.cameras[0].slots_per_class, whole.cameras[0].slots_per_class);
+        for size in &fit.plan.cameras[0].class_sizes {
+            let class = fit.plan.classes.iter().find(|c| c.size_bytes == *size).unwrap();
+            assert!(class.count >= 46, "class {size} holds {} slots", class.count);
+        }
+    }
+
+    #[test]
+    fn more_than_half_but_within_shm_still_starts_on_the_smallest_headroom() {
+        let text = "[[device]]\nname='cam'\nkind='camera'\nvideo={ring_seconds=1}";
+        let smallest = plan(text, &shrunk(&linux(), MAX_SHRINK), false, u64::MAX, RING).unwrap().total_bytes;
+        let fit = fit(text, &linux(), false, DEFAULT_CAMERA_BYTES, RING, Some(smallest + 1)).unwrap();
+        assert_eq!((fit.shrink, fit.plan.total_bytes), (MAX_SHRINK, smallest));
+    }
+
+    #[test]
+    fn cameras_that_cannot_fit_say_which_settings_to_lower_and_how_much_is_needed() {
+        // One MJPEG camera at its default ten seconds reserves 383 slots in the 16 MiB class alone: about 6 GiB.
+        let error = fit(&mjpeg(1), &linux(), false, DEFAULT_CAMERA_BYTES, RING, Some(4 * GIB)).unwrap_err();
+        assert!(error.contains("for the 1 cameras in the device manifest"), "{error}");
+        assert!(error.contains("ring_seconds") && error.contains("enabled = false"), "{error}");
+        assert!(error.contains(&format!("/dev/shm holds {}", 4 * GIB)), "{error}");
+        let none = fit("", &linux(), false, DEFAULT_CAMERA_BYTES, RING, Some(8 << 20)).unwrap_err();
+        assert!(none.contains("--shm-size") && !none.contains("cameras"), "{none}");
+    }
+
+    #[test]
+    fn the_camera_budget_still_means_bytes_added_to_the_whole_profile() {
+        // Within budget against the whole profile, so shrinking the headroom must not make it an error.
+        assert!(fit(&mjpeg(1), &linux(), false, DEFAULT_CAMERA_BYTES, RING, Some(20 * GIB)).is_ok());
+        // And a manifest over the budget is refused as before, room or not.
+        let over = raw(40, "ring_seconds=30");
+        assert!(plan(&over, &linux(), false, DEFAULT_CAMERA_BYTES, RING).unwrap_err().contains("--tier0-camera-mib"));
+        let error = fit(&over, &linux(), false, DEFAULT_CAMERA_BYTES, RING, Some(GIB)).unwrap_err();
+        assert!(error.contains("--tier0-camera-mib"), "{error}");
+    }
+
+    #[test]
+    fn a_disabled_device_does_not_keep_the_ring_region_whole() {
+        let off = "[[device]]\nname='mic'\nkind='microphone'\nenabled=false";
+        let on = "[[device]]\nname='mic'\nkind='microphone'";
+        assert!(fit(off, &linux(), false, DEFAULT_CAMERA_BYTES, RING, Some(GIB)).unwrap().ring_bytes < RING);
+        assert_eq!(fit(on, &linux(), false, DEFAULT_CAMERA_BYTES, RING, Some(GIB)).unwrap().ring_bytes, RING);
     }
 }

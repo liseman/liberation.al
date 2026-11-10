@@ -437,7 +437,8 @@ Two platform gotchas. POSIX shared memory names are limited to 31 characters on 
 (`/cnt.<arena>.<generation>`), and the name is what `shm_open` takes on both platforms (Linux also shows it under
 `/dev/shm`; macOS has no such path). And on macOS an object can be sized with `ftruncate` only once, so an arena is
 never resized: a new size is a new arena with a new generation, announced in `Welcome` and to connected clients.
-Linux's `/dev/shm` is a tmpfs sized to half of RAM by default, which the Linux profile fits with room to spare.
+Linux's `/dev/shm` is a tmpfs sized to half of RAM by default (and 64 MiB in a container unless it is given more),
+so the broker fits the arena to it (below).
 
 ### Writing
 
@@ -566,6 +567,20 @@ worker backpressure alongside this guard; it does not guarantee that archival wo
   broker unlinks the arena named in `<socket>.arena` itself. To clear leftovers by hand with no broker running:
   `rm /dev/shm/cnt.*` on Linux; on macOS, `shm_unlink` each name from the `.arena` files, or reboot. A leftover costs
   only the pages that were touched, since the arena is sparse until slots are used.
+- **The arena's size** is the machine profile's slot classes (headroom for everything that isn't a configured
+  camera), with each class raised to what the device manifest's enabled cameras ask for (`capture_sizing.rs`:
+  their size, rate, and `ring_seconds`), plus the ring region. The devices always get what their settings ask
+  for. The profile's headroom is kept whole when the arena then takes no more than half of `/dev/shm`, the other
+  half being see-decode's frame ring and other programs'. Otherwise its slot counts are halved until it does, up
+  to ten times, never below one slot a class, and the class sizes and order stay, since a stream names its class
+  by index. With no enabled device the ring region shrinks with it, to no less than 1 MiB. On the Linux profile
+  that is about 11 GiB whole and under 22 MiB at its smallest, so a new install with no devices starts in a
+  container's default 64 MiB. When even the smallest plan is larger than `/dev/shm`, the broker stops with what it
+  needs, what `/dev/shm` holds, and what to change: `ring_seconds`, `fps`, or the frame size under `[video]` in
+  the device manifest, a camera's `enabled = false`, or more room for `/dev/shm`. A named `--profile`,
+  `--tier0-classes`, and `--tier0-ring-mib` are used as given and never shrunk; macOS has no `/dev/shm` to fit
+  and keeps the whole profile. `continuum-broker --print-tier0-plan` prints the plan, with
+  `profile_headroom_halvings`, and creates nothing.
 - At start, an arena larger than `/dev/shm` is refused (touching its last pages would SIGBUS the broker), and one
   larger than what's free there is warned about.
 - `Welcome` lists the arena (name, generation, size, classes) and passes its fd. The arena count is far under
