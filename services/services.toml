@@ -6,12 +6,15 @@
 #              steps, dependencies, and issue numbers go in a comment above the table instead
 #   group      the section Settings' Services lists it under: core (Continuum's daemons), workers, dashboard, or
 #              extras; anything else, or none, is listed under Other
-#   command    a pack-* command from pyproject.toml, or a path relative to the repo
-#   args       extra arguments
+#   command    a pack-* command from pyproject.toml, a continuum-* daemon, or a program on PATH
+#   args       extra arguments; {section.key} is a setting (a path is given whole), {file:devices} the device
+#              manifest, {owner:<path>} one of the owner's files by its checkout path, {env:NAME:default} a variable
 #   fresh_config  this service name; install a stable launcher that expands current settings at each startup
 #   enabled_by optional config boolean that also enables this service (services.disable still wins)
 #   default    installed unless pack.toml says otherwise ([services] enable / disable)
 #   platforms  only on these platform keys (see config/defaults.toml); omit for all
+#   source_build  true for a service whose program a checkout builds from source (whisper-server): an installed
+#              package builds nothing, so it doesn't have the service
 #   restart    keep it running (true) or run once / on a schedule (false)
 #   throttle   seconds to wait before restarting after a crash
 #   stop_timeout  seconds systemd waits after SIGTERM before killing it (default 20)
@@ -123,9 +126,10 @@ default = false
 description = "Turns speech into text, when Whisper is the chosen speech engine (asr.engine)."
 group = "extras"
 command = "pack-whisper"  # supervises the native server and reports its actual model holder
-args = ["data/whisper.cpp/build/bin/whisper-server", "-m", "{models.files.asr_whisper.path}", "--host", "127.0.0.1", "--port", "{ports.whisper}",
+args = ["{owner:data/whisper.cpp/build/bin/whisper-server}", "-m", "{models.files.asr_whisper.path}", "--host", "127.0.0.1", "--port", "{ports.whisper}",
         "-l", "en", "-nt", "-t", "8"]
 default = false
+source_build = true  # whisper-server is built by `mise run whisper`: not in an installed package
 
 # The shared Ollama server (ollama.url): the voice loop, captions, the journal, and embeddings. A pack service, not
 # the system ollama.service, so it waits for the NVIDIA driver (an Ollama started first stays on the CPU) and is

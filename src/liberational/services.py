@@ -44,12 +44,24 @@ type Service = dict[str, Any]
 
 
 def declared() -> dict[str, Service]:
-    return tomllib.loads(SPEC.read_text())
+    """Every service services.toml declares that this install can run: one marked `source_build` runs a program a
+    checkout builds from source (whisper-server), so an installed package, which builds nothing, doesn't have it."""
+    services = tomllib.loads(SPEC.read_text())
+    if cfg.CHECKOUT is None:
+        services = {name: svc for name, svc in services.items() if not svc.get("source_build")}
+    return services
 
 
 def required() -> set[str]:
     """Services the current settings depend on, whether or not [services] enables them."""
-    return {"whisper"} if str(cfg.get("asr.engine")).lower() == "whisper" else set()
+    if str(cfg.get("asr.engine")).lower() != "whisper":
+        return set()
+    if "whisper" not in declared():
+        raise SystemExit(
+            "asr.engine is whisper, and whisper-server is built from source: it isn't in an installed package. "
+            "Set asr.engine to another engine, or run from a checkout."
+        )
+    return {"whisper"}
 
 
 def selected() -> dict[str, Service]:
@@ -80,6 +92,8 @@ def _expand(arg: str) -> str:
             return os.environ.get(var) or default
         if key == "file:devices":
             return str(cfg.devices_file())
+        if key.startswith("owner:"):  # one of the owner's files by its checkout path, wherever this install has it
+            return str(cfg.owner_file(key.removeprefix("owner:")))
         value = str(cfg.get(key))
         # A path is given whole, so it means the same wherever the service's working directory is.
         return str(cfg.owner_file(value)) if value and (key.startswith("paths.") or key.endswith(".path")) else value
@@ -131,9 +145,11 @@ def _templated_env(svc: Service) -> dict[str, str]:
 
 
 def environment(svc: Service, name: str = "") -> dict[str, str]:
-    # The venv first, then mise's shims (tools like ffmpeg from mise.toml), then the installing shell's PATH, then the
-    # system directories whatever that shell had: capture runs sysctl, which is in /usr/sbin.
-    parts = [str(cfg.BIN), str(pathlib.Path.home() / ".local/share/mise/shims")]
+    # The environment's own bin first; in a checkout, mise's shims next (tools like ffmpeg from mise.toml; an
+    # installed package has no mise and gets them from the system); then the starting shell's PATH; then the system
+    # directories whatever that shell had: capture runs sysctl, which is in /usr/sbin.
+    parts = [str(cfg.BIN)]
+    parts += [str(pathlib.Path.home() / ".local/share/mise/shims")] if cfg.CHECKOUT is not None else []
     parts += os.environ.get("PATH", "").split(os.pathsep)
     parts += ["/usr/local/bin"] if DARWIN else []
     parts += ["/usr/bin", "/bin", "/usr/sbin", "/sbin"]

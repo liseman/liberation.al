@@ -169,6 +169,22 @@ def test_path_has_venv_first_and_no_duplicates(monkeypatch):
     monkeypatch.setattr(s, "DARWIN", False)
     monkeypatch.setenv("PATH", os.pathsep.join(["/usr/bin", venv, "/usr/bin"]))
     assert s.environment({})["PATH"].split(os.pathsep) == [venv, shims, "/usr/bin", "/bin", "/usr/sbin", "/sbin"]
+    monkeypatch.setattr(cfg, "CHECKOUT", None)  # an installed package has no mise
+    assert s.environment({})["PATH"].split(os.pathsep) == [venv, "/usr/bin", "/bin", "/usr/sbin", "/sbin"]
+
+
+def test_a_service_built_from_source_is_only_declared_in_a_checkout(monkeypatch):
+    assert s.declared()["whisper"]["source_build"] is True
+    monkeypatch.setattr(cfg, "CHECKOUT", None)
+    assert "whisper" not in s.declared()
+    assert "continuum-broker" in s.declared()
+    with cfg.override({"asr": {"engine": "whisper"}}), pytest.raises(SystemExit, match="built from source"):
+        s.selected()
+
+
+def test_whisper_server_is_named_by_its_whole_path(tmp_path, monkeypatch):
+    monkeypatch.setattr(cfg, "OWNER_ROOT", tmp_path)
+    assert s.argv(s.declared()["whisper"])[1] == str(tmp_path / "data/whisper.cpp/build/bin/whisper-server")
 
 
 @pytest.mark.parametrize(
