@@ -1,38 +1,35 @@
-"""Reconstruction output to a plan the floorplan library accepts: gaps, overlaps, skew, unseen parts, and
-openings on their walls. Each case is also checked with the vendored library's own linter (frontend/src/vendor/
-floorplan) through node, keeping the converter's rules: tiling, walls, and openings (the architect checks, such as a
-missing entrance, are noise for an observed place)."""
+"""Reconstruction output to a plan whose rooms tile: gaps, overlaps, skew, unseen parts, and openings on their
+walls. Each case is also written as a scene and read back (`problems`), which is what a stored plan must survive."""
 
 import json
 import math
-import shutil
-import subprocess
-from pathlib import Path
 
 import numpy as np
 import pytest
 
 from liberational.spatial import floorplan as fp
+from liberational.spatial import plan_import, plan_scene
 from liberational.spatial import tiling as T
 
-LIBRARY = Path(__file__).resolve().parents[1] / "frontend" / "src" / "vendor" / "floorplan" / "index.js"
-FIXTURE = Path(__file__).with_name("data") / "stepped_rooms.plan"
-KEPT = ("tiling.", "wall.", "opening.")
 
-
-def lint(doc: dict) -> list[str]:
-    """The library's findings for `doc` that the converter answers for, as "rule: message"."""
-    if shutil.which("node") is None:
-        pytest.skip("needs node for the library's linter")
-    script = (
-        f"import {{ lint }} from {json.dumps(str(LIBRARY))};"
-        "let s = ''; process.stdin.on('data', d => s += d);"
-        "process.stdin.on('end', () => console.log(JSON.stringify(lint(JSON.parse(s)).findings)));"
-    )
-    done = subprocess.run(
-        ["node", "--input-type=module", "-e", script], input=json.dumps(doc), capture_output=True, text=True, check=True
-    )
-    return [f"{f['rule']}: {f['message']}" for f in json.loads(done.stdout) if f["rule"].startswith(KEPT)]
+def problems(t: T.Tiled) -> list[str]:
+    """What goes wrong writing `t` as a scene and reading it back: an opening that fits no wall of the tiled rooms,
+    or rooms or openings that don't come back. Empty for a plan that tiles."""
+    before = len(t.notes)
+    text = T.to_scene(t, "Plan")
+    found = list(t.notes[before:])
+    plan = plan_import.parse(text)
+    if [r.id for r in plan.rooms] != [r.id for r in t.rooms]:
+        found.append(f"rooms read back as {[r.id for r in plan.rooms]}")
+    if len(plan.openings) != len(t.openings):
+        found.append(f"{len(plan.openings)} of {len(t.openings)} openings read back")
+    # every stretch of wall has a room on at least one side, and no two rooms claim the same floor
+    area = sum(abs(T._area(r.polygon)) for r in t.rooms)
+    xs = [x for r in t.rooms for x, _ in r.polygon]
+    ys = [y for r in t.rooms for _, y in r.polygon]
+    if area > (max(xs) - min(xs)) * (max(ys) - min(ys)) + 1e-6:
+        found.append("the rooms overlap")
+    return found
 
 
 def rect(x0: float, y0: float, x1: float, y1: float) -> tuple[T.Point, ...]:
@@ -52,7 +49,7 @@ def test_two_rooms_inner_faces_meet_on_their_shared_centreline_with_the_door_on_
     t = T.tile(rooms, [door])
     assert [box(r) for r in t.rooms] == [pytest.approx((0, 0, 4, 3)), pytest.approx((4, 0, 7, 3))]
     assert [(o.between, o.at, o.width) for o in t.openings] == [(("a", "b"), pytest.approx((4.0, 1.4)), 0.9)]
-    assert lint(T.to_document(t, "Two rooms")) == []
+    assert problems(t) == []
 
 
 def test_overlapping_rooms_are_split_on_one_line():
@@ -60,7 +57,7 @@ def test_overlapping_rooms_are_split_on_one_line():
     t = T.tile(rooms, settings=T.Settings(faces=False))
     a, b = (box(r) for r in t.rooms)
     assert a[2] == b[0] == pytest.approx(4.01)  # one shared line, between the two edges
-    assert lint(T.to_document(t, "Overlap")) == []
+    assert problems(t) == []
 
 
 def test_skewed_rooms_are_squared_up():
@@ -76,7 +73,7 @@ def test_skewed_rooms_are_squared_up():
     assert t.angle == pytest.approx(-turn)
     sizes = [(round(b[2] - b[0], 6), round(b[3] - b[1], 6)) for b in map(box, t.rooms)]
     assert sizes == [(4.0, 3.0), (3.0, 3.0)]
-    assert lint(T.to_document(t, "Skewed")) == []
+    assert problems(t) == []
 
 
 def ring(hole: tuple[float, float, float, float]) -> list[T.Room]:
@@ -94,16 +91,16 @@ def test_a_small_gap_the_rooms_enclose_goes_to_a_neighbour():
     t = T.tile(ring((2.5, 2.5, 3.5, 3.5)), settings=T.Settings(faces=False))  # 1 m2
     assert t.unexplored == []
     assert sum(abs(T._area(r.polygon)) for r in t.rooms) == pytest.approx(36)
-    assert lint(T.to_document(t, "Small gap")) == []
+    assert problems(t) == []
 
 
 def test_a_large_gap_the_rooms_enclose_is_a_part_not_seen_yet():
     t = T.tile(ring((2, 2, 4, 4)), settings=T.Settings(faces=False))  # 4 m2: a closed door, say
     (area,) = t.unexplored
     assert abs(T._area(area)) == pytest.approx(4)
-    doc = T.to_document(t, "Large gap")
-    assert doc["voids"]["u1"]["name"] == doc["x-unexplored"]["u1"]["name"] == T.UNSEEN
-    assert lint(doc) == []  # without the void the library calls it a hole in the plan
+    unseen = plan_scene.records(json.loads(T.to_scene(t, "Large gap")))["unexplored"]
+    assert unseen == {"u1": {"name": T.UNSEEN, "poly": [[2, 2], [4, 2], [4, 4], [2, 4]]}}
+    assert problems(t) == []
 
 
 def test_a_sliver_room_goes_to_a_neighbour():
@@ -126,7 +123,7 @@ def test_an_opening_is_clamped_to_its_wall(at, width, expected_at, expected_widt
     t = T.tile(rooms, [T.Opening("door", at, width)], T.Settings(faces=False))
     ((between, placed, w),) = [(o.between, o.at, o.width) for o in t.openings]
     assert (between, placed, w) == (("a", "b"), pytest.approx(expected_at), pytest.approx(expected_width))
-    assert lint(T.to_document(t, "Clamped")) == []
+    assert problems(t) == []
 
 
 def test_an_opening_on_no_wall_is_dropped_and_said_so():
@@ -135,11 +132,40 @@ def test_an_opening_on_no_wall_is_dropped_and_said_so():
     assert "dropped" in t.notes[0]
 
 
+# Three rooms with stepped outlines and a notch between two of them.
+STEPPED = (
+    (
+        (0, 0),
+        (5.6, 0),
+        (5.6, 0.5),
+        (8, 0.5),
+        (8, 2.4),
+        (7.2, 2.4),
+        (7.2, 3.4),
+        (6.6, 3.4),
+        (6.6, 5.4),
+        (6.2, 5.4),
+        (6.2, 6),
+        (0, 6),
+    ),
+    ((8, 0), (11, 0), (11, 0.5), (11.5, 0.5), (11.5, 1.4), (8, 1.4)),
+    ((6.6, 3.8), (7.6, 3.8), (7.6, 4.4), (8.5, 4.4), (8.5, 4.9), (9, 4.9), (9, 6), (6.6, 6)),
+)
+
+
 def test_a_stepped_plan_with_doors_wider_than_their_walls_comes_out_clean():
     # A made-up plan shaped like what a reconstruction writes: stepped outlines, a notch between two rooms, and doors
     # wider than the wall they're on, which overflowed their walls in the library before openings were clamped.
-    rooms, openings = T.read_dsl(FIXTURE.read_text())
-    assert len(rooms) == 3 and len(openings) == 3
+    rooms = [
+        T.Room("r1", STEPPED[0], "Room 1"),
+        T.Room("r2", STEPPED[1], "Room 2"),
+        T.Room("r3", STEPPED[2], "Room 3"),
+    ]
+    openings = [
+        T.Opening("door", (0.0, 3.0), 1.5, ("exterior", "r1")),
+        T.Opening("door", (8.0, 1.05), 1.0, ("r2", "r1")),
+        T.Opening("door", (6.6, 4.6), 1.5, ("r1", "r3")),
+    ]
     t = T.tile(rooms, openings, T.Settings(faces=False))
     assert len(t.rooms) == 3
     # The outside door fits its 6 m wall. Rooms 1 and 2 share 0.9 m of wall (y 0.5 to 1.4) and rooms 1 and 3 share
@@ -149,7 +175,7 @@ def test_a_stepped_plan_with_doors_wider_than_their_walls_comes_out_clean():
         (("r1", "r2"), pytest.approx((8.0, 0.95)), pytest.approx(0.7)),
         (("r1", "r3"), pytest.approx((6.6, 4.6)), pytest.approx(1.4)),
     ]
-    assert lint(T.to_document(t, "Example")) == []
+    assert problems(t) == []
 
 
 def test_the_baseline_plan_of_a_scan_comes_out_clean():
@@ -159,21 +185,30 @@ def test_the_baseline_plan_of_a_scan_comes_out_clean():
     rooms, openings = T.from_plan(plan)
     t = T.tile(rooms, openings, T.Settings(faces=False))
     assert len(t.rooms) == 2 and [o.between for o in t.openings] == [("r1", "r2")]
-    assert lint(T.to_document(t, "Scan")) == []
+    assert problems(t) == []
 
 
-def test_the_dsl_carries_rooms_voids_and_openings_and_reads_back():
+def test_the_scene_carries_rooms_unseen_parts_and_openings_and_reads_back():
     t = T.tile(ring((2, 2, 4, 4)), [T.Opening("door", (1.0, 2.0), 0.9)], T.Settings(faces=False))
-    text = T.to_dsl(t, "Ring", T.Settings(faces=False))
-    assert 'void u1 "Not seen yet" rect 2,2 2x2' in text
-    rooms, openings = T.read_dsl(text)
-    assert sorted(r.id for r in rooms) == ["e", "n", "s", "w"]
-    assert [(o.between, o.at, o.width) for o in openings] == [(("s", "w"), (1.0, 2.0), 0.9)]
+    text = T.to_scene(t, "Ring", T.Settings(faces=False))
+    plan = plan_import.parse(text)
+    assert plan.title == "Ring" and sorted(r.id for r in plan.rooms) == ["e", "n", "s", "w"]
+    assert [(o.kind, frozenset(o.between.split(">")), o.at, o.width) for o in plan.openings] == [
+        ("door", frozenset({"s", "w"}), pytest.approx((1.0, 2.0)), 0.9)
+    ]
+    assert list(plan_scene.records(json.loads(text))["unexplored"]) == ["u1"]
+
+
+def test_an_opening_the_tiled_rooms_have_no_wall_for_is_left_out_of_the_scene_and_said_so():
+    t = T.Tiled([T.Room("a", rect(0, 0, 4, 3), "A")], [T.Opening("door", (9.0, 9.0), 0.9)], [])
+    text = T.to_scene(t, "Stray")
+    assert plan_import.parse(text).openings == ()
+    assert t.notes == ["door at 9.00,9.00 is on no wall of the tiled rooms: dropped"]
 
 
 def test_a_door_into_a_part_not_seen_yet_is_dropped_not_made_an_outside_door():
-    # w's east wall is the not-seen-yet void's west wall; the library refuses any opening into a void.
+    # w's east wall is the not-seen-yet area's west wall; there is no floor there to open onto.
     t = T.tile(ring((2, 2, 4, 4)), [T.Opening("door", (2.0, 3.0), 0.9)], T.Settings(faces=False))
     assert t.openings == []
     assert "not seen yet" in t.notes[0]
-    assert lint(T.to_document(t, "Into the unseen")) == []
+    assert problems(t) == []

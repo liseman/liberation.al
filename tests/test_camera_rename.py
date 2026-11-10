@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+import plans
 from liberational import camera_rename, knowledge
 from liberational.memory import reports
 
@@ -32,7 +33,10 @@ def state(tmp_path: Path) -> Path:
                 "plan1",
                 "place.plan",
                 PLACE,
-                {"place": PLACE, "plan": 'plan "Home"\nx-camera attic at 1,2 height 2.2\nx-camera garage at 3,4\n'},
+                {
+                    "place": PLACE,
+                    "plan": plans.scene('plan "Home"\nx-camera attic at 1,2 height 2.2\nx-camera garage at 3,4\n'),
+                },
             ),
             _record("e1", "event:people", None, {"name": "Dana"}),
         ]
@@ -58,7 +62,7 @@ def state(tmp_path: Path) -> Path:
     (rev / "rev1.json").write_text(
         json.dumps({"cameras": {"attic": {"focal": 300}, "garage": {"focal": 200}}, "signals": {"camera": ["attic"]}})
     )
-    (rev / "rev1.plan").write_text("plan\nx-camera porch-cam at 0,0\n")
+    (rev / "rev1.plan").write_text(plans.scene("plan\nx-camera porch-cam at 0,0\n"))
     (tmp_path / "places" / "footprints.json").write_text(json.dumps({"attic": 5.0, "garage": 6.0}))
 
     (tmp_path / "see-zones.json").write_text(
@@ -108,7 +112,9 @@ def test_rename_moves_owner_records_and_keeps_their_ids(state: Path):
     assert _value(state, "r1") == {"cam": "loft", "owner_label": {"cam": "loft"}}
     assert _value(state, "f1")["cam"] == "garage"
     assert _value(state, "i1") == {"faces": [{"cam": "loft", "cams": ["loft", "garage"]}]}
-    assert _value(state, "plan1")["plan"] == 'plan "Home"\nx-camera loft at 1,2 height 2.2\nx-camera garage at 3,4\n'
+    assert _value(state, "plan1")["plan"] == plans.scene(
+        'plan "Home"\nx-camera loft at 1,2 height 2.2\nx-camera garage at 3,4\n'
+    )
     assert camera_rename.leftovers(state, NAMES) == []
 
 
@@ -128,7 +134,7 @@ def test_rename_moves_machine_state_that_follows_the_slots(state: Path):
 
     rev = json.loads((state / "places" / PLACE / "rev1.json").read_text())
     assert rev == {"cameras": {"loft": {"focal": 300}, "garage": {"focal": 200}}, "signals": {"camera": ["loft"]}}
-    assert (state / "places" / PLACE / "rev1.plan").read_text() == "plan\nx-camera sunroom at 0,0\n"
+    assert (state / "places" / PLACE / "rev1.plan").read_text() == plans.scene("plan\nx-camera sunroom at 0,0\n")
     assert json.loads((state / "places" / "footprints.json").read_text()) == {"loft": 5.0, "garage": 6.0}
     assert json.loads((state / "see-zones.json").read_text()) == {
         "cursor": {"pose.track": {"loft": 9}},

@@ -27,6 +27,7 @@ from liberational.domain.identity import Basis
 from liberational.memory import history_qa, journal, journal_pages, places
 from liberational.memory_log import JOURNAL, PAGES, MemoryLog
 from liberational.people import pets, registry
+from liberational.spatial import plan_scene
 
 OWNER = "Alice"
 PEOPLE = (OWNER, "Dana", "Sam")
@@ -35,28 +36,41 @@ PLACE = "Demo house"
 SOURCE = "demo"  # the source every demo record names
 MIC = "demo-mic"  # the microphone the demo's transcript was heard on
 
-# A made-up single-storey house, 9 m by 8.5 m, in the floorplan DSL (frontend/src/vendor/floorplan/): rooms on wall
-# centrelines that tile the footprint, and the doors and windows on the walls between them.
-PLAN = f"""plan "{PLACE}" walls 0.2/0.1
 
-room kitchen "Kitchen" kitchen rect 0,0 4x3.5
-room hall "Hall" hall rect 0,3.5 4x1.5
-room bedroom "Bedroom" bedroom rect 0,5 4x3.5
-room living "Living room" living rect 4,0 5x5
-room study "Study" office rect 4,5 5x3.5
+def _rect(x: float, y: float, w: float, h: float) -> tuple[tuple[float, float], ...]:
+    return ((x, y), (x + w, y), (x + w, y + h), (x, y + h))
 
-door exterior>hall at 0,4.25 w0.9 entrance
-door hall>kitchen at 2,3.5 w0.8
-door hall>living at 4,4.25 w0.8
-door hall>bedroom at 2,5 w0.8
-door kitchen>living at 4,1.75 w1.2
-door living>study at 6.5,5 w0.8
-window exterior>kitchen at 2,0 w1.2
-window exterior>living at 9,2.5 w1.6
-window exterior>living at 6.5,0 w1.6
-window exterior>bedroom at 0,6.75 w1.2
-window exterior>study at 9,6.75 w1.2
-"""
+
+# A made-up single-storey house, 9 m by 8.5 m: rooms on wall centrelines that tile the footprint, and the doors and
+# windows on the walls between them, stored as a place's plan is (a Pascal scene, spatial/plan_scene.py).
+_ROOMS = (
+    ("kitchen", "Kitchen", "kitchen", _rect(0, 0, 4, 3.5)),
+    ("hall", "Hall", "hall", _rect(0, 3.5, 4, 1.5)),
+    ("bedroom", "Bedroom", "bedroom", _rect(0, 5, 4, 3.5)),
+    ("living", "Living room", "living", _rect(4, 0, 5, 5)),
+    ("study", "Study", "office", _rect(4, 5, 5, 3.5)),
+)
+_OPENINGS = (
+    ("door", (0.0, 4.25), 0.9),  # the way in, to the hall
+    ("door", (2.0, 3.5), 0.8),  # hall to kitchen
+    ("door", (4.0, 4.25), 0.8),  # hall to living room
+    ("door", (2.0, 5.0), 0.8),  # hall to bedroom
+    ("door", (4.0, 1.75), 1.2),  # kitchen to living room
+    ("door", (6.5, 5.0), 0.8),  # living room to study
+    ("window", (2.0, 0.0), 1.2),
+    ("window", (9.0, 2.5), 1.6),
+    ("window", (6.5, 0.0), 1.6),
+    ("window", (0.0, 6.75), 1.2),
+    ("window", (9.0, 6.75), 1.2),
+)
+PLAN = plan_scene.dump(
+    plan_scene.build(
+        walls=plan_scene.cut_walls([outline for *_, outline in _ROOMS], 0.2, 0.1),
+        openings=_OPENINGS,
+        rooms=_ROOMS,
+        records={"title": PLACE},
+    )
+)
 
 
 @dataclass(frozen=True)
