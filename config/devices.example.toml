@@ -1,5 +1,5 @@
-# The capture supervisor's device manifest (continuum-capture; docs/CONTINUUM.md, "One process per physical
-# device"). Copy it to config/devices.toml and edit. Each [[device]] is one physical device and one worker; a device
+# The capture supervisor's device manifest (continuum-capture; docs/CONTINUUM-CAPTURE.md).
+# Copy it to config/devices.toml and edit. Each [[device]] is one physical device and one worker; a device
 # that appears and matches an entry (every match field given must match) gets a worker, and one that matches
 # nothing is ignored. Streams are named <name>.<stream>: facecam.video, wave3.audio.
 

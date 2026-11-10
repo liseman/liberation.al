@@ -1,4 +1,4 @@
-//! Host clocks, the stream's clock anchor, and noticing a wake (docs/CONTINUUM.md, decision 9 and "Timestamps").
+//! Host clocks, the stream's clock anchor, and noticing a wake (docs/CONTINUUM-CAPTURE.md, "Timestamps").
 //!
 //! Every sample is stamped on the host monotonic clock. A stream's anchor maps that clock to UTC: one monotonic and
 //! one UTC reading taken together, plus the boot they belong to. Both monotonic clocks stop while the machine sleeps,

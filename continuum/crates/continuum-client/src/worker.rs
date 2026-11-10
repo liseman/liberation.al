@@ -1,4 +1,4 @@
-//! The worker side (docs/CONTINUUM.md, "Worker flow: jobs and leases"): registering a worker's capabilities,
+//! The worker side (docs/CONTINUUM-BROKER.md): registering a worker's capabilities,
 //! quoting for a lease, and the lease itself (renew, commit, abort, or give it back), plus typed forms of what the
 //! broker pushes (preemptions, system state, ingest rejections).
 //!

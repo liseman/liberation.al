@@ -8,7 +8,7 @@ and no Rust toolchain. A checkout with mise stays the development loop and is no
 | File | What it is |
 |---|---|
 | `liberational_pack-<version>-py3-none-any.whl` | The application: the Python package, its settings and service declarations, the dashboard's frontend build, and the lock below without hashes (`resources/constraints.txt`) |
-| `continuum_py-<c>-cp314-cp314-<platform>.whl` | Continuum's Python SDK, one per platform ([CONTINUUM.md](CONTINUUM.md), "Wheels") |
+| `continuum_py-<c>-cp314-cp314-<platform>.whl` | Continuum's Python SDK, one per platform ([CONTINUUM-SDK.md](CONTINUUM-SDK.md#wheels)) |
 | `continuum_daemons-<c>-py3-none-<platform>.whl` | Continuum's daemons, one per platform; they land in the environment's `bin/` |
 | `liberational-pack-<version>-lock-<platform>.txt` | Every third-party dependency for that platform, each extra's included, pinned with hashes |
 | `SHA256SUMS` | The SHA-256 of every file above |

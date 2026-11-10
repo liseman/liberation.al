@@ -27,7 +27,7 @@ use crate::encode::{Codec, Encoder, Settings};
 pub const H264_ENCODERS: &[&str] = &["h264_nvenc", "h264_videotoolbox", "libx264", "libopenh264"];
 
 /// The software encoders, in order of preference: libx264 where FFmpeg has it (a distribution's GPL build), and
-/// OpenH264 in the wheels' private LGPL build, which can't carry libx264 (docs/CONTINUUM.md, "Wheels").
+/// OpenH264 in the wheels' private LGPL build, which can't carry libx264 (docs/CONTINUUM-SDK.md).
 pub const SOFTWARE_H264_ENCODERS: &[&str] = &["libx264", "libopenh264"];
 
 /// How the browser stream is encoded.

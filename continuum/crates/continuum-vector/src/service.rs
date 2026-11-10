@@ -1,6 +1,6 @@
 //! The vector worker as a service (`continuum-vector-worker`): a writer connection that answers dispatched searches
 //! and purge notices, answers live queries, files embeddings from each embedding stream it follows and interpretation
-//! text from each text stream, and compacts the store now and then (docs/CONTINUUM.md, "Vector worker").
+//! text from each text stream, and compacts the store now and then (docs/CONTINUUM-STORAGE.md).
 //!
 //! Subscription readers are separate from RPCs: their explicit backpressure cannot block an ingest or query reply.
 //! A closed reader reconnects with a bounded delay; its durable subscription replays anything not acknowledged.

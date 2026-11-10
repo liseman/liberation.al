@@ -229,7 +229,7 @@ Notes:
 Forgetting is different from recording retention and a catalog reset. It removes the person's identity and
 applicable derived evidence through the existing deletion paths, while age-out removes old footage and retains
 derived observations. See [People](PEOPLE.md#the-knowledge-store) and
-[Continuum](CONTINUUM.md#forgetting) for the store boundaries.
+[Continuum](CONTINUUM-BROKER.md#forgetting) for the store boundaries.
 
 `PersonForgotten` outlives the person's purged events. Its opaque IDs, assertion supersessions, rematch times,
 and hashed name history prevent replay from reviving an old assertion or assigning the forgotten person's

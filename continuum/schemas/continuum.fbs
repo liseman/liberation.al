@@ -1,7 +1,7 @@
 // Continuum Broker schema: ids, enums, the payload header and its provenance, and storage locators (Phase 1),
 // then the control plane: the ControlEnvelope and every message in its ControlPayload union.
 //
-// Follows docs/CONTINUUM.md ("Envelope and provenance", "Request flows", and "Schema notes for Phase 1"). Tables and
+// Follows docs/CONTINUUM-BROKER.md ("Payload headers" and "Protocol"). Tables and
 // the union only grow at the end: appending is compatible, reordering or removing isn't.
 //
 // Generated code: `mise run continuum-codegen` writes crates/continuum-core/src/generated/continuum_generated.rs.
@@ -214,7 +214,7 @@ table StorageLocator {
   location: Location;
 }
 
-// ---- Control plane: the ControlEnvelope and every message in docs/CONTINUUM.md "Request flows" ----
+// ---- Control plane: the ControlEnvelope and every message in docs/CONTINUUM-BROKER.md ----
 //
 // One length-prefixed ControlEnvelope at a time over the broker's Unix socket. A reply carries its request's
 // request_id; a message the broker sends on its own (a dispatch, a preemption, a stream event) uses request_id 0.
@@ -796,7 +796,7 @@ table Purge {
   ids: [Uuid];
   /// The caller's JSON detail, kept in the record for good: it must not name the person (no subject id).
   detail: string;
-  /// With ids: an age-out (docs/CONTINUUM.md, "Aging"). Only the named payloads go, none of what was derived from
+  /// With ids: an age-out (docs/CONTINUUM-STORAGE.md). Only the named payloads go, none of what was derived from
   /// them, and only those committed by committed_before_ns (by the commit clock, whatever their own time). Their
   /// spans are recorded as aged out.
   age_out: bool;
@@ -976,7 +976,7 @@ table PurgeResult {
 
 // ---- The envelope ----
 
-// ---- Aging (docs/CONTINUUM.md, "Aging"), schema minor 23 ----
+// ---- Aging (docs/CONTINUUM-STORAGE.md), schema minor 23 ----
 
 /// A condition an AgeOutFrames checks in its own transaction: the evidence the policy read hasn't changed since.
 table EvidenceGuard {

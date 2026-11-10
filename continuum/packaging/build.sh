@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds Continuum's two wheels for the platform it runs on (docs/CONTINUUM.md, "Wheels"):
+# Builds Continuum's two wheels for the platform it runs on (docs/CONTINUUM-SDK.md):
 #
 #   continuum_py-<version>-cp314-cp314-<platform>.whl      the Python SDK, with the H.264 decoder
 #   continuum_daemons-<version>-py3-none-<platform>.whl    the daemons, installed onto the environment's PATH

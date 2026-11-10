@@ -1,6 +1,6 @@
 // The player's Web Worker: decodes what the gateway sends (WebCodecs' VideoDecoder for H.264 and HEVC access units,
 // ImageDecoder for JPEG frames), keeps overlays in a map by capture time, and draws a frame with the overlay whose
-// time matches onto the OffscreenCanvas the page handed over (docs/CONTINUUM.md, "Browser gateway"). The page
+// time matches onto the OffscreenCanvas the page handed over (docs/CONTINUUM-GATEWAY.md). The page
 // drives time: it posts the playhead on every animation frame, and the worker draws the newest decoded frame at or
 // before it (or the newest of all, live), then reports what it drew and how the overlay was picked, which is the
 // sync log the test page shows. Raw camera pixels carrying flip are rotated 180 degrees before upright overlays

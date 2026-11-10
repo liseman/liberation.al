@@ -1,5 +1,5 @@
-// The 16 byte header at the start of every binary message from the Continuum gateway (docs/CONTINUUM.md, "Browser
-// gateway"; the Rust side is continuum/crates/continuum-gateway/src/header.rs, with the same test vectors).
+// The 16 byte header at the start of every binary message from the Continuum gateway (docs/CONTINUUM-GATEWAY.md;
+// the Rust side is continuum/crates/continuum-gateway/src/header.rs, with the same test vectors).
 // Little-endian: stream_id u32 at 0, payload_type u8 at 4, flags u8 at 5 (bit 0 keyframe, bit 1 live,
 // bit 2 rotate 180 degrees, bit 3 a media context id follows, bit 4 from the connection's `watch` set, bit 5 a
 // request id follows), two zero bytes, and capture_us u64 at 8, read with getBigUint64 and turned into a number

@@ -1,5 +1,5 @@
 //! What a worker tells the scheduler about itself: its capability manifest at registration, and its telemetry in
-//! heartbeats (docs/CONTINUUM.md, "Registration").
+//! heartbeats (docs/CONTINUUM-BROKER.md).
 //!
 //! Stream names are resolved to [`StreamId`]s by the broker before the manifest reaches the scheduler, since the
 //! broker owns stream registration.

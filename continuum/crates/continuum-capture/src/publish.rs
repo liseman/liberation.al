@@ -1,5 +1,5 @@
-//! Writing captured payloads into Tier 0 and telling the broker (docs/CONTINUUM.md, "Writing", "Rings", and "How
-//! frames land in shared memory").
+//! Writing captured payloads into Tier 0 and telling the broker (docs/CONTINUUM-BROKER.md, "Slots" and
+//! "Rings", and docs/CONTINUUM-CAPTURE.md, "How frames land").
 //!
 //! - [`VideoStream`]: each frame into a slot of the stream's own slot ring (the device's native payload, MJPEG bytes
 //!   for every camera by default), overwriting the oldest slot nobody has pinned, flushed or not, so capture never

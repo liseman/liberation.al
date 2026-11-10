@@ -1,5 +1,5 @@
-//! The consumer flow: a query, what came back, and the quote and promise it may create (docs/CONTINUUM.md,
-//! "Consumer flow: query, quote, and commit").
+//! The consumer flow: a query, what came back, and the quote and promise it may create (docs/CONTINUUM-BROKER.md,
+//! "Protocol").
 
 use std::fmt;
 
@@ -198,7 +198,7 @@ pub struct Quote {
     pub expires_ns: u64,
 }
 
-/// Where a promise is in its life (docs/CONTINUUM.md, the promise state table).
+/// Where a promise is in its life (the schema's `PromiseState`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum PromiseState {
     /// Plan built, nothing running; expires after the quote's time to live.
