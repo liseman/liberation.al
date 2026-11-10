@@ -5182,9 +5182,9 @@ def camera_status() -> dict[str, Any]:
 
 def mic_status() -> dict[str, Any]:
     """The microphones as the Live tab shows them, in the shape v1's ambient.status.json had: {"ts", "devices":
-    {name: {"name", "healthy", "gain"?}}}, "gain" from the listen worker's auto gain status. A microphone is healthy while the listen worker runs and its `<name>.audio` stream
-    on the broker has audio from the last MIC_FRESH_S; "ts" is now while any is, and absent otherwise (not
-    listening). Asked of the broker at most every 2 s."""
+    {name: {"name", "healthy", "gain"?}}}, "gain" from the listen worker's auto gain status. A microphone is healthy
+    while the listen worker runs and its `<name>.audio` stream on the broker has audio from the last MIC_FRESH_S; "ts"
+    is now while any is, and absent otherwise (not listening). Asked of the broker at most every 2 s."""
     if time.monotonic() - _mic_cache["at"] < 2.0 and _mic_cache["value"] is not None:
         return _mic_cache["value"]
     try:
@@ -5685,8 +5685,8 @@ def _delete_person_locked(name: object, control: bool) -> Reply:
             if isinstance(e.get("ts_start"), int | float)
             and (pid in group if pid is not None else _norm(e.get("speaker")) == _norm(name))
         }
-        # A line the log labels as them by its millisecond alone (without a line key) is in `mine` when it still reads as
-        # theirs. The millisecond alone would also take the other microphone's line in it, so it's kept only for a
+        # A line the log labels as them by its millisecond alone (without a line key) is in `mine` when it still reads
+        # as theirs. The millisecond alone would also take the other microphone's line in it, so it's kept only for a
         # line with no device.
         keyed = {
             registry.line_key(e["ts_start"])

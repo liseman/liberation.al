@@ -3,9 +3,9 @@
 
 A `Sampler` thread started with the dashboard hands a /stats snapshot (server.Stats.snapshot) to `History.record`
 every `STEP_S`, which keeps one sample a step for the last `WINDOW_S`, whether or not anyone is looking; /stats polls
-record too. A sample costs about 0.4% of a core on the Linux machine (36 samples at 5 s, niced): the process scan reads each process's command line once
-(proc_table.py) and the GPUs come from NVML in-process (nvml.py), where a full scan and three nvidia-smi calls a sample
-cost 4.3%. A gap in the samples is a gap in the chart, never a zero.
+record too. A sample costs about 0.4% of a core on the Linux machine (36 samples at 5 s, niced): the process scan reads
+each process's command line once (proc_table.py) and the GPUs come from NVML in-process (nvml.py), where a full scan and
+three nvidia-smi calls a sample cost 4.3%. A gap in the samples is a gap in the chart, never a zero.
 
 A sample is {"ts", "cpu": {group: % of the whole machine}, "mem": {group: bytes}, "gpu": [{"index", "used", "util",
 "apps": {group: bytes}}]}. A group is a service (the role /stats names a process by). An Ollama runner counts toward the

@@ -10,7 +10,7 @@ the same Reports page. The built-in reports start on it; the owner can remove an
 built-in report added in a later version joins a saved layout once, at the end; one the owner removed stays removed.
 
 Who's around shows one person at a time through its filter, so there are no per-person Who's around cards. A
-layout saved with them ("When Alex is around") folds them into the Who's around card: their people become the filter's
+layout saved with them ("When Alice is around") folds them into the Who's around card: their people become the filter's
 pinned choices, in their order, under "people".
 """
 

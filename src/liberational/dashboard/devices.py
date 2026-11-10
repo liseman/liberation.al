@@ -5,7 +5,8 @@ POST /devices/mic).
 GET  /devices   {"control", "mics": [...], "cameras": [...], "notes": {"mics", "cameras"}}. Device names only.
 POST /devices/sensitivity  {"mic": device name, "sensitivity": 0..100 or null} -> one mic's sensitivity in
                 pack.toml (null: back to audio.sensitivity); {"default": 0..100} -> audio.sensitivity, for every
-                mic without its own. The microphone service applies either live, without restarting anything. This machine only, same-origin JSON.
+                mic without its own. The microphone service applies either live, without restarting anything. This
+                machine only, same-origin JSON.
 POST /devices/camera  {"index": a camera's index from GET /devices, "on": bool} -> adds or removes its [[device]] in
                 config/devices.toml and restarts continuum-capture. This machine only, same-origin JSON.
                 {index, flip}, {index, auto_exposure}, {index, exposure_target}, or {index, width, height, fps} saves
@@ -72,7 +73,8 @@ def _scan() -> _MicDiscovery:
 def _discover_mics(*, fresh: bool = False) -> tuple[list[tuple[Any, ...]], dict[str, str]]:
     """Only hardware discovery is cached, never selection, gain, sensitivity, or broker liveness. Mutations ask for
     fresh discovery before resolving their target; concurrent readers share one scan instead of spawning children.
-    A read of a discovery older than DISCOVERY_FRESH_S answers from it at once and scans again in the background: the scan is a child process that took about a second, and Settings > Devices waited for it every 2 s.
+    A read of a discovery older than DISCOVERY_FRESH_S answers from it at once and scans again in the background: the
+    scan is a child process that took about a second, and Settings > Devices waited for it every 2 s.
     """
     global _mic_discovery, _rescan
     with _discovery_lock:

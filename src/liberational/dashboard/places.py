@@ -3,7 +3,7 @@
     GET /places                        {places: [{id, name, named, plan, plan_source, machine_newer, revision,
                                        last_visit, last_activity, walks, unwalked_rooms}]}: every place
                                        (memory/places.py), how many walkthroughs went into it, and the plan's rooms
-                                       no LiDAR walk covered (`unwalked_rooms`, null when it can't tell), its plan in the
+                                       no LiDAR walk covered (`unwalked_rooms`, null when it can't tell, #3), its plan in the
                                        floorplan DSL (the owner's correction if there is one, else the newest machine
                                        plan; null before the first), when the owner was last there (a `place.visit`,
                                        the rig's), and when anyone was last seen there by its fixed cameras (a
@@ -54,8 +54,9 @@ every span / MAX_POINTS seconds, with its last; the reader first thins to FINE_S
 
 Points come back in the frame of the plan the tab draws (the place's `plan_revision`: records are placed in it when
 written, and the reader moves one placed in an earlier frame onto it), turned onto the owner's page when the plan is drawn on one (an imported plan, upright and with
-the page's handedness: `GET /places` gives that page's DSL as `plan`; the 3D scene keeps the plan frame). A point that can't be put in that frame (`in_frame` false: a camera that revision doesn't
-register) would land off the drawn plan, so it's left out; a room-only span is kept either way.
+the page's handedness: `GET /places` gives that page's DSL as `plan`; the 3D scene keeps the plan frame). A point that
+can't be put in that frame (`in_frame` false: a camera that revision doesn't register) would land off the drawn plan, so
+it's left out; a room-only span is kept either way.
 """
 
 import math
@@ -109,7 +110,7 @@ def walks(rev: places.Revision | None) -> int:
 
 def unwalked_rooms(state: Path, place: places.Place) -> list[dict[str, str]] | None:
     """The rooms of `place`'s plan (its `plan`, in its `plan_revision`'s frame) that no LiDAR walk has covered
-    (`plan_import.room_coverage`): each room's id and name, in plan order. A place never walked has every room
+    (`plan_import.room_coverage`, #3): each room's id and name, in plan order. A place never walked has every room
     unwalked. None when it can't be told: no plan, a plan the reader can't parse, or (for a walked place) no fused map
     in the plan's frame to look in."""
     from liberational.spatial import fuse, ply  # the fused map reader; only this needs it
@@ -182,7 +183,7 @@ def listing(state: Path, now: float | None = None) -> Reply:
                 "machine_plan": places.machine_plan(state, rev) if p.plan_source == "owner" and rev else None,
                 "last_visit": last.get(p.id),
                 "last_activity": seen.get(p.id),
-                # walk coverage: how many walkthroughs went in, and the plan's rooms no LiDAR walk covered
+                # walk coverage (#3): how many walkthroughs went in, and the plan's rooms no LiDAR walk covered
                 "walks": walks(rev),
                 "unwalked_rooms": unwalked_rooms(state, p),
             }
