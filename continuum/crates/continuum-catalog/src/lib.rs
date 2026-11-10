@@ -9,6 +9,7 @@
 //! Calls are synchronous: redb is synchronous with one writer, and the broker runs the catalog on its own blocking
 //! thread. Nothing reads a clock: a call that records a time is given it (`now_ns`).
 
+mod availability;
 mod codec;
 mod coverage;
 mod memory;
@@ -120,6 +121,14 @@ pub trait Catalog: Send + Sync {
     /// Invalid byte budget, catalog storage, or tracking-integrity failure.
     fn save_restart_projection(&self, _expected: RestartStamp, _bytes: &[u8]) -> Result<bool> {
         Ok(false)
+    }
+
+    /// Reads streams, visible payload spans and tiers, cut chunk slots, stale Tier 0 IDs, and stage coverage from
+    /// one atomic snapshot when this catalog supports bulk cold-start scanning.
+    /// # Errors
+    /// Catalog storage or record-integrity failure.
+    fn availability_snapshot(&self) -> Result<Option<AvailabilitySnapshot>> {
+        Ok(None)
     }
 
     /// Original native microphone inputs and explicit unknown history, independent of current copies.

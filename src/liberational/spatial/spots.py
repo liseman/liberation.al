@@ -1,7 +1,7 @@
 """A camera's pose from the spot the owner gave it on the plan (part of spatial memory).
 
-The owner's plan of a place can hold each fixed camera's spot: `x-camera <camera> at x,y [height m] [yaw deg]
-[fov deg]` (spatial/plan_import.py reads them). A spot is taught state, and it is enough to place the people that
+The owner's plan of a place can hold each fixed camera's spot: where it is, with its height, its facing, and its
+field of view when the owner gave them (spatial/plan_scene.py holds them; spatial/plan_import.py reads them). A spot is taught state, and it is enough to place the people that
 camera sees on the plan's floor with no map at all: where the camera is, how high, and which way it faces come from
 the spot, its focal and lens are the held ones (spatial/lens.py `held`; the spot's `fov` when none is held), and the
 one thing a spot doesn't say, how far the camera is tilted, is worked out from the people it sees (`aim`).

@@ -6,6 +6,7 @@ import math
 import numpy as np
 import pytest
 
+import plans
 from liberational import segment_log as S
 from liberational.dashboard import places as view
 from liberational.memory import places
@@ -15,7 +16,9 @@ from liberational.spatial import positions as P
 T = 1_800_000_000.0
 SIZE = (512, 288)
 FOCAL = 144.0  # pixels: the bottom middle of the frame drops a metre a metre from a level camera
-ROOMS = 'plan "Home" walls 0.2/0.1\nroom r1 "Living" other rect 0,0 4x3\nroom r2 "Hall" other rect 0,3 4x2\n'
+ROOMS = plans.scene(
+    'plan "Home" walls 0.2/0.1\nroom r1 "Living" other rect 0,0 4x3\nroom r2 "Hall" other rect 0,3 4x2\n'
+)
 
 
 def walkers(pitch, roll=0.0, above=2.0, n=120, seed=0, across=3.0):
@@ -102,7 +105,7 @@ def test_a_bent_person_isnt_taken_for_upright():
 
 
 def test_spots_are_read_from_a_plan_with_nothing_else_in_it():
-    text = "x-camera hall at 1,2 height 2.1 yaw 90 fov 100\nx-camera porch at 3,4\nx-camera broken yaw\n# x-camera no at 0,0"
+    text = plans.scene("x-camera hall at 1,2 height 2.1 yaw 90 fov 100\nx-camera porch at 3,4\n")
     assert plan_import.spots(text) == (
         plan_import.Camera("hall", (1.0, 2.0), 2.1, 90.0, 100.0),
         plan_import.Camera("porch", (3.0, 4.0)),

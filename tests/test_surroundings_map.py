@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+import plans
 from liberational import config as cfg
 from liberational.memory import places
 from liberational.spatial import cameras, lens, ply, splat_runner, splats, spots
@@ -595,7 +596,9 @@ def test_the_summary_gives_the_sampled_cameras_recent_looks_from_the_samplers_st
 
 # ---- a camera with a spot on the owner's plan (#288)
 
-ROOMS = 'plan "Home" walls 0.2/0.1\nroom r1 "Living" other rect 0,0 4x3\nroom r2 "Hall" other rect 0,3 4x2\n'
+ROOMS = plans.scene(
+    'plan "Home" walls 0.2/0.1\nroom r1 "Living" other rect 0,0 4x3\nroom r2 "Hall" other rect 0,3 4x2\n'
+)
 #: A camera 1 m up at (2, 1.5) on the plan, level, looking along the plan's +x: its right is the plan's -y, its
 #: down the plan's -z.
 LOOKING_EAST = (0.0, 0.0, 1.0, 2.0, -1.0, 0.0, 0.0, 1.5, 0.0, -1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
@@ -763,8 +766,8 @@ def test_a_spot_view_whose_floor_is_far_off_is_parked_as_such(models, state):
 # ---- spot verification and bounded refinement on a made-up room with known true pose (#292)
 
 
-def _synthetic_plan(cx: float = 0.65, cy: float = 0.75, cz: float = 1.65, yaw: float = 125.0) -> str:
-    return (
+def _synthetic_plan(cx: float = 0.65, cy: float = 0.75, cz: float = 1.65, yaw: float = 125.0) -> plans.Plan:
+    return plans.scene(
         'plan "Synthetic" walls 0.2/0.1\n'
         'room r1 "Main" living rect 0,0 5x4\n'
         'room r2 "Side" other rect 5,0 3.5x4\n'

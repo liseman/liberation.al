@@ -34,7 +34,7 @@ from liberational import config as cfg
 from liberational import json_state
 from liberational import segment_log as S
 from liberational.memory import places
-from liberational.spatial import floorplan, positions
+from liberational.spatial import plan_scene, positions
 
 PRODUCER = "places reset v1"
 WALK_IMPORTS = "walk_imports"  # under paths.state: what the Places page's walk import kept
@@ -70,9 +70,7 @@ def stream_dirs(state: Path) -> list[Path]:
 def plan(state: Path) -> Plan:
     """What a reset of `state` would do."""
     found = tuple(places.places(state))
-    kept = tuple(
-        Kept(p, len(floorplan.rooms_from_dsl(p.plan or ""))) for p in found if p.plan_source == "owner" and p.plan
-    )
+    kept = tuple(Kept(p, len(plan_scene.rooms_of(p.plan or ""))) for p in found if p.plan_source == "owner" and p.plan)
     base = places.root(state)
     inside = sorted(base.iterdir()) if base.is_dir() else []
     walks = state / WALK_IMPORTS

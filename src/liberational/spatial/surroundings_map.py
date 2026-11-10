@@ -743,7 +743,7 @@ def step(
 
 
 def _plan_text(state_dir: Path, place: str, plans: Mapping[str, str] | None) -> str | None:
-    """`place`'s owner plan as saved, or None when it has none."""
+    """`place`'s owner plan as saved (a scene's text, spatial/plan_scene.py), or None when it has none."""
     if plans is not None:
         return plans.get(place)
     held = places.get(state_dir, place)
@@ -752,10 +752,9 @@ def _plan_text(state_dir: Path, place: str, plans: Mapping[str, str] | None) -> 
 
 @dataclass
 class _PlanAt:
-    """A place's owner plan for one step: its text, as parsed (`plan_lineup.read_plan`; None when it doesn't read),
+    """A place's owner plan for one step: its scene as parsed (`plan_lineup.read_plan`; None when it doesn't read),
     and its `spot_check.prepare_plan` geometry, made the first time a view of it needs a search."""
 
-    text: str | None
     parsed: Any
     _geom: spot_check.PlanGeometry | None = None
 
@@ -767,17 +766,36 @@ class _PlanAt:
         return self._geom
 
 
-def _check_basis(plan_text: str | None, camera: str, held: lens.Held | None, focal: float, size: Sequence[int]) -> str:
-    """What a camera's kept spot check depends on besides its spot's pose: the plan, the camera's configured lens and
-    held intrinsics, the focal of its undone picture (a share of its width), and its size, with
-    `spot_check.CHECK_VERSION`. A kept check made on another basis is searched again."""
+def _plan_shape(plan: Any) -> list[Any]:
+    """What a spot check reads of a parsed plan (`plan_import.Parsed`, read from the place's scene): its wall
+    thicknesses, its rooms' outlines, and its openings. Nothing else the scene keeps (its title, its records, other
+    cameras' spots) changes the check."""
+    from liberational.spatial import plan_import
+
+    if not isinstance(plan, plan_import.Parsed):
+        return []
+    return [
+        [round(float(v), 6) for v in plan.walls],
+        [[r.id, [[round(float(x), 6), round(float(y), 6)] for x, y in r.polygon]] for r in plan.rooms],
+        sorted(
+            [o.kind, round(float(o.at[0]), 6), round(float(o.at[1]), 6), round(float(o.width), 6)]
+            for o in plan.openings
+        ),
+    ]
+
+
+def _check_basis(plan: Any, camera: str, held: lens.Held | None, focal: float, size: Sequence[int]) -> str:
+    """What a camera's kept spot check depends on besides its spot's pose: the plan's walls, rooms, and openings
+    (`_plan_shape`, from its scene), the camera's configured lens and held intrinsics, the focal of its undone picture
+    (a share of its width), and its size, with `spot_check.CHECK_VERSION`. A kept check made on another basis is
+    searched again."""
     import hashlib
 
     held_part = None if held is None else [round(held.focal, 6), round(held.division, 6)]
     raw = json.dumps(
         [
             spot_check.CHECK_VERSION,
-            plan_text or "",
+            _plan_shape(plan),
             lens.as_registered(camera),
             held_part,
             round(focal / max(size[0], 1), 5),
@@ -890,10 +908,10 @@ def _step(
             assert focal is not None
             if spot.place not in plan_at:
                 text = _plan_text(state_dir, spot.place, plans)
-                plan_at[spot.place] = _PlanAt(text, plan_lineup.read_plan(text) if text else None)
+                plan_at[spot.place] = _PlanAt(plan_lineup.read_plan(text) if text else None)
             plan_here = plan_at[spot.place]
             depth_here = _read_depth(_depth_path(store, f.id))
-            check_basis = _check_basis(plan_here.text, f.camera, held.get(f.camera), focal, depth_here.shape[::-1])
+            check_basis = _check_basis(plan_here.parsed, f.camera, held.get(f.camera), focal, depth_here.shape[::-1])
             kept_check = kept_checks.get(f.camera)
             known = (
                 kept_check[2]

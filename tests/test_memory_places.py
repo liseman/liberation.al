@@ -5,6 +5,7 @@ from unittest.mock import create_autospec
 
 import pytest
 
+import plans
 from liberational import knowledge, knowledge_cli
 from liberational import segment_log as S
 from liberational.memory import places
@@ -12,9 +13,9 @@ from liberational.people import registry
 from liberational.see import zones
 
 T = 1_800_000_000.0
-PLAN_A = 'plan "Home" walls 0.2/0.1\nroom living "Living" living rect 0,0 5x4\n'
+PLAN_A = plans.scene('plan "Home" walls 0.2/0.1\nroom living "Living" living rect 0,0 5x4\n')
 PLAN_B = PLAN_A + 'room wc "WC" wc rect 5,0 1.2x2\n'
-OWNER_PLAN = 'plan "Home" walls 0.2/0.1\nroom living "Living room" living rect 0,0 5.2x4\n'
+OWNER_PLAN = plans.scene('plan "Home" walls 0.2/0.1\nroom living "Living room" living rect 0,0 5.2x4\n')
 UNKNOWN = "0190a000-0000-7000-8000-000000000000"
 
 

@@ -9,6 +9,7 @@ from unittest.mock import create_autospec
 
 import pytest
 
+import plans
 import test_network_worker as net
 from asking import query
 from liberational import config as cfg
@@ -211,7 +212,9 @@ def test_a_summary_row_and_a_wifi_device_say_who_made_them(home, monkeypatch):
     assert [d["vendor"] for d in reg.comings(NOW - 60, NOW + 60)["devices"]] == ["Acme Radios"]
 
 
-PLAN = 'plan "Home" walls 0.2/0.1\nroom r1 "Living room" other rect 0,0 4x6\nroom r2 "Kitchen" kitchen rect 4,0 3x3\n'
+PLAN = plans.scene(
+    'plan "Home" walls 0.2/0.1\nroom r1 "Living room" other rect 0,0 4x6\nroom r2 "Kitchen" kitchen rect 4,0 3x3\n'
+)
 
 
 def a_place(state: Path) -> str:

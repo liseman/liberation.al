@@ -12,7 +12,6 @@
       "!**/node_modules",
       "!index.html",
       "!**/player/generated",
-      "!**/vendor",
       "!**/plan-editor/pascal.css",
       "!public/pascal"
     ]
