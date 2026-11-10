@@ -11,7 +11,7 @@ import pytest
 
 from liberational import config as cfg
 from liberational import segment_log
-from liberational.dashboard import server
+from liberational.dashboard import context, server
 from liberational.people import face_photos, face_shots
 from liberational.vision import faces as fid
 
@@ -100,7 +100,7 @@ def test_a_group_whose_photo_couldnt_be_cut_waits_for_new_sightings(state, visio
 def strip(state, serve, monkeypatch, tmp_path):
     """GET a group's strip from a served dashboard: (its reply, the crop jobs it queued). No crop is cut here."""
     monkeypatch.setattr(server, "DASH_PASSWORD", "")
-    monkeypatch.setattr(server, "STATE", tmp_path / "state")
+    monkeypatch.setattr(context, "STATE", tmp_path / "state")
     jobs = face_shots.Pending(lambda key: None)
     monkeypatch.setattr(server, "_crop_jobs", jobs)
     base = serve(server.H)

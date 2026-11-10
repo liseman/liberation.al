@@ -10,7 +10,7 @@ import pytest
 
 from liberational import config as cfg
 from liberational.assistant import voice
-from liberational.dashboard import server
+from liberational.dashboard import context, server
 from liberational.memory import timeline
 from liberational.speech import clone_say
 
@@ -18,7 +18,7 @@ from liberational.speech import clone_say
 @pytest.fixture
 def empty_api(tmp_path, monkeypatch, serve):
     state = tmp_path / "state"
-    old_state = server.STATE
+    old_state = context.STATE
     for name, value in vars(server).copy().items():
         if isinstance(value, Path) and value.is_relative_to(old_state):
             monkeypatch.setattr(server, name, state / value.relative_to(old_state))

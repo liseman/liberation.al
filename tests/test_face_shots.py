@@ -305,10 +305,10 @@ def test_background_worker_shares_the_existing_decode_cap(tmp_path, monkeypatch)
 
 
 def test_revision_revalidation_needs_no_decode_slot_and_marks_the_crop_ready(tmp_path, monkeypatch, vision):
-    from liberational.dashboard import server
+    from liberational.dashboard import context, server
 
     row = vision.face(1_800_000_000, "cam0", "Alice", 0.8)
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     monkeypatch.setattr(server, "_shot_revision", lambda state=None: "1")
     monkeypatch.setattr(server, "SHOT_WAIT_S", 0)
     monkeypatch.setattr(server, "_crop_jobs", face_shots.Pending(server._crop_process))
@@ -360,9 +360,9 @@ def test_background_worker_starts_once_at_low_priority_and_stops(tmp_path):
 
 
 def test_group_ready_counts_refresh_without_rebuilding_the_identity_snapshot(tmp_path, monkeypatch):
-    from liberational.dashboard import server
+    from liberational.dashboard import context, server
 
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     jobs = face_shots.Pending(lambda key: face_shots.CropResult(True))
     monkeypatch.setattr(server, "_crop_jobs", jobs)
     shots = [{"id": sid, "ts": t, "url": f"/faces/shot/{sid}.jpg"} for t, sid in enumerate("abcdefgh")]
@@ -392,10 +392,10 @@ def test_group_ready_counts_refresh_without_rebuilding_the_identity_snapshot(tmp
 
 
 def test_pet_photo_readiness_preserves_video_metadata_and_counts_each_track_once(tmp_path, monkeypatch):
-    from liberational.dashboard import server
+    from liberational.dashboard import context, server
     from liberational.people import pet_shots
 
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     monkeypatch.setattr(server, "_crop_jobs", face_shots.Pending(lambda key: face_shots.CropResult(True)))
     face_shots.write(tmp_path, "a", "0", b"jpeg", pet_shots.KIND)
     face_shots.write(tmp_path, "a", "0", b"jpeg", pet_shots.KIND + "_grid")
@@ -417,10 +417,10 @@ def test_pet_photo_readiness_preserves_video_metadata_and_counts_each_track_once
 
 
 def test_pet_video_preparation_is_independent_of_photo_availability(tmp_path, monkeypatch, vision):
-    from liberational.dashboard import server
+    from liberational.dashboard import context, server
     from liberational.people import pet_shots
 
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     jobs = face_shots.Pending(server._crop_process)
     monkeypatch.setattr(server, "_crop_jobs", jobs)
     face_shots.write(tmp_path, "pet-look", "0", b"pet-photo", pet_shots.KIND)
@@ -446,9 +446,9 @@ def test_pet_video_preparation_is_independent_of_photo_availability(tmp_path, mo
 
 @pytest.mark.parametrize("kind,pixels", [("shots", 160), ("pet_shots", 192)])
 def test_grid_variant_uses_saved_jpeg_and_keeps_detail_bytes(tmp_path, monkeypatch, kind, pixels):
-    from liberational.dashboard import server
+    from liberational.dashboard import context, server
 
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     monkeypatch.setattr(server, "_shot_revision", lambda state=None: "0")
     source = np.random.default_rng(1).integers(0, 256, (pixels, pixels, 3), dtype=np.uint8)
     ok, encoded = cv2.imencode(".jpg", source)
@@ -476,10 +476,10 @@ def test_grid_http_waits_for_background_variant_and_never_promotes_old_revision(
 ):
     import http.client
 
-    from liberational.dashboard import server
+    from liberational.dashboard import context, server
 
     revision = ["0"]
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     monkeypatch.setattr(server, "_shot_revision", lambda state=None: revision[0])
     jobs = face_shots.Pending(server._crop_process)
     monkeypatch.setattr(server, "_crop_jobs", jobs)
@@ -514,9 +514,9 @@ def test_grid_http_waits_for_background_variant_and_never_promotes_old_revision(
 
 
 def test_original_detail_counts_and_pet_main_photo_stay_ready_while_grid_variant_is_pending(tmp_path, monkeypatch):
-    from liberational.dashboard import server
+    from liberational.dashboard import context, server
 
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     monkeypatch.setattr(server, "_crop_jobs", face_shots.Pending(server._crop_process))
     face_shots.write(tmp_path, "face-a", "0", b"jpeg")
     face_shots.write(tmp_path, "face-b", "0", b"jpeg")

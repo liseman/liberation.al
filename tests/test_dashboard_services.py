@@ -15,7 +15,7 @@ import pytest
 from liberational import config as cfg
 from liberational import proc_table
 from liberational import services as s
-from liberational.dashboard import server
+from liberational.dashboard import context, server
 
 
 def proc(pid, cmdline):
@@ -718,7 +718,7 @@ def test_stats_read_the_cpu_the_same_from_any_request_thread(monkeypatch):
 def test_service_history_get_keeps_unknown_time_and_uses_the_selected_bounded_window(
     base, tmp_path, monkeypatch, path, hours
 ):
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     monkeypatch.setattr(s, "_history_cache", {})
     monkeypatch.setattr(s, "DARWIN", False)
     monkeypatch.setattr(s, "declared", lambda: {"listen": {}})
@@ -744,7 +744,7 @@ def test_service_history_refuses_invalid_windows_before_reading_any_metadata(bas
 
 
 def test_service_history_missing_sample_fallback_is_unavailable_not_healthy(base, tmp_path, monkeypatch):
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     monkeypatch.setattr(s, "_history_cache", {})
     monkeypatch.setattr(s, "DARWIN", True)
     monkeypatch.setattr(s, "declared", lambda: {"listen": {}})

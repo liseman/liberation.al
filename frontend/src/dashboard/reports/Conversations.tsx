@@ -141,8 +141,8 @@ export function Conversations({ arg }: { arg: string | null }) {
             </Stack>
             {words.length > 0 && (
               <Stack gap="xs">
-                {/* One week can't show change, so until there are two the words are a ranked list (#2621 board,
-                    idea 4); filler is left out either way. */}
+                {/* One week can't show change, so until there are two the words are a ranked list;
+                    filler is left out either way. */}
                 {weeks.length < 2 ? (
                   <>
                     <Title order={3}>Words that come up</Title>

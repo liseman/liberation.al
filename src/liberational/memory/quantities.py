@@ -332,8 +332,8 @@ def record(state: pathlib.Path, lines: Iterable[tuple[dict[str, Any], PersonId |
         kept = [e for _, e in keyed if e.subject is None or reg.person(PersonId(e.subject)) is not None]
         if kept:
             reg.log.append(kept)
-            # Forgotten between that check and the write: the broker's log has no receipt to refuse the event with
-            # (v1's append_once had), so take it out again at once, under the purge's own reason.
+            # Forgotten between that check and the write: the broker's log has no receipt to refuse the event with,
+            # so take it out again at once, under the purge's own reason.
             gone = [e for e in kept if e.subject is not None and reg.person(PersonId(e.subject)) is None]
             if gone:
                 reg.log.purge(Selector(event_ids=frozenset(e.event_id for e in gone)), reason="PersonForgotten")

@@ -7,7 +7,7 @@ import json
 import pytest
 
 from liberational import speech_log
-from liberational.dashboard import server
+from liberational.dashboard import context, server
 from liberational.people import registry, transcript_view
 from speech_fake import fake
 from voices import write_voices
@@ -45,7 +45,7 @@ def lines(tmp_path, monkeypatch):
             _line(1002.0, "third", speaker="multiple speakers", sid=None, sim=None, multi_speaker=True),
         ]
     )
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     monkeypatch.setattr(server, "REFINE_LOG", tmp_path / "refine_log.jsonl")
     return t
 
@@ -85,7 +85,7 @@ def test_undo_one_line_restores_it_exactly(lines):
 
 
 def test_undo_never_brings_a_deleted_person_back(lines):
-    reg = registry.at(server.STATE)
+    reg = registry.at(context.STATE)
     for ts in (1000.0, 1001.0):
         server.speakers_refine("assign", {"ts_start": ts, "name": "Dana"})
         server.speakers_refine("assign", {"ts_start": ts, "name": "Carly"})
@@ -102,7 +102,7 @@ def test_undo_never_brings_a_deleted_person_back(lines):
 
 
 def test_undo_follows_a_rename(lines):
-    reg = registry.at(server.STATE)
+    reg = registry.at(context.STATE)
     server.speakers_refine("assign", {"ts_start": 1000.0, "name": "Dana"})
     server.speakers_refine("assign", {"ts_start": 1000.0, "name": "Carly"})
     reg.rename("Dana", "Dana Cole", "dashboard")

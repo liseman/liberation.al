@@ -22,7 +22,7 @@ from PIL import Image
 
 from liberational import config as cfg
 from liberational import segment_log, vision_log
-from liberational.dashboard import server
+from liberational.dashboard import context, server
 from liberational.domain.identity import Basis
 from liberational.people import registry, voice_edits
 from liberational.see import face_boxes
@@ -64,7 +64,7 @@ CLIP = np.eye(1, segment_log.VOICE_DIM, 1, dtype=np.float32)[0]  # what an uploa
 
 
 def in_process_voice_edits(monkeypatch):
-    """Puts people/voice_edits.py in place of the dashboard's child process, run on server.STATE with the embedding
+    """Puts people/voice_edits.py in place of the dashboard's child process, run on context.STATE with the embedding
     store and the voice model stood in for (an enroll files CLIP). Returns the commands it was given."""
     ran = []
 
@@ -82,7 +82,7 @@ def in_process_voice_edits(monkeypatch):
             ran.append([*map(str, c)])
             with redirect_stdout(io.StringIO()) as out:
                 try:
-                    voice_edits.main(["--state-dir", str(server.STATE), *ran[-1]])
+                    voice_edits.main(["--state-dir", str(context.STATE), *ran[-1]])
                 except SystemExit as e:
                     return False, str(e)
             outs.append(out.getvalue().strip())
@@ -94,7 +94,7 @@ def in_process_voice_edits(monkeypatch):
 
 @pytest.fixture
 def ran(monkeypatch):
-    """The voice edits, run in process on server.STATE. Returns the commands they were given."""
+    """The voice edits, run in process on context.STATE. Returns the commands they were given."""
     return in_process_voice_edits(monkeypatch)
 
 
@@ -122,7 +122,6 @@ def state(tmp_path, monkeypatch, pack, faces, ran):
     state = tmp_path / "state"
     state.mkdir()
     files = {
-        "STATE": ".",
         "CONTACTS_FILE": "contacts.json",
         "PEOPLE_ADDED": "people_added.json",
         "INBOX_SKIPS": "inbox_skips.json",
@@ -131,6 +130,7 @@ def state(tmp_path, monkeypatch, pack, faces, ran):
     }
     for name, path in files.items():
         monkeypatch.setattr(server, name, state / path)
+    monkeypatch.setattr(context, "STATE", state)
     monkeypatch.setattr(server, "_face_last_seen_at", lambda: {"alice": (300.0, "cam0")})
     with cfg.override({"paths": {"state": str(state), "faces": str(tmp_path / "faces")}}):
         yield state
@@ -377,7 +377,7 @@ def test_voice_commands_run_in_order_in_a_child_and_stop_at_a_failure(monkeypatc
 
     monkeypatch.setattr(server, "subprocess", SimpleNamespace(run=run))
     ok, _ = server._speaker_cmds([["label", 2, "bad"], ["label", 3, "Dana"]])
-    voices = [server.PY, "-m", "liberational.people.voice_edits", "--state-dir", str(server.STATE)]
+    voices = [server.PY, "-m", "liberational.people.voice_edits", "--state-dir", str(context.STATE)]
     assert ok is False
     assert ran == [[*voices, "label", "2", "bad"]]
 
@@ -855,8 +855,8 @@ def test_selected_face_claim_failure_withdraws_only_its_new_photo(people, faces,
     for name, data in old.items():
         (folder / name).write_bytes(data)
     old_ref = registry.photo("1000000000000")
-    registry.at(server.STATE).claim(old_ref, "Dana Cole", Basis.OWNER_TAG, "dashboard")
-    old_person = registry.at(server.STATE).person_of(old_ref).person
+    registry.at(context.STATE).claim(old_ref, "Dana Cole", Basis.OWNER_TAG, "dashboard")
+    old_person = registry.at(context.STATE).person_of(old_ref).person
     recorded = []
     record = server._record_person_photo
 
@@ -873,8 +873,8 @@ def test_selected_face_claim_failure_withdraws_only_its_new_photo(people, faces,
     assert code == 404
     assert {p.name: p.read_bytes() for p in folder.glob("*.jpg")} == old
     assert len(recorded) == 1
-    assert registry.at(server.STATE).person_of(registry.photo(recorded[0])).person is None
-    assert registry.at(server.STATE).person_of(old_ref).person == old_person
+    assert registry.at(context.STATE).person_of(registry.photo(recorded[0])).person is None
+    assert registry.at(context.STATE).person_of(old_ref).person == old_person
     assert faces.named == []
 
 

@@ -127,7 +127,8 @@ fn a_wider_gap_joins_runs_left_by_narrower_ones_end_to_end<C: Catalog>(c: C) {
     let (cam, _) = graph(&c);
     c.mark_commit_clock(100).unwrap();
     let by = c.commit_seq_at(100).unwrap();
-    // Codex's case: [10, 11), [20, 21), and [30, 31) aged one at a time with no gap, then [0, 1) with a gap of 10.
+    // A case from review: [10, 11), [20, 21), and [30, 31) aged one at a time with no gap, then [0, 1) with a gap of
+    // 10.
     for (n, purge) in [(2, 730), (3, 731), (4, 732)] {
         let exact = PurgeSelector::AgeOut { ids: vec![id(n)], committed_by_seq: by, merge_gap_ns: 0 };
         c.purge(exact, "aged", "", id(purge), 5).unwrap();

@@ -5,7 +5,7 @@ from unittest.mock import create_autospec
 import numpy as np
 import pytest
 
-from liberational.dashboard import server
+from liberational.dashboard import context, server
 from liberational.people import face_nots, registry
 from liberational.vision import faces
 
@@ -15,7 +15,7 @@ def people(tmp_path, monkeypatch):
     reg = registry.at(tmp_path)
     reg.ensure("Kara", "test")
     reg.ensure("Sam", "test")
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     yield tmp_path
     registry.close_all()
 
