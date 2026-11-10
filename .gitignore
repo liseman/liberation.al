@@ -27,7 +27,8 @@ mise.local.toml
 # local editor settings (machine paths, not shared project config)
 .vscode/
 
-# agent scratch worktrees (Claude Code and similar)
+# agent worktrees (one per task, see AGENTS.md) and Claude Code's own
+/.worktrees/
 .claude/worktrees/
 
 # agent scratch space for probes and experiments (see AGENTS.md)

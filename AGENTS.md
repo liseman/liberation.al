@@ -93,7 +93,7 @@ has the full list. The short version:
 
 ## Rules
 
-**Work in your own worktree.** A worker edits only its own worktree under the sibling `liberational-wt/` directory, on a branch off origin/main, and starts each command with an explicit `cd` into that worktree. The live checkout is read only. No command that discards changes (`git reset --hard`, `git checkout -- .`, `git clean`) runs in any checkout.
+**Work in your own worktree.** A worker edits only its own worktree under `.worktrees/<name>` at the repository root (gitignored, so Ruff, ty, and the hooks skip it), on a branch off origin/main (`git worktree add .worktrees/<name> -b <area>/<description> origin/main`), and starts each command with an explicit `cd` into that worktree. The live checkout is read only. No command that discards changes (`git reset --hard`, `git checkout -- .`, `git clean`) runs in any checkout.
 
 **Examples illustrate goals.** A request's concrete examples (squats, walk-bys, "when did I last see Bob") show what a goal means; they are never the spec. Build and file work for the general goal, such as answering any question about what happened on video, or analyzing events in general, and use the example as one test case.
 
