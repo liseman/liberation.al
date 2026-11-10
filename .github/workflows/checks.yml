@@ -1,7 +1,8 @@
 # Hosted checks, a backstop that never blocks a merge (CONTRIBUTING.md, "Checks before merging"). They check only
 # what a change touches, against the pull request's base or, for a push to main, the previous commit: Ruff and ty on
 # the changed Python and the tests that cover it (tools/test_changed.py, the mapping mise run test-changed uses), the
-# frontend build and the Vitest tests related to the changed files, and cargo test for the Continuum crates touched.
+# frontend build and the Vitest tests related to the changed files, cargo test for the Continuum crates touched, and
+# the package's wheel, built with the frontend and checked for what the code reads (tools/check_wheel.py).
 # A change to nothing but docs runs none of it. Anything that needs a GPU, models, or Ollama stays local.
 name: checks
 
@@ -176,6 +177,49 @@ jobs:
       # vitest related on the changed files under frontend/src/ (nothing, and it says so, when there are none).
       - name: Tests related to the change
         run: python3 tools/test_changed.py --base "$BASE" --only frontend
+
+  # The wheel a packaged install is made from: the frontend build, then the wheel, checked for what the code reads
+  # (tools/check_wheel.py), then installed alone in a clean environment, outside the checkout, where its settings
+  # and its model list must read. Starting the dashboard needs every dependency and is the release workflow's job.
+  wheel:
+    needs: changes
+    if: needs.changes.outputs.python == 'true' || needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: node # the newest release, as mise.toml's node = "latest"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          python-version: "3.14"
+
+      - name: Build the frontend
+        working-directory: frontend
+        run: npm ci && npm run build
+
+      - name: Build the wheel and check what it carries
+        run: |
+          set -euo pipefail
+          uv build --wheel --out-dir dist
+          python3 tools/check_wheel.py dist
+
+      - name: Read the settings and the model list from the installed wheel, outside the checkout
+        run: |
+          set -euo pipefail
+          uv venv "$RUNNER_TEMP/installed"
+          uv pip install --python "$RUNNER_TEMP/installed/bin/python" --no-deps dist/*.whl tomlkit
+          cd "$RUNNER_TEMP"
+          installed/bin/pack-config > settings.json
+          installed/bin/pack-config ports.dashboard
+          installed/bin/pack-models --list
 
   rust:
     needs: changes

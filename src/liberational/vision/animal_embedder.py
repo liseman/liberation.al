@@ -21,7 +21,7 @@ ends. The model's `pooler_output` is the final layer-normalized CLS token, not a
 (https://huggingface.co/docs/transformers/model_doc/dinov2).
 
 The weights are installed by `mise run models`, which checks them against the entry's `sha256`
-(tools/fetch_models.py), and are never downloaded here. It runs where the animal check does
+(fetch_models.py), and are never downloaded here. It runs where the animal check does
 (`vision.animal_models_device`). Configured weights and preprocessing use the same revision; an explicitly
 supplied repository or local snapshot does not inherit the configured model's revision.
 """

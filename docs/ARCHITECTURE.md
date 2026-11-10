@@ -70,6 +70,13 @@ in site-packages isn't, and has no checkout. `PACK_ROOT` names a directory to us
 owner's files, from either. The installed directories follow `XDG_CONFIG_HOME` and `XDG_DATA_HOME`, and on macOS
 both are `~/Library/Application Support/liberational`. The paths in the tables below are a checkout's.
 
+The wheel carries everything the running system reads that isn't the owner's: the Python package, those four
+resource files, the frontend build (`dashboard/static/app/`, gitignored, so it is in a wheel only when it was built
+first), and the commands, the model fetcher (`pack-models`) among them. `mise run wheel` builds the frontend, then
+the wheel into `dist/`, and runs `tools/check_wheel.py`, which fails on a wheel that lacks a resource, the frontend's
+page or any file its manifest names, or a command. The hosted `wheel` check does the same and then reads the settings
+and the model list from the wheel installed alone, outside the checkout.
+
 | Store | Path | What's in it | Kept |
 |---|---|---|---|
 | Recordings | `state/continuum/tier/`, `tier2/` | Camera video and microphone audio, as chunk files the broker catalogs | Video for 30 days (the video window, below), audio indefinitely less silent audio past 30 days, both until a reset |

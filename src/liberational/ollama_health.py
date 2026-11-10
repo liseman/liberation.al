@@ -43,7 +43,7 @@ TAGS_CACHE_S = 300.0
 
 
 def pull(model: str) -> str:
-    """How to install a missing model: a -t<N> tag is made from its base by the models task (tools/fetch_models.py)."""
+    """How to install a missing model: a -t<N> tag is made from its base by the models task (fetch_models.py)."""
     if re.fullmatch(r".+-t[1-9][0-9]*", model):
         return f"make it with `mise run models` (it's {model.rsplit('-t', 1)[0]} with fewer CPU threads)"
     return f"pull it with `ollama pull {model}`"

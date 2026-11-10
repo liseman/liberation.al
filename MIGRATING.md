@@ -5,6 +5,20 @@ This guide covers the current Continuum installation. Fresh setup is in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). The old genericize and v1 import
 procedures are retired. Do not run an old catch-up script against current data.
 
+## The model fetcher is a command: `pack-models`
+
+`tools/fetch_models.py` moved into the package as `pack-models`, so an installed package has it with no checkout.
+`mise run models` and `mise run setup` run it as before. Anything that ran the script by its path runs the module,
+which works straight after the pull:
+
+```sh
+.venv/bin/python -m liberational.fetch_models --list
+```
+
+The `pack-models` command itself appears in `.venv/bin` the next time the environment is synced (`mise run models`
+does it; so does the sync under "Build and restart matching components"). Nothing stored changes, and no service
+needs a restart.
+
 ## Continuum's daemons are found in the environment, not the checkout
 
 Nothing builds a path from the checkout to a program any more. `services/services.toml` names the daemons by
@@ -62,7 +76,7 @@ pet as new DINOv2 examples. In order:
 
 ```sh
 # 1. After the pull, before restarting anything: fetch DINOv2 (88 MB; its checksum is verified).
-.venv/bin/python tools/fetch_models.py --no-ollama
+.venv/bin/python -m liberational.fetch_models --no-ollama
 
 # 2. See what the carry-over would do (writes nothing), then do it. It takes a few minutes on the CPU.
 .venv/bin/python tools/restore_pet_references.py --carry-from facebook/dinov3-vits16-pretrain-lvd1689m:tight \
