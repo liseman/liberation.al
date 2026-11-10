@@ -112,7 +112,11 @@ new frames are waiting, never on a schedule.
   and with no place found a new one. Telling places apart by the rig's signals is not part of this.
 
 **The 3D view** (#259) shows the newest splat, reloads when a newer one is written, and says whether learning is on,
-how many views the map has, and when it last improved.
+how many views the map has, and when it last improved. `GET /places/scene` carries that as `learning`, from the map
+step's `summary` (`dashboard/places.py`), also for a place with no map, where the page says what would start one.
+While the view is open it asks for the scene again every 10 s with learning on (every 60 s with it off). A newer
+map and splat are drawn once all their bytes are here, the ones before staying drawn until then, from where the
+person was looking. A splat that learning is still adding views to is in the state `improving`.
 
 **Positions** (#260). Foot points keep being recorded as each camera saw them. A learned map gets a floor from its own
 surfaces. A camera whose kept views all sit at one pose is registered in the revision as a fixed camera, and its
