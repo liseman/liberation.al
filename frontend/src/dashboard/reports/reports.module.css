@@ -336,11 +336,7 @@ a.cell {
    services with plain names, the healthy majority folded. */
 .healthOk {
   font-weight: 600;
-  color: var(--lib-ok);
-}
-/* --lib-ok on a white card is 4.3:1, under the 4.5 text needs; a darker green is 6:1 (dark's is 7.9:1 already). */
-:global([data-mantine-color-scheme="light"]) .healthOk {
-  color: #24704a;
+  color: var(--lib-ok-text); /* --lib-ok as text: AA on a card in both schemes */
 }
 .healthBad {
   font-weight: 600;

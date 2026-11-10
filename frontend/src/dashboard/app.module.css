@@ -36,8 +36,10 @@
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
 }
-.tab:hover {
-  color: var(--mantine-color-text);
+.tab {
+  @mixin hover {
+    color: var(--mantine-color-text);
+  }
 }
 .tab[aria-current="page"] {
   color: var(--mantine-color-text);
@@ -102,8 +104,11 @@
   color: var(--mantine-color-text);
   white-space: nowrap;
 }
-.pill:hover {
-  background: var(--mantine-color-default-hover);
+/* Mantine's hover mixin: a real hover on a pointer, a press on touch, so a tap doesn't leave it lit. */
+.pill {
+  @mixin hover {
+    background: var(--mantine-color-default-hover);
+  }
 }
 .pill[data-pending] {
   opacity: 0.7;

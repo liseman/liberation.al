@@ -13,11 +13,12 @@ drawn on the plan on the Places page. [Spatial memory](SPATIAL.md) explains how 
 
 ## Turn on Learn surroundings
 
-1. Open the Live tab and press **Learn surroundings**.
-2. Open the arrow beside the button and tick the cameras to learn from. With none ticked, the default camera (the
-   first in `config/devices.toml`) is used.
+1. Open the Live tab and turn on the **Learn surroundings** switch.
+2. Open the three-dot menu beside the switch, "Cameras to learn from", and check the cameras to learn from. With none
+   checked, the default camera (the first in `config/devices.toml`, marked "default" in the menu) is used.
 
-Nothing restarts. Press the button again to stop.
+Each change is saved as it is made, and nothing restarts. Turn the switch off to stop. On another device the switch
+and the menu are disabled, and say that only the machine the pack runs on can change them.
 
 ## Watch the map being learned
 
