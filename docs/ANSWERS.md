@@ -69,8 +69,8 @@ These bypass model synthesis.
 `memory/events.py` reads activity spans (`walkby.span` and `action.span`) with the owner's names and Right or Wrong
 ratings (`activity.named`, `activity.feedback`).
 
-- A kind counts in Ask once it has `activity.promotion_min_ratings` (10) ratings with a Right share of at least
-  `activity.promotion_min_precision` (0.8). A camera angle with enough ratings of its own overrides the kind-wide
+- A kind counts in Ask once it has `activity.promotion_min_ratings` ratings with a Right share of at least
+  `activity.promotion_min_precision`. A camera angle with enough ratings of its own overrides the kind-wide
   result. Walk-bys count until ratings say otherwise. A Wrong span never counts.
 - The list of activities is the owner's (`memory/activity_kinds.py`, `activity.kind` records). Each maps to model
   classes: those its name matched when added, plus those it learned from answers. A deleted activity is a tombstone
@@ -80,15 +80,17 @@ ratings (`activity.named`, `activity.feedback`).
 
 ## The journal
 
-`pack-journal` (`memory/journal.py`) builds hour entries from speech, replies, and captions, then rollups. Each entry
-keeps references to the source records the model selected, so a summary line can be traced to evidence.
+`pack-journal` (`memory/journal.py`) writes a first-person entry for every 30 seconds of speech, replies, and
+captions, then rolls entries up through longer windows to the hour (`journal.levels`). Each entry keeps references to
+the source records the model selected, so a summary line can be traced to evidence. A speaker is stored as a token
+and becomes a name only when read, so renaming someone rewrites nothing.
 `memory/facts.py` derives person facts from finished hours. `memory/embedding.py` embeds each entry through Ollama;
 a vector from other weights than the index's is dropped.
 
-`memory/journal_pages.py` writes day, week, and month pages: third-person Markdown with fixed sections. The model
-writes the prose; code writes People present, Counts, and Evidence. Pages are written in one batch at
-`journal.page_batch_at` (03:00) by `journal.page_model`. If that model does not fit beside the others, the batch
-stops `journal.page_window_services`, unloads Ollama's models, and restores both when done.
+`memory/journal_pages.py` writes day, week, and month pages on top of the hours: third-person Markdown with fixed
+sections. The model writes the prose; code writes People present, Counts, and Evidence, because a model never counts.
+Pages are written in one batch at `journal.page_batch_at` by `journal.page_model`. If that model does not fit beside
+the others, the batch stops `journal.page_window_services`, unloads Ollama's models, and restores both when done.
 
 `memory/review_summary.py` rewrites entries as the shorter lines Review's Summary tab shows (`review.summary`), with
 their evidence. `pack-journal --day YYYY-MM-DD` rebuilds a day.

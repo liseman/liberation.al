@@ -57,7 +57,7 @@ The split follows what each concern needs:
   model call decides who the owner is.
 - **Questions over history are layer 3.** Their shape is not known in advance, so answers are derived from raw
   records and stored with provenance.
-- **Activity measurements start in layer 3** and are promoted when proven. Today's gate is the owner's ratings
+- **Activity measurements start in layer 3** and are promoted when proven. The gate is the owner's ratings
   ([ANSWERS.md](ANSWERS.md#activities)), which is agreement, not held-out accuracy.
 - **Embeddings are per model.** Vectors from different models are never compared; a model change starts a new
   index. An index is a cache that can be rebuilt.
@@ -150,7 +150,7 @@ Every event has the same envelope: `event_id`, `type` (a past-tense name), `sche
 | `SummaryWritten` | Memory | `journal.page` |
 | `InterpretationRecorded` | Memory | Journal, fact, and summary payloads |
 | `InterpretationSuperseded` | Memory | Memory-log supersession |
-| `InterpretationPromoted` | Memory | Proposed; not written today |
+| `InterpretationPromoted` | Memory | Declared; nothing writes it |
 
 `tests/test_domain.py` checks this table against `domain/kernel.py`'s `EventType`.
 
@@ -164,7 +164,8 @@ Contexts depend on a small interface (`domain/eventlog.py`), not a product.
 | `read(stream, after, limit)` | Return events in order after a position |
 | `subscribe(consumer, filter)` | Deliver events to a named consumer, in order per stream |
 | `ack(consumer, position)` | Record how far a consumer got |
-| `purge(selector)` | Remove matching events, and record that it did |
+| `purge(selector, reason)` | Remove matching events, and record that it did |
+| `purges()` | List every purge so far. A record never names the person |
 
 Guarantees: delivery at least once (consumers ignore duplicates by `event_id`), order within one stream only, and
 replay from the start. Events are small; media stays in files and is referenced by evidence.
