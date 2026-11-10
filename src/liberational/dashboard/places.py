@@ -1,7 +1,9 @@
 """Known › Places' reads (#2848, #2831): the places the house knows, and where people and pets were in one.
 
     GET /places                        {places: [{id, name, named, plan, plan_source, machine_newer, revision,
-                                       last_visit, last_activity}]}: every place (memory/places.py), its plan in the
+                                       last_visit, last_activity, walks, unwalked_rooms}]}: every place
+                                       (memory/places.py), how many walkthroughs went into it, and the plan's rooms
+                                       no LiDAR walk covered (`unwalked_rooms`, null when it can't tell, #3), its plan in the
                                        floorplan DSL (the owner's correction if there is one, else the newest machine
                                        plan; null before the first), when the owner was last there (a `place.visit`,
                                        the rig's), and when anyone was last seen there by its fixed cameras (a
@@ -64,6 +66,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
 
+import numpy as np
+
 from liberational.memory import places
 
 Reply = tuple[int, dict[str, Any]]
@@ -92,6 +96,66 @@ def last_activity(state: Path, now: float, ids: Iterable[str]) -> dict[str, floa
     return positions.last_seen(state, sorted(set(ids)), now, ACTIVITY_LOOKBACKS_S)
 
 
+#: Rooms not walked, per (fused map revision, plan revision, plan text): a map is read once per new revision, not on
+#: every listing. The newest few are kept.
+_UNWALKED: dict[tuple[str, str, str], list[dict[str, str]] | None] = {}
+UNWALKED_KEPT = 16
+
+
+def walks(rev: places.Revision | None) -> int:
+    """How many walkthroughs went into the place: the recordings its `walkthrough` signal names."""
+    return len(rev.signals.get("walkthrough", [])) if rev is not None else 0
+
+
+def unwalked_rooms(state: Path, place: places.Place) -> list[dict[str, str]] | None:
+    """The rooms of `place`'s plan (its `plan`, in its `plan_revision`'s frame) that no LiDAR walk has covered
+    (`plan_import.room_coverage`, #3): each room's id and name, in plan order. A place never walked has every room
+    unwalked. None when it can't be told: no plan, a plan the reader can't parse, or (for a walked place) no fused map
+    in the plan's frame to look in."""
+    from liberational.spatial import fuse, ply  # the fused map reader; only this needs it
+    from liberational.spatial import plan_import as pi
+
+    if not place.plan or place.plan_revision is None:
+        return None
+    try:
+        plan = pi.parse(place.plan)
+    except pi.PlanError:
+        return None
+    every = [{"id": r.id, "name": r.name} for r in plan.rooms]
+    if walks(place.revision) == 0:
+        return every
+    chain = places.revisions(state, place.id)
+    frame_rev = next((r for r in chain if r.id == place.plan_revision), None)
+    frame = places.plan_frame(frame_rev) if frame_rev is not None else None
+    if frame_rev is None or frame is None:
+        return None
+    folder = places.root(state) / place.id
+    fused = next(
+        (
+            r
+            for r in reversed(chain)
+            if r.producer == fuse.PRODUCER
+            and r.map
+            and (folder / r.map).is_file()
+            and (r.id == frame_rev.id or (r.frame is not None and r.frame == frame_rev.frame))
+        ),
+        None,
+    )
+    if fused is None or fused.map is None:
+        return None
+    key = (fused.id, frame_rev.id, place.plan)
+    if key not in _UNWALKED:
+        try:
+            points, _, counts = ply.read(folder / fused.map)
+        except OSError, ValueError:
+            return None
+        cover = pi.room_coverage(points, counts.get("walked", np.zeros(len(points), np.int64)), plan, frame)
+        while len(_UNWALKED) >= UNWALKED_KEPT:
+            _UNWALKED.pop(next(iter(_UNWALKED)))
+        _UNWALKED[key] = [{"id": c.room.id, "name": c.room.name} for c in cover if c.kind != "walked"]
+    return _UNWALKED[key]
+
+
 def listing(state: Path, now: float | None = None) -> Reply:
     """GET /places: every place, with its plan and when the house was last there."""
     now = time.time() if now is None else now
@@ -118,6 +182,9 @@ def listing(state: Path, now: float | None = None) -> Reply:
                 "machine_plan": places.machine_plan(state, rev) if p.plan_source == "owner" and rev else None,
                 "last_visit": last.get(p.id),
                 "last_activity": seen.get(p.id),
+                # walk coverage (#3): how many walkthroughs went in, and the plan's rooms no LiDAR walk covered
+                "walks": walks(rev),
+                "unwalked_rooms": unwalked_rooms(state, p),
             }
         )
     return 200, {"places": out}

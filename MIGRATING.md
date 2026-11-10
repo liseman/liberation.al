@@ -41,6 +41,26 @@ Then `uv run --no-sync pack-services install continuum-gateway`, so the unit's `
 The process does not read `pack.toml` itself. Cameras then show for a dashboard opened on the tailnet. From outside
 the tailnet they stay unavailable.
 
+## Cameras are views: mounts and rigs in devices.toml (2026-11-09)
+
+A camera is an angle on whatever holds it, not a room (#5). Its fixed-mount settings moved from `pack.toml` onto its
+own entry in `config/devices.toml`, as `mount`, and a camera on a moving rig now says where it sits on the rig
+instead (spatial/rig.py; `config/devices.example.toml` shows both). The old settings are removed, so `pack-config
+--check` names them and a service that reads them fails until they're moved:
+
+- `[spatial] camera_heights_m = { cam0 = 1.5 }` becomes `mount = { height_m = 1.5 }` on `cam0`'s `[[device]]`.
+- `[spatial] outdoor_cameras = ["patio"]` becomes `mount = { outdoor = true }` on `patio`'s `[[device]]` (one table
+  with both keys when a camera has both).
+- `[vision] places = ["cam0: front camera"]` is renamed `[vision] camera_names`, same format. Name the view ("front
+  camera"), not the room it looks at.
+- A camera on a wearable or moving rig: declare the rig once (`[[rig]]` with a `name`) and give each of its cameras
+  `mount = { rig = "<name>", at = [x, y, z], turn = [yaw, pitch, roll], hfov_deg = <field of view> }`. A rig camera
+  is never one of the fixed-camera places (`pack-spatial-cameras`), with or without a `fisheye` calibration.
+
+Delete the old keys from `pack.toml` after moving them. Capture refuses a `mount` key it doesn't know and a
+`mount.rig` with no `[[rig]]`, so restart `continuum-capture` once the manifest is edited, and then every
+config-reading service, dashboard included (the renamed `vision.camera_names` key). No machine-made data changes.
+
 ## Pet embeddings are cut tight (2026-11-08)
 
 Animal embeddings now crop the detector's box itself instead of a square with context (#3024), a new embedding space

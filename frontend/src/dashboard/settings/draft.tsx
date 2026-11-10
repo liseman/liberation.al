@@ -78,7 +78,7 @@ export function DraftProvider({ view, children }: { view: ConfigView; children: 
       const reply = await request<ConfigReply>('/config', { values: changes }, abort.signal);
       if (!reply.ok) throw new HttpError(reply.error ?? 'Saving failed', 400, reply);
       // Camera names show on every page from the page shell: a saved rename reaches them now, not at the next load
-      if ('vision.places' in changes) setCameraNames(parsePlaces(changes['vision.places'], shell().cams));
+      if ('vision.camera_names' in changes) setCameraNames(parsePlaces(changes['vision.camera_names'], shell().cams));
       await client.invalidateQueries({ queryKey: CONFIG_KEY, refetchType: 'none' });
       const overrides = reply.overridden?.length
         ? ` ${reply.overridden.join(', ')} stay as the environment sets them.`

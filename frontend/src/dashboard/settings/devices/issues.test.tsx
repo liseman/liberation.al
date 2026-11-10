@@ -15,7 +15,7 @@ const config = (places: string[]): ConfigView =>
         description: '',
         settings: [
           {
-            key: 'vision.places',
+            key: 'vision.camera_names',
             value: places,
             default: [],
             type: 'list',

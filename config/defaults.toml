@@ -346,15 +346,9 @@ splats_enabled = true
 # Where `mise run gsplat` puts gsplat's own venv (.venv/). spatial/splats.py reads it. With no python at
 # .venv/bin/python, it logs why once and makes nothing.
 splat_runtime = "data/gsplat"
-# Each fixed camera's height from the floor to its lens, in metres, keyed by its name in config/devices.toml
-# ({ cam0 = 1.5 }). spatial/fuse.py scales a place's map so those cameras stand this high: MASt3R's maps aren't
-# metric (#2960). Empty, a camera left out, or a height of 0 or below is unknown, and a map with no known camera
-# keeps its scale.
-camera_heights_m = {}
-# Fixed cameras that look outdoors, by their names in config/devices.toml (["patio", "driveway"]).
-# spatial/cameras.py (pack-spatial-cameras) leaves them out: no indoor place can include them, and alone each
-# would become a place of its own (#3000). Empty leaves every fixed camera in.
-outdoor_cameras = []
+# A fixed camera's measured height and whether it looks outdoors are on its own entry in config/devices.toml, as
+# `mount = { height_m = 1.5, outdoor = false }`, and a camera on a moving rig gives its pose on the rig there instead
+# (spatial/rig.py, #5; config/devices.example.toml shows both).
 
 [faces]
 # Days an unnamed face group stays listed and counted on People's "to name" (dashboard/server.py,
@@ -482,9 +476,10 @@ shared_decode_gpu = 0
 # Legacy OS camera indexes for missing-manifest fallback and --from-v1 manifest import. Current capture
 # selects cameras through config/devices.toml.
 cams = [0]
-# Display names used in People and Review: one "camera ID: display name" per camera. A camera with no name
-# shows its native ID.
-places = []
+# Display names used in People and Review: one "camera ID: name" per camera, naming the view ("cam0: front camera"),
+# never a room: a camera is an angle on what holds it, and where it looks comes from its mount and pose (#5). A
+# camera with no name shows its native ID.
+camera_names = []
 # auto picks mlx-server on Apple Silicon and ollama elsewhere.
 backend = "auto"
 # Legacy capture size and frame rate for --from-v1 manifest import. Current per-camera capture settings

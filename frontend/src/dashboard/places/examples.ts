@@ -24,6 +24,9 @@ export interface Place {
   machinePlanText?: string | null;
   /** Whose plan it is: the machine's (with when its revision was made) or the owner's correction. */
   origin?: { source: 'owner' | 'machine'; at: number | null; machineNewer: boolean };
+  /** How many walkthroughs went into it, and its plan's rooms no LiDAR walk covered (null: can't tell), #3. */
+  walks?: number;
+  unwalkedRooms?: { id: string; name: string }[] | null;
   /** Shown as an example, not something the house mapped. */
   example: boolean;
 }

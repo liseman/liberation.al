@@ -47,6 +47,39 @@ pub struct Manifest {
     /// The devices, in order.
     #[serde(default, rename = "device")]
     pub devices: Vec<Device>,
+    /// The rigs that carry cameras together (#5): a camera's `mount.rig` names one. Capture doesn't use them; the
+    /// spatial readers do (spatial/rig.py).
+    #[serde(default, rename = "rig")]
+    pub rigs: Vec<Rig>,
+}
+
+/// Cameras that move together, such as a backpack's. Its pose in a place comes from its pose track, not from here.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct Rig {
+    /// Unique among rigs: letters, digits, `-`, and `_`.
+    pub name: String,
+}
+
+/// How a camera is mounted (#5), read by spatial/rig.py; capture doesn't use it. A camera on a rig gives where it
+/// sits on the rig and which way it looks; a fixed camera gives its height and whether it looks outdoors. Which of
+/// the fields go together is spatial/rig.py's to check.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct Mount {
+    /// The rig it's on, by its `[[rig]]` name; none for a fixed camera.
+    pub rig: Option<String>,
+    /// Where it sits in the rig's frame, metres: x right, y down, z forward.
+    pub at: Option<[f64; 3]>,
+    /// Which way it looks on the rig, degrees: yaw to the right, pitch up, roll clockwise.
+    pub turn: Option<[f64; 3]>,
+    /// A rig camera's horizontal field of view, degrees.
+    pub hfov_deg: Option<f64>,
+    /// A fixed camera's height from the floor to its lens, metres.
+    pub height_m: Option<f64>,
+    /// A fixed camera that looks outdoors.
+    #[serde(default)]
+    pub outdoor: bool,
 }
 
 /// How the supervisor paces opens and restarts.
@@ -432,6 +465,9 @@ pub struct Device {
     /// fractions of the frame (#2998): spatial/lens.py paints them over and leaves them out. Capture doesn't use them.
     #[serde(default)]
     pub masks: Vec<[f64; 4]>,
+    /// How the camera is mounted: on a rig, or fixed (#5). Capture doesn't use it.
+    #[serde(default)]
+    pub mount: Option<Mount>,
 }
 
 /// A wide lens's calibration, as `tools/calibrate_lens.py` writes it:
@@ -565,8 +601,22 @@ impl Manifest {
                 .check(DeviceKind::Camera, &video.format)
                 .map_err(|why| ManifestError::Invalid("[video]".into(), why.into()))?;
         }
+        let mut rigs = BTreeSet::new();
+        for r in &self.rigs {
+            if r.name.is_empty() || !r.name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+                return Err(ManifestError::Invalid(r.name.clone(), "a rig's name is letters, digits, - and _".into()));
+            }
+            if !rigs.insert(r.name.as_str()) {
+                return Err(ManifestError::Invalid(r.name.clone(), "a rig is named twice".into()));
+            }
+        }
         let mut names = BTreeSet::new();
         for d in &self.devices {
+            if let Some(rig) = d.mount.as_ref().and_then(|m| m.rig.as_deref())
+                && !rigs.contains(rig)
+            {
+                return Err(ManifestError::Invalid(d.name.clone(), format!("mount.rig {rig:?} is no [[rig]]")));
+            }
             if d.name.is_empty() || !d.name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
                 return Err(ManifestError::Invalid(d.name.clone(), "a name is letters, digits, - and _".into()));
             }
@@ -955,6 +1005,24 @@ mod tests {
         ] {
             assert!(matches!(Manifest::parse(&format!("{camera}{bad}\n")), Err(ManifestError::Parse(_))), "{bad}");
         }
+    }
+
+    #[test]
+    fn a_rig_camera_carries_its_mount_and_names_a_declared_rig() {
+        let text = "[[rig]]\nname='pack'\n\n[[device]]\nname='front'\nkind='camera'\nmatch={name='Synthetic'}\n\
+            mount={rig='pack', at=[0.0, -0.1, 0.05], turn=[30.0, -10.0, 0.0], hfov_deg=110.0}\n";
+        let parsed = Manifest::parse(text).unwrap();
+        assert_eq!(parsed.rigs, vec![Rig { name: "pack".into() }]);
+        let mount = parsed.devices[0].mount.clone().unwrap();
+        assert_eq!(mount.rig.as_deref(), Some("pack"));
+        assert_eq!(mount.turn, Some([30.0, -10.0, 0.0]));
+        let fixed = "[[device]]\nname='hall'\nkind='camera'\nmatch={name='Synthetic'}\nmount={height_m=2.1, outdoor=true}\n";
+        let fixed = Manifest::parse(fixed).unwrap().devices[0].mount.clone().unwrap();
+        assert_eq!((fixed.height_m, fixed.outdoor), (Some(2.1), true));
+        let typo = text.replace("rig='pack'", "rig='pak'");
+        assert!(Manifest::parse(&typo).is_err(), "a mount on a rig that isn't declared stops capture");
+        let unknown = text.replace("hfov_deg", "hfov");
+        assert!(Manifest::parse(&unknown).is_err(), "a mistyped mount key stops capture");
     }
 
     #[test]
