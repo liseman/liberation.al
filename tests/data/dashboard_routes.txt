@@ -86,6 +86,7 @@ GET /speakers/refine/log
 GET /static/...
 GET /stats
 GET /stats/history
+GET /surroundings
 GET /transcript
 GET /transcript/day
 GET /vision
@@ -171,6 +172,7 @@ POST /speakers/label
 POST /speakers/refine
 POST /speakers/refine/undo
 POST /speakers/tag
+POST /surroundings
 POST /transcript/media
 POST /transcript/not-media
 POST /transcript/reject

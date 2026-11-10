@@ -175,6 +175,18 @@ label = "Auto gain target"
 help = "Where auto gain steers speech peaks, in dBFS, for each microphone it is on for. Louder is closer to 0."
 live = true # the listen worker follows it without a restart
 
+["spatial.learn_surroundings"]
+section = "features"
+label = "Learn surroundings"
+help = "Sample pictures from the chosen cameras and keep the ones that improve a place's map. The Live tab has the same switch."
+live = true # the sampler reads it again when pack.toml changes
+
+["spatial.learn_cameras"]
+section = "features"
+label = "Cameras to learn surroundings from"
+help = "Camera IDs to sample. Empty uses the first camera in the device list."
+live = true # the sampler reads it again when pack.toml changes
+
 ["bluetooth.enabled"]
 section = "devices"
 label = "Bluetooth sensors"
