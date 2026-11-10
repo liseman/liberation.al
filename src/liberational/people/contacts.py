@@ -17,14 +17,11 @@ editing the file.
 """
 
 import dataclasses
-import json
-import os
 import pathlib
 import re
-import tempfile
-from typing import Any
 
 from liberational import config as cfg
+from liberational import json_state
 from liberational.domain.identity import Person
 from liberational.people import registry
 
@@ -35,24 +32,6 @@ PHONE = re.compile(r"\+[1-9]\d{7,14}")  # a number as the People tab takes it, s
 def key(name: str) -> str:
     """The key a name is matched by: as `registry.norm`, and "Alice (phone)" is Alice, as the People tab reads it."""
     return registry.norm(re.sub(r"\s*\(phone\)$", "", str(name or "")))
-
-
-def _read(path: pathlib.Path, default: Any) -> Any:
-    try:
-        return json.loads(path.read_text())
-    except OSError, ValueError:
-        return default
-
-
-def _write(path: pathlib.Path, data: object, private: bool = False, indent: int | None = None) -> None:
-    """Replace `path` in one step, so a reader never sees half a file. Each write has its own temporary file, so two
-    dashboard requests at once can't trip over each other."""
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".tmp")
-    with os.fdopen(fd, "w") as f:
-        f.write(json.dumps(data, indent=indent))
-    if not private:  # mkstemp makes it 600; a file that was not private before stays readable
-        os.chmod(tmp, 0o644)
-    os.replace(tmp, path)
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -82,13 +61,13 @@ class Book:
     def file_phones(self) -> dict[str, str]:
         """contacts.json as {name: number}, notes ("_" keys) left out. A name with an empty number is kept, as the
         People tab has always listed it."""
-        d = _read(self.contacts_file, {})
+        d = json_state.read(self.contacts_file, {})
         if not isinstance(d, dict):
             return {}
         return {k: v.strip() if isinstance(v, str) else "" for k, v in d.items() if not k.startswith("_")}
 
     def file_added(self) -> list[str]:
-        d = _read(self.added_file, [])
+        d = json_state.read(self.added_file, [])
         return [n for n in d if isinstance(n, str)] if isinstance(d, list) else []
 
     def phones(self) -> dict[str, str]:
@@ -129,7 +108,7 @@ class Book:
         added = self.file_added()
         if name not in added:
             added.append(name)
-        _write(self.added_file, added)
+        json_state.write(self.added_file, added, durable=True)
         if number:
             self._write_phone(name, number)
 
@@ -140,20 +119,20 @@ class Book:
         self._write_phone(name, number or None)
 
     def _write_phone(self, name: str, number: str | None) -> None:
-        c = _read(self.contacts_file, {})
+        c = json_state.read(self.contacts_file, {})
         c = c if isinstance(c, dict) else {}
         for k in [k for k in c if not k.startswith("_") and key(k) == key(name)]:
             c.pop(k)
         if number:
             c[name] = number
-        _write(self.contacts_file, c, private=True, indent=1)
+        json_state.write(self.contacts_file, c, private=True, durable=True, indent=1)
 
     def follow(self, old: str, new: str) -> None:
         """Bring the read models in line with a rename or a merge of `old` into `new`, which the registry records
         (dashboard/server.py, rename_person). On a merge the survivor keeps their own number, as in the registry, and
         the file takes the registry's number for them whenever it has one."""
         if self.contacts_file.exists():
-            c = _read(self.contacts_file, {})
+            c = json_state.read(self.contacts_file, {})
             if isinstance(c, dict):
                 for k in [k for k in c if not k.startswith("_") and key(k) == key(old)]:
                     num = c.pop(k)
@@ -164,19 +143,19 @@ class Book:
                     for k in [k for k in c if not k.startswith("_") and key(k) == key(new)]:
                         c.pop(k)
                     c[new] = known
-                _write(self.contacts_file, c, private=True, indent=1)
+                json_state.write(self.contacts_file, c, private=True, durable=True, indent=1)
         if self.added_file.exists():
             added = [new if key(n) == key(old) else n for n in self.file_added()]
-            _write(self.added_file, list(dict.fromkeys(added)))
+            json_state.write(self.added_file, list(dict.fromkeys(added)), durable=True)
 
     def forget(self, name: str) -> None:
         """Take the person called `name` out of the read models. The registry forgets them in
         `Registry.forget`, which purges their number and added mark with the rest of their events."""
         if self.contacts_file.exists():
-            c = _read(self.contacts_file, {})
+            c = json_state.read(self.contacts_file, {})
             if isinstance(c, dict):
                 for k in [k for k in c if not k.startswith("_") and key(k) == key(name)]:
                     c.pop(k)
-                _write(self.contacts_file, c, private=True, indent=1)
+                json_state.write(self.contacts_file, c, private=True, durable=True, indent=1)
         if self.added_file.exists():
-            _write(self.added_file, [n for n in self.file_added() if key(n) != key(name)])
+            json_state.write(self.added_file, [n for n in self.file_added() if key(n) != key(name)], durable=True)

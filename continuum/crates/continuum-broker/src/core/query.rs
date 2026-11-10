@@ -18,7 +18,8 @@
 use super::*;
 
 /// Registered streams with their deletion and forget revisions, as read off the scheduler thread.
-pub(super) type StreamListingRow = (StreamId, continuum_catalog::StreamInfo, Option<u64>, Option<u64>);
+pub(super) type StreamListingRow =
+    (StreamId, continuum_catalog::StreamInfo, Option<u64>, Option<u64>, Option<Interval>);
 pub(super) type StreamListingResult = Result<Vec<StreamListingRow>, (ErrorCode, String)>;
 
 /// A payload as the reader pool found it: its header and every copy, hottest first.
@@ -196,7 +197,8 @@ impl Sched {
                         let revision =
                             catalog.invalidation_revision(id).map_err(|e| (error_code(&e), e.to_string()))?;
                         let forget = catalog.forget_revision(id).map_err(|e| (error_code(&e), e.to_string()))?;
-                        all.push((id, info, revision, forget));
+                        let extent = catalog.stream_extent(id).map_err(|e| (error_code(&e), e.to_string()))?;
+                        all.push((id, info, revision, forget, extent));
                     }
                     if n < STREAM_LIST_PAGE {
                         return Ok(all);
@@ -216,9 +218,9 @@ impl Sched {
             Ok(streams) => {
                 let rows: Vec<_> = streams
                     .into_iter()
-                    .map(|(id, info, revision, forget)| {
+                    .map(|(id, info, revision, forget, extent)| {
                         let live = self.producers.contains_key(&id);
-                        (id, info, live, revision, forget)
+                        (id, info, live, revision, forget, extent)
                     })
                     .collect();
                 let bytes = protocol::stream_list(&mut self.builder, request_id, &rows);

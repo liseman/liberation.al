@@ -24,7 +24,7 @@ from collections.abc import Callable
 from typing import Any
 
 from liberational import config as cfg
-from liberational import logs, ollama, speech_log
+from liberational import json_state, logs, ollama, speech_log
 from liberational.people import profiles, transcript_view
 
 STATE = cfg.path("paths.state")
@@ -48,9 +48,7 @@ def load_state() -> dict[str, Any]:
 
 
 def save_state(s: dict[str, Any]) -> None:
-    tmp = OUT.with_suffix(".tmp")
-    tmp.write_text(json.dumps(s))
-    os.replace(tmp, OUT)
+    json_state.write(OUT, s)
 
 
 def norm(n: str | None) -> str:

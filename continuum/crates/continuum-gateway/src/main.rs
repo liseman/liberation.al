@@ -86,17 +86,6 @@ async fn main() -> std::process::ExitCode {
     let args = Args::parse();
     let chunks = args.chunks_dir.clone().unwrap_or_else(|| args.state_dir.join("continuum").join("tier"));
     let source = Arc::new(ChunkSource::new(&chunks));
-    {
-        // The first full listing of the chunk directory, off the request path (see ChunkSource::streams).
-        let warm = Arc::clone(&source);
-        std::thread::spawn(move || {
-            let started = std::time::Instant::now();
-            match warm.streams() {
-                Ok(s) => tracing::info!(streams = s.len(), took = ?started.elapsed(), "listed the recorded chunks"),
-                Err(e) => tracing::warn!(error = %e, "couldn't list the recorded chunks"),
-            }
-        });
-    }
     let broker_socket =
         args.broker_socket.clone().unwrap_or_else(|| args.state_dir.join("continuum").join("broker.sock"));
     let broker = match continuum_client::Client::connect(

@@ -11,13 +11,13 @@ import os
 import pathlib
 import re
 import stat
-import tempfile
 import time
 from collections.abc import Callable, Generator, Mapping
 from dataclasses import dataclass
 from typing import Any, TypedDict
 
 from liberational import config as cfg
+from liberational import json_state
 
 QUESTION = re.compile(r"^(?:what|when|where|why|how|who|which|is|are|do|does|did|can|could|would|will)\b", re.I)
 REQUEST = re.compile(
@@ -441,12 +441,8 @@ class Lockouts:
             touched=self.touched,
         )
         text = json.dumps(state)
-        tmp = self.path.with_name(self.path.name + ".tmp")
         try:
-            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-            with os.fdopen(fd, "w") as f:
-                f.write(text)
-            os.replace(tmp, self.path)
+            json_state.write_text(self.path, text, private=True)
             self.written, self.unsaved = text, False
         except OSError as ex:
             self.unsaved = True
@@ -585,10 +581,7 @@ class Conversation:
         else:
             return
         try:
-            fd, tmp = tempfile.mkstemp(dir=window.parent, prefix=".voice_password_window.")  # private, never followed
-            with os.fdopen(fd, "w") as f:
-                json.dump({"asked": span[0], "expires": span[1]}, f)
-            os.replace(tmp, window)
+            json_state.write(window, {"asked": span[0], "expires": span[1]}, private=True)
         except OSError as ex:
             log.warning("password window %s not shared (%s)", window, ex)
 

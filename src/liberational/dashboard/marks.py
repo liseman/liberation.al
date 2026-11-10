@@ -29,12 +29,12 @@ import datetime as dt
 import itertools
 import json
 import math
-import os
 import threading
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from liberational import config as cfg
+from liberational import json_state
 from liberational.dashboard import routes
 from liberational.memory.ask import MAX_QUESTION
 from liberational.people import registry
@@ -349,9 +349,8 @@ def save(
                     kept.append(line)
         if clashes and not replace:
             return clashes
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text("".join(line + "\n" for line in [*kept, json.dumps(new)]))
-        os.replace(tmp, path)
+        lines = "".join(line + "\n" for line in [*kept, json.dumps(new)])
+        json_state.write_text(path, lines, durable=True)  # the owner's hand-made labels
     return clashes
 
 

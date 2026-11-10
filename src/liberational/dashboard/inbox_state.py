@@ -4,24 +4,15 @@
 GET /inbox/skips  how many of each kind are set aside
 """
 
-import json
-import os
-import pathlib
 from typing import TYPE_CHECKING, Any, TypedDict
 
+from liberational import json_state
 from liberational.dashboard import context, routes
 from liberational.dashboard.context import Reply
 from liberational.people import registry
 
 if TYPE_CHECKING:
     from liberational.dashboard.server import H
-
-
-def read_json(p: pathlib.Path, default: Any) -> Any:
-    try:
-        return json.loads(p.read_text())
-    except Exception:
-        return default
 
 
 INBOX_SKIPS = (
@@ -40,7 +31,7 @@ class Skips(TypedDict):
 def inbox_skips() -> Skips:
     """What People's inbox put aside: face and voice ids, and lines, each by its key (registry.key_of) or,
     for older entries, by its ts_start, which puts aside every line that starts in that millisecond."""
-    d = read_json(INBOX_SKIPS, {})
+    d = json_state.read(INBOX_SKIPS, {})
 
     def numbers(k: str) -> list[float]:
         return [round(float(x), 3) for x in (d.get(k) or []) if isinstance(x, int | float) and not isinstance(x, bool)]
@@ -90,9 +81,7 @@ def inbox_skip(kind: Any, ident: object, control: bool) -> Reply:
     put: list[Any] = d["line"] if kind == "line" else d["face"] if kind == "face" else d["voice"]
     if value not in put:
         put.append(value)
-        tmp = INBOX_SKIPS.with_suffix(".tmp")
-        tmp.write_text(json.dumps(d))
-        os.replace(tmp, INBOX_SKIPS)
+        json_state.write(INBOX_SKIPS, d, durable=True)  # what the owner put aside
     return 200, {"ok": True, "skipped": skip_counts(d)["total"]}
 
 

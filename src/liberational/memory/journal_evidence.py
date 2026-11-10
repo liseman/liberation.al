@@ -39,7 +39,7 @@ import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Any
 
-from liberational import logs, memory_log, segment_log, vision_log
+from liberational import json_state, logs, memory_log, segment_log, vision_log
 from liberational.memory import history_qa, journal, journal_pages
 
 log = logs.get("journal-evidence")
@@ -102,11 +102,7 @@ def index(state: pathlib.Path, day: str) -> dict[str, dict[str, Any]]:
 
 
 def _save_index(state: pathlib.Path, day: str, found: Mapping[str, Any]) -> None:
-    where = folder(state, day)
-    where.mkdir(parents=True, exist_ok=True)
-    tmp = where / (INDEX + ".tmp")
-    tmp.write_text(json.dumps(found, indent=1, sort_keys=True))
-    tmp.replace(where / INDEX)
+    json_state.write(folder(state, day) / INDEX, found, indent=1, sort_keys=True)
 
 
 def cited_sources(state: pathlib.Path, day: str) -> list[tuple[str, dict[str, Any]]]:

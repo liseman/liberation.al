@@ -6,10 +6,9 @@ export interface StreamSummary {
   /** A producer is connected for it now (false from the chunk directory alone). */
   live?: boolean;
   format: string;
+  /** The earliest and latest recorded time, microseconds UTC; both 0 for a stream that holds nothing. */
   start_us: number;
   end_us: number;
-  chunks: number;
-  frames: number;
 }
 
 /** The gateway's default address next to the dashboard: the same host, port 8766 (services.toml).  */

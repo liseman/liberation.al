@@ -749,6 +749,18 @@ impl Catalog for MemoryCatalog {
         Ok((revision != u64::MAX).then_some(revision))
     }
 
+    fn stream_extent(&self, stream: StreamId) -> Result<Option<Interval>> {
+        let st = self.read();
+        if !st.streams.contains_key(&stream.0) {
+            return Err(CatalogError::NotFound(format!("stream {}", stream.0)));
+        }
+        let mut of_stream = st.time.range((stream.0, 0, 0)..=(stream.0, u64::MAX, u32::MAX));
+        let Some((&(_, start, _), first)) = of_stream.next() else { return Ok(None) };
+        let last = of_stream.next_back().map_or(first, |(_, id)| id);
+        let end = st.payloads.get(last).map_or(start, |h| h.end_ns().max(h.start_ns().saturating_add(1)));
+        Ok(Interval::new(start, end.max(start.saturating_add(1))))
+    }
+
     fn forget_revision(&self, stream: StreamId) -> Result<Option<u64>> {
         let st = self.read();
         if !st.streams.contains_key(&stream.0) {
