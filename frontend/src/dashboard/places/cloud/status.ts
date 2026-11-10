@@ -1,6 +1,6 @@
 // What the 3D view says about a place's splat, in plain words, from the state GET /places/scene names
-// (`splat_state`, `splat_wait`): there is none yet and why, the one shown was made for an earlier map, or the newest
-// one doesn't line up with this map and isn't shown. Nothing here draws, so it's tested as text.
+// (`splat_state`, `splat_wait`): there is none yet and why, the one shown is still improving or was made for an
+// earlier map, or the newest one doesn't line up with this map and isn't shown. Nothing here draws, so it's tested as text.
 import type { Scene, SplatWait } from '../api';
 
 const when = (at: number) =>
@@ -16,7 +16,7 @@ function waiting(wait: SplatWait): string {
     case 'few_frames':
       return `It's waiting for daylight: the nightly pass makes it from the fixed cameras' lit daytime frames, and had too few when it last ran${last}. It tries again${passAt(wait)}.`;
     case 'no_cameras':
-      return 'This map has no fixed cameras for the nightly pass to make one from; a walkthrough brings its own.';
+      return 'This map has no cameras registered yet for the nightly pass to make one from.';
     case 'no_runtime':
       return "The splat trainer isn't installed on this machine, so none is made.";
     case 'off':
@@ -34,6 +34,8 @@ export function splatNote(scene: Scene): string | null {
   switch (scene.splat_state) {
     case 'current':
       return null;
+    case 'improving':
+      return "This splat is still improving: it's redrawn as the cameras' frames add to it.";
     case 'earlier':
       return `This splat was made for an earlier map of this place${scene.splat_at ? ` (${when(scene.splat_at)})` : ''}; it lines up with the current one. A splat of the current map isn't made yet.${wait}`;
     case 'stale':

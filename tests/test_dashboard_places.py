@@ -615,12 +615,9 @@ def test_the_scene_says_when_splats_are_turned_off(tmp_path, mapped):
     assert (wait["reason"], wait["tried"]) == ("off", None)
 
 
-def test_a_map_with_only_a_walks_views_says_no_fixed_camera_will_give_it_a_splat(tmp_path, mapped):
+def test_a_map_with_no_cameras_says_the_pass_has_nothing_to_make_a_splat_from(tmp_path, mapped):
     place, _ = mapped
-    places.revise(
-        tmp_path, place, producer="walkthrough", map_bytes=CLOUD, map_format="ply", cameras={"walk-0m00s": CAM},
-        now=T + 10,
-    )  # fmt: skip
+    places.revise(tmp_path, place, producer="tier1 fuse v1", map_bytes=CLOUD, map_format="ply", cameras={}, now=T + 10)
     reply = view.scene(tmp_path, place)[1]
     assert (reply["splat_state"], reply["splat_wait"]["reason"]) == ("none", "no_cameras")
 

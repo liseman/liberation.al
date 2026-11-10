@@ -263,6 +263,7 @@ it("says nothing about a splat that is the map's own, and why there is none othe
   const scene = { place: 'p1', revision: 'r2' };
   const wait = { tried: null, pass_at: '01:00' };
   expect(splatNote({ ...scene, splat: '/s', splat_state: 'current' })).toBeNull();
+  expect(splatNote({ ...scene, splat: '/s', splat_state: 'improving' })).toMatch(/^This splat is still improving/);
   expect(splatNote({ ...scene, splat_state: 'none', splat_wait: { ...wait, reason: 'pass' } })).toBe(
     "No splat of this place yet. The nightly pass makes it from the fixed cameras' daytime frames; it runs at 01:00.",
   );
@@ -274,7 +275,7 @@ it("says nothing about a splat that is the map's own, and why there is none othe
   expect(dark).toMatch(/^No splat of this place yet\. It's waiting for daylight: .* had too few when it last ran \(/);
   expect(dark).toMatch(/It tries again at 01:00\.$/);
   expect(splatNote({ ...scene, splat_state: 'none', splat_wait: { ...wait, reason: 'no_cameras' } })).toMatch(
-    /no fixed cameras .* a walkthrough brings its own/,
+    /no cameras registered yet for the nightly pass/,
   );
   expect(splatNote({ ...scene, splat_state: 'none', splat_wait: { ...wait, reason: 'no_runtime' } })).toMatch(
     /trainer isn't installed/,

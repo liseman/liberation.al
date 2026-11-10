@@ -81,7 +81,7 @@ const lastSplat = () => build.mock.calls.at(-1)?.[3] as ArrayBuffer | null | und
 it.each([
   ['pass', /^No splat of this place yet\. The nightly pass makes it .* it runs at 01:00\.$/],
   ['few_frames', /^No splat of this place yet\. It's waiting for daylight: .* It tries again at 01:00\.$/],
-  ['no_cameras', /^No splat of this place yet\. This map has no fixed cameras/],
+  ['no_cameras', /^No splat of this place yet\. This map has no cameras registered yet/],
   ['failed', /^No splat of this place yet\. Making it failed when the nightly pass last ran/],
 ])('says a place has no splat yet and why (%s), draws its points, and logs no error', async (reason, text) => {
   const errors = vi.spyOn(console, 'error');
@@ -120,6 +120,14 @@ it("draws an earlier map's splat that still lines up, labelled as one", async ()
   await waitFor(() => expect(shown.at(-1)?.splat).toBe(true));
   expect(new Uint8Array(lastSplat() ?? new ArrayBuffer(0))).toEqual(SOG);
   expect(screen.getByText('Splat')).toBeTruthy();
+});
+
+it('draws a splat that is still improving, and says it is', async () => {
+  serve(withSplat({ splat_state: 'improving' }), () => bytes(SOG));
+  renderPage(<CloudView place="p1" />);
+  expect(await screen.findByText(/^This splat is still improving/)).toBeTruthy();
+  await waitFor(() => expect(shown.at(-1)?.splat).toBe(true));
+  expect(screen.queryByRole('alert')).toBeNull();
 });
 
 it("names a splat that doesn't line up with the map without offering it", async () => {

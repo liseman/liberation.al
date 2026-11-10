@@ -262,8 +262,8 @@ def _splat_pass_at() -> str | None:
 def _splat_wait(state: Path, rev: places.Revision) -> dict[str, Any]:
     """Why `rev` has no splat of its own, and when one is due: `reason` is the splat pass's own note when it has
     tried this revision ("few_frames", "no_cameras", "no_runtime", or "failed", with `tried`, when), else
-    "no_cameras" for a map with no fixed cameras (only a walk gives it a splat), else "pass": the pass hasn't run
-    since the map was made. "off" when the settings turn splats off (`spatial.splats_enabled`), whatever an earlier
+    "no_cameras" for a map with no cameras registered (the pass has nothing to make one from), else "pass": the
+    pass hasn't run since the map was made. "off" when the settings turn splats off (`spatial.splats_enabled`), whatever an earlier
     pass noted. `pass_at` is the pass's time of day."""
     from liberational import config as cfg
 
@@ -272,7 +272,7 @@ def _splat_wait(state: Path, rev: places.Revision) -> dict[str, Any]:
         reason, tried = "off", None
     elif note is not None:
         reason, tried = note["reason"], note["at"]
-    elif not any(not cam.startswith(WALK_PREFIX) for cam in rev.cameras):
+    elif not rev.cameras:
         reason, tried = "no_cameras", None
     else:
         reason, tried = "pass", None

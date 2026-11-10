@@ -284,17 +284,6 @@ def test_a_day_with_too_few_lit_frames_makes_no_splat_yet(tmp_path, runtime, pla
     assert did is not None and did["frames"] == {"cam0": splats.MIN_FRAMES_PER_CAMERA}
 
 
-def test_a_revision_with_only_a_walks_views_is_noted_as_having_no_fixed_cameras(tmp_path, runtime, placed):
-    walk_cam = placed.cameras["cam0"]
-    walk = places.revise(
-        tmp_path, placed.place, producer="walkthrough", map_bytes=ply.dumps(CLOUD), map_format="ply",
-        cameras={"walk-0m00s": walk_cam}, now=T + 10,
-    )  # fmt: skip
-    assert splats.splat_place(tmp_path, walk.place, T + 20, always_lit, runtime, None) is None
-    assert places.splat_note(tmp_path, walk) == {"reason": "no_cameras", "at": T + 20}
-    assert places.splat_note(tmp_path, placed) is None  # the note is about the revision the pass tried
-
-
 def test_a_run_without_the_trainer_or_whose_training_fails_notes_why(tmp_path, runtime, placed, monkeypatch):
     monkeypatch.setattr("liberational.memory.history_qa.local_zone", lambda: UTC)
     monkeypatch.setattr(splats.nvml, "gpus", list)

@@ -171,8 +171,9 @@ export interface Scene {
   splat_from?: 'walk' | 'cameras' | null;
   /** Which state the splat is in, so the page doesn't guess: made for this map ("current"), made for an earlier map
    *  in the same frame, so it still lines up ("earlier"), made in another frame and so not offered ("stale"), or
-   *  there is none. */
-  splat_state?: 'current' | 'earlier' | 'stale' | 'none';
+   *  there is none. "improving" is for a splat that is drawn while it's still being built up from new frames; the
+   *  view words it, and nothing serves it yet. */
+  splat_state?: 'current' | 'improving' | 'earlier' | 'stale' | 'none';
   /** When the map the offered splat was made for was built (epoch seconds). */
   splat_at?: number | null;
   /** While the map has no splat of its own: why, and when one is due. */
