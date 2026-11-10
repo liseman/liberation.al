@@ -21,7 +21,7 @@ import { drawPlace, looks, type PlaceDrawing } from './plan/render';
 import { WalkImport } from './WalkImport';
 import { WalkBadge, WalkNote } from './walks';
 
-// The 3D view is its own chunk: three.js loads only when someone opens it.
+// The 3D view is its own chunk: the viewer and its engine load only when someone opens it.
 const CloudView = lazy(() => import('./cloud/CloudView'));
 
 /** How a plan is drawn on the page: the app's own light or dark, on the card it sits in (--lib-card), with the app's

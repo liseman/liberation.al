@@ -99,6 +99,40 @@ export function planOutline(planText: string, transform: readonly number[], lift
   return floorplan(doc).model.rooms.map(r => (r.room.poly as [number, number][]).map(([x, y]) => toMap([x, y, lift])));
 }
 
+/** The plan's walls as lines on the floor, in the map's frame, with its doorways cut out of them: what a walk
+ *  through the place is stopped by. A door or a cased opening is a gap; a window is wall. Only straight walls: a
+ *  curved one is left out, so it stops nothing. */
+export function planWalls(planText: string, transform: readonly number[], lift = 0): [V3, V3][] {
+  const { doc } = parseDsl(split(planText).base);
+  const { toMap } = planFrame(transform);
+  const { walls, openings } = floorplan(doc).model;
+  const out: [V3, V3][] = [];
+  for (const wall of walls) {
+    if (wall.geometry.kind !== 'segment' || wall.to === wall.from) continue;
+    const [ax, ay] = wall.start;
+    const [bx, by] = wall.end;
+    // where along the wall (0 at its start, 1 at its end) each doorway begins and ends
+    const gaps = openings
+      .filter(o => o.wall === wall && o.spec.type !== 'window')
+      .map(
+        o => [o.from, o.to].map(v => (v - wall.from) / (wall.to - wall.from)).sort((p, q) => p - q) as [number, number],
+      )
+      .sort((p, q) => p[0] - q[0]);
+    const piece = (from: number, to: number) => {
+      if (to - from < 1e-6) return;
+      const at = (t: number) => toMap([ax + (bx - ax) * t, ay + (by - ay) * t, lift]);
+      out.push([at(from), at(to)]);
+    };
+    let done = 0;
+    for (const [from, to] of gaps) {
+      piece(done, Math.max(done, Math.min(1, from)));
+      done = Math.max(done, Math.min(1, to));
+    }
+    piece(done, 1);
+  }
+  return out;
+}
+
 /** The vertical field of view (degrees) that fills a view of `aspect` (width over height) with a fixed camera's own
  *  frame (`width` x `height` pixels at `focal`): its frame covers the view, cropped to the view's shape, so the view
  *  is filled and shows nothing past the frame's edges, nothing the camera never saw (#42). A view wider than
