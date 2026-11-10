@@ -10,7 +10,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Activity, lazy, type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import { toCheck, useRecentActivities } from '../activities/recent';
 import { Deferred } from '../Deferred';
-import { CountSkeleton, countLineChars, setSessionCount, sessionCount } from '../lib/loading';
+import { CountSkeleton, countLineChars, sessionCount, setSessionCount } from '../lib/loading';
 import { PageFrame } from '../lib/page';
 import { sightingsQuery, waitingGroups } from '../people/pets/api';
 import { KNOWN_TABS, type KnownTab, navigate, useRoute } from '../router';
@@ -80,10 +80,12 @@ export function Waiting({
   }, [cacheKey, loading, n]);
   const held = cacheKey ? sessionCount(cacheKey) : undefined;
   const showSkeleton = loading && held === undefined;
-  const text =
-    loading && held !== undefined ? (held ? `${held} ${what}` : null) : n ? `${n} ${what}` : null;
+  // A held count is an earlier read, not this one: it shows dimmed and busy until the new number arrives.
+  const stale = loading && held !== undefined;
+  const shown = stale ? held : n;
+  const text = shown ? `${shown} ${what}` : null;
   return (
-    <span className={classes.count}>
+    <span className={classes.count} data-stale={stale || undefined} aria-busy={stale || undefined}>
       {showSkeleton ? <CountSkeleton chars={countLineChars(what)} /> : text}
     </span>
   );
@@ -124,12 +126,7 @@ function PeopleBadge({ read }: { read: boolean }) {
 function PetsBadge({ read }: { read: boolean }) {
   const sightings = useQuery({ ...sightingsQuery(), enabled: read });
   return (
-    <Waiting
-      cacheKey="known:pets"
-      n={waitingGroups(sightings.data)}
-      what="to name"
-      loading={sightings.isPending}
-    />
+    <Waiting cacheKey="known:pets" n={waitingGroups(sightings.data)} what="to name" loading={sightings.isPending} />
   );
 }
 

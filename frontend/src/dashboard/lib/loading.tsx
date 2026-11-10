@@ -1,7 +1,7 @@
 // Loading and error states shared by the tabs: skeletons shaped like what is coming, a loader that shows only
 // when a wait runs long (so a quick load doesn't flash one), and an error with a retry, so a failed request never
 // leaves a skeleton up for good. The error itself is LoadError in page.tsx.
-import { Group, Loader, Skeleton, Stack, Text, VisuallyHidden } from '@mantine/core';
+import { Box, Group, Loader, Skeleton, Stack, Text, VisuallyHidden } from '@mantine/core';
 import { useEffect, useState } from 'react';
 import classes from './loading.module.css';
 
@@ -76,13 +76,7 @@ export function CountSkeleton({ chars, label }: { chars: number; label?: string 
 /** Placeholder cards in the People roster grid: a round picture and two lines, like a roster row. */
 export function CardsSkeleton({ cards = 4, label }: { cards?: number; label: string }) {
   return (
-    <div
-      className={classes.cards}
-      role="group"
-      aria-busy="true"
-      aria-label={label}
-      data-testid="cards-skeleton"
-    >
+    <Box className={classes.cards} role="group" aria-busy="true" aria-label={label} data-testid="cards-skeleton">
       {Array.from({ length: cards }, (_, i) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: identical placeholders with no identity of their own
         <div key={i} className={classes.card}>
@@ -93,7 +87,7 @@ export function CardsSkeleton({ cards = 4, label }: { cards?: number; label: str
           </Stack>
         </div>
       ))}
-    </div>
+    </Box>
   );
 }
 
