@@ -8,8 +8,8 @@ Reference for `continuum-gateway`, which serves live and recorded video frames a
 
 Video goes to the browser as encoded units, which the page decodes with WebCodecs.
 
-- **WebSockets** (`--listen`, default `127.0.0.1:8766` and port 8766 in the installed service): control messages are
-  JSON text frames, and frames, overlays, and Arrow tables are binary frames.
+- **WebSockets** (`--listen`, default `127.0.0.1:8766`; the installed service listens on `ports.gateway`, 8766 by
+  default): control messages are JSON text frames, and frames, overlays, and Arrow tables are binary frames.
 - **WebTransport** (`--webtransport`, off unless passed): HTTP/3 over QUIC, requiring `--cert` and `--key` or
   `--self-signed`. Control messages are length-prefixed JSON on the control stream.
 
