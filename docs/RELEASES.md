@@ -1,47 +1,30 @@
 # Releases
 
-A release is a set of files on a GitHub Release that install the system on a machine with no checkout, no compiler,
-and no Rust toolchain. A checkout with mise stays the development loop and is not affected by any of this.
+A release is a set of files on a GitHub Release that install the system on a machine with no checkout, no compiler, and
+no Rust toolchain. A checkout with `mise` remains the development workflow ([CONTRIBUTING.md](../CONTRIBUTING.md)).
 
 ## What a release holds
 
 | File | What it is |
 |---|---|
-| `liberational_pack-<version>-py3-none-any.whl` | The application: the Python package, its settings and service declarations, the dashboard's frontend build, and the lock below without hashes (`resources/constraints.txt`) |
+| `liberational_pack-<version>-py3-none-any.whl` | The application: the Python package, its settings and service declarations, the dashboard's frontend build, and the marker-aware lock without hashes (`resources/constraints.txt`) |
 | `continuum_py-<c>-cp314-cp314-<platform>.whl` | Continuum's Python SDK, one per platform ([CONTINUUM-SDK.md](CONTINUUM-SDK.md#wheels)) |
-| `continuum_daemons-<c>-py3-none-<platform>.whl` | Continuum's daemons, one per platform; they land in the environment's `bin/` |
-| `liberational-pack-<version>-lock-<platform>.txt` | Every third-party dependency for that platform, each extra's included, pinned with hashes |
-| `SHA256SUMS` | The SHA-256 of every file above |
+| `continuum_daemons-<c>-py3-none-<platform>.whl` | Continuum's daemons, one per platform; they install into the environment's `bin/` |
+| `liberational-pack-<version>-lock-<platform>.txt` | Every third-party dependency for that platform, all extras included, pinned with SHA-256 hashes |
+| `SHA256SUMS` | The SHA-256 checksum of every file above |
 
-The platforms are `linux-x86_64` and `linux-aarch64` (glibc 2.36 and later: Ubuntu 24.04 and 26.04, Debian 12 and
-13) and `macos-arm64` (macOS 14 and later). Continuum's wheels carry their own version (`<c>`).
+The platforms are `linux-x86_64` and `linux-aarch64` (glibc 2.36 and later: Ubuntu 24.04 and 26.04, Debian 12 and 13)
+and `macos-arm64` (macOS 14 and later). Continuum's wheels carry their own version (`<c>`) and statically link a
+private LGPL (version 3 or later) FFmpeg build with H.264, AV1 (for the archive), and TLS (`rtsps://` cameras); see
+[CONTINUUM-SDK.md](CONTINUUM-SDK.md#wheels).
 
-Neither the GPU libraries nor the models are in a release: `pack-setup` fetches this machine's extras, pinned to the
-lock, and the models.
+Neither GPU libraries nor models are in the release files: `pack-setup` installs this machine's Python extras against
+the lock and fetches the models.
 
-## Installing one
+## Install with apt
 
-With [uv](https://docs.astral.sh/uv/) installed, download a release's files into one directory (the wheel, the two
-Continuum wheels and the lock for your platform; `gh release download v0.2.0 --repo liseman/liberation.al -D release`
-gets them all), then:
-
-```sh
-uv tool install --python 3.14 --find-links release \
-  --constraints release/liberational-pack-0.2.0-lock-linux-x86_64.txt \
-  liberational-pack --with continuum-daemons
-pack-system install    # the system packages it needs, after asking
-pack-setup             # this machine's extras and the models
-pack-app               # open the application
-```
-
-`--constraints` pins every dependency to the lock and checks each download against its hash. The three wheels
-themselves are checked against `SHA256SUMS` (`sha256sum -c --ignore-missing SHA256SUMS` in that directory).
-`--with continuum-daemons` is what puts the daemons in the tool's environment, where the application looks for them.
-
-## The apt repository
-
-On Ubuntu (24.04 and 26.04) and Debian (12 and 13), on x86-64 and arm64, the same release installs with apt, with
-no uv, git, or compiler to install first:
+On Ubuntu (24.04 and 26.04) and Debian (12 and 13), on x86-64 and arm64, install from the project's `apt` repository
+with no `uv`, `git`, or compiler required first:
 
 ```sh
 sudo install -d /etc/apt/keyrings
@@ -50,112 +33,171 @@ curl -fsSL https://github.com/liseman/liberation.al/releases/download/apt/libera
 echo "deb [signed-by=/etc/apt/keyrings/liberational.gpg] https://github.com/liseman/liberation.al/releases/download/apt ./" \
   | sudo tee /etc/apt/sources.list.d/liberational.list
 sudo apt update && sudo apt install liberational
-pack-setup             # as yourself, not with sudo: this machine's environment and the models
+pack-setup             # run as yourself, never with sudo: builds your environment and fetches models
 ```
 
-Then open Liberational from the applications menu, or with `pack-app`.
+Open Liberational from the applications menu, or run `pack-app` ([RUNNING.md](RUNNING.md)). Pass `--check` to
+`pack-setup` to inspect what is missing without installing or downloading, `--no-models` to skip model downloads, or
+`--no-ollama` to skip Ollama pulls.
 
-**What the package is.** A bootstrap of about 140 MB (`tools/apt_package.py`, `packaging/deb/`): the release's three
-wheels and this platform's lock, a pinned `uv` (no distribution ships Python 3.14, so `uv` fetches it), a desktop
-entry and an icon, and the `pack-*` commands in `/usr/bin`, each a link to one launcher. Its `Depends` are the apt
-packages in `config/system-packages.toml`, so `pack-system install` has nothing left to do. It registers nothing
-with systemd and builds nothing as root. Ollama has no apt package: the package recommends it and `pack-setup` says
-how to get it.
+### Upgrade, remove, or purge an apt install
 
-**The environment is each user's own.** `pack-setup` builds it in `~/.local/lib/liberational` with the same
-`uv tool install` as above, then goes on as it does for any installed package (the extras, then the models). Every
-other command refuses to run until the environment is the installed release's, and says to run `pack-setup`. Nothing
-of the system is shared between users of one machine.
-
-**Upgrading.** `sudo apt update && sudo apt upgrade` has a running application drain and quit (the supervisor stops
-the readers, then capture, lets the tier worker store what capture left, and stops the broker last), rebuilds the
-environment of every user who has one, as that user, with the arguments they last gave `pack-setup`, and says to
-open the application again. If a rebuild can't finish (no network), the upgrade still completes and says who has to
-run `pack-setup`; the application won't open on a half-built environment. `pack.toml`, `devices.toml`, and
-everything under `~/.local/share/liberational` are not touched. What a release resets is in its notes, below.
-
-**Removing.** `sudo apt remove liberational` quits a running application and deletes the package and each user's
-environment (code, several gigabytes, that `pack-setup` makes again). Settings, devices, recordings, what the owner
-taught, and models stay. `sudo apt purge liberational` lists each user's settings and data directories with their
-sizes and deletes them only after a `y` typed at the terminal; run without a terminal it deletes nothing.
-
-**Where it is hosted.** The repository is the assets of one GitHub Release, tagged `apt`: the `.deb` files, a
-`Packages` index, a signed `Release` (`InRelease`), and the public key. It is a flat repository because a release's
-assets have no directories, and it is a release rather than GitHub Pages because a `.deb` is over Pages' 100 MB a
-file. Earlier versions stay listed, so `apt install liberational=0.1.0-1` still works.
-
-**How it is built.** The release workflow calls `.github/workflows/apt.yml` after the smoke tests. On each
-architecture it builds the `.deb` from the files the run has just built and runs `tools/apt_smoke.sh`: in clean
-`ubuntu:24.04` and `debian:12` containers, from a repository signed with a key made for that run, it installs the
-package, runs `pack-setup` as an ordinary user, starts the application, upgrades to a second revision while it runs
-(it must drain, quit, and come back on the new one with the owner's files byte for byte the same), removes it, and
-purges it both without a terminal and with a `y`. A tag's run then signs the index with the project's key and
-uploads everything to the `apt` release; a rehearsal publishes nothing. To package a release that is already
-published, or to ship a fix to the package alone, run it by hand:
-`gh workflow run apt.yml -f tag=v0.2.0 -f revision=2`.
-
-To try the test on files built or downloaded locally (it needs docker, gpg, dpkg-deb, and uv, and installs nothing
-on the machine it runs on):
+Upgrade with `apt`:
 
 ```sh
-tools/apt_smoke.sh dist                   # both images
-tools/apt_smoke.sh dist debian:13         # or the ones you name
+sudo apt update && sudo apt upgrade
+```
+
+The upgrade drains and quits a running application ([SERVICES.md](SERVICES.md#one-application)), rebuilds the
+environment of every user who has one (as that user, with the arguments they last gave `pack-setup`), and leaves
+`pack.toml`, `devices.toml`, and `~/.local/share/liberational` untouched. Open `pack-app` again afterward. If a rebuild
+cannot finish (for example, without network access), `apt upgrade` still completes and prints which user needs to run
+`pack-setup`. Check [Notes](#notes) before upgrading to see whether a version resets machine-made data. To pin an older
+package version, run `sudo apt install liberational=0.1.0-1`.
+
+Remove the package, each user's `~/.local/lib/liberational` environment, and `~/.config/autostart/liberational.desktop`,
+while keeping settings, devices, recordings, taught state, and models:
+
+```sh
+sudo apt remove liberational
+```
+
+Delete settings and data as well (interactive terminals only; non-interactive runs delete nothing):
+
+```sh
+sudo apt purge liberational
+```
+
+`purge` lists each user's configuration and data directories with their sizes and deletes them only after `y` is typed
+at the terminal.
+
+## Install with uv
+
+On any supported Linux or macOS machine with [uv](https://docs.astral.sh/uv/) installed, download a release's files for
+your platform into one directory (`gh release download v0.2.0 --repo liseman/liberation.al -D release` fetches all
+assets), check them, and install the tool:
+
+```sh
+(cd release && sha256sum -c --ignore-missing SHA256SUMS)
+uv tool install --python 3.14 --find-links release \
+  --constraints release/liberational-pack-0.2.0-lock-linux-x86_64.txt \
+  liberational-pack --with continuum-daemons
+pack-system install    # installs missing system packages, after asking
+pack-setup             # installs this machine's Python extras and fetches models
+pack-app               # opens the application
+```
+
+Replace `linux-x86_64` with `linux-aarch64` or `macos-arm64` to match your machine. `--constraints` pins every
+third-party dependency to the lock and verifies its SHA-256 hash; `--with continuum-daemons` installs the Rust daemons
+into the tool's `bin/` directory.
+
+## Make a release
+
+1. Set `version` in `pyproject.toml`, run `uv lock` so `uv.lock` records it, and add a `## <version>` section at the
+   end of [Notes](#notes) below. Every section must state what an upgrade resets, even when that is nothing: the
+   project resets machine-made data from time to time, and `tools/release.py notes` refuses a section without that
+   statement.
+2. Merge that change to `main`, tag the merge commit `v<version>` (a tag like `v0.2.0rc1` publishes as a pre-release),
+   and push the tag.
+
+If a smoke test fails during the workflow run, nothing is published; fix the failure on `main`, move the tag, and push
+again.
+
+- **Rehearse without publishing:** run `gh workflow run release.yml` (or start it from the Actions tab) to build,
+  smoke-test, and retain the workflow artifacts without creating a GitHub Release or updating `apt`.
+- **Publish or revise the `.deb` alone:** run `gh workflow run apt.yml -f tag=v0.2.0 -f revision=2` to package an
+  already published release or ship a packaging fix under a new revision number.
+- **Run the smoke tests locally:** put a release's three wheels and lock into `dist/` (downloaded from a release or
+  rehearsal artifact, or built locally with `src/liberational/resources/constraints.txt` from
+  `tools/release.py constraints`, `mise run wheel`, `mise run continuum-wheels` copied from `continuum/dist/`, and
+  `tools/release.py lock`), then run the container tests. Never run `tools/release_smoke.sh` directly on a host with an
+  install, because it installs system packages and overwrites `pack.toml`:
+
+```sh
+docker run --rm -v "$PWD/dist:/dist:ro" -v "$PWD/tools:/tools:ro" ubuntu:24.04 /tools/release_smoke.sh /dist
+tools/apt_smoke.sh dist                   # ubuntu:24.04 and debian:12 containers (needs docker, gpg, dpkg-deb, uv)
+tools/apt_smoke.sh dist debian:13         # or specific container images
 ```
 
 ### The signing key
 
-The repository is signed with a key that only the project's owner and the `APT_SIGNING_KEY` Actions secret hold. No
-private key is ever committed: the tests make their own and delete it. Until the secret is set, a tag's run still
-publishes the GitHub Release and then fails its `apt` job, saying so.
+The `apt` repository is signed with an `ed25519` key held only offline by the project owner and in the
+`APT_SIGNING_KEY` GitHub Actions secret. No private key is committed; container smoke tests generate a throwaway key
+per run and delete it. Until `APT_SIGNING_KEY` is set, a tag push still publishes the GitHub Release and then fails its
+`apt` job with a message saying why.
 
-To make the key, once, on a trusted machine:
+Generate the key once on a trusted machine:
 
 ```sh
 export GNUPGHOME="$(mktemp -d)"
 gpg --batch --passphrase '' --quick-generate-key "Liberational apt repository" ed25519 sign 5y
-gpg --list-secret-keys --with-fingerprint                          # note the fingerprint
+gpg --list-secret-keys --with-fingerprint                          # record the fingerprint
 gpg --armor --export-secret-keys | gh secret set APT_SIGNING_KEY --repo liseman/liberation.al
-gpg --armor --export-secret-keys > liberational-apt-key.asc        # keep this copy offline, then delete it here
+gpg --armor --export-secret-keys > liberational-apt-key.asc        # store offline, then delete this local file
 rm -rf "$GNUPGHOME"
 ```
 
-The key has no passphrase because the workflow has to use it unattended; the secret and the offline copy are what
-protect it. Then publish the releases that already exist: `gh workflow run apt.yml -f tag=v0.1.0`. The workflow
-exports the public half as `liberational-archive-keyring.gpg` beside the index, which is the file the install
-command above fetches.
+The key has no passphrase so the workflow can sign unattended; the repository secret and offline copy protect it. After
+setting the secret, publish any existing release into the repository with `gh workflow run apt.yml -f tag=v0.1.0`. The
+workflow exports the public key as `liberational-archive-keyring.gpg` beside the index.
 
-The key expires after five years. Before then, extend it from the offline copy (`gpg --quick-set-expire <fingerprint>
-5y`), set the secret again, and publish any release: machines pick up the new expiry by fetching the keyring again.
-If the key is ever exposed, make a new one the same way, set the secret, publish, and tell people to fetch the
-keyring again; apt refuses the repository until they do, which is the point.
+The key expires after five years. Before expiry, extend it from the offline copy
+(`gpg --quick-set-expire <fingerprint> 5y`), update `APT_SIGNING_KEY`, and publish a release; machines pick up the new
+expiry by fetching `liberational-archive-keyring.gpg` again. If the key is ever exposed, generate a replacement key the
+same way, update `APT_SIGNING_KEY`, publish, and instruct users to re-fetch the keyring (`apt` refuses the repository
+until they do).
 
-## Making one
+## The apt repository
 
-1. Set `version` in `pyproject.toml` (and run `uv lock`, which records it), and add a `## <version>` section at the
-   end of this file's notes, below. The section has to say what an upgrade resets, even when that is nothing: this
-   project resets machine-made data now and then, and a person upgrading has to know before they do.
-2. Merge that, then tag the merge commit `v<version>` and push the tag.
+### What the package is
 
-The tag starts `.github/workflows/release.yml` on free hosted runners. It refuses a tag that doesn't match
-`pyproject.toml` or has no notes here, builds the frontend and the wheels, writes the locks from `uv.lock`
-(`tools/release.py`), and then runs the smoke test on each platform (`tools/release_smoke.sh`: in a clean
-`ubuntu:24.04` container on Linux, on the runner itself on macOS, with no GPU anywhere). The smoke test installs from
-the built files as above, runs `pack-system install` and `pack-setup` without the models, starts demo mode and asks
-the dashboard for its page and the demo household, and then runs the supervisor with the broker and the dashboard
-and quits it. Only when that passes on all three platforms is the GitHub Release published, with this file's section
-as its notes. A failed smoke test publishes nothing; fix it, move the tag, and push again.
+The `.deb` (`tools/apt_package.py`, `packaging/deb/`) is a bootstrap package of over 100 MB: it carries the release's
+three wheels and platform lock in `/usr/lib/liberational/wheels/`, a pinned `uv` binary in
+`/usr/lib/liberational/bin/uv` (no target distribution ships Python 3.14, so `uv` fetches it), a desktop entry and
+icon, and `/usr/bin/pack-*` symlinks to `/usr/lib/liberational/launch`.
 
-Started by hand (`gh workflow run release.yml`, or the Actions tab), the same workflow is a rehearsal: it builds and
-smoke-tests everything, keeps the files as the run's artifacts, and publishes nothing. It never runs for a pull
-request. A version like `0.2.0rc1` (tag `v0.2.0rc1`) is published as a pre-release.
+Package relations come from `config/system-packages.toml`: required unconditional `apt` packages (plus
+`ca-certificates`) go in `Depends`, hardware-conditional packages (`nvidia-cuda-toolkit`) and `ollama` go in
+`Recommends`, optional packages (`arp-scan`) go in `Suggests`, and source-build packages (`build = true`) are omitted.
+The package registers nothing with `systemd` and compiles nothing as root.
 
-To try the smoke test on files built locally (`mise run wheel`, `mise run continuum-wheels`, and the locks from
-`tools/release.py`), run it in a container, never on a machine with an install: it installs system packages and
-writes the user's `pack.toml`.
+### Per-user environments
 
-```sh
-docker run --rm -v "$PWD/dist:/dist:ro" -v "$PWD/tools:/tools:ro" ubuntu:24.04 /tools/release_smoke.sh /dist
-```
+Each user owns an isolated tool environment in `~/.local/lib/liberational/liberational-pack`, built by `pack-setup`
+with the same `uv tool install` command used for wheel installs. `pack-setup` copies `/usr/lib/liberational/release` to
+`~/.local/lib/liberational/liberational-pack/.release` when the build finishes and saves the user's flags in
+`~/.local/lib/liberational/setup-args`. Every other `pack-*` command compares `.release` against
+`/usr/lib/liberational/release` and refuses to run on a missing or mismatched environment, telling the user to run
+`pack-setup`. Users on the same machine share only the immutable bootstrap files under `/usr`.
+
+### Where it is hosted
+
+The repository lives on a single GitHub Release tagged `apt`: the `.deb` files, `Packages` and `Packages.gz`, `Release`,
+`Release.gpg`, and `InRelease`, and `liberational-archive-keyring.gpg`. It uses Debian's flat repository layout (`./`)
+because GitHub Release assets have no subdirectories, and uses GitHub Releases rather than GitHub Pages because each
+`.deb` exceeds Pages' 100 MB per-file limit. Older `.deb` versions stay attached to the `apt` release so version pins
+keep working.
+
+### How releases and packages are built
+
+Pushing a `v<version>` tag triggers `.github/workflows/release.yml` (pull requests never run it). The workflow checks
+that the tag matches `pyproject.toml` and has a section under [Notes](#notes), builds the frontend, exports `uv.lock`
+into `resources/constraints.txt` and per-platform hash locks (`tools/release.py`), builds and verifies the application
+wheel (`tools/check_wheel.py --lock`), and builds Continuum's wheels on Linux x86-64, Linux arm64, and macOS arm64.
+
+Before publishing anything, `tools/release_smoke.sh` runs on all three platforms (in a clean `ubuntu:24.04` container
+on Linux and on the runner on macOS, without a GPU): it installs from the built wheels and lock, runs
+`pack-system install --yes` and `pack-setup --no-models --no-ollama`, verifies `pack-demo` serves the dashboard and
+demo household, and starts `pack-supervisor run` with `continuum-broker` and `dashboard` before stopping it with
+`pack-supervisor quit`. Only after all three platforms pass does the workflow publish the GitHub Release.
+
+`.github/workflows/apt.yml` then runs on x86-64 and arm64. On each architecture, `tools/apt_smoke.sh` builds revisions
+1 and 2 of the `.deb` in temporary signed repositories and runs `packaging/deb/smoke.sh` inside clean `ubuntu:24.04`
+and `debian:12` containers: installing as root, running `pack-setup` as an unprivileged user, starting the supervisor,
+upgrading from revision 1 to revision 2 while it runs (verifying it drains, stops, and restarts on revision 2 with the
+user's files unchanged byte for byte), removing the package, and purging it both non-interactively and with `y`. On a
+tag run, the `publish` job signs the merged index with `APT_SIGNING_KEY` and uploads the `.deb` files and index to the
+`apt` release.
 
 # Notes
 
