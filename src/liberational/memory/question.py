@@ -2,15 +2,17 @@
 
 read() asks the local model (the search loop's model, recall.settings) to fill in a fixed form about the question:
 whether it is about recorded history, where the answer is (speech, cameras, both, people, lights, or the journal),
-the measure (describe, count, duration, last time, who, or topics), people walking by or coming in, the people
-named, and the time phrase copied into fields (its kind first, which says which of them count). The reply is
-constrained to SCHEMA and then checked here, so a reading is never guessed at:
+the measure (describe, count, duration, last time, when, doing, where, home, arrived, who, or topics), people walking
+by or coming in, an action the camera model detects, whether it asks what is usual, the people named, and the time
+phrase copied into fields (its kind first, which says which of them count). The reply is constrained to SCHEMA and
+then checked here, so a reading is never guessed at:
 
 - A reply that doesn't fit the form, or no reply, raises Unreadable, and the caller says so plainly.
 - Only the fields the time's kind uses are kept, so a stray value in another can't combine into a wrong window.
 - Every time value and name must be in the question's own words (grounded): a day, a part of the day, a clock's
-  number, a date's day, an amount, or a name the question doesn't hold is dropped. That is a containment check on
-  the model's values, not a second reading of the question.
+  number, a date's day, an amount, or a name the question doesn't hold is dropped, and so is an action, a movement,
+  or a "usual" none of whose words the question has. That is a containment check on the model's values, not a
+  second reading of the question.
 - A time the form can't hold, or one left with nothing after the check, is carried as other_time and refused. It is
   never dropped, since dropping it would widen the search to everything.
 
@@ -24,8 +26,11 @@ no names), so a question's reading is the same whenever it is asked, the model's
 read() keeps the last readings by question text: the voice loop's routing, the forgotten-person check, and collect
 share one call.
 
-Cameras are not in the form. A camera is named by its configured ID or name, which is a lookup against configuration
-with its own refusals (history_qa.cameras_named), not something to infer.
+Names the owner taught are not in the form. A camera is named by its configured ID or name, which is a lookup
+against configuration with its own refusals (history_qa.cameras_named), and the owner's activities, zones, pets, and
+linked things are looked up in the question's words the same way (Vocabulary). What the question asks about them is
+the reading's: tools/measure.py --part readings scores it on labeled questions, which is how the checks above were
+chosen.
 """
 
 import dataclasses
@@ -65,6 +70,45 @@ ACTIONS = (
     "repeated_movement",
 )
 UNDETECTED = frozenset(["stillness", "repeated_movement"])
+# The words one of which a question has when it asks about an action or people moving, and the words it has when
+# it asks what is usual. Like the time values, an action, a movement, or a "usual" the question's own words don't
+# hold is dropped (a 4B model
+# marked 7 of 53 labeled questions with an action nobody asked about).
+ACTION_WORDS = {
+    "sit_down": frozenset(["sit", "sits", "sat", "sitting", "seated"]),
+    "stand_up": frozenset(["stand", "stands", "stood", "standing", "up"]),
+    "pick_up": frozenset(["pick", "picks", "picked", "picking"]),
+    "put_down": frozenset(["put", "puts", "putting"]),
+    "fall": frozenset(["fall", "falls", "fell", "fallen", "falling"]),
+    "drink": frozenset(["drink", "drinks", "drank", "drunk", "drinking"]),
+    "eat": frozenset(["eat", "eats", "ate", "eaten", "eating"]),
+    "phone_call": frozenset(["call", "calls", "called", "calling"]),
+    "phone_use": frozenset(["phone", "cellphone", "smartphone", "tablet", "phone_use"]),
+    "stillness": frozenset(["still", "stillness"]),
+    "repeated_movement": frozenset(["repeated", "repeating", "repetitive", "repeat", "repeated_movement"]),
+}
+MOVEMENT_WORDS = {
+    "came_in": frozenset(["come", "comes", "came", "coming", "enter", "enters", "entered", "entering", "in", "into"]),
+    "walked_by": frozenset(
+        ["by", "past", "pass", "passes", "passed", "passing", "cross", "crosses", "crossed", "crossing", "across"]
+    ),
+}
+USUAL_WORDS = frozenset(
+    ["usually", "usual", "generally", "typically", "typical", "normally", "average", "nightly", "daily"]
+)
+USUAL_PHRASES = (
+    "in general",
+    "per day",
+    "per night",
+    "a day",
+    "a night",
+    "each day",
+    "each night",
+    "every day",
+    "every night",
+    "most days",
+    "most nights",
+)
 # The animals the detector knows (COCO's): always on offer as names, so "the cat" can be picked before any pet is named.
 SPECIES = ("bird", "cat", "dog", "horse", "sheep", "cow", "elephant", "bear", "zebra", "giraffe")
 MOVEMENTS = ("", "walked_by", "came_in")
@@ -116,7 +160,6 @@ class Reading:
     intent: bool = False
     now: bool = False
     people: tuple[str, ...] = ()
-    names: tuple[str, ...] = ()  # the owner's names it refers to, from the ones on offer (Vocabulary)
     action: str = ""  # one of ACTIONS
     usual: bool = False  # asks what is typical, not what happened once
     day: str = ""  # one of DAYS, or a date as the question named it (2026-10-20, 10-20, october 20)
@@ -131,51 +174,50 @@ class Reading:
     text: str = ""
 
     def as_dict(self) -> dict[str, Any]:
-        return dict(dataclasses.asdict(self), people=list(self.people), names=list(self.names))
+        return dict(dataclasses.asdict(self), people=list(self.people))
 
 
 @dataclasses.dataclass(frozen=True)
 class Vocabulary:
     """The owner's own names a question can refer to: the activities they named, the zones they drew, their pets
-    (name, species), and the things they linked a device to. The form offers them as the choices for `names`, so
-    the model's pick is one of them, not a guess; which kind each is, is looked up here."""
+    (name, species), and the things they linked a device to. Like a camera's name, one of these is looked up in the
+    question's words, not inferred: a 4B model asked to pick from them listed every name or dropped the pet in 8
+    of 53 labeled questions. What the question asks about a name (a count, when, where) is still the reading's."""
 
     events: tuple[str, ...] = ()
     zones: tuple[str, ...] = ()
     pets: tuple[tuple[str, str], ...] = ()
     things: tuple[str, ...] = ()
 
-    def offered(self) -> tuple[str, ...]:
-        """Every name on offer once, as first spelled: the owner's, then the species the detector knows."""
-        names = [*self.events, *self.zones, *(name for name, _ in self.pets), *self.things, *SPECIES]
-        return tuple({name.casefold(): name for name in reversed(names) if name.strip()}.values())[::-1]
+    def subjects(self, question: str) -> dict[str, str | None]:
+        """What the question names: {event, zone, pet, species, thing}, each as the owner spelled it or None. An
+        activity, zone, or thing is named when every word of its name that says something is in the question, in
+        any order and tense (event_counts.mentions), the longest such name; a pet by its name as a word; a species
+        by its word, when exactly one is named. A pet brings its species."""
+        from liberational.memory import event_counts
 
-    def subjects(self, names: tuple[str, ...]) -> dict[str, str | None]:
-        """What the picked names are: {event, zone, pet, species, thing}, each a name as the owner spelled it or
-        None. A pet brings its species, and a species its pet when exactly one pet of it is named."""
-        picked = {name.casefold() for name in names}
+        def longest(known: tuple[str, ...], short: bool = False) -> str | None:
+            hits = [n for n in known if (short or event_counts.usable(n)) and event_counts.mentions(question, n)]
+            return max(hits, key=lambda n: len(event_counts.content(n))) if hits else None
 
-        def first(known: tuple[str, ...]) -> str | None:
-            return next((name for name in known if name.casefold() in picked), None)
-
-        pet = next(((name, species) for name, species in self.pets if name.casefold() in picked), None)
-        species = pet[1] if pet else first(SPECIES)
-        if pet is None and species is not None:
-            of_it = [name for name, kind in self.pets if kind == species]
-            pet = (of_it[0], species) if len(of_it) == 1 else None
+        words = {w.removesuffix("'s") for w in question.lower().replace("\u2019", "'").replace("?", " ").split()}
+        words = {w.strip(".,!;:\"'") for w in words}
+        pets = [(name, species) for name, species in self.pets if name.casefold() in words]
+        pet = pets[0] if len(pets) == 1 else None
+        species = [s for s in SPECIES if s in words or s + "s" in words]
         return dict(
-            event=first(self.events),
-            zone=first(self.zones),
+            event=longest(self.events),
+            zone=longest(self.zones),
             pet=pet[0] if pet else None,
-            species=species,
-            thing=first(self.things),
+            species=pet[1] if pet else species[0] if len(species) == 1 else None,
+            thing=longest(self.things, short=True),  # a thing can be called TV
         )
 
 
 def vocabulary(state: Any = None) -> Vocabulary:
     """The names the state at `state` (paths.state when None) has to offer. A source that can't be read offers
     none, so a question is still read."""
-    from liberational.memory import event_counts, zone_counts
+    from liberational.memory import event_counts
 
     where = cfg.path("paths.state") if state is None else state
 
@@ -186,9 +228,9 @@ def vocabulary(state: Any = None) -> Vocabulary:
             return ()
 
     def pets() -> list[tuple[str, str]]:
-        from liberational.people import pets as roster
+        from liberational.memory import subject_activity
 
-        return [(str(p["name"]), str(p["species"])) for p in roster.at(where).listing() if p.get("name")]
+        return [(str(p["name"]), str(p["species"])) for p in subject_activity._pets(where) if p.get("name")]
 
     def things() -> list[str]:
         from liberational.proximity import devices
@@ -197,7 +239,7 @@ def vocabulary(state: Any = None) -> Vocabulary:
 
     return Vocabulary(
         events=listed(lambda: event_counts.known_names(where)),
-        zones=listed(lambda: zone_counts.names(where)),
+        zones=listed(lambda: event_counts.zone_names(where)),
         pets=listed(pets),
         things=listed(things),
     )
@@ -217,7 +259,6 @@ FORM: dict[str, Any] = dict(
     intent=False,
     now=False,
     people=[],
-    names=[],
     action="",
     usual=False,
     time_phrase="",
@@ -233,7 +274,7 @@ FORM: dict[str, Any] = dict(
 )
 # Ollama writes a constrained reply's keys in alphabetical order, whatever order the schema lists them in, and a
 # model fills in a form better when it copies the time words before it sorts them into fields. So each key carries a
-# letter that puts it in FORM's order (a_history, ..., l_time_phrase, m_time_kind, n_day, ...).
+# letter that puts it in FORM's order (a_history, ..., k_time_phrase, l_time_kind, m_day, ...).
 KEY = {name: f"{chr(ord('a') + i)}_{name}" for i, name in enumerate(FORM)}
 _TYPES: dict[str, dict[str, Any]] = dict(
     history={"type": "boolean"},
@@ -244,7 +285,6 @@ _TYPES: dict[str, dict[str, Any]] = dict(
     intent={"type": "boolean"},
     now={"type": "boolean"},
     people={"type": "array", "items": {"type": "string"}},
-    names={"type": "array", "items": {"type": "string"}},
     action=_enum(ACTIONS),
     usual={"type": "boolean"},
     time_phrase={"type": "string"},
@@ -258,18 +298,11 @@ _TYPES: dict[str, dict[str, Any]] = dict(
     span_unit=_enum(UNITS),
     text={"type": "string"},
 )
-
-
-def schema(offered: tuple[str, ...] = ()) -> dict[str, Any]:
-    """The form as a JSON schema, with `names` held to the names on offer."""
-    types = dict(_TYPES, names={"type": "array", "items": _enum(offered)} if offered else _TYPES["names"])
-    return {
-        "type": "object",
-        "properties": {KEY[name]: types[name] for name in FORM},
-        "required": list(KEY.values()),
-    }
-
-
+SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {KEY[name]: _TYPES[name] for name in FORM},
+    "required": list(KEY.values()),
+}
 _FIELDS: tuple[tuple[str, str], ...] = (
     (
         "history",
@@ -313,13 +346,6 @@ _FIELDS: tuple[tuple[str, str], ...] = (
         (
             'the names the question is about, as written, and "me" when it is about the asker (I, me, my). Never we, '
             "you, they, someone, anyone, everyone, or {name}."
-        ),
-    ),
-    (
-        "names",
-        (
-            "the owner's own names the question refers to (an activity, a zone, a pet or an animal, or a thing), "
-            "even when it uses other words for one, picked only from this list: {names}. Else []."
         ),
     ),
     (
@@ -386,7 +412,7 @@ def _when(phrase: str, kind: str = "calendar", **fields: Any) -> dict[str, Any]:
 # fit a 4,096-token context beside the instructions, and with brief ones alone a small model puts stray values in
 # the fields it never saw empty (28 of 34 labeled questions read right, against 34 with whole forms). So the brief
 # ones come first and the whole ones last, nearest the question; read() drops brief ones from the front when the
-# names on offer leave less room.
+# model's context leaves less room.
 BRIEF: tuple[tuple[str, str], ...] = (
     _shot("who was here at 3pm", source="people", measure="who", **_when("at 3pm", clock="3pm")),
     _shot("When did I last see Sam?", source="people", measure="last_time", people=["Sam"]),
@@ -422,7 +448,7 @@ BRIEF: tuple[tuple[str, str], ...] = (
     ),
     _shot("remind me to call Dana tomorrow", history=False, people=["Dana"]),
     _shot("when did Sam pick up the phone", source="cameras", measure="when", people=["Sam"], action="pick_up"),
-    _shot("when did I last see the dog", source="cameras", measure="last_time", names=["dog"]),
+    _shot("when did I last see the dog", source="cameras", measure="last_time"),
     _shot("is Dana home?", source="people", measure="home", people=["Dana"], now=True),
     _shot("when did Sam get here", source="people", measure="arrived", people=["Sam"]),
     _shot(
@@ -434,6 +460,14 @@ BRIEF: tuple[tuple[str, str], ...] = (
     ),
     _shot("what did Dana say about sitting down", people=["Dana"]),
     _shot("what did Sam say before 5pm", people=["Sam"], **_when("before 5pm", "other")),
+    _shot(
+        "how many times a day does Sam typically sit down",
+        source="cameras",
+        measure="count",
+        people=["Sam"],
+        action="sit_down",
+        usual=True,
+    ),
     _shot("who's home?", source="people", measure="who", now=True),
     _shot("what is the capital of France", history=False),
 )
@@ -454,7 +488,7 @@ WHOLE: tuple[tuple[str, str], ...] = (
         movement="walked_by",
         **_when("between 2 and 4pm on October 20", date="10-20", clock="2", clock_end="4pm"),
     ),
-    _shot("what has the cat been doing lately", True, source="cameras", measure="doing", names=["cat"]),
+    _shot("what has the cat been doing lately", True, source="cameras", measure="doing"),
     _shot(
         "how often do I usually get up at night",
         True,
@@ -532,6 +566,14 @@ def _grounded(reply: dict[str, Any], question: str) -> dict[str, Any]:
     plain = isinstance(span, int | float) and not isinstance(span, bool)
     if plain and span not in (0, 1) and not (float(span).is_integer() and str(int(span)) in said):
         out["span"] = 0
+    action = out.get("action")
+    if isinstance(action, str) and action in ACTION_WORDS and not words & ACTION_WORDS[action]:
+        out["action"] = ""
+    movement = out.get("movement")
+    if isinstance(movement, str) and movement in MOVEMENT_WORDS and not words & MOVEMENT_WORDS[movement]:
+        out["movement"] = ""
+    if out.get("usual") is True and not (words & USUAL_WORDS or any(said in q for said in USUAL_PHRASES)):
+        out["usual"] = False
     people = out.get("people")
     if isinstance(people, list) and all(isinstance(p, str) for p in people):
         name = cfg.assistant_name().casefold()
@@ -547,10 +589,9 @@ def _grounded(reply: dict[str, Any], question: str) -> dict[str, Any]:
     return out
 
 
-def from_reply(reply: object, question: str, offered: tuple[str, ...] = ()) -> Reading:
+def from_reply(reply: object, question: str) -> Reading:
     """The reading in the model's reply to question, checked field by field and against the question's words (the
-    module docstring has the rules). `offered` are the names on offer: a picked name that isn't one of them is
-    dropped. Raises Unreadable when it doesn't fit the form."""
+    module docstring has the rules). Raises Unreadable when it doesn't fit the form."""
     if not isinstance(reply, dict):
         raise Unreadable("the reply is not a form")
     reply = _grounded({name: reply.get(key, FORM[name]) for name, key in KEY.items()}, question)
@@ -579,11 +620,11 @@ def from_reply(reply: object, question: str, offered: tuple[str, ...] = ()) -> R
     span = reply.get("span", 0)
     if isinstance(span, bool) or not isinstance(span, int | float):
         raise Unreadable("span is not a number")
-    names = reply.get("names", [])
-    if not isinstance(names, list) or any(not isinstance(n, str) for n in names):
-        raise Unreadable("names is not a list of names")
-    known = {name.casefold(): name for name in offered}
     phrase, kind = text("time_phrase"), one("time_kind", TIME_KINDS)
+    usual = flag("usual")
+    if kind == "other" and (usual or phrase.lower() in USUAL_PHRASES or phrase.lower() in USUAL_WORDS):
+        # "per day", "on average": how the count is asked for, not a window to refuse
+        kind, usual = "none", True
     day = text("date").lower() or one("day", DAYS)
     part, clock, clock_end, unit = one("part", PARTS), text("clock"), text("clock_end"), ""
     since, span_kind, other, amount = False, "", "", 0.0
@@ -615,9 +656,8 @@ def from_reply(reply: object, question: str, offered: tuple[str, ...] = ()) -> R
         intent=flag("intent"),
         now=flag("now"),
         people=tuple(dict.fromkeys(people)),
-        names=tuple(dict.fromkeys(known[n.casefold()] for n in names if n.casefold() in known)),
         action=one("action", ACTIONS),
-        usual=flag("usual"),
+        usual=usual,
         day=day,
         part=part,
         clock=clock,
@@ -632,32 +672,28 @@ def from_reply(reply: object, question: str, offered: tuple[str, ...] = ()) -> R
 
 
 KEEP = 128  # readings kept by question text
-# question -> (the names on offer when it was read, or None for a reading another process handed over; the reading)
-_kept: dict[str, tuple[tuple[str, ...] | None, Reading]] = {}
+_kept: dict[str, Reading] = {}
 
 
-def read(question: str, state: Any = None) -> Reading:
-    """The model's reading of the question, from the last readings when it was read before with the same names on
-    offer. `state` is whose names are offered (paths.state when None). Raises Unreadable."""
+def read(question: str) -> Reading:
+    """The model's reading of the question, from the last readings when it was read before. Raises Unreadable."""
     asked = " ".join(question.split())
-    offered = vocabulary(state).offered()
-    hit = _kept.get(asked)
-    if hit is not None and hit[0] in (None, offered):
-        return hit[1]
+    if asked in _kept:
+        return _kept[asked]
     from liberational.memory import recall  # recall imports history_qa, which imports this module
 
-    system = SYSTEM.format(name=cfg.assistant_name(), names=json.dumps(list(offered), ensure_ascii=False))
+    system = SYSTEM.format(name=cfg.assistant_name())
     try:
         shots = _fitting(system, asked)
-        reply = recall.chat_within(system, asked, schema(offered), REPLY_TOKENS, READ_TIMEOUT_S, shots=shots)
+        reply = recall.chat_within(system, asked, SCHEMA, REPLY_TOKENS, READ_TIMEOUT_S, shots=shots)
     except Exception as error:  # the model is down, slow, or wrote something that isn't the form
         raise Unreadable(type(error).__name__) from error
-    return keep(question, from_reply(reply, asked, offered), offered)
+    return keep(question, from_reply(reply, asked))
 
 
 def _fitting(system: str, asked: str) -> tuple[tuple[str, str], ...]:
     """The worked examples that fit the reader's context beside the instructions and the question: all of them,
-    or fewer brief ones (dropped from the front) when the names on offer make the instructions long."""
+    or fewer brief ones (dropped from the front) when the model's context is small."""
     from liberational.memory import ask, recall, summarize
 
     model, num_ctx = recall.settings()
@@ -671,21 +707,20 @@ def _fitting(system: str, asked: str) -> tuple[tuple[str, str], ...]:
     return tuple(shots)
 
 
-def keep(question: str, reading: Reading, offered: tuple[str, ...] | None = None) -> Reading:
+def keep(question: str, reading: Reading) -> Reading:
     """Keep a reading of the question, the oldest dropped past KEEP. Ask's worker process starts with the reading
     its caller already has (handed over as as_dict), so one question is one model call across both."""
     asked = " ".join(question.split())
     _kept.pop(asked, None)
     while len(_kept) >= KEEP:
         del _kept[next(iter(_kept))]
-    _kept[asked] = (offered, reading)
+    _kept[asked] = reading
     return reading
 
 
 def kept(question: str) -> Reading | None:
     """The reading already kept for the question, without asking the model."""
-    hit = _kept.get(" ".join(question.split()))
-    return None if hit is None else hit[1]
+    return _kept.get(" ".join(question.split()))
 
 
 def handed(fields: object) -> Reading | None:
@@ -695,7 +730,6 @@ def handed(fields: object) -> Reading | None:
     values: dict[str, Any] = {str(key): value for key, value in fields.items()}
     try:
         values["people"] = tuple(values.get("people", ()))
-        values["names"] = tuple(values.get("names", ()))
         return Reading(**values)
     except TypeError:
         return None

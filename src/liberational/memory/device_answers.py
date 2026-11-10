@@ -8,7 +8,6 @@ it says it can't tell, never that someone left.
 """
 
 import datetime as dt
-import re
 import time
 from collections.abc import Callable, Mapping
 from pathlib import Path
@@ -18,32 +17,24 @@ from urllib.parse import urlencode
 from liberational import config, segment_log
 from liberational.proximity import devices
 
-HOME = re.compile(r"\b(?:is|am)\s+(?P<who>[\w'-]+)\s+(?:at\s+home|home|here|around|in)\b\s*\??\s*$", re.I)
-ARRIVED = re.compile(
-    r"\bwhen\s+did\s+(?P<who>[\w'-]+)\s+(?:get\s+(?:here|home|back|in)|arrive|come\s+(?:home|in|back))\b", re.I
-)
-THING = re.compile(
-    r"\bwhere\s+(?:did\s+(?:i|we)\s+(?:last\s+)?(?:have|leave|see|put)|(?:are|is|were|was))\s+"
-    r"(?:my|our|the)?\s*(?P<thing>.+?)(?:\s+last)?\s*\??\s*$",
-    re.I,
-)
-SELF = frozenset({"i", "me"})
 DEVICE_NOTE = "These are sightings of a linked device, not proof of who carried it."
 
 
-def _who(name: str) -> str:
-    return config.owner_or() if name.casefold() in SELF else name
+def _person(query: Mapping[str, Any]) -> str | None:
+    """The one person a home or arrival question is about, the asker as the owner."""
+    people = query.get("people") or []
+    return str(people[0]) if people else None
 
 
-def asked(question: str, state: Path) -> tuple[str, str] | None:
-    """("home" | "arrived" | "thing", the name) when an owner link names who or what the question asks about."""
+def asked(query: Mapping[str, Any], state: Path) -> tuple[str, str] | None:
+    """("home" | "arrived" | "thing", the name) when the structured query asks whether someone is home, when they
+    got here, or where a thing is, and an owner link names that person or thing."""
+    measure = query.get("measure")
     found: tuple[str, str, str] | None = None
-    if m := HOME.search(question):
-        found = ("home", _who(m["who"]), "person")
-    elif m := ARRIVED.search(question):
-        found = ("arrived", _who(m["who"]), "person")
-    elif m := THING.search(question):
-        found = ("thing", m["thing"].strip(), "thing")
+    if measure in ("home", "arrived") and (who := _person(query)) is not None:
+        found = (str(measure), who, "person")
+    elif measure in ("where", "last_time") and (thing := (query.get("subjects") or {}).get("thing")) is not None:
+        found = ("thing", str(thing), "thing")
     if found is None:
         return None
     try:
@@ -56,13 +47,12 @@ def asked(question: str, state: Path) -> tuple[str, str] | None:
     return (kind, hit.name) if hit is not None else None
 
 
-def unlinked_home(question: str, state: Path) -> str | None:
-    """The name in "is X home" when no owner link names X, for Ask to answer from camera and voice presence instead
+def unlinked_home(query: Mapping[str, Any], state: Path) -> str | None:
+    """The person in "is X home" when no owner link names X, for Ask to answer from camera and voice presence instead
     (memory/history_qa.py); None for any other question, or one a link answers."""
-    m = HOME.search(question)
-    if m is None or asked(question, state) is not None:
+    if query.get("measure") != "home" or asked(query, state) is not None:
         return None
-    return _who(m["who"])
+    return _person(query)
 
 
 def _clock(ts: float, tz: dt.tzinfo | None, now: float) -> str:

@@ -31,8 +31,10 @@ One reader for every question (#60). The local model reads a question once into 
 copied into fields. parse() turns that reading into the query collect() routes on: the cameras the question names
 (a configuration lookup, cameras_named), the kind, and the window. No pattern here reads the question for its time,
 subject, or kind; the patterns left read one field's value (a clock), a camera ID, or the question's words for
-ranking lines. When the model gives no reading, collect() says the question couldn't be read and stops. Named
-events, zones, animals, and linked devices are still matched in their own modules before the reading routes.
+ranking lines. When the model gives no reading, collect() says the question couldn't be read and stops. The
+owner's own names (activities, zones, pets, and linked things) are looked up in the question's words, like cameras
+(question.Vocabulary), and the modules that count and answer about them take the structured query: none of them
+reads the question's text.
 
 The window is worked out here from the reading's time fields (window_of), never by the model. Clock and
 relative-instant questions read a bounded five-minute neighborhood, clamped at question time; ranges read their
@@ -49,6 +51,7 @@ expanding the evidence search.
 import bisect
 import calendar
 import concurrent.futures
+import dataclasses
 import datetime as dt
 import itertools
 import json
@@ -189,25 +192,37 @@ def cameras_named(question: str) -> list[str]:
 
 
 def is_history_question(question: str, unreadable: bool = False) -> bool:
-    """Whether a question is about recorded history, for routing with no state of its own (voice): a named event,
-    animal, or linked device the owner taught, else the model's reading of it (memory/question.py). `unreadable` is
-    the answer when the model gives no reading: the voice password check passes True, so it fails closed."""
+    """Whether a question is about recorded history, for routing with no state of its own (voice): the model's
+    reading of it (memory/question.py) says so, or it asks about one of the owner's own names, an action the cameras
+    detect, or whether someone is home. `unreadable` is the answer when the model gives no reading: the voice
+    password check passes True, so it fails closed."""
     try:
         views.configured_camera_mentions(question)
     except ValueError:
         return True  # collect returns the actionable camera-selection error, never general-model fallback.
-    if (
-        event_counts.retired_question(question)
-        or event_counts.asks(question.lower())  # "how many times did I open the fridge today"
-        or _asks_about_animal(question)  # "what has the cat been doing", "where is Rex"
-        or _asks_about_device(question)  # "is Sam home", "where are my keys": collect() answers from devices
-        or _asks_if_home(question)  # "is Sam home" with no linked device: camera and voice presence
-    ):
-        return True
     try:
-        return reader.read(question).history
+        r = reader.read(question)
     except reader.Unreadable:
         return unreadable
+    if r.measure in ("home", "arrived"):
+        try:
+            state = cfg.path("paths.state")
+            return _presence_known(describe(question, r, state), state)
+        except Exception:
+            return False
+    return r.history or (bool(r.action) and r.measure != "describe")
+
+
+def _presence_known(what: Mapping[str, Any], state: pathlib.Path) -> bool:
+    """Whether "is X home" or "when did X get here" can be answered from history: an owner link names X
+    (memory/device_answers.py), or the registry knows X, whose last encounter answers it. About a stranger it
+    goes the way any other question does."""
+    from liberational.memory import device_answers
+
+    if device_answers.asked(what, state) is not None:
+        return True
+    home = device_answers.unlinked_home(what, state)
+    return home is not None and timeline.person(home, state) is not None
 
 
 def _owner(state: pathlib.Path) -> Any:
@@ -217,43 +232,6 @@ def _owner(state: pathlib.Path) -> Any:
         return registry.at(state).owner()
     except Exception:
         return None
-
-
-def _asks_if_home(question: str) -> bool:
-    """Whether the question is "is X home" about someone the registry knows, for routing with no state of its own."""
-    from liberational.memory import device_answers
-
-    m = device_answers.HOME.search(question)
-    try:
-        return m is not None and timeline.person(device_answers._who(m["who"]), cfg.path("paths.state")) is not None
-    except Exception:
-        return False
-
-
-def _asks_about_device(question: str) -> bool:
-    """Whether an owner link names who or what the question asks about, for routing that has no state of its own
-    (voice): the same check collect() makes before answering from linked devices."""
-    from liberational.memory import device_answers
-
-    try:
-        return device_answers.asked(question, cfg.path("paths.state")) is not None
-    except Exception:
-        return False
-
-
-def _asks_about_animal(question: str) -> bool:
-    """Whether the question asks what an animal has been doing or when it was last seen, for routing that has no
-    state of its own (voice): the configured state's pets and zones."""
-    from liberational.memory import subject_activity
-
-    try:
-        state = cfg.path("paths.state")
-        return (
-            subject_activity.asked(question, state) is not None
-            or subject_activity.last_asked(question, state) is not None
-        )
-    except Exception:
-        return False
 
 
 def moves(query: Mapping[str, Any]) -> bool:
@@ -504,17 +482,16 @@ def window_of(
     return start, min(end, now), window, at
 
 
-def parse(
-    question: str, now: float, selected_day: str | dt.date | None = None, reading: reader.Reading | None = None
-) -> dict[str, Any]:
-    """The structured query for a question: the model's reading of it (memory/question.py, read here unless given),
-    the cameras it names, and the window worked out from the reading's time fields. Raises ValueError with a refusal
-    to show (a time that can't be read, an ambiguous camera) and question.Unreadable when the model gives no reading."""
-    r = reading if reading is not None else reader.read(question)
+def describe(question: str, r: reader.Reading, state: str | pathlib.Path | None = None) -> dict[str, Any]:
+    """Everything of a question's structured query but its window: the reading's fields, the kind, and what the
+    question names by lookup: its cameras, and the owner's own names at `state` (an activity, a zone, a pet or
+    species, or a linked thing). Raises ValueError with a refusal to show (an ambiguous camera)."""
     cameras = cameras_named(question)
-    start, end, window, at = window_of(r, now, selected_day)
-    people = [cfg.owner_or() if p.casefold() in ("me", "i", "myself") else p for p in r.people]
-    first_person = any(p.casefold() in ("me", "i", "myself") for p in r.people)
+    subjects = reader.vocabulary(state).subjects(question)
+    # A pet the question names is an animal, whatever the reading filed it under.
+    named = [p for p in r.people if p.casefold() != str(subjects["pet"]).casefold()]
+    people = [cfg.owner_or() if p.casefold() in reader.ME else p for p in named]
+    first_person = any(p.casefold() in reader.ME for p in named)
     moving = r.source in ("cameras", "both") and bool(r.movement or r.direction)
     last_seen = r.source == "people" and r.measure == "last_time" and bool(people)
     if r.source == "journal":
@@ -546,17 +523,42 @@ def parse(
         measure=r.measure,
         movement=r.movement if moving else "",
         direction=moving and r.direction,
-        start=start,
-        end=end,
+        subjects=subjects,
+        action=r.action,
+        usual=r.usual,
+        # "At night" on a usual count is every night, not one night's window (memory/typical_counts.py).
+        night=r.usual and r.part == "night",
         timezone=str(TZ),
-        window=window,
         cameras=cameras,
         kind=kind,
         person=person,
-        at=at if kind == "who" else None,
         reading=r.as_dict(),
         **({"search_text": r.text} if kind == "journal" else {}),
     )
+
+
+def _windowed(
+    what: dict[str, Any], r: reader.Reading, now: float, selected_day: str | dt.date | None
+) -> dict[str, Any]:
+    """describe()'s query with its window. Raises ValueError with the refusal when the time can't be read."""
+    timed = dataclasses.replace(r, part="") if what["night"] else r
+    start, end, window, at = window_of(timed, now, selected_day)
+    return dict(what, start=start, end=end, window=window, at=at if what["kind"] == "who" else None)
+
+
+def parse(
+    question: str,
+    now: float,
+    selected_day: str | dt.date | None = None,
+    reading: reader.Reading | None = None,
+    state: str | pathlib.Path | None = None,
+) -> dict[str, Any]:
+    """The structured query for a question: the model's reading of it (memory/question.py, read here unless given),
+    the cameras and the owner's names it names, and the window worked out from the reading's time fields.
+    Raises ValueError with a refusal to show (a time that can't be read, an ambiguous camera) and question.Unreadable
+    when the model gives no reading."""
+    r = reading if reading is not None else reader.read(question)
+    return _windowed(describe(question, r, state), r, now, selected_day)
 
 
 def people_named(question: str) -> list[str]:
@@ -566,7 +568,7 @@ def people_named(question: str) -> list[str]:
         people = reader.read(question).people
     except reader.Unreadable:
         return []
-    return [p for p in people if p.casefold() not in ("me", "i", "myself")]
+    return [p for p in people if p.casefold() not in reader.ME]
 
 
 def _json(path: pathlib.Path, default: Any) -> Any:
@@ -1494,15 +1496,22 @@ def collect(
     from liberational.memory import activity_questions, device_answers, subject_activity, typical_counts
 
     state = pathlib.Path(state_dir or STATE).resolve()
-    last = subject_activity.last_asked(question, state)
-    animal = None if last is not None else subject_activity.asked(question, state)
-    activity = (
-        activity_questions.asked(question, state)
-        if last is None
-        and animal is None
-        and not any(event_counts.counts(question, name) for name in event_counts.zone_names(state))
-        else None
-    )
+    result: dict[str, Any] = dict(is_history=True, answer=None, evidence=[], coverage={}, warnings=[], query={})
+    try:
+        r = reader.read(question)
+    except reader.Unreadable as error:
+        # No reading means no window and no route: say so, never guess at one.
+        LOG.warning("the question couldn't be read: %s", error)
+        result.update(answer=UNREADABLE, warnings=[UNREADABLE], coverage={"read_error": True})
+        return result
+    try:
+        what = describe(question, r, state)
+    except ValueError as e:
+        result.update(answer=str(e), warnings=[str(e)])
+        return result
+    last = subject_activity.last_asked(what, state)
+    animal = None if last is not None else subject_activity.asked(what, state)
+    activity = activity_questions.asked(what, state) if last is None and animal is None else None
     if activity is not None and activity.mode == "unsupported":  # stillness, repeated movement
         return dict(
             is_history=True,
@@ -1513,32 +1522,23 @@ def collect(
             query={},
             paths=["activity"],
         )
-    device = device_answers.asked(question, state)
-    home = device_answers.unlinked_home(question, state) if device is None else None
-    result: dict[str, Any] = dict(is_history=True, answer=None, evidence=[], coverage={}, warnings=[], query={})
-    try:
-        r = reader.read(question)
-    except reader.Unreadable as error:
-        # No reading means no window and no route: say so, never guess at one.
-        LOG.warning("the question couldn't be read: %s", error)
-        result.update(answer=UNREADABLE, warnings=[UNREADABLE], coverage={"read_error": True})
-        return result
+    device = device_answers.asked(what, state)
+    home = device_answers.unlinked_home(what, state) if device is None else None
+    presence = device is not None or (home is not None and timeline.person(home, state) is not None)
     result["is_history"] = (
         bool(day)
-        or r.history
-        or event_counts.retired_question(question)
-        or event_counts.wanted(question, state) is not None
+        or presence
+        or (r.history and r.measure not in ("home", "arrived"))  # about a stranger, it goes its usual way
+        or event_counts.wanted(what, state) is not None
         or activity is not None
         or animal is not None
         or last is not None
-        or device is not None
-        or (home is not None and timeline.person(home, state) is not None)
     )
     if not result["is_history"]:
         return result
     now = time.time() if now is None else now.timestamp() if isinstance(now, dt.datetime) else float(now)
     try:
-        query = parse(question, now, selected_day=day, reading=r)
+        query = _windowed(what, r, now, day)
     except ValueError as e:
         from liberational.memory import presence_counts
 
@@ -1604,9 +1604,9 @@ def collect(
             result["coverage"]["activity"] = measured["coverage"]
             warnings.extend(measured["warnings"])
             selected = measured["evidence"]
-        elif not counts_passers(query) and (asked := event_counts.wanted(question, state)) is not None:
+        elif not counts_passers(query) and (asked := event_counts.wanted(query, state)) is not None:
             result["paths"] = ["events"]
-            named = next((p for p in r.people if p.casefold() not in ("me", "i", "myself")), None)
+            named = next((p for p in r.people if p.casefold() not in reader.ME), None)
             who = transcript_view.View(state).person_at(named) if named else None
             person = who.id if who is not None else _owner(state) if query["first_person"] else None
             # The count's wording names a person the question named, and says "you" for the asker.
@@ -1616,7 +1616,7 @@ def collect(
             )
             # What's usual per day or night, not one window's count; a model kind not yet checked by the
             # owner's ratings has no count to make typical, so it gets the plain answer saying so.
-            if typical_counts.asks(question) and not unchecked:
+            if query["usual"] and not unchecked:
                 result["paths"] = ["events", "typical"]
                 measured = typical_counts.answer(
                     asked, counted, state, stamp, TZ, now, event_counts.answer, person=person

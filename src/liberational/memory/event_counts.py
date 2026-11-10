@@ -1,8 +1,9 @@
 """Count questions about an event, answered from detected events, never from captions.
 
 "How many times did I open the fridge today", "how often did the dog get on the couch this week": history_qa sends a
-question that counts an event when events.answer_counts is on and the question names an event kind the detector, or
-the owner, has named (memory/events.py). The answer is the count per span from the promoted events, the
+question here when events.answer_counts is on, its reading's measure is a count (memory/question.py), and it names
+an event the detector or the owner has named (memory/events.py), a drawn zone, or an action the camera model
+detects (`wanted`, from the structured query; nothing here reads the question's text). The answer is the count per span from the promoted events, the
 coverage (the recordings the detector has finished in the window), and a Review link for each span. When no finished
 recording covers the window it says so instead of estimating, and a window with recordings covered but nothing found
 is a real zero, unless matching unverified evidence is being withheld from promotion. A named unverified candidate
@@ -27,18 +28,9 @@ from urllib.parse import urlencode
 
 from liberational import config as cfg
 from liberational.memory import activity_kinds
+from liberational.memory import question as reader
 from liberational.memory.events import RETIRED_KINDS
 
-# "How many times ... <name>", "how often ... <name>": a count of times, the name anywhere after it.
-TIMES = re.compile(r"\b(?:how many times|how often|number of times|count (?:the|how many) times)\b", re.I)
-# "How many pushups", "count my pushups", "number of check-ins": the name has to come right after.
-DIRECT = re.compile(r"\b(?:how many|count(?: up)?(?: my| the| our)?|number of)\s+", re.I)
-# A question about talk is the transcript's ("how many times did we talk about opening the fridge").
-SPEECH = re.compile(
-    r"\b(?:talk|talks|talked|talking|say|says|said|saying|speak|spoke|spoken|call|called|calls|discuss|discussed|"
-    r"mention|mentions|mentioned|tell|told|ask|asked|about)\b",
-    re.I,
-)
 WORD = re.compile(r"[a-z0-9]+")
 # Words a name and a question share without saying what happened: left out of both before they're compared.
 STOP = frozenset({
@@ -58,75 +50,8 @@ UNSUPPORTED = (
 # The retired rules' kinds, some of which see-actions' model now produces under the same names: a question naming
 # one is about activity (retired_question), answered from the model where it can be (action_kind).
 REBUILDING_KINDS = ("stand_up", "sit_down", "repeated_movement", "pickup", "putdown", "phone_use", "eating_or_drinking")
-# see-actions' model kinds, by the plain words a question uses for them. A phone call before phone use, and a
-# fall before anything else, so "fell while on the phone" is a fall.
-ACTION_WORDS = (
-    ("fall", r"\b(?:fall|falls|fell|fallen|falling)\b(?!\s+asleep)"),
-    ("phone_call", r"\bphone\s+calls?\b|\b(?:on|took|take|made|make|making)\s+(?:a\s+)?(?:phone\s+)?calls?\b"),
-    (
-        "phone_use",
-        r"\bphone\s+use\b|\b(?:us(?:e|ed|ing)|on|check(?:ed|ing)?|look(?:ed|ing)?\s+at)\s+(?:my\s+|the\s+|a\s+)?(?:phone|cellphone|smartphone|tablet)\b",
-    ),
-    ("sit_down", r"\b(?:sit|sat|sitting|sits)\s+down\b"),
-    ("stand_up", r"\b(?:stand|stood|standing|stands|get|got|getting|gets)\s+up\b"),
-    ("pick_up", r"\bpick(?:ed|ing|s)?\s+(?:\w+\s+){0,4}up\b"),
-    ("put_down", r"\bput(?:ting|s)?\s+(?:\w+\s+){0,4}down\b"),
-    ("drink", r"\b(?:drink|drank|drinking|drinks)\b"),
-    ("eat", r"\b(?:eat|ate|eating|eats)\b"),
-)
-_ACTION_WORDS = tuple((kind, re.compile(pattern, re.I)) for kind, pattern in ACTION_WORDS)
-
-
-def action_kind(question: str) -> str | None:
-    """The see-actions model kind a question counts ("how many times did I sit down today": sit_down), or None.
-    Never a question about talk, though a phone call ("how many phone calls did I make") is the model's."""
-    if not (TIMES.search(question) or DIRECT.search(question)):
-        return None
-    kind = next((kind for kind, pattern in _ACTION_WORDS if pattern.search(question)), None)
-    if kind == "phone_call" and re.search(r"\bphone\b", question, re.I) and not TRANSCRIPT_ACTION.search(question):
-        return kind
-    if SPEECH.search(question) or TRANSCRIPT_ACTION.search(question):
-        return None
-    return kind
-
-
-RETIRED_ACTION = re.compile(
-    r"\b(?:sit|sits|sat|sitting|seated|stand|stands|stood|standing)\b"
-    r"|\b(?:get|gets|got|getting)\s+up\b"
-    r"|\b(?:(?:stay|stayed|remain|remained|being|was|were)\s+still|stillness)\b"
-    r"|\bhow\s+long\s+(?:was|were|did)\b[^?]*\bstill(?=\s+(?:today|yesterday|last|for|during|between|this)\b|[?.!]|$)"
-    r"|\bstill\s+(?:events?|activities|spans?|detections?|detected)\b"
-    r"|\b(?:repeated|repetitive|repeating)\s+(?:movement|motion|actions?)\b"
-    r"|\b(?:pick(?:ed|ing|s)?\s+(?:up|(?:\w+\s+){1,4}up)|put(?:ting|s)?\s+(?:down|(?:\w+\s+){1,4}down))\b"
-    r"|\b(?:phone|smartphone|cellphone|mobile)\s+(?:use|usage)\b"
-    r"|\bhow\s+(?:long|often)\b[^?]*\bon\s+(?:(?:my|the|a|his|her|their|our|your)\s+)?(?:phone|smartphone|cellphone)\b"
-    r"|\b(?:us(?:e|ed|ing)|check(?:ed|ing)?|scroll(?:ed|ing)?|look(?:ed|ing)?\s+at)\b(?:\s+\w+){0,5}\s+(?:phone|smartphone|cellphone)\b"
-    r"|\b(?:eat|ate|eating|drink|drank|drinking)\b",
-    re.I,
-)
-TRANSCRIPT_ACTION = re.compile(
-    r"\b(?:say|says|said|saying|talk|talked|talking|discuss|discussed|mention|mentioned|spoke|spoken|told)\b",
-    re.I,
-)
-
-
-def retired_question(question: str) -> bool:
-    """A request for retired activity evidence, excluding transcript topics, ordinary device lookups, and counts of
-    see-actions' model kinds (answered from `action.span`)."""
-    if TRANSCRIPT_ACTION.search(question):
-        return False
-    if cfg.get("events.answer_counts") and action_kind(question) is not None:
-        return False
-    if re.search(r"\bwhat\b.*\b(?:sitting|standing|seated)\s+(?:on|beside|near)\b", question, re.I):
-        return False  # a visual object/support relation, not a detector's posture measurement
-    if any(re.search(r"(?<![\w])" + re.escape(kind) + r"(?![\w])", question, re.I) for kind in REBUILDING_KINDS):
-        return True
-    observed = re.search(
-        r"\b(?:when|how (?:many|often|long)|did|was|were|has|have|detected|recorded|seen|today|yesterday|last|past|history|activity)\b",
-        question,
-        re.I,
-    )
-    return bool(observed and RETIRED_ACTION.search(question))
+# see-actions' model kinds a question can ask about by name (the reading's `action`, memory/question.py).
+MODEL_ACTIONS = frozenset(reader.ACTIONS) - {""} - reader.UNDETECTED
 
 
 def stem(word: str) -> str:
@@ -232,31 +157,6 @@ def _read_names(state: Any) -> tuple[float, list[str], dict[tuple[str, ...], set
     return _NAMES[key]
 
 
-def counts(question: str, name: str) -> bool:
-    """Whether the question counts the event: "how many times" or "how often" with the name anywhere after it, or
-    "how many" and the like with the name straight after ("how many pushups"). Never a question about talk."""
-    if SPEECH.search(question):
-        return False
-    if (m := TIMES.search(question)) is not None and mentions(question[m.end() :], name):
-        return True
-    for m in DIRECT.finditer(question):
-        rest = question[m.end() :]
-        first = content(rest)[:1]
-        if first and first == content(name)[:1] and mentions(rest, name):
-            return True
-    return False
-
-
-def named(question: str, state: Any) -> str | None:
-    """The event a count question names, the longest known name it counts, or None."""
-    if not (TIMES.search(question) or DIRECT.search(question)):
-        return None
-    hits = [n for n in [*known_names(state), *zone_names(state)] if usable(n) and counts(question, n)]
-    if hits:
-        return max(hits, key=lambda n: len(content(n)))
-    return None
-
-
 def zone_names(state: Any) -> list[str]:
     """The names of the zones drawn on cameras' views: a count of visits to one is answered here too."""
     try:
@@ -272,23 +172,17 @@ def _is_zone(state: Any, asked: str) -> bool:
     return any(same(n, asked) for n in zone_names(state)) and not any(same(n, asked) for n in known_names(state))
 
 
-def asks(question: str) -> bool:
-    """Whether a question counts a known event, while events.answer_counts is on: history_qa's routing, which has no
-    state of its own, so it reads the configured one's names (cached)."""
-    if not cfg.get("events.answer_counts"):
-        return False
-    try:
-        return named(question, cfg.path("paths.state")) is not None
-    except Exception:
-        return False
-
-
-def wanted(question: str, state: Any) -> str | None:
-    """The event asked about, when events.answer_counts is on and the question counts one the store knows, else
-    None."""
-    if not cfg.get("events.answer_counts"):
+def wanted(query: Mapping[str, Any], state: Any) -> str | None:
+    """The event, zone, or model action a count asks about, while events.answer_counts is on: a name the reading
+    picked from the owner's own (an event before a zone), else the camera model's kind. None for anything that
+    isn't a count, and for a question about what was said."""
+    if not cfg.get("events.answer_counts") or query.get("measure") != "count":
         return None
-    return named(question, state) or action_kind(question)
+    if query.get("kind") in ("transcript", "journal"):
+        return None
+    subjects = query.get("subjects") or {}
+    action = query.get("action")
+    return subjects.get("event") or subjects.get("zone") or (action if action in MODEL_ACTIONS else None)
 
 
 def _by(e: Mapping[str, Any], person: Any) -> str:
@@ -399,9 +293,9 @@ def answer(
     if _is_zone(state, asked):
         from liberational.memory import zone_counts
 
-        return zone_counts.answer(asked, query, state, stamp, tz, same=same, content=content, person=person)
+        return zone_counts.answer(asked, query, state, stamp, tz, same=same, person=person)
     model_kinds = activity_kinds.model_kinds(state)  # the owner's activities read from a model
-    if asked not in model_kinds and retired_question(f"When was {asked} detected?"):
+    if asked not in model_kinds and (asked in REBUILDING_KINDS or asked in reader.ACTIONS):
         return dict(
             answer=UNSUPPORTED, evidence=[], coverage={"available": False, "reason": "unsupported"}, warnings=[]
         )
