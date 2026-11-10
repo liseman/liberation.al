@@ -7,9 +7,10 @@ from unittest.mock import create_autospec
 
 import pytest
 
+from asking import query
 from liberational import config as cfg
+from liberational.memory import activity_questions, event_counts, history_qa, recall
 from liberational.memory import ask as pack_ask
-from liberational.memory import event_counts, history_qa, recall
 
 UTC = dt.UTC
 NOW = dt.datetime(2026, 10, 29, 18, 0, tzinfo=UTC).timestamp()
@@ -88,31 +89,9 @@ def test_covered_with_nothing_found_is_a_real_zero(events, tmp_path):
 def test_without_the_events_module_no_question_is_one_of_these(monkeypatch, tmp_path):
     monkeypatch.setattr(event_counts, "module", lambda: None)  # memory/events.py not installed
     monkeypatch.setattr(event_counts, "_NAMES", {})
-    assert event_counts.wanted("How many times did I open the fridge today?", tmp_path) is None
+    assert event_counts.wanted(query("How many times did I open the fridge today?", tmp_path), tmp_path) is None
     assert "isn't set up here yet" in event_counts.answer("opened the fridge", {"start": 0, "end": NOW}, tmp_path,
                                                          history_qa.stamp)["answer"]  # fmt: skip
-
-
-@pytest.mark.parametrize(
-    "question",
-    [
-        "How many squats did I do today?",  # no event has that name: nothing is known in advance
-        "How many times did we talk about opening the fridge?",  # about talk: the transcript's
-        "How many times did Dana mention the fridge being opened?",
-        "How many hours was the dog on the couch today?",  # not a count of times
-        "How many emails came in today?",  # "in" is a name too short to count
-        "How many tablespoons in a cup?",
-        "How many people came in today?",
-        "How many messages did I get today?",
-        "How many times did the lights go on?",
-        "How many meetings do I have tomorrow?",
-        "When did I open the fridge?",  # not a count
-    ],
-)
-def test_other_questions_are_not_event_counts(events, question, tmp_path):
-    events.found = [span(at(9, 14), at(9, 16), 2, "opened the fridge"), span(at(9, 1), at(9, 2), 1, "in"),
-                    span(at(9, 3), at(9, 4), 1, "dog on the couch")]  # fmt: skip
-    assert event_counts.wanted(question, tmp_path) is None
 
 
 def test_people_coming_into_view_stay_with_presence(events, tmp_path):
@@ -125,30 +104,8 @@ def test_people_coming_into_view_stay_with_presence(events, tmp_path):
 def test_the_switch_turns_it_off(events, tmp_path):
     events.found = [span(at(9, 14), at(9, 16), 2, "opened the fridge")]
     with cfg.override({"events": {"answer_counts": False}}):
-        assert event_counts.wanted("How many times did I open the fridge today?", tmp_path) is None
+        assert event_counts.wanted(query("How many times did I open the fridge today?", tmp_path), tmp_path) is None
         assert "events" not in (ask("How many times did I open the fridge today?", tmp_path).get("paths") or [])
-
-
-@pytest.mark.parametrize(
-    ("question", "asked"),
-    [
-        ("How many times did I open the fridge in the last hour?", "opened the fridge"),
-        ("How often has the fridge been opened this week?", "opened the fridge"),  # in any order
-        ("How many times was the dog on the couch today?", "dog on the couch"),
-        ("Count the times the dog got on the couch", "dog on the couch"),
-        ("How many push ups today?", None),  # spelled apart, it isn't the name's one word
-        ("How many pushups today?", "push-ups"),
-        ("How many times did someone open the fridge door?", "opened the fridge door"),  # the longest name it mentions
-    ],
-)
-def test_ways_of_asking_for_an_event_count(events, question, asked, tmp_path):
-    events.found = [
-        span(at(9, 1), at(9, 2), 1, "opened the fridge"),
-        span(at(9, 3), at(9, 4), 1, "opened the fridge door"),
-        span(at(9, 5), at(9, 6), 1, "dog on the couch"),
-        span(at(9, 7), at(9, 8), 1, "push-ups"),
-    ]
-    assert event_counts.wanted(question, tmp_path) == asked
 
 
 @pytest.mark.parametrize(
@@ -173,14 +130,6 @@ def test_a_question_about_someone_counts_only_what_they_were_seen_in(events, tmp
         "opened the fridge: 1 time (1 at 09:20), from 1 analyzed recording. 1 span in that time couldn't be told "
         "whose, and aren't counted."
     )
-
-
-def test_routing_knows_an_event_question_only_while_the_switch_is_on(events, tmp_path):
-    events.found = [span(at(9, 14), at(9, 16), 2, "opened the fridge")]
-    with cfg.override({"paths": {"state": str(tmp_path)}}):
-        assert history_qa.is_history_question("How many times did I open the fridge?")
-        with cfg.override({"events": {"answer_counts": False}}):
-            assert not event_counts.asks("How many times did I open the fridge?")
 
 
 def test_an_event_count_is_the_answer_with_no_model(events, tmp_path, monkeypatch):
@@ -273,7 +222,7 @@ def test_actual_named_candidate_routes_to_explicit_unknown_count(monkeypatch, tm
     )
     real_events.name_activity(tmp_path, real_events.NameActivity(record["id"], at(9, 10), "stirring"))
     vision.add(segment_log.WALKBY_COVERAGE, ts_start=at(9, 0), ts_end=at(9, 30), cam="cam0", frames=300)
-    assert event_counts.wanted("How many times was I stirring today?", tmp_path) == "stirring"
+    assert event_counts.wanted(query("How many times was I stirring today?", tmp_path), tmp_path) == "stirring"
     result = ask("How many times was I stirring today?", tmp_path)
     assert result["paths"] == ["events"]
     assert result["warnings"]
@@ -419,7 +368,7 @@ def _feedback_calibrated_repetition(vision, tmp_path):
 def test_feedback_promoted_kind_counts_in_ask_but_known_wrong_events_do_not(tmp_path, vision, monkeypatch):
     monkeypatch.setattr(event_counts, "_NAMES", {})
     _feedback_calibrated_repetition(vision, tmp_path)
-    assert event_counts.wanted("How many times was I stirring today?", tmp_path) == "stirring"
+    assert event_counts.wanted(query("How many times was I stirring today?", tmp_path), tmp_path) == "stirring"
     result = event_counts.answer("stirring", {"start": at(9, 0), "end": at(9, 30)}, tmp_path, history_qa.stamp)
     assert result["answer"].startswith("stirring: 3 times")
     assert result["warnings"] == []
@@ -474,28 +423,9 @@ def test_what_the_camera_model_doesnt_detect_says_so_without_a_model(tmp_path, m
     assert result["coverage"]["activity"] == {"available": False, "reason": "unsupported"}
 
 
-@pytest.mark.parametrize(
-    ("question", "kind"),
-    [
-        ("When did someone sit down yesterday?", "sit_down"),
-        ("When did I put down the cup?", "put_down"),
-        ("How long was someone using a phone today?", "phone_use"),
-        ("How long was I on my phone today?", "phone_use"),
-        ("When did someone use a cellphone today?", "phone_use"),
-        ("When did I pick the cup up?", "pick_up"),
-        ("Did anyone eat or drink today?", "drink"),
-        ("When was phone_use detected?", "phone_use"),
-    ],
-)
-def test_a_model_kind_question_that_isnt_a_count_asks_when_it_happened(tmp_path, question, kind):
-    from liberational.memory import activity_questions
-
-    assert activity_questions.asked(question, tmp_path) == activity_questions.Asked("when", kind=kind)
-
-
 def test_direct_retired_count_reader_does_not_report_zero(events, tmp_path):
     events.covered = [("cam0", at(9, 0), at(9, 30))]
-    result = event_counts.answer("standing up", {"start": at(9, 0), "end": at(9, 30)}, tmp_path, history_qa.stamp)
+    result = event_counts.answer("repeated_movement", {"start": at(9, 0), "end": at(9, 30)}, tmp_path, history_qa.stamp)
     assert result["answer"] == event_counts.UNSUPPORTED
     assert result["coverage"]["available"] is False
     assert "count" not in result
@@ -512,28 +442,6 @@ def test_retired_action_words_do_not_displace_explicit_zone_counts(events, tmp_p
     assert result["paths"] == ["events"]
 
 
-@pytest.mark.parametrize(
-    ("question", "kind"),
-    [
-        ("How many times did I sit down today?", "sit_down"),
-        ("how often did I get up last night", "stand_up"),
-        ("How many times did I pick the cup up?", "pick_up"),
-        ("how many times did I put my keys down today", "put_down"),
-        ("How many times did someone fall today?", "fall"),
-        ("how many times did I make a phone call today", "phone_call"),
-        ("How many times was I on my phone today?", "phone_use"),
-        ("how many times did I drink today", "drink"),
-        ("How many times did I eat yesterday?", "eat"),
-        ("When did I sit down?", None),  # not a count: still "being rebuilt"
-        ("How many times did I say I sat down?", None),  # talk is the transcript's
-        ("how many times did I fall asleep on the couch", None),
-        ("How many times did I open the fridge?", None),
-    ],
-)
-def test_a_count_question_names_the_model_kind_it_asks_for(question, kind):
-    assert event_counts.action_kind(question) == kind
-
-
 def test_a_model_kind_with_no_action_coverage_is_not_a_count(tmp_path, vision):
     result = event_counts.answer("sit_down", {"start": at(9, 0), "end": at(10, 0)}, tmp_path, history_qa.stamp)
     assert "No recording in that time has been analyzed" in result["answer"]
@@ -546,3 +454,66 @@ def test_a_counted_span_says_whose_it_was_when_their_face_was_recognized(events,
     assert ask("How many times did someone open the fridge today?", tmp_path)["answer"].startswith(
         "opened the fridge: 1 time (1 at 09:14 by Dana)"
     )
+
+
+def asking(**fields):
+    """A structured query's routing fields, as history_qa.describe gives them."""
+    return {"measure": "count", "kind": "video", "subjects": {}, "action": "", "reading": {"people": []}, **fields}
+
+
+@pytest.mark.parametrize(
+    ("query_", "asked"),
+    [
+        pytest.param(
+            asking(subjects={"event": "opened the fridge", "zone": "Fridge"}), "opened the fridge", id="event-first"
+        ),
+        pytest.param(asking(subjects={"zone": "Litter box"}), "Litter box", id="a-zone"),
+        pytest.param(asking(action="sit_down"), "sit_down", id="a-model-action"),
+        pytest.param(asking(action="stillness"), None, id="an-action-the-model-doesnt-detect"),
+        pytest.param(asking(), None, id="names-nothing"),
+        pytest.param(asking(subjects={"event": "opened the fridge"}, measure="when"), None, id="not-a-count"),
+        pytest.param(
+            asking(subjects={"event": "opened the fridge"}, kind="transcript"), None, id="about-what-was-said"
+        ),
+    ],
+)
+def test_what_a_count_asks_for(query_, asked, tmp_path):
+    assert event_counts.wanted(query_, tmp_path) == asked
+
+
+def test_no_count_is_an_event_count_while_the_switch_is_off(tmp_path):
+    with cfg.override({"events": {"answer_counts": False}}):
+        assert event_counts.wanted(asking(subjects={"event": "opened the fridge"}), tmp_path) is None
+
+
+@pytest.mark.parametrize(
+    ("query_", "asked"),
+    [
+        pytest.param(
+            asking(measure="when", action="sit_down"), activity_questions.Asked("when", kind="sit_down"), id="when"
+        ),
+        pytest.param(
+            asking(measure="duration", action="phone_use"),
+            activity_questions.Asked("when", kind="phone_use"),
+            id="how-long",
+        ),
+        pytest.param(asking(action="sit_down"), None, id="a-count-is-event-counts"),
+        pytest.param(
+            asking(measure="when", action="repeated_movement"), activity_questions.Asked("unsupported"), id="undetected"
+        ),
+        pytest.param(asking(measure="when", action="sit_down", kind="transcript"), None, id="about-what-was-said"),
+        pytest.param(
+            asking(measure="doing", subjects={"zone": "Kitchen"}, people=["Sam"], first_person=False),
+            activity_questions.Asked("doing", zone="Kitchen", who="Sam"),
+            id="doing-in-a-zone",
+        ),
+        pytest.param(
+            asking(measure="doing", people=["the owner"], first_person=True),
+            activity_questions.Asked("doing"),
+            id="the-asker",
+        ),
+        pytest.param(asking(measure="describe"), None, id="neither"),
+    ],
+)
+def test_what_an_activity_question_asks(query_, asked, tmp_path):
+    assert activity_questions.asked(query_, tmp_path) == asked

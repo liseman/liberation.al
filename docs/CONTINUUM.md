@@ -985,9 +985,9 @@ whose copy can't be pinned is left out of the events.
 Any model can read the last few minutes (5 by default) of a camera's full-rate native H.264 with
 `continuum_tier::recent::H264Window`. It opens at any time inside the window and yields every access unit
 from the last IDR with in-band SPS and PPS at or before it, in decode order, then follows the live edge. Tier 0 is
-not lengthened for this: the same bytes are in Tier 1 chunks (one access unit per `H264Au` record) within a chunk's
-length, and a slot is released only once its chunk commits, so the window reads committed chunks straight from their
-files and the rest from Tier 0. The window subscribes live before it queries history, so nothing is missed or
+not lengthened for this: the same bytes are in Tier 1 chunks (one access unit per `H264Au` record) within about two
+seconds, when the part of the open chunk that holds them commits, and a slot is released only then, so the window
+reads the catalog's chunks straight from their files (the camera's open one included) and the rest from Tier 0. The window subscribes live before it queries history, so nothing is missed or
 repeated between them, and access units seen both ways are dropped by payload id. Continuity is never guessed: a
 missing device sequence, a new capture epoch, a frame without them, or unreadable bytes is an explicit gap, and the
 window resumes at the next random access point. Each access unit carries the payload id, times, sequence, device
@@ -1003,8 +1003,8 @@ index. Only a session that registered a worker may send these.
 | Message | From | Purpose |
 |---|---|---|
 | `CommitPayloadCopy` | tier worker | Attach a synced single-record Tier 1 sidecar to an existing derived payload without absorption; keeps its header, parents, subjects, and commit position |
-| `CommitChunk` | tier worker | A closed chunk: its header and Tier 1 or 2 location, its frame index (`ChunkFrame`s), and the Tier 0 payloads it absorbed, in frame order. The catalog compacts their headers into the chunk. Since minor 27 it may carry `frame_provenance` (one `FrameProvenance` per frame: `device_seq`, `epoch`, and a flag for a frame stamped at arrival) under `provenance_version` 1; a count that isn't the frames' or an undefined flag is a BadRequest |
-| `ChunkCommitted` | broker | The chunk's id and commit sequence, and whether it was a duplicate (committed already, so a retry after a lost reply is safe) or landed hidden under a running purge |
+| `CommitChunk` | tier worker | A chunk: its header and Tier 1 or 2 location, its frame index (`ChunkFrame`s), and the Tier 0 payloads it absorbed, in frame order. The catalog compacts their headers into the chunk. With `first_frame` set (minor 35) it is a part of a chunk still being written: the chunk's frames from that index on, with the chunk's header and location as they are now ("Video chunks"); the broker answers NotFound for a chunk it doesn't know and Conflict for one a purge has hidden. Since minor 27 it may carry `frame_provenance` (one `FrameProvenance` per frame: `device_seq`, `epoch`, and a flag for a frame stamped at arrival) under `provenance_version` 1; a count that isn't the frames' or an undefined flag is a BadRequest |
+| `ChunkCommitted` | broker | The chunk's id and commit sequence (a new one after each part), and whether it was a duplicate (committed already, so a retry after a lost reply is safe) or landed hidden under a running purge |
 | `RewriteChunk` | tier worker | A chunk rewritten after a purge cut frames from it (or recompressed): its new frame index and location, the same frames in the same places |
 | `ChunkRewritten` | broker | Done |
 | `GetChunk` | any client | A chunk's frame index, every copy, and its commit sequence. Answered with `ChunkInfo`, which since minor 27 also carries the chunk's frame provenance from the same snapshot (empty and version 0 when unknown) |
@@ -1192,7 +1192,8 @@ key. A per-install salt is a follow-up.
 Raw frame headers don't stay in the catalog forever. Four cameras at 30 fps would add about 10 million frame headers
 a day. A raw frame's header exists while the frame is in
 Tier 0. When the tier worker commits the chunk that absorbed it, the chunk is the payload the catalog keeps (one
-header per 1 to 5 seconds, with the frame index in `CHUNKS`), the frame's rows in `PAYLOADS`, `TIME_INDEX`, and
+header per chunk, a minute of a camera, with the frame index in `CHUNKS`; "Video chunks" below says how a chunk
+still being written takes its frames in parts), the frame's rows in `PAYLOADS`, `TIME_INDEX`, and
 `LOCATIONS` go, and the frame keeps a small `FRAMES` row (its chunk, its index, its subjects), so every parent id
 still resolves, for a child committed after the absorption too (ASR and a VLM take seconds, and the tier worker
 absorbs within about two). A `FRAMES` row is a few dozen bytes
@@ -1266,10 +1267,10 @@ proves nothing. This supplements recorded durations and never replaces them.
 `GetChunk` reads its frame index, copies, and frame provenance from one catalog snapshot, so a concurrent rewrite
 can't pair an old file with new metadata.
 
-The catalog file is format 7. The broker creates a new file at format 7 with every table it uses and its
+The catalog file is format 8. The broker creates a new file at format 8 with every table it uses and its
 starting values in `META`: the format, the recording era's first commit sequence (1), and the restart tracking
 stamp with its empty, ready hot index. It refuses any other file: one stamped with another format, or one with no
-stamp that already holds streams. The error says to create it again with `pack-reset-catalog`. A format 7 file
+stamp that already holds streams. The error says to create it again with `pack-reset-catalog`. A format 8 file
 missing a table or one of those values is corrupt, never upgraded. There are no upgrades.
 
 A chunk committed with frame provenance keeps it in `CHUNK_PROVENANCE`. A rewrite keeps every frame in its
@@ -1430,7 +1431,7 @@ locators still name them, so they are read and purged like any other chunk.
 The opt-in AV1 archive (`video_archive.av1`, off by default; `continuum-tier`'s `archive` and `av1` modules)
 re-encodes a camera's `H264Au` chunk with SVT-AV1 once it is `after_hours` old (24 by default): one AV1 temporal unit
 per record, in the same one-unit records, so every record keeps its index, payload id, times, and sequence number,
-and the chunk opens on its only keyframe, which carries the sequence header. The tier worker swaps the new file in by
+and the chunk opens on a keyframe and has another every 10 seconds, each carrying the sequence header. The tier worker swaps the new file in by
 rename, never while a purge is running, and sends `RewriteChunk` with the new offsets; a crash between the two is
 repaired by the next scan, which sends it again. A chunk with tombstones, B-frames, or frames that don't decode stays
 H.264. Readers go by the chunk's format: `tier2::read_frames`, hydrate, and export decode AV1 with dav1d (export
@@ -1458,9 +1459,10 @@ The lifecycle:
 2. The tier worker drains Tier 0 into Tier 1 continuously (P1): it follows each stream by subscription, appends each
    payload to the stream's open chunk file as it lands, syncs the open chunks every 100 to 250 ms and sets `flushed`
    on the slots that sync covered (one fsync per chunk per cadence, never one per frame; a slot is `flushed` only
-   once its record is on disk), and closes the chunk every 1 to 5 seconds (a microphone's every 15),
+   once its record is on disk), and closes a camera's chunk every minute and a microphone's every 15 seconds,
    recording it and its frame index in `CHUNKS` through the broker (`CommitChunk`; the worker never holds the
-   catalog). The worker program
+   catalog). A camera's open chunk is committed in parts, every 2 seconds ("Video chunks", below), so what
+   follows about a chunk's commit holds for each part. The worker program
    (`continuum-tier-worker`) marks slots `flushed` once their chunk is committed, rather than at each sync, and each
    stream's durable subscription saves its position only up to the oldest payload whose chunk isn't committed, so
    a crash loses nothing: at the next start, recovery finalizes the chunks left open and commits each once its
@@ -1517,6 +1519,78 @@ The lifecycle:
    for the same payloads.
 4. A query for old data reads it from its chunk file, in whatever tier holds it (below). The tier worker runs no
    decode or hydrate jobs.
+
+### Video chunks: one file a minute, committed in parts
+
+A camera's chunk is one file and one catalog row for a minute of video (#49). It used to be one of each every two
+seconds: six cameras made about 185,000 files and 760 MB of catalog in 29 hours, and everything that walks chunks
+(the gateway's listing, the nightly video window, a scrub, a restart) did work in proportion.
+
+How long a file stays open and how often the catalog hears about it are separate settings:
+
+- **The file** (`FlushSettings::chunk_ns`, 60 seconds for video) closes on the first keyframe after its time is up,
+  or at the catalog's frame limit (`MAX_CHUNK_FRAMES`, 4,096: a minute at 60 fps fits), so a camera writes at most
+  60 files an hour. A microphone's chunk is unchanged: 15 seconds, committed once, as Opus.
+- **The parts** (`FlushSettings::part_ns`, 2 seconds). Tier 0 holds 10 seconds of a camera and capture overwrites
+  it, flushed or not, so the catalog has to learn that frames are in Tier 1 within seconds, not at the end of the
+  minute. The tier worker therefore commits an open chunk's new records every `part_ns`, at the same points the
+  two-second chunks used to close: on a keyframe, or once an H.264 stream has been quiet for a second. It syncs the
+  file first, so a part never names bytes a power cut could drop. The first part is a `CommitChunk` like any other.
+  Each later part is a `CommitChunk` with `first_frame` set (minor 35): the chunk's frames from that index on, their
+  absorbed payloads and provenance, and the chunk's header and location again with the new end and length.
+
+So everything that relied on the two-second commit keeps its timing: a slot is marked `flushed` and a subscription's
+position saved when its part commits, the frames' own rows are compacted into the chunk then, a reader that finds
+its slot gone finds the frame in the chunk, and the recent window reads the same file.
+
+**The catalog (`Catalog::extend_chunk`).** One transaction appends the part's frames to the chunk's frame index and
+its provenance, absorbs the part's payloads exactly as a commit does (the same checks, the same cut rules under a
+running purge, a `FRAMES` row each with its index in the whole chunk), replaces the chunk's header and Tier 1
+location, and gives the chunk a new commit sequence, so a reader that follows a stream by commit sequence sees the
+chunk again when it grows, as it used to see a new chunk. The chunk's id, start, and `TIME_INDEX` key never change.
+It refuses a chunk it doesn't know (`NotFound`), one a purge has hidden (`Conflict`), a `first_frame` that isn't
+the chunk's frame count, a first frame earlier than the chunk's last, a header that differs in anything but its end,
+and a chunk that would pass `MAX_CHUNK_FRAMES`. A part sent again after a lost reply (the chunk already has those
+frames under that header) is a duplicate, not an error. The broker's availability index gains the chunk's new span
+only.
+
+**Chunk ids.** A part names its chunk, and so does a recovery after a crash, so the id can't be made up at close any
+more: it is a UUIDv7 built from the file's creation time, stream, and counter (the three parts of its name), the
+same every time it is derived. At start, recovery finalizes an open file as before, then asks the catalog for that
+id (`GetChunk`): a chunk it knows with `n` frames gets the file's remaining records as its last part, and one it
+doesn't know is committed whole.
+
+**When a part is refused for good.** A range forget that covers everything an open chunk has committed hides the
+whole chunk, and the frames that arrived after it still need a home; so do frames the catalog won't take in order.
+The tier worker closes the file there, copies the uncommitted records (and their provenance records) into a new
+chunk file, and commits that as a chunk of its own. The old file keeps only what its chunk names, and the purge
+deals with it. If the new chunk is refused too, it is set aside as `.rejected`, as before.
+
+**Purges, the archive, and age-outs** see closed files only, as before: the worker closes every open chunk (its
+last part) before it works on a purge, the AV1 archive waits an hour, and the video window ages out whole chunks 30
+days after their last part committed. A forget that cuts into a minute rewrites that one file without the cut
+records. Aging out an hour of one camera removes at most 60 files and 60 catalog rows.
+
+**Readers.** A chunk's file can be longer than its catalog row says while it is open: the records past the
+committed length are the next part. A closed file has its footer index; an open one is read by scanning its records
+(`ChunkReader::open`, or `scan_tail` to follow it), which costs a read of up to a minute of one camera. A reader
+that keeps a chunk's frame index by chunk id has to ask again when a frame index it was given is past what it holds.
+
+**The frame index's size.** Longer files alone don't shrink the catalog: 72% of it was per-frame bytes, 25 for each
+frame's entry in `CHUNKS` (start, offset, length, and cut as fixed-width integers) and 13.5 in `CHUNK_PROVENANCE`.
+Both values are now delta-coded. A frame index (`codec::frames`) is stored in columns: each frame's start as the
+change in its spacing from the previous frame's, each record's offset as the change in its distance past the previous
+record's end (a fixed record head apart, so all zeros), each length as a varint, and the indexes of the cut frames;
+the columns are zstd-compressed when that is smaller. Provenance (`ChunkProvenance::encode`) is stored as runs of
+consecutive device sequences in one epoch, a few bytes for a camera that drops nothing. Measured on an hour of ten
+video streams' real frame indexes (782,508 frames), a frame takes 4.0 bytes (6.1 before the compressor: capture
+times jitter, by milliseconds on the 10 fps streams, and that jitter is most of what is left), against 38.5. The
+per-chunk rows (header, location, time and sequence keys, the recording row), about 940 bytes a chunk, are written
+once a minute instead of 30 times. Together the same cameras add about 3.8 MB of catalog an hour where they added
+about 40.
+
+The catalog file format is 8: format 7 files hold the fixed-width values and are refused, like any other format.
+`pack-reset-catalog --keep-taught` makes the new one; it drops the recordings and the machine-made data with them.
 
 The caller's API is the same for every tier; only the latency differs, and the quote says what it will be.
 

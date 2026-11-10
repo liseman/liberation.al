@@ -1,17 +1,19 @@
 //! The tier worker program's connection to the broker (docs/CONTINUUM.md, "Storage tiers"): it registers as a
 //! worker, follows each of its streams with a durable, pinned subscription of its own, reads each payload's bytes
-//! from the broker's Tier 0 arena (mapped from `Welcome`), and runs them through the [`WorkerLoop`]. Closed chunks go
-//! to the broker with `CommitChunk`; once one is committed, its slots are marked `flushed` in the arena and each
-//! subscription's saved position moves past everything committed on it.
+//! from the broker's Tier 0 arena (mapped from `Welcome`), and runs them through the [`WorkerLoop`]. Chunks, and
+//! the parts of a camera's open chunk (docs/CONTINUUM.md, "Video chunks"), go to the broker with `CommitChunk`; once
+//! one is committed, its slots are marked `flushed` in the arena and each subscription's saved position moves past
+//! everything committed on it.
 //!
 //! What keeps a crash from losing anything:
-//! - A slot is marked `flushed` only once its chunk is committed, so a slot the broker may reclaim is always in a
-//!   chunk the catalog knows, or was dropped on purpose (an undecodable or quarantined payload, counted as such):
-//!   nothing will ever copy that one, so holding its slot would only leak Tier 0.
-//! - A subscription's saved position stops before its oldest payload whose chunk isn't committed, so after a crash
+//! - A slot is marked `flushed` only once its chunk or part is committed, so a slot the broker may reclaim is
+//!   always in a chunk the catalog knows, or was dropped on purpose (an undecodable or quarantined payload, counted
+//!   as such): nothing will ever copy that one, so holding its slot would only leak Tier 0.
+//! - A subscription's saved position stops before its oldest payload whose commit hasn't happened, so after a crash
 //!   the broker sends again everything that isn't safe yet.
 //! - At start, [`crate::recover`] finalizes the chunks the last run left open; each is committed when its stream's
-//!   first payload comes, and the payloads already in it aren't appended again.
+//!   first payload comes (only its records past what the catalog holds of it, asked with `GetChunk`), and the
+//!   payloads already in it aren't appended again.
 //! - Anything the loop can't append (a disk error) ends the run, rather than being passed over, and the service
 //!   manager starts it again from the saved positions. So does the broker dropping a subscription or the connection.
 //!
@@ -298,7 +300,7 @@ impl Outputs for BrokerOutputs {
         let mut chunk = to_new_chunk(closed);
         chunk.location = stored(self.data_root.as_deref(), chunk.location);
         let provenance = to_client_provenance(closed);
-        let commit = self.client.commit_chunk_with_provenance(&chunk, &closed.absorbed, provenance.as_deref());
+        let commit = self.client.commit_chunk_part(&chunk, closed.first_frame, &closed.absorbed, provenance.as_deref());
         let done = self.rt.block_on(commit).map_err(|e| {
             if is_final(&e) { CommitFailure::Reject(e.to_string()) } else { CommitFailure::Retry(e.to_string()) }
         })?;
@@ -323,6 +325,25 @@ impl Outputs for BrokerOutputs {
         // gap.
         for id in &closed.absorbed {
             self.settle(*id, false);
+        }
+        self.ack_all();
+    }
+
+    fn committed_frames(&mut self, chunk: Uuid) -> Result<Option<usize>, String> {
+        match self.rt.block_on(self.client.get_chunk(chunk)) {
+            Ok(info) => Ok(Some(info.frames.len())),
+            Err(e) if e.broker_code() == Some(ErrorCode::NotFound) => Ok(None),
+            Err(e) => Err(e.to_string()),
+        }
+    }
+
+    fn settled(&mut self, ids: &[Uuid]) {
+        for id in ids {
+            if self.pending.contains_key(id) {
+                self.settle(*id, true);
+            } else {
+                self.early.insert(*id);
+            }
         }
         self.ack_all();
     }

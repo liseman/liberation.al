@@ -76,7 +76,12 @@ fn every_frame_a_producer_writes_into_tier_0_reaches_a_committed_chunk() {
         data_root: None,
         // The second stream isn't registered: the worker follows the first and tries the second again later.
         streams: vec!["cam0.video".into(), "cam9.video".into()],
-        flush: FlushSettings { chunk_ns: 500_000_000, audio_chunk_ns: 500_000_000, sync_ns: 100_000_000 },
+        flush: FlushSettings {
+            chunk_ns: 500_000_000,
+            part_ns: 500_000_000,
+            audio_chunk_ns: 500_000_000,
+            sync_ns: 100_000_000,
+        },
         tick: Duration::from_millis(20),
     };
     let mut service = Service::start(settings, rt.handle()).expect("start");
@@ -206,7 +211,12 @@ fn every_ring_batch_a_microphone_writes_reaches_a_committed_chunk() {
         chunk_dir: chunk_dir.clone(),
         data_root: None,
         streams: vec!["mic.audio".into()],
-        flush: FlushSettings { chunk_ns: 500_000_000, audio_chunk_ns: 500_000_000, sync_ns: 100_000_000 },
+        flush: FlushSettings {
+            chunk_ns: 500_000_000,
+            part_ns: 500_000_000,
+            audio_chunk_ns: 500_000_000,
+            sync_ns: 100_000_000,
+        },
         tick: Duration::from_millis(20),
     };
     let mut service = Service::start(settings, rt.handle()).expect("start");
@@ -328,7 +338,12 @@ fn a_ring_carved_after_the_worker_subscribed_ends_its_run_and_the_next_run_in_th
         chunk_dir: dir.path().join("tier"),
         data_root: None,
         streams: vec!["mic.audio".into()],
-        flush: FlushSettings { chunk_ns: 500_000_000, audio_chunk_ns: 500_000_000, sync_ns: 100_000_000 },
+        flush: FlushSettings {
+            chunk_ns: 500_000_000,
+            part_ns: 500_000_000,
+            audio_chunk_ns: 500_000_000,
+            sync_ns: 100_000_000,
+        },
         tick: Duration::from_millis(20),
     };
     let mut service = Service::start(settings.clone(), rt.handle()).expect("start");
@@ -419,7 +434,12 @@ fn a_purge_reaches_the_chunk_files_and_is_acknowledged() {
         chunk_dir: chunk_dir.clone(),
         data_root: None,
         streams: vec!["cam0.video".into()],
-        flush: FlushSettings { chunk_ns: 300_000_000, audio_chunk_ns: 300_000_000, sync_ns: 100_000_000 },
+        flush: FlushSettings {
+            chunk_ns: 300_000_000,
+            part_ns: 300_000_000,
+            audio_chunk_ns: 300_000_000,
+            sync_ns: 100_000_000,
+        },
         tick: Duration::from_millis(20),
     };
     let mut service = Service::start(settings, rt.handle()).expect("start");
@@ -769,7 +789,12 @@ fn the_av1_archive_pass_converts_a_committed_chunk_and_the_catalog_follows() {
         chunk_dir: chunk_dir.clone(),
         data_root: None,
         streams: vec!["cam0.video".into()],
-        flush: FlushSettings { chunk_ns: 60_000_000_000, audio_chunk_ns: 60_000_000_000, sync_ns: 100_000_000 },
+        flush: FlushSettings {
+            chunk_ns: 60_000_000_000,
+            part_ns: 60_000_000_000,
+            audio_chunk_ns: 60_000_000_000,
+            sync_ns: 100_000_000,
+        },
         tick: Duration::from_millis(20),
     };
     let mut service = Service::start(settings, rt.handle()).expect("start");

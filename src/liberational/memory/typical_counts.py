@@ -12,28 +12,16 @@ With no window in the question (or one shorter than two periods) it reads the la
 """
 
 import datetime as dt
-import re
 import statistics
 from collections.abc import Callable, Mapping
 from typing import Any
 
-TYPICAL = re.compile(
-    r"\b(?:generally|usually|typically|normally|on average|average|in general|on a typical|most (?:days|nights)"
-    r"|per (?:day|night)|a (?:day|night)|each (?:day|night)|every (?:day|night))\b",
-    re.I,
-)
-NIGHT = re.compile(r"\b(?:at night|nights?|overnight|nightly)\b", re.I)
 NIGHT_HOURS = (22, 31)  # local hours [start, end) of the night that starts on a date: 22:00 to 07:00 the next day
 DEFAULT_PERIODS = 14
 MIN_COVERED = 0.5  # a period counts when at least this much of it was checked
 
 #: event_counts.answer: (asked, query, state, stamp, tz, person=...) -> {answer, evidence, coverage, warnings, count}.
 Count = Callable[..., dict[str, Any]]
-
-
-def asks(question: str) -> bool:
-    """Whether a count question asks what is typical over days or nights."""
-    return TYPICAL.search(question) is not None
 
 
 def periods(start: float, end: float, now: float, tz: dt.tzinfo | None, night: bool) -> list[tuple[float, float]]:
@@ -99,8 +87,7 @@ def answer(
     person: Any = None,
 ) -> dict[str, Any]:
     """{answer, evidence, coverage, warnings} for what is typical for `asked` per day or night."""
-    question = str(query.get("question") or "")
-    night = NIGHT.search(question) is not None
+    night = bool(query.get("night"))  # "at night", "overnight": the reading's part of the day on a usual count
     unit, units = ("night", "nights") if night else ("day", "days")
     found = periods(float(query["start"]), float(query["end"]), now, tz, night)
     counted: list[tuple[float, float, int]] = []

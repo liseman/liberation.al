@@ -5,12 +5,29 @@ This guide covers the current Continuum installation. Fresh setup is in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). The old genericize and v1 import
 procedures are retired. Do not run an old catch-up script against current data.
 
+## Video chunks are a minute long (catalog format 8)
+
+A camera now writes one chunk file and one catalog row a minute, and the catalog stores each chunk's frame index
+compactly (docs/CONTINUUM.md, "Video chunks"). The catalog file's format changed with it, and the broker refuses a
+format 7 file, so this upgrade needs a catalog reset. It deletes the catalog, the recorded video and audio it indexes,
+the worker state derived from it, and the segment store; what you taught the system (people, voices, faces, pets,
+zones, and settings) stays. After the pull, from the live checkout:
+
+```sh
+mise run continuum-release
+.venv/bin/pack-reset-catalog --keep-taught          # prints the plan
+.venv/bin/pack-reset-catalog --keep-taught --yes    # stops the services, resets, and starts them again
+```
+
+Build first: the reset starts the broker and the tier worker again, and they have to be the new ones.
+
 ## Chunk locators are relative to the state directory (2026-11-09)
 
 The catalog used to store each Tier 1 and Tier 2 chunk's file as an absolute path, so an install whose checkout (and
 `data/`) moved could no longer read any older audio or video. New chunks are stored relative to the state directory
 (`paths.state`, the one that holds `continuum/`), and every reader joins them to its own configured state directory.
-A one-off migration rewrites the locators already in the catalog. It takes the broker's lock and refuses to run while
+A catalog reset (such as the one for format 8, above) starts with relative locators and needs nothing more. Otherwise
+a one-off migration rewrites the locators already in the catalog. It takes the broker's lock and refuses to run while
 the broker holds it, is safe to run again (a second run rewrites nothing), and commits in short batches. From the live
 checkout, after the pull:
 

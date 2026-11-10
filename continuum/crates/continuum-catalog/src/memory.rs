@@ -550,6 +550,98 @@ impl State {
     }
 }
 
+/// What a chunk commit or part found about the frames it names, before anything is written (the redb catalog's
+/// `Absorbing`).
+struct Absorbing {
+    frames: Vec<ChunkFrame>,
+    /// The frames to absorb, with their indexes in the whole chunk.
+    live: Vec<(usize, Uuid)>,
+    cut_ids: Vec<Uuid>,
+    doomed_cuts: Vec<(Uuid, usize)>,
+}
+
+/// Checks the frames `part` adds to chunk `id` from index `base` on (0 for a whole chunk), the last of the frames
+/// before them starting at `previous`, against the payloads in `absorbed`.
+#[allow(clippy::too_many_arguments)]
+fn absorbing(
+    st: &State,
+    id: Uuid,
+    stream: StreamId,
+    chunk_span: Interval,
+    base: usize,
+    mut previous: u64,
+    part: &[ChunkFrame],
+    absorbed: &[Uuid],
+) -> Result<Absorbing> {
+    let mut frames = part.to_vec();
+    let mut live: Vec<(usize, Uuid)> = Vec::new();
+    // Frames whose rows stay (hidden by a purge, or cut by the worker) but whose slots the chunk lands without.
+    let mut cut_ids: Vec<Uuid> = Vec::new();
+    let mut doomed_cuts: Vec<(Uuid, usize)> = Vec::new();
+    for (index, (frame, &f)) in part.iter().zip(absorbed).enumerate() {
+        let index = base + index;
+        if frame.start_ns < previous || !chunk_span.contains(frame.start_ns) {
+            return Err(CatalogError::Invalid(format!(
+                "chunk {id}'s frame {index} starts at {} (the chunk spans {chunk_span:?}), or goes backwards",
+                frame.start_ns
+            )));
+        }
+        previous = frame.start_ns;
+        let dooming = st
+            .doomed
+            .get(&f)
+            .copied()
+            .or_else(|| st.jobs.iter().find_map(|(&p, j)| j.queued.contains(&f).then_some(p)));
+        let Some(h) = st.payloads.get(&f) else {
+            // Gone: cut when a purge removed it (its record says so); an id never indexed is a worker bug.
+            if st.purges.values().any(|r| {
+                r.report
+                    .as_ref()
+                    .is_some_and(|rep| rep.removed.iter().any(|p| p.id == f) || rep.removed_frames.contains(&f))
+            }) {
+                frames[index - base].cut = true;
+                continue;
+            }
+            return Err(CatalogError::Invalid(format!("chunk {id} absorbs {f}, not an indexed frame on its stream")));
+        };
+        if h.stream() != stream {
+            return Err(CatalogError::Invalid(format!("chunk {id} absorbs {f}, not an indexed frame on its stream")));
+        }
+        if let Some(purge) = dooming {
+            // Hidden by a running purge: the purge cuts the slot at its next step and reports it, as it does a
+            // chunk it finds in place; the row is the purge's to remove.
+            cut_ids.push(f);
+            doomed_cuts.push((purge, index));
+            continue;
+        }
+        if st.parents.contains_key(&f) {
+            return Err(CatalogError::Invalid(format!("chunk {id} absorbs {f}, which has parents (not a raw frame)")));
+        }
+        // A payload with dependencies is derived as much as one with parents: absorbing it would drop
+        // its header and commit sequence, and its frame row is pruned an hour on.
+        if st.deps.keys().any(|&(_, _, d)| d == f) {
+            return Err(CatalogError::Invalid(format!(
+                "chunk {id} absorbs {f}, which has dependencies (not a raw frame)"
+            )));
+        }
+        if frame.start_ns != h.start_ns() {
+            return Err(CatalogError::Invalid(format!(
+                "chunk {id}'s frame for {f} starts at {} (the frame starts at {})",
+                frame.start_ns,
+                h.start_ns()
+            )));
+        }
+        if frame.cut {
+            // The worker cut it (a purge reached the file before this commit): the frame stays its own payload,
+            // and the chunk lands without its slot. A cut only ever hides more, so nothing checks it further.
+            cut_ids.push(f);
+            continue;
+        }
+        live.push((index, f));
+    }
+    Ok(Absorbing { frames, live, cut_ids, doomed_cuts })
+}
+
 impl Catalog for MemoryCatalog {
     fn recording_page(
         &self,
@@ -958,78 +1050,8 @@ impl Catalog for MemoryCatalog {
         // unpurged frames must still reach the catalog. The purge takes care of the doomed rows; the worker rewrites
         // the chunk without the cut records when the purge's notice reaches it.
         let chunk_span = span_of(&chunk.payload.header)?;
-        let mut frames = chunk.frames.clone();
-        let mut live: Vec<(usize, Uuid)> = Vec::new();
-        // Frames whose rows stay (hidden by a purge, or cut by the worker) but whose slots the chunk lands without.
-        let mut cut_ids: Vec<Uuid> = Vec::new();
-        let mut doomed_cuts: Vec<(Uuid, usize)> = Vec::new();
-        let mut previous = 0;
-        for (index, (frame, &f)) in chunk.frames.iter().zip(absorbed).enumerate() {
-            if frame.start_ns < previous || !chunk_span.contains(frame.start_ns) {
-                return Err(CatalogError::Invalid(format!(
-                    "chunk {id}'s frame {index} starts at {} (the chunk spans {chunk_span:?}), or goes backwards",
-                    frame.start_ns
-                )));
-            }
-            previous = frame.start_ns;
-            let dooming = st
-                .doomed
-                .get(&f)
-                .copied()
-                .or_else(|| st.jobs.iter().find_map(|(&p, j)| j.queued.contains(&f).then_some(p)));
-            let Some(h) = st.payloads.get(&f) else {
-                // Gone: cut when a purge removed it (its record says so); an id never indexed is a worker bug.
-                if st.purges.values().any(|r| {
-                    r.report
-                        .as_ref()
-                        .is_some_and(|rep| rep.removed.iter().any(|p| p.id == f) || rep.removed_frames.contains(&f))
-                }) {
-                    frames[index].cut = true;
-                    continue;
-                }
-                return Err(CatalogError::Invalid(format!(
-                    "chunk {id} absorbs {f}, not an indexed frame on its stream"
-                )));
-            };
-            if h.stream() != stream {
-                return Err(CatalogError::Invalid(format!(
-                    "chunk {id} absorbs {f}, not an indexed frame on its stream"
-                )));
-            }
-            if let Some(purge) = dooming {
-                // Hidden by a running purge: the purge cuts the slot at its next step and reports it, as it does a
-                // chunk it finds in place; the row is the purge's to remove.
-                cut_ids.push(f);
-                doomed_cuts.push((purge, index));
-                continue;
-            }
-            if st.parents.contains_key(&f) {
-                return Err(CatalogError::Invalid(format!(
-                    "chunk {id} absorbs {f}, which has parents (not a raw frame)"
-                )));
-            }
-            // A payload with dependencies is derived as much as one with parents: absorbing it would drop
-            // its header and commit sequence, and its frame row is pruned an hour on.
-            if st.deps.keys().any(|&(_, _, d)| d == f) {
-                return Err(CatalogError::Invalid(format!(
-                    "chunk {id} absorbs {f}, which has dependencies (not a raw frame)"
-                )));
-            }
-            if frame.start_ns != h.start_ns() {
-                return Err(CatalogError::Invalid(format!(
-                    "chunk {id}'s frame for {f} starts at {} (the frame starts at {})",
-                    frame.start_ns,
-                    h.start_ns()
-                )));
-            }
-            if frame.cut {
-                // The worker cut it (a purge reached the file before this commit): the frame stays its own payload,
-                // and the chunk lands without its slot. A cut only ever hides more, so nothing checks it further.
-                cut_ids.push(f);
-                continue;
-            }
-            live.push((index, f));
-        }
+        let Absorbing { frames, live, cut_ids, doomed_cuts } =
+            absorbing(&st, id, stream, chunk_span, 0, 0, &chunk.frames, absorbed)?;
         // The frames' (stream, start, seq) keys are freed by this same commit, so a chunk may take one of them.
         let recording_info = st.streams.get(&stream.0).filter(|info| crate::recording::native(info)).cloned();
         let original_recordings: Vec<_> = absorbed.iter().map(|id| st.recording.get(*id)).collect();
@@ -1095,6 +1117,103 @@ impl Catalog for MemoryCatalog {
         let cut = cut_indexes(staged.chunk_frames.get(&id).map_or(&[][..], Vec::as_slice));
         *st = staged;
         Ok(Inserted { seq, hidden, duplicate: false, cut })
+    }
+
+    fn extend_chunk(
+        &self,
+        part: NewChunk,
+        first_frame: u32,
+        absorbed: &[Uuid],
+        provenance: Option<&crate::ChunkProvenance>,
+    ) -> Result<Inserted> {
+        let header = part.payload.header.clone();
+        let (id, stream, base) = (header.id(), header.stream(), first_frame as usize);
+        crate::check_part(&part, base, absorbed, provenance)?;
+        let span = span_of(&header)?;
+        let mut st = self.write();
+        let (Some(known), Some(held)) = (st.payloads.get(&id), st.chunk_frames.get(&id)) else {
+            return Err(CatalogError::NotFound(format!("chunk {id}")));
+        };
+        if *known == header && held.len() == base + part.frames.len() {
+            return Ok(Inserted {
+                seq: st.commit_seqs.get(&id).copied().unwrap_or(0),
+                hidden: st.doomed.contains_key(&id),
+                duplicate: true,
+                cut: Vec::new(),
+            });
+        }
+        if st.doomed.contains_key(&id) {
+            return Err(CatalogError::Conflict(format!("chunk {id} is being purged")));
+        }
+        crate::check_grows(known, &header, held.len(), base)?;
+        let previous = held.last().map_or(0, |f| f.start_ns);
+        let Absorbing { frames: tail, live, cut_ids: _, doomed_cuts } =
+            absorbing(&st, id, stream, span, base, previous, &part.frames, absorbed)?;
+        let recording_info = st.streams.get(&stream.0).filter(|info| crate::recording::native(info)).cloned();
+        let original_recordings: Vec<_> = absorbed.iter().map(|raw| st.recording.get(*raw)).collect();
+        let mut staged = st.clone();
+        for &(index, f) in &live {
+            staged.drop_payload(f);
+            let index = u32::try_from(index).map_err(|_| CatalogError::Invalid(format!("chunk {id} is too long")))?;
+            staged.frames.insert(f, (id, index));
+        }
+        let cut: Vec<u32> = cut_indexes(&tail).into_iter().map(|i| i + first_frame).collect();
+        staged.chunk_frames.entry(id).or_default().extend(tail);
+        staged.payloads.insert(id, header.clone());
+        let longest = staged.longest.entry(stream.0).or_insert(0);
+        *longest = (*longest).max(span.len_ns());
+        if let Some(location) = part.payload.location {
+            staged.put_location(id, location);
+        }
+        if let Some(old) = staged.commit_seqs.remove(&id) {
+            staged.by_seq.remove(&(stream.0, old));
+        }
+        staged.head_seq += 1;
+        let seq = staged.head_seq;
+        staged.commit_seqs.insert(id, seq);
+        staged.by_seq.insert((stream.0, seq), id);
+        let stored = staged.provenance.remove(&id);
+        if let Some(whole) = crate::ChunkProvenance::joined(stored, base, provenance, part.frames.len()) {
+            staged.provenance.insert(id, whole);
+        }
+        if let Some(info) = recording_info {
+            let clean = !staged.chunk_frames[&id].iter().any(|f| f.cut);
+            let generation = staged.recording.meta.get(&stream.0).map_or(0, |m| m.generation);
+            let row = crate::recording::extend(
+                staged.recording.get(id),
+                &header,
+                &info,
+                generation,
+                seq,
+                &original_recordings,
+                clean,
+            )?;
+            let mixed = row.input.first_seq < staged.recording_era;
+            for &raw in absorbed {
+                if staged
+                    .recording
+                    .get(raw)
+                    .is_some_and(|r| !r.bound && !r.unknown && (!mixed || r.input.first_seq < staged.recording_era))
+                {
+                    staged.recording.remove(raw);
+                }
+            }
+            let certified_before = staged.recording.meta.get(&stream.0).is_some_and(|m| m.current_known);
+            staged.recording.put(stream, row);
+            if certified_before && staged.recording.meta.get(&stream.0).is_some_and(|m| !m.current_known) {
+                staged.invalidate(stream);
+            }
+        }
+        for (purge, index) in doomed_cuts {
+            let entry = (id, u32::try_from(index).unwrap_or(u32::MAX));
+            if let Some(job) = staged.jobs.get_mut(&purge)
+                && !job.cuts.contains(&entry)
+            {
+                job.cuts.push(entry);
+            }
+        }
+        *st = staged;
+        Ok(Inserted { seq, hidden: false, duplicate: false, cut })
     }
 
     fn rewrite_chunk(&self, chunk: Uuid, frames: Vec<ChunkFrame>, location: StorageLocator) -> Result<()> {

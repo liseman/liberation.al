@@ -1400,6 +1400,10 @@ table CommitChunk {
   /// worker has none, which readers treat as unknown.
   frame_provenance: [FrameProvenance];
   provenance_version: uint;
+  /// Minor 35: 0 commits a new chunk. Otherwise this is a part of a chunk still being written: `frames` are the
+  /// chunk's frames from this index on (the chunk must hold exactly this many), `absorbed` and `frame_provenance`
+  /// go with them, and the header and location are the chunk's own again, with its new end and length.
+  first_frame: uint;
 }
 
 /// The reply to a CommitChunk: the chunk's id and its commit sequence (the position subscribers and the event log

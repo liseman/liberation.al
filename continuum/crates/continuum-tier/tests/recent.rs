@@ -109,7 +109,12 @@ fn a_window_opened_mid_gop_reads_both_tiers_and_follows_live_without_a_seam() {
         // Relative locators, read back through the window's own root.
         data_root: Some(dir.path().to_path_buf()),
         streams: vec!["patio.video".into()],
-        flush: FlushSettings { chunk_ns: 300_000_000, audio_chunk_ns: 300_000_000, sync_ns: 100_000_000 },
+        flush: FlushSettings {
+            chunk_ns: 300_000_000,
+            part_ns: 300_000_000,
+            audio_chunk_ns: 300_000_000,
+            sync_ns: 100_000_000,
+        },
         tick: Duration::from_millis(20),
     };
     let mut service = Service::start(settings, rt.handle()).expect("start");
