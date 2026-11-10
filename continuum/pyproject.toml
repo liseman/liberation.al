@@ -1,7 +1,7 @@
 [build-system]
 requires = ["maturin>=1.16,<2"]
 # maturin, plus the ffmpeg feature (H.264 decoding for network-camera vision) wherever FFmpeg's development
-# libraries are installed, so a plain uv sync or uv pip install keeps it (#1626). See build_backend/continuum_build.py.
+# libraries are installed, so a plain uv sync or uv pip install keeps it. See build_backend/continuum_build.py.
 build-backend = "continuum_build"
 backend-path = ["build_backend"]
 

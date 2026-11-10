@@ -1,4 +1,4 @@
-"""Owner-named pets as owner records in the knowledge store (`pet.profile`, outside the broker's reset; #1755),
+"""Owner-named pets as owner records in the knowledge store (`pet.profile`, outside the broker's reset),
 separate from human identity and visual recognition.
 
 One active pet of a species permits an explicitly labeled household assumption for one observed animal. Several
@@ -18,7 +18,7 @@ from liberational import config, knowledge
 
 PET_PROFILES = "pet.profile"
 SPECIES = ("bird", "cat", "dog", "horse", "sheep", "cow", "elephant", "bear", "zebra", "giraffe")  # COCO's animals
-HOUSEHOLD = ("dog", "cat", "bird")  # the species a pet is offered as (#2035), most likely first
+HOUSEHOLD = ("dog", "cat", "bird")  # the species a pet is offered as, most likely first
 TRACK = re.compile(r"[\w.-]{1,64}:[a-z]{1,20}:\d{1,12}")  # a recorded animal track's id: "<run>:<species>:<n>"
 MAX_HIDDEN = 500  # sightings hidden from one pet's card
 
@@ -71,12 +71,12 @@ def _track(value: object) -> str:
 
 
 def _photo(value: object) -> str | None:
-    """A stored profile's chosen photo: the track of the sighting its avatar shows (#2363), or None for the newest."""
+    """A stored profile's chosen photo: the track of the sighting its avatar shows, or None for the newest."""
     return None if value is None else _track(value)
 
 
 def _hidden(value: object) -> list[str]:
-    """A stored profile's sightings hidden from its card (#2363)."""
+    """A stored profile's sightings hidden from its card."""
     if value is None:
         return []
     if not isinstance(value, list) or len(value) > MAX_HIDDEN:
@@ -177,7 +177,7 @@ class PetRegistry:
             }
 
     def set_photo(self, pet_id: object, track: object) -> dict[str, Any]:
-        """Choose the sighting (its track) the pet's avatar shows, or None for its newest again (#2363). A hidden
+        """Choose the sighting (its track) the pet's avatar shows, or None for its newest again. A hidden
         sighting chosen comes back to the card."""
         photo = None if track is None else _track(track)
         with self.lock:
@@ -186,7 +186,7 @@ class PetRegistry:
             return self._revise(prior, photo, hidden)
 
     def hide(self, pet_id: object, track: object, hidden: bool = True) -> dict[str, Any]:
-        """Hide a sighting from the pet's card, or show it again (#2363). Hiding its chosen photo unchooses it."""
+        """Hide a sighting from the pet's card, or show it again. Hiding its chosen photo unchooses it."""
         tid = _track(track)
         with self.lock:
             prior = self._current(pet_id)

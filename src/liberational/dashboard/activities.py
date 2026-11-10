@@ -76,7 +76,7 @@ def _kind_row(
 
 
 def kinds(state: Path) -> tuple[int, dict[str, Any]]:
-    """GET /activity/kinds (#3244): the owner's activities, each with the model classes it was defined with and
+    """GET /activity/kinds: the owner's activities, each with the model classes it was defined with and
     learned, how many clips were answered, and whether Ask counts it; and the deleted ones, which can be restored."""
     every = activity_kinds.every(state)
     live = [k for k in every if not k.deleted]
@@ -90,7 +90,7 @@ def kinds(state: Path) -> tuple[int, dict[str, Any]]:
 
 def edit_kind(path: str, body: object, control: bool, state: Path) -> tuple[int, dict[str, Any]]:
     """POST /activity/kinds ({name, description}: add one), /activity/kinds/delete and /activity/kinds/restore
-    ({kind}) (#3244). A delete keeps the activity's answers, so a restore (the panel's Undo) brings it all back."""
+    ({kind}). A delete keeps the activity's answers, so a restore (the panel's Undo) brings it all back."""
     if not control:
         return 403, {"ok": False, "error": "activities can only be changed on this machine"}
     if not isinstance(body, dict):

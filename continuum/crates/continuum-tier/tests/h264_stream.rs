@@ -226,7 +226,7 @@ fn cuda_decoder_returns_non_reordered_frames_without_waiting_for_future_packets(
         nv12[..160 * 96].fill(32 + tag as u8 * 5);
         let units = encoder.encode(&nv12, tag * 100_000_000, (tag + 1) * 100_000_000).unwrap();
         assert_eq!(units.len(), 1);
-        // Every third picture is kept: the others decode as references only, never downloaded (#3218).
+        // Every third picture is kept: the others decode as references only, never downloaded.
         let keep = tag % 3 == 0;
         let output = decoder.push_outputs(&units[0].bytes, tag, Some(tag as i64 * 100_000_000), true, keep).unwrap();
         assert_eq!(output.len(), 1, "frame {tag} must not wait for a future access unit");
@@ -261,7 +261,7 @@ fn threads_named(name: &str) -> usize {
 fn cuda_decoders_on_one_gpu_share_one_context_and_decode_side_by_side() {
     use continuum_tier::h264::{H264Encoder, H264Settings};
 
-    // Each CUDA context has an event thread that wakes hundreds of times a second even when idle (#3235): decoders
+    // Each CUDA context has an event thread that wakes hundreds of times a second even when idle: decoders
     // on one GPU share its primary context, so three cameras' decoders, each on its own thread, run one between them.
     let gpu: u32 = std::env::var("CONTINUUM_TEST_CUDA_GPU").unwrap_or_else(|_| "0".into()).parse().unwrap();
     // Both barriers count the three camera threads and this one: all decoders open, then the count, then decoding.

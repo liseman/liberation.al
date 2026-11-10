@@ -1,4 +1,4 @@
-"""Recognize a person who was forgotten, without keeping their name (issue #21).
+"""Recognize a person who was forgotten, without keeping their name.
 
 Deleting a person on the dashboard (People: Delete) calls `remember` with every name they had: their name now, their
 earlier names, and their aliases (`Registry.names`). Only a keyed one-way HMAC of each name is kept, under a fixed

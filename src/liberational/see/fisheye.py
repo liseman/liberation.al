@@ -1,4 +1,4 @@
-"""Fisheye lenses for see-actions (#1745, #1891): each lens's calibration, and each person resampled into a virtual
+"""Fisheye lenses for see-actions: each lens's calibration, and each person resampled into a virtual
 pinhole view before pose.
 
 The rig's IMX291 lenses see 160 degrees, so a person near the rim is bent and squeezed, and RTMPose was trained on

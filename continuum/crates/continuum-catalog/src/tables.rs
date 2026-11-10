@@ -107,7 +107,7 @@ tables! {
     // Range purge -> bounded original-witness sweep cursor and source snapshot cutoff.
     RECORDING_PURGE = "recording_purge";
     // (stream u32, start u64, dependent payload id) -> end u64: a derived payload's dependency on a stretch of a
-    // stream (#1535), for a purge to find what depended on what it removes
+    // stream, for a purge to find what depended on what it removes
     DEPS = "deps";
     // (dependent payload id, stream u32, start u64) -> []: its dependencies, to drop them when it goes
     DEPS_OF = "deps_of";

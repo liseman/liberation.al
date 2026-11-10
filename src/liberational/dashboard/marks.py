@@ -11,12 +11,12 @@ find again, and a wrong one's correction becomes the text it must (or must not) 
 changes no answer.
 
 From Review's timeline, a mark (`kind: "event"`) is one span of one camera where something happened, with how many
-times it happened counted by watching (#287, #518). It is saved in `events.jsonl` for `tools/measure.py --part events`,
+times it happened counted by watching. It is saved in `events.jsonl` for `tools/measure.py --part events`,
 in the format docs/MEASUREMENT.md gives: the camera, what happened in the owner's words, the span, the count, and
 optionally who it involved, measured attributes (a value and a unit), and notes.
 
 Also from Review's timeline, a mark (`kind: "entries"`) is one window of one camera with every entry and exit the owner
-saw in it, and the stretches they could not tell (#1472). It is saved in `entries.jsonl` for `tools/measure.py --part
+saw in it, and the stretches they could not tell. It is saved in `entries.jsonl` for `tools/measure.py --part
 entries`, in the format docs/MEASUREMENT.md gives. A window with no events and no unsure stretch needs `none_seen`, so
 an empty list always means the owner watched it and nobody came or went. Windows on one camera must not overlap: a
 mark that overlaps another window is refused unless it says `replace`, which drops the windows it overlaps.
@@ -47,7 +47,7 @@ ENTRIES = "entries.jsonl"
 MAX_ENTRY_EVENTS = 500
 MAX_UNSURE = 50
 CONDITIONS = ("camera_moving", "low_light", "occlusion", "crowded", "no_events")
-FEEDBACK = "answer_feedback.jsonl"  # a plain "yes, that was right" with nothing to check (2026-10-29)
+FEEDBACK = "answer_feedback.jsonl"  # a plain "yes, that was right" with nothing to check
 MAX_COUNT = 10_000
 MAX_ATTRIBUTES = 20
 MAX_NOTES = 50
@@ -86,7 +86,7 @@ def label(body: dict[str, Any]) -> dict[str, Any] | str:
         if start is None or end is None or end < start:
             return "a line needs its ts_start and ts_end"
         device = _name(body.get("device"))
-        # the line's key (#247): two microphones' lines in one millisecond are two marks, not one replacing the other
+        # the line's key: two microphones' lines in one millisecond are two marks, not one replacing the other
         key = registry.line_key(start, device)
         out: dict[str, Any] = {"id": f"people-line-{key}", "modality": "voice", "start": start, "end": end}
         out["line"] = start

@@ -1,4 +1,4 @@
-"""Bounded, source-backed movement fragments from camera-local body tracks (#176).
+"""Bounded, source-backed movement fragments from camera-local body tracks.
 
 This is pure geometry and evidence bookkeeping, not identity recognition. Foot anchors match crossings.anchor.
 Every evaluated frame used for a visible interval, a gap, or an edge boundary remains a causal parent, including
@@ -45,8 +45,8 @@ class Output:
     record: dict[str, Any]
     parents: tuple[str, ...]
     # The body and motion stretches a track was made from, ("body" | "motion", first header ns, last header ns), which
-    # its worker can publish as span dependencies in place of the per-frame parents (#1611). None when they aren't all
-    # known (state saved before records kept their header ns, #1660).
+    # its worker can publish as span dependencies in place of the per-frame parents. None when they aren't all
+    # known (state saved before records kept their header ns).
     spans: tuple[tuple[str, int, int], ...] | None = None
 
 
@@ -115,7 +115,7 @@ def _parents(evidence: list[dict[str, Any]]) -> tuple[str, ...]:
 def _spans(evidence: list[dict[str, Any]]) -> tuple[tuple[str, int, int], ...] | None:
     """The body and motion stretches behind `evidence` (_parents' records), in their headers' ns, first to last. None
     when a stretch is unknown, as in evidence restored from a snapshot that kept no ns: float seconds don't round-trip
-    to the header ns, so a stretch from them can miss its own first or last record (#1660)."""
+    to the header ns, so a stretch from them can miss its own first or last record."""
     times = [t for e in evidence if type(t := e.get("ns")) is int]
     if len(times) != len(evidence):
         return None

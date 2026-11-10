@@ -1,4 +1,4 @@
-"""Activity questions that aren't counts (#1863), from see-actions' model: when someone sat down, what someone was doing.
+"""Activity questions that aren't counts, from see-actions' model: when someone sat down, what someone was doing.
 
 - "When did I sit down?" (`when`): the times of that kind's `action.span` rows over the window, over the time
   `action.coverage` says was watched. Until the owner's ratings check a kind (memory/events.py's promotion), each time
@@ -18,6 +18,8 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Literal
 from urllib.parse import urlencode
+
+import numpy as np
 
 from liberational import segment_log
 from liberational.memory import event_counts
@@ -77,12 +79,8 @@ def asked(question: str, state: Any) -> Asked | None:
 
 
 def _watched(state: Any, start: float, end: float, cameras: list[str]) -> float:
-    rows = segment_log.at(state).range(segment_log.ACTION_COVERAGE, start, end)
-    return sum(
-        max(0.0, min(float(r["ts_end"]), end) - max(float(r["ts_start"]), start))
-        for r in rows
-        if not cameras or r.get("cam") in cameras
-    )
+    covered = segment_log.at(state).covered(segment_log.ACTION_COVERAGE, start, end, cameras or None)
+    return sum(c.seconds for c in covered.values())
 
 
 def _link(stamp: Callable[[float], str], ts: float, cam: Any) -> str:
@@ -186,20 +184,27 @@ def _guesses(state: Any, a: Asked, start: float, end: float, cameras: list[str])
 
     keep, _ = _tracks_of(state, a, start, end)
     tally: collections.Counter[str] = collections.Counter()
-    where: dict[str, str] = {}
-    for w in segment_log.at(state).range(segment_log.ACTION_WINDOWS, start, end):
-        cam = str(w.get("cam"))
-        if (cameras and cam not in cameras) or (keep is not None and (cam, str(w.get("track_id"))) not in keep):
-            continue
-        classes = w.get("classes") or []
+    # Each window's top class, counted as columns: a day is about 150,000 windows.
+    windows = segment_log.at(state).table(
+        segment_log.ACTION_WINDOWS, start, end, ("ts_ns", "track_id", "classes", "model"), cameras or None
+    )
+    first: dict[str, tuple[int, str]] = {}  # each class's earliest window, and its camera
+    for cam, w in sorted(windows.items()):
+        top, models = w["classes"][:, 0].astype(np.int64), np.array(w["model"], dtype=object)
+        mine = np.ones(len(top), dtype=bool)
+        if keep is not None:
+            tracks = np.array(sorted({int(t) for c, t in keep if c == cam and t.lstrip("-").isdigit()}), dtype=np.int64)
+            mine = np.isin(w["track_id"], tracks)
         # MoViNet's windows name Kinetics-600 classes, ST-GCN++'s NTU-120 ones
-        names = movinet_classes.CLASSES if w.get("model") == action_clips.MODEL else action_classes.CLASSES
-        if not classes or not 0 <= int(classes[0]) < len(names):
-            continue
-        name = names[int(classes[0])]
-        tally[name] += 1
-        where.setdefault(name, cam)
-    return [(name, n, where[name]) for name, n in tally.most_common(TOP_GUESSES)]
+        for clips, names in ((True, movinet_classes.CLASSES), (False, action_classes.CLASSES)):
+            of = mine & ((models == action_clips.MODEL) == clips) & (top >= 0) & (top < len(names))
+            found, at, counts = np.unique(top[of], return_index=True, return_counts=True)
+            for index, i, n in zip(found.tolist(), at.tolist(), counts.tolist(), strict=True):
+                name = names[index]
+                tally[name] += n
+                seen = (int(w["ts_ns"][of][i]), cam)
+                first[name] = min(first.get(name, seen), seen)
+    return [(name, n, first[name][1]) for name, n in tally.most_common(TOP_GUESSES)]
 
 
 def doing(a: Asked, query: Mapping[str, Any], state: Any, stamp: Callable[[float], str]) -> dict[str, Any]:

@@ -478,7 +478,7 @@ mod tests {
     #[test]
     fn a_small_scrubs_density_doesnt_hide_a_large_catalogs_waste() {
         let c = ScrubConfig::default();
-        // devbox on 2026-11-02: an 85 MB catalog scrubbed to 67 MB for 27 MB live (density 2.47), then grown to
+        // On the Linux machine: an 85 MB catalog scrubbed to 67 MB for 27 MB live (density 2.47), then grown to
         // 4.84 GB with 2.6 GB live. That density predicts a 6.4 GB copy, so no waste at all.
         let tiny = scrubbed(6, 67 << 20, 27 << 20);
         let grown = |density| with_density(9 * GIB, Some(4 * GIB), tiny, density);
@@ -498,7 +498,8 @@ mod tests {
     #[test]
     fn when_a_scrub_starts() {
         let c = ScrubConfig::default();
-        // The live catalog on devbox after 45 hours: 8 GiB, never scrubbed, purges finishing every few minutes.
+        // A live catalog on the Linux machine after 45 hours: 8 GiB, never scrubbed, purges finishing every few
+        // minutes.
         assert_eq!(reason(NOW, &storage(8 * GIB, None, None), true, None, &c), Some(Reason::Uncounted));
         // Too small to count for its own sake; a due scrub still runs.
         assert_eq!(reason(NOW, &storage(100 << 20, None, None), false, None, &c), None);

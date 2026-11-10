@@ -1,4 +1,4 @@
-"""The Journal tab's reads (#2811): the journal as a column view, month down to the journal's own events.
+"""The Journal tab's reads: the journal as a column view, month down to the journal's own events.
 
 Every level is one read-only GET on /journal (a page load of /journal with text/html gets the app instead):
 
@@ -19,7 +19,7 @@ written. Pages and entries are only read here; the journal worker writes them.
 Evidence is read for the one entry the tab shows, not for every row, since resolving a camera moment asks the broker
 what video it still has. The sources the entry cites (memory/journal.py `evidence_source`) go through
 memory/journal_evidence.py's `resolve_sources` in one batch (a broker read per camera, not per source), the same as a
-day page's citations (/journal/evidence, #2808): the recording
+day page's citations (/journal/evidence): the recording
 while it's kept, then a promoted clip or still, audio for speech, or "footage expired" / "no footage was kept". This
 adds who and when, a Review link, and the audio's URL.
 """

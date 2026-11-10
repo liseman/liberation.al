@@ -18,8 +18,8 @@ through `View`, which gives each line the label fields the old rewrites would ha
 - A line stored with a person's name keeps it, as before step 4: renaming a voice never rewrote the lines heard
   before.
 - Any other line follows its voice: the voice's person, else "Speaker <id>" for a voiceprint listen handed out,
-  else the label stored on the line. Voices are never merged (#772): naming "Speaker 7" Alice makes its lines read
-  as Alice. A voice's name is its person, by person_of (issue #30).
+  else the label stored on the line. Voices are never merged: naming "Speaker 7" Alice makes its lines read
+  as Alice. A voice's name is its person, by person_of.
 
 A person's name that matches the stored label apart from case and spacing keeps the stored spelling, so a line reads
 exactly as it did. When the log cannot be read, lines read as if it were empty, and the failure is logged.
@@ -151,7 +151,7 @@ class View:
         self.reg: registry.Registry | None = None
         self.people: dict[PersonId, Person] = {}
         self._voice_of: dict[PersonId, int] = {}
-        # The last batch `_read` read, its lines held so their ids stay theirs, and what it gave (#2440): a People read
+        # The last batch `_read` read, its lines held so their ids stay theirs, and what it gave: a People read
         # reads the same retained lines through `lines` and `named`, deciding thousands of lines twice.
         self._last_read: tuple[bool, list[Any], list[tuple[Any, registry.Said | None]]] | None = None
         if not registry.log_exists(self.state):
@@ -177,7 +177,7 @@ class View:
             registry.log(f"transcript view: lines read as stored, the log is unreadable: {e!r}", level=logs.WARN)
 
     def canonical(self, sid: object) -> int | None:
-        """A line's voice id as an int (None for none). Voices are never merged any more (#772), so it's the id."""
+        """A line's voice id as an int (None for none). Voices are never merged any more, so it's the id."""
         return _int(sid)
 
     def _clone_last(self, sid: int) -> tuple[bool, int]:
@@ -287,7 +287,7 @@ class View:
 
     def line(self, e: dict, near: Iterable[dict] = ()) -> dict:
         """One line as readers see it. Give the lines stored around it (`near`) and another mic's copy of it among
-        them is found, so a label on that copy applies here too, as it does when the day is read (#284)."""
+        them is found, so a label on that copy applies here too, as it does when the day is read."""
         from liberational.listen import revisions
 
         if not revisions.filter_lines(self.state, [e]):
@@ -296,7 +296,7 @@ class View:
 
     def explain(self, e: dict, near: Iterable[dict] = ()) -> registry.Said | None:
         """Why a line reads as it does (registry.Said), or None when nothing in the log is about it: the decision
-        `line` read it with, a copy's among `near` when it borrows one (#284)."""
+        `line` read it with, a copy's among `near` when it borrows one."""
         from liberational.listen import revisions
 
         if not revisions.filter_lines(self.state, [e]):
@@ -305,7 +305,7 @@ class View:
         if self.reg is None or ts is None:
             return None
         near = list(near)  # a generator is true even when empty
-        if not near:  # one line on its own: the log's answer for it, as before #284
+        if not near:  # one line on its own: the log's answer for it
             line = _utterance(ts, e.get("device"))
             return self.reg.said([(line, self.canonical(e.get("speaker_id")))], refresh=False)[0]
         return self._read(_with(e, near))[0][1]
@@ -388,7 +388,7 @@ class View:
 
     def _line(self, e: dict, s: registry.Said | None) -> dict:
         out, stored = dict(e), e.get("speaker")
-        out["line"] = registry.key_of(e)  # what the dashboard's line requests take (#247): never a time two share
+        out["line"] = registry.key_of(e)  # what the dashboard's line requests take: never a time two share
         if "speaker_id" in e:
             out["speaker_id"] = self.canonical(e["speaker_id"])
         rule = self.rule(e, s)
@@ -443,7 +443,7 @@ def _key(e: dict) -> str | None:
 
 
 def _copies(items: list[Any], heard: dict[int, float]) -> dict[int, int]:
-    """The heard lines that are another mic's copy of the same speech (audio/twins.py, #284): {copy's index: index of
+    """The heard lines that are another mic's copy of the same speech (audio/twins.py): {copy's index: index of
     the line shown for it}."""
     from liberational.audio import twins
 
@@ -466,7 +466,7 @@ def _own(s: registry.Said | None) -> bool:
 
 
 def _share(said: dict[int, registry.Said], copies: dict[int, int]) -> None:
-    """A label on one copy of the same speech applies to the others (#284): a copy with no decision of its own reads
+    """A label on one copy of the same speech applies to the others: a copy with no decision of its own reads
     with the one a copy of it has, the shown line's first. Each keeps its own key, so labeling one later still wins."""
     for i, j in copies.items():  # a copy's own decision reaches the shown line when it has none
         if _own(said.get(i)) and not _own(said.get(j)):
@@ -478,7 +478,7 @@ def _share(said: dict[int, registry.Said], copies: dict[int, int]) -> None:
 
 def once(lines: Iterable[Any]) -> list[Any]:
     """Lines as one thing said: another mic's copy of a line (`twin_of`, set by View) left out, for readers that show
-    or count speech (#284)."""
+    or count speech."""
     return [e for e in lines if not (isinstance(e, dict) and e.get("twin_of"))]
 
 
@@ -507,7 +507,7 @@ def changed_names(state: str | pathlib.Path | None = None) -> list[tuple[float, 
     out = []
     for e, w in zip(stored, v.lines(stored)):
         if w.get("twin_of"):
-            continue  # another mic's copy reads as the line it repeats (#284), not as a change
+            continue  # another mic's copy reads as the line it repeats, not as a change
         before, after = v.shown(e), v.shown(w)
         if before == after:
             before, after = heard(v, e), w.get("speaker") or UNKNOWN

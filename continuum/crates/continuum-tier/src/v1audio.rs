@@ -1,4 +1,4 @@
-//! v1's audio archive registered as Tier 1 chunks in place, for the speech importer (#548).
+//! v1's audio archive registered as Tier 1 chunks in place, for the speech importer.
 //!
 //! v1 recorded each microphone as FLAC files of about five minutes (`audio/<device>/<day>/<HHMMSS>.flac`), with each
 //! file's exact start in the device's `index.jsonl` (`{"file", "start" (UTC seconds), "sr"}`). Each file becomes one
@@ -295,7 +295,7 @@ pub(crate) async fn register_in_place(
         return Ok(done);
     }
     // A repeat of a header the catalog has since absorbed into the chunk is refused as a Conflict (the chunk's header
-    // holds the payload's time key) rather than taken as a repeat (#685), so a Conflict here is settled by the
+    // holds the payload's time key) rather than taken as a repeat, so a Conflict here is settled by the
     // commit: a duplicate means an earlier run registered the file.
     let mut conflict = None;
     for p in &f.payloads {
@@ -320,7 +320,7 @@ pub(crate) async fn register_in_place(
         (Ok(done), None) => {
             if done.duplicate {
                 // The payload went in fresh but the chunk was there: only possible if the catalog stops refusing the
-                // repeat (#685) by some other route than taking it as one. The header-only payload is then an orphan.
+                // repeat by some other route than taking it as one. The header-only payload is then an orphan.
                 eprintln!("{what}: {}: ingested again though its chunk was committed already", path.display());
             }
             done

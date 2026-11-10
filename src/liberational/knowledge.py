@@ -1,4 +1,4 @@
-"""Indexed, low-rate knowledge independent of the broker catalog (#1755).
+"""Indexed, low-rate knowledge independent of the broker catalog.
 
 Records are immutable. Exact retries retain their position; conflicting IDs and erased IDs cannot be reused.
 Every content write and erasure advances the durable change feed in the same transaction. This module stores
@@ -11,7 +11,7 @@ journals in WAL, so readers never block the writer, when SQLite is 3.51.3 or new
 defect (a checkpoint racing a writer can corrupt the file), so there it keeps rollback journaling. Both use FULL
 synchronization. A WAL store checkpoints and truncates its WAL after each write (`_fold`).
 A lock held by another process is waited out: SQLite's busy timeout, then retries with backoff for up to
-LOCK_WAIT_S, so a slow peer delays a service rather than stopping it (#2898). A COMMIT waits at most COMMIT_WAIT_S,
+LOCK_WAIT_S, so a slow peer delays a service rather than stopping it. A COMMIT waits at most COMMIT_WAIT_S,
 because a rollback-journal writer waiting to commit holds new readers out. `lock_wait` caps all of it for a context,
 so a dashboard request fails fast instead of piling up behind a lock.
 Thread-local holders close connections when their thread exits; the Store tracks holders weakly so short-lived
@@ -38,7 +38,7 @@ from typing import Any
 FORMAT = 1
 APPLICATION_ID = 0x4C504B4E
 BUSY_TIMEOUT_S = 30.0  # one wait inside SQLite for another connection's lock
-LOCK_WAIT_S = 300.0  # how long a locked open or BEGIN keeps retrying before it fails (#2898)
+LOCK_WAIT_S = 300.0  # how long a locked open or BEGIN keeps retrying before it fails
 REQUEST_WAIT_S = 10.0  # a dashboard request's whole wait (`lock_wait`): it answers with an error, not a queue
 COMMIT_WAIT_S = 60.0  # a COMMIT's whole wait: in rollback journaling, readers can't start while it waits
 FIRST_RETRY_S = 0.1  # the backoff doubles from here up to MAX_RETRY_S
@@ -72,7 +72,7 @@ _wait_cap: contextvars.ContextVar[float | None] = contextvars.ContextVar("knowle
 @contextmanager
 def lock_wait(seconds: float) -> Generator[None]:
     """Cap every knowledge lock wait in this context (busy timeout and retries together) at `seconds`. For request
-    threads, which should answer with an error rather than queue behind a lock (#2898)."""
+    threads, which should answer with an error rather than queue behind a lock."""
     token = _wait_cap.set(seconds)
     try:
         yield
@@ -250,7 +250,7 @@ class Store:
         self._handles: weakref.WeakSet[_Handle] = weakref.WeakSet()
         self._handles_lock = threading.Lock()
         # Threads inside a transaction, and closes waiting for them: closing a connection another thread is using
-        # crashes the process inside SQLite (#3161), so close waits for them and new transactions wait for close.
+        # crashes the process inside SQLite, so close waits for them and new transactions wait for close.
         self._use = threading.Condition()
         self._users = 0
         self._closing = 0
@@ -275,7 +275,7 @@ class Store:
                 db.execute("INSERT INTO metadata VALUES ('incarnation', ?)", (str(uuid.uuid4()),))
                 db.execute(f"PRAGMA application_id={APPLICATION_ID}")
                 db.execute(f"PRAGMA user_version={FORMAT}")
-        with _announced_lock:  # once a process per file: each Store opened said it again, 26 lines an hour (#3147)
+        with _announced_lock:  # once a process per file: each Store opened said it again, 26 lines an hour
             first = str(self.path) not in _announced
             _announced.add(str(self.path))
         if first:
@@ -835,7 +835,7 @@ def _journal() -> str:
 
 
 # Strong, so a caller that drops its Store between calls still reuses it: a weak cache rebuilt it on every such call,
-# each rebuild taking the write lock to check the schema (#2940).
+# each rebuild taking the write lock to check the schema.
 _stores: dict[str, Store] = {}
 _stores_lock = threading.Lock()
 
@@ -844,7 +844,7 @@ def at(path: str | Path) -> Store:
     """Reuse the validated store for a database path for the life of the process; its connections and transactions
     remain thread-local. A store whose file was removed (a state reset) is rebuilt, which initializes a new file. The
     old one is closed after the lock is let go: its close waits for its transactions in progress, and one of those
-    may be opening another store here (#3176)."""
+    may be opening another store here."""
     key = str(Path(path).resolve())
     stale = None
     with _stores_lock:

@@ -1,4 +1,4 @@
-"""Whether Ollama answers, shared by every caller of it (#221).
+"""Whether Ollama answers, shared by every caller of it.
 
 When Ollama isn't running, each caller used to log its own connection error on every try (the vision loop once a
 second). Instead a call goes through `call(model)`:
@@ -28,14 +28,14 @@ from liberational import logs
 
 # The context the cameras' model (models.ollama.vlm) is always asked for: by the vision loop's warm-up, captions, and
 # grounding, and by identity's badge check. Ollama reloads a model whose num_ctx changes, and one asked with none
-# loads at the model's whole 262k context (25.6 GB, 16 s) before the next call reloads it (#441).
+# loads at the model's whole 262k context (25.6 GB, 16 s) before the next call reloads it.
 VLM_NUM_CTX = 4096
 
 # The context every embedding call (memory/embedding.py) asks for, for the same reason: asked with none, Ollama loads
 # qwen3-embedding:4b at its own default (32k to 40k tokens, 7.8 to 9 GB of GPU memory). The longest journal entry on
-# devbox (6,373 entries, 2026-11-01) is 3,164 characters, 680 tokens; questions are a sentence. 2048 leaves three
+# the Linux machine (6,373 entries) is 3,164 characters, 680 tokens; questions are a sentence. 2048 leaves three
 # times that, and it also matches the runner's batch size (-b 2048), which an embedded text must fit. Ollama cuts a
-# longer text to fit (truncate), so an entry over it is embedded by its start, not refused (#1310).
+# longer text to fit (truncate), so an entry over it is embedded by its start, not refused.
 EMBEDDING_NUM_CTX = 2048
 
 START = "start it (e.g. systemctl enable --now ollama)"
@@ -260,7 +260,7 @@ def status(
     """For the dashboard: whether Ollama answers at ollama.url, and which configured models it doesn't have. message
     is what to tell the owner, None when all is well. An answer slower than `timeout` comes from a running Ollama
     that took the connection, so it counts as up, with its models unchecked this time: a busy Ollama took over 1.5 s
-    to list them 13% of the time on devbox, and each read as down (#3052)."""
+    to list them 13% of the time on the Linux machine, and each read as down."""
     url = cfg.ollama_url()
     try:
         have = {

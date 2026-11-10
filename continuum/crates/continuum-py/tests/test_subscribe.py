@@ -164,7 +164,7 @@ def test_unsubscribing_from_another_task_ends_a_waiting_reader(socket: str) -> N
 
 
 def test_take_on_a_thread_returns_every_event_waiting_in_order_and_none_once_unsubscribed(socket: str) -> None:
-    # #3235: a decoder thread waits here for a batch, not on the event loop for each event.
+    # A decoder thread waits here for a batch, not on the event loop for each event.
     def numbers(events: list[SubscriptionEvent]) -> list[int]:
         assert all(event["type"] == "Event" for event in events), events
         return [int(decode_header(event["item"]["header"])["id"][-2:], 16) for event in events]
