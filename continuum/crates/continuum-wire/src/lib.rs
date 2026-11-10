@@ -22,4 +22,3 @@ pub use frame::{FrameError, MAX_FRAME, read_frame, write_frame};
 pub fn read_envelope(bytes: &[u8]) -> Result<ControlEnvelope<'_>, InvalidFlatbuffer> {
     flatbuffers::root::<ControlEnvelope>(bytes)
 }
-// Probe for the hosted checks (to be reverted).

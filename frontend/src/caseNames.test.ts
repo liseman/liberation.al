@@ -28,4 +28,3 @@ function clashes(dir: string): string[] {
 it('no two source files in a folder differ only in case (they collide on macOS)', () => {
   expect(clashes(join(__dirname))).toEqual([]);
 });
-// Probe for the hosted checks (to be reverted).
