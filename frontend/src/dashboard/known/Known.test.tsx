@@ -32,6 +32,18 @@ it('shows the last count while a tab reloads after a first read', () => {
   expect(screen.getByTestId('tab')).toHaveTextContent(/^$/);
 });
 
+it('marks a held count as an earlier read while the tab reloads, then shows the new one as current', () => {
+  setSessionCount('test:held', 7);
+  const { rerender } = renderPage(<Waiting cacheKey="test:held" n={undefined} what="to name" loading />);
+  const held = screen.getByText('7 to name');
+  expect(held).toHaveAttribute('data-stale');
+  expect(held).toHaveAttribute('aria-busy', 'true');
+  rerender(<Waiting cacheKey="test:held" n={9} what="to name" />);
+  const fresh = screen.getByText('9 to name');
+  expect(fresh).not.toHaveAttribute('data-stale');
+  expect(fresh).not.toHaveAttribute('aria-busy');
+});
+
 it.each([
   ['loading', { n: undefined, loading: true }, null],
   ['loaded', { n: 12, loading: false }, '12 to name'],
