@@ -1,9 +1,9 @@
 // A place's plan in Pascal Editor: its 2D editor or its 3D view, in an iframe on the editor's own page
 // (plan-editor/index.html, src/plan-editor/). The iframe is what keeps the editor out of every other page: nothing of it
 // is imported here, so it is fetched only when this is shown, and its styles stay inside its own document.
-import { Text } from '@mantine/core';
 import { useEffect, useRef, useState } from 'react';
 import { editorUrl, type FromEditor, type Open, ours, type PlanView, type Scene } from '../../../plan-editor/protocol';
+import { BlockSkeleton } from '../../lib/loading';
 import classes from '../places.module.css';
 
 export function PlanFrame({
@@ -11,6 +11,7 @@ export function PlanFrame({
   view,
   scheme,
   cameras,
+  look = false,
   onChange,
 }: {
   /** The scene to open. A later one is ignored: the editor holds the plan from then on, and remounting opens another. */
@@ -19,6 +20,8 @@ export function PlanFrame({
   scheme: 'light' | 'dark';
   /** The house's cameras, for the editor to offer the ones with no spot on the plan yet. */
   cameras?: { id: string; name: string }[];
+  /** Open the scene to look at only: the editor shows it with nothing that changes it. */
+  look?: boolean;
   /** The scene after each edit. */
   onChange?: (scene: Scene) => void;
 }) {
@@ -44,16 +47,12 @@ export function PlanFrame({
   }, []);
   return (
     <>
-      {!ready && (
-        <Text size="sm" c="dimmed">
-          Loading the plan editor…
-        </Text>
-      )}
+      {!ready && <BlockSkeleton label="the plan editor" />}
       <iframe
         ref={frame}
         className={classes.planFrame}
         title={view === '3d' ? 'The plan in 3D' : 'Plan editor'}
-        src={editorUrl(import.meta.env.BASE_URL, view, scheme)}
+        src={editorUrl(import.meta.env.BASE_URL, view, scheme, look)}
       />
     </>
   );

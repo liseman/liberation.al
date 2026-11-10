@@ -45,6 +45,14 @@
   margin-bottom: 12px;
 }
 
+/* The place's name with its line of facts under it: the same spot in every view. */
+.planNamed {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
 .planTitle {
   margin: 0;
   font-size: var(--mantine-font-size-lg);
@@ -56,6 +64,11 @@
   max-width: 100%;
   height: auto;
   margin-inline: auto;
+}
+
+/* The card names the place, so the drawing's own title isn't shown (its accessible name still has it). */
+.drawing :global(svg .title) {
+  display: none;
 }
 
 /* The key under a plan: one swatch per kind of mark its overlay draws (plan/render.ts's look, in miniature). */
@@ -373,8 +386,9 @@
 .planFrame {
   display: block;
   width: 100%;
-  height: min(78vh, 60rem);
-  min-height: 28rem;
+  /* low enough that Save, above it, and the plan are on one screen */
+  height: min(70vh, 720px);
+  min-height: 26rem;
   border: 0;
   border-radius: var(--mantine-radius-md);
 }
@@ -444,21 +458,7 @@
   stroke-width: 1.5;
 }
 
-/* The plan editor with its versions beside it (scene/PlaceEditor.tsx, scene/Versions.tsx): the timeline is a strip
-   on the right, and goes under the editor on a narrow page. */
-.editorWithVersions {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 15rem;
-  gap: var(--mantine-spacing-md);
-  align-items: start;
-}
-
-@media (max-width: 1000px) {
-  .editorWithVersions {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
+/* The plan's versions, in a popover from the editor's Versions button (scene/PlaceEditor.tsx, scene/Versions.tsx). */
 .versions {
   min-width: 0;
 }
@@ -470,7 +470,7 @@
   padding: 0;
   list-style: none;
   border-inline-start: 2px solid var(--mantine-color-default-border);
-  max-height: min(78vh, 60rem);
+  max-height: min(60vh, 28rem);
   overflow-y: auto;
 }
 

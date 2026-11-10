@@ -41,18 +41,20 @@ export interface Changed {
 
 export type FromEditor = Ready | Changed;
 
-/** The editor page's address for a view and a colour scheme, under the build's base. */
-export function editorUrl(base: string, view: PlanView, scheme: 'light' | 'dark'): string {
-  return `${base}plan-editor/index.html#view=${view}&scheme=${scheme}`;
+/** The editor page's address for a view and a colour scheme, under the build's base. `look`: open the scene to look
+ *  at only, with nothing that changes it (an earlier version of a plan). */
+export function editorUrl(base: string, view: PlanView, scheme: 'light' | 'dark', look = false): string {
+  return `${base}plan-editor/index.html#view=${view}&scheme=${scheme}${look ? '&look=1' : ''}`;
 }
 
-/** What an editor page's address asks for; anything else reads as the 2D editor, light. */
-export function fromHash(hash: string): { view: PlanView; scheme: 'light' | 'dark' } {
+/** What an editor page's address asks for; anything else reads as the 2D editor, light, for editing. */
+export function fromHash(hash: string): { view: PlanView; scheme: 'light' | 'dark'; look: boolean } {
   const q = new URLSearchParams(hash.replace(/^#/, ''));
   const view = q.get('view');
   return {
     view: view === '3d' || view === 'split' ? view : '2d',
     scheme: q.get('scheme') === 'dark' ? 'dark' : 'light',
+    look: q.get('look') === '1',
   };
 }
 
