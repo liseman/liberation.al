@@ -215,10 +215,35 @@ export const groupShots = (id: number, offset: number, limit: number, signal?: A
     signal,
   );
 
-/** "Not this person": the pictures leave the group for good, and its face is rebuilt from the rest. A group left with
- *  none is put aside. */
-export const rejectShots = (group: number, ids: string[]) =>
-  request<{ ok: boolean; removed: number; left: number; ignored: boolean; error?: string }>('/faces/unknown/reject', {
+/** The pictures the owner deselected on a face card leave its group before the card's answer is applied, and wait
+ *  together as a group of their own (`group`, or null when none could be made). */
+export const splitShots = (group: number, ids: string[]) =>
+  request<{ ok: boolean; group: number | null; moved: number; left: number; error?: string }>('/faces/unknown/split', {
     group,
     ids,
   });
+
+export type HiddenKind = 'ignored' | 'blocked';
+
+/** "Ignore" or "Block" for a face group's pictures, all but the deselected ones in `exclude`. `keys` is what
+ *  restoreHidden takes to bring them back, and `left` how many pictures the group still has. */
+export const hideShots = (group: number, action: 'ignore' | 'block', exclude: string[]) =>
+  request<{ ok: boolean; kind: HiddenKind; keys: string[]; hidden: number; left: number; error?: string }>(
+    '/faces/unknown/hide',
+    { group, action, exclude },
+  );
+
+/** Un-ignore pictures (by shot id) or unblock faces (by the block's key). */
+export const restoreHidden = (kind: HiddenKind, keys: string[]) =>
+  request<{ ok: boolean; restored: number; error?: string }>('/faces/unknown/restore', { kind, keys });
+
+/** What the owner ignored and blocked on Who's this?, newest first. */
+export interface HiddenFaces {
+  ignored: { id: string; url: string; group: number | null; at: number }[];
+  ignored_count: number;
+  blocked: { id: string; group: number | null; at: number; count: number; shots: { id: string; url: string }[] }[];
+  blocked_count: number;
+}
+
+export const HIDDEN_FACES_KEY = ['faces', 'unknown', 'hidden'] as const;
+export const hiddenFaces = (signal?: AbortSignal) => request<HiddenFaces>('/faces/unknown/hidden', undefined, signal);

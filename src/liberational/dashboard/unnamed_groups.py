@@ -383,11 +383,13 @@ def _faces_owner_key(groups: bool = True) -> tuple[Any, ...]:
 def _face_nots_stamp() -> tuple[str, int, int] | None:
     """Where the owner's "not <person>" marks on face groups stand (people/face_nots.py): None without a store."""
     from liberational import knowledge
-    from liberational.people import face_nots
+    from liberational.people import face_hidden, face_nots
 
     if not registry.knowledge_path(context.STATE).exists():
         return None
-    return knowledge.at(registry.knowledge_path(context.STATE)).generation((face_nots.NOTS,))
+    # with what the owner ignored and blocked (people/face_hidden.py): a block hides rows with no other file changed
+    marks = (face_nots.NOTS, face_hidden.IGNORES, face_hidden.BLOCKS)
+    return knowledge.at(registry.knowledge_path(context.STATE)).generation(marks)
 
 
 _FACE_GROUP_LAST_SEEN: dict[tuple[str, int], float] = {}
@@ -417,6 +419,7 @@ def _hide_emptied_face_groups(rows: list[dict[str, Any]], face_batch: FaceBatch 
     # Any surviving member is reason to keep the group, including one whose identity has since changed.
     detections = {r["id"] for r in face_batch.found.records}
     present = {str(r.get("cluster")) for r in face_batch.matched.records if r.get("detection") in detections}
+    present |= {f"Face {gid}" for gid in _moved_into(detections)}
     return [
         row
         for row in rows
@@ -453,6 +456,29 @@ def _hide_resolved_face_groups(rows: list[dict[str, Any]], face_batch: FaceBatch
     return [row for row in rows if f"Face {row['id']}" not in resolved]
 
 
+def _moved_into(detections: set[Any]) -> set[int]:
+    """The face groups that hold a recorded sighting the owner moved into them (vision/face_rejects.py): the
+    sighting's own record still names the group it left, so a raw read doesn't find these."""
+    from liberational.vision import face_rejects
+
+    return {gid for shot, gid in face_rejects.moved().items() if shot in detections}
+
+
+def _without_blocked(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The rows whose face isn't one the owner blocked (people/face_hidden.py): every group's face against every
+    block in one product, and nothing read at all while nothing is blocked."""
+    from liberational.people import face_hidden
+
+    if not rows or not face_hidden.blocks(context.STATE):
+        return rows
+    faces = people_list._faces_mod()
+    ids, vecs, counts, _, sums = faces._unk_load_sums()
+    walled = face_hidden.blocked_groups(
+        context.STATE, [int(i) for i in ids], faces._representatives(vecs, counts, sums)
+    )
+    return [r for r in rows if int(r["id"]) not in walled]
+
+
 NEW_GROUP_GRACE_S = 600.0  # a group a face started or joined this recently is kept while its sightings are written
 
 
@@ -473,6 +499,7 @@ def _drop_sourceless_face_groups(
         found = re.fullmatch(r"Face (\d+)", str(r.get("cluster")))
         if found and r.get("detection") in detections:
             present.add(aliases.get(int(found[1]), int(found[1])))
+    present |= _moved_into(detections)
     stamped = faces.unknown_last_seen()
     candidates = [
         r
@@ -523,6 +550,11 @@ def _unknown_groups() -> tuple[int, dict[str, Any]]:
         LOG.exception(f"who's this: {logs.reason(ex)}")  # a 500 is an error, with its traceback
         return 500, {"error": "Could not read the faces waiting for a name."}
     rows = [r for r in rows if not _certain(r)]
+    try:
+        rows = _without_blocked(rows)
+    except Exception as ex:
+        LOG.exception(f"who's this: {logs.reason(ex)}")
+        return 500, {"error": "Could not read the faces waiting for a name."}
     # Only groups seen in the last faces.unnamed_days, by the newer of when a face last started or joined it
     # and its newest recorded sighting: the store keeps up to UNK_MAX groups however long ago they were seen. A group
     # neither dates hasn't been seen since the store began dating them, so it's older than the window. Older groups

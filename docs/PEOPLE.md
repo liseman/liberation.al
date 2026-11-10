@@ -15,6 +15,8 @@ It holds:
 - identity assertions and the identity worker's proposals (`identity.record`);
 - voice references and negatives (`voice.reference`, `voice.not`);
 - pet profiles, sighting labels, and photos;
+- what the owner ignored and blocked while naming: ignored face pictures (`face.ignore`), blocked faces
+  (`face.block`), and blocked pet sightings (`pet.block`), with "not this person" and "not this pet" marks;
 - drawn zones, activity names, ratings, and the owner's activity list;
 - device links and locations;
 - remembered objects and their crops;
@@ -76,6 +78,14 @@ see-actions names tracks from the gallery (`vision/faces.py`, `see/faces.py`, `s
 - A look must be readable (nose confidence and embedding norm) to count. A side or back view can support a track's
   name but never starts a group or is learned.
 - An unnamed group forms after three looks that match no one. People lists it for naming for `faces.unnamed_days`.
+- On Who's this?, "Not <name>" keeps the group and never guesses that person for it again (`people/face_nots.py`).
+  "Ignore" hides the selected pictures; new pictures of the same face are still asked about. "Block" also keeps the
+  mean face of the selected pictures, and a group whose face is at least 0.70 like a blocked one is not listed
+  (`people/face_hidden.py`; 0.70 is `FOLD_SIM`, the similarity at which two unnamed groups are one person). Pictures
+  deselected before an answer move to a new group of their own (`vision/face_rejects.py`).
+- For pets, "Ignore" is the `ignored` label on a sighting, and "Block" keeps the sighting's embedding: a waiting
+  sighting at least 0.75 like a blocked one of its species is not listed (`people/pet_recognition.py` `BLOCK_SIM`,
+  0.10 above the grouping threshold). A block hides only what waits for a name; a named pet is still recognized.
 - `pack-faces check` runs a held-out check over the owner's tags every 10 minutes and writes `faces/check.json`.
   While its status is `off`, nobody is named by appearance.
 - Attaching a photo with exactly one face to a person adds that face as an owner row. Group photos, audio, and video

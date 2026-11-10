@@ -1278,6 +1278,29 @@ def recenter(cid: int, kept: np.ndarray, removed: int) -> bool:
     return True
 
 
+@_edits_unknown
+def new_group(members: np.ndarray) -> int | None:
+    """Start an unnamed group from shots the owner left out of an answer (Who's this?): its face is the mean of
+    `members` (their unit embeddings, N x 512), and it's held, so it's never folded or evicted. It counts at least
+    two sightings, since People lists a group from its second one and the owner has already looked at this one. Its
+    number, or None with no members."""
+    kept = np.asarray(members, np.float32).reshape(-1, 512)
+    if not len(kept):
+        return None
+    ids, vecs, counts_, nxt, sums = _unk_load_sums()
+    gid = int(nxt)
+    _unk_save(
+        [*ids, gid],
+        np.vstack([vecs, _unit(kept.mean(axis=0))[None]]),
+        [*counts_, max(2, len(kept))],
+        gid + 1,
+        np.vstack([sums, kept.sum(axis=0)[None]]),
+        last_seen={gid: time.time()},
+        held=[gid],
+    )
+    return gid
+
+
 def counts() -> dict[str, int]:
     """{name: face rows kept} for every tagged person."""
     out: dict[str, int] = {}
