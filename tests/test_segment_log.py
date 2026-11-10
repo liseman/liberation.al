@@ -1,6 +1,7 @@
 """The segment streams (src/liberational/segment_log.py): records survive the typed columns, and the store keeps them
 where a checkpoint said."""
 
+import dataclasses
 import json
 import math
 import threading
@@ -892,3 +893,35 @@ def test_a_row_of_no_length_joins_nothing_unless_instants_are_kept(store):
         (T, T + 3),
         (T + 9, T + 9),
     ]
+
+
+def test_containing_builds_a_record_only_for_the_rows_whose_text_holds_a_value(store, monkeypatch):
+    spec = S.STREAMS[S.BLE_SIGHTINGS]
+    rows = [
+        {"id": S.new_id(), "start": T + n, "end": T + n + 5, "identifier": name, "local_name": 'a "quoted" name'}
+        for n, name in enumerate(["AA:01", "BB:02", "AA:01"])
+    ]
+    writers = S.Writers(store)
+    writers.append(S.BLE_SIGHTINGS, "ble", rows)
+    writers.close()
+    built = []
+    counting = dataclasses.replace(spec, to_record=lambda row, cam: built.append(row["id"]) or spec.to_record(row, cam))
+    monkeypatch.setitem(S.STREAMS, S.BLE_SIGHTINGS, counting)
+    log = S.Log(store)
+    got = log.containing(S.BLE_SIGHTINGS, T, T + 100, ["AA:01"])
+    assert [(r["start"], r["identifier"]) for r in got] == [(T, "AA:01"), (T + 2, "AA:01")]
+    assert built == [rows[0]["id"], rows[2]["id"]], "the other row was never parsed"
+    assert len(log.containing(S.BLE_SIGHTINGS, T, T + 100, [S.json_text('a "quoted" name')])) == 3
+    assert log.containing(S.BLE_SIGHTINGS, T, T + 100, ["CC:03"]) == []
+
+
+def test_covered_counts_only_the_rows_where_keeps(store):
+    writers = S.Writers(store)
+    for a, b, kind in ((T, T + 10, "person"), (T + 10, T + 20, "animal"), (T + 30, T + 40, "animal")):
+        row = {"id": S.new_id(), "ts_start": a, "ts_end": b, "subject_kind": kind, "definition": "d", "zones": ["z"]}
+        writers.append(S.ZONE_COVERAGE, "cam0", [{**row, "frames": 10}])
+    writers.append(S.ZONE_COVERAGE, "cam1", [{**row, "subject_kind": "person", "frames": 10}])
+    writers.close()
+    animals = (("subject_kind",), lambda c: np.array([k == "animal" for k in c["subject_kind"]]))
+    got = S.Log(store).covered(S.ZONE_COVERAGE, T, T + 100, where=animals)
+    assert got == {"cam0": S.Covered([(T + 10, T + 20), (T + 30, T + 40)], frames=20)}, "cam1 looked for no animal"

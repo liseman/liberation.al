@@ -22,6 +22,7 @@ stay with presence()'s other readers (Ask).
 """
 
 import functools
+import json
 import math
 import multiprocessing
 import pathlib
@@ -35,7 +36,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from liberational import config as cfg
-from liberational import continuum_ready, logs, speech_log, vision_log
+from liberational import continuum_ready, logs, segment_log, speech_log
 from liberational.intervals import interval_groups
 from liberational.memory import presence_counts
 from liberational.people import registry, transcript_view
@@ -221,19 +222,30 @@ def unknown_faces(
 
 def objects(state: pathlib.Path, start: float, end: float) -> list[dict[str, Any]]:
     seen, groundings = {}, {}
+    # Only the captions' times and grounded labels, as columns: a day is tens of thousands of captions, and a record
+    # of each (its text, boxes, and model fields) cost more than every other chip together.
+    names = ("ts_ns", "grounded", "obj_labels", "obj_ts_ns")
     try:
-        rows = [
-            (r["ts"], r.get("objects")) for r in vision_log.at(state).captions(start, end) if start <= r["ts"] < end
-        ]
-    except OSError:  # the broker is unreachable
-        rows = []
-    for ts, items in rows:
-        for o in items if isinstance(items, list) else ():
-            label = object_label(o.get("label") if isinstance(o, dict) else o)
+        cams = segment_log.at(state).table(segment_log.CAPTIONS, start, end, names)
+    except OSError:  # the store can't be read
+        cams = {}
+    rows = sorted(
+        (segment_log.secs(ts), labels, stamps)
+        for c in cams.values()
+        for ts, grounded, labels, stamps in zip(
+            c["ts_ns"].tolist(), c["grounded"].tolist(), c["obj_labels"], c["obj_ts_ns"]
+        )
+        if grounded and labels != "[]"
+    )
+    for ts, labels, stamps in rows:
+        if not start <= ts < end:
+            continue
+        for raw in json.loads(labels):
+            label = object_label(raw)
             if not label:
                 continue
             seen.setdefault(label, []).append((ts, ts + OBJECT_PAD))
-            groundings.setdefault(label, set()).add(o.get("ts", ts) if isinstance(o, dict) else ts)
+            groundings.setdefault(label, set()).add(segment_log.secs(int(stamps[0])) if len(stamps) else ts)
     return [
         _chip("object", label, merge(v, cfg.nonnegative_seconds("dashboard.object_gap_s")))
         for label, v in seen.items()
