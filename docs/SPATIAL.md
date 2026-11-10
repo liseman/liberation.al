@@ -145,8 +145,26 @@ foot points are placed on the map's floor in metres, through the same geometry a
 needs a pose for each moment (#7), so its foot points stay unplaced until then. While a place has no map, or a camera
 has no pose, readers say that and show no position.
 
-**The owner's plan** (#261) is kept as taught state. Lining a learned map up with it comes after the map exists: until
-then the 3D view and positions are in the map's own frame, and the plan is drawn on its own.
+**The owner's plan** (#261) is kept as taught state, and a learned map is lined up with it
+(`spatial/plan_lineup.py`): a turn, a shift, and a scale on the floor, written as the `plan_transform` of a revision
+with no map of its own, with the owner's plan saved again, unchanged, as drawn in that revision's frame. Learned
+revisions carry the transform over, so the 3D view, the plan, and the positions share one frame from then on.
+
+- *Evidence.* Two or more fixed cameras the plan has a measured spot for (`x-camera`) give the line-up outright: each
+  camera registered in the map must land on its spot. Otherwise the map's wall band is fitted to the plan's walls,
+  and a single measured spot rules out the fits that put its camera elsewhere.
+- *Found once.* A wall fit is kept only when the map lies on at least 30% of the plan's wall length, scores 1.15
+  times better than the best different fit (one square room fits its plan four ways), and then sits on the walls
+  (a median of 10 cm from a wall's face). Until then the place is unaligned and its status says why (no map, no
+  floor, too little of the plan, more than one fit, or a poor fit): the 3D view and positions stay in the map's own
+  frame, and the plan is drawn on its own. A fit is tried again only after the map's walls grew by a fifth.
+- *Checked as it grows.* Each later map is measured on the plan through the transform it has, with no search. A map
+  that left its plan is fitted once more; when that finds nothing the line-up stays and is flagged as drifted.
+
+`plan_lineup.advance(state)` does all of it, is called at the end of every map step, and costs one small read when
+nothing changed; `plan_lineup.status(state, place)` is what a reader says. The made-up maps in its tests (noise of a
+few centimetres, a scale 8% to 17% off) line up within a centimetre or two at the rooms' corners, in under 4 s for a
+whole home on the Linux machine.
 
 ## Model runtimes
 

@@ -570,3 +570,19 @@ def test_revisions_share_a_plan_frame_by_plan_file_or_without_one_by_map_frame_a
     assert not places.same_plan_frame(unplanned, new_map), "a new map is a new frame"
     assert not places.same_plan_frame(drawn, unplanned), "one has a plan file, the other none"
     assert places.plan_frame(unplanned) == places.floor_frame(floor)
+
+
+def test_revisions_of_one_map_frame_lined_up_by_one_transform_share_a_plan_frame_whatever_their_floor(tmp_path):
+    floor, to_plan = (0.0, 0.0, 1.0, 0.0), (2.0, 0, 0, 1.0, 0, 2.0, 0, 0, 0, 0, 2.0, 0)
+    learned = first(tmp_path, map_bytes=b"m", map_format="ply", floor=floor)
+    lined = places.revise(tmp_path, learned.place, producer="t", plan_transform=to_plan, now=T + 1)
+    grown = places.revise(  # the same map grown, its floor found again, the line-up carried over
+        tmp_path, learned.place, producer="t", map_bytes=b"n", map_format="ply", floor=(0.0, 0.01, 1.0, 0.02),
+        plan_transform=to_plan, frame=learned.frame, now=T + 2,
+    )  # fmt: skip
+    assert places.same_plan_frame(lined, grown)
+    assert not places.same_plan_frame(learned, lined), "before the line-up the plan frame was the floor's own"
+    elsewhere = places.revise(
+        tmp_path, learned.place, producer="t", map_bytes=b"o", map_format="ply", floor=floor, plan_transform=to_plan
+    )
+    assert not places.same_plan_frame(lined, elsewhere), "a new map frame is a new plan frame, equal numbers or not"

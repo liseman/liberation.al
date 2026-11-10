@@ -756,6 +756,23 @@ def summary(state_dir: Path) -> dict[str, Any]:
     }
 
 
+def line_up(state_dir: Path) -> None:
+    """Find or check each place's line-up with its owner's plan (spatial/plan_lineup.py), now that a step may have
+    grown its map. It costs one small read for a place that didn't change, and a failure is logged, not raised: the
+    step itself is done."""
+    from liberational.spatial import plan_lineup
+
+    try:
+        found = plan_lineup.advance(state_dir)
+    except (OSError, ValueError) as error:
+        LOG.warning("couldn't line the maps up with their plans: %s", error)
+        return
+    for place, status in found.items():
+        LOG.info(
+            "plan line-up of %s: %s%s", place, status["state"], f" ({status['reason']})" if status["reason"] else ""
+        )
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     """`pack-surroundings-map`: one step of refining the places' maps from the frames kept for them. Needs CUDA,
     MASt3R's runtime (`mise run mast3r`), and gsplat's with Depth Anything 3 (`mise run gsplat`)."""
@@ -774,6 +791,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         LOG.info("no kept frame is waiting for a place")
     else:
         LOG.info("step: %s", json.dumps({k: v for k, v in did.items() if k != "places"}))
+    line_up(cfg.path("paths.state"))
 
 
 if __name__ == "__main__":

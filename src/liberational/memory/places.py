@@ -901,14 +901,20 @@ def restore_plan(state: Path, place: str, record: str, now: float | None = None)
 
 def same_plan_frame(a: Revision, b: Revision) -> bool:
     """Whether two revisions of a place draw their plans in one frame: the same plan file, or, for revisions with no
-    plan file, the same map frame (`Revision.frame`), floor, and plan transform, whose plan frame is their floor's
-    (`floor_frame`). An owner plan drawn in a revision with no plan file of its
-    own (an imported one) holds for every revision in its frame this way."""
+    plan file, the same map frame (`Revision.frame`) and the same plan frame in it: the same plan transform when
+    either has one (a learned map lined up with the owner's plan, spatial/plan_lineup.py, whose floor may be found
+    again as the map grows), else the same floor, whose own frame is the plan's (`floor_frame`). An owner plan drawn
+    in a revision with no plan file of its own (an imported one, or one a learned map was lined up with) holds for
+    every revision in its frame this way."""
     if a.id == b.id:
         return True
     if a.plan is not None or b.plan is not None:
         return a.plan == b.plan
-    return a.frame is not None and a.frame == b.frame and a.floor == b.floor and a.plan_transform == b.plan_transform
+    if a.frame is None or a.frame != b.frame:
+        return False
+    if a.plan_transform is not None or b.plan_transform is not None:
+        return a.plan_transform == b.plan_transform
+    return a.floor == b.floor
 
 
 def plan_frame(rev: Revision) -> tuple[float, ...] | None:
