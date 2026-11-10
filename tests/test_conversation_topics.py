@@ -1,4 +1,3 @@
-import io
 import json
 
 import pytest
@@ -93,40 +92,30 @@ def test_named_voice_alias_is_resolved_before_ranking(tmp_path):
     assert r["coverage"]["topics"]["participant_utterances"]["Dana"] == 1
 
 
-def test_conversation_llm_posts_to_configured_ollama_url(monkeypatch):
-    from liberational.memory import conversation_summary
-
-    seen: list[str] = []
-
-    def urlopen(req, **kwargs):
-        seen.append(req.full_url)
-        content = {"kind": "CONVERSATION", "topic": "Gardening", "summary": "They discussed tomatoes."}
-        return io.BytesIO(json.dumps({"message": {"content": json.dumps(content)}}).encode())
-
-    monkeypatch.setattr(conversation_summary.urllib.request, "urlopen", urlopen)
+def test_conversation_llm_posts_to_configured_ollama_url(model_server):
+    model_server.says(json.dumps({"kind": "CONVERSATION", "topic": "Gardening", "summary": "They discussed tomatoes."}))
     with cfg.override({"ollama": {"url": "http://127.0.0.1:22434"}}):
         assert conversation_llm("Alice: tomatoes", background=False) == {
             "kind": "CONVERSATION",
             "topic": "Gardening",
             "summary": "They discussed tomatoes.",
         }
-    assert seen == ["http://127.0.0.1:22434/api/chat"]
+    assert [sent.url for sent in model_server.sent] == ["http://127.0.0.1:22434/api/chat"]
 
 
 @pytest.mark.parametrize("background", [True, False])
-def test_conversation_model_yields_only_for_background_work(monkeypatch, background):
+def test_conversation_model_yields_only_for_background_work(monkeypatch, model_server, background):
     from liberational import voice_turn
-    from liberational.memory import conversation_summary
 
     events = []
     monkeypatch.setattr(voice_turn, "wait_quiet", lambda: events.append("quiet"))
 
-    def urlopen(*args, **kwargs):
+    def infer(sent):
         events.append("inference")
         content = {"kind": "CONVERSATION", "topic": "Gardening", "summary": "They discussed tomatoes."}
-        return io.BytesIO(json.dumps({"message": {"content": json.dumps(content)}}).encode())
+        return {"message": {"content": json.dumps(content)}}
 
-    monkeypatch.setattr(conversation_summary.urllib.request, "urlopen", urlopen)
+    model_server.reply = infer
     assert conversation_llm("Alice: tomatoes", background=background) == {
         "kind": "CONVERSATION",
         "topic": "Gardening",
@@ -135,7 +124,7 @@ def test_conversation_model_yields_only_for_background_work(monkeypatch, backgro
     assert events == (["quiet", "inference"] if background else ["inference"])
 
 
-def test_spoken_conversation_question_does_not_wait_for_its_own_turn(tmp_path, monkeypatch):
+def test_spoken_conversation_question_does_not_wait_for_its_own_turn(tmp_path, monkeypatch, model_server):
     from liberational import voice_turn
     from liberational.memory import conversation_summary
 
@@ -154,11 +143,7 @@ def test_spoken_conversation_question_does_not_wait_for_its_own_turn(tmp_path, m
     content = {"kind": "CONVERSATION", "topic": "Gardening", "summary": "They discussed watering tomatoes."}
     monkeypatch.setattr(voice_turn, "wait_quiet", wait)
     monkeypatch.setattr(conversation_summary, "_llm", conversation_llm)
-    monkeypatch.setattr(
-        conversation_summary.urllib.request,
-        "urlopen",
-        lambda *a, **k: io.BytesIO(json.dumps({"message": {"content": json.dumps(content)}}).encode()),
-    )
+    model_server.says(json.dumps(content))
     result = h._conversation_summary(tmp_path, {"participants": ["Alice", "Dana"], "start": 0, "end": 100})
     assert result is not None
     assert "Gardening" in result[0]

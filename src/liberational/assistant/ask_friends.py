@@ -1,7 +1,6 @@
 """Configured local/cloud advisory panel. Never executes model output or logs input."""
 
 import argparse
-import contextlib
 import fcntl
 import json
 import os
@@ -18,7 +17,7 @@ from collections.abc import Container, Iterable
 from typing import Any, NoReturn
 
 from liberational import config as cfg
-from liberational import ollama_health
+from liberational import ollama
 
 TIMEOUT = 90
 MAX_TOKENS = 2048
@@ -52,6 +51,8 @@ def request(base: str, path: str, payload: Any = None, timeout: float = TIMEOUT)
     # No environment proxies, remote endpoints, redirects or authentication.
     if base not in (cfg.ollama_url(), cfg.local_url("vlm")):
         raise ValueError("non-local endpoint")
+    if base == cfg.ollama_url() and isinstance(payload, dict):
+        return ollama.post(path, payload, timeout=timeout)
 
     class NoRedirect(urllib.request.HTTPRedirectHandler):
         def redirect_request(self, *args: object, **kwargs: object) -> NoReturn:
@@ -60,9 +61,7 @@ def request(base: str, path: str, payload: Any = None, timeout: float = TIMEOUT)
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
     data = None if payload is None else json.dumps(payload).encode()
     req = urllib.request.Request(base + path, data=data, headers={"Content-Type": "application/json"})
-    model = str((payload or {}).get("model", "")) if isinstance(payload, dict) else ""
-    health = ollama_health.call(model) if base == cfg.ollama_url() else contextlib.nullcontext()
-    with health, opener.open(req, timeout=timeout) as response:
+    with opener.open(req, timeout=timeout) as response:
         raw = response.read(2_000_001)
         if len(raw) > 2_000_000:
             raise ValueError("oversized response")

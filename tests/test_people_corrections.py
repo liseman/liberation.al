@@ -17,6 +17,8 @@ from liberational.dashboard import (
     context,
     inbox_state,
     known_voices,
+    people_cards,
+    people_corrections,
     people_list,
     people_reads,
     people_writes,
@@ -104,7 +106,7 @@ def state(tmp_path, monkeypatch, pack, ran, vision):  # noqa: F811
 
 
 def card(name):
-    out = people_reads.person_card(name)
+    out = people_cards.person_card(name)
     assert out is not None
     return out
 
@@ -155,7 +157,7 @@ def test_the_unnamed_list_has_faces_voices_and_clips(state):
 
 
 def test_assigning_picks_names_them_all_and_one_undo_puts_them_back(state):
-    code, out = people_writes.assign_to(
+    code, out = people_corrections.assign_to(
         {"name": "Sam", "faces": [7], "voices": [2], "videos": [f"cam1@{DAY + 2000:.2f}"]}
     )
     assert code == 200, out
@@ -166,13 +168,13 @@ def test_assigning_picks_names_them_all_and_one_undo_puts_them_back(state):
     assert known_voices._speakers()["speakers"][1]["label"] == "Sam"
     assert names_of(state, 6, 7) == ["Sam", "Sam"]
 
-    code, back = people_writes.undo_people({"undo": out["undo"]})
+    code, back = people_corrections.undo_people({"undo": out["undo"]})
     assert code == 200 and back["ok"], back
     assert face_db.unknown_groups() == [{"id": 7, "count": 2}]
     assert [str(n) for n in face_db.load_db()[0]] == ["Kara", "Bob"]
     assert known_voices._speakers()["speakers"][1]["label"] == "Speaker 2"
     assert names_of(state, 6, 7) == [None, None]
-    assert people_writes.undo_people({"undo": out["undo"]})[0] == 409
+    assert people_corrections.undo_people({"undo": out["undo"]})[0] == 409
 
 
 @pytest.mark.parametrize("kind, ident", [("face", 7), ("voice", 2)])
@@ -182,10 +184,10 @@ def test_claim_undo_returns_the_group_to_the_unnamed_list(state, kind, ident):
     assert out["undo"]
     assert ident not in [item["id"] for item in people_reads.people_unnamed()[kind + "s"]]
 
-    code, back = people_writes.undo_people({"undo": out["undo"]})
+    code, back = people_corrections.undo_people({"undo": out["undo"]})
     assert code == 200 and back["ok"], back
     assert ident in [item["id"] for item in people_reads.people_unnamed()[kind + "s"]]
-    assert people_writes.undo_people({"undo": out["undo"]})[0] == 409
+    assert people_corrections.undo_people({"undo": out["undo"]})[0] == 409
 
 
 def test_claim_undo_preserves_an_existing_persons_other_voice(state):
@@ -194,7 +196,7 @@ def test_claim_undo_preserves_an_existing_persons_other_voice(state):
     assert code == 200, out
     assert [voice["label"] for voice in known_voices._speakers()["speakers"]] == ["Kara", "Kara"]
 
-    code, back = people_writes.undo_people({"undo": out["undo"]})
+    code, back = people_corrections.undo_people({"undo": out["undo"]})
     assert code == 200 and back["ok"], back
     assert [voice["label"] for voice in known_voices._speakers()["speakers"]] == ["Kara", "Speaker 2"]
     assert registry.at(state).person_of(registry.voiceprint(1)).person == before
@@ -215,7 +217,7 @@ def test_claim_undo_restores_face_gallery_and_the_unknown_photo(state):
     code, out = people_writes.claim_identity("face", 7, "Kara", control=True)
     assert code == 200, out
     assert not photo_files._unknown_photo(7).exists()
-    code, back = people_writes.undo_people({"undo": out["undo"]})
+    code, back = people_corrections.undo_people({"undo": out["undo"]})
     assert code == 200 and back["ok"], back
     assert face_db.unknown_groups() == [{"id": 7, "count": 2}]
     names, embeddings = face_db.load_db()
@@ -231,7 +233,7 @@ def test_claim_undo_restores_face_gallery_and_the_unknown_photo(state):
 def test_claim_undo_keeps_every_previously_taught_photo_at_the_photo_limit(state, selected):
     folder = photo_files._photo_dir("Kara")
     folder.mkdir(parents=True, exist_ok=True)
-    prior = {f"{1000000000000 + i}.jpg": f"taught {i}".encode() for i in range(people_writes.PHOTOS_PER_PERSON)}
+    prior = {f"{1000000000000 + i}.jpg": f"taught {i}".encode() for i in range(people_corrections.PHOTOS_PER_PERSON)}
     for name, data in prior.items():
         (folder / name).write_bytes(data)
     photo_files._unknown_photo(7).parent.mkdir(parents=True, exist_ok=True)
@@ -239,7 +241,7 @@ def test_claim_undo_keeps_every_previously_taught_photo_at_the_photo_limit(state
     code, out = people_writes._claim("face", 7, "Kara", True, b"selected crop" if selected else None)
     assert code == 200, out
 
-    code, back = people_writes.undo_people({"undo": out["undo"]})
+    code, back = people_corrections.undo_people({"undo": out["undo"]})
     assert code == 200 and back["ok"], back
     assert {photo.name: photo.read_bytes() for photo in folder.glob("*.jpg")} == prior
     assert photo_files._unknown_photo(7).read_bytes() == b"unknown crop"
@@ -253,7 +255,7 @@ def test_undoing_a_new_owner_voice_preserves_the_existing_owner_voice(state):
     assert registry.owner_voice(state, 1)
     assert registry.owner_voice(state, 2)
 
-    code, back = people_writes.undo_people({"undo": out["undo"]})
+    code, back = people_corrections.undo_people({"undo": out["undo"]})
     assert code == 200 and back["ok"], back
     assert registry.owner_voice(state, 1)
     assert not registry.owner_voice(state, 2)
@@ -276,19 +278,21 @@ def test_repeating_a_voice_claim_does_not_offer_to_undo_earlier_teaching(state):
 
 
 def test_what_cannot_be_assigned_is_listed_and_the_rest_stands(state):
-    code, out = people_writes.assign_to({"name": "Sam", "faces": [7, 99], "voices": [1], "videos": ["cam9@1.00"]})
+    code, out = people_corrections.assign_to({"name": "Sam", "faces": [7, 99], "voices": [1], "videos": ["cam9@1.00"]})
     assert code == 200
     assert out["assigned"] == {"faces": 1, "voices": 0, "videos": 0}
     assert [(f["kind"], f["id"]) for f in out["failed"]] == [("face", 99), ("voice", 1), ("video", "cam9@1.00")]
     assert "Kara's already" in out["failed"][1]["error"]
-    code, out = people_writes.assign_to({"name": "Sam", "faces": [99]})
+    code, out = people_corrections.assign_to({"name": "Sam", "faces": [99]})
     assert (code, out["ok"]) == (400, False)
-    assert people_writes.assign_to({"name": "Sam"})[0] == 400
-    assert people_writes.assign_to({"name": "4chan", "faces": [7]})[0] == 400
+    assert people_corrections.assign_to({"name": "Sam"})[0] == 400
+    assert people_corrections.assign_to({"name": "4chan", "faces": [7]})[0] == 400
 
 
 def test_assigning_to_several_people_at_once_is_one_undo(state):
-    code, out = people_writes.assign_many({"items": [{"name": "Sam", "faces": [7]}, {"name": "Dana", "voices": [2]}]})
+    code, out = people_corrections.assign_many(
+        {"items": [{"name": "Sam", "faces": [7]}, {"name": "Dana", "voices": [2]}]}
+    )
     assert code == 200, out
     assert out["assigned"] == [
         {"name": "Sam", "faces": 1, "voices": 0, "videos": 0},
@@ -299,15 +303,15 @@ def test_assigning_to_several_people_at_once_is_one_undo(state):
     assert face_db.unknown_groups() == []
     assert known_voices._speakers()["speakers"][1]["label"] == "Dana"
 
-    code, back = people_writes.undo_people({"undo": out["undo"]})
+    code, back = people_corrections.undo_people({"undo": out["undo"]})
     assert code == 200 and back["ok"], back
     assert face_db.unknown_groups() == [{"id": 7, "count": 2}]
     assert known_voices._speakers()["speakers"][1]["label"] == "Speaker 2"
-    assert people_writes.undo_people({"undo": out["undo"]})[0] == 409
+    assert people_corrections.undo_people({"undo": out["undo"]})[0] == 409
 
 
 def test_assigning_to_several_lists_what_failed_by_name_and_the_rest_stands(state):
-    code, out = people_writes.assign_many(
+    code, out = people_corrections.assign_many(
         {"items": [{"name": "Sam", "faces": [7, 99]}, {"name": "Dana", "voices": [1]}, {"name": "4chan", "faces": [7]}]}
     )
     assert code == 200, out
@@ -330,25 +334,27 @@ def test_assigning_to_several_lists_what_failed_by_name_and_the_rest_stands(stat
     ],
 )
 def test_assigning_to_several_with_nothing_to_give_is_a_400(state, body):
-    assert people_writes.assign_many(body)[0] == 400
+    assert people_corrections.assign_many(body)[0] == 400
 
 
 # ---- the card's menu ----
 def test_not_kara_moves_a_shot_to_someone_new_and_undo_brings_it_back(state):
-    code, out = people_writes.correct_card({"name": "kara", "kind": "shot", "id": S[1], "action": "move", "to": "Luca"})
+    code, out = people_corrections.correct_card(
+        {"name": "kara", "kind": "shot", "id": S[1], "action": "move", "to": "Luca"}
+    )
     assert code == 200, out
     assert out["to"] == "Luca"
     assert out["card"]["photo"]["id"] == S[2]  # the next best fills in
     assert S[1] not in kara_shots(out["card"])
     assert card("Luca")["photo"]["id"] == S[1]
-    code, back = people_writes.undo_people({"undo": out["undo"]})
+    code, back = people_corrections.undo_people({"undo": out["undo"]})
     assert code == 200 and back["ok"], back
     assert back["card"]["photo"]["id"] == S[1]
     assert [str(n) for n in face_db.load_db()[0]] == ["Kara", "Bob"]  # no face row was added
 
 
 def test_not_sure_just_removes_it_from_kara(state):
-    code, out = people_writes.correct_card({"name": "Kara", "kind": "shot", "id": S[1], "action": "remove"})
+    code, out = people_corrections.correct_card({"name": "Kara", "kind": "shot", "id": S[1], "action": "remove"})
     assert code == 200
     assert out["card"]["photo"]["id"] == S[2]
     assert "to" not in out
@@ -356,7 +362,7 @@ def test_not_sure_just_removes_it_from_kara(state):
 
 
 def correct(**body):
-    code, out = people_writes.correct_card(body)
+    code, out = people_corrections.correct_card(body)
     assert code == 200, out
     return out
 
@@ -365,23 +371,25 @@ def test_use_as_main_photo_and_hide_from_the_card(state):
     out = correct(name="Kara", kind="shot", id=S[3], action="main")
     assert out["card"]["photo"]["id"] == S[3]
     assert people_list.people_roster()[0]["photo"] == f"/faces/shot/{S[3]}.jpg"  # the list shows the same face
-    people_writes.undo_people({"undo": out["undo"]})
+    people_corrections.undo_people({"undo": out["undo"]})
     assert card("Kara")["photo"]["id"] == S[1]
     assert correct(name="Kara", kind="shot", id=S[1], action="hide")["card"]["photo"]["id"] == S[2]
     out = correct(name="Kara", kind="voice", id=f"desk-mic@{DAY + 1:.3f}", action="hide")
     assert out["card"]["voices"] == []
-    people_writes.undo_people({"undo": out["undo"]})
+    people_corrections.undo_people({"undo": out["undo"]})
     assert [v["text"] for v in card("Kara")["voices"]] == ["Hi there."]
 
 
 def test_not_kara_on_a_video_moves_the_whole_visit(state):
     vid = card("Kara")["videos"][0]["id"]
     assert vid == f"cam0@{DAY:.2f}"
-    code, out = people_writes.correct_card({"name": "Kara", "kind": "video", "id": vid, "action": "move", "to": "Bob"})
+    code, out = people_corrections.correct_card(
+        {"name": "Kara", "kind": "video", "id": vid, "action": "move", "to": "Bob"}
+    )
     assert code == 200, out
     assert out["card"]["photo"] is None and out["card"]["shots"] == []
     assert sorted(s["id"] for s in card("Bob")["shots"]) == sorted([S[1], S[4]])  # S[2] and S[3] look like S[1]
-    people_writes.undo_people({"undo": out["undo"]})
+    people_corrections.undo_people({"undo": out["undo"]})
     assert card("Kara")["photo"]["id"] == S[1]
 
 
@@ -392,17 +400,19 @@ def test_not_kara_on_a_box_in_review_unnames_its_whole_track_and_undo_puts_it_ba
     out = correct(name="Kara", kind="track", id=f"cam0:12@{DAY + 101:.2f}", action="remove")
     assert [now()[i] for i in on_track] == [None, None, None]
     assert now()[other] == "Kara"
-    people_writes.undo_people({"undo": out["undo"]})
+    people_corrections.undo_people({"undo": out["undo"]})
     assert [now()[i] for i in [*on_track, other]] == ["Kara"] * 4
 
 
 def test_not_kara_on_a_voice_line_relabels_it(state):
     line = f"desk-mic@{DAY + 1:.3f}"
-    code, out = people_writes.correct_card({"name": "Kara", "kind": "voice", "id": line, "action": "move", "to": "Bob"})
+    code, out = people_corrections.correct_card(
+        {"name": "Kara", "kind": "voice", "id": line, "action": "move", "to": "Bob"}
+    )
     assert code == 200, out
     assert out["card"]["voices"] == []
     assert [v["line"] for v in card("Bob")["voices"]] == [line]
-    people_writes.undo_people({"undo": out["undo"]})
+    people_corrections.undo_people({"undo": out["undo"]})
     assert [v["line"] for v in card("Kara")["voices"]] == [line]
 
 
@@ -415,7 +425,7 @@ def test_not_kara_on_a_voice_line_keeps_it_as_her_negative_until_the_undo(state,
     from liberational.listen import voices
 
     key = f"desk-mic@{DAY + 1:.3f}"
-    line = people_writes._line_by_key(key)
+    line = people_corrections._line_by_key(key)
     assert line is not None
     prints = voices.Voiceprints(state / "voiceprints.json", lambda: 1)
     m = voices.VoiceMatcher(prints, voices.RegistryPeople(state), None, segments=segment_log.root(state))  # ty: ignore[invalid-argument-type]
@@ -423,16 +433,16 @@ def test_not_kara_on_a_voice_line_keeps_it_as_her_negative_until_the_undo(state,
     vector[0] = 1
     m.file(vector, 1, line["id"], int(line["ts_start"] * 1e9), int((line.get("ts_end") or line["ts_start"] + 2) * 1e9))
     m.close()
-    code, out = people_writes.correct_card({"name": "Kara", "kind": "voice", "id": key, **action})
+    code, out = people_corrections.correct_card({"name": "Kara", "kind": "voice", "id": key, **action})
     assert code == 200, out
     kara = str(registry.at(state).person_id("Kara"))
     assert [(n.person, n.key) for n in voices.confirmed_negatives(state)] == [(kara, f"utterance:{key}")]
-    people_writes.undo_people({"undo": out["undo"]})
+    people_corrections.undo_people({"undo": out["undo"]})
     assert voices.confirmed_negatives(state) == []
 
 
 def _speaker_of(key: str) -> str | None:
-    line = people_writes._line_by_key(key)
+    line = people_corrections._line_by_key(key)
     assert line is not None, key
     return transcript_lines._view().line(line).get("speaker")
 
@@ -447,11 +457,11 @@ def _speaker_of(key: str) -> str | None:
 def test_an_unmatched_voices_line_is_moved_or_removed_and_undone(state, action, after):
     key = registry.key_of({"ts_start": DAY + 3, "ts_end": DAY + 4, "speaker_id": 2})
     assert _speaker_of(key) == "Speaker 2"
-    code, out = people_writes.correct_card({"name": "Speaker 2", "kind": "voice", "id": key, **action})
+    code, out = people_corrections.correct_card({"name": "Speaker 2", "kind": "voice", "id": key, **action})
     assert code == 200, out
     assert out["card"] is None  # no person, so no card
     assert _speaker_of(key) == after
-    code, undone = people_writes.undo_people({"undo": out["undo"]})
+    code, undone = people_corrections.undo_people({"undo": out["undo"]})
     assert code == 200 and undone["ok"], undone
     assert undone["card"] is None
     assert _speaker_of(key) == "Speaker 2"
@@ -468,7 +478,7 @@ def test_an_unmatched_voices_line_is_moved_or_removed_and_undone(state, action, 
 def test_an_unmatched_voice_corrects_only_its_own_voice_lines(state, body):
     if body["kind"] == "shot":
         body = {**body, "id": S[body["id"]]}
-    code, out = people_writes.correct_card({"name": "Speaker 2", **body})
+    code, out = people_corrections.correct_card({"name": "Speaker 2", **body})
     assert code == 404, out
     assert _speaker_of(f"desk-mic@{DAY + 1:.3f}") == "Kara"
 
@@ -480,13 +490,13 @@ def test_voice_correction_and_undo_keep_the_exact_microphone_key(state):
     )
     first = f"desk-mic@{DAY + 1:.3f}"
     other = f"other-mic@{DAY + 1:.3f}"
-    code, result = people_writes.correct_card(
+    code, result = people_corrections.correct_card(
         {"name": "Kara", "kind": "voice", "id": first, "action": "move", "to": "Bob"}
     )
     assert code == 200, result
     assert [v["line"] for v in card("Bob")["voices"]] == [first]
     assert speaker_lines.speakers_refine("assign", {"line": other, "name": "Bob"})[0] == 200
-    code, undone = people_writes.undo_people({"undo": result["undo"]})
+    code, undone = people_corrections.undo_people({"undo": result["undo"]})
     assert code == 200 and undone["ok"], undone
     assert [v["line"] for v in card("Kara")["voices"]] == [first]
     assert [v["line"] for v in card("Bob")["voices"]] == [other]
@@ -512,7 +522,7 @@ def test_failed_undo_retries_only_failed_operations(state):
         return replace(src, dst)
 
     with patch.object(card_prefs.os, "replace", autospec=True, side_effect=cannot_restore_main):
-        code, failed = people_writes.undo_people({"undo": token})
+        code, failed = people_corrections.undo_people({"undo": token})
     assert (code, failed["ok"]) == (200, False)
     assert failed["errors"] == ["temporary write failure"]
     assert card_prefs.get(state, "Kara")["main"] == S[2]
@@ -520,12 +530,12 @@ def test_failed_undo_retries_only_failed_operations(state):
 
     # A new owner choice after the successful unhide must survive the retry.
     card_prefs.hide(state, "Kara", "shot", S[3])
-    code, retried = people_writes.undo_people({"undo": token})
+    code, retried = people_corrections.undo_people({"undo": token})
     assert (code, retried["ok"]) == (200, True)
     assert retried["errors"] == []
     assert card_prefs.get(state, "Kara")["main"] == S[1]
     assert card_prefs.get(state, "Kara")["hidden"]["shot"] == [S[3]]
-    assert people_writes.undo_people({"undo": token})[0] == 409
+    assert people_corrections.undo_people({"undo": token})[0] == 409
 
 
 @pytest.mark.parametrize(
@@ -551,11 +561,11 @@ def test_failed_undo_retries_only_failed_operations(state):
 def test_corrections_that_cant_be_made(state, body, code):
     if body["kind"] == "shot" and type(body["id"]) is int:
         body = {**body, "id": S[body["id"]]}  # the fixture's sighting by its number
-    assert people_writes.correct_card(body)[0] == code
+    assert people_corrections.correct_card(body)[0] == code
 
 
 def test_an_unknown_undo_token_is_a_404(state):
-    assert people_writes.undo_people({"undo": "nope"})[0] == 404
+    assert people_corrections.undo_people({"undo": "nope"})[0] == 404
 
 
 # ---- rename and delete carry the choices ----
@@ -602,16 +612,16 @@ def test_a_face_row_added_and_taken_back_restores_the_one_it_pushed_out(tmp_path
 
 
 def test_the_unnamed_list_is_not_a_person_named_unnamed(state):
-    assert people_writes.add_person("Unnamed") is None
+    assert people_corrections.add_person("Unnamed") is None
     assert card("Unnamed")["name"] == "Unnamed"
     assert set(json.loads(json.dumps(people_reads.people_unnamed()))) == {"faces", "voices", "videos"}
 
 
 # ---- from the local review ----
 def test_a_voice_for_someone_who_has_one_joins_it_and_its_undo_leaves_their_voice_named(state):
-    code, out = people_writes.assign_to({"name": "Kara", "voices": [2]})  # from any machine: nothing restarts
+    code, out = people_corrections.assign_to({"name": "Kara", "voices": [2]})  # from any machine: nothing restarts
     assert code == 200, out
-    code, back = people_writes.undo_people({"undo": out["undo"]})
+    code, back = people_corrections.undo_people({"undo": out["undo"]})
     assert (code, back["ok"]) == (200, False)
     assert "can't be undone" in back["errors"][0]
     assert "Kara" in [s["label"] for s in known_voices._speakers()["speakers"]]  # Kara keeps her voice
@@ -623,7 +633,7 @@ def test_undoing_a_video_move_puts_the_event_log_back(state):
     out = correct(name="Kara", kind="video", id=vid, action="move", to="Bob")
     assert reg.person_of(registry.detection(S[2])).person == reg.person_id("Bob")  # the owner's word, in the log
     assert names_of(state, 1, 2, 3) == ["Bob", "Bob", "Bob"]
-    code, back = people_writes.undo_people({"undo": out["undo"]})
+    code, back = people_corrections.undo_people({"undo": out["undo"]})
     assert (code, back["ok"]) == (200, True), back
     assert names_of(state, 1, 2, 3) == ["Kara", "Kara", "Kara"]
     assert reg.person_of(registry.detection(S[2])).person is None  # the face worker's match again
@@ -634,10 +644,10 @@ def test_undoing_a_face_group_puts_back_its_photo_and_the_row_it_pushed_out(stat
     face_db.save_db(["Kara"] * n, E[100 : 100 + n])
     photo_files._unknown_photo(7).parent.mkdir(parents=True, exist_ok=True)
     photo_files._unknown_photo(7).write_bytes(b"jpg")
-    code, out = people_writes.assign_to({"name": "Kara", "faces": [7]})
+    code, out = people_corrections.assign_to({"name": "Kara", "faces": [7]})
     assert code == 200, out
     assert not photo_files._unknown_photo(7).exists()  # the group's crop became Kara's photo
-    code, back = people_writes.undo_people({"undo": out["undo"]})
+    code, back = people_corrections.undo_people({"undo": out["undo"]})
     assert back["ok"], back
     names, embs = face_db.load_db()
     assert len(names) == n
@@ -647,14 +657,14 @@ def test_undoing_a_face_group_puts_back_its_photo_and_the_row_it_pushed_out(stat
 
 
 def test_an_item_that_fails_halfway_leaves_nothing_behind(state, monkeypatch):
-    rename = people_writes._rename_sightings
+    rename = people_corrections._rename_sightings
 
     def broken(ids, name, ops):
         rename(ids, name, ops)  # the sightings are named, then the next write fails
         raise RuntimeError("disk full")
 
-    monkeypatch.setattr(people_writes, "_rename_sightings", broken)
-    code, out = people_writes.assign_to({"name": "Sam", "videos": [f"cam1@{DAY + 2000:.2f}"]})
+    monkeypatch.setattr(people_corrections, "_rename_sightings", broken)
+    code, out = people_corrections.assign_to({"name": "Sam", "videos": [f"cam1@{DAY + 2000:.2f}"]})
     assert code == 400
     assert out["failed"][0]["error"] == "disk full"
     assert names_of(state, 6, 7) == [None, None]  # the clip's sightings were put back
@@ -669,7 +679,7 @@ def test_two_strangers_in_one_stretch_are_two_clips(state, vision):
 
 def test_a_move_that_finds_nothing_adds_nobody(state):
     assert (
-        people_writes.correct_card({"name": "Kara", "kind": "shot", "id": S[4], "action": "move", "to": "Zed"})[0]
+        people_corrections.correct_card({"name": "Kara", "kind": "shot", "id": S[4], "action": "move", "to": "Zed"})[0]
         == 404
     )
     assert "Zed" not in [p["name"] for p in people_list.people_roster()]
@@ -770,7 +780,7 @@ def test_naming_a_voice_teaches_listen_its_line_and_the_undo_takes_it_back(state
     assert decision.winner is not None and decision.winner.basis == Basis.OWNER_TAG
     assert decision.person == registry.at(state).person_id("Sam")
 
-    code, back = people_writes.undo_people({"undo": out["undo"]})
+    code, back = people_corrections.undo_people({"undo": out["undo"]})
     assert code == 200 and back["ok"], back
     assert registry.at(state).person_of(line).person is None
 

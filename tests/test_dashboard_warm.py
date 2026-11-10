@@ -23,6 +23,7 @@ from liberational.dashboard import (
     people_list,
     people_reads,
     photo_files,
+    roster_read,
     server,
     unnamed_groups,
     voice_clones,
@@ -77,7 +78,7 @@ def test_ready_server_starts_one_warm_up_without_blocking_requests(monkeypatch):
 def warm_sources(monkeypatch):
     calls, originals = [], {}
     original_wait = voice_turn.wait_quiet
-    monkeypatch.setattr(photo_files, "_low_priority", lambda priority: calls.append(("priority", priority)))
+    monkeypatch.setattr(context, "low_priority", lambda priority: calls.append(("priority", priority)))
     monkeypatch.setattr(
         voice_turn, "wait_quiet", create_autospec(voice_turn.wait_quiet, side_effect=lambda: calls.append("gate"))
     )
@@ -85,7 +86,7 @@ def warm_sources(monkeypatch):
         (live_status, "mic_status", "microphones", {"devices": {}}),
         (live_status, "scene_entries", "scene", []),
         (live_status, "camera_status", "cameras", {"cameras": {}}),
-        (people_reads, "people_view", "roster", {"people": []}),
+        (roster_read, "people_view", "roster", {"people": []}),
         (voice_clones, "clones_list", "clones", {"clones": [], "error": None}),
     ):
         fn = getattr(module, attr)
@@ -135,7 +136,7 @@ def test_warm_up_admits_each_stage_at_low_priority_and_leaves_faces_last(warm_so
 
 def test_warm_up_logs_one_failure_and_still_warms_the_other_caches(monkeypatch, warm_sources):
     monkeypatch.setattr(
-        people_reads,
+        roster_read,
         "people_view",
         create_autospec(warm_sources.originals["people_view"], side_effect=RuntimeError("broker not ready")),
     )
@@ -212,7 +213,7 @@ def test_group_retry_can_publish_before_the_warm_up_reports_done(monkeypatch, wa
 
 def test_request_joins_the_in_flight_people_warm_up(monkeypatch):
     computing, release, joining = threading.Event(), threading.Event(), threading.Event()
-    reads = people_reads._PeopleReads()
+    reads = roster_read._PeopleReads()
     calls = []
 
     def read():
@@ -221,12 +222,12 @@ def test_request_joins_the_in_flight_people_warm_up(monkeypatch):
         assert release.wait(5)
         return {"people": [{"name": "Alice"}]}
 
-    monkeypatch.setattr(people_reads, "_PEOPLE_READS", reads)
-    monkeypatch.setattr(people_reads, "_people_view", read)
+    monkeypatch.setattr(roster_read, "_PEOPLE_READS", reads)
+    monkeypatch.setattr(roster_read, "_people_view", read)
     monkeypatch.setattr(unnamed_groups, "_voices_key", lambda: 0)
     monkeypatch.setattr(unnamed_groups, "_faces_owner_key", lambda **_: 0)
     with ThreadPoolExecutor(max_workers=2) as pool:
-        warm = pool.submit(people_reads.people_view)
+        warm = pool.submit(roster_read.people_view)
         try:
             assert computing.wait(5)
             with reads.lock:
@@ -238,7 +239,7 @@ def test_request_joins_the_in_flight_people_warm_up(monkeypatch):
                 return result(timeout)
 
             monkeypatch.setattr(pending, "result", create_autospec(result, side_effect=waiting))
-            request = pool.submit(people_reads.people_view)
+            request = pool.submit(roster_read.people_view)
             assert joining.wait(5)
             assert not request.done()
         finally:
@@ -246,7 +247,7 @@ def test_request_joins_the_in_flight_people_warm_up(monkeypatch):
         assert warm.result(timeout=5) == {"people": [{"name": "Alice"}]}
         assert request.result(timeout=5) == {"people": [{"name": "Alice"}]}
     assert calls == ["read"]
-    assert people_reads.people_view() == {"people": [{"name": "Alice"}]}
+    assert roster_read.people_view() == {"people": [{"name": "Alice"}]}
     settle(reads)
     assert calls == ["read", "read"]  # no permanent roster snapshot: each answer from the last read refreshes it
 
@@ -284,9 +285,9 @@ def roster(monkeypatch):
         assert held.wait(5)
         return {"version": version}
 
-    reads = people_reads._PeopleReads()
-    monkeypatch.setattr(people_reads, "_PEOPLE_READS", reads)
-    monkeypatch.setattr(people_reads, "_people_view", read)
+    reads = roster_read._PeopleReads()
+    monkeypatch.setattr(roster_read, "_PEOPLE_READS", reads)
+    monkeypatch.setattr(roster_read, "_people_view", read)
     monkeypatch.setattr(unnamed_groups, "_voices_key", lambda: state["voices"])
     monkeypatch.setattr(unnamed_groups, "_faces_owner_key", lambda **_: 0)
     monkeypatch.setattr(server.speech_log, "shared", lambda: speech)
@@ -295,53 +296,53 @@ def roster(monkeypatch):
 
 def test_new_speech_answers_from_the_last_read_and_refreshes_it_once_in_the_background(roster):
     state, held, speech, reads = roster
-    assert people_reads.people_view() == {"version": 0}
+    assert roster_read.people_view() == {"version": 0}
     state["version"], speech.lines = 1, 1
     held.clear()  # the refresh can take as long as it likes: no request waits for it
-    assert people_reads.people_view(wait_s=None) == {"version": 0}
+    assert roster_read.people_view(wait_s=None) == {"version": 0}
     speech.lines = 2
-    assert people_reads.people_view(wait_s=None) == {"version": 0}
+    assert roster_read.people_view(wait_s=None) == {"version": 0}
     assert state["calls"] == 2, "one refresh at a time, however fast speech moves"
     held.set()
     settle(reads)
-    assert people_reads.people_view() == {"version": 1}
+    assert roster_read.people_view() == {"version": 1}
 
 
 def test_new_speech_refreshes_the_last_read_at_most_once_per_refresh_interval(roster, monkeypatch):
     state, _held, speech, reads = roster
-    monkeypatch.setattr(people_reads, "PEOPLE_REFRESH_S", 60.0)
-    assert people_reads.people_view() == {"version": 0}
+    monkeypatch.setattr(roster_read, "PEOPLE_REFRESH_S", 60.0)
+    assert roster_read.people_view() == {"version": 0}
     state["version"], speech.lines = 1, 1
-    assert people_reads.people_view(wait_s=None) == {"version": 0}
+    assert roster_read.people_view(wait_s=None) == {"version": 0}
     settle(reads)
     assert state["calls"] == 1, "speech alone, inside the interval: the last read answers and none starts"
     reads.last_at -= 61.0  # the interval has passed since that read
-    assert people_reads.people_view(wait_s=None) == {"version": 0}
+    assert roster_read.people_view(wait_s=None) == {"version": 0}
     settle(reads)
     assert state["calls"] == 2
-    assert people_reads.people_view(wait_s=None) == {"version": 1}
+    assert roster_read.people_view(wait_s=None) == {"version": 1}
 
 
 def test_a_changed_name_reads_at_once_inside_the_refresh_interval(roster, monkeypatch):
     state, _held, _speech, reads = roster
-    monkeypatch.setattr(people_reads, "PEOPLE_REFRESH_S", 60.0)
-    assert people_reads.people_view() == {"version": 0}
+    monkeypatch.setattr(roster_read, "PEOPLE_REFRESH_S", 60.0)
+    assert roster_read.people_view() == {"version": 0}
     state["voices"], state["version"] = 1, 1  # a voice was named
-    assert people_reads.people_view(wait_s=None) == {"version": 1}
+    assert roster_read.people_view(wait_s=None) == {"version": 1}
     settle(reads)
 
 
 def test_a_changed_name_waits_for_its_own_read_instead_of_answering_from_the_last(roster):
     state, _held, _speech, reads = roster
-    assert people_reads.people_view() == {"version": 0}
+    assert roster_read.people_view() == {"version": 0}
     state["voices"], state["version"] = 1, 1  # a voice was named
-    assert people_reads.people_view(wait_s=None) == {"version": 1}
+    assert roster_read.people_view(wait_s=None) == {"version": 1}
     settle(reads)
 
 
 def test_a_failed_people_warm_up_leaves_the_next_read_working():
-    reads = people_reads._PeopleReads()
-    read = create_autospec(people_reads._people_view, side_effect=[RuntimeError("broker not ready"), {"people": []}])
+    reads = roster_read._PeopleReads()
+    read = create_autospec(roster_read._people_view, side_effect=[RuntimeError("broker not ready"), {"people": []}])
     with pytest.raises(RuntimeError, match="broker not ready"):
         reads.get((0,), read)
     assert reads.get((0,), read) == {"people": []}
@@ -358,16 +359,16 @@ def test_identity_corrections_do_not_join_an_older_people_warm_up(monkeypatch):
             assert release.wait(5)
         return {"revision": revision}
 
-    monkeypatch.setattr(people_reads, "_PEOPLE_READS", people_reads._PeopleReads())
-    monkeypatch.setattr(people_reads, "_people_view", read)
+    monkeypatch.setattr(roster_read, "_PEOPLE_READS", roster_read._PeopleReads())
+    monkeypatch.setattr(roster_read, "_people_view", read)
     monkeypatch.setattr(unnamed_groups, "_voices_key", lambda: owner["revision"])
     monkeypatch.setattr(unnamed_groups, "_faces_owner_key", lambda **_: 0)
     with ThreadPoolExecutor(max_workers=1) as pool:
-        warm = pool.submit(people_reads.people_view)
+        warm = pool.submit(roster_read.people_view)
         try:
             assert computing.wait(5)
             owner["revision"] = 1
-            assert people_reads.people_view() == {"revision": 1}
+            assert roster_read.people_view() == {"revision": 1}
         finally:
             release.set()
         assert warm.result(timeout=5) == {"revision": 0}
@@ -424,7 +425,7 @@ def test_faces_import_is_low_priority_and_waits_for_voice_off_the_serving_thread
         waiting.set()
         assert release.wait(5)
 
-    monkeypatch.setattr(photo_files, "_low_priority", lambda priority: calls.append(("priority", priority)))
+    monkeypatch.setattr(context, "low_priority", lambda priority: calls.append(("priority", priority)))
     monkeypatch.setattr(voice_turn, "wait_quiet", create_autospec(voice_turn.wait_quiet, side_effect=wait_for_voice))
     monkeypatch.setattr(
         people_list,
@@ -525,7 +526,7 @@ def test_a_route_the_broker_is_away_for_answers_503_starting_with_one_warning(mo
     def away(wait_s=None, cold=False):
         raise FileNotFoundError("No such file or directory (os error 2)")
 
-    monkeypatch.setattr(people_reads, "people_view", away)
+    monkeypatch.setattr(roster_read, "people_view", away)
     for _ in range(3):
         status, headers, body = get(serving, "/people")
         assert status == 503 and headers["Retry-After"] == "1"
@@ -537,7 +538,7 @@ def test_a_route_that_fails_otherwise_still_logs_its_traceback(monkeypatch, serv
     exceptions = []
     monkeypatch.setattr(server.LOG, "exception", lambda *a, **k: exceptions.append(a))
     monkeypatch.setattr(
-        people_reads, "people_view", create_autospec(people_reads.people_view, side_effect=ValueError("bug"))
+        roster_read, "people_view", create_autospec(roster_read.people_view, side_effect=ValueError("bug"))
     )
     connection = http.client.HTTPConnection("127.0.0.1", serving.server_port, timeout=5)
     try:
@@ -550,7 +551,7 @@ def test_a_route_that_fails_otherwise_still_logs_its_traceback(monkeypatch, serv
 
 
 def test_a_slow_people_read_answers_from_the_last_roster_marked_stale():
-    reads, release = people_reads._PeopleReads(), threading.Event()
+    reads, release = roster_read._PeopleReads(), threading.Event()
     assert reads.get((0,), lambda: {"people": ["Alice"]}, wait_s=5) == {"people": ["Alice"]}
 
     def slow():
@@ -565,14 +566,14 @@ def test_a_slow_people_read_answers_from_the_last_roster_marked_stale():
 
 
 def test_a_cold_people_read_that_cant_wait_says_starting_and_goes_on():
-    reads, release, finished = people_reads._PeopleReads(), threading.Event(), threading.Event()
+    reads, release, finished = roster_read._PeopleReads(), threading.Event(), threading.Event()
 
     def slow():
         assert release.wait(5)
         finished.set()
         return {"people": ["Alice"]}
 
-    with pytest.raises(people_reads.Starting, match="still loading"):
+    with pytest.raises(roster_read.Starting, match="still loading"):
         reads.get((0,), slow, wait_s=0.05)
     release.set()
     assert finished.wait(5)
@@ -580,7 +581,7 @@ def test_a_cold_people_read_that_cant_wait_says_starting_and_goes_on():
 
 
 def test_a_people_read_that_times_out_itself_is_not_hidden_as_stale():
-    reads = people_reads._PeopleReads()
+    reads = roster_read._PeopleReads()
     reads.get((0,), lambda: {"people": []}, wait_s=5)
 
     def broker_timeout():
@@ -593,23 +594,23 @@ def test_a_people_read_that_times_out_itself_is_not_hidden_as_stale():
 def test_a_cold_people_request_says_starting_without_waiting_on_a_busy_registry(monkeypatch):
     # After a start the warm-ups keep the registry busy, and working out /people's key reads it.
     busy = threading.Event()
-    monkeypatch.setattr(people_reads, "_PEOPLE_READS", people_reads._PeopleReads())
-    monkeypatch.setattr(people_reads, "PEOPLE_WAIT_S", 0.05)
-    monkeypatch.setattr(people_reads, "_people_view", lambda: {"people": ["Alice"]})
+    monkeypatch.setattr(roster_read, "_PEOPLE_READS", roster_read._PeopleReads())
+    monkeypatch.setattr(roster_read, "PEOPLE_WAIT_S", 0.05)
+    monkeypatch.setattr(roster_read, "_people_view", lambda: {"people": ["Alice"]})
     monkeypatch.setattr(unnamed_groups, "_voices_key", lambda: busy.wait(5))
     monkeypatch.setattr(unnamed_groups, "_faces_owner_key", lambda **_: 0)
     with ThreadPoolExecutor(max_workers=1) as pool:
-        request = pool.submit(people_reads.people_view, cold=True)
+        request = pool.submit(roster_read.people_view, cold=True)
         try:
-            with pytest.raises(people_reads.Starting, match="still loading"):
+            with pytest.raises(roster_read.Starting, match="still loading"):
                 request.result(timeout=1)
         finally:
             busy.set()
     for _ in range(100):  # the shared cold read goes on and publishes
-        if people_reads._PEOPLE_READS.last is not None:
+        if roster_read._PEOPLE_READS.last is not None:
             break
         time.sleep(0.02)
-    assert people_reads.people_view() == {"people": ["Alice"]}
+    assert roster_read.people_view() == {"people": ["Alice"]}
 
 
 @pytest.mark.parametrize("warmed", [True, False], ids=["after-the-people-warm-up", "or-at-most-the-cap"])
@@ -628,10 +629,10 @@ def test_later_warm_ups_start_after_the_people_warm_up(monkeypatch, warmed):
 def test_a_change_made_during_a_cold_start_answers_with_its_own_read(roster, monkeypatch):
     # A name given while the first roster read is still out: its answer must not be that older read.
     state, held, _, _ = roster
-    monkeypatch.setattr(people_reads, "PEOPLE_WAIT_S", 2.0)  # as served (the suite waits reads out)
+    monkeypatch.setattr(roster_read, "PEOPLE_WAIT_S", 2.0)  # as served (the suite waits reads out)
     held.clear()
-    with pytest.raises(people_reads.Starting):
-        people_reads.people_view(wait_s=0.05, cold=True)  # the page's GET starts the shared cold read of version 0
+    with pytest.raises(roster_read.Starting):
+        roster_read.people_view(wait_s=0.05, cold=True)  # the page's GET starts the shared cold read of version 0
     for _ in range(250):  # it is reading version 0
         if state["calls"]:
             break
@@ -639,7 +640,7 @@ def test_a_change_made_during_a_cold_start_answers_with_its_own_read(roster, mon
     assert state["calls"] == 1
     state["voices"], state["version"] = 1, 1  # then the owner names someone
     with ThreadPoolExecutor(max_workers=1) as pool:
-        change = pool.submit(people_reads.people_view)  # the naming handler's answer, as it asks
+        change = pool.submit(roster_read.people_view)  # the naming handler's answer, as it asks
         time.sleep(0.3)  # long enough to join the cold read, if it would (nothing observable marks that it has)
         held.set()
         assert change.result(timeout=5) == {"version": 1}

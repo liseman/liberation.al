@@ -1,20 +1,17 @@
 """The local Ollama call the journal and its pages use (`llm`, loopback only), and the speech log read as transcript
 lines (`Transcript`)."""
 
-import ipaddress
 import json
 import math
 import pathlib
 import re
 import threading
 import time
+import urllib.error
 from typing import Any
-from urllib.parse import urlparse
-
-import requests
 
 from liberational import config as cfg
-from liberational import logs, ollama_health, speech_log, voice_turn
+from liberational import logs, ollama, ollama_health, speech_log
 from liberational.people import transcript_view
 
 NUM_CTX = 4096  # Explicit runner context, shared by the request and journal's prompt/reply budget.
@@ -51,11 +48,11 @@ def prompt_tokens(system: str, user: str, model: str | None = None) -> int:
     return math.ceil((len((system + user).encode("utf-8")) * rate + 64) * 1.1)
 
 
-def _context_limit(response: requests.Response) -> ContextLimit | None:
+def _context_limit(error: urllib.error.HTTPError) -> ContextLimit | None:
     """Recognize context-specific 400s, including Ollama's nested runner error JSON. Never retain prompt text."""
-    if response.status_code != 400:
+    if error.code != 400:
         return None
-    message = response.text
+    message = error.read(ollama.MAX_REPLY_BYTES).decode(errors="replace")
     # Ollama can encode the runner's JSON as the outer error string.
     value: object = message
     for _ in range(5):
@@ -106,53 +103,34 @@ def llm(
     """Ollama chat, thinking off; background calls yield to voice. Foreground answers must pass background=False.
     `num_ctx` and `keep_alive` default to the shared always-loaded runner; the journal's page batch passes its own
     model's (memory/journal_pages.py)."""
-    host = urlparse(cfg.ollama_url()).hostname
-    try:
-        local = host is not None and (host == "localhost" or ipaddress.ip_address(host).is_loopback)
-    except ValueError:
-        local = False
-    if not local:
+    if not ollama.loopback(cfg.ollama_url()):
         raise ValueError("Summaries require a loopback Ollama endpoint")
     err = None
     for m in [model] if model else [cfg.get("models.ollama.llm")]:
         try:
-            if background:
-                voice_turn.wait_quiet()
-            with ollama_health.call(m):
-                session = requests.Session()
-                session.trust_env = False
-                try:
-                    r = session.post(
-                        f"{cfg.ollama_url()}/api/chat",
-                        timeout=timeout,
-                        allow_redirects=False,
-                        json={
-                            "model": m,
-                            "stream": False,
-                            "think": False,
-                            "keep_alive": keep_alive,
-                            # num_ctx is required: without it the 4B loads at the 262k default (24 GB), Ollama
-                            # evicts the 30B agent brain, and the two models ping-pong.
-                            "options": {"num_predict": num_predict, "temperature": temperature, "num_ctx": num_ctx},
-                            "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-                            **({"format": response_format} if response_format is not None else {}),
-                        },
-                    )
-                finally:
-                    session.close()
-                if 300 <= r.status_code < 400:
-                    raise ValueError("Local inference redirects are forbidden")
-                if limit := _context_limit(r):
+            try:
+                data = ollama.chat(
+                    m,
+                    [{"role": "system", "content": system}, {"role": "user", "content": user}],
+                    num_ctx=num_ctx,
+                    num_predict=num_predict,
+                    temperature=temperature,
+                    think=False,
+                    keep_alive=keep_alive,
+                    schema=response_format,
+                    timeout=timeout,
+                    local=True,
+                    background=background,
+                )
+            except urllib.error.HTTPError as e:
+                if limit := _context_limit(e):
                     observe_prompt_tokens(m, system, user, limit.requested)
-                    raise limit
-                r.raise_for_status()
-            data = r.json()
+                    raise limit from e
+                raise
             if data.get("done_reason") == "length":
                 log(f"{m} reply reached its {num_predict}-token limit", level=logs.WARN)
             observe_prompt_tokens(m, system, user, data.get("prompt_eval_count"))
-            out = data["message"]["content"]
-            out = re.sub(r"<think>.*?</think>\s*", "", out, flags=re.S).strip()
-            return out, m
+            return ollama.text(data), m
         except ContextLimit:
             raise
         except ollama_health.Unavailable as e:
