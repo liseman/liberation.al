@@ -377,6 +377,7 @@ it('marks a place never walked, names the rooms a walked one is missing, and off
   expect(note.textContent).not.toContain('pack-walkthrough'); // a walk is dropped here now, not imported by hand
   const drop = screen.getByRole('region', { name: 'Import a walk' });
   expect(drop.textContent).toContain('Drop the zip Stray Scanner exports here');
+  expect(screen.getAllByRole('region', { name: 'Import a walk' })).toHaveLength(1); // one for the page, not one a place
   expect(within(drop).getByRole('link', { name: 'How to record a walk' }).getAttribute('href')).toMatch(
     /docs\/WALKTHROUGH\.md$/,
   );
@@ -393,9 +394,37 @@ it('marks nothing on a place whose walks covered every room, which can still tak
   expect(screen.getByRole('region', { name: 'Import a walk' })).toBeTruthy();
 });
 
-it('offers no walk drop on the examples', async () => {
+it('offers the walk drop with no place yet, so a first walk can make one', async () => {
   serve([]);
   renderPage(<PlacesTab />);
   await screen.findByRole('img', { name: /^Floor plan/ });
-  expect(screen.queryByRole('region', { name: 'Import a walk' })).toBeNull();
+  expect(screen.getByRole('region', { name: 'Import a walk' })).toBeTruthy();
+});
+
+it("opens the place a finished import's walk went into", async () => {
+  serve([HOME, OFFICE]);
+  server.use(
+    http.get('/places/walk', () =>
+      HttpResponse.json({
+        max_mb: 4096,
+        video: true,
+        job: {
+          id: 'j1',
+          name: 'walk.zip',
+          kind: 'stray',
+          status: 'done',
+          detail: '',
+          error: '',
+          result: { final_place: 'p2', new_place: 'False', registered: 'plan' },
+          retry: false,
+          started: 1762500000,
+          finished: 1762500300,
+        },
+      }),
+    ),
+  );
+  renderPage(<PlacesTab />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Open Office' }));
+  expect(row(/Office/).getAttribute('aria-current')).toBe('true');
+  expect(screen.getByText(/went into Office: it fits the plan you drew for that place\./)).toBeTruthy();
 });
