@@ -1161,7 +1161,7 @@ def capture_binary(tmp_path, monkeypatch):
     binary = tmp_path / "continuum" / "target" / "release" / "continuum-capture"
     binary.parent.mkdir(parents=True)
     binary.write_bytes(b"build one")
-    monkeypatch.setattr(privacy.cfg, "ROOT", tmp_path)
+    monkeypatch.setattr(privacy.cfg, "OWNER_ROOT", tmp_path)
     monkeypatch.setattr(privacy, "_ready", {})
     return binary
 

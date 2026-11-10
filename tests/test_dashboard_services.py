@@ -64,9 +64,9 @@ def test_processes_match_pack_commands_by_basename(monkeypatch):
 
 def test_processes_match_repo_commands_by_their_path_here_and_count_their_children(monkeypatch):
     # The continuum-* daemons are programs in the repo, not pack-* commands, so they had no pids
-    broker = str(cfg.ROOT / "continuum/target/release/continuum-broker")
-    capture = str(cfg.ROOT / "continuum/target/release/continuum-capture")
-    gateway = str(cfg.ROOT / "continuum/target/release/continuum-gateway")
+    broker = str(cfg.workdir() / "continuum/target/release/continuum-broker")
+    capture = str(cfg.workdir() / "continuum/target/release/continuum-capture")
+    gateway = str(cfg.workdir() / "continuum/target/release/continuum-gateway")
     procs = [
         SimpleNamespace(info={"pid": 1, "ppid": 0, "cmdline": [broker, "--state-dir", "data/state"]}),
         SimpleNamespace(info={"pid": 2, "ppid": 0, "cmdline": [capture, "--manifest", "config/devices.toml"]}),

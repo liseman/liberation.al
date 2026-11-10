@@ -177,7 +177,7 @@ def tier0_plan() -> Tier0Plan | None:
         return None
     try:
         done = subprocess.run(
-            [*services.argv(svc), "--print-tier0-plan"], capture_output=True, text=True, timeout=30, cwd=cfg.ROOT
+            [*services.argv(svc), "--print-tier0-plan"], capture_output=True, text=True, timeout=30, cwd=cfg.workdir()
         )
     except OSError, subprocess.SubprocessError:
         return None

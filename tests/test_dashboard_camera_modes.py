@@ -58,7 +58,7 @@ def inventory():
 def discovery(monkeypatch, inventory, tmp_path):
     monkeypatch.setattr(camera_modes, "_cache", {})
     monkeypatch.setattr(camera_modes, "_reading", {})
-    monkeypatch.setattr(services.cfg, "ROOT", tmp_path)
+    monkeypatch.setattr(services.cfg, "OWNER_ROOT", tmp_path)
     spec = tmp_path / "services.toml"
     spec.write_text('[continuum-capture]\ncommand="continuum/target/release/continuum-capture"\n')
     monkeypatch.setattr(services, "SPEC", spec)

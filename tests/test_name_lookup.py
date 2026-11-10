@@ -9,7 +9,7 @@ from liberational.people import name_lookup as lookup
 
 @pytest.fixture
 def web_keys(monkeypatch, tmp_path):
-    monkeypatch.setattr(lookup.cfg, "ROOT", tmp_path)
+    monkeypatch.setattr(lookup.cfg, "OWNER_ROOT", tmp_path)
     monkeypatch.delenv("GOOGLE_CSE_API_KEY", raising=False)
     monkeypatch.delenv("GOOGLE_CSE_CX", raising=False)
     monkeypatch.setenv("BRAVE_API_KEY", "test-secret")

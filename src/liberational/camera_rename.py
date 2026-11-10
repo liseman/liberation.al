@@ -424,9 +424,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("names", nargs="+", metavar="OLD=NEW", help="a camera's name and its new one")
     parser.add_argument("--dry-run", action="store_true", help="say what would change; write nothing")
     parser.add_argument("--state", type=Path, default=None, help="the state directory (default paths.state)")
-    parser.add_argument(
-        "--devices", type=Path, default=cfg.ROOT / "config" / "devices.toml", help="the device manifest"
-    )
+    parser.add_argument("--devices", type=Path, default=cfg.devices_file(), help="the device manifest")
     args = parser.parse_args(argv)
     try:
         names = parse_names(args.names)

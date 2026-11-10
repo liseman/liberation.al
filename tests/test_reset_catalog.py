@@ -114,7 +114,7 @@ def house(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[Hou
     devices = tmp_path / "config" / "devices.toml"  # a throwaway checkout
     devices.parent.mkdir()
     devices.write_text(DEVICES)
-    monkeypatch.setattr(reset_catalog.cfg, "ROOT", tmp_path)
+    monkeypatch.setattr(reset_catalog.cfg, "OWNER_ROOT", tmp_path)
     with tempfile.TemporaryDirectory(prefix="rc-") as short:
         socket = Path(short) / "b.sock"
         host = House(state, socket)

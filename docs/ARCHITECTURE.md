@@ -52,6 +52,24 @@ for the vision streams. Phone calls keep their own transcripts and media under `
 
 ## Where data lives
 
+### A checkout and an installed package
+
+The code keeps two kinds of file apart (`config.py`, whose docstring is the full rule):
+
+| | In a checkout, or under `PACK_ROOT` | Installed from a wheel |
+|---|---|---|
+| The code's resources: `defaults.toml`, `labels.toml`, `system-packages.toml`, and `services.toml` | `src/liberational/resources/`, symlinks to `config/` and `services/` | The same package directory; the wheel build follows the symlinks |
+| `pack.toml` | The top of the checkout (`PACK_CONFIG` names another file) | `~/.config/liberational/pack.toml` |
+| The device manifest | `config/devices.toml` | `~/.config/liberational/devices.toml` |
+| State, logs, models, and the rest of `data/` | `data/` | `~/.local/share/liberational/` (`state/`, `logs/`, `models/`) |
+| Any other relative path in a setting (`.env.phone`) | Under the checkout | Beside `pack.toml` |
+| Programs: the `pack-*` commands and the interpreter | The bin directory of the environment the process runs in (`.venv/bin`) | The same rule |
+
+A process runs from a checkout when the package's directory is `src/liberational` beside a `pyproject.toml`; a wheel
+in site-packages isn't, and has no checkout. `PACK_ROOT` names a directory to use as a checkout's layout for the
+owner's files, from either. The installed directories follow `XDG_CONFIG_HOME` and `XDG_DATA_HOME`, and on macOS
+both are `~/Library/Application Support/liberational`. The paths in the tables below are a checkout's.
+
 | Store | Path | What's in it | Kept |
 |---|---|---|---|
 | Recordings | `state/continuum/tier/`, `tier2/` | Camera video and microphone audio, as chunk files the broker catalogs | Video for 30 days (the video window, below), audio indefinitely less silent audio past 30 days, both until a reset |
