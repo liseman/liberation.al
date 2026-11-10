@@ -1,4 +1,4 @@
-"""Similarity and full-text search through the vector worker (docs/CONTINUUM.md, "Vector worker").
+"""Similarity and full-text search through the vector worker (docs/CONTINUUM-STORAGE.md).
 
 A Searcher commits a query payload on `vector.query` or `text.query` and waits for the vector worker's result, the
 `vector.search` or `text.search` payload whose parent is the query. Until the SDK has the consumer's promise calls,

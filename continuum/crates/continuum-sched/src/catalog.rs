@@ -33,7 +33,7 @@ pub struct StreamView {
     pub rate_hz: f64,
     /// For a live stream, the newest time its producer has written, sealed into the catalog or not. The planner
     /// treats everything up to it as present: the part after the last sealed batch is the unsealed tail the broker
-    /// serves from the ring (docs/CONTINUUM.md, the live edge), never something to await or compute.
+    /// serves from the ring (docs/CONTINUUM-BROKER.md, the live edge), never something to await or compute.
     pub live_edge_ns: Option<u64>,
 }
 
@@ -71,7 +71,7 @@ pub trait CatalogView {
     fn has_range(&self, stream: StreamId, range: Interval) -> Result<Vec<Covered>, ViewError>;
 
     /// Within `window`, the parts of `source` that `stage` has not processed yet, in time order, at most `max` of
-    /// them (the `COVERAGE` table, docs/CONTINUUM.md "Coverage").
+    /// them (the `COVERAGE` table, docs/CONTINUUM-BROKER.md).
     fn coverage_gaps(
         &self,
         source: StreamId,

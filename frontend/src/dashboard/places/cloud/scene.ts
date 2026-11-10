@@ -1,70 +1,54 @@
-// What the 3D view draws, on PlayCanvas (MIT; #76): the map's points, the floor grid, the plan's outline, the
-// cameras' views, and the place's Gaussian splat, in the map's own frame (metres, up along the floor's normal).
-// PlayCanvas draws on WebGPU where the browser has it and on WebGL2 otherwise, and reads the splat's SOG file
-// itself. Drawing is on demand: a frame is drawn when the view changes or the splat's sort finishes, never in a
-// loop, so an open view costs next to nothing while it's still.
+// What the 3D view draws (#76, #216). The view is PlayCanvas's own SuperSplat viewer
+// (@playcanvas/supersplat-viewer, MIT), embedded whole: its orbit, fly, and walk cameras, its pointer, touch,
+// and key handling, its mode bar, help panel, settings, info, and fullscreen all run as it ships them. This file
+// is only the glue: it hands the viewer the place's splat, turns it to the viewer's frame (frame.ts), adds our
+// overlays to the viewer's PlayCanvas app (the map's points, the floor grid, the plan's outline, and the cameras'
+// views), gives it the floor and the plan's walls to walk on and be stopped by (collision.ts), and names each
+// camera to look from as one of the viewer's annotations, which is how the viewer flies to a view.
+//
+// A place with no splat still gets the viewer: its content is then a thin, see-through copy of the map's points,
+// there only so the viewer knows the place's size, and the points themselves are drawn by our overlay.
 //
 // WebGPU has no point size, so the points are small screen-facing squares (two triangles each) grown from each
-// point's centre in the vertex shader, on both backends. Lines are one pixel wide, as the plan and frustums were
-// before. The two materials are our own shaders, in GLSL for WebGL2 and WGSL for WebGPU.
+// point's centre in the vertex shader, on both backends. Lines are one pixel wide. The two materials are our own
+// shaders, in GLSL for WebGL2 and WGSL for WebGPU.
+import { defaultSettings } from '@playcanvas/supersplat-viewer/settings';
+import { createViewer } from '@playcanvas/supersplat-viewer/viewer';
+import '@playcanvas/supersplat-viewer/viewer.css';
 import {
-  AppBase,
-  AppOptions,
-  Asset,
   BLEND_NORMAL,
-  CameraComponentSystem,
-  Color,
   CULLFACE_NONE,
-  createGraphicsDevice,
   Entity,
-  FILLMODE_NONE,
   type GraphicsDevice,
-  GSplatComponentSystem,
-  GSplatHandler,
-  Mat4,
   Mesh,
   MeshInstance,
   PRIMITIVE_LINES,
   PRIMITIVE_TRIANGLES,
-  RESOLUTION_AUTO,
-  RenderComponentSystem,
   SEMANTIC_COLOR,
   SEMANTIC_POSITION,
   SEMANTIC_TEXCOORD0,
   ShaderMaterial,
-  TextureHandler,
   TYPE_UINT8,
-  Vec3,
-  Vec4,
 } from 'playcanvas';
 import type { Scene } from '../api';
-import { coverFov, frustum, heightColour, heightOf, planOutline, robustRange, type V3 } from './geometry';
+import { collisionMesh, FLOOR_MARGIN, glb, glbUrl } from './collision';
+import { type Quat, toViewerUp, turned } from './frame';
+import { coverFov, frustum, heightColour, heightOf, planOutline, planWalls, robustRange, type V3 } from './geometry';
 import type { Cloud } from './load';
-import { dolly, slide, turn } from './orbit';
 
 export type Colour = 'rgb' | 'height';
 
-/** Everything the view draws, built once per map, and what the page asks of it. */
+/** Everything the view draws, built once per map (and splat), and what the page asks of it. */
 export interface Built {
-  /** The overview: everything drawn, from above and to one side. */
+  /** The overview: the whole place in view, in the viewer's orbit mode. */
   home: () => void;
-  /** Put the view where a camera stands, looking where it looks, filled with its frame. */
+  /** Fly to where a camera stands, looking where it looks. */
   lookFrom: (name: string) => void;
-  /** Fit the drawing to its host's size, and draw. */
-  resize: () => void;
-  /** Draw one frame. */
-  render: () => void;
   /** What's shown: the splat in place of the points, the points' size and colouring, and the overlays. */
   show: (s: { splat: boolean; size: number; colour: Colour; floor: boolean; cameras: boolean; plan: boolean }) => void;
-  /** Put a splat (a SOG file's bytes) in the scene, replacing any there; resolves once it can be drawn. */
-  setSplat: (bytes: ArrayBuffer) => Promise<void>;
-  /** Take the splat out of the scene and free it. */
-  dropSplat: () => void;
   /** The cameras drawn, by name. */
   cameraNames: string[];
-  /** Which backend is drawing. */
-  backend: 'webgpu' | 'webgl2';
-  /** Free everything and take the canvas out of the page. */
+  /** Free everything and take the viewer out of the page. */
   dispose: () => void;
 }
 
@@ -168,7 +152,14 @@ function cssColour(host: HTMLElement, name: string, fallback: string): [number, 
 }
 
 /** Line segments (pairs of points) in one colour, as an entity; `alpha` under 1 blends them over what's behind. */
-function lines(device: GraphicsDevice, name: string, segments: V3[], rgb: [number, number, number], alpha = 1): Entity {
+function lines(
+  device: GraphicsDevice,
+  app: Entity['_app'],
+  name: string,
+  segments: V3[],
+  rgb: [number, number, number],
+  alpha = 1,
+): Entity {
   const material = new ShaderMaterial({
     uniqueName: 'PlaceLines',
     vertexGLSL: LINE_GLSL.vertex,
@@ -183,7 +174,7 @@ function lines(device: GraphicsDevice, name: string, segments: V3[], rgb: [numbe
     material.depthWrite = false;
   }
   material.update();
-  const entity = new Entity(name);
+  const entity = new Entity(name, app);
   if (!segments.length) return entity; // nothing to draw: a place with no cameras, or no plan
   const mesh = new Mesh(device);
   mesh.setPositions(new Float32Array(segments.flat()));
@@ -213,34 +204,199 @@ function perCorner<T extends Float32Array | Uint8Array>(
   return out;
 }
 
-export async function build(host: HTMLDivElement, data: Scene, cloud: Cloud): Promise<Built> {
-  const canvas = document.createElement('canvas');
-  canvas.style.width = '100%';
-  canvas.style.height = '100%';
-  canvas.style.display = 'block';
-  canvas.style.touchAction = 'none';
-  host.appendChild(canvas);
-  // No multisampling: PlayCanvas draws splats several times slower into a multisampled target.
-  const device = await createGraphicsDevice(canvas, { deviceTypes: ['webgpu', 'webgl2'], antialias: false });
-  device.maxPixelRatio = Math.min(window.devicePixelRatio, 2);
-  const options = new AppOptions();
-  options.graphicsDevice = device;
-  options.componentSystems = [RenderComponentSystem, CameraComponentSystem, GSplatComponentSystem];
-  options.resourceHandlers = [GSplatHandler, TextureHandler];
-  const app = new AppBase(canvas);
-  app.init(options);
-  app.setCanvasFillMode(FILLMODE_NONE);
-  app.setCanvasResolution(RESOLUTION_AUTO);
-  app.autoRender = false;
-  app.start();
+/** At most this many of the map's points stand in for a splat the place doesn't have (see the top). */
+const STAND_IN_POINTS = 20_000;
 
+/** A 3DGS PLY of see-through specks at some of the map's points: content for the viewer when there's no splat. */
+function standIn(cloud: Cloud): ArrayBuffer {
+  const step = Math.max(1, Math.ceil(cloud.count / STAND_IN_POINTS));
+  const count = Math.ceil(cloud.count / step);
+  const names = ['x', 'y', 'z', 'f_dc_0', 'f_dc_1', 'f_dc_2', 'opacity', 'scale_0', 'scale_1', 'scale_2'];
+  names.push('rot_0', 'rot_1', 'rot_2', 'rot_3');
+  const head = new TextEncoder().encode(
+    `ply\nformat binary_little_endian 1.0\nelement vertex ${count}\n${names.map(n => `property float ${n}\n`).join('')}end_header\n`,
+  );
+  const rows = new Float32Array(count * names.length);
+  for (let i = 0; i < count; i++) {
+    const from = i * step * 3;
+    // opacity is a logit and scale a log: far below anything drawn
+    rows.set(
+      [
+        cloud.positions[from] ?? 0,
+        cloud.positions[from + 1] ?? 0,
+        cloud.positions[from + 2] ?? 0,
+        0,
+        0,
+        0,
+        -12,
+        -6,
+        -6,
+        -6,
+        1,
+        0,
+        0,
+        0,
+      ],
+      i * names.length,
+    );
+  }
+  const out = new Uint8Array(head.length + rows.byteLength);
+  out.set(head);
+  out.set(new Uint8Array(rows.buffer), head.length);
+  return out.buffer;
+}
+
+/** The field of view the viewer wants for a camera's frame filling a view of `aspect`: of the view's longer side,
+ *  in degrees (it takes its field of view across whichever side is longer). */
+function viewerFov(cam: { width: number; height: number; focal: number }, aspect: number): number {
+  const vertical = coverFov(cam.width, cam.height, cam.focal, aspect);
+  if (aspect <= 1) return vertical;
+  return (2 * Math.atan(Math.tan((vertical * Math.PI) / 360) * aspect) * 180) / Math.PI;
+}
+
+/** The viewer's own bounds on a field of view (its CAMERA_FOV_RANGE). */
+const clampFov = (fov: number) => Math.max(10, Math.min(120, fov));
+
+export async function build(
+  host: HTMLDivElement,
+  data: Scene,
+  cloud: Cloud,
+  splat: ArrayBuffer | null,
+  opening: string | null,
+): Promise<Built> {
   const floorPlane = data.floor ?? [0, 0, 1, 0];
   const [nx = 0, ny = 0, nz = 1] = floorPlane;
   const upLength = Math.hypot(nx, ny, nz) || 1;
   const up: V3 = [nx / upLength, ny / upLength, nz / upLength];
+  // Map to viewer: the rotation the splat's and the overlays' entities get, and the points' positions go through.
+  const turn: Quat = toViewerUp(up);
+  const inViewer = (p: readonly number[]): V3 => turned([p[0] ?? 0, p[1] ?? 0, p[2] ?? 0], turn);
+
+  // What the view frames, and the floor reaches under: everything drawn (the cloud, the plan, and the cameras).
+  const lo: V3 = [Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY];
+  const hi: V3 = [Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY];
+  const grow = (p: readonly number[]) => {
+    for (let k = 0; k < 3; k++) {
+      lo[k] = Math.min(lo[k] ?? 0, p[k] ?? 0);
+      hi[k] = Math.max(hi[k] ?? 0, p[k] ?? 0);
+    }
+  };
+  const { count, positions } = cloud;
+  for (let i = 0; i < count; i++) grow([positions[i * 3] ?? 0, positions[i * 3 + 1] ?? 0, positions[i * 3 + 2] ?? 0]);
+
+  // Each camera's view: lines from its centre to the four corners of its image, and the image's edge.
+  const views: V3[] = [];
+  for (const cam of Object.values(data.cameras ?? {})) {
+    const [o, a, b, c, d] = frustum(cam.pose, cam.focal, cam.width, cam.height) as [V3, V3, V3, V3, V3];
+    views.push(o, a, o, b, o, c, o, d, a, b, b, c, c, d, d, a);
+  }
+  views.forEach(grow);
+
+  // The plan's rooms, outlined on the floor, and its walls, for the walk to be stopped by.
+  const outline: V3[] = [];
+  let walls: [V3, V3][] = [];
+  if (data.plan && data.plan_transform) {
+    try {
+      for (const ring of planOutline(data.plan, data.plan_transform))
+        ring.forEach((p, i) => {
+          outline.push(p, ring[(i + 1) % ring.length] as V3);
+        });
+      walls = planWalls(data.plan, data.plan_transform);
+    } catch {
+      // a plan that doesn't read is left off; the cloud still draws, and the walk has only the floor
+    }
+  }
+  outline.forEach(grow);
+
+  const empty = !Number.isFinite(lo[0]);
+  const centre: V3 = empty ? [0, 0, 0] : [(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2];
+  const radius = empty ? 5 : Math.hypot(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) / 2;
+
+  // Two directions across the floor, and a point on it under the middle of everything.
+  const drop = heightOf(centre, floorPlane);
+  const onFloor: V3 = [centre[0] - up[0] * drop, centre[1] - up[1] * drop, centre[2] - up[2] * drop];
+  const seed: V3 = Math.abs(up[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0];
+  const cross = (a: V3, b: V3): V3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const unit = (a: V3): V3 => {
+    const n = Math.hypot(a[0], a[1], a[2]) || 1;
+    return [a[0] / n, a[1] / n, a[2] / n];
+  };
+  const along = unit(cross(up, seed));
+  const across = unit(cross(up, along));
+  const onGrid = (s: number, t: number): V3 => [
+    onFloor[0] + along[0] * s + across[0] * t,
+    onFloor[1] + along[1] * s + across[1] * t,
+    onFloor[2] + along[2] * s + across[2] * t,
+  ];
+
+  // What the walk stands on and is stopped by, in the viewer's frame.
+  const far = radius + FLOOR_MARGIN;
+  const ground = [onGrid(-far, -far), onGrid(far, -far), onGrid(far, far), onGrid(-far, far)].map(inViewer);
+  const blocking = walls.map(([a, b]) => [inViewer(a), inViewer(b)] as [V3, V3]);
+  const collisionUrl = glbUrl(glb(collisionMesh(ground, blocking, [0, 1, 0])));
+
+  // The viewer's settings: our page's background, no animation, each camera a view to fly to, and the view a splat
+  // opens from (one whose frames it trained on, #44).
+  const aspect = Math.max(1, host.clientWidth) / Math.max(1, host.clientHeight);
+  const names = Object.keys(data.cameras ?? {});
+  const poseOf = (name: string) => {
+    const cam = data.cameras?.[name];
+    if (!cam) return null;
+    // Camera to map, row by row; the camera looks along its +z (OpenCV), so its centre and forward are columns 3 and 2.
+    const p = cam.pose as number[];
+    const eye: V3 = [p[3] ?? 0, p[7] ?? 0, p[11] ?? 0];
+    const ahead: V3 = [eye[0] + (p[2] ?? 0), eye[1] + (p[6] ?? 0), eye[2] + (p[10] ?? 1)];
+    return { position: inViewer(eye), target: inViewer(ahead), fov: clampFov(viewerFov(cam, aspect)) };
+  };
+  const settings = defaultSettings();
+  settings.background.color = cssColour(host, '--lib-card', '#ffffff');
+  settings.animTracks = [];
+  settings.startMode = 'default';
+  settings.annotations = names.flatMap(name => {
+    const pose = poseOf(name);
+    return pose ? [{ position: pose.position, title: name, text: '', camera: { initial: pose } }] : [];
+  });
+  const first = opening ? poseOf(opening) : null;
+  settings.cameras = first ? [{ initial: first }] : [];
+
+  // With its length, so the viewer's loading bar knows when it's done.
+  const file = splat ?? standIn(cloud);
+  const viewer = await createViewer({
+    container: host,
+    settings,
+    contentUrl: splat ? 'splat.sog' : 'points.ply',
+    contentFilename: splat ? 'splat.sog' : 'points.ply',
+    contents: Promise.resolve(new Response(file, { headers: { 'content-length': String(file.byteLength) } })),
+    collisionUrl,
+    // The viewer always has a camera tour of its own making; it waits for its play button.
+    noanim: true,
+  });
+  const app = viewer.app;
+  const device = app.graphicsDevice;
+  let gone = false;
+  const draw = () => {
+    if (!gone) app.renderNextFrame = true;
+  };
+
+  // The viewer turns its content half a turn about z, as a 3DGS file wants; ours is in the map's frame, so its
+  // entity gets the map's rotation the moment it joins the scene, before the viewer measures it.
+  let content: Entity | null = null;
+  let wantSplat = true;
+  const adopt = () => {
+    const found = app.root.findByName('gsplat') as Entity | null;
+    if (!found || found === content) return;
+    content = found;
+    found.setLocalRotation(...turn);
+  };
+  app.root.on('childinsert', adopt);
+  adopt();
+
+  // Our overlays, in the map's frame under one turned parent.
+  const overlays = new Entity('place-overlays', app);
+  overlays.setLocalRotation(...turn);
+  app.root.addChild(overlays);
 
   // The points. Colour by height: each point's height above the floor on a ramp over the middle 98% of heights.
-  const { count, positions } = cloud;
   const heights = new Float32Array(count);
   for (let i = 0; i < count; i++)
     heights[i] = heightOf([positions[i * 3] ?? 0, positions[i * 3 + 1] ?? 0, positions[i * 3 + 2] ?? 0], floorPlane);
@@ -267,284 +423,113 @@ export async function build(host: HTMLDivElement, data: Scene, cloud: Cloud): Pr
   pointMaterial.setParameter('point_size', 2.5);
   pointMaterial.setParameter('view_size', [1, 1]);
   pointMaterial.update();
-  const pointMesh = new Mesh(device);
-  pointMesh.setPositions(perCorner(new Float32Array(count * 12), positions, 3));
-  const corners = new Float32Array(count * 8);
-  for (let i = 0; i < count; i++) corners.set(CORNERS, i * 8);
-  pointMesh.setVertexStream(SEMANTIC_TEXCOORD0, corners, 2);
-  const indices = new Uint32Array(count * 6);
-  for (let i = 0; i < count; i++) indices.set([i * 4, i * 4 + 1, i * 4 + 2, i * 4, i * 4 + 2, i * 4 + 3], i * 6);
-  pointMesh.setIndices(indices);
-  let coloured: Colour | null = null;
-  const colourBy = (want: Colour) => {
-    const by = want === 'rgb' && colours.rgb ? 'rgb' : 'height';
-    if (by === coloured) return;
-    coloured = by;
-    pointMesh.setVertexStream(SEMANTIC_COLOR, colours[by] ?? colours.height, 4, count * 4, TYPE_UINT8, true);
-    pointMesh.update(PRIMITIVE_TRIANGLES);
-  };
-  colourBy('rgb');
-  const points = new Entity('points');
-  points.addComponent('render', { meshInstances: [new MeshInstance(pointMesh, pointMaterial)], castShadows: false });
-  app.root.addChild(points);
-
-  // What home frames: everything drawn but the grid (the cloud, the plan, and the cameras).
-  const lo: V3 = [Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY];
-  const hi: V3 = [Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY];
-  const grow = (p: readonly number[]) => {
-    for (let k = 0; k < 3; k++) {
-      lo[k] = Math.min(lo[k] ?? 0, p[k] ?? 0);
-      hi[k] = Math.max(hi[k] ?? 0, p[k] ?? 0);
-    }
-  };
-  for (let i = 0; i < count; i++) grow([positions[i * 3] ?? 0, positions[i * 3 + 1] ?? 0, positions[i * 3 + 2] ?? 0]);
-
-  // Each camera's view: lines from its centre to the four corners of its image, and the image's edge.
-  const accent = cssColour(host, '--mantine-primary-color-filled', '#228be6');
-  const views: V3[] = [];
-  for (const cam of Object.values(data.cameras ?? {})) {
-    const [o, a, b, c, d] = frustum(cam.pose, cam.focal, cam.width, cam.height) as [V3, V3, V3, V3, V3];
-    views.push(o, a, o, b, o, c, o, d, a, b, b, c, c, d, d, a);
+  const points = new Entity('points', app);
+  let colourBy: (want: Colour) => void = () => {};
+  if (count) {
+    const pointMesh = new Mesh(device);
+    pointMesh.setPositions(perCorner(new Float32Array(count * 12), positions, 3));
+    const corners = new Float32Array(count * 8);
+    for (let i = 0; i < count; i++) corners.set(CORNERS, i * 8);
+    pointMesh.setVertexStream(SEMANTIC_TEXCOORD0, corners, 2);
+    const indices = new Uint32Array(count * 6);
+    for (let i = 0; i < count; i++) indices.set([i * 4, i * 4 + 1, i * 4 + 2, i * 4, i * 4 + 2, i * 4 + 3], i * 6);
+    pointMesh.setIndices(indices);
+    let coloured: Colour | null = null;
+    colourBy = want => {
+      const by = want === 'rgb' && colours.rgb ? 'rgb' : 'height';
+      if (by === coloured) return;
+      coloured = by;
+      pointMesh.setVertexStream(SEMANTIC_COLOR, colours[by] ?? colours.height, 4, count * 4, TYPE_UINT8, true);
+      pointMesh.update(PRIMITIVE_TRIANGLES);
+    };
+    colourBy('rgb');
+    points.addComponent('render', { meshInstances: [new MeshInstance(pointMesh, pointMaterial)], castShadows: false });
   }
-  views.forEach(grow);
-  const cameras = lines(device, 'cameras', views, accent);
-  app.root.addChild(cameras);
+  overlays.addChild(points);
+  // The squares are sized in the page's pixels, so they follow the view's size.
+  const sized = () =>
+    pointMaterial.setParameter('view_size', [Math.max(1, host.clientWidth), Math.max(1, host.clientHeight)]);
+  app.on('update', sized);
 
-  // The plan's rooms, outlined on the floor.
-  const outline: V3[] = [];
-  if (data.plan && data.plan_transform) {
-    try {
-      for (const ring of planOutline(data.plan, data.plan_transform))
-        ring.forEach((p, i) => {
-          outline.push(p, ring[(i + 1) % ring.length] as V3);
-        });
-    } catch {
-      // a plan that doesn't read is left off; the cloud still draws
-    }
-  }
-  outline.forEach(grow);
-  const plan = lines(device, 'plan', outline, [0xe8 / 255, 0x59 / 255, 0x0c / 255]);
-  app.root.addChild(plan);
+  const cameras = lines(device, app, 'cameras', views, cssColour(host, '--mantine-primary-color-filled', '#228be6'));
+  overlays.addChild(cameras);
+  const plan = lines(device, app, 'plan', outline, [0xe8 / 255, 0x59 / 255, 0x0c / 255]);
+  overlays.addChild(plan);
 
-  const empty = !Number.isFinite(lo[0]);
-  const centre: V3 = empty ? [0, 0, 0] : [(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2];
-  const radius = empty ? 5 : Math.hypot(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) / 2;
-
-  // The floor: a grid on the floor plane under all of it, through the point of it nearest the middle.
-  const drop = heightOf(centre, floorPlane);
-  const onFloor: V3 = [centre[0] - up[0] * drop, centre[1] - up[1] * drop, centre[2] - up[2] * drop];
+  // The floor: a grid on the floor plane under all of it.
   const reach = Math.max(4, Math.ceil(radius * 2.2)) / 2;
-  const seed: V3 = Math.abs(up[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0];
-  const along = new Vec3().cross(new Vec3(...up), new Vec3(...seed)).normalize();
-  const across = new Vec3().cross(new Vec3(...up), along).normalize();
   const gridLines: V3[] = [];
-  const onGrid = (s: number, t: number): V3 => [
-    onFloor[0] + along.x * s + across.x * t,
-    onFloor[1] + along.y * s + across.y * t,
-    onFloor[2] + along.z * s + across.z * t,
-  ];
   for (let i = 0; i <= 24; i++) {
     const t = -reach + (2 * reach * i) / 24;
     gridLines.push(onGrid(t, -reach), onGrid(t, reach), onGrid(-reach, t), onGrid(reach, t));
   }
-  const floor = lines(device, 'floor', gridLines, [0.6, 0.6, 0.6], 0.45);
-  app.root.addChild(floor);
+  const floor = lines(device, app, 'floor', gridLines, [0.6, 0.6, 0.6], 0.45);
+  overlays.addChild(floor);
 
-  const FOV = 55;
-  const eyeEntity = new Entity('eye');
-  const [r, g, b] = cssColour(host, '--lib-card', '#ffffff');
-  eyeEntity.addComponent('camera', { fov: FOV, nearClip: 0.02, farClip: 500, clearColor: new Color(r, g, b) });
-  app.root.addChild(eyeEntity);
-  const lens = eyeEntity.camera;
-  if (!lens) throw new Error("The 3D view couldn't make its camera.");
+  // The viewer's keys are the window's (it listens there), so it has them only while the pointer is over it or the
+  // focus is in it: typing anywhere else on the page isn't a camera command.
+  viewer.state.inputEnabled = false;
+  const mine = () => {
+    viewer.state.inputEnabled = true;
+  };
+  const notMine = () => {
+    viewer.state.inputEnabled = host.contains(document.activeElement) && document.activeElement !== document.body;
+  };
+  host.addEventListener('pointerenter', mine);
+  host.addEventListener('pointerdown', mine);
+  host.addEventListener('pointerleave', notMine);
 
-  // The orbit: an eye and the point it looks at and turns about.
-  let eye: V3 = [centre[0], centre[1], centre[2] + radius * 2.5];
-  let target: V3 = centre;
-  // Looking from a camera, the view is filled with its frame (`coverFov`: cropped to the view's shape, never past
-  // its edges, where a splat is only smear) until the view goes home. Null: the view's own field of view.
-  let frame: { width: number; height: number; focal: number } | null = null;
-  let gone = false;
-  const aspect = () => Math.max(1, canvas.clientWidth) / Math.max(1, canvas.clientHeight);
-  const render = () => {
-    if (gone) return;
-    lens.fov = frame ? coverFov(frame.width, frame.height, frame.focal, aspect()) : FOV;
-    eyeEntity.setPosition(...eye);
-    eyeEntity.lookAt(new Vec3(...target), new Vec3(...up));
-    app.renderNextFrame = true;
+  // A splat opens from a view it trained on, standing there: in the viewer's walk mode where the place is large
+  // enough for it, else flying. A place opened without such a view starts as an overview in orbit.
+  const ready = (run: () => void) => {
+    if (viewer.state.loaded) run();
+    else viewer.events.once('loaded:changed', () => !gone && run());
   };
-  // A splat's order is worked out off the frame that asked for it, so that frame is followed by another.
-  app.scene.on('gsplat:sorted', render);
-  // A few frames in a row: a splat that has just arrived, or a jump to a new view, settles over several.
-  const settle = (frames = 12) => {
-    if (gone) return;
-    render();
-    if (frames > 1) requestAnimationFrame(() => settle(frames - 1));
-  };
-
-  const resize = () => {
-    const w = host.clientWidth;
-    const h = host.clientHeight;
-    app.resizeCanvas(w, h);
-    canvas.style.width = '100%';
-    canvas.style.height = '100%';
-    pointMaterial.setParameter('view_size', [Math.max(1, w), Math.max(1, h)]);
-    render();
-  };
-
-  // Home: looking down at it from above and to one side, with everything drawn just in view. A sphere around a flat
-  // room seen at a slant wastes most of the frame, so the box's corners are projected and the distance scaled until
-  // the widest of them reaches the edge (a few steps settle it).
-  const boxCorners = [0, 1, 2, 3, 4, 5, 6, 7].map(
-    i => new Vec4(i & 1 ? hi[0] : lo[0], i & 2 ? hi[1] : lo[1], i & 4 ? hi[2] : lo[2], 1),
-  );
-  const home = () => {
-    const side = new Vec3(1, 0, 0);
-    const upV = new Vec3(...up);
-    side.sub(upV.clone().mulScalar(side.dot(upV))).normalize();
-    const from = upV.clone().mulScalar(0.8).add(side.mulScalar(0.6)).normalize();
-    const middle = new Vec3(...centre);
-    const at = (distance: number) => middle.clone().add(from.clone().mulScalar(distance));
-    let distance = radius * 2.5;
-    const projection = new Mat4().setPerspective(FOV, aspect(), 0.02, 500);
-    for (let step = 0; step < 4 && !empty; step++) {
-      const view = new Mat4().setLookAt(at(distance), middle, upV).invert();
-      const both = new Mat4().mul2(projection, view);
-      const widest = Math.max(
-        ...boxCorners.map(c => {
-          const p = both.transformVec4(c, new Vec4());
-          return Math.max(Math.abs(p.x / p.w), Math.abs(p.y / p.w));
-        }),
-      );
-      distance *= Math.min(4, Math.max(0.25, widest / 0.92));
-    }
-    const p = at(distance);
-    eye = [p.x, p.y, p.z];
-    target = centre;
-    frame = null;
-    settle();
-  };
-  const lookFrom = (name: string) => {
-    const cam = data.cameras?.[name];
-    if (!cam) return;
-    // Camera to map, row by row; the camera looks along its +z (OpenCV), so its centre and forward are columns 3 and 2.
-    const p = cam.pose as number[];
-    const forward = new Vec3(p[2], p[6], p[10]).normalize();
-    // Its own frame, filling the view at whatever shape the view has (`render`).
-    frame = { width: cam.width, height: cam.height, focal: cam.focal };
-    eye = [p[3] ?? 0, p[7] ?? 0, p[11] ?? 0];
-    // Orbit about a point just ahead, so a small drag looks around from where the camera stands.
-    target = [eye[0] + forward.x * 0.5, eye[1] + forward.y * 0.5, eye[2] + forward.z * 0.5];
-    settle();
-  };
-
-  // The pointer: drag to turn, shift-drag or the right button to slide, the wheel or a pinch to move in and out.
-  const held = new Map<number, { x: number; y: number }>();
-  const down = (e: PointerEvent) => {
-    canvas.setPointerCapture(e.pointerId);
-    held.set(e.pointerId, { x: e.clientX, y: e.clientY });
-  };
-  const move = (e: PointerEvent) => {
-    const was = held.get(e.pointerId);
-    if (!was) return;
-    const dx = e.clientX - was.x;
-    const dy = e.clientY - was.y;
-    if (held.size === 2) {
-      // a pinch: the change in the two fingers' distance moves the eye in or out
-      const other = [...held.entries()].find(([id]) => id !== e.pointerId)?.[1];
-      if (other) {
-        const before = Math.hypot(was.x - other.x, was.y - other.y);
-        const after = Math.hypot(e.clientX - other.x, e.clientY - other.y);
-        if (before > 0 && after > 0) eye = dolly(eye, target, before / after);
-      }
-    } else if (e.shiftKey || e.buttons & 2 || e.buttons & 4) {
-      const span = Math.hypot(eye[0] - target[0], eye[1] - target[1], eye[2] - target[2]);
-      const perPixel = (2 * span * Math.tan((lens.fov * Math.PI) / 360)) / Math.max(1, canvas.clientHeight);
-      ({ eye, target } = slide(eye, target, up, dx * perPixel, dy * perPixel));
-    } else {
-      const k = (2 * Math.PI) / Math.max(1, canvas.clientHeight);
-      eye = turn(eye, target, up, -dx * k, -dy * k);
-    }
-    held.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    render();
-  };
-  const release = (e: PointerEvent) => {
-    held.delete(e.pointerId);
-  };
-  const wheel = (e: WheelEvent) => {
-    e.preventDefault();
-    eye = dolly(eye, target, Math.exp(e.deltaY * 0.001));
-    render();
-  };
-  const menu = (e: Event) => e.preventDefault();
-  canvas.addEventListener('pointerdown', down);
-  canvas.addEventListener('pointermove', move);
-  canvas.addEventListener('pointerup', release);
-  canvas.addEventListener('pointercancel', release);
-  canvas.addEventListener('wheel', wheel, { passive: false });
-  canvas.addEventListener('contextmenu', menu);
-
-  let splat: { entity: Entity; asset: Asset } | null = null;
-  let wantSplat = true;
-  const dropSplat = () => {
-    if (!splat) return;
-    splat.entity.destroy();
-    app.assets.remove(splat.asset);
-    splat.asset.unload();
-    splat = null;
-  };
-  const setSplat = (bytes: ArrayBuffer) =>
-    new Promise<void>((resolve, reject) => {
-      dropSplat();
-      // The file's name is what tells PlayCanvas it's a SOG; its bytes are already here.
-      const asset = new Asset('splat', 'gsplat', { url: 'splat.sog', contents: bytes } as unknown as { url: string });
-      asset.on('error', (err: unknown) => reject(new Error(String(err))));
-      asset.ready(() => {
-        if (gone) return resolve();
-        const entity = new Entity('splat');
-        entity.addComponent('gsplat', { asset });
-        entity.enabled = wantSplat;
-        app.root.addChild(entity);
-        splat = { entity, asset };
-        settle();
-        resolve();
-      });
-      app.assets.add(asset);
-      app.assets.load(asset);
+  const home = () =>
+    ready(() => {
+      viewer.frameScene();
+      draw();
     });
+  if (first)
+    ready(() => {
+      viewer.state.cameraMode = viewer.state.walkAllowed ? 'walk' : 'fly';
+      draw();
+    });
+  else home();
 
   return {
     home,
-    lookFrom,
-    resize,
-    render,
+    lookFrom: name =>
+      ready(() => {
+        const at = names.indexOf(name);
+        if (at >= 0) viewer.selectAnnotation(at);
+        draw();
+      }),
     show: s => {
       wantSplat = s.splat;
       const showSplat = s.splat && !!splat;
       points.enabled = !showSplat;
-      if (splat) splat.entity.enabled = showSplat;
+      // The viewer counts itself loaded once its content has drawn a frame, so the content is only hidden after
+      // that; the stand-in for a missing splat is see-through and stays.
+      if (splat)
+        ready(() => {
+          if (content) content.enabled = wantSplat;
+          draw();
+        });
       pointMaterial.setParameter('point_size', s.size);
       colourBy(s.colour);
       floor.enabled = s.floor;
       cameras.enabled = s.cameras;
       plan.enabled = s.plan;
-      render();
+      draw();
     },
-    setSplat,
-    dropSplat,
-    cameraNames: Object.keys(data.cameras ?? {}),
-    backend: device.isWebGPU ? 'webgpu' : 'webgl2',
+    cameraNames: names,
     dispose: () => {
       gone = true;
-      canvas.removeEventListener('pointerdown', down);
-      canvas.removeEventListener('pointermove', move);
-      canvas.removeEventListener('pointerup', release);
-      canvas.removeEventListener('pointercancel', release);
-      canvas.removeEventListener('wheel', wheel);
-      canvas.removeEventListener('contextmenu', menu);
-      dropSplat();
-      app.destroy();
-      canvas.remove();
+      host.removeEventListener('pointerenter', mine);
+      host.removeEventListener('pointerdown', mine);
+      host.removeEventListener('pointerleave', notMine);
+      viewer.destroy();
     },
   };
 }

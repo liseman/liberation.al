@@ -37,8 +37,8 @@ By hand, once per video; no service runs it. Steps:
    disagree across the walk (`posegraph.loop_scale`), no loop is closed.
 4. **Pose graph.** spatial/posegraph.py solves CUT3R's consecutive poses (odometry), the kept revisits (loops), and
    priors that the phone stays upright (gravity, only when `up_check` shows the poses' -y is really the image's up in
-   CUT3R's own world points) and at one height (one storey), and holds each frame's heading by the walls it sees
-   ("Single loops" below). Steps where CUT3R broke (a sure MASt3R measurement of
+   CUT3R's own world points) and at one height (one storey; neither prior for a Stray Scanner walk), and holds each
+   frame's heading by the walls it sees ("Single loops" below). Steps where CUT3R broke (a sure MASt3R measurement of
    the step turns more than `BREAK_DEG` differently) take MASt3R's measurement first (`close_loops`). A revisit whose
    two frames' near points can be fitted onto each other (point-to-plane `icp`, `fit_revisits`) is closed on that fit,
    tightly, rather than on MASt3R's pose, so its near walls land on each other. A walk of several minutes drifts
@@ -746,6 +746,7 @@ def close_loops(
     step_deg: float = STEP_DEG,
     step_m: float = STEP_M,
     walls: np.ndarray | None = None,
+    height: bool = posegraph.HEIGHT_PRIOR,
 ) -> Closure:
     """CUT3R's poses `c2w` corrected by the MASt3R pairs `measured` (the pairs mode's answers, their `a` and `b` as
     frame indices): its consecutive steps, and the `loops` (possible revisits).
@@ -761,7 +762,8 @@ def close_loops(
        beside CUT3R's step at `FALLBACK_DEG` and `FALLBACK_M`, so the solve can drop it like a bad loop; unless CUT3R's
        own points (`clouds`, `near_clouds`) say its step was the better one (`OVERLAP_MARGIN`). Other steps keep
        CUT3R's (`step_deg`, `step_m`: `STEP_DEG`, `STEP_M` by default). `up` is the world's up for the priors (by
-       default the cameras' mean -y).
+       default the cameras' mean -y): `gravity` pulls each camera upright and `height` holds them at one height, for
+       poses a model guessed. Tracked, metric poses take neither (`run_stray`).
     3. **Loops.** `posegraph.loop_refusal` against the walk as repaired or as CUT3R gave it, the gate growing with the
        walk between the two frames up to `GATE_MAX_M` and `GATE_MAX_DEG`; then `posegraph.solve`. The revisits the
        gate refused are gated again against the solved walk, and solved again, up to `LOOP_ROUNDS` times; when a
@@ -898,7 +900,7 @@ def close_loops(
         edges += passed
         taken = {(e.i, e.j) for e in passed}
         pending = [e for e in pending if (e.i, e.j) not in taken]
-        trial = posegraph.solve(start, edges, up=g, gravity=gravity)
+        trial = posegraph.solve(start, edges, up=g, gravity=gravity, height=height)
         walks = [trial.poses, start, np.asarray(c2w, np.float64)]
         if not pending:
             break
@@ -928,7 +930,7 @@ def close_loops(
     # With walls the last solve starts from the first one's poses: the revisits have by then turned every frame to
     # the right quarter turn, which the walls can't tell apart (a break of a half turn looks square to them).
     again = chain(c2w[0], final) if held is None else trial.poses
-    solution = posegraph.solve(again, [*final, *loop_edges], up=g, gravity=gravity, walls=held)
+    solution = posegraph.solve(again, [*final, *loop_edges], up=g, gravity=gravity, height=height, walls=held)
     loop_k = range(len(final), len(final) + len(loop_edges))
     drift = [posegraph.relative(e.measured, posegraph.relative(c2w[e.i], c2w[e.j])) for e in loop_edges]
     return Closure(
@@ -1021,15 +1023,21 @@ def rebuild(points: np.ndarray, counts: Sequence[int], poses: np.ndarray) -> np.
     return out
 
 
-def spread(poses: np.ndarray, up: np.ndarray | None = None) -> tuple[float, float]:
-    """How level and how flat a walk is: the median angle (degrees) of the cameras' up axes from `up` (by default
-    their mean), and the spread of the camera heights along it (5th to 95th percentile, metres)."""
+def posture(poses: np.ndarray, up: np.ndarray | None = None) -> tuple[float, float, float]:
+    """How a walk's cameras were held, about `up` (by default the mean of their up axes): the median tilt of their up
+    axes from it (degrees), the median sideways lean (degrees: how far a camera's x axis is from level), and the
+    span of their heights along it (5th to 95th percentile, metres).
+
+    The tilt is mostly pitch, and expected: a phone held to look slightly down tilts by as much as it looks down (one
+    LiDAR walk: 14 degrees at the median). The lean is the one that shows a fault: nobody holds a phone rolled, so
+    more than a few degrees of it (that walk: 1) means `up` isn't the cameras' up, or the frames are turned the wrong
+    way. The heights span what the hand and the floor do: 0.29 m on that walk, most of it a step in the floor."""
     g = posegraph.world_up(poses) if up is None else up
-    ups = np.einsum("nij,j->ni", poses[:, :3, :3], posegraph.CAMERA_UP)
-    angles = np.degrees(np.arccos(np.clip(ups @ g, -1.0, 1.0)))
-    heights = poses[:, :3, 3] @ g
-    lo, hi = np.percentile(heights, [5, 95])
-    return float(np.median(angles)), float(hi - lo)
+    rot = poses[:, :3, :3]
+    tilt = np.degrees(np.arccos(np.clip(np.einsum("nij,j->ni", rot, posegraph.CAMERA_UP) @ g, -1.0, 1.0)))
+    lean = np.degrees(np.arcsin(np.clip(np.abs(rot[:, :, 0] @ g), 0.0, 1.0)))
+    lo, hi = np.percentile(poses[:, :3, 3] @ g, [5, 95])
+    return float(np.median(tilt)), float(np.median(lean)), float(hi - lo)
 
 
 def write_place(
@@ -1333,6 +1341,19 @@ def measure(walk: Walk, pairs: Sequence[tuple[int, int]], out: Path, required: b
     return [{**m, "a": index[m["a"]], "b": index[m["b"]], "seconds": answer.get("seconds")} for m in answer["pairs"]]
 
 
+def walk_cloud(walk: Walk, closed: Closure) -> tuple[np.ndarray, np.ndarray]:
+    """The walk's cloud in its own frame: its points within `MAX_DEPTH` of their camera, moved by the corrected
+    poses and thinned to `VOXEL`, with their colours."""
+    pts = walk.points
+    n = len(walk.counts)
+    near = (pts[:, 2] > 0) & (pts[:, 2] <= MAX_DEPTH)
+    frame = np.repeat(np.arange(n), walk.counts)
+    world = rebuild(pts[near], np.bincount(frame[near], minlength=n).tolist(), closed.poses)
+    points, colors = fuse.voxelize(world, walk.colors[near], VOXEL)
+    assert colors is not None
+    return points.astype(np.float32), colors
+
+
 def finish(
     state: Path,
     place: str | None,
@@ -1351,15 +1372,9 @@ def finish(
     stored as its own new place, and `place` keeps its revision and its cameras. With `match` and no `place`, the
     walk goes into the place it registers in (`match_place`), and is a new place only when it registers in none.
     `out` is a folder for MASt3R's work. Returns what it did."""
-    pts = walk.points
     n = len(walk.counts)
-    near = (pts[:, 2] > 0) & (pts[:, 2] <= MAX_DEPTH)
-    frame = np.repeat(np.arange(n), walk.counts)
-    world = rebuild(pts[near], np.bincount(frame[near], minlength=n).tolist(), closed.poses)
-    points, colors = fuse.voxelize(world, walk.colors[near], VOXEL)
-    assert colors is not None
+    points, colors = walk_cloud(walk, closed)
     g = np.asarray(up, dtype=np.float64)
-    points = points.astype(np.float32)
     registered: str | None = None
     meant: str | None = None
     matched: str | None = None
@@ -1386,7 +1401,7 @@ def finish(
                 ", ".join(sorted(c for c in (places.latest(state, meant) or rev).cameras)) or "none",
             )
     map_bytes = len(places.read_map(state, rev) or b"")
-    before, after = spread(walk.c2w, g), spread(closed.poses, g)
+    before, after = posture(walk.c2w, g), posture(closed.poses, g)
     live = [k for k, e in enumerate(closed.loop_pairs) if e in closed.loops]  # not the ones the solve dropped
     worst_m = max((closed.loop_m[k] for k in live), default=None)
     worst_deg = max((closed.loop_deg[k] for k in live), default=None)
@@ -1419,8 +1434,10 @@ def finish(
         "scale": None if closed.scale is None else round(closed.scale, 3),
         "loop_residual_deg": statistics.median(closed.loop_deg) if closed.loop_deg else None,
         "loop_residual_m": statistics.median(closed.loop_m) if closed.loop_m else None,
-        "up_spread_deg": [round(before[0], 1), round(after[0], 1)],
-        "height_spread_m": [round(before[1], 2), round(after[1], 2)],
+        # Each as [before the closure, after it] (`posture`): a LiDAR walk's change only where a revisit moved it.
+        "tilt_deg": [round(before[0], 1), round(after[0], 1)],
+        "lean_deg": [round(before[1], 1), round(after[1], 1)],
+        "height_span_m": [round(before[2], 2), round(after[2], 2)],
         "points": len(points),
         "map_mb": round(map_bytes / 2**20, 1),
         "fused": rev.producer == fuse.PRODUCER,
@@ -1733,23 +1750,24 @@ def _grab(
     return out, size
 
 
-def run_stray(
-    state: Path,
-    folder: Path,
-    place: str | None = None,
-    keyframes_only: Path | None = None,
-    poses_out: Path | None = None,
-    match: bool = False,
-) -> dict[str, Any]:
-    """A Stray Scanner export (spatial/stray.py) through the same steps, with ARKit's poses in CUT3R's place and the
-    LiDAR's depth for the cloud: no pose model and no step repair (ARKit's poses don't break the way CUT3R's do), no
-    gravity prior (they're gravity-aligned already), and their own tight odometry noise (`ARKIT_STEP_DEG`,
-    `ARKIT_STEP_M`).
-    Revisits are still closed with MASt3R where it can run, since ARKit's heading drifts too, about 1% of the walk."""
-    began = time.monotonic()
-    video = folder / "rgb.mp4"
+@dataclass(frozen=True)
+class StrayPicked:
+    """A Stray Scanner export's frames, chosen: each decoded frame's recorded row (`rows`), the frames picked, the
+    quarter turn that stands them upright (`turn`, with `code`, the cv2.rotate code for their images), and how many
+    posed frames they were picked from."""
+
+    rows: Mapping[int, stray.Frame]
+    picked: list[int]
+    turn: np.ndarray
+    code: int | None
+    posed: int
+
+
+def pick_stray(folder: Path) -> StrayPicked:
+    """The frames of a Stray Scanner export to make its walk of (step 1, on the frames ARKit posed). RuntimeError
+    for a recording that doesn't move."""
     recorded = stray.read_odometry(folder)
-    scored = score(video)
+    scored = score(folder / "rgb.mp4")
     # Each decoded frame's own row: a decoder can skip the recording's first frame (stray.py's docstring).
     rows = stray.by_video_frame(recorded, [(s.index, s.t) for s in scored])
     scored = [s for s in scored if s.index in rows]
@@ -1765,40 +1783,103 @@ def run_stray(
         folder.name,
         f" (the video starts {skipped} recorded frames in)" if skipped else "",
     )
+    return StrayPicked(rows, picked, turn, code, len(scored))
+
+
+@dataclass(frozen=True)
+class StrayWalk:
+    """A Stray Scanner export read into a walk, with nothing written: the walk on ARKit's poses (`walk`, upright),
+    its revisits closed (`closed`), each saved frame's intrinsics and size (`frames`), its views to look from
+    (`looks`, at the closed poses), and what the closure measured (`loops`, `measured`)."""
+
+    walk: Walk
+    closed: Closure
+    frames: list[tuple[np.ndarray, tuple[int, int]]]
+    looks: dict[str, places.CameraPose]
+    loops: list[tuple[int, int]]
+    measured: list[dict[str, Any]]
+
+
+def read_stray(folder: Path, chosen: StrayPicked, out: Path) -> StrayWalk:
+    """A Stray Scanner export's chosen frames as a walk: their images saved under `out`, ARKit's poses, the LiDAR's
+    points, and revisits closed with MASt3R where it can run (`run_stray` says why each prior is on or off). `out`
+    also takes MASt3R's work."""
+    rows, picked, turn, code = chosen.rows, chosen.picked, chosen.turn, chosen.code
+    video = folder / "rgb.mp4"
+    images = save_frames(video, picked, out, turn=code)
+    paths = [images[n] for n in sorted(images)]
+    colours, size = _grab(video, picked)
+    points, colors, counts = [], [], []
+    for i in picked:
+        p, c = stray.points(folder, rows[i].frame, rows[i].k, size, colours.get(i))
+        points.append(p @ turn)  # the sensor camera's coordinates into the turned camera's: turn^T p, row by row
+        colors.append(c)
+        counts.append(len(p))
+    c2w = np.stack([stray.turned(rows[i].c2w, turn) for i in picked])
+    walk = Walk(paths, c2w, np.concatenate(points), np.concatenate(colors), counts)
+    loops = retrieval.proposals(paths, required=False)
+    measured = measure(walk, loops, out / "mast3r", required=False)
+    depths = frame_depths(walk.points, counts)
+    closed = close_loops(
+        c2w,
+        measured,
+        loops,
+        depths,
+        gravity=False,
+        height=False,
+        clouds=near_clouds(walk.points, counts),  # only revisits are measured, so this only fits them
+        up=stray.WORLD_UP,
+        step_deg=ARKIT_STEP_DEG,
+        step_m=ARKIT_STEP_M,
+    )
+    frames = [stray.saved_intrinsics(rows[i].k, size, FRAME_SIDE, code, turn) for i in picked]
+    times = [rows[i].t for i in picked]
+    looks = splats.look_from(closed.poses, frames, times)
+    return StrayWalk(walk, closed, frames, looks, list(loops), measured)
+
+
+def stray_piece(
+    folder: Path,
+) -> tuple[np.ndarray, np.ndarray, tuple[float, float, float, float] | None, dict[str, places.CameraPose]]:
+    """A Stray Scanner export as a piece to rebuild a place's map from (tools/rebuild_place.py), read as an import
+    reads it but with no place written: the walk's cloud (`walk_cloud`: points and colours, in the walk's frame), its
+    floor there (`level_floor`; None when it has none), and its views to look from. RuntimeError for a recording
+    that doesn't move."""
+    chosen = pick_stray(folder)
+    with tempfile.TemporaryDirectory(prefix="walkthrough-") as tmp:
+        got = read_stray(folder, chosen, Path(tmp))
+    points, colors = walk_cloud(got.walk, got.closed)
+    up = np.asarray(stray.WORLD_UP, dtype=np.float64)
+    return points, colors, level_floor(points, up), got.looks
+
+
+def run_stray(
+    state: Path,
+    folder: Path,
+    place: str | None = None,
+    keyframes_only: Path | None = None,
+    poses_out: Path | None = None,
+    match: bool = False,
+) -> dict[str, Any]:
+    """A Stray Scanner export (spatial/stray.py) through the same steps, with ARKit's poses in CUT3R's place and the
+    LiDAR's depth for the cloud: no pose model and no step repair (ARKit's poses don't break the way CUT3R's do), no
+    gravity prior (they're gravity-aligned already), no one-height prior (their heights are metric and real: on one
+    walk whose floor steps up 20 cm the prior moved frames by up to 0.25 m, onto one level, though each frame's own
+    LiDAR floor sat 1.38 m under its camera on both sides of the step, #217), and their own tight odometry noise
+    (`ARKIT_STEP_DEG`, `ARKIT_STEP_M`).
+    Revisits are still closed with MASt3R where it can run, since ARKit's heading drifts too, about 1% of the walk."""
+    began = time.monotonic()
+    chosen = pick_stray(folder)
+    rows, picked, turn, code = chosen.rows, chosen.picked, chosen.turn, chosen.code
     if keyframes_only is not None:
         keyframes_only.mkdir(parents=True, exist_ok=True)
-        images = save_frames(video, picked, keyframes_only, turn=code)
+        images = save_frames(folder / "rgb.mp4", picked, keyframes_only, turn=code)
         return {"keyframes": len(images), "folder": str(keyframes_only)}
     with tempfile.TemporaryDirectory(prefix="walkthrough-") as tmp:
         out = Path(tmp)
-        images = save_frames(video, picked, out, turn=code)
-        paths = [images[n] for n in sorted(images)]
-        colours, size = _grab(video, picked)
-        points, colors, counts = [], [], []
-        for i in picked:
-            p, c = stray.points(folder, rows[i].frame, rows[i].k, size, colours.get(i))
-            points.append(p @ turn)  # the sensor camera's coordinates into the turned camera's: turn^T p, row by row
-            colors.append(c)
-            counts.append(len(p))
-        c2w = np.stack([stray.turned(rows[i].c2w, turn) for i in picked])
-        walk = Walk(paths, c2w, np.concatenate(points), np.concatenate(colors), counts)
-        loops = retrieval.proposals(paths, required=False)
-        measured = measure(walk, loops, out / "mast3r", required=False)
-        depths = frame_depths(walk.points, counts)
-        closed = close_loops(
-            c2w,
-            measured,
-            loops,
-            depths,
-            gravity=False,
-            clouds=near_clouds(walk.points, counts),  # only revisits are measured, so this only fits them
-            up=stray.WORLD_UP,
-            step_deg=ARKIT_STEP_DEG,
-            step_m=ARKIT_STEP_M,
-        )
-        frames = [stray.saved_intrinsics(rows[i].k, size, FRAME_SIDE, code, turn) for i in picked]
-        times = [rows[i].t for i in picked]
-        looks = splats.look_from(closed.poses, frames, times)
+        got = read_stray(folder, chosen, out)
+        walk, closed, frames, looks = got.walk, got.closed, got.frames, got.looks
+        paths, c2w, loops, measured = walk.paths, walk.c2w, got.loops, got.measured
         with places.writing(state):  # the nightly fixed-camera run waits for the join
             did = finish(
                 state,

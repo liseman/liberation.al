@@ -1,8 +1,9 @@
 # Vision streams
 
 The records the vision workers (`src/liberational/see/`) write, for anything that reads them directly: the gateway's
-overlays, Review, Ask, and the dashboard's pages. Every vision stream lives in the segment store. Owner teaching about what the cameras saw (zones, pet labels, activity names and
-ratings) is in the knowledge store, not here: see [Owner records](#owner-records).
+overlays, Review, Ask, and the dashboard's pages. Every vision stream lives in the segment store. Owner teaching about
+what the cameras saw (zones, pet labels, activity names and ratings) is in the knowledge store, not here: see [Owner
+records](#owner-records).
 
 ## Where the frames come from
 
@@ -32,29 +33,18 @@ decode's UUID for it. Frames are upright: capture's `flip` is applied before any
 
 ## see-actions: people
 
-`see-actions` (`see/actions_worker.py`, `see/actions.py`, `see/gpu_pose.py`) runs on every configured camera
-at its analysis rate (`vision.actions_fps`, overridden by `vision.actions_camera_fps`): it finds people and their halpe26 skeletons, tracks them (ByteTrack-style), and scores each track's
-recent joints with ST-GCN++ (`see/stgcn.py`, `see/action_classes.py`). When the backend loads MoViNet-A2,
-`see/action_clips.py` also scores person crops for reading, watching TV, phone use, and sleep.
+`see-actions` (`see/actions_worker.py`, `see/actions.py`, `see/gpu_pose.py`) runs on every configured camera at its
+analysis rate (`vision.actions_fps`, overridden by `vision.actions_camera_fps`): it finds people and their halpe26
+skeletons, tracks them (ByteTrack-style), and scores each track's recent joints with ST-GCN++ (`see/stgcn.py`,
+`see/action_classes.py`). When the backend loads MoViNet-A2, `see/action_clips.py` also scores person crops for
+reading, watching TV, phone use, and sleep.
 
-RF-DETR Small supplies person and COCO animal boxes. Its decoder ranks the top 300 query/class pairs
-without NMS; overlapping boxes alone do not discard adjacent people. The person score floor is 0.60,
-and animals retain their separate verification path. The tracker and pose-confidence gate decide track births.
+The detector uses no NMS, so adjacent people are both kept. [VISION.md](VISION.md#see-actions) describes the
+pipeline.
 
-CUDA placement defaults to the highest-rate camera on the last visible GPU and the other cameras on the first.
-Set `vision.actions_camera_gpus` in `pack.toml` to override individual manifest camera names, for example
-`actions_camera_gpus = { front = 0 }` under `[vision]`. Indexes refer to devices visible to the process, starting at
-zero; an invalid index fails startup before loading models. The empty default keeps automatic placement, and
-non-CUDA backends ignore the mapping. Restart see-actions after changing it. When first pulling the new defaults
-key, restart every config-reading service before setting the override so their cached schemas recognize it.
-
-On uncalibrated frames, pose crops keep RTMPose's stock 1.25 padding and 3:4 aspect ratio, but black out other
-person boxes scored at least 0.5 outside the target box. The target and a one-source-pixel interpolation margin
-stay intact, including all overlaps. This reduces a padded crop's tendency to follow the neighboring person:
-a bounded 50-still diagnostic recovered two additional starts, with no lost control starts or births on the
-18 definite-empty views. These repeated static inputs do not measure temporal tracking or action accuracy.
-People overlapping inside the target box remain unresolved; this mask cannot separate them. Calibrated fisheye
-views keep their existing projection and crops.
+On CUDA, the highest-rate camera runs on the last visible GPU and the others on the first.
+`vision.actions_camera_gpus` under `[vision]` in `pack.toml` overrides that per camera, for example
+`actions_camera_gpus = { front = 0 }`. Restart see-actions after changing it.
 
 | Stream | Fields |
 |---|---|
@@ -65,7 +55,7 @@ views keep their existing projection and crops.
 
 Person tracks born inside detected TV/laptop boxes or owner-drawn screen zones are withheld from these outputs
 until they leave the screen test. Real tracks that later overlap a screen remain real. The original recording is
-unchanged; see [Architecture](ARCHITECTURE.md#people-shown-on-screens) for the filter boundary.
+unchanged; see [Vision pipeline](VISION.md#people-on-screens) for the filter boundary.
 
 see-actions keeps no checkpoint: a restart starts new tracks from the live frames, as a gap would.
 
@@ -82,11 +72,11 @@ see-actions keeps no checkpoint: a restart starts new tracks from the live frame
 
 ## see-actions: faces
 
-`see/head_faces.py` crops each confirmed track's head from pose joints 0 to 4 about once a second and runs
-SCRFD detection and AdaFace IR50 RGB recognition on the crop. The track's name is what the gallery names the mean of its looks so far,
-so the pose track is the identity over time. A look with insufficient nose confidence or
-feature norm writes only `face.signal`: it does not name the track, update a face group, or save a face photo.
-The saved held-out check can disable automatic naming; see [Architecture](ARCHITECTURE.md#see-actions-the-vision-pipeline).
+`see/head_faces.py` crops each confirmed track's head from pose joints 0 to 4 about once a second and runs SCRFD
+detection and AdaFace IR50 RGB recognition on the crop. The track's name is what the gallery names the mean of its
+looks so far, so the pose track is the identity over time. A look with insufficient nose confidence or feature norm
+writes only `face.signal`: it does not name the track, update a face group, or save a face photo. The saved held-out
+check can disable automatic naming; see [People](PEOPLE.md#faces).
 
 | Stream | Fields |
 |---|---|

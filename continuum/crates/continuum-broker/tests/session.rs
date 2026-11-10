@@ -837,7 +837,7 @@ async fn only_the_streams_producer_may_ingest_and_a_bad_notice_is_rejected() {
     broker.stop().await;
 }
 
-// ---- The no-stall rule (docs/CONTINUUM.md): slow catalog work and a stuck client never delay anyone else ----
+// ---- The no-stall rule (docs/CONTINUUM-BROKER.md): slow catalog work and a stuck client never delay anyone else ----
 
 /// A long job for the writer: `steps` bounded steps, each taking `step` (a stand-in for a purge or a scrub).
 fn slow_background_job(steps: u32, step: Duration) -> continuum_broker::core::BackgroundJob {

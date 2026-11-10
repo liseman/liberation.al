@@ -638,7 +638,10 @@ def fuse_in(
     both see, `pack-walkthrough`'s seats): ICP polishes it against the map around there (SEAT_PAD_M), kept when it
     registers within SEAT_SHIFT_M and SEAT_TURN_DEG of the seat, else the seat stands as found (a map too soft for a
     sharper cloud to fit, like a whole home's fixed-camera snapshots beside a LiDAR walk). `signals` replace the
-    place's when given. `walked` marks a LiDAR walk's cloud (`merge`). None when the cloud can't be put at a metric scale or doesn't register."""
+    place's when given. `walked` marks a LiDAR walk's cloud (`merge`). The fused map is rescaled to its people's
+    heights and turned level when its floor has drifted, each of which gives the revision a frame of its own, except
+    while the owner's plan is drawn on the map (`owner_drawn`): then the frame holds. None when the cloud can't be
+    put at a metric scale or doesn't register."""
     level = leveller(floor)
     fused_rev = fused_revision(state, place)
     at = time.time() if now is None else now
@@ -665,7 +668,8 @@ def fuse_in(
         # Only the cameras the newest revision registered itself are in its frame: one carried over from an earlier
         # revision (places.revise carries cameras when none are given) is the fused map's own, already in place.
         fresh = {c: p for c, p in cams.items() if fused_rev.cameras.get(c) != p}
-        rescale = metric(fused_rev.cameras, f"{place}'s fused map", RESCALE_TOL, seen)
+        owners = owner_drawn(state, place, fused_rev)
+        rescale = np.eye(4) if owners else metric(fused_rev.cameras, f"{place}'s fused map", RESCALE_TOL, seen)
         before = _fused(old)
         before = replace(before, points=apply(rescale, before.points))
         if seated is None:
@@ -700,7 +704,9 @@ def fuse_in(
             len(fused.points),
             fused.dropped,
         )
-    levelled, moved = relevel(fused, moved, place)
+    levelled = fused
+    if not (fused_rev is not None and owner_drawn(state, place, fused_rev)):
+        levelled, moved = relevel(fused, moved, place)
     if levelled is not fused:
         frame = None  # turned level: a frame of its own
     return _revise(state, place, levelled, moved, sources, frame, at, now, signals)
@@ -785,6 +791,99 @@ def _owner_frame(state: Path, known: places.Place | None, frame: str | None) -> 
         return False
     drawn = next((r for r in places.revisions(state, known.id) if r.id == known.plan_revision), None)
     return drawn is not None and drawn.plan is None and drawn.frame == frame and drawn.plan_transform is None
+
+
+def owner_drawn(state: Path, place: str, fused_rev: places.Revision) -> bool:
+    """Whether the owner's plan is drawn on `place`'s fused map (`_owner_frame`, on `fused_rev`'s frame). That frame
+    is then the owner's, and no fusion moves the map out of it (#215): the map isn't rescaled to its people's heights
+    or turned level, either of which starts a frame of its own, where a machine plan would be derived and the owner's
+    rooms, drawn in the frame left behind, would no longer lie on the newest map, its cameras, or its positions. A
+    floor half a degree off under a plan the owner drew is the smaller wrong."""
+    return _owner_frame(state, places.get(state, place), fused_rev.frame)
+
+
+#: How far (metres) a fixed camera may stand from where it stood on the owner's frame for `onto_owner_plan` to take
+#: the newest map as still being that map: a levelling turn of a degree or a rescale of a few percent moves a camera
+#: centimetres, and anything past this is another registration, which no relabelling puts right.
+BACK_M = 0.25
+
+
+def _frame_hops(chain: Sequence[places.Revision], owned: str, fused_rev: places.Revision) -> list[float] | None:
+    """How far the fused map's frame moved between the owner's (`owned`) and `fused_rev`'s: for each change of frame
+    along the tier 1 revisions after the last one in the owner's frame, the farthest a fixed camera stands (metres)
+    from where the revision before had it. A frame moves only at the revision that starts it, so that is where it's
+    measured: later revisions in a frame add nothing, though a nightly seat re-poses the cameras in it by decimetres
+    of its own (#227). Each hop's figure includes what that fusion did to its own cameras, so the sum bounds the move
+    from above. None when a hop has no fixed camera on both sides."""
+    at = max((i for i, r in enumerate(chain) if r.frame == owned), default=None)
+    if at is None:
+        return None
+    hops: list[float] = []
+    before = chain[at]
+    for rev in chain[at + 1 :]:
+        if rev.producer != PRODUCER or rev.frame is None:
+            continue  # a snapshot or a walk's own revision: not the fused map
+        if rev.frame != before.frame:
+            shared = [c for c in set(before.cameras) & set(rev.cameras) if not c.startswith("walk-")]
+            if not shared:
+                return None
+            hops.append(max(float(np.linalg.norm(_centre(rev, c) - _centre(before, c))) for c in shared))
+        before = rev
+        if rev.id == fused_rev.id:
+            break
+    return hops
+
+
+def _centre(rev: places.Revision, cam: str) -> np.ndarray:
+    return np.asarray(rev.cameras[cam].pose, dtype=np.float64).reshape(4, 4)[:3, 3]
+
+
+def onto_owner_plan(
+    state: Path, place: str, now: float | None = None, write: bool = True
+) -> tuple[places.Revision | None, str]:
+    """The repair for a place whose map a fusion moved off its owner's plan before `owner_drawn` held the frame
+    (#215): the newest fused map written again as a tier 1 revision in the frame the owner's plan is drawn in, with
+    its cameras and signals as they are and no machine plan, so the owner's plan holds on the newest map again
+    (`places.same_plan_frame`), unchanged. Everything a walk added to the map since stays. The map isn't moved back:
+    what moved it was a small levelling turn or rescale, so across each change of frame since the owner's the fixed
+    cameras must have moved no more than `BACK_M` in all (`_frame_hops`), and a map that moved farther is refused.
+    Fusions that kept a frame (a nightly seat, which re-poses its cameras) don't count: the newest cameras are
+    written as they are. `write` False only says what it would do. Returns the new revision (None when nothing was written) and
+    what it found."""
+    known = places.get(state, place)
+    fused_rev = fused_revision(state, place)
+    if known is None or fused_rev is None:
+        return None, "no such place, or it has no fused map"
+    if known.plan_source != "owner" or not known.plan or not known.plan_revision:
+        return None, "the place has no owner plan to restore"
+    if _owner_frame(state, known, fused_rev.frame):
+        return None, "the owner's plan is already drawn on the newest map: nothing to do"
+    drawn = next((r for r in places.revisions(state, place) if r.id == known.plan_revision), None)
+    if drawn is None or drawn.frame is None or drawn.plan is not None or drawn.plan_transform is not None:
+        return (
+            None,
+            "the owner's plan isn't drawn on a map frame (it corrects a machine plan), so there is no frame to restore",
+        )
+    hops = _frame_hops(places.revisions(state, place), drawn.frame, fused_rev)
+    if hops is None:
+        return None, "no fixed camera is on both sides of a change of the map's frame, so the move can't be checked"
+    moved = sum(hops)
+    found = (
+        f"the map changed frame {len(hops)} time{'s' if len(hops) != 1 else ''} since the owner's, moving its fixed "
+        f"cameras {moved:.3f} m at most"
+    )
+    if moved > BACK_M:
+        return None, f"{found}, past the {BACK_M} m a levelling turn or rescale moves them: not restored"
+    if not write:
+        return None, f"{found}: the newest map would be written again in the owner's frame"
+    old = _cloud(state, fused_rev)
+    if old is None:
+        return None, "the newest fused map's file is gone"
+    at = time.time() if now is None else now
+    newest = places.latest(state, place) or fused_rev
+    rev = _revise(state, place, _fused(old), fused_rev.cameras, [fused_rev.id], drawn.frame, at, now, newest.signals)
+    LOG.info("%s: its newest map written again in the owner plan's frame (%s)", place, found)
+    return rev, f"{found}: written as revision {rev.id}"
 
 
 def refine_all(state: Path, now: float | None = None) -> list[places.Revision]:
@@ -1200,7 +1299,8 @@ def seat(
     quality the fitness): the owner's measured spots (`measured_spots`) are evidence of where a camera was,
     read with them, not a pin. Only the snapshot's points a LiDAR walk didn't already see better go in (`gate`). Every
     other camera of the place keeps its pose, the place keeps its signals with the group's cameras among them, and its
-    frame holds unless the map is rescaled or turned level, as in `refine`. A run that seats several groups (one a room)
+    frame holds unless the map is rescaled or turned level, as in `refine` (never while the owner's plan is drawn on
+    it, `owner_drawn`). A run that seats several groups (one a room)
     writes one revision for each, each built on the one before. None, with nothing written, when the place has no fused
     map, the cameras can't place the cloud, the cloud doesn't register, or ICP moves it off where its cameras put it
     (SEAT_SHIFT_M, SEAT_TURN_DEG)."""
@@ -1218,7 +1318,8 @@ def seat(
     level = scale @ level
     new_pts = apply(level, np.asarray(points, dtype=np.float64).reshape(-1, 3))
     here = _moved(poses, level)
-    rescale = metric(fused_rev.cameras, f"{place}'s fused map", RESCALE_TOL, seen)
+    owners = owner_drawn(state, place, fused_rev)
+    rescale = np.eye(4) if owners else metric(fused_rev.cameras, f"{place}'s fused map", RESCALE_TOL, seen)
     there = _moved(fused_rev.cameras, rescale)
     old = _cloud(state, fused_rev)
     assert old is not None
@@ -1267,7 +1368,9 @@ def seat(
         fused.dropped,
         int((~kept).sum()),
     )
-    levelled, cams = relevel(fused, cams, place)
+    levelled = fused
+    if not owners:
+        levelled, cams = relevel(fused, cams, place)
     if levelled is not fused:
         frame = None
     newest = places.latest(state, place)

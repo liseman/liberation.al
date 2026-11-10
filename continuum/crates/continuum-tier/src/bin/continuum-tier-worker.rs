@@ -1,4 +1,4 @@
-//! The tier worker (docs/CONTINUUM.md, "Storage tiers"): follows the capture streams, drains each payload from Tier 0
+//! The tier worker (docs/CONTINUUM-STORAGE.md): follows the capture streams, drains each payload from Tier 0
 //! into Tier 1 chunk files, and commits each chunk through the broker (see `continuum_tier::service`).
 //!
 //! ```sh

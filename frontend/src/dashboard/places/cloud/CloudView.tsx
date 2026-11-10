@@ -1,13 +1,13 @@
 // A place's map in 3D: the point cloud the house built of it, with the floor, the cameras' views, and the plan's
-// outline on the floor, in an orbit view. PlayCanvas (MIT) draws it (scene.ts), on WebGPU or WebGL2; this chunk
-// loads only when the 3D view opens (PlacesTab lazy-loads it), since the engine is most of its weight. Drawing is
-// on demand: a frame is drawn when the view moves or a setting changes, never in a loop.
-// A revision with a splat can be drawn as the splat instead of the points, in the same scene. A splat looks right
-// only from where its frames were taken, so each camera has a button that puts the view there, filled with that
-// camera's frame.
+// outline on the floor, and its splat when it has one. PlayCanvas's SuperSplat viewer draws it and moves through
+// it (scene.ts): orbit, fly, and walk modes, with its own mode bar, help, settings, and fullscreen. This chunk
+// loads only when the 3D view opens (PlacesTab lazy-loads it), since the viewer and its engine are most of its
+// weight. The view fills its pane down to the bottom of the window, with our own settings in a row under it.
+// A splat looks right only from where its frames were taken, so each camera has a button that flies the view
+// there.
 import { Button, Checkbox, Group, SegmentedControl, Slider, Text } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { messageOf } from '../../../shared/http';
 import { type Scene, sceneQuery } from '../api';
 import classes from '../places.module.css';
@@ -63,12 +63,12 @@ export default function CloudView({ place }: { place: string }) {
   const bytes = useMapBytes(data);
   const hasSplat = !!data?.splat && canDrawSplat(data.splat_format);
   const [chosen, setChosen] = useState<Draw | null>(null);
-  const [splatFailed, setSplatFailed] = useState<string | null>(null);
   const wantSplat = (chosen ?? (hasSplat ? 'splat' : 'points')) === 'splat';
-  const splatBytes = useSplatBytes(data, wantSplat);
+  // The viewer is built around its splat, so a place that has one waits for it, whichever way it's drawn first.
+  const splatBytes = useSplatBytes(data, hasSplat);
   const splatFrom = data?.splat_from;
   // A splat that can't be read or drawn leaves the points: the map still shows, with a note.
-  const splatError = splatFailed ?? (splatBytes.isError ? messageOf(splatBytes.error) : null);
+  const splatError = splatBytes.isError ? messageOf(splatBytes.error) : null;
   const draw: Draw = wantSplat && !splatError ? 'splat' : 'points';
   const [splatReady, setSplatReady] = useState(false);
   const host = useRef<HTMLDivElement>(null);
@@ -78,24 +78,26 @@ export default function CloudView({ place }: { place: string }) {
   const [show, setShow] = useState({ floor: true, cameras: true, plan: true });
   const [failed, setFailed] = useState<string | null>(null);
 
-  // Build the scene once its map's bytes are here; tear it down when they change or the view closes.
+  // Build the scene once its map's bytes are here, and its splat's when it has one (or they've failed); tear it
+  // down when they change or the view closes.
   const [ready, setReady] = useState(0);
+  const splatSettled = !hasSplat || !!splatBytes.data || splatBytes.isError;
   useEffect(() => {
     const el = host.current;
-    if (!webgl || !el || !data || !bytes.data) return;
+    if (!webgl || !el || !data || !bytes.data || !splatSettled) return;
     let gone = false;
     let made: Built | null = null;
-    let observer: ResizeObserver | null = null;
-    (async () => build(el, data, parseCloud(bytes.data, 'ply')))().then(
+    const file = splatBytes.data ?? null;
+    // A splat looks right from where its frames were taken, and like floaters from above: it opens from the first of
+    // the views it trained on, a walk's or a fixed camera's ("Back to the start" goes to the overview).
+    const opening = file ? openingCamera(Object.keys(data.cameras ?? {}), splatFrom) : null;
+    (async () => build(el, data, parseCloud(bytes.data, 'ply'), file, opening))().then(
       b => {
         if (gone) return b.dispose();
         made = b;
         built.current = b;
-        observer = new ResizeObserver(b.resize);
-        observer.observe(el);
-        b.resize();
-        b.home();
-        setReady(n => n + 1); // the splat and the settings wait for the scene
+        setSplatReady(!!file);
+        setReady(n => n + 1); // the settings wait for the scene
       },
       e => {
         if (!gone) setFailed(messageOf(e));
@@ -103,45 +105,31 @@ export default function CloudView({ place }: { place: string }) {
     );
     return () => {
       gone = true;
-      observer?.disconnect();
       built.current = null;
       setSplatReady(false);
       made?.dispose();
     };
-  }, [webgl, data, bytes.data]);
-
-  // The splat joins the scene once its bytes are here (and the scene is built), and leaves it with them.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `ready` says the scene was rebuilt, which the splat joins again
-  useEffect(() => {
-    const b = built.current;
-    const file = splatBytes.data;
-    if (!b || !file) return;
-    let gone = false;
-    b.setSplat(file).then(
-      () => {
-        if (gone) return;
-        setSplatReady(true);
-        // A splat looks right from where its frames were taken, and like floaters from above: it opens from the
-        // first of the views it trained on, a walk's or a fixed camera's ("Back to the start" goes to the overview).
-        const first = openingCamera(b.cameraNames, splatFrom);
-        if (first) b.lookFrom(first);
-      },
-      e => {
-        if (!gone) setSplatFailed(messageOf(e));
-      },
-    );
-    return () => {
-      gone = true;
-      b.dropSplat();
-      setSplatReady(false);
-    };
-  }, [splatBytes.data, ready, splatFrom]);
+  }, [webgl, data, bytes.data, splatBytes.data, splatSettled, splatFrom]);
 
   // Settings change what's drawn, then one frame is drawn.
   // biome-ignore lint/correctness/useExhaustiveDependencies: `ready` says the scene was rebuilt and wants its settings
   useEffect(() => {
     built.current?.show({ splat: draw === 'splat' && splatReady, size, colour, ...show });
   }, [draw, splatReady, size, colour, show, ready]);
+
+  // The view takes what's left of the window under where it starts: measured, since what's above it (the place's
+  // header, the tabs) is the page's to decide, and measured again when the window changes.
+  const frame = useRef<HTMLDivElement>(null);
+  const [top, setTop] = useState(0);
+  useLayoutEffect(() => {
+    const measure = () => {
+      const el = frame.current;
+      if (el) setTop(Math.round(el.getBoundingClientRect().top + window.scrollY));
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, []);
 
   if (!webgl)
     return (
@@ -171,11 +159,15 @@ export default function CloudView({ place }: { place: string }) {
   const splatLoading = draw === 'splat' && !splatReady;
   const cams = Object.keys(data?.cameras ?? {});
   return (
-    <div>
+    <div
+      ref={frame}
+      className={classes.cloudFrame}
+      style={{ height: `calc(100dvh - ${top}px - var(--mantine-spacing-md))` }}
+    >
       <div
         className={classes.cloud}
         ref={host}
-        aria-label="The place's map in 3D: drag to turn, scroll to zoom"
+        aria-label="The place's map in 3D: orbit, fly, or walk through it; press H for the controls"
         role="img"
       >
         {loading ? (

@@ -1,6 +1,6 @@
 """Is Continuum up and healthy on this machine? (`pack-continuum-status`, `mise run continuum-status`.)
 
-One screen for turning Continuum on (docs/CONTINUUM.md, "Turning Continuum on"), and exit 1 if anything's wrong:
+One screen for turning Continuum on (docs/CONTINUUM.md), and exit 1 if anything's wrong:
 
 - each Continuum service: installed, and its service manager's state (`pack-services status`);
 - the broker: its socket accepts a connection, and the client handshake works;
@@ -487,7 +487,7 @@ def main(argv: list[str] | None = None) -> None:
         report = run(args)
     print("\n".join(report.lines))
     if report.problems:
-        print(f"\n{len(report.problems)} problem(s): roll back (docs/CONTINUUM.md, Turning Continuum on)")
+        print(f"\n{len(report.problems)} problem(s): roll back (docs/CONTINUUM.md, Running and checking it)")
         sys.exit(1)
     print("\nall good")
 

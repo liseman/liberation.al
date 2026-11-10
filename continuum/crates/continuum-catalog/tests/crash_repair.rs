@@ -1,6 +1,6 @@
 //! redb's crash repair at a realistic size: a writer is killed with SIGKILL mid-commit on a
 //! catalog of a few GB, and the reopen, which runs redb's repair, must succeed with every acknowledged commit in it.
-//! Ignored by default (it writes GBs and takes minutes); run it by hand, as docs/CONTINUUM.md says:
+//! Ignored by default (it writes GBs and takes minutes); run it by hand:
 //!
 //! ```text
 //! CONTINUUM_CRASH_DIR=/some/disk/dir tools/build-slot.sh nice -n 19 ionice -c3 \
@@ -102,7 +102,7 @@ fn progress(dir: &Path) -> Option<u64> {
 }
 
 #[test]
-#[ignore = "writes GBs and takes minutes: run by hand with CONTINUUM_CRASH_DIR (docs/CONTINUUM.md)"]
+#[ignore = "writes GBs and takes minutes: run by hand with CONTINUUM_CRASH_DIR (see this file's header)"]
 fn redb_repairs_a_large_catalog_after_kill_9() {
     let dir = PathBuf::from(std::env::var("CONTINUUM_CRASH_DIR").expect("CONTINUUM_CRASH_DIR: a scratch directory"));
     if let Ok(from) = std::env::var(CHILD) {

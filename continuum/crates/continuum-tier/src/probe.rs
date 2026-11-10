@@ -2,7 +2,7 @@
 //!
 //! Without the `ffmpeg` feature the probe reports the built-in codecs only (LZ4, FLAC, JPEG decode) and says that
 //! hardware codecs need the feature. With it, it asks FFmpeg which of the encoders and decoders the tiers use are
-//! present (docs/CONTINUUM.md, "Hardware codecs").
+//! present (docs/CONTINUUM-CAPTURE.md).
 
 /// What the worker can encode and decode.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -59,7 +59,7 @@ fn probe_ffmpeg() -> Option<Ffmpeg> {
 }
 
 /// Whether this FFmpeg can encode the AV1 archive (SVT-AV1). The wheels' private FFmpeg leaves it out
-/// (docs/CONTINUUM.md, "Wheels"); a distribution's FFmpeg has it.
+/// (docs/CONTINUUM-SDK.md); a distribution's FFmpeg has it.
 #[must_use]
 pub fn av1_encoder_available() -> bool {
     #[cfg(feature = "ffmpeg")]

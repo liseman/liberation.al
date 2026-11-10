@@ -1,4 +1,4 @@
-//! The broker's core, split so that nothing slow ever stalls anything fast (docs/CONTINUUM.md, the broker's no-stall
+//! The broker's core, split so that nothing slow ever stalls anything fast (docs/CONTINUUM-BROKER.md, the no-stall
 //! rule):
 //!
 //! - **The scheduler task** owns everything decided in memory: open sessions, which streams are live, the
@@ -2634,7 +2634,7 @@ fn run_urgent(
                 if let Err(e) = catalog.record_clock(boot, point) {
                     warn!(error = %e, "couldn't record a clock sample");
                 }
-                // The commit clock: everything committed so far was committed by now (docs/CONTINUUM.md, "Aging").
+                // The commit clock: everything committed so far was committed by now (docs/CONTINUUM-STORAGE.md).
                 // Timed here, on the writer, after every commit the head includes: the sample was taken before it
                 // was queued, possibly before work queued ahead of it committed.
                 if let Err(e) = catalog.mark_commit_clock(now_ns()) {

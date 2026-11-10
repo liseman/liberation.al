@@ -24,7 +24,7 @@ sccache = "latest"
 [env]
 # Rust builds go through sccache when it's installed (mise install), so worktrees share compiled crates; an empty
 # value (no sccache) means no wrapper, and cargo builds as before. To override, run one command with RUSTC_WRAPPER
-# set (empty for none), or set it under [env] in mise.local.toml (docs/CONTINUUM.md, after the tasks table).
+# set (empty for none), or set it under [env] in mise.local.toml (docs/CONTINUUM-SDK.md, "Building").
 RUSTC_WRAPPER = { value = "{{ get_env(name='RUSTC_WRAPPER', default=exec(command='command -v sccache || true')) }}", tools = true }
 # One build of the whole Continuum tree is several GB in the cache, and the debug, check (clippy), and ffmpeg builds
 # each cache their own; sccache's 10 GiB default would evict what the next worktree needs. Set it yourself to override.
@@ -313,7 +313,7 @@ description = "Link the Continuum daemons already built (continuum/target/releas
 run = "tools/link-daemons.sh"
 
 [tasks.continuum-wheels]
-description = "Build Continuum's wheels for this platform into continuum/dist/: the SDK and the daemons, with a private LGPL FFmpeg linked in (docs/CONTINUUM.md, Wheels). On Linux it builds in a Debian 12 container (needs Docker), so the wheels run on glibc 2.36 and later"
+description = "Build Continuum's wheels for this platform into continuum/dist/: the SDK and the daemons, with a private LGPL FFmpeg linked in (docs/CONTINUUM-SDK.md, Wheels). On Linux it builds in a Debian 12 container (needs Docker), so the wheels run on glibc 2.36 and later"
 run = "tools/build-slot.sh continuum/packaging/wheels.sh"
 
 [tasks.continuum-check]

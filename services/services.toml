@@ -176,8 +176,8 @@ reads_settings = false
 # to 10 s); killing it sooner leaves the next start a full index rebuild and a catalog repair.
 stop_timeout = 75
 
-# One worker process per camera and microphone in config/devices.toml, opened one at a time (docs/CONTINUUM.md, One
-# process per physical device).
+# One worker process per camera and microphone in config/devices.toml, opened one at a time
+# (docs/CONTINUUM-CAPTURE.md).
 [continuum-capture]
 description = "Records from each camera and microphone."
 group = "core"
@@ -193,7 +193,7 @@ stop_timeout = 25
 reads_settings = false
 
 # Drains each capture stream from Tier 0 into Tier 1 chunk files. A microphone's chunk becomes Opus as it closes,
-# before it is committed (docs/CONTINUUM.md, Storage tiers). With video_archive.av1 on, it also re-encodes older camera
+# before it is committed (docs/CONTINUUM-STORAGE.md). With video_archive.av1 on, it also re-encodes older camera
 # video to AV1 (docs/STORAGE.md, AV1 archive); the settings go by environment, which an older binary ignores.
 # SVT_LOG=1 keeps SVT-AV1 to errors: otherwise it logs a banner of about 20 lines for every chunk it encodes.
 [continuum-tier-worker]
@@ -212,7 +212,7 @@ stop_timeout = 15
 reads_settings = true
 
 # Files face and voice embeddings, answers similarity and text searches, and deletes its rows on purges
-# (docs/CONTINUUM.md, Vector worker).
+# (docs/CONTINUUM-STORAGE.md).
 [continuum-vector-worker]
 description = "Keeps the face and voice index used to recognize people and to search."
 group = "core"
@@ -226,7 +226,7 @@ throttle = 5
 stop_timeout = 15
 reads_settings = false
 
-# Live and recorded frames with overlays, over WebSockets (docs/CONTINUUM.md, Browser gateway).
+# Live and recorded frames with overlays, over WebSockets (docs/CONTINUUM-GATEWAY.md).
 [continuum-gateway]
 description = "Streams live and recorded video, with labels, to the dashboard."
 group = "core"

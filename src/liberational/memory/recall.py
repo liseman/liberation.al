@@ -1,6 +1,6 @@
 """Recall: search the journal across its levels, and the search-or-answer loop Ask runs before it answers.
 
-After WorldMM (docs/research/worldmm-long-video-memory.md, porting steps 4, 5, and the frames part of 7).
+After WorldMM (Yeo, Kim, Yoon, and Hwang, CVPR 2026).
 
 search() reads the journal on the memory log (`memory_log`, `journal.entry`): the vector worker's
 full-text index of the entries gives the ones whose words match, within the question's window, and with the
