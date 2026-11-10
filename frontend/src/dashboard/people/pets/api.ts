@@ -3,7 +3,7 @@
 
 import { queryOptions } from '@tanstack/react-query';
 import { request } from '../../../shared/http';
-import { capitalize, hm } from '../../lib/format';
+import { capitalize, seenSpan } from '../../lib/format';
 import type { Pet, PetsView } from '../petLinks';
 
 export type { Pet, PetsView };
@@ -218,19 +218,8 @@ export function petVideos(seen: Seen[], max = 4) {
   });
 }
 
-/** "Nov 6, 11:09": the day, and the time in 24 hours as the rest of the app says it (lib/format). */
-const when = (seconds: number) =>
-  `${new Date(seconds * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}, ${hm(seconds)}`;
-const clock = hm;
-
-/** A span in few words: one time when it is within a minute, the day once when it is one day. */
-export function span(first: number, last: number) {
-  if (when(first) === when(last)) return when(first);
-  if (new Date(first * 1000).toDateString() === new Date(last * 1000).toDateString()) {
-    return `${when(first)} to ${clock(last)}`;
-  }
-  return `${when(first)} to ${when(last)}`;
-}
+/** A span in few words, as the dashboard says times (lib/format): "today 13:14 to 13:18". */
+export const span = (first: number, last: number): string => seenSpan(first, last);
 
 export const species = capitalize;
 

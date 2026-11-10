@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { seenAt } from '../../lib/format';
 import { byWindow, PET_WINDOW_S, petVideos, type Seen, span, waitingGroups } from './api';
 
 const seen = (id: string, extra: Partial<Seen> = {}): Seen => ({
@@ -41,8 +42,9 @@ it('passes over sightings the server offers no video of, such as one without a c
 
 it('says when sightings were in 24-hour time, the day once', () => {
   const t = (h: number, m: number) => new Date(2026, 10, 6, h, m).getTime() / 1000;
-  expect(span(t(13, 9), t(13, 9))).toMatch(/^\S+ \S+, 13:09$/);
-  expect(span(t(11, 9), t(13, 10))).toMatch(/, 11:09 to 13:10$/);
+  expect(span(t(13, 9), t(13, 9))).toBe(seenAt(t(13, 9)));
+  expect(span(t(11, 9), t(13, 10))).toBe(`${seenAt(t(11, 9))} to 13:10`);
+  expect(span(t(11, 9), t(11, 9) + 86_400)).toBe(`${seenAt(t(11, 9))} to ${seenAt(t(11, 9) + 86_400)}`);
 });
 
 describe('one card per pet per short window', () => {
