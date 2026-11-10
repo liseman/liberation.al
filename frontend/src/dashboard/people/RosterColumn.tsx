@@ -150,7 +150,7 @@ export function RosterColumn({
             busy={retrying}
           />
         ) : (
-          <PageLoading label={noun} shape="rows" />
+          <PageLoading label={noun} shape="cards" lines={4} />
         )
       ) : !shown.length ? (
         <Box mt="md">

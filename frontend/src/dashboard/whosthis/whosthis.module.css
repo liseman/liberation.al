@@ -105,3 +105,24 @@
   aspect-ratio: 1;
   object-fit: cover;
 }
+
+.cardSkeletons {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.cardSkeleton {
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid var(--mantine-color-default-border);
+  background: var(--mantine-color-body);
+  min-width: 0;
+}
+
+.cardSkeletonPic {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+}
