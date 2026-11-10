@@ -378,3 +378,68 @@
   border: 0;
   border-radius: var(--mantine-radius-md);
 }
+
+/* A plan drawn from a Pascal scene (scene/draw.ts): rooms, walls with their openings, and the camera spots, in the
+   app's own colours. */
+.drawing :global(.scene-plan) {
+  color: var(--mantine-color-text);
+  background: var(--lib-card);
+}
+
+.drawing :global(.scene-plan .room) {
+  fill: var(--mantine-color-default-hover);
+  stroke: none;
+}
+
+.drawing :global(.scene-plan .wall) {
+  stroke: currentColor;
+  stroke-linecap: square;
+}
+
+.drawing :global(.scene-plan .gap) {
+  stroke: var(--lib-card);
+  stroke-linecap: butt;
+}
+
+.drawing :global(.scene-plan .window) {
+  stroke: currentColor;
+  stroke-width: 1.5;
+}
+
+.drawing :global(.scene-plan .name) {
+  fill: currentColor;
+  font-size: 13px;
+  font-weight: 600;
+  text-anchor: middle;
+}
+
+.drawing :global(.scene-plan .area) {
+  fill: var(--mantine-color-dimmed);
+  font-size: 11px;
+  text-anchor: middle;
+}
+
+.drawing :global(.scene-plan .object) {
+  fill: none;
+  stroke: var(--mantine-color-dimmed);
+  stroke-width: 1;
+}
+
+.drawing :global(.scene-plan .unexplored) {
+  fill: none;
+  stroke: var(--mantine-color-dimmed);
+  stroke-width: 1.5;
+  stroke-dasharray: 6 5;
+}
+
+.drawing :global(.scene-plan .view) {
+  fill: var(--mantine-primary-color-filled);
+  fill-opacity: 0.18;
+  stroke: none;
+}
+
+.drawing :global(.scene-plan .camera) {
+  fill: var(--mantine-primary-color-filled);
+  stroke: var(--lib-card);
+  stroke-width: 1.5;
+}

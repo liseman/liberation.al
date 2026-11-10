@@ -14,6 +14,7 @@ import { projection } from '../../../vendor/floorplan/index.js';
 import { hm, plural } from '../../lib/format';
 import { type Point, type Positions, positionsQuery } from '../api';
 import classes from '../places.module.css';
+import type { Surface } from '../scene/draw';
 import { examplePositions } from './fixture';
 import {
   arrowHead,
@@ -78,11 +79,6 @@ const LACKS: Record<string, string> = {
 export const lacks = (missing: string[]): string => missing.map(m => LACKS[m] ?? m).join('; ');
 
 /** Where the paths are drawn: floor metres to the drawing's pixels, and the plan's rooms (none on a plain frame). */
-interface Surface {
-  toScreen: (p: [number, number]) => [number, number];
-  rooms: { id: string; name: string; poly: [number, number][] }[];
-}
-
 /** A place with no plan yet: plain floor, a line every metre, and a metre's scale bar, under its paths. */
 function PlainGrid({ frame }: { frame: PlainFrame }) {
   const w = frame.width * PLAIN_SCALE;
@@ -216,13 +212,15 @@ function Overlay({
   );
 }
 
-/** A place's plan with its paths, the scrubber, and who's on it. `svg` is the plan as drawn (drawPlan), and `result`
- *  the plan it drew; a place with neither (no plan yet) draws its paths on plain floor fitted to them. */
+/** A place's plan with its paths, the scrubber, and who's on it. `svg` is the plan as drawn, with either `result`
+ *  (the plan the floorplan library drew) or `drawn` (where a plan point lands in an SVG drawn from a scene,
+ *  scene/draw.ts); a place with no plan yet draws its paths on plain floor fitted to them. */
 export function PlacePaths({
   place,
   example,
   svg,
   result,
+  drawn,
   options,
   linked,
 }: {
@@ -230,6 +228,7 @@ export function PlacePaths({
   example: boolean;
   svg?: string;
   result?: FloorplanResult;
+  drawn?: Surface;
   options: RenderOptions;
   /** A moment a link asked for (epoch seconds), or null for now. */
   linked: number | null;
@@ -263,17 +262,19 @@ export function PlacePaths({
   );
   const planned = useMemo(
     (): Surface | null =>
-      result
-        ? {
-            toScreen: projection(result.model, options).toScreen,
-            rooms: result.model.rooms.map(r => ({
-              id: r.room.id,
-              name: r.room.name,
-              poly: r.room.poly as [number, number][],
-            })),
-          }
-        : null,
-    [result, options],
+      drawn
+        ? drawn
+        : result
+          ? {
+              toScreen: projection(result.model, options).toScreen,
+              rooms: result.model.rooms.map(r => ({
+                id: r.room.id,
+                name: r.room.name,
+                poly: r.room.poly as [number, number][],
+              })),
+            }
+          : null,
+    [drawn, result, options],
   );
   const plain = useMemo(() => (svg || !data ? null : plainFrame(data.tracks)), [svg, data]);
   const surface: Surface | null = planned ?? (plain ? { toScreen: p => plainToScreen(plain, p), rooms: [] } : null);

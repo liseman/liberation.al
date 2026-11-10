@@ -1,6 +1,7 @@
 // Known › Places' reads: the places the house has (GET /places, memory/places.py) and where people and pets were in
 // one of them over a window of time (GET /places/positions; the position layer is spatial/positions.py).
 import { queryOptions } from '@tanstack/react-query';
+import type { Scene as PlanGraph } from '../../plan-editor/protocol';
 import { request } from '../../shared/http';
 
 /** A place, as GET /places lists it. */
@@ -131,6 +132,30 @@ export const planHistoryQuery = (place: string) =>
     queryFn: ({ signal }) =>
       request<PlanHistory>(`/places/plan/history?${new URLSearchParams({ place })}`, undefined, signal),
     staleTime: 60_000,
+  });
+
+/** A place's plan as a Pascal scene (GET /places/plan/scene), for the plan editor: the plan that holds, or with
+ *  `record` an earlier version of it. `converted`: the stored plan is still DSL and was converted on the way out,
+ *  with `left` the statements a scene has no place for. `base` is the revision it is drawn in, which a save sends. */
+export interface PlanScene {
+  place: string;
+  scene: PlanGraph;
+  converted: boolean;
+  left: string[];
+  base: string | null;
+}
+
+export const planSceneQuery = (place: string, record?: string) =>
+  queryOptions({
+    queryKey: ['places', 'plan-scene', place, record ?? null],
+    queryFn: ({ signal }) =>
+      request<PlanScene>(
+        `/places/plan/scene?${new URLSearchParams({ place, ...(record ? { record } : {}) })}`,
+        undefined,
+        signal,
+      ),
+    staleTime: 0, // the editor opens on the plan as it is now
+    gcTime: 0,
   });
 
 /** Make an earlier owner plan hold again (Revert plan): written as a new record, so the one it replaces stays in the
