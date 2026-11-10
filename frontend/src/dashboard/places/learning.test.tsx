@@ -332,7 +332,7 @@ it('gives each camera a row with its name, how it is doing, and its newest kept 
     'frontPerson or animal in view',
     'hallNeeds a facingIts spot on the plan has no facing. Give it one in the plan editor.',
   ]);
-  const picture = within(rows[0] as HTMLElement).getByRole('img', { name: 'The newest picture kept from front' });
+  const picture = within(rows[0] as HTMLElement).getByRole('img', { name: 'The newest view kept from front' });
   expect(picture.getAttribute('src')).toBe(`/surroundings/thumb/${frame}.jpg`);
   // no frame of the hall may be shown: a plain tile, and the reason in full for a pointer
   expect(within(rows[1] as HTMLElement).queryByRole('img')).toBeNull();

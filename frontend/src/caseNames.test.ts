@@ -19,7 +19,7 @@ function clashes(dir: string): string[] {
     const stem = name.replace(SOURCE, '').replace(/\.test$/, '');
     const key = stem.toLowerCase();
     const other = seen.get(key);
-    if (other !== undefined && other !== stem) out.push(join(dir, stem) + ' vs ' + other);
+    if (other !== undefined && other !== stem) out.push(`${join(dir, stem)} vs ${other}`);
     else seen.set(key, stem);
   }
   return out;
