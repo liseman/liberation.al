@@ -53,9 +53,10 @@ live with the video and follow the 30-day video window.
 
 This module is the schema and the read and write helpers. A writer is a job that builds a place's map and registers
 each camera in it: its pose in the map's frame, with the map's floor plane and the plan's frame, so `camera_to_plan`
-can put a pixel of that camera on the plan. No such job runs at present: spatial memory is being built again from
-what the cameras see. Until it writes a revision, a camera has a pose only from the spot the owner gave it on the
-place's plan (`spot_places`, spatial/spots.py), which needs no map.
+can put a pixel of that camera on the plan. The surroundings jobs are those writers: spatial/surroundings_map.py
+refines a place's map from the frames kept from its cameras into a new revision, and spatial/surroundings_positions.py
+gives that revision its floor and its fixed cameras. Until a revision registers a camera, it has a pose only from the
+spot the owner gave it on the place's plan (`spot_places`, spatial/spots.py), which needs no map.
 
 **Places in the journal**: `places_for_span` is the one call the journal's pages make for a
 span: the places visited in it and the places a registered fixed camera only observed, each with the rooms seen

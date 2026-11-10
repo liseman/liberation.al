@@ -1,6 +1,5 @@
 """Embeddings from a local model: the call the journal and recall make to Ollama's /api/embed with
-`models.ollama.embedding` (Qwen3-Embedding 0.6B by default), switched by `semantic.enabled` (step 9 of
-docs/DOMAIN-MODEL.md, on Continuum).
+`models.ollama.embedding` (Qwen3-Embedding 0.6B by default), switched by `semantic.enabled`.
 
 The vectors themselves live with the vector worker: the journal commits each entry's embedding as a
 `journal.embedding.<digest>` payload (memory/journal.py, `journal.embed`), the worker files it, and recall asks the

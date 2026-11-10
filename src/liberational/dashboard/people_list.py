@@ -239,7 +239,7 @@ def people_roster(
 
 def _attributes() -> dict[str, dict[str, Any]]:
     """{normalized name: {"role", "organization", "aliases"}} for each person who has one. They live in the event log
-    (people/registry.py, step 6 of docs/DOMAIN-MODEL.md); with no log yet, nobody has one."""
+    (people/registry.py); with no log yet, nobody has one."""
     if registry.log_exists(context.STATE):
         with registry.safely("roster attributes"):
             return {
