@@ -1,5 +1,5 @@
 // The example flat (../examples.ts) as a Pascal scene: the same six made-up rooms, their doors and windows, and
-// the one camera spot, for the new plan editor and its 3D view to open on until real plans are stored as scenes.
+// the one camera spot: an example for the Places tab while the house has no plan of its own.
 import { buildScene, type Pt } from './build';
 
 const EXTERIOR = 0.3;
