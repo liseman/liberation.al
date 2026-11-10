@@ -560,12 +560,9 @@ def _load(day: str, state: str) -> dict[str, Any]:
     """One day's answer, for for_request's job; in its own process, the settings as they are now."""
     if multiprocessing.parent_process() is not None:
         cfg.load.cache_clear()  # a setting saved since: the dashboard rereads its pack.toml, and so does this
-        # Today is read again every minute: each ended hour's records are kept in this process, and only the hours
-        # still going are read from the store.
-        from liberational import memtrim, segment_log
+        from liberational import memtrim
 
-        segment_log.keep_hours()
-        memtrim.start()  # what a load freed goes back to the system; the kept hours stay
+        memtrim.start()  # what a load freed goes back to the system
     start, end = day_bounds(day)
     pending = dict(day=day, start=start, end=end, chips=[], partial=True, pending=True)
     try:
