@@ -14,10 +14,8 @@ Also holds the phone settings shared by phone/bridge.py and phone/call.py.
 """
 
 import json
-import os
 import pathlib
 import re
-import tempfile
 import time
 from collections.abc import Mapping
 from typing import Any
@@ -25,7 +23,7 @@ from typing import Any
 import requests
 
 from liberational import config as cfg
-from liberational import locking, logs
+from liberational import json_state, locking, logs
 from liberational.people import contacts as people_contacts
 from liberational.phone import numbers
 
@@ -144,15 +142,7 @@ def _read_missions() -> dict[str, Any]:
 
 def _write_missions(missions: dict[str, Any]) -> None:
     """Replace the file whole (owner-only), so a reader sees the old missions or the new ones, never a part."""
-    MISSIONS.parent.mkdir(parents=True, exist_ok=True)
-    fd, temporary = tempfile.mkstemp(prefix=f".{MISSIONS.name}.", dir=MISSIONS.parent)
-    try:
-        with os.fdopen(fd, "w") as out:
-            os.fchmod(out.fileno(), 0o600)
-            out.write(json.dumps(missions))
-        os.replace(temporary, MISSIONS)
-    finally:
-        pathlib.Path(temporary).unlink(missing_ok=True)
+    json_state.write(MISSIONS, missions, private=True)
 
 
 def place(name: str, message: str, *, number: str | None = None) -> tuple[bool, str]:

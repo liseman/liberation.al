@@ -41,7 +41,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from liberational import logs
+from liberational import json_state, logs
 from liberational import segment_log as S
 
 log = logs.get("retention")
@@ -222,9 +222,7 @@ class Marks:
 
     def done(self, day: str, counts: Mapping[str, int]) -> None:
         self.days[day] = dict(counts)
-        tmp = self.path.with_name(f".{self.path.name}.tmp")
-        tmp.write_text(json.dumps({"days": self.days}, indent=1, sort_keys=True))
-        os.replace(tmp, self.path)
+        json_state.write(self.path, {"days": self.days}, indent=1, sort_keys=True)
 
 
 def first_day(segments: Path) -> str | None:

@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 
 from liberational import config as cfg
+from liberational import json_state
 from liberational.dashboard import (
     call_log,
     context,
@@ -511,14 +512,14 @@ def test_failed_undo_retries_only_failed_operations(state):
             {"op": "main", "name": "Kara", "before": S[1]},
         ],
     )
-    replace = card_prefs.os.replace
+    write = json_state.write
 
-    def cannot_restore_main(src, dst):
-        if dst == state / card_prefs.PREFS and json.loads(src.read_text())["kara"].get("main") == S[1]:
+    def cannot_restore_main(path, data, **options):
+        if path == state / card_prefs.PREFS and data["kara"].get("main") == S[1]:
             raise OSError("temporary write failure")
-        return replace(src, dst)
+        return write(path, data, **options)
 
-    with patch.object(card_prefs.os, "replace", autospec=True, side_effect=cannot_restore_main):
+    with patch.object(json_state, "write", autospec=True, side_effect=cannot_restore_main):
         code, failed = people_corrections.undo_people({"undo": token})
     assert (code, failed["ok"]) == (200, False)
     assert failed["errors"] == ["temporary write failure"]

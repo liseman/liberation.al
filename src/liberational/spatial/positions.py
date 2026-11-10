@@ -96,7 +96,7 @@ from typing import Any
 
 import numpy as np
 
-from liberational import logs
+from liberational import json_state, logs
 from liberational import segment_log as S
 from liberational.memory import places
 from liberational.people import face_nots, pets
@@ -1381,10 +1381,7 @@ def _generation(marks: Mapping[str, Any], place: str) -> int:
 
 def _save_marks(state: Path, marks: Mapping[str, Any]) -> None:
     path = places.root(state) / LAYER_MARKS
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(marks, indent=1, sort_keys=True))
-    tmp.replace(path)
+    json_state.write(path, marks, indent=1, sort_keys=True)
 
 
 def _line(r: Mapping[str, Any]) -> str:

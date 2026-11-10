@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from liberational import config
+from liberational import config, json_state
 from liberational.see import actions_worker, screens, zones
 
 TV = np.array([[0.0, 0.1, 0.6, 0.95, 0.9, 62]], np.float32)  # a big TV on the left of the frame
@@ -298,15 +298,15 @@ def test_two_cameras_writing_at_once_both_keep_their_spans(tmp_path, monkeypatch
     # replaced by the first's older map.
     path = tmp_path / "screens_on.json"
     on = screens.ScreensOn(path, WallClock(20_000.0))
-    real_write, writing = Path.write_text, threading.Event()
+    real_write, writing = json_state.write_text, threading.Event()
 
-    def slow_first_write(self: Path, body: str) -> int:
+    def slow_first_write(path: Path, body: str) -> None:
         if not writing.is_set():
             writing.set()
             threading.Event().wait(0.3)  # long enough for the other camera's write to land first, unlocked
-        return real_write(self, body)
+        real_write(path, body)
 
-    monkeypatch.setattr(Path, "write_text", slow_first_write)
+    monkeypatch.setattr(json_state, "write_text", slow_first_write)
     first = threading.Thread(target=on.add, args=("cam0", [(int(19_000e9), int(19_030e9))], True))
     first.start()
     assert writing.wait(5)

@@ -1341,7 +1341,7 @@ The active queue is process-local; completed jobs reopen from local Continuum hi
 
 - Analysis rates differ by camera and available hardware; readers must use each stream's actual coverage.
 - Model actions remain unverified until the owner-rating gate passes; a passing rating gate is not held-out accuracy measurement.
-- Plumbing is still duplicated across modules: JSON read and write helpers, and log functions. Model server calls are not: every chat and generate call goes through `liberational/ollama.py` (`chat`, `load`, and `post`), which handles the server's health, a busy reply, the wait for a voice turn, and the no-proxy, no-redirect connection in one place.
+- Plumbing is still duplicated across modules: log functions. Model server calls are not: every chat and generate call goes through `liberational/ollama.py` (`chat`, `load`, and `post`), which handles the server's health, a busy reply, the wait for a voice turn, and the no-proxy, no-redirect connection in one place. JSON state files are not either: `liberational/json_state.py` (`read`, `write`, and `write_text`) replaces a file in one step through a temporary file of its own, with `private` (0600) and `durable` (flushed to disk first, for what the owner taught) as options.
 
 [ROADMAP.md](ROADMAP.md) covers the plan for each.
 

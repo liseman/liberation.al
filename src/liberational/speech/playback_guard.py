@@ -14,6 +14,7 @@ from collections.abc import Callable, Generator
 from typing import TypedDict
 
 from liberational import config as cfg
+from liberational import json_state
 
 PATH = cfg.path("paths.state") / "playback_windows.json"
 TAIL = 0.6
@@ -41,9 +42,7 @@ def _update(path: pathlib.Path, change: Callable[[list[Window]], None]) -> None:
         fcntl.flock(lock, fcntl.LOCK_EX)
         rows = [r for r in _read(path) if r["end"] >= time.time() - RETENTION]
         change(rows)
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(rows))
-        os.replace(tmp, path)
+        json_state.write(path, rows)
 
 
 @contextlib.contextmanager

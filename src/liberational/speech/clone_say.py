@@ -28,7 +28,7 @@ import numpy as np
 import soundfile as sf
 
 from liberational import config as cfg
-from liberational import logs, model_runtime, speech_log
+from liberational import json_state, logs, model_runtime, speech_log
 from liberational.domain.identity import Basis, Decision
 from liberational.listen import revisions
 from liberational.people import registry, transcript_view
@@ -413,9 +413,7 @@ def ref_for(
     if ref.exists() and (recorded or picked or (made_for == label and confirmed_only)):
         # Losing a voiceprint binding is not a rename: keep the saved label through a model/state reset.
         if make and label and label != f"Speaker {sid}" and made_for != label:
-            tmp = OUT / f"{sid}.json.tmp"
-            tmp.write_text(json.dumps({**meta, "label": label}))
-            tmp.replace(OUT / f"{sid}.json")
+            json_state.write(OUT / f"{sid}.json", {**meta, "label": label}, durable=True)
         if make and recorded and not ref.with_suffix(".txt").exists():
             return prepare(sid, ref, _clone_label(sid, label))  # uploaded before transcription and trimming
         return ref

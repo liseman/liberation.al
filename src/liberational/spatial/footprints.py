@@ -38,7 +38,7 @@ from typing import Any
 
 import numpy as np
 
-from liberational import segment_log
+from liberational import json_state, segment_log
 from liberational.memory import places
 
 NS = 1_000_000_000
@@ -479,10 +479,8 @@ def record(state: Path, cameras: Sequence[str], now: float) -> int:
         positions.write_samples(state, _rows(feet))
         total += len(feet)
         marks[camera] = upto
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(marks, indent=1, sort_keys=True))
-        tmp.replace(path)  # after each camera, so a failed one doesn't lose the others' marks
+        # after each camera, so a failed one doesn't lose the others' marks
+        json_state.write(path, marks, indent=1, sort_keys=True)
     return total
 
 

@@ -38,11 +38,9 @@ rows' track sources.
 import argparse
 import fcntl
 import json
-import os
 import re
 import sqlite3
 import sys
-import tempfile
 import tomllib
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
@@ -50,7 +48,7 @@ from pathlib import Path
 from typing import Any
 
 from liberational import config as cfg
-from liberational import knowledge, locking
+from liberational import json_state, knowledge, locking
 
 # A camera name as the segment store takes it (continuum-segments' check_name).
 NAME = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9._-]{0,127}")
@@ -131,27 +129,6 @@ class Result:
     changes: list[str] = field(default_factory=list)
     conflicts: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
-
-
-def _write_json(path: Path, value: Any) -> None:
-    """`path` replaced whole, so a reader sees the old file or the new one."""
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
-    try:
-        with os.fdopen(fd, "w") as f:
-            json.dump(value, f, separators=(",", ":"))
-        os.replace(tmp, path)
-    finally:
-        Path(tmp).unlink(missing_ok=True)
-
-
-def _write_text(path: Path, text: str) -> None:
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
-    try:
-        with os.fdopen(fd, "w") as f:
-            f.write(text)
-        os.replace(tmp, path)
-    finally:
-        Path(tmp).unlink(missing_ok=True)
 
 
 def _renamed_record(record: knowledge.Record, names: Mapping[str, str]) -> knowledge.Record:
@@ -240,7 +217,7 @@ def _json_file(path: Path, names: Mapping[str, str], dry: bool, result: Result, 
     if renamed != value:
         result.changes.append(label)
         if not dry:
-            _write_json(path, renamed)
+            json_state.write(path, renamed)
 
 
 def rename_places(state: Path, names: Mapping[str, str], dry: bool, result: Result) -> None:
@@ -256,13 +233,13 @@ def rename_places(state: Path, names: Mapping[str, str], dry: bool, result: Resu
             if renamed != value:
                 revisions += 1
                 if not dry:
-                    _write_json(path, renamed)
+                    json_state.write(path, renamed)
         for path in sorted(root.glob("*/*.plan")):
             text = path.read_text()
             if (renamed_text := rename_plan(text, names)) != text:
                 plans += 1
                 if not dry:
-                    _write_text(path, renamed_text)
+                    json_state.write_text(path, renamed_text)
         if revisions:
             result.changes.append(f"places: {revisions} revisions' cameras")
         if plans:
