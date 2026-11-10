@@ -2,7 +2,8 @@
 person it belongs to, taking one away, a person's photos, and undoing any of those.
 
 POST /people/assign, /people/assign-many, /people/correct, /people/undo, /people/photo
-POST /faces/not, /faces/unknown/reject
+POST /faces/not, /faces/unknown/reject, /faces/unknown/split, /faces/unknown/hide, /faces/unknown/restore
+GET /faces/unknown/hidden
 """
 
 import pathlib
@@ -127,6 +128,139 @@ def reject_shots(gid: Any, ids: Any, control: bool) -> Reply:
     if not left:
         inbox_state.inbox_skip("face", gid, control)
     return 200, {"ok": True, "removed": len(take), "left": left, "ignored": not left}
+
+
+def _owned_group(gid: Any, control: bool) -> Reply | None:
+    """Why face group `gid` can't be changed by this request, as (code, reply), or None when it can."""
+    if not control:
+        return 403, {"ok": False, "error": "face groups can only be changed from this machine"}
+    if isinstance(gid, bool) or not isinstance(gid, int):
+        return 400, {"ok": False, "error": "group is a face group's number"}
+    if not any(g["id"] == gid for g in people_list._faces_mod().unknown_groups()):
+        return 404, {"ok": False, "error": f"no face group {gid}"}
+    return None
+
+
+def _shot_ids(ids: Any, least: int = 1) -> bool:
+    return isinstance(ids, list) and least <= len(ids) <= REJECT_MAX and all(isinstance(i, str) and i for i in ids)
+
+
+def _recentered(gid: int, removed: int) -> None:
+    """Face group `gid` after pictures left it (or, with `removed` negative, came back): its face is rebuilt from
+    the ones it holds, and its photo is cut again from them."""
+    from liberational.people import face_photos
+
+    people_list._faces_mod().recenter(gid, face_photos.kept_embeddings(gid, state=context.STATE), removed)
+    photo_files._unknown_photo(gid).unlink(missing_ok=True)
+
+
+def split_shots(gid: Any, ids: Any, control: bool) -> Reply:
+    """(code, reply) for POST /faces/unknown/split {group, ids}: the pictures the owner deselected on a Who's this?
+    card. They leave face group `group` before its answer is applied and wait together as a group of their own
+    (vision/face_rejects.py `move`), so the answer covers only the pictures still selected. Pictures with no face on
+    record can't be grouped and are left out of every group instead. Reply: {ok, group, moved, left}; `group` is
+    the new group's number, or null when none could be made."""
+    from liberational.people import face_photos
+    from liberational.vision import face_rejects
+
+    if (refused := _owned_group(gid, control)) is not None:
+        return refused
+    if not _shot_ids(ids):
+        return 400, {"ok": False, "error": f"send 1 to {REJECT_MAX} shot ids"}
+    mine, _ = face_photos.page_of(gid, 0, 10**9, state=context.STATE)
+    out = set(ids)
+    take = [s for s in mine if s["id"] in out]
+    if not take:
+        return 400, {"ok": False, "error": f"none of those shots are in Face {gid}"}
+    if len(take) == len(mine):
+        return 400, {"ok": False, "error": "every picture was left out, so there's nothing to answer for"}
+    made = people_list._faces_mod().new_group(face_photos.shot_embeddings(take, context.STATE))
+    if made is None:
+        face_rejects.reject(s["id"] for s in take)
+    else:
+        face_rejects.move((s["id"] for s in take), made)
+    _recentered(gid, len(take))
+    return 200, {"ok": True, "group": made, "moved": len(take), "left": len(mine) - len(take)}
+
+
+def hide_shots(gid: Any, action: Any, exclude: Any, control: bool) -> Reply:
+    """(code, reply) for POST /faces/unknown/hide {group, action, exclude}: Who's this?'s "Ignore" and "Block" for
+    face group `group`'s pictures, all of them but the deselected ones in `exclude`. "ignore" hides those pictures
+    from now on; "block" also keeps their face, so a group at least face_hidden.BLOCK_SIM like it is no longer
+    listed. Both are kept as taught state (people/face_hidden.py), and the pictures leave the group
+    (vision/face_rejects.py); the deselected ones stay in it. Reply: {ok, kind, keys, hidden, left}, where `keys` is
+    what POST /faces/unknown/restore takes to bring them back."""
+    from liberational.people import face_hidden, face_photos
+    from liberational.vision import face_rejects
+
+    if (refused := _owned_group(gid, control)) is not None:
+        return refused
+    if action not in ("ignore", "block"):
+        return 400, {"ok": False, "error": 'action is "ignore" or "block"'}
+    if exclude is None:
+        exclude = []
+    if not _shot_ids(exclude, least=0):
+        return 400, {"ok": False, "error": f"exclude is at most {REJECT_MAX} shot ids"}
+    mine, _ = face_photos.page_of(gid, 0, 10**9, state=context.STATE)
+    out = set(exclude)
+    take = [s for s in mine if s["id"] not in out][: face_hidden.MAX_SHOTS]
+    if not take:
+        return 400, {"ok": False, "error": "no picture is selected"}
+    ids = [str(s["id"]) for s in take]
+    try:
+        if action == "block":
+            vectors = face_photos.shot_embeddings(take, context.STATE)
+            keys = [face_hidden.block(context.STATE, gid, ids, vectors)]
+        else:
+            keys = face_hidden.ignore(context.STATE, gid, ids)
+    except ValueError as error:
+        return 400, {"ok": False, "error": str(error)}
+    face_rejects.reject(ids)
+    _recentered(gid, len(ids))
+    kind = "blocked" if action == "block" else "ignored"
+    return 200, {"ok": True, "kind": kind, "keys": keys, "hidden": len(ids), "left": len(mine) - len(ids)}
+
+
+def restore_hidden(kind: Any, keys: Any, control: bool) -> Reply:
+    """(code, reply) for POST /faces/unknown/restore {kind, keys}: un-ignore pictures ("ignored", by shot id) or
+    unblock faces ("blocked", by the block's key). The pictures go back to the group they were in, when it is still
+    there. Reply: {ok, restored}."""
+    from liberational.people import face_hidden
+    from liberational.vision import face_rejects
+
+    if not control:
+        return 403, {"ok": False, "error": "face groups can only be changed from this machine"}
+    try:
+        back = face_hidden.restore(context.STATE, kind, keys)
+    except ValueError as error:
+        return 400, {"ok": False, "error": str(error)}
+    if not back:
+        return 404, {"ok": False, "error": "that is no longer hidden"}
+    have = {g["id"] for g in people_list._faces_mod().unknown_groups()}
+    returned: dict[int, int] = {}
+    for row in back:
+        face_rejects.restore(row["shots"])
+        if type(row["group"]) is int and row["group"] in have:
+            returned[row["group"]] = returned.get(row["group"], 0) + len(row["shots"])
+    for gid, count in returned.items():
+        _recentered(gid, -count)
+    return 200, {"ok": True, "restored": len(back)}
+
+
+def hidden_faces() -> Reply:
+    """(code, reply) for GET /faces/unknown/hidden: the pictures the owner ignored and the faces blocked, newest
+    first, each picture with the URL of its crop (which may be gone: crops are kept 30 days)."""
+    from liberational.people import face_hidden
+
+    def shot(sid: str) -> dict[str, str]:
+        return {"id": sid, "url": f"/faces/shot/{sid}.jpg"}
+
+    found = face_hidden.listing(context.STATE)
+    return 200, {
+        **found,
+        "ignored": [{**row, **shot(row["id"])} for row in found["ignored"]],
+        "blocked": [{**row, "shots": [shot(s) for s in row["shots"]]} for row in found["blocked"]],
+    }
 
 
 PHOTOS_PER_PERSON = 8
@@ -701,6 +835,36 @@ def _post_faces_unknown_reject(h: H, body: Any) -> None:
     if not h._same_origin_json():
         return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
     code, o = reject_shots(body.get("group"), body.get("ids"), h._can_teach())
+    return h._json(o, code)
+
+
+@routes.post("/faces/unknown/split")
+def _post_faces_unknown_split(h: H, body: Any) -> None:
+    if not h._same_origin_json():
+        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
+    code, o = split_shots(body.get("group"), body.get("ids"), h._can_teach())
+    return h._json(o, code)
+
+
+@routes.post("/faces/unknown/hide")
+def _post_faces_unknown_hide(h: H, body: Any) -> None:
+    if not h._same_origin_json():
+        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
+    code, o = hide_shots(body.get("group"), body.get("action"), body.get("exclude"), h._can_teach())
+    return h._json(o, code)
+
+
+@routes.post("/faces/unknown/restore")
+def _post_faces_unknown_restore(h: H, body: Any) -> None:
+    if not h._same_origin_json():
+        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
+    code, o = restore_hidden(body.get("kind"), body.get("keys"), h._can_teach())
+    return h._json(o, code)
+
+
+@routes.get("/faces/unknown/hidden")
+def _get_faces_unknown_hidden(h: H) -> None:
+    code, o = hidden_faces()
     return h._json(o, code)
 
 

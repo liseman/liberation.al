@@ -18,7 +18,7 @@ import {
   unknownGroupsQuery,
   unknownVoicesQuery,
 } from './api';
-import { ShotPicker } from './ShotPicker';
+import { FacePictures } from './FacePictures';
 import { guessText, seenAt, shotSrc, togetherText, WhosThis } from './WhosThis';
 
 const NOW = new Date(2026, 9, 28, 20, 0).getTime() / 1000;
@@ -79,6 +79,34 @@ function serve(list: UnknownGroup[], skipped: number[] = [], voices: UnknownVoic
       drop(body.id);
       return HttpResponse.json({ ok: true, skipped: 1 });
     }),
+    // A group's pictures are its shots, and hiding the selected ones leaves the deselected (`exclude`).
+    http.get('/faces/unknown/:id/sightings', ({ params }) => {
+      const shots = groups.find(g => g.id === Number(params.id))?.shots ?? [];
+      return HttpResponse.json({ sightings: shots.map(s => ({ ...s, id: String(s.id) })), total: shots.length });
+    }),
+    http.post('/faces/unknown/split', async ({ request }) => {
+      const body = (await request.json()) as { group: number; ids: string[] };
+      posts.push({ url: '/faces/unknown/split', body });
+      return HttpResponse.json({ ok: true, group: 77, moved: body.ids.length, left: 1 });
+    }),
+    http.post('/faces/unknown/restore', async ({ request }) => {
+      posts.push({ url: '/faces/unknown/restore', body: await request.json() });
+      return HttpResponse.json({ ok: true, restored: 1 });
+    }),
+    http.post('/faces/unknown/hide', async ({ request }) => {
+      const body = (await request.json()) as { group: number; action: 'ignore' | 'block'; exclude: string[] };
+      posts.push({ url: '/faces/unknown/hide', body });
+      const shots = (groups.find(g => g.id === body.group)?.shots ?? []).map(s => String(s.id));
+      const hidden = shots.filter(id => !body.exclude.includes(id));
+      if (hidden.length === shots.length) drop(body.group);
+      return HttpResponse.json({
+        ok: true,
+        kind: body.action === 'block' ? 'blocked' : 'ignored',
+        keys: body.action === 'block' ? ['block-1'] : hidden,
+        hidden: hidden.length,
+        left: shots.length - hidden.length,
+      });
+    }),
     http.get('/speakers', () => HttpResponse.json({ speakers: [], merged: {} })),
     http.get('/people', () => HttpResponse.json({ people: [] })),
     http.get('/transcript', () => HttpResponse.json({ entries: [] })),
@@ -100,7 +128,19 @@ async function choice(card: HTMLElement, name: string) {
 async function pick(card: HTMLElement, name: string) {
   await userEvent.click(await choice(card, name));
 }
-/** An answer from the row's icon actions: Not <name>, a voice's own answers, or Ignore. */
+/** One of a face card's two buttons, by its exact words: the card is selected first, which opens one with several
+ *  pictures (a folded card has no buttons). */
+async function answer(card: HTMLElement, name: string) {
+  await userEvent.click(card);
+  await userEvent.click(within(card).getByRole('button', { name }));
+}
+/** The two buttons a card shows, by their words (not its pictures, which are buttons too). */
+const answers = (card: HTMLElement) =>
+  within(card)
+    .queryAllByRole('button')
+    .filter(b => !b.hasAttribute('data-tile'))
+    .map(b => b.getAttribute('aria-label') ?? b.textContent?.replace(/[A-Z]$/, ''));
+/** An answer from a voice row's icon actions: Not <name>, its own answers, or Ignore. */
 async function more(card: HTMLElement, name: string) {
   await userEvent.click(within(card).getByRole('button', { name: new RegExp(`^${name}`) }));
 }
@@ -171,7 +211,7 @@ it('shows only saved face crops and polls a processing count without requesting 
     await waitFor(() => expect(screen.queryByText(/Processing .* detections/)).toBeNull());
     const kara = await row(/^Face 5/);
     expect(kara.querySelector('.who-shot img')).toHaveAttribute('src', '/faces/shot/1.jpg');
-    expect(within(kara).getByRole('button', { name: 'Show all (1)' })).toBeVisible();
+    expect(within(kara).getByRole('button', { name: 'Kara' })).toBeVisible(); // one picture: nothing to open
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2000);
     });
@@ -188,41 +228,40 @@ it.each(['Kara', 'Ignore'])(
     let release!: (value: Response) => void;
     let calls = 0;
     server.use(
-      http.post(action === 'Ignore' ? '/inbox/skip' : '/people/claim', () => {
+      http.post(action === 'Ignore' ? '/faces/unknown/hide' : '/people/claim', () => {
         calls++;
         return new Promise<Response>(resolve => {
           release = resolve;
         });
       }),
     );
+    // Kara names the face guessed as her; Ignore is the answer of the one with no guess.
+    const [mine, other] = action === 'Ignore' ? [/^Face 9/, /^Face 5/] : [/^Face 5/, /^Face 9/];
     const { client } = show();
-    const card = await row(/^Face 5/);
-    if (action === 'Ignore') {
-      // The I key, twice: the menu closes after one pick, so the key is how a double answer can happen.
-      fireEvent.keyDown(card, { key: 'i' });
-      fireEvent.keyDown(card, { key: 'i' });
-    } else {
-      const button = await choice(card, action);
-      fireEvent.click(button);
-      fireEvent.click(button);
-    }
-    expect(screen.queryByRole('listitem', { name: /^Face 5/ })).not.toBeInTheDocument();
+    const card = await row(mine);
+    await userEvent.click(card);
+    const button = within(card).getByRole('button', { name: action });
+    fireEvent.click(button);
+    fireEvent.click(button);
+    fireEvent.keyDown(card, { key: action === 'Ignore' ? 'i' : 'y' }); // and its key: still one answer
+    expect(screen.queryByRole('listitem', { name: mine })).not.toBeInTheDocument();
     await waitFor(() => expect(calls).toBe(1));
     await act(async () => {
       await client.invalidateQueries({ queryKey: ['faces', 'unknown', 'groups'] });
     });
-    expect(screen.queryByRole('listitem', { name: /^Face 5/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('listitem', { name: mine })).not.toBeInTheDocument();
     await act(async () => release(HttpResponse.json({ ok: false, error: 'Synthetic refusal' })));
-    expect(within(await row(/^Face 5/)).getByRole('alert')).toHaveTextContent('Synthetic refusal');
-    expect(await row(/^Face 9/)).toBeInTheDocument();
-    if (action === 'Ignore') await more(await row(/^Face 5/), 'Ignore');
-    else fireEvent.click(await choice(await row(/^Face 5/), action));
+    expect(within(await row(mine)).getByRole('alert')).toHaveTextContent('Synthetic refusal');
+    expect(await row(other)).toBeInTheDocument();
+    await answer(await row(mine), action);
     await waitFor(() => expect(calls).toBe(2));
-    await act(async () => release(HttpResponse.json({ ok: true })));
+    await act(async () =>
+      release(HttpResponse.json({ ok: true, kind: 'ignored', keys: ['9'], hidden: 1, left: 0, name: 'Kara' })),
+    );
     await act(async () => {
       await client.invalidateQueries({ queryKey: ['faces', 'unknown', 'groups'] });
     });
-    expect(screen.queryByRole('listitem', { name: /^Face 5/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('listitem', { name: mine })).not.toBeInTheDocument();
   },
 );
 
@@ -281,28 +320,37 @@ describe("Who's this?", () => {
     ]); // as the server sorts them: best guess first
   });
 
-  it('shows every name selector immediately without stealing focus, and Enter accepts the highlighted guess', async () => {
+  it('gives a card with a guess its two buttons and no name box, and one without the name box, Ignore, and Block', async () => {
     serve([KARA, LUCA, NOBODY]);
     show();
-    await row(/^Face 9/);
-    expect(screen.getAllByRole('combobox', { name: "This person's name" })).toHaveLength(3);
-    expect(screen.queryByRole('button', { name: /^(Name them|Someone else|Tag$)/ })).toBeNull();
-    // A guess gets a one-click Yes, a Probably's a Default button and a Maybe's a Subtle one; no guess, none.
-    expect(screen.getAllByRole('button', { name: /^Yes,/ }).map(b => [b.textContent, b.dataset.variant])).toEqual([
-      ['Yes, Kara', 'default'],
-      ['Yes, Luca', 'subtle'],
-    ]);
+    const nobody = await row(/^Face 9/);
+    const luca = await row(/^Face 6/);
+    expect(answers(luca)).toEqual(['Luca', 'Not Luca']);
+    expect(within(luca).queryByRole('combobox')).toBeNull();
+    expect(answers(nobody)).toEqual(['Ignore', 'Block']);
+    expect(nameBox(nobody)).toBeEnabled();
+    expect(screen.queryByRole('button', { name: /^(Yes|Name them|Someone else|Tag$)/ })).toBeNull();
     expect(document.activeElement?.tagName).not.toBe('INPUT');
-    await userEvent.click(nameBox(await row(/^Face 5/)));
-    expect(await screen.findByRole('option', { name: 'Kara (guess, 86%)' })).toHaveAttribute('data-combobox-selected');
-    await userEvent.keyboard('{Enter}');
-    await waitFor(() => expect(posts).toEqual([{ url: '/people/claim', body: { kind: 'face', id: 5, name: 'Kara' } }]));
+    // The keys of the two buttons, on the card: Y and N, or I and B
+    expect(within(luca).getByRole('button', { name: 'Luca' })).toHaveAttribute('aria-keyshortcuts', 'Y');
+    expect(within(luca).getByRole('button', { name: 'Not Luca' })).toHaveAttribute('aria-keyshortcuts', 'N');
+    expect(within(nobody).getByRole('button', { name: 'Ignore' })).toHaveAttribute('aria-keyshortcuts', 'I');
+    expect(within(nobody).getByRole('button', { name: 'Block' })).toHaveAttribute('aria-keyshortcuts', 'B');
+  });
+
+  it('names the selected card with Y from the keyboard', async () => {
+    serve([LUCA]);
+    show();
+    const luca = await row(/^Face 6/);
+    luca.focus();
+    await userEvent.keyboard('y');
+    await waitFor(() => expect(posts).toEqual([{ url: '/people/claim', body: { kind: 'face', id: 6, name: 'Luca' } }]));
   });
 
   it('tags the face as the selected guess', async () => {
     serve([KARA]);
     show();
-    await pick(await row(/^Face 5/), 'Kara');
+    await answer(await row(/^Face 5/), 'Kara');
     await waitFor(() => expect(posts).toEqual([{ url: '/people/claim', body: { kind: 'face', id: 5, name: 'Kara' } }]));
     expect(
       await screen.findByText('Face 5 tagged as Kara. Liberational will know them from now on.'),
@@ -326,7 +374,7 @@ describe("Who's this?", () => {
     show();
     await row(/^Face 9/);
     focus.mockClear();
-    await pick(await row(/^Face 6/), 'Luca');
+    await answer(await row(/^Face 6/), 'Luca');
     await waitFor(() => expect(posts).toHaveLength(1));
     expect(await row(/^Face 9/)).toHaveFocus(); // the next one down, not the heading at the top
     // focusing without preventScroll scrolls the element into view: the heading's did, to the top of the page
@@ -339,33 +387,33 @@ describe("Who's this?", () => {
   it('moves focus to the row above when the last one is picked', async () => {
     serve([KARA, LUCA]);
     show();
-    await pick(await row(/^Face 6/), 'Luca');
+    await answer(await row(/^Face 6/), 'Luca');
     expect(await row(/^Face 5/)).toHaveFocus();
   });
 
   it('tags the face as someone else, typed in', async () => {
-    serve([LUCA]);
+    serve([NOBODY]);
     show();
-    const luca = await row(/^Face 6/);
-    await userEvent.type(within(luca).getByRole('combobox', { name: "This person's name" }), 'Sam{Enter}');
-    await waitFor(() => expect(posts).toEqual([{ url: '/people/claim', body: { kind: 'face', id: 6, name: 'Sam' } }]));
-    expect(await screen.findByText(/^Face 6 tagged as Sam\./)).toBeInTheDocument();
+    const face = await row(/^Face 9/);
+    await userEvent.type(within(face).getByRole('combobox', { name: "This person's name" }), 'Sam{Enter}');
+    await waitFor(() => expect(posts).toEqual([{ url: '/people/claim', body: { kind: 'face', id: 9, name: 'Sam' } }]));
+    expect(await screen.findByText(/^Face 9 tagged as Sam\./)).toBeInTheDocument();
   });
 
   it('adds a new name immediately when Add is clicked', async () => {
-    serve([LUCA]);
+    serve([NOBODY]);
     show();
-    const luca = await row(/^Face 6/);
-    await userEvent.type(within(luca).getByRole('combobox', { name: "This person's name" }), 'Sam');
+    const face = await row(/^Face 9/);
+    await userEvent.type(within(face).getByRole('combobox', { name: "This person's name" }), 'Sam');
     await userEvent.click(await screen.findByRole('option', { name: 'Add “Sam”' }));
-    await waitFor(() => expect(posts).toEqual([{ url: '/people/claim', body: { kind: 'face', id: 6, name: 'Sam' } }]));
+    await waitFor(() => expect(posts).toEqual([{ url: '/people/claim', body: { kind: 'face', id: 9, name: 'Sam' } }]));
   });
 
   it('keeps a typed name when Tab moves focus off the box', async () => {
-    serve([LUCA]);
+    serve([NOBODY]);
     show();
-    const luca = await row(/^Face 6/);
-    const input = within(luca).getByRole('combobox', { name: "This person's name" });
+    const face = await row(/^Face 9/);
+    const input = within(face).getByRole('combobox', { name: "This person's name" });
     await userEvent.type(input, 'Sam');
     await userEvent.tab();
     expect(input).toHaveValue('Sam');
@@ -373,39 +421,39 @@ describe("Who's this?", () => {
   });
 
   it('picks a known name from the list, and tags it once', async () => {
-    serve([LUCA]);
+    serve([NOBODY]);
     server.use(http.get('/people', () => HttpResponse.json({ people: [{ name: 'Dana' }, { name: 'Sam' }] })));
     show();
-    const face = await row(/^Face 6/);
+    const face = await row(/^Face 9/);
     await userEvent.type(within(face).getByRole('combobox', { name: "This person's name" }), 'Da');
     // what was typed comes first, as "Add", so Enter never swaps it for a longer name
     const options = await screen.findAllByRole('option');
     expect(options.map(o => o.textContent)).toEqual(['Add “Da”', 'Dana']);
     await userEvent.click(screen.getByRole('option', { name: 'Dana' }));
-    await waitFor(() => expect(posts).toEqual([{ url: '/people/claim', body: { kind: 'face', id: 6, name: 'Dana' } }]));
-    expect(await screen.findByText(/^Face 6 tagged as Dana\./)).toBeInTheDocument();
+    await waitFor(() => expect(posts).toEqual([{ url: '/people/claim', body: { kind: 'face', id: 9, name: 'Dana' } }]));
+    expect(await screen.findByText(/^Face 9 tagged as Dana\./)).toBeInTheDocument();
   });
 
   it('takes a known name typed in any case, with Enter', async () => {
-    serve([LUCA]);
+    serve([NOBODY]);
     server.use(http.get('/people', () => HttpResponse.json({ people: [{ name: 'Dana' }] })));
     show();
-    const face = await row(/^Face 6/);
+    const face = await row(/^Face 9/);
     const input = within(face).getByRole('combobox', { name: "This person's name" });
     await userEvent.type(input, 'dana');
     expect((await screen.findAllByRole('option')).map(o => o.textContent)).toEqual(['Dana']);
     await userEvent.type(input, '{Enter}');
-    await waitFor(() => expect(posts).toEqual([{ url: '/people/claim', body: { kind: 'face', id: 6, name: 'Dana' } }]));
+    await waitFor(() => expect(posts).toEqual([{ url: '/people/claim', body: { kind: 'face', id: 9, name: 'Dana' } }]));
   });
 
   it('keeps a chosen name editable when saving is rejected', async () => {
-    serve([LUCA]);
+    serve([NOBODY]);
     server.use(
       http.get('/people', () => HttpResponse.json({ people: [{ name: 'Dana' }] })),
       http.post('/people/claim', () => HttpResponse.json({ ok: false, error: 'Please try again' })),
     );
     show();
-    const face = await row(/^Face 6/);
+    const face = await row(/^Face 9/);
     await userEvent.type(within(face).getByRole('combobox', { name: "This person's name" }), 'Dana{Enter}');
     expect(await screen.findByRole('alert')).toHaveTextContent('Please try again');
     expect(screen.getByRole('combobox', { name: "This person's name" })).toHaveValue('Dana');
@@ -413,20 +461,23 @@ describe("Who's this?", () => {
   });
 
   it('clears the draft with Escape without tagging', async () => {
-    serve([LUCA]);
+    serve([NOBODY]);
     show();
-    const luca = await row(/^Face 6/);
-    await userEvent.type(nameBox(luca), 'Sam{Escape}');
-    expect(nameBox(luca)).toHaveValue('');
+    const face = await row(/^Face 9/);
+    await userEvent.type(nameBox(face), 'Sam{Escape}');
+    expect(nameBox(face)).toHaveValue('');
     expect(posts).toEqual([]);
   });
 
   it('puts a face aside with Ignore', async () => {
     serve([NOBODY]);
     show();
-    await more(await row(/^Face 9/), 'Ignore');
-    await waitFor(() => expect(posts).toEqual([{ url: '/inbox/skip', body: { kind: 'face', id: 9 } }]));
-    expect(await screen.findByText("Face 9 ignored. It won't be asked about again.")).toBeInTheDocument();
+    await answer(await row(/^Face 9/), 'Ignore');
+    await waitFor(() =>
+      expect(posts).toEqual([{ url: '/faces/unknown/hide', body: { group: 9, action: 'ignore', exclude: [] } }]),
+    );
+    expect(await screen.findByText("Ignored 1 picture of Face 9. It won't be shown again.")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('listitem', { name: /^Face 9/ })).not.toBeInTheDocument());
   });
 
   it('selects a row on a click off its answers, and I then ignores the selected one', async () => {
@@ -438,7 +489,9 @@ describe("Who's this?", () => {
     expect(nobody).toHaveFocus();
     expect(posts).toEqual([]);
     await userEvent.keyboard('i');
-    await waitFor(() => expect(posts).toEqual([{ url: '/inbox/skip', body: { kind: 'face', id: 9 } }]));
+    await waitFor(() =>
+      expect(posts).toEqual([{ url: '/faces/unknown/hide', body: { group: 9, action: 'ignore', exclude: [] } }]),
+    );
   });
 
   it('marks a face in view while showing only its saved pictures', async () => {
@@ -579,10 +632,10 @@ it('shows a server shot URL that already asks for the thumbnail as the saved cro
 });
 
 describe('on the shared naming inbox', () => {
-  it('names a face with Yes, as picking the guess does', async () => {
+  it("names a face with the button that says the guess's name", async () => {
     serve([KARA, LUCA]);
     show();
-    await userEvent.click(within(await row(/^Face 5/)).getByRole('button', { name: 'Yes, Kara' }));
+    await answer(await row(/^Face 5/), 'Kara');
     await waitFor(() => expect(posts).toEqual([{ url: '/people/claim', body: { kind: 'face', id: 5, name: 'Kara' } }]));
   });
 
@@ -596,8 +649,8 @@ describe('on the shared naming inbox', () => {
     );
     show();
     const kara = await row(/^Face 5/);
-    await more(kara, 'Not Kara');
-    expect(await screen.findByText('Face 5 is not Kara.')).toBeVisible();
+    await answer(kara, 'Not Kara');
+    expect(await screen.findByText('Face 5 is not Kara. It waits for another name.')).toBeVisible();
     expect(posts).toEqual([{ url: '/faces/not', body: { name: 'Kara', groups: [5], shots: [], not: true } }]);
     expect(await row(/^Face 5/)).toBeVisible();
     await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
@@ -985,27 +1038,12 @@ describe('seen or heard together', () => {
     expect(labels).toEqual(['Face 11: Maybe Dana, together 3 times', 'Face 9: No good guess']);
   });
 
-  it('offers one guess when the suggestion is the guess in other capitals', async () => {
-    serve([{ ...KARA, together: together('kara') }]);
-    show();
-    await userEvent.click(nameBox(await row(/^Face 5/)));
-    expect(screen.getAllByRole('option')).toHaveLength(1);
-  });
-
-  it('offers it beside a guess that names someone else, and not twice when they agree', async () => {
-    serve([
-      { ...LUCA, together: together('Sam') },
-      { ...KARA, together: together('Kara') },
-    ]);
+  it('keeps the two buttons of the guess when who it was seen with is someone else, and says who', async () => {
+    serve([{ ...LUCA, together: together('Sam') }]);
     show();
     const luca = await row(/^Face 6/);
-    await userEvent.click(nameBox(luca));
-    expect(screen.getAllByRole('option').map(o => o.textContent)).toEqual([
-      'Luca (guess, 58%)',
-      'Sam (guess, together 3 times)',
-    ]);
-    await userEvent.click(screen.getByRole('option', { name: 'Sam (guess, together 3 times)' }));
-    await waitFor(() => expect(posts).toEqual([{ url: '/people/claim', body: { kind: 'face', id: 6, name: 'Sam' } }]));
+    expect(answers(luca)).toEqual(['Luca', 'Not Luca']);
+    expect(within(luca).getByText(/^Sam was heard while this face was in view: 3 times/)).toBeInTheDocument();
   });
 });
 
@@ -1269,50 +1307,175 @@ it('keeps saying nobody is waiting through a background refresh, with no loading
   release();
 });
 
-describe('Show all and Not this person', () => {
+describe('every picture of a selected card', () => {
   const shot = (id: string) => ({ id, ts: at(18, 40), url: `/faces/shot/${id}.jpg` });
-  function pictures(ids: string[], ignored = false) {
-    let left = ids;
-    server.use(
-      http.get('/faces/unknown/5/sightings', ({ request }) => {
-        const q = new URL(request.url).searchParams;
-        const offset = Number(q.get('offset'));
-        const page = left.slice(offset, offset + Number(q.get('limit')));
-        return HttpResponse.json({ sightings: page.map(shot), total: left.length });
-      }),
-      http.post('/faces/unknown/reject', async ({ request }) => {
-        const body = (await request.json()) as { group: number; ids: string[] };
-        posts.push({ url: '/faces/unknown/reject', body });
-        left = left.filter(id => !body.ids.includes(id));
-        return HttpResponse.json({ ok: true, removed: body.ids.length, left: left.length, ignored });
-      }),
-    );
-  }
+  // A face nobody is guessed for, with three pictures: its answers are the name box, Ignore, and Block.
+  const THREE = group({ id: 9, label: 'Face 9', count: 3, shots: [91, 92, 93].map(id => shot(String(id))) as never });
+  const grid = (card: HTMLElement) => within(card).findByRole('region', { name: /^Every picture of/ });
+  const tiles = (card: HTMLElement) => within(card).findAllByRole('button', { name: /^Picture from/ });
+  const pressed = async (card: HTMLElement) => (await tiles(card)).map(t => t.getAttribute('aria-pressed'));
 
-  it('opens every picture with A on the focused row', async () => {
-    serve([{ ...KARA, shot_count: 3 }]);
-    pictures(['a', 'b', 'c']);
+  it('shows no buttons on a card with several pictures until it is selected, which opens them all, selected', async () => {
+    serve([KARA, NOBODY]);
     show();
     const card = await row(/^Face 5/);
-    // No Show all photos button of its own: the Show all link, A, and Space open them
-    expect(within(card).queryByRole('button', { name: /^Show all photos/ })).toBeNull();
-    expect(within(card).getByRole('button', { name: 'Show all (3)' })).toHaveAttribute('aria-keyshortcuts', 'A');
-    card.focus();
-    await userEvent.keyboard('a');
-    expect(await within(card).findByRole('region', { name: 'Every picture of Face 5' })).toBeVisible();
+    expect(answers(card)).toEqual([]);
+    expect(within(card).queryByRole('region')).toBeNull();
+    expect(within(card).getByText(/· 6 pictures$/)).toBeVisible();
+    await userEvent.click(card);
+    expect(await grid(card)).toBeVisible();
+    expect(await pressed(card)).toEqual(['true', 'true', 'true', 'true', 'true', 'true']);
+    expect(within(card).getByRole('status')).toHaveTextContent('6 of 6 pictures selected. Click one to leave it out.');
+    expect(answers(card)).toEqual(['Kara', 'Not Kara']);
+    // Selecting another card folds this one again.
+    await userEvent.click(await row(/^Face 9/));
+    expect(answers(card)).toEqual([]);
+    expect(within(card).queryByRole('region')).toBeNull();
   });
 
-  it('opens every picture with Space on the selected row, but not from its name box', async () => {
-    serve([{ ...KARA, shot_count: 3 }]);
-    pictures(['a', 'b', 'c']);
+  it('shows the buttons of a card with one picture without selecting it, and no grid', async () => {
+    serve([NOBODY]);
+    show();
+    const card = await row(/^Face 9/);
+    expect(answers(card)).toEqual(['Ignore', 'Block']);
+    await userEvent.click(card);
+    expect(within(card).queryByRole('region')).toBeNull();
+  });
+
+  it('has no separate button for leaving pictures out: deselecting is the whole gesture', async () => {
+    serve([KARA, THREE]);
+    show();
+    for (const name of [/^Face 5/, /^Face 9/]) {
+      const card = await row(name);
+      await userEvent.click(card);
+      await grid(card);
+      expect(within(card).queryByRole('button', { name: /Not this person|Ignore these|Show all|Hide/ })).toBeNull();
+      expect(answers(card)).toHaveLength(2);
+    }
+  });
+
+  it('opens with focus, and the keyboard reaches the buttons and deselects a picture with Space', async () => {
+    serve([KARA]);
     show();
     const card = await row(/^Face 5/);
-    await userEvent.click(nameBox(card));
+    card.focus(); // as the arrow keys, or a pick on the card before, bring it
+    await grid(card);
+    await userEvent.tab();
+    expect(within(card).getByRole('button', { name: 'Kara' })).toHaveFocus();
+    await userEvent.tab();
+    expect(within(card).getByRole('button', { name: 'Not Kara' })).toHaveFocus();
+    await userEvent.tab();
+    expect((await tiles(card))[0]).toHaveFocus();
     await userEvent.keyboard(' ');
-    expect(within(card).queryByRole('region', { name: 'Every picture of Face 5' })).toBeNull();
-    card.focus();
-    await userEvent.keyboard(' ');
-    expect(await within(card).findByRole('region', { name: 'Every picture of Face 5' })).toBeVisible();
+    expect((await pressed(card))[0]).toBe('false');
+    expect(within(card).getByRole('status')).toHaveTextContent('5 of 6 pictures selected. The rest stay unnamed.');
+    await userEvent.keyboard('y'); // the card's key, from a picture too
+    await waitFor(() => expect(posts.map(p => p.url)).toEqual(['/faces/unknown/split', '/people/claim']));
+  });
+
+  it('names only the pictures still selected: the deselected ones leave first, and wait for a name', async () => {
+    serve([KARA]);
+    show();
+    const card = await row(/^Face 5/);
+    await userEvent.click(card);
+    const picks = await tiles(card);
+    await userEvent.click(picks[1] as HTMLElement);
+    await userEvent.click(picks[2] as HTMLElement);
+    await userEvent.click(picks[2] as HTMLElement); // a second click selects it again
+    expect(await pressed(card)).toEqual(['true', 'false', 'true', 'true', 'true', 'true']);
+    await userEvent.click(within(card).getByRole('button', { name: 'Kara' }));
+    await waitFor(() =>
+      expect(posts).toEqual([
+        { url: '/faces/unknown/split', body: { group: 5, ids: ['2'] } },
+        { url: '/people/claim', body: { kind: 'face', id: 5, name: 'Kara' } },
+      ]),
+    );
+    expect(
+      await screen.findByText(/^Face 5 tagged as Kara\..* The 1 picture left out waits for a name\.$/),
+    ).toBeVisible();
+  });
+
+  it('says only the selected pictures are not the guess, and the card keeps waiting', async () => {
+    serve([KARA]);
+    server.use(
+      http.post('/faces/not', async ({ request }) => {
+        posts.push({ url: '/faces/not', body: await request.json() });
+        return HttpResponse.json({ ok: true, marked: 1, undo: [] });
+      }),
+    );
+    show();
+    const card = await row(/^Face 5/);
+    await userEvent.click(card);
+    await userEvent.click((await tiles(card))[0] as HTMLElement);
+    await userEvent.click(within(card).getByRole('button', { name: 'Not Kara' }));
+    await waitFor(() =>
+      expect(posts).toEqual([
+        { url: '/faces/unknown/split', body: { group: 5, ids: ['1'] } },
+        { url: '/faces/not', body: { name: 'Kara', groups: [5], shots: [], not: true } },
+      ]),
+    );
+    expect(await row(/^Face 5/)).toBeVisible();
+  });
+
+  it('answers nothing when the deselected pictures could not be left out', async () => {
+    serve([KARA]);
+    server.use(http.post('/faces/unknown/split', () => HttpResponse.json({ ok: false, error: 'Synthetic refusal' })));
+    show();
+    const card = await row(/^Face 5/);
+    await userEvent.click(card);
+    await userEvent.click((await tiles(card))[0] as HTMLElement);
+    await userEvent.click(within(card).getByRole('button', { name: 'Kara' }));
+    expect(await within(await row(/^Face 5/)).findByRole('alert')).toHaveTextContent('Synthetic refusal');
+    expect(posts).toEqual([]);
+  });
+
+  it('turns both buttons off when every picture is deselected', async () => {
+    serve([THREE]);
+    show();
+    const card = await row(/^Face 9/);
+    await userEvent.click(card);
+    for (const tile of await tiles(card)) await userEvent.click(tile);
+    expect(within(card).getByRole('button', { name: 'Ignore' })).toBeDisabled();
+    expect(within(card).getByRole('button', { name: 'Block' })).toBeDisabled();
+    await userEvent.keyboard('i');
+    expect(posts).toEqual([]);
+  });
+
+  it('ignores only the selected pictures, keeps the card with the rest, and Undo brings them back', async () => {
+    serve([THREE]);
+    show();
+    const card = await row(/^Face 9/);
+    await userEvent.click(card);
+    await userEvent.click((await tiles(card))[2] as HTMLElement);
+    await userEvent.click(within(card).getByRole('button', { name: 'Ignore' }));
+    await waitFor(() =>
+      expect(posts).toEqual([{ url: '/faces/unknown/hide', body: { group: 9, action: 'ignore', exclude: ['93'] } }]),
+    );
+    expect(await screen.findByText("Ignored 2 pictures of Face 9. They won't be shown again.")).toBeVisible();
+    expect(await row(/^Face 9/)).toBeVisible(); // the picture left out still waits
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(() =>
+      expect(posts.at(-1)).toEqual({ url: '/faces/unknown/restore', body: { kind: 'ignored', keys: ['91', '92'] } }),
+    );
+  });
+
+  it('blocks a face: the card goes, and Undo unblocks it', async () => {
+    serve([THREE, KARA]);
+    show();
+    const card = await row(/^Face 9/);
+    await userEvent.click(card);
+    await grid(card);
+    await userEvent.keyboard('b');
+    await waitFor(() =>
+      expect(posts).toEqual([{ url: '/faces/unknown/hide', body: { group: 9, action: 'block', exclude: [] } }]),
+    );
+    expect(await screen.findByText("Blocked 3 pictures of Face 9. Faces very like them won't be shown.")).toBeVisible();
+    await waitFor(() => expect(screen.queryByRole('listitem', { name: /^Face 9/ })).not.toBeInTheDocument());
+    expect(await row(/^Face 5/)).toHaveFocus(); // on to the next card
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(() =>
+      expect(posts.at(-1)).toEqual({ url: '/faces/unknown/restore', body: { kind: 'blocked', keys: ['block-1'] } }),
+    );
   });
 
   it('refreshes an open empty grid as pending crops land and stops polling when none remain', async () => {
@@ -1331,92 +1494,114 @@ describe('Show all and Not this person', () => {
     );
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
     try {
-      renderPage(<ShotPicker id={5} label="Face 5" total={0} onClose={vi.fn()} onRejected={vi.fn()} />);
-      const grid = await screen.findByRole('region', { name: 'Every picture of Face 5' });
-      expect(await within(grid).findByText('Processing 2 detections in the background…')).toBeVisible();
-      expect(grid.querySelector('img')).toBeNull();
+      renderPage(<FacePictures id={5} label="Face 5" total={0} out={new Set()} onToggle={vi.fn()} />);
+      const region = await screen.findByRole('region', { name: 'Every picture of Face 5' });
+      expect(await within(region).findByText('Processing 2 detections in the background…')).toBeVisible();
+      expect(region.querySelector('img')).toBeNull();
       ready = true;
       await act(async () => {
         await vi.advanceTimersByTimeAsync(2000);
       });
-      await waitFor(() => expect(within(grid).getAllByRole('button', { name: /^Picture from/ })).toHaveLength(2));
-      expect(within(grid).queryByText(/Processing .* detections/)).toBeNull();
-      expect(within(grid).getByText("1 detection can't be shown.")).toBeVisible();
+      await waitFor(() => expect(within(region).getAllByRole('button', { name: /^Picture from/ })).toHaveLength(2));
+      expect(within(region).queryByText(/Processing .* detections/)).toBeNull();
+      expect(within(region).getByText("1 detection can't be shown.")).toBeVisible();
       await act(async () => {
         await vi.advanceTimersByTimeAsync(2000);
       });
       expect(reads).toBe(2);
-      expect(grid.querySelector('img')).toHaveAttribute('loading', 'lazy');
+      expect(region.querySelector('img')).toHaveAttribute('loading', 'lazy');
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it('shows every picture, takes the selected ones out, and keeps the rest', async () => {
-    serve([{ ...KARA, shot_count: 3 }]);
-    pictures(['a', 'b', 'c']);
-    show();
-    const card = await row(/^Face 5/);
-    fireEvent.click(within(card).getByRole('button', { name: 'Show all (3)' }));
-    const grid = await within(card).findByRole('region', { name: 'Every picture of Face 5' });
-    const picks = await within(grid).findAllByRole('button', { name: /^Picture from/ });
-    expect(picks).toHaveLength(3);
-    const remove = within(grid).getByRole('button', { name: 'Not this person' });
-    expect(remove).toBeDisabled();
-    fireEvent.click(picks[0] as HTMLElement);
-    fireEvent.click(picks[2] as HTMLElement);
-    fireEvent.click(picks[2] as HTMLElement); // a second click puts it back
-    fireEvent.click(picks[1] as HTMLElement);
-    expect(picks.map(p => p.getAttribute('aria-pressed'))).toEqual(['true', 'true', 'false']);
-    fireEvent.click(remove);
-    expect(await screen.findByText('Took 2 pictures out of Face 5.')).toBeInTheDocument();
-    expect(posts).toEqual([{ url: '/faces/unknown/reject', body: { group: 5, ids: ['a', 'b'] } }]);
-    expect(within(grid).getAllByRole('button', { name: /^Picture from/ })).toHaveLength(1);
-    expect(screen.getByRole('listitem', { name: /^Face 5/ })).toBeInTheDocument();
-  });
-
-  it('keeps ready picture pagination separate from all remaining detections after a rejection', async () => {
-    serve([{ ...KARA, shot_count: 2 }]);
+  it('loads the rest a page at a time, and counts the ones not loaded yet as selected', async () => {
+    const ids = Array.from({ length: 70 }, (_, i) => `s${i}`);
+    serve([{ ...KARA, shot_count: 70 }]);
     server.use(
-      http.get('/faces/unknown/5/sightings', () => HttpResponse.json({ sightings: [shot('a'), shot('b')], total: 2 })),
-      http.post('/faces/unknown/reject', () => HttpResponse.json({ ok: true, removed: 1, left: 6, ignored: false })),
+      http.get('/faces/unknown/5/sightings', ({ request }) => {
+        const q = new URL(request.url).searchParams;
+        const offset = Number(q.get('offset'));
+        const page = ids.slice(offset, offset + Number(q.get('limit')));
+        return HttpResponse.json({ sightings: page.map(shot), total: ids.length });
+      }),
     );
     show();
     const card = await row(/^Face 5/);
-    fireEvent.click(within(card).getByRole('button', { name: 'Show all (2)' }));
-    const grid = await within(card).findByRole('region', { name: 'Every picture of Face 5' });
-    const picks = await within(grid).findAllByRole('button', { name: /^Picture from/ });
-    fireEvent.click(picks[0] as HTMLElement);
-    fireEvent.click(within(grid).getByRole('button', { name: 'Not this person' }));
-    await waitFor(() => expect(within(grid).getAllByRole('button', { name: /^Picture from/ })).toHaveLength(1));
-    expect(within(grid).queryByRole('button', { name: /Load .* more/ })).toBeNull();
-    expect(within(grid).getByText(/^1 picture\./)).toBeVisible();
-  });
-
-  it('takes a group with nothing left off the list', async () => {
-    serve([{ ...KARA, shot_count: 1 }]);
-    pictures(['a'], true);
-    show();
-    const card = await row(/^Face 5/);
-    fireEvent.click(within(card).getByRole('button', { name: 'Show all (1)' }));
-    fireEvent.click(await within(card).findByRole('button', { name: /^Picture from/ }));
-    fireEvent.click(within(card).getByRole('button', { name: 'Not this person' }));
-    expect(await screen.findByText(/Nothing was left, so it was put aside\./)).toBeInTheDocument();
-    await waitFor(() => expect(screen.queryByRole('listitem', { name: /^Face 5/ })).not.toBeInTheDocument());
-  });
-
-  it('loads the rest a page at a time', async () => {
-    const ids = Array.from({ length: 70 }, (_, i) => `s${i}`);
-    serve([{ ...KARA, shot_count: 70 }]);
-    pictures(ids);
-    show();
-    const card = await row(/^Face 5/);
-    fireEvent.click(within(card).getByRole('button', { name: 'Show all (70)' }));
+    await userEvent.click(card);
     const more = await within(card).findByRole('button', { name: 'Load 10 more' });
-    expect(within(card).getAllByRole('button', { name: /^Picture from/ })).toHaveLength(60);
-    fireEvent.click(more);
-    await waitFor(() => expect(within(card).getAllByRole('button', { name: /^Picture from/ })).toHaveLength(70));
+    expect(await tiles(card)).toHaveLength(60);
+    await userEvent.click((await tiles(card))[0] as HTMLElement);
+    expect(within(card).getByRole('status')).toHaveTextContent('69 of 70 pictures selected.');
+    await userEvent.click(more);
+    await waitFor(async () => expect(await tiles(card)).toHaveLength(70));
     expect(within(card).queryByRole('button', { name: /more$/ })).not.toBeInTheDocument();
+  });
+});
+
+describe('Show ignored and blocked', () => {
+  let reads: number;
+  function hidden() {
+    reads = 0;
+    server.use(
+      http.get('/faces/unknown/hidden', () => {
+        reads++;
+        return HttpResponse.json({
+          ignored: [{ id: 's1', url: '/faces/shot/s1.jpg', group: 9, at: NOW }],
+          ignored_count: 1,
+          blocked: [{ id: 'block-1', group: 4, at: NOW, count: 3, shots: [{ id: 's2', url: '/faces/shot/s2.jpg' }] }],
+          blocked_count: 1,
+        });
+      }),
+      http.get('/speakers/refine/log', () => HttpResponse.json({ labels: [], total: 0 })),
+    );
+  }
+  const toggle = () => screen.findByRole('switch', { name: 'Show ignored and blocked' });
+
+  it('is off by default, and reads nothing until it is turned on', async () => {
+    serve([NOBODY]);
+    hidden();
+    renderPage(<WhosThis last={{}} live={[]} wide />);
+    expect(await toggle()).not.toBeChecked();
+    expect(screen.queryByRole('region', { name: 'Ignored' })).toBeNull();
+    expect(reads).toBe(0);
+  });
+
+  it('lists what is ignored and blocked, and un-ignores or unblocks each', async () => {
+    serve([NOBODY]);
+    hidden();
+    renderPage(<WhosThis last={{}} live={[]} wide />);
+    await userEvent.click(await toggle());
+    const ignored = await screen.findByRole('region', { name: 'Ignored' });
+    expect(within(ignored).getByRole('listitem', { name: 'Face 9' })).toBeVisible();
+    const blocked = screen.getByRole('region', { name: 'Blocked' });
+    expect(within(blocked).getByRole('listitem', { name: 'Face 4, 3 pictures' })).toBeVisible();
+    await userEvent.click(within(ignored).getByRole('button', { name: 'Un-ignore Face 9' }));
+    await waitFor(() =>
+      expect(posts).toEqual([{ url: '/faces/unknown/restore', body: { kind: 'ignored', keys: ['s1'] } }]),
+    );
+    await userEvent.click(within(blocked).getByRole('button', { name: 'Unblock Face 4, 3 pictures' }));
+    await waitFor(() =>
+      expect(posts.at(-1)).toEqual({ url: '/faces/unknown/restore', body: { kind: 'blocked', keys: ['block-1'] } }),
+    );
+    expect(await screen.findByText('Unblocked Face 4, 3 pictures.')).toBeVisible();
+  });
+
+  it('turns off again, hiding the list', async () => {
+    serve([NOBODY]);
+    hidden();
+    renderPage(<WhosThis last={{}} live={[]} wide />);
+    await userEvent.click(await toggle());
+    await screen.findByRole('region', { name: 'Ignored' });
+    await userEvent.click(await toggle());
+    expect(screen.queryByRole('region', { name: 'Ignored' })).toBeNull();
+  });
+
+  it("is left out of Live's rail", async () => {
+    serve([NOBODY]);
+    show();
+    await row(/^Face 9/);
+    expect(screen.queryByRole('switch', { name: 'Show ignored and blocked' })).toBeNull();
   });
 });
 
@@ -1449,7 +1634,8 @@ describe('claim Undo', () => {
     );
     show();
     const pattern = kind === 'face' ? /^Face 5/ : /^Speaker 12/;
-    await pick(await row(pattern), kind === 'face' ? 'Kara' : 'Dana');
+    if (kind === 'face') await answer(await row(pattern), 'Kara');
+    else await pick(await row(pattern), 'Dana');
     const toast = await screen.findByRole('status', { name: 'Decisions' });
     const undo = within(toast).getByRole('button', { name: 'Undo' });
     undo.focus(); // as a click or a Tab to it would
@@ -1459,7 +1645,7 @@ describe('claim Undo', () => {
     expect(undo).toBeDisabled();
     claimed = false;
     await act(async () => release(HttpResponse.json({ ok: true, people: [] })));
-    expect(nameBox(await row(pattern))).toBeEnabled();
+    expect(await row(pattern)).toBeVisible();
     // The toast's Undo went with its toast: focus lands on the row it brought back, not on the page
     await waitFor(async () => expect(await row(pattern)).toHaveFocus());
     expect(screen.getByRole('status', { name: 'Decisions' })).toHaveTextContent('Undid the name');
@@ -1481,7 +1667,7 @@ describe('claim Undo', () => {
       }),
     );
     show();
-    await pick(await row(/^Face 5/), 'Kara');
+    await answer(await row(/^Face 5/), 'Kara');
     await userEvent.click(
       within(await screen.findByRole('status', { name: 'Decisions' })).getByRole('button', { name: 'Undo' }),
     );
@@ -1490,7 +1676,7 @@ describe('claim Undo', () => {
       within(screen.getByRole('alert', { name: 'Decisions' })).getByRole('button', { name: 'Undo' }),
     );
     await waitFor(() => expect(undos).toBe(2));
-    expect(nameBox(await row(/^Face 5/))).toBeEnabled();
+    expect(await row(/^Face 5/)).toBeVisible();
   });
 });
 
@@ -1503,7 +1689,7 @@ it('reports a consumed claim Undo failure without offering that token again', as
     ),
   );
   show();
-  await pick(await row(/^Face 5/), 'Kara');
+  await answer(await row(/^Face 5/), 'Kara');
   await userEvent.click(
     within(await screen.findByRole('status', { name: 'Decisions' })).getByRole('button', { name: 'Undo' }),
   );

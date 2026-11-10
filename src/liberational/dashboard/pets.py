@@ -214,6 +214,42 @@ def deny(body: object, control: bool, state: Path) -> tuple[int, dict[str, Any]]
         return 503, {"ok": False, "error": "Pet sightings are unavailable. Reload before trying again."}
 
 
+def block(body: object, control: bool, state: Path) -> tuple[int, dict[str, Any]]:
+    """POST /pets/sightings/block {track_ids, block}: block these sightings, so ones very like them stop being listed
+    for a name (pet_recognition.BLOCK_SIM), or, with `block` false, take that back."""
+    from liberational.people import pet_recognition
+
+    if not control:
+        return 403, {"ok": False, "error": "pets can only be changed on this machine"}
+    if not isinstance(body, dict):
+        return 400, {"ok": False, "error": "send a JSON object"}
+    flag = body.get("block", True)
+    if not isinstance(flag, bool):
+        return 400, {"ok": False, "error": "block is true or false"}
+    try:
+        tracks = body.get("track_ids")
+        count = pet_recognition.block(state, tracks, pets.at(state).listing(), active=flag)  # ty: ignore[invalid-argument-type]
+        return 200, {"ok": True, "blocked": count}
+    except ValueError as error:
+        return 400, {"ok": False, "error": str(error)}
+    except LookupError as error:
+        return 404, {"ok": False, "error": str(error)}
+    except (continuum_py.ContinuumError, TimeoutError, RuntimeError) as error:
+        LOG.warning("pet sighting block unavailable: %s", logs.reason(error))
+        return 503, {"ok": False, "error": "Pet sightings are unavailable. Reload before trying again."}
+
+
+def hidden(state: Path) -> tuple[int, dict[str, Any]]:
+    """GET /pets/sightings/hidden: the sightings the owner ignored or blocked, newest first."""
+    from liberational.people import pet_recognition
+
+    try:
+        return 200, pet_recognition.hidden(state)
+    except (continuum_py.ContinuumError, TimeoutError, RuntimeError) as error:
+        LOG.warning("hidden pet sightings unavailable: %s", logs.reason(error))
+        return 503, {"error": "Pet sightings are unavailable. Retry when the broker is ready."}
+
+
 @functools.lru_cache(maxsize=4)
 def _photo_tracks(state: Path, revision: str, second: int) -> dict[str, Sighting]:
     from liberational.people import pet_recognition
@@ -264,6 +300,20 @@ def _post_pets_sightings_not(h: H, body: Any) -> None:
     if not h._same_origin_json():
         return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
     code, reply = deny(body, h._can_teach(), h.state)
+    return h._json(reply, code)
+
+
+@routes.post("/pets/sightings/block")
+def _post_pets_sightings_block(h: H, body: Any) -> None:
+    if not h._same_origin_json():
+        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
+    code, reply = block(body, h._can_teach(), h.state)
+    return h._json(reply, code)
+
+
+@routes.get("/pets/sightings/hidden")
+def _get_pets_sightings_hidden(h: H) -> None:
+    code, reply = hidden(h.state)
     return h._json(reply, code)
 
 

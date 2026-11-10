@@ -14,8 +14,10 @@ import { knownTabOf } from '../router';
 import classes from './people.module.css';
 import { getPets, PETS_KEY, petInHash, SIGHTINGS_HASH } from './petLinks';
 import {
+  blockSightings,
   byWindow,
   choosePhoto,
+  HIDDEN_SIGHTINGS_KEY,
   IGNORED,
   labelSightings,
   markNot,
@@ -91,7 +93,10 @@ export function Pets() {
       for (const t of tracks) on ? next.delete(t) : next.add(t);
       return next;
     });
-  const refresh = () => void client.invalidateQueries({ queryKey: SIGHTINGS_KEY });
+  const refresh = () => {
+    void client.invalidateQueries({ queryKey: SIGHTINGS_KEY });
+    void client.invalidateQueries({ queryKey: HIDDEN_SIGHTINGS_KEY });
+  };
   const label = async (tracks: string[], value: string) => {
     show(tracks, false);
     setSaid(null);
@@ -166,6 +171,35 @@ export function Pets() {
     } catch (err) {
       setSaid({ err: `Could not change those sightings: ${messageOf(err)}` });
     }
+    refresh();
+  };
+  // Block: these sightings, and any waiting one very like them, stop being listed. Undo unblocks them.
+  const block = async (tracks: string[]) => {
+    show(tracks, false);
+    setSaid(null);
+    try {
+      const reply = await blockSightings(tracks);
+      setSaid({
+        text: `Blocked ${reply.blocked} sighting${reply.blocked === 1 ? '' : 's'}. Ones very like ${
+          reply.blocked === 1 ? 'it' : 'them'
+        } won't be listed.`,
+        undo: async () => {
+          await blockSightings(tracks, false);
+          show(tracks, true);
+        },
+      });
+    } catch (err) {
+      show(tracks, true);
+      setSaid({ err: `Could not block those sightings: ${messageOf(err)}` });
+    }
+    refresh();
+  };
+  // "Show ignored and blocked": bring one sighting back. It waits for a name again.
+  const restore = async (kind: 'ignored' | 'blocked', track: string) => {
+    if (kind === 'blocked') await blockSightings([track], false);
+    else await labelSightings([track], null);
+    show([track], true);
+    setSaid({ text: kind === 'blocked' ? 'Unblocked. It waits for a name again.' : 'No longer ignored.' });
     refresh();
   };
   // A sighting on a pet's card that isn't that pet: it leaves the card, and its label too if it had one.
@@ -296,6 +330,8 @@ export function Pets() {
                 onBack={back}
                 onLabel={(tracks, value) => void label(tracks, value)}
                 onNot={(tracks, id) => void notGroup(tracks, id)}
+                onBlock={tracks => void block(tracks)}
+                onRestore={restore}
                 onBulk={(id, checked, unchecked) => void bulk(id, checked, unchecked)}
                 onNewPet={(species, then) => setEditing({ pet: null, species, then })}
               />
