@@ -31,6 +31,10 @@ There is nothing to migrate and no data to reset. After pulling, restart the das
 (`pack-services restart dashboard voice research`, or the names your install uses), since each holds the old parser
 in memory.
 
+`pack-camera-history` and the voice loop's camera answer now say only what the cameras show now. A camera question
+about the past ("what did camera 2 see in the last hour") is answered by Ask, from the same captions, so ask it in
+Ask or `pack-ask`.
+
 ## Segment parts close as one batch
 
 A segment part used to keep one record batch for every append for good, so a stream appended a row at a time (the

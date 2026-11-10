@@ -69,21 +69,12 @@ def camera_read(req: str, camera: Callable[[str], object]) -> bool:
 
 
 def asks_about_the_past(req: str) -> bool:
-    """Whether a camera request asks about the past rather than what the cameras show now: a history question
-    (memory/history_qa.py is_history_question, the local model's reading of it, which voice.handle answers from the
-    transcript and memory; a question the model gives no reading for counts as one about the past), or one
-    the camera history reads a time window for (vision/camera_history.py parse), or one that parse refuses as a
-    past time it can't read. Both, because their wordings differ: "camzero" is a camera to parse but not to the
-    history classifier."""
+    """Whether a camera request asks about the past rather than what the cameras show now, from the one reading of
+    it (memory/history_qa.asks_about_the_past): a history question, or one with a time in it. A question the model
+    gives no reading for counts as one, so the password check fails closed."""
     from liberational.memory import history_qa
-    from liberational.vision import camera_history
 
-    if history_qa.is_history_question(req, unreadable=True):  # no reading fails closed: the password
-        return True
-    try:
-        return camera_history.parse(req)[1] is not None
-    except ValueError:
-        return True
+    return history_qa.asks_about_the_past(req)
 
 
 def request_policy(request: str, owner: bool) -> tuple[bool, bool]:
