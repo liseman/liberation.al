@@ -44,7 +44,7 @@ from pathlib import Path
 import continuum_py
 from continuum_py import Client
 
-from liberational import config, continuum_link, logs
+from liberational import config, continuum_link, json_state, logs
 from liberational.continuum import to_ns
 
 log = logs.get("video-window")
@@ -116,10 +116,7 @@ class Run:
     def _save(self) -> None:
         if self.dry:
             return
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(self.marks, indent=1, sort_keys=True))
-        tmp.replace(self.path)
+        json_state.write(self.path, self.marks, indent=1, sort_keys=True)
 
     async def run(self) -> dict[str, int]:
         if self.promote is not None:

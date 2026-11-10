@@ -30,7 +30,7 @@ import cv2
 import numpy as np
 
 from liberational import config as cfg
-from liberational import logs, model_runtime
+from liberational import json_state, logs, model_runtime
 from liberational.domain import kernel
 from liberational.domain.identity import MODEL_BASES, Basis, SubjectRef
 from liberational.domain.kernel import EvidenceRef, Producer
@@ -1710,10 +1710,7 @@ def refresh_check(state: pathlib.Path | None = None, days: float = REBUILD_DAYS)
     reg = registry.at(state)
     ids, _, _, nxt, _ = _unk_load_sums()
     result = {"ts": time.time(), **held_out(_owner_tagged(reg, _members(state, days), int(nxt), map(int, ids)))}
-    CHECK.parent.mkdir(parents=True, exist_ok=True)
-    tmp = CHECK.with_name(f".{CHECK.name}.{os.getpid()}.tmp")
-    tmp.write_text(json.dumps(result))
-    os.replace(tmp, CHECK)
+    json_state.write(CHECK, result)
     return result
 
 

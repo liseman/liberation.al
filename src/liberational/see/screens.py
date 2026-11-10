@@ -16,7 +16,6 @@ are untouched, so the people a screen shows are still in the video, only not cou
 
 import json
 import math
-import os
 import threading
 import time
 from collections.abc import Callable, Sequence
@@ -26,6 +25,7 @@ from pathlib import Path
 import numpy as np
 from numpy.typing import NDArray
 
+from liberational import json_state
 from liberational.see.zones import contains
 
 Point = tuple[float, float]
@@ -351,12 +351,9 @@ class ScreensOn:
             self.written = now
             body = json.dumps({"cams": self.cams, "at": now}, separators=(",", ":"))
             # Written under the lock: two cameras writing at once would race on the file, and the slower
-            # one's older map would replace the newer. The temporary name is this thread's own besides.
-            tmp = self.path.with_name(f".{self.path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+            # one's older map would replace the newer.
             try:
-                self.path.parent.mkdir(parents=True, exist_ok=True)
-                tmp.write_text(body)
-                os.replace(tmp, self.path)
+                json_state.write_text(self.path, body)
             except OSError:
                 pass  # the next span writes it again
 

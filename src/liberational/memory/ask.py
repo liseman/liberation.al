@@ -19,7 +19,6 @@ import datetime as dt
 import io
 import json
 import math
-import os
 import queue
 import re
 import subprocess
@@ -36,7 +35,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from liberational import config as cfg
-from liberational import logs, ollama
+from liberational import json_state, logs, ollama
 from liberational.config import ROOT
 from liberational.vision import views
 
@@ -938,16 +937,10 @@ def _short_writer(path: Path) -> Callable[[Mapping[str, Any]], None]:
         if sent or path.exists():
             return
         sent = True
-        temporary = path.with_suffix(".tmp")
         try:
-            fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-            with os.fdopen(fd, "w", encoding="utf-8") as output:
-                json.dump(dict(result), output)
-            temporary.replace(path)
+            json_state.write(path, dict(result), private=True)
         except OSError:
             LOG.warning("could not publish the spoken short answer; waiting for the completed reply")
-        finally:
-            temporary.unlink(missing_ok=True)
 
     return write
 

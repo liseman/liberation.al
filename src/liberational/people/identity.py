@@ -68,7 +68,7 @@ from collections.abc import Callable, Collection, Iterable, Sequence
 from typing import Any
 
 from liberational import config as cfg
-from liberational import knowledge, logs, ollama, ollama_health, segment_log, speech_log
+from liberational import json_state, knowledge, logs, ollama, ollama_health, segment_log, speech_log
 from liberational.domain.identity import Basis
 from liberational.memory import quantities
 from liberational.people import registry, tags, transcript_view
@@ -920,9 +920,7 @@ def _read_cursor(path: pathlib.Path) -> speech_log.Cursor | None:
 
 
 def _write_cursor(path: pathlib.Path, cursor: speech_log.Cursor) -> None:
-    temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(json.dumps(cursor, sort_keys=True))
-    os.replace(temporary, path)
+    json_state.write(path, cursor, sort_keys=True)
 
 
 async def _save_handled(path: pathlib.Path, past: dict[int, speech_log.Cursor], acked: asyncio.Queue[int]) -> None:

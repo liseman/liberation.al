@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import pytest
 
 from liberational import config as cfg
+from liberational import json_state
 from liberational import model_runtime as runtime
 
 
@@ -392,19 +393,13 @@ def test_identity_without_face_models_does_not_make_face_loads_unknown():
 
 
 def test_failed_unload_write_invalidates_the_previous_loaded_evidence(state, monkeypatch):
-    from pathlib import Path
-
-    original = Path.write_text
-
-    def full_disk(path, text, *args, **kwargs):
-        if path.suffix == ".tmp":
-            raise OSError("no space left on device")
-        return original(path, text, *args, **kwargs)
+    def full_disk(path, data, **options):
+        raise OSError("no space left on device")
 
     with runtime.reporting("listen"):
         token = runtime.loaded("models.files.vad_silero", "Silero", "speech detection", "cpu")
         assert runtime.snapshot({os.getpid(): "listen"})["processes"]
-        monkeypatch.setattr(Path, "write_text", full_disk)
+        monkeypatch.setattr(json_state, "write", full_disk)
         assert token is not None
         token.close()
         result = runtime.snapshot({os.getpid(): "listen"})
@@ -416,21 +411,17 @@ def test_failed_unload_write_invalidates_the_previous_loaded_evidence(state, mon
 def test_failed_write_preserves_an_external_pid_status_replaced_by_another_reporter(
     state, monkeypatch, replacement_created
 ):
-    from pathlib import Path
     from types import SimpleNamespace
 
     process = runtime.psutil.Process
-    original = Path.write_text
     monkeypatch.setattr(
         runtime.psutil,
         "Process",
         lambda pid=None: SimpleNamespace(create_time=lambda: 100.0) if pid == 123 else process(pid),
     )
 
-    def full_disk(path, text, *args, **kwargs):
-        if path.suffix == ".tmp":
-            raise OSError("no space left on device")
-        return original(path, text, *args, **kwargs)
+    def full_disk(path, data, **options):
+        raise OSError("no space left on device")
 
     with runtime.reporting("whisper"):
         token = runtime.loaded("models.files.asr_whisper", "whisper.bin", "speech to text", "unknown", external_pid=123)
@@ -443,7 +434,7 @@ def test_failed_write_preserves_an_external_pid_status_replaced_by_another_repor
         replacement = external.with_suffix(".replacement")
         replacement.write_text(json.dumps(replacement_record))
         replacement.replace(external)
-        monkeypatch.setattr(Path, "write_text", full_disk)
+        monkeypatch.setattr(json_state, "write", full_disk)
         assert token is not None
         token.close()
         assert json.loads(external.read_text()) == replacement_record

@@ -23,14 +23,13 @@ import asyncio
 import contextlib
 import fcntl
 import json
-import os
 import signal
 import time
 from collections.abc import Callable, Generator, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from liberational import config, logs, segment_log
+from liberational import config, json_state, logs, segment_log
 from liberational.memory import presence_episodes
 from liberational.see import tracked_frames, zones
 
@@ -122,10 +121,7 @@ class ZoneWorker:
             "pipelines": {cam: p.snapshot() for cam, p in self.pipelines.items()},
             "episodes": {cam: e.snapshot() for cam, e in self.episodes.items()},
         }
-        path = checkpoint_path(self.state)
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(snapshot))
-        os.replace(tmp, path)
+        json_state.write(checkpoint_path(self.state), snapshot)
         self._saved_at = self.clock()
 
     # The pipeline.

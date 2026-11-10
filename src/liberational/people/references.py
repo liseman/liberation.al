@@ -26,6 +26,8 @@ from typing import Any
 
 from PIL import Image
 
+from liberational import json_state
+
 MAX_BYTES = 20 * 1024 * 1024
 MAX_SECONDS = 120
 DOWNLOAD_SECONDS = 30.0
@@ -329,10 +331,7 @@ def _attach(state: pathlib.Path, token: str, person: str) -> dict[str, Any]:
     if data["person"] is not None and data["person"] != person:
         raise ValueError("Reference is already attached to a different person.")
     data["person"] = person
-    folder = entry(state, token)
-    temporary = folder / "meta.tmp"
-    temporary.write_text(json.dumps(data))
-    temporary.replace(folder / "meta.json")
+    json_state.write(entry(state, token) / "meta.json", data, durable=True)
     return data
 
 
@@ -342,10 +341,7 @@ def note_face(state: pathlib.Path, token: str, face: dict[str, Any]) -> dict[str
         data = metadata(state, token)
         data["face"] = face
         data["enrollment"] = "face" if face.get("result") == "added" else "reference only"
-        folder = entry(state, token)
-        temporary = folder / "meta.tmp"
-        temporary.write_text(json.dumps(data))
-        temporary.replace(folder / "meta.json")
+        json_state.write(entry(state, token) / "meta.json", data, durable=True)
         return data
 
 
@@ -372,7 +368,4 @@ def rename(state: pathlib.Path, old: str, new: str) -> None:
     with _WRITES:
         for item in listing(state, old):
             item["person"] = new
-            folder = entry(state, item["id"])
-            temporary = folder / "meta.tmp"
-            temporary.write_text(json.dumps(item))
-            temporary.replace(folder / "meta.json")
+            json_state.write(entry(state, item["id"]) / "meta.json", item, durable=True)
