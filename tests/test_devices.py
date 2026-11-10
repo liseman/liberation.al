@@ -215,7 +215,7 @@ PLAN = 'plan "Home" walls 0.2/0.1\nroom r1 "Living room" other rect 0,0 4x6\nroo
 
 
 def a_place(state: Path) -> str:
-    """A place with a two-room plan, as a walkthrough makes one."""
+    """A place with a two-room plan, as a mapped place has."""
     return places.revise(state, None, producer="footprints-v1", plan=PLAN, now=NOW - 86400).place
 
 

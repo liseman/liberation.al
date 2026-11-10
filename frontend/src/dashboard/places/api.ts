@@ -72,6 +72,8 @@ export interface Positions {
    *  joined. */
   tracks: { entity: string; track?: string; points: Point[] }[];
   rooms: RoomSpan[];
+  /** How many cameras have a pose in the place's map. With none, nobody can be placed there. */
+  cameras?: number;
 }
 
 export const positionsQuery = (place: string, start: number, end: number) =>
@@ -133,12 +135,12 @@ export const restorePlan = (place: string, record: string) =>
     record,
   });
 
-/** Why a map has no splat of its own. `reason`: the nightly pass hasn't run since the map was made ("pass"), it had too
- *  few lit daytime frames ("few_frames"), the map has no fixed cameras ("no_cameras"), the trainer isn't installed
- *  ("no_runtime"), training failed ("failed"), or splats are turned off in the settings ("off"). `tried` is when the pass last tried this map (epoch seconds), and
- *  `pass_at` the time of day it runs ("HH:MM"). */
+/** Why a map has no splat of its own. `reason`: no pass has tried this map ("pass"), there were too few lit daytime
+ *  frames ("few_frames"), the map has no fixed cameras ("no_cameras"), the trainer isn't installed ("no_runtime"), or
+ *  training failed ("failed"). `tried` is when a pass last tried this map (epoch seconds), and `pass_at` the time of
+ *  day a scheduled pass runs ("HH:MM"), null while none is scheduled. */
 export interface SplatWait {
-  reason: 'pass' | 'few_frames' | 'no_cameras' | 'no_runtime' | 'failed' | 'off';
+  reason: 'pass' | 'few_frames' | 'no_cameras' | 'no_runtime' | 'failed';
   tried: number | null;
   pass_at: string | null;
 }

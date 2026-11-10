@@ -36,11 +36,11 @@ for a lone camera "up": [x, y, z] and "floor": [nx, ny, nz, d]}], "floorless": [
 `lone_matches` only),
 and each group's cloud an npz of `points` (N x 3 float32, metres) and `colors` (N x 3 uint8).
 
-**Pairs mode** (a walkthrough's loop edges): with `pairs` ([[a, b], ...], image names) in the job, only those
+**Pairs mode**: with `pairs` ([[a, b], ...], image names) in the job, only those
 pairs go through MASt3R, nothing is grouped or aligned, and the answer is {"pairs": [{"a", "b", "matches",
 "depths", "forward", "backward", "scales", "inliers"}, ...]}. `depths` are a's and b's median depths over their
 confident pixels, both in the scale `forward` is in (b's own pointmap comes from the other pass, so its depth is
-carried over by the forward similarity's scale), which is how the walkthrough relates the pair to CUT3R's scale. MASt3R gives each pair four pointmaps: each view in its own
+carried over by the forward similarity's scale), which is how a caller relates the pair to its own scale. MASt3R gives each pair four pointmaps: each view in its own
 frame, and each view in the other's frame. `forward` is camera b's pose in camera a's frame (16 numbers, row by row),
 the rigid part of the similarity that carries b's own pointmap onto b's pointmap in a's frame (`pair_pose`), and
 `backward` is a in b's frame the same way; with `save_pairs` in the job, each pair's inferences also go to
@@ -48,7 +48,7 @@ the rigid part of the similarity that carries b's own pointmap onto b's pointmap
 A pair MASt3R is unsure of nearly everywhere has no poses (None) and an `error`. `inliers` count the
 reciprocal matches PnP with RANSAC keeps for each direction (`pnp_inliers`: a's points at its
 matched pixels against b's matched pixels, with b's focal from its own pointmap), a check that the matches and the
-geometry agree. The translations are in MASt3R's scale; the walkthrough puts them in its own.
+geometry agree. The translations are in MASt3R's scale; a caller puts them in its own.
 """
 
 from __future__ import annotations
@@ -182,9 +182,9 @@ def up_from_normals(points: Any, conf: Any, min_conf: float = MIN_CONF) -> tuple
 
 def pair_edges(n: int, window: int | None = None, offsets: Iterable[int] | None = None) -> list[tuple[int, int]]:
     """The index pairs (i, j), i < j, of `n` images in order to match: those `offsets` apart when given, else those
-    at most `window` apart, else every pair. A walkthrough's offsets are its neighbours and then doubling steps (1, 2,
+    at most `window` apart, else every pair. A video's offsets are its neighbours and then doubling steps (1, 2,
     3, 4, 8, 16, ...), the log-window scene graph DUSt3R and MASt3R use for video: the neighbours hold the chain
-    together, and the long steps tie distant parts of the walk to each other (where they overlap enough to match), so
+    together, and the long steps tie distant parts of it to each other (where they overlap enough to match), so
     alignment errors don't pile up along it."""
     if offsets is not None:
         steps = sorted({int(k) for k in offsets if int(k) > 0})
@@ -349,7 +349,7 @@ def main(argv: Sequence[str]) -> int:
 def _pair_arrays(
     group: Sequence[str], paths: Sequence[str], found: Mapping[Any, Any], imgs: Any, torch: Any
 ) -> dict[str, Any]:
-    """A group's pair inferences for registration by reprojection (spatial/registration.py), as plain arrays:
+    """A group's pair inferences for registration by reprojection, as plain arrays:
     for each ordered pair a, b of its cameras, `a__b__own` (a's point map in its own frame) and `__own_conf`,
     `__other` (b's point map in a's frame) and `__other_conf`, `__xy`, `__xy_other` (their matched pixels) and
     `__match_conf`; and each camera's image at MASt3R's size, `a__image`."""
@@ -502,8 +502,7 @@ def _pair_poses(
         )
     answer: dict[str, Any] = {"pairs": out}
     if job.get("save_pairs"):
-        # Each pair's inference as registration by reprojection reads it (`_pair_arrays`), for a fit of a camera's
-        # intrinsics against a walk's frames
+        # Each pair's inference as registration by reprojection reads it (`_pair_arrays`)
         arrays: dict[str, Any] = {}
         for i, j in wanted:
             pair_imgs = [((im["img"][0].permute(1, 2, 0).numpy() + 1) / 2).clip(0, 1) for im in (imgs[i], imgs[j])]

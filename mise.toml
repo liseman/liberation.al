@@ -89,48 +89,6 @@ echo "$C" > "$D/VERSION"
 echo "MASt3R $C set up in $D"
 '''
 
-[tasks.cut3r]
-description = "Set up CUT3R's runtime for walkthroughs in data/cut3r: its pinned code and its own venv (CUDA machines; safe to re-run)"
-env = { CUT3R_COMMIT = "8bc15dc92a6d7fd92920b4ec81540d3dec7d3ecf", CUT3R_DIR = "data/cut3r" }
-run = '''
-#!/usr/bin/env bash
-set -euo pipefail
-D="$CUT3R_DIR"; C="$CUT3R_COMMIT"
-if ! command -v nvidia-smi >/dev/null; then echo "CUT3R needs CUDA; skipped"; exit 0; fi
-if [ -x "$D/.venv/bin/python" ] && [ "$(cat "$D/VERSION" 2>/dev/null)" = "$C" ]; then
-  echo "CUT3R $C already set up in $D"; exit 0
-fi
-rm -rf "$D/src" "$D/.venv"
-git clone --quiet https://github.com/CUT3R/CUT3R "$D/src"
-git -C "$D/src" checkout --quiet "$C"
-# Its own venv, as MASt3R's (an older Python and torch than the pack's). Its CUDA RoPE kernel isn't built: the runner
-# patches the PyTorch fallback instead (spatial/cut3r_runner.py).
-uv venv -q --python 3.11 "$D/.venv"
-uv pip install -q --python "$D/.venv/bin/python" --index-url https://download.pytorch.org/whl/cu126 torch==2.14.* torchvision
-uv pip install -q --python "$D/.venv/bin/python" numpy==1.26.4 roma einops scipy omegaconf "huggingface-hub[torch]>=0.22" transformers==4.49.* accelerate opencv-python-headless pillow tqdm
-echo "$C" > "$D/VERSION"
-echo "CUT3R $C set up in $D"
-'''
-
-[tasks.geocalib]
-description = "Set up GeoCalib's runtime for fixed cameras' gravity and focal in data/geocalib: its own venv at a pinned commit (CPU; safe to re-run)"
-env = { GEOCALIB_COMMIT = "1dedb29f94fc11b896c5f572005978aeebccd67f", GEOCALIB_DIR = "data/geocalib" }
-run = '''
-#!/usr/bin/env bash
-set -euo pipefail
-D="$GEOCALIB_DIR"; C="$GEOCALIB_COMMIT"
-if [ -x "$D/.venv/bin/python" ] && [ "$(cat "$D/VERSION" 2>/dev/null)" = "$C" ]; then
-  echo "GeoCalib $C already set up in $D"; exit 0
-fi
-rm -rf "$D/.venv"
-# Its own venv, as MASt3R's: its code stays out of the pack's processes. A few frames a day run fine on the CPU.
-uv venv -q --python 3.12 "$D/.venv"
-uv pip install -q --python "$D/.venv/bin/python" --index-url https://download.pytorch.org/whl/cpu torch torchvision
-uv pip install -q --python "$D/.venv/bin/python" "git+https://github.com/cvg/GeoCalib@$C"
-echo "$C" > "$D/VERSION"
-echo "GeoCalib $C set up in $D"
-'''
-
 [tasks.gsplat]
 description = "Set up gsplat's runtime for place splats in data/gsplat: its own venv with a prebuilt gsplat, and Depth Anything 3's pinned code for the depth prior (CUDA machines; safe to re-run)"
 env = { GSPLAT_VERSION = "1.5.3", DA3_COMMIT = "3d835ec1a5802d64a8b8b15f817a1ab54809bfe4", GSPLAT_DIR = "data/gsplat" }

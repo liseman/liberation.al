@@ -385,29 +385,6 @@ def moved(pose, dx=0.0, dz=0.0):
 OWNER_ROOMS = 'plan "Home" walls 0.2/0.1\nroom r1 "Lounge" other rect 0,0 4x3\nroom r2 "Bedroom" other rect 0,3 4x3\n'
 
 
-def test_a_joined_rooms_camera_lands_on_the_owners_plan_drawn_before_the_join(tmp_path, vision):
-    # The owner drew the plan on the first revision, which registers cam0 only. A join brought in the porch, 3 m
-    # further along z, in a new map that stands 5 m along x from the first and has no plan of its own.
-    place = home(tmp_path)
-    first = places.latest(tmp_path, place)
-    assert first is not None
-    joined = {"cam0": moved(LEVEL, dx=5.0), "porch": moved(LEVEL, dx=5.0, dz=3.0)}
-    places.revise(
-        tmp_path, place, producer="join", cameras=joined, floor=FLOOR, map_bytes=b"y", map_format="ply", now=T
-    )
-    places.correct_plan(tmp_path, place, OWNER_ROOMS, now=T + 1, base=first.id)
-    foot(vision, T + 2, cam="porch")
-    (p,) = P.derive(tmp_path, T, T + 5, place, frame_revision=first.id)
-    # its heels land 1.93 m ahead of it: map (1, 4.93) in the first revision's frame, plan (1, 4.93)
-    assert (p.x, p.y, p.revision, p.in_frame) == (
-        pytest.approx(1.0, abs=1e-3),
-        pytest.approx(4.93, abs=1e-3),
-        first.id,
-        True,
-    )
-    assert (p.room_id, p.room) == ("r2", "Bedroom")
-
-
 @pytest.mark.parametrize(("place", "frame"), [(None, "any"), ("given", "no-such-revision")])
 def test_a_frame_needs_its_place_and_must_exist(tmp_path, place, frame):
     real = home(tmp_path)
@@ -1263,6 +1240,16 @@ def record(t, place, *, x=1.0, y=1.0, source=P.RIG_POSE, entity="rig", path=None
     )  # fmt: skip
 
 
+def test_with_no_camera_posed_in_any_map_the_placer_places_nothing_and_says_so(tmp_path, vision, caplog):
+    # A place the owner's plan keeps listed, with no map and no camera: a footprint has nothing to be placed by.
+    places.revise(tmp_path, None, producer="test", now=T - 100)
+    foot(vision, T)
+    with caplog.at_level("INFO"):
+        did = P.advance(tmp_path, T + 60, chunk_s=P.BACKFILL_S)
+    assert did["records"] == 0
+    assert "no camera has a pose in any place's map" in caplog.text
+
+
 def test_the_placer_writes_a_footprint_placed_and_a_read_gives_it_back(tmp_path, vision):
     place = home(tmp_path)
     foot(vision, T)
@@ -1390,21 +1377,30 @@ def test_a_read_stops_between_days_once_nobody_is_waiting(tmp_path, monkeypatch)
     assert scanned == [T]
 
 
-def test_a_record_placed_in_an_earlier_frame_is_moved_onto_the_plan_asked_for(tmp_path):
-    # As the joined-room test above: the plan is drawn on the first revision, and a later map of the place stands 5 m
-    # along x from it. A record placed in that later frame at (6, 4.93) is at (1, 4.93) on the plan.
+def test_a_record_placed_on_another_plan_of_the_same_map_is_moved_onto_the_plan_asked_for(tmp_path):
+    # The newest revision draws its plan 2 m along x from the first's, on the same map: (3, 1.93) there is (1, 1.93)
+    # on the first's plan.
+    place, first, newest = two_nights(tmp_path)
+    P.write(tmp_path, [record(T + 2, place, x=3.0, y=1.93, revision=newest.id)])
+    (p,) = P.positions(tmp_path, T, T + 5, place, frame_revision=first.id)
+    assert (p.x, p.y) == pytest.approx((1.0, 1.93), abs=1e-3)
+    assert (p.revision, p.in_frame) == (first.id, True)
+
+
+def test_a_record_placed_on_another_map_keeps_its_own_frame_and_is_flagged(tmp_path):
+    # The owner's plan is drawn on the first revision. A later map of the place stands in a frame of its own, and
+    # nothing relates the two: a record placed there can't be put on the plan.
     place = home(tmp_path)
     first = places.latest(tmp_path, place)
     assert first is not None
     cams = {"cam0": moved(LEVEL, dx=5.0), "porch": moved(LEVEL, dx=5.0, dz=3.0)}
     later = places.revise(
-        tmp_path, place, producer="join", cameras=cams, floor=FLOOR, map_bytes=b"y", map_format="ply", now=T
+        tmp_path, place, producer="test", cameras=cams, floor=FLOOR, map_bytes=b"y", map_format="ply", now=T
     )
     places.correct_plan(tmp_path, place, OWNER_ROOMS, now=T + 1, base=first.id)
     P.write(tmp_path, [record(T + 2, place, x=6.0, y=4.93, revision=later.id)])
     (p,) = P.positions(tmp_path, T, T + 5, place, frame_revision=first.id)
-    assert (p.x, p.y) == pytest.approx((1.0, 4.93), abs=1e-3)
-    assert (p.revision, p.in_frame, p.room_id, p.room) == (first.id, True, "r2", "Bedroom")
+    assert (p.x, p.y, p.revision, p.in_frame) == (6.0, 4.93, later.id, False)
 
 
 def test_a_record_from_a_revision_the_place_no_longer_has_is_marked_out_of_frame(tmp_path):
