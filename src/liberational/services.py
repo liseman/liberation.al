@@ -1140,7 +1140,13 @@ _manager: dict[str, Any] = {"at": None, "states": {}, "runs": {}}
 def _managed(fresh: bool = False) -> tuple[dict[str, str], dict[str, dict[str, Any]]]:
     """(states(), runs()) for a status poll: the last answer when it is under MANAGER_TTL_S old, with each run's
     `up_s` moved on by the answer's age. fresh=True (an action's reply) asks the manager now. Polls that arrive
-    together wait for one read instead of each starting their own."""
+    together wait for one read instead of each starting their own. While a supervisor runs the services (#155), the
+    answer is its own record of them, not the service manager's."""
+    from liberational import supervisor
+
+    status = supervisor.read_status()
+    if status is not None:
+        return supervisor.managed(status, time.time())
     with _manager_lock:
         at = _manager["at"]
         if fresh or at is None or time.monotonic() - at >= MANAGER_TTL_S:
