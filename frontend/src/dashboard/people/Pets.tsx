@@ -288,6 +288,7 @@ export function Pets() {
             pets={pets}
             seen={data?.seen ?? {}}
             waiting={data ? groups.length : null}
+            waitingFailed={sightings.isError && !data}
             loaded={query.data != null}
             error={failed}
             errorDetail={failedDetail}

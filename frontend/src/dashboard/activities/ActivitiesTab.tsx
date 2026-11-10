@@ -30,6 +30,7 @@ import { type FormEvent, type ReactNode, useState } from 'react';
 import { messageOf, request } from '../../shared/http';
 import { confirm } from '../lib/confirm';
 import { hm } from '../lib/format';
+import { CountSkeleton } from '../lib/loading';
 import type { Message } from '../lib/message';
 import { LoadError, PageEmpty, PageHeader, PageLoading, PHONE_WIDTH } from '../lib/page';
 import { Toast } from '../lib/Toast';
@@ -238,6 +239,7 @@ const afterCount = (n: number) => (
 function KindButton({
   active,
   waiting,
+  counting = false,
   onClick,
   onDelete,
   name,
@@ -245,6 +247,7 @@ function KindButton({
 }: {
   active: boolean;
   waiting: number;
+  counting?: boolean; // its count is still loading: a badge-sized skeleton where the number goes
   onClick: () => void;
   onDelete?: () => void; // the owner's activity: it can be deleted
   name?: string;
@@ -259,11 +262,15 @@ function KindButton({
         onClick={onClick}
       >
         <div className={classes.kindBody}>{children}</div>{' '}
-        {waiting > 0 && (
-          <>
-            <Badge variant={active ? 'filled' : 'light'}>{waiting}</Badge>
-            {afterCount(waiting)}
-          </>
+        {counting ? (
+          <CountSkeleton chars={3} />
+        ) : (
+          waiting > 0 && (
+            <>
+              <Badge variant={active ? 'filled' : 'light'}>{waiting}</Badge>
+              {afterCount(waiting)}
+            </>
+          )
         )}
       </UnstyledButton>
       {onDelete && <DeleteKind name={name ?? ''} onDelete={onDelete} />}
@@ -411,16 +418,18 @@ function KindChips({
   rows,
   selected,
   all,
+  counting,
   waitingOf,
   onChoose,
 }: {
   rows: KindRow[];
   selected: KindRow | undefined;
   all: number;
+  counting: boolean; // the days still load: All's count is a skeleton until they have
   waitingOf: ReadonlyMap<string, number>;
   onChoose: (key: string | null) => void;
 }) {
-  const chip = (key: string | null, label: string, n: number, active: boolean) => (
+  const chip = (key: string | null, label: string, n: number, active: boolean, loading = false) => (
     <li key={key ?? 'all'}>
       <UnstyledButton
         className={classes.chip}
@@ -429,18 +438,22 @@ function KindChips({
         onClick={() => onChoose(key)}
       >
         {label}{' '}
-        {n > 0 && (
-          <>
-            <span className={classes.chipCount}>{n}</span>
-            {afterCount(n)}
-          </>
+        {loading ? (
+          <CountSkeleton chars={2} />
+        ) : (
+          n > 0 && (
+            <>
+              <span className={classes.chipCount}>{n}</span>
+              {afterCount(n)}
+            </>
+          )
         )}
       </UnstyledButton>
     </li>
   );
   return (
     <ul className={classes.chips} aria-label="Show clips of">
-      {chip(null, 'All', all, !selected)}
+      {chip(null, 'All', all, !selected, counting)}
       {rows.map(r => chip(kindKey(r.kind), capital(r.label), waitingOf.get(kindKey(r.kind)) ?? 0, selected === r))}
     </ul>
   );
@@ -473,6 +486,9 @@ export function ActivitiesTab() {
     saveKindFilter(key);
     setShown(PAGE);
   };
+  // The counts wait for every day of the week: a count read off the days in so far rose as each came in. A failed day
+  // shows its error instead.
+  const counting = recent.pending && !recent.error;
   const counted = rows.filter(r => r.counted);
   const learning = rows.filter(r => !r.counted);
   const row = (r: KindRow, body: ReactNode) => (
@@ -496,21 +512,29 @@ export function ActivitiesTab() {
         <aside className={classes.roster} aria-label="Activity kinds">
           <PageHeader
             title="Activities"
-            meta={rows.length === 1 ? '1 kind' : `${rows.length} kinds`}
+            meta={
+              counting ? (
+                <CountSkeleton chars={7} label="Loading how many kinds" />
+              ) : rows.length === 1 ? (
+                '1 kind'
+              ) : (
+                `${rows.length} kinds`
+              )
+            }
             actions={addButton}
           />
           {/* Held while the days load, so the kinds under it don't drop when it fills in. */}
-          {sampled.length > 0 ? (
+          {counting ? (
+            <div className={classes.callout}>
+              <CountSkeleton chars={16} label="Loading how many clips to check" />
+            </div>
+          ) : sampled.length > 0 ? (
             <a className={classes.callout} href="#clips">
               {clipsWords(sampled.length)} ›
             </a>
-          ) : recent.pending ? (
-            <div className={classes.callout} aria-hidden="true">
-              &nbsp;
-            </div>
           ) : null}
           <ul className={classes.kinds} aria-label="Show clips of">
-            <KindButton active={!selected} waiting={sampled.length} onClick={() => choose(null)}>
+            <KindButton active={!selected} waiting={sampled.length} counting={counting} onClick={() => choose(null)}>
               <b>All activities</b>
             </KindButton>
           </ul>
@@ -571,16 +595,27 @@ export function ActivitiesTab() {
           <h2 id="clips" className={classes.mainTitle}>
             {selected ? `${capital(selected.label)}: clips to check` : 'Clips to check'}
           </h2>
-          {!recent.pending && (
-            <Badge variant="light" size="lg" aria-label={clipsWords(waiting.length)}>
-              {waiting.length}
-            </Badge>
+          {counting ? (
+            <CountSkeleton chars={3} label="Loading how many clips to check" />
+          ) : (
+            !recent.pending && (
+              <Badge variant="light" size="lg" aria-label={clipsWords(waiting.length)}>
+                {waiting.length}
+              </Badge>
+            )
           )}
           {phone && <span className={classes.phoneAdd}>{addButton}</span>}
         </Group>
         {phone ? (
           <>
-            <KindChips rows={rows} selected={selected} all={sampled.length} waitingOf={waitingOf} onChoose={choose} />
+            <KindChips
+              rows={rows}
+              selected={selected}
+              all={sampled.length}
+              counting={counting}
+              waitingOf={waitingOf}
+              onChoose={choose}
+            />
             {selected && (
               <Group gap="xs" wrap="nowrap" justify="space-between">
                 <Text size="sm" c="dimmed">

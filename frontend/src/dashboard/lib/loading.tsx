@@ -1,7 +1,7 @@
 // Loading and error states shared by the tabs: skeletons shaped like what is coming, a loader that shows only
 // when a wait runs long (so a quick load doesn't flash one), and an error with a retry, so a failed request never
 // leaves a skeleton up for good. The error itself is LoadError in page.tsx.
-import { Group, Loader, Skeleton, Stack, Text } from '@mantine/core';
+import { Group, Loader, Skeleton, Stack, Text, VisuallyHidden } from '@mantine/core';
 import { useEffect, useState } from 'react';
 
 /** How long a load runs before the loader joins the skeleton. */
@@ -32,6 +32,29 @@ export function SlowLoader({ active, label }: { active: boolean; label: string }
         {label}
       </Text>
     </Group>
+  );
+}
+
+/** A count whose read is still pending ("12 to name", "3 animals need a name"): a skeleton in the line where its
+ *  words go, inline, one text line tall and `chars` characters wide (about the words it stands for), so the number
+ *  arriving shifts nothing. A span, so it can sit inside a button, a tab, or a heading's line. The skeleton itself is
+ *  hidden from screen readers; `label`, when given, is read in its place (a tab's count leaves it out, so the tab is
+ *  still named by its title). Show it only while the query is pending: a failed read shows its error treatment. */
+export function CountSkeleton({ chars, label }: { chars: number; label?: string }) {
+  return (
+    <>
+      <Skeleton
+        renderRoot={props => <span {...props} />}
+        height="1em"
+        width={`${chars}ch`}
+        radius="sm"
+        display="inline-block"
+        style={{ verticalAlign: 'middle' }}
+        aria-hidden="true"
+        data-testid="count-skeleton"
+      />
+      {label && <VisuallyHidden>{label}</VisuallyHidden>}
+    </>
   );
 }
 

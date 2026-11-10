@@ -7,9 +7,10 @@ import { type FormEvent, useState } from 'react';
 import { messageOf } from '../../shared/http';
 import { SafeImage } from '../../shared/SafeImage';
 import { hm, plural } from '../lib/format';
+import { CountSkeleton } from '../lib/loading';
 import { refreshNames, unknownGroupsQuery, unknownVoicesQuery } from '../livetab/api';
 import { viewName } from '../review/views';
-import { dropWaiting } from '../whosthis/api';
+import { dropWaiting, type WaitingRead } from '../whosthis/api';
 import { addPerson, type Person } from './api';
 import { EntityAvatar } from './entity';
 import { claimLiveFace, type LiveFaceDraft } from './liveFace';
@@ -155,6 +156,9 @@ export function waitingText(
   return [known, ...states].join(' · ');
 }
 
+/** The waiting line while its counts load, about as wide as "12 faces need a name". */
+const COUNTING = <CountSkeleton chars={20} label="Who's this? · Loading the count" />;
+
 export function Roster({
   people,
   loaded,
@@ -189,15 +193,19 @@ export function Roster({
   const unavailable: ('faces' | 'voices')[] = [];
   if (faces.isError) unavailable.push('faces');
   if (voices.isError) unavailable.push('voices');
-  const waiting = !loaded
-    ? error
+  // A count not read yet (its query pending, or the server still working the list out) is a skeleton where the words
+  // go until both are in, so the line doesn't read "Who's this?" and then jump to a number. A failed read says so.
+  const unread = (r: WaitingRead) => !r.isError && r.data?.count == null;
+  const counting = loaded ? unread(faces) || unread(voices) : !error;
+  const waiting = counting
+    ? COUNTING
+    : !loaded
       ? "Who's this? · People unavailable"
-      : "Who's this? · Waiting for people…"
-    : waitingText(
-        faces.isError ? null : (faces.data?.count ?? null),
-        voices.isError ? null : (voices.data?.count ?? null),
-        unavailable,
-      );
+      : waitingText(
+          faces.isError ? null : (faces.data?.count ?? null),
+          voices.isError ? null : (voices.data?.count ?? null),
+          unavailable,
+        );
   const row = (p: Person) => <Row key={p.name} p={p} current={sel === p.name} onOpen={() => onOpen(p.name)} />;
   return (
     <RosterColumn

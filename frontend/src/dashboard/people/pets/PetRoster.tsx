@@ -3,6 +3,7 @@
 import { Button, Group, Text } from '@mantine/core';
 import { useState } from 'react';
 import { plural } from '../../lib/format';
+import { CountSkeleton } from '../../lib/loading';
 import { EntityAvatar } from '../entity';
 import { whereabouts } from '../profile/role';
 import { RosterColumn, RosterRow } from '../RosterColumn';
@@ -26,6 +27,7 @@ export function PetRoster({
   pets,
   seen,
   waiting,
+  waitingFailed = false,
   loaded,
   error,
   errorDetail = null,
@@ -40,6 +42,7 @@ export function PetRoster({
   pets: Pet[];
   seen: Record<string, Seen[]>;
   waiting: number | null; // sighting groups waiting for a name; null while unknown
+  waitingFailed?: boolean; // the sightings read failed: the line says so instead of loading
   loaded: boolean;
   error: string | null;
   errorDetail?: string | null; // the server's reason, behind Show details
@@ -54,12 +57,19 @@ export function PetRoster({
   const [query, setQuery] = useState('');
   const q = query.trim().toLowerCase();
   const shown = pets.filter(p => (!only || p.species === only) && (!q || p.name.toLowerCase().includes(q)));
+  // While the count is unread, a skeleton where its words go ("3 animals need a name"), so the line doesn't jump.
   const label =
-    waiting == null
-      ? 'Sightings to name'
-      : waiting
-        ? `${plural(waiting, 'animal', 'animals')} ${waiting === 1 ? 'needs' : 'need'} a name`
-        : 'Sightings to name';
+    waiting == null ? (
+      waitingFailed ? (
+        'Sightings to name · Unavailable'
+      ) : (
+        <CountSkeleton chars={20} label="Sightings to name · Loading the count" />
+      )
+    ) : waiting ? (
+      `${plural(waiting, 'animal', 'animals')} ${waiting === 1 ? 'needs' : 'need'} a name`
+    ) : (
+      'Sightings to name'
+    );
   return (
     <RosterColumn
       title="Pets"
