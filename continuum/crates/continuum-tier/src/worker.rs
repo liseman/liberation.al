@@ -675,6 +675,12 @@ impl<O: Outputs> WorkerLoop<O> {
                 _,
             ) => &p.bytes,
         };
+        // What this payload closes or cuts is committed before the payload is appended. A part the catalog refuses
+        // has its chunk closed and its records moved away; a keyframe already appended would move with them, and
+        // the frames after it would be dropped for want of one.
+        if let Some(c) = self.flusher.before(p.stream, p.start_ns, key, now_ns)? {
+            self.finish(c);
+        }
         let incoming =
             Incoming { id: p.id, stream: p.stream, start_ns: p.start_ns, end_ns: p.end_ns, seq: p.seq, bytes, key };
         let (_, closed) = self.flusher.append(incoming, now_ns)?;
