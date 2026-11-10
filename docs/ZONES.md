@@ -1,6 +1,6 @@
 # How to count visits to a spot with zones
 
-This guide shows you how to outline a spot on a camera's picture (a doorway, a desk, a sofa) as a named zone,
+This guide shows you how to outline a spot on a camera's picture (a doorway, a desk, a litter box) as a named zone,
 change or remove it, and find the visits counted in it. [VISION.md](VISION.md#zones-and-came-into-view) explains how
 visits are found, and [ANSWERS.md](ANSWERS.md#deterministic-answers) how they are counted.
 
@@ -8,8 +8,8 @@ visits are found, and [ANSWERS.md](ANSWERS.md#deterministic-answers) how they ar
 
 - Zones are saved from the machine the pack runs on. To save them from another device, set
   `dashboard.remote_teaching` (see [config/defaults.toml](../config/defaults.toml)) and use the dashboard password.
-- Visits come from the see-zones service, which follows the people see-actions tracks. Both run by default. Visits are
-  counted for people, not for animals.
+- Visits come from the see-zones service, which follows the people and animals see-actions tracks. Both run by
+  default. An animal's visit is labelled with its species.
 
 ## Open a camera's zones
 
@@ -30,8 +30,8 @@ The picture here is never mirrored, even when **Mirror** is on: a zone belongs t
 4. Type the zone's name in "Name of zone N". Every zone on the camera needs a name, and no two may share one.
 5. Press **Save zones**. The editor says "Saved." and the camera's new set takes effect within a few seconds.
 
-A visit is counted from where a person's feet are: the bottom middle of their box. Outline the floor or surface
-someone stands on or at, not the object above it. A camera holds at most 16 zones.
+A visit is counted from where a person's feet or an animal's paws are: the bottom middle of their box. Outline the
+floor or surface someone stands on or at, not the object above it. A camera holds at most 16 zones.
 
 ## Mark a TV
 
@@ -68,7 +68,7 @@ A count takes visits of at least 10 seconds, and joins visits to the same zone l
   person counts only the visits whose faces were recognized as them, and reports the rest apart.
 - **Reports**: the "Activity and events" card has a "Zone visits" section with one chart per zone: visits each day,
   against a typical day. Under "Suggested reports", a zone with visits is offered as "Visits to <zone>"; press
-  **Add** to give it a card of its own.
+  **Add** to give it a card of its own. "Pet activity by hour of day" charts each animal's zone visits by hour.
 - **Journal**: a zone visit used as evidence for an entry is listed as "In a zone".
 
 If a question names both a zone and an event the detector or you have named, the event's count answers it.
