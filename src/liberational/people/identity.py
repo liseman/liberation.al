@@ -68,7 +68,7 @@ from collections.abc import Callable, Collection, Iterable, Sequence
 from typing import Any
 
 from liberational import config as cfg
-from liberational import knowledge, logs, ollama_health, segment_log, speech_log
+from liberational import knowledge, logs, ollama, ollama_health, segment_log, speech_log
 from liberational.domain.identity import Basis
 from liberational.memory import quantities
 from liberational.people import registry, tags, transcript_view
@@ -441,28 +441,6 @@ def regex_intro(text: str) -> tuple[str, str] | None:
     return None
 
 
-def ollama_chat(model: str, messages: list[dict[str, Any]], timeout: float = 30, **extra: Any) -> str:
-    import requests
-
-    with ollama_health.call(model):
-        r = requests.post(
-            f"{cfg.ollama_url()}/api/chat",
-            timeout=timeout,
-            json={
-                "model": model,
-                "stream": False,
-                "keep_alive": -1,
-                "messages": messages,
-                "options": {"temperature": 0.0, "num_predict": 160, "num_ctx": ollama_health.VLM_NUM_CTX},
-                "truncate": False,
-                **extra,
-            },
-        )  # num_ctx on EVERY model: the VLM without it loads at 262k (24 GB) and evicts the agent brain
-        r.raise_for_status()
-    out = r.json()["message"]["content"]
-    return re.sub(r"<think>.*?</think>\s*", "", out, flags=re.S).strip()
-
-
 LLM_PROMPT = """You are tagging an ambient speech transcript (automatic transcription, casual talk, possible errors) to learn people's names.
 Task: decide whether THIS utterance introduces the name of a person who is physically present and talking, i.e. a moment where
 a listener would learn what to call someone. Reason briefly, then answer.
@@ -486,14 +464,19 @@ def llm_confirm(
     """Local LLM, JSON mode, reasoning-first (the pattern candidate is deliberately NOT shown: with it the model just
     parroted the regex). -> dict(intro, name, raw) or None on failure. ~1 s per call, only on regex hits."""
     try:
-        out = ollama_chat(
+        reply = ollama.chat(
             LLM,
             [{"role": "user", "content": LLM_PROMPT.format(prev=prev or "(none)", spk=spk, text=text)}],
-            format="json",
+            # num_ctx on EVERY model: one asked without it loads at 262k (24 GB) and evicts the agent brain
+            num_ctx=ollama_health.VLM_NUM_CTX,
+            num_predict=160,
+            temperature=0.0,
+            schema="json",
             think=False,
+            truncate=False,
             timeout=45,
         )
-        d = json.loads(out)
+        d = json.loads(ollama.text(reply))
         intro = str(d.get("intro", "none")).lower().strip()
         nm = clean_name(str(d.get("name", "")))
         if intro not in ("self", "third") or d.get("named_thing") not in (None, "person_present"):

@@ -15,7 +15,7 @@ import numpy as np
 import requests
 
 from liberational import config as cfg
-from liberational import logs, model_runtime, ollama_health, voice_turn
+from liberational import logs, model_runtime, ollama, ollama_health, voice_turn
 from liberational.vision import objects
 from liberational.vision.mlx_types import chat_prompt, loaded_processor, pil_images
 
@@ -89,37 +89,21 @@ class OllamaVLM:
         self.model, self.timeout = model, timeout
 
     def warm(self) -> None:
-        voice_turn.wait_quiet()
-        with ollama_health.call(self.model):
-            r = requests.post(
-                f"{cfg.ollama_url()}/api/generate",
-                json={"model": self.model, "keep_alive": -1, "options": {"num_ctx": VLM_NUM_CTX}},
-                timeout=120,
-            )
-            r.raise_for_status()
+        ollama.load(self.model, num_ctx=VLM_NUM_CTX, background=True)
 
     def caption(self, img: np.ndarray, memory: Sequence[str]) -> str:
         """memory = recent captions (so the model can say what changed)."""
         try:
-            voice_turn.wait_quiet()
-            with ollama_health.call(self.model):
-                r = requests.post(
-                    f"{cfg.ollama_url()}/api/chat",
-                    timeout=self.timeout,
-                    json={
-                        "model": self.model,
-                        "stream": False,
-                        "keep_alive": -1,
-                        "options": {
-                            "num_predict": MAX_NEW_TOKENS,
-                            "temperature": 0.2,
-                            "num_ctx": VLM_NUM_CTX,
-                        },  # never the 262k default
-                        "messages": [{"role": "user", "content": build_prompt(memory), "images": [to_jpeg_b64(img)]}],
-                    },
-                )
-                r.raise_for_status()
-            return _clean(r.json()["message"]["content"])
+            reply = ollama.chat(
+                self.model,
+                [{"role": "user", "content": build_prompt(memory), "images": [to_jpeg_b64(img)]}],
+                num_ctx=VLM_NUM_CTX,  # never the 262k default
+                num_predict=MAX_NEW_TOKENS,
+                temperature=0.2,
+                timeout=self.timeout,
+                background=True,
+            )
+            return _clean(reply["message"]["content"])
         except ollama_health.Unavailable:
             return ""  # logged once by ollama_health, not on every frame
         except Exception as e:
@@ -130,22 +114,16 @@ class OllamaVLM:
         """Notable objects with boxes as the model's raw text (objects.parse reads it), or what `prompt` asks for
         in the same form (see/caption_animals.py asks for animals only). Raises on HTTP errors, and
         GroundingTruncated when the reply ran out of tokens."""
-        voice_turn.wait_quiet()
-        with ollama_health.call(self.model):
-            r = requests.post(
-                f"{cfg.ollama_url()}/api/chat",
-                timeout=self.timeout,
-                json={
-                    "model": self.model,
-                    "stream": False,
-                    "keep_alive": -1,
-                    "format": objects.SCHEMA,
-                    "options": {"num_predict": objects.NUM_PREDICT, "temperature": 0, "num_ctx": VLM_NUM_CTX},
-                    "messages": [{"role": "user", "content": prompt, "images": [to_jpeg_b64(img, 85)]}],
-                },
-            )
-            r.raise_for_status()
-        reply = r.json()
+        reply = ollama.chat(
+            self.model,
+            [{"role": "user", "content": prompt, "images": [to_jpeg_b64(img, 85)]}],
+            num_ctx=VLM_NUM_CTX,
+            num_predict=objects.NUM_PREDICT,
+            temperature=0,
+            schema=objects.SCHEMA,
+            timeout=self.timeout,
+            background=True,
+        )
         if reply.get("done_reason") == "length":
             raise objects.GroundingTruncated(f"the grounding reply hit its {objects.NUM_PREDICT}-token limit")
         return reply["message"]["content"]

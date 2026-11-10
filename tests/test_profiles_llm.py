@@ -1,8 +1,6 @@
 """The profile fact pass's model call (people/profiles.py): on the shared small model it asks for the context the
 model is kept loaded at, and its lines fit it."""
 
-from unittest.mock import patch
-
 from liberational import config as cfg
 from liberational.memory import ask
 from liberational.people import profiles
@@ -24,21 +22,9 @@ def test_the_sample_keeps_the_newest_lines_that_fit():
     assert profiles.sample_of(lines[:3], ask.SHARED_NUM_CTX).count("\n") == 2, "a short list is kept whole"
 
 
-def test_the_call_sends_the_shared_context(monkeypatch):
+def test_the_call_sends_the_shared_context(monkeypatch, model_server):
     monkeypatch.setattr(profiles, "LLM", cfg.get("models.ollama.llm"))
-    sent = {}
+    model_server.says("[]")
 
-    class Reply:
-        def raise_for_status(self) -> None:
-            pass
-
-        def json(self) -> dict:
-            return {"message": {"content": "[]"}}
-
-    def post(url, timeout, json):
-        sent.update(json)
-        return Reply()
-
-    with patch.object(profiles.requests, "post", side_effect=post):
-        assert profiles.ask_llm("Dana", ["I live in Leeds."]) == []
-    assert sent["options"]["num_ctx"] == ask.SHARED_NUM_CTX
+    assert profiles.ask_llm("Dana", ["I live in Leeds."]) == []
+    assert model_server.sent[0].payload["options"]["num_ctx"] == ask.SHARED_NUM_CTX

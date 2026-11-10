@@ -60,32 +60,20 @@ def _caption_via_mlx_server(image: bytes, timeout: float, question: str) -> Insp
 
 
 def _caption_via_ollama(image: bytes, timeout: float, question: str) -> Inspection:
-    from liberational import ollama_health
+    from liberational import ollama, ollama_health
     from liberational.vision.review_inference import inspection_prompt, validate
 
     model = str(cfg.get("models.ollama.vlm", ""))
-    request = urllib.request.Request(
-        cfg.ollama_url() + "/api/chat",
-        data=json.dumps(
-            {
-                "model": model,
-                "stream": False,
-                "format": "json",  # `validate` reads the reply as JSON, as the prompt asks
-                "keep_alive": -1,
-                "options": {"num_predict": 240, "temperature": 0.0, "num_ctx": ollama_health.VLM_NUM_CTX},
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": inspection_prompt(question),
-                        "images": [base64.b64encode(image).decode()],
-                    }
-                ],
-            }
-        ).encode(),
-        headers={"Content-Type": "application/json"},
+    reply = ollama.chat(
+        model,
+        [{"role": "user", "content": inspection_prompt(question), "images": [base64.b64encode(image).decode()]}],
+        num_ctx=ollama_health.VLM_NUM_CTX,
+        num_predict=240,
+        temperature=0.0,
+        schema="json",  # `validate` reads the reply as JSON, as the prompt asks
+        timeout=timeout,
     )
-    with ollama_health.call(model), _private_opener().open(request, timeout=timeout) as response:
-        return validate(json.load(response)["message"]["content"])
+    return validate(reply["message"]["content"])
 
 
 def _caption(image: bytes, timeout: float, question: str = "Describe the recorded scene") -> Inspection:
