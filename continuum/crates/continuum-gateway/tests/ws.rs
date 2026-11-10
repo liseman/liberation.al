@@ -40,7 +40,7 @@ async fn a_range_streams_over_websockets_with_headers_and_done() {
     let body = reqwest_free_get(addr, "/healthz").await;
     assert!(body.ends_with("ok"), "{body}");
     let streams = reqwest_free_get(addr, "/streams").await;
-    assert!(streams.contains(r#""id":4"#) && streams.contains(r#""frames":5"#), "{streams}");
+    assert!(streams.contains(r#""id":4"#) && streams.contains(r#""end_us":2160001"#), "{streams}");
     let wt = reqwest_free_get(addr, "/wt").await;
     assert!(wt.starts_with("HTTP/1.1 200") && wt.ends_with("null"), "{wt}"); // off, without an error status
 

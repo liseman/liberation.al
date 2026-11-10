@@ -81,9 +81,38 @@ async fn streams_and_ranges_come_from_the_broker_when_it_is_in_the_loop() {
         producer.ingest_acked(&header, Some(&StorageLocator::Inline { bytes: jpeg(i) })).await.expect("ingest");
     }
 
+    // A second camera that is registered and holds nothing yet.
+    let idle = StreamSpec {
+        name: "cam1".into(),
+        kind: fb::StreamKind::Sensor,
+        format: fb::PayloadFormat::EncodedVideo,
+        shape_name: "MJPEG".into(),
+        shape_version: 1,
+        nominal_rate_hz: 30.0,
+        storage: StreamStorage::Slab { class: 0 },
+        anchor: None,
+        layer: fb::DomainLayer::Layer1Raw,
+    };
+    let cam1 = producer.register_stream(&idle).await.expect("register").stream_id;
+
     let gateway = Client::connect(&socket, ClientOptions::new("continuum-gateway")).await.expect("connect");
     let chunks = dir.path().join("tier");
     std::fs::create_dir_all(&chunks).expect("mkdir");
+    // A chunk file of a stream the broker doesn't know: with the broker up the listing never looks in the chunk
+    // directory, so it doesn't turn up.
+    let stray = continuum_tier::layout::hour_dir(&chunks, StreamId(99), 1_000_000_000);
+    continuum_tier::layout::make_hour_dir(&chunks, &stray).expect("hour");
+    let mut w = continuum_tier::ChunkWriter::create(
+        &stray.join("99-1000000000-1.cnk"),
+        StreamId(99),
+        continuum_tier::ChunkFormat::Passthrough,
+        1_000_000_000,
+    )
+    .expect("create");
+    w.append(1_000_000_000, 1_000_000_000, 0, &jpeg(9)).expect("append");
+    w.close().expect("close");
+    let directory = ChunkSource::new(&chunks).streams().expect("the fallback's listing");
+    assert_eq!(directory.iter().map(|s| s.id).collect::<Vec<_>>(), [99], "what the chunk directory alone lists");
     let session = Arc::new(
         Session::new(Arc::new(ChunkSource::new(&chunks)), None, OriginPolicy::default())
             .with_broker(socket.clone(), Some(Arc::new(gateway))),
@@ -99,8 +128,11 @@ async fn streams_and_ranges_come_from_the_broker_when_it_is_in_the_loop() {
     ws_client.send(Message::Text(r#"{"type":"streams"}"#.into())).await.expect("send");
     let Message::Text(streams) = ws_client.next().await.expect("streams").expect("ok") else { panic!("text") };
     let Ok(Reply::Streams { streams }) = serde_json::from_str::<Reply>(&streams) else { panic!("{streams}") };
-    assert_eq!(streams.len(), 1);
+    assert_eq!(streams.len(), 2, "the broker's streams, and nothing from the chunk directory: {streams:?}");
     assert_eq!((streams[0].id, streams[0].name.as_str(), streams[0].live), (cam, "cam0", true));
+    // The recorded extent is the catalog's: the first frame's start to just past the last one's.
+    assert_eq!((streams[0].start_us, streams[0].end_us, streams[0].format.as_str()), (2_000_000, 2_080_001, "mjpeg"));
+    assert_eq!((streams[1].id, streams[1].start_us, streams[1].end_us), (cam1, 0, 0), "a stream that holds nothing");
 
     let range = format!(r#"{{"type":"range","stream":{cam},"start_us":2000000,"end_us":2100000}}"#);
     ws_client.send(Message::Text(range.into())).await.expect("send");
