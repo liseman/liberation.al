@@ -1,4 +1,4 @@
-"""Run GeoCalib on fixed-camera frames, in GeoCalib's own runtime (`mise run geocalib`), for spatial/cameras.py (#2960).
+"""Run GeoCalib on fixed-camera frames, in GeoCalib's own runtime (`mise run geocalib`), for spatial/cameras.py.
 
 Usage (spatial/cameras.py starts it): `<runtime>/.venv/bin/python geocalib_runner.py <job.json>`. The job names the
 frames (`images`, camera to path), the checkpoint, and `out`; the runner writes `out/result.json`: for each camera,

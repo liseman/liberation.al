@@ -1,4 +1,4 @@
-"""Which services read which settings (#400), so a save restarts only the services a changed setting affects.
+"""Which services read which settings, so a save restarts only the services a changed setting affects.
 
 Each Python service's settings are found by reading its code, not by a hand-kept list that could fall behind: from
 the module its command runs, follow every liberational import (and every module named in a string, as
@@ -195,7 +195,7 @@ def readers() -> dict[str, frozenset[str] | None]:
     """Each declared service's settings, as keys and starts of keys; None for one that may read any of them.
 
     Scanned once: a caller that comes while the scan runs (GET /config during warm()'s startup scan) waits for it
-    rather than starting a second one beside it (#2942). functools.cache alone doesn't lock around the call."""
+    rather than starting a second one beside it. functools.cache alone doesn't lock around the call."""
     with _SCANNING:
         return _readers()
 
@@ -238,7 +238,7 @@ def _starts(key: str) -> list[str]:
 
 @dataclass(frozen=True)
 class _Reads:
-    """One service's reads, split for lookups (#438): whole keys and sections, found among a key's dotted starts,
+    """One service's reads, split for lookups: whole keys and sections, found among a key's dotted starts,
     and the few starts that end mid-name, checked by prefix. Matches what _under says."""
 
     whole: frozenset[str]
@@ -304,7 +304,7 @@ def affected(changed: Iterable[str]) -> list[str]:
 
 
 def affected_each(keys_: Iterable[str]) -> dict[str, list[str]]:
-    """affected([key]) for each key, with labels.toml read once (Settings asks for every row's, #438)."""
+    """affected([key]) for each key, with labels.toml read once (Settings asks for every row's)."""
     flagged, order = live(), list(readers())
     out = {}
     for key in keys_:

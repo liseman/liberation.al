@@ -61,7 +61,7 @@ def speakers(
     raw: list[dict[str, Any]] | None = None, view: transcript_view.View | None = None
 ) -> tuple[dict[int, dict[str, Any]], Callable[[Any], Any]]:
     """Every voice heard, known to the registry, or cloned, by voiceprint number, with its name as "label" (its person by person_of, else
-    "Speaker <id>": a line never holds a name, issue #30), and a function that follows an id through merges (as the
+    "Speaker <id>": a line never holds a name), and a function that follows an id through merges (as the
     transcript view does). A fresh install has no voices until its first one is heard."""
     view = view if view is not None else transcript_view.View(STATE)
     # The lines as the view reads them: a line the owner tagged as someone counts for that person's voice.
@@ -273,7 +273,7 @@ def _park(sid: int) -> None:
         f.replace(target)
 
 
-PREP_MAX_S = 15.0  # an uploaded voice reference is trimmed to this; long references made Qwen3-TTS ramble (2026-10-22)
+PREP_MAX_S = 15.0  # an uploaded voice reference is trimmed to this; long references make Qwen3-TTS ramble
 PREP_MIN_S = 3.0
 
 
@@ -310,8 +310,8 @@ def _decode(src: str | Path, sr: int = SR) -> np.ndarray:
 
 def voiced_seconds(src: str | Path) -> float:
     """Seconds of a recording with sound in them: 50 ms frames louder than -40 dBFS (the browser checks the same).
-    2026-10-26: a voice played through the speakers was recorded as silence (echo cancellation), enrolled, and
-    produced a clone of nothing."""
+    A voice played through the speakers can be recorded as silence by echo cancellation and
+    produce a clone of nothing if enrolled."""
     x = _decode(src, 16000)
     hop = 800
     n = len(x) // hop
@@ -325,7 +325,7 @@ def prepare(sid: int, src: str | Path, label: str | None = None, source: str = "
     """Make speaker sid's clone reference from a recording (an uploaded or recorded clip): mono 24 kHz, silence
     trimmed, at most PREP_MAX_S (cut at a quiet moment, not mid-word), and the exact words of it in <id>.txt.
     Qwen3-TTS needs the reference's transcript; without one it was given a stock prompt that did not match the
-    audio, and uploaded voices came out wrong (2026-10-26)."""
+    audio, and uploaded voices came out wrong."""
     if voiced_seconds(src) < PREP_MIN_S:
         raise SystemExit(f"the recording is nearly silent (under {PREP_MIN_S:.0f}s with any sound); record again")
     x = _decode(src)
@@ -378,7 +378,7 @@ def ref_for(
 ) -> Path | None:
     """The clip to clone speaker sid from. The owner's own recording (owner.voice_ref) when sid is the owner;
     otherwise state/clones/<sid>.wav, but only if it was made for the voice that has this id now (ids get reused and
-    data moves between installs: 2026-10-23 an old clip of someone else at id 1 cloned the wrong person). A stale or
+    data moves between installs, so an old clip at a reused id would clone the wrong person). A stale or
     missing one is rebuilt when make is true, else None. A voice made from one uploaded recording (source "recorded")
     is its recording: renaming it never makes the clip stale, and the note follows its label when make is true. One
     whose clip is missing is never rebuilt from room speech, and keeps its note, which marks it as a clone.
@@ -398,7 +398,7 @@ def ref_for(
     if not isinstance(meta, dict):
         meta = {}
     made_for, recorded = meta.get("label"), meta.get("source") == "recorded"
-    picked = meta.get("source") == "picked"  # the owner chose its clips (#312): a rename keeps it, as a recording
+    picked = meta.get("source") == "picked"  # the owner chose its clips: a rename keeps it, as a recording
     confirmed_only = (
         meta.get("source") == "transcript"
         and meta.get("reference_policy") == REFERENCE_POLICY
@@ -490,7 +490,7 @@ def build(sid: int) -> Path:
 
 def token_budget(text: str) -> int:
     """A hard stop for one line: the 12 Hz codec's default max_tokens=4096 is 5.5 minutes, and a mismatched reference
-    made it generate all of it (327 s render on 2026-10-22). About 0.45 s per word plus 3 s, at 12 tokens a second."""
+    made it generate all of it (a 327 s render). About 0.45 s per word plus 3 s, at 12 tokens a second."""
     words = max(1, len(text.split()))
     return int(min(4096, 12 * (3 + 0.45 * words) + 24))
 
@@ -525,7 +525,7 @@ if __name__ == "__main__":
     main()
 
 
-# ---- "Pick clips" (#312): the owner picks a voice's reference from its recent lines ----
+# ---- "Pick clips": the owner picks a voice's reference from its recent lines ----
 PICK_LIST = 40  # lines offered to pick from, newest first
 
 
