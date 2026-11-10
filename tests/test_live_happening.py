@@ -340,9 +340,9 @@ def test_named_lines_start_with_who_and_never_say_i(text, ok):
 
 
 def test_the_route_answers_and_refuses_a_bad_since(state, rewrites, monkeypatch, serve):
-    from liberational.dashboard import server
+    from liberational.dashboard import context, server
 
-    monkeypatch.setattr(server, "STATE", state)
+    monkeypatch.setattr(context, "STATE", state)
     _, rw = rewrites({})
     monkeypatch.setitem(happening._talk_lines, str(state), rw)  # never the model
     base = urllib.parse.urlsplit(serve(server.H))

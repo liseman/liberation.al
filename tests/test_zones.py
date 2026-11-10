@@ -194,9 +194,9 @@ def http_(serve, monkeypatch, tmp_path, vision):
     import json
     import urllib.parse
 
-    from liberational.dashboard import server
+    from liberational.dashboard import context, server
 
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     monkeypatch.setattr(server, "DASH_PASSWORD", "")
     netloc = urllib.parse.urlsplit(serve(server.H)).netloc
 

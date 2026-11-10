@@ -76,9 +76,9 @@ def route(state, monkeypatch, serve):
     """The dashboard serving `state`, with a route cache of its own: `server.review_summary_kept` keeps each window's
     answer for a minute keyed by the window alone, so without this a test asking for the same window as an earlier
     one, from another state, gets that test's answer."""
-    from liberational.dashboard import server
+    from liberational.dashboard import context, server
 
-    monkeypatch.setattr(server, "STATE", state)
+    monkeypatch.setattr(context, "STATE", state)
     monkeypatch.setattr(server, "_summaries", {})
     return urllib.parse.urlsplit(serve(server.H))
 
