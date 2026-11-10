@@ -963,6 +963,9 @@ def test_the_made_up_readings_load_and_every_copy_has_its_original():
     originals = {label.id for label in made_up if label.reading is not None}
     assert len(made_up) > 20
     assert {label.same_as for label in made_up if label.same_as} <= originals
+    # A label that repeats one of the reader's worked examples would score the prompt against itself.
+    examples = {" ".join(asked.lower().rstrip("?").split()) for asked, _ in question.SHOTS}
+    assert not {label.id for label in made_up if " ".join(label.question.lower().rstrip("?").split()) in examples}
 
 
 def test_a_retrieval_row_keeps_the_query_and_its_reading(state, labels):
