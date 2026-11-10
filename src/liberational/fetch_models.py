@@ -42,7 +42,7 @@ def wanted(entry: Mapping[str, Any], key: str) -> bool:
 
 
 def sha256(path: pathlib.Path) -> str:
-    """A file's SHA-256, read in chunks (CUT3R's checkpoint is 3.2 GB)."""
+    """A file's SHA-256, read in chunks (a checkpoint can be gigabytes)."""
     with open(path, "rb") as f:
         return hashlib.file_digest(f, "sha256").hexdigest()
 
@@ -128,7 +128,7 @@ def fetch_file(name: str, entry: Mapping[str, Any]) -> None:
         unpacked.write_bytes(data)
         unpacked.replace(dest)
     elif part.name.endswith((".tar.bz2", ".tar.gz", ".tgz", ".tar.xz", ".tar")) and tarfile.is_tarfile(part):
-        # By its content, not only its name: GeoCalib's checkpoint is a PyTorch file named .tar, kept as it is.
+        # By its content, not only its name: a PyTorch checkpoint can be a file named .tar, kept as it is.
         # Unpack beside the download and move into place last.
         with tarfile.open(part) as t:
             t.extractall(work, filter="data")

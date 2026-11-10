@@ -8,15 +8,13 @@ store's history.
 
     .venv/bin/python tools/import_owner_plan.py --place <place id or name> --plan <file.floorplan> \\
         [--extra <more.floorplan>] [--seen <camera>=<room id> ...] [--title "<title>"] [--revision <id>] \\
-        [--walk-revision <id>] [--day YYYY-MM-DD] [--anchor-share 0.5] [--write]
+        [--day YYYY-MM-DD] [--anchor-share 0.5] [--write]
     .venv/bin/python tools/import_owner_plan.py --place <place> --history
     .venv/bin/python tools/import_owner_plan.py --place <place> --restore <record id> [--write]
 
 `--extra` adds statements from another file, such as the owner's measured camera spots (`x-camera <camera> at x,y
-height <m> yaw <deg>`, in the plan's own coordinates), which hold the fit (`--anchor-share` of its weight). A spot's
-`yaw`, when given, is the camera's facing: `--move-camera` then keeps it and fits only the spot near the mark. `--seen`
-names the plan room a camera sees, for a camera with no measured spot. `--walk-revision` also measures that revision's
-own map (a phone walk's) against the plan, registered alone. The plan file is read, never copied: its comments are
+height <m> yaw <deg>`, in the plan's own coordinates), which hold the fit (`--anchor-share` of its weight). `--seen`
+names the plan room a camera sees, for a camera with no measured spot. The plan file is read, never copied: its comments are
 dropped and its title replaced (by `--title`, else the place's name).
 """
 
@@ -35,21 +33,12 @@ import numpy as np
 
 from liberational import config as cfg
 from liberational.memory import places
-from liberational.spatial import floorplan, ply, rig
+from liberational.spatial import floorplan, ply, rig, splats
 from liberational.spatial import plan_import as pi
-
-LOOK_PREFIX = "walk-"  # a walk's look-from views (spatial/splats.py LOOK_PREFIX), not fixed cameras
 
 Rooms = list[tuple[str, str, tuple[tuple[float, float], ...]]]  # floorplan.rooms_from_dsl's
 COMPASS = ("up", "up-right", "right", "down-right", "down", "down-left", "left", "up-left")  # on the plan's page
-# A camera is moved to its measured spot only when its view fits the plan clearly better there (`View.score`): by
-# this much more, and this many times as much
-MOVE_GAIN = 0.15
-MOVE_RATIO = 1.5
 MIRROR_GAIN = 0.1  # a camera's view must fit this much better mirrored for its video to read as mirrored
-# metres: a camera with a given facing goes where its view fits best only within this of its measured spot (tape and
-# the owner's marks on the plan agreed to about 8 cm on Place 1); farther, it goes on the spot itself
-MARK_TRUST = 0.15
 FACING_AGREE = 20.0  # degrees: a facing is stored when the view and the registration agree this well
 
 
@@ -82,7 +71,7 @@ def _map_band(state: Path, rev: places.Revision) -> tuple[np.ndarray, Sequence[f
 
 
 def _fixed(rev: places.Revision) -> dict[str, tuple[float, ...]]:
-    return {c: p.pose for c, p in rev.cameras.items() if not c.startswith(LOOK_PREFIX)}
+    return {c: p.pose for c, p in rev.cameras.items()}
 
 
 def _seen(pairs: Sequence[str]) -> dict[str, str]:
@@ -203,37 +192,37 @@ def _compass(bearing: float) -> str:
     return COMPASS[round(bearing / 45.0) % 8]
 
 
-def _own_points(state: Path, reg: Registered, camera: str) -> np.ndarray:
-    """A fixed camera's own points in the revision's map (its room, `fuse.room_of`), in the plan frame."""
-    from liberational.spatial import fuse  # loads the fixed-camera pipeline; only this needs it
+ROOM_M = 6.0  # metres, top-down: how far from a camera the map still counts as what it sees
 
-    rev = reg.rev
-    if rev.map is None:
-        return np.zeros((0, 3))
-    points = ply.read(places.root(state) / rev.place / rev.map)[0]
-    fixed = {c: p for c, p in rev.cameras.items() if not c.startswith(LOOK_PREFIX)}
-    return pi.in_frame(points[fuse.room_of(points, camera, fixed)], reg.transform)
+
+def _room_of(points: np.ndarray, cam: str, cams: Mapping[str, places.CameraPose]) -> np.ndarray:
+    """Which of `points` (a levelled map's) are camera `cam`'s own: in its view, within ROOM_M of it top-down, and
+    nearer it than any other of `cams`."""
+    pts = np.asarray(points, dtype=np.float64).reshape(-1, 3)
+    where = {c: np.asarray(p.pose, dtype=np.float64).reshape(4, 4)[:2, 3] for c, p in cams.items()}
+    own = np.linalg.norm(pts[:, :2] - where[cam], axis=1)
+    out = (own <= ROOM_M) & splats.in_view(pts, {cam: cams[cam]})
+    for other, xy in where.items():
+        if other != cam:
+            out &= own <= np.linalg.norm(pts[:, :2] - xy, axis=1)
+    return out
 
 
 def _views(state: Path, reg: Registered, plan: pi.Parsed) -> dict[str, tuple[pi.View, float, float]]:
     """Each measured camera's view fit at its spot (`plan_import.view_fit`), with the bearing on the plan its
     registration says it looks and the one its view says, printed."""
-    from liberational.spatial import fuse  # loads the fixed-camera pipeline; only this needs it
-
     rev = reg.rev
     if rev.map is None:
         return {}
     points = ply.read(places.root(state) / rev.place / rev.map)[0]
     a = np.asarray(reg.transform, dtype=np.float64).reshape(3, 4)[:, :3]
     names = {r.id: r.name for r in plan.rooms}
-    # a camera's room is the part of the map it sees nearer to it than to any other fixed camera; a walk's look-from
-    # views would crowd it out
-    fixed = {c: p for c, p in rev.cameras.items() if not c.startswith(LOOK_PREFIX)}
+    # a camera's own points are the part of the map it sees nearer to it than to any other camera
     out = {}
     for mark in plan.cameras:
         if mark.id not in reg.spots:
             continue
-        own = pi.in_frame(points[fuse.room_of(points, mark.id, fixed)], reg.transform)
+        own = pi.in_frame(points[_room_of(points, mark.id, rev.cameras)], reg.transform)
         x, y, _ = reg.spots[mark.id]
         mark_at = reg.fit.move.point(*mark.at)
         view = pi.view_fit(plan, reg.fit.move, own, (x, y), mark_at)
@@ -277,17 +266,10 @@ def main() -> None:
     ap.add_argument("--seen", action="append", default=[], help="<camera>=<room id> the camera sees")
     ap.add_argument("--title", help="the stored plan's title (default: the place's name)")
     ap.add_argument("--revision", help="register to this revision (default: the newest with a map)")
-    ap.add_argument("--walk-revision", help="also measure this revision's own map against the plan")
     ap.add_argument("--day", help="count position rows on this local day (default: today, up to now)")
     ap.add_argument("--anchor-share", type=float, default=0.5, help="weight measured camera spots carry, 0 to 1")
     ap.add_argument("--history", action="store_true", help="list the place's owner plans and stop")
     ap.add_argument("--restore", help="make this earlier owner plan record hold again")
-    ap.add_argument(
-        "--move-camera",
-        action="append",
-        default=[],
-        help="move this camera and its room to its measured spot when its view fits clearly better there",
-    )
     ap.add_argument("--write", action="store_true", help="store it (default: dry run)")
     a = ap.parse_args()
     state = Path(cfg.get("paths.state"))
@@ -317,67 +299,6 @@ def main() -> None:
     seen = _seen(a.seen)
     reg = _register(state, place, a.revision, plan, seen, a.anchor_share)
     views = _views(state, reg, plan)
-
-    moves = {}
-    yaws = {c.id: c.yaw for c in plan.cameras if c.yaw is not None}  # facings the owner gave (page bearings)
-    for cam in a.move_camera:
-        found = views.get(cam)
-        if found is None:
-            sys.exit(f"--move-camera {cam}: it has no measured spot or isn't registered in {reg.rev.id}")
-        view = found[0]
-        centre = reg.spots[cam][:2]
-        mark = next(c for c in plan.cameras if c.id == cam)
-        at = reg.fit.move.point(*mark.at)
-        turn, score, now = view.turn, view.score, view.score_now
-        if cam in yaws:  # the owner's facing holds; only the spot near the mark is fitted
-            pose = np.asarray(reg.rev.cameras[cam].pose, dtype=np.float64).reshape(4, 4)
-            look = np.asarray(reg.transform, dtype=np.float64).reshape(3, 4)[:, :3] @ pose[:3, 2]
-            turn = pi.turn_to(reg.fit.move, (float(look[0]), float(look[1])), float(yaws[cam]))
-            own = _own_points(state, reg, cam)
-            mark_at = at
-            at, score, now = pi.place_view(plan, reg.fit.move, own, (centre[0], centre[1]), at, turn)
-            off = math.dist(reg.fit.move.inverse(np.array([at]))[0], mark.at)
-            print(
-                f"{cam}: at its given facing {yaws[cam]:.1f} deg, its view fits best {off * 100:.0f} cm from its "
-                f"measured spot: score {score:.2f} there, {now:.2f} where registered"
-            )
-            if off > MARK_TRUST:  # the owner's tape beats a view that fits best that far off: put it on the mark
-                at = mark_at
-                score = pi.view_score(plan, reg.fit.move, own, (centre[0], centre[1]))(turn, at)
-                print(f"{cam}: over {MARK_TRUST * 100:.0f} cm off, so on its measured spot instead: score {score:.2f}")
-        if score < now + MOVE_GAIN or score < MOVE_RATIO * now:
-            print(
-                f"{cam}: its view fits no clearly better at its measured spot ({score:.2f} vs {now:.2f}); not moving it"
-            )
-            continue
-        moves[cam] = pi.turn_about(reg.transform, (centre[0], centre[1]), at, turn)
-        print(
-            f"{cam}: {'moving' if a.write else 'would move'} it and its room to its measured spot, turned "
-            f"{math.degrees(turn):.0f} deg (fuse.move_room): view score {score:.2f} there, {now:.2f} where registered"
-        )
-
-    if a.walk_revision:
-        walk = _revision(state, place.id, a.walk_revision)
-        walk_band, walk_transform = _map_band(state, walk)
-        every = {c: p.pose for c, p in walk.cameras.items()}
-        walk_fit = pi.register(plan, walk_band, {}, mirror=pi.page_is_mirrored(every, walk_transform))
-        print(
-            f"walk revision {walk.id} ({walk.producer}) registered alone: median {walk_fit.median * 100:.1f} cm, "
-            f"p90 {walk_fit.p90 * 100:.1f} cm from a wall face, {walk_fit.near_share:.0%} of its band within "
-            f"{pi.NEAR_FACE * 100:.0f} cm of one, scale a free fit would take {walk_fit.scale:.4f}"
-        )
-
-    if a.write and moves:
-        from liberational.spatial import fuse
-
-        for cam, transform in moves.items():
-            done = fuse.move_room(state, place.id, cam, transform)
-            if done is None:
-                sys.exit(f"{cam}: move_room found no fused map registering it; nothing more written")
-            print(f"{cam}: moved with {done[1]} voxels of its room, revision {done[0].id}")
-        print("registering again on the moved map")
-        reg = _register(state, place, None, plan, seen, a.anchor_share)
-        views = _views(state, reg, plan)
 
     # each measured spot with the way its view says it looks, as it goes in the plan
     spots = [pi.Camera(c.id, c.at, c.height, _facing(views.get(c.id), c.yaw), c.fov) for c in plan.cameras]

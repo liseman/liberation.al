@@ -6,25 +6,25 @@ import type { Scene, SplatWait } from '../api';
 const when = (at: number) =>
   new Date(at * 1000).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 
-/** "at 01:00", or nothing when the pass has no time of day. */
-const passAt = (wait: SplatWait) => (wait.pass_at ? ` at ${wait.pass_at}` : '');
+/** " It tries again at 01:00.", or nothing while no pass is scheduled. */
+const again = (wait: SplatWait) => (wait.pass_at ? ` It tries again at ${wait.pass_at}.` : '');
 
 /** Why the map has no splat of its own, and when one is due. */
 function waiting(wait: SplatWait): string {
   const last = wait.tried ? ` (${when(wait.tried)})` : '';
   switch (wait.reason) {
     case 'few_frames':
-      return `It's waiting for daylight: the nightly pass makes it from the fixed cameras' lit daytime frames, and had too few when it last ran${last}. It tries again${passAt(wait)}.`;
+      return `It's waiting for daylight: a splat is made from the fixed cameras' lit daytime frames, and there were too few when it was last tried${last}.${again(wait)}`;
     case 'no_cameras':
-      return 'This map has no cameras registered yet for the nightly pass to make one from.';
+      return 'This map has no cameras registered yet to make one from.';
     case 'no_runtime':
       return "The splat trainer isn't installed on this machine, so none is made.";
-    case 'off':
-      return 'Splats are turned off in the settings (spatial.splats_enabled), so none is made.';
     case 'failed':
-      return `Making it failed when the nightly pass last ran${last}. It tries again${passAt(wait)}.`;
+      return `Making it failed when it was last tried${last}.${again(wait)}`;
     case 'pass':
-      return `The nightly pass makes it from the fixed cameras' daytime frames; it runs${passAt(wait) || ' each night'}.`;
+      return wait.pass_at
+        ? `It's made from the fixed cameras' daytime frames, by a pass that runs at ${wait.pass_at}.`
+        : 'None has been made for this map, and nothing makes splats on a schedule yet.';
   }
 }
 

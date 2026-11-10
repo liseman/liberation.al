@@ -1,9 +1,7 @@
 """Known › Places' reads: the places the house knows, and where people and pets were in one.
 
     GET /places                        {places: [{id, name, named, plan, plan_source, machine_newer, revision,
-                                       last_visit, last_activity, walks, unwalked_rooms}]}: every place
-                                       (memory/places.py), how many walkthroughs went into it, and the plan's rooms
-                                       no LiDAR walk covered (`unwalked_rooms`, null when it can't tell, #3), its plan in the
+                                       last_visit, last_activity}]}: every place (memory/places.py), its plan in the
                                        floorplan DSL (the owner's correction if there is one, else the newest machine
                                        plan; null before the first), when the owner was last there (a `place.visit`,
                                        the rig's), and when anyone was last seen there by its fixed cameras (a
@@ -24,11 +22,10 @@
     GET /places/scene?place=           the 3D view's scene: the newest revision with a map, its map's URL and
                                        size, its splat's when it has one (its own, else the newest made in the same
                                        map frame; one from another frame is only named, `splat_stale`) and what
-                                       it was trained from (`splat_from`: "walk" or "cameras"), which state the
+                                       it was trained from (`splat_from`, as its trainer named it), which state the
                                        splat is in (`splat_state`: "current", "earlier", "stale", or "none") and,
-                                       while the map has no splat of its own, why and when one is due
-                                       (`splat_wait`), its floor plane, plan transform, registered cameras, and the
-                                       plan in its frame;
+                                       while the map has no splat of its own, why (`splat_wait`), its floor plane,
+                                       plan transform, registered cameras, and the plan in its frame;
                                        {revision: null} while the place has no map
     GET /places/map?place=&revision=   that revision's map file (a point cloud, PLY), with byte ranges, an ETag, and
                                        caching for good: a revision's files never change once written
@@ -38,9 +35,11 @@
                                        name the format, so bytes a browser kept in an earlier encoding can't
                                        answer for it
     GET /places/positions?place=&start=&end=[&entity=]
-                                       {place, start, end, entities, tracks, rooms}: where each entity was on the
-                                       place's plan over [start, end), from the position layer's stored records
-                                       (spatial/positions.py); the read stops if the client hangs up
+                                       {place, start, end, entities, tracks, rooms, cameras}: where each entity was
+                                       on the place's plan over [start, end), from the position layer's stored
+                                       records (spatial/positions.py), and how many cameras have a pose in the place's
+                                       map (`cameras`: with none, nobody can be placed there, and the page says so);
+                                       the read stops if the client hangs up
 
 The GETs only read state. The POSTs are teaching, so they follow dashboard.remote_teaching like the rest.
 
@@ -73,8 +72,6 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
-
-import numpy as np
 
 from liberational import logs
 from liberational.dashboard import routes
@@ -109,66 +106,6 @@ def last_activity(state: Path, now: float, ids: Iterable[str]) -> dict[str, floa
     return positions.last_seen(state, sorted(set(ids)), now, ACTIVITY_LOOKBACKS_S)
 
 
-#: Rooms not walked, per (fused map revision, plan revision, plan text): a map is read once per new revision, not on
-#: every listing. The newest few are kept.
-_UNWALKED: dict[tuple[str, str, str], list[dict[str, str]] | None] = {}
-UNWALKED_KEPT = 16
-
-
-def walks(rev: places.Revision | None) -> int:
-    """How many walkthroughs went into the place: the recordings its `walkthrough` signal names."""
-    return len(rev.signals.get("walkthrough", [])) if rev is not None else 0
-
-
-def unwalked_rooms(state: Path, place: places.Place) -> list[dict[str, str]] | None:
-    """The rooms of `place`'s plan (its `plan`, in its `plan_revision`'s frame) that no LiDAR walk has covered
-    (`plan_import.room_coverage`, #3): each room's id and name, in plan order. A place never walked has every room
-    unwalked. None when it can't be told: no plan, a plan the reader can't parse, or (for a walked place) no fused map
-    in the plan's frame to look in."""
-    from liberational.spatial import fuse, ply  # the fused map reader; only this needs it
-    from liberational.spatial import plan_import as pi
-
-    if not place.plan or place.plan_revision is None:
-        return None
-    try:
-        plan = pi.parse(place.plan)
-    except pi.PlanError:
-        return None
-    every = [{"id": r.id, "name": r.name} for r in plan.rooms]
-    if walks(place.revision) == 0:
-        return every
-    chain = places.revisions(state, place.id)
-    frame_rev = next((r for r in chain if r.id == place.plan_revision), None)
-    frame = places.plan_frame(frame_rev) if frame_rev is not None else None
-    if frame_rev is None or frame is None:
-        return None
-    folder = places.root(state) / place.id
-    fused = next(
-        (
-            r
-            for r in reversed(chain)
-            if r.producer == fuse.PRODUCER
-            and r.map
-            and (folder / r.map).is_file()
-            and (r.id == frame_rev.id or (r.frame is not None and r.frame == frame_rev.frame))
-        ),
-        None,
-    )
-    if fused is None or fused.map is None:
-        return None
-    key = (fused.id, frame_rev.id, place.plan)
-    if key not in _UNWALKED:
-        try:
-            points, _, counts = ply.read(folder / fused.map)
-        except OSError, ValueError:
-            return None
-        cover = pi.room_coverage(points, counts.get("walked", np.zeros(len(points), np.int64)), plan, frame)
-        while len(_UNWALKED) >= UNWALKED_KEPT:
-            _UNWALKED.pop(next(iter(_UNWALKED)))
-        _UNWALKED[key] = [{"id": c.room.id, "name": c.room.name} for c in cover if c.kind != "walked"]
-    return _UNWALKED[key]
-
-
 def listing(state: Path, now: float | None = None) -> Reply:
     """GET /places: every place, with its plan and when the house was last there."""
     now = time.time() if now is None else now
@@ -195,9 +132,6 @@ def listing(state: Path, now: float | None = None) -> Reply:
                 "machine_plan": places.machine_plan(state, rev) if p.plan_source == "owner" and rev else None,
                 "last_visit": last.get(p.id),
                 "last_activity": seen.get(p.id),
-                # walk coverage (#3): how many walkthroughs went in, and the plan's rooms no LiDAR walk covered
-                "walks": walks(rev),
-                "unwalked_rooms": unwalked_rooms(state, p),
             }
         )
     return 200, {"places": out}
@@ -231,52 +165,22 @@ def splat_file(state: Path, place: str, revision: str) -> Path | None:
 
 
 SPLAT_FORMAT = "sog"  # what GET /places/splat serves, and what its URL and ETag name
-SPLAT_PASS = "spatial-cameras"  # the scheduled service whose pass makes a place's fixed-camera splat
-
-WALK_PREFIX = "walk-"  # a walk's look-from views (spatial/splats.py LOOK_PREFIX), not fixed cameras
-
-
-def _walk_splat(state: Path, chain: Sequence[places.Revision], splatted: places.Revision) -> bool:
-    """Whether `splatted`'s splat was trained from a walk's frames rather than the fixed cameras' (#44): what the
-    splat's own note says (`places.splat_source`), which a walk's splat retrained onto a later revision needs (#43).
-    A splat written before that note is told by where it is: a walk's
-    splat is made for the revision its import wrote (spatial/splats.py `splat_walk`), the first to hold the walk's
-    look-from cameras, while the daily fixed-camera splat lands on a later revision, which inherits them. So it's a
-    walk's when `splatted` has walk cameras that the revision before it in `chain` lacks."""
-    source = places.splat_source(state, splatted)
-    if source is not None:
-        return source == "walk"
-    at = next((i for i, r in enumerate(chain) if r.id == splatted.id), None)
-    before = set(chain[at - 1].cameras) if at else set()
-    return any(cam.startswith(WALK_PREFIX) and cam not in before for cam in splatted.cameras)
-
-
-def _splat_pass_at() -> str | None:
-    """When the splat pass runs ("HH:MM", local time), as services.toml schedules it, or None."""
-    from liberational import services
-
-    at = services.declared().get(SPLAT_PASS, {}).get("schedule")
-    return at if isinstance(at, str) else None
 
 
 def _splat_wait(state: Path, rev: places.Revision) -> dict[str, Any]:
-    """Why `rev` has no splat of its own, and when one is due: `reason` is the splat pass's own note when it has
-    tried this revision ("few_frames", "no_cameras", "no_runtime", or "failed", with `tried`, when), else
-    "no_cameras" for a map with no cameras registered (the pass has nothing to make one from), else "pass": the
-    pass hasn't run since the map was made. "off" when the settings turn splats off (`spatial.splats_enabled`), whatever an earlier
-    pass noted. `pass_at` is the pass's time of day."""
-    from liberational import config as cfg
-
+    """Why `rev` has no splat of its own: `reason` is the splat pass's own note when it has tried this revision
+    ("few_frames", "no_cameras", "no_runtime", or "failed", with `tried`, when), else "no_cameras" for a map with no
+    cameras registered (there is nothing to make one from), else "pass": no pass has tried this map. `pass_at` is
+    the time of day a scheduled pass runs; None, since nothing makes splats on a schedule at present
+    (`pack-spatial-splat` does by hand)."""
     note = places.splat_note(state, rev)
-    if not cfg.get("spatial.splats_enabled"):
-        reason, tried = "off", None
-    elif note is not None:
+    if note is not None:
         reason, tried = note["reason"], note["at"]
     elif not rev.cameras:
         reason, tried = "no_cameras", None
     else:
         reason, tried = "pass", None
-    return {"reason": reason, "tried": tried, "pass_at": _splat_pass_at()}
+    return {"reason": reason, "tried": tried, "pass_at": None}
 
 
 def scene(state: Path, place: str) -> Reply:
@@ -296,7 +200,7 @@ def scene(state: Path, place: str) -> Reply:
         size = (places.root(state) / place / rev.map).stat().st_size
     except FileNotFoundError:  # pruned since it was found
         return 200, {"place": place, "revision": None}
-    # The revision's own splat, else the newest one made in the same map frame (a later fusion that kept the
+    # The revision's own splat, else the newest one made in the same map frame (a later revision that kept the
     # frame); a splat of another frame (or an unknown one) would sit out of place, so it's only named as stale.
     chain = places.revisions(state, place)
     with_splat = [r for r in chain if places.has_splat(state, r)]
@@ -307,7 +211,6 @@ def scene(state: Path, place: str) -> Reply:
     except FileNotFoundError:  # pruned since it was found
         shown, splat_size = None, None
     stale = with_splat[-1] if shown is None and with_splat else None
-    walk_splat = shown is not None and _walk_splat(state, chain, shown)
     # Which of the four the view is in, so the page doesn't guess: this map's own splat, an earlier map's that
     # still lines up (same frame), one that doesn't (named, not offered), or none.
     if shown is not None:
@@ -329,7 +232,7 @@ def scene(state: Path, place: str) -> Reply:
         "splat_bytes": splat_size,
         "splat_revision": None if shown is None else shown.id,
         "splat_stale": None if stale is None else {"revision": stale.id, "at": stale.at},
-        "splat_from": None if shown is None else ("walk" if walk_splat else "cameras"),
+        "splat_from": None if shown is None else places.splat_source(state, shown),
         "splat_state": splat_state,
         "splat_at": None if shown is None else shown.at,
         "splat_wait": None if splat_state == "current" else _splat_wait(state, rev),
@@ -582,6 +485,8 @@ def positions_view(query: Mapping[str, str], state: Path, cancelled: Callable[[]
         "entities": list(entities.values()),
         "tracks": [{"entity": k, "track": path, "points": thin(moved(v, every))} for (k, path), v in tracks.items()],
         "rooms": rooms,
+        # with no camera posed in the place's map, the placer has nothing to place a footprint by
+        "cameras": sum(1 for p in places.camera_places(state).values() if p == place),
     }
 
 

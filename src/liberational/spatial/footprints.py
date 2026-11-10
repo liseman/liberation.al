@@ -8,13 +8,14 @@ such points fell off the map's floor, against 3 to 25% of placed feet's, and the
 An animal's is the bottom centre of its box (`animal.detection`, see/action_animals.py):
 a pet has no pose. Each track is sampled once per SAMPLE_S, so a person standing still for an hour is 3,600 points,
 not 30 a second. A footprint is kept as the camera observation it is (camera, u and v as fractions of the
-frame, time, track, confidence), not as a position on the floor: each pack-spatial-cameras run registers the cameras
-again in a new map frame, so a footprint is projected through the place's current camera pose when it is read
+frame, time, track, confidence), not as a position on the floor: a place's map can be built again in a new frame,
+so a footprint is projected through the place's current camera pose when it is read
 (`project`, places.floor_point), and lands on the plan once the place has one (places.camera_to_plan).
 
-Recording: once a day, from `pack-spatial-cameras` (spatial/cameras.py), each fixed camera's footprints since the
-last run are written raw (`positions.write_samples`), the observation as it is, and the position layer's placer
-(`positions.advance`) then puts them on the plan and writes them to the layer every view reads.
+Recording: `record` writes each fixed camera's footprints since it was last called raw
+(`positions.write_samples`), the observation as it is, and the position layer's placer (`positions.advance`) then puts
+them on the plan and writes them to the layer every view reads. Nothing calls `record` on a schedule at present: the
+job that builds a place's map is the one to (tools/place_positions.py does both by hand).
 `places/footprints.json` keeps how far each camera is recorded.
 
 Projected into the map frame, a place's people's footprints are where people walk: its walkable floor, which
@@ -178,86 +179,6 @@ def collect(state: Path, start: float, end: float, cameras: Sequence[str]) -> li
     return sorted(out, key=lambda f: f.t)
 
 
-HEAD = 17  # halpe26's head (the top of it)
-HIPS = (11, 12)
-#: A sighting is upright when its legs, hips to feet, are at least this share of its head-to-feet height in the frame:
-#: someone sitting, bending, or behind furniture has shorter legs there. On Place 1's cam0, people counted as walking
-#: measured 1.2 m tall with their hips at 0.3 m; the upright ones 1.8 to 1.9 m with their hips at 0.9 m.
-UPRIGHT_LEGS = 0.42
-
-
-@dataclass(frozen=True)
-class Sighting:
-    """A person's feet, and the top of their head when pose placed it, in one camera's frame at one moment: what
-    tier 1 calibrates the fixed cameras by (spatial/fuse.py: people's height fixes a map's metric scale, and one
-    person seen by two cameras at once aligns them). Fractions of the frame, as Footprint's."""
-
-    camera: str
-    t: float
-    track: int
-    u: float
-    v: float
-    head: tuple[float, float] | None
-    upright: bool = False  # pose placed the feet, hips, and head, and the legs are UPRIGHT_LEGS of the body or more
-
-
-def _placed(joints: Sequence[int], k: int) -> tuple[float, float] | None:
-    """Joint `k`'s (x, y) as fractions of the frame, when pose placed it at least JOINT_SURE."""
-    if len(joints) < 3 * k + 3 or joints[3 * k] < 0 or joints[3 * k + 2] / SCALE < JOINT_SURE:
-        return None
-    return joints[3 * k] / SCALE, joints[3 * k + 1] / SCALE
-
-
-def sightings_of(camera: str, rows: Mapping[str, Any]) -> list[Sighting]:
-    """One Sighting per track per SAMPLE_S from one camera's pose.track columns, as `sample` takes them."""
-    order = sorted(range(len(rows["ts_ns"])), key=lambda i: int(rows["ts_ns"][i]))
-    last: dict[int, float] = {}
-    out = []
-    for i in order:
-        t, track = int(rows["ts_ns"][i]) / NS, int(rows["track_id"][i])
-        if t - last.get(track, -math.inf) < SAMPLE_S:
-            continue
-        joints = [int(j) for j in rows["joints"][i]]
-        found = foot_point([float(b) for b in rows["box"][i]], joints)
-        if found is None:
-            continue
-        last[track] = t
-        head = _placed(joints, HEAD)
-        hips = [p for k in HIPS if (p := _placed(joints, k)) is not None]
-        hip_v = sum(p[1] for p in hips) / len(hips) if hips else None
-        upright = (
-            head is not None
-            and hip_v is not None
-            and head[1] < hip_v < found[1]
-            and (found[1] - hip_v) >= UPRIGHT_LEGS * (found[1] - head[1])
-        )
-        out.append(Sighting(camera, t, track, found[0], found[1], head, upright))
-    return out
-
-
-def sightings(state: Path, start: float, end: float, cameras: Sequence[str]) -> list[Sighting]:
-    """The people `cameras` saw over [start, end) as Sightings, in time order, read an hour at a time; none when the
-    state has no segment store."""
-    from continuum_py import read_segments
-
-    from liberational.see.actions import POSE_SCHEMA
-    from liberational.see.actions_worker import POSES
-
-    root = segment_log.root(state)
-    if not root.is_dir():
-        return []
-    out: list[Sighting] = []
-    for camera in cameras:
-        at = start
-        while at < end:
-            upto = min(end, at + HOUR_S)
-            out += sightings_of(
-                camera, read_segments(root, POSES, POSE_SCHEMA, round(at * NS), round(upto * NS), [camera])
-            )
-            at = upto
-    return sorted(out, key=lambda s: s.t)
-
-
 @dataclass(frozen=True)
 class Cells:
     """One camera's footprints over a stretch as cells of its frame (CELL across): each cell's centre and how many
@@ -353,7 +274,7 @@ def at_edge(
     The floor hidden is the surface's height over the foot's (FOOT_M) times the ray's run over its drop. `surface`, a
     height above the floor, stands in for the background's there (a cell no registration saw, `FURNITURE_M`). None
     when unknown: no background (a camera registered alone) and no `surface`, no floor, nothing sure at that pixel, or
-    a ray that doesn't reach the floor. Map units, as `floor_point`: metres once tier 1 has fused the place."""
+    a ray that doesn't reach the floor. Map units, as `floor_point`."""
     if (cam.background is None and surface is None) or floor is None:
         return None
     seen = cam.background.at(u, v) if surface is None and cam.background is not None else None
@@ -421,25 +342,6 @@ def filled(background: places.Background, earlier: Iterable[places.Background]) 
     return places.Background(background.cols, background.rows, tuple(heights))
 
 
-def known(background: places.Background) -> int:
-    """How many of a background's cells it knows."""
-    return sum(h is not None for h in background.heights)
-
-
-def kept(new: places.Background | None, old: places.Background | None) -> places.Background | None:
-    """The background a camera keeps when it is registered again where it was (`fuse.seat`): `new` with its
-    unknown cells taken from `old` when the two are one view (`filled`), `new` alone when they are two views (the camera
-    was re-aimed), and whichever knows more cells when they share too few to tell. So a sparse snapshot never replaces
-    a fuller background of the same view, and a camera with none tonight keeps the one it had."""
-    if new is None or old is None:
-        return new if old is None else old
-    if (new.cols, new.rows) == (old.cols, old.rows):
-        shared = sum(a is not None and b is not None for a, b in zip(new.heights, old.heights))
-        if shared < SAME_MIN_CELLS:
-            return new if known(new) >= known(old) else old
-    return filled(new, [old])
-
-
 def _rows(feet: Iterable[Footprint]) -> list[dict[str, Any]]:
     from liberational.spatial import positions
 
@@ -487,7 +389,7 @@ def record(state: Path, cameras: Sequence[str], now: float) -> int:
 def walked(state: Path, cameras: Sequence[str], now: float, days: float = WALK_DAYS) -> list[Cells]:
     """The `cameras`' recorded people's footprints over the last `days` as Cells (the walkable floor projects them;
     animals' are left out): read as columns a day at a time and quantized as they're read, never a record per
-    footprint. A fortnight of two busy cameras is about 740,000 footprints, which made the nightly run build that
+    footprint. A fortnight of two busy cameras is about 740,000 footprints, which made a read build that
     many objects. The store applies forgets as it reads, as `segment_log.Log` does. It reads the raw stream only, not
     retention's `.condensed` companion, which holds rows past the 30-day window: WALK_DAYS must stay under that
     window."""

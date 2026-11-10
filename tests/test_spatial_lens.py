@@ -22,7 +22,6 @@ def read(path, flags=cv2.IMREAD_COLOR):
 
 
 BARREL = lens.Lens(W, H, (W / 2, W / 2, (W - 1) / 2, (H - 1) / 2), -0.31)  # the Reolinks' joint fit
-OVERLAYS = [(0.25, 0.0, 0.74, 0.09), (0.84, 0.92, 1.0, 1.0)]
 
 
 @pytest.mark.parametrize("division", [-0.31, -0.1, 0.05])
@@ -214,32 +213,6 @@ def test_the_runners_overlay_mask_lands_where_dust3r_puts_the_frame(tmp_path):
     assert rows.min() == 0 and rows.max() == pytest.approx(46 * 293 / 512 - 2 - 1, abs=1)
 
 
-def test_a_frame_from_a_wide_camera_goes_to_mast3r_undistorted_with_its_mask(tmp_path, vision, monkeypatch):
-    import datetime as dt
-    from zoneinfo import ZoneInfo
-
-    from liberational.spatial import cameras
-
-    manifest = tmp_path / "devices.toml"
-    lens_line = "lens = { width = 896, height = 512, k = [448.0, 448.0, 447.5, 255.5], division = -0.31 }"
-    manifest.write_text(
-        f'[[device]]\nname = "bedroom"\nkind = "rtsp"\n{lens_line}\nmasks = [[0.25, 0.0, 0.74, 0.09]]\n'
-        '[[device]]\nname = "cam0"\nkind = "camera"\n'
-    )
-    monkeypatch.setattr(lens, "manifest", lambda: manifest)
-    rng = np.random.default_rng(0)
-    frame = rng.integers(0, 255, (H, W, 3), np.uint8)
-    frame[..., 2] = 220  # lit colour, so it's taken
-    utc = ZoneInfo("UTC")
-    now = dt.datetime(2030, 1, 2, 12, 0, tzinfo=utc).timestamp()
-    got = cameras.frames(tmp_path, ["bedroom", "cam0"], tmp_path, now, lambda cam, t: frame, utc)
-    written = read(got["bedroom"])
-    assert not np.array_equal(written, frame)  # undistorted
-    assert read(tmp_path / "bedroom.mask.png", cv2.IMREAD_GRAYSCALE)[20, 448] == 255  # the clock's band
-    assert np.array_equal(read(got["cam0"]), frame)  # a pinhole camera's frame goes as it is
-    assert not (tmp_path / "cam0.mask.png").exists()
-
-
 def test_a_splat_trains_on_the_frame_mast3r_saw_with_its_overlays_left_out(tmp_path, monkeypatch):
     from liberational.spatial import splats
 
@@ -257,32 +230,3 @@ def test_a_splat_trains_on_the_frame_mast3r_saw_with_its_overlays_left_out(tmp_p
     mask = read(view["mask"], cv2.IMREAD_GRAYSCALE)
     assert mask.shape == (288, 512) and read(view["image"]).shape == (288, 512, 3)
     assert mask[-1, -1] == 255 and mask[144, 256] == 0  # the name's corner (and the barrel's) out, the middle in
-
-
-def test_a_persons_height_undoes_the_lens_on_their_head_as_on_their_feet():
-    from liberational.spatial import fuse
-
-    # A level camera 2 m up looking along +y (z up), 100 x 100 px at focal 100, through the Reolinks' barrel.
-    level = (1.0, 0, 0, 0, 0, 0, 1.0, 0, 0, -1.0, 0, 2.0, 0, 0, 0, 1.0)
-    wide = places.CameraPose(level, 100.0, 100, 100, 0.0, BARREL.as_tuple())
-    pinhole = places.CameraPose(level, 100.0, 100, 100)
-    # Someone 1.7 m tall, 6 m ahead and 1.5 m to the side: where a pinhole sees their head (0.3 m under the camera)
-    # and their heels (FOOT_M = 0.07 m up, 1.93 m under it)...
-    head, feet = (0.5 + 1.5 / 6, 0.5 + 0.3 / 6), (0.5 + 1.5 / 6, 0.5 + 1.93 / 6)
-    assert fuse.stature(pinhole, footprints.Sighting("c", 0.0, 1, *feet, head)) == pytest.approx(1.7)
-
-    # ...and where the barrel moved those pixels to: the wide camera, undoing it on both, measures the same.
-    def seen(p):
-        cand = np.linspace(0, 1, 20001)
-        best = None
-        for v in np.linspace(max(0, p[1] - 0.2), min(1, p[1] + 0.2), 401):
-            u, vv = lens.undistort_points(BARREL, cand, np.full_like(cand, v))
-            i = int(np.argmin((u - p[0]) ** 2 + (vv - p[1]) ** 2))
-            err = (u[i] - p[0]) ** 2 + (vv[i] - p[1]) ** 2
-            if best is None or err < best[0]:
-                best = (err, cand[i], v)
-        assert best is not None
-        return best[1], best[2]
-
-    s = footprints.Sighting("c", 0.0, 1, *seen(feet), seen(head))
-    assert fuse.stature(wide, s) == pytest.approx(1.7, abs=0.02)

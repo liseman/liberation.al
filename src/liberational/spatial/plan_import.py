@@ -38,7 +38,7 @@ a face, which room each camera lands in, and each anchor's residual.
 **Writing** (`to_dsl`): the plan moved into the target frame, every room a `poly` (a turn that isn't a quarter makes
 a rectangle a polygon), openings and fixtures moved with it, a camera spot's yaw turned, and the title replaced.
 
-**A camera's view** (`view_fit`): its own points in the map (its room, `fuse.room_of`) moved to its measured spot and
+**A camera's view** (`view_fit`): its own points in the map (the part of it the camera sees) moved to its measured spot and
 turned about it, scored by how many it could see from there on the plan (in a room, with no wall but a door or
 opening between, `in_sight`; a share inside any room let a view pass through the house's inner walls) and on its
 walls. The best turn is the view's own evidence of which way the camera looks, beside its registered yaw; the
@@ -55,7 +55,7 @@ import dataclasses
 import itertools
 import math
 import re
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 
 import numpy as np
 from scipy import signal
@@ -789,55 +789,6 @@ def inside(plan: Parsed, q: np.ndarray) -> np.ndarray:
     return out
 
 
-# Walk coverage (#3): which rooms of a plan a LiDAR walk has seen. A room's floor is counted in COVER_CELL cells, and a
-# cell is walked when a voxel a walk saw (a fused map's `walked` count) lies over it, at any height.
-COVER_CELL = 0.1  # metres
-WALKED_SHARE = 0.3  # a room is walked when a walk saw at least this share of its cells
-MAPPED_SHARE = 0.2  # a room is mapped (by the cameras, if not walked) when the map has this share of its cells
-
-
-@dataclasses.dataclass(frozen=True)
-class RoomCoverage:
-    """How much of one room's floor a map covers: `walked` the share a LiDAR walk saw, `mapped` the share the map has
-    any point over."""
-
-    room: Room
-    walked: float
-    mapped: float
-
-    @property
-    def kind(self) -> str:
-        """ "walked", "cameras only", or "nothing"."""
-        if self.walked >= WALKED_SHARE:
-            return "walked"
-        return "cameras only" if self.mapped >= MAPPED_SHARE else "nothing"
-
-
-def room_coverage(points: np.ndarray, walks: np.ndarray, plan: Parsed, frame: Sequence[float]) -> list[RoomCoverage]:
-    """Each room of `plan` (in plan order, skipping a room too small for one cell) with how much of it the map's
-    `points` (N, 3, in the map's frame) cover, and how much the points with `walks` > 0 do (how many LiDAR walks saw
-    each one, `fuse.Fused.walks`). `frame` is the map-to-plan transform (`places.plan_frame`)."""
-    pts = in_frame(points, frame)[:, :2] if len(points) else np.zeros((0, 2))
-    walked_mask = np.asarray(walks) > 0
-    all_cells = {tuple(c) for c in np.floor(pts / COVER_CELL).astype(np.int64).tolist()}
-    walked_cells = {tuple(c) for c in np.floor(pts[walked_mask] / COVER_CELL).astype(np.int64).tolist()}
-    out: list[RoomCoverage] = []
-    for room in plan.rooms:
-        poly = np.asarray(room.polygon)
-        lo, hi = np.floor(poly.min(0) / COVER_CELL).astype(int), np.ceil(poly.max(0) / COVER_CELL).astype(int)
-        gx, gy = np.meshgrid(np.arange(lo[0], hi[0]), np.arange(lo[1], hi[1]))
-        cells = np.c_[gx.ravel(), gy.ravel()]
-        one = dataclasses.replace(plan, rooms=(room,))
-        cells = cells[inside(one, (cells + 0.5) * COVER_CELL)]
-        if not len(cells):
-            continue
-        keys = [tuple(c) for c in cells.tolist()]
-        walked = sum(k in walked_cells for k in keys) / len(keys)
-        mapped = sum(k in all_cells for k in keys) / len(keys)
-        out.append(RoomCoverage(room, walked, mapped))
-    return out
-
-
 SIGHT_SLACK = 0.1  # metres short of a point its line of sight is checked to: a wall's own points sit on its face
 
 
@@ -946,82 +897,3 @@ def mirrored(points: np.ndarray, centre: Point, look: Point) -> np.ndarray:
     along = off @ d
     pts[:, :2] = np.asarray(centre) + 2 * along[:, None] * d - off
     return pts
-
-
-def turn_about(transform: Sequence[float], centre: Point, at: Point, turn: float) -> np.ndarray:
-    """The rigid 4x4 map transform that turns about the plan frame's vertical through `centre` by `turn` and moves
-    `centre` to `at` (plan frame metres; `transform` the 12-number map-to-plan frame), heights kept: a camera and its
-    room moved to where its view fits (`fuse.move_room` takes it)."""
-    t = np.asarray(transform, dtype=np.float64).reshape(3, 4)
-    a, b = t[:, :3], t[:, 3]
-    c, s = math.cos(turn), math.sin(turn)
-    rz = np.array([[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]])
-    shift = np.array([at[0], at[1], 0.0]) - rz @ np.array([centre[0], centre[1], 0.0])
-    # plan P = A p + b; P' = Rz P + shift; p' = A^T (P' - b)
-    out = np.eye(4)
-    out[:3, :3] = a.T @ rz @ a
-    out[:3, 3] = a.T @ (rz @ b + shift - b)
-    return out
-
-
-def undo(transform: Sequence[float], move: Move) -> np.ndarray:
-    """The rigid 4x4 map transform (`transform` the map-to-plan frame) that moves a map onto which the plan was fitted
-    by `move` (`register`, page to the map's plan frame) to where the plan is drawn: a map fitted at `move` lands where
-    the identity would fit it. The page must not be mirrored into the frame (a map isn't a reflection of another)."""
-    if move.mirror:
-        raise ValueError("a mirrored fit can't be undone by moving the map")
-    return turn_about(transform, move.shift, (0.0, 0.0), -move.turn)
-
-
-PLACE_RADIUS = 0.5  # metres around a measured spot `place_view` searches
-PLACE_STEP = 0.05
-
-
-def turn_to(move: Move, look: Point, bearing: float) -> float:
-    """The turn (radians, counterclockwise in the target frame) that makes a camera looking along `look` (target
-    frame) look along page bearing `bearing`."""
-    now = look_bearing(move, look)
-    # a counterclockwise turn in the frame is clockwise on the page (whose y grows down), so it adds to a bearing,
-    # unless the page is mirrored into the frame
-    delta = math.radians((bearing - now + 180.0) % 360.0 - 180.0)
-    return -delta if move.mirror else delta
-
-
-def view_score(plan: Parsed, move: Move, points: np.ndarray, centre: Point) -> Callable[[float, Point], float]:
-    """How well a camera's own points (as `view_fit` takes them, seen from `centre`) fit the plan turned by a turn and
-    moved to a spot (target frame): the share it could see from there plus WALL_WEIGHT times the share on a wall."""
-    w, sight = walls(plan), sight_walls(plan)
-    pts = np.asarray(points, dtype=np.float64).reshape(-1, 3)
-    pts = _sample(pts[(pts[:, 2] >= VIEW_HEIGHTS[0]) & (pts[:, 2] <= VIEW_HEIGHTS[1])], VIEW_POINTS // 2)
-    in_band = (pts[:, 2] >= BAND[0]) & (pts[:, 2] <= BAND[1])
-
-    def score(t: float, where: Point) -> float:
-        if not len(pts):
-            return math.nan
-        q = move.inverse(_turned(pts[:, :2], centre, where, t))
-        eye = move.inverse(np.array([where]))[0]
-        seen = float(np.mean(in_sight(plan, sight, (float(eye[0]), float(eye[1])), q)))
-        wall = float(np.mean(faces(q[in_band], w)[0] <= NEAR_FACE)) if in_band.any() else 0.0
-        return seen + WALL_WEIGHT * wall
-
-    return score
-
-
-def place_view(
-    plan: Parsed, move: Move, points: np.ndarray, centre: Point, at: Point, turn: float
-) -> tuple[Point, float, float]:
-    """A camera's own points (as `view_fit` takes them) turned by a fixed `turn` and moved to each spot within
-    PLACE_RADIUS of `at` (target frame) on a PLACE_STEP grid: the spot whose view fits best (`View.score`'s terms),
-    its score, and the score unmoved and unturned where it's registered."""
-    score = view_score(plan, move, points, centre)
-    offsets = np.arange(-PLACE_RADIUS, PLACE_RADIUS + 1e-9, PLACE_STEP)
-    best, best_score = at, -1.0
-    for dx in offsets:
-        for dy in offsets:
-            if math.hypot(dx, dy) > PLACE_RADIUS + 1e-9:
-                continue
-            where = (at[0] + float(dx), at[1] + float(dy))
-            found = score(turn, where)
-            if found > best_score:
-                best, best_score = where, found
-    return best, (best_score if best_score >= 0 else math.nan), score(0.0, centre)
