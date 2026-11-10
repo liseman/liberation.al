@@ -374,7 +374,7 @@ one `<service>.log` each, trimmed hourly past 10 MB by the `log-trim` service. H
 | `state/journal_pages_window.json`, `journal_pages_batch.json` | `pack-journal` | The same | The page batch's sleep window and last finished day |
 | `state/journal_evidence/<day>/` | `pack-video-window` | Dashboard | Clips and stills of moments day pages cite; durable |
 | `state/video_window.json`, `retention.json` | `pack-video-window` | The same | Age-out progress and finished retention days |
-| `state/places/<place>/`, `footprints.json`, `positions.json`, `aims.json`, `state/places.lock` | Spatial jobs through `memory/places.py` | `memory/places.py`, `spatial/positions.py` | Place revisions, maps, plans, splats, placer progress, and each spot camera's fitted tilt |
+| `state/places/<place>/`, `footprints.json`, `positions.json`, `aims.json`, `state/places.lock` | Spatial jobs through `memory/places.py` | `memory/places.py`, `spatial/positions.py` | Place revisions, maps, plans, splats, placer progress, each spot camera's fitted tilt, and each place's line-up with its owner's plan (`plan.lineup`, `spatial/plan_lineup.py`) |
 | `state/surroundings/` | The surroundings sampler (`spatial/surroundings_frames.py`: frames, `index.json`, `status.json`) and the map step (`spatial/surroundings_map.py`: `map.json`, depth images) | Each other, the Places page | The frames kept for learning a place's map, at most 300, with their descriptors and depth; what each step placed |
 | `state/cache/device_tallies.json` | `proximity/devices.py` | The same | Hourly device tallies; rebuildable |
 | `state/ingest.sqlite3`, `ingest-locks/`, `ingest-analyzed.json` | Dashboard, `pack-ingest`, `pack-ingest-analyze` | The same | Ingested items, per-item locks, and the analysis ledger |
