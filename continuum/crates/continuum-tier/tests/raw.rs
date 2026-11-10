@@ -287,15 +287,15 @@ fn a_worker_killed_mid_gop_leaves_a_chunk_recovery_reads_whole() {
     assert_eq!(frames.len() as u64, appended);
 }
 
-/// Each encoder this machine has (NVENC and libx264 on the Linux machine; VideoToolbox on the Mac): a keyframe first
+/// Each encoder this machine has (NVENC and a software encoder on the Linux machine; VideoToolbox on the Mac): a keyframe first
 /// and then every second exactly, every frame back in order with its own times, decoding close to the input.
 #[test]
 fn each_h264_encoder_here_keys_every_second_and_decodes_back() {
     let _gpu = gpu();
     use continuum_tier::raw::RawEncoder;
     let mut ran = 0;
-    for name in ["h264_nvenc", "h264_videotoolbox", "libx264"] {
-        let Ok(mut enc) = RawEncoder::open(layout(), 30, &[name]) else {
+    for name in continuum_tier::h264::H264_ENCODERS {
+        let Ok(mut enc) = RawEncoder::open(layout(), 30, &[*name]) else {
             eprintln!("{name}: not here");
             continue;
         };
@@ -319,7 +319,7 @@ fn each_h264_encoder_here_keys_every_second_and_decodes_back() {
         let db = psnr(&to_nv12(&layout(), &uyvy(59)).unwrap()[..luma], &frames[59].nv12[..luma]);
         assert!(db > 30.0, "{name}: the last frame decodes to {db:.1} dB");
     }
-    assert!(ran > 0, "at least libx264 opens");
+    assert!(ran > 0, "at least a software encoder opens");
 }
 
 #[test]

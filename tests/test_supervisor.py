@@ -449,6 +449,82 @@ def test_real_processes_are_started_restarted_and_all_stopped(tmp_path):
         os.kill(second["pid"], 0)
 
 
+def test_a_real_child_has_the_session_but_not_the_launchers_loader_path(tmp_path, monkeypatch):
+    """#183: opened from a terminal inside an AppImage-based program, a service must not load that
+    program's libraries, and it needs the session to find PipeWire in."""
+    monkeypatch.setenv("LD_LIBRARY_PATH", str(tmp_path / "launcher/lib"))
+    monkeypatch.setenv("APPDIR", str(tmp_path / "launcher"))
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "session"))
+    seen = tmp_path / "seen"
+    script = f"env > {seen}.part && mv {seen}.part {seen}; exec sleep 60"
+    spec = {"looker": {"command": "sh", "args": ["-c", script], "throttle": 0, "stop_timeout": 5}}
+    sup = supervisor.Supervisor(spec, directory=tmp_path / "state")
+    try:
+        sup.start(["looker"])
+        deadline = time.monotonic() + 30
+        while not seen.exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        env = dict(line.split("=", 1) for line in seen.read_text().splitlines() if "=" in line)
+    finally:
+        sup.shutdown()
+    assert env["XDG_RUNTIME_DIR"] == str(tmp_path / "session")
+    assert "LD_LIBRARY_PATH" not in env and "APPDIR" not in env
+
+
+@pytest.fixture
+def watching(sup, world):
+    """A started supervisor that asks `world.missing` for the devices with no live stream."""
+    world.missing = [{"name": "desk", "kind": "microphone"}]
+    world.asked = 0
+
+    def missing():
+        world.asked += 1
+        if isinstance(world.missing, Exception):
+            raise world.missing
+        return world.missing
+
+    sup.missing_devices = missing
+    sup.start_all()
+    return sup
+
+
+def test_a_declared_device_with_no_live_stream_is_in_the_status_once_capture_has_had_its_time(watching, world):
+    watching.check_devices()
+    assert (world.asked, watching.status()["unregistered"]) == (0, [])  # capture has only just started
+    world.advance(supervisor.DEVICE_GRACE_S + supervisor.DEVICE_CHECK_S)
+    watching.check_devices()
+    assert watching.status()["unregistered"] == [{"name": "desk", "kind": "microphone"}]
+    assert json.loads((watching.directory / "status.json").read_text())["unregistered"] == [
+        {"name": "desk", "kind": "microphone"}
+    ]
+
+
+def test_the_devices_are_asked_about_at_intervals_and_a_device_that_registers_is_cleared(watching, world):
+    world.advance(supervisor.DEVICE_GRACE_S + supervisor.DEVICE_CHECK_S)
+    watching.check_devices()
+    watching.check_devices()
+    assert world.asked == 1  # not on every tick
+    world.missing = []
+    world.advance(supervisor.DEVICE_CHECK_S)
+    watching.check_devices()
+    assert (world.asked, watching.status()["unregistered"]) == (2, [])
+
+
+def test_nothing_is_claimed_missing_when_the_broker_cannot_be_asked_or_capture_is_down(watching, world):
+    world.advance(supervisor.DEVICE_GRACE_S + supervisor.DEVICE_CHECK_S)
+    watching.check_devices()
+    world.missing = ConnectionError("broker socket refused")
+    world.advance(supervisor.DEVICE_CHECK_S)
+    watching.check_devices()
+    assert watching.status()["unregistered"] == []
+    world.missing = [{"name": "desk", "kind": "microphone"}]
+    watching.stop([CAPTURE])
+    asked = world.asked
+    world.advance(supervisor.DEVICE_CHECK_S)
+    watching.check_devices()
+    assert (world.asked, watching.status()["unregistered"]) == (asked, [])  # the window says capture is down
+
+
 def test_history_reads_runs_stops_crashes_and_a_killed_supervisors_gap_from_its_own_record(tmp_path):
     lines = [
         {"ts": 100, "name": "", "event": "open"},

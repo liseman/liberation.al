@@ -425,7 +425,19 @@ class SDKReadiness:
         from liberational import continuum_ready
 
         self.socket = socket
+        self.manifest = manifest
         self.needs = continuum_ready.capture_needs(manifest)
+
+    def missing(self) -> list[dict[str, str]]:
+        """The devices the manifest declares now (enabled ones) that have no live stream at the broker, as
+        {"name", "kind": "camera" | "microphone"}: what the application's window names (#183). Raises when the
+        broker can't be asked."""
+        from liberational import continuum_ready
+
+        needs = continuum_ready.capture_needs(self.manifest)  # read again: a device may have been added since
+        gone = asyncio.run(continuum_ready.unregistered(self.socket, needs))
+        kinds = {"video": "camera", "audio": "microphone"}
+        return [{"name": need.stream.rsplit(".", 1)[0], "kind": kinds[need.kind]} for need in gone]
 
     def previous(self, deadline: float) -> BrokerIdentity | None:
         from liberational import continuum_ready

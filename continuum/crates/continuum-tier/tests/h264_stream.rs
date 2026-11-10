@@ -218,7 +218,7 @@ fn cuda_decoder_returns_non_reordered_frames_without_waiting_for_future_packets(
     use continuum_tier::h264::{H264Encoder, H264Settings};
 
     let settings = H264Settings { low_delay: true, threads: 1, frame_rate: 10, ..H264Settings::default() };
-    let mut encoder = H264Encoder::open_with(&["libx264"], 160, 96, settings).unwrap();
+    let mut encoder = H264Encoder::open_with(continuum_tier::h264::SOFTWARE_H264_ENCODERS, 160, 96, settings).unwrap();
     let gpu = std::env::var("CONTINUUM_TEST_CUDA_GPU").unwrap_or_else(|_| "0".into()).parse().unwrap();
     let mut decoder = H264StreamDecoder::with_backend(H264DecodeBackend::Cuda { gpu }).unwrap();
     for tag in 0..24u64 {
@@ -275,7 +275,8 @@ fn cuda_decoders_on_one_gpu_share_one_context_and_decode_side_by_side() {
                 opened.wait();
                 counted.wait();
                 let settings = H264Settings { low_delay: true, threads: 1, frame_rate: 10, ..H264Settings::default() };
-                let mut encoder = H264Encoder::open_with(&["libx264"], 160, 96, settings).unwrap();
+                let mut encoder =
+                    H264Encoder::open_with(continuum_tier::h264::SOFTWARE_H264_ENCODERS, 160, 96, settings).unwrap();
                 for tag in 0..24u64 {
                     let luma = 32 + 40 * camera + tag as u8;
                     let mut nv12 = vec![128; 160 * 96 * 3 / 2];
@@ -325,7 +326,7 @@ fn full_range_h264_rgb_decode_preserves_luma_without_deprecated_pixel_warnings()
     use continuum_tier::h264::{H264Encoder, H264Settings};
 
     let settings = H264Settings { full_range: true, low_delay: true, threads: 1, ..H264Settings::default() };
-    let mut encoder = H264Encoder::open_with(&["libx264"], 160, 96, settings).unwrap();
+    let mut encoder = H264Encoder::open_with(continuum_tier::h264::SOFTWARE_H264_ENCODERS, 160, 96, settings).unwrap();
     let mut decoder = H264StreamDecoder::with_backend(H264DecodeBackend::Software).unwrap();
     let mut nv12 = vec![128; 160 * 96 * 3 / 2];
     nv12[..160 * 96].fill(32);

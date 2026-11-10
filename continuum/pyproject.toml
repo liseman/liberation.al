@@ -44,7 +44,7 @@ module-name = "continuum_py._native"
 [tool.ty.environment]
 python-version = "3.14"
 # The build backend's tests import it from its own directory, as the build frontend does.
-extra-paths = ["build_backend"]
+extra-paths = ["build_backend", "packaging"]
 
 [tool.ty.src]
-include = ["python", "build_backend", "crates/continuum-py/tests"]
+include = ["python", "build_backend", "packaging", "crates/continuum-py/tests"]

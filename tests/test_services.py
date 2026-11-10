@@ -1252,3 +1252,73 @@ def test_install_removes_the_logs_of_services_no_longer_declared(systemd, tmp_pa
         "listen.log.1",
         "profiles",
     ]
+
+
+# ---- a supervised service's environment: the session's variables, and nothing else of the launcher's (#183) ----
+
+# The application opened from a terminal inside an AppImage-based program.
+LAUNCHER = {
+    "PATH": "/tmp/.mount_editorAbC/usr/bin:/opt/editor/bin:/opt/tool/bin:/usr/bin",
+    "HOME": "/somewhere/else",
+    "LD_LIBRARY_PATH": "/tmp/.mount_editorAbC/usr/lib",
+    "LD_PRELOAD": "/tmp/.mount_editorAbC/usr/lib/hook.so",
+    "APPDIR": "/opt/editor",
+    "APPIMAGE": "/opt/Editor.AppImage",
+    "ARGV0": "editor",
+    "OWD": "/home",
+    "FLATPAK_ID": "org.example.Editor",
+    "SNAP_NAME": "editor",
+    "EDITOR_SESSION": "7",
+    "PYTHONPATH": "/opt/editor/python",
+    "XDG_RUNTIME_DIR": "/run/user/4242",
+    "DBUS_SESSION_BUS_ADDRESS": "unix:path=/run/user/4242/bus",
+    "WAYLAND_DISPLAY": "wayland-0",
+    "DISPLAY": ":0",
+    "XDG_SESSION_TYPE": "wayland",
+    "LOGNAME": "alice",
+    "USER": "alice",
+    "LANG": "en_US.UTF-8",
+    "LC_TIME": "en_GB.UTF-8",
+}
+
+
+def test_a_supervised_service_gets_the_session_and_nothing_else_from_the_launcher(monkeypatch):
+    monkeypatch.setattr(s, "DARWIN", False)
+    env = s.environment({}, "listen", launcher=LAUNCHER)
+    session = ("XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS", "WAYLAND_DISPLAY", "DISPLAY", "XDG_SESSION_TYPE")
+    session += ("USER", "LOGNAME", "LANG", "LC_TIME")
+    assert {k: env[k] for k in session} == {k: LAUNCHER[k] for k in session}
+    own = {"PATH", "HOME", "RUST_LOG", "HF_HUB_DISABLE_PROGRESS_BARS", "TQDM_DISABLE", "TRANSFORMERS_VERBOSITY"}
+    assert set(env) == set(session) | own | {"OPENCV_FFMPEG_LOGLEVEL", "OPENCV_LOG_LEVEL"}
+    assert env["HOME"] == str(pathlib.Path.home())
+    # the launcher's mount and its own tree are out of PATH; a tool directory of the owner's stays
+    assert env["PATH"].split(os.pathsep)[-5:] == ["/opt/tool/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"]
+    assert "editor" not in env["PATH"]
+
+
+def test_a_service_keeps_a_loader_variable_its_declaration_sets_on_purpose():
+    env = s.environment({"env": {"LD_LIBRARY_PATH": "/opt/vendor/lib"}}, launcher=LAUNCHER)
+    assert env["LD_LIBRARY_PATH"] == "/opt/vendor/lib"
+
+
+def test_what_was_dropped_names_the_launchers_variables_and_its_path_entries():
+    assert s.dropped(LAUNCHER) == [
+        "APPDIR",
+        "APPIMAGE",
+        "ARGV0",
+        "FLATPAK_ID",
+        "LD_LIBRARY_PATH",
+        "LD_PRELOAD",
+        "OWD",
+        "SNAP_NAME",
+        "PATH entry /tmp/.mount_editorAbC/usr/bin",
+        "PATH entry /opt/editor/bin",
+    ]
+    assert s.dropped({"PATH": "/usr/bin", "XDG_RUNTIME_DIR": "/run/user/4242"}) == []
+
+
+def test_a_unit_file_carries_no_session_variables(monkeypatch):
+    # The desktop's service manager supplies them to a unit; written into the file they would go stale.
+    monkeypatch.setenv("XDG_RUNTIME_DIR", "/run/user/4242")
+    monkeypatch.setenv("DISPLAY", ":0")
+    assert not {"XDG_RUNTIME_DIR", "DISPLAY"} & set(s.environment({}))

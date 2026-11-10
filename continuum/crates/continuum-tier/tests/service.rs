@@ -754,6 +754,10 @@ fn derived_copy_case(late_after_purge: bool, register_after_start: bool) {
 #[cfg(feature = "ffmpeg")]
 #[test]
 fn the_av1_archive_pass_converts_a_committed_chunk_and_the_catalog_follows() {
+    if !continuum_tier::probe::av1_encoder_available() {
+        eprintln!("this FFmpeg has no SVT-AV1 (the wheels' private build); skipped");
+        return;
+    }
     use continuum_tier::archive::ArchiveSettings;
     use continuum_tier::h264::{H264Encoder, H264Settings};
     use continuum_tier::{ChunkFormat, ChunkReader, hydrate_frame};
@@ -811,7 +815,8 @@ fn the_av1_archive_pass_converts_a_committed_chunk_and_the_catalog_follows() {
 
     // One second of a moving gradient as a camera's own H.264, a keyframe first.
     let h264 = H264Settings { gop_frames: 30, frame_rate: 30, low_delay: true, threads: 1, ..H264Settings::default() };
-    let mut encoder = H264Encoder::open_with(&["libx264"], W, H, h264).expect("libx264");
+    let mut encoder =
+        H264Encoder::open_with(continuum_tier::h264::SOFTWARE_H264_ENCODERS, W, H, h264).expect("a software encoder");
     let t0 = utc_now();
     let mut units = Vec::new();
     for i in 0..N {

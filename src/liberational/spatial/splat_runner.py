@@ -55,6 +55,10 @@ SparseAdam, so each view's row moves only on the steps that render it, about `PO
 to 1% over the run like the means'. Without it the poses are taken as they are. It was worth 1.3 dB on held-out
 frames at 7,000 steps (21.3 against 20.0).
 
+**Scores** (PSNR) count only the pixels the loss counts: a view's covered pixels (its "mask") are never trained, so
+counting them only measured how much of the frame they cover (a camera with a wide lens undone scored 17 dB for a
+29 dB splat).
+
 **Held-out views** are scored twice: at their poses as given (`test_psnr_raw`), and after `ALIGN_STEPS` steps that
 fit only that view's pose correction to its image with the Gaussians frozen (`test_psnr`). A held-out frame's given
 pose is as far off as a training frame's was, and a refined splat has settled where its training frames agree, so
@@ -312,8 +316,13 @@ def main(argv: Sequence[str]) -> int:
     seconds = time.perf_counter() - began
 
     def score(v: dict[str, Any], delta: Any | None = None) -> float:
+        """`v`'s PSNR, over the pixels the loss counts: a covered pixel (an overlay, or the border a lens's undoing
+        leaves) is never trained, so it would only say how much of the frame is covered."""
         with torch.no_grad():
-            return float(-10 * torch.log10(((render(v, sh_degree, delta=delta)[0] - truth(v)) ** 2).mean()))
+            err = (render(v, sh_degree, delta=delta)[0] - truth(v)) ** 2
+            if v["covered"] is not None:
+                err = err[~v["covered"][..., 0]]
+            return float(-10 * torch.log10(err.mean()))
 
     def aligned(v: dict[str, Any]) -> tuple[float, Any]:
         """`v`'s score after fitting only its pose correction to its image, the Gaussians frozen, and that

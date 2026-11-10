@@ -4,6 +4,7 @@ says so when it can't read an image instead of handing None to the face model.""
 import json
 import sys
 import time
+import warnings
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -800,3 +801,14 @@ def test_a_reference_photo_without_exactly_one_face_never_trains(named, photo, f
     with patch.object(faces, "embed", autospec=True, return_value=faces_found(*found)):
         assert faces.enroll_reference("Dana", photo) == {"faces": len(found), "result": result}
     assert faces.load_db()[0] == ["Alice", "Bob"]
+
+
+def test_insightface_alignment_deprecation_is_filtered_and_other_warnings_are_not():
+    with warnings.catch_warnings(record=True) as seen:
+        warnings.simplefilter("always")
+        faces.quiet_alignment_warning()  # pytest restores the filters after collection, so the import's is gone
+        for module in ("insightface.utils.face_align", "insightface.utils.transform"):
+            warnings.warn_explicit(
+                f"deprecated in {module}", FutureWarning, f"{module}.py", 23, module=module, registry={}
+            )
+    assert [str(w.message) for w in seen] == ["deprecated in insightface.utils.transform"]

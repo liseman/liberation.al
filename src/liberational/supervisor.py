@@ -75,6 +75,8 @@ BACKOFF_MAX_S = 300.0  # the longest wait between restarts of a service that kee
 STABLE_S = 60.0  # a run this long was a good one: the next failure waits the plain throttle again
 CATCH_UP_S = 120.0  # how soon after a start a daily job that was missed runs
 TICK_S = 0.5
+DEVICE_CHECK_S = 15.0  # how often the declared devices are compared with the broker's live streams
+DEVICE_GRACE_S = 30.0  # how long capture gets to register its devices before one is called missing
 REQUEST_TIMEOUT_S = 5.0
 
 
@@ -126,7 +128,7 @@ def spawn(name: str, svc: services.Service) -> subprocess.Popen[bytes]:
         return subprocess.Popen(
             services.argv(svc, startup=True, name=name),
             cwd=cfg.workdir(),
-            env=services.environment(svc, name),
+            env=services.environment(svc, name, launcher=os.environ),
             stdin=subprocess.DEVNULL,
             stdout=out,
             stderr=subprocess.STDOUT,
@@ -200,6 +202,11 @@ class Supervisor:
     sleep: Callable[[float], None] = time.sleep
     directory: Path | None = None  # where status.json and events.jsonl go; None keeps nothing on disk
     readiness: service_cascade.Readiness | None = None
+    # The declared devices with no live stream ({"name", "kind"} each), asked every DEVICE_CHECK_S while capture runs
+    # (#183). None here asks nothing.
+    missing_devices: Callable[[], Sequence[Mapping[str, str]]] | None = None
+    unregistered: list[dict[str, str]] = field(default_factory=list)
+    devices_checked: float | None = None
     workers: dict[str, Worker] = field(default_factory=dict)
     lock: threading.RLock = field(default_factory=threading.RLock)
     started_at: float = 0.0
@@ -444,6 +451,32 @@ class Supervisor:
 
     # ---- health
 
+    def check_devices(self) -> None:
+        """Every DEVICE_CHECK_S, once capture has run for DEVICE_GRACE_S: which declared devices have no live
+        stream. Capture starting with a device it can't open still runs, so nothing else shows it. Asked outside
+        the lock (it talks to the broker); with capture down, or the broker not answering, nothing is claimed."""
+        if self.missing_devices is None:
+            return
+        with self.lock:
+            now = self.clock()
+            if self.devices_checked is not None and now - self.devices_checked < DEVICE_CHECK_S:
+                return
+            self.devices_checked = now
+            capture = self.workers.get(CAPTURE)
+            settled = capture is not None and capture.proc is not None and now - capture.began >= DEVICE_GRACE_S
+        found: list[dict[str, str]] = []
+        if settled:
+            try:
+                found = [dict(device) for device in self.missing_devices()]
+            except Exception as error:
+                LOG.debug(f"devices not checked: {logs.reason(error)}")
+        with self.lock:
+            if found != self.unregistered:
+                names = ", ".join(f"{d['kind']} {d['name']}" for d in found)
+                LOG.warning(f"no live stream from: {names}") if found else LOG.info("every declared device is live")
+                self.unregistered = found
+                self._publish()
+
     def _local(self) -> dt.datetime:
         return dt.datetime.fromtimestamp(self.now())
 
@@ -453,6 +486,7 @@ class Supervisor:
             return {
                 "pid": os.getpid(),
                 "started_at": self.started_at,
+                "unregistered": list(self.unregistered),
                 "services": {
                     name: {
                         "state": worker.state,
@@ -635,6 +669,7 @@ class App:
             self.supervisor.start_all(missed)
             while not self.quitting.wait(TICK_S):
                 self.supervisor.tick()
+                self.supervisor.check_devices()
         finally:
             self.supervisor.shutdown()
 
@@ -672,7 +707,10 @@ def application() -> Generator[tuple[App, list[str]]]:
     with single(directory):
         readiness = service_cascade.SDKReadiness(cfg.devices_file(), cfg.path("paths.state") / "continuum/broker.sock")
         missed = missed_jobs(spec, last_starts(directory), time.time())
-        app = App(Supervisor(spec, directory=directory, readiness=readiness))
+        app = App(Supervisor(spec, directory=directory, readiness=readiness, missing_devices=readiness.missing))
+        if kept_out := services.dropped(os.environ):
+            # Once, at start: the launcher's own loader and packaging variables, which no service gets (#183).
+            LOG.info(f"not passed to services, from the environment this was opened with: {', '.join(kept_out)}")
         LOG.info(f"supervising {len(spec)} services" + (f"; catching up: {', '.join(missed)}" if missed else ""))
         try:
             with app.serve(socket_path()):

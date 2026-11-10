@@ -3,7 +3,7 @@
   pack-app    # open the application: start the services (supervisor.py) and show its window
 
 The window says whether the system is running and recording (and when cameras or microphones are paused for
-privacy), opens the dashboard, has a Start at login checkbox (login_item.py, off by default), and has Quit. Quit, and closing the window, ask the supervisor to drain, then stop,
+privacy, or declared but sending nothing), opens the dashboard, has a Start at login checkbox (login_item.py, off by default), and has Quit. Quit, and closing the window, ask the supervisor to drain, then stop,
 every service; the window stays, saying it is stopping, until they are gone. So nothing records with no window: the
 window is there for as long as any service runs, and if the supervisor stops by itself the window says so.
 
@@ -87,6 +87,13 @@ def _paused_text(paused: Mapping[str, tuple[Sequence[str], int]]) -> tuple[str, 
     return ", ".join(parts), everything and bool(parts)
 
 
+def _listed(items: Sequence[str]) -> str:
+    """a; a and b; a, b, and c."""
+    if len(items) < 3:
+        return " and ".join(items)
+    return ", ".join(items[:-1]) + f", and {items[-1]}"
+
+
 def summary(
     phase: str, status: Mapping[str, Any] | None, paused: Mapping[str, tuple[Sequence[str], int]] | None = None
 ) -> Summary:
@@ -111,6 +118,16 @@ def summary(
     if everything:
         return Summary("Running, paused for privacy", f"Nothing is recording: {text}. {count}.{trouble}", False)
     extra = f" ({text})" if text else ""
+    resting = {name for names, _ in (paused or {}).values() for name in names}
+    missing = [d for d in (status or {}).get("unregistered") or [] if d["name"] not in resting]
+    if missing:
+        # A device the manifest declares that capture never registered (#183): capture runs on without it, so
+        # only this says the microphone, or a camera, isn't being recorded.
+        named = _listed([f"{d['kind']} {d['name']}" for d in missing])
+        total = sum(n for _, n in (paused or {}).values())
+        some = not total or len(missing) + len(resting) < total
+        headline = "Recording, but not from every device" if some else "Running, not recording"
+        return Summary(headline, f"Nothing is coming from the {named}. {count}{extra}.{trouble}", some)
     return Summary("Running and recording", f"{count}{extra}.{trouble}", True)
 
 

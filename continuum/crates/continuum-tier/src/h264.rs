@@ -16,14 +16,19 @@
 //! never an early, silent end of the stream.
 //!
 //! The encoder is the first of [`H264_ENCODERS`] that opens on this machine: NVENC on Linux with an NVIDIA GPU,
-//! VideoToolbox on the Mac, and libx264 in software everywhere else. Main profile, which every browser decodes.
+//! VideoToolbox on the Mac, and a software encoder everywhere else ([`SOFTWARE_H264_ENCODERS`]). Main profile (High
+//! from OpenH264, which has no Main), which every browser decodes.
 
 use crate::TierError;
 pub use crate::encode::AccessUnit;
 use crate::encode::{Codec, Encoder, Settings};
 
 /// The encoders tried, in order of preference.
-pub const H264_ENCODERS: &[&str] = &["h264_nvenc", "h264_videotoolbox", "libx264"];
+pub const H264_ENCODERS: &[&str] = &["h264_nvenc", "h264_videotoolbox", "libx264", "libopenh264"];
+
+/// The software encoders, in order of preference: libx264 where FFmpeg has it (a distribution's GPL build), and
+/// OpenH264 in the wheels' private LGPL build, which can't carry libx264 (docs/CONTINUUM.md, "Wheels").
+pub const SOFTWARE_H264_ENCODERS: &[&str] = &["libx264", "libopenh264"];
 
 /// How the browser stream is encoded.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -39,7 +44,7 @@ pub struct H264Settings {
     /// Every frame's access unit as soon as it's encoded: no lookahead or frame threads holding frames back (Tier 1
     /// of a raw camera, which has to be durable within seconds).
     pub low_delay: bool,
-    /// Threads for a software encoder (libx264): 0 lets it choose. Playback transcoding uses 1.
+    /// Threads for a software encoder: 0 lets it choose. Playback transcoding uses 1.
     pub threads: u32,
 }
 

@@ -18,7 +18,10 @@ use std::sync::RwLock;
 use tracing::{error, info, warn};
 
 #[derive(Parser, Debug)]
-#[command(about = "Continuum's browser gateway: WebSockets and WebTransport, frames and overlays for WebCodecs")]
+#[command(
+    version,
+    about = "Continuum's browser gateway: WebSockets and WebTransport, frames and overlays for WebCodecs"
+)]
 struct Args {
     /// The pack's state directory; chunks are read from <state-dir>/continuum/tier unless --chunks-dir says otherwise.
     #[arg(long, default_value = "data/state")]

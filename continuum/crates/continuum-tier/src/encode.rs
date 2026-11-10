@@ -159,6 +159,11 @@ impl Codec {
                 }
                 o.set("x264-params", &format!("bframes=0:scenecut=0:keyint={gop}:min-keyint={gop}"));
             }
+            "libopenh264" => {
+                // OpenH264 1.8 and later has no Main profile (FFmpeg would fall back to Constrained Baseline). It
+                // has no B-frames or lookahead, so it's always low delay; the keyframe interval is the GOP.
+                o.set("profile", "high");
+            }
             "h264_nvenc" => {
                 o.set("preset", "p4");
                 o.set("bf", "0");
