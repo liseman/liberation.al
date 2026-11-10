@@ -55,8 +55,8 @@ The bundle is not a backup of the data folder. Keep measurements (`paths.measure
    file is there), N kept only in the bundle (settings).`
    - A file that differs is never overwritten and is listed as `differs, not overwritten: <name>`. Compare it with the
      bundle's copy yourself.
-   - Settings (`config/pack.toml` and `config/devices.toml`) are never put back. Open the zip and copy what you want
-     by hand.
+   - Settings are never put back. They are in the bundle as `config/pack.toml` and `config/devices.toml`: open the
+     zip and copy what you want by hand.
 
 ## Reset machine-made data and keep what you taught
 
@@ -104,7 +104,7 @@ afterwards, as above.
 | Command | Deletes | Keeps |
 |---|---|---|
 | `pack-reset-catalog --keep-taught` | The catalog, recordings, the segment store, the vector index, and derived state | The knowledge store, the face gallery, voice references, `paths.voices`, and models |
-| `pack-reset-catalog --fresh` | All of that, and every taught store | Settings (`config/pack.toml`, `config/devices.toml`) and models |
+| `pack-reset-catalog --fresh` | All of that, and every taught store | Settings (`pack.toml`, `config/devices.toml`) and models |
 | `pack-reset-places` | Every place's maps, splats, camera registrations, and stored positions | The knowledge store (place names and plans) and everything else |
 
 ## Related
