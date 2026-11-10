@@ -449,10 +449,10 @@ impl Flusher {
     pub fn due(&self, now_ns: u64) -> Vec<StreamId> {
         self.open
             .iter()
-            .filter(|(_, o)| self.closes(o, now_ns) || self.parts(o, now_ns))
             .filter(|(_, o)| {
                 o.writer.format() != ChunkFormat::H264Au || now_ns.saturating_sub(o.last_append_ns) >= QUIET_NS
             })
+            .filter(|(_, o)| self.closes(o, now_ns) || self.parts(o, now_ns))
             .map(|(s, _)| *s)
             .collect()
     }
@@ -461,9 +461,14 @@ impl Flusher {
         now_ns.saturating_sub(o.writer.created_ns()) >= self.settings.open_ns(o.writer.format())
     }
 
+    /// Whether a part is due from `o` on the timer. Not from records that stepped back ([`steps_back`]): the
+    /// catalog would refuse the part and the chunk would close wherever the stream then was. A quiet network camera
+    /// is often one whose link stalled, which is also when capture starts its clock fit over; those records wait for
+    /// the stream's next keyframe ([`Flusher::append`] closes the chunk there) or for the chunk's own close.
     fn parts(&self, o: &Open, now_ns: u64) -> bool {
         o.writer.records().len() > o.committed
             && self.settings.part_ns(o.writer.format()).is_some_and(|every| now_ns.saturating_sub(o.part_ns) >= every)
+            && !steps_back(o.writer.records(), o.committed)
     }
 
     /// Closes every chunk [`Flusher::due`] names that is open for `chunk_ns` or longer, and cuts a part from the
