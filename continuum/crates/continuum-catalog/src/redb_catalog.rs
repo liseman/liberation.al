@@ -1605,8 +1605,8 @@ pub struct RedbCatalog {
 }
 
 /// How long ordinary commits go without an fsync. Each commit is atomic and consistent either way; a crash loses at most
-/// the commits of about this long. Fsyncing every writer tick was about 170 fsyncs a second on the Linux machine, most of the
-/// disk's busy time.
+/// the commits of about this long. Fsyncing every writer tick was about 170 fsyncs a second on the Linux machine, most
+/// of the disk's busy time.
 pub const DURABLE_EVERY: std::time::Duration = std::time::Duration::from_secs(1);
 
 impl RedbCatalog {

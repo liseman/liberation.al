@@ -2,7 +2,7 @@
 //!
 //! ```text
 //! continuum-gateway --state-dir data/state                       # WebSockets on 127.0.0.1:8766
-//! continuum-gateway --listen 0.0.0.0:8766 --webtransport 0.0.0.0:8767 --self-signed host,host.local,100.64.0.9
+//! continuum-gateway --listen 0.0.0.0:8766 --webtransport 0.0.0.0:8767 --self-signed host,host.local,192.0.2.9
 //! continuum-gateway --webtransport 0.0.0.0:8767 --cert tls/cert.pem --key tls/key.pem
 //! ```
 

@@ -252,7 +252,8 @@ async fn failed_ring_allocation_keeps_committed_stream_metadata_in_the_checkpoin
 }
 
 /// Seeds `chunks` chunks of 4000 absorbed frames each on `synthetic.history`: enough `CHUNK_FRAMES` rows that a sweep
-/// at a budget of one row per step is still running when the broker stops (a large catalog's sweep may not finish before stop).
+/// at a budget of one row per step is still running when the broker stops (a large catalog's sweep may not finish
+/// before stop).
 fn seed_absorbed_frames(path: &Path, chunks: u32) {
     const FRAMES: u32 = 4_000;
     let catalog = RedbCatalog::open(path).unwrap();

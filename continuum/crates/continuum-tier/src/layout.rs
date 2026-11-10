@@ -4,10 +4,10 @@
 //! a copy's by its payload's start), named `<stream>-<created_ns>-<n>.cnk` (`<stream>-copy-<payload-id>.cnk`). The
 //! chunk directory holds nothing else: the earlier flat layout was dropped with its recordings.
 //!
-//! The flat directory held about 500,000 files on the Linux machine, about 1.85 new ones a second, and every listing walked it
-//! (the gateway's stream listing, about every 20 s while Live is open: 1 to 11 s each). Walking by hour lets a reader
-//! skip a directory that hasn't changed since it last read it: a finished hour's directory changes only when a chunk
-//! in it is deleted.
+//! The flat directory held about 500,000 files on the Linux machine, about 1.85 new ones a second, and every listing
+//! walked it (the gateway's stream listing, about every 20 s while Live is open: 1 to 11 s each). Walking by hour lets
+//! a reader skip a directory that hasn't changed since it last read it: a finished hour's directory changes only when a
+//! chunk in it is deleted.
 
 use std::fs;
 use std::io;

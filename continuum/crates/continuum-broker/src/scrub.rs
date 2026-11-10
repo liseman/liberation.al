@@ -498,7 +498,8 @@ mod tests {
     #[test]
     fn when_a_scrub_starts() {
         let c = ScrubConfig::default();
-        // A live catalog on the Linux machine after 45 hours: 8 GiB, never scrubbed, purges finishing every few minutes.
+        // A live catalog on the Linux machine after 45 hours: 8 GiB, never scrubbed, purges finishing every few
+        // minutes.
         assert_eq!(reason(NOW, &storage(8 * GIB, None, None), true, None, &c), Some(Reason::Uncounted));
         // Too small to count for its own sake; a due scrub still runs.
         assert_eq!(reason(NOW, &storage(100 << 20, None, None), false, None, &c), None);

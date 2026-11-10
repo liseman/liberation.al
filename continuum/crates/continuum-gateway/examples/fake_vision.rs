@@ -3,8 +3,8 @@
 //!
 //! It runs a broker in-process (on a socket in a temporary directory), registers `cam0.video` (MJPEG) and the vision
 //! streams `face.detection`, `face.match`, and `pose.body`, and publishes 10 frames a second of a moving square with
-//! a face box over it, matched to a known person, and a two-joint skeleton, each record at its frame's capture time, as the
-//! vision workers would (docs/VISION-STREAMS.md). The gateway serves WebSockets on 127.0.0.1:`port` (8766 by
+//! a face box over it, matched to a known person, and a two-joint skeleton, each record at its frame's capture time, as
+//! the vision workers would (docs/VISION-STREAMS.md). The gateway serves WebSockets on 127.0.0.1:`port` (8766 by
 //! default, where the page looks). Stop it with Ctrl-C.
 
 use std::sync::Arc;
