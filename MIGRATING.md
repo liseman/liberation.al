@@ -51,14 +51,9 @@ credentials. Device names identify streams, so do not rename devices as part of 
    uv run --no-sync pack-services restart --cascade
    ```
 
-   The cascade leaves the dashboard and the gateway running. If either changed, restart it by name:
-
-   ```sh
-   uv run --no-sync pack-services restart continuum-gateway dashboard
-   ```
-
-   If a key was added to or removed from `config/defaults.toml`, restart every config-reading service, the dashboard
-   included.
+   With no service named, the cascade restarts every selected service: the dashboard and the gateway stay up while
+   the broker, capture, and the readers restart, and are restarted last. That also covers a key added to or removed
+   from `config/defaults.toml`. [docs/RUNNING.md](docs/RUNNING.md) has the other ways to restart.
 
 6. **Verify.**
 
@@ -269,7 +264,6 @@ Upgrade the broker, the gateway, and the frontend together, or the dashboard sho
 mise run continuum-release
 mise run frontend
 uv run --no-sync pack-services restart --cascade
-uv run --no-sync pack-services restart continuum-gateway dashboard
 ```
 
 ### Catalog format 8: a reset
