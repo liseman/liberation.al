@@ -957,7 +957,7 @@ pub fn classify(
 ) -> Option<(PayloadType, bool, &'static str)> {
     match format {
         ChunkFormat::ArrowIpc => Some((PayloadType::Arrow, false, "arrow")),
-        // v1's MP4s are served through continuum_tier::v1video::gop_units (wired with the Review player).
+        // MP4s registered in place are served through continuum_tier::inplace_video::gop_units (wired with the Review player).
         ChunkFormat::Lz4 | ChunkFormat::Flac | ChunkFormat::PcmBatch | ChunkFormat::Mp4 => None,
         // A raw camera's unit record is unpacked by `record_frames` before this is asked; an Opus record (a second of
         // packets) has no player path yet.

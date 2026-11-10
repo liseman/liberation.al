@@ -233,7 +233,6 @@ def test_a_question_that_names_no_camera_reads_the_manifests_cameras(tmp_path, m
     path = tmp_path / "config" / "devices.toml"
     path.write_text('device=[{name="entryway",kind="rtsp"},{name="rear-2",kind="camera"}]')
     monkeypatch.setattr(cfg, "ROOT", tmp_path)
-    with cfg.override({"vision": {"cams": [0, 3]}}):
-        assert h.cameras("what do the cameras see") == ["entryway", "rear-2"]
-        path.write_text("device=[]")
-        assert h.cameras("what do the cameras see") == []
+    assert h.cameras("what do the cameras see") == ["entryway", "rear-2"]
+    path.write_text("device=[]")
+    assert h.cameras("what do the cameras see") == []

@@ -5,7 +5,7 @@ from unittest.mock import create_autospec
 import numpy as np
 import pytest
 
-from liberational.dashboard import context, people_list, people_reads, people_writes
+from liberational.dashboard import context, people_cards, people_corrections, people_list, people_writes
 from liberational.people import face_nots, registry
 from liberational.vision import faces
 
@@ -55,9 +55,9 @@ def test_reading_with_no_store_creates_none(tmp_path):
 
 
 def test_the_route_marks_groups_and_hands_shots_to_the_cards_correction(people, monkeypatch):
-    correct = create_autospec(people_writes.correct_card, return_value=(200, {"ok": True, "undo": "tok-1"}))
-    monkeypatch.setattr(people_writes, "correct_card", correct)
-    code, reply = people_writes.faces_not({"name": "Kara", "groups": [5], "shots": ["s1"]}, True)
+    correct = create_autospec(people_corrections.correct_card, return_value=(200, {"ok": True, "undo": "tok-1"}))
+    monkeypatch.setattr(people_corrections, "correct_card", correct)
+    code, reply = people_corrections.faces_not({"name": "Kara", "groups": [5], "shots": ["s1"]}, True)
     assert (code, reply) == (200, {"ok": True, "marked": 2, "undo": ["tok-1"]})
     correct.assert_called_once_with({"name": "Kara", "kind": "shot", "id": "s1", "action": "remove"})
     assert face_nots.names(people) == {5: {"Kara"}}
@@ -74,26 +74,26 @@ def test_the_route_marks_groups_and_hands_shots_to_the_cards_correction(people, 
     ],
 )
 def test_the_route_refuses_what_it_cannot_do(people, body, control, code):
-    assert people_writes.faces_not(body, control)[0] == code
+    assert people_corrections.faces_not(body, control)[0] == code
     assert face_nots.read(people) == {}
 
 
 def test_the_people_photo_alias_takes_the_pets_verbs(people, monkeypatch):
-    correct = create_autospec(people_writes.correct_card, return_value=(200, {"ok": True, "undo": "tok"}))
-    monkeypatch.setattr(people_writes, "correct_card", correct)
+    correct = create_autospec(people_corrections.correct_card, return_value=(200, {"ok": True, "undo": "tok"}))
+    monkeypatch.setattr(people_corrections, "correct_card", correct)
     monkeypatch.setattr(people_list, "people_roster", lambda: [{"name": "Kara"}])
-    monkeypatch.setattr(people_reads, "person_card", lambda name: {"name": name})
-    assert people_writes.people_photo({"name": "Kara", "action": "main", "shot": "s1"}, True)[0] == 200
+    monkeypatch.setattr(people_cards, "person_card", lambda name: {"name": name})
+    assert people_corrections.people_photo({"name": "Kara", "action": "main", "shot": "s1"}, True)[0] == 200
     correct.assert_called_once_with({"name": "Kara", "kind": "shot", "id": "s1", "action": "main"})
     people_writes.card_prefs.set_main(people, "Kara", "s1")
-    assert people_writes.people_photo({"name": "kara", "action": "newest"}, True)[1]["card"] == {"name": "Kara"}
+    assert people_corrections.people_photo({"name": "kara", "action": "newest"}, True)[1]["card"] == {"name": "Kara"}
     assert people_writes.card_prefs.get(people, "Kara")["main"] is None
     people_writes.card_prefs.hide(people, "Kara", "shot", "s2")
-    people_writes.people_photo({"name": "Kara", "action": "show", "shot": "s2"}, True)
+    people_corrections.people_photo({"name": "Kara", "action": "show", "shot": "s2"}, True)
     assert "s2" not in people_writes.card_prefs.get(people, "Kara")["hidden"]["shot"]
-    assert people_writes.people_photo({"name": "Kara", "action": "crop"}, True)[0] == 400
-    assert people_writes.people_photo({"name": "Kara", "action": "newest"}, False)[0] == 403
-    assert people_writes.people_photo({"name": "Nobody", "action": "newest"}, True)[0] == 404
+    assert people_corrections.people_photo({"name": "Kara", "action": "crop"}, True)[0] == 400
+    assert people_corrections.people_photo({"name": "Kara", "action": "newest"}, False)[0] == 403
+    assert people_corrections.people_photo({"name": "Nobody", "action": "newest"}, True)[0] == 404
 
 
 def test_a_group_marked_not_kara_holds_the_matcher_off_its_next_look_until_taken_back(people, monkeypatch):

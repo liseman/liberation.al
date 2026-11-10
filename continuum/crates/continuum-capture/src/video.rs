@@ -67,7 +67,7 @@ pub trait Controls {
     fn set(&mut self, id: u32, value: i64) -> bool;
 }
 
-/// Keeps a camera at its frame rate in dim light, as v1 did: auto exposure may not lower the frame rate, or, on a
+/// Keeps a camera at its frame rate in dim light: auto exposure may not lower the frame rate, or, on a
 /// camera without that control (the Elgato Facecam), shutter priority, which caps exposure and raises gain. Returns
 /// what was done, for the log, or `None` if the camera has neither.
 pub fn hold_frame_rate(controls: &mut dyn Controls) -> Option<&'static str> {

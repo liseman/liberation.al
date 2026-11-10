@@ -57,6 +57,10 @@ class Down(Unavailable):
     """Ollama isn't answering at all."""
 
 
+class Busy(Unavailable):
+    """Ollama answers but its queue is full (HTTP 503)."""
+
+
 class ModelMissing(Unavailable):
     """Ollama answers but doesn't have the model."""
 

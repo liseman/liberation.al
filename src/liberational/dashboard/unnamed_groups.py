@@ -519,7 +519,7 @@ def _unknown_groups_job() -> Reply:
     """The face groups' full answer, in the worker process (_unknown_groups_worked_out)."""
     if multiprocessing.parent_process() is not None:
         cfg.load.cache_clear()  # a setting saved since: the dashboard rereads its pack.toml, and so does this
-        photo_files._low_priority(10)
+        context.low_priority(10)
         memtrim.start()  # what a refresh freed goes back to the system
     return _unknown_groups()
 
@@ -772,7 +772,7 @@ def _unknown_voices_job() -> Reply:
     """The full voice-group answer in its worker, with current settings on every refresh."""
     if multiprocessing.parent_process() is not None:
         cfg.load.cache_clear()
-        photo_files._low_priority(10)
+        context.low_priority(10)
         memtrim.start()  # what a refresh freed goes back to the system
     return _unknown_voices()
 

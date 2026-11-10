@@ -24,7 +24,7 @@ from collections.abc import Callable
 from typing import Any
 
 from liberational import config as cfg
-from liberational import logs, ollama_health, speech_log, voice_turn
+from liberational import logs, ollama, speech_log
 from liberational.people import profiles, transcript_view
 
 STATE = cfg.path("paths.state")
@@ -138,31 +138,24 @@ def build_line(ev: dict[str, Any], state: dict[str, Any], now: float) -> str:
 def polish(line: str) -> str:
     """Optional: rephrase into one spoken sentence with the fast local model. Keeps facts; never adds."""
     try:
-        import requests
-
-        voice_turn.wait_quiet()
-        with ollama_health.call(cfg.get("models.ollama.llm")):
-            r = requests.post(
-                f"{cfg.ollama_url()}/api/chat",
-                timeout=8,
-                json={
-                    "model": cfg.get("models.ollama.llm"),
-                    "stream": False,
-                    "think": False,
-                    "keep_alive": -1,
-                    "truncate": False,
-                    "options": {"num_ctx": 4096, "num_predict": 40, "temperature": 0.2},
-                    "messages": [
-                        {
-                            "role": "system",
-                            "content": "Rewrite as one natural spoken sentence, max 15 words. Keep every fact, add nothing, no names you were not given.",
-                        },
-                        {"role": "user", "content": line},
-                    ],
+        reply = ollama.chat(
+            cfg.get("models.ollama.llm"),
+            [
+                {
+                    "role": "system",
+                    "content": "Rewrite as one natural spoken sentence, max 15 words. Keep every fact, add nothing, no names you were not given.",
                 },
-            )
-            r.raise_for_status()
-        out = r.json()["message"]["content"].strip()
+                {"role": "user", "content": line},
+            ],
+            num_ctx=4096,
+            num_predict=40,
+            temperature=0.2,
+            think=False,
+            truncate=False,
+            timeout=8,
+            background=True,
+        )
+        out = reply["message"]["content"].strip()
         return out if 0 < len(out) <= 160 else line
     except Exception:
         return line

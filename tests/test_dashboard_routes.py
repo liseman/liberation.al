@@ -185,3 +185,20 @@ def test_every_module_that_registers_routes_is_loaded_with_the_server():
     areas = {area for _, _, area in routes.listing()}
     assert {"settings", "devices", "network_cameras", "ingest", "reports", "frontend_log", "research"} <= areas
     assert "ask_routes" in areas
+
+
+def test_a_catch_all_is_tried_after_a_narrower_route_registered_later(table):
+    """The modules load in any order: a person's page mustn't take another module's /people/... route."""
+
+    @table.get_last("/people/<name>", lambda p: p.startswith("/people/"))
+    def person(h):
+        return None
+
+    @table.get_when("/people/reference-media/<id>", lambda p: p.startswith("/people/reference-media/"))
+    def media(h):
+        return None
+
+    table.get("/people/video-thumb.jpg")(lambda h: None)  # nor does it stop an exact path being registered
+    assert table.find("GET", "/people/reference-media/abc")[0].handler is media
+    assert table.find("GET", "/people/Alice")[0].handler is person
+    assert ("GET", "/people/<name>", "test_dashboard_routes") in table.listing()

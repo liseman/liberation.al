@@ -14,8 +14,7 @@
 # [audio]
 # exclude = ["arducam", "iphone", "ipad", "continuity"]  # microphone names to skip, case-insensitive pieces
 
-# Every camera's settings; a camera's own video = { ... } overrides them key by key. `continuum-capture --from-v1`
-# prints a manifest with these taken from v1's [vision] and a [[device]] per camera v1 opened, to check and save here.
+# Every camera's settings; a camera's own video = { ... } overrides them key by key.
 # [video]
 # width = 1280
 # height = 720

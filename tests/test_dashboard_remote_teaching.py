@@ -8,7 +8,14 @@ import urllib.parse
 
 import pytest
 
-from liberational.dashboard import inbox_state, people_reads, people_writes, server, speaker_lines
+from liberational.dashboard import (
+    inbox_state,
+    people_corrections,
+    people_writes,
+    roster_read,
+    server,
+    speaker_lines,
+)
 from liberational.people import references
 
 
@@ -81,8 +88,9 @@ def taught(monkeypatch):
     """Stand-ins for the teaching actions: each records (action, args) and succeeds."""
     calls = []
     for action in TEACHING_ACTIONS.values():
+        module = people_writes if action == "claim_identity" else people_corrections  # where each action lives
         monkeypatch.setattr(
-            people_writes, action, lambda *args, action=action: calls.append((action, args)) or (200, {"ok": True})
+            module, action, lambda *args, action=action: calls.append((action, args)) or (200, {"ok": True})
         )
     return calls
 
@@ -140,8 +148,8 @@ def taught_more(monkeypatch):
 
     monkeypatch.setattr(speaker_lines, "speakers_refine", record("speakers_refine", (200, {"ok": True})))
     monkeypatch.setattr(speaker_lines, "_line_at", record("_line_at", None))  # no such line: a 404 past the gate
-    monkeypatch.setattr(people_writes, "add_person", record("add_person", None))
-    monkeypatch.setattr(people_reads, "people_view", lambda: {"people": [{"name": "Dana"}]})
+    monkeypatch.setattr(people_corrections, "add_person", record("add_person", None))
+    monkeypatch.setattr(roster_read, "people_view", lambda: {"people": [{"name": "Dana"}]})
     monkeypatch.setattr(references, "fetch_media", record("fetch_media", b"jpeg"))
     monkeypatch.setattr(references, "stage", record("stage", {"id": "ref1"}))
     monkeypatch.setattr(references, "attach", record("attach", {"ok": True}))

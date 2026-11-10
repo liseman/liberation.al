@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from liberational import config as cfg
-from liberational.dashboard import call_log, context, people_list, people_reads, server
+from liberational.dashboard import call_log, context, people_cards, people_list, server
 from liberational.people import profiles, registry
 
 NO_FACES = SimpleNamespace(counts=dict, unknown_groups=list, rename=lambda a, b: 0)
@@ -71,7 +71,7 @@ def test_a_renamed_caller_is_one_person_under_their_new_name(state):
     call(state, "Dana")
     reg.rename("Dana", "Dee", "test")
     assert roster() == [("Dee", 1)]
-    dee = people_reads.person_summary("Dee")
+    dee = people_cards.person_summary("Dee")
     assert dee is not None
     assert (dee["name"], dee["call_lines"]) == ("Dee", 1)
     reg.ensure("Dana", "test", added=True)  # someone new takes the old name, and calls after that are theirs
@@ -88,4 +88,4 @@ def test_a_deleted_caller_leaves_people(state, no_forgotten_reply):
     assert roster() == [("Dana Cole", 1), ("Zed", 1)]
     reg.forget("Dana Cole", "test")
     assert roster() == [("Zed", 1)]
-    assert people_reads.person_summary("Dana Cole") == {"name": "Dana Cole", "lines": 0}
+    assert people_cards.person_summary("Dana Cole") == {"name": "Dana Cole", "lines": 0}

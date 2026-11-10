@@ -27,10 +27,11 @@ from liberational.dashboard import (
     context,
     inbox_state,
     known_voices,
+    people_corrections,
     people_list,
-    people_reads,
     people_writes,
     photo_files,
+    roster_read,
     server,
     speaker_lines,
     voice_clones,
@@ -182,7 +183,7 @@ def add_clone(state, sid, name):
 
 
 def test_roster_joins_voices_faces_phone_added_names_and_lines(people):
-    view = people_reads.people_view()
+    view = roster_read.people_view()
     assert [p["name"] for p in view["people"]] == PEOPLE
     alice, dana, bob, _ = view["people"]
     assert (alice["voices"], alice["faces"], alice["owner"], alice["enrolled"], alice["last_seen"]) == (
@@ -202,7 +203,7 @@ def test_unnamed_voices_with_no_audio_left_are_not_listed(people):
     # 2 has a line with audio; 7 only a line without audio.
     write_voices(people, {7: None})
     write_lines(people, {"ts_start": 3, "speaker_id": 7})
-    assert [v["id"] for v in people_reads.people_view()["unknown"]["voices"]] == [2]
+    assert [v["id"] for v in roster_read.people_view()["unknown"]["voices"]] == [2]
 
 
 def test_speakers_counts_each_voices_lines_and_names_it_by_its_person_newest_first(state):
@@ -361,7 +362,7 @@ def test_taking_a_clones_name_leaves_the_clone_a_clone(people, ran, take, sid, c
 def test_a_clone_sharing_a_name_never_hides_the_person(people, faces):
     # Review 2, finding 10: Bob, known by face, left People once a clone was recorded as Bob.
     add_clone(people, 7, "Bob")
-    bob = next(p for p in people_reads.people_view()["people"] if p["name"] == "Bob")
+    bob = next(p for p in roster_read.people_view()["people"] if p["name"] == "Bob")
     assert (bob["faces"], bob["voices"]) == (1, [])  # the clone is not his voice
     assert people_writes.rename_person("Bob", "Robert", control=True)[0] == 200
     assert faces.renamed == [("Bob", "Robert")]
@@ -371,7 +372,7 @@ def test_a_name_only_a_clone_carries_stays_out_of_people(people):
     # A clone is listed under Voice clones, and a room line once filed under it does not make it a person.
     add_clone(people, 7, "Gus")
     write_lines(people, {"ts_start": 70.0, "text": "Hi.", "speaker_id": 7})
-    assert [p["name"] for p in people_reads.people_view()["people"]] == PEOPLE
+    assert [p["name"] for p in roster_read.people_view()["people"]] == PEOPLE
 
 
 def test_claiming_a_voice_as_the_owner_skips_a_clone_of_the_owner(people):
@@ -577,7 +578,7 @@ def see(state, monkeypatch, vision):
     vision.frames[("cam0", float(SCENE_TS))] = np.full((500, 1000, 3), (150, 120, 90), np.uint8)
     clock = itertools.count(SCENE_TS * 1000)
     monkeypatch.setattr(time, "time", lambda: next(clock) / 1000)
-    monkeypatch.setitem(people_reads._scene_photos, "t", 0.0)
+    monkeypatch.setitem(roster_read._scene_photos, "t", 0.0)
 
     def see(*faces):
         # Only these faces now, as see-actions matched them in that frame.
@@ -594,20 +595,20 @@ BOX = [0.1, 0.1, 0.2, 0.3]  # 100 by 100 px of the 1000 by 500 frame
 
 def test_tagging_saves_a_square_crop_and_keeps_the_newest_eight(see):
     see(("Face 7", BOX))
-    for _ in range(people_writes.PHOTOS_PER_PERSON + 2):
-        assert people_writes.save_person_photo("Dana Cole", "Face 7", 7)
+    for _ in range(people_corrections.PHOTOS_PER_PERSON + 2):
+        assert people_corrections.save_person_photo("Dana Cole", "Face 7", 7)
     photos = photo_files._photos("Dana Cole")
-    assert len(photos) == people_writes.PHOTOS_PER_PERSON
+    assert len(photos) == people_corrections.PHOTOS_PER_PERSON
     assert photos[0].parent.name == "dana-cole"
     assert Image.open(photos[0]).size == (192, 192)
     assert Image.open(photos[0]).getpixel((96, 96)) == pytest.approx((90, 120, 150), abs=2)  # BGR frame, RGB photo
 
 
 def test_tiny_faces_and_gone_frames_are_not_photos(see, tmp_path):
-    assert not people_reads._crop(
+    assert not roster_read._crop(
         "cam0", float(SCENE_TS), [0.01, 0.01, 0.03, 0.05], tmp_path / "x.jpg"
     )  # 20 px: on a wall
-    assert not people_reads._crop("cam1", float(SCENE_TS), BOX, tmp_path / "x.jpg")  # no frame kept
+    assert not roster_read._crop("cam1", float(SCENE_TS), BOX, tmp_path / "x.jpg")  # no frame kept
     assert not (tmp_path / "x.jpg").exists()
 
 
@@ -620,7 +621,7 @@ def test_a_stale_scene_never_crops_a_photo_under_a_name_nobody_has_now(state, se
     reg.forget("Dana Cole", "test")
     reg.rename("Dee", "Dana", "test")
     see(*[(n, BOX) for n in ("Dana Cole", "Dee", "Eve", "Zed")])
-    people_reads._photos_from_scene()
+    roster_read._photos_from_scene()
     got = {n: len(photo_files._photos(n)) for n in ("Dana Cole", "Dee", "Dana", "Eve", "Zed")}
     # A face still matched as Dee is the person renamed Dana (the face worker hasn't read the rename yet), so the photo
     # is Dana's; none goes under the old name, which someone new could take. Zed is a name the registry never had: it
@@ -630,11 +631,11 @@ def test_a_stale_scene_never_crops_a_photo_under_a_name_nobody_has_now(state, se
 
 def test_faces_in_view_get_pictures_served_read_only_and_kept_on_rename(state, see, serve, monkeypatch):
     see(("Face 3", BOX))
-    people_reads._photos_from_scene()
+    roster_read._photos_from_scene()
     assert photo_files._unknown_photo(3).exists()
     see(("Dana Cole", BOX))
-    monkeypatch.setitem(people_reads._scene_photos, "t", 0.0)
-    people_reads._photos_from_scene()  # a named person with no photo yet gets one
+    monkeypatch.setitem(roster_read._scene_photos, "t", 0.0)
+    roster_read._photos_from_scene()  # a named person with no photo yet gets one
     assert len(photo_files._photos("Dana Cole")) == 1
 
     monkeypatch.setattr(server, "DASH_PASSWORD", "")
@@ -834,7 +835,7 @@ def test_selected_face_removed_from_gallery_does_not_create_person_or_photo(
 def test_selected_photo_registry_failure_preserves_unknown_group_for_retry(
     people, faces, monkeypatch, selected_face_jpeg, live_face_boxes
 ):
-    record = people_writes._record_person_photo
+    record = people_corrections._record_person_photo
     calls = 0
 
     def fail_once(name, dest, *, prune=True):
@@ -845,7 +846,7 @@ def test_selected_photo_registry_failure_preserves_unknown_group_for_retry(
             raise registry.WriteFailed("photo registry unavailable")
         record(name, dest, prune=prune)
 
-    monkeypatch.setattr(people_writes, "_record_person_photo", fail_once)
+    monkeypatch.setattr(people_corrections, "_record_person_photo", fail_once)
     live_face_boxes.append(
         {"cam": "cam0", "start_ns": 100_500_000_000, "faces": [{"track_id": "selected-track", "cluster": "Face 5"}]}
     )
@@ -874,7 +875,7 @@ def test_selected_face_claim_failure_withdraws_only_its_new_photo(people, faces,
     registry.at(context.STATE).claim(old_ref, "Dana Cole", Basis.OWNER_TAG, "dashboard")
     old_person = registry.at(context.STATE).person_of(old_ref).person
     recorded = []
-    record = people_writes._record_person_photo
+    record = people_corrections._record_person_photo
 
     def capture(name, dest, *, prune=True):
         record(name, dest, prune=prune)
@@ -883,7 +884,7 @@ def test_selected_face_claim_failure_withdraws_only_its_new_photo(people, faces,
     def fail_claim(*args):
         raise ValueError("face claim failed")
 
-    monkeypatch.setattr(people_writes, "_record_person_photo", capture)
+    monkeypatch.setattr(people_corrections, "_record_person_photo", capture)
     monkeypatch.setattr(faces, "name_cluster", fail_claim)
     code, _ = people_writes._claim("face", 5, "Dana Cole", True, people_writes._selected_face_image(selected_face_jpeg))
     assert code == 404
@@ -1174,8 +1175,8 @@ def test_this_is_me_with_conflicting_owner_names_does_not_write(state, faces):
 
 def settle():
     """Wait out the people reads running in the background."""
-    with people_reads._PEOPLE_READS.lock:
-        pending = list(people_reads._PEOPLE_READS.pending.values())
+    with roster_read._PEOPLE_READS.lock:
+        pending = list(roster_read._PEOPLE_READS.pending.values())
     for future in pending:
         future.exception(timeout=60)
 
@@ -1183,15 +1184,15 @@ def settle():
 def settled_people():
     """people_view after a refresh started now (not one already running) has finished."""
     settle()
-    people_reads.people_view()
+    roster_read.people_view()
     settle()
-    return people_reads.people_view()
+    return roster_read.people_view()
 
 
 def test_people_shares_one_speech_read_and_refreshes_after_new_lines(people):
     log = fake()
     with patch.object(log, "all_lines", autospec=True, side_effect=log.all_lines) as reads:
-        first = people_reads.people_view()
+        first = roster_read.people_view()
         second = settled_people()
         assert reads.call_count == 1
         assert first == second
@@ -1205,15 +1206,15 @@ def test_people_shares_one_speech_read_and_refreshes_after_new_lines(people):
 def test_people_speech_cache_keeps_identity_edits_and_purges(people):
     log = fake()
     next(line for line in log.lines["speech.utterance"] if line.get("speaker_id") == 2)["device"] = "ingest-upload"
-    people_reads.people_view()
+    roster_read.people_view()
     registry.at(people).rename("Dana Cole", "Dee", "test")
-    renamed = people_reads.people_view()
+    renamed = roster_read.people_view()
     assert "Dana Cole" not in [p["name"] for p in renamed["people"]]
     assert next(p for p in renamed["people"] if p["name"] == "Dee")["room"] == 1
     before = log.mark()
     assert log.purge("speech.utterance", lambda e: e.get("speaker_id") == 2) == 1
     assert log.mark()[0] == before[0], "purging imported speech must invalidate without a new commit"
     assert log.mark()[1] != before[1]
-    after = people_reads.people_view()
+    after = roster_read.people_view()
     assert after["unknown"]["voices"] == []
     assert next(p for p in after["people"] if p["name"] == "Dee")["room"] == 1

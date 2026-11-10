@@ -1168,10 +1168,10 @@ impl PyClient {
         })
     }
 
-    /// Registers one v1 FLAC file (starting at `start_ns`) in place as a payload and a Tier 1 chunk on `stream_id`,
-    /// a stream this session registered for the v1 archive (continuum_tier::v1audio). The session must have
-    /// registered a worker. Idempotent. Returns a dict as `register_v1_index`'s entries. An awaitable.
-    fn register_v1_flac<'py>(
+    /// Registers one FLAC file (starting at `start_ns`) in place as a payload and a Tier 1 chunk on `stream_id`,
+    /// a stream this session registered for files in place (continuum_tier::inplace_audio). The session must have
+    /// registered a worker. Idempotent. Returns a dict as `register_audio_index`'s entries. An awaitable.
+    fn register_flac<'py>(
         &self,
         py: Python<'py>,
         stream_id: u32,
@@ -1180,23 +1180,23 @@ impl PyClient {
     ) -> PyResult<Bound<'py, PyAny>> {
         let client = Arc::clone(&self.client);
         crate::awaitable(py, async move {
-            let r = continuum_tier::v1audio::register_v1_flac(
+            let r = continuum_tier::inplace_audio::register_flac(
                 &client,
                 continuum_core::StreamId(stream_id),
                 &path,
                 start_ns,
             )
             .await
-            .map_err(v1_to_py)?;
-            crate::attach(|py| v1_dict(py, &path, &r)?.into_py_any(py)).await
+            .map_err(inplace_to_py)?;
+            crate::attach(|py| registration_dict(py, &path, &r)?.into_py_any(py)).await
         })
     }
 
-    /// Registers every file a v1 device directory's index.jsonl lists, on stream `stream_name` (registered here),
+    /// Registers every file a directory's index.jsonl lists, on stream `stream_name` (registered here),
     /// in place. The session must have registered a worker. Idempotent. Returns one dict per index line: {"path",
     /// "registered": True, "payload_id", "chunk_id", "start_ns", "end_ns", "duplicate"} or {"path", "registered":
     /// False, "skipped": reason}. An awaitable.
-    fn register_v1_index<'py>(
+    fn register_audio_index<'py>(
         &self,
         py: Python<'py>,
         stream_name: String,
@@ -1204,13 +1204,13 @@ impl PyClient {
     ) -> PyResult<Bound<'py, PyAny>> {
         let client = Arc::clone(&self.client);
         crate::awaitable(py, async move {
-            let all = continuum_tier::v1audio::register_v1_index(&client, &stream_name, &device_dir)
+            let all = continuum_tier::inplace_audio::register_audio_index(&client, &stream_name, &device_dir)
                 .await
-                .map_err(v1_to_py)?;
+                .map_err(inplace_to_py)?;
             crate::attach(|py| {
                 let list = PyList::empty(py);
                 for (path, r) in &all {
-                    list.append(v1_dict(py, path, r)?)?;
+                    list.append(registration_dict(py, path, r)?)?;
                 }
                 list.into_py_any(py)
             })
@@ -1218,10 +1218,10 @@ impl PyClient {
         })
     }
 
-    /// Registers every recording of camera `cam` that v1's `video/index.jsonl` (in `video_dir`) lists, in place, on
-    /// `<cam>.video_v1` (continuum_tier::v1video): one payload per GOP and one chunk per file. The session must have
-    /// registered a worker. Idempotent. Returns one dict per file, as register_v1_index's. An awaitable.
-    fn register_v1_video_index<'py>(
+    /// Registers every file of camera `cam` that the `index.jsonl` in `video_dir` lists, in place, on
+    /// `<cam>.video_v1` (continuum_tier::inplace_video): one payload per GOP and one chunk per file. The session must have
+    /// registered a worker. Idempotent. Returns one dict per file, as register_audio_index's. An awaitable.
+    fn register_video_index<'py>(
         &self,
         py: Python<'py>,
         cam: String,
@@ -1229,12 +1229,13 @@ impl PyClient {
     ) -> PyResult<Bound<'py, PyAny>> {
         let client = Arc::clone(&self.client);
         crate::awaitable(py, async move {
-            let all =
-                continuum_tier::v1video::register_v1_video_index(&client, &cam, &video_dir).await.map_err(v1_to_py)?;
+            let all = continuum_tier::inplace_video::register_video_index(&client, &cam, &video_dir)
+                .await
+                .map_err(inplace_to_py)?;
             crate::attach(|py| {
                 let list = PyList::empty(py);
                 for (path, r) in &all {
-                    list.append(v1_dict(py, path, r)?)?;
+                    list.append(registration_dict(py, path, r)?)?;
                 }
                 list.into_py_any(py)
             })
@@ -1288,22 +1289,22 @@ impl PyClient {
     }
 }
 
-fn v1_to_py(err: continuum_tier::v1audio::V1Error) -> PyErr {
+fn inplace_to_py(err: continuum_tier::inplace_audio::InPlaceError) -> PyErr {
     match err {
-        continuum_tier::v1audio::V1Error::Client(e) => to_py(e),
+        continuum_tier::inplace_audio::InPlaceError::Client(e) => to_py(e),
         other => ContinuumError::new_err(other.to_string()),
     }
 }
 
-fn v1_dict<'py>(
+fn registration_dict<'py>(
     py: Python<'py>,
     path: &std::path::Path,
-    r: &continuum_tier::v1audio::V1Registered,
+    r: &continuum_tier::inplace_audio::Registration,
 ) -> PyResult<Bound<'py, PyDict>> {
     let d = PyDict::new(py);
     d.set_item("path", path.to_string_lossy())?;
     match r {
-        continuum_tier::v1audio::V1Registered::Registered { payload_id, chunk_id, span, duplicate } => {
+        continuum_tier::inplace_audio::Registration::Registered { payload_id, chunk_id, span, duplicate } => {
             d.set_item("registered", true)?;
             d.set_item("payload_id", uuid_string(*payload_id))?;
             d.set_item("chunk_id", uuid_string(*chunk_id))?;
@@ -1311,7 +1312,7 @@ fn v1_dict<'py>(
             d.set_item("end_ns", span.1)?;
             d.set_item("duplicate", *duplicate)?;
         }
-        continuum_tier::v1audio::V1Registered::Skipped(why) => {
+        continuum_tier::inplace_audio::Registration::Skipped(why) => {
             d.set_item("registered", false)?;
             d.set_item("skipped", why)?;
         }
@@ -1319,11 +1320,11 @@ fn v1_dict<'py>(
     Ok(d)
 }
 
-/// Decodes FLAC bytes (a v1 archive file, as hydrated) to (rate, channels, samples), the samples interleaved f32
+/// Decodes FLAC bytes (a file registered in place, as hydrated) to (rate, channels, samples), the samples interleaved f32
 /// little-endian bytes scaled as capture's are (numpy.frombuffer(samples, "<f4")).
 /// A chunk's live records whose time overlaps `[start_ns, end_ns)`, read from the local file `uri` (a query item's
 /// Chunk locator, which names the whole chunk): [(payload_id, start_ns, end_ns, bytes)], each in the stream's native
-/// form, records a purge cut left out. None when the file is gone (a purge took the chunk). A v1 FLAC file
+/// form, records a purge cut left out. None when the file is gone (a purge took the chunk). A FLAC file
 /// registered in place is one record, the whole file, with zero times and the nil id. Raises ValueError for a uri
 /// that isn't a local file or a record that won't decode, and OSError for a corrupt chunk or a failed read. The file
 /// is open only during the call; the GIL is released while it reads.
@@ -1366,8 +1367,9 @@ pub(crate) fn read_chunk_records<'py>(
 pub(crate) fn decode_flac<'py>(py: Python<'py>, flac: &Bound<'py, PyAny>) -> PyResult<(u32, u16, Bound<'py, PyBytes>)> {
     let bytes = pyo3::buffer::PyBuffer::<u8>::get(flac)?.to_vec(py)?;
     // Decoding minutes of audio takes a while: other Python threads run meanwhile.
-    let (rate, channels, samples) =
-        py.detach(|| continuum_tier::v1audio::decode_flac(&bytes)).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let (rate, channels, samples) = py
+        .detach(|| continuum_tier::inplace_audio::decode_flac(&bytes))
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
     let out = PyBytes::new_with(py, samples.len() * 4, |buf| {
         for (dst, x) in buf.chunks_exact_mut(4).zip(&samples) {
             dst.copy_from_slice(&x.to_le_bytes());
@@ -1419,18 +1421,18 @@ fn purge_summary_dict<'py>(py: Python<'py>, p: &continuum_client::PurgeSummary) 
     Ok(d)
 }
 
-/// The access units of GOP `gop` (its place in the chunk's frame index) of the v1 recording at `path`, which starts
+/// The access units of GOP `gop` (its place in the chunk's frame index) of the MP4 registered in place at `path`, which starts
 /// at `start_ns`, in decode order: a list of dicts {"bytes" (Annex B, the SPS and PPS on the keyframe), "pts_ns",
 /// "end_ns", "dts_ns", "key"}. It reads only the file's moov and that GOP's bytes.
 #[pyfunction]
-pub(crate) fn v1_gop_units<'py>(
+pub(crate) fn gop_units<'py>(
     py: Python<'py>,
     path: std::path::PathBuf,
     start_ns: u64,
     gop: usize,
 ) -> PyResult<Bound<'py, PyList>> {
     let units = py
-        .detach(|| continuum_tier::v1video::gop_units(&path, start_ns, gop))
+        .detach(|| continuum_tier::inplace_video::gop_units(&path, start_ns, gop))
         .map_err(|e| ContinuumError::new_err(e.to_string()))?;
     let list = PyList::empty(py);
     for u in units {

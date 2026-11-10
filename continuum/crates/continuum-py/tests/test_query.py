@@ -249,7 +249,7 @@ def test_compact_query_keeps_ordered_header_only_slot_and_chunk_items_unchanged(
 
     # Registering a checked synthetic FLAC in place makes a real Chunk without starting a tier service.
     archive = tmp_path / "tone.flac"
-    archive.write_bytes((Path(__file__).parent / "fixtures" / "v1_tone.flac").read_bytes())
+    archive.write_bytes((Path(__file__).parent / "fixtures" / "tone.flac").read_bytes())
 
     async def run() -> None:
         async with await Client.connect(socket) as c:
@@ -259,7 +259,7 @@ def test_compact_query_keeps_ordered_header_only_slot_and_chunk_items_unchanged(
                 )
             )["stream_id"]
             await c.register_worker("compact-query-fixture", [])
-            await c.register_v1_flac(stream, archive, 4_000_000_000)
+            await c.register_flac(stream, archive, 4_000_000_000)
             live = await c.subscribe(["mixed"])
             arena = c.arena(c.arena_names[0])
             slot, generation, offset = arena.write(0, b"slot bytes")

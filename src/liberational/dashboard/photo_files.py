@@ -11,7 +11,6 @@ GET /pets/sightings/photo                a pet sighting's photo
 import contextlib
 import json
 import math
-import os
 import pathlib
 import re
 import threading
@@ -53,16 +52,6 @@ _video_thumb_writes = 0
 
 
 VIDEO_THUMB_PRUNE_EVERY = 200  # thumbnails saved between prunes of their cache (people/video_thumbs.py)
-
-
-def _low_priority(priority: int = 15) -> None:
-    """Lower this thread's CPU priority (and the decoder threads it starts) so live vision comes first."""
-    try:
-        tid = threading.get_native_id()
-        if os.getpriority(os.PRIO_PROCESS, tid) < priority:
-            os.setpriority(os.PRIO_PROCESS, tid, priority)
-    except OSError, AttributeError:
-        pass  # shortcut: per-thread nice is Linux only; macOS decodes at normal priority
 
 
 PET_TRACK = re.compile(r"[0-9A-Za-z:_-]{1,128}")  # an animal track's id: "<run>:<species>:<number>"
@@ -113,7 +102,7 @@ def _shot_file(
     if not _shot_decode.acquire(timeout=SHOT_WAIT_S):
         raise ShotsBusy
     try:
-        _low_priority()
+        context.low_priority()
         if on_decode is not None:
             on_decode()
         jpg = face_shots.cut(state, s)
@@ -155,7 +144,7 @@ def _pet_file(track: str, state: pathlib.Path, *, on_decode: Callable[[], None] 
     if not _shot_decode.acquire(timeout=SHOT_WAIT_S):
         raise ShotsBusy
     try:
-        _low_priority()
+        context.low_priority()
         if on_decode is not None:
             on_decode()
         jpg = pets.photo(track, state, sighting=sighting)
@@ -265,7 +254,7 @@ def video_thumb_jpeg(
         raise ValueError("Video bounds are out of order.")
     import cv2
 
-    _low_priority()
+    context.low_priority()
     recording = vision_log.at(context.STATE if state is None else state)
     with _shot_decode if turn else contextlib.nullcontext():
         frame = recording.frame(cam, start)
@@ -303,6 +292,95 @@ def _photos(name: str) -> list[pathlib.Path]:
     return sorted(d.glob("*.jpg"), key=lambda f: f.name, reverse=True) if d.is_dir() else []
 
 
+def _video_thumb(h: H) -> None:
+    """Serve a prepared scene thumbnail. A cache miss admits background work and gives the connection back."""
+    q = h._query()
+    try:
+        cam, start, end = q.get("cam", ""), float(q.get("start", "")), float(q.get("end", ""))
+        if not video_thumbs.CAMERA.fullmatch(cam) or not math.isfinite(start) or not math.isfinite(end):
+            raise ValueError
+        if start < 0 or end < start:
+            raise ValueError
+    except TypeError, ValueError:
+        return h._send(400, "text/plain", b"Invalid video bounds.")
+    revision = _shot_revision()
+    saved = video_thumbs.path(context.STATE, cam, start, revision)
+    try:
+        data = saved.read_bytes()
+    except FileNotFoundError:
+        key = json.dumps([cam, round(start, 3), round(end, 3)], separators=(",", ":"))
+        pending = _crop_jobs.offer(context.STATE, video_thumbs.KIND, key, revision)
+        h.send_response(202 if pending else 404)
+        h.send_header("Cache-Control", "no-store")
+        if pending:
+            h.send_header("Retry-After", "2")
+        h.send_header("Content-Length", "0")
+        h.end_headers()
+        return
+    h.send_response(200)
+    h.send_header("Content-Type", "image/jpeg")
+    h.send_header("Cache-Control", "private, max-age=86400")
+    h.send_header("Content-Length", str(len(data)))
+    h.end_headers()
+    if h.command != "HEAD":
+        h.wfile.write(data)
+
+
+def _grid_photo(h: H, sid: str, kind: str) -> None:
+    revision = _shot_revision()
+    path = face_shots.path(context.STATE, sid, revision, kind)
+    original = face_shots.path(context.STATE, sid, revision, kind.removesuffix("_grid"))
+    if path.is_file() and original.is_file():
+        import hashlib
+
+        body = path.read_bytes()
+        etag = '"' + hashlib.sha256(body).hexdigest() + '"'
+        tags = {tag.strip() for tag in h.headers.get("If-None-Match", "").split(",")}
+        unchanged = bool(tags.intersection({etag, f"W/{etag}", "*"}))
+        h.send_response(304 if unchanged else 200)
+        h.send_header("Cache-Control", "private, max-age=86400")
+        h.send_header("ETag", etag)
+        if not unchanged:
+            h.send_header("Content-Type", "image/jpeg")
+            h.send_header("Content-Length", str(len(body)))
+        h.end_headers()
+        if not unchanged and h.command != "HEAD":
+            h.wfile.write(body)
+        return
+    pending = _crop_jobs.offer(context.STATE, kind, sid, revision)
+    h.send_response(202 if pending else 404)
+    h.send_header("Cache-Control", "no-store")
+    h.send_header("Retry-After", "2")
+    h.send_header("Content-Length", "0")
+    h.end_headers()
+
+
+def _pet_photo(h: H, track: str) -> None:
+    """GET /pets/sightings/photo?track=: the track's saved crop under the current deletion revision with no
+    lookup; else, in one of the cut turns faces use (a 503 after SHOT_WAIT_S), looked up and cut."""
+    if h._query().get("size") == "80":
+        if not PET_TRACK.fullmatch(track):
+            return h._send(404, "text/plain", b"")
+        return _grid_photo(h, track, "pet_shots_grid")
+    try:
+        b = _pet_file(track, context.STATE)
+    except ShotsBusy:
+        h.send_response(503)
+        h.send_header("Retry-After", "2")
+        h.send_header("Content-Length", "0")
+        h.end_headers()
+        return
+    if b is None:
+        return h._send(404, "text/plain", b"")
+    h.send_response(200)
+    h.send_header("Content-Type", "image/jpeg")
+    h.send_header("Cache-Control", "private, max-age=86400")
+    h.send_header("Content-Length", str(len(b)))
+    h.end_headers()
+    if h.command != "HEAD":
+        h.wfile.write(b)
+
+
 @routes.get_when("/faces/unknown/<group>.jpg", lambda p: p.startswith("/faces/unknown/") and p.endswith(".jpg"))
 def _get_faces_unknown_photo(h: H) -> None:
     p = h.path.split("?")[0]
@@ -313,13 +391,13 @@ def _get_faces_unknown_photo(h: H) -> None:
 
 @routes.get("/people/video-thumb.jpg")
 def _get_people_video_thumb_jpg(h: H) -> None:
-    return h._video_thumb()
+    return _video_thumb(h)
 
 
 @routes.get_re(r"/faces/shot/([0-9A-Za-z-]{1,64})\.jpg")
 def _get_faces_shot_x_jpg(h: H, m: re.Match[str]) -> None:
     if h._query().get("size") == "80":
-        return h._grid_photo(m.group(1), "shots_grid")
+        return _grid_photo(h, m.group(1), "shots_grid")
     try:
         path, etag = _shot_file(m.group(1))
     except ShotsBusy:
@@ -368,4 +446,4 @@ def _get_people_x_photos_x_jpg(h: H, m: re.Match[str]) -> None:
 
 @routes.get("/pets/sightings/photo")
 def _get_pets_sightings_photo(h: H) -> None:
-    return h._pet_photo(h._query().get("track", ""))
+    return _pet_photo(h, h._query().get("track", ""))

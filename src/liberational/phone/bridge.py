@@ -53,7 +53,7 @@ from fastapi.responses import Response
 from scipy.signal import resample_poly
 
 from liberational import config as cfg
-from liberational import logs, model_runtime, ollama_health, speech_log, vision_log
+from liberational import logs, model_runtime, ollama, speech_log, vision_log
 from liberational.assistant import voice_auth
 from liberational.memory import ask_history, remembered
 from liberational.people import transcript_view
@@ -798,25 +798,16 @@ def identify_speaker(audio16k: np.ndarray) -> tuple[str | None, float | None]:
 
 
 def ask_llm(history: list[dict[str, str]], system: str | None = None) -> str:
-    with ollama_health.call(LLM):
-        r = requests.post(
-            f"{cfg.ollama_url()}/api/chat",
-            timeout=90,
-            json={
-                "model": LLM,
-                "stream": False,
-                "think": False,
-                "keep_alive": -1,
-                "options": {
-                    "num_predict": 80,
-                    "temperature": 0.3,
-                    "num_ctx": 4096,
-                },  # small ctx: keeps the 30B agent model resident
-                "messages": [{"role": "system", "content": system or system_prompt()}] + history,
-            },
-        )
-        r.raise_for_status()
-    return r.json()["message"]["content"].strip()
+    reply = ollama.chat(
+        LLM,
+        [{"role": "system", "content": system or system_prompt()}, *history],
+        num_ctx=4096,  # small ctx: keeps the 30B agent model resident
+        num_predict=80,
+        temperature=0.3,
+        think=False,
+        timeout=90,
+    )
+    return reply["message"]["content"].strip()
 
 
 # ---------------------------------------------------------------- phone agent (owner calls) ----
