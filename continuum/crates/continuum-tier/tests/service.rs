@@ -432,7 +432,8 @@ fn a_purge_reaches_the_chunk_files_and_is_acknowledged() {
     let settings = Settings {
         socket: socket.clone(),
         chunk_dir: chunk_dir.clone(),
-        data_root: None,
+        // Relative locators (#62): the purge must find them in its known map and rewrite them relative.
+        data_root: Some(dir.path().to_path_buf()),
         streams: vec!["cam0.video".into()],
         flush: FlushSettings {
             chunk_ns: 300_000_000,
@@ -527,8 +528,10 @@ fn a_purge_reaches_the_chunk_files_and_is_acknowledged() {
     let mut cut_starts = Vec::new();
     for item in &page.items {
         let Some(StorageLocator::Chunk { uri, length, .. }) = item.locations.first() else { panic!("a chunk") };
-        assert_eq!(*length, std::fs::metadata(uri).unwrap().len(), "the catalog has the file's length");
-        let file = continuum_tier::ChunkReader::open(std::path::Path::new(uri)).unwrap();
+        assert!(uri.starts_with("tier/"), "stored relative to the data root, rewrite included: {uri}");
+        let path = continuum_core::chunk_path::resolve(dir.path(), uri);
+        assert_eq!(*length, std::fs::metadata(&path).unwrap().len(), "the catalog has the file's length");
+        let file = continuum_tier::ChunkReader::open(&path).unwrap();
         for (f, r) in item.frames.as_ref().unwrap().iter().zip(file.records()) {
             assert_eq!((f.offset, f.cut), (r.offset, r.cut), "the catalog's frame index is the file's");
             if f.cut {
