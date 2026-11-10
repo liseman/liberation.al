@@ -416,6 +416,38 @@ pub fn shm_capacity() -> Option<u64> {
     }
 }
 
+/// `classes` with each count halved `shrink` times, never below one slot: the sizes and their order stay, since a
+/// stream names its class by index.
+#[must_use]
+pub fn halved(classes: &[SlotClass], shrink: u32) -> Vec<SlotClass> {
+    classes
+        .iter()
+        .map(|class| SlotClass { size_bytes: class.size_bytes, count: (class.count >> shrink).max(1) })
+        .collect()
+}
+
+/// How many times [`fitted`] may halve a profile: at 10 the Linux profile's 11 GB is under 20 MB.
+pub const MAX_SHRINK: u32 = 10;
+
+/// A profile's `classes`, whole when their slots take no more than half of `room` (the shared memory filesystem's
+/// size, from [`shm_capacity`]), else halved until they do, up to [`MAX_SHRINK`] times. `None` is a machine with no
+/// such size to fit: the whole profile. This is what a broker started with no classes of its own gets
+/// ([`crate::server::Config::tier0`]), so one embedded in a test starts on a machine or a container with little
+/// shared memory. The daemon fits its own plan, which also counts the device manifest's cameras.
+#[must_use]
+pub fn fitted(classes: &[SlotClass], room: Option<u64>) -> Vec<SlotClass> {
+    let Some(room) = room else { return classes.to_vec() };
+    let bytes = |classes: &[SlotClass]| {
+        classes
+            .iter()
+            .fold(0_u64, |sum, class| sum.saturating_add(class.size_bytes.saturating_mul(u64::from(class.count))))
+    };
+    (0..=MAX_SHRINK)
+        .map(|shrink| halved(classes, shrink))
+        .find(|candidate| bytes(candidate) <= room / 2)
+        .unwrap_or_else(|| halved(classes, MAX_SHRINK))
+}
+
 /// Fails when the arena is larger than the shared memory filesystem (`/dev/shm` on Linux), where touching its last
 /// pages would SIGBUS the broker, and warns when it's larger than what's free there now. macOS has no such limit to
 /// check (its POSIX shared memory is backed by the VM system).
@@ -452,6 +484,17 @@ fn unlink_quietly(name: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_profile_is_halved_until_its_slots_fit_half_of_the_shared_memory() {
+        let class = |size_bytes, count| SlotClass { size_bytes, count };
+        let profile = [class(1 << 20, 64), class(1 << 10, 1)];
+        assert_eq!(fitted(&profile, None), profile, "no size to fit");
+        assert_eq!(fitted(&profile, Some(256 << 20)), profile, "64 MiB is under half of 256 MiB");
+        // Half of 40 MiB holds 16 of the 1 MiB slots, not 32; a class is never left with no slot.
+        assert_eq!(fitted(&profile, Some(40 << 20)), [class(1 << 20, 16), class(1 << 10, 1)]);
+        assert_eq!(fitted(&profile, Some(1)), [class(1 << 20, 1), class(1 << 10, 1)], "the smallest, when none fits");
+    }
 
     fn tier0(dir: &Path) -> Tier0 {
         Tier0::create(&dir.join("b.sock"), &[SlotClass { size_bytes: 16_384, count: 2 }], 1 << 20).unwrap()

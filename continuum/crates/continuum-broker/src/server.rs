@@ -102,7 +102,8 @@ pub struct Config {
     pub writer: core::WriterConfig,
     /// The machine profile the scheduler budgets for (`mac_mini_64gb` or `linux_dual_3090`).
     pub profile: String,
-    /// The Tier 0 arena's slot classes; `None` takes the profile's.
+    /// The Tier 0 arena's slot classes; `None` takes the profile's, fitted to the shared memory the machine has
+    /// ([`crate::tier0::fitted`]).
     pub tier0: Option<Vec<continuum_sched::SlotClass>>,
     /// The redb catalog file; `None` keeps the catalog in memory (tests).
     pub catalog: Option<PathBuf>,
@@ -368,7 +369,10 @@ impl Server {
         }
         let profile = continuum_sched::Profile::named(&config.profile)
             .ok_or_else(|| BindError::Catalog(format!("no machine profile named {}", config.profile)))?;
-        let classes = config.tier0.clone().unwrap_or_else(|| profile.slot_classes.clone());
+        let classes = config
+            .tier0
+            .clone()
+            .unwrap_or_else(|| crate::tier0::fitted(&profile.slot_classes, crate::tier0::shm_capacity()));
         let arena_started = std::time::Instant::now();
         let tier0 = Arc::new(Tier0::create(&path, &classes, config.tier0_ring_bytes).map_err(BindError::Arena)?);
         info!(took = ?arena_started.elapsed(), "initialized the Tier 0 arena");

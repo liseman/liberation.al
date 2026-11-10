@@ -30,10 +30,10 @@ pub struct Ffmpeg {
 
 /// The encoders the tiers use, in the order the worker prefers them.
 pub const ENCODERS_OF_INTEREST: &[&str] =
-    &["h264_nvenc", "h264_videotoolbox", "libx264", "libopenh264", "flac", "libopus"];
+    &["h264_nvenc", "h264_videotoolbox", "libx264", "libopenh264", "libsvtav1", "flac", "libopus"];
 
 /// The decoders the tiers use.
-pub const DECODERS_OF_INTEREST: &[&str] = &["h264_cuvid", "h264", "mjpeg", "flac", "libopus"];
+pub const DECODERS_OF_INTEREST: &[&str] = &["h264_cuvid", "h264", "libdav1d", "mjpeg", "flac", "libopus"];
 
 /// Runs the probe. Cheap and read-only: it opens no device and encodes nothing.
 #[must_use]
