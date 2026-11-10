@@ -22,6 +22,18 @@ while the splat trains), and `render` (a directory: every view as the trained sp
 `f000.png` on, and for a view with a depth map its drawn depth, `d000.png` on, at that map's size and unit; frames
 that sit exactly at their poses, for checking what the refinement reports).
 
+**Resuming** (a place's splat refined as new frames are kept, spatial/surroundings_map.py): with `resume` (a 3DGS
+PLY this trainer wrote), training starts from that splat's Gaussians as they are, and the `init` points, which may
+then be none, are added to them as new Gaussians. Every SH band is on from the first step, the box (`bound`) holds
+the old splat and the new points, and `pose_start` (POSE_START by default) says from which step the poses move: 0
+for a splat that already has its shape. With `score` (indices into `views`), each of those views is first drawn from
+the starting splat, after its pose alone is fitted to that splat (as a held-out view's is, below), and the answer's
+`before` says how much of it the splat covered (alpha at least COVERED_ALPHA), the PSNR of what it drew there, and
+the PSNR at its pose as given (`psnr_as_given`): how much the view has to add. It then trains from the fitted pose.
+The answer's `poses` are where the training views ended (16 numbers each, null for a held-out view): as given,
+moved by that fit and by `pose_opt`'s correction, so a later job starts where this one left its cameras. `resumed`
+counts the Gaussians it started from.
+
 The training is the minimal trainer on gsplat's `rasterization`: gsplat's MCMC strategy with a capped Gaussian count,
 an L1 plus 0.2 SSIM loss with small opacity and scale regularizers (none for many moving views: `reg`), and SH degree raised one
 band every 1,000 steps.
@@ -114,6 +126,39 @@ IDENTITY_6D = (1.0, 0.0, 0.0, 0.0, 1.0, 0.0)  # the 6D rotation form's identity:
 DEPTH_WEIGHT = 0.2  # the depth loss (metres of mean error) beside the image loss
 MAX_SCALE = 0.03  # of the box's diagonal: a Gaussian's largest axis (a 18 m home: about half a metre)
 DEAD_OPACITY = 0.005  # gsplat's MCMC `min_opacity`: at or under it a Gaussian is relocated, and dropped at the end
+COVERED_ALPHA = 0.5  # a pixel the starting splat draws at least this opaque is covered (`score`)
+
+
+def read_splat(data: bytes, np: Any) -> dict[str, Any]:
+    """A 3DGS PLY as this trainer writes it (`out/splat.ply`), as arrays: `means` (N x 3), `sh0` (N x 3), `rest`
+    (N x 3 x (bands - 1), channel by channel as the file has it), `opacity` (N logits), `scales` (N x 3, logs), and
+    `quats` (N x 4, w first). `np` is numpy, passed in: this module imports only the standard library at the top.
+    Raises ValueError for a file that isn't one."""
+    marker = b"end_header\n"
+    if not data.startswith(b"ply\n") or marker not in data:
+        raise ValueError("not a PLY")
+    end = data.index(marker) + len(marker)
+    lines = data[:end].decode("ascii").splitlines()
+    if "format binary_little_endian 1.0" not in lines:
+        raise ValueError("not a little-endian binary PLY")
+    count = next((int(line.split()[2]) for line in lines if line.startswith("element vertex ")), None)
+    names = [line.split()[2] for line in lines if line.startswith("property float ")]
+    if count is None or len(data) - end != count * len(names) * 4:
+        raise ValueError("the PLY's size doesn't match its header")
+    rows = np.frombuffer(data, dtype="<f4", offset=end, count=count * len(names)).reshape(count, len(names))
+    col = {name: i for i, name in enumerate(names)}
+    rest = sorted((name for name in names if name.startswith("f_rest_")), key=lambda name: int(name[7:]))
+    try:
+        return {
+            "means": rows[:, [col[k] for k in ("x", "y", "z")]],
+            "sh0": rows[:, [col[f"f_dc_{i}"] for i in range(3)]],
+            "rest": rows[:, [col[name] for name in rest]].reshape(count, 3, len(rest) // 3),
+            "opacity": rows[:, col["opacity"]],
+            "scales": rows[:, [col[f"scale_{i}"] for i in range(3)]],
+            "quats": rows[:, [col[f"rot_{i}"] for i in range(4)]],
+        }
+    except KeyError as e:
+        raise ValueError(f"the PLY has no {e.args[0]} property: not a Gaussian splat") from None
 
 
 def main(argv: Sequence[str]) -> int:
@@ -176,22 +221,25 @@ def main(argv: Sequence[str]) -> int:
     extent = float(np.linalg.norm(centres - centres.mean(0), axis=1).max() * 1.1) or 1.0
 
     with np.load(job["init"]) as init:
-        pts = np.asarray(init["points"], np.float32)
-        rgb = np.asarray(init["colors"], np.float32) / 255.0
-    if not len(pts):
+        pts = np.asarray(init["points"], np.float32).reshape(-1, 3)
+        rgb = np.asarray(init["colors"], np.float32).reshape(-1, 3) / 255.0
+    # A resumed job starts from a trained splat's Gaussians as they are; its `init` points, if any, are added to them.
+    old = read_splat(Path(job["resume"]).read_bytes(), np) if job.get("resume") else None
+    if not len(pts) and (old is None or not len(old["means"])):
         raise ValueError("no starting points")
     # Each point's starting scale: the RMS distance to its 3 nearest neighbours, in chunks of at most CDIST_FLOATS
     # distances (a walk's half million points would take 4 GiB a chunk of 2,048).
     p_t = torch.from_numpy(pts).to(dev)
     near = []
-    chunk = max(1, CDIST_FLOATS // len(pts))
+    chunk = max(1, CDIST_FLOATS // max(1, len(pts)))
     for i in range(0, len(pts), chunk):
         d = torch.cdist(p_t[i : i + chunk], p_t).topk(min(4, len(pts)), largest=False).values[:, 1:]
         near.append((d**2).mean(1).sqrt() if d.shape[1] else torch.ones(len(d), device=dev))
-    dist = torch.cat(near).clamp_min(1e-4)
+    dist = torch.cat(near).clamp_min(1e-4) if near else torch.zeros(0, device=dev)
     del p_t
     bound = bool(job.get("bound", False))
-    lo, hi = np.percentile(pts, BOX_PERCENTILE, axis=0), np.percentile(pts, 100 - BOX_PERCENTILE, axis=0)
+    spread = pts if old is None else np.concatenate([old["means"], pts])  # the box holds the old splat and the new
+    lo, hi = np.percentile(spread, BOX_PERCENTILE, axis=0), np.percentile(spread, 100 - BOX_PERCENTILE, axis=0)
     pad = BOX_PAD * (hi - lo)
     box_lo = torch.tensor(lo - pad, dtype=torch.float32, device=dev)
     box_hi = torch.tensor(hi + pad, dtype=torch.float32, device=dev)
@@ -209,16 +257,31 @@ def main(argv: Sequence[str]) -> int:
         return ((m < box_lo) | (m > box_hi)).any(dim=1)
 
     n, k_sh = len(pts), (sh_degree + 1) ** 2
-    params = torch.nn.ParameterDict(
-        {
-            "means": torch.nn.Parameter(torch.from_numpy(pts).to(dev)),
-            "scales": torch.nn.Parameter(torch.log(dist)[:, None].repeat(1, 3)),
-            "quats": torch.nn.Parameter(torch.rand(n, 4, device=dev)),
-            "opacities": torch.nn.Parameter(torch.logit(torch.full((n,), INIT_OPACITY, device=dev))),
-            "sh0": torch.nn.Parameter(((torch.from_numpy(rgb).to(dev) - 0.5) / C0)[:, None, :]),
-            "shN": torch.nn.Parameter(torch.zeros(n, k_sh - 1, 3, device=dev)),
+    start = {
+        "means": torch.from_numpy(pts).to(dev),
+        "scales": torch.log(dist)[:, None].repeat(1, 3),
+        "quats": torch.rand(n, 4, device=dev),
+        "opacities": torch.logit(torch.full((n,), INIT_OPACITY, device=dev)),
+        "sh0": ((torch.from_numpy(rgb).to(dev) - 0.5) / C0)[:, None, :],
+        "shN": torch.zeros(n, k_sh - 1, 3, device=dev),
+    }
+    resumed = 0
+    if old is not None:
+        resumed = len(old["means"])
+        # The old splat's higher bands, cut or zero-filled to this job's degree.
+        rest = torch.zeros(resumed, k_sh - 1, 3, device=dev)
+        had = min(k_sh - 1, old["rest"].shape[2])
+        rest[:, :had] = torch.from_numpy(np.ascontiguousarray(old["rest"])).to(dev).transpose(1, 2)[:, :had]
+        was = {
+            "means": torch.from_numpy(np.ascontiguousarray(old["means"])).to(dev),
+            "scales": torch.from_numpy(np.ascontiguousarray(old["scales"])).to(dev),
+            "quats": torch.from_numpy(np.ascontiguousarray(old["quats"])).to(dev),
+            "opacities": torch.from_numpy(np.ascontiguousarray(old["opacity"])).to(dev),
+            "sh0": torch.from_numpy(np.ascontiguousarray(old["sh0"])).to(dev)[:, None, :],
+            "shN": rest,
         }
-    )
+        start = {k: torch.cat([was[k], start[k]]) for k in start}
+    params = torch.nn.ParameterDict({k: torch.nn.Parameter(v.contiguous()) for k, v in start.items()})
     lrs = {"means": MEANS_LR * extent, **LR}
     optimizers = {k: torch.optim.Adam([{"params": params[k], "lr": lr, "name": k}], eps=1e-15) for k, lr in lrs.items()}
     decay = 0.01 ** (1.0 / steps)
@@ -238,6 +301,7 @@ def main(argv: Sequence[str]) -> int:
         return c2w @ m
 
     refine = bool(job.get("pose_opt", False))
+    pose_start = int(job.get("pose_start", POSE_START))
     index = {id(v): i for i, v in enumerate(train)}
     poses = torch.nn.Embedding(len(train), 9, sparse=True).to(dev)
     torch.nn.init.zeros_(poses.weight)
@@ -249,17 +313,22 @@ def main(argv: Sequence[str]) -> int:
             delta = poses(torch.tensor([index[id(v)]], device=dev))[0]
         return torch.linalg.inv(v["c2w"] if delta is None else corrected(v["c2w"], delta))
 
+    first: list[int | None] = [None]
+
     def render(
         v: dict[str, Any], degree: int, depth: bool = False, delta: Any | None = None
     ) -> tuple[Any, Any, dict[str, Any]]:
         """`v` rendered (at its pose moved by `delta` when given, else by its trained correction): its image (H, W,
         3) in 0..1, its expected depth (H, W) when `depth`, else None, and gsplat's info."""
-        colors = torch.cat([params["sh0"], params["shN"]], dim=1)
-        img, _, info = rasterization(
-            params["means"],
-            F.normalize(params["quats"], dim=-1),
-            torch.exp(params["scales"]),
-            torch.sigmoid(params["opacities"]),
+        # While the starting splat is scored (`first[0]` set), only the Gaussians it resumed from are drawn: the
+        # new points wait at the end of each array, faint and unshaped, and would fog the picture.
+        upto = slice(None) if first[0] is None else slice(first[0])
+        colors = torch.cat([params["sh0"][upto], params["shN"][upto]], dim=1)
+        img, alpha, info = rasterization(
+            params["means"][upto],
+            F.normalize(params["quats"][upto], dim=-1),
+            torch.exp(params["scales"][upto]),
+            torch.sigmoid(params["opacities"][upto]),
             colors,
             viewmat(v, delta)[None],
             v["K"][None],
@@ -269,6 +338,7 @@ def main(argv: Sequence[str]) -> int:
             packed=False,
             render_mode="RGB+ED" if depth else "RGB",
         )
+        info["alpha"] = alpha[0, ..., 0]
         return img[0, ..., :3].clamp(0, 1), img[0, ..., 3] if depth else None, info
 
     def ssim(a: Any, b: Any) -> Any:
@@ -297,14 +367,62 @@ def main(argv: Sequence[str]) -> int:
             img = torch.where(v["covered"], want, img)
         return (1 - SSIM_WEIGHT) * (img - want).abs().mean() + SSIM_WEIGHT * (1 - ssim(img, want))
 
+    def score(v: dict[str, Any], delta: Any | None = None) -> float:
+        """`v`'s PSNR, over the pixels the loss counts: a covered pixel (an overlay, or the border a lens's undoing
+        leaves) is never trained, so it would only say how much of the frame is covered."""
+        with torch.no_grad():
+            err = (render(v, sh_degree, delta=delta)[0] - truth(v)) ** 2
+            if v["covered"] is not None:
+                err = err[~v["covered"][..., 0]]
+            return float(-10 * torch.log10(err.mean()))
+
+    def aligned(v: dict[str, Any]) -> tuple[float, Any]:
+        """`v`'s score after fitting only its pose correction to its image, the Gaussians frozen, and that
+        correction."""
+        delta = torch.zeros(9, device=dev, requires_grad=True)
+        opt = torch.optim.Adam([delta], lr=ALIGN_LR)
+        for _ in range(ALIGN_STEPS):
+            photometric(render(v, sh_degree, delta=delta)[0], v).backward()
+            opt.step()
+            opt.zero_grad(set_to_none=True)
+        return score(v, delta.detach()), delta.detach()
+
+    # What the starting splat already draws of the views in `score`. Each is first lined up with it: only that view's
+    # pose is fitted, the Gaussians frozen, as a held-out view's is (`aligned`), since a pose a few centimetres off
+    # draws a picture a few pixels off, which scores as if the splat had nothing of it. Then the share of the view the
+    # splat covers (alpha at least COVERED_ALPHA) and the PSNR of what it draws there are read, and the view trains
+    # from the pose that fit.
+    before = []
+    if resumed:
+        first[0] = resumed
+        for i in job.get("score", []):
+            v = views[int(i)]
+            raw = score(v, torch.zeros(9, device=dev))
+            _, delta = aligned(v)
+            with torch.no_grad():
+                img, _, info = render(v, sh_degree, delta=delta)
+                counted = torch.ones_like(info["alpha"], dtype=torch.bool)
+                if v["covered"] is not None:  # an overlay, or the border a lens's undoing leaves, is no part of it
+                    counted = ~v["covered"][..., 0]
+                drawn = (info["alpha"] >= COVERED_ALPHA) & counted
+                share = float(drawn.sum() / counted.sum().clamp_min(1))
+                err = ((img - truth(v)) ** 2)[drawn]
+                psnr = round(float(-10 * torch.log10(err.mean().clamp_min(1e-10))), 2) if err.numel() else None
+                v["c2w"] = corrected(v["c2w"], delta)
+            before.append({"view": int(i), "covered": round(share, 4), "psnr": psnr, "psnr_as_given": round(raw, 2)})
+        first[0] = None
+        for opt in optimizers.values():  # the fits ran gradients through the Gaussians too: none of it is theirs
+            opt.zero_grad(set_to_none=True)
+
     torch.cuda.reset_peak_memory_stats()
     began = time.perf_counter()
     rng = np.random.default_rng(0)
     for step in range(steps):
         v = train[int(rng.integers(len(train)))]
-        moving = refine and step >= POSE_START
+        moving = refine and step >= pose_start
         still = None if moving or not refine else torch.zeros(9, device=dev)  # no gradient reaches the rows yet
-        img, seen, info = render(v, min(sh_degree, step // 1000), depth=v["depth"] is not None, delta=still)
+        degree = sh_degree if old is not None else min(sh_degree, step // 1000)  # a resumed splat has its bands
+        img, seen, info = render(v, degree, depth=v["depth"] is not None, delta=still)
         loss = photometric(img, v)
         loss = loss + reg * (torch.sigmoid(params["opacities"]).mean() + torch.exp(params["scales"]).mean())
         if seen is not None:
@@ -328,26 +446,6 @@ def main(argv: Sequence[str]) -> int:
                     params["opacities"][outside()] = float(np.log(DEAD_OPACITY / 2 / (1 - DEAD_OPACITY / 2)))
     torch.cuda.synchronize()
     seconds = time.perf_counter() - began
-
-    def score(v: dict[str, Any], delta: Any | None = None) -> float:
-        """`v`'s PSNR, over the pixels the loss counts: a covered pixel (an overlay, or the border a lens's undoing
-        leaves) is never trained, so it would only say how much of the frame is covered."""
-        with torch.no_grad():
-            err = (render(v, sh_degree, delta=delta)[0] - truth(v)) ** 2
-            if v["covered"] is not None:
-                err = err[~v["covered"][..., 0]]
-            return float(-10 * torch.log10(err.mean()))
-
-    def aligned(v: dict[str, Any]) -> tuple[float, Any]:
-        """`v`'s score after fitting only its pose correction to its image, the Gaussians frozen, and that
-        correction."""
-        delta = torch.zeros(9, device=dev, requires_grad=True)
-        opt = torch.optim.Adam([delta], lr=ALIGN_LR)
-        for _ in range(ALIGN_STEPS):
-            photometric(render(v, sh_degree, delta=delta)[0], v).backward()
-            opt.step()
-            opt.zero_grad(set_to_none=True)
-        return score(v, delta.detach()), delta.detach()
 
     def mean(scores: list[float]) -> float | None:
         return round(sum(scores) / len(scores), 2) if scores else None
@@ -380,6 +478,13 @@ def main(argv: Sequence[str]) -> int:
     fitted = [(v, *aligned(v)) for v in test]
     fits = {id(v): delta for v, _, delta in fitted}
     shift = turn = None
+    # Where each training view ended: its pose as given, moved by the fit before training (`score`) and by its
+    # trained correction.
+    refined: list[list[float] | None] = [None] * len(views)
+    for i, v in enumerate(views):
+        if not v["test"]:
+            ended = corrected(v["c2w"], poses.weight.detach()[index[id(v)]]) if refine else v["c2w"]
+            refined[i] = [float(x) for x in ended.reshape(-1).cpu()]
     if refine:
         moved = poses.weight.detach()
         shift = round(float(moved[:, :3].norm(dim=1).median() * extent), 4)
@@ -424,6 +529,9 @@ def main(argv: Sequence[str]) -> int:
         "peak_vram_gib": round(torch.cuda.max_memory_allocated() / 2**30, 2),
         "gaussians": m,
         "init_points": n,
+        "resumed": resumed,
+        "before": before,
+        "poses": refined,
         "train_views": len(train),
         "train_psnr": train_psnr,
         "test_psnr": mean([got for _, got, _ in fitted]),

@@ -303,6 +303,7 @@ unless the row says otherwise.
 | `video_window.py` (`pack-video-window`), `retention.py` | Nightly retention, 04:15 | | `state/journal_evidence/`, `video_window.json`, `retention.json` | Broker chunks, day pages | Optional |
 | `spatial/splats.py` (`pack-spatial-splat`) | A Gaussian splat per place revision | | `state/places/` | Recorded video | Optional, by hand, needs CUDA |
 | `spatial/surroundings_worker.py` (`pack-surroundings`) | While "learn surroundings" is on, samples the chosen cameras and keeps the frames likely to improve a place's map | | `state/surroundings/` | Decoded frames, `pack.toml` (followed live) | Optional, idle while off |
+| `spatial/surroundings_map.py` (`pack-surroundings-map`) | One step of placing kept frames in a place's map and continuing its splat; started by `pack-surroundings` | | `state/places/`, `state/surroundings/map.json` | `state/surroundings/`, held intrinsics | Optional, needs CUDA |
 | `proximity/` (`pack-bluetooth`) | Passive BLE sightings | USB serial | `bluetooth.sighting`, `bluetooth.coverage` | ESP32 receivers | Optional, off |
 | `proximity/network_worker.py` (`pack-network-devices`) | UniFi client inventory and heard Wi-Fi access points | Outbound local HTTPS | `network.*`, `wifi.access_point` | Local controller | Optional, off |
 | `proximity/devices.py` (`pack-devices`) | Device tallies, links, and presence answers | | `device.link`, `state/cache/device_tallies.json` | Bluetooth and network streams | Optional |
@@ -373,7 +374,7 @@ one `<service>.log` each, trimmed hourly past 10 MB by the `log-trim` service. H
 | `state/journal_evidence/<day>/` | `pack-video-window` | Dashboard | Clips and stills of moments day pages cite; durable |
 | `state/video_window.json`, `retention.json` | `pack-video-window` | The same | Age-out progress and finished retention days |
 | `state/places/<place>/`, `footprints.json`, `positions.json`, `state/places.lock` | Spatial jobs through `memory/places.py` | `memory/places.py`, `spatial/positions.py` | Place revisions, maps, plans, splats, placer progress, and each place's line-up with its owner's plan (`plan.lineup`, `spatial/plan_lineup.py`) |
-| `state/surroundings/` | The surroundings sampler through `spatial/surroundings_frames.py` | The map step | The frames kept for learning a place's map, with their descriptors; at most 300 |
+| `state/surroundings/` | The surroundings sampler (`spatial/surroundings_frames.py`: frames, `index.json`, `status.json`) and the map step (`spatial/surroundings_map.py`: `map.json`, depth images) | Each other, the Places page | The frames kept for learning a place's map, at most 300, with their descriptors and depth; what each step placed |
 | `state/cache/device_tallies.json` | `proximity/devices.py` | The same | Hourly device tallies; rebuildable |
 | `state/ingest.sqlite3`, `ingest-locks/`, `ingest-analyzed.json` | Dashboard, `pack-ingest`, `pack-ingest-analyze` | The same | Ingested items, per-item locks, and the analysis ledger |
 | `ingest/` (`paths.ingest`) | Dashboard, `pack-ingest` | The broker, the same | Originals, converted media, and source working files |

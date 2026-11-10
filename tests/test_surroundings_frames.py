@@ -1,5 +1,6 @@
 """Learning surroundings (#257): the gate that keeps a frame likely to improve the map, and the bounded store."""
 
+import json
 import math
 
 import numpy as np
@@ -85,10 +86,18 @@ def test_at_its_bound_the_store_drops_the_frame_most_like_another_and_the_older_
 def test_what_was_kept_is_read_back_by_the_next_process(store):
     _, a = offer(store, 0)
     _, b = offer(store, 90, now=5.0)
-    store.note(b.id, mapped=True)
     again = sf.Store(store.folder)
-    assert [(f.id, dict(f.notes)) for f in again.kept] == [(a.id, {}), (b.id, {"mapped": True})]
+    assert [f.id for f in again.kept] == [a.id, b.id]
     assert again.decide(view(90), 100.0).keep is False  # its descriptors came back with it
+
+
+def test_a_row_with_a_field_of_an_earlier_version_is_still_kept(store):
+    _, a = offer(store, 0)
+    index = store.folder / "index.json"
+    rows = json.loads(index.read_text())
+    rows[0]["notes"] = {"mapped": True}
+    index.write_text(json.dumps(rows))
+    assert [f.id for f in sf.Store(store.folder).kept] == [a.id]
 
 
 def test_a_frame_whose_picture_is_gone_is_not_kept(store):
