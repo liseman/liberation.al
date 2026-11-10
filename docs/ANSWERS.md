@@ -70,7 +70,8 @@ section is reference: each row names the question, where its numbers come from, 
 | Lights | Colour cast of recordings over one to three whole days; anything else is unknown | `memory/lights_color.py` |
 
 The owner's steps for the inputs are in [ACTIVITIES.md](ACTIVITIES.md) (what counts in Ask), [ZONES.md](ZONES.md)
-(zones and their visits), and [NAMING.md](NAMING.md) (people and pets).
+(zones and their visits), [OBJECTS.md](OBJECTS.md) (remembered objects), and [NAMING.md](NAMING.md) (people and
+pets).
 
 ## Activities
 

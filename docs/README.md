@@ -20,6 +20,7 @@ it does. A document that still mixes kinds is listed under the one it mostly is.
 | [Upgrading](../MIGRATING.md) | Update an existing install, follow the steps a change needs, and reset state |
 | [Cameras](CAMERAS.md) | Add a camera, name its view, pause it, and calibrate a wide or fisheye lens |
 | [Zones](ZONES.md) | Draw zones on a camera's picture and find the visits counted in them |
+| [Objects](OBJECTS.md) | Teach the pack an object and ask where it was last seen |
 | [Activities](ACTIVITIES.md) | Keep your list of activities, answer clips so a kind counts in Ask, and mark an event by hand |
 | [Remote access](REMOTE.md) | Use the dashboard from another device, with a password, and get video over HTTPS |
 | [Taught state](TAUGHT-STATE.md) | Export what you taught, check and import the bundle, and reset without losing it |
