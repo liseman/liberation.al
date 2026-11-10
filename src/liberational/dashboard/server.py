@@ -77,6 +77,14 @@ POST /pets/examples/remove  {pet, track_ids}: clear those labels, mark them not 
                             vectors and photos: {ok, removed}
 POST /faces/unknown/reject  {group, ids}: "Not this person": those shots leave the group for good, and its face is
                             rebuilt from the rest: {ok, removed, left, ignored}
+POST /faces/unknown/split   {group, ids}: the pictures deselected on a Who's this? card leave the group before its
+                            answer and wait as a group of their own: {ok, group, moved, left}
+POST /faces/unknown/hide    {group, action: ignore|block, exclude}: hide the group's pictures, all but `exclude`.
+                            ignore: those pictures, from now on; block: also any group whose face is at least
+                            face_hidden.BLOCK_SIM like them. Kept in the knowledge store: {ok, kind, keys, hidden, left}
+POST /faces/unknown/restore {kind: ignored|blocked, keys}: un-ignore pictures or unblock faces: {ok, restored}
+GET  /faces/unknown/hidden  what was ignored and blocked, newest first: {ignored: [{id, url, group, at}],
+                            blocked: [{id, group, at, count, shots: [{id, url}]}], ignored_count, blocked_count}
 GET  /people/<name>/shots?before=&limit=   every shot of them the face worker found (vision/sightings.py), newest
                             first, one per camera per second: {total, shots: [{id, ts, cam, sim}], next}
 GET  /faces/shot/<id>.jpg   a square face crop of one sighting (state/shots/, see people/face_shots.py)
@@ -316,7 +324,6 @@ routes.load(
     "liberational.dashboard.transcript_lines",
     "liberational.dashboard.unnamed_groups",
     "liberational.dashboard.voice_clones",
-    "liberational.dashboard.walk_import",
     "liberational.dashboard.zones",
 )
 

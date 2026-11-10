@@ -160,9 +160,10 @@ def face_group_of(match: dict[str, Any]) -> int | None:
     """The unknown face group a `face.match` record joined ("Face N" -> N), or None for a named face."""
     from liberational.vision import face_rejects
 
-    if match.get("name") or str(match.get("id")) in face_rejects.rejected():  # rejected from its group
+    if match.get("name"):
         return None
-    m = FACE_GROUP.fullmatch(str(match.get("cluster") or ""))
+    # none for a shot the owner took out of its group, and the group a moved one went to
+    m = FACE_GROUP.fullmatch(str(face_rejects.group_of(match.get("id"), match.get("cluster")) or ""))
     return int(m.group(1)) if m else None
 
 

@@ -79,10 +79,10 @@ function serve(reply: object, splat?: Parameters<typeof http.get>[1]) {
 const lastSplat = () => build.mock.calls.at(-1)?.[3] as ArrayBuffer | null | undefined;
 
 it.each([
-  ['pass', /^No splat of this place yet\. The nightly pass makes it .* it runs at 01:00\.$/],
+  ['pass', /^No splat of this place yet\. It's made from .* a pass that runs at 01:00\.$/],
   ['few_frames', /^No splat of this place yet\. It's waiting for daylight: .* It tries again at 01:00\.$/],
   ['no_cameras', /^No splat of this place yet\. This map has no cameras registered yet/],
-  ['failed', /^No splat of this place yet\. Making it failed when the nightly pass last ran/],
+  ['failed', /^No splat of this place yet\. Making it failed when it was last tried/],
 ])('says a place has no splat yet and why (%s), draws its points, and logs no error', async (reason, text) => {
   const errors = vi.spyOn(console, 'error');
   const warnings = vi.spyOn(console, 'warn');
@@ -141,7 +141,7 @@ it("names a splat that doesn't line up with the map without offering it", async 
   );
   renderPage(<CloudView place="p1" />);
   expect((await screen.findByRole('status')).textContent).toMatch(
-    /doesn't line up with this one, so it isn't shown\. A new one isn't made yet\. The nightly pass makes it/,
+    /doesn't line up with this one, so it isn't shown\. A new one isn't made yet\. It's made from the fixed cameras' daytime frames/,
   );
   await waitFor(() => expect(lastSplat()).toBeNull());
   expect(screen.queryByText('Splat')).toBeNull();

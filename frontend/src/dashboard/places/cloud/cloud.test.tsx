@@ -265,31 +265,31 @@ it("says nothing about a splat that is the map's own, and why there is none othe
   expect(splatNote({ ...scene, splat: '/s', splat_state: 'current' })).toBeNull();
   expect(splatNote({ ...scene, splat: '/s', splat_state: 'improving' })).toMatch(/^This splat is still improving/);
   expect(splatNote({ ...scene, splat_state: 'none', splat_wait: { ...wait, reason: 'pass' } })).toBe(
-    "No splat of this place yet. The nightly pass makes it from the fixed cameras' daytime frames; it runs at 01:00.",
+    "No splat of this place yet. It's made from the fixed cameras' daytime frames, by a pass that runs at 01:00.",
   );
   const dark = splatNote({
     ...scene,
     splat_state: 'none',
     splat_wait: { ...wait, reason: 'few_frames', tried: 1.8e9 },
   });
-  expect(dark).toMatch(/^No splat of this place yet\. It's waiting for daylight: .* had too few when it last ran \(/);
+  expect(dark).toMatch(/^No splat of this place yet\. It's waiting for daylight: .* too few when it was last tried \(/);
   expect(dark).toMatch(/It tries again at 01:00\.$/);
   expect(splatNote({ ...scene, splat_state: 'none', splat_wait: { ...wait, reason: 'no_cameras' } })).toMatch(
-    /no cameras registered yet for the nightly pass/,
+    /no cameras registered yet to make one from/,
   );
   expect(splatNote({ ...scene, splat_state: 'none', splat_wait: { ...wait, reason: 'no_runtime' } })).toMatch(
     /trainer isn't installed/,
   );
   expect(splatNote({ ...scene, splat_state: 'none', splat_wait: { ...wait, reason: 'failed' } })).toMatch(
-    /Making it failed when the nightly pass last ran\. It tries again at 01:00\./,
+    /Making it failed when it was last tried\. It tries again at 01:00\./,
   );
-  expect(splatNote({ ...scene, splat_state: 'none', splat_wait: { ...wait, reason: 'off' } })).toMatch(
-    /turned off in the settings/,
+  // with no pass scheduled, it says so and promises no next try
+  expect(splatNote({ ...scene, splat_state: 'none', splat_wait: { reason: 'pass', tried: null, pass_at: null } })).toBe(
+    'No splat of this place yet. None has been made for this map, and nothing makes splats on a schedule yet.',
   );
-  // a pass with no time of day still reads as a sentence
   expect(
-    splatNote({ ...scene, splat_state: 'none', splat_wait: { reason: 'pass', tried: null, pass_at: null } }),
-  ).toMatch(/it runs each night\.$/);
+    splatNote({ ...scene, splat_state: 'none', splat_wait: { reason: 'failed', tried: null, pass_at: null } }),
+  ).toBe('No splat of this place yet. Making it failed when it was last tried.');
 });
 
 it("labels an earlier map's splat as one, and names one that no longer lines up without offering it", () => {
@@ -298,10 +298,12 @@ it("labels an earlier map's splat as one, and names one that no longer lines up 
   expect(earlier).toMatch(
     /^This splat was made for an earlier map of this place \(.+\); it lines up with the current one\./,
   );
-  expect(earlier).toMatch(/A splat of the current map isn't made yet\. The nightly pass makes it/);
+  expect(earlier).toMatch(
+    /A splat of the current map isn't made yet\. It's made from the fixed cameras' daytime frames/,
+  );
   const stale = splatNote({ ...scene, splat_state: 'stale', splat_stale: { revision: 'r1', at: 1.8e9 } });
   expect(stale).toMatch(
-    /doesn't line up with this one, so it isn't shown\. A new one isn't made yet\. The nightly pass/,
+    /doesn't line up with this one, so it isn't shown\. A new one isn't made yet\. It's made from the fixed cameras/,
   );
 });
 

@@ -10,7 +10,6 @@ Start with the [project overview](../README.md), then [Architecture](ARCHITECTUR
 | [README](../README.md) | Install, configure, and run the pack |
 | [Upgrading](../MIGRATING.md) | Update an existing install, and see what a reset keeps |
 | [Releases](RELEASES.md) | Install a release without a checkout, or make one |
-| [Walkthrough](WALKTHROUGH.md) | Record a LiDAR walk of a place and import it |
 | [Ingest](INGEST.md) | Import photos, video, and audio from elsewhere |
 | [Bluetooth](BLUETOOTH.md) | Set up advertisement sensors and link devices to people |
 | [Network](NETWORK.md) | Set up network inventory, device links, and network cameras |

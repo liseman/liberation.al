@@ -259,40 +259,10 @@ def test_a_view_with_no_points_says_nothing():
     assert view.rooms == () and math.isnan(view.inside)
 
 
-@pytest.mark.parametrize(
-    ("transform", "centre", "point", "want"),
-    [
-        # the plan is the map: (1, 0) moved to (3, 0) and turned a quarter, so a point a metre along +x of it ends up a
-        # metre along +y of (3, 0), at its own height
-        pytest.param(
-            (1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0), (1.0, 0.0), (2.0, 0.0, 5.0), (3.0, 1.0, 5.0), id="plan-is-map"
-        ),
-        # the plan is the map moved 2 m along x: plan (1, 0) is map (-1, 0), and map (0, 0) a metre along +x of it
-        pytest.param((1, 0, 0, 2, 0, 1, 0, 0, 0, 0, 1, 0), (1.0, 0.0), (0.0, 0.0, 0.0), (1.0, 1.0, 0.0), id="shifted"),
-    ],
-)
-def test_a_camera_is_turned_about_its_spot_and_moved_to_the_mark(transform, centre, point, want):
-    moved = pi.turn_about(transform, centre, (3.0, 0.0), math.pi / 2)
-    got = moved[:3, :3] @ np.asarray(point) + moved[:3, 3]
-    assert got == pytest.approx(want)
-    assert np.linalg.det(moved[:3, :3]) == pytest.approx(1.0)
-
-
 def test_a_view_is_mirrored_across_the_cameras_line_of_sight():
     points = np.array([[2.0, 1.0, 1.5], [1.0, 3.0, 0.0]])
     # a camera at (1, 1) looking along +x: a point a metre to its left (+y) goes a metre to its right, height kept
     assert pi.mirrored(points, (1.0, 1.0), (2.0, 0.0)).tolist() == [[2.0, 1.0, 1.5], [1.0, -1.0, 0.0]]
-
-
-@pytest.mark.parametrize("mirror", [pytest.param(True, id="mirrored"), pytest.param(False, id="unmirrored")])
-@pytest.mark.parametrize("bearing", [0.0, 90.0, 327.5])
-def test_a_camera_turned_by_turn_to_looks_along_the_bearing_asked(mirror, bearing):
-    move = pi.Move(math.radians(37.0), (3.0, -2.0), mirror)
-    look = (0.6, -0.8)
-    turn = pi.turn_to(move, look, bearing)
-    c, s = math.cos(turn), math.sin(turn)
-    turned = (c * look[0] - s * look[1], s * look[0] + c * look[1])
-    assert pi.look_bearing(move, turned) == pytest.approx(bearing % 360, abs=1e-6)
 
 
 HALLS = """plan "P" walls 0.1/0.1
@@ -308,17 +278,3 @@ def test_a_camera_sees_through_a_door_but_not_through_a_wall():
     points = np.array([[5.0, 1.5], [5.0, 0.5], [2.0, 2.0], [7.0, 1.5]])
     # from (1, 1.5): straight through the door, through the wall beside it, in its own room, and outside the plan
     assert pi.in_sight(plan, sight, (1.0, 1.5), points).tolist() == [True, False, True, False]
-
-
-def test_a_view_with_its_facing_given_is_placed_at_the_spot_it_fits_best():
-    plan = pi.parse(HALLS)
-    rng = np.random.default_rng(2)
-    floor = np.c_[rng.uniform(0.1, 2.9, (400, 2)), np.zeros(400)]  # room a's floor, seen from (0.5, 0.5)
-    shifted = floor.copy()
-    shifted[:, :2] += (0.3, 0.0)  # registered 30 cm east of where it is, so part of its view lands in b
-    identity = pi.Move(0.0, (0.0, 0.0), mirror=False)
-    at, score, now = pi.place_view(plan, identity, shifted, (0.8, 0.5), (0.5, 0.5), 0.0)
-    # 20 to 40 cm west of where it's registered puts its whole view back in a, which no spot east of that does
-    assert 0.4 - 1e-9 <= at[0] <= 0.6 + 1e-9
-    assert score == pytest.approx(1.0)
-    assert now < score, "where registered, the view past the wall beside the door is out of sight"

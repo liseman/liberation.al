@@ -11,6 +11,7 @@ A group's filmstrip on People (sightings_of) lists its recent sightings; the das
 
 import threading
 import time
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -112,11 +113,17 @@ KEPT_VECTORS = 256  # a group's embedding is rebuilt from at most this many of i
 def kept_embeddings(gid: int, limit: int = KEPT_VECTORS, state: State = None) -> np.ndarray:
     """The unit embeddings (N x 512) of face group gid's newest `limit` unnamed sightings, from their `face.embedding`
     rows: one read per hour the sightings fall in, so a click costs a few reads, not the shot window's."""
+    mine = [f for f in _unnamed(state) if _group(f["cluster"]) == int(gid)][:limit]
+    return shot_embeddings(mine, state)
+
+
+def shot_embeddings(shots: Sequence[Mapping[str, Any]], state: State = None) -> np.ndarray:
+    """The unit embeddings (N x 512) of these sightings ({"id", "ts"}), from their `face.embedding` rows: one read
+    per hour they fall in. A sighting with no embedding kept gives none."""
     from liberational import segment_log
 
-    mine = [f for f in _unnamed(state) if _group(f["cluster"]) == int(gid)][:limit]
-    wanted = {str(f["id"]) for f in mine}
-    hours = sorted({int(float(f["ts"]) // 3600) for f in mine})
+    wanted = {str(f["id"]) for f in shots}
+    hours = sorted({int(float(f["ts"]) // 3600) for f in shots})
     log = segment_log.at(state)
     vectors = [
         r["vector"]

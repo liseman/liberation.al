@@ -197,12 +197,12 @@ password. [ANSWERS.md](ANSWERS.md#the-voice-turn) has the turn.
 
 ## Places
 
-Spatial memory builds a map and floorplan of each indoor place. `pack-spatial-cameras` registers fixed cameras
-nightly with MASt3R. `pack-walkthrough` imports a phone walk. `spatial/fuse.py` merges revisions into one map per
-place, and `spatial/positions.py` places people and pets on the plan. The owner's names and plan corrections are
-taught state and supersede the machine's view.
+Spatial memory keeps a map and floorplan of each indoor place, made from what the cameras see, and
+`spatial/positions.py` places people and pets on the plan through each camera's pose in the map. The owner's names
+and plan corrections are taught state and supersede the machine's view. Until a place has a map with a camera
+registered in it, the placer and the Places page say that nobody can be placed there.
 
-[SPATIAL.md](SPATIAL.md) covers the jobs and files. [WALKTHROUGH.md](WALKTHROUGH.md) has the steps to record a walk.
+[SPATIAL.md](SPATIAL.md) covers the jobs and files.
 
 ## Devices and network
 
@@ -249,7 +249,7 @@ Models are declared in `config/defaults.toml` under `[models]` and fetched by `m
 | People and animals | RF-DETR Small, RTMPose halpe26, ST-GCN++, and optional MoViNet-A2 |
 | Animal checks | SigLIP 2 verification and DINOv2 ViT-S/14 appearance vectors |
 | Object masks | EdgeTAM, loaded on demand |
-| Places | MASt3R, CUT3R, GeoCalib, MegaLoc, and gsplat, each in its own runtime |
+| Places | MASt3R and gsplat (with Depth Anything 3), each in its own runtime, and MegaLoc |
 
 The system runs on Apple Silicon (MLX, Core ML, and VideoToolbox) and on Linux (CUDA, ONNX Runtime, and NVENC). MLX
 is thread-affine: a model is loaded and called on one thread. That is why `vision/vlm_server.py` is its own process,
@@ -301,9 +301,7 @@ unless the row says otherwise.
 | `memory/events.py`, `memory/activity_kinds.py` | Activity spans, the owner's activity list, and ratings | | `activity.*` (knowledge store) | `action.*`, `walkby.*` | Optional |
 | `vision/camera_history.py` (`pack-camera-history`) | What each camera shows now | | | `camera.caption` | Core |
 | `video_window.py` (`pack-video-window`), `retention.py` | Nightly retention, 04:15 | | `state/journal_evidence/`, `video_window.json`, `retention.json` | Broker chunks, day pages | Optional |
-| `spatial/cameras.py` (`pack-spatial-cameras`) | Nightly fixed-camera registration, fusion, and positions, 01:00 | | `state/places/`, `position.*` | Recorded video, `pose.track` | Optional, needs CUDA |
-| `spatial/walkthrough.py` (`pack-walkthrough`) | Imports a phone walk into a place | | `state/places/` | The recording | Optional, by hand |
-| `spatial/splats.py` (`pack-spatial-splat`) | A Gaussian splat per place revision | | `state/places/` | Recorded video | Optional, needs CUDA |
+| `spatial/splats.py` (`pack-spatial-splat`) | A Gaussian splat per place revision | | `state/places/` | Recorded video | Optional, by hand, needs CUDA |
 | `proximity/` (`pack-bluetooth`) | Passive BLE sightings | USB serial | `bluetooth.sighting`, `bluetooth.coverage` | ESP32 receivers | Optional, off |
 | `proximity/network_worker.py` (`pack-network-devices`) | UniFi client inventory and heard Wi-Fi access points | Outbound local HTTPS | `network.*`, `wifi.access_point` | Local controller | Optional, off |
 | `proximity/devices.py` (`pack-devices`) | Device tallies, links, and presence answers | | `device.link`, `state/cache/device_tallies.json` | Bluetooth and network streams | Optional |
@@ -347,7 +345,7 @@ one `<service>.log` each, trimmed hourly past 10 MB by the `log-trim` service. H
 | `state/knowledge.sqlite3` | Registry, identity, dashboard, listen, `pack-knowledge import` | Most readers | What the owner taught; never copy it while open |
 | `state/knowledge_blobs/`, `state/person_references/` | Dashboard, `pack-knowledge` | The same | Taught file bytes and reference attachments |
 | `faces/db.npz`, `nots.npz`, `learned.npz` | `vision/faces.py` (`pack-faces`, dashboard), see-actions | see-actions, dashboard | Owner face rows, negatives, and views learned from tracks |
-| `faces/unknown_clusters.npz`, `unknown_rejected.json`, `check.json` | see-actions, dashboard, `pack-faces check` | The same | Unnamed face groups, rejected matches, and the held-out check |
+| `faces/unknown_clusters.npz`, `unknown_rejected.json`, `check.json` | see-actions, dashboard, `pack-faces check` | The same | Unnamed face groups, the pictures the owner took out of one or moved to another, and the held-out check |
 | `faces/<name>/`, `faces/_unknown/` | Dashboard | Dashboard | Face photos |
 | `faces/examples/` | `vision/faces.py` (dashboard, `pack-faces`) | Dashboard | Each owner face row's picture and source, by a hash of its vector (Training images) |
 | `state/voiceprints.json`, `voice_enrollments.json`, `clones/` | listen, `people/voice_edits.py`, `speech/clone_say.py`, dashboard | The same | Next voiceprint number, enrollments, and clone references |
@@ -373,8 +371,8 @@ one `<service>.log` each, trimmed hourly past 10 MB by the `log-trim` service. H
 | `state/journal_pages_window.json`, `journal_pages_batch.json` | `pack-journal` | The same | The page batch's sleep window and last finished day |
 | `state/journal_evidence/<day>/` | `pack-video-window` | Dashboard | Clips and stills of moments day pages cite; durable |
 | `state/video_window.json`, `retention.json` | `pack-video-window` | The same | Age-out progress and finished retention days |
-| `state/places/<place>/`, `footprints.json`, `seats.json`, `positions.json`, `state/places.lock` | Spatial jobs through `memory/places.py` | `memory/places.py`, `spatial/positions.py` | Place revisions, maps, plans, splats, and placer progress |
-| `state/walk_imports/` | Dashboard (`dashboard/walk_import.py`) | Dashboard, `pack-walkthrough` | The newest walk import's job and files |
+| `state/places/<place>/`, `footprints.json`, `positions.json`, `state/places.lock` | Spatial jobs through `memory/places.py` | `memory/places.py`, `spatial/positions.py` | Place revisions, maps, plans, splats, and placer progress |
+| `state/surroundings/` | The surroundings sampler through `spatial/surroundings_frames.py` | The map step | The frames kept for learning a place's map, with their descriptors; at most 300 |
 | `state/cache/device_tallies.json` | `proximity/devices.py` | The same | Hourly device tallies; rebuildable |
 | `state/ingest.sqlite3`, `ingest-locks/`, `ingest-analyzed.json` | Dashboard, `pack-ingest`, `pack-ingest-analyze` | The same | Ingested items, per-item locks, and the analysis ledger |
 | `ingest/` (`paths.ingest`) | Dashboard, `pack-ingest` | The broker, the same | Originals, converted media, and source working files |
@@ -392,7 +390,7 @@ one `<service>.log` each, trimmed hourly past 10 MB by the `log-trim` service. H
 | Identity, voices, faces, and the knowledge store | [PEOPLE.md](PEOPLE.md), [DOMAIN-MODEL.md](DOMAIN-MODEL.md) |
 | Questions, the journal, and the voice turn | [ANSWERS.md](ANSWERS.md) |
 | The dashboard server and frontend | [DASHBOARD.md](DASHBOARD.md) |
-| Places, maps, and positions | [SPATIAL.md](SPATIAL.md), [WALKTHROUGH.md](WALKTHROUGH.md) |
+| Places, maps, and positions | [SPATIAL.md](SPATIAL.md) |
 | Bluetooth and network devices | [BLUETOOTH.md](BLUETOOTH.md), [NETWORK.md](NETWORK.md) |
 | Retention and disk use | [STORAGE.md](STORAGE.md) |
 | Imported media | [INGEST.md](INGEST.md) |

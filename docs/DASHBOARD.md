@@ -68,8 +68,22 @@ gitignored.
 | Ingest | Imported media and its sources |
 | Debug | Service logs, filtered by level |
 
-"Who's this?" in People lists unnamed faces and voices with guesses. Choosing a name claims the group and returns an
-undo token. Naming never happens by typing alone.
+"Who's this?" in People lists unnamed faces and voices with guesses, and "Sightings to name" in Pets lists unnamed
+animal sightings. Choosing a name claims the group and returns an undo token. Naming never happens by typing alone.
+
+A card of pictures (a face group, or a pet's sightings) has two buttons, chosen by its guess:
+
+- With a guess: "<Name>" names the selected pictures as that person or pet, and "Not <Name>" records that they
+  aren't, so the guess is never offered for them again, and leaves them waiting for another name.
+- With no guess: the name picker, "Ignore" (these pictures, from now on), and "Block" (pictures very like them are
+  no longer listed).
+
+A card with several pictures shows no buttons until it is selected (a click, or focus from the arrow keys), which
+opens every picture, all selected. Clicking a picture deselects it, and that leaves it out of the answer: it stays
+unnamed and is grouped again (a face's deselected pictures become a group of their own; pet sightings are grouped on
+every read). With a card focused, Y and N, or I and B, press its buttons. "Show ignored and blocked", off by default,
+lists what was hidden, each with a way back. A voice's card keeps its own answers (Yes, Not, Multi, Noise, TV, and
+Ignore).
 
 ## Settings
 

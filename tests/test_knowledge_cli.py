@@ -163,6 +163,32 @@ OWNER_ROWS = (
         "fr", "face.reference", "alice", 1, 1, 1, {**enrollment(512), "person": "alice", "name": "Alice"}, ("alice",)
     ),
     Record("vn", "voice.not", "line-1:alice", 4, 5, 6, {"vector": unit(4), "source": "owner"}, ("alice",)),
+    Record("fi", "face.ignore", "shot-1", 5, 5, 5, {"shot": "shot-1", "group": 9, "active": True, "source": "owner"}),
+    Record(
+        "fb",
+        "face.block",
+        "block-1",
+        6,
+        6,
+        6,
+        {"vector": unit(512), "shots": ["shot-2"], "group": 9, "active": True, "source": "owner"},
+    ),
+    Record(
+        "pb",
+        "pet.block",
+        "43",
+        7,
+        7,
+        7,
+        {
+            "track_id": "43",
+            "species": "dog",
+            "vector": unit(4),
+            "model": "test-model",
+            "active": True,
+            "source": "owner",
+        },
+    ),
     Record(
         "vr", "voice.reference", "speaker:3", 1, 1, 1, {**enrollment(4), "voiceprint": 3, "person": "alice"}, ("alice",)
     ),

@@ -24,7 +24,7 @@ Use these words in code, docs, and the dashboard. Each has one meaning.
 | Presence episode | A per-camera stretch with someone in view. Not an entry, a headcount, or an identity |
 | Activity event | A typed span of time with measured attributes |
 | Evidence reference | A stable pointer to the source of a claim: a recording and offset, an utterance, or a frame |
-| Place | An indoor place, built from a walkthrough or fixed cameras. Not a camera's view: a camera is an angle, not a room |
+| Place | An indoor place, mapped from what the cameras see. Not a camera's view: a camera is an angle, not a room |
 | Visit | A span of time the rig spent in one place |
 | Event | A record that something happened, in the envelope below |
 | Projection | A view computed from events, such as "who said this line". Can be rebuilt |

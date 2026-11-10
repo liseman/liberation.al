@@ -1518,8 +1518,8 @@ STREAMS[PLACED_PATHS] = Stream(PLACED_PATHS, PLACED_SCHEMA, placed_row, placed)
 
 
 # Each fixed camera's pose over time (spatial/poses.py writes and reads it): one row per observation of where a
-# camera was, in the map frame it was observed in (`frame`, a place revision's `Revision.frame`): a nightly seat's
-# registration, a match with a walk's frame, or the owner's measured spot (position only). The slot is the camera.
+# camera was, in the map frame it was observed in (`frame`, a place revision's `Revision.frame`): a registration against
+# the place's map, a match with a frame whose pose is known, or the owner's measured spot (position only). The slot is the camera.
 # A camera that stays put is smoothed over its rows on read; one that moves starts a new stretch.
 CAMERA_POSES = "camera.pose"
 CAMERA_POSE_SCHEMA = [

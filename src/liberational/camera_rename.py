@@ -19,7 +19,7 @@ What carries across, migrated in place:
 - Machine-made, moved because a rename is cheap and keeps the history whole: the segment store's camera slots
   (`segments/<stream>/<name>/`, whose rows take their camera from the slot), and the state that follows those slots
   or the cameras' registrations: place revisions (`places/<place>/<revision>.json`'s `cameras` and `signals`, and
-  `x-camera` in their `.plan` files), `places/footprints.json` and `seats.json`, `see-zones.json`'s cursors and
+  `x-camera` in their `.plan` files), `places/footprints.json`, `see-zones.json`'s cursors and
   pipelines, the vector worker's `continuum/vector/segments.<stream>.json` cursors, `screens_on.json`, and
   `continuum/capture_paused.json`. Cached report days that name an old camera are dropped and recompute.
 
@@ -58,7 +58,7 @@ SKIP_PREFIXES = ("event:", "audit:")
 PLAN_COLLECTION = "place.plan"
 # Machine state files under `paths.state` keyed by camera, beside the places and vector cursors found by glob.
 STATE_FILES = ("see-zones.json", "screens_on.json", "continuum/capture_paused.json")
-PLACE_FILES = ("footprints.json", "seats.json")
+PLACE_FILES = ("footprints.json",)
 _X_CAMERA = re.compile(r"^([ \t]*x-camera[ \t]+)(\S+)", re.MULTILINE)
 
 

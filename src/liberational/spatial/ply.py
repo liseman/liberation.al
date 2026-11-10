@@ -94,7 +94,7 @@ def dumps(
     points: np.ndarray, colors: np.ndarray | None = None, counts: Mapping[str, np.ndarray] | None = None
 ) -> bytes:
     """An (N, 3) point cloud, with optional (N, 3) 0 to 255 RGB colours and optional per-point counts (a ushort
-    property each, by name: tier 1's `seen` and `missed`), as a binary little-endian PLY: float32 x, y, z, then uchar
+    property each, by name, such as how often a point was seen), as a binary little-endian PLY: float32 x, y, z, then uchar
     red, green, blue when coloured, then the counts. `load` reads the points back, and `read` all of it."""
     xyz = np.asarray(points, dtype="<f4").reshape(-1, 3)
     fields = [("x", "<f4"), ("y", "<f4"), ("z", "<f4")]

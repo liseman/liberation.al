@@ -56,6 +56,53 @@ credentials. Device names identify streams, so do not rename devices as part of 
 
 Newest first. Do each one your install has not had yet.
 
+### Spatial memory starts again from what the cameras see
+
+Phone walks (`pack-walkthrough`, the Places page's "Import a walk") and the nightly fixed-camera pass
+(`pack-spatial-cameras`, the `spatial-cameras` job at 01:00) are gone, with the tools built on them
+(`tools/rebuild_place.py`, `restore_owner_plan.py`, `fit_intrinsics.py`, `camera_poses.py`, `splat_walk_check.py`, and
+`walkthrough_closure.py`). A place's map is made by a new job that learns it from what the cameras see. Until that
+job runs, nothing records footprints, places positions, or trains splats on a schedule
+(`.venv/bin/python tools/place_positions.py` and `pack-spatial-splat` still run by hand).
+
+1. **Remove the scheduled job.** An install that still renders a unit per service removes its timer, before the
+   pull:
+
+   ```sh
+   uv run --no-sync pack-services uninstall spatial-cameras
+   ```
+
+   Under the application, the job goes once the pull is in: quit the application and open it again, or have it
+   read the service list again without a restart, and check the job is no longer listed:
+
+   ```sh
+   uv run --no-sync pack-supervisor reload
+   uv run --no-sync pack-services status
+   ```
+
+2. **Pull, and remove what `pack-config --check` reports** from `pack.toml`: `spatial-cameras` under `[services]`,
+   and the removed keys `spatial.cameras_enabled`, `spatial.splats_enabled`, `spatial.geocalib_runtime`,
+   `spatial.cut3r_runtime`, `[models.files.geocalib]`, and `[models.files.cut3r]`.
+
+3. **Sync, build the dashboard, and restart everything**, as in "Every upgrade". Keys left `config/defaults.toml`,
+   so every config-reading service restarts, the dashboard included.
+
+4. **Reset the places.** The maps, splats, walks, camera registrations, and stored positions made by the removed
+   jobs go; your corrected plans, place names, and held camera intrinsics stay (they are in the knowledge store).
+   The first command only prints what would go and what would stay:
+
+   ```sh
+   uv run --no-sync pack-reset-places
+   uv run --no-sync pack-reset-places --yes
+   uv run --no-sync pack-services restart dashboard journal
+   ```
+
+   A place whose plan you corrected stays on the Places page with that plan, without a 3D view, and nobody is
+   placed on it until it is mapped again. Other places are listed again once they are mapped.
+
+5. **Optionally free the disk.** Nothing reads these any more: `data/cut3r/`, `data/geocalib/`,
+   `data/models/cut3r/` (3.2 GB), and `data/models/geocalib/`.
+
 ### The Places 3D view draws with PlayCanvas
 
 After the pull, on a machine that makes splats:
@@ -214,6 +261,9 @@ A routine upgrade needs no reset. When one does:
 |---|---|---|
 | `--keep-taught` | The catalog, recordings, the segment store, the vector index, and derived state | The knowledge store, the face gallery, voice references, and models |
 | `--fresh` | All of the above and everything taught | Models |
+
+`pack-reset-places` resets spatial memory alone: it deletes every place's maps, splats, camera registrations, and
+stored positions, and keeps the knowledge store, so your corrected plans and place names stay. It stops no service.
 
 `pack-knowledge import --input <bundle.zip>` restores a bundle. It never overwrites a file and names any it left
 alone. `src/liberational/reset_catalog.py` lists every step of a reset.
