@@ -6,8 +6,8 @@ don't move, so a run needs no current frame: each camera's frame is its best fro
 run works at any hour (#3008).
 0. **Footprints** (#2800). Every fixed camera's tracked people's foot points since the last run go into the position
    layer (spatial/footprints.py, spatial/positions.py), whether or not the camera is registered yet.
-1. **Frames.** One frame of each indoor fixed camera (a manifest camera, `config/devices.toml`, with no `fisheye`
-   calibration: fisheye lenses are the wearable rig's): its best recorded frame of the last day's daytime
+1. **Frames.** One frame of each indoor fixed camera (a manifest camera, `config/devices.toml`, not on a rig and with
+   no `fisheye` calibration, `fixed_cameras`): its best recorded frame of the last day's daytime
    (`best_frame`), or its best since its view changed when its later lit frames show another view (it was moved, or
    its lens uncovered, `latest_view`). A lone camera MASt3R finds no floor for is tried again in the same run with a
    later frame showing its view now (`retry_floorless`). Frames are tried every `SAMPLE_EVERY_S` over `MIDDAY` (local time) of the last `LOOKBACK_S`
@@ -24,7 +24,7 @@ run works at any hour (#3008).
    in no group (no pair reaching `LONE_MATCHES`) is a group of its own (#3000): its frame
    paired with itself, with its up and floor found from its surfaces, since one camera can be pitched far down and
    see more furniture top than floor; one whose view shows no floor (a blocked lens) is left out. Outdoor cameras
-   (`spatial.outdoor_cameras`) take no part.
+   (`mount.outdoor` in the manifest, spatial/rig.py) take no part.
 2a. **Registration.** A group of two or more cameras is then registered again by reprojection (spatial/registration.py,
    #3069): from MASt3R's matches and depths, each camera's pose, focal, and lens are fitted to one reference camera,
    since MASt3R's alignment takes every camera as a pinhole and a wide one bends the whole group (Place 1: the same
@@ -99,7 +99,7 @@ import numpy as np
 from liberational import config as cfg
 from liberational import logs, nvml
 from liberational.memory import places
-from liberational.spatial import floorplan, footprints, lens, ply, registration, tiling
+from liberational.spatial import floorplan, footprints, lens, ply, registration, rig, tiling
 
 LOG = logs.get("spatial-cameras")
 
@@ -125,25 +125,28 @@ RUN_TIMEOUT_S = 1800.0
 
 
 def fixed_cameras(manifest: Path) -> list[str]:
-    """The enabled cameras in the capture manifest that aren't the rig's fisheye lenses, in manifest order."""
+    """The enabled fixed cameras in the capture manifest, in manifest order: not on a rig (`mount.rig`, spatial/rig.py,
+    #5), whose poses change as it moves, and with no `fisheye` calibration, which MASt3R's pinhole model can't take."""
     try:
-        devices = tomllib.loads(manifest.read_text()).get("device", [])
+        parsed = tomllib.loads(manifest.read_text())
     except FileNotFoundError:
         return []
+    mounts = rig.parse(parsed)
     return [
         str(d["name"])
-        for d in devices
+        for d in parsed.get("device", [])
         if isinstance(d, dict)
         and d.get("kind") in {"camera", "rtsp"}
         and d.get("enabled", True)
         and "fisheye" not in d
         and d.get("name")
+        and mounts.get(str(d["name"])).fixed
     ]
 
 
-def indoor_cameras(cams: Sequence[str], outdoor: Sequence[str]) -> list[str]:
-    """`cams` without the ones the owner listed as outdoor (`spatial.outdoor_cameras`), in order."""
-    out = set(outdoor)
+def indoor_cameras(cams: Sequence[str], mounts: rig.Mounts) -> list[str]:
+    """`cams` without the ones mounted looking outdoors (`mount.outdoor`), in order."""
+    out = mounts.outdoor()
     return [c for c in cams if c not in out]
 
 
@@ -688,7 +691,7 @@ def implausible(camera: str, pose: places.CameraPose, floor: Sequence[float]) ->
     )
     if height < MIN_LONE_HEIGHT:
         return f"the camera is {height:.2f} above its floor (needs {MIN_LONE_HEIGHT})"
-    measured = (cfg.get("spatial.camera_heights_m") or {}).get(camera)
+    measured = rig.load().get(camera).height_m
     if measured and not SCALE_BOUNDS[0] <= float(measured) / height <= SCALE_BOUNDS[1]:
         return f"the camera is {height:.2f} above its floor against {float(measured):.2f} m measured"
     return None
@@ -1057,8 +1060,8 @@ def snapshot(
     up3 = (up[0], up[1], up[2])
     floor: Sequence[float] | None
     if reg is not None:
-        measured = cfg.get("spatial.camera_heights_m") or {}
-        heights = {c: float(measured[c]) for c in cams if c in measured}
+        measured = rig.load().heights()
+        heights = {c: measured[c] for c in cams if c in measured}
         floor = registration.floor(points[: reg.own], up3, reg.poses, heights)
         if floor is not None:  # what each camera sees behind people, for footprints.at_edge (#3070)
             poses = {c: replace(p, background=_background(reg, c, floor)) for c, p in poses.items()}
@@ -1276,8 +1279,8 @@ def run(state: Path, now: float | None = None) -> dict[str, Any]:
     # The log's footprints_recorded is what this run added since each camera's mark (a day's backfill the first time,
     # then only the new rows), not what a plan reads: the walkable floor reads the last 14 days back on every run.
     recorded = footprints.record(state, cams, now)
-    # Outdoor cameras (spatial.outdoor_cameras) see no indoor place: they'd only become places of their own.
-    indoor = indoor_cameras(cams, cfg.get("spatial.outdoor_cameras") or [])
+    # Outdoor cameras (mount.outdoor) see no indoor place: they'd only become places of their own.
+    indoor = indoor_cameras(cams, rig.load())
     if not indoor:
         return {"cameras": 0, "places": 0, "why": "no indoor fixed camera", "footprints_recorded": recorded}
     with tempfile.TemporaryDirectory(prefix="spatial-cameras-") as tmp:

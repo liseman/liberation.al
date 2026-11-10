@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { cameraStatus, parsePlaces, withPlace } from './model';
 
-describe('camera names (vision.places)', () => {
+describe('camera names (vision.camera_names)', () => {
   it('reads entries the way vision does: "camN: name", "N: name", "Cam 0 = name", "cam00: name"', () => {
     expect(parsePlaces('cam0: front camera, 2: side camera')).toEqual({ cam0: 'front camera', cam2: 'side camera' });
     expect(parsePlaces('Cam 1 = den, cam03: hall')).toEqual({ cam1: 'den', cam3: 'hall' });

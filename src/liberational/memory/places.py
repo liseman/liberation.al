@@ -536,10 +536,18 @@ def _floor_frame_of(floor: tuple[float, ...]) -> tuple[float, ...] | None:
 def project(rev: Revision, camera: str, u: float, v: float, height: float = 0.0) -> tuple[float, float] | None:
     """`camera_to_plan` against one revision: the pixel's floor point as plan (x, y) in metres, or in the floor's own
     frame (`floor_frame`) when the revision has no plan, or None. `height` as `floor_point` takes it."""
-    if rev.floor is None or camera not in rev.cameras:
+    if camera not in rev.cameras:
+        return None
+    return project_pose(rev, rev.cameras[camera], u, v, height)
+
+
+def project_pose(rev: Revision, cam: CameraPose, u: float, v: float, height: float = 0.0) -> tuple[float, float] | None:
+    """`project` for a camera pose given in `rev`'s map frame rather than registered in it: a rig camera at one moment
+    (spatial/rig.py, #5), whose pose comes from its rig's. The same floor and plan geometry as a fixed camera's."""
+    if rev.floor is None:
         return None
     tr = rev.plan_transform or _floor_frame_of(tuple(rev.floor))
-    found = floor_point(rev.cameras[camera], rev.floor, u, v, height)
+    found = floor_point(cam, rev.floor, u, v, height)
     if found is None or tr is None:
         return None
     hit = (*found, 1.0)

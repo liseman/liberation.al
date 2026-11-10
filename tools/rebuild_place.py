@@ -200,9 +200,9 @@ def inside_plan(plan: pi.Parsed, frame: Sequence[float]) -> Callable[[np.ndarray
 
 def snapshots(state: Path, cams: Sequence[str], now: float) -> list[fuse.Piece]:
     """Tonight's snapshot of each group of `cams` (frames and MASt3R, read only, in a temporary folder)."""
-    from liberational.spatial import cameras
+    from liberational.spatial import cameras, rig
 
-    indoor = cameras.indoor_cameras(cams, cfg.get("spatial.outdoor_cameras") or [])
+    indoor = cameras.indoor_cameras(cams, rig.load())
     out_pieces = []
     with tempfile.TemporaryDirectory(prefix="rebuild-place-") as tmp:
         out = Path(tmp)

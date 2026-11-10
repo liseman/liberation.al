@@ -1224,10 +1224,10 @@ def test_ambiguous_room_selector_returns_an_actionable_refusal(state, tmp_path, 
     (tmp_path / "config").mkdir()
     (tmp_path / "config" / "devices.toml").write_text('device=[{name="north",kind="rtsp"},{name="south",kind="rtsp"}]')
     monkeypatch.setattr(cfg, "ROOT", tmp_path)
-    with cfg.override({"vision": {"places": ["north: Study", "south: Study"]}}):
+    with cfg.override({"vision": {"camera_names": ["north: Study", "south: Study"]}}):
         result = ask(state, "What happened in the study today?")
     assert result["is_history"]
-    assert "Ambiguous camera/place" in result["answer"]
+    assert "Ambiguous camera name" in result["answer"]
     assert result["evidence"] == []
 
 

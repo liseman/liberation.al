@@ -72,10 +72,10 @@ def store() -> objects.Store:
 
 
 def _cameras(now: float) -> list[dict[str, Any]]:
-    """Each camera's id, its place name (vision.places; its id when it has none), and whether it has a fresh frame."""
-    from liberational.vision import places
+    """Each camera's id, its name (vision.camera_names; its id when it has none), and whether it has a fresh frame."""
+    from liberational.vision import views
 
-    named = places.names()
+    named = views.names()
     out = []
     for cam in objects.camera_names():
         row: dict[str, Any] = {"camera": cam, "name": named.get(cam, cam)}
