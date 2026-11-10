@@ -282,7 +282,7 @@ def test_failed_computation_is_not_ready():
 
 
 @pytest.mark.parametrize("failure", [False, True])
-def test_cold_polls_share_background_work_and_surface_failure(failure):
+def test_cold_polls_share_background_work_and_surface_failure(failure, voice_quiet):
     entered, release = threading.Event(), threading.Event()
     calls = []
 
@@ -309,7 +309,7 @@ def test_cold_polls_share_background_work_and_surface_failure(failure):
     assert calls == ["read"]
 
 
-def test_warm_poll_validates_owner_instead_of_serving_a_cold_completion():
+def test_warm_poll_validates_owner_instead_of_serving_a_cold_completion(voice_quiet):
     owner = {"v": 0}
     fresh = fresh_reads._Fresh(
         "poll correction", lambda: (200, {"revision": owner["v"]}), lambda: owner["v"], lambda: 0
@@ -322,7 +322,7 @@ def test_warm_poll_validates_owner_instead_of_serving_a_cold_completion():
     assert fresh.poll() == (200, {"revision": 1})
 
 
-def test_cold_poll_reports_a_raised_source_error_and_allows_retry():
+def test_cold_poll_reports_a_raised_source_error_and_allows_retry(voice_quiet):
     calls = []
 
     def compute():

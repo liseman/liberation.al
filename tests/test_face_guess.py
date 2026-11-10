@@ -246,7 +246,7 @@ def test_group_sighting_pages_count_and_page_only_saved_crops(state, ids, serve_
     assert (after["total"], after["shots_pending"]) == (3, 5)
 
 
-def test_the_route_says_when_the_groups_cannot_be_read(state, serve_dashboard, monkeypatch):
+def test_the_route_says_when_the_groups_cannot_be_read(state, serve_dashboard, monkeypatch, voice_quiet):
 
     def broken():
         raise ValueError("a half-written file")
