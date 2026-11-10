@@ -5,6 +5,7 @@
 // history that Undo and Redo walk (Ctrl+Z, and Ctrl+Shift+Z or Ctrl+Y; Cmd on a Mac), except while typing in a field,
 // where the field's own undo applies; the history goes with the editor on save or cancel. Saving writes the owner's
 // correction as taught state, over the machine's plan, which is never edited (memory/places.py `correct_plan`).
+// Camera spots (the `x-camera` lines) are moved, turned, and added here too (CameraSpots.tsx).
 import { ActionIcon, Alert, Button, Group, NumberInput, Select, Text, TextInput, Tooltip } from '@mantine/core';
 import { useHotkeys } from '@mantine/hooks';
 import { IconTrash } from '@tabler/icons-react';
@@ -30,6 +31,8 @@ import { savePlan } from '../api';
 import classes from '../places.module.css';
 import { parsePlaceDsl } from '../plan/dsl';
 import { lintPlace } from '../plan/lint';
+import { CameraMarks, CameraPanel } from './CameraSpots';
+import { bearing, setSpot, spotsOf } from './spots';
 import { addDoor, doorSpot, join, removeOpening, renameRoom, split } from './text';
 
 /** How many edits Undo can go back through; older ones drop off the history. */
@@ -95,9 +98,8 @@ export function dragged(base: string, handle: OffsetHandle | VertexHandle, from:
 }
 
 interface Gesture {
-  handle: OffsetHandle | VertexHandle;
-  base: string;
-  ext: string[];
+  /** The plan's text with the pointer at `to` (plan metres), from the text as it was when the gesture began. */
+  apply: (from: Pt, to: Pt, free: boolean) => string;
   from: Pt;
   screen: Pt;
   moved: boolean;
@@ -143,6 +145,9 @@ export function PlanEditor({
   }, [base, result]);
   const overlay = useRef<SVGSVGElement>(null);
   const gesture = useRef<Gesture | null>(null);
+  const spots = useMemo(() => spotsOf(text), [text]);
+  const [camera, setCamera] = useState<string | null>(null);
+  const [adding, setAdding] = useState<string | null>(null);
   const [door, setDoor] = useState<{ a: string | null; b: string | null; width: number }>({
     a: null,
     b: null,
@@ -198,11 +203,36 @@ export function PlanEditor({
     return proj.toModel(p.x, p.y);
   };
 
-  const press = (e: PointerEvent, handle: OffsetHandle | VertexHandle) => {
+  const start = (e: PointerEvent, apply: Gesture['apply']) => {
     const from = toPlan(e);
     if (!from) return;
+    e.stopPropagation();
     (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
-    gesture.current = { handle, base, ext, from, screen: [e.clientX, e.clientY], moved: false };
+    gesture.current = { apply, from, screen: [e.clientX, e.clientY], moved: false };
+  };
+  const press = (e: PointerEvent, handle: OffsetHandle | VertexHandle) =>
+    start(e, (from, to, free) => join(dragged(base, handle, from, to, free), ext));
+  /** A press on a camera's spot (to move it) or its turn handle (to turn it). */
+  const pressCamera = (e: PointerEvent, id: string, what: 'move' | 'turn') => {
+    const spot = spots[id];
+    const was = text;
+    if (!spot) return;
+    start(e, (from, to, free) => {
+      if (what === 'turn') {
+        const yaw = bearing(spot.at, to);
+        return setSpot(was, id, { ...spot, yaw: free ? yaw : Math.round(yaw) });
+      }
+      const at: Pt = [snap(spot.at[0] + to[0] - from[0], free), snap(spot.at[1] + to[1] - from[1], free)];
+      return setSpot(was, id, { ...spot, at });
+    });
+  };
+  /** A click on the plan while a camera is picked to add: its spot goes there. */
+  const putSpot = (e: PointerEvent) => {
+    const at = toPlan(e);
+    if (!adding || !at) return;
+    commit(setSpot(text, adding, { at: [snap(at[0], false), snap(at[1], false)] }));
+    setCamera(adding);
+    setAdding(null);
   };
   const drag = (e: PointerEvent) => {
     const g = gesture.current;
@@ -212,7 +242,7 @@ export function PlanEditor({
     const at = toPlan(e);
     if (!at) return;
     // Each move applies to the text as it was when the gesture began, so the wall lands where the pointer is.
-    setLive(join(dragged(g.base, g.handle, g.from, at, e.altKey), g.ext));
+    setLive(g.apply(g.from, at, e.altKey));
   };
   const release = () => {
     const g = gesture.current;
@@ -226,14 +256,24 @@ export function PlanEditor({
   const openings = result?.model.openings ?? [];
   const nameOf = (id: string) => rooms.find(r => r.id === id)?.name ?? (id === 'exterior' ? 'Outside' : id);
   const viewBox = shown?.svg.match(/viewBox="([^"]+)"/)?.[1];
+  const [bx, by, bw, bh] = viewBox?.split(/[\s,]+/).map(Number) ?? [];
+  const box = bx !== undefined && by !== undefined && bw !== undefined && bh !== undefined ? { bx, by, bw, bh } : null;
+  // The middle of the rooms' extent, where "Put it in the middle" puts a new camera spot.
+  const corners = (shown?.model.rooms ?? []).flatMap(r => (r.room.poly as Pt[] | undefined) ?? []);
+  const middle: Pt | null = corners.length
+    ? [
+        (Math.min(...corners.map(c => c[0])) + Math.max(...corners.map(c => c[0]))) / 2,
+        (Math.min(...corners.map(c => c[1])) + Math.max(...corners.map(c => c[1]))) / 2,
+      ]
+    : null;
   const errors = findings.filter(f => f.severity === 'error').length;
 
   return (
     <div className={classes.editor}>
       <Group justify="space-between" gap="xs" mb="xs" wrap="wrap">
         <Text size="sm" c="dimmed">
-          Drag a wall or a corner. Alt drags in millimetres. Your plan replaces the machine's, which is kept, and Revert
-          plan puts back the one before it.
+          Drag a wall, a corner, or a camera, and a selected camera's handle to turn it. Alt drags in millimetres. Your
+          plan replaces the machine's, which is kept, and Revert plan puts back the one before it.
         </Text>
         <Group gap="xs">
           <Tooltip label={`Undo (${KEYS.undo})`}>
@@ -283,7 +323,7 @@ export function PlanEditor({
             onPointerUp={release}
             onPointerCancel={release}
           >
-            <title>Walls and corners to drag</title>
+            <title>Walls, corners, and cameras to drag</title>
             {handles.map(h => {
               if (h.kind === 'vertex') {
                 const [x, y] = proj.toScreen(h.at);
@@ -311,6 +351,26 @@ export function PlanEditor({
                 </line>
               );
             })}
+            {adding && box && (
+              <rect
+                className={classes.placeCatcher}
+                x={box.bx}
+                y={box.by}
+                width={box.bw}
+                height={box.bh}
+                aria-label={`Put ${adding} here`}
+                onPointerDown={putSpot}
+              />
+            )}
+            <CameraMarks
+              spots={spots}
+              proj={proj}
+              text={text}
+              selected={camera}
+              onSelect={setCamera}
+              onCommit={commit}
+              onPress={pressCamera}
+            />
           </svg>
         </div>
       )}
@@ -406,6 +466,16 @@ export function PlanEditor({
             </Button>
           </Group>
         </section>
+        <CameraPanel
+          spots={spots}
+          text={text}
+          selected={camera}
+          adding={adding}
+          onSelect={setCamera}
+          onAdding={setAdding}
+          onCommit={commit}
+          middle={middle}
+        />
         <section aria-labelledby="edit-findings-h">
           <h3 id="edit-findings-h" className={classes.panelTitle}>
             {findings.length ? `To look at (${findings.length})` : 'Nothing to look at'}
