@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from liberational import config as cfg
-from liberational.dashboard import server
+from liberational.dashboard import context, server
 from liberational.listen import media_tag, revisions
 from liberational.people import registry
 
@@ -311,7 +311,7 @@ def test_this_is_tv_on_a_line_the_tagger_marked_never_hands_over_the_taggers_tok
 @pytest.fixture
 def heard(tmp_path, monkeypatch):
     rows = [line(T, "the news"), line(T + 5, "dinner")]
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     return rows
 
 

@@ -5,6 +5,7 @@ the walk that was simulated.
 
     .venv/bin/python tools/walkthrough_closure.py                      # 2, 4, 6, and 10 minutes, 5 walks each
     .venv/bin/python tools/walkthrough_closure.py --minutes 6 --seeds 10 --one-lap --breaks 0.1
+    .venv/bin/python tools/walkthrough_closure.py --minutes 2 4 6 --one-lap --no-walls
 
 No model and no GPU: about a minute on the CPU for the default table. Each walk goes through a house-sized set of
 rooms at a frame a second and 0.75 m a frame, and comes back to where it began, walking on a few frames past it:
@@ -16,10 +17,15 @@ share of the steps also spin 40 to 120 degrees. The pair model's answers are the
 `PAIR_NOISE_DEG` and `PAIR_NOISE_M` of noise, in half the pose model's scale. Revisits are proposed from how close
 and how alike in heading two frames truly are, with noise, through the real shortlist.
 
+Each frame also shows walls as one real recording's frames did (`wall_views`), which is what holds a walk between its
+revisits; `--no-walls` leaves them out, as the closure was before them.
+
 Each row is one walk length: the gap between the walk's start and its return before and after (the worst pair of a
 frame in the first `RETURN` and one in the last `RETURN` that stand in the same spot: metres, and degrees of heading
-about up), the share of walks inside the stated tolerance (`walkthrough.CLOSE_M`, `walkthrough.CLOSE_DEG`), and the
-root mean square position error of every frame. The first frame keeps its own tilt (it is the fixed one), so tilt
+about up), the share of walks inside the stated tolerance (`walkthrough.CLOSE_M`, `walkthrough.CLOSE_DEG`), the
+root mean square position error of every frame, and the walk's bend: the farthest any frame is from where it was once
+the walk is laid on the true one by a rigid move (`bend`), with the share of walks inside `walkthrough.BEND_SHARE` of
+their length. The first frame keeps its own tilt (it is the fixed one), so tilt
 isn't part of the heading here. The numbers are a model's, not a camera's: they say the graph closes a walk whose
 revisits the models measure, not that the models will.
 """
@@ -49,6 +55,14 @@ PAIR_SCALE = 0.5
 DEPTH = 3.0  # every frame's median depth as the pose model sees it
 RETURN = 10  # frames at each end that count as the start and the return
 SAME_M, SAME_DEG = 1.0, 30.0  # two frames stand in the same spot
+# The walls a frame sees, as one real recording's frames showed them against its reference poses (104 of 120 frames
+# gave a direction; 60% of those were within 5 degrees of one grid, 3.5 degrees about it by their median deviation,
+# and the rest came in runs, most of them near 30 degrees off it either way): WALL_SEEN of the frames show a wall,
+# its direction WALL_NOISE_DEG off; a frame after a right one is wrong WALL_WRONG of the time, and one after a wrong
+# one WALL_WRONG_AGAIN, which makes a third of them wrong; a wrong one is WALL_SLANT_DEG off either way two times in
+# three, and any direction at all otherwise.
+WALL_SEEN, WALL_NOISE_DEG = 0.85, 3.5
+WALL_WRONG, WALL_WRONG_AGAIN, WALL_SLANT_DEG = 0.25, 0.5, 30.0
 
 
 def upright(heading: float, x: float, z: float) -> np.ndarray:
@@ -144,6 +158,21 @@ def answers(true: np.ndarray, pairs: Sequence[tuple[int, int]], rng: np.random.G
     return out
 
 
+def wall_views(true: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """Each frame's wall direction in its camera's frame, as `walkthrough.wall_directions` gives them (NaN rows for
+    the frames that show none): the house's walls run along the world's x and z."""
+    out = np.full((len(true), 3), np.nan)
+    wrong = False
+    for k in np.flatnonzero(rng.random(len(true)) < WALL_SEEN):
+        wrong = bool(rng.random() < (WALL_WRONG_AGAIN if wrong else WALL_WRONG))
+        off = rng.normal(0.0, WALL_NOISE_DEG)
+        if wrong:
+            slant = float(rng.choice([-1.0, 1.0])) * WALL_SLANT_DEG + rng.normal(0.0, 2.0)
+            off = slant if rng.random() < 2 / 3 else rng.uniform(0.0, 360.0)
+        out[k] = true[k, :3, :3].T @ upright(math.radians(off), 0.0, 0.0)[:3, 2]
+    return out
+
+
 def gap(poses: np.ndarray, true: np.ndarray, i: int, j: int) -> tuple[float, float]:
     """How far `poses` puts frame j from where `true` has it, seen from frame i: metres, and degrees of heading
     about the camera's up."""
@@ -151,7 +180,17 @@ def gap(poses: np.ndarray, true: np.ndarray, i: int, j: int) -> tuple[float, flo
     return float(np.linalg.norm(off[:3, 3])), abs(math.degrees(math.atan2(off[0, 2], off[2, 2])))
 
 
-def simulate(frames: int, seed: int, one_lap: bool = False, breaks: float = 0.0) -> dict[str, Any]:
+def bend(poses: np.ndarray, true: np.ndarray) -> np.ndarray:
+    """How far each frame of `poses` is from where `true` has it (metres), once the whole walk is laid on the true
+    one as well as a rigid move can (no scale): what is left is the walk's bend, not where its first frame points."""
+    a, b = poses[:, :3, 3], true[:, :3, 3]
+    ca, cb = a - a.mean(axis=0), b - b.mean(axis=0)
+    u, _, vt = np.linalg.svd(ca.T @ cb)
+    turn = u @ np.diag([1.0, 1.0, float(np.sign(np.linalg.det(u @ vt)))]) @ vt
+    return np.linalg.norm(ca @ turn - cb, axis=1)
+
+
+def simulate(frames: int, seed: int, one_lap: bool = False, breaks: float = 0.0, walls: bool = True) -> dict[str, Any]:
     """One simulated walk through `close_loops`: what it kept, and its closure before and after against the truth."""
     rng = np.random.default_rng(seed)
     true = route(frames, one_lap)
@@ -162,7 +201,8 @@ def simulate(frames: int, seed: int, one_lap: bool = False, breaks: float = 0.0)
     loops = retrieval.shortlist(scores, gap=retrieval.LOOP_GAP, cap=retrieval.cap_for(n))
     real = [(i, j) for i, j in loops if dist[i, j] < 2.5 and angle[i, j] < 50.0]  # the rest get no sure answer
     measured = answers(true, [*((k, k + 1) for k in range(n - 1)), *real], rng)
-    closed = walkthrough.close_loops(walk, measured, loops, np.full(n, DEPTH), gravity=True)
+    seen = wall_views(true, rng) if walls else None
+    closed = walkthrough.close_loops(walk, measured, loops, np.full(n, DEPTH), gravity=True, walls=seen)
     back = [
         (i, j) for i in range(RETURN) for j in range(n - RETURN, n) if dist[i, j] < SAME_M and angle[i, j] < SAME_DEG
     ]
@@ -180,6 +220,8 @@ def simulate(frames: int, seed: int, one_lap: bool = False, breaks: float = 0.0)
         "after_m": max(m for m, _ in after),
         "after_deg": max(d for _, d in after),
         "rms_m": float(np.sqrt((error**2).mean())),
+        "bend_m": float(bend(closed.poses, true).max()),
+        "walls": closed.walls,
     }
 
 
@@ -189,12 +231,21 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument("--seeds", type=int, default=5, help="walks per length")
     parser.add_argument("--one-lap", action="store_true", help="one loop the whole walk long")
     parser.add_argument("--breaks", type=float, default=0.0, help="the share of steps where the pose model spins")
+    parser.add_argument("--no-walls", action="store_true", help="no frame shows a wall")
     args = parser.parse_args(argv)
     logging.disable(logging.WARNING)
-    print(f"tolerance: {walkthrough.CLOSE_M} m and {walkthrough.CLOSE_DEG:.0f} degrees")
-    print("minutes frames metres revisits kept | gap before (median) | gap after (median, worst) | inside | rms m")
+    print(
+        f"tolerance: {walkthrough.CLOSE_M} m and {walkthrough.CLOSE_DEG:.0f} degrees at the return, and a bend of "
+        f"{walkthrough.BEND_SHARE:.0%} of the walk's length"
+    )
+    print(
+        "minutes frames metres revisits kept | gap before (median) | gap after (median, worst) | inside | rms m | "
+        "bend (median, worst) | inside"
+    )
     for minutes in args.minutes:
-        runs = [simulate(round(minutes * 60), seed, args.one_lap, args.breaks) for seed in range(args.seeds)]
+        frames = round(minutes * 60)
+        runs = [simulate(frames, seed, args.one_lap, args.breaks, not args.no_walls) for seed in range(args.seeds)]
+        flat = sum(r["bend_m"] <= walkthrough.BEND_SHARE * r["metres"] for r in runs)
         inside = sum(r["after_m"] <= walkthrough.CLOSE_M and r["after_deg"] <= walkthrough.CLOSE_DEG for r in runs)
 
         def mid(key: str, runs: list[dict[str, Any]] = runs) -> float:
@@ -205,7 +256,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             f"{mid('before_m'):5.1f} m {mid('before_deg'):5.0f} deg | "
             f"{mid('after_m'):.2f} m {mid('after_deg'):.1f} deg, "
             f"{max(r['after_m'] for r in runs):.2f} m {max(r['after_deg'] for r in runs):.1f} deg | "
-            f"{inside}/{len(runs)} | {mid('rms_m'):.2f}"
+            f"{inside}/{len(runs)} | {mid('rms_m'):.2f} | "
+            f"{mid('bend_m'):.2f} m, {max(r['bend_m'] for r in runs):.2f} m | {flat}/{len(runs)}"
         )
 
 

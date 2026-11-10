@@ -14,7 +14,7 @@ import pytest
 from liberational import config as cfg
 from liberational.assistant import voice
 from liberational.assistant.voice_auth import Grant
-from liberational.dashboard import server
+from liberational.dashboard import context, server
 from liberational.people import identity, registry, tags
 from speech_fake import fake
 from voices import write_voices
@@ -297,11 +297,11 @@ def test_a_spoken_tag_gives_the_person_attributes_only_with_the_flag_on(tmp_path
 def dash(tmp_path, monkeypatch):
     """The dashboard's people reads and writes on a temp state dir."""
     for name, path in (
-        ("STATE", tmp_path),
         ("PEOPLE_ADDED", tmp_path / "people_added.json"),
         ("CONTACTS_FILE", tmp_path / "contacts.json"),
     ):
         monkeypatch.setattr(server, name, path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     return tmp_path
 
 

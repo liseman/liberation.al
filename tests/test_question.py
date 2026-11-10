@@ -131,6 +131,21 @@ def test_people_are_the_names_the_question_holds(asked, people, kept):
 
 
 @pytest.mark.parametrize(
+    ("fields", "source", "movement"),
+    [
+        pytest.param(dict(source="people", measure="count", movement="came_in"), "cameras", "came_in", id="a-count"),
+        pytest.param(dict(source="people", measure="who", movement="came_in"), "people", "", id="who-was-here"),
+        pytest.param(
+            dict(source="cameras", measure="describe", movement="walked_by"), "cameras", "walked_by", id="seen"
+        ),
+    ],
+)
+def test_people_coming_in_are_a_camera_count_and_who_was_here_is_no_movement(fields, source, movement):
+    r = question.from_reply(reply(**fields), "how many people came in")
+    assert (r.source, r.movement) == (source, movement)
+
+
+@pytest.mark.parametrize(
     "bad",
     [
         pytest.param("not a form", id="not-an-object"),

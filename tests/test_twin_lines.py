@@ -5,7 +5,7 @@ from unittest.mock import create_autospec
 
 import pytest
 
-from liberational.dashboard import server
+from liberational.dashboard import context, server
 from liberational.domain.identity import Basis
 from liberational.people import registry, transcript_view
 from speech_fake import fake
@@ -28,7 +28,7 @@ LINES = [
 def state(tmp_path, monkeypatch):
     write_voices(tmp_path, {1: None})  # an unnamed voice heard all three
     fake().write(LINES)
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     return tmp_path
 
 

@@ -1404,7 +1404,7 @@ class Pass:
         todo = []
         for r in sorted(self.present.get(self.base, {}).values(), key=lambda row: row["ts_start"]):
             recorded = r.get("line_speakers") or {}
-            keyed = {uid: was for uid, was in recorded.items() if UUID.match(uid)}  # v1's keys name no payload
+            keyed = {uid: was for uid, was in recorded.items() if UUID.match(uid)}  # other keys name no payload
             moved = not self._review_current(r) or (
                 r["ts_start"] >= self.stale_from
                 and can_reconcile_identity

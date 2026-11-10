@@ -8,7 +8,7 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from liberational.dashboard import server
+from liberational.dashboard import context, server
 from liberational.people import registry
 from liberational.people import voice_guess as G
 from speech_fake import fake
@@ -128,7 +128,7 @@ def state(tmp_path, monkeypatch, prints):
         {"ts_start": 103.5, "speaker_id": 4, "speaker_sim": 0.9, "text": "Aside.", "audio": audio},
     ]
     fake().write(lines)
-    monkeypatch.setattr(server, "STATE", tmp_path)
+    monkeypatch.setattr(context, "STATE", tmp_path)
     monkeypatch.setattr(server, "INBOX_SKIPS", tmp_path / "inbox_skips.json")
     monkeypatch.setattr(server._VOICE_GROUPS, "value", None)  # nothing kept from another test
     server.inbox_skip("voice", 4, True)

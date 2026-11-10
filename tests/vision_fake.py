@@ -86,6 +86,8 @@ class FakeVisionLog:
     def caption(self, ts: float, cam: str = "cam0", caption: str | None = "a room", **fields: Any) -> dict[str, Any]:
         """Adds a `camera.caption` record (a fresh one unless `fields` say otherwise)."""
         fields.setdefault("observation", {"version": 1, "status": "fresh" if caption else "not_observed"})
+        if isinstance(fields.get("objects"), list):  # a box, as every grounded object has, for a test that names none
+            fields["objects"] = [{"bbox": [0, 0, 1, 1], **o} if isinstance(o, dict) else o for o in fields["objects"]]
         return self.add(vision_log.CAPTIONS, ts_start=ts, cam=cam, yaw_deg=0.0, caption=caption, **fields)
 
     def face(
@@ -218,7 +220,7 @@ class FakeVisionLog:
         return {
             cam: {
                 name: [row[name] for row in rows]
-                if kinds[name].startswith("str") or kinds[name].endswith("[]")
+                if kinds[name].startswith(("str", "id")) or kinds[name].endswith("[]")
                 else np.asarray([row[name] for row in rows], dtype=_DTYPES[kinds[name].split("[")[0]])
                 for name in names
             }
@@ -226,16 +228,9 @@ class FakeVisionLog:
         }
 
     def covered(
-        self,
-        stream: str,
-        start: float,
-        end: float,
-        cameras: Sequence[str] | None = None,
-        *,
-        join_s: float = 0.0,
-        instants: bool = False,
+        self, stream: str, start: float, end: float, cameras: Sequence[str] | None = None, **how: Any
     ) -> dict[str, segment_log.Covered]:
-        return segment_log.Log.covered(self, stream, start, end, cameras, join_s=join_s, instants=instants)  # ty: ignore[invalid-argument-type]  # the real join, over this log's table
+        return segment_log.Log.covered(self, stream, start, end, cameras, **how)  # ty: ignore[invalid-argument-type]  # the real join, over this log's table
 
     def captions(self, start: float, end: float, cams: Iterable[str] = ()) -> list[dict[str, Any]]:
         wanted = set(cams)

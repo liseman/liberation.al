@@ -23,8 +23,7 @@ or there is no event log yet, they answer from face visits alone, exactly as bef
 also answers from that camera's face visits alone, since encounters mix every camera and speech. An answer from
 encounters carries "paths": ["timeline"], which the dashboard shows as a "New" tag linked to the switch.
 
-"Last seen" answers from the timeline (on) or the face worker's visits (off); v1's detector journal and its own path
-are gone.
+"Last seen" answers from the timeline (on) or the face worker's visits (off).
 
 One reader for every question (#60). The local model reads a question once into a structured reading
 (memory/question.py): whether it is about history, where the answer is, the measure, the people, and the time phrase
@@ -1231,15 +1230,15 @@ def _watched_since(state: pathlib.Path, since: float, now: float) -> str:
     try:
         from liberational import segment_log
 
-        rows = segment_log.at(state).range(segment_log.MOVEMENT_COVERAGE, since, now)
+        cams = segment_log.at(state).table(segment_log.MOVEMENT_COVERAGE, since, now, ("camera_motion", "supported_ns"))
     except OSError, TimeoutError, RuntimeError, ValueError:
         return ""
     spans = sorted(
-        (max(since, float(a)), min(now, float(b)))
-        for r in rows
-        if r.get("camera_motion") == "stable"
-        for a, b in (r.get("supported") or [])
-        if isinstance(a, int | float) and isinstance(b, int | float)
+        (max(since, segment_log.secs(a)), min(now, segment_log.secs(b)))
+        for c in cams.values()
+        for motion, flat in zip(c["camera_motion"], c["supported_ns"], strict=True)
+        if motion == "stable"
+        for a, b in itertools.batched([int(v) for v in flat], 2)
     )
     covered, cursor = 0.0, since
     for lo, hi in spans:

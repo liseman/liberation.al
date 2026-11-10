@@ -1,7 +1,7 @@
 """Walk-bys over a window (Review path B, Ask): see-actions' `walkby.span` rows and their
 `walkby.coverage`, in the segment store.
 
-The result keeps the shape v1's recorded-video jobs gave, so Review's page renders it as it did: per camera and per
+The result is the shape Review's page renders: per camera and per
 direction, never summed across cameras or into unique people.
 
 What counts as walking past. A crossing is the moment one track's foot point got past the line, and a person

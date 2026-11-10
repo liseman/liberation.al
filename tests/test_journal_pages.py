@@ -473,9 +473,9 @@ def test_a_failed_build_is_tried_again_only_after_a_while(env, inline):
 
 
 def test_the_journal_today_route_answers_json_and_refuses_a_bad_day(env, inline, serve, monkeypatch):
-    from liberational.dashboard import server
+    from liberational.dashboard import context, server
 
-    monkeypatch.setattr(server, "STATE", env.state)
+    monkeypatch.setattr(context, "STATE", env.state)
     monkeypatch.setattr(server, "DASH_PASSWORD", "")
     base = serve(server.H)
     with urllib.request.urlopen(f"{base}/journal/today") as r:

@@ -172,6 +172,14 @@ class Unreachable:
             return _unreachable(stream, lo, hi)
         return self.vision.range(stream, lo, hi, cams)
 
+    def table(self, stream, lo, hi, names, cams=None):
+        return self.vision.table(stream, lo, hi, names, cams)
+
+    def covered(self, stream, lo, hi, cams=None, **how):
+        if stream in (segment_log.PRESENCE_SPANS, segment_log.ACTION_COVERAGE):
+            return _unreachable(stream, lo, hi)
+        return self.vision.covered(stream, lo, hi, cams, **how)
+
 
 def test_an_unreadable_vision_log_is_explicit_in_history_and_review(detector_day, monkeypatch, vision):
     state, _start, end = detector_day
