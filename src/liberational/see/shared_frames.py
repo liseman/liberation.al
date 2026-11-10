@@ -62,7 +62,7 @@ async def _connect(address: Path) -> tuple[asyncio.StreamReader, asyncio.StreamW
         except FileNotFoundError, ConnectionRefusedError:
             if loop.time() >= deadline:
                 raise TimeoutError("shared decoder did not start within its startup deadline") from None
-            if not _waiting_said:  # one line for the process, not one per camera waiting (#3147)
+            if not _waiting_said:  # one line for the process, not one per camera waiting
                 LOG.warning("waiting for the shared camera decoder to start")
                 _waiting_said = True
             await asyncio.sleep(min(1.0, max(0.0, deadline - loop.time())))
@@ -122,7 +122,7 @@ async def decoded_frames(
     """Follow the camera's pictures in order, at most one every `every_ns` of capture time (a `Schedule`; 0 for every
     picture). Cache laps, restarts and decode losses set `gap_before`.
 
-    The rate is the decoder's to apply (#3218): it runs each reader's `Schedule` before a picture is downloaded from
+    The rate is the decoder's to apply: it runs each reader's `Schedule` before a picture is downloaded from
     the GPU, so a picture no reader takes is never copied or published, and a reader is only ever sent its own
     pictures. A reply says how many pictures it passed over for other readers (`skipped`), so those are no gap. A BGR
     reader gets at most one picture every `decoded_worker.BGR_EVERY_NS`, whatever it asks.

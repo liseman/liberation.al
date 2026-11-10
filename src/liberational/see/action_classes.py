@@ -1,6 +1,6 @@
-"""The action model's classes and window length (#1745), apart from the model, so code that only reads its
+"""The action model's classes and window length, apart from the model, so code that only reads its
 outputs never imports torch (see/stgcn.py has the model). Which classes are which activity is the owner's list
-(memory/activity_kinds.py, #3244)."""
+(memory/activity_kinds.py)."""
 
 CLIP = 100  # frames a window holds: 3.3 s at 30 fps
 

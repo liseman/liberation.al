@@ -1,5 +1,4 @@
-"""`pose.boxes`: see-actions' tracked people for the Live overlay, in a Tier 0 ring that never reaches the catalog
-(#1980), as `face.boxes` is for faces.
+"""`pose.boxes`: see-actions' tracked people for the Live overlay, in a Tier 0 ring that never reaches the catalog, as `face.boxes` is for faces.
 
 `pose.track` reaches the segment store in 1 s batches, and a page following it got its skeletons 0.4 to 0.6 s late,
 in bursts. Every analyzed frame with a tracked person gets one record here as it is analyzed: the camera, the

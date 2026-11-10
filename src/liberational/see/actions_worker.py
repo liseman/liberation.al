@@ -1,12 +1,12 @@
-"""`pack-see-actions` (#1745): every camera's frames, at its analysis rate (`vision.actions_fps`, and
+"""`pack-see-actions`: every camera's frames, at its analysis rate (`vision.actions_fps`, and
 `vision.actions_camera_fps` by name: cam0 at its full 30), through people, skeletons, tracks, and the action
 model, as `pose.track`, `action.window`, `action.span`, and `action.coverage` in the segment store. With MoViNet's
-weights downloaded, each person's crops are scored too, for reading, watching TV, a phone, and sleep (#1977).
+weights downloaded, each person's crops are scored too, for reading, watching TV, a phone, and sleep.
 
 It follows the shared decode (`shared_frames.decoded_frames`, NV12 on the host) at the camera's rate, which the
-decoder applies before it downloads a picture from the GPU (`shared_frames.Schedule`, #3179), and hands each frame to
-`actions.ActionPipeline` on this machine's vision backend (see/vision_backend.py: CUDA on devbox, Core ML and MPS on
-a Mac, `--backend` to choose), whose tracked heads also give the faces (`see.head_faces`: `face.match`, `face.visit`,
+decoder applies before it downloads a picture from the GPU (`shared_frames.Schedule`), and hands each frame to
+`actions.ActionPipeline` on this machine's vision backend (see/vision_backend.py: CUDA on the Linux machine, Core ML and MPS on
+the Mac, `--backend` to choose), whose tracked heads also give the faces (`see.head_faces`: `face.match`, `face.visit`,
 and `face.embedding`). The rows go to one `continuum_py.SegmentWriter` per stream under `paths.state/segments`,
 synced every SYNC_S and on stop. Once a minute it logs each camera's frames, frame rate, time per frame, and how far
 behind live it is.
@@ -17,8 +17,8 @@ own CUDA stream: in one loop, every camera waited on every other's GPU work, and
 `vision.actions_camera_gpus` overrides individual cameras. CUDA graph capture is global, so the backends load one at
 a time, and while one loads, the running cameras' frames wait (`GpuGate`). The face models are shared, behind a lock.
 
-A camera that fails to load, or fails later, is logged once and tried again with backoff while the others run on
-(#3120); the process exits 1, for the service manager to start it again, only once no camera is running.
+A camera that fails to load, or fails later, is logged once and tried again with backoff while the others run
+on; the process exits 1, for the service manager to start it again, only once no camera is running.
 
 A restart starts new tracks from the live frames, as a gap would; there is no checkpoint to resume. Track IDs
 start from the run's start time in milliseconds, times 1000, so they stay unique across restarts.
@@ -44,7 +44,7 @@ from liberational.see.action_movement import Movement
 from liberational.see.shared_frames import Schedule
 
 log = logs.get("see-actions")
-NO_BACKEND_WAIT_S = 300  # how long a process with no backend to run on rests before it exits to look again (#2964)
+NO_BACKEND_WAIT_S = 300  # how long a process with no backend to run on rests before it exits to look again
 
 
 def _rest(stop: threading.Event, seconds: float) -> None:
@@ -57,7 +57,7 @@ WINDOWS = "action.window"
 COVERAGE = "action.coverage"
 SYNC_S = 5.0
 REPORT_S = 60.0
-RETRY_S = 5.0  # a failed camera's first wait before it is tried again (#3120), doubled each failure in a row
+RETRY_S = 5.0  # a failed camera's first wait before it is tried again, doubled each failure in a row
 RETRY_MAX_S = 300.0  # the longest wait between a failed camera's tries
 HEALTHY_S = 60.0  # a camera that ran this long before failing starts its backoff over, and its failure is logged again
 
@@ -141,7 +141,7 @@ _screens_on_lock = threading.Lock()
 
 
 def screens_on() -> screens.ScreensOn:
-    """The process's one writer of <state>/screens_on.json, shared by its cameras (#2468). Locked (#3093): cameras
+    """The process's one writer of <state>/screens_on.json, shared by its cameras. Locked: cameras
     start in threads of their own, and two that both found none would each make one, and each write only its own
     cameras' spans over the other's."""
     global _screens_on
@@ -151,7 +151,7 @@ def screens_on() -> screens.ScreensOn:
         return _screens_on
 
 
-SCREEN_ZONES_S = 60.0  # how often a camera's screen zones are read again (#2468): a newly drawn one counts within this
+SCREEN_ZONES_S = 60.0  # how often a camera's screen zones are read again: a newly drawn one counts within this
 
 
 class ScreenZones:
@@ -200,7 +200,7 @@ class Camera:
         heads = faces(camera)
         who = heads.who if heads is not None else None
         clip_weights = getattr(backend, "clip_weights", None)
-        live = activity_kinds.Live(cfg.path("paths.state"))  # the owner's activities, reread each minute (#3244)
+        live = activity_kinds.Live(cfg.path("paths.state"))  # the owner's activities, reread each minute
         clips = (
             action_clips.Clips(backend.clip, backend.score_clips, who=who, kinds=live.kinetics)
             if clip_weights is not None
@@ -343,7 +343,7 @@ async def watch(
         done.set()
 
     # No on_break: the next frame's gap_before says how long the break was, and only a long one ends tracks. The
-    # camera's rate is applied by the decoder, before a picture it skips is downloaded or copied (#3179), so follow
+    # camera's rate is applied by the decoder, before a picture it skips is downloaded or copied, so follow
     # takes every frame it is given.
     frames = decoded(camera.camera, format="nv12", every_ns=int(1e9 / camera.fps))
     task = asyncio.create_task(
@@ -430,11 +430,11 @@ def run_cameras(
     because no camera could run, else True.
 
     A camera whose load or follow fails, or whose frames end, is logged once and tried again after `retry_s`, doubled
-    each failure in a row up to `retry_max_s`, while the others run on (#3120). A failed follow keeps its loaded
+    each failure in a row up to `retry_max_s`, while the others run on. A failed follow keeps its loaded
     backend; only a failed load loads again. One that followed for `healthy_s` before failing starts over, as a new
     failure. Once every camera is down at the same time, `stop` is set and the process should exit, for the service
     manager to start it again (a GPU gone bad, say, comes back only in a new process). No camera waits on another to
-    start, so one that never loads can't hold the rest (#3096)."""
+    start, so one that never loads can't hold the rest."""
     gate = GpuGate()
     down: set[str] = set()
     tally = threading.Lock()
@@ -479,7 +479,7 @@ def run_cameras(
                 streak = 0
             streak += 1
             failed(name, stage, streak, error)
-            # The exponent capped (#3130): 2 ** 1024 doesn't convert to a float, and the OverflowError would end
+            # The exponent capped: 2 ** 1024 doesn't convert to a float, and the OverflowError would end
             # this thread, so a camera that failed that many times in a row was never tried again.
             stop.wait(min(retry_max_s, retry_s * 2 ** min(streak - 1, 64)))
 
@@ -512,9 +512,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     try:
         vision_backend.choose(args.backend)
     except vision_backend.NoBackend as e:
-        # A GPU gone missing (on devbox, a boot without a working driver) is fixed outside this process, and torch
-        # won't see it come back in this one: say so once, rest, then exit so the service manager starts a fresh
-        # process that looks again, rather than restarting every few seconds (#2964).
+        # A GPU gone missing (on the Linux machine, a boot without a working driver) is fixed outside this process,
+        # and torch won't see it come back in this one: say so once, rest, then exit so the service manager starts a
+        # fresh process that looks again, rather than restarting every few seconds.
         log.error("%s; looking again in %d min", e, NO_BACKEND_WAIT_S // 60)
         stop = threading.Event()
         for sig in (signal.SIGINT, signal.SIGTERM):
@@ -549,8 +549,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     models = cfg.model_path("person_detector").parent
     stop = threading.Event()
     live = LiveBoxes()
-    shots = face_shots.Writer(cfg.path("paths.state"))  # People's face thumbnails, one a sighting (#2018)
-    pet_photos = pet_shots.Writer(cfg.path("paths.state"))  # Pets' sighting photos, one a track (#2038)
+    shots = face_shots.Writer(cfg.path("paths.state"))  # People's face thumbnails, one a sighting
+    pet_photos = pet_shots.Writer(cfg.path("paths.state"))  # Pets' sighting photos, one a track
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda *_: stop.set())
 
@@ -563,7 +563,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             torch.cuda.set_stream(torch.cuda.Stream(torch.device("cuda", gpu)))
         # Alone on the GPU (run_cameras' GpuGate): CUDA graph capture is global, so while one thread captures, no
         # other may touch the GPU, loading or running.
-        lens = fisheye.lens_for(args.manifest, name)  # a calibrated fisheye: each person is rectified (#1891)
+        lens = fisheye.lens_for(args.manifest, name)  # a calibrated fisheye: each person is rectified
         return vision_backend.load(models, gpu, args.backend, lens), lens
 
     def follow(name: str, loaded: tuple[Any, Any], gate: GpuGate) -> None:

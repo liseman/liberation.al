@@ -1,23 +1,22 @@
-"""MoViNet beside ST-GCN++ in see-actions (#1977): what a person's skeleton can't show, read from the pixels.
+"""MoViNet beside ST-GCN++ in see-actions: what a person's skeleton can't show, read from the pixels.
 
 ST-GCN++ reads movement (sitting down, standing up, a fall, picking up). Reading, watching TV, using a phone, and
 sleeping hardly move a joint, so `Clips` keeps each track's last FRAMES person crops, one every STEP_NS, and scores
 them with MoViNet-A2 (Kinetics-600, see/movinet.py) every EVERY_NS. Each score is an `action.window` row (its top
 Kinetics classes, model MODEL), and an activity whose Kinetics classes add up to THRESHOLD or more becomes an
-`action.span`, as ST-GCN++'s do. The activities and their classes are the owner's list (memory/activity_kinds.py,
-#3244), read through `kinds` each time a clip is scored.
+`action.span`, as ST-GCN++'s do. The activities and their classes are the owner's list (memory/activity_kinds.py), read through `kinds` each time a clip is scored.
 
-What it skips, from the offline replay of 2026-11-03 18:05 to 19:05 (38 spans at 0.5, ST-GCN++ 0):
+What it skips, from a one-hour offline replay (38 spans at 0.5, ST-GCN++ 0):
 - A clip whose median frame has fewer than `actions.MIN_JOINTS` confident joints: an object taken for a person.
 - Not a box that stays still for minutes (ST-GCN++'s STILL_NS): reading, watching TV, and sleeping are still. The
   objects that rule was for show no confident joints, so the joints rule already drops them.
 - Not a box cut off by the frame's edge, which ST-GCN++ skips because a part of a skeleton misleads it. A crop is
   pixels, black past the edge. On cam0 a person's box touched the edge in a quarter to over half of a long track's
-  frames, and each one restarted the clip, so it was rarely scored (#1991).
+  frames, and each one restarted the clip, so it was rarely scored.
 
 A span closes HOLD_NS after its last clip that saw the kind and is kept only when MIN_CLIPS clips saw it: in the
 replay, most of the 28 read spans were one clip at the edge of a long one. The hold outlasts a clip's refill (10 s
-after a gap restarts it), so one restart doesn't split a span in two (#1991).
+after a gap restarts it), so one restart doesn't split a span in two.
 """
 
 from collections import deque
@@ -39,7 +38,7 @@ GAP_NS = 1_000_000_000  # a track unseen this long starts its clip over
 HOLD_NS = 15_000_000_000  # longer than a clip takes to fill again
 MIN_CLIPS = 2
 THRESHOLD = 0.5
-BATCH = 2  # clips per model call: one takes about 30 ms on a 3090, and 8 at once peak at 2.6 GB
+BATCH = 2  # clips per model call: one takes about 30 ms on the Linux machine, and 8 at once peak at 2.6 GB
 
 
 @dataclass

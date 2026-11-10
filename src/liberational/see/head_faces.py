@@ -1,12 +1,12 @@
-"""Faces from see-actions' tracked people (#1738, #1745): no whole-frame face scan.
+"""Faces from see-actions' tracked people: no whole-frame face scan.
 
 see-actions already finds, poses, and tracks every person at full frame rate on the GPU. For each confirmed track,
 about once a second (`EVERY_NS`), this crops the head from the pose's head joints (0 to 4: nose, eyes, ears) and runs
 SCRFD on the crop to find the face and its five landmarks (a back of a head finds none), then AdaFace embeds
-the aligned face. The track's name is what the existing matcher names the mean of all its looks so far (#2274), as
+the aligned face. The track's name is what the existing matcher names the mean of all its looks so far, as
 pets match a track's mean: one turned or blurred look moves the mean a little instead of casting a vote, so a person
 keeps one name across a track without a face tracker of its own (the pose track is the identity over time). On
-the development install's owner-tagged tracks (2026-11-04, 106 tracks, each held out of the gallery) the mean ended right on 101,
+the development install's owner-tagged tracks (106 tracks, each held out of the gallery) the mean ended right on 101,
 unknown on 4, and wrong on 1, against 96, 8, and 2 for a majority over the last 7 looks, and named 99% of looks
 rightly against 96%.
 
@@ -15,10 +15,10 @@ look's face is made of (the head joints' confidences, landmark frontalness, AdaF
 records (a named person's looks on one camera joined while each follows the last within `see.faces.VISIT_GAP_S`, from
 `see.faces.VisitBuilder`), in the record shapes the broker streams had, so readers move by changing where they read. A
 match's `id` is also its `detection`, which a visit's shots name. A look that hardly reads as a face (`readable`: a head
-turned away, a blur; #2355) is set aside: only its `face.signal` is written, naming no match, so it never moves a
+turned away, a blur) is set aside: only its `face.signal` is written, naming no match, so it never moves a
 track's name, starts a face group, or becomes a photo.
 
-A readable look can still be the side or back of a head (`shows_face`, #3155): AdaFace embeds a profile or a rear
+A readable look can still be the side or back of a head (`shows_face`): AdaFace embeds a profile or a rear
 three-quarter view well enough to pass the norm gate, and such views of a known person match their rows poorly. They
 still feed the track's mean, so they can name a known person, but they never count toward, start, or join an unnamed
 group, and they are never offered to the gallery to learn. A track's group comes from its face looks alone.
@@ -43,18 +43,18 @@ from liberational.vision import faces as face_identity
 log = logs.get("head-faces")
 NS = 1_000_000_000
 EVERY_NS = NS  # how often each track's head is looked at
-LEARN_LOOKS = 64  # a track's looks kept to teach the gallery when it ends (#3013)
-GROUP_AFTER_LOOKS = 3  # a track joins an unnamed group once this many face looks match no one, by their mean (#3001)
+LEARN_LOOKS = 64  # a track's looks kept to teach the gallery when it ends
+GROUP_AFTER_LOOKS = 3  # a track joins an unnamed group once this many face looks match no one, by their mean
 # A track whose mean is close to naming someone (this alike, within 0.05 of the name gate's 0.45) waits for its group
-# until it has GROUP_HOLD_LOOKS looks (#3048): at its third look a known person's mean often sits just short of their
-# name. On 2026-11-08's tracks, 35 that ended up named got a group at the third look, 30 of them at 0.40 or more;
+# until it has GROUP_HOLD_LOOKS looks: at its third look a known person's mean often sits just short of their
+# name. In one day's tracks, 35 that ended up named got a group at the third look, 30 of them at 0.40 or more;
 # holding them to 8 looks leaves 7. A stranger's mean, under 0.40, is grouped at the third look as before, and one
 # still unnamed at 8 looks (a lookalike, say) is grouped then.
 GROUP_HOLD_SIM = 0.40
 GROUP_HOLD_LOOKS = 8
 # A look shows the face (`shows_face`) when its landmarks read at least a little frontal or AdaFace's norm is high (a
-# face tipped down or rolled reads 0 frontal but keeps its norm). Picked from 2026-11-08's 19,261 recorded looks
-# (#3155): by eye, it passed 56 of 57 faces in the replayed groups and refused 20 of 24 backs of heads and 28 of 29
+# face tipped down or rolled reads 0 frontal but keeps its norm). Picked from 19,261 recorded looks:
+# by eye, it passed 56 of 57 faces in the replayed groups and refused 20 of 24 backs of heads and 28 of 29
 # profiles; in a random 64 it refused, 5 were three-quarter faces and the rest sides or backs of heads, and in a
 # random 64 it passed, 4 were blurs or backs of heads. It refuses two thirds of all looks, nearly all a camera seeing
 # people from the side.
@@ -134,7 +134,7 @@ class HeadFaces:
     ) -> None:
         """`people` turns a voted name into the person's id for the embeddings, which the vector worker keys on.
         `live` gets one `face.boxes` record (`see.face_boxes`) per frame with a looked-at person, for the Live tab.
-        `shots` gets each sighting's square face patch with its `face.match` id: People's thumbnail (#2018)."""
+        `shots` gets each sighting's square face patch with its `face.match` id: People's thumbnail."""
         self.cam, self.detector, self.matcher, self.writers, self.live = cam, detector, matcher, writers, live
         self.shots = shots
         self.people = people or subjects.NoPeople()
@@ -210,7 +210,7 @@ class HeadFaces:
             head = [round(float(c), 4) for c in np.asarray(joints, np.float64)[:HEAD_JOINTS, 2]]
             frontal = face_quality.frontal(face.kps)
             if not readable(face.norm, head[0]):
-                # Set aside (#2355): its signal is kept, naming no match, and nothing else is. It doesn't move the
+                # Set aside: its signal is kept, naming no match, and nothing else is. It doesn't move the
                 # track's mean, start or join a face group, or become a photo, so its embedding never reaches a
                 # centroid either.
                 self.signals.append(self._signal(ts, str(uuid.uuid7()), head, frontal, face.norm))
@@ -223,7 +223,7 @@ class HeadFaces:
             if facing:
                 track.face_total = emb.copy() if track.face_total is None else track.face_total + emb
                 track.face_looks += 1
-                if len(track.vecs) < LEARN_LOOKS:  # the side or back of a head never teaches the gallery (#3155)
+                if len(track.vecs) < LEARN_LOOKS:  # the side or back of a head never teaches the gallery
                     track.vecs.append(emb)
             track.total = emb.copy() if track.total is None else track.total + emb
             track.looks += 1
@@ -281,9 +281,9 @@ class HeadFaces:
 
     def _group(self, track: _Track, ts: float) -> str | None:
         """The unnamed group a face look of an unnamed track joins, if any. A track gets one only once it has
-        GROUP_AFTER_LOOKS looks that show the face (#3001, #3155) and their mean still matches no one: a known person's
+        GROUP_AFTER_LOOKS looks that show the face and their mean still matches no one: a known person's
         first looks often match no one, one look at a time split a track over groups, and the side or back of a
-        known person's head matches them poorly. A mean close to someone waits longer (GROUP_HOLD_SIM, #3048)."""
+        known person's head matches them poorly. A mean close to someone waits longer (GROUP_HOLD_SIM)."""
         if track.face_total is None:
             return None
         mean = track.face_total / max(float(np.linalg.norm(track.face_total)), 1e-9)
@@ -332,7 +332,7 @@ class HeadFaces:
         self.tracks.clear()
 
     def _learn(self, track_id: int, track: _Track) -> None:
-        """A track that ended may teach the named gallery its person's views (#3013), when the matcher learns."""
+        """A track that ended may teach the named gallery its person's views, when the matcher learns."""
         learn = getattr(self.matcher, "learn", None)
         if learn is None or not track.vecs:
             return
