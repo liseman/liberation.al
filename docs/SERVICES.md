@@ -1,7 +1,7 @@
 # Services
 
 How the pack's processes are declared, started, restarted, and logged, and where an install keeps its files.
-[ARCHITECTURE.md](ARCHITECTURE.md) lists the services themselves.
+[COMPONENTS.md](COMPONENTS.md) lists the services themselves.
 
 ## Declaring a service
 
