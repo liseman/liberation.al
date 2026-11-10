@@ -649,10 +649,11 @@ def single(directory: Path) -> Generator[None]:
         lock.close()
 
 
-def run() -> None:
-    """`pack-supervisor run`: the application, in the foreground."""
-    logs.setup()
-    logs.adopt("supervisor")
+@contextlib.contextmanager
+def application() -> Generator[tuple[App, list[str]]]:
+    """The one supervisor for this machine, ready to run: (its App, the daily jobs to catch up). Refuses while a
+    service of the pack runs outside it, holds the state directory's lock, and serves the control socket for as long
+    as the block lasts. `pack-supervisor run` and the application's window (app_window.py) both start here."""
     spec = services.selected()
     outside = {name: pids for name, pids in services.processes(fresh=True).items() if name in spec and pids}
     if outside:
@@ -668,13 +669,23 @@ def run() -> None:
         )
         missed = missed_jobs(spec, last_starts(directory), time.time())
         app = App(Supervisor(spec, directory=directory, readiness=readiness))
+        LOG.info(f"supervising {len(spec)} services" + (f"; catching up: {', '.join(missed)}" if missed else ""))
+        try:
+            with app.serve(socket_path()):
+                yield app, missed
+        finally:
+            status_path().unlink(missing_ok=True)
+            LOG.info("stopped")
+
+
+def run() -> None:
+    """`pack-supervisor run`: the application without its window, in the foreground."""
+    logs.setup()
+    logs.adopt("supervisor")
+    with application() as (app, missed):
         for sig in (signal.SIGTERM, signal.SIGINT):
             signal.signal(sig, lambda *_: app.quitting.set())
-        LOG.info(f"supervising {len(spec)} services" + (f"; catching up: {', '.join(missed)}" if missed else ""))
-        with app.serve(socket_path()):
-            app.run(missed)
-        status_path().unlink(missing_ok=True)
-        LOG.info("stopped")
+        app.run(missed)
 
 
 def main() -> None:
