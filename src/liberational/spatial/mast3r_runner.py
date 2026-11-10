@@ -45,6 +45,8 @@ frame, and each view in the other's frame. `forward` is camera b's pose in camer
 the rigid part of the similarity that carries b's own pointmap onto b's pointmap in a's frame (`pair_pose`), and
 `backward` is a in b's frame the same way; with `save_pairs` in the job, each pair's inferences also go to
 `pairs.npz` as a group's do (`_pair_arrays`), named in the answer's `pair_file`; `scales` are those similarities' scales (near 1 when the two heads agree).
+`focals` are a's and b's focal lengths, each from its own pointmap, in pixels at the size MASt3R saw it (`sizes`, each
+[width, height]), for a camera with no calibration of its own.
 A pair MASt3R is unsure of nearly everywhere has no poses (None) and an `error`. `inliers` count the
 reciprocal matches PnP with RANSAC keeps for each direction (`pnp_inliers`: a's points at its
 matched pixels against b's matched pixels, with b's focal from its own pointmap), a check that the matches and the
@@ -498,6 +500,8 @@ def _pair_poses(
                 "backward": [float(x) for x in backward.ravel()],
                 "scales": [s_fwd, s_back],
                 "inliers": [n_fwd, n_back],
+                "focals": [focal(x11), focal(x22)],
+                "sizes": [[w1, h1], [w2, h2]],
             }
         )
     answer: dict[str, Any] = {"pairs": out}

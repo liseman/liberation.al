@@ -237,3 +237,49 @@ def test_a_camera_the_decoder_refuses_is_left_for_a_while_and_the_others_carry_o
         await service.run(stop)
 
     asyncio.run(run())
+
+
+def test_a_map_step_starts_while_learning_is_on_and_frames_wait_and_what_it_drops_is_dropped(sampler, scene):
+    from liberational.spatial import surroundings_map
+
+    async def run():
+        steps: list[int] = []
+        clock = {"now": 1000.0}
+
+        async def step() -> int:
+            # What a real step would leave: the one waiting frame, found to add nothing, is to be dropped.
+            steps.append(len(sampler.store.kept))
+            state = surroundings_map.State.read(sampler.store.folder)
+            state.drop = [f.id for f in sampler.store.kept]
+            state.write(sampler.store.folder)
+            return 0
+
+        off = surroundings.Switch(False, ("front",), (), "front")
+        on = surroundings.Switch(True, ("front",), (), "front")
+        service = worker.Service(
+            sampler, read=lambda: on, source=Cameras().pictures, map_step=step, monotonic=lambda: clock["now"]
+        )
+        sampler.look("front", scene.add(1), 0.0)
+
+        service.map_due(off)
+        await asyncio.sleep(0.01)
+        assert steps == []  # never while learning is off
+
+        service.map_due(on)
+        await settle(lambda: steps == [1])
+        await settle(lambda: sampler.store.kept == [])  # the step's drop was carried out
+        service.map_due(on)  # collects the finished look
+        clock["now"] += worker.MAP_GAP_S - 1
+        service.map_due(on)
+        await asyncio.sleep(0.01)
+        assert steps == [1]  # not again before the gap has passed
+
+        clock["now"] += 2
+        service.map_due(on)
+        await asyncio.sleep(0.05)
+        assert steps == [1]  # the gap has passed, but nothing is waiting: no step
+        stop = asyncio.Event()
+        stop.set()
+        await service.run(stop)
+
+    asyncio.run(run())

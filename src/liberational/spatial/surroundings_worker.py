@@ -25,6 +25,12 @@ look is still running when its next picture comes passes that picture by. What i
 on, and per camera the counts of each outcome since the service started and when a frame was last kept.
 
 A camera the decoder refuses or stops serving is logged and tried again after `RETRY_S`; the other cameras carry on.
+
+**The map step.** While learning is on, the service looks every `MAP_GAP_S` at whether kept frames are waiting for a
+place, and runs one step of spatial/surroundings_map.py when some are (`map_step`: its own process, niced, one at a
+time). It also drops the kept frames that step asks to drop (`State.drop`: frames it couldn't place, or that the map
+already draws), since the kept frames have one writer. Nothing runs a step on a schedule, and none starts while
+learning is off.
 """
 
 from __future__ import annotations
@@ -34,8 +40,9 @@ import collections
 import concurrent.futures
 import signal
 import statistics
+import sys
 import time
-from collections.abc import AsyncIterator, Callable, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from typing import Any
 
 import numpy as np
@@ -51,6 +58,8 @@ SAMPLE_EVERY_S = 5.0
 SWITCH_EVERY_S = 1.0
 STATUS_EVERY_S = 5.0
 RETRY_S = 30.0
+MAP_GAP_S = 60.0  # between one map step's end and the next look at whether one is due
+MAP_NICE = 10
 SAME_THUMB = 0.995
 THUMB = (32, 18)
 BLUR = 0.5
@@ -61,6 +70,8 @@ OUTCOMES = ("dark", "same", "blurred", "person", "copy", "view", "changed", "sha
 
 #: Whether a BGR frame has a person or an animal in it (`Living`).
 Detector = Callable[[np.ndarray], bool]
+#: Runs one map step (spatial/surroundings_map.py) and gives its exit code.
+MapStep = Callable[[], Awaitable[int]]
 #: A camera's pictures, one every so often (`pictures`).
 Pictures = Callable[[str], AsyncIterator[np.ndarray]]
 
@@ -218,8 +229,23 @@ async def pictures(camera: str) -> AsyncIterator[np.ndarray]:
         yield frame.pixels
 
 
+async def map_step() -> int:
+    """One map step as its own process, niced: `python -m liberational.spatial.surroundings_map`. Its exit code. A
+    step cancelled from here (the service is stopping) is ended with it."""
+    process = await asyncio.create_subprocess_exec(
+        "nice", "-n", str(MAP_NICE), sys.executable, "-m", "liberational.spatial.surroundings_map"
+    )
+    try:
+        return await process.wait()
+    except asyncio.CancelledError:
+        process.terminate()
+        await process.wait()
+        raise
+
+
 class Service:
-    """Follows the switch, and the chosen cameras while it's on."""
+    """Follows the switch, and the chosen cameras while it's on; and, while it's on, starts a map step when kept
+    frames are waiting for a place."""
 
     def __init__(
         self,
@@ -229,8 +255,12 @@ class Service:
         clock: Callable[[], float] = time.time,
         on_idle: Callable[[], None] = lambda: None,
         monotonic: Callable[[], float] = time.monotonic,
+        map_step: MapStep | None = None,
     ) -> None:
         self.monotonic = monotonic
+        self.map_step = map_step
+        self._mapping: asyncio.Task[None] | None = None
+        self._map_at = -MAP_GAP_S
         self.sampler = sampler
         self.read = read
         self.source = source
@@ -282,6 +312,44 @@ class Service:
             self.on_idle()
         return switch
 
+    def _apply_map(self) -> int:
+        """Drop the kept frames the map step asked to drop, and count the ones waiting for a place. Run on the
+        looks' thread: the store has one writer."""
+        from liberational.spatial import surroundings_map
+
+        state = surroundings_map.State.read(self.sampler.store.folder)
+        for frame_id in state.drop:
+            self.sampler.store.remove(frame_id)
+        return len(surroundings_map.waiting(self.sampler.store.kept, state))
+
+    async def _map(self) -> None:
+        """One look at whether a map step is due, and the step when it is."""
+        assert self.map_step is not None
+        waiting = await asyncio.get_running_loop().run_in_executor(self._pool, self._apply_map)
+        if not waiting:
+            return
+        LOG.info("%d kept frames are waiting for a place: starting a map step", waiting)
+        code = await self.map_step()
+        if code != 0:
+            LOG.warning("the map step failed (exit %d); its own log says why", code)
+        await asyncio.get_running_loop().run_in_executor(self._pool, self._apply_map)
+
+    def map_due(self, switch: surroundings.Switch) -> None:
+        """Start a look at the map (`_map`) when learning is on, none is running, and the last ended at least
+        MAP_GAP_S ago. One map step runs at a time, and never while learning is off."""
+        if self.map_step is None or not switch.on:
+            return
+        now = self.monotonic()
+        if self._mapping is not None:
+            if not self._mapping.done():
+                return
+            error = None if self._mapping.cancelled() else self._mapping.exception()
+            if error is not None:
+                LOG.warning("couldn't run a map step: %s", error)
+            self._mapping, self._map_at = None, now
+        if now - self._map_at >= MAP_GAP_S:
+            self._mapping = asyncio.get_running_loop().create_task(self._map())
+
     def write_status(self, switch: surroundings.Switch, force: bool = False) -> None:
         now = self.clock()
         status = self.sampler.status(switch, now)
@@ -312,15 +380,17 @@ class Service:
                 if switch.on != was_on:
                     LOG.info("learning surroundings is %s", "on" if switch.on else "off")
                 self.write_status(switch, force=switch.on != was_on)
+                self.map_due(switch)
                 was_on = switch.on
                 try:
                     await asyncio.wait_for(stop.wait(), SWITCH_EVERY_S)
                 except TimeoutError:
                     pass
         finally:
-            for task in self.following.values():
+            tasks = [*self.following.values(), *([self._mapping] if self._mapping is not None else [])]
+            for task in tasks:
                 task.cancel()
-            await asyncio.gather(*self.following.values(), return_exceptions=True)
+            await asyncio.gather(*tasks, return_exceptions=True)
             self._pool.shutdown(wait=True)
 
 
@@ -349,7 +419,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         loop = asyncio.get_running_loop()
         for sig in (signal.SIGTERM, signal.SIGINT):
             loop.add_signal_handler(sig, stop.set)
-        await Service(sampler, on_idle=idle).run(stop)
+        # The map step needs CUDA: on macOS the frames are kept and wait.
+        await Service(sampler, on_idle=idle, map_step=None if sys.platform == "darwin" else map_step).run(stop)
 
     asyncio.run(run())
 

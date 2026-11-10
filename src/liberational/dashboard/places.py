@@ -23,10 +23,15 @@
                                        size, its splat's when it has one (its own, else the newest made in the same
                                        map frame; one from another frame is only named, `splat_stale`) and what
                                        it was trained from (`splat_from`, as its trainer named it), which state the
-                                       splat is in (`splat_state`: "current", "earlier", "stale", or "none") and,
-                                       while the map has no splat of its own, why (`splat_wait`), its floor plane,
-                                       plan transform, registered cameras, and the plan in its frame;
-                                       {revision: null} while the place has no map
+                                       splat is in (`splat_state`: "current", "improving", "earlier", "stale", or
+                                       "none") and, while the map has no splat of its own, why (`splat_wait`), its
+                                       floor plane, plan transform, registered cameras, and the plan in its frame;
+                                       {revision: null} while the place has no map. Either way `learning` says how
+                                       the map is learned from the cameras (`_learning`): whether learning is on, how
+                                       many cameras it samples, whether a view is being added now, how many views
+                                       the place's map was built from, and when it last improved. The page asks
+                                       again every few seconds while it's open, and draws a newer map or splat
+                                       when the reply names one
     GET /places/map?place=&revision=   that revision's map file (a point cloud, PLY), with byte ranges, an ETag, and
                                        caching for good: a revision's files never change once written
     GET /places/splat?place=&revision=&format=sog
@@ -68,6 +73,7 @@ can't be put in that frame (`in_frame` false: a camera that revision doesn't reg
 it's left out; a room-only span is kept either way.
 """
 
+import importlib
 import math
 import re
 import time
@@ -170,15 +176,54 @@ def splat_file(state: Path, place: str, revision: str) -> Path | None:
 SPLAT_FORMAT = "sog"  # what GET /places/splat serves, and what its URL and ETag name
 
 
+LEARNED = "surroundings"  # what a learned map's producer starts with, and what its splat says it was trained from
+
+
+def _summary(state: Path) -> dict[str, Any]:
+    """What the map step knows (spatial/surroundings_map.py's `summary`, #258): the switch, the cameras sampled, the
+    kept frames waiting for a place, whether a step is running, and each place's views and when it last improved.
+    On an install without the map step, only the switch."""
+    try:
+        step = importlib.import_module("liberational.spatial.surroundings_map")
+    except ImportError:
+        from liberational.spatial import surroundings
+
+        return {"on": surroundings.read().on}
+    return step.summary(state)
+
+
+def _learning(state: Path, place: str) -> dict[str, Any]:
+    """How `place`'s map is learned from the cameras, for the 3D view to say in plain words: `on` (the Live tab's
+    switch), `cameras` (how many it samples now; none while off), `improving` (on, and a kept frame is waiting to be
+    placed or a map step is running), `views` (the kept frames the place's map was built from; None for a place the
+    map step hasn't built), and `improved` (when a step last added a view to it, epoch seconds, or None)."""
+    told = _summary(state)
+    on = told.get("on") is True
+    by_place = told.get("places")
+    mine = by_place.get(place) if isinstance(by_place, dict) else None
+    mine = mine if isinstance(mine, dict) else {}
+    sampling = told.get("sampling")
+    return {
+        "on": on,
+        "cameras": len(sampling) if isinstance(sampling, list) else 0,
+        "improving": on and bool(told.get("waiting") or told.get("running")),
+        "views": mine.get("views"),
+        "improved": mine.get("improved"),
+    }
+
+
 def _splat_wait(state: Path, rev: places.Revision) -> dict[str, Any]:
     """Why `rev` has no splat of its own: `reason` is the splat pass's own note when it has tried this revision
-    ("few_frames", "no_cameras", "no_runtime", or "failed", with `tried`, when), else "no_cameras" for a map with no
-    cameras registered (there is nothing to make one from), else "pass": no pass has tried this map. `pass_at` is
-    the time of day a scheduled pass runs; None, since nothing makes splats on a schedule at present
-    (`pack-spatial-splat` does by hand)."""
+    ("few_frames", "no_cameras", "no_runtime", or "failed", with `tried`, when), else "learned" for a map learned
+    from the cameras (its splat is written right after it, so it's on its way or its training failed), else
+    "no_cameras" for a map with no cameras registered (there is nothing to make one from), else "pass": no pass has
+    tried this map. `pass_at` is the time of day a scheduled pass runs; None, since nothing makes splats on a
+    schedule at present (`pack-spatial-splat` does by hand)."""
     note = places.splat_note(state, rev)
     if note is not None:
         reason, tried = note["reason"], note["at"]
+    elif rev.producer.startswith(LEARNED):
+        reason, tried = "learned", None
     elif not rev.cameras:
         reason, tried = "no_cameras", None
     else:
@@ -193,16 +238,17 @@ def scene(state: Path, place: str) -> Reply:
     held = places.get(state, place)
     if held is None:
         return 404, {"error": "no such place"}
+    learning = _learning(state, place)
     rev = _map_revision(state, place)
     if rev is None or rev.map is None:
-        return 200, {"place": place, "revision": None}
+        return 200, {"place": place, "revision": None, "learning": learning}
     by_id = {r.id: r for r in places.revisions(state, place)}
     drawn = by_id.get(held.plan_revision or "")
     owner = held.plan_source == "owner" and drawn is not None and places.same_plan_frame(drawn, rev)
     try:
         size = (places.root(state) / place / rev.map).stat().st_size
     except FileNotFoundError:  # pruned since it was found
-        return 200, {"place": place, "revision": None}
+        return 200, {"place": place, "revision": None, "learning": learning}
     # The revision's own splat, else the newest one made in the same map frame (a later revision that kept the
     # frame); a splat of another frame (or an unknown one) would sit out of place, so it's only named as stale.
     chain = places.revisions(state, place)
@@ -214,10 +260,16 @@ def scene(state: Path, place: str) -> Reply:
     except FileNotFoundError:  # pruned since it was found
         shown, splat_size = None, None
     stale = with_splat[-1] if shown is None and with_splat else None
-    # Which of the four the view is in, so the page doesn't guess: this map's own splat, an earlier map's that
-    # still lines up (same frame), one that doesn't (named, not offered), or none.
-    if shown is not None:
-        splat_state = "current" if shown.id == rev.id else "earlier"
+    # Which state the view is in, so the page doesn't guess: this map's own splat (still improving while learning
+    # is adding views to it), an earlier map's that still lines up (same frame), one that doesn't (named, not
+    # offered), or none. A revision that kept its map (one that only set the floor or a camera) has the splat of the
+    # revision that wrote that map: it's the same map's.
+    own = shown is not None and (shown.id == rev.id or shown.map == rev.map)
+    if shown is not None and own:
+        learned = places.splat_source(state, shown) == LEARNED
+        splat_state = "improving" if learned and learning["improving"] else "current"
+    elif shown is not None:
+        splat_state = "earlier"
     else:
         splat_state = "stale" if stale is not None else "none"
     splat_query = {"place": place, "revision": shown.id if shown else "", "format": SPLAT_FORMAT}
@@ -238,7 +290,8 @@ def scene(state: Path, place: str) -> Reply:
         "splat_from": None if shown is None else places.splat_source(state, shown),
         "splat_state": splat_state,
         "splat_at": None if shown is None else shown.at,
-        "splat_wait": None if splat_state == "current" else _splat_wait(state, rev),
+        "splat_wait": None if own else _splat_wait(state, rev),
+        "learning": learning,
         "floor": list(rev.floor) if rev.floor else None,
         "plan_transform": list(transform) if transform else None,
         "cameras": {cam: pose.as_dict() for cam, pose in rev.cameras.items()},
