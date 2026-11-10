@@ -293,6 +293,13 @@ describe("what waits in Who's this?", () => {
         drop(body);
         return HttpResponse.json({ ok: true, skipped: 1 });
       }),
+      // Ignore on a face's card: its pictures are hidden, and with none left the group goes.
+      http.post('/faces/unknown/hide', async ({ request }) => {
+        const body = (await request.json()) as { group: number; action: string };
+        posts.push({ url: '/faces/unknown/hide', body });
+        drop({ kind: 'face', id: body.group });
+        return HttpResponse.json({ ok: true, kind: 'ignored', keys: ['1'], hidden: 1, left: 0 });
+      }),
       http.get('/transcript', () => {
         tails++;
         return HttpResponse.json({ entries: [] });

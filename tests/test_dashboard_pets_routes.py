@@ -116,3 +116,25 @@ def test_removing_training_images_refuses_another_origin_or_a_remote_viewer(dash
     monkeypatch.setattr(dashboard_server.H, "_can_control", lambda self: False)
     assert request("POST", "/pets/examples/remove", body)[0] == 403
     assert calls == [(["t1"], "pet-id")]
+
+
+def test_blocking_and_listing_hidden_sightings_go_through_from_this_machine_only(
+    dashboard_server, pet_api, monkeypatch
+):
+    from liberational.people import pet_recognition
+
+    calls = []
+    monkeypatch.setattr(
+        pet_recognition, "block", lambda state, tracks, pets, active=True: calls.append((tracks, active)) or 1
+    )
+    monkeypatch.setattr(pet_recognition, "hidden", lambda state: {"ignored": [], "blocked": []})
+    request, _ = pet_api
+    assert request("POST", "/pets/sightings/block", {"track_ids": ["t1"]}) == (200, {"ok": True, "blocked": 1})
+    assert request("POST", "/pets/sightings/block", {"track_ids": ["t1"], "block": False})[0] == 200
+    assert calls == [(["t1"], True), (["t1"], False)]
+    assert request("GET", "/pets/sightings/hidden") == (200, {"ignored": [], "blocked": []})
+    assert request("POST", "/pets/sightings/block", {"track_ids": ["t1"], "block": "no"})[0] == 400
+    assert request("POST", "/pets/sightings/block", {"track_ids": ["t1"]}, "http://other.invalid")[0] == 403
+    monkeypatch.setattr(dashboard_server.H, "_can_control", lambda self: False)
+    assert request("POST", "/pets/sightings/block", {"track_ids": ["t1"]})[0] == 403
+    assert len(calls) == 2

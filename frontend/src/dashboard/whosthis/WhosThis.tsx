@@ -1,12 +1,20 @@
 // "Who's this?": every face group and voice nobody has named yet, one row each, best guess first. Live
 // shows it in its rail (compact), and People in its right pane (wide, with the recent decisions under it). Each row
-// has the face's newest pictures or the voice's most useful clip to play, how often and when it was seen or heard, the
-// best guess with its score ("Probably Kara 86%"), a bar, a one-line reason, and an inline name selector plus Ignore. A voice
-// row also has "Multi" (Multiple speakers), which labels the clip's line as several people, undoably
-// (/speakers/refine), "Noise", which drops just that clip, and "TV", which marks the whole voice as a TV or radio. The
-// guesses and reasons come from the server (vision/face_guess.py, people/voice_guess.py); a score is how sure the guess
-// is (likeness, held down by a close runner-up), not a probability. Face rows need a saved thumbnail; live faces
-// can still be named directly on the camera stage.
+// has the face's newest picture or the voice's most useful clip to play, how often and when it was seen or heard, the
+// best guess with its score ("Probably Kara 86%"), a bar, and a one-line reason.
+//
+// A face's card has two buttons, by its guess. With one: "<Name>", which names its pictures as that person, and
+// "Not <Name>", which records that they aren't (the guess is never offered for them again) and leaves them waiting.
+// With none: the name box, "Ignore" (these pictures, from now on), and "Block" (faces very like them are no longer
+// shown). A card with several pictures has no buttons until it is selected, which opens every picture, all selected:
+// clicking one deselects it, and that leaves it out of the answer. Deselected pictures stay unnamed and wait again as
+// a group of their own. In People's pane, "Show ignored and blocked" lists what was hidden, each with a way back.
+//
+// A voice's card keeps "Yes, <name>", the name box, Ignore, "Multi" (Multiple speakers), which labels the clip's line
+// as several people, undoably (/speakers/refine), "Noise", which drops just that clip, and "TV", which marks the
+// whole voice as a TV or radio. The guesses and reasons come from the server (vision/face_guess.py,
+// people/voice_guess.py); a score is how sure the guess is (likeness, held down by a close runner-up), not a
+// probability. Face rows need a saved thumbnail; live faces can still be named directly on the camera stage.
 import { Anchor, Button, Group, Skeleton, Stack, Text } from '@mantine/core';
 import { IconDeviceTv, IconMessageX, IconUsers } from '@tabler/icons-react';
 import { type QueryClient, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -25,14 +33,23 @@ import { faceGroup, type SceneFace, unknownFaces, where } from '../livetab/model
 import { useKnownPeople } from '../livetab/people';
 import type { LiveScene } from '../livetab/Rail';
 import { Bulk, type BulkTarget } from '../naming/Bulk';
+import { type HiddenItem, HiddenItems } from '../naming/HiddenItems';
 import { NamingInbox, useLeaving } from '../naming/NamingInbox';
-import { NamingRow } from '../naming/NamingRow';
+import { type CardChoice, NamingRow } from '../naming/NamingRow';
+import { toggled } from '../naming/Pictures';
 import { assignMany, MULTI, refine, skipItem, undoChange, undoLabels } from '../people/api';
 import {
   type Band,
   dropClip,
+  dropWaiting,
+  HIDDEN_FACES_KEY,
+  type HiddenKind,
+  hiddenFaces,
+  hideShots,
   ignore,
   markNotFace,
+  restoreHidden,
+  splitShots,
   type Together,
   UNKNOWN_GROUPS_KEY,
   type UnknownGroup,
@@ -41,10 +58,10 @@ import {
   unknownVoicesQuery,
   waitingTotal,
 } from './api';
+import { FacePictures } from './FacePictures';
 import { History } from './History';
 import { showLabel, snip, WHOS_THIS } from './labels';
 import { NameSelect } from './NameSelect';
-import { ShotPicker } from './ShotPicker';
 import './whosthis.css';
 import playClasses from './whosthis.module.css';
 
@@ -118,9 +135,11 @@ const byGuess = (a: Row, b: Row) =>
 /** What a row's decision says, and the line it labeled when it can be undone. */
 type ClaimUndo = { token: string; row: string };
 type NotUndo = { name: string; group: number };
+type HiddenUndo = { kind: HiddenKind; keys: string[]; row: string }; // Ignore or Block, and the row it took pictures of
 type Said = ({ text: string; undo?: LineRef } | { err: string }) & {
   claimUndo?: ClaimUndo;
   notUndo?: NotUndo;
+  hiddenUndo?: HiddenUndo;
   tvUndo?: { token: string; row: string }; // "TV or radio": the mark's Undo, and the row it took away
   bulkUndo?: () => Promise<void>; // By person's save, both halves
 };
@@ -152,7 +171,9 @@ function WhoRow({
   const leaving = useLeaving();
   const [state, setState] = useState<RowState>({ mode: 'idle' });
   const [name, setName] = useState('');
-  const [all, setAll] = useState(false); // every picture shown, to take the wrong ones out
+  // The pictures deselected on the open card: left out of its answer. Every other one is selected, loaded or not.
+  const [out, setOut] = useState<ReadonlySet<string>>(() => new Set());
+  const [counted, setCounted] = useState<number | null>(null); // how many pictures it has, once they are listed
   const submitting = useRef(false);
   const begin = (terminal = false) => {
     if (submitting.current) return false;
@@ -188,12 +209,32 @@ function WhoRow({
     onSaid({ text, undo });
   };
 
+  /** The deselected pictures leave the group before its answer, to wait as a group of their own. Why that
+   *  failed, or null when the answer can go on. */
+  const leaveOut = async (): Promise<string | null> => {
+    if (g.kind !== 'face' || !out.size) return null;
+    try {
+      const r = await splitShots(g.id, [...out]);
+      if (!r.ok) return r.error || 'The server refused that.';
+      setOut(new Set());
+      return null;
+    } catch (e) {
+      return messageOf(e);
+    }
+  };
   const tag = async (who: string, editorName = name) => {
     if (!begin(true)) return;
+    const left = g.kind === 'face' ? out.size : 0;
+    const refused = await leaveOut();
+    if (refused) return failed(`Could not leave those pictures out: ${refused}`, editorName);
     const j = await claim(client, g.kind, g.id, who);
     if (j.ok)
       done(
-        `${g.label} tagged as ${j.name || who}. Liberational will know them from now on.`,
+        `${g.label} tagged as ${j.name || who}. Liberational will know them from now on.${
+          left
+            ? ` The ${plural(left, 'picture', 'pictures')} left out ${left === 1 ? 'waits' : 'wait'} for a name.`
+            : ''
+        }`,
         undefined,
         typeof j.undo === 'string' ? { token: j.undo, row: `${g.kind}:${g.id}` } : undefined,
       );
@@ -210,10 +251,49 @@ function WhoRow({
   /** Not the guessed person: the group stays, guessed afresh without them; Undo takes it back. */
   const notThem = async (who: string) => {
     if (g.kind !== 'face' || !begin()) return;
+    const refused = await leaveOut();
+    if (refused) return failed(`Could not leave those pictures out: ${refused}`);
     const j = await markNotFace(client, who, [g.id]);
     if (!j.ok) return failed(j.error || 'That did not work');
-    kept(`${g.label} is not ${who}.`);
-    onSaid({ text: `${g.label} is not ${who}.`, notUndo: { name: who, group: g.id } });
+    submitting.current = false;
+    setState({ mode: 'idle' });
+    refreshNames(client);
+    onSaid({ text: `${g.label} is not ${who}. It waits for another name.`, notUndo: { name: who, group: g.id } });
+  };
+  /** Ignore or Block the selected pictures: they leave the card, which goes with them when none is left. Kept as
+   *  taught state on the server; Undo (and "Show ignored and blocked") brings them back. */
+  const hide = async (action: 'ignore' | 'block') => {
+    if (g.kind !== 'face') return;
+    const whole = out.size === 0;
+    if (!begin(whole)) return;
+    try {
+      const r = await hideShots(g.id, action, [...out]);
+      if (!r.ok) throw new Error(r.error || 'The server refused that.');
+      const n = plural(r.hidden, 'picture', 'pictures');
+      const text =
+        action === 'block'
+          ? `Blocked ${n} of ${g.label}. Faces very like ${r.hidden === 1 ? 'it' : 'them'} won't be shown.`
+          : `Ignored ${n} of ${g.label}. ${r.hidden === 1 ? "It won't" : "They won't"} be shown again.`;
+      const said = { text, hiddenUndo: { kind: r.kind, keys: r.keys, row: `${g.kind}:${g.id}` } };
+      const emptied = whole || r.left === 0;
+      // Every count of what waits drops now, not after the list is read again (which the drop's cancel precedes).
+      if (emptied) dropWaiting(client, 'face', g.id);
+      refreshNames(client);
+      void client.invalidateQueries({ queryKey: UNKNOWN_GROUPS_KEY });
+      void client.invalidateQueries({ queryKey: HIDDEN_FACES_KEY });
+      if (emptied) {
+        setState({ mode: 'done', text });
+        onSaid(said);
+        onGone();
+        return;
+      }
+      setOut(new Set()); // what was left out is what the card has now, all selected
+      submitting.current = false;
+      setState({ mode: 'idle' });
+      onSaid(said);
+    } catch (e) {
+      failed(`Could not ${action} ${out.size ? 'those pictures' : 'it'}: ${messageOf(e)}`);
+    }
   };
   /** Several people spoke in the clip: its line is labeled so, and can be put back with Undo. */
   const several = async () => {
@@ -266,8 +346,41 @@ function WhoRow({
       ? { id: g.guess.id ?? g.guess.name, name: g.guess.name, score: g.score, band: g.band }
       : null;
   const missing = (url: string) => () => onMissingPicture(url);
-  const showAll =
-    g.kind === 'face' && ((g.shot_count ?? 0) > 0 || (g.shots_pending ?? 0) > 0) ? () => setAll(true) : undefined;
+  // A face's pictures: how many it has, and its two buttons, by whether it has a guess.
+  const pictures = g.kind === 'face' ? (counted ?? g.shot_count ?? g.shots.length) : 0;
+  const these = Math.max(1, pictures - out.size) === 1 ? 'This picture is' : 'These pictures are';
+  const choices: CardChoice[] | undefined =
+    g.kind !== 'face'
+      ? undefined
+      : guess
+        ? [
+            {
+              label: guess.name,
+              hint: `${these} ${guess.name}. Liberational learns from them and knows ${guess.name} from now on. Undo takes it back.`,
+              shortcut: 'Y',
+              onClick: () => void tag(guess.name, guess.name),
+            },
+            {
+              label: `Not ${guess.name}`,
+              hint: `${these} not ${guess.name}. ${guess.name} is never the guess for them again, and they wait for another name. Undo takes it back.`,
+              shortcut: 'N',
+              onClick: () => void notThem(guess.name),
+            },
+          ]
+        : [
+            {
+              label: 'Ignore',
+              hint: 'Ignore the selected pictures from now on. New pictures of this face are still asked about.',
+              shortcut: 'I',
+              onClick: () => void hide('ignore'),
+            },
+            {
+              label: 'Block',
+              hint: 'Stop showing this face: the selected pictures go, and so does any face very like them from now on.',
+              shortcut: 'B',
+              onClick: () => void hide('block'),
+            },
+          ];
   return (
     <NamingRow
       rowKey={`${g.kind}:${g.id}`}
@@ -295,19 +408,14 @@ function WhoRow({
         )
       }
       quote={clip && <span className="who-quote">“{clip.text}”</span>}
-      hotkeys={showAll ? { a: showAll } : undefined}
+      choices={choices}
+      choicesDisabled={pictures > 0 && out.size >= pictures}
+      foldable={g.kind === 'face' && pictures > 1}
       meta={
         <Text size="xs" c="dimmed">
           {seen}
           {face && <span className="who-now"> · in view now{spot ? `, ${spot}` : ''}</span>}
-          {showAll && !all && (
-            <>
-              {' · '}
-              <Button variant="subtle" size="compact-xs" aria-keyshortcuts="A" onClick={showAll}>
-                Show all ({g.shot_count ?? 0})
-              </Button>
-            </>
-          )}
+          {pictures > 1 && ` · ${pictures} pictures`}
         </Text>
       }
       reason={
@@ -323,35 +431,31 @@ function WhoRow({
         </>
       }
       onYes={picked => void tag(picked.name, picked.name)}
-      onNot={g.kind === 'face' ? picked => void notThem(picked.name) : undefined}
-      notHint={who => `This face isn't ${who}. It stays in the list, guessed again without ${who}. Undo takes it back.`}
-      onIgnore={() => void aside()}
-      ignoreHint={
-        g.kind === 'voice'
-          ? "Set this whole voice aside. It leaves the list and you won't be asked about it again."
-          : "Set this face aside. It leaves the list and you won't be asked about it again."
-      }
+      onIgnore={g.kind === 'voice' ? () => void aside() : undefined}
+      ignoreHint="Set this whole voice aside. It leaves the list and you won't be asked about it again."
       picker={
-        <NameSelect
-          known={names}
-          suggestions={[
-            ...(g.guess ? [{ name: g.guess.name, label: `${g.guess.name} (guess, ${g.score}%)` }] : []),
-            ...(suggested
-              ? [{ name: suggested, label: `${suggested} (guess, together ${g.together?.moments} times)` }]
-              : []),
-          ]}
-          typed={name}
-          disabled={busy}
-          onType={setName}
-          onPick={picked => {
-            setName(picked);
-            void tag(picked, picked);
-          }}
-          onEscape={() => {
-            setName('');
-            setState({ mode: 'idle' });
-          }}
-        />
+        (g.kind === 'voice' || !guess) && (
+          <NameSelect
+            known={names}
+            suggestions={[
+              ...(g.guess ? [{ name: g.guess.name, label: `${g.guess.name} (guess, ${g.score}%)` }] : []),
+              ...(suggested
+                ? [{ name: suggested, label: `${suggested} (guess, together ${g.together?.moments} times)` }]
+                : []),
+            ]}
+            typed={name}
+            disabled={busy}
+            onType={setName}
+            onPick={picked => {
+              setName(picked);
+              void tag(picked, picked);
+            }}
+            onEscape={() => {
+              setName('');
+              setState({ mode: 'idle' });
+            }}
+          />
+        )
       }
       answers={
         clip
@@ -383,21 +487,23 @@ function WhoRow({
             ]
           : []
       }
-      onSpace={clip ? () => play(clip.url, `who:${ref(clip)}`, clip.ts) : showAll}
+      onSpace={clip ? () => play(clip.url, `who:${ref(clip)}`, clip.ts) : undefined}
     >
-      {g.kind === 'face' && all && (
-        <ShotPicker
-          id={g.id}
-          label={g.label}
-          total={g.shot_count ?? 0}
-          onClose={() => setAll(false)}
-          onRejected={(said, emptied) => {
-            onSaid(said);
-            void client.invalidateQueries({ queryKey: UNKNOWN_GROUPS_KEY });
-            if (emptied) onGone();
-          }}
-        />
-      )}
+      {expanded =>
+        g.kind === 'face' &&
+        expanded &&
+        pictures > 1 && (
+          <FacePictures
+            id={g.id}
+            label={g.label}
+            total={g.shot_count ?? g.shots.length}
+            out={out}
+            onToggle={shot => setOut(have => toggled(have, shot))}
+            onCount={setCounted}
+            disabled={busy}
+          />
+        )
+      }
     </NamingRow>
   );
 }
@@ -531,6 +637,23 @@ export function WhosThis({
           result.ok ? { text: `Undid it: ${name} can be the guess again.` } : { err: `Undo failed: ${result.error}` },
         );
         if (result.ok) setRefocus({ row: `face:${group}` });
+      } else if (said.hiddenUndo) {
+        const { kind, keys, row } = said.hiddenUndo;
+        const result = await restoreHidden(kind, keys);
+        if (!result.ok) {
+          say({ err: `Undo failed: ${result.error || 'try again'}`, hiddenUndo: said.hiddenUndo });
+          return;
+        }
+        setGone(previous => {
+          const next = new Set(previous);
+          next.delete(row);
+          return next;
+        });
+        refreshNames(client);
+        void client.invalidateQueries({ queryKey: UNKNOWN_GROUPS_KEY });
+        void client.invalidateQueries({ queryKey: HIDDEN_FACES_KEY });
+        say({ text: `Undid it: the pictures are ${kind === 'blocked' ? 'unblocked' : 'back'}.` });
+        setRefocus({ row });
       } else if (said.tvUndo) {
         const { token, row } = said.tvUndo;
         const result = await undoRejected(token);
@@ -610,6 +733,15 @@ export function WhosThis({
     } catch (e) {
       say({ err: `That didn't work: ${messageOf(e)}` });
     }
+  };
+  /** "Show ignored and blocked": take one back. The pictures return to their group, so the list is read again. */
+  const unhide = async (kind: HiddenKind, item: HiddenItem) => {
+    const result = await restoreHidden(kind, [item.key]);
+    if (!result.ok) throw new Error(result.error || 'The server refused that.');
+    setGone(new Set());
+    refreshNames(client);
+    void client.invalidateQueries({ queryKey: UNKNOWN_GROUPS_KEY });
+    say({ text: kind === 'blocked' ? `Unblocked ${item.label}.` : `${item.label} is no longer ignored.` });
   };
   // By person: face groups guessed as each person, as tiles. Saving claims the checked ones and records the
   // unchecked ones as not that person, with one Undo for both.
@@ -796,6 +928,7 @@ export function WhosThis({
             said &&
             (said.claimUndo ||
               said.notUndo ||
+              said.hiddenUndo ||
               said.tvUndo ||
               said.bulkUndo ||
               ('undo' in said && said.undo != null)) && (
@@ -911,6 +1044,26 @@ export function WhosThis({
                   ? 'Nobody is waiting for a name.'
                   : null}
           </p>
+          {wide && (
+            <HiddenItems
+              queryKey={HIDDEN_FACES_KEY}
+              load={async signal => {
+                const found = await hiddenFaces(signal);
+                const face = (group: number | null) => (group == null ? 'A face' : `Face ${group}`);
+                return {
+                  ignored: found.ignored.map(i => ({ key: i.id, label: face(i.group), pictures: [i.url] })),
+                  ignoredCount: found.ignored_count,
+                  blocked: found.blocked.map(b => ({
+                    key: b.id,
+                    label: `${face(b.group)}, ${plural(b.count, 'picture', 'pictures')}`,
+                    pictures: b.shots.map(shot => shot.url),
+                  })),
+                  blockedCount: found.blocked_count,
+                };
+              }}
+              onRestore={unhide}
+            />
+          )}
           {wide && (
             <History
               onUndo={body => undoing(client, body, say, () => setGone(new Set()))}

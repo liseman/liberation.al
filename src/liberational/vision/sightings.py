@@ -156,12 +156,15 @@ def _face_rows(
     from liberational.vision import face_rejects
 
     who = who or _Who(registry.at(state))
-    rejected = face_rejects.rejected()
+    rejected, moved = face_rejects.rejected(), face_rejects.moved()  # read once: a read is tens of thousands of rows
     out = []
     for r in found:
         m = matches.get(r["id"]) or {}
-        if r["id"] in rejected and m.get("cluster"):  # taken out of its face group by the owner
-            m = {**m, "cluster": None}
+        if m.get("cluster"):
+            if r["id"] in rejected:  # taken out of its face group by the owner
+                m = {**m, "cluster": None}
+            elif r["id"] in moved:  # left out of an answer: it waits in a group of its own
+                m = {**m, "cluster": f"Face {moved[r['id']]}"}
         name = who.detection(r["id"], r["ts_start"], m)
         out.append(
             {

@@ -1,25 +1,40 @@
 // Pets' "Sightings to name": every group of animal sightings nobody has named yet, in the shared naming
 // inbox (../../naming): sorted and sized there, one NamingRow each, with its newest picture large, when and
-// where it was seen, the best guess, and the answers: "Yes, Mia" for a guess (filled for a Probably, outlined for a
-// Maybe), "Not Mia", which tells recognition that group isn't her, and the name picker,
-// a Cascader of a species (the detected one first), then that species' pets and Other… for a new pet (naming a pet of
-// another species corrects the sighting's). "Show all" opens every picture of the group; selecting some and "Not this
-// pet" leaves them out, so naming the group names only the rest (they wait again on their own). "By pet"
-// labels one pet's guessed sightings in bulk.
-import { Button, Cascader, Group, Text } from '@mantine/core';
-import { IconPhotoMinus, IconPhotoX, IconUserMinus } from '@tabler/icons-react';
+// where it was seen, and the best guess. A card has two buttons, by its guess. With one: "<Name>", which labels its
+// sightings as that pet, and "Not <Name>", which tells recognition they aren't (never guessed as that pet again) and
+// leaves them waiting. With none: the name picker, a Cascader of a species (the detected one first), then that
+// species' pets and Other… for a new pet (naming a pet of another species corrects the sighting's), plus "Ignore"
+// (these sightings, from now on) and "Block" (sightings very like them are no longer listed).
+//
+// A card with several pictures has no buttons until it is selected, which opens every picture, all selected: clicking
+// one deselects it, and that leaves it out of the answer. Deselected sightings stay unnamed and are grouped again on
+// the next read. "By pet" labels one pet's guessed sightings in bulk, and "Show ignored and blocked" lists what was
+// hidden, each with a way back.
+import { Cascader, Text } from '@mantine/core';
 import { useState } from 'react';
 import { ProcessingImages } from '../../../shared/ProcessingImages';
-import { SafeImage } from '../../../shared/SafeImage';
 import { capitalize, plural } from '../../lib/format';
 import { LoadError, PageLoading } from '../../lib/page';
-import { SelectableGrid } from '../../lib/SelectableGrid';
+import { type HiddenItem, HiddenItems } from '../../naming/HiddenItems';
 import { type InboxGuess, NamingInbox, useLeaving } from '../../naming/NamingInbox';
-import { NamingRow } from '../../naming/NamingRow';
+import { type CardChoice, NamingRow } from '../../naming/NamingRow';
+import { Pictures, toggled } from '../../naming/Pictures';
 import '../../whosthis/whosthis.css';
-import who from '../../whosthis/whosthis.module.css';
 import { cameraName } from '../profile/role';
-import { type Guess, IGNORED, nameOf, OTHER, type Pet, photoUrl, type Sighting, type SightingGroup, span } from './api';
+import {
+  type Guess,
+  HIDDEN_SIGHTINGS_KEY,
+  type HiddenSighting,
+  hiddenSightings,
+  IGNORED,
+  nameOf,
+  OTHER,
+  type Pet,
+  photoUrl,
+  type Sighting,
+  type SightingGroup,
+  span,
+} from './api';
 import { ByPet } from './ByPet';
 
 const title = capitalize;
@@ -44,8 +59,7 @@ export function guessOf(sightings: Sighting[]): { label: string; sure: boolean; 
 }
 
 /** A group's guess as the inbox shows it: the server's for the whole group, else worked out here from the
- *  sightings left in it (after "Not this pet", or when the response omits a group guess). Only a named pet is a
- *  guess. */
+ *  sightings left in it (some were answered, or the response omits a group guess). Only a named pet is a guess. */
 export function groupGuess(
   group: SightingGroup,
   sightings: Sighting[],
@@ -74,14 +88,12 @@ export function NamePicker({
   detected,
   speciesList,
   pets,
-  guess,
   onPet,
   onOther,
 }: {
   detected: string;
   speciesList: string[];
   pets: Pet[];
-  guess?: { id: string; score: number };
   onPet: (pet: Pet) => void;
   onOther: (species: string) => void;
 }) {
@@ -91,10 +103,7 @@ export function NamePicker({
     value: s,
     label: `${title(s)}${s === detected ? ' (detected)' : ''}`,
     children: [
-      ...pets
-        .filter(p => p.species === s)
-        .sort((a, b) => (a.id === guess?.id ? -1 : b.id === guess?.id ? 1 : 0))
-        .map(p => ({ value: p.id, label: p.id === guess?.id ? `${p.name} (guess, ${guess.score}%)` : p.name })),
+      ...pets.filter(p => p.species === s).map(p => ({ value: p.id, label: p.name })),
       { value: `${OTHER_PREFIX}${s}`, label: 'Other…' },
     ],
   }));
@@ -129,6 +138,7 @@ function GroupRow({
   speciesList,
   onLabel,
   onNot,
+  onBlock,
   onNewPet,
   thumb,
 }: {
@@ -138,14 +148,14 @@ function GroupRow({
   speciesList: string[];
   onLabel: (tracks: string[], label: string) => void;
   onNot?: (tracks: string[], pet: string) => void;
+  onBlock?: (tracks: string[]) => void;
   onNewPet: (species: string, then: (pet: Pet) => void) => void;
   thumb: boolean; // the small size: load the thumbnail
 }) {
   const leaving = useLeaving();
-  const [all, setAll] = useState(false);
-  const [left, setLeft] = useState<ReadonlySet<string>>(() => new Set()); // "Not this pet": out of this naming
-  const [picked, setPicked] = useState<ReadonlySet<string>>(() => new Set());
-  const kept = group.sightings.filter(s => !left.has(s.track_id));
+  // The sightings deselected on the open card: left out of its answer. They stay unnamed and are grouped again.
+  const [out, setOut] = useState<ReadonlySet<string>>(() => new Set());
+  const kept = group.sightings;
   const photos = kept.filter(s => (s.thumb_ready ?? s.photo_ready) !== false);
   const lead = kept.find(s => s.photo_ready !== false); // the large picture is the saved crop, not the thumbnail
   const pending = group.photos_pending ?? kept.filter(s => (s.thumb_ready ?? s.photo_ready) === false).length;
@@ -156,146 +166,108 @@ function GroupRow({
   const first = Math.min(...kept.map(s => s.start));
   const last = Math.max(...kept.map(s => s.end));
   const cams = [...new Set(kept.map(s => cameraName(s.cam)))].join(', ');
-  const tracks = kept.map(s => s.track_id);
-  const name = (value: string) => onLabel(tracks, value);
-  const toggle = (track: string) =>
-    setPicked(have => {
-      const next = new Set(have);
-      if (!next.delete(track)) next.add(track);
-      return next;
-    });
-  const score = guessed?.score ?? 0;
+  // What the buttons act on: every sighting but the deselected ones (one whose picture isn't made yet included).
+  const tracks = kept.map(s => s.track_id).filter(t => !out.has(t));
+  const whole = tracks.length === kept.length;
+  const answered = (run: () => void) => () => {
+    if (!tracks.length) return;
+    if (whole) leaving(group.id);
+    setOut(new Set()); // what was left out is what the card has next, all selected
+    run();
+  };
+  const name = (value: string) => answered(() => onLabel(tracks, value))();
+  const these = tracks.length === 1 ? 'This sighting is' : 'These sightings are';
+  const choices: CardChoice[] = guessed
+    ? [
+        {
+          label: guessed.name,
+          hint: `${these} ${guessed.name}. Recognition learns from them. Undo takes it back.`,
+          shortcut: 'Y',
+          onClick: () => name(guessed.id),
+        },
+        {
+          label: `Not ${guessed.name}`,
+          hint: `${these} not ${guessed.name}. ${guessed.name} is never the guess for them again, and they wait for another name. Undo takes it back.`,
+          shortcut: 'N',
+          onClick: () => {
+            if (!tracks.length) return;
+            setOut(new Set());
+            onNot?.(tracks, guessed.id);
+          },
+        },
+      ]
+    : [
+        {
+          label: 'Ignore',
+          hint: 'Ignore the selected sightings from now on: they leave the list, and recognition never learns from them. Undo brings them back.',
+          shortcut: 'I',
+          onClick: () => name(IGNORED),
+        },
+        {
+          label: 'Block',
+          hint: 'Stop listing this animal: the selected sightings go, and so does any sighting very like them from now on. Undo brings them back.',
+          shortcut: 'B',
+          onClick: answered(() => onBlock?.(tracks)),
+        },
+      ];
   return (
     <NamingRow
       rowKey={group.id}
       label={label}
       lead={lead ? { src: photoUrl(lead.track_id, thumb), alt: `${group.species} on ${cameraName(lead.cam)}` } : null}
       guess={guessed}
-      pictureAnswers={[
-        ...(lead && guessed && onNot
-          ? [
-              {
-                label: `Not ${guessed.name}: just this picture`,
-                caption: 'Not pic',
-                hint: `Just the large picture isn't ${guessed.name}. It's guessed again without ${guessed.name}; the rest of the group keeps its guess. Undo takes it back.`,
-                icon: <IconPhotoMinus size={16} aria-hidden />,
-                shortcut: 'P',
-                onClick: () => onNot([lead.track_id], guessed.id),
-              },
-            ]
-          : []),
-        ...(lead
-          ? [
-              {
-                label: 'Ignore this picture',
-                caption: 'Drop pic',
-                hint: 'Ignore just the large picture: it leaves the list, and recognition never learns from it. The rest of the group stays. Undo brings it back.',
-                icon: <IconPhotoX size={16} aria-hidden />,
-                shortcut: 'G',
-                onClick: () => onLabel([lead.track_id], IGNORED),
-              },
-            ]
-          : []),
-      ]}
-      hotkeys={photos.length || pending > 0 ? { a: () => setAll(true) } : undefined}
+      choices={choices}
+      choicesDisabled={!tracks.length}
+      foldable={kept.length > 1}
       meta={
         <>
-          {!all && <ProcessingImages count={pending} unavailable={unavailable} />}
+          <ProcessingImages count={pending} unavailable={unavailable} />
           <Text size="xs" c="dimmed">
             {label}, {span(first, last)}
             {cams ? ` · ${cams}` : ''}
-            {!all && (photos.length > 1 || pending > 0) && (
-              <>
-                {' · '}
-                <Button variant="subtle" size="compact-xs" aria-keyshortcuts="A" onClick={() => setAll(true)}>
-                  Show all ({photos.length})
-                </Button>
-              </>
-            )}
           </Text>
         </>
       }
-      onYes={g => name(g.id)}
-      onNot={onNot ? g => onNot(tracks, g.id) : undefined}
-      notHint={who =>
-        `None of these sightings is ${who}. They stay in the list, guessed again without ${who}. Undo takes it back.`
-      }
-      onIgnore={() => name(IGNORED)}
-      ignoreHint="Not a pet to name: every sighting here leaves the list, and recognition never learns from them. Undo brings them back."
-      onSpace={photos.length || pending > 0 ? () => setAll(true) : undefined}
       picker={
-        <NamePicker
-          detected={group.species}
-          speciesList={speciesList}
-          pets={pets}
-          guess={guessed ? { id: guessed.id, score } : undefined}
-          onPet={pet => {
-            leaving(group.id);
-            name(pet.id);
-          }}
-          onOther={species =>
-            onNewPet(species, pet => {
-              leaving(group.id);
-              name(pet.id);
-            })
-          }
-        />
+        !guessed && (
+          <NamePicker
+            detected={group.species}
+            speciesList={speciesList}
+            pets={pets}
+            onPet={pet => name(pet.id)}
+            onOther={species => onNewPet(species, pet => name(pet.id))}
+          />
+        )
       }
     >
-      {all && (
-        <section className={who.picker} aria-label={`Every picture of ${label}`}>
-          <Group justify="space-between" gap="xs">
-            <Text size="xs" c="dimmed">
-              {picked.size
-                ? `${picked.size} of ${photos.length} selected`
-                : `${plural(photos.length, 'picture', 'pictures')}. Select the ones that aren't this pet.`}
-            </Text>
-            <Group gap={6}>
-              <Button
-                leftSection={<IconUserMinus size={14} aria-hidden />}
-                size="compact-sm"
-                variant="subtle"
-                disabled={!picked.size}
-                onClick={() => {
-                  setLeft(have => new Set([...have, ...picked]));
-                  setPicked(new Set());
-                }}
-              >
-                Not this pet
-              </Button>
-              <Button
-                size="compact-sm"
-                variant="subtle"
-                disabled={!picked.size}
-                onClick={() => {
-                  onLabel([...picked], IGNORED);
-                  setPicked(new Set());
-                }}
-              >
-                Ignore these
-              </Button>
-              <Button size="compact-sm" variant="subtle" onClick={() => setAll(false)}>
-                Hide
-              </Button>
-            </Group>
-          </Group>
-          <SelectableGrid
-            label="Pick the pictures that aren't this pet"
-            tiles={photos.map(s => ({
+      {expanded =>
+        expanded &&
+        kept.length > 1 && (
+          <Pictures
+            label={label}
+            pictures={photos.map(s => ({
               key: s.track_id,
               label: `${group.species} on ${cameraName(s.cam)}, ${span(s.start, s.end)}`,
-              content: <SafeImage className={who.square} src={photoUrl(s.track_id, true)} alt="" loading="lazy" />,
+              src: photoUrl(s.track_id, true),
             }))}
-            isOn={key => picked.has(key)}
-            onToggle={toggle}
-            tone="remove"
+            total={kept.length}
+            out={out}
+            onToggle={track => setOut(have => toggled(have, track))}
           />
-          <ProcessingImages count={pending} unavailable={unavailable} />
-        </section>
-      )}
+        )
+      }
     </NamingRow>
   );
 }
+
+/** A hidden sighting as "Show ignored and blocked" lists it. */
+const hiddenItem = (s: HiddenSighting): HiddenItem => ({
+  key: s.track_id,
+  label: `${title(s.species || 'animal')}${s.cam ? ` on ${cameraName(s.cam)}` : ''}${
+    s.start != null ? `, ${span(s.start, s.end ?? s.start)}` : ''
+  }`,
+  pictures: [photoUrl(s.track_id, true)],
+});
 
 export function PetInbox({
   groups,
@@ -309,6 +281,8 @@ export function PetInbox({
   onBack,
   onLabel,
   onNot,
+  onBlock,
+  onRestore,
   onBulk,
   onNewPet,
 }: {
@@ -323,6 +297,9 @@ export function PetInbox({
   onBack: () => void;
   onLabel: (tracks: string[], label: string) => void;
   onNot?: (tracks: string[], pet: string) => void; // "Not Mia"
+  onBlock?: (tracks: string[]) => void; // "Block": these and any sighting very like them
+  // "Show ignored and blocked": un-ignore or unblock one sighting; rejects with why it couldn't
+  onRestore?: (kind: 'ignored' | 'blocked', track: string) => Promise<void>;
   onBulk: (pet: string, checked: string[], unchecked: string[]) => void; // By pet's save
   onNewPet: (species: string, then: (pet: Pet) => void) => void;
 }) {
@@ -363,11 +340,29 @@ export function PetInbox({
             speciesList={speciesList}
             onLabel={onLabel}
             onNot={onNot}
+            onBlock={onBlock}
             onNewPet={onNewPet}
             thumb={thumb}
           />
         ),
       }))}
+      footer={
+        onRestore && (
+          <HiddenItems
+            queryKey={HIDDEN_SIGHTINGS_KEY}
+            load={async signal => {
+              const found = await hiddenSightings(signal);
+              return {
+                ignored: found.ignored.map(hiddenItem),
+                ignoredCount: found.ignored_count,
+                blocked: found.blocked.map(hiddenItem),
+                blockedCount: found.blocked_count,
+              };
+            }}
+            onRestore={(kind, item) => onRestore(kind, item.key)}
+          />
+        )
+      }
     />
   );
 }
