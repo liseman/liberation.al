@@ -114,12 +114,14 @@ jobs:
             continuum/python/**
 
       # The vision modules import torch, which only the extras bring; the CPU build from PyTorch's own index is a
-      # fraction of the CUDA one. UV_NO_SYNC keeps uv run from syncing it away again.
+      # fraction of the CUDA one. huggingface-hub also comes only with the extras on Linux, and the model fetcher's
+      # tests stand in for its downloads. UV_NO_SYNC keeps uv run from syncing them away again.
       - name: Install the Python dependencies (no extras, CPU torch)
         run: |
           set -euo pipefail
           uv sync
           uv pip install torch --index-url https://download.pytorch.org/whl/cpu
+          uv pip install huggingface-hub
           echo "UV_NO_SYNC=1" >> "$GITHUB_ENV"
 
       - name: List the changed Python
