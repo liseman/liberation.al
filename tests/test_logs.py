@@ -140,8 +140,8 @@ def test_an_adopted_library_logs_in_the_one_format(captured, caplog):
     assert caplog.records == []
 
 
-def test_the_bridge_log_is_the_old_file_then_the_service_log(tmp_path):
-    (tmp_path / "phone_bridge.log").write_text("2026-10-20 09:00:00 [CA1] first audio 1.2s\n")
+def test_the_bridge_log_is_the_kept_older_copy_then_the_current_log(tmp_path):
+    (tmp_path / "phone-bridge.log.1").write_text("2026-10-20 09:00:00 [CA1] first audio 1.2s\n")
     (tmp_path / "phone-bridge.log").write_text("09:00:00 [phone-bridge] INFO [CA2] first audio 0.8s\n")
     with cfg.override({"paths": {"logs": str(tmp_path)}}):
         assert phone.bridge_log().splitlines() == [
@@ -369,3 +369,71 @@ def test_another_reply_write_failure_is_not_swallowed(captured):
 def test_a_logged_reason_is_never_empty(error, expected):
     # #3073: a bare TimeoutError logged as "voice search unavailable ()".
     assert logs.reason(error) == expected
+
+
+def numbered(count: int) -> bytes:
+    return b"".join(b"line %04d\n" % i for i in range(count))  # 10 bytes a line
+
+
+def test_a_log_past_its_cap_keeps_its_newest_whole_lines_in_the_older_file_and_empties(tmp_path):
+    log = tmp_path / "listen.log"
+    log.write_bytes(numbered(100))  # 1,000 bytes
+    assert logs.rotate(log, cap=95) == 1000 - 90
+    assert log.read_bytes() == b""
+    assert (tmp_path / "listen.log.1").read_bytes() == numbered(100)[-90:]  # 9 whole lines: line 0091 to 0099
+
+
+def test_a_log_under_its_cap_is_left_alone(tmp_path):
+    log = tmp_path / "listen.log"
+    log.write_bytes(numbered(5))
+    assert logs.rotate(log, cap=50) == 0
+    assert log.read_bytes() == numbered(5)
+    assert not (tmp_path / "listen.log.1").exists()
+
+
+def test_an_append_mode_writer_keeps_writing_from_the_start_of_the_emptied_log(tmp_path):
+    log = tmp_path / "listen.log"
+    with log.open("ab", buffering=0) as writer:
+        writer.write(numbered(50))
+        logs.rotate(log, cap=100)
+        writer.write(b"after\n")
+    assert log.read_bytes() == b"after\n"
+    assert (tmp_path / "listen.log.1").read_bytes() == numbered(50)[-100:]
+
+
+def test_writing_past_the_cap_again_and_again_keeps_every_file_within_it_and_the_newest_lines(tmp_path):
+    log = tmp_path / "ollama.log"
+    with log.open("ab", buffering=0) as writer:
+        for _ in range(5):
+            writer.write(numbered(30))
+            logs.trim(tmp_path, cap=100)
+        writer.write(b"newest\n")
+    assert log.read_bytes() == b"newest\n"
+    assert (tmp_path / "ollama.log.1").read_bytes() == numbered(30)[-100:]
+
+
+def test_trim_rotates_only_the_logs_past_the_cap(tmp_path):
+    (tmp_path / "big.log").write_bytes(numbered(30))
+    (tmp_path / "small.log").write_bytes(numbered(3))
+    (tmp_path / "notes.txt").write_bytes(numbered(30))
+    assert logs.trim(tmp_path, cap=100) == {"big.log": 200}
+    assert (tmp_path / "small.log").read_bytes() == numbered(3)
+    assert (tmp_path / "notes.txt").read_bytes() == numbered(30)
+
+
+@pytest.mark.parametrize(
+    ("current", "limit", "expected"),
+    [
+        pytest.param(b"", 40, numbered(4), id="just-rotated"),
+        pytest.param(b"new\n", 24, numbered(4)[-20:] + b"new\n", id="reaches-into-older"),
+        pytest.param(numbered(5), 30, numbered(5)[-30:], id="current-is-enough"),
+    ],
+)
+def test_a_tail_reads_back_into_the_older_file_only_as_far_as_it_must(tmp_path, current, limit, expected):
+    (tmp_path / "listen.log.1").write_bytes(numbered(4))
+    (tmp_path / "listen.log").write_bytes(current)
+    assert b"".join(p.data for p in logs.tail(tmp_path / "listen.log", limit)) == expected
+
+
+def test_a_missing_log_has_an_empty_tail(tmp_path):
+    assert logs.tail(tmp_path / "listen.log", 100) == []

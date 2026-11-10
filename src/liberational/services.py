@@ -30,10 +30,11 @@ import tempfile
 import threading
 import time
 import tomllib
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from typing import Any, Literal, TypedDict
 
 from liberational import config as cfg
+from liberational import logs
 
 SPEC = cfg.ROOT / "services" / "services.toml"
 DARWIN = sys.platform == "darwin"
@@ -148,7 +149,24 @@ def environment(svc: Service) -> dict[str, str]:
 
 
 def log_path(name: str) -> pathlib.Path:
+    """A service's log. The log-trim service keeps it and its one older copy (logs.older) under logs.CAP_BYTES."""
     return cfg.path("paths.logs") / f"{name}.log"
+
+
+OWN_LOGS = frozenset({"cascade", "frontend"})  # logs under paths.logs that the pack writes but no service owns
+
+
+def prune_logs() -> list[str]:
+    """Delete the logs, and their older copies, of services services.toml no longer declares. Returns the file
+    names deleted."""
+    keep = set(declared()) | OWN_LOGS
+    directory = log_path("x").parent
+    gone = []
+    for path in sorted([*directory.glob("*.log"), *directory.glob("*.log" + logs.OLDER)]):
+        if path.name.removesuffix(logs.OLDER).removesuffix(".log") not in keep and path.is_file():
+            path.unlink()
+            gone.append(path.name)
+    return gone
 
 
 def render_launchd(name: str, svc: Service) -> dict[str, str]:
@@ -163,8 +181,9 @@ def render_launchd(name: str, svc: Service) -> dict[str, str]:
         "ExitTimeOut": int(svc.get("stop_timeout", 20)),
     }
     if svc.get("schedule"):
-        hour, minute = (int(x) for x in svc["schedule"].split(":"))
-        d["StartCalendarInterval"] = {"Hour": hour, "Minute": minute}
+        hour, minute = svc["schedule"].split(":")
+        # "*:MM" runs every hour, as systemd reads the same OnCalendar time.
+        d["StartCalendarInterval"] = {"Minute": int(minute)} | ({} if hour == "*" else {"Hour": int(hour)})
     else:
         d["RunAtLoad"] = True
         if svc.get("restart", True):
@@ -321,6 +340,9 @@ def _bootstrap(name: str) -> str | None:
 
 def install(names: Sequence[str], anywhere: bool = False, *, cascade: bool = False) -> None:
     _check_checkout(anywhere)
+    log_path("x").parent.mkdir(parents=True, exist_ok=True)
+    for gone in prune_logs():
+        print(f"removed {gone}: no service by that name is declared")
     services = selected()
     full = not names
     names = names or list(services)
@@ -875,8 +897,18 @@ def _dated(stamps: Sequence[str], end: float) -> list[float]:
     return out[::-1]
 
 
+def _lines(parts: list[logs.Part]) -> Iterator[tuple[os.stat_result, int, bytes]]:
+    """Each line of a log's tail with the file it's in and its byte offset there."""
+    for part in parts:
+        offset = part.offset
+        for raw in part.data.splitlines(keepends=True):
+            yield part.stat, offset, raw
+            offset += len(raw)
+
+
 def last_error(name: str, since: float | None = None, *, include_id: bool = False) -> dict[str, Any] | None:
-    """What last went wrong in a service, from the last LOG_TAIL_BYTES of its log (a long log is never read whole):
+    """What last went wrong in a service, from the last LOG_TAIL_BYTES of its log, its older file included just after
+    a rotation (a long log is never read whole):
     {"at": "HH:MM:SS", "ts": epoch seconds, "text"}, or None. That's its newest ERROR line, or a crash's exception
     (the last line of a bare traceback, which an uncaught exception writes with no ERROR line; its time is the time
     of the line before it, and "at" is "" and "ts" None when there's none).
@@ -885,22 +917,17 @@ def last_error(name: str, since: float | None = None, *, include_id: bool = Fals
     start were fixed by that start, and only confuse the page. An error with no time counts as before. include_id
     adds an opaque log occurrence id for dismissals: appending the same error in the same second is a new event,
     while later unrelated log writes leave its id alone."""
-    try:
-        with log_path(name).open("rb") as f:
-            stat = os.fstat(f.fileno())
-            end = stat.st_mtime
-            f.seek(0, os.SEEK_END)
-            f.seek(max(0, f.tell() - LOG_TAIL_BYTES))
-            offset = f.tell()
-            tail = f.read()
-    except OSError:
+    parts = logs.tail(log_path(name), LOG_TAIL_BYTES)
+    if not parts:
         return None
-    found: tuple[int, str, int] | None = None  # (stamp index, or -1; text; byte offset of its occurrence)
+    end = parts[-1].stat.st_mtime
+    # (stamp index, or -1; text; the file and byte offset of its occurrence)
+    found: tuple[int, str, tuple[os.stat_result, int]] | None = None
     stamps: list[str] = []  # every timestamped line's time, in file order
     in_trace = after_error = False
-    for raw in tail.splitlines(keepends=True):
+    for stat, at, raw in _lines(parts):
         line = raw.decode("utf-8", "replace").rstrip("\r\n")
-        position, offset = offset, offset + len(raw)
+        position = (stat, at)
         if line.startswith(TRACEBACK):
             in_trace = True
             continue
@@ -929,7 +956,8 @@ def last_error(name: str, since: float | None = None, *, include_id: bool = Fals
         "text": text,
     }
     if include_id:
-        occurrence = f"{stat.st_dev}:{stat.st_ino}:{position}:{ts}:{text}"
+        stat, at = position
+        occurrence = f"{stat.st_dev}:{stat.st_ino}:{at}:{ts}:{text}"
         error["id"] = hashlib.sha256(occurrence.encode()).hexdigest()
     return error
 
@@ -1139,7 +1167,12 @@ def main() -> None:
         if c in {"restart", "install"}:
             p.add_argument("--cascade", action="store_true", help="stage the whole selected installed set")
     sub.add_parser("status")
+    sub.add_parser("trim-logs", help="rotate every log under paths.logs past its cap (the log-trim service)")
     a = ap.parse_args()
+    if a.cmd == "trim-logs":
+        for file, freed in logs.trim(log_path("x").parent).items():
+            print(f"{file}: rotated, {freed / 1e6:.1f} MB freed")
+        return
     if a.cmd == "exec":
         exec_service(a.name)
     elif a.cmd == "installed":
