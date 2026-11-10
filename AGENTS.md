@@ -71,7 +71,8 @@ This is research. Building the right thing directly beats preserving what exists
 | `services/services.toml` | Every daemon, declared once |
 | `src/liberational/resources/` | Symlinks to the `config/` and `services/` files the code reads at run time |
 | `packaging/` | What a platform's package holds beyond the wheels: `deb/` is the `.deb`'s launcher, maintainer scripts, desktop entry, icon, and container test ([docs/RELEASES.md](docs/RELEASES.md)) |
-| `docs/` | Documents ([docs/README.md](docs/README.md) is the map) |
+| `docs/` | Documents ([docs/README.md](docs/README.md) is the map), written by the documentation maintainer |
+| `.claude/skills/` | Skills to load before a kind of work: `python-tests` and `property-based-testing` before tests, `diataxis` before documentation |
 | `scratch/` | Gitignored: experiments you won't keep |
 
 - Extend an existing module before adding one. Search first.
@@ -99,11 +100,18 @@ This is research. Building the right thing directly beats preserving what exists
 
 ## Write things down in the right place
 
-- A new daemon, port, state file, or external service: update the component table and the state contract in
-  [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) in the same commit.
-- A design decision or gotcha: the module docstring, or `docs/` if it spans modules. Not a dated log.
-- A change that breaks an existing install: add the steps to [MIGRATING.md](MIGRATING.md) in the same commit.
-- A new key in `config/defaults.toml`: say in the PR that every config-reading service needs a restart.
+- **Do not edit `docs/` or `README.md`.** One documentation maintainer writes them, following the Diataxis skill
+  ([.claude/skills/diataxis/SKILL.md](.claude/skills/diataxis/SKILL.md), then `PROJECT.md` beside it). Load that
+  skill before touching documentation at all.
+- A change that affects what a user or contributor needs to know: say so in a "Docs:" section of the PR body (what
+  changed, in a few lines). That covers a new daemon, port, state file, or external service, and a design decision
+  that spans modules. The documentation maintainer turns it into documentation.
+- Two things ship in your own PR, because an install breaks without them: the steps in [MIGRATING.md](MIGRATING.md)
+  for a change that breaks an existing install, and the release notes in [docs/RELEASES.md](docs/RELEASES.md). Keep
+  them short; the documentation maintainer edits them afterwards for form.
+- A design decision or gotcha inside one module: its docstring or a comment. Those stay yours. Not a dated log.
+- A new key in `config/defaults.toml`: document it there, and say in the PR that every config-reading service needs
+  a restart.
 - Planned work: an issue on the board. Your session history: your own tool's memory, never the repository.
 
 ## Tracking and merging
@@ -121,7 +129,8 @@ Work is tracked as GitHub issues on the [project board](https://github.com/lisem
 - Look for an existing issue before starting. File what you find but won't fix in Ideas.
 - Pick up only Ready issues or ones a maintainer asked for. Assign the issue to your GitHub account and move its
   card to In progress. That is the claim.
-- A pull request says `Closes #N` (or `Part of #N`), what changed, and which checks ran with counts.
+- A pull request says `Closes #N` (or `Part of #N`), what changed, which checks ran with counts, and "Docs:" when
+  the change affects what a user or contributor needs to know.
 - Before merging: `mise run fmt`, lint and type-check what you changed, run the tests that cover it, and read the
   diff. The `privacy` check must pass. The hosted `checks` workflow is informational: do not wait for it, and fix
   forward if it turns red.

@@ -63,6 +63,17 @@ an NVIDIA GPU and on macOS with Apple Silicon.
 4. Open a pull request that says `Closes #N`, what changed and why, and what you ran. Say how you checked it on real
    hardware if it touches audio, cameras, or models.
 
+## Documentation
+
+One documentation maintainer writes `docs/` and the README, following
+[Diataxis](.claude/skills/diataxis/PROJECT.md), so a change does not edit them.
+
+- If your change affects what a user or contributor needs to know, add a "Docs:" section to the pull request: what
+  changed, in a few lines. The maintainer turns it into documentation.
+- Two things ship with your code, because an install breaks without them: steps in [MIGRATING.md](MIGRATING.md) and
+  release notes in [docs/RELEASES.md](docs/RELEASES.md). Keep them short; they are edited afterwards for form.
+- Module docstrings and code comments are yours.
+
 ## Checks on GitHub
 
 - **`privacy`** runs `tools/privacy_check.py` on every push and pull request. It must pass before a merge. If it
