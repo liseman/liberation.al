@@ -190,6 +190,33 @@ def test_no_reply_from_the_model_is_unreadable_and_not_kept(monkeypatch, read):
     assert read("who was here yesterday") == question.Reading()
 
 
+def test_a_reading_handed_to_another_process_is_kept_without_asking_the_model(monkeypatch, read):
+    def refuse(*args, **kwargs):
+        raise AssertionError("the model was asked again")
+
+    monkeypatch.setattr(recall, "chat_within", refuse)
+    reading = question.Reading(source="people", measure="who", people=("Dana",), day="yesterday")
+    sent = json.loads(json.dumps(reading.as_dict()))
+    received = question.handed(sent)
+    assert received == reading
+    question.keep("was Dana here yesterday", reading)
+    assert read("was Dana here  yesterday") == reading
+    assert question.kept("was Dana here yesterday") == reading
+    assert question.kept("was Sam here yesterday") is None
+
+
+@pytest.mark.parametrize("fields", [None, "speech", {"source": "speech", "mood": "curious"}])
+def test_something_that_isnt_a_reading_is_not_handed_over(fields):
+    assert question.handed(fields) is None
+
+
+def test_the_oldest_reading_is_dropped_past_the_limit(monkeypatch, read):
+    monkeypatch.setattr(question, "KEEP", 2)
+    for asked in ("one", "two", "three"):
+        question.keep(asked, question.Reading())
+    assert [question.kept(asked) is not None for asked in ("one", "two", "three")] == [False, True, True]
+
+
 def unreadable(monkeypatch):
     def read(asked):
         raise question.Unreadable("TimeoutError")

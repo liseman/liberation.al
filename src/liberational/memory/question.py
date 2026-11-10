@@ -29,7 +29,6 @@ with its own refusals (history_qa.cameras_named), not something to infer.
 """
 
 import dataclasses
-import functools
 import json
 from typing import Any
 
@@ -430,22 +429,54 @@ def from_reply(reply: object, question: str) -> Reading:
     )
 
 
-@functools.lru_cache(maxsize=128)
-def _read(question: str, system: str) -> Reading:
-    from liberational.memory import recall  # recall imports history_qa, which imports this module
+KEEP = 128  # readings kept by question text
+_kept: dict[tuple[str, str], Reading] = {}
 
-    try:
-        reply = recall.chat_within(system, question, SCHEMA, REPLY_TOKENS, READ_TIMEOUT_S, shots=SHOTS)
-    except Exception as error:  # the model is down, slow, or wrote something that isn't the form
-        raise Unreadable(type(error).__name__) from error
-    return from_reply(reply, question)
+
+def _key(question: str) -> tuple[str, str]:
+    return " ".join(question.split()), SYSTEM.format(name=cfg.assistant_name())
 
 
 def read(question: str) -> Reading:
     """The model's reading of the question, from the last readings when it was read before. Raises Unreadable."""
-    return _read(" ".join(question.split()), SYSTEM.format(name=cfg.assistant_name()))
+    key = _key(question)
+    if key in _kept:
+        return _kept[key]
+    from liberational.memory import recall  # recall imports history_qa, which imports this module
+
+    try:
+        reply = recall.chat_within(key[1], key[0], SCHEMA, REPLY_TOKENS, READ_TIMEOUT_S, shots=SHOTS)
+    except Exception as error:  # the model is down, slow, or wrote something that isn't the form
+        raise Unreadable(type(error).__name__) from error
+    return keep(question, from_reply(reply, key[0]))
+
+
+def keep(question: str, reading: Reading) -> Reading:
+    """Keep a reading of the question, the oldest dropped past KEEP. Ask's worker process starts with the reading
+    its caller already has (handed over as as_dict), so one question is one model call across both."""
+    while len(_kept) >= KEEP:
+        del _kept[next(iter(_kept))]
+    _kept[_key(question)] = reading
+    return reading
+
+
+def kept(question: str) -> Reading | None:
+    """The reading already kept for the question, without asking the model."""
+    return _kept.get(_key(question))
+
+
+def handed(fields: object) -> Reading | None:
+    """A reading from as_dict() as another process handed it over, or None when it isn't one."""
+    if not isinstance(fields, dict):
+        return None
+    values: dict[str, Any] = {str(key): value for key, value in fields.items()}
+    try:
+        values["people"] = tuple(values.get("people", ()))
+        return Reading(**values)
+    except TypeError:
+        return None
 
 
 def forget() -> None:
     """Drop the kept readings (tests, and a changed model)."""
-    _read.cache_clear()
+    _kept.clear()
