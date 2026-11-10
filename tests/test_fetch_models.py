@@ -1,5 +1,6 @@
 import hashlib
 import http.server
+import importlib
 import pathlib
 import sys
 import threading
@@ -137,11 +138,12 @@ def test_huggingface_local_checkpoint_honors_revision_without_fetching_other_fil
 
 
 def gated_error(repo):
-    import httpx
-    from huggingface_hub.errors import GatedRepoError
+    from huggingface_hub.errors import GatedRepoError, Response
 
+    # The response is built with the HTTP library the installed hub speaks (httpx before hub 2, httpx2 from it)
+    client = importlib.import_module(Response.__module__.partition(".")[0])
     url = f"https://huggingface.co/{repo}/resolve/main/config.json"
-    response = httpx.Response(401, headers={"X-Error-Code": "GatedRepo"}, request=httpx.Request("GET", url))
+    response = client.Response(401, headers={"X-Error-Code": "GatedRepo"}, request=client.Request("GET", url))
     return GatedRepoError(f"401 Client Error. Cannot access gated repo for url {url}.", response=response)
 
 
