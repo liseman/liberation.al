@@ -1,5 +1,6 @@
 import json
 import pathlib
+import re
 import tomllib
 
 import pytest
@@ -151,6 +152,19 @@ def test_a_checkout_is_a_package_in_src_beside_a_pyproject(tmp_path, monkeypatch
     (tmp_path / pyproject).write_text("")
     monkeypatch.setattr(cfg, "PACKAGE", tmp_path / package)
     assert cfg._checkout() == (tmp_path / want if want else None)
+
+
+def test_no_module_names_an_owner_file_by_a_path_relative_to_the_working_directory():
+    # Path("config/devices.toml") is the checkout's file only while the process runs in the checkout: an installed
+    # package runs elsewhere and keeps the file elsewhere. config.devices_file() and config.owner_file() know both.
+    relative = re.compile(r"""Path\(\s*["'](?:config|data)/""")
+    found = [
+        f"{source.relative_to(REPO)}:{number}"
+        for source in sorted((REPO / "src").rglob("*.py"))
+        for number, line in enumerate(source.read_text().splitlines(), 1)
+        if relative.search(line)
+    ]
+    assert found == []
 
 
 def test_the_resources_the_code_reads_are_package_data():
