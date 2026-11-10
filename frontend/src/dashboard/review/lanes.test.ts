@@ -505,15 +505,7 @@ it.each([
   ['reading', 'needs_correct_ratings', null, 10, 7, 0.7, 'Not counted in Ask: more Yes answers in Known, Activities'],
   ['reading', 'disabled', null, 10, 9, 0.9, 'Not counted in Ask'],
   ['crossing', 'counted', null, 0, 0, null, 'Counted in Ask; clips answered No in Known, Activities are left out'],
-  [
-    'crossing',
-    'needs_correct_ratings',
-    null,
-    10,
-    7,
-    0.7,
-    'Not counted in Ask: more Yes answers in Known, Activities',
-  ],
+  ['crossing', 'needs_correct_ratings', null, 10, 7, 0.7, 'Not counted in Ask: more Yes answers in Known, Activities'],
   [null, 'needs_ratings', 10, 0, 0, null, 'Needs 10 more Yes or No answers in Known, Activities'],
 ] as const)(
   'shows authoritative %s / %s counting status without deriving it from displayed candidates',
