@@ -4,16 +4,21 @@
 // A card of pictures (a face group, a pet's sightings) has exactly two buttons, its `choices`: "<Name>" and
 // "Not <Name>" when it has a guess, else "Ignore" and "Block" under the name box. One with several pictures is
 // `foldable`: it shows no buttons until it is the selected card (a click, or focus coming to it), which expands it
-// to every picture (its children). A voice's card keeps its own answers: "Yes, <name>" beside the guess, the name
+// to every picture (its children). Folded, it says so where the buttons will be ("6 pictures. Select to answer."). A
+// `note` under the two buttons says what they do in plain words, for touch and screen readers, which get no popover. A voice's card keeps its own answers: "Yes, <name>" beside the guess, the name
 // box, and one row of buttons under it, each an icon over a caption and its key ("Not N", "Multi M", "Ignore I").
-// Every button says what it does in a popover on hover and on keyboard focus. With the card focused (not its name
+// Every button says what it does in a popover on hover and on keyboard focus. Key caps show only with a fine pointer,
+// and on a phone the two buttons are full size, at least 44 px tall. With the card focused (not its name
 // box), each button's own key runs it (Y and N, or I and B, for a card of pictures); `hotkeys` adds keys with no
 // button. The arrows move the selection to the card beside, above, or below on screen, and Space runs the kind's own
 // Space answer (a voice's play). A card that leaves the list first moves focus to the next one, without scrolling.
 import { Button, Kbd, Progress, Text, Tooltip, UnstyledButton } from '@mantine/core';
+import { useMediaQuery } from '@mantine/hooks';
 import { IconUserMinus, IconX } from '@tabler/icons-react';
 import type { KeyboardEvent, MouseEvent, ReactNode } from 'react';
 import { SafeImage } from '../../shared/SafeImage';
+import { plural } from '../lib/format';
+import { PHONE_WIDTH } from '../lib/page';
 import { type Direction, neighbour } from './focus';
 import { type Band, type InboxGuess, useCursor, useLeaving } from './NamingInbox';
 import classes from './naming.module.css';
@@ -26,9 +31,11 @@ const INK: Record<Band, string> = {
   none: 'var(--mantine-color-dimmed)',
 };
 
-/** What a row's guess says: "Probably Mia", "Maybe Mia", or "No guess yet". */
+/** What a row's guess says, as Who's this? words a face's: "Probably Mia 91%", "Maybe Mia 58%", or "No good guess". */
 export const guessWords = (guess: InboxGuess | null) =>
-  guess && guess.band !== 'none' ? `${guess.band === 'probable' ? 'Probably' : 'Maybe'} ${guess.name}` : 'No guess yet';
+  guess && guess.band !== 'none'
+    ? `${guess.band === 'probable' ? 'Probably' : 'Maybe'} ${guess.name} ${guess.score}%`
+    : 'No good guess';
 
 /** A picture in a row: its source, and what to do when it can't be shown (a missing file drops it). */
 export interface RowPicture {
@@ -57,7 +64,7 @@ export interface CardChoice {
 }
 
 /** One of the two buttons, with its key cap and a popover saying what it does. */
-function ChoiceButton({ choice, disabled }: { choice: CardChoice; disabled: boolean }) {
+function ChoiceButton({ choice, disabled, phone }: { choice: CardChoice; disabled: boolean; phone: boolean }) {
   const key = choice.shortcut.toUpperCase();
   return (
     <Tooltip
@@ -70,7 +77,7 @@ function ChoiceButton({ choice, disabled }: { choice: CardChoice; disabled: bool
     >
       <Button
         className={classes.choice}
-        size="compact-sm"
+        size={phone ? 'sm' : 'compact-sm'}
         variant="default"
         disabled={disabled}
         aria-keyshortcuts={key}
@@ -116,7 +123,9 @@ function AnswerButton({ answer, disabled }: { answer: CardAnswer; disabled: bool
         <span className={classes.icon}>{answer.icon}</span>
         <span className={classes.caption}>
           {answer.caption}
-          <Kbd className={classes.kbd}>{key}</Kbd>
+          <Kbd className={classes.kbd} aria-hidden>
+            {key}
+          </Kbd>
         </span>
       </UnstyledButton>
     </Tooltip>
@@ -139,6 +148,8 @@ export function NamingRow({
   choices,
   choicesDisabled = false,
   foldable = false,
+  count,
+  note,
   hotkeys = {},
   onYes,
   onNot,
@@ -167,6 +178,8 @@ export function NamingRow({
   choices?: CardChoice[];
   choicesDisabled?: boolean; // no picture is selected: there's nothing for the buttons to act on
   foldable?: boolean; // several pictures: no buttons, name box, or children until it is the selected card
+  count?: number; // how many pictures a foldable card has, for its folded hint
+  note?: ReactNode; // under the two buttons: what they do, in plain words
   hotkeys?: Record<string, () => void>; // keys with no button of their own
   quote?: ReactNode; // what a voice said, under its guess (its play button is the picture)
   meta: ReactNode; // when and where it was seen, and any links under the picture
@@ -183,6 +196,7 @@ export function NamingRow({
 }) {
   const leaving = useLeaving();
   const { cursor, select } = useCursor();
+  const phone = useMediaQuery(PHONE_WIDTH, undefined, { getInitialValueInEffect: false }) ?? false;
   const guessed = guess && guess.band !== 'none' ? guess : null;
   const text = said ?? guessWords(guessed);
   const expanded = !foldable || cursor === rowKey;
@@ -371,11 +385,18 @@ export function NamingRow({
               <div className={classes.side}>
                 {picker && <div className={classes.name}>{picker}</div>}
                 {choices ? (
-                  <div className={classes.choices}>
-                    {chosen.map(c => (
-                      <ChoiceButton key={c.shortcut} choice={c} disabled={busy || choicesDisabled} />
-                    ))}
-                  </div>
+                  <>
+                    <div className={classes.choices}>
+                      {chosen.map(c => (
+                        <ChoiceButton key={c.shortcut} choice={c} disabled={busy || choicesDisabled} phone={phone} />
+                      ))}
+                    </div>
+                    {note && (
+                      <Text size="xs" c="dimmed" className={classes.note}>
+                        {note}
+                      </Text>
+                    )}
+                  </>
                 ) : (
                   <div className={classes.answers}>
                     {buttons.map(b => (
@@ -383,6 +404,13 @@ export function NamingRow({
                     ))}
                   </div>
                 )}
+              </div>
+            )}
+            {!expanded && (
+              <div className={classes.side}>
+                <Text size="xs" c="dimmed" className={classes.foldHint}>
+                  {count ? `${plural(count, 'picture', 'pictures')}. ` : ''}Select to answer.
+                </Text>
               </div>
             )}
           </>

@@ -6,7 +6,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Providers } from '../../shared/Providers';
 import { type InboxItem, NamingInbox } from './NamingInbox';
-import { type CardAnswer, NamingRow } from './NamingRow';
+import { type CardAnswer, type CardChoice, guessWords, NamingRow } from './NamingRow';
 
 const CARD_W = 400;
 const CARD_H = 200;
@@ -197,7 +197,7 @@ describe("a naming card's answers", () => {
   it("puts Yes on the guess's line", () => {
     const row = card();
     const yes = within(row).getByRole('button', { name: 'Yes, Mia' });
-    expect(yes.parentElement).toHaveTextContent(/^Maybe MiaYes, Mia$/);
+    expect(yes.parentElement).toHaveTextContent(/^Maybe Mia 67%Yes, Mia$/);
   });
 
   it("shows each answer as its caption over its key, in order: Not, the kind's own, then Ignore", () => {
@@ -231,5 +231,71 @@ describe("a naming card's answers", () => {
     row.focus();
     await user.keyboard('ma');
     expect(said).toEqual(['multi', 'all']);
+  });
+});
+
+describe('a card of pictures', () => {
+  const choices = (said: string[]): CardChoice[] => [
+    { label: 'Ignore', hint: 'Ignore them.', shortcut: 'I', onClick: () => said.push('ignore') },
+    { label: 'Block', hint: 'Block them.', shortcut: 'B', onClick: () => said.push('block') },
+  ];
+  function card(said: string[] = []) {
+    const items: InboxItem[] = [
+      {
+        key: 'c0',
+        guess: null,
+        render: () => (
+          <NamingRow
+            rowKey="c0"
+            label="Face 3"
+            lead={null}
+            meta={null}
+            guess={null}
+            choices={choices(said)}
+            foldable
+            count={6}
+            note="Ignore skips these. Block also hides any face very like them."
+          />
+        ),
+      },
+    ];
+    render(
+      <Providers>
+        <NamingInbox prefs="test" title="Cards" headingId="cards-h" items={items} />
+      </Providers>,
+    );
+    return screen.getByRole('listitem');
+  }
+
+  it('says how to answer it while folded, then shows its buttons and what they do once selected', async () => {
+    const row = card();
+    expect(row).toHaveAttribute('data-folded');
+    expect(within(row).getByText('6 pictures. Select to answer.')).toBeVisible();
+    expect(within(row).queryByRole('button')).toBeNull();
+    expect(within(row).queryByText(/Block also hides/)).toBeNull();
+    await userEvent.setup().click(within(row).getByText('No good guess'));
+    expect(row).not.toHaveAttribute('data-folded');
+    expect(within(row).queryByText(/Select to answer/)).toBeNull();
+    expect(within(row).getByRole('button', { name: 'Ignore' })).toBeVisible();
+    expect(within(row).getByRole('button', { name: 'Block' })).toBeVisible();
+    // Said on the card itself, not only in a hover popover, so touch and screen readers get it too
+    expect(within(row).getByText('Ignore skips these. Block also hides any face very like them.')).toBeVisible();
+  });
+
+  it("keeps each button's key cap out of its accessible name", async () => {
+    const row = card();
+    await userEvent.setup().click(within(row).getByText('No good guess'));
+    const block = within(row).getByRole('button', { name: 'Block' });
+    expect(block).toHaveAttribute('aria-keyshortcuts', 'B');
+    expect(within(block).getByText('B')).toHaveAttribute('aria-hidden');
+  });
+});
+
+describe('guessWords', () => {
+  it('words a guess as Who\'s this? does, its score included', () => {
+    expect(guessWords({ id: 'mia', name: 'Mia', score: 91, band: 'probable' })).toBe('Probably Mia 91%');
+    expect(guessWords({ id: 'mia', name: 'Mia', score: 58, band: 'maybe' })).toBe('Maybe Mia 58%');
+    expect(guessWords({ id: 'mia', name: 'Mia', score: 12, band: 'none' })).toBe('No good guess');
+    expect(guessWords(null)).toBe('No good guess');
   });
 });

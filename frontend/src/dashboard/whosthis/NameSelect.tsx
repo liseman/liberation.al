@@ -32,6 +32,7 @@ export function NameSelect({
       onCancel={onEscape}
       disabled={disabled}
       ariaLabel="This person's name"
+      withChevron
       flex={1}
       miw={140}
     />

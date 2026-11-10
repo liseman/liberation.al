@@ -941,6 +941,71 @@ def restore_plan(
     _put(state, PLAN, _place_id(place), value, now)
 
 
+CONVERTED_FROM = "converted_from"  # on a plan record: the id of the older record it is a converted copy of
+
+
+def superseded_plans(history: Sequence[knowledge.Record], is_old: Callable[[str], bool]) -> set[str]:
+    """The ids of the plan records in `history` (one place's, oldest first) that are in an old format (`is_old` of
+    their plan's text) and have a converted copy standing for them: a record that names them in `converted_from`, or
+    the very next record when the conversion command wrote it (source "convert"). The timeline shows the copy."""
+    copied = {r.value.get(CONVERTED_FROM) for r in history}
+    out = set()
+    for i, r in enumerate(history):
+        plan = r.value.get("plan")
+        if not isinstance(plan, str) or not plan.strip() or not is_old(plan):
+            continue
+        follows = history[i + 1] if i + 1 < len(history) else None
+        if r.id in copied or (follows is not None and follows.value.get("source") == "convert"):
+            out.add(r.id)
+    return out
+
+
+def convert_plan_history(
+    state: Path,
+    place: str,
+    is_old: Callable[[str], bool],
+    convert: Callable[[str], str],
+    write: bool = True,
+    skip_newest: bool = False,
+) -> tuple[int, list[str]]:
+    """Give each earlier version of `place`'s owner plan that is in an old format a converted copy, so the version
+    stays one that can be looked at and restored once the old format is no longer read. The store only appends, so
+    the old record stays as it was; the copy is a new record one nanosecond after it (so it sits right behind it in
+    the history and never becomes the newest over a later version), with the same frame, source, and page, and
+    `converted_from` naming the original. Returns how many were (or with `write` false, would be) copied, and why
+    each of the others wasn't: the converter refused it, or another record already sits in that nanosecond.
+    `skip_newest` leaves the newest record out: a caller about to convert the plan that holds counts that one
+    itself."""
+    place = _place_id(place)
+    history = plan_history(state, place)
+    done = superseded_plans(history, is_old)
+    taken = {r.start_ns for r in history}
+    made: list[knowledge.Record] = []
+    failed: list[str] = []
+    for r in history[:-1] if skip_newest else history:
+        plan = r.value.get("plan")
+        if not isinstance(plan, str) or not plan.strip() or not is_old(plan) or r.id in done:
+            continue
+        at = time.strftime("%Y-%m-%d %H:%M", time.localtime(r.start_ns / 1e9))
+        if r.start_ns + 1 in taken:
+            failed.append(f"the version saved {at}: another version was saved in the same instant")
+            continue
+        try:
+            value = {**r.value, "plan": convert(plan), CONVERTED_FROM: r.id}
+            view = r.value.get("view")
+            if isinstance(view, Mapping) and isinstance(view.get("plan"), str):
+                value["view"] = {**view, "plan": convert(view["plan"])}
+        except ValueError as e:
+            failed.append(f"the version saved {at}: {e}")
+            continue
+        made.append(
+            knowledge.Record(str(uuid.uuid7()), PLAN, place, r.start_ns + 1, r.start_ns + 1, time.time_ns(), value)
+        )
+    if write and made:
+        _store(state).put(made)
+    return len(made), failed
+
+
 def same_plan_frame(a: Revision, b: Revision) -> bool:
     """Whether two revisions of a place draw their plans in one frame: the same plan file, or, for revisions with no
     plan file, the same map frame (`Revision.frame`) and the same plan frame in it: the same plan transform when

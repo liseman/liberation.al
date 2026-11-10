@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from liberational import config
+from liberational.dashboard import places as view
 from liberational.memory import places
 from liberational.spatial import plan_convert, plan_scene
 from liberational.spatial import plan_import as pi
@@ -171,3 +172,81 @@ def test_the_page_draws_each_plan_before_and_after_and_goes_where_it_is_told(sta
 )
 def test_a_scene_that_doesnt_read_back_as_its_plan_is_caught(change, why):
     assert plan_convert.differs(pi.parse(DSL), pi.parse(pi.to_scene(change(DSL)).scene)) == why
+
+
+LOBBY = DSL.replace('"Hall"', '"Lobby"')
+WIDER = DSL.replace("3,0 5x4", "3,0 6x4")
+
+
+@pytest.fixture
+def versions(state, home):
+    """A place with three DSL versions of its plan: the hall called Lobby, then Hall, then a wider den (current)."""
+    places.correct_plan(state, home, LOBBY, now=T + 10)
+    places.correct_plan(state, home, DSL, now=T + 20)
+    places.correct_plan(state, home, WIDER, now=T + 30)
+    return home
+
+
+def test_earlier_versions_get_converted_copies_and_the_timeline_shows_only_scenes(state, versions, capsys):
+    before = [(r.id, r.value) for r in places.plan_history(state, versions)]
+    plan_convert.main([])
+    assert "3 earlier versions to convert" in capsys.readouterr().out
+    assert [(r.id, r.value) for r in places.plan_history(state, versions)] == before, "a dry run writes nothing"
+    plan_convert.main(["--yes"])
+    assert "3 earlier versions converted" in capsys.readouterr().out
+    history = places.plan_history(state, versions)
+    # the four DSL records are as they were, each with its copy right behind it; the newest's copy is the conversion
+    kept = [(r.id, r.value) for r in history if not plan_scene.is_scene(r.value["plan"])]
+    assert kept == before
+    assert [plan_scene.is_scene(r.value["plan"]) for r in history] == [False, True] * 4
+    assert [r.value.get("converted_from") for r in history[1::2]] == [before[0][0], before[1][0], before[2][0], None]
+    listed = view.plan_versions(state, versions)[1]["versions"]
+    assert [(v["format"], v["current"]) for v in listed] == [("scene", False)] * 3 + [("scene", True)]
+    assert [v["summary"] for v in listed] == [
+        "2 rooms, 2 camera spots",
+        "Renamed Hall to Lobby",
+        "Renamed Lobby to Hall",
+        "Reshaped Den",
+    ]
+    assert held(state, versions).plan == history[-1].value["plan"], "the newest version still holds"
+
+
+def test_a_converted_copy_of_an_earlier_version_can_be_looked_at_and_restored(state, versions):
+    plan_convert.main(["--yes"])
+    lobby = view.plan_versions(state, versions)[1]["versions"][1]
+    code, reply = view.plan_as_scene(state, versions, lobby["id"])
+    assert (code, reply["converted"]) == (200, False)
+    assert plan_scene.rooms(reply["scene"])[0][1] == "Lobby"
+    assert view.restore({"place": versions, "record": lobby["id"]}, True, state, now=T + 100)[0] == 200
+    assert pi.parse(held(state, versions).plan).rooms[0].name == "Lobby"
+
+
+def test_converting_the_history_twice_adds_nothing(state, versions, capsys):
+    plan_convert.main(["--yes"])
+    once = len(places.plan_history(state, versions))
+    capsys.readouterr()
+    plan_convert.main(["--yes"])
+    assert "earlier version" not in capsys.readouterr().out
+    assert len(places.plan_history(state, versions)) == once
+
+
+def test_an_earlier_version_that_cant_convert_is_reported_and_the_rest_still_are(state, home, capsys):
+    off_wall = 'plan "x"\nroom a "A" other rect 0,0 4x4\ndoor exterior>a at 9,9 w0.9\n'
+    places.correct_plan(state, home, off_wall, now=T + 10)
+    places.correct_plan(state, home, LOBBY, now=T + 20)
+    places.correct_plan(state, home, DSL, now=T + 30)
+    plan_convert.main(["--yes"])
+    out = capsys.readouterr().out
+    assert "2 earlier versions converted" in out
+    assert "NOT converted: the version saved" in out and "the door at 9,9 is on no wall" in out
+    listed = view.plan_versions(state, home)[1]["versions"]
+    assert [v["format"] for v in listed] == ["scene", "dsl", "scene", "scene"]
+
+
+def test_a_version_with_another_saved_in_the_same_instant_is_reported_not_squeezed_in(state, home, capsys):
+    places.correct_plan(state, home, LOBBY, now=T + 10)
+    places.correct_plan(state, home, WIDER, now=T + 10)  # the store puts it one nanosecond after
+    places.correct_plan(state, home, DSL, now=T + 30)
+    plan_convert.main(["--yes"])
+    assert "another version was saved in the same instant" in capsys.readouterr().out
+    assert held(state, home).plan is not None and pi.parse(held(state, home).plan).rooms[0].name == "Hall"
