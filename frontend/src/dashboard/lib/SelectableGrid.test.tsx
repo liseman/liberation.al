@@ -5,11 +5,13 @@ import { expect, it } from 'vitest';
 import { renderPage } from '../../test/render';
 import { arrowStep, SelectableGrid } from './SelectableGrid';
 
-function Grid() {
+function Grid({ mark }: { mark?: 'badge' | 'corner' }) {
   const [on, setOn] = useState<ReadonlySet<string>>(() => new Set(['b']));
   return (
     <SelectableGrid
       label="Pictures"
+      mark={mark}
+      tone={mark === 'corner' ? 'keep' : undefined}
       tiles={['a', 'b', 'c'].map(k => ({ key: k, label: `Picture ${k}`, content: k }))}
       isOn={k => on.has(k)}
       onToggle={k =>
@@ -51,4 +53,19 @@ it.each([
   ['Enter', 4, 0],
 ])('steps %s with %i columns by %i', (key, columns, step) => {
   expect(arrowStep(key, columns)).toBe(step);
+});
+
+it('marks only the chosen tiles with the small corner mark, and a click on the mark toggles its tile', async () => {
+  const user = userEvent.setup();
+  renderPage(<Grid mark="corner" />);
+  expect(screen.getByRole('group', { name: 'Pictures' })).toHaveAttribute('data-mark', 'corner');
+  const marked = () => ['a', 'b', 'c'].filter(k => tile(k).querySelector('[data-mark]'));
+  expect(marked()).toEqual(['b']); // a tile that's off has no mark at all
+  expect(tile('b').querySelector('[role="checkbox"], input')).toBeNull(); // not the full check box
+  // The mark is inside its tile's button and takes no clicks of its own: the whole picture is the target.
+  await user.click(tile('b').querySelector('[data-mark]') as HTMLElement);
+  expect(tile('b')).toHaveAttribute('aria-pressed', 'false');
+  expect(marked()).toEqual([]);
+  await user.click(tile('a'));
+  expect(marked()).toEqual(['a']);
 });
