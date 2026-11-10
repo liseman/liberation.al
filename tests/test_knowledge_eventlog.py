@@ -143,8 +143,8 @@ def test_purge_cannot_split_a_concurrent_atomic_append_across_collections(tmp_pa
     decode = log.store._stored
     query = log.store.query
 
-    def selected(db, row):
-        item = decode(db, row)
+    def selected(row):
+        item = decode(row)
         if item.record.collection == "event:a":
             selecting.set()
         return item
