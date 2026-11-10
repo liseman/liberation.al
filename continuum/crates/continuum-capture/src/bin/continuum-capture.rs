@@ -8,11 +8,7 @@
 //! continuum-capture --restart-camera facecam --state-dir data/state   # accepted, not proof of reopening
 //! continuum-capture --list --json [--format MJPEG]  # read-only Linux camera modes and exact intervals
 //! continuum-capture --list    # the devices hotplug sees, to write the manifest's match rules from
-//! continuum-capture --from-v1 [ROOT]    # a manifest from v1's [vision] and the cameras seen now, to check and save
 //! ```
-//!
-//! `--from-v1` reads `ROOT/config/defaults.toml` and `pack.toml` (`$PACK_CONFIG`, or `ROOT/pack.toml`; ROOT is the
-//! checkout, `.` by default) and prints to stdout (see `continuum_capture::from_v1`).
 
 #[path = "../listing.rs"]
 mod listing;
@@ -50,10 +46,6 @@ fn main() -> ExitCode {
                 ExitCode::from(2)
             }
         };
-    }
-    if std::env::args().nth(1).as_deref() == Some("--from-v1") {
-        let root = PathBuf::from(std::env::args().nth(2).unwrap_or_else(|| ".".into()));
-        return from_v1(&root);
     }
     let (mut manifest_path, mut socket, mut state_dir, mut control_socket) =
         (None, None, None::<PathBuf>, None::<PathBuf>);
@@ -310,44 +302,6 @@ fn watch_hotplug(tx: &std::sync::mpsc::Sender<Event>) {
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn watch_hotplug(_: &std::sync::mpsc::Sender<Event>) {
     tracing::info!("no hotplug on this OS");
-}
-
-/// Prints a manifest from v1's camera settings and the cameras seen now.
-fn from_v1(root: &std::path::Path) -> ExitCode {
-    let defaults_path = root.join("config").join("defaults.toml");
-    let defaults = match std::fs::read_to_string(&defaults_path) {
-        Ok(t) => t,
-        Err(e) => {
-            tracing::error!("{}: {e}", defaults_path.display());
-            return ExitCode::from(2);
-        }
-    };
-    let pack_path = std::env::var_os("PACK_CONFIG").map_or_else(|| root.join("pack.toml"), PathBuf::from);
-    // No pack.toml is fine (v1 ran on its defaults); one that can't be read is an error, not a reason to print a
-    // manifest from the defaults alone.
-    let pack = match std::fs::read_to_string(&pack_path) {
-        Ok(t) => Some(t),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
-        Err(e) => {
-            tracing::error!("{}: {e}", pack_path.display());
-            return ExitCode::from(2);
-        }
-    };
-    let v1 = match continuum_capture::from_v1::v1_vision(&defaults, pack.as_deref()) {
-        Ok(v) => v,
-        Err(e) => {
-            tracing::error!("{e}");
-            return ExitCode::from(2);
-        }
-    };
-    #[cfg(target_os = "linux")]
-    let seen = continuum_capture::hotplug::Roots::default().cameras();
-    #[cfg(target_os = "macos")]
-    let seen = objc2::rc::autoreleasepool(|_| continuum_capture::avfoundation::cameras());
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-    let seen: Vec<continuum_capture::supervisor::DeviceInfo> = Vec::new();
-    print!("{}", continuum_capture::from_v1::render(&v1, &seen, cfg!(target_os = "macos")));
-    ExitCode::SUCCESS
 }
 
 /// Prints every device hotplug sees now, one a line: what a manifest's match rules can name.

@@ -2,7 +2,7 @@
 
 - `Detector`: finds the faces in a BGR image, each with its box, confidence, five landmarks, and unit embedding.
   `InsightFaceDetector` is SCRFD detection and AdaFace recognition, run on a head crop.
-- `Matcher`: names an embedding. `V1Matcher` reads v1's `faces/db.npz` and unknown clusters (`vision/faces.py`): the
+- `Matcher`: names an embedding. `GalleryMatcher` reads `faces/db.npz` and the unknown clusters (`vision/faces.py`): the
   nearest enrolled face over 0.45 is a match, and an unnamed face joins or starts an unknown cluster ("Face N").
 - `readable`: whether a look reads as a face well enough to learn from, name, or show as a photo.
 - `VisitBuilder` is the visit rule: one person's matches on one camera, closed once 10 s pass
@@ -84,8 +84,8 @@ class InsightFaceDetector:
         ]
 
 
-class V1Matcher:
-    """v1's names: `faces/db.npz` (reread when it changes) and its unknown clusters, through `vision/faces.py`."""
+class GalleryMatcher:
+    """The enrolled names: `faces/db.npz` (reread when it changes) and the unknown clusters, through `vision/faces.py`."""
 
     def match(self, emb: np.ndarray) -> tuple[str | None, float]:
         from liberational.vision import faces

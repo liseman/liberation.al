@@ -7,7 +7,7 @@
   still valid after the copy (a lapsed lease means the slot may have been reused mid-copy).
 - Chunk (Tier 1 or 2): the tier worker flushed a stream's payloads into a chunk file, and the catalog keeps the
   chunk as one payload whose locator names the whole file; its records are the payloads it absorbed, each with its
-  own id. They're read straight from the local file (`read_chunk_records`), records a purge cut left out. A v1 FLAC
+  own id. They're read straight from the local file (`read_chunk_records`), records a purge cut left out. A FLAC
   file registered in place is one payload, the whole file.
 - Ring: a batch of ring records; use `Client.ring_reader` for those.
 
@@ -120,7 +120,7 @@ async def _read(client: Client, item: Item, start_ns: int, end_ns: int) -> list[
         if found is None:
             return None
         if len(found) == 1 and found[0][:3] == (_NIL, 0, 0):
-            # A v1 FLAC file registered in place: the item is its one-frame chunk, and the file holds no record
+            # A FLAC file registered in place: the item is its one-frame chunk, and the file holds no record
             # ids, so the record takes the item's id and span.
             return [Record(*whole, found[0][3])]
         return [

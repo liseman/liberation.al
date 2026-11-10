@@ -126,8 +126,8 @@ pub enum ChunkFormat {
     Opus = 6,
     /// Microphone ring batches, one per record, as FLAC or LZ4 by [`crate::pcm`].
     PcmBatch = 7,
-    /// An ordinary MP4 registered in place (v1's recordings, [`crate::v1video`]): never written by the tier worker,
-    /// and its frames are GOPs, read through [`crate::v1video`], not [`ChunkReader`].
+    /// An ordinary MP4 registered in place ([`crate::inplace_video`]): never written by the tier worker,
+    /// and its frames are GOPs, read through [`crate::inplace_video`], not [`ChunkReader`].
     Mp4 = 8,
     /// Tier 1 video of a raw camera: one H.264 access unit per record (one record per Tier 0 frame), as a
     /// one-unit [`crate::gop`] record carrying the unit's times and keyframe flag. The GOP is a second; a chunk starts

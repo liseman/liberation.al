@@ -23,7 +23,7 @@ VAD, for a mic without one), and `Worker` writes where each gain is to `listen.g
 Around the transcription, `Checks` keeps these rules: a candidate overlapping playback is dropped before ASR (echo and
 barge-in over the assistant's own voice), a sound-effect caption is not speech, another microphone's copy of a line
 just committed is dropped, and a line that is the voice password is written "[password]" with `password: true`.
-`V1Checks` does that through the playback windows and the password window, which are on broker streams. The service's
+`StateChecks` does that through the playback windows and the password window. The service's
 `Matcher` is `voices.VoiceMatcher`: each line's voiceprint from the vector worker's search, and its embedding filed on
 `voice.embedding` (listen/voices.py, which also handles the dashboard's voice tags).
 """
@@ -383,8 +383,8 @@ class NoChecks:
 _CAPTION = re.compile(r"[\(\[][^\)\]]*[\)\]]")
 
 
-class V1Checks:
-    """The rules around a transcription, with their state: playback
+class StateChecks:
+    """The rules around a transcription, kept in state files: playback
     windows (speech/playback_guard), the password verifier and window (assistant/voice_auth), and two-mic dedup
     (audio/twins)."""
 
@@ -772,7 +772,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                     mics,
                     transcriber,
                     vad=vad,
-                    checks=V1Checks(state),
+                    checks=StateChecks(state),
                     matcher=matcher,
                     gains=gains,
                     gain_status=state / auto_gain.STATUS,

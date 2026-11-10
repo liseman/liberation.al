@@ -546,7 +546,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     if devices:
         gpu_pose.block_on_sync(list(range(devices)))  # before any thread makes a CUDA context
     insightface.app()  # load the face models now, not on the first look, which would stall the frames
-    detector, matcher = Locked(face_models.InsightFaceDetector()), Locked(face_models.V1Matcher())
+    detector, matcher = Locked(face_models.InsightFaceDetector()), Locked(face_models.GalleryMatcher())
     people = subjects.RegistryPeople(registry.at(cfg.path("paths.state")))
     models = cfg.model_path("person_detector").parent
     stop = threading.Event()

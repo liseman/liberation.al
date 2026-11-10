@@ -93,12 +93,12 @@ def read_chunk_records(
     start_ns, end_ns, bytes) each, in the stream's native form. None when the file is gone. ValueError for a uri that
     isn't a local file."""
 
-def v1_gop_units(path: str | PathLike[str], start_ns: int, gop: int) -> list[dict[str, Any]]:
-    """GOP `gop` of the v1 recording at `path` (starting at `start_ns`), in decode order: dicts of "bytes" (Annex
+def gop_units(path: str | PathLike[str], start_ns: int, gop: int) -> list[dict[str, Any]]:
+    """GOP `gop` of the MP4 registered in place at `path` (starting at `start_ns`), in decode order: dicts of "bytes" (Annex
     B), "pts_ns", "end_ns", "dts_ns", and "key". Raises ContinuumError for a file or GOP that can't be read."""
 
 def decode_flac(flac: Buffer) -> tuple[int, int, bytes]:
-    """FLAC bytes (a v1 archive file) as (rate, channels, samples): interleaved little-endian f32, each integer over
+    """FLAC bytes (a file registered in place) as (rate, channels, samples): interleaved little-endian f32, each integer over
     2^(bits - 1) as capture's are. Raises ValueError for bytes that aren't FLAC."""
 
 class LeaseDenied(ContinuumError):
@@ -449,13 +449,15 @@ class Client:
     ) -> Awaitable[dict[str, Any]]:
         """Commits a chunk file absorbing `absorbed` (frames are (start_ns, offset, length, cut)): {"chunk_id",
         "commit_seq", "duplicate", "hidden"}. Only a registered worker commits chunks."""
-    def register_v1_flac(self, stream_id: int, path: str | PathLike[str], start_ns: int) -> Awaitable[dict[str, Any]]:
-        """Registers one v1 FLAC file in place on a v1 archive stream. Idempotent; needs a registered worker."""
-    def register_v1_video_index(self, cam: str, video_dir: str | PathLike[str]) -> Awaitable[list[dict[str, Any]]]:
-        """Registers camera `cam`'s v1 recordings (video/index.jsonl in `video_dir`) in place on `<cam>.video_v1`.
+    def register_flac(self, stream_id: int, path: str | PathLike[str], start_ns: int) -> Awaitable[dict[str, Any]]:
+        """Registers one FLAC file in place on a stream registered for such files. Idempotent; needs a registered worker."""
+    def register_video_index(self, cam: str, video_dir: str | PathLike[str]) -> Awaitable[list[dict[str, Any]]]:
+        """Registers camera `cam`'s MP4 files (the index.jsonl in `video_dir` lists them) in place on `<cam>.video_v1`.
         Idempotent; needs a registered worker."""
-    def register_v1_index(self, stream_name: str, device_dir: str | PathLike[str]) -> Awaitable[list[dict[str, Any]]]:
-        """Registers every file a v1 device directory's index.jsonl lists, in place: one dict per line, with
+    def register_audio_index(
+        self, stream_name: str, device_dir: str | PathLike[str]
+    ) -> Awaitable[list[dict[str, Any]]]:
+        """Registers every file a directory's index.jsonl lists, in place: one dict per line, with
         "registered" and either the ids and span or "skipped". Idempotent; needs a registered worker."""
     def next_event(self) -> Awaitable[tuple[str, bytes] | None]: ...
     def close(self, reason: str = "closed") -> Awaitable[None]: ...

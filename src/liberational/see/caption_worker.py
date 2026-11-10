@@ -168,7 +168,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     from liberational import continuum_link
     from liberational.people import registry
     from liberational.people.pets import PetRegistry
-    from liberational.see import vlm as v1
+    from liberational.see import vlm as vlm_backends
     from liberational.vision import animal_embedder
 
     parser = argparse.ArgumentParser(prog="pack-see-captions", description=main.__doc__)
@@ -191,7 +191,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         raise SystemExit(f"no cameras in {args.manifest}")
     check_h264_decoder(cameras)
     backend = args.backend if args.backend != "auto" else "mlx-server" if cfg.has_mlx() else "ollama"
-    vlm: list[v1.Backend] = []  # made once, on the model thread
+    vlm: list[vlm_backends.Backend] = []  # made once, on the model thread
     embed = caption_animals.LazyEmbedder()  # shared by every camera, loaded on the first animal box
     pet_photos = pet_shots.Writer(cfg.path("paths.state"))  # Pets' sighting photos, one a track
     pets = PetRegistry(registry.knowledge_path(None))
@@ -206,9 +206,9 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     def pipeline(cam: Camera) -> CaptionPipeline:
         if not vlm:
-            vlm.append(v1.make_vlm(backend))
+            vlm.append(vlm_backends.make_vlm(backend))
             vlm[0].warm()
-        ollama = vlm[0] if isinstance(vlm[0], v1.OllamaVLM) else None
+        ollama = vlm[0] if isinstance(vlm[0], vlm_backends.OllamaVLM) else None
         ground = ollama.ground if ollama is not None and cfg.get("vision.objects") else None
         every = caption_every_s(cam, cfg.get("vision.network_caption_every_s"), cfg.get("vision.caption_every_s") or {})
         find = None if ollama is None else functools.partial(ollama.ground, prompt=caption_animals.PROMPT)
