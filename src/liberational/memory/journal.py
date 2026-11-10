@@ -62,7 +62,7 @@ verbatim. A reply with a token that was not in the input is retried once; a toke
 The pass (run_pass, every `journal.every_s`) reads the catalog for where it stands. Each pass:
 1. Reconcile: for the last `journal.reconcile_days`, each written 30 second entry's recorded line speakers are
    compared with who said each line now: the speech log read through the event log, where a relabel, an unlabel,
-   and a backfill match are assertions since step 4 (docs/DOMAIN-MODEL.md). An entry whose lines moved to another
+   and a backfill match are assertions (docs/DOMAIN-MODEL.md, rules 1 and 2). An entry whose lines moved to another
    speaker (merges are followed, so a merge alone changes nothing, and neither does naming a voice), became or
    stopped being the owner, or disappeared is rebuilt, the new entry superseding it. While the log cannot be read,
    nothing is rebuilt.

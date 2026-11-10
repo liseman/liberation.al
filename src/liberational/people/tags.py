@@ -1,5 +1,5 @@
-"""Tags with attributes: "that's Alice, CEO of Acme" as a name, a role, and an organization (step 6 of
-docs/DOMAIN-MODEL.md).
+"""Tags with attributes: "that's Alice, CEO of Acme" as a name, a role, and an organization (a person's
+attributes, "Records" in docs/DOMAIN-MODEL.md).
 
 A tag decides who someone is, so it is parsed when it is written, by fixed rules and with no model call (the
 identity path is schema-on-write). The same parser reads a spoken tag (the identity daemon and the assistant's

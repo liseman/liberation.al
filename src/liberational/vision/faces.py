@@ -689,7 +689,7 @@ def _asserted(
     evidence: Sequence[EvidenceRef] = (),
     producer: Producer | None = None,
 ) -> bool:
-    """Dual write (step 3 of docs/DOMAIN-MODEL.md): this face is `name`, on the owner's word unless `basis` says how
+    """Dual write (to the person registry and the face gallery): this face is `name`, on the owner's word unless `basis` says how
     else it was learned (the identity worker's introductions and badges, or an automatic match with its `producer`).
     A failure is raised (registry.WriteFailed), so a name the registry didn't record is never reported as given.
     Returns whether an assertion was written: a match never names someone the registry doesn't have."""

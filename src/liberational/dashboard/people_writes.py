@@ -557,7 +557,7 @@ def _delete_person_locked(name: object, control: bool) -> Reply:
     # else's stay: clearing them all made the dashboard cut every face again from video, thousands of jobs that kept
     # the pets' photos waiting for hours.
     face_shots.remove(context.STATE, their_shots)
-    # PersonForgotten, and their events purged from the log (open decision 1). Last, so a failure anywhere before it
+    # PersonForgotten, and their events purged from the log ("Forgetting" in docs/DOMAIN-MODEL.md). Last, so a failure anywhere before it
     # leaves them in the registry, and deleting them again finds everything still theirs; a failure here is said.
     try:
         registry.at(context.STATE).forget(name, "dashboard")

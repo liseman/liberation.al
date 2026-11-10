@@ -431,7 +431,7 @@ def run(args: argparse.Namespace) -> Report:
     selected_only = bool(getattr(args, "selected_only", False))
     running = check_services(report, services.installed(), services.states(), expected, only_expected=selected_only)
     try:
-        import continuum_py  # noqa: F401  # the SDK, built by uv sync (MIGRATING.md, section 46)
+        import continuum_py  # noqa: F401  # the SDK, built by uv sync (MIGRATING.md, "Every upgrade")
     except ImportError:
         report.bad("continuum_py isn't installed in this environment: run uv sync")
         return report

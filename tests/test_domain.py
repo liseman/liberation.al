@@ -1,4 +1,4 @@
-"""The domain types (docs/DOMAIN-MODEL.md, step 1): their invariants, the envelope's format, and the import rules."""
+"""The domain types (docs/DOMAIN-MODEL.md, "Records" and "Events"): their invariants, the envelope's format, and the import rules."""
 
 import ast
 import dataclasses

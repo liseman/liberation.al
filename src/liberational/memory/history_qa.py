@@ -818,7 +818,7 @@ def _journal(
 def _transcripts(
     state: pathlib.Path, query: Mapping[str, Any], warnings: list[str]
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    view = transcript_view.View(state)  # who said each line, and each voice's name, through the event log (step 4)
+    view = transcript_view.View(state)  # who said each line, and each voice's name, through the event log
     person = query["person"]
     participants = {p.casefold() for p in query.get("participants", [])}
     # With an event log, a room line is said by a person (View.speakers), and a call line by the person its label
@@ -896,7 +896,7 @@ def _transcripts(
         rows.append(row)
 
     def read_room(batch: list[tuple[dict[str, Any], float, str, str]]) -> None:
-        """Who said these room lines comes from the event log, as every reader sees it (step 4), shown under the
+        """Who said these room lines comes from the event log, as every reader sees it, shown under the
         current name of the person who said it. They're read together, so another mic's copy of a line is known
         and counted once."""
         if not batch:

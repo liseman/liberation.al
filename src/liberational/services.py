@@ -1,17 +1,21 @@
-"""Render and install the pack's services from services/services.toml.
+"""The pack's services, declared once in services/services.toml: which run here, how each starts, and what runs now.
 
-  uv run pack-services list                 # what would be installed on this machine
-  uv run pack-services render [--out DIR]   # print (or write) the launchd plists / systemd units
-  uv run pack-services install [NAME ...]   # write them to the user's service dir and start them
-  uv run pack-services uninstall [NAME ...] # stop and remove them
-  uv run pack-services restart --cascade   # staged restart of the selected installed services
+  uv run pack-services list                 # the services selected on this machine
   uv run pack-services status
+  uv run pack-services restart --cascade   # staged restart of the selected services
+  uv run pack-services install [NAME ...]   # follow pack.toml's selection and (re)start what was named
+  uv run pack-services uninstall [NAME ...] # stop them
+  uv run pack-services render [--out DIR]   # print (or write) launchd plists / systemd units, for older installs
 
-The dashboard's admin sidebar shows snapshot() and turns services on and off with install and uninstall.
+The application (pack-app, supervisor.py) runs the selected services as its own children, using `selected`, `argv`,
+and `environment` from here. While it runs, the verbs above ask it (`_ask_supervisor`): nothing is rendered or
+installed. Which services are selected: each one's `default`, adjusted by [services] enable / disable in pack.toml,
+limited to its platforms. The dashboard's admin sidebar shows snapshot() and turns services on and off through the
+same verbs.
 
-macOS gets launchd agents labelled pack.<name> in ~/Library/LaunchAgents; Linux gets systemd user
-units named pack-<name> in ~/.config/systemd/user. Which services are installed: each one's
-`default`, adjusted by [services] enable / disable in pack.toml, limited to its platforms.
+An install from before the application has a unit per service, which the verbs still manage when no supervisor runs:
+launchd agents labelled pack.<name> in ~/Library/LaunchAgents on macOS, and systemd user units named pack-<name> in
+~/.config/systemd/user on Linux. `pack-services migrate` removes them.
 """
 
 import argparse
