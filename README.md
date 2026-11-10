@@ -165,21 +165,22 @@ Try the dashboard on its own first. It works with an empty `data/` directory:
 mise run dashboard
 ```
 
-Open <http://localhost:8765/>. Then install the background services (launchd on macOS, systemd on Linux) and check
-them:
+Open <http://localhost:8765/>. Then open the application, which runs every service and stops them all when you
+quit it:
 
 ```bash
-uv run pack-services list       # what will be installed, and why
-uv run pack-services install
+uv run pack-services list       # what will run, and why
+uv run pack-app                 # the application window; `uv run pack-supervisor run` is the same without one
 uv run pack-services status
 ```
+
+Nothing starts at login unless you turn on "Start at login" in Settings.
 
 The Live tab shows a **Getting started** card with six steps, each with a button to the control that does it:
 system packages installed, models downloaded, pick a camera and a microphone, name yourself, record your voice
 reference, and tag your face. Live fills in as each one is done.
 
-`pack-services stop <name>` stops a service until the next restart, `start <name>` starts it again, and
-`uninstall <name>` keeps it off.
+`pack-services stop <name>` stops a service, `start <name>` starts it again, and `disable <name>` keeps it off.
 
 ## Add cameras
 

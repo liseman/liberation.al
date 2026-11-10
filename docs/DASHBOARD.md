@@ -87,3 +87,21 @@ effective value and its comment as the description; secrets are never sent) and 
 - **This machine** shows processor, memory, loaded models, and missing system packages.
 
 A setting whose comment in `defaults.toml` has a `# New feature: <name>` line appears in a New features panel.
+
+## Remote access
+
+A dashboard opened over HTTPS cannot open the gateway's plain WebSocket on port 8766. The page uses `wss` on port
+8767, so put a TLS proxy in front of the gateway. With Tailscale, for the tailnet only:
+
+```sh
+tailscale serve --bg --https=8767 http://127.0.0.1:8766
+```
+
+Then name the host the gateway should accept in `pack.toml` and restart the gateway:
+
+```toml
+[dashboard]
+gateway_allow_host = "<machine>.<tailnet>.ts.net"
+```
+
+Keep that proxy on the tailnet. The gateway asks for no password, so a public Funnel would publish the cameras.
