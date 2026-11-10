@@ -1,21 +1,24 @@
 """Known › Places' reads: the places the house knows, and where people and pets were in one.
 
     GET /places                        {places: [{id, name, named, plan, plan_source, machine_newer, revision,
-                                       last_visit, last_activity}]}: every place (memory/places.py), its plan in the
-                                       floorplan DSL (the owner's correction if there is one, else the newest machine
-                                       plan; null before the first), when the owner was last there (a `place.visit`,
+                                       last_visit, last_activity}]}: every place (memory/places.py), its plan as
+                                       stored, a Pascal scene's JSON (the owner's if there is one, else the newest
+                                       machine plan; null before the first), when the owner was last there (a `place.visit`,
                                        the rig's), and when anyone was last seen there by its fixed cameras (a
                                        position record; within ACTIVITY_LOOKBACKS_S), each null when unknown (a page
                                        load with text/html gets the app instead)
     POST /places/plan {place, plan, base}
-                                       the owner's corrected plan (DSL), saved as taught state over the machine's
+                                       the owner's plan (a Pascal scene), saved as taught state over the machine's
                                        (memory/places.py `correct_plan`): it holds until withdrawn, and the
                                        machine's plan is never edited. `base` is the revision whose frame the edited
                                        text is in (the plan's plan_revision when the editor opened it). An empty plan
                                        withdraws the correction. An edit of a plan drawn on its own page (an
                                        imported one) is on that page, and is moved into the plan frame.
-    GET /places/plan/history?place=    {place, versions: [{id, at, rooms, source, withdrawn}], previous}: the owner's
-                                       plans, oldest first, and the one Revert plan puts back (`plan_versions`)
+    GET /places/plan/history?place=    {place, versions: [{id, at, rooms, source, withdrawn, current, summary}]}:
+                                       the owner's plans, oldest first (`plan_versions`)
+    GET /places/plan/scene?place=[&record=]
+                                       {place, scene, base}: the plan as the plan editor opens it, or one of its
+                                       earlier versions (`plan_as_scene`)
     POST /places/plan/restore {place, record}
                                        make that earlier owner plan hold again, written as the newest record, so the
                                        one it replaces stays in the history (memory/places.py `restore_plan`)
@@ -70,13 +73,12 @@ every span / MAX_POINTS seconds, with its last; the reader first thins to FINE_S
 
 Points come back in the frame of the plan the tab draws (the place's `plan_revision`: records are placed in it when
 written, and the reader moves one placed in an earlier frame onto it), turned onto the owner's page when the plan is drawn on one (an imported plan, upright and with
-the page's handedness: `GET /places` gives that page's DSL as `plan`; the 3D scene keeps the plan frame). A point that
+the page's handedness: `GET /places` gives that page's plan as `plan`; the 3D scene keeps the plan frame). A point that
 can't be put in that frame (`in_frame` false: a camera that revision doesn't register) would land off the drawn plan, so
 it's left out; a room-only span is kept either way.
 """
 
 import math
-import re
 import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
@@ -309,30 +311,31 @@ def scene(state: Path, place: str) -> Reply:
     }
 
 
-MAX_PLAN_BYTES = 64 * 1024  # a hand-corrected DSL plan is a few KB; anything this big isn't one
-# A scene (spatial/plan_scene.py) holds every default of every node: about 1.5 KB a door, so a large home's is a few
-# hundred KB.
+# A plan is a Pascal scene (spatial/plan_scene.py), which holds every default of every node: about 1.5 KB a door, so a
+# large home's is a few hundred KB. Anything past this isn't a plan.
 MAX_SCENE_BYTES = 2 * 1024 * 1024
 
 
 def correct(body: Mapping[str, Any], control: bool, state: Path, now: float | None = None) -> Reply:
-    """POST /places/plan: save the owner's corrected plan for a place, or withdraw it with an empty plan. `control` is
-    the handler's _can_teach. The tab is the real validator: it reads the plan with the floorplan library and shows its
-    findings before it offers to save. This route only checks that the plan has a room, that it isn't huge, and that
-    `base` (when sent) is one of the place's revisions."""
-    from liberational.spatial import floorplan
-
+    """POST /places/plan: save the owner's plan for a place (a Pascal scene, as the plan editor saves it), or withdraw
+    it with an empty plan. `control` is the handler's _can_teach. The plan must be a scene that reads and has a room,
+    not be huge, and `base` (when sent) be one of the place's revisions."""
     if not control:
         return 403, {"ok": False, "error": "plans can only be corrected from this machine (Remote teaching is off)"}
     place, plan, base = body.get("place"), body.get("plan"), body.get("base")
     if not isinstance(place, str) or not isinstance(plan, str) or not (base is None or isinstance(base, str)):
         return 400, {"ok": False, "error": "send the place's id, its plan as text, and the revision it was drawn in"}
-    if len(plan.encode()) > (MAX_SCENE_BYTES if plan_scene.is_scene(plan) else MAX_PLAN_BYTES):
+    if len(plan.encode()) > MAX_SCENE_BYTES:
         return 400, {"ok": False, "error": "that plan is too long to be a floorplan"}
     if places.get(state, place) is None:
         return 404, {"ok": False, "error": "no such place"}
-    if plan.strip() and not floorplan.rooms_from_dsl(plan):
-        return 400, {"ok": False, "error": "the plan has no room in it"}
+    if plan.strip():
+        try:
+            scene = plan_scene.load(plan)
+        except plan_scene.SceneError as e:
+            return 400, {"ok": False, "error": str(e)}
+        if not plan_scene.rooms(scene):
+            return 400, {"ok": False, "error": "the plan has no room in it"}
     held = places.get(state, place)
     try:
         if plan.strip() and held is not None and held.view is not None:
@@ -350,46 +353,35 @@ def correct(body: Mapping[str, Any], control: bool, state: Path, now: float | No
 
 def plan_versions(state: Path, place: str) -> Reply:
     """GET /places/plan/history?place=: every saved version of the place's owner plan (memory/places.py
-    `plan_history`), oldest first, each {id, at, rooms, source, withdrawn, format, current, summary}. `current` marks
-    the one that holds (none while the machine's plan does), `format` says "scene" or "dsl", and `summary` is what
-    changed from the version before it, in a few words (`plan_change`). `previous` is the newest earlier version that
-    isn't the same plan as the current one (`same_plan`), or null."""
-    from liberational.spatial import floorplan
-
+    `plan_history`), oldest first, each {id, at, rooms, source, withdrawn, current, summary}. `current` marks the one
+    that holds (none while the machine's plan does), and `summary` is what changed from the version before it, in a
+    few words (`plan_change`). A version saved in the line DSL from before scenes can no longer be read, so it is
+    not listed (the conversion gave each one a scene copy, which is); how many were left out is logged."""
     held = places.get(state, place)
     if held is None:
         return 404, {"error": "no such place"}
-    # a version in the old DSL that has a converted copy is shown as its copy (memory/places.py `superseded_plans`)
     everything = places.plan_history(state, place)
-    hidden = places.superseded_plans(everything, lambda text: not plan_scene.is_scene(text))
-    history = [r for r in everything if r.id not in hidden]
+    history = [r for r in everything if not _plan_text(r.value).strip() or plan_scene.is_scene(_plan_text(r.value))]
+    if len(history) < len(everything):
+        logs.get("dashboard").info(
+            "%s: %d plan version(s) in the old format are not listed", held.id, len(everything) - len(history)
+        )
     texts = [_plan_text(r.value) for r in history]
     owned = held.plan_source == "owner"
     versions = [
         {
             "id": r.id,
             "at": r.start_ns / 1e9,
-            "rooms": len(floorplan.rooms_from_dsl(t)),
+            "rooms": len(plan_scene.rooms_of(t)),
             "source": r.value.get("source", "owner"),
             "withdrawn": not t.strip(),
-            "format": "scene" if plan_scene.is_scene(t) else "dsl",
-            "current": owned and i == len(history) - 1,
+            # the newest record of all is the one that holds, so an old-format one on top means none listed does
+            "current": owned and r is everything[-1],
             "summary": plan_change(texts[i - 1] if i else None, t),
         }
         for i, (r, t) in enumerate(zip(history, texts, strict=True))
     ]
-    # the newest record is the one that holds while the owner's plan does; with the machine's holding, none of them
-    current = texts[-1] if owned and texts else None
-    upto = len(history) - 1 if current is not None else len(history)
-    previous = next(
-        (
-            versions[i]
-            for i in range(upto - 1, -1, -1)
-            if not versions[i]["withdrawn"] and (current is None or not same_plan(texts[i], current))
-        ),
-        None,
-    )
-    return 200, {"place": held.id, "versions": versions, "previous": previous}
+    return 200, {"place": held.id, "versions": versions}
 
 
 MOVED_SPOT_M = 0.01  # a camera spot this far from where it was has moved
@@ -484,14 +476,11 @@ def _same_outline(a: Sequence[tuple[float, float]], b: Sequence[tuple[float, flo
 
 
 def plan_as_scene(state: Path, place: str, record: str | None = None) -> Reply:
-    """GET /places/plan/scene?place=[&record=]: a place's plan as a Pascal scene (spatial/plan_scene.py), for the plan
-    editor to open: the plan that holds, as the owner draws it (on its own page when it has one), or with `record`
-    one of the place's earlier owner plans (`plan_versions`), to look at before putting it back. A plan still stored
-    as DSL is converted on the way out (spatial/plan_import.py `to_scene`), changing nothing stored: `converted` says
-    so, and `left` lists the statements a scene has no place for. `base` is the revision the plan is drawn in, which
-    a save sends back."""
-    from liberational.spatial import plan_import
-
+    """GET /places/plan/scene?place=[&record=]: a place's plan as the plan editor opens it, a Pascal scene
+    (spatial/plan_scene.py): the plan that holds, as the owner draws it (on its own page when it has one), or with
+    `record` one of the place's earlier owner plans (`plan_versions`), to look at before putting it back. `base` is
+    the revision the plan is drawn in, which a save sends back. A place with no plan is a 404 (the editor starts an
+    empty one), and a plan that isn't a scene that reads a 422."""
     held = places.get(state, place)
     if held is None:
         return 404, {"error": "no such place"}
@@ -505,23 +494,20 @@ def plan_as_scene(state: Path, place: str, record: str | None = None) -> Reply:
         text = view.plan if view is not None else _plan_text(found.value)
     if not text.strip():
         return 404, {"error": "this place has no plan" if record is None else "that version withdrew the plan"}
+    if not plan_scene.is_scene(text):
+        return 422, {"error": "it is in an old format that is no longer read"}
     try:
-        if plan_scene.is_scene(text):
-            scene, converted, left = plan_scene.load(text), False, []
-        else:
-            made = plan_import.to_scene(text)
-            scene, converted, left = plan_scene.load(made.scene), True, list(made.left)
-    except ValueError as e:  # PlanError and SceneError both are
-        return 422, {"error": f"this plan can't be opened in the editor: {e}"}
-    return 200, {"place": held.id, "scene": scene, "converted": converted, "left": left, "base": held.plan_revision}
+        scene = plan_scene.load(text)
+    except plan_scene.SceneError as e:
+        return 422, {"error": str(e)}
+    return 200, {"place": held.id, "scene": scene, "base": held.plan_revision}
 
 
 def restore(body: Mapping[str, Any], control: bool, state: Path, now: float | None = None) -> Reply:
     """POST /places/plan/restore {place, record}: make an earlier version of the owner's plan hold again, written as
     the newest record (memory/places.py `restore_plan`), so the one it replaces stays in the history and can be put
-    back the same way. A version saved in the old DSL is converted to a scene on the way (spatial/plan_import.py
-    `to_scene`), so what holds afterwards is what the plan editor works on; the old record stays as it was. A teaching
-    write, like POST /places/plan."""
+    back the same way. A version in the old format can't be restored (it isn't listed either). A teaching write, like
+    POST /places/plan."""
     if not control:
         return 403, {"ok": False, "error": "plans can only be changed from this machine (Remote teaching is off)"}
     place, record = body.get("place"), body.get("record")
@@ -529,42 +515,18 @@ def restore(body: Mapping[str, Any], control: bool, state: Path, now: float | No
         return 400, {"ok": False, "error": "send the place's id and the plan record to put back"}
     if places.get(state, place) is None:
         return 404, {"ok": False, "error": "no such place"}
-    from liberational.spatial import plan_import
-
-    def as_scene(text: str) -> str:
-        return text if plan_scene.is_scene(text) else plan_import.to_scene(text).scene
-
-    try:
-        places.restore_plan(state, place, record, now=now, convert=as_scene)
-    except KeyError:
+    was = next((r for r in places.plan_history(state, place) if r.id == record), None)
+    if was is None:
         return 404, {"ok": False, "error": "no such plan in this place's history"}
-    except ValueError as e:  # a DSL version the converter refuses
-        return 422, {"ok": False, "error": f"that version can't be restored: {e}"}
+    if _plan_text(was.value).strip() and not plan_scene.is_scene(_plan_text(was.value)):
+        return 422, {"ok": False, "error": "that version is in an old format that is no longer read"}
+    places.restore_plan(state, place, record, now=now)
     held = places.get(state, place)
     shown = (held.view.plan if held.view is not None else held.plan) if held else None
     return 200, {"ok": True, "plan": shown, "plan_source": held.plan_source if held else None}
 
 
-SAME_PLAN_M = 0.01  # two plans' corners this close are one plan: editor drags snap to 5 cm
-_NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
-
-
-def same_plan(a: str, b: str, within: float = SAME_PLAN_M) -> bool:
-    """Whether two plans' DSL is one plan as the owner draws it: the same rooms, walls, and openings, each number within
-    `within` (metres) of the other's, as one plan registered into two nearly equal frames is (Place 1's imported plan,
-    registered again, moved by 3 mm). Spatial memory's `x-` lines (cameras placed on the plan, anchors) aren't the
-    owner's drawing, and the editor sets them aside too, so they don't count."""
-    a, b = _drawn(a), _drawn(b)
-    na, nb = _NUMBER.findall(a), _NUMBER.findall(b)
-    return (
-        _NUMBER.split(a) == _NUMBER.split(b)
-        and len(na) == len(nb)
-        and all(abs(float(x) - float(y)) <= within for x, y in zip(na, nb, strict=True))
-    )
-
-
-def _drawn(text: str) -> str:
-    return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("x-"))
+SAME_PLAN_M = 0.01  # two outlines whose corners are this close are one shape
 
 
 def _plan_text(value: Mapping[str, Any]) -> str:
@@ -573,8 +535,8 @@ def _plan_text(value: Mapping[str, Any]) -> str:
 
 
 def _from_page(text: str, view: places.PageView) -> str:
-    """An owner plan edited on its page, moved into the plan frame in the format it is in (spatial/plan_import.py).
-    Raises ValueError for a plan it can't read."""
+    """An owner plan edited on its page, moved into the plan frame (spatial/plan_import.py). Raises ValueError for a
+    plan it can't read."""
     from liberational.spatial import plan_import
 
     return plan_import.moved(text, plan_import.Move(view.turn, view.shift, view.mirror))

@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+import plans
 from liberational import config as cfg
 from liberational.memory import places
 from liberational.spatial import cameras, lens, ply, splat_runner, splats, spots
@@ -594,7 +595,9 @@ def test_the_summary_gives_the_sampled_cameras_recent_looks_from_the_samplers_st
 
 # ---- a camera with a spot on the owner's plan (#288)
 
-ROOMS = 'plan "Home" walls 0.2/0.1\nroom r1 "Living" other rect 0,0 4x3\nroom r2 "Hall" other rect 0,3 4x2\n'
+ROOMS = plans.scene(
+    'plan "Home" walls 0.2/0.1\nroom r1 "Living" other rect 0,0 4x3\nroom r2 "Hall" other rect 0,3 4x2\n'
+)
 #: A camera 1 m up at (2, 1.5) on the plan, level, looking along the plan's +x: its right is the plan's -y, its
 #: down the plan's -z.
 LOOKING_EAST = (0.0, 0.0, 1.0, 2.0, -1.0, 0.0, 0.0, 1.5, 0.0, -1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)

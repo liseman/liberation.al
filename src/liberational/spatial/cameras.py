@@ -381,7 +381,7 @@ def up_direction(
 
 @dataclass(frozen=True)
 class Layout:
-    """What the cloud says about its place's floor: the plan's DSL and its map-to-plan transform (12 numbers), when
+    """What the cloud says about its place's floor: the plan (a scene's text) and its map-to-plan transform (12 numbers), when
     the cloud has the walls for a plan, and the floor plane (nx, ny, nz, d), when it has a floor."""
 
     plan: str | None
@@ -439,7 +439,7 @@ def layout(
     turned = plan.transform.copy()
     turned[:2] = np.array([[c, -s], [s, c]]) @ plan.transform[:2]
     tr = tuple(float(x) for x in turned.ravel())
-    return Layout(tiling.to_dsl(t, title, tiling.Settings(faces=False)), tr, floor)
+    return Layout(tiling.to_scene(t, title, tiling.Settings(faces=False)), tr, floor)
 
 
 def camera_pose(pose: np.ndarray, focal: float, division: float, size: Sequence[int], at: float) -> places.CameraPose:

@@ -20,10 +20,10 @@ clockwise from up the page, "fov": degrees}}`), `objects`, `unexplored` areas, a
 The editor drops any key added at the top of the document, so nothing of ours goes there.
 
 This module reads and writes that with the standard library only, so `memory/places.py` can use it. The readers that
-want arrays, and the converter from the old DSL, are in spatial/plan_import.py, which builds its own shapes from
-these.
+want arrays are in spatial/plan_import.py, which builds its own shapes from these.
 """
 
+import itertools
 import json
 import math
 import statistics
@@ -54,7 +54,8 @@ class SceneError(ValueError):
 
 
 def is_scene(text: str) -> bool:
-    """Whether a stored plan is a scene (JSON) and not the old DSL: a DSL plan never starts with a brace."""
+    """Whether a stored plan is a scene (JSON). A plan saved before scenes was a line DSL, which never starts with a
+    brace and is no longer read: the readers here give such a plan no rooms and no camera spots."""
     return text.lstrip().startswith("{")
 
 
@@ -201,6 +202,53 @@ def sides(
     return room_at(found, at[0] + nx, at[1] + ny), room_at(found, at[0] - nx, at[1] - ny)
 
 
+def cut_walls(
+    outlines: Sequence[Sequence[Point]], exterior: float, partition: float
+) -> list[tuple[Point, Point, float]]:
+    """The wall centrelines a set of room outlines makes, as (start, end, thickness): every room edge, with an edge
+    two rooms share (or overlap along) cut into pieces so each stretch is one wall, `partition` thick where two
+    rooms have it and `exterior` where only one does. Sorted, so the same rooms give the same walls in the same
+    order."""
+    edges: list[tuple[Point, Point]] = []
+    for poly in outlines:
+        edges += [(poly[i], poly[(i + 1) % len(poly)]) for i in range(len(poly))]
+    pieces: dict[tuple[Point, Point], int] = {}
+    for a, b in edges:
+        # cut the edge at every corner of another edge that lies on it, so shared stretches line up
+        ax, ay = a
+        dx, dy = b[0] - ax, b[1] - ay
+        length2 = dx * dx + dy * dy
+        if length2 < 1e-12:
+            continue
+        cuts = {0.0, 1.0}
+        for c, d in edges:
+            for px, py in (c, d):
+                t = ((px - ax) * dx + (py - ay) * dy) / length2
+                if 1e-9 < t < 1 - 1e-9 and abs((px - ax) * dy - (py - ay) * dx) / math.sqrt(length2) < 1e-6:
+                    cuts.add(t)
+        ts = sorted(cuts)
+        for t0, t1 in itertools.pairwise(ts):
+            p = (round(ax + t0 * dx, 6), round(ay + t0 * dy, 6))
+            q = (round(ax + t1 * dx, 6), round(ay + t1 * dy, 6))
+            key = (min(p, q), max(p, q))
+            pieces[key] = pieces.get(key, 0) + 1
+    return [(k[0], k[1], exterior if pieces[k] == 1 else partition) for k in sorted(pieces)]
+
+
+def on_a_wall(walls: Sequence[tuple[Point, Point, float]], at: Point) -> bool:
+    """Whether a point is on one of `walls` (within 2 cm of its centreline), as `build` needs of an opening."""
+    return any(_along(a, b, at) is not None for a, b, _ in walls)
+
+
+def rooms_of(text: str) -> list[tuple[str, str, tuple[Point, ...]]]:
+    """Each room of a stored plan as (id, name, polygon in plan metres), in order: what a reader that only wants to
+    know which room a point is in takes. A plan that isn't a scene that reads has none."""
+    try:
+        return [(room_id, name, poly) for room_id, name, _, poly in rooms(load(text))]
+    except SceneError:
+        return []
+
+
 def thicknesses(scene: Scene) -> tuple[float, float]:
     """The plan's exterior and partition wall thickness, as one number each (the readers of a plan's walls take them
     so): the median of the walls with a room on one side, and of those with a room on both. A kind the scene has no
@@ -263,6 +311,12 @@ def moved(text: str, point: Callable[[float, float], Point], yaw: Callable[[floa
     our own records, each point through `point` and each camera's facing through `yaw`. Openings ride on their walls,
     so they move with them."""
     scene = load(text)
+    exact = point
+
+    def point(x: float, y: float) -> Point:
+        # to the micrometre: a quarter turn leaves 4.0 as 3.9999999999999996, which is noise, not a move
+        px, py = exact(x, y)
+        return round(px, 6) + 0.0, round(py, 6) + 0.0
 
     def ring(value: object) -> list[list[float]]:
         return [list(point(*p)) for p in _points(value)]

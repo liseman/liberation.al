@@ -1,9 +1,0 @@
-plan "Example" walls 0.2/0.1
-
-room r1 "Room 1" other poly 0,0 5.6,0 5.6,0.5 8,0.5 8,2.4 7.2,2.4 7.2,3.4 6.6,3.4 6.6,5.4 6.2,5.4 6.2,6 0,6
-room r2 "Room 2" other poly 8,0 11,0 11,0.5 11.5,0.5 11.5,1.4 8,1.4
-room r3 "Room 3" other poly 6.6,3.8 7.6,3.8 7.6,4.4 8.5,4.4 8.5,4.9 9,4.9 9,6 6.6,6
-
-door exterior>r1 at 0,3 w1.5
-door r2>r1 at 8,1.05 w1
-door r1>r3 at 6.6,4.6 w1.5
