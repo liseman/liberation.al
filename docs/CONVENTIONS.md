@@ -17,9 +17,9 @@ readable by anyone, forever. These rules apply to people and agents alike.
   paths under someone's home directory. Say "the Linux machine" or "an Apple Silicon Mac", and use the documentation
   ranges (`192.0.2.x`, `example.com`, and `example-tailnet.ts.net`) in examples.
 - **Secrets.** No keys, tokens, passwords, or camera URLs with credentials, real or expired.
-- **Agents and sessions.** No agent, worker, session, or orchestrator names, and no session or task IDs. Work is
-  described by what it does, never by who or what did it. An agent doesn't sign its comments or commits with a
-  name, and doesn't say which machine it ran on.
+- **Agents and sessions.** No agent, worker, session, role, or orchestrator names, and no session or task IDs. Work
+  is described by what it does, never by who or what did it. An agent doesn't say which machine it ran on. The one
+  exception is the sign-off below: the exact model, and the team it ran for.
 - **The private tracker.** No links to, quotes from, or screenshots of the project's earlier private repository or
   its board.
 
@@ -58,10 +58,18 @@ The project board has five columns.
 
 - Branches are `<area>/<short-description>`, such as `spatial/positions-read`. No person, agent, model, or machine
   names.
-- A commit message says what changed and why. It carries no names beyond the Git author, no machine names, and no
-  live content. A tool's generic co-author trailer is fine; a session or worker name is not.
+- A commit message says what changed and why. It carries no names beyond the Git author and the sign-off, no machine
+  names, and no live content.
 - A pull request says `Closes #N` (or `Part of #N`), what changed, and which checks ran with their counts.
   Measurements are given as before and after, or as counts, on "the Linux machine" or "the Mac".
+- **Agents sign their work**, whatever the tool, with the exact model and whose team it ran for:
+  - A commit's last line is `Co-Authored-By: <exact model> (<name>'s team) <the tool's no-reply address>`, such as
+    `Co-Authored-By: Claude Opus 5.5 (Alice's team) <noreply@anthropic.com>`. The model is named with its version,
+    never by the tool alone ("Claude", "Cursor Agent"). A tool's own trailer is replaced by this one.
+  - A pull request's last line is `Written by <exact model> (<name>'s team).`
+  - A draft that one agent wrote and another checked and committed is signed with the model that wrote it.
+  - `<name>` is the first name of the person the agent works for. That team label is the only such name allowed:
+    worker, session, role, and task names stay out.
 - Design decisions are recorded as decisions ("the history window is 30 days"), not as who decided them.
 
 ## Guardrails
