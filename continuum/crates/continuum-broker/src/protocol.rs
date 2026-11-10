@@ -1598,14 +1598,14 @@ pub fn purge_record(
 
 /// A listed stream: its id and info, whether a producer is connected for it now, and its invalidation and forget
 /// revisions.
-pub type StreamRow = (StreamId, StreamInfo, bool, Option<u64>, Option<u64>);
+pub type StreamRow = (StreamId, StreamInfo, bool, Option<u64>, Option<u64>, Option<Interval>);
 
 /// A `StreamList`: every registered stream, with whether a producer is connected for it now.
 pub fn stream_list(b: &mut FlatBufferBuilder<'static>, request_id: u64, streams: &[StreamRow]) -> Vec<u8> {
     b.reset();
     let rows: Vec<_> = streams
         .iter()
-        .map(|(id, info, live, revision, forget)| {
+        .map(|(id, info, live, revision, forget, extent)| {
             let name = b.create_string(&info.name);
             let shape_name = b.create_string(&info.shape_name);
             let kind = match info.kind {
@@ -1626,6 +1626,8 @@ pub fn stream_list(b: &mut FlatBufferBuilder<'static>, request_id: u64, streams:
                     live: *live,
                     invalidation_revision: *revision,
                     forget_revision: *forget,
+                    extent_start_ns: extent.map(|e| e.start_ns()),
+                    extent_end_ns: extent.map(|e| e.end_ns()),
                 },
             )
         })

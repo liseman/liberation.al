@@ -32,7 +32,7 @@ function gateway(
           queueMicrotask(() =>
             h.onReply({
               type: 'streams',
-              streams: streams.map(s => ({ ...s, format: 'jpeg', start_us: 0, end_us: 0, chunks: 0, frames: 0 })),
+              streams: streams.map(s => ({ ...s, format: 'jpeg', start_us: 0, end_us: 0 })),
             }),
           );
         else if (req.type === 'spans' && req.stream !== undefined)
@@ -173,7 +173,7 @@ function windowGateway(answer: (a: number, b: number) => Omit<SpansReply, 'type'
           queueMicrotask(() =>
             h.onReply({
               type: 'streams',
-              streams: [{ id: 1, name: 'cam0.video', format: 'jpeg', start_us: 0, end_us: 0, chunks: 0, frames: 0 }],
+              streams: [{ id: 1, name: 'cam0.video', format: 'jpeg', start_us: 0, end_us: 0 }],
             }),
           );
         else if (r.type === 'spans') {

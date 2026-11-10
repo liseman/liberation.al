@@ -542,6 +542,29 @@ fn invalidation_revision_tracks_late_purge_effects<C: Catalog>(c: C) {
     assert!(c.invalidation_revision(raw).unwrap().unwrap() > 0);
 }
 
+fn a_streams_extent_runs_from_its_first_payload_to_the_end_of_its_last<C: Catalog>(c: C) {
+    // A chunk that absorbed frames 0, 33, and 66 spans them: the frames' rows are gone, and the extent is the chunk's.
+    let cam = chunked(&c);
+    assert_eq!(c.stream_extent(cam).unwrap(), Some(iv(0, 99)));
+    let s = c.register_stream(info("cam1")).unwrap();
+    let other = c.register_stream(info("cam2")).unwrap();
+    assert_eq!(c.stream_extent(s).unwrap(), None, "a stream that holds nothing");
+    assert!(matches!(c.stream_extent(StreamId(999)), Err(CatalogError::NotFound(_))));
+    c.insert(vec![new(header(21, s, 33, 33, 0, &[], &[]))]).unwrap();
+    assert_eq!(c.stream_extent(s).unwrap(), Some(iv(33, 34)), "an instant covers its nanosecond");
+    c.insert(vec![
+        new(header(22, s, 10, 10, 0, &[], &[])),
+        new(header(23, s, 66, 90, 0, &[], &[])),
+        new(header(24, s, 66, 70, 1, &[], &[])),
+        new(header(25, other, 500, 600, 0, &[], &[])),
+    ])
+    .unwrap();
+    assert_eq!(c.stream_extent(s).unwrap(), Some(iv(10, 70)), "to the end of the payload that starts last");
+    assert_eq!(c.stream_extent(other).unwrap(), Some(iv(500, 600)), "each stream its own");
+    c.purge(PurgeSelector::Ids(vec![id(100)]), "t", "", id(700), 50).unwrap();
+    assert_eq!(c.stream_extent(cam).unwrap(), None, "nothing is left of the first stream");
+}
+
 fn streams_register_once_per_name<C: Catalog>(c: C) {
     let a = c.register_stream(info("cam0")).unwrap();
     assert_eq!(c.register_stream(info("cam0")).unwrap(), a, "the same info again is the same stream");
@@ -2298,6 +2321,7 @@ macro_rules! conformance {
                 frame_provenance_rides_with_its_chunk_through_a_rewrite_until_the_chunk_goes,
                 a_chunk_committed_without_provenance_has_none_rather_than_an_empty_claim,
                 a_repeated_chunk_commit_is_a_duplicate_with_its_sequence_and_a_changed_one_is_refused,
+                a_streams_extent_runs_from_its_first_payload_to_the_end_of_its_last,
                 a_part_joins_its_chunk_absorbs_its_frames_and_moves_it_in_commit_order,
                 a_part_that_isnt_its_chunks_next_is_refused_and_changes_nothing,
                 a_part_landing_under_a_purge_has_the_purged_frames_cut,

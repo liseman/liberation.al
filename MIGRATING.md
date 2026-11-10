@@ -25,6 +25,15 @@ The Python SDK's in-place registration calls are renamed (`register_v1_index` to
 restart matching components") and restart every service after the pull. Stream names (`<stream>.audio_v1`,
 `<stream>.video_v1`) and stored data are unchanged; nothing is dropped.
 
+## The gateway's stream listing comes from the catalog
+
+The gateway no longer walks the chunk directory to list streams while the broker is up: the broker's listing carries
+each stream's recorded extent, and the listing's `chunks` and `frames` counts are gone. The broker, the gateway, and
+the dashboard's frontend have to be upgraded together, or the dashboard shows no camera as live. After the pull:
+`mise run continuum-release`, `mise run frontend`, then `pack-services restart --cascade` (which restarts the broker
+and its readers) and `pack-services restart continuum-gateway dashboard`, which the cascade leaves running. Nothing
+is deleted and the catalog's format is unchanged.
+
 ## Video chunks are a minute long (catalog format 8)
 
 A camera now writes one chunk file and one catalog row a minute, and the catalog stores each chunk's frame index

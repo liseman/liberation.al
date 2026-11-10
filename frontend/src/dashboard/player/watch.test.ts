@@ -50,8 +50,6 @@ async function greet(features = ['watch', 'req']) {
       format: 'h264_au',
       start_us: 0,
       end_us: 0,
-      chunks: 0,
-      frames: 0,
     })),
   });
   await settle();

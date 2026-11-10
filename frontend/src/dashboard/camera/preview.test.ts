@@ -78,8 +78,6 @@ function boot() {
       format: 'h264',
       start_us: 0,
       end_us: 0,
-      chunks: 0,
-      frames: 0,
     })),
   });
 }

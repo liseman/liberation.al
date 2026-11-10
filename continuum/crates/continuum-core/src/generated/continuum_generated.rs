@@ -14003,6 +14003,8 @@ impl<'a> StreamDesc<'a> {
   pub const VT_LIVE: ::flatbuffers::VOffsetT = 20;
   pub const VT_INVALIDATION_REVISION: ::flatbuffers::VOffsetT = 22;
   pub const VT_FORGET_REVISION: ::flatbuffers::VOffsetT = 24;
+  pub const VT_EXTENT_START_NS: ::flatbuffers::VOffsetT = 26;
+  pub const VT_EXTENT_END_NS: ::flatbuffers::VOffsetT = 28;
 
   #[inline]
   pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
@@ -14014,6 +14016,8 @@ impl<'a> StreamDesc<'a> {
     args: &'args StreamDescArgs<'args>
   ) -> ::flatbuffers::WIPOffset<StreamDesc<'bldr>> {
     let mut builder = StreamDescBuilder::new(_fbb);
+    if let Some(x) = args.extent_end_ns { builder.add_extent_end_ns(x); }
+    if let Some(x) = args.extent_start_ns { builder.add_extent_start_ns(x); }
     if let Some(x) = args.forget_revision { builder.add_forget_revision(x); }
     if let Some(x) = args.invalidation_revision { builder.add_invalidation_revision(x); }
     builder.add_rate_hz(args.rate_hz);
@@ -14110,6 +14114,22 @@ impl<'a> StreamDesc<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<u64>(StreamDesc::VT_FORGET_REVISION, None)}
   }
+  /// Minor 36: the time the stream's payloads reach over, from the start of its earliest to the end of the one that
+  /// starts last (Tier 0 and chunks alike). Both absent for a stream that holds nothing.
+  #[inline]
+  pub fn extent_start_ns(&self) -> Option<u64> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u64>(StreamDesc::VT_EXTENT_START_NS, None)}
+  }
+  #[inline]
+  pub fn extent_end_ns(&self) -> Option<u64> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u64>(StreamDesc::VT_EXTENT_END_NS, None)}
+  }
 }
 
 impl ::flatbuffers::Verifiable for StreamDesc<'_> {
@@ -14129,6 +14149,8 @@ impl ::flatbuffers::Verifiable for StreamDesc<'_> {
      .visit_field::<bool>("live", Self::VT_LIVE, false)?
      .visit_field::<u64>("invalidation_revision", Self::VT_INVALIDATION_REVISION, false)?
      .visit_field::<u64>("forget_revision", Self::VT_FORGET_REVISION, false)?
+     .visit_field::<u64>("extent_start_ns", Self::VT_EXTENT_START_NS, false)?
+     .visit_field::<u64>("extent_end_ns", Self::VT_EXTENT_END_NS, false)?
      .finish();
     Ok(())
   }
@@ -14145,6 +14167,8 @@ pub struct StreamDescArgs<'a> {
     pub live: bool,
     pub invalidation_revision: Option<u64>,
     pub forget_revision: Option<u64>,
+    pub extent_start_ns: Option<u64>,
+    pub extent_end_ns: Option<u64>,
 }
 impl<'a> Default for StreamDescArgs<'a> {
   #[inline]
@@ -14161,6 +14185,8 @@ impl<'a> Default for StreamDescArgs<'a> {
       live: false,
       invalidation_revision: None,
       forget_revision: None,
+      extent_start_ns: None,
+      extent_end_ns: None,
     }
   }
 }
@@ -14215,6 +14241,14 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> StreamDescBuilder<'a, 'b, A> 
     self.fbb_.push_slot_always::<u64>(StreamDesc::VT_FORGET_REVISION, forget_revision);
   }
   #[inline]
+  pub fn add_extent_start_ns(&mut self, extent_start_ns: u64) {
+    self.fbb_.push_slot_always::<u64>(StreamDesc::VT_EXTENT_START_NS, extent_start_ns);
+  }
+  #[inline]
+  pub fn add_extent_end_ns(&mut self, extent_end_ns: u64) {
+    self.fbb_.push_slot_always::<u64>(StreamDesc::VT_EXTENT_END_NS, extent_end_ns);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> StreamDescBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     StreamDescBuilder {
@@ -14243,6 +14277,8 @@ impl ::core::fmt::Debug for StreamDesc<'_> {
       ds.field("live", &self.live());
       ds.field("invalidation_revision", &self.invalidation_revision());
       ds.field("forget_revision", &self.forget_revision());
+      ds.field("extent_start_ns", &self.extent_start_ns());
+      ds.field("extent_end_ns", &self.extent_end_ns());
       ds.finish()
   }
 }

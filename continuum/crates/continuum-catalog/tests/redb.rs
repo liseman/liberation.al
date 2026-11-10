@@ -739,6 +739,64 @@ fn a_camera_minute_as_one_chunk_in_parts_leaves_a_fraction_of_what_two_second_ch
     assert_eq!(writes, 2 * 60, "an ingest and a commit every two seconds, as before");
 }
 
+/// Not a check: prints what a stream listing's extents cost against a full video window, six cameras with a
+/// one-minute chunk row each for 30 days (259,200 rows). The gateway's listing used to open every one of those
+/// files once after a start; it now asks the catalog for each stream's extent. Run with `--ignored --nocapture`.
+#[test]
+#[ignore = "a measurement"]
+fn measure_stream_extents_over_a_full_video_window() {
+    const CAMERAS: u32 = 6;
+    const MINUTES: u32 = 30 * 24 * 60;
+    const MINUTE_NS: u64 = 60_000_000_000;
+    let (_dir, file) = path();
+    let c = RedbCatalog::open(&file).unwrap();
+    let t0 = 1_800_000_000_000_000_000u64;
+    let cams: Vec<StreamId> =
+        (0..CAMERAS).map(|n| c.register_stream(info(&format!("cam{n}.video"))).unwrap()).collect();
+    for (n, &cam) in cams.iter().enumerate() {
+        for first in (0..MINUTES).step_by(2_000) {
+            let rows = (first..(first + 2_000).min(MINUTES))
+                .map(|m| {
+                    let start = t0 + u64::from(m) * MINUTE_NS;
+                    let id = id(u32::try_from(n).unwrap() * MINUTES + m + 1);
+                    NewPayload {
+                        header: HeaderBuf::build(&HeaderSpec::raw(id, cam, start, start + MINUTE_NS)).unwrap(),
+                        location: Some(continuum_core::StorageLocator::Chunk {
+                            tier: continuum_core::StorageTier::Tier1Warm,
+                            uri: format!(
+                                "/srv/pack/data/state/continuum/tier/streams/{n}/2027011500/{n}-{start}-1.cnk"
+                            ),
+                            offset: 0,
+                            length: 2_500_000,
+                        }),
+                        coverage: None,
+                    }
+                })
+                .collect();
+            c.insert(rows).unwrap();
+        }
+    }
+    drop(c);
+    // A fresh open, as after a restart: the first listing, then the average of a thousand more.
+    let c = RedbCatalog::open(&file).unwrap();
+    let listing = || cams.iter().map(|&cam| c.stream_extent(cam).unwrap().unwrap()).collect::<Vec<_>>();
+    let started = Instant::now();
+    let first = listing();
+    let cold = started.elapsed();
+    let started = Instant::now();
+    for _ in 0..1_000 {
+        assert_eq!(listing(), first);
+    }
+    let warm = started.elapsed() / 1_000;
+    assert!(first.iter().all(|e| e.len_ns() == u64::from(MINUTES) * MINUTE_NS));
+    println!(
+        "{} rows on {CAMERAS} streams: the first listing's extents took {cold:?}, later ones {warm:?} each; \
+         chunk files opened: 0 (the chunk directory's listing opens all {} once after a start)",
+        CAMERAS * MINUTES,
+        CAMERAS * MINUTES
+    );
+}
+
 #[test]
 fn an_aged_hour_leaves_runs_and_no_per_item_report_once_acknowledged() {
     let (kept, aged) = aged_hour(2_000_000_000, true);
