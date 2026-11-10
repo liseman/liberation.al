@@ -61,7 +61,7 @@ def level_name(levelno: int) -> str:
 
 def stamp(ts: float) -> str:
     """A log line's time: ISO 8601 local date and time to the second with its UTC offset (2026-11-03T02:20:15-08:00).
-    Lines carried only the time until #1696, so a log a few days long read as one day."""
+    Lines carried only the time before the date was added, so a log a few days long read as one day."""
     return dt.datetime.fromtimestamp(ts).astimezone().isoformat(timespec="seconds")
 
 
@@ -146,5 +146,5 @@ def get(tag: str) -> logging.Logger:
 
 def reason(error: BaseException) -> str:
     """What a log line says went wrong: the exception's text, else its type's name. A bare TimeoutError (a wait that
-    ran out) has no text, and logged as is it read "voice search unavailable ()" (#3073)."""
+    ran out) has no text, and logged as is it read "voice search unavailable ()"."""
     return str(error) or type(error).__name__
