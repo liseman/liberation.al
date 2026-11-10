@@ -253,7 +253,7 @@ group = "core"
 command = "continuum-gateway"
 # dashboard.gateway_allow_host (comma-separated) names the gateway is reached by besides this machine's own name and
 # address, such as a Tailscale MagicDNS name; a browser request under any other name is refused (DNS rebinding).
-args = ["--state-dir", "{paths.state}", "--listen", "0.0.0.0:8766", "--allow-host", "{dashboard.gateway_allow_host}"]
+args = ["--state-dir", "{paths.state}", "--listen", "0.0.0.0:{ports.gateway}", "--allow-host", "{dashboard.gateway_allow_host}"]
 default = true
 throttle = 5
 reads_settings = false

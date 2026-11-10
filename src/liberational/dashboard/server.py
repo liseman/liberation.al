@@ -493,6 +493,7 @@ def fill(s: str) -> str:
         "activeCams": views.camera_ids(active_only=True),
         "views": views.names(),
         "hotkeys": bool(cfg.get("dashboard.hotkeys")),
+        "gatewayPort": int(cfg.get("ports.gateway")),  # where the page finds the camera gateway
         "needsSetup": not cfg.local_config().exists(),  # first run: the shell shows setup without asking /config
     }
     # JSON.parse retains literal __proto__ keys; a JavaScript object literal silently drops a string alias.

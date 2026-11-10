@@ -16,6 +16,12 @@ from liberational import logs
 from liberational import services as s
 
 
+def test_the_gateway_listens_on_its_configured_port():
+    with cfg.override({"ports": {"gateway": 9100}}):
+        args = s.argv(s.declared()["continuum-gateway"])
+    assert args[args.index("--listen") + 1] == "0.0.0.0:9100"
+
+
 @pytest.mark.parametrize(
     "platform, services, on, off",
     [

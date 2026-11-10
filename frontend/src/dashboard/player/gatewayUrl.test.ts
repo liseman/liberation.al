@@ -10,6 +10,16 @@ describe('defaultGatewayUrl', () => {
       'wss://mini.example.ts.net:8767/ws',
     );
   });
+  it('uses the port the dashboard filled into the page', () => {
+    const host = globalThis as { NAMES?: object };
+    const before = host.NAMES;
+    host.NAMES = { gatewayPort: 9 };
+    try {
+      expect(defaultGatewayUrl({ hostname: 'localhost', protocol: 'http:' })).toBe('ws://localhost:9/ws');
+    } finally {
+      host.NAMES = before;
+    }
+  });
   it('falls back to localhost with no hostname', () => {
     expect(defaultGatewayUrl({ hostname: '', protocol: '' })).toBe('ws://localhost:8766/ws');
   });

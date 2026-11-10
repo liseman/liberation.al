@@ -70,12 +70,12 @@ pack-setup --no-models --no-ollama
 
 work="$(mktemp -d)"
 step "Demo mode"
-pack-demo --dir "$work/demo" --port 8766 > "$work/demo.log" 2>&1 &
+pack-demo --dir "$work/demo" --port 8780 > "$work/demo.log" 2>&1 &
 demo=$!
 trap 'kill "$demo" 2>/dev/null || true; cat "$work"/*.log 2>/dev/null | tail -60' EXIT
-wait_for http://127.0.0.1:8766/ "$work/page.html" text/html
+wait_for http://127.0.0.1:8780/ "$work/page.html" text/html
 grep -q '<title>Liberational</title>' "$work/page.html" || { echo "the demo's page isn't the dashboard" >&2; exit 1; }
-wait_for http://127.0.0.1:8766/people "$work/people.json"
+wait_for http://127.0.0.1:8780/people "$work/people.json"
 grep -q 'Dana' "$work/people.json" || { echo "the demo's people don't include the demo household" >&2; exit 1; }
 kill "$demo"
 wait "$demo" || true
