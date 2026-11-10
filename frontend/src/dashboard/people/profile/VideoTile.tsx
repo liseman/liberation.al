@@ -23,7 +23,7 @@ export function VideoTile({
   person?: string | null; // Review's person filter from the player; defaults to `name`, null for none (a pet)
 }) {
   const when = dayTime(v.start);
-  const camera = cameraName(v.cam, v.place);
+  const camera = cameraName(v.cam, v.camera_name);
   const what = v.what || `Seen by ${camera}`;
   const [floating, setFloating] = useState<{ origin: HTMLElement; video: CardVideo } | null>(null);
   return (

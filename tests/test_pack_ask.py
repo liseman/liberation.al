@@ -1549,13 +1549,13 @@ def test_the_worker_subprocess_is_told_where_to_stream(monkeypatch, tmp_path):
     assert json.loads(run.call_args.kwargs["input"])["partial"] == str(tmp_path / "j1.txt")
 
 
-def test_camera_context_keeps_native_identity_and_human_place_name():
+def test_camera_context_keeps_native_identity_and_its_name():
     history = {"evidence": [{"id": "C1", "camera": "cam0", "source": "camera", "text": "A violet mug."}]}
-    with cfg.override({"vision": {"camera_names": ["cam0: Reading room"]}}):
+    with cfg.override({"vision": {"camera_names": ["cam0: Front camera"]}}):
         context, partial = p.evidence_context(history, 4000)
     assert not partial
     assert json.loads(context)["evidence"] == [
-        {"id": "C1", "camera": "cam0", "camera_name": "Reading room", "source": "camera", "text": "A violet mug."}
+        {"id": "C1", "camera": "cam0", "camera_name": "Front camera", "source": "camera", "text": "A violet mug."}
     ]
 
 
@@ -1566,11 +1566,11 @@ def test_named_camera_none_does_not_attribute_transcript_rows_to_that_camera():
             {"id": "T2", "source": "transcript", "text": "The parcel arrived."},
         ]
     }
-    with cfg.override({"vision": {"camera_names": ["None: Vestibule"]}}):
+    with cfg.override({"vision": {"camera_names": ["None: Rear camera"]}}):
         context, partial = p.evidence_context(history, 4000)
     assert not partial
     camera, transcript = json.loads(context)["evidence"]
-    assert camera["camera_name"] == "Vestibule"
+    assert camera["camera_name"] == "Rear camera"
     assert "camera" not in transcript and "camera_name" not in transcript
 
 

@@ -23,7 +23,7 @@ SINCE_LOOKBACK_S = 1800  # how far back "since" looks for the start of that visi
 
 
 def here(state: Path, now: float | None = None) -> dict[str, dict[str, Any]]:
-    """{pet id: {cam, place, since, track}} for each named pet a camera saw in the last HERE_NOW_S seconds (#2606), by the
+    """{pet id: {cam, camera_name, since, track}} for each named pet a camera saw in the last HERE_NOW_S seconds (#2606), by the
     same naming as Review's boxes: an owner label on the track, else recognition by appearance. The camera is the one
     that saw it last, and track its newest track there (a photo of it now); "since" is when that camera's run of its tracks began, with no gap longer than HERE_NOW_S. A
     failure says nobody: Here now is extra, and the roster still answers."""
@@ -66,7 +66,7 @@ def here(state: Path, now: float | None = None) -> dict[str, dict[str, Any]]:
                 if since - ts > HERE_NOW_S:
                     break
                 since = min(since, ts)
-            out[pet] = {"cam": cam, "place": named.get(cam, cam), "since": since, "track": newest}
+            out[pet] = {"cam": cam, "camera_name": named.get(cam, cam), "since": since, "track": newest}
     except Exception as error:
         LOG.warning("which pets are here now couldn't be read: %s", logs.reason(error))
         return {}
