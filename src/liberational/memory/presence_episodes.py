@@ -1,4 +1,4 @@
-"""Times someone was in view of a camera (#1825): episodes from see-actions' analyzed frames (see/tracked_frames.py).
+"""Times someone was in view of a camera: episodes from see-actions' analyzed frames (see/tracked_frames.py).
 
 An episode starts at the first analyzed frame with anyone tracked and ends at the last one before nobody was seen for
 `absence_s` (10 s) of analyzed frames. A gap of more than `gap_s` (30 s) with no analyzed frames at all ends it too,

@@ -1,4 +1,4 @@
-"""One per-camera count of the times someone came into view, for answers, speech, chips, and summaries (#1825).
+"""One per-camera count of the times someone came into view, for answers, speech, chips, and summaries.
 
 Callers gate it with enabled(). The episodes are see-zones' `presence.span` rows (memory/presence_episodes.py, from
 see-actions' tracked frames), and what was watched is see-actions' `action.coverage`: time it didn't analyze is
@@ -21,7 +21,7 @@ from liberational import config as cfg
 from liberational import segment_log
 from liberational.memory import movement_counts
 
-RULES = 4  # what summaries fingerprint: 4 is episodes from see-actions' tracked frames (#1825)
+RULES = 4  # what summaries fingerprint: 4 is episodes from see-actions' tracked frames
 COVERED_GAP_S = 1.0  # coverage rows this close are one watched stretch (see-actions writes them back to back)
 
 
@@ -177,7 +177,7 @@ def answer_text(
     elapsed_s: float | None = None,
     so_far: bool = False,
 ) -> str:
-    """Ask's and voice's walk-by answer (#1403): how many times people walked past and came into the picture, in the
+    """Ask's and voice's walk-by answer: how many times people walked past and came into the picture, in the
     words of memory/walked_past.py (from `crossed`, a crossing_counts.from_spans of the window, and the
     result's movement), then how many separate times someone was in view."""
     from liberational.memory.walked_past import walked_past_text

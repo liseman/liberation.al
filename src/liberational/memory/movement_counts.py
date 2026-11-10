@@ -108,7 +108,7 @@ def _near(
 
 
 class _Index:
-    """A day's supported spans and barriers, arranged once so each track's checks are lookups (#1591)."""
+    """A day's supported spans and barriers, arranged once so each track's checks are lookups."""
 
     def __init__(self, supported: Sequence[Span], barriers: Sequence[Span]) -> None:
         self.supported = list(supported)  # _subtract's output: sorted and non-overlapping
