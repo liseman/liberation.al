@@ -121,11 +121,10 @@ export interface PlanVersion {
   summary: string;
 }
 
-/** A place's saved plan versions, oldest first. `previous` is the newest earlier one that differs from the current. */
+/** A place's saved plan versions, oldest first. */
 export interface PlanHistory {
   place: string;
   versions: PlanVersion[];
-  previous: PlanVersion | null;
 }
 
 export const planHistoryQuery = (place: string) =>

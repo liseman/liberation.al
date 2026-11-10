@@ -105,3 +105,40 @@
   aspect-ratio: 1;
   object-fit: cover;
 }
+
+/* Wide pane placeholders while the lists load: the naming inbox's grid, card padding, and picture column
+   (naming.module.css, with NamingInbox's --naming-card and --naming-photo), so the cards that replace them land in
+   the same place. */
+.cardSkeletons {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--naming-card, 620px)), 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.cardSkeleton {
+  container: card-skeleton / inline-size;
+  display: grid;
+  grid-template-columns: var(--naming-photo, 180px) minmax(0, 1fr);
+  align-items: start;
+  gap: 8px 16px;
+  padding: 16px 20px;
+  border-radius: 8px;
+  border: 1px solid var(--mantine-color-default-border);
+  background: var(--lib-card);
+  min-width: 0;
+}
+
+.cardSkeletonPic {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+}
+
+/* A phone's card: the small picture naming.module.css gives it. */
+@container card-skeleton (max-width: 467px) {
+  .cardSkeleton {
+    grid-template-columns: min(112px, var(--naming-photo, 180px)) minmax(0, 1fr);
+    gap: 10px 12px;
+  }
+}

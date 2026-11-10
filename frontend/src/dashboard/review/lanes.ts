@@ -223,16 +223,16 @@ export function promotionText(row: ActivityPromotion | undefined): string {
   if (!row) return 'Counting status unavailable';
   switch (row.status) {
     case 'counted':
-      return 'Counted in Ask; Wrong events excluded';
+      return 'Counted in Ask; clips answered No in Known, Activities are left out';
     case 'needs_correct_ratings':
-      return 'Not counted in Ask: needs more correct ratings';
+      return 'Not counted in Ask: more Yes answers in Known, Activities';
     case 'disabled':
       return 'Not counted in Ask';
     case 'needs_ratings': {
       const n = row.remaining_ratings;
       return typeof n === 'number' && Number.isInteger(n) && n > 0
-        ? `Needs ${n} more ${n === 1 ? 'rating' : 'ratings'}`
-        : 'Not counted in Ask: more ratings needed';
+        ? `Needs ${n} more ${n === 1 ? 'Yes or No answer' : 'Yes or No answers'} in Known, Activities`
+        : 'Not counted in Ask: more Yes or No answers in Known, Activities';
     }
     default:
       return 'Counting status unavailable';

@@ -14,8 +14,8 @@ drawn on the plan on the Places page. [Spatial memory](SPATIAL.md) explains how 
 ## Turn on Learn surroundings
 
 1. Open the Live tab and turn on the **Learn surroundings** switch.
-2. Open the three-dot menu beside the switch, "Cameras to learn from", and check the cameras to learn from. With none
-   checked, the default camera (the first in `config/devices.toml`, marked "default" in the menu) is used.
+2. Open the camera button beside the switch, "Cameras to learn from", and check the cameras to learn from. With none
+   checked, the default camera (marked "Used when none is chosen" in the menu) is used.
 
 Each change is saved as it is made, and nothing restarts. Turn the switch off to stop. On another device the switch
 and the menu are disabled, and say that only the machine the pack runs on can change them.
@@ -27,17 +27,17 @@ surroundings" panel leads with one state:
 
 | The panel says | Meaning |
 |---|---|
-| Nothing kept yet | The cameras are watched; no frame was worth keeping so far |
-| N frames waiting | Kept frames wait for the next map step, which starts by itself |
-| Placing N new views, Training the splat, Saving the map | A map step is running |
-| Up to date | Every kept frame is in a map |
+| Nothing kept yet | The cameras are watched; no picture was worth keeping so far |
+| N pictures waiting | Kept pictures wait for the next map step, which starts by itself |
+| Placing N new views, Building the 3D map, Saving the map | A map step is running |
+| Up to date | Every kept picture is in a map |
 | No camera chosen | None of the chosen cameras is in the device manifest: choose again on the Live tab |
 | Learning is off | The switch is off; what was learned stays |
 
-Under it are four numbers (views in the maps, and frames kept, waiting, and parked) and a row for each camera. A row
-that says "Keeping frames" needs nothing. "Nothing new in view", "Person or animal in view", "Too dark", and "Picture
-is blurred" say why the camera's recent pictures were passed by: wait, or change what the camera sees. A row marked
-as a warning has a parked frame, which is the next section.
+Under it are four numbers ("In the map", "Pictures kept", "Waiting", and "Can't be placed") and a row for each camera.
+A row that says "Keeping pictures" needs nothing. "Nothing new in view", "Person or animal in view", "Too dark", and
+"Picture is blurred" say why the camera's recent pictures were passed by: wait, or change what the camera sees. A row
+marked as a warning has a parked frame, which is the next section.
 
 When a place has a map, switch its view from Plan to 3D map to see it.
 
@@ -47,10 +47,10 @@ A parked frame is kept but can't be placed in a map. Rest the pointer on the cam
 
 | The row says | Do this |
 |---|---|
-| No spot on the plan | Give the camera a spot (below), or also learn from a camera whose view overlaps this one's |
-| Needs a facing | Give the camera's spot a facing in the plan editor |
-| Needs a height | Give the camera's spot a height in the plan editor |
-| Lens not known yet | Give the camera's spot a view (its field of view) in the plan editor |
+| No spot on the plan | [Give the camera a spot](#give-a-camera-a-spot-on-the-plan), or also learn from a camera whose view overlaps this one's |
+| Needs a facing | Give the camera's spot a facing ([steps](PLAN-EDITOR.md#give-a-camera-a-spot)) |
+| Needs a height | Give the camera's spot a height |
+| Lens not known yet | Give the camera's spot a field of view |
 | Working out its tilt | Wait: the tilt is fitted by a `pack-positions` run once enough people have walked through the view |
 | Setup doesn't fit | People come out the wrong height: check the spot's height and view |
 | Floor doesn't match | The floor the camera sees isn't at the plan's floor: check the spot's height |
@@ -59,32 +59,17 @@ A parked frame is kept but can't be placed in a map. Rest the pointer on the cam
 A step tries the frame again when a map gains a view or the camera's spot changes. A frame parked for a day is
 dropped, and the camera's next frame takes its place.
 
+A row that says "Check spot" or "Check facing", with a distance or an angle, is a suggestion: the camera's view fits
+the plan's walls better that far from its spot. Nothing was changed. Measure the spot again, and move or turn it in
+the plan editor if it was off ([steps](PLAN-EDITOR.md#give-a-camera-a-spot)).
+
 ## Give a camera a spot on the plan
 
-A spot says where a camera is on the plan, how high, and which way it faces. Set it in the plan editor.
-
-1. On the Places page, pick the place and press **Edit plan**. Each camera with a spot is a dot, with its view drawn
-   as a cone.
-2. To add a camera, pick it under **Add a camera**, then click the plan where the camera is, or press
-   **Put it in the middle** and move it afterwards.
-3. Select the camera (its dot, or its button under the plan) and fill in the form:
-
-   | Field | Value |
-   |---|---|
-   | X, m and Y, m | Where the camera is on the plan. Dragging the dot sets them |
-   | Height, m | The lens's height above the floor. Measure it with a tape |
-   | Facing, ° | The way the camera looks, in degrees clockwise from up the page (90 looks right). Dragging the handle at the cone's tip sets it |
-   | View, ° | Its horizontal field of view. Leave it empty for a camera whose lens is already known |
-
-   With a dot or a handle focused, the arrow keys move or turn it in small steps, and larger ones with Shift.
-4. Press **Save my plan**.
+A spot says where a camera is on the plan, how high, which way it faces, and how wide it sees. Set it in the plan
+editor: [How to draw and change a place's plan](PLAN-EDITOR.md#give-a-camera-a-spot) has the steps.
 
 A camera places nobody until its spot has a facing. People are placed from a saved spot at the next hourly
 `pack-positions` run; the next section runs it at once.
-
-In the plan's text a spot is one line, `x-camera <camera> at <x>,<y> height <m> yaw <deg> fov <deg>`, where
-`<camera>` is the camera's name in `config/devices.toml`. `tools/import_owner_plan.py` brings in a plan drawn
-elsewhere, spots included; its docstring has the options.
 
 ## Check what each camera places
 
@@ -130,6 +115,7 @@ It keeps the owner's names and plans, spots included, and a place with an owner 
 
 ## Related
 
+- [How to draw and change a place's plan](PLAN-EDITOR.md): rooms, walls, camera spots, and versions
 - [Spatial memory](SPATIAL.md): why a spot outranks a map, and how maps, plans, and positions fit together
 - [config/defaults.toml](../config/defaults.toml), `[spatial]`: the settings behind the switch
 - [Upgrading](../MIGRATING.md#resets-and-what-they-keep): the other resets

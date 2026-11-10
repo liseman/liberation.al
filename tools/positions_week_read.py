@@ -21,7 +21,7 @@ from pathlib import Path
 import numpy as np
 
 from liberational.memory import places
-from liberational.spatial import positions
+from liberational.spatial import plan_scene, positions
 
 DAY_S = 86400.0
 T0 = 1_800_000_000.0 - 1_800_000_000.0 % DAY_S  # a midnight, UTC
@@ -29,7 +29,10 @@ TRACK_S = 600  # a made-up track's length
 MAX_POINTS, FINE_SHARE = 2000, 20  # the page's thinning (dashboard/places.py)
 FLOOR = (0.0, -1.0, 0.0, 0.0)
 TO_PLAN = (1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, -1.0, 0.0, 0.0)
-PLAN = 'plan "Home" walls 0.2/0.1\nroom r1 "Living" other rect 0,0 8x8\n'
+_ROOM = ((0.0, 0.0), (8.0, 0.0), (8.0, 8.0), (0.0, 8.0))
+PLAN = plan_scene.dump(
+    plan_scene.build(walls=plan_scene.cut_walls([_ROOM], 0.2, 0.1), rooms=[("r1", "Living", "other", _ROOM)])
+)
 
 
 def camera(x: float) -> places.CameraPose:

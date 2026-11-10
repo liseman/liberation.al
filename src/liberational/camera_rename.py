@@ -13,13 +13,13 @@ What carries across, migrated in place:
   camera at a `cam`, `camera`, `cams`, or `cameras` field, or keyed by one (`zone.defined`'s key is its camera;
   `pet.sighting`, `pet.reference`, `pet.not`, `activity.feedback`, and `identity.record`'s faces carry one). Each is
   rewritten in place (`knowledge.Store.amend`), keeping its id, so whatever refers to it still does.
-- Owner-taught: owner plans' camera spots (`x-camera <name>` in every `place.plan` record, so restoring an earlier
+- Owner-taught: owner plans' camera spots (in every `place.plan` record's scene, so restoring an earlier
   plan brings the new names too), and the Reports tab's layout (a walk-by card per camera, `walkbys:<name>`, and
   the walk-by card's camera pins, in `reports.sqlite3`).
 - Machine-made, moved because a rename is cheap and keeps the history whole: the segment store's camera slots
   (`segments/<stream>/<name>/`, whose rows take their camera from the slot), and the state that follows those slots
   or the cameras' registrations: place revisions (`places/<place>/<revision>.json`'s `cameras` and `signals`, and
-  `x-camera` in their `.plan` files), `places/footprints.json`, `see-zones.json`'s cursors and
+  the camera spots in their `.plan` files), `places/footprints.json`, `see-zones.json`'s cursors and
   pipelines, the vector worker's `continuum/vector/segments.<stream>.json` cursors, `screens_on.json`, and
   `continuum/capture_paused.json`. Cached report days that name an old camera are dropped and recompute.
 
@@ -60,7 +60,6 @@ PLAN_COLLECTION = "place.plan"
 # Machine state files under `paths.state` keyed by camera, beside the places and vector cursors found by glob.
 STATE_FILES = ("see-zones.json", "screens_on.json", "continuum/capture_paused.json")
 PLACE_FILES = ("footprints.json",)
-_X_CAMERA = re.compile(r"^([ \t]*x-camera[ \t]+)(\S+)", re.MULTILINE)
 
 
 def parse_names(pairs: Sequence[str]) -> dict[str, str]:
@@ -104,14 +103,12 @@ def rename_json(value: Any, names: Mapping[str, str]) -> Any:
 
 
 def rename_plan(text: str, names: Mapping[str, str]) -> str:
-    """A plan with each camera spot's camera renamed: a scene's own records (spatial/plan_scene.py), or each
-    `x-camera <name>` line of a DSL plan (spatial/plan_import.py). A scene that doesn't read is left as it is."""
-    if plan_scene.is_scene(text):
-        try:
-            return plan_scene.rename_cameras(text, names)
-        except plan_scene.SceneError:
-            return text
-    return _X_CAMERA.sub(lambda m: m.group(1) + names.get(m.group(2), m.group(2)), text)
+    """A stored plan with each camera spot's camera renamed (spatial/plan_scene.py). A plan that isn't a scene that
+    reads is left as it is."""
+    try:
+        return plan_scene.rename_cameras(text, names)
+    except plan_scene.SceneError:
+        return text
 
 
 def rename_setting(value: Any, names: Mapping[str, str]) -> Any:
