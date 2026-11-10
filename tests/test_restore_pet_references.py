@@ -97,10 +97,11 @@ def test_carrying_over_labels_what_the_old_examples_surely_name_and_keeps_its_ph
     assert np.argmax(new["run1:cat:1"]["vector"]) == NEW_AXIS, "the example is the current model's vector"
     assert R.photos(tmp_path) == {"run1:cat:1": b"jpg of run1:cat:1", "run1:cat:2": b"jpg of run1:cat:2"}
     said = capsys.readouterr().out
-    assert "Mia (cat): 1 old examples, got 1 new  <- fewer than 6" in said
+    assert "Mia (cat): 1 old examples, got 1 new, 1 in the current space  <- fewer than 6" in said
 
     tool.carry(tmp_path, OLD, "old/model", tool.MIN_SIM, tool.MARGIN, tool.PER_PET, dry_run=False)
     assert len(records(tmp_path, R.REFERENCES)) == 4, "a second run finds nothing more to do"
+    assert "Mia (cat): 1 old examples, got 0 new, 1 in the current space" in capsys.readouterr().out
 
 
 def test_a_dry_run_counts_and_writes_nothing_even_before_the_model_is_switched(tmp_path, models, capsys):
@@ -109,7 +110,7 @@ def test_a_dry_run_counts_and_writes_nothing_even_before_the_model_is_switched(t
     models.old["run1:cat:1"] = 0
     with cfg.override({"models": {"hf": {"animal_embedding": {"space": "old/model"}}}}):
         tool.carry(tmp_path, OLD, "old/model", tool.MIN_SIM, tool.MARGIN, tool.PER_PET, dry_run=True)
-        assert "Mia (cat): 1 old examples, would get 1 new" in capsys.readouterr().out
+        assert "Mia (cat): 1 old examples, would get 1 new, " in capsys.readouterr().out
         with pytest.raises(SystemExit, match="still the configured embedding space"):
             tool.carry(tmp_path, OLD, "old/model", tool.MIN_SIM, tool.MARGIN, tool.PER_PET, dry_run=False)
     assert [r for r in records(tmp_path, R.LABELS) if r.value.get("carried_from")] == []

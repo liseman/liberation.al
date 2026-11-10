@@ -277,10 +277,19 @@ def carry(
                 recognition.photo(track, photos[track][0], at),
             ]
         written = collections.Counter(chosen[track] for track in keep(state, records))
+    # What each pet has in the current space by now, so a second run doesn't call a carried pet untaught.
+    now_active = recognition.labels(state)
+    have = collections.Counter(
+        str(now_active[track]["label"])
+        for track in {str(r.get("track_id")) for r in recognition._current_references(state)}
+        if track in now_active and space != recognition.embedding_model()  # before the switch: none yet
+    )
+    least = recognition.MIN_LABELED
     for pid in sorted(names, key=lambda p: names[p].casefold()):
-        few = written[pid] < recognition.MIN_LABELED
-        short = f"  <- fewer than {recognition.MIN_LABELED}: teach again on the Pets page" if few else ""
-        print(f"  {names[pid]} ({species_of[pid]}): {taught[pid]} old examples, {verb} {written[pid]} new{short}")
+        total = have[pid] + (written[pid] if dry_run else 0)
+        short = f"  <- fewer than {recognition.MIN_LABELED}: teach again on the Pets page" if total < least else ""
+        counts = f"{taught[pid]} old examples, {verb} {written[pid]} new, {total} in the current space"
+        print(f"  {names[pid]} ({species_of[pid]}): {counts}{short}")
     if not dry_run:
         for check in recognition.view(state, listing)["recognition"]:
             state_of = "on" if check["on"] else f"off ({check['reason']})"
