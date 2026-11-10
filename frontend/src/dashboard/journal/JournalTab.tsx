@@ -246,7 +246,7 @@ function EntryEvidence({ row }: { row: Row }) {
   return <EvidenceView evidence={query.data} />;
 }
 
-/** Today's page so far, or yesterday's until its page is written (GET /journal/today, #2837). */
+/** Today's page so far, or yesterday's until its page is written (GET /journal/today). */
 function TodayPage({ day }: { day: string }) {
   const query = useQuery(todayQuery(day));
   const page = query.data;
@@ -309,7 +309,7 @@ function Preview({ level, row, child }: { level: Level | null; row: Row | undefi
         </h2>
         <p className={classes.entryText}>{row.text}</p>
         {row.start !== undefined && (
-          // Where it happened: the Places plan at this moment, with the paths around it (#2831).
+          // Where it happened: the Places plan at this moment, with the paths around it.
           <a className={classes.where} href={`/places?t=${Math.round(row.start)}`} onClick={linkClick}>
             Where, on the plan
           </a>
