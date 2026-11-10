@@ -13,7 +13,7 @@ how to take back a wrong answer or a wrong training image. Everything here is do
 ## Find what waits for a name
 
 - **Faces and voices**: open Known, then People. The line above the list says how many faces and voices need a name;
-  it opens "Who's this?". Live shows the same list in its side rail.
+  it opens "Who's this?". On Live, "Who's this?" beside "Here now" opens the same list.
 - **Animals**: open Known, then Pets, then "Sightings to name".
 
 Each card shows the newest picture (or a clip to play), when and where it was seen or heard, and the best guess with
