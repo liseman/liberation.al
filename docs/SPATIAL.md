@@ -87,9 +87,12 @@ changes, so the Live tab's button and camera picker take effect in about a secon
 
 **The sampler** (#256). `pack-surroundings` holds no decoder connection while the switch is off. While it's on it
 takes one BGR picture every 5 s from each chosen camera, from see-decode's shared pictures. It skips, cheapest check
-first: a dark or night-mode frame, a frame whose 32 x 18 thumbnail matches the last one looked at (a still camera
-costs a few milliseconds a sample), a frame much less sharp than the camera's usual, and a frame the person detector
-finds a person or an animal in. Such a frame is skipped, not masked: the view comes by again without them. What it's
+first: a dark or night-mode frame, a frame whose 32 x 18 thumbnail matches the camera's last look that reached the
+gate, while the kept frame for that view is still kept (a still camera costs a few milliseconds a sample), a frame
+much less sharp than the camera's usual, and a frame more than a quarter covered by people or animals (the person
+detector's boxes, each grown a little). A frame with someone in a smaller part of it goes on to the gate with those
+pixels marked, and the map step leaves them out of its depth, its points, and its losses: skipping every such frame
+starved the cameras of a room someone sits in. What it's
 doing is in `state/surroundings/status.json` (`spatial/surroundings_worker.py`).
 
 **The gate** (#257). "Likely to improve the map" is measured twice, cheaply first.
@@ -120,8 +123,14 @@ runs one by hand. A step takes up to 12 waiting frames.
   place's first frame founds its map, its own pose the origin (so the map isn't levelled until its floor is found,
   #260). A later frame is paired with the three kept frames it's most like through MASt3R, whose pair pose, scaled
   to metres by Depth Anything 3's metric depth of both frames, gives the frame's pose in the map. Frames are placed
-  outward from the ones that have a pose, each through its pair with the most agreeing matches. A frame no pair
-  places is tried in three steps, then dropped. The splat trainer's pose refinement takes up what's left.
+  outward from the ones that have a pose, each through its pair with the most agreeing matches. The splat trainer's
+  pose refinement takes up what's left.
+- *A frame no pair places is parked.* It stays kept, and no step starts for it until a map has gained a view (it's
+  then tried once more) or it has been parked for a day (it's dropped, and its camera's next clear frame takes its
+  place). So a fixed camera that sees nothing the map shows keeps one frame, costs nothing, and is in no map: it
+  joins when a camera that moves, or a new one, bridges the two views. Until then such a camera has no splat. Its
+  people are still placed, from the owner's spot for it on the plan. Putting its frames in the place's map from
+  that spot, once the map is lined up with the plan, is #288.
 - *A camera's optics.* Its held intrinsics (`lens.Held`, taught state) give its focal and the lens to undo; a lens in
   the device manifest is undone the same way. A camera with neither gets its focal from MASt3R, once, kept from then
   on. Two fixed cameras with held intrinsics came out 2.9 m apart; with MASt3R's focals (7% and 15% off) 4.8 m.

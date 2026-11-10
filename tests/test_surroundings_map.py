@@ -347,7 +347,7 @@ def test_a_later_frame_joins_the_place_and_the_splat_resumes_from_where_it_was(m
     assert poses[second.id][:3, 3] == pytest.approx([1.0, 0.0, 0.0])  # 0.5 of the pair's units, at 2 m to the unit
     summary = sm.summary(state)
     assert summary["places"][place] == {"revision": rev.id, "views": 2, "rounds": 2, "improved": 200.0}
-    assert (summary["kept"], summary["waiting"], summary["running"]) == (2, 0, False)
+    assert (summary["kept"], summary["waiting"], summary["parked"], summary["running"]) == (2, 0, 0, False)
 
 
 def test_a_frame_the_map_already_draws_is_handed_back_to_be_dropped(models, state):
@@ -365,16 +365,55 @@ def test_a_frame_the_map_already_draws_is_handed_back_to_be_dropped(models, stat
     assert saved.places[place]["improved"] == 100.0  # nothing was added: the place didn't improve
 
 
-def test_a_frame_no_pair_places_waits_and_is_dropped_after_its_tries(models, state):
+def test_a_frame_no_pair_places_is_parked_and_starts_no_more_steps(models, state):
     keep(state, 0, t=1.0)
     sm.step(state, now=100.0, held={})
     stray = keep(state, 90, t=2.0)
-    for attempt in range(sm.MAX_TRIES):
-        did = run(state, 200.0 + attempt)
-        assert (did["unplaced"], did["places"]) == (1, {})
+    did = run(state, 200.0)
+    assert (did["unplaced"], did["places"]) == (1, {})
+    assert sm.step(state, now=260.0, held={}) is None  # parked: a step a minute later has nothing to do
+    assert [f.id for f in frames.Store(frames.root(state)).kept if f.id == stray.id] == [stray.id]  # still kept
+    summary = sm.summary(state, now=260.0)
+    assert (summary["kept"], summary["waiting"], summary["parked"]) == (2, 0, 1)
+
+
+def test_a_parked_frame_is_tried_again_once_the_map_has_gained_a_view(models, state):
+    first = keep(state, 0, t=1.0)
+    sm.step(state, now=100.0, held={})
+    [place] = places.place_ids(state)
+    stray = keep(state, 90, t=2.0)
+    run(state, 200.0)
+    bridge = keep(state, 45, t=3.0)  # a view between the two: it pairs with both
+    models.pairs[frozenset((first.id, bridge.id))] = pair(first.id, bridge.id, shifted(x=0.5))
+    models.pairs[frozenset((bridge.id, stray.id))] = pair(bridge.id, stray.id, shifted(x=0.5))
+    did = run(state, 300.0)  # takes the bridge only: the stray is parked until the map grows
+    assert (did["taken"], did["places"][place]["views"]) == (1, 2)
+    assert sm.summary(state, now=300.0)["waiting"] == 1  # the map grew: the stray is due again
+    did = run(state, 400.0)
+    assert (did["taken"], did["places"][place]["views"], did["unplaced"]) == (1, 3, 0)
+
+
+def test_a_frame_parked_for_a_day_is_dropped(models, state):
+    keep(state, 0, t=1.0)
+    sm.step(state, now=100.0, held={})
+    stray = keep(state, 90, t=2.0)
+    run(state, 200.0)
+    just_under = 200.0 + sm.PARK_S - 1
+    assert sm.due(frames.Store(frames.root(state)).kept, sm.State.read(frames.root(state)), just_under) == []
+    assert sm.step(state, now=200.0 + sm.PARK_S, held={}) is None
     saved = sm.State.read(frames.root(state))
-    assert saved.drop == [stray.id]
-    assert sm.step(state, now=300.0, held={}) is None  # it's no longer waiting
+    assert (saved.drop, stray.id in saved.frames) == ([stray.id], False)
+
+
+def test_a_frame_left_waiting_by_an_earlier_version_is_tried_once_and_parked(models, state):
+    keep(state, 0, t=1.0)
+    sm.step(state, now=100.0, held={})
+    stray = keep(state, 90, t=2.0)
+    saved = sm.State.read(frames.root(state))
+    saved.frames[stray.id] = {"tries": 2}
+    saved.write(frames.root(state))
+    assert run(state, 200.0)["unplaced"] == 1
+    assert sm.step(state, now=260.0, held={}) is None
 
 
 def test_a_learned_revision_keeps_the_floor_set_in_its_frame(models, state):
@@ -401,3 +440,21 @@ def test_what_the_step_knew_of_frames_no_longer_kept_is_forgotten(models, state)
     frames.Store(frames.root(state)).remove(first.id)
     assert sm.step(state, now=200.0, held={}) is None
     assert sm.State.read(frames.root(state)).frames == {}
+
+
+def test_the_people_marked_in_a_kept_frame_are_left_out_of_its_depth_and_its_training(models, state):
+    store = frames.Store(frames.root(state))
+    covered = np.zeros((36, 64), dtype=bool)
+    covered[18:, 24:40] = True  # someone in the lower middle
+    store.offer("front", np.full((36, 64, 3), 90, dtype=np.uint8), unit(0), 100.0, now=1.0, covered=covered)
+    did = run(state, 100.0)
+    [place] = did["places"]
+    [view] = models.jobs[0]["views"]
+    assert view["mask"].endswith(".mask.png")  # the trainer's loss leaves those pixels out
+    rev = newest(state, place)
+    assert rev.map is not None
+    points, _, _ = ply.read(places.root(state) / place / rev.map)
+    # No point was lifted from where the person stood: at 2 m with a focal of 44.8 px, the columns 24 to 39 of the
+    # lower half are x from -0.36 to 0.36 m and y above 0.
+    under = (np.abs(points[:, 0]) < 0.3) & (points[:, 1] > 0.05)
+    assert len(points) > 0 and not under.any()

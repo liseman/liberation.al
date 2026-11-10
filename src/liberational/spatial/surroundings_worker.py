@@ -8,14 +8,20 @@ the other workers share, never a decode of its own), one every `SAMPLE_EVERY_S`,
 cheapest check first:
 
 1. **dark**: not lit colour (`cameras.daylight`: a dark frame, or a camera's night mode);
-2. **same**: its 32 x 18 thumbnail is at least `SAME_THUMB` alike to the last frame that went past this check, so a
-   still camera stops here, for a few milliseconds a sample. The comparison is to that frame, not to the sample
-   before, so a scene that drifts slowly (the daylight) still gets past once it has drifted far enough;
+2. **same**: its 32 x 18 thumbnail is at least `SAME_THUMB` alike to the camera's last look the gate judged (5
+   below), and the kept frame that stood for that view is still kept; so a still camera stops here, for a few
+   milliseconds a sample. The comparison is to that look, not to the sample before, so a scene that drifts slowly
+   (the daylight) still gets past once it has drifted far enough. A look skipped for blur or for someone in view
+   judged nothing and is never compared with: on the Linux machine two cameras whose first looks had a person in
+   them read "same" from then on and kept nothing. And when the kept frame is dropped, the view is open again;
 3. **blurred**: under `BLUR` of the camera's median sharpness over its last `SHARP_WINDOW` looked-at frames (cameras
    differ ten times over in what their sharp frame scores, so there's no one bar);
-4. **person**: see-actions' detector, on the CPU, finds a person or an animal (`Living`). The frame is skipped, not
-   masked: the view comes by again without them. Without the detector's model this check passes every frame, and
-   the log says so once;
+4. **person**: see-actions' detector, on the CPU, finds people or animals (`Living`) whose boxes, each grown by
+   `PAD`, cover more than `MAX_COVERED` of the frame. With less covered the frame goes on to the gate with those
+   pixels marked (`cover`), kept beside it for the map step to leave out of its depth, its points, and its losses.
+   Skipping every frame with someone in it was the first rule, and it starved the cameras that matter: on the Linux
+   machine two cameras of a room someone sat in had a person in every one of 32 looks. Without the detector's model
+   nothing is marked, and the log says so once;
 5. the gate (`surroundings_frames.Store.offer`): **copy**, or kept as a new **view**, a **changed** one, or a
    **sharper** copy.
 
@@ -26,9 +32,10 @@ on, and per camera the counts of each outcome since the service started and when
 
 A camera the decoder refuses or stops serving is logged and tried again after `RETRY_S`; the other cameras carry on.
 
-**The map step.** While learning is on, the service looks every `MAP_GAP_S` at whether kept frames are waiting for a
+**The map step.** While learning is on, the service looks every `MAP_GAP_S` at whether kept frames are due a step
+(`surroundings_map.due`: a frame no pair could place is parked, and starts none until the map has grown) for a
 place, and runs one step of spatial/surroundings_map.py when some are (`map_step`: its own process, niced, one at a
-time). It also drops the kept frames that step asks to drop (`State.drop`: frames it couldn't place, or that the map
+time). It also drops the kept frames that step asks to drop (`State.drop`: frames parked for a day, or that the map
 already draws), since the kept frames have one writer. Nothing runs a step on a schedule, and none starts while
 learning is off.
 """
@@ -38,6 +45,7 @@ from __future__ import annotations
 import asyncio
 import collections
 import concurrent.futures
+import math
 import signal
 import statistics
 import sys
@@ -68,8 +76,8 @@ MIN_SHARP_HISTORY = 5  # looked-at frames a camera needs before one can be calle
 STATUS = "status.json"  # under the store's folder
 OUTCOMES = ("dark", "same", "blurred", "person", "copy", "view", "changed", "sharper")
 
-#: Whether a BGR frame has a person or an animal in it (`Living`).
-Detector = Callable[[np.ndarray], bool]
+#: The people and animals in a BGR frame, as boxes (`Living`).
+Detector = Callable[[np.ndarray], Sequence[tuple[float, float, float, float]]]
 #: Runs one map step (spatial/surroundings_map.py) and gives its exit code.
 MapStep = Callable[[], Awaitable[int]]
 #: A camera's pictures, one every so often (`pictures`).
@@ -78,30 +86,54 @@ Pictures = Callable[[str], AsyncIterator[np.ndarray]]
 
 PERSON_SCORE = 0.5  # RF-DETR's score for a person: under see-actions' tracking floor, as a missed person costs more
 THREADS = 2  # the person detector's CPU threads
+PAD = 0.15  # of a box's own size, added on every side of it before it's covered
+MAX_COVERED = 0.25  # of the frame: with more of it than this covered by people, the frame is skipped
 
 
-def living(logits: np.ndarray) -> int:
-    """How many of RF-DETR's queries (`logits`, N x classes, sparse COCO) are a person at PERSON_SCORE or an animal
-    at the detector's own animal floor. One body can be two queries: any at all skips the frame, so that's fine."""
+Box = tuple[float, float, float, float]  # x1, y1, x2, y2, fractions of the frame
+
+
+def living(dets: np.ndarray, logits: np.ndarray) -> list[Box]:
+    """The people and animals among RF-DETR's queries: `dets` (N x 4: centre x, centre y, width, height, fractions
+    of the frame) whose `logits` (N x classes, sparse COCO) make a person at PERSON_SCORE or an animal at the
+    detector's own animal floor, as clipped boxes. One body can be two queries; their union is what's covered."""
     from liberational.vision import crossings
 
     scores = 1 / (1 + np.exp(-np.asarray(logits, dtype=np.float64)))
     person = scores[:, crossings.RF_CLASS_IDS[crossings.COCO_PERSON]] >= PERSON_SCORE
     animals = [slot for coco, slot in crossings.RF_CLASS_IDS.items() if coco != crossings.COCO_PERSON]
     animal = (scores[:, animals] >= crossings.ANIMAL_SCORE).any(axis=1)
-    return int((person | animal).sum())
+    out: list[Box] = []
+    for cx, cy, w, h in np.asarray(dets, dtype=np.float64)[person | animal]:
+        x1, y1, x2, y2 = (min(max(v, 0.0), 1.0) for v in (cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2))
+        if x2 > x1 and y2 > y1:
+            out.append((x1, y1, x2, y2))
+    return out
+
+
+def cover(boxes: Sequence[Box], width: int, height: int, pad: float = PAD) -> np.ndarray:
+    """The pixels of a `width` x `height` frame that `boxes` cover (H x W bool), each box grown by `pad` of its own
+    size on every side: a box is drawn tight, and a hand or a shadow reaches past it."""
+    out = np.zeros((height, width), dtype=bool)
+    for x1, y1, x2, y2 in boxes:
+        dx, dy = pad * (x2 - x1), pad * (y2 - y1)
+        out[
+            max(0, math.floor((y1 - dy) * height)) : math.ceil((y2 + dy) * height),
+            max(0, math.floor((x1 - dx) * width)) : math.ceil((x2 + dx) * width),
+        ] = True
+    return out
 
 
 class Living:
-    """Whether a BGR frame has a person or an animal in it: see-actions' detector (RF-DETR,
+    """The people and animals in a BGR frame, as boxes: see-actions' detector (RF-DETR,
     [models.files.person_detector]) on the CPU, about 0.14 s a frame. Loaded on the first frame that gets this far.
     Without the model, or with one that isn't RF-DETR's, every frame reads as empty, and the log says so once."""
 
     def __init__(self) -> None:
-        self._run: Callable[[np.ndarray], np.ndarray] | None = None
+        self._run: Callable[[np.ndarray], list[Box]] | None = None
         self._missing = False
 
-    def _load(self) -> Callable[[np.ndarray], np.ndarray] | None:
+    def _load(self) -> Callable[[np.ndarray], list[Box]] | None:
         import onnxruntime as ort
 
         from liberational.vision import crossings
@@ -119,18 +151,19 @@ class Living:
         if set(names) != {"dets", "labels"}:
             LOG.warning("the person detector at %s isn't RF-DETR's: frames with people in them aren't skipped", path)
             return None
-        size, labels = int(entry.shape[2]), names.index("labels")
+        size = int(entry.shape[2])
 
-        def run(pixels: np.ndarray) -> np.ndarray:
-            return np.asarray(session.run(None, {entry.name: crossings.detector_input(pixels, size)})[labels])[0]
+        def run(pixels: np.ndarray) -> list[Box]:
+            got = dict(zip(names, session.run(None, {entry.name: crossings.detector_input(pixels, size)}), strict=True))
+            return living(np.asarray(got["dets"])[0], np.asarray(got["labels"])[0])
 
         return run
 
-    def __call__(self, pixels: np.ndarray) -> bool:
+    def __call__(self, pixels: np.ndarray) -> list[Box]:
         if self._run is None and not self._missing:
             self._run = self._load()
             self._missing = self._run is None
-        return self._run is not None and living(self._run(np.asarray(pixels))) > 0
+        return [] if self._run is None else self._run(np.asarray(pixels))
 
     def unload(self) -> None:
         """Free the model while nothing is being sampled."""
@@ -166,7 +199,8 @@ class Sampler:
         self.sharpness = sharpness
         self.counts: dict[str, collections.Counter[str]] = {}
         self.last_kept: dict[str, float] = {}
-        self._passed: dict[str, np.ndarray] = {}  # each camera's thumbnail of the last frame past the "same" check
+        #: Each camera's last look the gate judged: its thumbnail, and the kept frame that stands for that view.
+        self._judged: dict[str, tuple[np.ndarray, str]] = {}
         self._sharp: dict[str, collections.deque[float]] = {}
 
     def look(self, camera: str, pixels: np.ndarray, now: float) -> str:
@@ -179,19 +213,29 @@ class Sampler:
         if not self.lit(pixels):
             return "dark"
         thumb = thumbnail(pixels)
-        passed = self._passed.get(camera)
-        if passed is not None and float(passed @ thumb) >= SAME_THUMB:
-            return "same"
-        self._passed[camera] = thumb
+        judged = self._judged.get(camera)
+        if judged is not None and float(judged[0] @ thumb) >= SAME_THUMB:
+            if any(f.id == judged[1] for f in self.store.kept):
+                return "same"
+            del self._judged[camera]  # the kept frame that stood for this view is gone: the view is open again
         sharp = self.sharpness(pixels)
         history = self._sharp.setdefault(camera, collections.deque(maxlen=SHARP_WINDOW))
         usual = statistics.median(history) if len(history) >= MIN_SHARP_HISTORY else None
         history.append(sharp)
         if usual is not None and sharp < BLUR * usual:
             return "blurred"
-        if self.detect is not None and self.detect(pixels):
-            return "person"
-        decision, kept = self.store.offer(camera, pixels, self.describe(pixels), sharp, now=now)
+        covered = None
+        boxes = self.detect(pixels) if self.detect is not None else ()
+        if boxes:
+            covered = cover(boxes, pixels.shape[1], pixels.shape[0])
+            if float(covered.mean()) > MAX_COVERED:
+                return "person"
+        decision, kept = self.store.offer(camera, pixels, self.describe(pixels), sharp, now=now, covered=covered)
+        # Only now is this view judged: it's kept, or a kept frame already shows it. A look skipped for blur or for
+        # someone in view judged nothing, so the next look is taken on its own.
+        standing = kept.id if kept is not None else decision.nearest
+        if standing is not None:
+            self._judged[camera] = (thumb, standing)
         if kept is not None:
             self.last_kept[camera] = now
             LOG.info(
@@ -205,7 +249,7 @@ class Sampler:
 
     def forget(self, camera: str) -> None:
         """Start a camera's "same" and "blurred" checks afresh (it's being followed again after a break)."""
-        self._passed.pop(camera, None)
+        self._judged.pop(camera, None)
         self._sharp.pop(camera, None)
 
     def status(self, switch: surroundings.Switch, now: float) -> dict[str, Any]:
@@ -313,14 +357,14 @@ class Service:
         return switch
 
     def _apply_map(self) -> int:
-        """Drop the kept frames the map step asked to drop, and count the ones waiting for a place. Run on the
-        looks' thread: the store has one writer."""
+        """Drop the kept frames the map step asked to drop, and count the ones a step is due for (not the parked
+        ones, `surroundings_map.due`). Run on the looks' thread: the store has one writer."""
         from liberational.spatial import surroundings_map
 
         state = surroundings_map.State.read(self.sampler.store.folder)
         for frame_id in state.drop:
             self.sampler.store.remove(frame_id)
-        return len(surroundings_map.waiting(self.sampler.store.kept, state))
+        return len(surroundings_map.due(self.sampler.store.kept, state, self.clock()))
 
     async def _map(self) -> None:
         """One look at whether a map step is due, and the step when it is."""
@@ -328,7 +372,7 @@ class Service:
         waiting = await asyncio.get_running_loop().run_in_executor(self._pool, self._apply_map)
         if not waiting:
             return
-        LOG.info("%d kept frames are waiting for a place: starting a map step", waiting)
+        LOG.info("%d kept frames are due a map step: starting one", waiting)
         code = await self.map_step()
         if code != 0:
             LOG.warning("the map step failed (exit %d); its own log says why", code)

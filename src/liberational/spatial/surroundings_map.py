@@ -15,7 +15,7 @@ A step takes up to `MAX_NEW` waiting frames (kept, and not yet in a place), olde
 3. **Poses.** Frames are placed outward from the ones that already have a pose (`grow`), each through its pair with
    the most agreeing matches, never fewer than `MIN_INLIERS`. With no place yet, the oldest waiting frame founds one
    at the origin. Waiting frames that pair with each other but with no place found a new place when there are at
-   least `FOUND_MIN` of them. A frame no pair places is tried again in the next steps, and dropped after `MAX_TRIES`.
+   least `FOUND_MIN` of them. A frame no pair places is parked (below).
 4. **The splat continues.** The trainer (spatial/splat_runner.py) starts from the place's current splat (`resume`),
    adds each new frame's depth points as new Gaussians, and trains `ROUND_STEPS` steps on the old and new views
    (`FOUND_STEPS` for a place's first), each against its depth, the poses refined when there are at least
@@ -29,7 +29,7 @@ A step takes up to `MAX_NEW` waiting frames (kept, and not yet in a place), olde
    the trained splat are written as one new revision (memory/places.py), in the place's frame.
 
 What the step knows is in `state/surroundings/map.json` (`State`): each camera's focal, each placed frame's place,
-pose, and tries, the frames to drop, and each place's rounds and when it last improved. The map step is that file's
+pose, or that it's parked, the frames to drop, and each place's rounds and when it last improved. The map step is that file's
 only writer, as the sampler is the kept frames' only writer: the sampler drops the frames listed in `drop`.
 
 A camera's pictures go to the models as a pinhole's (`optics`): a lens in the device manifest, or the lens of its
@@ -65,7 +65,7 @@ MAX_NEW = 12  # waiting frames a step takes
 NEIGHBOURS = 3  # frames a waiting frame is paired with
 MIN_ALIKE = 0.1  # a frame less alike than this isn't worth a pair
 MIN_INLIERS = 150  # matches that must agree with a pair's pose for it to place a frame
-MAX_TRIES = 3  # steps a frame may go unplaced before it's dropped
+PARK_S = 86400.0  # how long a frame nothing places stays parked before it's dropped
 FOUND_MIN = 3  # waiting frames that pair only with each other found a new place when there are this many
 TRAIN_LONG = 640  # the long side a frame is trained at, px
 STRIDE = 4  # every this many pixels of a training frame is lifted to a point
@@ -88,7 +88,7 @@ class State:
     """What the map step knows between steps (`STATE`)."""
 
     focals: dict[str, float] = field(default_factory=dict)  # each camera's focal over its frame's width
-    frames: dict[str, dict[str, Any]] = field(default_factory=dict)  # by kept frame id: place, pose, tries
+    frames: dict[str, dict[str, Any]] = field(default_factory=dict)  # by kept frame id: place and pose, or parked
     drop: list[str] = field(default_factory=list)  # kept frames for the sampler to drop
     places: dict[str, dict[str, Any]] = field(default_factory=dict)  # by place id: frame, rounds, views, improved
     last: dict[str, Any] = field(default_factory=dict)  # the last step: when, and what it did
@@ -120,9 +120,40 @@ class State:
 
 
 def waiting(kept: Sequence[frames.Kept], state: State) -> list[frames.Kept]:
-    """The kept frames a step may take, oldest first: not placed, and not to be dropped."""
+    """The kept frames with no place, oldest first: not placed, and not to be dropped. Some may be parked (`due`)."""
     out = [f for f in kept if state.frames.get(f.id, {}).get("pose") is None and f.id not in state.drop]
     return sorted(out, key=lambda f: f.t)
+
+
+def expired(kept: Sequence[frames.Kept], state: State, now: float) -> list[frames.Kept]:
+    """The parked frames that have been parked for PARK_S: nothing placed them in a day, and what they show has
+    likely changed since."""
+    out = []
+    for f in waiting(kept, state):
+        entry = state.frames.get(f.id) or {}
+        if entry.get("parked") is not None and now - float(entry.get("since", now)) >= PARK_S:
+            out.append(f)
+    return out
+
+
+def due(kept: Sequence[frames.Kept], state: State, now: float) -> list[frames.Kept]:
+    """The waiting frames a step has something to do for, oldest first: the ones no step has tried, the parked ones
+    the map has gained a view since (it may now reach them), and the parked ones that have expired (to drop them).
+
+    A frame no pair places is **parked**: it stays kept, noted with how many views the maps had (`parked`) and
+    when it was first parked (`since`). A step for it would find what the last one found, so none starts until a
+    map has more views than that. A camera that looks at nothing the map shows keeps one parked frame, renewed once
+    a day, and costs nothing between. On the Linux machine a second fixed camera's frame, unplaceable from the
+    first's, started a 0-second step every minute and was dropped after three; its camera then never kept a frame
+    again."""
+    views = len(state.placed())
+    old = {f.id for f in expired(kept, state, now)}
+    out = []
+    for f in waiting(kept, state):
+        parked = (state.frames.get(f.id) or {}).get("parked")
+        if parked is None or views > int(parked) or f.id in old:
+            out.append(f)
+    return out
 
 
 @dataclass(frozen=True)
@@ -307,15 +338,22 @@ def train_size(width: int, height: int) -> tuple[int, int]:
 
 def _prepare(store: frames.Store, frame: frames.Kept, folder: Path, optic: Optics) -> Path:
     """`frame`'s picture as the models take it, at its training size, as a PNG in `folder`: its overlays painted over
-    and its lens undone (`optic`), with a `.mask.png` beside it when some of it is then covered (overlays, and the
-    border an undone lens leaves)."""
+    and its lens undone (`optic`), with a `.mask.png` beside it when some of it is then covered (overlays, the
+    border an undone lens leaves, and the people the sampler marked in it, `frames.Store.covered_path`)."""
     import cv2
 
     image = cv2.imread(str(store.path(frame)))
     if image is None:
         raise RuntimeError(f"the kept frame {frame.id} doesn't read")
     undo, _ = _prepare_focal(frame, optic)
+    height, width = image.shape[:2]
     image, covered = lens.prepare(image, undo, optic.masks)
+    people = cv2.imread(str(store.covered_path(frame)), cv2.IMREAD_GRAYSCALE)
+    if people is not None and people.shape == (height, width):
+        if undo is not None:  # moved as the picture was
+            mx, my = lens.undistort_maps(undo, width, height)
+            people = cv2.remap(people, mx, my, cv2.INTER_NEAREST, borderMode=cv2.BORDER_CONSTANT)
+        covered = covered | (people > 127)
     size = train_size(frame.width, frame.height)
     out = folder / f"{frame.id}.png"
     cv2.imwrite(str(out), cv2.resize(image, size, interpolation=cv2.INTER_AREA))
@@ -452,7 +490,11 @@ def _step(state_dir: Path, now: float, held: Mapping[str, lens.Held]) -> dict[st
     store = frames.Store(frames.root(state_dir))
     state = State.read(store.folder)
     forget(state, store.kept)
-    todo = waiting(store.kept, state)[:MAX_NEW]
+    for f in expired(store.kept, state, now):
+        LOG.info("a frame of %s was parked for a day with nothing to place it by: dropped", f.camera)
+        state.drop.append(f.id)
+        state.frames.pop(f.id, None)
+    todo = due(store.kept, state, now)[:MAX_NEW]
     if not todo:
         state.write(store.folder)
         return None
@@ -516,11 +558,9 @@ def _step(state_dir: Path, now: float, held: Mapping[str, lens.Held]) -> dict[st
         for f in todo:
             if f.id in taken:
                 continue
-            entry = state.frames.setdefault(f.id, {"tries": 0})
-            entry["tries"] = int(entry.get("tries", 0)) + 1
-            if entry["tries"] >= MAX_TRIES:
-                state.drop.append(f.id)
-                del state.frames[f.id]
+            # Parked: no step starts for it again until a map has more views than now (`due`).
+            since = (state.frames.get(f.id) or {}).get("since", now)
+            state.frames[f.id] = {"parked": len(state.placed()), "since": since}
         did["unplaced"] = len([f for f in todo if f.id not in taken])
     did["seconds"] = round(time.monotonic() - began, 1)
     state.last = did
@@ -644,7 +684,7 @@ def _train(
         pose = refined[i] if refined[i] is not None else [float(x) for x in poses[k].ravel()]
         focal = pictures.focal(k)
         share = None if focal is None else focal / pictures.size(k)[0]
-        state.frames[k] = {"place": rev.place, "pose": pose, "tries": 0, "focal": share, "size": list(pictures.size(k))}
+        state.frames[k] = {"place": rev.place, "pose": pose, "focal": share, "size": list(pictures.size(k))}
     entry = state.places.setdefault(rev.place, {"frame": rev.frame, "rounds": 0})
     entry["rounds"] = int(entry.get("rounds", 0)) + 1
     entry["views"] = len(order) - len(dropped)
@@ -727,22 +767,30 @@ def running(state_dir: Path) -> bool:
     return False
 
 
-def summary(state_dir: Path) -> dict[str, Any]:
+def summary(state_dir: Path, now: float | None = None) -> dict[str, Any]:
     """What a page says about learning surroundings: whether it's on and which cameras are sampled now, how many
-    frames are kept and how many of them wait for a place, whether a step is running, and each learned place's
-    newest revision, views, rounds, and when a step last added a view to it (Unix seconds, or None)."""
+    frames are kept, how many of them wait for a step (`waiting`) and how many are parked until the map grows
+    (`parked`, `due`), whether a step is running, and each learned place's newest revision, views, rounds, and when
+    a step last added a view to it (Unix seconds, or None)."""
     from liberational.spatial import surroundings
 
     folder = frames.root(state_dir)
-    kept = [str(row.get("id")) for row in json_state.read(folder / "index.json", []) or [] if isinstance(row, dict)]
+    rows = [row for row in json_state.read(folder / "index.json", []) or [] if isinstance(row, dict)]
+    index = []  # the kept frames as the index lists them, without loading their descriptors
+    for row in rows:
+        try:
+            index.append(frames.Kept(**{k: row[k] for k in frames.FIELDS}))
+        except KeyError, TypeError:
+            continue
     state = State.read(folder)
     switch = surroundings.read()
-    placed = {k for k, v in state.frames.items() if v.get("pose") is not None}
+    todo = due(index, state, time.time() if now is None else now)
     return {
         "on": switch.on,
         "sampling": list(switch.cameras) if switch.on else [],
-        "kept": len(kept),
-        "waiting": len([k for k in kept if k not in placed and k not in state.drop]),
+        "kept": len(index),
+        "waiting": len(todo),
+        "parked": len(waiting(index, state)) - len(todo),
         "running": running(state_dir),
         "places": {
             place: {
