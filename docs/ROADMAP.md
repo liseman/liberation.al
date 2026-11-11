@@ -39,7 +39,7 @@ agreement, not measured accuracy.
 The open plan: a 3D map and a floorplan of every indoor place, cheap enough to run unattended
 ([SPATIAL.md](SPATIAL.md)). The owner draws a place's plan and gives each fixed camera its spot on it, and people and
 pets are drawn on the plan through those spots. While "Learn surroundings" is on, pictures of each place are
-collected. Nothing makes a 3D map from them.
+collected, and each chosen camera gets a point cloud of its own view. Nothing joins the cameras' views into one map.
 
 What is open:
 

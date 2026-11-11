@@ -69,8 +69,9 @@ Add `mount` to a fixed camera's `[[device]]`:
 mount = { height_m = 1.5, outdoor = false }
 ```
 
-`height_m` is the camera's height above the floor, measured to its lens. `outdoor = true` marks a camera that looks
-outdoors. A camera carried on a moving rig takes `rig`, `at`, `turn`, and `hfov_deg` instead
+`height_m` is the camera's height above the floor, measured to its lens. It gives that camera's point cloud its true
+size when a floor is in its view ([Places](PLACES.md#look-at-a-cameras-point-cloud)). `outdoor = true` marks a camera
+that looks outdoors. A camera carried on a moving rig takes `rig`, `at`, `turn`, and `hfov_deg` instead
 ([config/devices.example.toml](../config/devices.example.toml) has an example).
 
 ## Put it on a place's plan
@@ -93,7 +94,7 @@ edges that are straight in the room, with no checkerboard.
    ```
 
 3. Write the calibration to the camera's entry, with a `--mask` for each overlay the camera burns into its picture
-   (a clock or a logo), as fractions of the frame:
+   (a clock or a logo), as fractions of the frame. Masked pixels are left out of the camera's point cloud:
 
    ```sh
    uv run tools/calibrate_lens.py --view desk.png:desk-lines.json \
