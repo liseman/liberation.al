@@ -16,6 +16,8 @@ how to take back a wrong answer or a wrong training image. Everything here is do
   it opens "Who's this?". On Live, "Who's this?" beside "Here now" opens the same list.
 - **Animals**: open Known, then Pets, then "Sightings to name".
 
+![Who's this? beside the list of people: two faces waiting, each with its best guess and score](images/demo-whos-this.png)
+
 Each card shows the newest picture (or a clip to play), when and where it was seen or heard, and the best guess with
 a score. The score says how sure the guess is. It is not a probability.
 
