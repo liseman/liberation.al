@@ -509,9 +509,8 @@ def poses(state, cam, rows, box=(0.1, 0.2, 0.3, 0.9)):
 
     continuum_py = pytest.importorskip("continuum_py")
     from liberational.see.actions import JOINTS, POSE_SCHEMA
-    from liberational.see.actions_worker import POSES
 
-    writer = continuum_py.SegmentWriter(segment_log.root(state), POSES, cam, POSE_SCHEMA)
+    writer = continuum_py.SegmentWriter(segment_log.root(state), segment_log.POSE_TRACKS, cam, POSE_SCHEMA)
     writer.append(
         {
             "ts_ns": np.array([round(t * 1e9) for t, _ in rows], np.int64),

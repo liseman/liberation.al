@@ -54,8 +54,8 @@ SPEECH_MARGIN_S = 5.0  # audio this close to speech is kept
 GATE_S = 1.0  # a speech.activity row says the gate heard speech for about this long (rows come every second)
 HOUR_S = 3600.0
 
-POSES = "pose.track"  # see-actions writes it with its own schema; it's dropped by name
-DROPPED = (POSES, S.FACE_MATCHES, S.FACE_SIGNALS, S.FACE_EMBEDDINGS)
+# see-actions writes it with its own schema; it's dropped by name
+DROPPED = (S.POSE_TRACKS, S.FACE_MATCHES, S.FACE_SIGNALS, S.FACE_EMBEDDINGS)
 COVERAGE = (S.ACTION_COVERAGE, S.WALKBY_COVERAGE, S.ANIMAL_COVERAGE, S.ZONE_COVERAGE)
 SIGHTINGS = (S.NET_OBSERVATIONS, S.BLE_SIGHTINGS)
 POSITIONS = (S.POSITIONS, S.PLACED, S.PLACED_PATHS)

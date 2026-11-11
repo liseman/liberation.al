@@ -52,9 +52,7 @@ def _rest(stop: threading.Event, seconds: float) -> None:
     stop.wait(seconds)
 
 
-POSES = "pose.track"
 WINDOWS = "action.window"
-COVERAGE = "action.coverage"
 SYNC_S = 5.0
 REPORT_S = 60.0
 RETRY_S = 5.0  # a failed camera's first wait before it is tried again, doubled each failure in a row
@@ -194,9 +192,9 @@ class Camera:
 
         root = segment_log.root()
         self.camera, self.fps = camera, fps_of(camera)
-        self.poses = SegmentWriter(root, POSES, camera, actions.POSE_SCHEMA)
+        self.poses = SegmentWriter(root, segment_log.POSE_TRACKS, camera, actions.POSE_SCHEMA)
         self.windows = SegmentWriter(root, WINDOWS, camera, actions.WINDOW_SCHEMA)
-        self.coverage = SegmentWriter(root, COVERAGE, camera, actions.COVERAGE_SCHEMA)
+        self.coverage = SegmentWriter(root, segment_log.ACTION_COVERAGE, camera, actions.COVERAGE_SCHEMA)
         self.spans = spans
         self.counted = Counted(self.poses)
         heads = faces(camera)
