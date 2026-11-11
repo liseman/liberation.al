@@ -17,7 +17,10 @@ utterance's ReDimNet2 B3 embedding is its own row on `voice.embedding` in the se
   line sounds most like the answers from the same room and moment), when that reaches PERSON_FLOOR (0.5), raised to
   clear their nearest other person's reference and their own negatives by PERSON_MARGIN (0.15), and when it beats
   every other person and each of their negatives by PERSON_MARGIN and the nearest unnamed voice by UNNAMED_MARGIN
-  (0.05). Measured on the Linux machine (counts only): same-person pairs of confirmed lines ranged 0.03 to 0.82 (lines
+  (0.05). An unnamed voice competes only when it sounds like someone else: a recent line or index hit that the gate
+  alone would name the same person is that person's own earlier miss (`gate_person`), and without this one miss
+  opened an unnamed voiceprint that every later line of the conversation joined. Measured on the Linux machine
+  (counts only): same-person pairs of confirmed lines ranged 0.03 to 0.82 (lines
   under 2 s never above 0.31), different people's at most 0.26, and 0.16% of pairs of lines from different voiceprints
   reach 0.5. On a held-out replay of the confirmed lines (each left out, the gate built from the rest, the index's
   other lines competing) this named 2 of 8 rightly, none wrongly, and none of the 1,319 unconfirmed lines; the
@@ -257,6 +260,29 @@ def hit_span(hit: Mapping[str, Any], sim: float) -> Unnamed:
     return sim, -1, -1
 
 
+def gate_person(embedding: np.ndarray, prepared: Calibration) -> tuple[str, float] | None:
+    """The person the gate alone names `embedding`, and its score: their nearest core reference reaches their
+    threshold and beats every other person's references and their own negatives by PERSON_MARGIN. Unnamed voices
+    and automatic index hits aren't weighed here (`match_person` adds them)."""
+    q = _unit(embedding)
+    if q is None:
+        return None
+    eligible = [
+        (float((voice.core @ q).max()), person)
+        for person, voice in prepared.voices.items()
+        if prepared.policy[person]["eligible"] and len(voice.core)
+    ]
+    if not eligible:
+        return None
+    score, person = max(eligible)
+    rivals = [float((voice.vectors @ q).max()) for other, voice in prepared.voices.items() if other != person]
+    if person in prepared.negatives:
+        rivals.append(float((prepared.negatives[person] @ q).max()))
+    if score >= float(prepared.policy[person]["threshold"]) and score - max(rivals, default=-1.0) >= PERSON_MARGIN:
+        return person, score
+    return None
+
+
 def match_person(
     embedding: np.ndarray,
     references: Sequence[Reference],
@@ -266,6 +292,8 @@ def match_person(
     named_competitors: Mapping[str, float] | None = None,
     negatives: Sequence[Negative] = (),
     prepared: Calibration | None = None,
+    recent: Sequence[np.ndarray] = (),
+    heard: Callable[[int, int], np.ndarray | None] | None = None,
 ) -> Match | None:
     """One named assignment through the same confirmed-reference policy for listen, ingest, and phone lookups.
 
@@ -274,35 +302,43 @@ def match_person(
     their threshold, beats every other person (their references and `named_competitors`, their automatic index hits)
     and the nearest of their own negatives by PERSON_MARGIN, and beats the nearest unnamed voice by UNNAMED_MARGIN.
 
-    `competitor` is an unnamed voice's best score with no provenance (the matcher's recent lines). `unnamed` are the
-    index's unnamed hits with their spans: teaching a line copies its vector under the person, but its original stays
-    under the unnamed voiceprint it was first heard as, so a hit over one of the person's own confirmed lines is that
-    line again, not a competing voice. Every other unnamed hit still competes."""
+    `competitor` is an unnamed voice's best score with no provenance. `recent` are the matcher's recent unnamed lines
+    as vectors, and `unnamed` the index's unnamed hits with their spans. An unnamed voice competes only when it sounds
+    like someone else: a recent line or a hit (its vector from `heard`, given its span) that the gate alone would
+    name this same person is one of their own lines that missed earlier, so it's evidence for them, not against.
+    Without that rule one miss opens an unnamed voiceprint, and every later line of that conversation, which sounds
+    more like it than like the taught lines, is refused the name and joins it. A hit whose vector `heard` can't find
+    still competes. Teaching a line copies its vector under the person, but its original stays under the unnamed
+    voiceprint it was first heard as, so a hit over one of the person's own confirmed lines is that line again, not
+    a competing voice."""
     prepared = prepared or Calibration.build(references, negatives)
-    policy = prepared.policy
     q = np.asarray(embedding, np.float32)
-    named = {person: float((voice.vectors @ q).max()) for person, voice in prepared.voices.items()}
-    eligible = [
-        (float((voice.core @ q).max()), person)
-        for person, voice in prepared.voices.items()
-        if policy[person]["eligible"] and len(voice.core)
-    ]
-    if not eligible:
+    gated = gate_person(q, prepared)
+    if gated is None:
         return None
-    score, person = max(eligible)
+    person, score = gated
+    rivals = [value for other, value in (named_competitors or {}).items() if other != person]
+    if score - max(rivals, default=-1.0) < PERSON_MARGIN:
+        return None
+
+    def theirs(vector: np.ndarray | None) -> bool:
+        if vector is None:
+            return False
+        other = gate_person(vector, prepared)
+        return other is not None and other[0] == person
+
     own = [r.span for r in references if r.person == person and r.span is not None]
-    rivals = [
-        *[value for other, value in named.items() if other != person],
-        *[value for other, value in (named_competitors or {}).items() if other != person],
+    close = score - UNNAMED_MARGIN
+    blocking = [
+        competitor,
+        *[sim for v in recent if (sim := float(np.dot(q, v))) > close and not theirs(v)],
+        *[
+            sim
+            for sim, start, end in unnamed
+            if sim > close and not _same_line(start, end, own) and not (heard is not None and theirs(heard(start, end)))
+        ],
     ]
-    if person in prepared.negatives:
-        rivals.append(float((prepared.negatives[person] @ q).max()))
-    nearest_unnamed = max([competitor, *[sim for sim, start, end in unnamed if not _same_line(start, end, own)]])
-    if (
-        score >= float(policy[person]["threshold"])
-        and score - max(rivals, default=-1.0) >= PERSON_MARGIN
-        and score - nearest_unnamed >= UNNAMED_MARGIN
-    ):
+    if score - max(blocking) >= UNNAMED_MARGIN:
         voiceprint = prepared.voices[person].voiceprint
         return Match(f"Speaker {voiceprint}", voiceprint, score)
     return None
@@ -682,6 +718,8 @@ class ReferenceGallery:
         competitor: float = -1.0,
         unnamed: Sequence[Unnamed] = (),
         named_competitors: Mapping[str, float] | None = None,
+        recent: Sequence[np.ndarray] = (),
+        heard: Callable[[int, int], np.ndarray | None] | None = None,
     ) -> Match | None:
         """Called off-thread: cheap revision probe, then cached arithmetic or one coalesced background rebuild."""
         mark = self._revision()
@@ -698,6 +736,8 @@ class ReferenceGallery:
             unnamed=unnamed,
             named_competitors=named_competitors,
             prepared=calibration,
+            recent=recent,
+            heard=heard,
         )
         return matched if self._revision() == mark else None
 
@@ -845,7 +885,7 @@ class VoiceMatcher:
             )
             clones = await asyncio.to_thread(self.clones)
             best_sim, best = self._recent_best(embedding, people)
-            recent_sim = best_sim
+            recent = self._recent_unnamed(people)
             named_scores: dict[str, float] = {}
             unnamed: list[Unnamed] = []
             try:
@@ -878,9 +918,10 @@ class VoiceMatcher:
                     matched = await asyncio.to_thread(
                         self.references.match,
                         embedding,
-                        competitor=recent_sim,
                         unnamed=unnamed,
                         named_competitors=named_scores,
+                        recent=recent,
+                        heard=self.heard,
                     )
                 else:
                     references = await asyncio.to_thread(self.references)
@@ -888,9 +929,10 @@ class VoiceMatcher:
                         match_person,
                         embedding,
                         references,
-                        competitor=recent_sim,
                         unnamed=unnamed,
                         named_competitors=named_scores,
+                        recent=recent,
+                        heard=self.heard,
                     )
                 if matched is not None:
                     return matched
@@ -1011,6 +1053,25 @@ class VoiceMatcher:
             self._recent.append((now, vector, n))
             while self._recent and now - self._recent[0][0] > RECENT_S:
                 self._recent.popleft()
+
+    def _recent_unnamed(self, people: People | None = None) -> list[np.ndarray]:
+        """The matcher's recent lines of unnamed voices, as vectors: the person gate's unnamed competitors."""
+        now = time.monotonic()
+        return [e for t, e, n in self.recent if now - t <= RECENT_S and (people or self.people).person_of(n) is None]
+
+    def heard(self, start_ns: int, end_ns: int) -> np.ndarray | None:
+        """The vector of the unnamed embedding filed over exactly [start_ns, end_ns), read back from the segment store,
+        or None when there's none (or the read fails, so that hit keeps competing). Only called for an index hit
+        close enough to block a name, so a line costs a read only when it might be its person's own earlier line."""
+        try:
+            rows = segment_log.Log(self.segments).range(EMBEDDINGS, start_ns / NS, max(end_ns, start_ns + 1) / NS)
+        except Exception as e:
+            log.debug("couldn't read back an unnamed voice hit (%s)", logs.reason(e))
+            return None
+        for r in rows:
+            if r["start_ns"] == start_ns and r["end_ns"] == end_ns and r.get("person") is None:
+                return np.asarray(r["vector"], np.float32)
+        return None
 
     def _recent_best(self, embedding: np.ndarray, people: People | None = None) -> tuple[float, int | None]:
         now = time.monotonic()
