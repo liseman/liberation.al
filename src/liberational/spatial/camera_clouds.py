@@ -34,7 +34,8 @@ camera's own frame and a confidence. Then, in the pack:
    floor, so the view still has a ground to stand on.
 
 **Keeping one** (`Store`): `state/camera_clouds/<camera>/` holds the camera's one cloud, `<id>.ply` (binary, x y z
-and red green blue) and `cloud.json` (`Cloud`: when, how many points, the camera's pose and focal
+and red green blue) and `<id>.npy` (the same points by the pixel of the picture each came from), and `cloud.json` (`Cloud`: when, how many
+points, the camera's pose and focal
 in the cloud's frame, the floor, and the thumbnail of the picture it was made from, which is how a changed view is
 noticed). A new cloud replaces the old one: nothing is carried forward. `notes.json` beside the folders says, per
 camera, why its last try made no cloud. None of this is a place's revision: a revision's cameras are registrations
@@ -319,6 +320,10 @@ class Made:
     cloud: Cloud
     ply: bytes
     picture: np.ndarray | None = None  # the picture it was made from (BGR), kept for comparing with later ones
+    #: The cloud's point for each pixel of that picture as the model saw it (H x W x 3 float32, the level frame;
+    #: NaN where the pixel gave no point), kept so a place in the picture can be found in the cloud
+    #: (spatial/cloud_measure.py).
+    pixels: np.ndarray | None = None
 
 
 class Rejected(ValueError):
@@ -407,7 +412,9 @@ def make(
         thumb=tuple(float(v) for v in thumb),
         cleaned=round(1.0 - float(keep.sum()) / max(int(sure.sum()), 1), 3),
     )
-    return Made(cloud, ply.dumps(levelled, got.colour[keep]))
+    pixels = np.full((*keep.shape, 3), np.nan, dtype=np.float32)
+    pixels[keep] = levelled
+    return Made(cloud, ply.dumps(levelled, got.colour[keep]), pixels=pixels)
 
 
 def root(state: Path | str) -> Path:
@@ -458,6 +465,10 @@ class Store:
         """Where the picture `cloud` was made from is kept (whether or not it is there)."""
         return self.file(cloud).with_suffix(".png")
 
+    def pixels(self, cloud: Cloud) -> Path:
+        """Where `cloud`'s point for each pixel of its picture is kept (whether or not it is there)."""
+        return self.file(cloud).with_suffix(".npy")
+
     def replace(self, made: Made) -> None:
         """Keep `made` as its camera's cloud. Its file is written first and its record after, so a reader never finds
         a record whose points aren't there; the cloud before it goes last."""
@@ -470,8 +481,14 @@ class Store:
             ok, png = cv2.imencode(".png", made.picture)
             if ok:
                 places.write_whole(self.picture(made.cloud), png.tobytes())
+        if made.pixels is not None:
+            import io
+
+            held = io.BytesIO()
+            np.save(held, made.pixels.astype(np.float32))
+            places.write_whole(self.pixels(made.cloud), held.getvalue())
         json_state.write(folder / "cloud.json", asdict(made.cloud))
-        for old in [*folder.glob("*.ply"), *folder.glob("*.png")]:
+        for old in [*folder.glob("*.ply"), *folder.glob("*.png"), *folder.glob("*.npy")]:
             if old.stem not in (made.cloud.id, "anchor"):  # the anchor is spatial/cloud_scene.py's to keep
                 old.unlink(missing_ok=True)
         self.note(made.cloud.camera, None, made.cloud.at)
