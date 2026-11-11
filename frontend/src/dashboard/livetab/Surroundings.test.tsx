@@ -40,8 +40,15 @@ beforeEach(() => {
 
 afterEach(() => server.resetHandlers());
 
-const toggle = () => screen.findByRole('switch', { name: 'Learn surroundings' });
-const menuButton = () => screen.findByRole('button', { name: 'Cameras to learn from' });
+const toggle = async () => {
+  const element = await screen.findByRole('switch', { name: 'Learn surroundings' });
+  await waitFor(() => expect(element.closest('.surroundings')).toHaveAttribute('aria-busy', 'false'));
+  return element;
+};
+const menuButton = async () => {
+  await toggle();
+  return screen.findByRole('button', { name: 'Cameras to learn from' });
+};
 
 /** A POST that fails with the server's words, after `ms`. */
 function failing(ms = 0) {
@@ -143,11 +150,11 @@ describe("Live's Learn surroundings switch", () => {
     const user = userEvent.setup();
     renderPage(<LearnSurroundings />);
     await toggle();
-    expect(screen.getByText(surroundingsHint(view).off)).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent(surroundingsHint(view).off);
     expect(await menuButton()).toHaveTextContent('front');
     await user.click(await toggle());
     await waitFor(async () => expect(await toggle()).toBeChecked());
-    expect(screen.getByText(/Collecting pictures from front\. See them in/)).toBeInTheDocument();
+    expect(screen.getByText(/Collecting pictures\. See them in/)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Places' })).toHaveAttribute('href', '/places');
   });
 
@@ -161,11 +168,45 @@ describe("Live's Learn surroundings switch", () => {
     expect(screen.getByText('Only the machine Liberational runs on can change this.')).toBeInTheDocument();
   });
 
-  it('is not drawn when there is no camera to learn from', async () => {
+  it('keeps the controls disabled with a reason when no cameras are available', async () => {
     view = { ...view, cameras: [] };
+    renderPage(<LearnSurroundings />);
+    expect(await toggle()).toBeDisabled();
+    expect(await menuButton()).toBeDisabled();
+    expect(screen.getByRole('status')).toHaveTextContent('No cameras available to learn from.');
+  });
+
+  it('renders the same disabled controls and hint space before status arrives', async () => {
+    let release: () => void = () => {};
+    const held = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    server.use(
+      http.get('/surroundings', async () => {
+        await held;
+        return HttpResponse.json(view);
+      }),
+    );
     const { container } = renderPage(<LearnSurroundings />);
-    await waitFor(() => expect(container.querySelector('.surroundings')).toBeNull());
-    expect(screen.queryByRole('switch')).toBeNull();
+    const shown = screen.getByRole('switch', { name: 'Learn surroundings' });
+    const menu = screen.getByRole('button', { name: 'Cameras to learn from' });
+    const space = container.querySelector('.surroundings-hint-space');
+    expect(shown).toBeDisabled();
+    expect(menu).toBeDisabled();
+    expect(space).toHaveTextContent(surroundingsHint(view).off);
+    release();
+    await waitFor(() => expect(shown).toBeEnabled());
+    expect(screen.getByRole('switch')).toBe(shown);
+    expect(screen.getByRole('button', { name: 'Cameras to learn from' })).toBe(menu);
+    expect(container.querySelector('.surroundings-hint-space')).toBe(space);
+  });
+
+  it('keeps the row disabled and gives a short reason when status fails', async () => {
+    server.use(http.get('/surroundings', () => HttpResponse.json({}, { status: 503 })));
+    renderPage(<LearnSurroundings />);
+    expect(await toggle()).toBeDisabled();
+    expect(await menuButton()).toBeDisabled();
+    expect(screen.getByRole('status')).toHaveTextContent("Couldn't load learning status. Retrying.");
   });
 });
 

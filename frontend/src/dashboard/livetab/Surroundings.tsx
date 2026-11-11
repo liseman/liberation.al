@@ -36,6 +36,7 @@ export interface SurroundingsChange {
 export const SURROUNDINGS_KEY = ['surroundings'] as const;
 const REFRESH_MS = 15_000; // another browser, or Settings, may change it
 
+const OFF_HINT = "Collects the cameras' pictures, and keeps a point cloud of what each one sees";
 const ELSEWHERE = 'Only the machine Liberational runs on can change this.';
 
 /** How many cameras are sampled, for the menu button and the on-state hint. */
@@ -48,7 +49,7 @@ export function sampledLabel(view: SurroundingsView): string {
 export function surroundingsHint(view: SurroundingsView): { off: string; on: string } {
   const from = sampledLabel(view);
   return {
-    off: "Collects the cameras' pictures, and keeps a point cloud of what each one sees",
+    off: OFF_HINT,
     on: `Collecting pictures from ${from}. See them in Places`,
   };
 }
@@ -90,40 +91,51 @@ function useSave(client: QueryClient, onFail: (message: string) => void) {
 
 export function LearnSurroundings() {
   const client = useQueryClient();
-  const view = useQuery({
+  const status = useQuery({
     queryKey: SURROUNDINGS_KEY,
     queryFn: ({ signal }) => request<SurroundingsView>('/surroundings', undefined, signal, 'background'),
     refetchInterval: REFRESH_MS,
-  }).data;
+  });
+  const view = status.data;
   const [fail, setFail] = useState<string | null>(null);
   const power = useSave(client, setFail);
   const cameras = useSave(client, setFail);
   const [toggling, setToggling] = useState<string | null>(null);
-  if (!view?.cameras.length) return null;
-  const from = sampledLabel(view);
-  const hints = surroundingsHint(view);
+  const disabled = !view?.control || !view.cameras.length || status.isError;
+  const from = view ? sampledLabel(view) : 'Cameras';
+  const reason = status.isError
+    ? "Couldn't load learning status. Retrying."
+    : !view
+      ? 'Loading learning status'
+      : !view.cameras.length
+        ? 'No cameras available to learn from.'
+        : !view.control
+          ? ELSEWHERE
+          : null;
   const saving = cameras.isPending ? toggling : null;
   return (
-    <div className="surroundings">
+    <div className="surroundings" aria-busy={status.isPending}>
       <div className="surroundings-row">
         <Switch
           size="sm"
           label="Learn surroundings"
-          checked={view.on}
-          disabled={!view.control}
+          checked={view?.on ?? false}
+          disabled={disabled}
           aria-busy={power.isPending}
           thumbIcon={power.isPending ? <Loader size={8} color="gray" aria-hidden /> : undefined}
           onChange={e => {
             if (!power.isPending) power.mutate({ on: e.currentTarget.checked });
           }}
         />
-        <Menu position="bottom-end" withinPortal closeOnItemClick={false} disabled={!view.control}>
+        <Menu position="bottom-end" withinPortal closeOnItemClick={false} disabled={disabled}>
           <Menu.Target>
             <Button
               variant="subtle"
               color="gray"
               size="compact-sm"
-              disabled={!view.control}
+              disabled={disabled}
+              className="surroundings-cameras"
+              title={from}
               leftSection={<IconCamera size={16} aria-hidden />}
               aria-label="Cameras to learn from"
             >
@@ -132,7 +144,7 @@ export function LearnSurroundings() {
           </Menu.Target>
           <Menu.Dropdown>
             <Menu.Label>Cameras to learn from</Menu.Label>
-            {view.cameras.map(c => {
+            {view?.cameras.map(c => {
               const busy = saving === c.name;
               return (
                 <Menu.CheckboxItem
@@ -164,24 +176,25 @@ export function LearnSurroundings() {
           </Menu.Dropdown>
         </Menu>
       </div>
-      {view.control ? (
-        <Text size="xs" c="dimmed" className="surroundings-hint">
-          {view.on ? (
-            <>
-              {`Collecting pictures from ${from}. See them in `}
-              <Anchor href="/places" size="xs" onClick={linkClick}>
-                Places
-              </Anchor>
-            </>
-          ) : (
-            hints.off
-          )}
+      <div className="surroundings-hints">
+        {/* The full description sizes every state, including the first paint, at this viewport's text width. */}
+        <Text size="xs" className="surroundings-hint-space" aria-hidden="true">
+          {OFF_HINT}
         </Text>
-      ) : (
-        <Text size="xs" c="dimmed">
-          {ELSEWHERE}
+        <Text size="xs" c="dimmed" className="surroundings-hint" role="status">
+          {reason ??
+            (view?.on ? (
+              <>
+                Collecting pictures. See them in{' '}
+                <Anchor href="/places" size="xs" onClick={linkClick}>
+                  Places
+                </Anchor>
+              </>
+            ) : (
+              OFF_HINT
+            ))}
         </Text>
-      )}
+      </div>
       <Toast text={fail} error label="Learn surroundings" onClose={() => setFail(null)} />
     </div>
   );

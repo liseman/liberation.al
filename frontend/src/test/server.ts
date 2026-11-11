@@ -21,7 +21,7 @@ export const server = setupServer(
   http.get('/network-cameras', () => HttpResponse.json({ cameras: [], capture_ready: false })),
   // The header's privacy pauses: read only, nothing paused, unless a test serves its own.
   http.get('/devices/privacy', () => HttpResponse.json({ ok: true, control: false, ready: false, devices: [] })),
-  // Live's "Learn surroundings" switch: no cameras to learn from (so it isn't drawn), unless a test serves its own.
+  // Live's "Learn surroundings" switch: no cameras to learn from (so it stays disabled), unless a test serves its own.
   http.get('/surroundings', () => HttpResponse.json({ ok: true, control: false, on: false, cameras: [], chosen: [] })),
   // What learning is doing, for the Places page: off and nothing kept, unless a test serves its own.
   http.get('/surroundings/status', () =>

@@ -348,6 +348,27 @@ export function Stage({
       onClose={() => setFaceDraft(null)}
     />
   );
+  const header = (
+    <div className="cams-head">
+      <h2>Cameras</h2>
+      <span>{cams.length === 1 ? '1 camera' : `${cams.length} cameras`}</span>
+      <NameNudge cams={cams} />
+      <LearnSurroundings />
+      {large && shown.length > 1 && (
+        <div className="cam-controls">
+          <Button variant="default" size="xs" onClick={() => choose(null)}>
+            All cameras
+          </Button>
+          <NativeSelect
+            aria-label="Choose camera"
+            value={large}
+            onChange={e => choose(e.currentTarget.value)}
+            data={shown.map(cam => ({ value: cam, label: viewName(cam) }))}
+          />
+        </div>
+      )}
+    </div>
+  );
   // Until vision and the scene have both answered, nothing is known to be off, so the cameras' place is held
   // rather than saying "Cameras are off" and then swapping the cameras in over it, which moved everything
   // under them. The overview's place is the overview itself, with empty tiles, so the grid's own CSS sizes it
@@ -358,13 +379,9 @@ export function Stage({
       // Its own key, as the cameras' section has: React would otherwise reuse this section's nodes for the
       // real one by position, and the grid's node turning into the heading counts as a shift though nothing moves.
       <section key="stage-wait" className="live-cams stage-wait" aria-label="Cameras" aria-busy="true">
+        {header}
         {overview ? (
           <>
-            <div className="cams-head">
-              <h2>Cameras</h2>
-              <span>{`${cams.length} cameras`}</span>
-              <NameNudge cams={cams} />
-            </div>
             <div className="cams-overview-bar">
               <Text size="sm" c="dimmed">
                 Open a camera for face names and object selections.
@@ -403,25 +420,7 @@ export function Stage({
     <section key="stage" ref={stageRef} className="live-cams" aria-label="Cameras">
       {picker}
       {error && <Text role="alert">{error}</Text>}
-      <div className="cams-head">
-        <h2>Cameras</h2>
-        <span>{cams.length === 1 ? '1 camera' : `${cams.length} cameras`}</span>
-        <NameNudge cams={cams} />
-        <LearnSurroundings />
-        {large && shown.length > 1 && (
-          <div className="cam-controls">
-            <Button variant="default" size="xs" onClick={() => choose(null)}>
-              All cameras
-            </Button>
-            <NativeSelect
-              aria-label="Choose camera"
-              value={large}
-              onChange={e => choose(e.currentTarget.value)}
-              data={shown.map(cam => ({ value: cam, label: viewName(cam) }))}
-            />
-          </div>
-        )}
-      </div>
+      {header}
       {large ? (
         <div className="cams-single">
           <Large
