@@ -140,6 +140,22 @@ def test_finished_days_are_recorded_and_read_back(tmp_path):
     assert R.Marks.load(tmp_path).days == {DAY: {"face.match bytes": 10}}
 
 
+@pytest.mark.parametrize(
+    ("saved", "days"),
+    [
+        pytest.param("{not json", {}, id="truncated"),
+        pytest.param('{"days": []}', {}, id="days-not-a-mapping"),
+        pytest.param('{"days": {"2026-09-01": 3}}', {}, id="counts-not-a-mapping"),
+        pytest.param('{"days": {"2026-09-01": {"face.match bytes": "many"}}}', {DAY: {}}, id="counts-not-ints"),
+        pytest.param('{"days": {"2026-09-01": {"face.match bytes": 10}}}', {DAY: {"face.match bytes": 10}}, id="kept"),
+    ],
+)
+def test_a_damaged_marks_file_does_not_stop_the_nights_retention(tmp_path, saved, days):
+    # The record is only a done-set for due(); a hand-edited or truncated one must not end the night's age-out.
+    (tmp_path / R.MARKS).write_text(saved)
+    assert R.Marks.load(tmp_path).days == days
+
+
 @pytest.fixture
 def store(tmp_path):
     pytest.importorskip("continuum_py").SegmentWriter  # noqa: B018 (the native store must be built)
