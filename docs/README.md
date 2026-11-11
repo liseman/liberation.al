@@ -9,12 +9,13 @@ it does. A document that still mixes kinds is listed under the one it mostly is.
 | Document | You end up with |
 |---|---|
 | [A first look at the pack](TUTORIAL.md) | A read of one day on a made-up household, with none of your data: the Journal, a card, a correction, and a floorplan |
-| [README](../README.md), from "Install" to "Name people" | A running pack that knows you, from a clone |
+| [Install from a clone](INSTALL.md), from "Install" to "Name people" | A running pack that knows you, from a clone |
 
 ## How-to guides: get a task done
 
 | Document | Use it to |
 |---|---|
+| [Install from a clone](INSTALL.md) | Install for development, configure, start, and find what is wrong when something is |
 | [Releases](RELEASES.md) | Install a release with apt or uv, with no checkout; make a release; make the apt signing key |
 | [Running](RUNNING.md) | Open and quit the application, see what runs, restart one service or everything, and read logs |
 | [Upgrading](../MIGRATING.md) | Update an existing install, follow the steps a change needs, and reset state |

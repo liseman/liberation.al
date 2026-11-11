@@ -1,265 +1,129 @@
 # Liberational Pack
 
-A local-first ambient assistant. It records what its cameras and microphones observe, learns the people, pets,
-and things its owner names, and answers questions with evidence from that history. Everything runs on your own
-machine: recordings, transcripts, and names never leave it unless you turn on an optional outside service.
-
-The reason it exists is in the [manifesto](MANIFESTO.md): AI should give you superpowers.
-
-This is a research project. It runs every day on its developers' machines, and it changes fast. Expect rough
-edges, and expect a reset of recorded history now and then (what you taught it is kept; see
-[storage](docs/STORAGE.md)).
-
-## What runs today
-
-- **Continuum**, a Rust data layer, captures video and audio, keeps a rolling window of recordings, and serves live
-  and recorded media to the dashboard.
-- **Python workers** transcribe speech, identify speakers and faces, track people and animals, describe scenes, and
-  build a searchable journal with day, week, and month pages.
-- **The dashboard** has Live, Review, Journal, Known (people, pets, objects, activities, devices, and places),
-  Calls, Inbox, Reports, Ingest, and Debug. Answers link to the recording they came from, and say so when there's
-  a gap in coverage.
-- **Spatial memory** keeps your plan of each indoor place, with each camera's spot on it, and draws where people
-  and pets were on the plan.
-
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) describes the running system. The wearable hardware in
-[docs/history](docs/history/plan-2026-10.md) is the original idea, not a list of what's built.
-
-## Screenshots
-
-These come from demo mode: a made-up household (Alice, Dana, Sam, and Rex the dog), one made-up house, and one
-day of journal. Once the install below is done, `mise run demo` opens the same dashboard on
-<http://localhost:8780/>, with its own data in a temporary directory and nothing from `data/`.
-
-The Journal, a day's page:
+Liberational is a private memory for a household. It watches and listens through your own cameras and microphones,
+learns the people and pets you name, writes a journal of each day, and answers questions about what happened with
+the recording to back it up. Everything runs on a computer in your home: recordings, transcripts, and names never
+leave it unless you turn on an outside service yourself.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/demo-journal-day-dark.png">
-  <img alt="The Journal tab with a day's page: in short, what happened, what was talked about, and what was eaten" src="docs/images/demo-journal-day-light.png">
+  <img alt="The Journal: columns for months, weeks, days, and hours, and a day's page that says where people were, what happened, what was talked about, and what was eaten" src="docs/images/demo-journal-day.png">
 </picture>
 
-An hour of that day, and its events:
+Why it exists is in the [manifesto](MANIFESTO.md): AI should give you superpowers.
+
+## What it looks like
+
+Every picture here is the demo household: Alice, Dana, Sam, and Rex the dog, in a made-up house. `pack-demo` opens
+the same dashboard on your machine, with none of your data ([a first look at the pack](docs/TUTORIAL.md)).
+
+**The Journal** goes from a month down to a moment. An hour has its events, and what it says links to its evidence.
+
+<img alt="The Journal with the 18:00 hour open: four events from 18:02 to 18:38, and the hour's entry about dinner" src="docs/images/demo-journal-hour.png">
+
+**Known** holds everyone and everything you named. A person's card has their photos, their voice, and the pictures
+recognition learned from, and a wrong picture can be taken out.
+
+<img alt="Known, People: the list of Alice, Dana, and Sam, with Dana's card open on her recent lines" src="docs/images/demo-people-card.png">
+
+<img alt="Known, Pets: Rex's card with seven training images, the one unlike the rest marked and listed first" src="docs/images/demo-pet-training-images.png">
+
+**Places** has a plan of each place. You draw it in the plan editor and give each camera its spot, and people and
+pets are drawn on the plan where the cameras saw them.
+
+<img alt="Known, Places: the demo house's plan with five rooms: kitchen, hall, bedroom, living room, and study" src="docs/images/demo-places-plan.png">
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/demo-journal-dark.png">
-  <img alt="The Journal tab with the 18:00 hour selected, its four events, and the hour's entry" src="docs/images/demo-journal-light.png">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/demo-plan-editor-dark.png">
+  <img alt="The plan editor on the demo house: tools for rooms, walls, doors, and windows beside the plan, with Versions, Discard changes, and Save plan above it" src="docs/images/demo-plan-editor.png">
 </picture>
 
-Known, Places, with the house's floorplan:
+**Reports** chart who was around and when, conversations, and activity.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/demo-places-dark.png">
-  <img alt="The Places tab with a five-room floorplan: kitchen, hall, bedroom, living room, and study" src="docs/images/demo-places-light.png">
-</picture>
+<img alt="Reports: a daily clock of who was around, hour by hour, with stretches nothing was recorded hatched" src="docs/images/demo-reports.png">
+
+The dashboard also has **Live** (the cameras now, with who is in view), **Review** (a day's video and transcript),
+**Ask** (questions answered from the record), and a **3D view** of what one camera sees. Those need cameras, so the
+demo household does not show them yet.
 
 ## What you need
 
 | | |
 |---|---|
-| **Computer** | A Linux x86-64 machine with an NVIDIA GPU, or an Apple Silicon Mac. Development happens on a Linux workstation with two 24 GB GPUs and 128 GB of RAM, and on an Apple Silicon Mac with 64 GB of memory. Smaller machines are untested: expect to turn services off. |
-| **Operating system** | Ubuntu or Debian (setup installs system packages with apt), or macOS on Apple Silicon (with Homebrew). On another Linux, `uv run pack-system check` lists the packages to install yourself. |
-| **GPU software** | On Linux, a working NVIDIA driver (`nvidia-smi` lists the GPU). The CUDA toolkit is optional; with it, whisper-server builds for the GPU. On a Mac, nothing extra: models run on MLX and Metal. |
-| **Cameras** | Any USB (UVC) webcam, or network cameras that serve H.264 over RTSP. Settings discovers UniFi Protect and ONVIF cameras, and sets up Wyze cameras. |
-| **Microphone** | Any USB or built-in microphone. A ReSpeaker XVF3800 array adds direction of arrival. |
-| **Disk** | Several GB for models on first setup, plus recordings: video is kept for a rolling window (30 days by default) and deleted after it. [docs/STORAGE.md](docs/STORAGE.md) has the sizes. |
-| **Optional** | An ESP32 board for Bluetooth presence, a Twilio number for phone calls, and an agent gateway for requests that need tools. None is needed to start. |
-
-A successful install is not a hardware validation: check the service status and the Live tab once it's up.
+| **Computer** | A Linux x86-64 machine with an NVIDIA GPU, or an Apple Silicon Mac. It is developed on a workstation with two 24 GB GPUs and on a 64 GB Mac; smaller machines are untested |
+| **Operating system** | Ubuntu 24.04 or 26.04, Debian 12 or 13, or macOS 14 or later on Apple Silicon |
+| **Cameras** | Any USB webcam, or network cameras that serve H.264 over RTSP |
+| **Microphone** | Any USB or built-in microphone |
+| **Disk** | Several GB for models, plus recordings: video is kept for 30 days by default ([Storage](docs/STORAGE.md)) |
 
 ## Install
 
-These steps install from a clone, which is also the development setup. To install a release instead, with no
-clone and nothing to compile, see [docs/RELEASES.md](docs/RELEASES.md).
-
-1. **Install a compiler, `curl`, `git`, and [mise](https://mise.jdx.dev)**, which installs the project's tools (the
-   `[tools]` table of [mise.toml](mise.toml)). On macOS, install the Xcode Command Line Tools
-   (`xcode-select --install`) and [Homebrew](https://brew.sh) first.
-
-   ```sh
-   # Ubuntu or Debian only:
-   sudo apt-get update && sudo apt-get install -y curl git build-essential
-
-   curl -fsSL https://mise.run | sh
-   export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$PATH"
-   ```
-
-   Add `eval "$(~/.local/bin/mise activate bash)"` (or `zsh`) to your shell rc file, so new terminals have `mise` and
-   its tools on `PATH`.
-
-2. **Install a Rust toolchain** with [rustup](https://rustup.rs), and add Cargo to `PATH` in this terminal. The next
-   step compiles one of the tools, and setup builds Continuum's SDK from source.
-
-   ```sh
-   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-   . "$HOME/.cargo/env"
-   ```
-
-3. **Clone, and install the tools.**
-
-   ```sh
-   git clone https://github.com/liseman/liberation.al.git
-   cd liberation.al
-   mise trust
-   mise install
-   ```
-
-4. **Start Ollama**, which setup pulls its models through. In another terminal:
-
-   ```sh
-   mise run ollama
-   ```
-
-   Leave it running until setup ends, then stop it with Ctrl-C: the application runs Ollama itself, as its `ollama`
-   service. If another Ollama already serves port 11434 on this machine, skip the command, and stop that server
-   before the first run ([MIGRATING.md](MIGRATING.md#the-shared-ollama-is-a-pack-service) has the commands).
-
-5. **Run setup.** It lists the system packages this machine is missing and asks before installing them, installs
-   the Python dependencies, builds `whisper-server` and the dashboard, turns on the Git hooks, and fetches the models
-   for your platform. The first run downloads several GB. It is safe to run again: it skips what is already there.
-
-   ```sh
-   mise run setup
-   ```
-
-   `uv run pack-models --list` shows what the model step fetches and what is already present. No default model
-   needs a Hugging Face account. If you point a model at a gated repository yourself, setup fetches every other
-   model, lists the gated ones, and exits with an error.
-
-6. **Export the face recognition model.** Its weights carry a dataset license: read the model card that
-   `[models.adaface]` in [config/defaults.toml](config/defaults.toml) names, then export the ONNX model from the
-   files setup downloaded.
-
-   ```sh
-   uv run python tools/export_adaface.py \
-     --source data/models/adaface/model.py \
-     --checkpoint data/models/adaface/model.pt \
-     --output data/models/adaface/adaface_ir50_webface4m_rgb.onnx
-   ```
-
-7. **Build Continuum's services.** The first release build takes several minutes.
-
-   ```sh
-   mise run continuum-release
-   ```
-
-The install is done. Before you point it at your own home, take the
-[first look at the pack](docs/TUTORIAL.md): a short lesson on a made-up household, which needs no camera, no
-microphone, and no settings.
-
-## Configure
-
-Two files hold your settings. Both are gitignored, so they stay on your machine.
+On Ubuntu or Debian, from the project's apt repository:
 
 ```sh
-cp config/pack.example.toml pack.toml
-cp config/devices.example.toml config/devices.toml
-uv run pack-config --check
+sudo install -d /etc/apt/keyrings
+curl -fsSL https://github.com/liseman/liberation.al/releases/download/apt/liberational-archive-keyring.gpg \
+  | sudo tee /etc/apt/keyrings/liberational.gpg > /dev/null
+echo "deb [signed-by=/etc/apt/keyrings/liberational.gpg] https://github.com/liseman/liberation.al/releases/download/apt ./" \
+  | sudo tee /etc/apt/sources.list.d/liberational.list
+sudo apt update && sudo apt install liberational
+pack-setup    # as yourself, not with sudo: builds your environment and fetches the models
 ```
 
-- `pack.toml` holds your name, the assistant's name, and any setting you want to change.
-  [config/defaults.toml](config/defaults.toml) documents every one. You can skip the copy: without a `pack.toml` the
-  dashboard opens on a setup screen and writes it for you.
-- `config/devices.toml` lists the cameras and microphones to capture, one `[[device]]` each. The example has a USB
-  camera matched by its USB ID (`lsusb` shows yours) and a microphone matched by name. Edit both to match what's
-  plugged in, and delete what you don't have.
-- `pack-config --check` lists the settings and services in `pack.toml` that don't exist, or says that every one
-  exists.
+On a Mac, or any other supported machine, install the release's wheels with [uv](https://docs.astral.sh/uv/):
+[Releases](docs/RELEASES.md#install-with-uv) has the commands. To work on the code, [install from a
+clone](docs/INSTALL.md).
 
 ## First run
 
-1. **Try the dashboard on its own.** It works with an empty `data/` directory.
+1. Open Liberational from the applications menu, or run `pack-app`. Its window says whether it is recording, and
+   quitting it stops everything.
+2. Press **Open the dashboard** in that window (<http://localhost:8765/>).
+3. Follow the **Getting started** list on Live: pick a camera and a microphone, name yourself, record your voice,
+   and tag your face.
+4. As people and pets turn up, say who they are in **Known**, under "Who's this?". It never guesses a name it
+   was not taught ([Naming](docs/NAMING.md)).
+5. The next morning, read yesterday in the **Journal**, or ask about it with **Ask**.
 
-   ```sh
-   mise run dashboard
-   ```
+To look around first with nothing of your own, run `pack-demo` and follow [a first look at the
+pack](docs/TUTORIAL.md).
 
-   Open <http://localhost:8765/>, then stop it with Ctrl-C.
+## Documentation
 
-2. **Open the application.** It runs every service, the dashboard included, and stops them all when you quit it. It
-   refuses to start while one of its services already runs outside it, so first stop what you started by hand (the
-   dashboard above). The demo can stay open: it runs apart from the application. Stop `mise run ollama` too: the
-   application's own Ollama needs its port.
+[docs/README.md](docs/README.md) is the map of every document. By what you came to do:
 
-   ```sh
-   uv run pack-services list       # every service; * marks the ones that run on this machine
-   uv run pack-app                 # the application window
-   uv run pack-services status     # in another terminal: each service's state
-   ```
+- **Learn it:** [a first look at the pack](docs/TUTORIAL.md), a ten-minute lesson on the demo household.
+- **Get a task done:** [add a camera](docs/CAMERAS.md), [name people and pets](docs/NAMING.md),
+  [draw a place's plan](docs/PLAN-EDITOR.md), [run and restart it](docs/RUNNING.md),
+  [upgrade](MIGRATING.md), and the other [how-to guides](docs/README.md#how-to-guides-get-a-task-done).
+- **Look something up:** every setting is in [config/defaults.toml](config/defaults.toml), and every service and
+  state file in [Components](docs/COMPONENTS.md). The map lists the rest of the
+  [reference](docs/README.md#reference-look-something-up).
+- **Understand it:** [Architecture](docs/ARCHITECTURE.md) for how it works, and the [Roadmap](docs/ROADMAP.md) for
+  where it is going.
 
-   `uv run pack-supervisor run` is the application without a window. Nothing starts at login unless you tick
-   "Start at login" in the application's window.
+## Status and limits
 
-3. **Follow the Getting started card.** Open <http://localhost:8765/> again. The Live tab lists six steps, each
-   with a button to the control that does it: system packages installed, models downloaded, pick a camera and a
-   microphone, name yourself, record your voice reference, and tag your face. Live fills in as each one is done.
+This is version 0.1.0 of a research project. It runs every day in its developers' homes, and it changes fast.
 
-`uv run pack-services stop <name>` stops a service, and `start <name>` starts it again. `disable <name>` takes it
-out of the set that runs, in `pack.toml`, without stopping it. [docs/SERVICES.md](docs/SERVICES.md) explains the
-application and its services.
+- An upgrade can reset recorded history. What you taught it (names, faces, voices, pets, and plans) is kept, and
+  each version's [release notes](docs/RELEASES.md#notes) say what it resets.
+- It needs a capable machine: an NVIDIA GPU on Linux, or Apple Silicon. There is no macOS installer package, and no
+  phone app.
+- The 3D view is optional and set up by hand. It shows one camera's view at a time and does not join cameras into
+  a map of a place. The model behind it is licensed for non-commercial use.
+- Recognition is only as good as what you taught it, and a count covers only what the cameras were looking at.
+  Answers say when there is a gap.
+- The wearable in the [original plan](docs/history/plan-2026-10.md) is not built. It runs on a computer with
+  ordinary cameras and microphones.
 
-## Add cameras
+## Contributing
 
-- **USB:** plug it in, add a `[[device]]` with `kind = "camera"` and its USB ID to `config/devices.toml`, and
-  restart capture: `uv run pack-services restart continuum-capture`.
-- **Network:** in Settings, under Network cameras, discover UniFi Protect and ONVIF cameras and add the ones you
-  want, or set up Wyze cameras. To add one by hand, write a `[[device]]` with `kind = "rtsp"` and the camera's RTSP
-  URL. The URL often contains a password: it belongs only in `config/devices.toml`, with `chmod 600`.
-
-Each camera is a view, not a room: name it for what it sees. A camera can be paused from the header's status menu,
-and nothing from it is recorded until it's resumed. [docs/CAMERAS.md](docs/CAMERAS.md) is the full guide, lens
-calibration included.
-
-## Name people
-
-The system never guesses a name it wasn't taught. Start with yourself (the Getting started card), then:
-
-- **Known** lists people, pets, objects, activities, devices, and places. Add a person, give them a few face photos
-  and a voice sample, and correct a wrong match there.
-- **Who's this?**, in Known under People, asks about faces and voices it has seen often and can't name. Answering
-  teaches it.
-- A correction is kept as something you taught, apart from the machine-made history, and survives a reset.
-
-[docs/NAMING.md](docs/NAMING.md) has the steps for every naming card, and [docs/PEOPLE.md](docs/PEOPLE.md)
-explains how voices and faces are named.
-
-## When something's wrong
-
-| Symptom | Check |
-|---|---|
-| A service isn't running | `uv run pack-services status`, then the Debug tab, which shows each service's log by level |
-| The application refuses to start | It names the services that run outside it: stop those (a dashboard started by hand, for one) |
-| "missing system package" | `uv run pack-system check`, then `mise run system` |
-| A model is missing | `uv run pack-models --list`, then `mise run models` |
-| No answers or captions | The `ollama` service isn't running (`uv run pack-services status`), or another Ollama holds port 11434 |
-| A camera or microphone doesn't appear | Its `[[device]]` match in `config/devices.toml` (`lsusb` for a USB ID), then `uv run pack-services restart continuum-capture` |
-| Continuum won't start | `mise run continuum-status`; build it with `mise run continuum-release` if the binaries are missing |
-| Services fail after an update | A plain `uv sync` removes optional packages. Run `mise run setup` again, and read [MIGRATING.md](MIGRATING.md) |
-| A setting is refused | `uv run pack-config --check` lists settings that were renamed or removed |
-
-## Privacy
-
-`data/` holds real recordings of real people. It's gitignored, and nothing in this repository reads it into a
-commit. If you contribute, `mise run setup` turns on Git hooks that refuse private data (keys and tokens, personal
-details such as phone numbers and addresses, and the credentials in your own config) before it can be committed or
-pushed. They don't know names, so keeping real people out of what you write is up to you.
-[docs/CONVENTIONS.md](docs/CONVENTIONS.md) says what may appear in this public repository.
-
-## Contributing and documentation
-
-[docs/README.md](docs/README.md) is the map of every document, grouped by what you came to do:
-
-- **Learn it:** the [first look at the pack](docs/TUTORIAL.md) on a made-up household, then "Install" to
-  "Name people" above for a pack of your own.
-- **Get a task done:** [upgrade an install](MIGRATING.md), [install a release](docs/RELEASES.md), or
-  [contribute a change](CONTRIBUTING.md) ([AGENTS.md](AGENTS.md) has the stricter rules for coding agents). The
-  map lists the other [how-to guides](docs/README.md#how-to-guides-get-a-task-done).
-- **Look something up:** every setting is in [config/defaults.toml](config/defaults.toml), every service in
-  [services/services.toml](services/services.toml), and every task in [mise.toml](mise.toml). The map lists the
-  rest of the [reference](docs/README.md#reference-look-something-up).
-- **Understand it:** the [manifesto](MANIFESTO.md) for why, [Architecture](docs/ARCHITECTURE.md) for the running
-  system, and the [Roadmap](docs/ROADMAP.md) for where it's going.
+[CONTRIBUTING.md](CONTRIBUTING.md) has the development setup and how a change gets merged, and
+[AGENTS.md](AGENTS.md) the rules for coding agents. This repository is public and the system records real homes:
+[Conventions](docs/CONVENTIONS.md) says what may never appear here.
 
 ## License
 
-Apache License 2.0: see [LICENSE](LICENSE). Bundled third-party files (the fonts, the plan editor's static files, and the
-vendored skills under `.claude/skills/`) keep their own licenses, each stated beside the files it covers.
+Apache License 2.0: see [LICENSE](LICENSE). Bundled third-party files (the fonts, the plan editor's static files, and
+the vendored skills under `.claude/skills/`) keep their own licenses, each stated beside the files it covers.
