@@ -328,6 +328,12 @@ function ReportView({
   );
 }
 
+/** The report the reader opens on arrival: the newest unread finished report, else the newest. */
+function arrivalPick(jobs: readonly Job[]): string | null {
+  const unread = jobs.find(j => (j.status === 'done' || j.status === 'failed') && !j.read);
+  return (unread ?? jobs[0])?.id ?? null;
+}
+
 export function InboxTab() {
   const q = useQuery(researchQuery());
   const [open, setOpen] = useState<string | null>(null);
@@ -336,9 +342,15 @@ export function InboxTab() {
   const wide = useMediaQuery(`(min-width: ${PHONE_MAX + 1}px)`, undefined, { getInitialValueInEffect: false }) ?? false;
   const [closed, setClosed] = useState(false);
   const jobs = q.data?.jobs ?? [];
-  const arrival = jobs.find(j => (j.status === 'done' || j.status === 'failed') && !j.read) ?? jobs[0];
+  // Arrival is picked once, from the list as it first comes in, and then held. Recomputing it from every later list
+  // would walk the reader through the unread reports: opening one marks it read, which makes the next one the
+  // newest unread. Only the person moves it, by choosing a report or closing the reader.
+  const [arrival, setArrival] = useState<string | null>(null);
+  if (!arrival && jobs.length) setArrival(arrivalPick(jobs));
   const picked = open && jobs.some(j => j.id === open) ? open : null;
-  const selected = picked ?? (wide && !closed ? (arrival?.id ?? null) : null);
+  // A report deleted since (here or in another tab) leaves the reader empty, rather than on one nobody chose
+  const arrived = arrival && jobs.some(j => j.id === arrival) ? arrival : null;
+  const selected = picked ?? (wide && !closed ? arrived : null);
   const close = () => {
     setOpen(null);
     setClosed(true);
