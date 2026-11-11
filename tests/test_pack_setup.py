@@ -160,7 +160,9 @@ def test_ollama_installed_but_not_running_is_not_a_failure(installed, monkeypatc
 
 
 def test_check_names_the_missing_models_and_fails(monkeypatch, capsys):
-    monkeypatch.setattr(fetch_models, "missing", lambda: ["face model: models/faces/2d106det.onnx", "pose: models/pose.onnx"])
+    monkeypatch.setattr(
+        fetch_models, "missing", lambda: ["face model: models/faces/2d106det.onnx", "pose: models/pose.onnx"]
+    )
     assert pack_setup.models_step(check=True, ollama=False) is False
     said = capsys.readouterr().out
     assert "missing: face model: models/faces/2d106det.onnx" in said

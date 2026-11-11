@@ -62,8 +62,8 @@ UV_SHA256 = {
 }
 # What the launcher and the maintainer scripts run that isn't Essential: uv fetches over TLS.
 ALWAYS = ("ca-certificates",)
-# Ollama has no apt package: naming it shows it under "Recommended packages", and pack-setup says how to get it.
-RECOMMENDS = ("ollama",)
+# Nothing is recommended beyond the system packages a running system declares: Ollama has no apt package, so naming
+# it only ever showed a recommendation apt could not resolve. pack-setup and the docs say how to get it instead.
 DESCRIPTION = """Ambient assistant that sees, hears, and remembers, on your own machine
  Liberational records the cameras and microphones you give it, works out who and
  what is there, and answers questions about what happened, all on this machine.
@@ -85,7 +85,7 @@ def relations(system_packages: str) -> dict[str, list[str]]:
     """Depends, Recommends, and Suggests from config/system-packages.toml: every apt name a running system needs is
     a Depends, one only an NVIDIA machine needs is a Recommends, and an optional one is a Suggests. A package only a
     build from source needs (`build`) is left out: the .deb builds nothing."""
-    out: dict[str, set[str]] = {"Depends": set(ALWAYS), "Recommends": set(RECOMMENDS), "Suggests": set()}
+    out: dict[str, set[str]] = {"Depends": set(ALWAYS), "Recommends": set(), "Suggests": set()}
     for entry in tomllib.loads(system_packages).values():
         if not (apt := entry.get("apt")) or entry.get("build"):
             continue
