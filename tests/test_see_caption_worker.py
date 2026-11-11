@@ -21,7 +21,7 @@ SPAN = (1_800_000_000.0, 1_800_000_030.0)
 class VLM:
     name = "fake"
 
-    def caption(self, img: np.ndarray, memory) -> str:
+    def caption(self, img: np.ndarray) -> str:
         return "a grey wall"
 
 

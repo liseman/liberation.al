@@ -19,10 +19,10 @@ class VLM:
 
     def __init__(self, *answers: str) -> None:
         self.answers = list(answers)
-        self.calls: list[list[str]] = []
+        self.calls: list[np.ndarray] = []
 
-    def caption(self, img: np.ndarray, memory) -> str:
-        self.calls.append(list(memory))
+    def caption(self, img: np.ndarray) -> str:
+        self.calls.append(img)
         return self.answers.pop(0) if self.answers else "a room"
 
 
@@ -66,12 +66,12 @@ def feed(p: CaptionPipeline, frame: np.ndarray, ts: float, seq: int = 0):
     return out
 
 
-
 def test_a_grounded_label_with_a_brace_in_it_is_kept() -> None:
     # The reply was validated, then re-parsed as text by `objects.parse`, whose brace scan dropped this object and
     # stored a "fresh" observation with nothing in it. The rows are cleaned, not re-scanned, so it survives.
     items = grounded_items('[{"label": "bag {red}", "bbox_2d": [10, 20, 30, 40]}]')
     assert [it["label"] for it in items] == ["bag {red}"]
+
 
 def test_the_first_frame_is_captioned_fresh() -> None:
     vlm = VLM("an empty workshop")
@@ -105,13 +105,13 @@ def test_an_unchanged_view_repeats_its_last_caption_at_most_every_quiet_interval
     assert len(vlm.calls) == 1
 
 
-def test_a_local_change_is_captioned_with_the_views_recent_captions() -> None:
+def test_a_local_change_is_captioned_on_its_own_look() -> None:
     vlm = VLM("an empty workshop", "a person at the bench")
     p = CaptionPipeline("cam0", vlm)
     feed(p, SCENE, 100.0)
     rec = feed(p, PERSON, 101.0).caption
     assert rec is not None and rec["caption"] == "a person at the bench" and not rec["gated"]
-    assert vlm.calls == [[], ["an empty workshop"]]
+    assert len(vlm.calls) == 2, "one request per look, and nothing from the earlier one goes into it"
 
 
 def test_a_steady_view_is_captioned_again_after_the_idle_limit() -> None:

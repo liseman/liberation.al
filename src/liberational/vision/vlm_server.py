@@ -6,7 +6,7 @@ work out of the caption worker (and lets other tools, e.g. identity.py, reuse th
 
   python vlm_server.py [--port PORT] [--model REPO] [--px 448]   # defaults: ports.vlm, models.hf.vlm
 
-  POST /caption  {"image_b64": <jpeg/png>, "memory": [..recent captions..]}  ->  {"caption": str, "ms": int}
+  POST /caption  {"image_b64": <jpeg/png>}  ->  {"caption": str, "ms": int}
   GET  /health   ->  {"ok": true, "model": ..., "n": captions served}
 
 Single-threaded HTTPServer on purpose: MLX streams are thread-affine and the GPU serialises anyway.
@@ -69,7 +69,7 @@ class Handler(BaseHTTPRequestHandler):
 
                 observation = inspect(self.vlm, img, req.get("question", "Describe the recorded scene"))
                 return self._json(200, {"observation": observation, "ms": round(1000 * (time.perf_counter() - t0))})
-            cap = self.vlm.caption(img, req.get("memory") or [])
+            cap = self.vlm.caption(img)
             ms = round(1000 * (time.perf_counter() - t0))
             Handler.n += 1
             if Handler.n % 50 == 1:
