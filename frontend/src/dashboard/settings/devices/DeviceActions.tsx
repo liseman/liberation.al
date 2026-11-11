@@ -24,6 +24,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { type FormEvent, type KeyboardEvent, type MouseEvent, type ReactNode, useId, useState } from 'react';
 import { messageOf } from '../../../shared/http';
 import { LazyPersonNameInput } from '../../lib/LazyPersonNameInput';
+import { StatusLine } from '../../lib/message';
 import { knownPeopleQuery } from '../../livetab/people';
 import cards from './deviceCards.module.css';
 import {
@@ -145,6 +146,7 @@ export function LinkForm({
               onChange={setName}
               onPick={picked => setName(picked)}
               allowNew={false}
+              withinPortal={false}
               label="Whose is it?"
               placeholder="Pick someone"
               emptyText={
@@ -157,11 +159,9 @@ export function LinkForm({
                 Nobody is known by name yet. Name someone in People first, then link their devices here.
               </Text>
             )}
-            {people.isError && (
-              <Text size="xs" c="red" role="alert">
-                Couldn't load the people list: {messageOf(people.error)}
-              </Text>
-            )}
+            <StatusLine
+              msg={people.isError ? { err: `Couldn't load the people list: ${messageOf(people.error)}` } : null}
+            />
           </>
         ) : (
           <TextInput
@@ -184,11 +184,15 @@ export function LinkForm({
             data={device.selectors.map((s, i) => ({ value: String(i), label: selectorLabel(s.kind) }))}
           />
         )}
-        {save.error && (
-          <Text size="sm" c="red" role="alert">
-            Not linked: {messageOf(save.error)}
-          </Text>
-        )}
+        <StatusLine
+          msg={
+            save.error
+              ? { err: `Not linked: ${messageOf(save.error)}` }
+              : save.isPending
+                ? { text: 'Linking...' }
+                : null
+          }
+        />
         <Group gap="xs">
           <Button size="xs" variant="default" type="submit" loading={save.isPending} disabled={!ready}>
             Link

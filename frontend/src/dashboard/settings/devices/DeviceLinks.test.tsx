@@ -1,3 +1,4 @@
+import { MantineProvider } from '@mantine/core';
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { HttpResponse, http } from 'msw';
@@ -193,23 +194,36 @@ describe('DeviceLinks', () => {
 
   it('offers the known people as you type and links the one picked', async () => {
     let sent: unknown = null;
+    let reply = view({ devices: [device()] });
     server.use(
-      http.get('/device-links', () => HttpResponse.json(view({ devices: [device()] }))),
+      http.get('/device-links', () => HttpResponse.json(reply)),
       http.post('/device-links', async ({ request }) => {
         sent = await request.json();
+        reply = view({ devices: [device({ linked: { id: 'l1', target: 'person', name: 'Sam' } })] });
         return HttpResponse.json({ ok: true, link: { id: 'l1', kind: 'ble_identifier', value: WATCH } });
       }),
     );
     const user = userEvent.setup();
-    renderPage(<DeviceLinks control />);
+    // Keep real portals: test mode hides outside-click failures. jsdom has no layout, so keep the popover visible.
+    renderPage(
+      <MantineProvider
+        env="default"
+        theme={{ components: { Popover: { defaultProps: { hideDetached: false, transitionProps: { duration: 0 } } } } }}
+      >
+        <DeviceLinks control />
+      </MantineProvider>,
+    );
     await user.click(await screen.findByRole('button', { name: 'Link Unknown device' }));
-    const form = screen.getByRole('form', { name: 'Link Unknown device' });
-    await user.type(await within(form).findByRole('combobox', { name: 'Whose is it?' }), 'sa');
+    const form = await screen.findByRole('form', { name: 'Link Unknown device' });
+    await user.type(await screen.findByRole('combobox', { name: 'Whose is it?' }), 'sa');
     expect(screen.queryByRole('option', { name: 'Dana' })).not.toBeInTheDocument();
     await user.click(await screen.findByRole('option', { name: 'Sam' }));
+    expect(screen.getByRole('form', { name: 'Link Unknown device' })).toBeVisible();
     expect(within(form).getByRole('combobox', { name: 'Whose is it?' })).toHaveValue('Sam');
     await user.click(within(form).getByRole('button', { name: 'Link' }));
     await waitFor(() => expect(sent).toEqual({ kind: 'ble_identifier', value: WATCH, target: 'person', name: 'Sam' }));
+    expect(await screen.findByTitle('Linked to Sam, a person')).toBeVisible();
+    expect(screen.getByText('1 device seen in the last day: 1 linked, 0 unknown.')).toBeVisible();
   });
 
   it('links a device only to someone known: a new name offers no Add and leaves Link off', async () => {
@@ -263,7 +277,7 @@ describe('DeviceLinks', () => {
     await user.click(within(form).getByText('A thing'));
     await user.type(within(form).getByLabelText('What is it?'), 'AirPods');
     await user.click(within(form).getByRole('button', { name: 'Link' }));
-    expect(await within(form).findByRole('alert')).toHaveTextContent('devices can only be linked on this machine');
+    expect(await within(form).findByRole('status')).toHaveTextContent('devices can only be linked on this machine');
     expect(within(form).getByLabelText('What is it?')).toHaveValue('AirPods');
   });
 
@@ -323,14 +337,15 @@ describe('DeviceLinks', () => {
         ],
       }),
     );
-    server.use(http.post('/device-links', () => HttpResponse.json({ error: 'Store unavailable' }, { status: 503 })));
+    server.use(http.post('/device-links', () => HttpResponse.json({ error: 'Invalid selector' }, { status: 400 })));
     const user = userEvent.setup();
     renderPage(<DeviceLinks control />);
     await user.click(await screen.findByRole('button', { name: 'Link Sample phone' }));
     const form = screen.getByRole('form', { name: 'Link Sample phone' });
-    await user.type(await within(form).findByRole('combobox', { name: 'Whose is it?' }), 'Dana');
+    await user.click(await within(form).findByRole('combobox', { name: 'Whose is it?' }));
+    await user.click(await screen.findByRole('option', { name: 'Dana' }));
     await user.click(within(form).getByRole('button', { name: 'Link' }));
-    expect(await within(form).findByRole('alert')).toHaveTextContent('Store unavailable');
+    expect(await within(form).findByRole('status')).toHaveTextContent('Invalid selector');
     expect(await within(form).findByRole('combobox', { name: 'Whose is it?' })).toHaveValue('Dana');
     expect(within(form).getByRole('button', { name: 'Link' })).toBeEnabled();
   });
