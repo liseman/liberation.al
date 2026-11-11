@@ -34,20 +34,10 @@ def optional_module(name: str) -> ModuleType | None:
         return None
 
 
-# In-memory, owner-only, short-lived follow-up; never ambient transcript or memory.
-LAST_QUESTION: tuple[float, str] | None = None
-
-
-def safe_question(request: str) -> bool:
-    from liberational.assistant.ask_friends import sensitive
-    from liberational.assistant.voice_auth import request_policy
-
-    return (
-        len(request) <= 1200
-        and not any(request_policy(request, True))
-        and not sensitive(request)
-        and bool(re.match(r"^(?:why|what|how|where|when|which|is|are|explain)\b", request, re.I))
-    )
+# "Ask your friends ...", "ask everyone ...": the old words for sending a question to outside models, which Ask no
+# longer does. They get a plain spoken line, never silence or an answer to the wrong question.
+OUTSIDE_MODELS = re.compile(r"^(?:please\s+)?ask (?:all (?:your |my )?friends|everyone|(?:your |my )?friends)\b", re.I)
+NO_OUTSIDE_MODELS = "I don't ask outside models any more. Ask me about your recordings instead."
 
 
 QUESTION = re.compile(
@@ -251,7 +241,7 @@ def owner_answer(request: str, session_key: str, grant: Grant | None = None) -> 
             from liberational.memory import history_qa
 
             if history_qa.asks_about_the_past(request):  # never the current view for a question with a time in it
-                return pack_ask.spoken(pack_ask.ask(request, mode="local"))
+                return pack_ask.spoken(pack_ask.ask(request))
             return camera_query(request)["answer"]
         except ValueError as ex:
             return str(ex)
@@ -402,7 +392,6 @@ def handle(text_line: str, speaker: Speaker | None = None, entry: Mapping[str, A
 
 
 def _handle(text_line: str, speaker: Speaker | None = None, entry: Mapping[str, Any] | None = None) -> str | None:
-    global LAST_QUESTION
     # No incoming text logging; pending-auth utterances are secret candidates.
     started = time.monotonic()
     text = text_line
@@ -414,8 +403,6 @@ def _handle(text_line: str, speaker: Speaker | None = None, entry: Mapping[str, 
         return None
     _turn("Listening")
     _turn("Thinking")
-    if not isinstance(result, Grant) or not result.owner or result.needs_password or result.needs_confirmation:
-        LAST_QUESTION = None
     error = None
     history_speech = _HistorySpeech(speaker) if speaker is not None else None
     history_options: dict[str, Any] = {"on_short": history_speech.short} if history_speech is not None else {}
@@ -455,39 +442,8 @@ def _handle(text_line: str, speaker: Speaker | None = None, entry: Mapping[str, 
 
         call = outbound_call.parse(result.request)
         try:
-            # Distinguish 'ask all your friends' (all models) vs 'ask your friends' (1 Anthropic + 1 OpenAI)
-            all_friends = re.match(
-                r"^(?:please\s+)?ask (?:all (?:your )?friends|everyone)\b[\s,:-]*(.*)", result.request, re.I
-            )
-            friends = re.match(r"^(?:please\s+)?ask (?:your )?friends\b[\s,:-]*(.*)", result.request, re.I)
-            if all_friends or friends:
-                module = optional_module("liberational.memory.ask")
-                if module:
-                    question = (all_friends or friends).group(1).strip()  # ty: ignore[unresolved-attribute]  # the if above saw a match
-                    subset = "all" if all_friends else "pair"
-                    if not question and LAST_QUESTION and time.time() - LAST_QUESTION[0] < 120:
-                        question = LAST_QUESTION[1]
-                    if not question:
-                        reply = (
-                            "What question should I ask all my friends?"
-                            if all_friends
-                            else "What question should I ask my friends?"
-                        )
-                        error = "ambiguous_target"
-                    elif result.needs_password or result.needs_confirmation:
-                        reply = "Sensitive requests are not sent to the friends panel."
-                    else:
-                        response = module.ask(question, mode="everyone" if subset == "all" else "friends")
-                        reply = module.spoken(response)
-                        if response.get("status") == "partial":
-                            error = "friends_partial"
-                        elif response.get("status") != "ok":
-                            error = "friends_unavailable"
-                        elif not response.get("answer"):
-                            error = "missing_result"
-                else:
-                    reply = "My friends are not available yet."
-                    error = "friends_unavailable"
+            if OUTSIDE_MODELS.match(result.request):
+                reply = NO_OUTSIDE_MODELS
             elif call:
                 reply = outbound_call.place(*call)[1]
             elif intro := identity.INTRO_COMMAND.match(result.request):
@@ -508,7 +464,7 @@ def _handle(text_line: str, speaker: Speaker | None = None, entry: Mapping[str, 
                 from liberational.memory import history_qa
 
                 if history_qa.is_history_question(_with_names(result.request, owner=result.owner)):
-                    response = pack_ask.ask(result.request, mode="local", **history_options)
+                    response = pack_ask.ask(result.request, **history_options)
                     reply = pack_ask.spoken(response)
                     if response.get("status") not in ("ok", "partial"):
                         error = "history_qa_failed"
@@ -531,27 +487,15 @@ def _handle(text_line: str, speaker: Speaker | None = None, entry: Mapping[str, 
             status(f"request not authorized locally: {ex}", level=logs.WARN)
         except Exception as ex:
             # Log the cause even when a local failure kept the request from reaching the gateway.
-            error = "gateway_error" if not friends and not call else "dispatch_failed"
+            error = "gateway_error" if not call else "dispatch_failed"
             reply = "That request could not be completed. Native tool approval may still be needed."
             status(f"{error}: {type(ex).__name__}: {str(ex)[:300]}", level=logs.WARN)
-    if isinstance(result, Grant) and result.owner and not result.needs_password and not result.needs_confirmation:
-        try:
-            if safe_question(result.request):
-                LAST_QUESTION = (time.time(), result.request)
-            elif not re.search(r"ask your friends", result.request, re.I):
-                LAST_QUESTION = None
-        except Exception:
-            LAST_QUESTION = None
     route = result.route if isinstance(result, Grant) else "authorization"
     LOG.info(
         "voice reply ready route=%s dispatch_seconds=%.3f error=%s", route, time.monotonic() - started, error or "none"
     )
     if (
-        isinstance(result, Grant)
-        and not result.addressed
-        and error
-        and error != "friends_partial"
-        and not (history_speech and history_speech.prefix)
+        isinstance(result, Grant) and not result.addressed and error and not (history_speech and history_speech.prefix)
     ):  # that has an answer
         # A question the owner asked without the wake phrase may well have been for someone else in the room: a
         # failure ("I can't do that without an agent") is never spoken over them.

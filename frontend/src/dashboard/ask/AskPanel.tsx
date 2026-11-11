@@ -1,4 +1,4 @@
-// The Ask window: it floats above the page on any tab, nonmodal, so the page stays usable beside it. Drag it
+// Ask's window: it floats above the page on any tab, nonmodal, so the page stays usable beside it. Drag it
 // by its header (or move it with the arrow keys on its move handle); it stays inside the viewport, also on a resize,
 // and remembers where it was per browser. On a phone-width screen it is a bottom sheet instead. Escape or the close
 // button closes it, and focus goes back to the Ask button that opened it.
@@ -47,12 +47,12 @@ export function fitWindow(wanted: Spot | null, viewport: { width: number; height
   return { left: Math.round(left), top: Math.round(top), width, height };
 }
 
-const storageKey = (kind: string) => `liberational.ask-window.${kind}`;
+const STORAGE_KEY = 'liberational.ask-window';
 
 /** Where this browser last left the window, or null. */
-export function savedSpot(kind: string): Spot | null {
+export function savedSpot(): Spot | null {
   try {
-    const value = JSON.parse(localStorage.getItem(storageKey(kind)) ?? 'null');
+    const value = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? 'null');
     return value && Number.isFinite(value.left) && Number.isFinite(value.top)
       ? { left: value.left, top: value.top }
       : null;
@@ -61,9 +61,9 @@ export function savedSpot(kind: string): Spot | null {
   }
 }
 
-function saveSpot(kind: string, spot: Spot): void {
+function saveSpot(spot: Spot): void {
   try {
-    localStorage.setItem(storageKey(kind), JSON.stringify({ left: spot.left, top: spot.top }));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ left: spot.left, top: spot.top }));
   } catch {
     // no storage (a private window, or blocked): it opens in its usual place next time
   }
@@ -77,20 +77,16 @@ export function AskPanel({
   opened,
   onClose,
   title,
-  kind,
   children,
-  className = '',
 }: {
   opened: boolean;
   onClose: () => void;
   title: string;
-  kind: 'live' | 'review';
   children: ReactNode;
-  className?: string;
 }) {
   const root = useRef<HTMLElement>(null);
   const [sheet, setSheet] = useState(isSheet);
-  const [box, setBox] = useState<Box>(() => fitWindow(savedSpot(kind), viewport(), headerBottom()));
+  const [box, setBox] = useState<Box>(() => fitWindow(savedSpot(), viewport(), headerBottom()));
   const drag = useRef<{ x: number; y: number; from: Spot } | null>(null);
 
   const place = useCallback((wanted: Spot | null) => {
@@ -101,16 +97,39 @@ export function AskPanel({
   const refit = useEffectEvent(() => place({ left: box.left, top: box.top }));
   useLayoutEffect(() => {
     if (!opened) return;
-    place(savedSpot(kind));
+    place(savedSpot());
     const resize = () => refit();
     window.addEventListener('resize', resize);
     return () => window.removeEventListener('resize', resize);
-  }, [opened, kind, place]);
+  }, [opened, place]);
+
+  // A phone's on-screen keyboard covers the bottom of the layout viewport without resizing it (iOS), so the sheet
+  // follows the visual viewport: it sits on the keyboard's top edge and fits the space left, so the question box and
+  // its Ask button stay in view while typing.
+  const [keyboard, setKeyboard] = useState<{ bottom: number; height: number } | null>(null);
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!opened || !sheet || !vv) {
+      setKeyboard(null);
+      return;
+    }
+    const follow = () => {
+      const bottom = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+      setKeyboard(bottom > 0 ? { bottom, height: vv.height } : null);
+    };
+    follow();
+    vv.addEventListener('resize', follow);
+    vv.addEventListener('scroll', follow);
+    return () => {
+      vv.removeEventListener('resize', follow);
+      vv.removeEventListener('scroll', follow);
+    };
+  }, [opened, sheet]);
 
   const moveTo = (spot: Spot, save: boolean) => {
     const next = fitWindow(spot, viewport(), headerBottom());
     setBox(next);
-    if (save) saveSpot(kind, next);
+    if (save) saveSpot(next);
   };
   const dragged = (e: PointerEvent<HTMLElement>): Spot | null => {
     const d = drag.current;
@@ -147,7 +166,7 @@ export function AskPanel({
 
   const close = () => {
     onClose();
-    document.querySelector<HTMLElement>(`[data-ask-trigger="${kind}"]`)?.focus({ preventScroll: true });
+    document.querySelector<HTMLElement>('[data-ask-trigger]')?.focus({ preventScroll: true });
   };
   const closeFromKey = useEffectEvent(close);
   const focusInside = useEffectEvent(() => {
@@ -174,7 +193,10 @@ export function AskPanel({
   }, [opened]);
 
   const style = sheet
-    ? { display: opened ? 'flex' : 'none' }
+    ? {
+        display: opened ? 'flex' : 'none',
+        ...(keyboard ? { bottom: keyboard.bottom, maxHeight: Math.round(keyboard.height * 0.9) } : {}),
+      }
     : // Its height is a cap, not a size: the window fits what's in it (no blank half-window under
       // the question box), and scrolls inside once an answer runs past it.
       { display: opened ? 'flex' : 'none', left: box.left, top: box.top, width: box.width, maxHeight: box.height };
@@ -185,10 +207,10 @@ export function AskPanel({
       aria-modal="false"
       aria-label={title}
       hidden={!opened}
-      data-ask-panel={kind}
+      data-ask-panel
       data-ask-open={opened ? 'true' : 'false'}
       data-ask-sheet={sheet ? 'true' : undefined}
-      className={`${classes.panel} ${sheet ? classes.sheet : classes.window} ${className}`}
+      className={`${classes.panel} ${sheet ? classes.sheet : classes.window}`}
       style={style}
     >
       {/* Dragging is a pointer convenience; the move handle inside does the same from the keyboard. */}

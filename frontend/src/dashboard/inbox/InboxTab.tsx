@@ -8,7 +8,6 @@ import { IconChevronLeft } from '@tabler/icons-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { messageOf } from '../../shared/http';
-import { useReviewAsk } from '../AskBar';
 import { openAsk } from '../ask/openAsk';
 import { Paged } from '../ask/Paged';
 import { Evidence, Result } from '../ask/Result';
@@ -18,7 +17,7 @@ import { dayWords, isoDay, momentWords } from '../lib/format';
 import { CountSkeleton } from '../lib/loading';
 import { PageEmpty, PageError, PageFrame, PageLoading } from '../lib/page';
 import { reviewURL } from '../review/url';
-import { href, linkClick, navigate } from '../router';
+import { linkClick } from '../router';
 import { type Job, jobQuery, markRead, type Report, removeJob, researchQuery, startResearch } from './api';
 import classes from './inbox.module.css';
 
@@ -44,6 +43,13 @@ function took(seconds: number | undefined): string {
 const when = (ts: number) => momentWords(ts); // "Today, 13:31", in the app's 24-hour times
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+/** The list's count: finished reports, and the questions still waiting for one ("2 reports · 1 waiting"). */
+export function count(jobs: readonly Pick<Job, 'status'>[]): string {
+  const waiting = jobs.filter(j => j.status === 'queued' || j.status === 'running').length;
+  const done = jobs.length - waiting;
+  return [done && plural(done, 'report'), waiting && `${waiting} waiting`].filter(Boolean).join(' · ');
+}
 
 /** What a search was for, from its arguments: the words, the day, the camera. */
 function searchText(args: Record<string, unknown> | null): string {
@@ -203,16 +209,19 @@ function ReportView({
           {job.took_s !== undefined && ` · took ${took(job.took_s)}`}
         </Text>
         <Group gap="xs">
-          {/* The day it's about, else the day it was asked: a report with no day of its own still opens somewhere */}
-          <Button
-            size="xs"
-            variant="default"
-            component="a"
-            href={reviewURL({ day: job.day ?? isoDay(new Date(job.created_at * 1000)) })}
-            onClick={linkClick}
-          >
-            Open in Review
-          </Button>
+          {/* The day it's about, else the day it was asked: a report with no day of its own still opens somewhere.
+              Not before the research has started: there's nothing of it to look at yet. */}
+          {job.status !== 'queued' && (
+            <Button
+              size="xs"
+              variant="default"
+              component="a"
+              href={reviewURL({ day: job.day ?? isoDay(new Date(job.created_at * 1000)) })}
+              onClick={linkClick}
+            >
+              Open in Review
+            </Button>
+          )}
           {finished && (
             // The same question, researched now: "the last 30 minutes" is about a moment that has passed
             <Button
@@ -240,7 +249,7 @@ function ReportView({
               variant="default"
               onClick={() =>
                 openAsk({
-                  context: { kind: 'report', id, question: job.question, ...(job.day ? { day: job.day } : {}) },
+                  hint: { kind: 'report', id, question: job.question, ...(job.day ? { day: job.day } : {}) },
                 })
               }
             >
@@ -301,7 +310,7 @@ function ReportView({
       )}
       {job.status === 'failed' && (
         <PageError title="This research didn't finish" detail={job.error}>
-          Ask it again from Review to start over.
+          Ask again to start over.
         </PageError>
       )}
       {report && job.status === 'done' && (
@@ -319,12 +328,6 @@ function ReportView({
       )}
     </article>
   );
-}
-
-/** Review's Ask, opened: its Research button looks into a question in the background, and the report lands here. */
-function researchAQuestion() {
-  navigate(href('/review'));
-  useReviewAsk.getState().setOpen(true);
 }
 
 export function InboxTab() {
@@ -349,13 +352,13 @@ export function InboxTab() {
         q.isPending ? (
           <CountSkeleton chars={10} label="Loading how many reports" />
         ) : jobs.length ? (
-          plural(jobs.length, 'report')
+          count(jobs)
         ) : undefined
       }
       lede="Questions looked into slowly, in the background. Each report lands here when it's done."
       actions={
-        // Research starts from Review's Ask, which has the day's recordings to look through
-        <Button size="sm" onClick={researchAQuestion}>
+        // The one Ask, with Deep research on: the page stays put, and the report lands in the list here
+        <Button size="sm" onClick={() => openAsk({ deep: true })}>
           Research a question
         </Button>
       }
@@ -373,15 +376,8 @@ export function InboxTab() {
             />
           )}
           {q.data && !jobs.length && (
-            <PageEmpty
-              title="No research reports yet"
-              action={
-                <Button size="xs" variant="default" component="a" href={href('/review')} onClick={linkClick}>
-                  Open Review
-                </Button>
-              }
-            >
-              Ask a question in Review and press Research. The report lands here when it's done.
+            <PageEmpty title="No research reports yet">
+              Ask a question with Deep research on. The report lands here when it's done.
             </PageEmpty>
           )}
           <ul className={classes.items}>
@@ -405,6 +401,8 @@ export function InboxTab() {
                             <Badge
                               size="xs"
                               variant="light"
+                              tt="none"
+                              fw={500}
                               color={j.status === 'failed' ? 'red' : partial ? 'yellow' : undefined}
                               // Mantine's yellow label read at 2.7:1 on its tint; the app's amber text reads at 4.7:1
                               c={partial ? 'var(--lib-warn-text)' : undefined}

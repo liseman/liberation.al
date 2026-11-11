@@ -1,13 +1,21 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { renderPage } from '../../test/render';
 import { citedMoments } from '../ask/moments';
+import { openAsk, useAsk, useAskPage } from '../ask/openAsk';
 import { PackAsk } from '../ask/PackAsk';
 import { jobServer } from '../ask/testing';
 import { hm } from '../lib/format';
+import { useRoute } from '../router';
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  useAskPage.setState({ day: null, seek: null, mark: null });
+  useAsk.setState({ open: false, request: null });
+});
+
+const DAY = { day: '2026-10-27', label: 'Tue 27 Oct', today: false };
 
 describe('citedMoments', () => {
   it('chips the cited records in time order, one per minute and source, by camera view or speaker', () => {
@@ -36,7 +44,7 @@ describe('citedMoments', () => {
   });
 });
 
-describe("Review's Ask (the one PackAsk, scoped to the day)", () => {
+describe("Ask on Review's day", () => {
   const answered = () => {
     const jobs = jobServer();
     jobs.replies.push({
@@ -57,36 +65,39 @@ describe("Review's Ask (the one PackAsk, scoped to the day)", () => {
     return jobs;
   };
 
-  it("marks the newest answer's cited moments on the timeline, plays one from its chip, and clears them when it goes", async () => {
+  /** The one Ask on Review, opened on its day, with Review's player and timeline as fakes. */
+  function onReview() {
+    const seek = vi.fn();
+    const mark = vi.fn();
+    useRoute.setState({ tab: 'review' });
+    useAskPage.setState({ day: DAY, seek, mark });
+    const view = renderPage(<PackAsk />);
+    act(() => openAsk({ hint: { kind: 'day', ...DAY } }));
+    return { seek, mark, view };
+  }
+
+  it("marks the newest answer's cited moments on the timeline, plays one from its chip, and clears them with the hint", async () => {
+    sessionStorage.clear();
     answered();
-    const onMarks = vi.fn();
-    const onSeek = vi.fn();
-    const view = renderPage(
-      <PackAsk day="2026-10-27" bare compact dayLabel="Tue 27 Oct" today={false} onSeek={onSeek} onMarks={onMarks} />,
-    );
-    await userEvent.type(
-      screen.getByRole('textbox', { name: 'Ask about Tue 27 Oct' }),
-      'When did the dog leave?{Enter}',
-    );
+    const { seek, mark } = onReview();
+    await screen.findByText('Tue 27 Oct');
+    await userEvent.type(screen.getByRole('textbox', { name: 'Your question' }), 'When did the dog leave?{Enter}');
     const chips = await screen.findByRole('list', { name: 'Moments it cites' }, { timeout: 3000 });
-    await waitFor(() => expect(onMarks).toHaveBeenLastCalledWith([1200, 3000]));
+    await waitFor(() => expect(mark).toHaveBeenLastCalledWith([1200, 3000]));
     await userEvent.click(within(chips).getAllByRole('button')[0] as HTMLElement);
-    expect(onSeek).toHaveBeenCalledWith(1200);
-    view.unmount();
-    expect(onMarks).toHaveBeenLastCalledWith([]);
+    expect(seek).toHaveBeenCalledWith(1200);
+    await userEvent.click(screen.getByRole('button', { name: 'Stop asking about Tue 27 Oct' }));
+    await waitFor(() => expect(mark).toHaveBeenLastCalledWith([]));
+    expect(screen.queryByRole('list', { name: 'Moments it cites' })).not.toBeInTheDocument();
   });
 
-  it('offers questions to start from, and asks one when picked, with Research beside Ask', async () => {
+  it("offers the day's questions to start from, and asks one about the day when picked", async () => {
+    sessionStorage.clear();
     const jobs = answered();
-    renderPage(<PackAsk day="2026-10-27" bare compact dayLabel="Tue 27 Oct" today={false} onSeek={() => {}} />);
-    expect(screen.getByRole('button', { name: 'Research' })).toBeInTheDocument();
-    const start = screen.getByRole('list', { name: 'Suggested questions' });
-    await userEvent.click(within(start).getByRole('button', { name: 'Who was here that day?' }));
-    await waitFor(() =>
-      expect(jobs.posts).toEqual([
-        { question: 'Who was here that day?', mode: 'local', scope: 'history', day: '2026-10-27' },
-      ]),
-    );
+    onReview();
+    const start = await screen.findByRole('list', { name: 'Suggested questions' });
+    await userEvent.click(await within(start).findByRole('button', { name: 'Who was here that day?' }));
+    await waitFor(() => expect(jobs.posts).toEqual([{ question: 'Who was here that day?', day: '2026-10-27' }]));
     expect(screen.queryByRole('list', { name: 'Suggested questions' })).not.toBeInTheDocument();
   });
 });

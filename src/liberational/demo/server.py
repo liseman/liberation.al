@@ -526,6 +526,12 @@ window.Date=class extends NativeDate {{constructor(...args){{super(...(args.leng
         if path == "/pack-ask/jobs":
             try:
                 body = self.demo_body()
+                if body.get("deep") is True:
+                    # Deep research goes the real way (memory/ask.py): queued for the Inbox where research can run,
+                    # else refused with why. The demo runs no research worker, so a queued report stays waiting.
+                    from liberational.memory import ask
+
+                    return ask._deep_http(self, body, ask.validate_day(body.get("day")))
                 question = str(body.get("question", "")).strip()
                 if not question or len(question) > 8192:
                     raise ValueError("Ask a question of 1 to 8192 characters")
@@ -535,8 +541,6 @@ window.Date=class extends NativeDate {{constructor(...args){{super(...(args.leng
             job = {
                 "id": key,
                 "poll_url": f"/pack-ask/jobs/{key}",
-                "mode": "local",
-                "scope": "history",
                 "question": question,
                 "created_at": now,
                 "started_at": now,

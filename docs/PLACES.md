@@ -78,14 +78,18 @@ A cloud is made again when the camera's view changes.
    ([Give a camera a spot on the plan](#give-a-camera-a-spot-on-the-plan)).
 2. In the 3D view, switch from **One camera** to **All cameras**.
 
+![All cameras on the demo household: four cameras' clouds standing on the plan's outline, each where its camera is](images/demo-3d-all-cameras.png)
+
 Each camera's cloud is drawn where its camera stands on your plan. The clouds are separate layers and are never
 blended: each camera shows only what it sees, so expect gaps and seams. Under the view is a row for each camera:
 
 - The checkbox shows or hides its points.
 - The colour is its outline in the scene, and its points' tint when the points are coloured **By camera**.
 - **Look from** moves the view to where the camera stands.
-- The arrow at the end opens the details: how the camera was placed, what its pictures share with another camera's,
-  and how many of its points fall outside your plan's rooms.
+- The arrow at the end opens the details: how the camera was placed, whether its cloud was levelled from its floor
+  or its walls and squared to your plan by its walls, when its picture was taken, what its pictures share with
+  another camera's, and how many of its points fall outside your plan's rooms. "Walls in this cloud bend" is the
+  model's depth estimate, not the placement.
 
 The word on each row says how the camera is placed:
 

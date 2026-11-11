@@ -268,7 +268,7 @@ is thread-affine: a model is loaded and called on one thread. That is why `visio
 | Service | Needed for | Without it |
 |---|---|---|
 | Ollama (`ollama.url`, port 11434) | Local language model calls, embeddings, and captions on Linux | Voice answers, captions on Linux, summaries, naming, and history answers fail |
-| Agent gateway (`[agent] url`, any OpenAI-compatible endpoint, such as OpenClaw) | Owner requests that need tools, friends panels, and public lookups | Those reply that no agent is configured; the rest works |
+| Agent gateway (`[agent] url`, any OpenAI-compatible endpoint, such as OpenClaw) | Owner requests that need tools, and public lookups | Those reply that no agent is configured; the rest works |
 | Twilio (`.env.phone`) | Phone calls in and out | No phone calls |
 | Tailscale Funnel | A public HTTPS name for Twilio webhooks (`phone.public_host`) | Twilio cannot reach the bridge, so no phone calls |
 | whisper-server (port 8082) | `asr.engine = whisper` | Parakeet runs in process |

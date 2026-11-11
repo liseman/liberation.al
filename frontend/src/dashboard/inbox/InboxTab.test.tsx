@@ -4,10 +4,11 @@ import { delay, HttpResponse, http } from 'msw';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { renderPage } from '../../test/render';
 import { server } from '../../test/server';
-import { PackAsk } from '../ask/PackAsk';
+import { AskBar } from '../AskBar';
+import { useAsk } from '../ask/openAsk';
 import type { Job } from './api';
 import { InboxLabel } from './InboxLabel';
-import { InboxTab } from './InboxTab';
+import { count, InboxTab } from './InboxTab';
 
 const T = 1_793_000_000;
 const done: Job = {
@@ -66,6 +67,25 @@ it('lists reports newest first, with the unread one marked new', async () => {
     await screen.findByRole('button', { name: /What did Dana say about the garden\?.*Done, unread/ }),
   ).toBeInTheDocument();
   expect(screen.getByRole('button', { name: /Who came by\?.*Waiting/ })).toBeInTheDocument();
+  // Reports apart from the questions still waiting for one
+  expect(screen.getByText('1 report · 1 waiting')).toBeInTheDocument();
+});
+
+it.each([
+  [[], ''],
+  [[{ status: 'done' }, { status: 'failed' }], '2 reports'],
+  [[{ status: 'queued' }, { status: 'running' }], '2 waiting'],
+  [[{ status: 'done' }, { status: 'queued' }], '1 report · 1 waiting'],
+] as const)('counts %o as %o', (jobs, words) => {
+  expect(count(jobs)).toBe(words);
+});
+
+it('opens a waiting report without a way into Review, since nothing of it exists yet', async () => {
+  server.use(http.get(`/research/jobs/${waiting.id}`, () => HttpResponse.json(waiting)));
+  renderPage(<InboxTab />);
+  await userEvent.click(await screen.findByRole('button', { name: /Who came by\?.*Waiting/ }));
+  expect(await screen.findByText('Waiting for the research before it to finish.')).toBeInTheDocument();
+  expect(screen.queryByRole('link', { name: 'Open in Review' })).not.toBeInTheDocument();
 });
 
 it('opens a report: its answer, the time it took, what it looked at, and marks it read', async () => {
@@ -173,7 +193,7 @@ it("says why research can't run here", async () => {
   renderPage(<InboxTab />);
   expect(await screen.findByText(/Research needs Ask/)).toBeInTheDocument();
   expect(screen.getByText('No research reports yet')).toBeInTheDocument();
-  expect(screen.getByRole('link', { name: 'Open Review' })).toHaveAttribute('href', expect.stringContaining('/review'));
+  expect(screen.getByText(/Ask a question with Deep research on\./)).toBeInTheDocument();
 });
 
 it('shows how many reports are unread on the tab', async () => {
@@ -216,39 +236,6 @@ it('holds the report count as a skeleton while the Inbox loads', () => {
   renderPage(<InboxTab />);
   expect(screen.getByText('Loading how many reports')).toBeInTheDocument();
   expect(screen.getByTestId('count-skeleton')).toBeInTheDocument();
-});
-
-it("Review's Research button queues the question for the selected day", async () => {
-  const submitted: unknown[] = [];
-  server.use(
-    http.post('/research/jobs', async ({ request }) => {
-      submitted.push(await request.json());
-      return HttpResponse.json(waiting, { status: 202 });
-    }),
-  );
-  renderPage(<PackAsk day="2026-10-22" />);
-  await userEvent.type(screen.getByLabelText('What would you like to know?'), 'Who came by?');
-  await waitFor(() => expect(screen.getByRole('button', { name: 'Research' })).toBeEnabled());
-  await userEvent.click(screen.getByRole('button', { name: 'Research' }));
-  expect(await screen.findByText(/The report will be in the Inbox/)).toBeInTheDocument();
-  expect(submitted).toEqual([{ question: 'Who came by?', day: '2026-10-22' }]);
-});
-
-it("Review's Research button is off, with the reason, where research can't run", async () => {
-  server.use(
-    http.get('/research/jobs', () =>
-      HttpResponse.json({ jobs: [], available: false, reason: 'Needs its own Ollama.', unread: 0 }),
-    ),
-  );
-  renderPage(<PackAsk day="2026-10-22" />);
-  await userEvent.type(screen.getByLabelText('What would you like to know?'), 'Who came by?');
-  const button = screen.getByRole('button', { name: 'Research' });
-  await waitFor(() => expect(button).toBeDisabled());
-  // A disabled button can't take focus, so the reason is on the page and describes the button.
-  expect(screen.getByText('Needs its own Ollama.')).toBeVisible();
-  expect(button).toHaveAccessibleDescription('Needs its own Ollama.');
-  await userEvent.hover(button.parentElement as HTMLElement);
-  expect(await screen.findByRole('tooltip')).toHaveTextContent('Needs its own Ollama.');
 });
 
 /** A wide screen: the reader sits beside the list. */
@@ -300,14 +287,43 @@ it('marks a partial report on the list, and says when in 24-hour words', async (
   expect(row).toHaveAccessibleName(/, \d\d:\d\d unread$/);
 });
 
-it("starts research from Review's Ask", async () => {
-  renderPage(<InboxTab />);
-  await userEvent.click(await screen.findByRole('button', { name: 'Research a question' }));
-  expect(location.pathname).toBe('/review');
-  const { useReviewAsk } = await import('../AskBar');
-  expect(useReviewAsk.getState().open).toBe(true);
-  useReviewAsk.getState().setOpen(false);
+it('Research a question opens the one Ask here with Deep research on, and the pending report joins the list', async () => {
   history.replaceState(null, '', '/inbox');
+  useAsk.setState({ open: false, request: null });
+  const fresh: Job = { ...waiting, id: 'c'.repeat(32), question: 'What changed in the garden?', day: null };
+  const sent: unknown[] = [];
+  let jobs = [waiting, done];
+  server.use(
+    http.get('/research/jobs', () =>
+      HttpResponse.json({ jobs, available: true, reason: null, unread: 1, typical_s: 300 }),
+    ),
+    http.post('/pack-ask/jobs', async ({ request }) => {
+      sent.push(await request.json());
+      jobs = [fresh, waiting, done];
+      return HttpResponse.json({ ...fresh, deep: true }, { status: 202 });
+    }),
+  );
+  renderPage(
+    <>
+      <AskBar tab="inbox" setup={false} />
+      <InboxTab />
+    </>,
+  );
+  await userEvent.click(await screen.findByRole('button', { name: 'Research a question' }));
+  const ask = await screen.findByRole('dialog', { name: 'Ask' });
+  const toggle = await within(ask).findByRole('switch', { name: /^Deep research/ });
+  await waitFor(() => expect(toggle).toBeChecked());
+  await userEvent.type(
+    within(ask).getByRole('textbox', { name: 'Your question' }),
+    'What changed in the garden?{Enter}',
+  );
+  await waitFor(() => expect(sent).toEqual([{ question: 'What changed in the garden?', deep: true }]));
+  const note = (await within(ask).findByText('Research started')).closest('[data-ask-sent]');
+  expect(note).toHaveTextContent('The report will be in the Inbox. Usually ready in about 5 minutes.');
+  // The pending report is in the list at once, and the page never moved
+  expect(await screen.findByRole('button', { name: /^What changed in the garden\?.*Waiting/ })).toBeInTheDocument();
+  expect(location.pathname).toBe('/inbox');
+  useAsk.setState({ open: false, request: null });
 });
 
 it('shows the moments the answer cites as a timeline, each opening Review', async () => {
@@ -353,9 +369,9 @@ it('asks the same question again, and opens the new report', async () => {
   const fresh: Job = { ...waiting, id: 'c'.repeat(32), question: done.question, day: done.day, status: 'queued' };
   const sent: unknown[] = [];
   server.use(
-    http.post('/research/jobs', async ({ request }) => {
+    http.post('/pack-ask/jobs', async ({ request }) => {
       sent.push(await request.json());
-      return HttpResponse.json(fresh);
+      return HttpResponse.json({ ...fresh, deep: true }, { status: 202 });
     }),
     http.get(`/research/jobs/${fresh.id}`, () => HttpResponse.json(fresh)),
     http.get('/research/jobs', () =>
@@ -365,20 +381,20 @@ it('asks the same question again, and opens the new report', async () => {
   renderPage(<InboxTab />);
   await userEvent.click(await screen.findByRole('button', { name: /^What did Dana say about the garden\?.*Done/ }));
   await userEvent.click(await screen.findByRole('button', { name: 'Ask again' }));
-  expect(sent).toEqual([{ question: done.question, day: done.day }]);
+  expect(sent).toEqual([{ question: done.question, deep: true, day: done.day }]);
   // The new one is open: waiting for the research before it
   expect(await screen.findByText('Waiting for the research before it to finish.')).toBeInTheDocument();
 });
 
-it('opens Ask on the report for a follow-up', async () => {
-  const { useAskOpener } = await import('../ask/openAsk');
+it('opens the one Ask on the report for a follow-up', async () => {
   renderPage(<InboxTab />);
   await userEvent.click(await screen.findByRole('button', { name: /garden/ }));
   await userEvent.click(await screen.findByRole('button', { name: 'Ask a follow-up' }));
-  expect(useAskOpener.getState().request).toMatchObject({
-    context: { kind: 'report', id: done.id, question: done.question, day: done.day },
+  expect(useAsk.getState()).toMatchObject({
+    open: true,
+    request: { hint: { kind: 'report', id: done.id, question: done.question, day: done.day } },
   });
-  useAskOpener.setState({ request: null });
+  useAsk.setState({ open: false, request: null });
 });
 
 it("opens Review on the day a report was asked when it isn't about a day of its own", async () => {

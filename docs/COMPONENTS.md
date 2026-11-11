@@ -56,7 +56,7 @@ unless the row says otherwise.
 Other commands are CLIs: `pack-config`, `pack-services`, `pack-setup`, `pack-models`, `pack-system`, `pack-knowledge`,
 `pack-reset-catalog`, `pack-reset-places`, `pack-rename-camera`, `pack-continuum-status`, `pack-catalog-stats`,
 `pack-faces`, `pack-voice-clone`, `pack-clone-say`, `pack-clone-tts`, `pack-call`, `pack-phone-call`,
-`pack-call-eval`, `pack-call-review`, `pack-ask-friends`, and `pack-xvf3800`. `pyproject.toml` maps each to its
+`pack-call-eval`, `pack-call-review`, and `pack-xvf3800`. `pyproject.toml` maps each to its
 module, whose docstring says how to use it.
 
 ## State
@@ -121,4 +121,4 @@ one `<service>.log` each, trimmed hourly past 10 MB by the `log-trim` service. H
 | `state/ingest.sqlite3`, `ingest-locks/`, `ingest-analyzed.json` | Dashboard, `pack-ingest`, `pack-ingest-analyze` | The same | Ingested items, per-item locks, and the analysis ledger |
 | `ingest/` (`paths.ingest`) | Dashboard, `pack-ingest` | Continuum readers (gateway, tier worker), the same | Originals, converted media, and source working files |
 | `state/model_loads/<pid>.json` | Model-loading processes | Dashboard `/stats` | Which process loaded which model |
-| `state/whisper_names.json`, `friends_performance.json` | `pack-whisper-names`, `pack-ask-friends` | The same | Announcement times; panel model scores |
+| `state/whisper_names.json` | `pack-whisper-names` | The same | Announcement times |

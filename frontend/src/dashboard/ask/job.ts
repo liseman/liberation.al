@@ -1,46 +1,17 @@
 // An Ask question is a server job: POST it, then poll /pack-ask/jobs/<id> until it is done. The job in progress and
-// the draft question are saved in sessionStorage, so a reload (or switching between the old and new pages) picks the
-// job back up. The keys and the saved shape, {active, question}, are the old widget's (static/lib/ask.js).
+// the draft question are saved in sessionStorage as {active, question}, so a reload picks the job back up.
 import { useEffect, useRef, useState } from 'react';
 import { HttpError, messageOf, request } from '../../shared/http';
 import { dateOf, isRec, plain, reason } from './format';
 import { jobURL } from './links';
 
-/** What each scope does, in one sentence, shown under Live's scope choice. */
-export const MODES = {
-  local: 'Searches your recordings on this machine. Nothing leaves it.',
-  friends: 'Asks a few chosen models. They see your question, not your recordings.',
-  everyone: 'Asks every model that is set up. They see your question, not your recordings.',
-} as const;
-
-export type Mode = keyof typeof MODES;
-
-/** Each scope's name on Live's segmented choice and in its progress line. */
-export const MODE_NAMES: Record<Mode, string> = { local: 'My recordings', friends: 'Friends', everyone: 'Everyone' };
-export type Scope = 'history' | 'general';
-
-/** Local searches the recordings (a Review day, or on Live the window the question names); friends and everyone
- * are general questions, so no recorded evidence is sent off this machine. */
-export const scopeOf = (day: string | null, mode: Mode): Scope => (day || mode === 'local' ? 'history' : 'general');
-
-export const isMode = (value: unknown): value is Mode => typeof value === 'string' && Object.hasOwn(MODES, value);
-
-// Review (history scope) keeps the v1 key so a recorded-evidence job survives a reload. General Asks use v2 keys, so
-// an old evidence job saved under v1 can never be resumed (or polled) by a general question; only its draft is kept.
-const KEY = 'pack-ask.job.v1';
-const GENERAL_KEY = 'pack-ask.job.v2.general';
-
-export const storageKey = (day: string | null, showModes: boolean): string =>
-  day ? `${KEY}.review.${day}` : showModes ? GENERAL_KEY : `${GENERAL_KEY}.ask`;
-
-// Where a pre-scope build saved its Live / single Ask draft; only the question text is migrated from these.
-const legacyKey = (showModes: boolean): string => (showModes ? KEY : `${KEY}.ask`);
+// The job in progress and the draft, saved per browser tab. One Ask, one key; a job saved under an older key (a
+// scope or a Review day of its own) is not resumed.
+export const KEY = 'pack-ask.job.v3';
 
 export interface ActiveJob {
   id: string;
   poll_url: string;
-  mode: Mode;
-  scope?: Scope; // missing on a job saved before scopes existed
   question: string;
   created_at: number;
 }
@@ -65,10 +36,6 @@ function askedOf(j: Record<string, unknown>): Asked | null {
   return { question: j.question, at, day: typeof j.day === 'string' ? j.day : null };
 }
 
-export const modeLabel = (mode: Mode, showModes: boolean): string => (showModes ? MODE_NAMES[mode] : 'Ask');
-// An Ask says nothing at rest: its status line is for progress while an answer is coming.
-const readyText = (_showModes: boolean) => '';
-
 /** An error's text for the viewer: the server's reason when it gave one, else the old widget's "HTTP <status>". */
 export function failure(e: unknown): string {
   return e instanceof HttpError ? (e.reason ?? `HTTP ${e.status}`) : messageOf(e);
@@ -90,42 +57,19 @@ export interface Restored {
   status: Status;
 }
 
-/** What a fresh widget starts with: the saved draft, and the saved job when it belongs to this widget. */
-export function restore(day: string | null, showModes: boolean): Restored {
-  const out: Restored = { question: '', active: null, status: { text: readyText(showModes) } };
+/** What a fresh Ask starts with: the saved draft, and the saved job when there is one. */
+export function restore(): Restored {
+  const out: Restored = { question: '', active: null, status: { text: '' } };
   try {
-    let saved = read(storageKey(day, showModes));
-    if (!saved && !day) {
-      // First visit after the scope change: keep the draft question, never the old job (it may be an evidence job).
-      const old = read(legacyKey(showModes));
-      if (isRec(old) && typeof old.question === 'string' && old.question) {
-        saved = { active: null, question: old.question };
-        out.status = {
-          text: 'Previous draft kept; nothing was sent',
-        };
-      }
-    }
+    const saved = read(KEY);
     if (!isRec(saved)) return out;
     if (typeof saved.question === 'string') out.question = saved.question;
     const job = saved.active;
-    if (!isRec(job)) return out;
-    // A saved job resumes only inside its own scope. Review also accepts a job saved before scopes existed; a general
-    // Ask never does.
-    const url = jobURL(job.poll_url);
-    if (!url || !isMode(job.mode)) return out;
-    if ((job.scope ?? (day ? 'history' : null)) !== scopeOf(day, job.mode)) {
-      out.status = { text: 'A previous question of a different kind was not resumed. Your question is preserved.' };
-      return out;
-    }
-    if (!showModes && job.mode !== 'local') {
-      out.status = {
-        text: 'Previous multi-model question not resumed. Your question is preserved; mode choices are on Live.',
-      };
-      return out;
-    }
+    const url = isRec(job) ? jobURL(job.poll_url) : null;
+    if (!isRec(job) || !url) return out;
     // The saved record is kept whole (spread), so saving it again writes back what was read.
-    out.active = { ...job, id: plain(job.id), poll_url: url, mode: job.mode } as ActiveJob;
-    out.status = { text: `${modeLabel(job.mode, showModes)} · recovering job ${plain(job.id)}` };
+    out.active = { ...job, id: plain(job.id), poll_url: url } as ActiveJob;
+    out.status = { text: `Ask · recovering job ${plain(job.id)}` };
   } catch {
     // Ignore invalid or unavailable storage.
   }
@@ -134,12 +78,10 @@ export function restore(day: string | null, showModes: boolean): Restored {
 
 const STATUSES = new Set(['queued', 'running', 'completed', 'failed']);
 
-/** The Ask widget's state: the draft, the chosen mode, the job in progress, and the latest result. */
-export function useAskJob(day: string | null, showModes: boolean) {
-  const key = storageKey(day, showModes);
-  const [initial] = useState(() => restore(day, showModes));
+/** Ask's state: the draft, the job in progress, and the latest result. */
+export function useAskJob() {
+  const [initial] = useState(restore);
   const [question, setQuestion] = useState(initial.question);
-  const [mode, setMode] = useState<Mode>(initial.active?.mode ?? 'local');
   const [active, setActiveState] = useState(initial.active);
   // the job as it is now, for saving the draft: change() can run before a re-render shows a job just taken
   const activeNow = useRef(initial.active);
@@ -164,7 +106,7 @@ export function useAskJob(day: string | null, showModes: boolean) {
 
   useEffect(() => {
     const update = () =>
-      setElapsed(started.current ? `${Math.max(0, Math.floor((Date.now() - started.current) / 1000))}s elapsed` : '');
+      setElapsed(started.current ? `${Math.max(0, Math.floor((Date.now() - started.current) / 1000))} s` : '');
     update();
     if (!busy) return;
     const tick = setInterval(update, 1000);
@@ -174,14 +116,14 @@ export function useAskJob(day: string | null, showModes: boolean) {
   // Poll the job in progress: three quick reads a second apart, then every 3 s, and every 3 s after a failed read.
   useEffect(() => {
     if (!active) return;
-    const label = modeLabel(active.mode, showModes);
+    const label = 'Ask';
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     let attempts = 0;
     const writingNow = { current: false };
     const finish = () => {
       setPartial('');
-      saveJob(key, null, draft.current);
+      saveJob(KEY, null, draft.current);
       busyNow.current = false;
       setBusy(false);
       activeNow.current = null;
@@ -250,29 +192,23 @@ export function useAskJob(day: string | null, showModes: boolean) {
       controller.abort();
       clearTimeout(timer);
     };
-  }, [active, key, showModes]);
+  }, [active]);
 
-  const lock = (value: boolean, m: Mode) => {
+  const lock = (value: boolean) => {
     busyNow.current = value;
     setBusy(value);
-    setMode(m);
   };
 
   const change = (value: string) => {
     setQuestion(value);
     draft.current = value;
-    saveJob(key, activeNow.current, value);
+    saveJob(KEY, activeNow.current, value);
   };
 
-  /** Ask the question in the box. True once the server has taken the job. `extra` is a follow-up on a research
-   *  report: its id (the server reads the report) and its day, when this Ask has no day of its own. */
-  const submit = async (
-    picked: Mode,
-    extra: { followup?: { report: string }; day?: string } = {},
-  ): Promise<boolean> => {
+  /** Ask the question in the box, quickly. True once the server has taken the job. `day` is the day hint (Review's
+   *  day, or a followed-up report's), and `followup` a research report's id (the server reads the report). */
+  const submit = async (extra: { followup?: { report: string }; day?: string } = {}): Promise<boolean> => {
     if (busyNow.current) return false;
-    const m: Mode = showModes ? picked : 'local';
-    const scope = scopeOf(day, m);
     const q = draft.current.trim();
     if (!q) {
       setError('Please enter a question first.');
@@ -284,49 +220,46 @@ export function useAskJob(day: string | null, showModes: boolean) {
     setAsked(null);
     shown.current = null;
     started.current = Date.now();
-    lock(true, m);
-    setStatus({ text: `${modeLabel(m, showModes)} · submitting` });
+    lock(true);
+    setStatus({ text: 'Ask · submitting' });
     try {
-      const asOf = day ?? extra.day;
       const j = await request<unknown>('/pack-ask/jobs', {
         question: q,
-        mode: m,
-        scope,
-        ...(asOf ? { day: asOf } : {}),
+        ...(extra.day ? { day: extra.day } : {}),
         ...(extra.followup ? { followup: extra.followup } : {}),
       });
       const url = isRec(j) ? jobURL(j.poll_url) : null;
       if (!isRec(j) || !url || !j.id || (j.status !== 'queued' && j.status !== 'running'))
         throw new Error('Invalid job acknowledgement');
-      const job: ActiveJob = {
-        id: plain(j.id),
-        poll_url: url,
-        mode: m,
-        scope,
-        question: q,
-        created_at: started.current,
-      };
-      saveJob(key, job, draft.current);
-      setStatus({ text: `${modeLabel(m, showModes)} · ${j.status}` });
+      const job: ActiveJob = { id: plain(j.id), poll_url: url, question: q, created_at: started.current };
+      saveJob(KEY, job, draft.current);
+      setStatus({ text: `Ask · ${j.status}` });
       setActive(job);
       return true;
     } catch (e) {
-      setStatus({ text: `${modeLabel(m, showModes)} · submission not confirmed` });
+      setStatus({ text: 'Ask · submission not confirmed' });
       setError(
         `Could not confirm submission (${failure(e)}). The server may have accepted it. No automatic resubmit; retrying may create another job.`,
       );
-      lock(false, m);
+      lock(false);
       return false;
     }
+  };
+
+  /** Forget the answer shown, as when the question is sent to deep research instead. */
+  const clear = () => {
+    setResult(null);
+    setAsked(null);
+    setError('');
+    setStatus({ text: '' });
+    shown.current = null;
   };
 
   // pending: the question being answered now, as it was asked (the box may hold the next one)
   const pending = active?.question ?? null;
   return {
-    scope: scopeOf(day, mode),
     question,
     change,
-    mode,
     busy,
     status,
     elapsed,
@@ -336,6 +269,7 @@ export function useAskJob(day: string | null, showModes: boolean) {
     asked,
     pending,
     submit,
+    clear,
     input,
   };
 }

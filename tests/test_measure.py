@@ -272,11 +272,11 @@ class Execute:
     def __init__(self):
         self.calls, self.replies = [], []
 
-    def __call__(self, question, mode="local", state_dir=None, now=None, day=None, scope="history"):
+    def __call__(self, question, state_dir=None, now=None, day=None):
         rounds = cfg.get("recall.max_rounds") if cfg.get("recall.enabled") else 0
         journal = bool(cfg.get("journal.enabled"))
         self.calls.append(
-            dict(question=question, mode=mode, state_dir=state_dir, now=now, day=day, rounds=rounds, journal=journal)
+            dict(question=question, state_dir=state_dir, now=now, day=day, rounds=rounds, journal=journal)
         )
         reply = self.replies.pop(0)
         if isinstance(reply, Exception):
@@ -318,7 +318,7 @@ def test_scores_the_answer_and_evidence_execute_gives(state, labels, execute, me
     assert (who["rounds"], r["rounds"], r["through"]) == (0, 2, "ask.execute")
     assert said["latency_s"] >= 0
     assert r["latency_max_s"] == max(said["latency_s"], who["latency_s"])
-    assert execute.calls[0] == dict(question="What did Dana say about the garden yesterday?", mode="local",
+    assert execute.calls[0] == dict(question="What did Dana say about the garden yesterday?",
                                     state_dir=state, now=at(23, 0), day="2026-10-20", rounds=3,
                                     journal=True)  # fmt: skip
     assert r["settings"] == {
@@ -472,7 +472,7 @@ def test_evidence_found_but_cut_from_the_models_input_is_not_given(state, labels
     lines = [dict(id="T1", ts=at(15, 0), quote="Plant tomatoes."), dict(id="T2", ts=at(16, 0), quote="The garden.")]
     seen = dict(id="C1", ts=at(14, 0), quote="Alice at the door.")
 
-    def execute(question, mode="local", state_dir=None, now=None, day=None, scope="history"):
+    def execute(question, state_dir=None, now=None, day=None):
         if question == "Who was here?":  # a recorded answer: no model call
             return dict(status="ok", answer="Alice.", evidence=[seen], is_history=True, model="local-history-evidence")
         answer, model = ask.local_answer(question, json.dumps({"evidence": [{"id": "T2", "text": "The garden."}]}))

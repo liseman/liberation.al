@@ -6,7 +6,7 @@ import { newQueryClient, Providers } from '../shared/Providers';
 import { PREFS_KEY } from '../shared/prefs';
 import { server } from '../test/server';
 import { App } from './App';
-import { useReviewAsk } from './AskBar';
+import { useAsk } from './ask/openAsk';
 import { liveKey } from './live/feed';
 import { useLiveStatus } from './live/status';
 import { knownTabOf, TABS, tabOf, useRoute } from './router';
@@ -52,7 +52,7 @@ function renderApp(path = '/', live: { ambient?: unknown; scene?: unknown } = {}
 }
 
 beforeEach(() => {
-  useReviewAsk.setState({ open: false }); // the one Review Ask state outlives a render, as it does in the app
+  useAsk.setState({ open: false, request: null }); // the one Ask's state outlives a render, as it does in the app
   vi.stubGlobal('EventSource', QuietEventSource);
   vi.stubGlobal('NAMES', { assistant: 'Bob', owner: 'Luca', cams: ['cam0', 'cam1'], hotkeys: false });
   useLiveStatus.setState({ now: NOW, conn: { state: 'on', text: 'live' } });
@@ -545,8 +545,8 @@ describe('Ask', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Ask' }));
     const dialog = await screen.findByRole('dialog', { name: 'Ask' });
     // The dialog opens at once and its body loads inside it.
-    expect(await within(dialog).findByRole('textbox', { name: /What would you like to ask/ })).toBeInTheDocument();
-    // The dialog names it, so the widget's own heading is left out.
+    expect(await within(dialog).findByRole('textbox', { name: 'Your question' })).toBeInTheDocument();
+    // The dialog names it, so the box has no heading of its own.
     expect(within(within(dialog).getByRole('region', { name: 'Ask' })).queryByRole('heading')).toBeNull();
   });
 
@@ -556,14 +556,9 @@ describe('Ask', () => {
     await userEvent.click(screen.getByRole('link', { name: 'Live' }));
     await userEvent.click(screen.getByRole('button', { name: 'Ask' }));
     const dialog = await screen.findByRole('dialog', { name: 'Ask' });
-    expect(within(dialog).getByRole('textbox', { name: /What would you like to ask/ })).toBeVisible();
+    expect(within(dialog).getByRole('textbox', { name: 'Your question' })).toBeVisible();
     const ids = [...document.querySelectorAll('[id]')].map(e => e.id);
     expect(ids.filter((id, i) => ids.indexOf(id) !== i)).toEqual([]); // a label or description would find the wrong one
-  });
-
-  it('is only on Live', () => {
-    renderApp('/review');
-    expect(screen.queryByRole('button', { name: 'Ask' })).not.toBeInTheDocument();
   });
 
   it('opens with / when hotkeys are on, but not while typing', async () => {
@@ -585,114 +580,60 @@ describe('Ask', () => {
   });
 });
 
-it('uses the same default-weight Ask trigger in the same top-bar slot on Live and Review', async () => {
+it('is the same Ask button and the same Ask on Live and Review, with Review’s day as a hint', async () => {
   renderApp('/');
   const header = document.querySelector('header') as HTMLElement;
   const live = within(header).getByRole('button', { name: 'Ask' });
   expect(live).toHaveAttribute('data-variant', 'default');
-  expect(live).toHaveTextContent(/^Ask/);
-  const appearance = {
-    classes: live.className,
-    style: live.getAttribute('style'),
-    icon: live.querySelector('svg')?.outerHTML,
-  };
   await userEvent.click(screen.getByRole('link', { name: 'Review' }));
-  const review = await within(header).findByRole('button', { name: 'Ask about this day' });
-  expect({
-    classes: review.className,
-    style: review.getAttribute('style'),
-    icon: review.querySelector('svg')?.outerHTML,
-  }).toEqual(appearance);
-  expect(
-    within(screen.getByRole('main')).queryByRole('button', { name: 'Ask about this day' }),
-  ).not.toBeInTheDocument();
-  await userEvent.click(review);
-  expect(await screen.findByRole('dialog', { name: /^Ask about / })).toBeInTheDocument();
-});
-
-it('keeps the Review shortcut and removes its portaled trigger while another tab is active', async () => {
-  vi.stubGlobal('NAMES', { assistant: 'Bob', owner: 'Alice', cams: ['cam0'], hotkeys: true });
-  renderApp('/review');
-  const header = document.querySelector('header') as HTMLElement;
   await screen.findByRole('slider', { name: /Timeline/ });
-  await userEvent.keyboard('/');
-  expect(await screen.findByRole('dialog', { name: /^Ask about / })).toBeInTheDocument();
-  await userEvent.keyboard('{Escape}');
-  await userEvent.click(screen.getByRole('link', { name: 'Live' }));
-  expect(within(header).getAllByRole('button', { name: /Ask/ })).toHaveLength(1);
-  expect(header.querySelector('[data-review-ask-trigger]')).toBeNull();
-  await userEvent.click(screen.getByRole('link', { name: 'Review' }));
-  expect(await within(header).findByRole('button', { name: 'Ask about this day' })).toBeInTheDocument();
-  expect(within(header).getAllByRole('button', { name: /Ask/ })).toHaveLength(1);
+  expect(within(header).getAllByRole('button', { name: /Ask/ })).toEqual([live]);
+  await userEvent.click(live);
+  const dialog = await screen.findByRole('dialog', { name: 'Ask' });
+  expect(await within(dialog).findByRole('button', { name: /^Stop asking about / })).toBeInTheDocument();
+  expect(screen.getAllByRole('dialog', { name: 'Ask' })).toHaveLength(1);
 });
 
-it('keeps Review’s top-bar Ask host connected when Settings closes over the same visible Review page', async () => {
-  vi.stubGlobal('NAMES', { assistant: 'Bob', owner: 'Alice', cams: ['cam0'], hotkeys: true });
+it('hides Ask behind Settings and brings it back as it was', async () => {
   renderApp('/review');
-  const header = document.querySelector('header') as HTMLElement;
-  await within(header).findByRole('button', { name: 'Ask about this day' });
+  await userEvent.click(await screen.findByRole('button', { name: 'Ask' }));
+  await screen.findByRole('dialog', { name: 'Ask' });
   await openSettings();
   await screen.findByRole('dialog', { name: 'Settings' });
-  expect(within(header).queryByRole('button', { name: 'Ask about this day' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('dialog', { name: 'Ask' })).not.toBeInTheDocument();
   await userEvent.click(screen.getByRole('button', { name: 'Close settings' }));
-  await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Settings' })).not.toBeInTheDocument());
-  const trigger = await within(header).findByRole('button', { name: 'Ask about this day' });
-  await userEvent.click(trigger);
-  expect(await screen.findByRole('dialog', { name: /^Ask about / })).toBeInTheDocument();
-  await userEvent.keyboard('{Escape}');
-  await waitFor(() => expect(screen.queryByRole('dialog', { name: /^Ask about / })).not.toBeInTheDocument());
-  await userEvent.keyboard('/');
-  expect(await screen.findByRole('dialog', { name: /^Ask about / })).toBeInTheDocument();
+  expect(await screen.findByRole('dialog', { name: 'Ask' })).toBeInTheDocument();
 });
 
-it.each([
-  { path: '/', trigger: 'Ask' },
-  { path: '/review', trigger: 'Ask about this day' },
-])('opens a nonblocking Ask panel from $path and toggles it closed from the header', async ({ path, trigger }) => {
+it.each(['/', '/review'])('opens a nonblocking Ask panel from %s and toggles it closed from the header', async path => {
   renderApp(path);
-  const button = await screen.findByRole('button', { name: trigger });
+  const button = await screen.findByRole('button', { name: 'Ask' });
   await userEvent.click(button);
-  const panel = await screen.findByRole('dialog', { name: /Ask/ });
+  const panel = await screen.findByRole('dialog', { name: 'Ask' });
   expect(panel).toHaveAttribute('aria-modal', 'false');
   await userEvent.click(button);
-  await waitFor(() => expect(screen.queryByRole('dialog', { name: /Ask/ })).not.toBeInTheDocument());
+  await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Ask' })).not.toBeInTheDocument());
 });
 
-it('resumes an open Review Ask panel after Settings without treating it as a child modal', async () => {
-  renderApp('/review');
-  await userEvent.click(await screen.findByRole('button', { name: 'Ask about this day' }));
-  await screen.findByRole('dialog', { name: /^Ask about / });
-  await openSettings();
-  await screen.findByRole('dialog', { name: 'Settings' });
-  expect(screen.queryByRole('dialog', { name: /^Ask about / })).not.toBeInTheDocument();
-  await userEvent.click(screen.getByRole('button', { name: 'Close settings' }));
-  expect(await screen.findByRole('dialog', { name: /^Ask about / })).toBeInTheDocument();
-});
-
-it('preserves Live’s draft and reconnects its pane after Settings and an Activity tab roundtrip', async () => {
+it('keeps the draft across Settings and a tab roundtrip', async () => {
   renderApp('/');
   await userEvent.click(screen.getByRole('button', { name: 'Ask' }));
-  await userEvent.type(await screen.findByRole('textbox', { name: /What would you like to ask/ }), 'A Live draft');
+  await userEvent.type(await screen.findByRole('textbox', { name: 'Your question' }), 'A draft');
   await openSettings();
   await screen.findByRole('dialog', { name: 'Settings' });
   await userEvent.click(screen.getByRole('button', { name: 'Close settings' }));
-  // The floating window stays open under Settings, with its draft.
-  expect(await screen.findByRole('textbox', { name: /What would you like to ask/ })).toHaveValue('A Live draft');
+  expect(await screen.findByRole('textbox', { name: 'Your question' })).toHaveValue('A draft');
   await userEvent.click(screen.getByRole('link', { name: 'Review' }));
   await screen.findByRole('slider', { name: /Timeline/ });
   await userEvent.click(screen.getByRole('link', { name: 'Live' }));
-  await userEvent.click(screen.getByRole('button', { name: 'Ask' }));
-  expect(await screen.findByRole('textbox', { name: /What would you like to ask/ })).toHaveValue('A Live draft');
+  expect(await screen.findByRole('textbox', { name: 'Your question' })).toHaveValue('A draft');
 });
 
-it.each([
-  { path: '/', trigger: 'Ask' },
-  { path: '/review', trigger: 'Ask about this day' },
-])('focuses an already-open panel with / on $path instead of toggling it closed', async ({ path, trigger }) => {
+it.each(['/', '/review'])('focuses an already-open panel with / on %s instead of toggling it closed', async path => {
   vi.stubGlobal('NAMES', { assistant: 'Bob', owner: 'Alice', cams: ['cam0'], hotkeys: true });
   renderApp(path);
-  await userEvent.click(await screen.findByRole('button', { name: trigger }));
-  const panel = await screen.findByRole('dialog', { name: /Ask/ });
+  await userEvent.click(await screen.findByRole('button', { name: 'Ask' }));
+  const panel = await screen.findByRole('dialog', { name: 'Ask' });
   await userEvent.click(screen.getByRole('heading', { level: 1 }));
   await userEvent.keyboard('/');
   expect(panel).toBeVisible();

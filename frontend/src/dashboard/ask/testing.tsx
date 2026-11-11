@@ -44,8 +44,7 @@ export function fakeTimers() {
 /** Let ms of fake time pass, running any poll that falls due. */
 export const wait = (ms: number) => act(() => vi.advanceTimersByTimeAsync(ms));
 
-export const GENERAL = 'pack-ask.job.v2.general';
-export const REVIEW = 'pack-ask.job.v1.review.2026-10-20';
+export { KEY } from './job';
 
 export const saved = (key: string): unknown => JSON.parse(sessionStorage.getItem(key) ?? 'null');
 export const store = (key: string, value: unknown) => sessionStorage.setItem(key, JSON.stringify(value));
@@ -55,6 +54,31 @@ export const status = () => screen.getByRole('status');
 export const alertText = () => screen.getAllByRole('alert')[0]?.textContent ?? '';
 export const buttons = () => screen.getAllByRole('button').filter(b => b.closest('[aria-busy]'));
 
-export function renderAsk(props: { day?: string | null; showModes?: boolean } = { showModes: true }) {
-  return renderPage(<PackAsk {...props} />);
+export function renderAsk() {
+  return renderPage(<PackAsk />);
+}
+
+/** Research jobs as the live feed's `research` event serves them: research can run, with its reach and timing. */
+export function researchServer(over: Record<string, unknown> = {}) {
+  const reach = (deep: boolean) => ({
+    deep,
+    rounds: deep ? 8 : 3,
+    search_s: deep ? 1800 : 80,
+    sources: ['journal', 'transcript', 'camera'],
+    model: deep ? 'big-model' : 'small-model',
+    day: null,
+  });
+  server.use(
+    http.get('/research/jobs', () =>
+      HttpResponse.json({
+        jobs: [],
+        available: true,
+        reason: null,
+        unread: 0,
+        typical_s: 600,
+        reach: { quick: reach(false), deep: reach(true) },
+        ...over,
+      }),
+    ),
+  );
 }

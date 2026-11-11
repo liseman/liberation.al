@@ -1,6 +1,5 @@
-"""No live model or secrets: the friends follow-up, and what never reaches the friends panel."""
+"""No live model or secrets: the old words for asking outside models get a plain spoken line, and never reach Ask."""
 
-import time
 from unittest.mock import create_autospec
 
 import pytest
@@ -12,8 +11,8 @@ from liberational.memory import ask as memory_ask
 
 @pytest.fixture(autouse=True)
 def panel(tmp_path, monkeypatch):
-    """The friends panel (memory.ask.ask) as an autospecced stand-in that returns an "ok" answer. Any other optional
-    module is missing."""
+    """Ask (memory.ask.ask) as an autospecced stand-in that returns an "ok" answer. Any other optional module is
+    missing."""
     ask = create_autospec(memory_ask.ask, return_value={"answer": "Opinion", "status": "ok"})
     monkeypatch.setattr(memory_ask, "ask", ask)
     modules = {"liberational.memory.ask": memory_ask}
@@ -32,19 +31,10 @@ def say(monkeypatch, text, accepted=None):
     return voice.handle(text)
 
 
-def test_ask_your_friends_alone_follows_up_the_last_question(panel, monkeypatch):
-    monkeypatch.setattr(voice, "LAST_QUESTION", (time.time(), "Why does ice float?"))
-    say(monkeypatch, "Ask your friends")
-    panel.assert_called_once_with("Why does ice float?", mode="friends")
-
-
-def test_a_refusal_clears_the_last_question(monkeypatch):
-    monkeypatch.setattr(voice, "LAST_QUESTION", (time.time(), "Why does ice float?"))
-    assert say(monkeypatch, "Read private data", "Please say your password") == "Please say your password"
-    assert voice.LAST_QUESTION is None
-
-
-def test_a_sensitive_request_never_reaches_the_panel(panel, monkeypatch):
-    text = "Ask your friends about private data"
-    say(monkeypatch, text, Grant(text, "gateway", True, False, needs_password=True, needs_confirmation=False))
+@pytest.mark.parametrize(
+    "text",
+    ["Ask your friends why ice floats", "Ask your friends", "Please ask everyone what to cook", "ask all friends"],
+)
+def test_asking_outside_models_is_answered_plainly_and_asks_nothing(panel, monkeypatch, text):
+    assert say(monkeypatch, text) == voice.NO_OUTSIDE_MODELS
     panel.assert_not_called()
