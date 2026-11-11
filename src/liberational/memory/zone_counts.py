@@ -28,8 +28,10 @@ from urllib.parse import urlencode
 
 import numpy as np
 
-from liberational import segment_log
+from liberational import logs, segment_log
 from liberational.see import zones
+
+LOG = logs.get("memory-zone-counts")
 
 MIN_DWELL_S = 10.0  # shorter is passing by: walking past the litter box isn't using it
 MERGE_S = 30.0  # same zone, same kind of subject, closer than this: one visit split by its track
@@ -42,15 +44,20 @@ _NAMES: dict[str, tuple[float, list[str]]] = {}
 
 
 def names(state: Path) -> list[str]:
-    """The names of every zone on every camera now, read at most once a minute."""
+    """The names of every zone on every camera now, read at most once a minute.
+
+    A read that fails is logged and not cached: an empty list means no zone is named, and a busy store must not say
+    that for the next minute.
+    """
     key = str(state)
     hit = _NAMES.get(key)
     if hit is not None and time.monotonic() - hit[0] < NAMES_TTL_S:
         return hit[1]
     try:
         found = sorted({z.name for d in zones.current(state).values() for z in zones.counted(d.zones)})
-    except Exception:
-        found = []
+    except Exception as error:
+        LOG.warning("the zones' names could not be read: %r", error)
+        return []
     _NAMES[key] = (time.monotonic(), found)
     return found
 

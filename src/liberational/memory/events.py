@@ -78,6 +78,33 @@ def _names(state: Any, start: float, end: float) -> dict[str, str]:
     return out
 
 
+def named(state: Any) -> list[tuple[str, str | None]]:
+    """(name, kind) for each span the owner has named, its latest name, read from the knowledge store alone.
+
+    memory/event_counts.py asks this whether a question names an event, and reading every span ever recorded to
+    answer it made that lookup grow with the store. An owner's name is a knowledge record already, bounded by
+    MAX_ANNOTATIONS, and its record carries the kind the span had when it was named.
+    """
+    if not registry.knowledge_path(state).exists():
+        return []  # nothing taught yet; reading must not create the store
+    rows = _store(state).query(NAMED, limit=MAX_ANNOTATIONS + 1)
+    if len(rows) > MAX_ANNOTATIONS:
+        raise RuntimeError(
+            f"more than {MAX_ANNOTATIONS} activities have been named, which the name lookup cannot read at once; "
+            "delete names in Known, Activities"
+        )
+    latest: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        value = row.record.value
+        if value.get("source") == "owner" and isinstance(value.get("activity"), str):
+            latest[value["activity"]] = value  # append order: a rename lands last and wins
+    return [
+        (str(v["name"]), v["kind"] if isinstance(v.get("kind"), str) else None)
+        for v in latest.values()
+        if isinstance(v.get("name"), str)
+    ]
+
+
 def _votes(state: Any, *, deleted: bool = False) -> list[dict[str, Any]]:
     """The owner's latest Right or Wrong per span, with the span's kind and camera. A rating without its source
     stream (the rule-based era's) is left out, and so is a deleted activity's unless

@@ -27,9 +27,12 @@ from typing import Any
 from urllib.parse import urlencode
 
 from liberational import config as cfg
+from liberational import logs
 from liberational.memory import activity_kinds
 from liberational.memory import question as reader
 from liberational.memory.events import RETIRED_KINDS
+
+LOG = logs.get("memory-event-counts")
 
 WORD = re.compile(r"[a-z0-9]+")
 # Words a name and a question share without saying what happened: left out of both before they're compared.
@@ -116,44 +119,41 @@ def module() -> Any:
     return events
 
 
-# state -> (when read, the names events have, the detector kinds each name was given to by its content words)
-_NAMES: dict[str, tuple[float, list[str], dict[tuple[str, ...], set[str]]]] = {}
+# state -> (when read, the names the owner has given events)
+_NAMES: dict[str, tuple[float, list[str]]] = {}
 NAMES_TTL_S = 60.0
 
 
 def known_names(state: Any) -> list[str]:
-    """The names the detector or the owner has given events, as first spelled, read at most once a minute."""
+    """The names the owner has given events, as first spelled, read at most once a minute."""
     return _read_names(state)[1]
 
 
-def _read_names(state: Any) -> tuple[float, list[str], dict[tuple[str, ...], set[str]]]:
+def _read_names(state: Any) -> tuple[float, list[str]]:
+    """(when read, the owner's names for events), from the knowledge store alone.
+
+    A read that fails is logged and not cached: an empty list means nothing is named, and a busy store must not say
+    that for the next minute. Retired kinds and a name that is only its kind are not names anyone asked about.
+    """
     key = str(state)
     hit = _NAMES.get(key)
     if hit is not None and time.monotonic() - hit[0] < NAMES_TTL_S:
         return hit
-    names: dict[tuple[str, ...], str] = {}
-    kinds: dict[tuple[str, ...], set[str]] = {}
     act = module()
-    if act is not None:
-        try:
-            projection = getattr(act, "count_evidence", None)
-            if callable(projection):
-                promoted, unverified = projection(state, 0.0, 1e12)
-                rows = [*promoted, *unverified]
-            else:
-                rows = act.events(state, 0.0, 1e12)
-            for e in rows:
-                if e.get("kind") in RETIRED_KINDS:
-                    continue
-                if name := owner_name(e):
-                    words = tuple(sorted(content(name)))
-                    names.setdefault(words, name)
-                    if isinstance(e.get("kind"), str):
-                        kinds.setdefault(words, set()).add(e["kind"])
-        except Exception:
-            names, kinds = {}, {}
+    if act is None:
+        return (time.monotonic(), [])
+    names: dict[tuple[str, ...], str] = {}
+    try:
+        for name, kind in act.named(state):
+            if kind in RETIRED_KINDS or name == kind:
+                continue
+            if words := tuple(sorted(content(name))):
+                names.setdefault(words, name)
+    except Exception as error:
+        LOG.warning("the names the owner gave events could not be read: %r", error)
+        return (time.monotonic(), [])
     found = [n for k, n in names.items() if k]
-    _NAMES[key] = (time.monotonic(), found, kinds)
+    _NAMES[key] = (time.monotonic(), found)
     return _NAMES[key]
 
 
@@ -161,10 +161,9 @@ def zone_names(state: Any) -> list[str]:
     """The names of the zones drawn on cameras' views: a count of visits to one is answered here too."""
     try:
         from liberational.memory import zone_counts
-
-        return zone_counts.names(state)
-    except Exception:
+    except ImportError:
         return []
+    return zone_counts.names(state)
 
 
 def _is_zone(state: Any, asked: str) -> bool:

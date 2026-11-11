@@ -41,6 +41,9 @@ class FakeEvents(types.ModuleType):
     def coverage(self, state, start, end):
         return [c for c in self.covered if c[1] < end and c[2] > start]
 
+    def named(self, state):
+        return [(e["name"], e.get("kind")) for e in self.found if e.get("name") and e["name"] != e.get("kind")]
+
 
 @pytest.fixture(autouse=True)
 def fresh(monkeypatch):
