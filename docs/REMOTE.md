@@ -34,7 +34,7 @@ and 8765 is `ports.dashboard`.
 
 | | On the machine itself | From another device, with the password |
 |---|---|---|
-| Look at Live, Review, the Journal, Known, and Reports | Yes | Yes |
+| Look at Live, Review, Known, the Journal, and Statistics | Yes | Yes |
 | Review's "what the cameras saw" (captions and face names) | Yes | Only with `dashboard.remote_camera_history` on |
 | Teach: names, faces, voices, pets, zones, transcript fixes, and activity answers | Yes | Only with `dashboard.remote_teaching` on |
 | Settings, services, devices, pausing cameras and microphones, ingest, and the Learn surroundings switch | Yes | Only over Tailscale Serve with `dashboard.remote_control` on; otherwise read only |

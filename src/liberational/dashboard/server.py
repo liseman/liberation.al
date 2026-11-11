@@ -354,7 +354,7 @@ APP_PATHS = (
     "/calls",
     "/inbox",
     "/ingest",
-    "/reports",
+    "/statistics",
     "/settings",
     "/debug",
     "/skeletons",  # the skeleton playback test page, not in the nav

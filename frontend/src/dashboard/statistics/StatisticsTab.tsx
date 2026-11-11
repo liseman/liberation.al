@@ -1,4 +1,4 @@
-// The Reports tab: charts over everything recorded, each mark a link to Review at that moment. The owner
+// The Statistics tab: charts over everything recorded, each mark a link to Review at that moment. The owner
 // picks which reports show and in what order; the server keeps that choice (dashboard/reports.py), not the browser.
 // A row of chips under the heading jumps to each report, and the move and remove controls wait behind Arrange.
 // It loads as its own chunk (App.tsx), so D3 stays out of the main bundle.
@@ -164,7 +164,7 @@ function ReportCard({
   );
 }
 
-export default function ReportsTab() {
+export default function StatisticsTab() {
   const layout = useLayout();
   const save = useSaveLayout();
   // Reordering and removing are an occasional chore, so their controls show only after Arrange.
@@ -173,15 +173,15 @@ export default function ReportsTab() {
     'Built from everything recorded. Hatched stretches have no observations or coverage. Select a mark to open Review there.';
   if (layout.isPending)
     return (
-      <PageFrame title="Reports" lede={lede} className={classes.root}>
-        <PageLoading label="Reports" lines={8} />
+      <PageFrame title="Statistics" lede={lede} className={classes.root}>
+        <PageLoading label="Statistics" lines={8} />
       </PageFrame>
     );
   if (layout.isError)
     return (
-      <PageFrame title="Reports" lede={lede} className={classes.root}>
+      <PageFrame title="Statistics" lede={lede} className={classes.root}>
         <PageError
-          title="Couldn't load Reports"
+          title="Couldn't load Statistics"
           detail={messageOf(layout.error)}
           onRetry={() => void layout.refetch()}
           busy={layout.isFetching}
@@ -215,7 +215,7 @@ export default function ReportsTab() {
     </Button>
   );
   return (
-    <PageFrame title="Reports" lede={lede} actions={arrange} className={classes.root}>
+    <PageFrame title="Statistics" lede={lede} actions={arrange} className={classes.root}>
       <JumpChips reports={chosen} />
       <Stack gap="lg">
         {save.isError && (
