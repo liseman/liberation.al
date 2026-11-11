@@ -813,6 +813,18 @@ def test_a_poll_ingests_what_is_new_counts_duplicates_and_retries_what_it_couldn
     assert list((pipe.root / "incoming").iterdir()) == []  # every download directory is cleaned up
 
 
+@needs_ffmpeg
+def test_a_poll_that_cant_add_one_item_counts_it_failed_and_ingests_the_next(tmp_path, pipe, store):
+    a = make_photo(tmp_path / "a.jpg", "2025:12:24 18:30:00")
+    b = make_photo(tmp_path / "b.jpg", "2025:12:25 09:00:00")
+    fenced = pipe.add(Incoming(a, "test", "a.jpg", keep=True))[0]
+    store.request_delete(fenced.id)  # waiting on storage cleanup, so the store refuses it as an add
+    source = ListSource({"1": a, "2": b})
+    result = runner.poll_source(pipe, source)
+    assert (result.new, result.done, result.failed) == (2, 1, 1)
+    assert list((pipe.root / "incoming").iterdir()) == []  # the refused item's download is cleaned up too
+
+
 def test_a_poll_of_a_source_that_isnt_set_up_reports_it(pipe):
     result = runner.poll_source(pipe, src.make("allsound"))
     assert result.not_configured is not None and "AllSound" in result.not_configured
