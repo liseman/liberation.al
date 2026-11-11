@@ -1,4 +1,4 @@
-// The Reports tab's chart pieces, drawn as SVG by React with D3's scales: a heatmap grid and a bar series. One style
+// The Statistics tab's chart pieces, drawn as SVG by React with D3's scales: a heatmap grid and a bar series. One style
 // for both: magnitude is one blue ramp in six steps, a recorded stretch with nothing in it is the track color, and a
 // stretch nothing was recorded in is hatched, so a gap never reads as a zero. Every mark that stands for moments is a
 // link to Review there. The marks are one tab stop: arrow keys move between them, Enter follows, and the tooltip a

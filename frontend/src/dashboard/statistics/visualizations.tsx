@@ -1,5 +1,5 @@
 // D3 computes the clock arcs, exchange chords, and centered activity bands; React owns their SVG and links.
-// Reuse the Reports tooltip and roving focus so a shape works with a pointer, touch, or the keyboard.
+// Reuse the Statistics tooltip and roving focus so a shape works with a pointer, touch, or the keyboard.
 import { Button, Group, Stack, Text } from '@mantine/core';
 import {
   arc,

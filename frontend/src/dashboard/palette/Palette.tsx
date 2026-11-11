@@ -105,7 +105,7 @@ export function paletteActions(
     {
       group: 'Pages',
       actions: [
-        ...TABS.filter(t => t.id !== 'known').map(t => ({ id: `page:${t.id}`, label: t.label, go: to(t.path) })),
+        ...TABS.map(t => ({ id: `page:${t.id}`, label: t.label, go: to(t.path) })),
         ...KNOWN_TABS.map(t => ({ id: `page:${t.id}`, label: t.label, description: 'Known', go: to(t.path) })),
         { id: 'page:settings', label: 'Settings', go: toSettings('/settings') },
       ],

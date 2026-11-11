@@ -1,6 +1,6 @@
 // Known: who and what the house knows by name, one page with a tab each for People, Pets, Objects, Activities,
-// Devices (phones, watches, and tags), and Places (floorplans). Each tab is its own path
-// (/people, /pets, /objects, /activities, /devices, /places), so a link or a reload opens
+// Devices (phones, watches, and tags), Places (floorplans), and Ingest. Each tab is its own path
+// (/people, /pets, /objects, /activities, /devices, /places, /ingest), so a link or a reload opens
 // the right one and Back steps through them. A tab's content is the page it was before, as is. Like the app's own pages, each mounts on its first visit
 // and then stays mounted while hidden (an Activity), so switching back shows it as it was. The page is one wide
 // PageFrame, so its tabs start at the same left edge as every other page, each with its own PageHeader.
@@ -22,6 +22,7 @@ const Pets = lazy(() => import('../people/Pets').then(m => ({ default: m.Pets })
 const ObjectMemoryPage = lazy(() => import('../../objects/ObjectMemory').then(m => ({ default: m.ObjectMemoryPage })));
 const ActivitiesTab = lazy(() => import('../activities/ActivitiesTab').then(m => ({ default: m.ActivitiesTab })));
 const DevicesTab = lazy(() => import('./DevicesTab').then(m => ({ default: m.DevicesTab })));
+const IngestTab = lazy(() => import('../ingest/IngestTab').then(m => ({ default: m.IngestTab })));
 const PlacesTab = lazy(() => import('../places/PlacesTab').then(m => ({ default: m.PlacesTab })));
 
 // The same element every render, so a tab switch re-renders only the Activity boundaries.
@@ -49,6 +50,11 @@ const PANELS: Record<KnownTab, ReactNode> = {
   devices: (
     <Deferred name="Devices">
       <DevicesTab />
+    </Deferred>
+  ),
+  ingest: (
+    <Deferred name="Ingest">
+      <IngestTab />
     </Deferred>
   ),
   places: (

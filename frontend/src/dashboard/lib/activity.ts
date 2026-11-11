@@ -39,7 +39,7 @@ export function activityHint(kind: string | null | undefined): string | null {
   return kind && Object.hasOwn(HINTS, kind) ? (HINTS[kind] ?? null) : null;
 }
 
-/** An event series' name as Reports shows it: a kind's plain name when the name is a raw kind (an event the owner
+/** An event series' name as Statistics shows it: a kind's plain name when the name is a raw kind (an event the owner
  *  never named), else the name as given. */
 export function eventName(name: string): string {
   return Object.hasOwn(NAMES, name) ? (NAMES[name] ?? name) : name;

@@ -27,16 +27,16 @@ it('keeps a named loading state until deferred code resolves', async () => {
   renderPage(
     <>
       <button type="button">Shell control</button>
-      <Deferred name="Reports">
+      <Deferred name="Statistics">
         <Page />
       </Deferred>
     </>,
   );
-  expect(screen.getByLabelText('Loading Reports')).toBeInTheDocument();
+  expect(screen.getByLabelText('Loading Statistics')).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Shell control' })).toBeEnabled();
-  await act(async () => finish({ default: () => <h1>Reports ready</h1> }));
-  expect(await screen.findByRole('heading', { name: 'Reports ready' })).toBeInTheDocument();
-  expect(screen.queryByLabelText('Loading Reports')).not.toBeInTheDocument();
+  await act(async () => finish({ default: () => <h1>Statistics ready</h1> }));
+  expect(await screen.findByRole('heading', { name: 'Statistics ready' })).toBeInTheDocument();
+  expect(screen.queryByLabelText('Loading Statistics')).not.toBeInTheDocument();
 });
 
 it('contains a repeated chunk failure and provides an explicit reload action', async () => {

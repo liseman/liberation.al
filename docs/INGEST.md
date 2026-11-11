@@ -1,8 +1,8 @@
 # How to import photos, video, and audio
 
-The dashboard's Ingest tab and `uv run pack-ingest` bring in photos, video, and audio this machine did not record
-directly: uploaded files, web links, Wyze camera segments, and Google Photos selections (`src/liberational/ingest/`,
-`src/liberational/dashboard/ingest.py`).
+The Ingest tab (the last tab under Known) and `uv run pack-ingest` bring in photos, video, and audio this machine did
+not record directly: uploaded files, web links, Wyze camera segments, and Google Photos selections
+(`src/liberational/ingest/`, `src/liberational/dashboard/ingest.py`).
 
 ## What imported media is and what it does not cover
 
@@ -26,7 +26,7 @@ untouched.
 
 From the dashboard:
 
-1. Open the **Ingest** tab.
+1. Open **Known**, then **Ingest**.
 2. Drop files onto the page (each upload is one request, up to `ingest.max_mb`), or paste a URL. A direct media URL is
    downloaded as is; any other page goes through [yt-dlp](https://github.com/yt-dlp/yt-dlp) (`mise install`).
 
