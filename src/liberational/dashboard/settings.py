@@ -303,14 +303,9 @@ def voice_ref(handler: H) -> None:
         except Exception:  # missing or unreadable: offer the standard passage
             info.update(exists=False, seconds=0, prompt=PROMPT)
         return handler._json(info)
-    origin = handler.headers.get("Origin")
     if not handler._can_control():
         return handler._json({"ok": False, "error": "the voice reference can only be recorded on this machine"}, 403)
-    if handler.headers.get_content_type() != "audio/wav" or (
-        origin
-        and origin
-        not in (f"http://{handler.headers.get('Host') or ''}", f"https://{handler.headers.get('Host') or ''}")
-    ):
+    if not handler._same_origin_json("audio/wav"):
         return handler._json({"ok": False, "error": "same-origin audio/wav only"}, 403)
     try:
         n = int(handler.headers.get("Content-Length") or 0)
@@ -385,15 +380,10 @@ def handle(
         return True
     if handler.command != "POST":
         return False
-    origin = handler.headers.get("Origin")
     if not handler._can_control():
         handler._json({"ok": False, "error": "settings can only be changed from this machine"}, 403)
         return True
-    if handler.headers.get_content_type() != "application/json" or (
-        origin
-        and origin
-        not in (f"http://{handler.headers.get('Host') or ''}", f"https://{handler.headers.get('Host') or ''}")
-    ):
+    if not handler._same_origin_json():
         handler._json({"ok": False, "error": "same-origin JSON only"}, 403)
         return True
     try:

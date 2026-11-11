@@ -27,7 +27,6 @@ import json
 import queue
 import threading
 import time
-import urllib.parse
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -283,11 +282,6 @@ def remote_items(raw: object) -> list[src.RemoteItem]:
     return out
 
 
-def _same_origin(handler: H) -> bool:
-    origin, host = handler.headers.get("Origin"), handler.headers.get("Host") or ""
-    return not origin or origin in (f"http://{host}", f"https://{host}")
-
-
 def _read_json(handler: H) -> Any:
     n = int(handler.headers.get("Content-Length") or 0)
     if not 0 <= n <= MAX_JSON:
@@ -301,7 +295,7 @@ def handle(handler: H) -> bool:
     if not path.startswith(PREFIX):
         return False
     route = path.removeprefix(PREFIX)
-    query = urllib.parse.parse_qs(urllib.parse.urlsplit(handler.path).query)
+    query = handler._query()  # one reader for every query string in the dashboard
     if handler.command in ("GET", "HEAD"):
         try:
             if route == "items":
@@ -309,7 +303,7 @@ def handle(handler: H) -> bool:
             if route == "google_photos/albums":
                 return _reply(handler, 200, {"albums": GooglePhotosSource.from_config().albums()})
             if route == "google_photos/photos":
-                album = (query.get("album") or [None])[0] or None
+                album = query.get("album") or None
                 found = GooglePhotosSource.from_config().photos(album, scrolls=4)
                 return _reply(handler, 200, {"items": [i.public() for i in found]})
         except src.NotConfigured as e:
@@ -324,10 +318,10 @@ def handle(handler: H) -> bool:
         return _reply(handler, 404, {"error": "not found"})
     if handler.command != "POST":
         return False
-    if not _same_origin(handler):
+    if not handler._same_origin():  # a POST here: no browser Origin, or this dashboard's own
         return _reply(handler, 403, {"error": "same-origin requests only"})
     if route == "upload":
-        name = (query.get("name") or ["upload"])[0]
+        name = query.get("name") or "upload"
         code, body = upload(handler, name)
         return _reply(handler, code, body)
     if handler.headers.get_content_type() != "application/json":

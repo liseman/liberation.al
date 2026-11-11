@@ -309,6 +309,23 @@ def test_prints_are_each_voiceprints_newest_embeddings_as_unit_vectors(tmp_path:
     assert len(got[4]) == 1 and got[5] == []
 
 
+def test_prints_extend_the_cached_tail_and_a_forget_drops_it(tmp_path: Path) -> None:
+    m, store = matcher(tmp_path, FakeSearch(), FakePeople({3: ALICE}))
+    for k, v in enumerate([A, B, 2 * A]):
+        m.file(v, 3, None, (10 + k) * NS, (11 + k) * NS)
+    first = voices.prints([3], limit=2, base=store)
+    m.file(B, 4, None, 20 * NS, 21 * NS)  # a row for a voice outside the cached set: no duplicate in 3's tail
+    second = voices.prints([3], limit=2, base=store)
+    m.close()
+    assert [v.tolist() for v in first[3]] == [v.tolist() for v in second[3]], "an unchanged voice reads the same"
+    third = voices.prints([3, 4], limit=2, base=store)  # a new voice set: read in full
+    assert len(third[4]) == 1
+    voices.forget_voice(3, base=store)
+    fourth = voices.prints([3, 4], limit=2, base=store)
+    assert fourth[3] == [], "the forget drops the cached tail"
+    assert len(fourth[4]) == 1
+
+
 def test_forgetting_takes_the_embeddings_it_names(tmp_path: Path) -> None:
     m, store = matcher(tmp_path, FakeSearch(), FakePeople({3: ALICE}))
     m.file(A, 3, None, 10 * NS, 11 * NS)  # Alice's voiceprint, under her

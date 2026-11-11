@@ -12,7 +12,6 @@ import threading
 import time
 from typing import TYPE_CHECKING, Any
 
-from liberational import config as cfg
 from liberational import services, speech_log, vision_log
 from liberational.audio import gain
 from liberational.dashboard import context, routes
@@ -115,7 +114,7 @@ def _listening() -> bool:
 MIC_FRESH_S = 10.0  # a microphone whose newest audio is older than this isn't being heard
 
 
-_mic_cache: dict[str, Any] = {"at": 0.0, "value": None}
+_mic_cache: dict[str, Any] = {"at": 0.0, "state": None, "value": None}
 
 
 def camera_status() -> dict[str, Any]:
@@ -130,8 +129,14 @@ def mic_status() -> dict[str, Any]:
     """The microphones as the Live tab shows them: {"ts", "devices":
     {name: {"name", "healthy", "gain"?}}}, "gain" from the listen worker's auto gain status. A microphone is healthy
     while the listen worker runs and its `<name>.audio` stream on the broker has audio from the last MIC_FRESH_S; "ts"
-    is now while any is, and absent otherwise (not listening). Asked of the broker at most every 2 s."""
-    if time.monotonic() - _mic_cache["at"] < 2.0 and _mic_cache["value"] is not None:
+    is now while any is, and absent otherwise (not listening). Asked of the broker at most every 2 s, and the answer
+    is kept per state directory, so pointing `context.STATE` elsewhere never serves the state before it."""
+    state = context.STATE
+    if (
+        _mic_cache["value"] is not None
+        and _mic_cache["state"] == str(state)
+        and time.monotonic() - _mic_cache["at"] < 2.0
+    ):
         return _mic_cache["value"]
     try:
         fresh = speech_log.shared().mic_freshness()
@@ -139,7 +144,7 @@ def mic_status() -> dict[str, Any]:
         LOG.warning("mic status: %s", repr(e))
         fresh = {}
     listening, now_ns = _listening(), time.time_ns()
-    gains = {g.get("name"): g for g in gain.read_status(cfg.path("paths.state") / gain.STATUS).values()}
+    gains = {g.get("name"): g for g in gain.read_status(state / gain.STATUS).values()}
     devices = {}
     for stream, newest in fresh.items():
         name = stream.removesuffix(".audio")
@@ -150,7 +155,7 @@ def mic_status() -> dict[str, Any]:
     out: dict[str, Any] = {"devices": devices}
     if any(d["healthy"] for d in devices.values()):
         out["ts"] = time.time()
-    _mic_cache.update(at=time.monotonic(), value=out)
+    _mic_cache.update(at=time.monotonic(), state=str(state), value=out)
     return out
 
 

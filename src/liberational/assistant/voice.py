@@ -271,6 +271,7 @@ def owner_answer(request: str, session_key: str, grant: Grant | None = None) -> 
     tok = _gateway_token()
     if not tok:
         raise RuntimeError("gateway token unavailable")
+    notes = owner_notes()  # once, so the note in the body cannot race the note in the test for one
     body = {
         "model": cfg.get("agent.phone_agent"),
         "user": session_key,
@@ -283,7 +284,7 @@ def owner_answer(request: str, session_key: str, grant: Grant | None = None) -> 
                     for x in [
                         scope,
                         OWNER_RULE,
-                        owner_notes() and f"[Notes: {owner_notes()}]",
+                        notes and f"[Notes: {notes}]",
                         f"{cfg.owner_or('User')}: {request}",
                     ]
                     if x
@@ -383,8 +384,7 @@ CONVERSATION = Conversation(STATE_DIR / "voice_auth.json", follow=follow_voice)
 
 def handle(text_line: str, speaker: Speaker | None = None, entry: Mapping[str, Any] | None = None) -> str | None:
     """Answers a line if it's for the assistant (and speaks the answer with `speaker`). On Continuum the voice turn is
-    Listening when a request is accepted, Thinking while it works out the answer, Speaking while it plays, and
-    Idle after."""
+    Thinking while it works out the answer, Speaking while it plays, and Idle after."""
     try:
         return _handle(text_line, speaker, entry)
     finally:
@@ -401,7 +401,6 @@ def _handle(text_line: str, speaker: Speaker | None = None, entry: Mapping[str, 
     result = CONVERSATION.accept(text, entry or {}, owner_entry(entry or {}), CAMERA_Q.search)
     if result is None:
         return None
-    _turn("Listening")
     _turn("Thinking")
     error = None
     history_speech = _HistorySpeech(speaker) if speaker is not None else None

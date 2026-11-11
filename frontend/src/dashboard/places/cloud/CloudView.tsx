@@ -253,7 +253,7 @@ function CloudMap({ place, onEditPlan }: { place: string; onEditPlan?: () => voi
   const host = useRef<HTMLDivElement>(null);
   const built = useRef<Built | null>(null);
   const [colour, setColour] = useState<Colour>('rgb');
-  const [size, setSize] = useState(2.5);
+  const [size, setSize] = useState(5);
   const [show, setShow] = useState({ floor: true, cameras: true, plan: true });
   // A camera's cloud opens from that camera, where its own mark (the outline of its view) lies along the edges of
   // the picture: a stray line down one side. So the mark starts off for each camera's cloud, and comes on from

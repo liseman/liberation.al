@@ -55,7 +55,6 @@ def empty_api(tmp_path, monkeypatch, move_dashboard_state, serve_dashboard):
         ("/clones", "clones", []),
         ("/calls", None, []),
         ("/speakers", "speakers", []),
-        ("/speakers/refine", "items", []),
         ("/journal/evidence?day=2026-01-01", "sources", []),  # no day page: nothing cited yet
     ],
 )
@@ -96,3 +95,33 @@ def test_voice_reader_keeps_unknown_utterance_without_speaker_database(tmp_path,
 def test_timeline_queries_are_empty_without_voice_or_event_files(tmp_path):
     assert timeline.encounters(state=tmp_path) == []
     assert timeline.present(0, 100, state=tmp_path) == []
+
+
+@pytest.mark.parametrize(
+    "trouble",
+    [
+        pytest.param("no-socket", id="no-broker-listening"),
+        pytest.param("no-socket-path", id="no-socket-path-at-all"),
+    ],
+)
+def test_a_page_answers_on_an_install_with_no_broker(empty_api, monkeypatch, tmp_path, trouble):
+    """The camera status page asked for a broker link and died when it could not have one: a runner with no broker
+    build dropped the connection instead of answering. A page must answer on an install with no broker."""
+    from liberational import continuum_link
+    from liberational.dashboard import devices
+
+    monkeypatch.setattr(devices, "_links", [])  # no link made by an earlier request
+    if trouble == "no-socket":
+
+        def nowhere():
+            return tmp_path / "no-broker.sock"  # a path, with nothing listening on it
+
+        monkeypatch.setattr(continuum_link, "socket_path", nowhere)
+    else:
+
+        def no_path():
+            raise RuntimeError("no compatible continuum-broker on this machine")
+
+        monkeypatch.setattr(continuum_link, "socket_path", no_path)
+    status, body = empty_api("/vision")
+    assert (status, body["cameras"]) == (200, {})

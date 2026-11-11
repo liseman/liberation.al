@@ -1,11 +1,10 @@
 """One advisory lock per shared file, across processes.
 
-The transcript (state/transcript.jsonl) is appended by the microphone service and rewritten whole only when a person
-is forgotten (audio/ambient.py forget_lines); labels are events in the log. A rewrite that reads,
-decides, and replaces while an append lands in between would drop that line, so the rewrite holds the file's lock
-from its read to its replace, and every append holds it too. A day's transcript/<day>.md is locked the same way,
-because a label writer rebuilds it (people/transcript_view.py) while the microphone service appends to it. fcntl.flock
-works on Linux and macOS, and the lock goes away with the process that held it.
+Callers hold it around a read-decide-replace of a file two processes share, so an append or another rewrite that
+lands between the read and the replace cannot be lost: the phone's mission and outbound queues
+(phone/outbound.py), memory places and the journal (memory/places.py, memory/journal.py), a camera rename
+(camera_rename.py), and pet-recognition evidence (people/pet_recognition.py). fcntl.flock works on Linux and macOS,
+and the lock goes away with the process that held it.
 """
 
 import contextlib

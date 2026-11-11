@@ -279,14 +279,14 @@ def shared() -> SpeechLog:
 _retained_lock = threading.Lock()
 _retained_log: SpeechLog | None = None
 _retained_mark: tuple[object, ...] | None = None
-_retained_rows: list[dict[str, Any]] = []
+_retained_rows: tuple[dict[str, Any], ...] = ()
 
 
-def retained() -> list[dict[str, Any]]:
+def retained() -> tuple[dict[str, Any], ...]:
     """Every utterance kept, in time order, cached until a line is written or a purge may have taken one. People and
     clone totals need complete history. Raw rows only: each request applies a fresh identity View, so names and
-    corrections never wait for new speech. Copies keep a caller's projection or annotations from changing another
-    request's input."""
+    corrections never wait for new speech. The rows are read-only: a reader projects them with a `View` (which copies
+    each line) rather than annotating them in place, so no request changes the cache another request reads."""
     global _retained_log, _retained_mark, _retained_rows
     log = shared()
     with _retained_lock:
@@ -295,9 +295,8 @@ def retained() -> list[dict[str, Any]]:
         state = getattr(log, "segments", segment_log.root()).parent
         mark = (*log.mark(), revisions.review_revision(state))
         if log is not _retained_log or mark != _retained_mark:
-            rows = log.all_lines()
-            _retained_log, _retained_mark, _retained_rows = log, mark, rows
-        return copy.deepcopy(_retained_rows)
+            _retained_log, _retained_mark, _retained_rows = log, mark, tuple(log.all_lines())
+        return _retained_rows
 
 
 WORKER_STREAM_PREFIX = "worker."  # the broker's own worker state, such as worker.checkpoint.<hash>.parts
