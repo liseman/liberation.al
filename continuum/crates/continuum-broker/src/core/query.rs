@@ -715,7 +715,8 @@ impl Sched {
         }
     }
 
-    /// The inputs of a dispatch were read: pin them for the job's lease and send the job to its worker.
+    /// The inputs of a dispatch were read: wire their locators to the worker's session and send the job. The session's
+    /// reader pins ([`crate::tier0::READ_PIN`]) cover the slots for a few seconds; nothing is held for the lease.
     pub(super) fn staged(&mut self, d: Dispatch, inputs: Result<Vec<ReadItem>, String>) {
         self.staging.remove(&d.output.lease);
         // The lease may have ended while the inputs were read (the promise was cancelled, the lease preempted or
@@ -731,8 +732,6 @@ impl Sched {
             Ok(items) => self.wire_items(Some(session), items),
             Err(e) => return self.staging_failed(d.output.lease, &e),
         };
-        let pinned: Vec<StorageLocator> = inputs.iter().filter_map(|i| i.locator.clone()).collect();
-        self.pins.insert(d.output.lease, pinned);
         self.jobs.insert(d.job, (d.worker, d.output.lease));
         let name = self.cap_names.get(&d.capability).cloned().unwrap_or_default();
         let bytes = protocol::dispatch_job(&mut self.builder, &d, &inputs, &name);
@@ -860,13 +859,6 @@ impl Sched {
             let bytes = protocol::promise_failed(&mut self.builder, promise, reason, delivered);
             self.push(session, bytes);
         }
-    }
-
-    /// An `Action::Unpin`: release what was pinned for a job's lease.
-    pub(super) fn unpin(&mut self, lease: LeaseId) {
-        // Keep in-flight reader snapshots tracked until their Staged event arrives, even if the lease ends.
-        // TODO(slot arena): release the pins. Until then the stub pinned nothing.
-        self.pins.remove(&lease);
     }
 }
 

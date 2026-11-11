@@ -1244,7 +1244,6 @@ pub fn spawn(
         consumers: HashMap::new(),
         consumer_sessions: HashMap::new(),
         next_consumer: 0,
-        pins: HashMap::new(),
         staging: HashSet::new(),
         delivered: HashMap::new(),
         fulfillments: HashMap::new(),
@@ -1340,9 +1339,7 @@ struct Sched {
     consumers: HashMap<SessionId, ConsumerId>,
     consumer_sessions: HashMap<ConsumerId, SessionId>,
     next_consumer: u64,
-    /// What was pinned for each job's lease (released on `Unpin`).
-    pins: HashMap<LeaseId, Vec<StorageLocator>>,
-    /// Dispatches whose catalog snapshots have not yet become physical pins.
+    /// Dispatches whose catalog snapshots have not yet been read and wired.
     staging: HashSet<LeaseId>,
     /// Items delivered so far per promise, for `PromiseFailed`.
     delivered: HashMap<continuum_sched::PromiseId, u32>,
@@ -2378,7 +2375,9 @@ impl Sched {
                         self.push(session, bytes);
                     }
                 }
-                Action::Unpin { lease } => self.unpin(lease),
+                // A job's inputs aren't pinned per lease: the worker's session takes a short reader pin on each
+                // Tier 0 slot when the dispatch is wired, and that expires on its own.
+                Action::Unpin { .. } => {}
                 // Every exit of a lease, so the ownership map never keeps one the scheduler has dropped (a preempted
                 // lease that expired sends no RevokeLease, for instance).
                 Action::LeaseEnded { lease, .. } => {
