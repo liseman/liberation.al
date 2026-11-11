@@ -183,11 +183,11 @@ GET  /health                {ok, ts, clients, boot}; boot changes on every resta
 GET  /static/<path>         the frontend's build (static/app/): pages, and content-hashed scripts, styles, fonts
 GET  /services/history?hours=24|168   bounded service lifecycle metadata or labelled five-minute samples
 GET  /services              admin sidebar: every service for this platform with its state, and "control" (may switch)
-POST /services              {"name": "vision", "action": "on"} -> pack-services install, uninstall, stop, start, or
-                            (enable, disable) pack.toml's [services] choice and then install or uninstall; this
-                            machine only.
-                            {"all": "repair"} reinstalls every enabled service, {"all": "off"} removes every
-                            installed one; the dashboard and services running by hand are left alone either way
+POST /services              {"name": "vision", "action": "on"} -> the application starts or stops one service, or
+                            (enable, disable) pack.toml's [services] choice; this machine only, and refused while the
+                            application isn't running.
+                            {"all": "repair"} restarts every service in the cascade's order, {"all": "off"} stops
+                            every one but the dashboard
 GET  /devices               source picker: this machine's cameras and microphones, which are chosen and in use
 POST /devices/sensitivity   {"mic": name, "sensitivity": 0..100 or null} -> audio.mic_sensitivity; applied live
 POST /devices/auto_gain     {"mic": name, "on": bool} -> audio.mic_auto_gain; applied live

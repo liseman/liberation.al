@@ -1,25 +1,22 @@
 """Portable staged service restarts, with strict readiness and process identity checks.
 
-Service-manager success is not readiness. A cascade stops readers before capture, lets the tier worker flush what
+A successful stop or start is not readiness. A cascade stops readers before capture, lets the tier worker flush what
 capture left in Tier 0, then stops it and the broker, proves old processes gone, then starts broker, capture, and
 readers across explicit SDK boundaries. Diagnostics stay available
-through core stages. Every manager command and the entire operation have deadlines; errors retain their stage.
+through core stages. Every operation, and every wait inside it, has a deadline; errors retain their stage.
+
+The application (supervisor.py) is the only Manager: the cascade walks its own children, so there is no
+operating-system unit to render, enable, or reload.
 """
 
 import asyncio
-import contextlib
-import fcntl
 import itertools
-import os
-import subprocess
 import sys
 import time
-from collections.abc import Callable, Generator, Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Protocol
-
-import psutil
+from typing import Protocol
 
 from liberational import config as cfg
 from liberational import logs
@@ -385,9 +382,9 @@ def run(
     except BaseException as error:
         restore_error = None
         if changed:
-            # Never leave what this cascade stopped unloaded: launchd doesn't bring an unloaded job back, while
-            # a loaded one that fails keeps retrying. After a failed stop the core is left as it is, since an old
-            # process may still hold the devices. The failure still exits nonzero.
+            # Never leave what this cascade stopped down: a service the application keeps wanted comes back on its
+            # own. After a failed stop the core is left as it is, since an old process may still hold the devices.
+            # The failure still exits nonzero.
             core_unsafe = stage.startswith("stop ")
             recover = [name for name in active if not (core_unsafe and name in {BROKER, CAPTURE})]
             groups = (
@@ -492,334 +489,6 @@ class SDKReadiness:
             raise RuntimeError("broker/arena identity changed after capture readiness")
 
 
-class ServiceManager:
-    """Bounded systemd/launchd adapter; it never resets failure counters or signals guessed PIDs."""
-
-    def __init__(self, spec: Mapping[str, dict[str, Any]]) -> None:
-        from liberational import services
-
-        self.spec = spec
-        self.darwin = services.DARWIN
-        self.units = services.unit_dir()
-
-    def command(self, args: Sequence[str], deadline: float, *, check: bool = True) -> subprocess.CompletedProcess[str]:
-        try:
-            result = subprocess.run(list(args), capture_output=True, text=True, timeout=remaining(deadline, 2))
-        except (OSError, subprocess.TimeoutExpired) as error:
-            raise RuntimeError(f"{' '.join(args)}: {error}") from error
-        if check and result.returncode:
-            raise RuntimeError(
-                f"{' '.join(args)}: {(result.stderr or result.stdout).strip()[-1000:] or f'exit {result.returncode}'}"
-            )
-        return result
-
-    def unit(self, name: str) -> str:
-        return f"pack-{name}.timer" if self.spec[name].get("schedule") else f"pack-{name}.service"
-
-    @staticmethod
-    def _identity(pid: int) -> ProcessIdentity | None:
-        if pid <= 0:
-            return None
-        try:
-            process = psutil.Process(pid)
-            if process.status() == psutil.STATUS_ZOMBIE:
-                return None
-            return ProcessIdentity(pid, process.create_time())
-        except psutil.NoSuchProcess:
-            return None
-        except psutil.Error as error:
-            raise RuntimeError(f"cannot inspect process {pid}: {error}") from error
-
-    def _children(self, identity: ProcessIdentity | None) -> tuple[ProcessIdentity, ...]:
-        if identity is None:
-            return ()
-        try:
-            parent = psutil.Process(identity.pid)
-            if parent.create_time() != identity.created_at:
-                raise RuntimeError(f"process {identity.pid} changed identity during inspection")
-            children = (self._identity(p.pid) for p in parent.children(recursive=True))
-            return tuple(sorted((p for p in children if p is not None), key=lambda p: (p.pid, p.created_at)))
-        except psutil.NoSuchProcess:
-            return ()
-        except psutil.Error as error:
-            raise RuntimeError(f"cannot inspect children of {identity.pid}: {error}") from error
-
-    def _capture_workers(self) -> tuple[tuple[ProcessIdentity, ...], frozenset[ProcessIdentity]]:
-        """Capture's worker processes, and which of them run an RTSP camera (their `--device` is a `kind = "rtsp"`
-        device in the manifest)."""
-        from liberational import services
-
-        if CAPTURE not in self.spec:
-            return (), frozenset()
-        worker = Path(services.argv(self.spec[CAPTURE])[0]).with_name("continuum-capture-worker").resolve()
-        network = rtsp_devices(cfg.devices_file())
-        found, rtsp = [], set()
-        for process in psutil.process_iter(["exe", "cmdline"]):
-            command = process.info.get("cmdline") or []
-            executable = process.info.get("exe") or (command[0] if command else None)
-            if executable and Path(executable).resolve() == worker:
-                identity = self._identity(process.pid)
-                if identity is not None:
-                    found.append(identity)
-                    if _device_of(command) in network:
-                        rtsp.add(identity)
-        return tuple(sorted(found, key=lambda p: (p.pid, p.created_at))), frozenset(rtsp)
-
-    def snapshot(self, names: Sequence[str], deadline: float) -> dict[str, ServiceFact]:
-        if not names:
-            return {}
-        result: dict[str, ServiceFact] = {}
-        if not self.darwin:
-            units = list(
-                dict.fromkeys(
-                    unit
-                    for name in names
-                    for unit in (
-                        (self.unit(name), f"pack-{name}.service")
-                        if self.spec[name].get("schedule")
-                        else (self.unit(name),)
-                    )
-                )
-            )
-            output = self.command(
-                [
-                    "systemctl",
-                    "--user",
-                    "show",
-                    "--property=Id,LoadState,ActiveState,SubState,MainPID,NRestarts",
-                    *units,
-                ],
-                deadline,
-            ).stdout
-            records = {}
-            for block in output.strip().split("\n\n"):
-                props = dict(line.split("=", 1) for line in block.splitlines() if "=" in line)
-                if props.get("Id") in units:
-                    records[props["Id"]] = props
-            for name in names:
-                props = records.get(self.unit(name))
-                if props is None:
-                    continue
-                active, sub = props.get("ActiveState", "unknown"), props.get("SubState", "unknown")
-                scheduled = bool(self.spec[name].get("schedule"))
-                state = (
-                    "scheduled"
-                    if scheduled and active == "active" and sub in {"waiting", "running"}
-                    else "running"
-                    if active == "active" and sub == "running"
-                    else "failed"
-                    if active == "failed"
-                    else f"{active}/{sub}"
-                )
-                if props.get("LoadState") == "not-found":
-                    state = "not loaded"
-                process_props = records.get(f"pack-{name}.service", props)
-                raw_pid, counter = process_props.get("MainPID", ""), process_props.get("NRestarts", "")
-                pid = self._identity(int(raw_pid)) if raw_pid.isdigit() else None
-                result[name] = ServiceFact(
-                    name, state, pid, int(counter) if counter.isdigit() else None, self._children(pid), scheduled
-                )
-        else:
-            for name in names:
-                output = self.command(["launchctl", "print", f"gui/{os.getuid()}/pack.{name}"], deadline, check=False)
-                if output.returncode:
-                    if (
-                        output.returncode == 113
-                        or "could not find service" in output.stderr.lower()
-                        or "not found" in output.stderr.lower()
-                    ):
-                        result[name] = ServiceFact(
-                            name, "not loaded", None, None, scheduled=bool(self.spec[name].get("schedule"))
-                        )
-                        continue
-                    raise RuntimeError(f"{name}: launchctl print failed: {output.stderr.strip()}")
-                props = {}
-                for line in output.stdout.splitlines():
-                    if " = " in line:
-                        key, value = line.split(" = ", 1)
-                        props.setdefault(key.strip(), value.strip())
-                scheduled = bool(self.spec[name].get("schedule"))
-                raw_pid, runs = props.get("pid", ""), props.get("runs", "")
-                pid = self._identity(int(raw_pid)) if raw_pid.isdigit() else None
-                state = "scheduled" if scheduled else props.get("state", "unknown")
-                result[name] = ServiceFact(
-                    name, state, pid, max(0, int(runs) - 1) if runs.isdigit() else None, self._children(pid), scheduled
-                )
-        missing = set(names) - result.keys()
-        if missing:
-            raise RuntimeError("manager returned no state for: " + ", ".join(sorted(missing)))
-        if CAPTURE in result:
-            fact = result[CAPTURE]
-            workers, rtsp = self._capture_workers()
-            children = tuple(sorted(set(fact.children) | set(workers), key=lambda p: (p.pid, p.created_at)))
-            result[CAPTURE] = replace(fact, children=children, replaceable=rtsp)
-        return result
-
-    def stop(self, names: Sequence[str], deadline: float) -> None:
-        if not names:
-            return
-        if self.darwin:
-            facts = self.snapshot(names, deadline)
-            for name in names:
-                if facts[name].state != "not loaded":
-                    self.command(["launchctl", "bootout", f"gui/{os.getuid()}/pack.{name}"], deadline)
-        else:
-            units = [
-                unit
-                for name in names
-                for unit in (
-                    (self.unit(name), f"pack-{name}.service") if self.spec[name].get("schedule") else (self.unit(name),)
-                )
-            ]
-            self.command(["systemctl", "--user", "--no-block", "stop", *dict.fromkeys(units)], deadline)
-
-    def start(self, names: Sequence[str], deadline: float) -> None:
-        if not names:
-            return
-        # Every service is tried even when one fails; the failures are raised together after.
-        failures = []
-        if self.darwin:
-            facts = self.snapshot(names, deadline)
-            for name in names:
-                if facts[name].state in {"running", "scheduled"}:
-                    continue
-                if facts[name].state == "not loaded":
-                    args = ["launchctl", "bootstrap", f"gui/{os.getuid()}", str(self.units / f"pack.{name}.plist")]
-                else:
-                    args = ["launchctl", "kickstart", f"gui/{os.getuid()}/pack.{name}"]
-                try:
-                    self.command(args, deadline)
-                except RuntimeError as error:
-                    failures.append(str(error))
-        else:
-            units = [self.unit(name) for name in names]
-            try:
-                self.command(["systemctl", "--user", "--no-block", "start", *units], deadline)
-            except RuntimeError:
-                # One bad unit fails the whole call; start each so the rest still go.
-                for unit in units:
-                    try:
-                        self.command(["systemctl", "--user", "--no-block", "start", unit], deadline)
-                    except RuntimeError as error:
-                        failures.append(str(error))
-        if failures:
-            raise RuntimeError("; ".join(failures))
-
-    def wait_stopped(self, before: Mapping[str, ServiceFact], deadline: float) -> None:
-        while True:
-            pending = []
-            for name, fact in before.items():
-                for identity in (*fact.children, fact.pid) if fact.pid is not None else fact.children:
-                    if self._identity(identity.pid) == identity:
-                        pending.append(f"{name}: old process {identity.pid} is still alive")
-            current = self.snapshot(tuple(before), deadline)
-            for name, fact in current.items():
-                if fact.pid is not None or fact.children or fact.state in {"running", "scheduled"}:
-                    pending.append(f"{name}: manager/child processes have not stopped ({fact.state})")
-            if not pending:
-                return
-            try:
-                time.sleep(remaining(deadline, 0.1))
-            except TimeoutError as error:
-                raise RuntimeError("; ".join(pending)) from error
-
-    def prepare_install(self, names: Sequence[str], deadline: float) -> None:
-        """Render/enable units without starting them; activation belongs exclusively to the staged runner."""
-        from liberational import services
-
-        services.log_path("x").parent.mkdir(parents=True, exist_ok=True)
-        self.units.mkdir(parents=True, exist_ok=True)
-        for name in names:
-            for filename, text in services.render(name, self.spec[name]).items():
-                (self.units / filename).write_text(text)
-        if not self.darwin:
-            self.command(["systemctl", "--user", "daemon-reload"], deadline)
-            self.command(
-                ["systemctl", "--user", "enable", "--no-reload", *(self.unit(name) for name in names)], deadline
-            )
-
-
-@contextlib.contextmanager
-def cascade_lock(path: Path, deadline: float) -> Generator[None]:
-    """Serialize controllers across CLI/dashboard processes; the persistent lock inode is never unlinked."""
-    remaining(deadline)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor = os.open(
-        path, os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0), 0o600
-    )
-    try:
-        os.fchmod(descriptor, 0o600)
-        while True:
-            try:
-                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                break
-            except BlockingIOError:
-                try:
-                    time.sleep(remaining(deadline, 0.05))
-                except TimeoutError as error:
-                    raise CascadeError("cascade lock", "another service cascade still holds the lock") from error
-        yield
-    finally:
-        os.close(descriptor)
-
-
-def _run_selected(
-    original: Sequence[str],
-    *,
-    install: bool = False,
-    timeout: float = DEFAULT_TIMEOUT,
-    anywhere: bool = False,
-    start_stopped: bool = False,
-) -> CascadeReport:
-    """Production boundary shared by explicit restart and every install touching broker/capture."""
-    from liberational import services
-    from liberational.cascade_health import wait_for_health
-
-    deadline = time.monotonic() + timeout
-    services._check_checkout(anywhere)
-    chosen = services.selected()
-    unknown = set(original) - chosen.keys()
-    if unknown:
-        raise CascadeError("planning", "not selected: " + ", ".join(sorted(unknown)))
-    have = set(services.installed())
-    if not install and set(original) - have:
-        raise CascadeError("planning", "not installed: " + ", ".join(sorted(set(original) - have)))
-    names = tuple(name for name in chosen if name in have or install and name in original)
-    if BROKER not in names:
-        raise CascadeError("planning", "continuum-broker must be selected and installed")
-    ready = SDKReadiness(cfg.devices_file(), cfg.path("paths.state") / "continuum/broker.sock")
-    if ready.needs and CAPTURE not in names:
-        raise CascadeError("planning", "configured capture devices require selected/installed continuum-capture")
-    # Permanent SDK/configuration errors precede all unit writes and manager mutations.
-    ready.previous(deadline)
-    with cascade_lock(cfg.path("paths.state") / "continuum/service-cascade.lock", deadline):
-        # A waiting controller must not apply an obsolete selection or device manifest.
-        if services.selected() != chosen or set(services.installed()) != have:
-            raise CascadeError("planning", "service selection/installation changed while waiting; retry the cascade")
-        fresh = SDKReadiness(cfg.devices_file(), cfg.path("paths.state") / "continuum/broker.sock")
-        if fresh.needs != ready.needs:
-            raise CascadeError("planning", "configured capture streams changed while waiting; retry the cascade")
-        ready = fresh
-        manager = ServiceManager(chosen)
-        before = manager.snapshot(tuple(name for name in names if name in have), deadline)
-        _check_required_core(before, original, start_stopped, bool(ready.needs))
-        if install:
-            services.preflight(original)
-            manager.prepare_install(original, deadline)
-        return run(
-            names,
-            manager=manager,
-            readiness=ready,
-            health=wait_for_health,
-            refresh_diagnostics=tuple(name for name in original if name in DIAGNOSTICS),
-            start_stopped=start_stopped,
-            requested=original,
-            capture_required=bool(ready.needs),
-            timeout=remaining(deadline),
-            log=file_log,
-        )
-
-
 def disk_line(line: str, ts: float) -> str:
     """A cascade line as cascade.log keeps it, in the one log format (logs.py): `<stamp> [cascade] LEVEL message`,
     ERROR for a failure, else INFO."""
@@ -844,23 +513,3 @@ def file_log(line: str) -> None:
     """A cascade line on stdout, as before (the command's own output: the CLI prints these), and on disk."""
     sys.stdout.write(line + "\n")
     _on_disk(line)
-
-
-def run_selected(
-    original: Sequence[str],
-    *,
-    install: bool = False,
-    timeout: float = DEFAULT_TIMEOUT,
-    anywhere: bool = False,
-    start_stopped: bool = False,
-) -> CascadeReport:
-    """Expose named preflight/stage failures to CLI callers instead of silent manager output or empty state."""
-    _on_disk(f"cascade: {'install' if install else 'restart'} {' '.join(original) or '(all selected)'}")
-    try:
-        return _run_selected(original, install=install, timeout=timeout, anywhere=anywhere, start_stopped=start_stopped)
-    except CascadeError as error:
-        _on_disk(f"cascade: failed at {error}")  # the line the CLI prints, which is the one that names the stage
-        raise
-    except Exception as error:
-        _on_disk(f"cascade: failed at preflight: {error}")
-        raise CascadeError("preflight", str(error)) from error

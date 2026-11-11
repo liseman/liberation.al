@@ -9,11 +9,10 @@
   pack-supervisor quit                  # drain, then stop, everything, and exit
 
 The operating system's service manager isn't involved: nothing is rendered, installed, or registered. The system runs
-while this process does. It lands beside pack-services (which still renders units for the installs that have them,
-until #165 moves them over) and the two must never run the same services at once: `run` refuses to start while a
-service of the pack is running outside it.
+while this process does. It lands beside pack-services, which asks it for everything the verbs below do; the two must
+never run the same services at once: `run` refuses to start while a service of the pack is running outside it.
 
-What it does that systemd and launchd did:
+What it does that the per-service units of earlier installs did:
 
 - **Starts** each selected service (services.selected()) with the command line, environment, log file, and priority
   the units gave it (services.argv and services.environment), in the cascade's order: the dashboard and the gateway

@@ -8,9 +8,9 @@ import psutil
 import http.client
 import json
 import logging
-import subprocess
 import threading
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import create_autospec
 
 import pytest
@@ -264,48 +264,6 @@ def test_fresh_service_view_waits_for_process_evidence_even_before_the_first_pol
     scan.assert_called_once_with()
 
 
-def test_states_ask_about_the_timer_for_scheduled_jobs(tmp_path, monkeypatch):
-    for f in ("pack-listen.service", "pack-deep-transcribe.service", "pack-deep-transcribe.timer"):
-        (tmp_path / f).write_text("")
-    asked = []
-
-    def run(*cmd, check=False):
-        asked.append(cmd)
-        return subprocess.CompletedProcess(
-            cmd,
-            0,
-            "Id=pack-deep-transcribe.timer\nActiveState=active\n\nId=pack-listen.service\nActiveState=failed\n",
-            "",
-        )
-
-    monkeypatch.setattr(s, "DARWIN", False)
-    monkeypatch.setattr(s, "unit_dir", lambda: tmp_path)
-    monkeypatch.setattr(s, "_run", run)
-    assert s.states() == {"listen": "failed", "deep-transcribe": "active"}
-    assert asked == [
-        (
-            "systemctl",
-            "--user",
-            "show",
-            "-p",
-            "Id",
-            "-p",
-            "ActiveState",
-            "pack-deep-transcribe.timer",
-            "pack-listen.service",
-        )
-    ]
-
-
-@pytest.mark.parametrize("reply", ["", "Id=pack-listen.service\n", "Id=unrelated.service\nActiveState=active\n"])
-def test_states_preserve_unknown_when_the_manager_does_not_report_an_installed_unit(tmp_path, monkeypatch, reply):
-    (tmp_path / "pack-listen.service").write_text("")
-    monkeypatch.setattr(s, "DARWIN", False)
-    monkeypatch.setattr(s, "unit_dir", lambda: tmp_path)
-    monkeypatch.setattr(s, "_run", lambda *cmd, check=False: subprocess.CompletedProcess(cmd, 1, reply, "unavailable"))
-    assert s.states() == {"listen": "unknown"}
-
-
 def test_snapshot_lists_this_platform_with_selection_and_state(monkeypatch):
     monkeypatch.setattr(cfg, "platform_key", lambda: "linux-x86_64")
     monkeypatch.setattr(s, "states", lambda: {"listen": "active"})
@@ -387,31 +345,6 @@ SNAPSHOT = [
 ON = {"name": "listen", "action": "on"}
 
 
-class FakePackServices:
-    """Stands in for subprocess.run: records the pack-services arguments of each call and replies with one result."""
-
-    returncode, stderr = 0, ""
-
-    def __init__(self):
-        self.ran = []
-        self.timeouts = []
-        self.elapsed = 0
-
-    def __call__(self, cmd, **kw):
-        self.ran.append(cmd[cmd.index("liberational.services") + 1 :])
-        self.timeouts.append(kw.get("timeout"))
-        if kw["timeout"] < self.elapsed:
-            raise subprocess.TimeoutExpired(cmd, kw["timeout"])
-        return subprocess.CompletedProcess(cmd, self.returncode, "", self.stderr)
-
-
-@pytest.fixture
-def pack_services(monkeypatch):
-    fake = FakePackServices()
-    monkeypatch.setattr(subprocess, "run", fake)
-    return fake
-
-
 @pytest.fixture
 def snapshots(monkeypatch):
     """Stands in for services.snapshot: returns SNAPSHOT and records whether each call asked for fresh pids."""
@@ -426,7 +359,25 @@ def snapshots(monkeypatch):
 
 
 @pytest.fixture
-def base(serve_dashboard, monkeypatch, pack_services, snapshots):
+def supervisor_running(monkeypatch):
+    """Stands in for the running application: the status it reports, and the requests each action sends it."""
+    asked: list[dict[str, Any]] = []
+    status = {
+        "pid": 4242,
+        "services": {row["name"]: {"state": row["state"], "scheduled": False} for row in SNAPSHOT},
+    }
+
+    def request(message, path=None, timeout=120):
+        asked.append(dict(message))
+        return {"ok": True}
+
+    monkeypatch.setattr(service_control.supervisor, "read_status", lambda: status)
+    monkeypatch.setattr(service_control.supervisor, "request", request)
+    return asked
+
+
+@pytest.fixture
+def base(serve_dashboard, snapshots):
     return serve_dashboard()
 
 
@@ -448,6 +399,70 @@ def test_status_says_whether_this_viewer_may_switch(base):
     assert not call(base, "GET", **{"X-Forwarded-For": "100.64.0.9"})[1]["control"]
 
 
+def test_every_action_is_a_message_to_the_running_application(base, supervisor_running):
+    assert call(base, "POST", ON)[0] == 200
+    assert call(base, "POST", {"name": "voice", "action": "off"})[0] == 200
+    assert call(base, "POST", {"name": "voice", "action": "stop"})[0] == 200
+    assert call(base, "POST", {"name": "voice", "action": "start"})[0] == 200
+    assert call(base, "POST", {"name": "listen", "on": True})[0] == 400  # no action, nothing is asked
+    assert call(base, "POST", {"name": "listen", "action": "restart"})[0] == 400
+    assert supervisor_running == [
+        {"op": "start", "names": ["listen"]},
+        {"op": "stop", "names": ["voice"]},
+        {"op": "stop", "names": ["voice"]},
+        {"op": "start", "names": ["voice"]},
+    ]
+
+
+def test_every_action_with_no_application_open_says_plainly_to_open_it(base):
+    for body in (ON, {"name": "voice", "action": "off"}, {"name": "voice", "action": "stop"}):
+        code, reply = call(base, "POST", body)
+        assert (code, reply["ok"]) == (503, False), reply
+        assert "pack-app" in reply["error"] and "Traceback" not in reply["error"]
+    for body in ({"all": "repair"}, {"all": "off"}):
+        code, reply = call(base, "POST", body)
+        assert (code, reply["ok"]) == (503, False), reply
+        assert "pack-app" in reply["error"]
+
+
+def test_repair_and_off_are_messages_to_the_running_application(base, supervisor_running):
+    assert call(base, "POST", {"all": "repair"})[0] == 200
+    assert call(base, "POST", {"all": "off"})[0] == 200
+    assert supervisor_running == [
+        {"op": "restart"},
+        {"op": "stop", "names": ["listen", "see-faces", "voice", "phone-bridge"]},  # never the dashboard
+    ]
+
+
+def test_enable_writes_pack_toml_then_asks_the_application_to_reload(base, supervisor_running, monkeypatch):
+    chosen = []
+    monkeypatch.setattr(
+        service_control.services, "choose", lambda names, *, enable: chosen.append((list(names), enable)) or ([], [])
+    )
+    for name, action, enable in (("phone-bridge", "enable", True), ("voice", "disable", False)):
+        code, body = call(base, "POST", {"name": name, "action": action})
+        assert (code, body["ok"]) == (200, True), body
+    assert chosen == [(["phone-bridge"], True), (["voice"], False)]
+    assert [asked["op"] for asked in supervisor_running] == ["reload", "reload"]
+
+
+def test_an_action_logs_one_line_with_the_service_and_what_was_done(base, supervisor_running, monkeypatch):
+    records: list[str] = []
+
+    class Grab(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            records.append(record.getMessage())
+
+    grab = Grab(logging.INFO)
+    monkeypatch.setattr(context.LOG, "level", logging.INFO)
+    context.LOG.addHandler(grab)
+    try:
+        call(base, "POST", {"name": "voice", "action": "stop"})
+    finally:
+        context.LOG.removeHandler(grab)
+    assert [line for line in records if line.startswith("services:")] == ["services: stop voice (supervisor): done"]
+
+
 def test_the_poll_takes_cached_pids_and_every_action_a_fresh_scan(base, snapshots):
     # a service run by hand a moment ago must count before on or Repair, or the install starts it a second time
     call(base, "GET")
@@ -458,121 +473,23 @@ def test_the_poll_takes_cached_pids_and_every_action_a_fresh_scan(base, snapshot
     assert snapshots and all(snapshots)
 
 
-def test_each_action_runs_its_pack_services_command(base, pack_services):
-    assert call(base, "POST", ON)[0] == 200
-    assert call(base, "POST", {"name": "voice", "action": "off"})[0] == 200  # turned off: stays off
-    assert (
-        call(base, "POST", {"name": "voice", "action": "stop"})[0] == 200
-    )  # stopped now: back when the computer restarts
-    assert call(base, "POST", {"name": "voice", "action": "start"})[0] == 200
-    assert call(base, "POST", {"name": "listen", "on": True})[0] == 400  # no action, nothing runs
-    assert call(base, "POST", {"name": "listen", "action": "restart"})[0] == 400
-    assert pack_services.ran == [["install", "listen"], ["uninstall", "voice"], ["stop", "voice"], ["start", "voice"]]
-
-
-@pytest.mark.parametrize("name", ["continuum-broker", "continuum-capture"])
-@pytest.mark.parametrize("elapsed", [309, 630], ids=["cold-start-over-five-minutes", "late-recovery"])
-def test_core_install_allows_the_bounded_cascade_to_finish(base, pack_services, monkeypatch, name, elapsed):
-    row = {"name": name, "selected": True, "installed": True, "state": "active", "pids": [42]}
-    monkeypatch.setattr(service_control.services, "snapshot", lambda fresh=False: [row])
-    pack_services.elapsed = elapsed
-    assert call(base, "POST", {"name": name, "action": "on"})[0] == 200
-    assert 630 <= pack_services.timeouts[0] <= 900, "cascade plus recovery must remain finitely bounded"
-
-
-def test_noncore_install_keeps_the_short_service_timeout(base, pack_services):
-    assert call(base, "POST", {"name": "listen", "action": "on"})[0] == 200
-    assert pack_services.timeouts == [120]
-
-
-def test_stop_and_start_need_the_service_installed(base, pack_services):
-    assert call(base, "POST", {"name": "listen", "action": "stop"})[0] == 409  # enabled, but not installed
-    assert call(base, "POST", {"name": "listen", "action": "start"})[0] == 409
-    assert pack_services.ran == []
-
-
-def test_every_action_logs_one_line_with_the_service_and_what_was_done(base, pack_services, monkeypatch):
-    records: list[logging.LogRecord] = []
-    grab = logging.Handler(logging.INFO)
-    grab.emit = records.append  # ty: ignore[invalid-assignment]
-    monkeypatch.setattr(context.LOG, "level", logging.INFO)
-    context.LOG.addHandler(grab)
-    try:
-        call(base, "POST", {"name": "voice", "action": "stop"})
-        pack_services.returncode, pack_services.stderr = 1, "unit not found"
-        call(base, "POST", {"name": "voice", "action": "off"})
-        call(base, "POST", {"all": "off"})
-    finally:
-        context.LOG.removeHandler(grab)
-    said = [(r.levelno, r.getMessage()) for r in records if r.getMessage().startswith("services:")]
-    assert said == [
-        (logging.INFO, "services: stop voice (stopped now; starts again when the computer restarts): done"),
-        (logging.INFO, "services: off voice (uninstalled; stays off until turned on): failed: unit not found"),
-        (logging.INFO, "services: off voice (every installed service but the dashboard): failed: unit not found"),
-    ]
-
-
-def test_refuses_remote_rebound_and_cross_origin_requests(base, pack_services):
+def test_refuses_remote_rebound_and_cross_origin_requests(base):
     assert call(base, "POST", ON, **{"X-Forwarded-For": "100.64.0.9"})[0] == 403  # via Tailscale
     assert call(base, "POST", ON, Host="evil.example")[0] == 403  # DNS rebinding
     assert call(base, "POST", ON, Origin="http://evil.example")[0] == 403
     assert call(base, "POST", ON, **{"Content-Type": "text/plain"})[0] == 403
     assert call(base, "POST", {"all": "off"}, **{"X-Forwarded-For": "100.64.0.9"})[0] == 403
-    assert pack_services.ran == []
 
 
-def test_refuses_unselected_unknown_self_and_duplicate(base, pack_services):
+def test_refuses_unselected_unknown_self_and_duplicate(base):
     assert call(base, "POST", {"name": "phone-bridge", "action": "on"})[0] == 400
     assert call(base, "POST", {"name": "nope", "action": "on"})[0] == 400
     assert call(base, "POST", {"name": "dashboard", "action": "off"})[0] == 400
     assert call(base, "POST", {"name": "see-faces", "action": "on"})[0] == 409  # already running by hand
     assert call(base, "POST", {"all": "nope"})[0] == 400
-    assert pack_services.ran == []
 
 
-def test_disable_writes_pack_toml_then_uninstalls_so_it_stays_off_after_a_restart(base, pack_services):
-    code, body = call(base, "POST", {"name": "voice", "action": "disable"})
-    assert (code, body["ok"]) == (200, True), body
-    code, body = call(base, "POST", {"name": "listen", "action": "disable"})  # off by default: back to its default
-    assert (code, body["ok"]) == (200, True), body
-    assert pack_services.ran == [
-        ["disable", "voice"],
-        ["uninstall", "voice"],
-        ["reset", "listen"],
-        ["uninstall", "listen"],
-    ]
-
-
-def test_each_action_runs_alone(base, pack_services, monkeypatch):
-    # Two Disables at once each read pack.toml, and the second write dropped the first's change.
-    held = []
-    run = subprocess.run
-
-    def checking(cmd, **kw):
-        held.append(service_control.SERVICES_LOCK.locked())
-        return run(cmd, **kw)
-
-    monkeypatch.setattr(subprocess, "run", checking)
-    call(base, "POST", {"name": "voice", "action": "disable"})
-    call(base, "POST", {"all": "repair"})
-    assert held and all(held)
-    assert not service_control.SERVICES_LOCK.locked()
-
-
-def test_enable_writes_pack_toml_then_installs(base, pack_services):
-    code, body = call(base, "POST", {"name": "phone-bridge", "action": "enable"})
-    assert (code, body["ok"]) == (200, True), body
-    assert pack_services.ran == [["enable", "phone-bridge"], ["install", "phone-bridge"]]
-
-
-def test_a_failed_pack_toml_write_changes_no_service(base, pack_services):
-    pack_services.returncode, pack_services.stderr = 1, "pack.toml: permission denied"
-    code, body = call(base, "POST", {"name": "voice", "action": "disable"})
-    assert (code, body["ok"]) == (500, False)
-    assert pack_services.ran == [["disable", "voice"]]
-
-
-def test_enable_and_disable_refuse_what_they_cannot_change(base, pack_services, monkeypatch):
+def test_enable_and_disable_refuse_what_they_cannot_change(base, monkeypatch):
     assert call(base, "POST", {"name": "voice", "action": "enable"})[0] == 409  # already enabled
     assert call(base, "POST", {"name": "phone-bridge", "action": "disable"})[0] == 400  # not enabled
     assert call(base, "POST", {"name": "dashboard", "action": "disable"})[0] == 400  # this page runs on it
@@ -580,48 +497,6 @@ def test_enable_and_disable_refuse_what_they_cannot_change(base, pack_services, 
     whisper = {"name": "whisper", "selected": True, "installed": True, "state": "active", "pids": [], "required": True}
     monkeypatch.setattr(service_control.services, "snapshot", lambda fresh=False: [whisper])
     assert call(base, "POST", {"name": "whisper", "action": "disable"})[0] == 409  # asr.engine needs it
-    assert pack_services.ran == []
-
-
-def test_repair_reinstalls_every_enabled_service_but_the_dashboard(base, pack_services):
-    """Services left installed but stopped and disabled showed "All on", since Start all only counted ones not
-    installed. Repair removes and reinstalls each enabled service, leaving out the dashboard (this page runs on
-    it) and a service running by hand (see-faces here), which a reinstall would start twice."""
-    code, body = call(base, "POST", {"all": "repair"})
-    assert (code, body["ok"]) == (200, True), body
-    assert pack_services.ran == [["uninstall", "listen", "voice"], ["install", "listen", "voice"]]
-    assert "see-faces" in body["note"]
-
-
-def test_core_repair_keeps_old_processes_visible_to_the_cascade(base, pack_services, monkeypatch):
-    core = [
-        {"name": name, "selected": True, "installed": True, "state": "active", "pids": [42]}
-        for name in ("continuum-broker", "continuum-capture")
-    ]
-    monkeypatch.setattr(service_control.services, "snapshot", lambda fresh=False: [*SNAPSHOT, *core])
-    pack_services.elapsed = 630  # A late failure must still have time to finish diagnostic recovery.
-    code, body = call(base, "POST", {"all": "repair"})
-    assert (code, body["ok"]) == (200, True)
-    assert pack_services.ran == [["install", "--cascade", "listen", "voice", "continuum-broker", "continuum-capture"]]
-    assert "see-faces" in body["note"]
-
-
-def test_all_off_removes_every_installed_service_but_the_dashboard(base, pack_services, monkeypatch):
-    installed_dashboard = {"name": "dashboard", "selected": True, "installed": True, "state": "active", "pids": []}
-    monkeypatch.setattr(
-        service_control.services, "snapshot", lambda fresh=False: [*SNAPSHOT[:3], installed_dashboard, SNAPSHOT[4]]
-    )
-    code, body = call(base, "POST", {"all": "off"})
-    assert (code, body["ok"]) == (200, True), body
-    assert pack_services.ran == [["uninstall", "voice"]]  # never the dashboard, never "uninstall" with no names
-
-
-def test_bulk_actions_stop_at_a_failure(base, pack_services):
-    pack_services.returncode, pack_services.stderr = 1, "systemctl: boom"
-    code, body = call(base, "POST", {"all": "repair"})
-    assert (code, body["ok"]) == (500, False)
-    assert "boom" in body["error"]
-    assert pack_services.ran == [["uninstall", "listen", "voice"]]  # no install after a failed removal
 
 
 # ---- /stats: each process named for its service, and each Ollama runner for its model ------------------------

@@ -335,8 +335,8 @@ def run(
         if time.monotonic() > deadline:
             host.start([n for n in installed if n in running])
             raise Refused(f"still running: {', '.join(still) or 'the broker socket'}; nothing was deleted")
-        # A crash-looping broker binds its socket again between restarts, and launchd's bootout returns before the
-        # job is gone: stop what's still up again rather than refusing on the first look.
+        # A crash-looping broker binds its socket again between restarts, and a stop returns before the process is
+        # reaped: stop what's still up again rather than refusing on the first look.
         time.sleep(STOP_RETRY_S)
         host.stop(list(dict.fromkeys([*still, BROKER])))
 

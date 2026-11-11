@@ -265,11 +265,8 @@ def test_save_refuses_remote_rebound_cross_origin_and_non_json(config_url, pack_
     assert not pack_toml.exists()
 
 
-def test_restart_names_restarts_installed_services_and_starts_newly_required_ones(tmp_path, monkeypatch):
-    for name in ("listen", "dashboard", "voice"):
-        (tmp_path / f"pack-{name}.service").touch()
-    monkeypatch.setattr(services, "DARWIN", False)
-    monkeypatch.setattr(services, "unit_dir", lambda: tmp_path)
+def test_restart_names_restarts_installed_services_and_starts_newly_required_ones(monkeypatch):
+    monkeypatch.setattr(services, "installed", lambda: ["listen", "dashboard", "voice"])
     monkeypatch.setattr(cfg, "platform_key", lambda: "linux-x86_64")
     assert settings.restart_names() == ["listen", "voice"]  # never the dashboard
     with cfg.override({"asr": {"engine": "whisper"}}):

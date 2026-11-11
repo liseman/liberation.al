@@ -1,7 +1,7 @@
 """A live tail of every service's log, for the dashboard's Debug tab.
 
-Each service writes data/logs/<name>.log (services.log_path, the same file under launchd and systemd), so this reads
-those files and nothing platform-specific. The service names come from services.toml, never from a request, so a
+Each service writes data/logs/<name>.log (services.log_path, the file the application gives every child), so this
+reads those files and nothing platform-specific. The service names come from services.toml, never from a request, so a
 request can only pick among those files.
 
 A tail starts with a bounded backlog (the last lines of each file, BACKLOG_LINES in all, reaching into the file's

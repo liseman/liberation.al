@@ -1,6 +1,5 @@
 """Cascades use fake managers/SDK gates and temporary unit files, never real services."""
 
-import subprocess
 import sys
 import time
 from dataclasses import replace
@@ -97,20 +96,6 @@ def lifecycle():
         events.append(("health", tuple(names)))
 
     return manager, readiness, health, events
-
-
-def test_install_touching_broker_routes_through_cascade_instead_of_a_parallel_restart(tmp_path, monkeypatch):
-    spec = {name: {"command": "pack-fixture"} for name in NAMES}
-    monkeypatch.setattr(services, "selected", lambda: spec)
-    monkeypatch.setattr(services, "DARWIN", False)
-    monkeypatch.setattr(services, "unit_dir", lambda: tmp_path)
-    monkeypatch.setattr(services, "log_path", lambda name: tmp_path / "logs" / name)
-    monkeypatch.setattr(services, "preflight", lambda names: None)
-    monkeypatch.setattr(services, "_run", lambda *args, **kwargs: subprocess.CompletedProcess(args, 0, "", ""))
-    routed = create_autospec(cascade.run_selected, return_value=cascade.CascadeReport(NAMES, ("dashboard",)))
-    monkeypatch.setattr(cascade, "run_selected", routed)
-    services.install(["continuum-broker"], anywhere=True)
-    routed.assert_called_once_with(["continuum-broker"], install=True, anywhere=True, start_stopped=False)
 
 
 def test_cascade_orders_stops_and_starts_across_readiness_boundaries(lifecycle):
@@ -289,42 +274,6 @@ def test_one_service_failing_to_start_does_not_keep_the_rest_down(lifecycle):
     assert "cascade: left stopped: listen" in output
 
 
-def test_launchd_start_tries_every_service_and_names_each_failure(adapter, monkeypatch):
-    adapter.darwin = True
-    adapter.spec = {name: {"command": f"pack-{name}"} for name in ("a", "b", "c")}
-    monkeypatch.setattr(
-        adapter, "snapshot", lambda names, deadline: {n: cascade.ServiceFact(n, "not loaded", None, 0) for n in names}
-    )
-    tried = []
-
-    def command(args, deadline, *, check=True):
-        tried.append(args[-1])
-        if args[-1].endswith("pack.b.plist"):
-            raise RuntimeError("launchctl bootstrap pack.b: Input/output error")
-        return subprocess.CompletedProcess(args, 0, "", "")
-
-    monkeypatch.setattr(adapter, "command", command)
-    with pytest.raises(RuntimeError, match="pack.b: Input/output error"):
-        adapter.start(["a", "b", "c"], time.monotonic() + 20)
-    assert [Path(t).name for t in tried] == ["pack.a.plist", "pack.b.plist", "pack.c.plist"]
-
-
-def test_systemd_start_falls_back_to_each_unit_when_one_is_bad(adapter, monkeypatch):
-    adapter.spec = {name: {"command": f"pack-{name}"} for name in ("a", "b")}
-    calls = []
-
-    def command(args, deadline, *, check=True):
-        calls.append(args[4:])
-        if "pack-b.service" in args:
-            raise RuntimeError("Unit pack-b.service not found.")
-        return subprocess.CompletedProcess(args, 0, "", "")
-
-    monkeypatch.setattr(adapter, "command", command)
-    with pytest.raises(RuntimeError, match="pack-b.service not found"):
-        adapter.start(["a", "b"], time.monotonic() + 20)
-    assert calls == [["pack-a.service", "pack-b.service"], ["pack-a.service"], ["pack-b.service"]]
-
-
 def test_worker_identity_change_after_health_is_still_a_failure(lifecycle):
     manager, readiness, _health, _events = lifecycle
 
@@ -416,111 +365,6 @@ def test_counter_change_between_start_and_healthy_baseline_cannot_be_rebased(lif
         cascade.run(NAMES, manager=manager, readiness=readiness, health=health, log=lambda _: None)
 
 
-@pytest.fixture
-def adapter(tmp_path, monkeypatch):
-    monkeypatch.setattr(services, "unit_dir", lambda: tmp_path)
-    manager = cascade.ServiceManager({"probe": {"command": "pack-probe"}})
-    manager.darwin = False
-    monkeypatch.setattr(manager, "_identity", lambda pid: cascade.ProcessIdentity(pid, 1.0) if pid else None)
-    monkeypatch.setattr(manager, "_children", lambda pid: ())
-    monkeypatch.setattr(manager, "_capture_workers", lambda: ((), frozenset()))
-    return manager
-
-
-@pytest.mark.parametrize(
-    "active,sub,expected",
-    [
-        ("active", "running", "running"),
-        ("active", "exited", "active/exited"),
-        ("activating", "start", "activating/start"),
-        ("failed", "failed", "failed"),
-    ],
-)
-def test_systemd_snapshot_does_not_equate_active_with_a_running_daemon(adapter, monkeypatch, active, sub, expected):
-    output = (
-        f"Id=pack-probe.service\nLoadState=loaded\nActiveState={active}\nSubState={sub}\nMainPID=123\nNRestarts=4\n"
-    )
-    command = create_autospec(adapter.command, return_value=subprocess.CompletedProcess([], 0, output, ""))
-    monkeypatch.setattr(adapter, "command", command)
-    fact = adapter.snapshot(["probe"], time.monotonic() + 1)["probe"]
-    assert (fact.state, fact.pid, fact.restarts) == (expected, cascade.ProcessIdentity(123, 1.0), 4)
-
-
-def test_launchd_snapshot_keeps_creation_time_and_automatic_run_count(adapter, monkeypatch):
-    adapter.darwin = True
-    command = create_autospec(
-        adapter.command, return_value=subprocess.CompletedProcess([], 0, "state = running\npid = 123\nruns = 5\n", "")
-    )
-    monkeypatch.setattr(adapter, "command", command)
-    fact = adapter.snapshot(["probe"], time.monotonic() + 1)["probe"]
-    assert (fact.state, fact.pid, fact.restarts) == ("running", cascade.ProcessIdentity(123, 1.0), 4)
-
-
-def test_manager_query_failure_does_not_become_empty_or_stopped_state(adapter, monkeypatch):
-    adapter.darwin = True
-    command = create_autospec(adapter.command, return_value=subprocess.CompletedProcess([], 1, "", "permission denied"))
-    monkeypatch.setattr(adapter, "command", command)
-    with pytest.raises(RuntimeError, match="probe: launchctl print failed"):
-        adapter.snapshot(["probe"], time.monotonic() + 1)
-
-
-def test_manager_omitting_a_requested_service_is_an_error(adapter, monkeypatch):
-    monkeypatch.setattr(
-        adapter, "command", create_autospec(adapter.command, return_value=subprocess.CompletedProcess([], 0, "", ""))
-    )
-    with pytest.raises(RuntimeError, match="no state for: probe"):
-        adapter.snapshot(["probe"], time.monotonic() + 1)
-
-
-def test_timer_snapshot_tracks_the_scheduled_jobs_process_for_shutdown(adapter, monkeypatch):
-    adapter.spec = {"probe": {"command": "pack-probe", "schedule": "07:00"}}
-    output = "Id=pack-probe.timer\nLoadState=loaded\nActiveState=active\nSubState=waiting\nMainPID=0\n\nId=pack-probe.service\nLoadState=loaded\nActiveState=active\nSubState=running\nMainPID=123\nNRestarts=0\n"
-    monkeypatch.setattr(
-        adapter,
-        "command",
-        create_autospec(adapter.command, return_value=subprocess.CompletedProcess([], 0, output, "")),
-    )
-    fact = adapter.snapshot(["probe"], time.monotonic() + 1)["probe"]
-    assert fact.scheduled and fact.state == "scheduled"
-    assert fact.pid == cascade.ProcessIdentity(123, 1)
-
-
-def test_systemd_actions_enqueue_without_waiting_or_resetting_counters(adapter, monkeypatch):
-    command = create_autospec(adapter.command, return_value=subprocess.CompletedProcess([], 0, "", ""))
-    monkeypatch.setattr(adapter, "command", command)
-    deadline = time.monotonic() + 20
-    adapter.stop(["probe"], deadline)
-    adapter.start(["probe"], deadline)
-    assert command.call_args_list[0].args[0] == ["systemctl", "--user", "--no-block", "stop", "pack-probe.service"]
-    assert command.call_args_list[1].args[0] == ["systemctl", "--user", "--no-block", "start", "pack-probe.service"]
-
-
-def test_manager_command_uses_two_second_or_remaining_deadline(adapter, monkeypatch):
-    monkeypatch.setattr(cascade.time, "monotonic", lambda: 10.0)
-    run = create_autospec(cascade.subprocess.run, return_value=subprocess.CompletedProcess([], 0, "", ""))
-    monkeypatch.setattr(cascade.subprocess, "run", run)
-    adapter.command(["fixture-manager", "show"], 11.0)
-    assert run.call_args.kwargs["timeout"] == 1.0
-    adapter.command(["fixture-manager", "show"], 100.0)
-    assert run.call_args.kwargs["timeout"] == 2.0
-
-
-def test_manager_command_timeout_is_visible(adapter, monkeypatch):
-    run = create_autospec(cascade.subprocess.run, side_effect=subprocess.TimeoutExpired("fixture-manager", 2))
-    monkeypatch.setattr(cascade.subprocess, "run", run)
-    with pytest.raises(RuntimeError, match="fixture-manager show"):
-        adapter.command(["fixture-manager", "show"], time.monotonic() + 20)
-
-
-def test_reused_pid_does_not_mean_the_old_process_survived(adapter, monkeypatch):
-    before = {"probe": cascade.ServiceFact("probe", "running", cascade.ProcessIdentity(123, 1.0), 0)}
-    monkeypatch.setattr(adapter, "_identity", lambda pid: cascade.ProcessIdentity(pid, 2.0))
-    monkeypatch.setattr(
-        adapter, "snapshot", lambda names, deadline: {"probe": cascade.ServiceFact("probe", "inactive/dead", None, 0)}
-    )
-    adapter.wait_stopped(before, time.monotonic() + 1)
-
-
 def test_scheduled_service_can_be_armed_without_a_pid_or_counter(lifecycle):
     manager, _readiness, _health, _events = lifecycle
     manager.facts["listen"] = cascade.ServiceFact("listen", "scheduled", None, None, scheduled=True)
@@ -541,34 +385,12 @@ def test_failed_initial_daemon_is_named_without_polling(lifecycle):
         cascade.wait_running_snapshot(manager, ["listen"], time.monotonic() + 1)
 
 
-def test_cascade_lock_contention_is_bounded_and_releases_without_unlinking(tmp_path):
-    lock = tmp_path / "cascade.lock"
-    with (
-        cascade.cascade_lock(lock, time.monotonic() + 1),
-        pytest.raises(cascade.CascadeError, match="another service cascade"),
-        cascade.cascade_lock(lock, time.monotonic() + 0.01),
-    ):
-        pytest.fail("a second controller acquired the same lock")
-    with cascade.cascade_lock(lock, time.monotonic() + 1):
-        assert lock.exists()
-        assert lock.stat().st_mode & 0o777 == 0o600
-
-
-def test_cascade_lock_never_follows_a_symlink(tmp_path):
-    target, link = tmp_path / "target", tmp_path / "cascade.lock"
-    target.write_text("unchanged")
-    link.symlink_to(target)
-    with pytest.raises(OSError), cascade.cascade_lock(link, time.monotonic() + 1):
-        pytest.fail("a symlink must not be opened as a lock")
-    assert target.read_text() == "unchanged"
-
-
 def test_cli_restart_cascade_uses_the_explicit_flag(monkeypatch):
     restart = create_autospec(services.restart)
     monkeypatch.setattr(services, "restart", restart)
     monkeypatch.setattr(sys, "argv", ["pack-services", "restart", "--cascade"])
     services.main()
-    restart.assert_called_once_with([], False, cascade=True)
+    restart.assert_called_once_with([], cascade=True)
 
 
 def test_cli_restart_without_names_or_cascade_is_rejected(monkeypatch):
@@ -576,19 +398,6 @@ def test_cli_restart_without_names_or_cascade_is_rejected(monkeypatch):
     with pytest.raises(SystemExit) as error:
         services.main()
     assert error.value.code == 2
-
-
-def test_cli_cascade_failure_has_nonzero_exit_and_keeps_the_named_error(monkeypatch, capsys):
-    monkeypatch.setattr(
-        services,
-        "restart",
-        create_autospec(services.restart, side_effect=cascade.CascadeError("capture readiness", "cam1.video missing")),
-    )
-    monkeypatch.setattr(sys, "argv", ["pack-services", "restart", "--cascade"])
-    with pytest.raises(SystemExit) as error:
-        services.main()
-    assert error.value.code == 1
-    assert "FAILED capture readiness: cam1.video missing" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("wrong_broker", [False, True])
@@ -737,95 +546,6 @@ def test_sdk_previous_identity_is_refreshed_after_waiting_for_controller_lock(tm
     assert ready.previous(time.monotonic() + 1) == NEW
 
 
-def test_leaf_restart_keeps_unrelated_services_running(lifecycle, monkeypatch):
-    manager, _readiness, _health, events = lifecycle
-    monkeypatch.setattr(services, "_check_checkout", lambda anywhere: None)
-    monkeypatch.setattr(services, "selected", lambda: {name: {} for name in NAMES})
-    monkeypatch.setattr(services, "installed", lambda: list(NAMES))
-    monkeypatch.setattr(cascade, "ServiceManager", lambda spec: manager)
-    monkeypatch.setattr(cascade, "run_selected", lambda *args, **kwargs: pytest.fail("leaf restart cascaded"))
-    services.restart(["listen"])
-    assert events == [("stop", ("listen",)), ("gone", ("listen",)), ("start", ("listen",))]
-
-
-def test_failed_leaf_restart_starts_its_services_again_before_failing(lifecycle, monkeypatch):
-    manager, _readiness, _health, _events = lifecycle
-    monkeypatch.setattr(services, "_check_checkout", lambda anywhere: None)
-    monkeypatch.setattr(services, "selected", lambda: {name: {} for name in NAMES})
-    monkeypatch.setattr(services, "installed", lambda: list(NAMES))
-    monkeypatch.setattr(cascade, "ServiceManager", lambda spec: manager)
-    stop = manager.stop
-
-    def half_stop(names, deadline):
-        stop(["listen"], deadline)
-        raise RuntimeError("see-faces: manager refused stop")
-
-    manager.stop = half_stop
-    with pytest.raises(cascade.CascadeError, match="see-faces: manager refused stop"):
-        services.restart(["listen", "see-faces"])
-    assert manager.facts["listen"].state == "running"
-
-
-def test_install_entry_cascades_installed_selection_and_new_target_only(tmp_path, lifecycle, monkeypatch):
-    from liberational import cascade_health
-
-    manager, readiness, health, events = lifecycle
-    chosen = {name: {} for name in (*NAMES, "uninstalled-reader")}
-    readiness.needs = ()
-    monkeypatch.setattr(services, "_check_checkout", lambda anywhere: None)
-    monkeypatch.setattr(services, "selected", lambda: chosen)
-    monkeypatch.setattr(services, "installed", lambda: [name for name in NAMES if name != "see-faces"])
-    monkeypatch.setattr(services, "preflight", lambda names: events.append(("preflight", tuple(names))))
-    monkeypatch.setattr(cascade.cfg, "path", lambda key: tmp_path)
-    monkeypatch.setattr(cascade, "SDKReadiness", lambda manifest, socket: readiness)
-    monkeypatch.setattr(cascade, "ServiceManager", lambda spec: manager)
-    monkeypatch.setattr(cascade_health, "wait_for_health", health)
-    monkeypatch.setattr(
-        manager, "prepare_install", lambda names, deadline: events.append(("render", tuple(names))), raising=False
-    )
-    report = cascade.run_selected(["see-faces"], install=True, anywhere=True)
-    assert report.names == NAMES
-    assert ("render", ("see-faces",)) in events
-    assert ("preflight", ("see-faces",)) in events
-    assert report.retained == ("dashboard", "continuum-gateway")
-
-
-def test_invalid_capture_configuration_precedes_every_manager_mutation(tmp_path, monkeypatch):
-    monkeypatch.setattr(services, "_check_checkout", lambda anywhere: None)
-    monkeypatch.setattr(services, "selected", lambda: {name: {} for name in NAMES})
-    monkeypatch.setattr(services, "installed", lambda: list(NAMES))
-    monkeypatch.setattr(cascade.cfg, "path", lambda key: tmp_path)
-
-    def invalid(manifest, socket):
-        raise ValueError("devices.toml: invalid camera configuration")
-
-    monkeypatch.setattr(cascade, "SDKReadiness", invalid)
-    monkeypatch.setattr(cascade, "ServiceManager", lambda spec: pytest.fail("manager created before config validation"))
-    with pytest.raises(cascade.CascadeError, match="invalid camera configuration"):
-        cascade.run_selected(["continuum-capture"], install=True, anywhere=True)
-    assert not (tmp_path / "continuum/service-cascade.lock").exists()
-
-
-def test_a_failed_cascade_leaves_its_stage_and_reason_on_disk(tmp_path, monkeypatch):
-    """An install reported rc 1 and only its "after failure" tail was kept, not the stage that failed."""
-    monkeypatch.setattr(services, "_check_checkout", lambda anywhere: None)
-    monkeypatch.setattr(services, "selected", lambda: {name: {} for name in NAMES})
-    monkeypatch.setattr(services, "installed", lambda: list(NAMES))
-    monkeypatch.setattr(cascade.cfg, "path", lambda key: tmp_path)
-
-    def invalid(manifest, socket):
-        raise ValueError("devices.toml: invalid camera configuration")
-
-    monkeypatch.setattr(cascade, "SDKReadiness", invalid)
-    with pytest.raises(cascade.CascadeError):
-        cascade.run_selected(["continuum-capture"], install=True, anywhere=True)
-    logged = (tmp_path / "cascade.log").read_text().splitlines()
-    assert [line.split(" ", 1)[1] for line in logged] == [
-        "[cascade] INFO install continuum-capture",
-        "[cascade] ERROR failed at preflight: devices.toml: invalid camera configuration",
-    ]
-
-
 def test_cascade_lines_go_to_stdout_and_the_log(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(cascade.cfg, "path", lambda key: tmp_path)
     cascade.file_log("cascade: ready: listen")
@@ -864,38 +584,12 @@ def test_failed_leaf_is_recovered_instead_of_preserved_as_stopped(lifecycle):
     assert manager.facts["listen"].state == "running"
 
 
-@pytest.mark.parametrize(
-    "names,explicit,expected",
-    [(["continuum-broker"], False, False), ([], False, True), (["continuum-capture"], True, True)],
-)
-def test_install_start_stopped_policy_for_settings_full_install_and_repair(
-    tmp_path, monkeypatch, names, explicit, expected
-):
-    monkeypatch.setattr(services, "_check_checkout", lambda anywhere: None)
-    monkeypatch.setattr(services, "selected", lambda: {name: {} for name in NAMES})
-    routed = create_autospec(cascade.run_selected)
-    monkeypatch.setattr(cascade, "run_selected", routed)
-    services.install(names, cascade=explicit)
-    assert routed.call_args.kwargs["start_stopped"] is expected
-
-
-@pytest.mark.parametrize("explicit", [False, True])
-def test_restart_core_start_stopped_policy(monkeypatch, explicit):
-    monkeypatch.setattr(services, "_check_checkout", lambda anywhere: None)
-    monkeypatch.setattr(services, "selected", lambda: {name: {} for name in NAMES})
-    monkeypatch.setattr(services, "installed", lambda: list(NAMES))
-    routed = create_autospec(cascade.run_selected)
-    monkeypatch.setattr(cascade, "run_selected", routed)
-    services.restart(["continuum-broker"], cascade=explicit)
-    assert routed.call_args.kwargs["start_stopped"] is explicit
-
-
 def test_cli_install_cascade_exposes_repair_start_all_policy(monkeypatch):
     install = create_autospec(services.install)
     monkeypatch.setattr(services, "install", install)
     monkeypatch.setattr(sys, "argv", ["pack-services", "install", "--cascade", "continuum-capture"])
     services.main()
-    install.assert_called_once_with(["continuum-capture"], False, cascade=True)
+    install.assert_called_once_with(["continuum-capture"], cascade=True)
 
 
 def test_kept_stopped_service_starting_during_health_is_not_accepted(lifecycle):
@@ -977,28 +671,6 @@ def test_replacement_capture_worker_must_prove_fresh_frames_again(lifecycle):
         cascade.run(NAMES, manager=manager, readiness=readiness, health=health, log=lambda _: None)
     assert proofs == [NEW, NEW]
     assert manager.facts["listen"].state == "running", "recovery restores the readers after the failure"
-
-
-def test_required_stopped_core_refusal_precedes_install_unit_writes(tmp_path, lifecycle, monkeypatch):
-    manager, readiness, _health, events = lifecycle
-    readiness.needs = ("cam1.video",)
-    manager.facts["continuum-capture"] = replace(
-        manager.facts["continuum-capture"], state="inactive", pid=None, children=()
-    )
-    monkeypatch.setattr(services, "_check_checkout", lambda anywhere: None)
-    monkeypatch.setattr(services, "selected", lambda: {name: {} for name in NAMES})
-    monkeypatch.setattr(services, "installed", lambda: list(NAMES))
-    monkeypatch.setattr(cascade.cfg, "path", lambda key: tmp_path)
-    monkeypatch.setattr(cascade, "SDKReadiness", lambda manifest, socket: readiness)
-    monkeypatch.setattr(cascade, "ServiceManager", lambda spec: manager)
-    monkeypatch.setattr(services, "preflight", lambda names: None)
-    monkeypatch.setattr(
-        manager, "prepare_install", lambda names, deadline: events.append(("unit writes",)), raising=False
-    )
-    with pytest.raises(cascade.CascadeError, match="continuum-capture is stopped"):
-        cascade.run_selected(["continuum-broker"], install=True, anywhere=True)
-    assert ("unit writes",) not in events
-    assert not any(event[0] in {"stop", "start"} for event in events)
 
 
 def test_capture_cohort_change_during_second_proof_is_rejected(lifecycle):

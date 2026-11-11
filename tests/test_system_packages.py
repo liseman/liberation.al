@@ -6,7 +6,7 @@ import tomllib
 import pytest
 
 from liberational import config as cfg
-from liberational import services, system_packages
+from liberational import system_packages
 from liberational.system_packages import Package
 
 SOX = Package("sox", "voice cloning", command="sox", apt="sox", brew="sox", services=("voice",))
@@ -277,19 +277,7 @@ def test_check_exits_1_only_when_a_needed_package_is_missing(monkeypatch, capsys
     assert ("Install with:" in out) == bool(gone)
 
 
-# ---- the services preflight and the dashboard -----------------------------------------------------------------------
-
-
-def test_installing_services_names_their_missing_packages_and_the_fix(monkeypatch, capsys):
-    monkeypatch.setattr(system_packages, "load", lambda: ALL)
-    monkeypatch.setattr(system_packages, "manager", lambda *_a, **_k: "apt")
-    monkeypatch.setattr(system_packages.shutil, "which", nothing)
-    monkeypatch.setattr(system_packages, "_library", none_load)
-    monkeypatch.setattr(system_packages, "_platform", lambda: "linux")
-    services.preflight(["voice"])
-    out = capsys.readouterr().out
-    assert "sox: voice cloning" in out and "portaudio" not in out  # only what voice uses
-    assert "sudo apt-get install -y sox" in out and "pack-system install" in out
+# ---- the dashboard -------------------------------------------------------------------------------------------------
 
 
 def test_the_dashboard_reports_missing_packages_and_checks_again_only_after_a_while(monkeypatch):

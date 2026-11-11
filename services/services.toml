@@ -1,7 +1,7 @@
 # The pack's long-running services, declared once. The application (pack-app, or
 # pack-supervisor run without a window) runs the selected ones as its own children.
-# Rendering a unit file per service is only for an install that has not moved
-# (docs/SERVICES.md). `pack-services migrate` removes those units.
+# An install from before the application still has a unit file per service;
+# `pack-services migrate` removes them (docs/SERVICES.md).
 #
 # Per service:
 #   description  one plain sentence, for the machine's owner, on what it does (Settings' Services shows it); build
@@ -19,7 +19,7 @@
 #              package builds nothing, so it doesn't have the service
 #   restart    keep it running (true) or run once / on a schedule (false)
 #   throttle   seconds to wait before restarting after a crash
-#   stop_timeout  seconds systemd waits after SIGTERM before killing it (default 20)
+#   stop_timeout  seconds the application waits after SIGTERM before killing it (default 20)
 #   schedule   "HH:MM" daily, or "*:MM" hourly; makes it a scheduled job instead of a daemon
 #   background lower CPU and IO priority
 #   env        extra environment variables
@@ -209,7 +209,7 @@ default = true
 platforms = ["linux-x86_64", "linux-aarch64", "darwin-arm64"]
 throttle = 5
 # A worker gets stop_grace_ms (10 s) to release its device, then a kill, then as long again to be reaped; the
-# supervisor stops them all on SIGTERM. This covers all of it, so launchd or systemd never kills mid-teardown.
+# supervisor stops them all on SIGTERM. This covers all of it, so the application never kills mid-teardown.
 stop_timeout = 25
 reads_settings = false
 
