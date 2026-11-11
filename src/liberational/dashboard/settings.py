@@ -307,7 +307,9 @@ def voice_ref(handler: H) -> None:
     if not handler._can_control():
         return handler._json({"ok": False, "error": "the voice reference can only be recorded on this machine"}, 403)
     if handler.headers.get_content_type() != "audio/wav" or (
-        origin and origin != "http://" + (handler.headers.get("Host") or "")
+        origin
+        and origin
+        not in (f"http://{handler.headers.get('Host') or ''}", f"https://{handler.headers.get('Host') or ''}")
     ):
         return handler._json({"ok": False, "error": "same-origin audio/wav only"}, 403)
     try:
@@ -388,7 +390,9 @@ def handle(
         handler._json({"ok": False, "error": "settings can only be changed from this machine"}, 403)
         return True
     if handler.headers.get_content_type() != "application/json" or (
-        origin and origin != "http://" + (handler.headers.get("Host") or "")
+        origin
+        and origin
+        not in (f"http://{handler.headers.get('Host') or ''}", f"https://{handler.headers.get('Host') or ''}")
     ):
         handler._json({"ok": False, "error": "same-origin JSON only"}, 403)
         return True

@@ -458,7 +458,7 @@ def handle(h: Any, method: str) -> bool:
             return True
         # Same-origin JSON only; native local clients (voice) may omit Origin.
         origin = h.headers.get("Origin")
-        if origin and origin != "http://" + (h.headers.get("Host") or ""):
+        if origin and origin not in (f"http://{h.headers.get('Host') or ''}", f"https://{h.headers.get('Host') or ''}"):
             h._json({"error": "Cross-origin write rejected."}, 403)
             return True
         if h.headers.get_content_type() != "application/json":

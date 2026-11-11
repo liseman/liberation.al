@@ -152,9 +152,14 @@ password = ""
 remote_camera_history = false
 # Teaching from other machines: naming and renaming people, faces, voices and pets, the Inbox, zones, transcript
 # fixes, and activity ratings, for browsers that pass the dashboard password and post from this dashboard's own page.
-# Services, Settings, devices, and ingest stay this machine only. Off: all of it is this machine only. Never without a
+# Services, Settings, devices, and ingest stay this machine only (see remote_control). Off: all of it is this machine only. Never without a
 # password.
 remote_teaching = false
+# Everything this machine may change (services, Settings, devices and pausing cameras and microphones, ingest, owner
+# identity), for browsers on another device of the tailnet that pass the dashboard password and post from this
+# dashboard's own page. Tailscale Serve names the tailnet user; a public Funnel request never qualifies. Off: this
+# machine only. Never without a password.
+remote_control = false
 # Single-key shortcuts in the dashboard: / opens Ask and , opens Settings. Keys that act on a focused row (naming Y, N,
 # and I) and Ctrl+K for the palette work either way.
 hotkeys = false

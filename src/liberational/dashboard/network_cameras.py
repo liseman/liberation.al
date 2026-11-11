@@ -372,7 +372,11 @@ def handle(handler: H) -> bool:
     if (
         not handler._can_control()
         or handler.headers.get_content_type() != "application/json"
-        or (origin and origin != "http://" + (handler.headers.get("Host") or ""))
+        or (
+            origin
+            and origin
+            not in (f"http://{handler.headers.get('Host') or ''}", f"https://{handler.headers.get('Host') or ''}")
+        )
     ):
         handler._json({"error": "Local same-origin JSON only."}, 403)
         return True
