@@ -345,16 +345,22 @@ free_floor_percent = 15
 batch = 1000
 
 [spatial]
-# Spatial memory: each indoor place's plan, and where people were on it. The 3D map is being rebuilt with a new
-# method; nothing here makes one at present.
+# Spatial memory: each indoor place's plan, where people were on it, and each camera's own point cloud.
 # A fixed camera's measured height and whether it looks outdoors are on its own entry in config/devices.toml, as
 # `mount = { height_m = 1.5, outdoor = false }`, and a camera on a moving rig gives its pose on the rig there instead
 # (spatial/rig.py, #5; config/devices.example.toml shows both).
-# Learn surroundings (spatial/surroundings.py, the Live tab's button): on, frames are sampled from the cameras below
-# and the ones likely to improve a place's map are kept for it. Followed live: a change needs no restart.
+# Learn surroundings (spatial/surroundings.py, the Live tab's button): on, frames are sampled from the cameras below,
+# the ones that show something new are kept, and each camera's own point cloud is kept up to date. Followed live: a
+# change needs no restart.
 learn_surroundings = false
 # The cameras to sample, by their names in config/devices.toml. Empty: the first camera in that file.
 learn_cameras = []
+# Where MASt3R-SLAM is set up, for the cameras' point clouds (spatial/camera_clouds.py): a folder holding its
+# checkout in src/ and its own Python environment in venv/. Empty: no cloud is made, and the 3D view says so. The
+# pack downloads and installs none of it.
+pointmap_runtime = ""
+# MASt3R's weights for it: a directory holding model.safetensors and config.json.
+pointmap_weights = "data/models/mast3r"
 
 [faces]
 # Days an unnamed face group stays listed and counted on People's "to name" (dashboard/server.py,
@@ -705,7 +711,7 @@ member = "det_10g.onnx"
 sha256 = "80ffe37d8a5940d59a7384c201a2a38d4741f2f3c51eef46ebb28218a7b0ca2f"
 
 [models.files.megaloc]
-# Place recognition between frames (spatial/retrieval.py reads this path): MegaLoc (gberton/MegaLoc, MIT), the
+# Place recognition between frames (spatial/surroundings_frames.py reads this path): MegaLoc (gberton/MegaLoc, MIT), the
 # authors' ONNX export, about 460 MB, run on the CPU through onnxruntime.
 url = "https://huggingface.co/gberton/MegaLoc/resolve/a0f34722c4297ff787e022433799250180860af7/megaloc.onnx"
 path = "data/models/megaloc/megaloc.onnx"

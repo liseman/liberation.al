@@ -43,6 +43,9 @@ import type { Cloud } from './load';
 
 export type Colour = 'rgb' | 'height';
 
+/** Where the viewer keeps whether its controls panel is open (its own key). */
+const CONTROLS_OPEN = 'controlsPanelOpen';
+
 /** Where the view looks from, in the viewer's frame, and the viewer's camera mode: what a view built again around
  *  a newer map of the same place opens with, so it stays where the person had it. */
 export interface View {
@@ -401,6 +404,14 @@ export async function build(
   const listening = new Promise<void>(resolve => {
     hand = resolve;
   });
+  // The viewer opens its controls panel (the keys of the mode it's in) for anyone who hasn't closed it, over a
+  // quarter of the view, and most of a phone's. Here it starts closed; its keyboard button opens it, and the viewer
+  // remembers that choice in the same place.
+  try {
+    if (localStorage.getItem(CONTROLS_OPEN) === null) localStorage.setItem(CONTROLS_OPEN, 'false');
+  } catch {
+    // no storage: the viewer shows its panel, as it does for any page denied storage
+  }
   const viewer = await createViewer({
     container: host,
     settings,

@@ -1,7 +1,7 @@
 """`pack-surroundings`: collects pictures of each place from its cameras while "learn surroundings" is on (#256).
 docs/SPATIAL.md has the design; spatial/surroundings.py is the switch, and spatial/surroundings_frames.py the gate and
-the store. Nothing builds a 3D map from them at present: the map is being rebuilt with a new method, which will read
-the kept pictures.
+the store. The same pictures give each camera its own point cloud (spatial/surroundings_clouds.py decides when and
+from which picture; spatial/camera_clouds.py makes and keeps it).
 
 The service follows the switch live (`surroundings.read`, every `SWITCH_EVERY_S`). While it's off, or no camera is
 chosen, it holds no connection to the shared decoder and no model: it costs one small file's `stat` a second. While
@@ -53,6 +53,7 @@ import numpy as np
 from liberational import config as cfg
 from liberational import json_state, logs
 from liberational.spatial import surroundings
+from liberational.spatial import surroundings_clouds as clouds
 from liberational.spatial import surroundings_frames as frames
 
 LOG = logs.get("surroundings")
@@ -283,9 +284,11 @@ class Service:
         clock: Callable[[], float] = time.time,
         on_idle: Callable[[], None] = lambda: None,
         monotonic: Callable[[], float] = time.monotonic,
+        clouds: clouds.Clouds | None = None,
     ) -> None:
         self.monotonic = monotonic
         self.sampler = sampler
+        self.clouds = clouds
         self.read = read
         self.source = source
         self.clock = clock
@@ -301,14 +304,23 @@ class Service:
     async def _follow(self, camera: str) -> None:
         loop = asyncio.get_running_loop()
         self.sampler.forget(camera)
+        if self.clouds is not None:
+            self.clouds.forget(camera)
         async for pixels in self.source(camera):
             if camera in self._busy:
                 continue  # its last look is still running: pass this picture by
             self._busy.add(camera)
             try:
-                await loop.run_in_executor(self._pool, self.sampler.look, camera, pixels, self.clock())
+                await loop.run_in_executor(self._pool, self._look, camera, pixels, self.clock())
             finally:
                 self._busy.discard(camera)
+
+    def _look(self, camera: str, pixels: np.ndarray, now: float) -> None:
+        """One sampled picture: the sampler's look, then the camera's own cloud's (on the same thread, since they
+        share the detector)."""
+        self.sampler.look(camera, pixels, now)
+        if self.clouds is not None:
+            self.clouds.look(camera, pixels, now)
 
     def step(self) -> surroundings.Switch:
         """Bring what's followed in line with the switch as it reads now; the switch."""
@@ -377,11 +389,14 @@ class Service:
                 task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
             self._pool.shutdown(wait=True)
+            if self.clouds is not None:
+                self.clouds.close()
 
 
 def main(argv: Sequence[str] | None = None) -> None:
-    """`pack-surroundings`: collects the chosen cameras' pictures while "learn surroundings" is on, and keeps the ones
-    that show something new. It needs see-decode for pictures; while the switch is off it needs nothing."""
+    """`pack-surroundings`: collects the chosen cameras' pictures while "learn surroundings" is on, keeps the ones
+    that show something new, and keeps each camera's own point cloud up to date. It needs see-decode for pictures;
+    while the switch is off it needs nothing."""
     import argparse
 
     from liberational.spatial import cameras
@@ -403,7 +418,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         loop = asyncio.get_running_loop()
         for sig in (signal.SIGTERM, signal.SIGINT):
             loop.add_signal_handler(sig, stop.set)
-        await Service(sampler, on_idle=idle).run(stop)
+        own = clouds.for_service(cfg.path("paths.state"), detect, cameras.daylight, thumbnail)
+        await Service(sampler, on_idle=idle, clouds=own).run(stop)
 
     asyncio.run(run())
 

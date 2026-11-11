@@ -60,8 +60,8 @@ export interface LearningState {
   next: string;
 }
 
-/** What the 3D map is doing, said wherever learning is: nothing is built from the pictures at present. */
-export const REBUILDING = 'The 3D map is being rebuilt with a new method, which will use these pictures.';
+/** What comes of the pictures, said wherever learning is: each camera's own point cloud, in the 3D view. */
+export const REBUILDING = 'Each camera also gets a point cloud of what it sees, in the 3D view.';
 
 /** The state to lead with: off, no camera chosen, or collecting. */
 export function learningState(status: LearningStatus): LearningState {
@@ -193,12 +193,7 @@ export function LearningPanel({ status }: { status: LearningStatus | undefined }
         </div>
       </div>
       <dl className={classes.stats}>
-        <Tooltip
-          label="Pictures kept for the 3D map"
-          events={{ hover: true, focus: true, touch: true }}
-          multiline
-          maw={280}
-        >
+        <Tooltip label="Pictures kept" events={{ hover: true, focus: true, touch: true }} multiline maw={280}>
           <div className={classes.stat} data-zero={status.kept === 0 || undefined}>
             <dt>Pictures kept</dt>
             <dd>{count(status.kept)}</dd>
