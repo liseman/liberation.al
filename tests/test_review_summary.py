@@ -208,8 +208,16 @@ def test_a_model_that_is_down_is_tried_again_later(state):
         ),
         pytest.param('Sure! {"text": "Lunch", "topics": []}', {"text": "Lunch", "topics": []}, id="json-among-words"),
         pytest.param('{"text": "I worked at my desk", "topics": []}', None, id="first-person"),
-        pytest.param('{"text": "She worked at the desk", "topics": []}', None, id="pronoun"),
-        pytest.param('{"text": "The person worked at the desk", "topics": []}', None, id="the-person"),
+        pytest.param(
+            '{"text": "She worked at the desk", "topics": []}',
+            {"text": "She worked at the desk", "topics": []},
+            id="pronoun",
+        ),
+        pytest.param(
+            '{"text": "The person worked at the desk", "topics": []}',
+            {"text": "The person worked at the desk", "topics": []},
+            id="the-person",
+        ),
         pytest.param('{"text": "' + "x" * 91 + '", "topics": []}', None, id="too-long"),
         pytest.param("Worked at the desk", None, id="not-json"),
         pytest.param('{"topics": ["work"]}', None, id="no-text"),
@@ -291,12 +299,12 @@ def test_some_lines_written_and_some_not_is_partial(state):
         pytest.param("Watched a World War I documentary", True, id="world-war-i"),
         pytest.param("Listened to They Might Be Giants", True, id="a-band"),
         pytest.param("Talked with the owner of the cafe", True, id="an-owner-mid-line"),
-        pytest.param("She worked at the desk", False, id="a-pronoun-subject"),
-        pytest.param("A person sat at the desk", False, id="a-person"),
-        pytest.param("Someone cooked dinner", False, id="someone"),
-        pytest.param("Man cooked dinner", False, id="man"),
-        pytest.param("Owner had lunch in the kitchen", False, id="owner"),
-        pytest.param("The narrator read a book", False, id="narrator"),
+        pytest.param("She worked at the desk", True, id="a-pronoun-subject"),
+        pytest.param("A person sat at the desk", True, id="a-person"),
+        pytest.param("Someone cooked dinner", True, id="someone"),
+        pytest.param("Man cooked dinner", True, id="man"),
+        pytest.param("Owner had lunch in the kitchen", True, id="owner"),
+        pytest.param("The narrator read a book", True, id="narrator"),
         pytest.param("You worked at the desk", False, id="you"),
         pytest.param("Worked at the desk by ourselves", False, id="ourselves"),
         pytest.param("Let's say lunch happened", False, id="lets"),
@@ -305,7 +313,7 @@ def test_some_lines_written_and_some_not_is_partial(state):
         pytest.param("Lunch, then I napped", False, id="i-mid-line"),
     ],
 )
-def test_the_rules_keep_lines_about_others_and_drop_any_subject(reply, ok):
+def test_the_rules_keep_third_person_and_reject_first_and_second_person(reply, ok):
     assert (plain_text.clean(json.dumps({"text": reply, "topics": []})) is not None) == ok
 
 
@@ -1000,7 +1008,6 @@ def reply(text):
 @pytest.mark.parametrize(
     ("first", "rule"),
     [
-        pytest.param("Talked with Ann and Dana all morning", "never write Ann", id="names-the-diarist"),
         pytest.param(
             "Worked at the desk, then a call with Dana about the trip, then more desk work, then lunch, then a walk "
             "outside, then emails, then a nap",
@@ -1009,9 +1016,7 @@ def reply(text):
         ),
     ],
 )
-def test_a_rollup_that_names_the_diarist_or_lists_everything_is_asked_for_again(
-    state, utc, owner, rollups, first, rule
-):
+def test_a_rollup_that_lists_everything_is_asked_for_again(state, utc, owner, rollups, first, rule):
     rollups.replies["Morning"] = [reply(first), reply("A desk-heavy morning, with a call with Dana")]
     got = settle(state, hours(state), rollups)
     assert got["days"][0]["parts"][0]["text"] == "A desk-heavy morning, with a call with Dana"
@@ -1029,10 +1034,10 @@ def test_a_name_that_only_starts_with_the_diarists_is_kept(state, utc, owner, ro
 def test_the_hour_lines_are_told_the_diarists_name_and_plain_words(owner, monkeypatch):
     asked = []
     monkeypatch.setattr(journal, "chat", lambda system, *a, **k: asked.append(system) or "{}")
-    source = json.dumps({"format": "review-evidence-v1", "entry_id": "x", "text": "I worked.", "evidence": {}})
+    source = json.dumps({"format": "review-evidence-v2", "entry_id": "x", "text": "I worked.", "evidence": {}})
     review_summary.Lines._rewrite(source)
     review_summary.Lines._rewrite("I worked on my laptop.")
-    assert all("never write Ann" in system and '"on the laptop"' in system for system in asked)
+    assert all("keep that name" in system and '"on the laptop"' in system for system in asked)
     assert len(asked) == 2
 
 
@@ -1040,29 +1045,20 @@ def test_the_rollup_prompt_describes_the_shape_for_each_kind(owner, monkeypatch)
     asked = []
     monkeypatch.setattr(journal, "chat", lambda system, *a, **k: asked.append(system) or "{}")
     for kind, name in (("part", "Afternoon"), ("day", "day")):
-        review_summary.Rollups._rewrite_rollup(json.dumps({"format": "review-rollup-v3", "kind": kind, "name": name}))
+        review_summary.Rollups._rewrite_rollup(json.dumps({"format": "review-rollup-v4", "kind": kind, "name": name}))
     part, day = asked
     assert ("At most 20 words" in part, "At most 25 words" in day) == (True, True)
     assert "the afternoon was mostly about" in part and "the day was mostly about" in day
-    assert all("(Ann)" in system for system in asked)  # never named
-
-
-@pytest.mark.parametrize(
-    ("line", "read"),
-    [
-        pytest.param("Worked on moving plans with Ann", "Worked on moving plans", id="with"),
-        pytest.param("Talked with Ann and Dana about the trip", "Talked with Dana about the trip", id="name-and"),
-        pytest.param("Cooked with Dana and Ann", "Cooked with Dana", id="and-name"),
-        pytest.param("Dinner with Annabel", "Dinner with Annabel", id="a-longer-name-stays"),
-    ],
-)
-def test_a_rollup_reads_its_hours_without_the_diarists_name(owner, line, read):
-    assert review_summary.without_owner(line) == read
+    assert all("third person" in system and "retaining the supplied names" in system for system in asked)
 
 
 def test_an_hour_naming_the_diarist_no_longer_costs_its_part(state, utc, owner, rollups):
     got = settle(
-        state, hours(state, {15: ("I worked on moving plans with [S2].", "Worked on moving plans with Ann")}), rollups
+        state,
+        hours(state, {15: ("Alice worked on moving plans with [S2].", "Worked on moving plans with Ann")}),
+        rollups,
     )
     assert [p["name"] for p in got["days"][0]["parts"]] == ["Afternoon"]
-    assert [c["lines"] for c in rollups.calls if c["name"] == "Afternoon"] == [["15:00 Worked on moving plans"]]
+    assert [c["lines"] for c in rollups.calls if c["name"] == "Afternoon"] == [
+        ["15:00 Worked on moving plans with Ann"]
+    ]

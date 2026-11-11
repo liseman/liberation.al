@@ -162,7 +162,7 @@ remote_control = false
 # and I) and Ctrl+K for the palette work either way.
 hotkeys = false
 
-# Journal (memory/journal.py, pack-journal): a first-person entry for every 30 s of the day, written by the local
+# Journal (memory/journal.py, pack-journal): a third-person entry for every 30 s of the day, written by the local
 # model from what was said and what the cameras captioned, and rolled up into longer levels. Entries and rollups
 # are journal.entry records on the broker; source speech and captions are in the segment store. After WorldMM.
 [journal]

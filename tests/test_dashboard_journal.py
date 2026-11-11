@@ -65,6 +65,43 @@ def source(stream, start, camera=None, kind=None):
     }
 
 
+def test_corrected_hour_is_shown_once_with_the_same_recording_links(memory, state, monkeypatch):
+    monkeypatch.setattr(speech_log.shared(), "audio_streams", list, raising=False)
+    start = at(DAY, 10)
+    body = {
+        "ts_start": start,
+        "ts_end": start + 3600,
+        "level": 3600,
+        "text": "I spoke.",
+        "evidence": {"status": "verified", "sources": [source(speech_log.UTTERANCES, start)]},
+    }
+    old = memory.append(memory_log.JOURNAL, body)
+    _, before = view.hours(DAY, state, NOW)
+    new = memory.append(memory_log.JOURNAL, {**body, "text": "Alice spoke.", "supersedes": old})
+    _, after = view.hours(DAY, state, NOW)
+    assert [(r["id"], r["text"]) for r in after["items"]] == [(new, "Alice spoke.")]
+    assert view.entry_evidence(old, start, state) == view.entry_evidence(new, start, state)
+    assert after["items"][0]["sources"] == before["items"][0]["sources"] == 1
+
+
+def test_an_old_entry_link_resolves_the_newest_evidence(memory, state):
+    start = at(DAY, 10)
+    body = {
+        "ts_start": start,
+        "ts_end": start + 3600,
+        "level": 3600,
+        "text": "I spoke.",
+        "evidence": {"status": "unverified", "sources": []},
+    }
+    old = memory.append(memory_log.JOURNAL, body)
+    middle = memory.append(memory_log.JOURNAL, {**body, "text": "Alice spoke.", "supersedes": old})
+    memory.append(
+        memory_log.JOURNAL,
+        {**body, "text": "Alice spoke.", "supersedes": middle, "evidence": {"status": "verified", "sources": []}},
+    )
+    assert view.entry_evidence(old, start, state) == (200, {"status": "verified", "sources": []})
+
+
 def test_months_list_the_last_twelve_newest_first_and_mark_written_pages(memory, state):
     page(memory, "month", dt.date(2026, 10, 1), "# October", end=dt.date(2026, 11, 1))
     code, reply = view.listing({}, state, NOW)
@@ -216,7 +253,8 @@ def test_a_bad_period_is_a_400(state, query):
     assert code == 400 and "error" in reply
 
 
-def test_the_route_answers_json_and_a_page_load_gets_the_app(serve_dashboard, memory):
+def test_the_route_answers_json_and_a_page_load_gets_the_app(serve_dashboard, memory, monkeypatch):
+    monkeypatch.setattr(view.time, "time", lambda: NOW)
     base = serve_dashboard()
     host = urlsplit(base).netloc
 

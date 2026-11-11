@@ -94,6 +94,33 @@ def hour(env, start, text, subjects=(), supersedes=None):
     return env.memory.append(memory_log.JOURNAL, record, subjects=list(subjects))
 
 
+@pytest.mark.parametrize("second", ["Alice rested.", "We rested."])
+def test_page_narration_retries_once_before_accepting_or_failing(env, monkeypatch, second):
+    model = env.llm
+    model.side_effect = [
+        ('{"in_short":"I rested."}', "test-llm"),
+        (json.dumps({"in_short": second}), "test-llm"),
+    ]
+    with journal_pages.batch(env.state):
+        if second == "Alice rested.":
+            assert journal_pages.local("third person", {"inputs": []}, {}, 100) == {"in_short": second}
+        else:
+            with pytest.raises(journal.EmptyReply, match="first-person page"):
+                journal_pages.local("third person", {"inputs": []}, {}, 100)
+    assert model.call_count == 2
+    assert "entirely in third person" in model.call_args.args[0]
+
+
+def test_bad_cloud_narration_is_not_given_extra_local_attempts(env, monkeypatch):
+    monkeypatch.setattr(journal_pages, "cloud_agent", lambda level: "test-agent")
+    cloud = create_autospec(journal_pages.cloud, return_value={"highlights": ["I rested."]})
+    monkeypatch.setattr(journal_pages, "cloud", cloud)
+    with pytest.raises(journal.NarrationRejected):
+        journal_pages.prose("week", "third person", {"inputs": []})
+    assert cloud.call_count == 2
+    env.llm.assert_not_called()
+
+
 def pages(env, level=None):
     """Every page and marker written, oldest first."""
     rows = env.memory.records.get(memory_log.PAGES, [])
@@ -148,7 +175,7 @@ def test_a_day_page_has_fixed_sections_links_its_citations_and_lists_its_evidenc
         ("h1", "I worked at the desk with [S3]."),
         ("h2", "I ate soup."),
     ]
-    assert "third person" in morning["system"] and '"I" is Alice' in morning["system"]
+    assert "third person" in morning["system"] and 'The owner is "Alice"' in morning["system"]
 
 
 def test_a_day_page_is_written_once_the_day_has_settled_at_four_in_the_morning(env):

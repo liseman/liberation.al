@@ -105,7 +105,7 @@ TOOLS = {
     "frames": ("start", "end", "camera"),
 }
 TOOL_HELP = {
-    "journal": "journal entries (first-person summaries of each stretch of the day, at several time scales) "
+    "journal": "journal entries (third-person summaries of each stretch of the day, at several time scales) "
     "matching keywords in text; optional start, end, and person",
     "transcript": "what was said, word for word, between start and end; optional person to keep only their lines",
     "camera": "camera captions (what each camera saw, about once a second) between start and end; optional exact camera ID",

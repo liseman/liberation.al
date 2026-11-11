@@ -65,7 +65,7 @@ EXTRACT_TRIES = 3  # extraction calls for one hour whose reply isn't the JSON as
 PROMPT_VERSION = "v1"
 
 
-EXTRACT_SYSTEM = """You read one hour of a personal journal kept by {owner}'s wearable assistant, and list lasting facts about the people it names.
+EXTRACT_SYSTEM = """You read one hour of a third-person household journal for {owner}, and list lasting facts about the people it names.
 
 Facts to list, each stated or clearly shown in the text:
 - relationship: who a person is to someone else or to {owner} ("Dana is Alice's sister").
@@ -196,7 +196,7 @@ def extract(hour: Mapping[str, Any], people: Mapping[str, str], state: pathlib.P
         dict(
             ref=ref,
             name=people[pid],
-            **({"note": "the owner, written as I"} if people[pid].casefold() == owner else {}),
+            **({"note": "the configured owner"} if people[pid].casefold() == owner else {}),
         )
         for ref, pid in refs.items()
     ]
