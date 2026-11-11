@@ -414,7 +414,7 @@ def test_first_person_gets_one_retry_and_is_never_stored(env, second, succeeds, 
         p.close()
     assert len(env.calls) == 2
     assert "entirely in third person" in env.calls[1]["user"]
-    assert "total_rejections=" in caplog.text
+    assert "journal narration rejected" in caplog.text
 
 
 def test_rewrite_preserves_original_evidence_and_resumes_newest_first(env, monkeypatch):

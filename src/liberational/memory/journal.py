@@ -250,7 +250,6 @@ def narration_rules() -> str:
 # Paired speech quotes, with word boundaries so apostrophes in contractions are not quote delimiters.
 _QUOTED = re.compile(r"""".*?"|“.*?”|(?<!\w)'(.*?)'(?!\w)|‘.*?’(?!\w)""", re.S)
 _NARRATOR = re.compile(r"\b(?i:i|me|my|mine|myself|we|our|ours|ourselves)\b|\b(?:us|Us)\b|\b(?i:the wearer)\b")
-_REJECTIONS = 0
 
 
 def narration_clean(value: object) -> bool:
@@ -269,10 +268,8 @@ def narration_clean(value: object) -> bool:
 
 
 def reject_narration() -> None:
-    """Count rejections without putting generated household text in logs."""
-    global _REJECTIONS
-    _REJECTIONS += 1
-    LOG.warning("journal narration rejected; total_rejections=%d", _REJECTIONS)
+    """Note a rejected narration without putting generated household text in logs."""
+    LOG.warning("journal narration rejected")
 
 
 def narration_retry() -> str:
