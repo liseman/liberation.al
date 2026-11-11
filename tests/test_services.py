@@ -569,6 +569,45 @@ def test_stop_and_start_refuse_a_service_that_isnt_installed(systemd, tmp_path):
         s.start(["b"], anywhere=True)
 
 
+def test_stop_with_the_application_closed_and_no_units_says_to_open_it(systemd, monkeypatch):
+    monkeypatch.setattr(s, "_supervised", lambda: None)
+    with pytest.raises(SystemExit, match="pack-app") as raised:
+        s.stop(["b"], anywhere=True)
+    message = str(raised.value)
+    assert "pack-services install" not in message
+    assert "pack-supervisor run" in message
+    with pytest.raises(SystemExit, match="pack-app") as started:
+        s.start(["b"], anywhere=True)
+    assert "pack-services install" not in str(started.value)
+
+
+def test_stop_of_a_missing_unit_on_an_older_install_still_names_install(systemd, tmp_path, monkeypatch):
+    monkeypatch.setattr(s, "_supervised", lambda: None)
+    (tmp_path / "units" / "pack-a.service").write_text("")
+    with pytest.raises(SystemExit, match="pack-services install"):
+        s.stop(["b"], anywhere=True)
+
+
+def test_list_says_the_star_is_the_selection(capsys, monkeypatch):
+    monkeypatch.setattr(sys, "argv", ["pack-services", "list"])
+    monkeypatch.setattr(s, "declared", lambda: {"journal": {"description": "Writes the journal."}})
+    monkeypatch.setattr(s, "selected", lambda: {"journal": {}})
+    s.main()
+    out = capsys.readouterr().out
+    assert "* = selected on this machine" in out
+    assert "pack-services install" not in out
+
+
+def test_the_service_manifest_and_the_vlm_probe_do_not_start_a_vision_unit():
+    root = pathlib.Path(__file__).parents[1]
+    opening = (root / "services/services.toml").read_text().split("\n# Per service:", 1)[0]
+    assert "launchd" not in opening and "systemd" not in opening
+    assert "pack-app" in opening and "pack-supervisor run" in opening
+    probe = (root / "tools/vlm_probe/vlm_probe_quiet.sh").read_text()
+    assert "pack.vision" not in probe and "launchctl" not in probe
+    assert "pack-services stop vlm" in probe and "pack-services start vlm" in probe
+
+
 def test_stop_on_a_mac_unloads_the_job_and_keeps_its_plist(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(s, "DARWIN", True)
     monkeypatch.setattr(s, "unit_dir", lambda: tmp_path)
