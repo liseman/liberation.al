@@ -521,13 +521,14 @@ class SpeechLog:
         """Each microphone stream (a PCM ring named `<device>.audio`) and the end of its newest audio in the last
         `window_s` seconds (UTC ns; now while the ring holds records newer than its last batch), else None."""
 
-        async def go(client: Client) -> dict[str, int | None]:
+        async def go(broker: Client) -> dict[str, int | None]:
             out: dict[str, int | None] = {}
-            for s in await client.list_streams():
+            for s in await broker.list_streams():
                 if not (s["name"].endswith(".audio") and str(s["shape_name"]).startswith("PCM_")):
                     continue
                 now = time.time_ns()
-                r = await client.query(s["name"], now - int(window_s * 1e9), now + 1_000_000_000, all=False)
+                # A read of this stream's records over a window (Continuum's broker client): no query text is built.
+                r = await broker.query(s["name"], now - int(window_s * 1e9), now + 1_000_000_000, all=False)
                 newest = max((continuum_py.decode_header(i["header"])["end_ns"] for i in r["items"]), default=None)
                 out[s["name"]] = now if r.get("tail") else newest
             return out
