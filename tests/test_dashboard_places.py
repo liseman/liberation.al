@@ -7,6 +7,7 @@ import threading
 from dataclasses import replace
 from urllib.parse import urlsplit
 
+import numpy as np
 import pytest
 
 import plans
@@ -14,7 +15,7 @@ from liberational import segment_log as S
 from liberational.dashboard import context
 from liberational.dashboard import places as view
 from liberational.memory import places
-from liberational.spatial import plan_scene, positions
+from liberational.spatial import plan_scene, ply, positions
 
 T = 1_762_500_000.0
 PLAN = plans.scene('plan "Home" walls 0.2/0.1\nroom den "Den" living rect 0,0 4x6\n')
@@ -840,7 +841,7 @@ def keep_cloud(state, camera, at=T, size="approximate"):
 
     cloud = camera_clouds.Cloud(
         id=f"00000000-0000-7000-8000-{int(at) % 10**12:012d}", camera=camera, at=at, points=1024, share=0.8, size=size,
-        factor=1.0, floor_found=True, pose=(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 1.5, 0, 0, 0, 1), focal=300.0, width=512,
+        floor_found=True, pose=(1, 0, 0, 0, 0, 0, 1, 0, 0, -1, 0, 1.5, 0, 0, 0, 1), focal=300.0, width=512,
         height=288,
     )  # fmt: skip
     store = camera_clouds.Store(camera_clouds.root(state))
@@ -851,10 +852,10 @@ def keep_cloud(state, camera, at=T, size="approximate"):
 def test_a_cameras_own_cloud_is_the_scene_asked_for_by_camera(tmp_path, vision, learn):
     learn(True, ("front", "hall"))
     place = places.revise(tmp_path, None, producer="owner plan", plan=PLAN, now=T).place
-    _, cloud = keep_cloud(tmp_path, "hall", size="height")
+    _, cloud = keep_cloud(tmp_path, "hall")
     reply = view.scene(tmp_path, place, camera="hall")[1]
     assert (reply["revision"], reply["map_format"], reply["map_bytes"]) == (cloud.id, "ply", len(CLOUD))
-    assert reply["view"] == {"camera": "hall", "size": "height", "floor_found": True, "points": 1024, "at": T}
+    assert reply["view"] == {"camera": "hall", "size": "approximate", "floor_found": True, "points": 1024, "at": T}
     assert reply["floor"] == [0.0, 0.0, 1.0, 0.0] and reply["splat"] is None and reply["plan"] is None
     assert reply["cameras"]["hall"]["pose"][11] == 1.5  # the camera, where it stands in its own cloud
     assert [(v["camera"], v["cloud"], v["why"]) for v in reply["views"]] == [
@@ -908,6 +909,131 @@ def test_a_camera_with_a_spot_on_another_places_plan_is_offered_only_there(tmp_p
     monkeypatch.setattr(places, "spot_places", lambda state: {"hall": there})
     assert view.scene(tmp_path, here)[1]["views"] == []
     assert view.scene(tmp_path, there)[1]["view"]["camera"] == "hall"
+
+
+# ---- every camera's cloud in one scene (spatial/cloud_scene.py), as the 3D view reads it
+
+SPOTTED = plans.scene(
+    'plan "Home" walls 0.2/0.1\nroom den "Den" living rect 0,0 4x6\n'
+    "x-camera hall at 1,2 height 1.5 yaw 90\nx-camera porch at 3,5 height 1.5 yaw 0\n"
+)
+
+
+POINTS = ply.dumps(np.array([[0.0, 1.0, 0.0], [0.5, 2.0, 1.0]]), np.full((2, 3), 120, np.uint8))
+
+
+def plan_of(state, place) -> str:
+    held = places.get(state, place)
+    assert held is not None and held.plan is not None
+    return held.plan
+
+
+@pytest.fixture
+def spotted(tmp_path, vision, learn):
+    """A place whose owner plan has two camera spots, each camera with a cloud: (place, the cloud store)."""
+    from liberational.spatial import cloud_scene
+
+    place = places.revise(tmp_path, None, producer="footprints-v1", now=T).place
+    places.correct_plan(tmp_path, place, SPOTTED, now=T + 1)
+    learn(True, ("hall", "porch"))
+    store, _ = keep_cloud(tmp_path, "hall", at=T + 2)
+    keep_cloud(tmp_path, "porch", at=T + 3)
+    for camera in ("hall", "porch"):  # each placed with the picture it has: its anchor
+        cloud = store.current(camera)
+        store.picture(cloud).write_bytes(b"png")
+        store.file(cloud).write_bytes(POINTS)
+        cloud_scene.record(store, cloud, {}, cloud_scene.spots_of(tmp_path))
+    return place, store
+
+
+def test_the_scene_of_all_cameras_places_each_cloud_at_its_spot_on_the_plan(tmp_path, spotted):
+    place, _ = spotted
+    reply = view.scene(tmp_path, place, combined=True)[1]
+    told = {c["camera"]: (c["placed"], c["how"]) for c in reply["combined"]["cameras"]}
+    assert told == {"hall": (True, "spot"), "porch": (True, "spot")}
+    # a page is drawn x east, y south: the scene turns y over, and says so for the plan drawn under it
+    assert reply["plan_transform"] == [1.0, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0]
+    assert (reply["plan"], reply["plan_source"], reply["plan_aligned"]) == (SPOTTED, "owner", True)
+    assert reply["cameras"]["hall"]["pose"][3::4][:3] == pytest.approx([1.0, -2.0, 1.5])  # on its spot, at its height
+    served = view.scene_file(tmp_path, place, reply["revision"])
+    assert served is not None and served.stat().st_size == reply["map_bytes"]
+    assert view.scene_file(tmp_path, place, "0" * 32) is None  # another scene's points aren't served for this one
+
+
+def test_reading_the_scene_never_writes_the_owners_plan_or_spots(tmp_path, spotted):
+    place, _ = spotted
+    before = [r.value for r in places.plan_history(tmp_path, place)]
+    reply = view.scene(tmp_path, place, combined=True)[1]
+    view.scene_file(tmp_path, place, reply["revision"])
+    assert [r.value for r in places.plan_history(tmp_path, place)] == before
+    assert plan_of(tmp_path, place) == SPOTTED
+
+
+def moved_camera(tmp_path, store):
+    """The hall camera turned 35 degrees: its new picture registers against the one it was placed with."""
+    from liberational.spatial import cloud_scene
+
+    _, cloud = keep_cloud(tmp_path, "hall", at=T + 60)
+    store.picture(cloud).write_bytes(b"png")
+    store.file(cloud).write_bytes(POINTS)
+    s, c = 0.5735764, 0.8191520  # sin and cos of 35 degrees
+    turned = {"match": [0.3, 0.3], "sure": [0.9, 0.9], "rotation": [c, 0.0, s, 0.0, 1.0, 0.0, -s, 0.0, c],
+              "shift": [0.0, 0.0, 0.0], "scale": 1.0, "disagree": [0.7, 0.07, 0.01]}  # fmt: skip
+    cloud_scene.record(store, cloud, {"anchor": turned}, cloud_scene.spots_of(tmp_path))
+
+
+def test_a_moved_cameras_suggested_spot_is_saved_only_when_the_owner_takes_it(tmp_path, spotted):
+    place, store = spotted
+    moved_camera(tmp_path, store)
+    hall = next(
+        c for c in view.scene(tmp_path, place, combined=True)[1]["combined"]["cameras"] if c["camera"] == "hall"
+    )
+    assert hall["how"] == "moved" and hall["suggest"] == pytest.approx([1.0, 2.0, 125.0], abs=0.01)
+    assert plan_of(tmp_path, place) == SPOTTED  # offered, not saved
+    versions = len(places.plan_history(tmp_path, place))
+
+    assert view.accept_spot({"place": place, "camera": "hall"}, False, tmp_path)[0] == 403
+    assert plan_of(tmp_path, place) == SPOTTED
+    code, reply = view.accept_spot({"place": place, "camera": "hall"}, True, tmp_path, now=T + 120)
+    assert (code, reply["ok"]) == (200, True)
+    saved = {name: (at, yaw) for name, at, _, yaw, _ in plan_scene.spots(plan_scene.load(plan_of(tmp_path, place)))}
+    assert saved["hall"] == ((1.0, 2.0), 125.0) and saved["porch"] == ((3.0, 5.0), 0.0)  # only that spot moved
+    assert len(places.plan_history(tmp_path, place)) == versions + 1  # as a new version: the old one can be put back
+    after = next(
+        c for c in view.scene(tmp_path, place, combined=True)[1]["combined"]["cameras"] if c["camera"] == "hall"
+    )
+    assert (after["how"], after["suggest"]) == ("spot", None)  # placed from the spot it now has
+
+
+def test_taking_an_accepted_spot_back_restores_the_plan_and_the_camera_is_a_moved_one_again(tmp_path, spotted):
+    place, store = spotted
+    moved_camera(tmp_path, store)
+    reply = view.accept_spot({"place": place, "camera": "hall"}, True, tmp_path, now=T + 120)[1]
+    undo = {"place": place, "camera": "hall", "record": reply["previous"]}
+    assert view.undo_spot(undo, False, tmp_path)[0] == 403
+    assert view.undo_spot(undo, True, tmp_path, now=T + 180)[0] == 200
+    assert plan_of(tmp_path, place) == SPOTTED  # the plan as it was, on top as a new version
+    cameras = view.scene(tmp_path, place, combined=True)[1]["combined"]["cameras"]
+    hall = next(c for c in cameras if c["camera"] == "hall")
+    # not left at its old spot: it still stands where its pictures put it, and the spot is offered again
+    assert hall["how"] == "moved" and hall["suggest"] == pytest.approx([1.0, 2.0, 125.0], abs=0.01)
+    assert view.undo_spot({**undo, "record": "no-such-version"}, True, tmp_path)[0] == 400
+
+
+def test_a_spot_is_only_accepted_for_a_camera_that_has_one_suggested(tmp_path, spotted):
+    place, _ = spotted
+    assert view.accept_spot({"place": place, "camera": "porch"}, True, tmp_path)[0] == 400
+    assert view.accept_spot({"place": "no-such-place", "camera": "hall"}, True, tmp_path)[0] == 404
+    assert view.accept_spot({"place": place}, True, tmp_path)[0] == 400
+
+
+def test_a_place_with_no_camera_placed_says_why_and_has_no_scene_to_draw(tmp_path, vision, learn):
+    place = places.revise(tmp_path, None, producer="owner plan", plan=PLAN, now=T).place
+    learn(True, ("hall",))
+    keep_cloud(tmp_path, "hall")
+    reply = view.scene(tmp_path, place, combined=True)[1]
+    assert reply["revision"] is None
+    assert [(c["camera"], c["placed"], c["how"]) for c in reply["combined"]["cameras"]] == [("hall", False, "no_spot")]
 
 
 def test_a_map_and_splat_an_earlier_version_made_stay_on_disk_and_are_neither_shown_nor_served(tmp_path, vision):
