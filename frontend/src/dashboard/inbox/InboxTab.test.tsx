@@ -267,6 +267,48 @@ it('opens the newest unread report on arrival on a wide screen, and stays closed
   expect(screen.getByText('Choose a report to read it.')).toBeInTheDocument();
 });
 
+it('stays on the report it opened on arrival, instead of walking through the unread ones as they are read', async () => {
+  asDesktop();
+  // Three unread finished reports, the oldest last, and a question still waiting that is newer than all of them
+  const gate: Job = { ...done, id: 'c'.repeat(32), question: 'Which camera saw the gate open?', created_at: T };
+  const water: Job = { ...done, id: 'd'.repeat(32), question: 'When did Dana water the plants?', created_at: T - 60 };
+  const shed: Job = { ...done, id: 'e'.repeat(32), question: 'What did Sam put in the shed?', created_at: T - 120 };
+  let list: Job[] = [{ ...waiting, created_at: T + 60 }, gate, water, shed];
+  const reads: string[] = [];
+  server.use(
+    http.get('/research/jobs', () =>
+      HttpResponse.json({
+        jobs: list,
+        available: true,
+        reason: null,
+        unread: list.filter(j => j.status === 'done' && !j.read).length,
+      }),
+    ),
+    http.get('/research/jobs/:id', ({ params }) =>
+      HttpResponse.json({ ...list.find(j => j.id === params.id), result: report }),
+    ),
+    http.post('/research/jobs/:id/read', async ({ request, params }) => {
+      const { read } = (await request.json()) as { read: boolean };
+      reads.push(`${params.id}/read`);
+      list = list.map(j => (j.id === params.id ? { ...j, read } : j));
+      return HttpResponse.json({ ok: true });
+    }),
+  );
+  renderPage(<InboxTab />);
+  // The newest unread finished report, not the newer question still waiting for its answer
+  const article = await screen.findByRole('article', { name: 'Research report' });
+  expect(article).toHaveTextContent(gate.question);
+  await waitFor(() => expect(reads).toEqual([`${gate.id}/read`]));
+  // The list comes back with that one read. The reader stays on it, and the other two stay unread: the same commit
+  // that clears its unread dot is the one that would have moved the reader on, so this is where the walk shows.
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: /Which camera saw the gate open/ })).not.toHaveAccessibleName(/unread/),
+  );
+  expect(screen.getByRole('article', { name: 'Research report' })).toHaveTextContent(gate.question);
+  expect(screen.getByRole('button', { name: /When did Dana water the plants/ })).toHaveAccessibleName(/unread/);
+  expect(reads).toEqual([`${gate.id}/read`]);
+});
+
 it('leaves a phone on the list, with nothing to choose into beside it', async () => {
   renderPage(<InboxTab />);
   await screen.findByRole('button', { name: /garden/ });

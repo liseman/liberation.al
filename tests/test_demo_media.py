@@ -8,9 +8,10 @@ import shutil
 import socket
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
-from urllib.error import HTTPError, URLError
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 import pytest
@@ -92,9 +93,11 @@ def test_demo_starts_with_media_and_answers_without_a_model(tmp_path: Path) -> N
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
         port = probe.getsockname()[1]
-    root = tmp_path / "house"
+    # A long --dir: its own socket path is too long for a socket, so the broker and the gateway use a short one.
+    root = tmp_path / ("house-" + "x" * 100)
     base = f"http://127.0.0.1:{port}"
-    log = tmp_path / "demo.log"
+    said: list[str] = []
+    address = threading.Event()
 
     def read(path: str, body: dict | None = None) -> bytes:
         data = None if body is None else json.dumps(body).encode()
@@ -102,23 +105,29 @@ def test_demo_starts_with_media_and_answers_without_a_model(tmp_path: Path) -> N
         with urlopen(request, timeout=20) as response:
             return response.read()
 
-    with log.open("wb") as output:
-        process = subprocess.Popen(
-            [sys.executable, "-m", "liberational.demo.cli", "--dir", str(root), "--port", str(port)],
-            env=dict(os.environ),
-            stdout=output,
-            stderr=output,
-        )
+    def watch(output: io.TextIOBase) -> None:
+        for line in output:
+            said.append(line)
+            if "the demo dashboard is on" in line:
+                address.set()
+
+    with subprocess.Popen(
+        [sys.executable, "-m", "liberational.demo.cli", "--dir", str(root), "--port", str(port)],
+        env=dict(os.environ),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    ) as process:
+        assert process.stdout is not None
+        threading.Thread(target=watch, args=(process.stdout,), daemon=True).start()
         try:
             deadline = time.monotonic() + 300
-            while True:
-                assert process.poll() is None, log.read_text()
-                try:
-                    read("/health")
-                    break
-                except URLError:
-                    assert time.monotonic() < deadline, log.read_text()
-                    time.sleep(0.2)
+            while not address.wait(0.2):
+                assert process.poll() is None, "".join(said)
+                assert time.monotonic() < deadline, "".join(said)
+            # The address line says the dashboard is there, and it is: opened at once, with no retry, it answers.
+            assert read("/health")
             cameras = json.loads(read("/devices"))["cameras"]
             assert [c["stream"] for c in cameras] == ["front-room", "kitchen", "porch", "study"]
             pictures = []

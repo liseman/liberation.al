@@ -728,7 +728,7 @@ class NoOne:
 
 
 @pytest.mark.parametrize(("text", "labelled"), [("Yeah.", False), ("Yeah, sure.", True)])
-def test_a_one_word_line_is_written_without_an_unknown_speaker(tmp_path, text, labelled):
+def test_a_one_word_line_is_written_without_an_unknown_speaker_and_a_longer_one_needs_two(tmp_path, text, labelled):
     prints = voices.Voiceprints(tmp_path / "voiceprints.json", lambda: 0)
     matcher = voices.VoiceMatcher(prints, NoOne(), NoHits(), segments=tmp_path / "segments")
     worker = Worker(
@@ -742,12 +742,19 @@ def test_a_one_word_line_is_written_without_an_unknown_speaker(tmp_path, text, l
     embedding = np.zeros(192, np.float32)
     embedding[0] = 1.0
     candidate = Candidate("testmic.audio", 1 * NS, 3 * NS, speech(2.0))
-    asyncio.run(worker._write(candidate, "testmic", Heard(text, embedding), text, False))
+
+    async def run() -> None:
+        # A voice opens on its second line (listen/voices.py: OPEN_AGREE), so write this one twice.
+        for _ in range(2):
+            await worker._write(candidate, "testmic", Heard(text, embedding), text, False)
+
+    asyncio.run(run())
     for writer in worker.writers.values():
         writer.close()
     matcher.close()
-    (line,) = speech_log.lines(0, 10, base=tmp_path / "segments")
-    assert ("speaker" in line) is labelled
+    first, second = speech_log.lines(0, 10, base=tmp_path / "segments")
+    assert ("speaker" in first) is False, "nothing to recur into yet, or too few words to open one"
+    assert ("speaker" in second) is labelled
 
 
 class _Ring:

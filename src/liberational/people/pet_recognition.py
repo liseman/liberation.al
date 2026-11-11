@@ -14,6 +14,10 @@ track wins. Labeling a sighting as a pet or "another animal" also writes its mea
 record (`reference`), so the label keeps its example when a reset empties the segment store, and the sighting's
 saved photo as a `pet.photo` record (`photo`), so the example can be embedded again when the embedding model
 changes (tools/restore_pet_references.py, which also carries over examples taught before photos were kept).
+The picture is kept apart from the reference: a sighting named before its photo was saved keeps its label without
+one, and naming it again (a relabel, or a bulk naming that includes it) keeps the picture that has arrived since,
+even though its example is already there. A label whose picture cannot be read is still taught, and each pet's
+learning summary counts its taught sightings with no kept picture (`no_photo`).
 
 Unlabeled embeddings remain labelable for `pets.label_days`. Active owner labels, including "another animal", retain
 their whole sighting as a reference without an age cutoff. Clearing the newest label makes that sighting ordinary
@@ -104,6 +108,7 @@ import threading
 import time
 import uuid
 from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Set as AbstractSet
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -996,7 +1001,7 @@ def view(state: Any, pets: Sequence[Mapping[str, Any]], now: float | None = None
         return _view(state, pets, now)
     base = segment_log.root(state)
     key = (
-        _generation(state, (LABELS, REFERENCES, NOTS, BLOCKS)),
+        _generation(state, (LABELS, REFERENCES, NOTS, BLOCKS, PHOTOS)),
         _files(base),
         json.dumps(pets, sort_keys=True, default=str),
         label_days(),
@@ -1086,7 +1091,7 @@ def _view(state: Any, pets: Sequence[Mapping[str, Any]], now: float) -> dict[str
             for sp, c in checks.items()
             if sp != ANIMAL
         ],
-        "learning": _learning(checks, labeled, active, names, now),
+        "learning": _learning(checks, labeled, active, names, now, _photo_tracks(state)),
         "names": names,
         "label_days": label_days(),
     }
@@ -1098,11 +1103,13 @@ def _learning(
     active: Mapping[str, Mapping[str, Any]],
     names: Mapping[str, str],
     now: float,
+    with_photo: AbstractSet[str],
 ) -> dict[str, dict[str, Any]]:
     """Per-pet coverage on recent forward-held-out labels, with missing evidence explicit.
 
     This is an estimate on owner-checked sightings, not a log of past automatic decisions. In particular, no
-    current-label resubstitution score is described as last week's recognition accuracy.
+    current-label resubstitution score is described as last week's recognition accuracy. `with_photo` is the tracks
+    with a kept `pet.photo`, so `no_photo` counts the pet's taught sightings a model change could not embed again.
     """
     days = float(config.get("pets.learning_days"))
     cutoff = now - days * 86400
@@ -1120,6 +1127,7 @@ def _learning(
             "automatic_percent": round(100 * tally["right"] / len(rows), 1) if rows else None,
             "references": references,
             "stranded": max(0, sum(r["label"] == pet for r in active.values()) - references),
+            "no_photo": sum(1 for tid, r in active.items() if r["label"] == pet and tid not in with_photo),
         }
     return out
 
@@ -1144,6 +1152,14 @@ def label(
         raise LookupError(f"{len(missing)} sightings are no longer recorded")
     with evidence_lock(state):
         kept = {str(r.get("track_id")) for r in _current_references(state)}
+        # A picture is kept apart from the reference: a label taught before its photo was saved keeps none, so a
+        # later label of that sighting (a relabel, or a bulk naming that includes it) keeps the one that has since
+        # arrived. A label whose photo cannot be read is still kept, and `_learning`'s `no_photo` reports it.
+        unphotographed = (
+            {tid for tid in dict.fromkeys(track_ids) if kept_photo(state, tid) is None}
+            if value not in (None, IGNORED)
+            else set()
+        )
         records = []
         for k, tid in enumerate(track_ids):
             s = found[tid]
@@ -1160,10 +1176,12 @@ def label(
             }
             subjects = (value,) if value not in (None, OTHER, IGNORED) else ()
             records.append(knowledge.Record(str(uuid.uuid7()), LABELS, tid, at, at, at, body, subjects))
-            if value not in (None, IGNORED) and tid not in kept:
-                records.append(reference(s.mean, body, at))
-                if (jpg := saved_photo(state, tid)) is not None:
+            if value not in (None, IGNORED):
+                if tid not in kept:
+                    records.append(reference(s.mean, body, at))
+                if tid in unphotographed and (jpg := saved_photo(state, tid)) is not None:
                     records.append(photo(tid, jpg, at))
+                    unphotographed.discard(tid)  # one picture for a track named twice in one call
         _store(state).put(records)
         return len(track_ids)
 
