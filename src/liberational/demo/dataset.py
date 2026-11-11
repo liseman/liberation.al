@@ -10,24 +10,27 @@ pet card's Training images has something to show; `seed_faces` does the same for
 only by pack-demo, which knows the demo's own faces directory.
 
 `seed(state, mlog, say=...)` writes it all into the state directory `state` (people and pets into its knowledge store,
-the place under `places/`), the journal into `mlog`, the memory log on the demo's own broker, and the transcript
+the place under `places/`, with a small learned 3D map: `seed_map`), the journal into `mlog`, the memory log on the demo's own broker, and the transcript
 through `say`, which writes one utterance (pack-demo's is a speech log writer on that broker). `tools/measure.py --demo`
 seeds it at a fixed day and scores the retrieval labels in tests/data/measurement/demo/ against it, which ask about
 this transcript and journal.
 """
 
 import datetime as dt
+import math
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+import numpy as np
 
 from liberational.dashboard.journal import event_level
 from liberational.domain.identity import Basis
 from liberational.memory import history_qa, journal, journal_pages, places
 from liberational.memory_log import JOURNAL, PAGES, MemoryLog
 from liberational.people import pets, registry
-from liberational.spatial import plan_scene
+from liberational.spatial import plan_scene, sog, spots
 
 OWNER = "Alice"
 PEOPLE = (OWNER, "Dana", "Sam")
@@ -298,6 +301,101 @@ def seed_place(state: Path, now: float) -> str:
     return rev.place
 
 
+#: The demo map's kept views, oldest first, from two made-up cameras: which camera, where it stands (plan metres,
+#: height above the floor), where it looks, and how much too long its depth came out. The study camera's first view
+#: has depth a tenth too long, as an earlier pass placed it, so the living room it shares with the kitchen camera
+#: shows twice, the second copy a little farther off: the echo the 3D view's per-camera and per-view boxes find.
+_MAP_VIEWS = (
+    ("kitchen", (0.4, 0.4, 2.2), (6.0, 3.0, 0.6), 1.0),
+    ("study", (8.6, 8.1, 2.2), (5.0, 1.5, 0.6), 1.1),
+    ("study", (8.6, 8.1, 2.2), (5.0, 1.5, 0.6), 1.0),
+)
+_MAP_SIZE = (320, 180)  # each camera's frame, px
+_MAP_FOCAL = 160.0  # px: about 90 degrees across
+_MAP_HEIGHT = 2.4  # the walls' height, m
+_MAP_STEP = 0.08  # the spacing of the surfaces' points, m
+
+
+def _look(eye: Sequence[float], at: Sequence[float]) -> np.ndarray:
+    """A camera at `eye` looking at `at`, camera to plan (4 x 4), looking along its +z with +y down (OpenCV)."""
+    forward = np.subtract(at, eye) / np.linalg.norm(np.subtract(at, eye))
+    right = np.cross(forward, (0.0, 0.0, 1.0))
+    right /= np.linalg.norm(right)
+    down = np.cross(forward, right)
+    pose = np.eye(4)
+    pose[:3, 0], pose[:3, 1], pose[:3, 2], pose[:3, 3] = right, down, forward, eye
+    return pose
+
+
+def _surfaces() -> tuple[np.ndarray, np.ndarray]:
+    """Points on the demo house's floor and walls, every `_MAP_STEP`, with colours: each room's floor its own shade,
+    the walls pale."""
+    points, colours = [], []
+    shades = ((196, 164, 120), (150, 150, 150), (120, 140, 190), (176, 132, 98), (120, 170, 130))
+    for (_, _, _, outline), shade in zip(_ROOMS, shades, strict=True):
+        (x0, y0), _, (x1, y1), _ = outline
+        xs, ys = np.meshgrid(np.arange(x0, x1, _MAP_STEP), np.arange(y0, y1, _MAP_STEP))
+        points.append(np.c_[xs.ravel(), ys.ravel(), np.zeros(xs.size)])
+        colours.append(np.tile(shade, (xs.size, 1)))
+        for (ax, ay), (bx, by) in zip(outline, (*outline[1:], outline[0]), strict=True):
+            along = np.arange(0.0, math.hypot(bx - ax, by - ay), _MAP_STEP)
+            heights = np.arange(0.0, _MAP_HEIGHT, _MAP_STEP)
+            t, z = np.meshgrid(along / max(along[-1], 1e-9), heights)
+            wall = np.c_[(ax + (bx - ax) * t).ravel(), (ay + (by - ay) * t).ravel(), z.ravel()]
+            points.append(wall)
+            colours.append(np.tile((228, 224, 214), (len(wall), 1)))
+    return np.concatenate(points), np.concatenate(colours).astype(np.uint8)
+
+
+def seed_map(state: Path, place: str, now: float) -> None:
+    """Gives the demo place a learned map as the map step writes one, in its plan's frame: the points each of
+    `_MAP_VIEWS` sees of the house's floor and walls (no walls block a view: it's a sketch), each tagged with the
+    camera's view, and a splat of small round Gaussians on them, with its views in the web copy's order."""
+    from liberational.spatial import ply
+
+    surface, colour = _surfaces()
+    width, height = _MAP_SIZE
+    points, colours, views, table, cameras = [], [], [], [], {}
+    for i, (name, eye, at, long) in enumerate(_MAP_VIEWS):
+        pose = _look(eye, at)
+        local = (surface - pose[:3, 3]) @ pose[:3, :3]
+        z = local[:, 2]
+        with np.errstate(divide="ignore", invalid="ignore"):
+            u, v = local[:, 0] / z * _MAP_FOCAL + width / 2, local[:, 1] / z * _MAP_FOCAL + height / 2
+        seen = (z > 0.2) & (u >= 0) & (u < width) & (v >= 0) & (v < height)
+        # Its depth `long` times too long: each point slides away from the camera along its ray.
+        points.append(pose[:3, 3] + (surface[seen] - pose[:3, 3]) * long)
+        colours.append(colour[seen])
+        views.append(np.full(int(seen.sum()), i, np.uint16))
+        table.append({"id": f"demo-{i}", "camera": name, "t": now - 3600 * (len(_MAP_VIEWS) - i)})
+        cameras[name] = places.CameraPose(tuple(pose.ravel()), _MAP_FOCAL, width, height, at=now)
+    xyz, rgb, tag = np.concatenate(points), np.concatenate(colours), np.concatenate(views)
+    names = ["x", "y", "z", "nx", "ny", "nz", "f_dc_0", "f_dc_1", "f_dc_2", "opacity"]
+    names += ["scale_0", "scale_1", "scale_2", "rot_0", "rot_1", "rot_2", "rot_3", "view"]
+    n = len(xyz)
+    dc = (rgb / 255.0 - 0.5) / 0.28209479177387814  # the SH band-0 constant
+    columns = [*xyz.T, *np.zeros((3, n)), *dc.T, np.full(n, 3.0), *np.full((3, n), math.log(0.03))]
+    columns += [np.ones(n), *np.zeros((3, n)), tag]
+    rows = np.rec.fromarrays([np.asarray(c, "<f4") for c in columns], names=names)
+    header = f"ply\nformat binary_little_endian 1.0\nelement vertex {n}\n"
+    master = (header + "".join(f"property float {k}\n" for k in names) + "end_header\n").encode() + rows.tobytes()
+    rev = places.revise(
+        state,
+        place,
+        producer=f"{SOURCE} map",
+        map_bytes=ply.dumps(xyz, rgb, {"view": tag}),
+        map_format="ply",
+        plan=PLAN,
+        cameras=cameras,
+        floor=spots.FLOOR,
+        plan_transform=spots.PLAN,
+        now=now,
+    )
+    counts = np.bincount(tag, minlength=len(table)).tolist()
+    places.write_sources(state, rev, {"views": table, "points": counts, "gaussians": counts})
+    places.write_splat(state, rev, master, sog.encode(rows), source=SOURCE, views=sog.views(rows))
+
+
 def seed_journal(mlog: MemoryLog, day: dt.date, ids: dict[str, str], hours: Sequence[Hour] = DAY) -> list[str]:
     """Writes the demo day's hour and event entries and its day page; returns the hour entries' ids."""
     top, event = journal.levels()[-1], event_level()
@@ -372,7 +470,7 @@ def seed(
     day = demo_day(today)
     ids = seed_people(state)
     seed_pet_examples(state, _local(day, 20))
-    seed_place(state, _local(day, 6))
+    seed_map(state, seed_place(state, _local(day, 6)), _local(day, 7))
     seed_journal(mlog, day, ids)
     if say is not None:
         seed_transcript(state, say, day)

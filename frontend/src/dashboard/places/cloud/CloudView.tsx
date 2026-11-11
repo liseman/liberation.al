@@ -15,14 +15,20 @@
 // seconds, and a newer map or splat is drawn once all of its bytes are here, the one before it staying drawn until
 // then, from where the person was looking. A line under the view says whether learning is on, how many views the
 // map was built from, and when it last improved (status.ts).
+//
+// Under the settings, a box for each camera (SourceFilter.tsx) shows or hides what it added, in both the points and
+// the splat, at once and without loading anything again; under each, its views by when they were taken. What's
+// hidden is kept for the place this session (sources.ts), and a newer map is drawn with it hidden too.
 import { Button, Checkbox, Group, Progress, SegmentedControl, Slider, Text } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { messageOf } from '../../../shared/http';
 import { type Scene, sceneQuery } from '../api';
 import classes from '../places.module.css';
-import { canDraw, canDrawSplat, openingCamera, parseCloud, readBytes, splatFault } from './load';
+import { canDraw, canDrawSplat, openingCamera, parseCloud, parseViews, readBytes, splatFault } from './load';
+import { SourceFilter } from './SourceFilter';
 import { type Built, build, type Colour, type View } from './scene';
+import { readHidden, visibleViews, writeHidden } from './sources';
 import { learningNote, loadingText, planNote, splatNote } from './status';
 
 type Draw = 'points' | 'splat';
@@ -105,6 +111,22 @@ function useSplatBytes(scene: Scene | undefined, wanted: boolean, attempt: numbe
   return { ...query, got };
 }
 
+/** Each of the splat's Gaussians' views, read once per splat; null while there's none to read, or when the bytes
+ *  can't be one. */
+function useSplatViews(url: string | null | undefined, wanted: boolean) {
+  return useQuery({
+    queryKey: ['places', 'splat-views', url],
+    queryFn: async ({ signal }) => {
+      const r = await fetch(url ?? '', { signal });
+      if (!r.ok) throw new Error(`the server answered ${r.status}`);
+      return parseViews(await r.arrayBuffer());
+    },
+    enabled: wanted && !!url,
+    staleTime: Number.POSITIVE_INFINITY,
+    gcTime: 10 * 60_000,
+  });
+}
+
 export default function CloudView({ place }: { place: string }) {
   const webgl = useMemo(hasWebGL, []);
   const scene = useQuery({ ...sceneQuery(place), enabled: webgl });
@@ -134,6 +156,11 @@ export default function CloudView({ place }: { place: string }) {
   const [colour, setColour] = useState<Colour>('rgb');
   const [size, setSize] = useState(2.5);
   const [show, setShow] = useState({ floor: true, cameras: true, plan: true });
+  const [hidden, setHidden] = useState<Set<string>>(() => readHidden(place));
+  const hide = (next: Set<string>) => {
+    setHidden(next);
+    writeHidden(place, next);
+  };
   const [failed, setFailed] = useState<string | null>(null);
 
   // Build the scene once its map's bytes are here, with the points alone until the splat's bytes are (and when
@@ -197,6 +224,15 @@ export default function CloudView({ place }: { place: string }) {
       made?.dispose();
     };
   }, [webgl, drawn]);
+
+  // The views shown: the drawn map's, by what's hidden. The splat's are read beside it, and applied once it's here.
+  const sources = drawn?.scene.sources ?? null;
+  const visible = useMemo(() => (sources ? visibleViews(sources, hidden) : null), [sources, hidden]);
+  const splatViews = useSplatViews(sources?.splat_views, hasSplat).data ?? null;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `ready` says the scene was rebuilt and wants its views
+  useEffect(() => {
+    built.current?.showViews(visible, splatViews);
+  }, [visible, splatViews, ready, splatReady]);
 
   // Settings change what's drawn, then one frame is drawn.
   // biome-ignore lint/correctness/useExhaustiveDependencies: `ready` says the scene was rebuilt and wants its settings
@@ -336,6 +372,16 @@ export default function CloudView({ place }: { place: string }) {
           Back to the start
         </Text>
       </Group>
+      {drawn && (
+        <SourceFilter
+          sources={sources}
+          cameras={cams}
+          hidden={hidden}
+          onChange={hide}
+          noun={draw === 'splat' ? 'splats' : 'points'}
+          splatUntold={draw === 'splat' && !!sources && !sources.splat_views}
+        />
+      )}
       {splatLoading && (
         <Group gap="xs" mt="xs" wrap="nowrap" role="status">
           <Text size="xs" c="dimmed">

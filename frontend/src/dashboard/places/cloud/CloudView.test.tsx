@@ -15,12 +15,16 @@ vi.mock('./scene', () => ({ build }));
 
 /** What the stood-in viewer was asked to show, newest last, and how its splat's load ends. */
 let shown: Parameters<Built['show']>[0][] = [];
+/** What the stood-in viewer was asked to show of each view, newest last. */
+let viewsShown: Parameters<Built['showViews']>[] = [];
 let splatLoaded: () => Promise<void> = () => Promise.resolve();
 /** The splat's own load is only followed for a viewer built around one, as scene.ts settles it at once without. */
 type BuildArgs = [HTMLDivElement, object, object, ArrayBuffer | null, string | View | null];
 
 beforeEach(() => {
   shown = [];
+  viewsShown = [];
+  sessionStorage.clear();
   splatLoaded = () => Promise.resolve();
   build.mockReset();
   build.mockImplementation(
@@ -30,6 +34,9 @@ beforeEach(() => {
       lookFrom: () => {},
       show: s => {
         shown.push(s);
+      },
+      showViews: (visible, splatViews) => {
+        viewsShown.push([visible, splatViews]);
       },
       splatLoaded: args[3] ? splatLoaded() : Promise.resolve(),
       cameraNames: [],
@@ -313,3 +320,69 @@ it("says when the splat's file can't be fetched at all", async () => {
   expect((await screen.findByRole('alert')).textContent).toMatch(/^Couldn't show the splat: the server answered 500\./);
   await waitFor(() => expect(lastSplat()).toBeNull());
 });
+
+const SOURCES = {
+  views: [
+    { id: 'k1', camera: 'kitchen', t: 1_700_000_000, points: 1200, gaussians: 900 },
+    { id: 's1', camera: 'study', t: 1_700_003_600, points: 800, gaussians: 700 },
+    { id: 'k2', camera: 'kitchen', t: 1_700_007_200, points: 300, gaussians: 100 },
+  ],
+  cameras: [
+    { name: 'kitchen', points: 1500, gaussians: 1000, views: [0, 2] },
+    { name: 'study', points: 800, gaussians: 700, views: [1] },
+  ],
+  splat_views: '/places/splat?place=p1&revision=r1&format=views',
+};
+/** Each Gaussian's view, as the views file has them. */
+const SPLAT_VIEWS = new Uint8Array([0, 0, 1, 0, 2, 0]);
+
+function serveTagged(more: object = {}) {
+  serve(withSplat({ sources: SOURCES, ...more }), ({ request }) =>
+    new URL(request.url).searchParams.get('format') === 'views' ? bytes(SPLAT_VIEWS) : bytes(SOG),
+  );
+}
+
+it("hides a camera's points and splats at once, and its views one by one, without building again", async () => {
+  serveTagged();
+  renderPage(<CloudView place="p1" />);
+  const kitchen = await screen.findByRole('checkbox', { name: 'kitchen · 1,000 splats' });
+  await waitFor(() => expect(viewsShown.at(-1)?.[1]).toEqual(new Uint16Array([0, 1, 2])));
+  expect(viewsShown.at(-1)?.[0]).toBeNull(); // everything shown
+  const builds = build.mock.calls.length;
+  await userEvent.click(kitchen);
+  await waitFor(() => expect(viewsShown.at(-1)?.[0]).toEqual(new Set([1])));
+  expect((kitchen as HTMLInputElement).checked).toBe(false);
+  // one of its views back: the camera's box is half on
+  await userEvent.click(screen.getByRole('button', { name: '2 views' }));
+  await userEvent.click(await screen.findByRole('checkbox', { name: /· 100 splats$/ }));
+  await waitFor(() => expect(viewsShown.at(-1)?.[0]).toEqual(new Set([1, 2])));
+  expect((kitchen as HTMLInputElement).indeterminate).toBe(true);
+  await userEvent.click(screen.getByRole('button', { name: 'None' }));
+  await waitFor(() => expect(viewsShown.at(-1)?.[0]).toEqual(new Set()));
+  await userEvent.click(screen.getByRole('button', { name: 'All' }));
+  await waitFor(() => expect(viewsShown.at(-1)?.[0]).toBeNull());
+  expect(build.mock.calls.length).toBe(builds);
+});
+
+it('counts points in the Points view, and keeps what is hidden for the place this session', async () => {
+  serveTagged();
+  const first = renderPage(<CloudView place="p1" />);
+  await userEvent.click(await screen.findByRole('radio', { name: 'Points' }));
+  await userEvent.click(await screen.findByRole('checkbox', { name: 'study · 800 points' }));
+  await waitFor(() => expect(viewsShown.at(-1)?.[0]).toEqual(new Set([0, 2])));
+  first.unmount();
+  renderPage(<CloudView place="p1" />);
+  const study = await screen.findByRole('checkbox', { name: 'study · 700 splats' });
+  expect((study as HTMLInputElement).checked).toBe(false);
+  await waitFor(() => expect(viewsShown.at(-1)?.[0]).toEqual(new Set([0, 2])));
+});
+
+it('shows the cameras unavailable, with why, for a map made before maps said where their points came from', async () => {
+  serve(scene({ sources: null, cameras: { kitchen: CAMERA, study: CAMERA } }));
+  renderPage(<CloudView place="p1" />);
+  const kitchen = await screen.findByRole('checkbox', { name: 'kitchen' });
+  expect((kitchen as HTMLInputElement).disabled).toBe(true);
+  expect(screen.getByText(/gains it the next time it's rebuilt/)).toBeTruthy();
+});
+
+const CAMERA = { pose: new Array<number>(16).fill(0), focal: 100, width: 64, height: 36, at: 1 };

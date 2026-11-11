@@ -26,6 +26,12 @@ Two layers, following docs/DOMAIN-MODEL.md:
   revisions' splats stay and older ones are pruned. A splat fits every revision of its map's `frame` (`Revision.frame`), so the 3D view can show
   an earlier revision's splat while the frame holds. A pass that made no splat for a revision leaves why in the
   place's `splat.note` (`write_splat_note`), for the 3D view to say.
+- **Where a map's points and a splat's Gaussians came from.** A map writer that knows which picture each point was
+  lifted from keeps `<revision id>.sources` beside the map (`write_sources`, JSON): the views, in a fixed order a
+  place's later maps in the same frame only add to (each its kept frame's id, camera, and time), and how many points
+  and Gaussians each contributed. The map's PLY carries each point's view as a `view` ushort property (an index into
+  that list, `UNTAGGED` for none), and the splat's `<revision id>.sog.views` holds each Gaussian's, as little-endian
+  uint16s in the SOG's own order (`spatial/sog.py`'s `order`), so the 3D view can show or hide each view's part.
 - **What the owner taught is in the knowledge store** (`knowledge.sqlite3`), and supersedes the machine view
   without deleting it, the way zone sets and identity corrections do. `place.named` holds the owner's name for a
   place (newest per place wins; an empty name goes back to the placeholder). `place.plan` holds the owner's
@@ -90,8 +96,11 @@ NAMED = "place.named"  # owner names, in the knowledge store, keyed by place id
 PLAN = "place.plan"  # owner plan corrections, in the knowledge store, keyed by place id
 MAPS_KEPT = 2  # map files kept per place, newest first; older ones are pruned
 SPLATS_KEPT = 2  # revisions per place whose splat files are kept, newest first
-#: A splat's files beside its revision: the 3DGS master, the compact web copy, and a note of what it was trained from.
-SPLAT_FILES = ("gs.ply", "sog", "gs.from")
+#: A splat's files beside its revision: the 3DGS master, the compact web copy, a note of what it was trained from, and
+#: each Gaussian's view in the copy's order (`write_splat`).
+SPLAT_FILES = ("gs.ply", "sog", "gs.from", "sog.views")
+SOURCES = "sources"  # the suffix of a map's sources (`write_sources`)
+UNTAGGED = 0xFFFF  # the view of a point or Gaussian no view is known for
 # A producer's newest map is kept whatever its age only while that producer wrote one of the place's last this many
 # revisions: a retired producer version's last map then goes too.
 PRODUCER_WINDOW = 20
@@ -684,6 +693,7 @@ def _prune_maps(state: Path, place: str) -> None:
     for old in maps:
         if old.name not in keep:
             old.unlink(missing_ok=True)
+            old.with_suffix(f".{SOURCES}").unlink(missing_ok=True)
 
 
 def read_map(state: Path, rev: Revision) -> bytes | None:
@@ -717,18 +727,50 @@ def splat_source(state: Path, rev: Revision) -> str | None:
         return None
 
 
-def write_splat(state: Path, rev: Revision, master: bytes, web: bytes, source: str | None = None) -> None:
+def write_splat(
+    state: Path, rev: Revision, master: bytes, web: bytes, source: str | None = None, views: bytes | None = None
+) -> None:
     """Keep `rev`'s splat: the 3DGS PLY `master` and its SOG copy `web`, each written whole, the copy last (it's
-    what says a splat is there), with `source` (what it was trained from, such as "cameras") noted beside them. A
-    revision's splat is written once: the dashboard serves it as never changing, so a second one for the same
-    revision is refused. Older revisions' splats past SPLATS_KEPT are pruned."""
+    what says a splat is there), with `source` (what it was trained from, such as "cameras") noted beside them, and
+    `views` (each Gaussian's view in the copy's order, `SPLAT_FILES`) when the trainer knew them. A revision's splat
+    is written once: the dashboard serves it as never changing, so a second one for the same revision is refused.
+    Older revisions' splats past SPLATS_KEPT are pruned."""
     if has_splat(state, rev):
         raise ValueError(f"revision {rev.id} already has a splat")
     _write(splat_path(state, rev, "gs.ply"), master)
     if source is not None:
         _write(splat_path(state, rev, "gs.from"), source.encode())
+    if views is not None:
+        _write(splat_path(state, rev, "sog.views"), views)
     _write(splat_path(state, rev, "sog"), web)
     _prune_splats(state, rev.place)
+
+
+def splat_views(state: Path, rev: Revision) -> Path | None:
+    """`rev`'s splat's views file (`write_splat`), or None when it has none."""
+    path = splat_path(state, rev, "sog.views")
+    return path if path.is_file() and has_splat(state, rev) else None
+
+
+def write_sources(state: Path, rev: Revision, sources: Mapping[str, Any]) -> None:
+    """Keep where the map `rev` wrote got its points (see the module docstring): `views` (a list of {id, camera, t}),
+    and `points` and `gaussians` (counts, one a view; `gaussians` None without a splat). Written before the splat, so
+    a reader that finds the splat finds them."""
+    if rev.map is None or rev.map.removesuffix(".map") != rev.id:
+        raise ValueError(f"revision {rev.id} wrote no map of its own")
+    _write(root(state) / rev.place / f"{rev.id}.{SOURCES}", json.dumps(dict(sources), sort_keys=True).encode())
+
+
+def sources(state: Path, rev: Revision) -> dict[str, Any] | None:
+    """Where the points of the map `rev` uses came from (`write_sources`), or None for a map that didn't say (one
+    made before maps did, or by a writer that doesn't know)."""
+    if rev.map is None:
+        return None
+    try:
+        found = json.loads((root(state) / rev.place / f"{rev.map.removesuffix('.map')}.{SOURCES}").read_text())
+    except OSError, ValueError:
+        return None
+    return found if isinstance(found, dict) and isinstance(found.get("views"), list) else None
 
 
 #: Why the splat pass made no splat for a revision (`write_splat_note`): too few lit daytime frames, no fixed cameras

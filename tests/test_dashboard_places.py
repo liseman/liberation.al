@@ -675,6 +675,34 @@ def test_the_scene_gives_the_splat_passs_own_reason_once_it_has_tried_this_map(t
     assert (wait["reason"], wait["tried"]) == ("pass", None)
 
 
+def test_a_map_from_before_maps_said_where_their_points_came_from_has_no_sources(tmp_path, mapped):
+    assert view.scene(tmp_path, mapped[0])[1]["sources"] is None
+
+
+def test_the_scene_says_each_camera_and_views_share_of_the_map_and_the_splat(tmp_path, mapped):
+    place, rev_id = mapped
+    rev = places.revisions(tmp_path, place)[-1]
+    views = [{"id": "a", "camera": "porch", "t": 1.0}, {"id": "b", "camera": "hall", "t": 2.0}]
+    views.append({"id": "c", "camera": "porch", "t": 3.0})
+    places.write_sources(tmp_path, rev, {"views": views, "points": [10, 20, 30], "gaussians": [1, 2, 3]})
+    sources = view.scene(tmp_path, place)[1]["sources"]
+    # no splat yet: its Gaussians aren't counted, and there's no views file to read
+    assert sources["splat_views"] is None
+    assert sources["cameras"] == [
+        {"name": "hall", "points": 20, "gaussians": None, "views": [1]},
+        {"name": "porch", "points": 40, "gaussians": None, "views": [0, 2]},
+    ]
+    places.write_splat(tmp_path, rev, master=b"ply", web=b"sog-bytes", views=b"\x00\x00\x01\x00")
+    sources = view.scene(tmp_path, place)[1]["sources"]
+    assert sources["splat_views"] == f"/places/splat?place={place}&revision={rev_id}&format=views"
+    assert [(v["camera"], v["points"], v["gaussians"]) for v in sources["views"]] == [
+        ("porch", 10, 1),
+        ("hall", 20, 2),
+        ("porch", 30, 3),
+    ]
+    assert [(c["name"], c["gaussians"]) for c in sources["cameras"]] == [("hall", 2), ("porch", 4)]
+
+
 def test_a_map_with_no_cameras_says_the_pass_has_nothing_to_make_a_splat_from(tmp_path, mapped):
     place, _ = mapped
     places.revise(tmp_path, place, producer="mapper v1", map_bytes=CLOUD, map_format="ply", cameras={}, now=T + 10)
@@ -747,6 +775,19 @@ def test_the_map_is_served_in_ranges_cached_for_good_and_404_for_another_revisio
     assert get(splat, **{"If-None-Match": f'"{rev}.sog"'})[0].status == 304
     assert get(splat, **{"If-None-Match": f'"{rev}"'})[0].status == 200
     assert get(f"/places/splat?place={place}&revision={rev}&format=spz")[0].status == 404
+    views = f"/places/splat?place={place}&revision={rev}&format=views"
+    assert get(views)[0].status == 404  # that splat doesn't say which view each Gaussian came from
+
+
+def test_a_splats_views_are_served_cached_for_good(tmp_path, mapped, serve_dashboard, monkeypatch):
+    place, rev = mapped
+    monkeypatch.setattr(context, "STATE", tmp_path)
+    places.write_splat(tmp_path, places.revisions(tmp_path, place)[-1], master=b"ply", web=b"sog", views=b"\x01\x00")
+    conn = http.client.HTTPConnection(urlsplit(serve_dashboard()).netloc, timeout=120)
+    conn.request("GET", f"/places/splat?place={place}&revision={rev}&format=views")
+    r = conn.getresponse()
+    assert (r.status, r.read(), r.getheader("ETag")) == (200, b"\x01\x00", f'"{rev}.views"')
+    conn.close()
 
 
 def test_one_persons_tracks_on_two_cameras_stay_two_paths(tmp_path, reader, home):

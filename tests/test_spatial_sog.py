@@ -155,3 +155,37 @@ def test_an_sh_count_that_isnt_a_degree_is_refused():
     )
     with pytest.raises(ValueError, match="SH degree"):
         sog.encode(rows)
+
+
+def with_views(rows: np.ndarray, views: np.ndarray) -> np.ndarray:
+    """`rows` with a `view` property, as the trainer writes it (a float)."""
+    names = [*(rows.dtype.names or ()), "view"]
+    return np.rec.fromarrays([*(rows[k] for k in rows.dtype.names or ()), views.astype("<f4")], names=names)
+
+
+@settings(max_examples=40, deadline=None)
+@given(clouds())
+def test_each_gaussians_view_is_given_in_the_files_own_order(rows):
+    # Each Gaussian's view is its own index, so the view at pixel i names the Gaussian the file put there.
+    tagged = with_views(rows, np.arange(len(rows)))
+    got = decode(sog.encode(tagged))
+    views = np.frombuffer(sog.views(tagged) or b"", "<u2")
+    assert len(views) == len(rows)
+    xyz = np.c_[rows["x"], rows["y"], rows["z"]].astype(float)
+    nearest = np.argmin(np.linalg.norm(got["xyz"][:, None] - xyz[None], axis=2), axis=1)
+    assert views.tolist() == nearest.tolist()
+
+
+def test_a_splat_without_views_has_none_and_a_view_that_isnt_one_is_untagged():
+    rows = gaussians(
+        xyz=np.array([[0.0, 0, 0], [1, 0, 0], [2, 0, 0]]),
+        dc=np.zeros((3, 3)),
+        opacity=np.zeros(3),
+        scales=np.zeros((3, 3)),
+        wxyz=np.tile([1.0, 0, 0, 0], (3, 1)),
+        rest=np.zeros((3, 3, 0)),
+    )
+    assert sog.views(rows) is None
+    # Along x the Morton order is the rows' own.
+    got = sog.views(with_views(rows, np.array([4.0, np.nan, 2.5])), untagged=99)
+    assert np.frombuffer(got or b"", "<u2").tolist() == [4, 99, 99]

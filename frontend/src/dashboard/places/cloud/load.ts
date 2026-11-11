@@ -1,5 +1,6 @@
 // Reading what the 3D view draws, by format, so one viewer grows into whatever the maps become. A place map is
-// a point cloud in PLY (spatial/ply.py: x, y, z, red, green, blue, and its own counts, which this skips). A
+// a point cloud in PLY (spatial/ply.py: x, y, z, red, green, blue, the view each point came from, and its own
+// counts, which this skips). A
 // revision can also have a 3D Gaussian splat (spatial/splats.py), served as SOG (spatial/sog.py), which
 // PlayCanvas reads itself (scene.ts). Nothing here touches the GPU, so it's tested without one.
 
@@ -10,12 +11,17 @@ export type CloudFormat = (typeof FORMATS)[number];
 export const canDraw = (format: string | null | undefined): format is CloudFormat =>
   (FORMATS as readonly string[]).includes(format ?? '');
 
-/** A map's points: x, y, z each, and red, green, blue bytes each when the file has colours. */
+/** A map's points: x, y, z each, red, green, blue bytes each when the file has colours, and the view each came
+ *  from (an index into the scene's `sources.views`) when the file says. */
 export interface Cloud {
   count: number;
   positions: Float32Array;
   colours: Uint8Array | null;
+  views: Uint16Array | null;
 }
+
+/** The view of a point or Gaussian no view is known for (memory/places.py `UNTAGGED`): always drawn. */
+export const UNTAGGED = 0xffff;
 
 /** Bytes a PLY scalar takes, by its type's name (both spellings the format allows). */
 const SIZES: Record<string, number> = {
@@ -37,8 +43,8 @@ const SIZES: Record<string, number> = {
   float64: 8,
 };
 
-/** A binary little-endian PLY's vertices as points: float x, y, z, and uchar red, green, blue when all three are
- *  there; every other property is stepped over by its size. */
+/** A binary little-endian PLY's vertices as points: float x, y, z, uchar red, green, blue when all three are
+ *  there, and a ushort `view` when there is one; every other property is stepped over by its size. */
 function parsePly(bytes: ArrayBuffer): Cloud {
   const head = new TextDecoder('ascii').decode(new Uint8Array(bytes, 0, Math.min(bytes.byteLength, 4096)));
   const end = head.indexOf('end_header\n');
@@ -70,6 +76,9 @@ function parsePly(bytes: ArrayBuffer): Cloud {
   const colours = rgb ? new Uint8Array(count * 3) : null;
   const [x, y, z] = [at.x?.offset ?? 0, at.y?.offset ?? 0, at.z?.offset ?? 0];
   const [r, g, b] = [at.red?.offset ?? 0, at.green?.offset ?? 0, at.blue?.offset ?? 0];
+  const tagged = at.view?.type === 'ushort' || at.view?.type === 'uint16';
+  const views = tagged ? new Uint16Array(count) : null;
+  const v = at.view?.offset ?? 0;
   for (let i = 0; i < count; i++) {
     const o = i * stride;
     positions[i * 3] = view.getFloat32(o + x, true);
@@ -80,8 +89,9 @@ function parsePly(bytes: ArrayBuffer): Cloud {
       colours[i * 3 + 1] = view.getUint8(o + g);
       colours[i * 3 + 2] = view.getUint8(o + b);
     }
+    if (views) views[i] = view.getUint16(o + v, true);
   }
-  return { count, positions, colours };
+  return { count, positions, colours, views };
 }
 
 /** A map file's bytes as points: positions, and colours when it has them. */
@@ -90,6 +100,19 @@ export function parseCloud(bytes: ArrayBuffer, format: CloudFormat): Cloud {
     case 'ply':
       return parsePly(bytes);
   }
+}
+
+/** A splat's views file (GET /places/splat?format=views): each Gaussian's view, a little-endian uint16 each, in
+ *  the SOG's own order. Null for bytes that can't be one (an odd length), and for one that isn't `count` long when
+ *  that's known: views of another splat would hide the wrong Gaussians. */
+export function parseViews(bytes: ArrayBuffer, count?: number | null): Uint16Array | null {
+  if (bytes.byteLength % 2) return null;
+  const n = bytes.byteLength / 2;
+  if (count != null && count !== n) return null;
+  const out = new Uint16Array(n);
+  const view = new DataView(bytes);
+  for (let i = 0; i < n; i++) out[i] = view.getUint16(i * 2, true);
+  return out;
 }
 
 /** The splat formats the view can draw: what PlayCanvas is given (scene.ts). */

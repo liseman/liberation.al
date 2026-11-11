@@ -14,6 +14,13 @@
 // A place with no splat still gets the viewer: its content is then a thin, see-through copy of the map's points,
 // there only so the viewer knows the place's size, and the points themselves are drawn by our overlay.
 //
+// Each point and Gaussian can name the view it came from (load.ts), and `showViews` shows only the views asked for
+// without loading anything again: the points by drawing only those points' squares (the index buffer is rebuilt; the
+// vertices stay), and the splat through the engine's own hook for changing splats, a work-buffer modifier
+// (GSplatComponent.setWorkBufferModifier), which reads each Gaussian's visibility from a one-byte-a-Gaussian texture
+// by its index in the file and zeroes the hidden ones' size and opacity. The engine copies the splat through the
+// modifier again when the texture is set anew, so a change shows at the next frame.
+//
 // WebGPU has no point size, so the points are small screen-facing squares (two triangles each) grown from each
 // point's centre in the vertex shader, on both backends. Lines are one pixel wide. The two materials are our own
 // shaders, in GLSL for WebGL2 and WGSL for WebGPU.
@@ -27,12 +34,14 @@ import {
   type GraphicsDevice,
   Mesh,
   MeshInstance,
+  PIXELFORMAT_R8,
   PRIMITIVE_LINES,
   PRIMITIVE_TRIANGLES,
   SEMANTIC_COLOR,
   SEMANTIC_POSITION,
   SEMANTIC_TEXCOORD0,
   ShaderMaterial,
+  Texture,
   TYPE_UINT8,
 } from 'playcanvas';
 import type { Scene } from '../api';
@@ -40,6 +49,7 @@ import { collisionMesh, FLOOR_MARGIN, glb, glbUrl } from './collision';
 import { type Quat, toViewerUp, turned } from './frame';
 import { coverFov, frustum, heightColour, heightOf, planOutline, planWalls, robustRange, type V3 } from './geometry';
 import type { Cloud } from './load';
+import { MASK_WIDTH, pointIndices, viewMask } from './sources';
 
 export type Colour = 'rgb' | 'height';
 
@@ -62,6 +72,10 @@ export interface Built {
   lookFrom: (name: string) => void;
   /** What's shown: the splat in place of the points, the points' size and colouring, and the overlays. */
   show: (s: { splat: boolean; size: number; colour: Colour; floor: boolean; cameras: boolean; plan: boolean }) => void;
+  /** Show only the points and Gaussians of the views in `visible` (indices into the scene's `sources.views`; null
+   *  for all), the splat's by `splatViews` (each Gaussian's view in the file's order; null when the splat doesn't
+   *  say, and then it's drawn whole). A point or Gaussian of no known view is always drawn. */
+  showViews: (visible: ReadonlySet<number> | null, splatViews: Uint16Array | null) => void;
   /** Settles once the splat has drawn its first frame, or rejects with why it couldn't be drawn; settled at once
    *  when the place was built without a splat. */
   splatLoaded: Promise<void>;
@@ -70,6 +84,42 @@ export interface Built {
   /** Free everything and take the viewer out of the page. */
   dispose: () => void;
 }
+
+// The splat's view mask (see the top): a Gaussian whose texel is 0 is drawn with no size and no opacity. Its index
+// in the file is `splat.index`, which the engine sets before calling these.
+const MASK_GLSL = /* glsl */ `
+uniform highp sampler2D viewMask;
+bool viewHidden() {
+  int w = textureSize(viewMask, 0).x;
+  int i = int(splat.index);
+  return texelFetch(viewMask, ivec2(i % w, i / w), 0).r < 0.5;
+}
+void modifySplatCenter(inout vec3 center) {
+}
+void modifySplatRotationScale(vec3 originalCenter, vec3 modifiedCenter, inout vec4 rotation, inout vec3 scale) {
+  if (viewHidden()) scale = vec3(0.0);
+}
+void modifySplatColor(vec3 center, inout vec4 color) {
+  if (viewHidden()) color.a = 0.0;
+}
+`;
+
+const MASK_WGSL = /* wgsl */ `
+var viewMask: texture_2d<f32>;
+fn viewHidden() -> bool {
+  let w = i32(textureDimensions(viewMask, 0).x);
+  let i = i32(splat.index);
+  return textureLoad(viewMask, vec2i(i % w, i / w), 0).r < 0.5;
+}
+fn modifySplatCenter(center: ptr<function, vec3f>) {
+}
+fn modifySplatRotationScale(originalCenter: vec3f, modifiedCenter: vec3f, rotation: ptr<function, vec4f>, scale: ptr<function, vec3f>) {
+  if (viewHidden()) { *scale = vec3f(0.0); }
+}
+fn modifySplatColor(center: vec3f, color: ptr<function, vec4f>) {
+  if (viewHidden()) { (*color).a = 0.0; }
+}
+`;
 
 const POINT_GLSL = {
   vertex: /* glsl */ `
@@ -479,15 +529,23 @@ export async function build(
   pointMaterial.update();
   const points = new Entity('points', app);
   let colourBy: (want: Colour) => void = () => {};
+  let pointsShown: (visible: ReadonlySet<number> | null) => void = () => {};
+  let anyPoint = count > 0; // none of the views shown has a point: the squares are left out, not drawn empty
   if (count) {
     const pointMesh = new Mesh(device);
     pointMesh.setPositions(perCorner(new Float32Array(count * 12), positions, 3));
     const corners = new Float32Array(count * 8);
     for (let i = 0; i < count; i++) corners.set(CORNERS, i * 8);
     pointMesh.setVertexStream(SEMANTIC_TEXCOORD0, corners, 2);
-    const indices = new Uint32Array(count * 6);
-    for (let i = 0; i < count; i++) indices.set([i * 4, i * 4 + 1, i * 4 + 2, i * 4, i * 4 + 2, i * 4 + 3], i * 6);
-    pointMesh.setIndices(indices);
+    pointMesh.setIndices(pointIndices(count, null, null));
+    pointsShown = visible => {
+      const indices = pointIndices(count, cloud.views, visible);
+      anyPoint = indices.length > 0;
+      if (anyPoint) {
+        pointMesh.setIndices(indices);
+        pointMesh.update(PRIMITIVE_TRIANGLES);
+      }
+    };
     let coloured: Colour | null = null;
     colourBy = want => {
       const by = want === 'rgb' && colours.rgb ? 'rgb' : 'height';
@@ -532,6 +590,36 @@ export async function build(
   host.addEventListener('pointerenter', mine);
   host.addEventListener('pointerdown', mine);
   host.addEventListener('pointerleave', notMine);
+
+  // Which views are drawn (`showViews`). The splat's mask is a texture made once a splat, filled anew on a change,
+  // and handed to the engine again so it copies the splat through the modifier once more. The modifier goes on the
+  // splat once it has loaded, and stays.
+  let mask: Texture | null = null;
+  let masked = false;
+  let pointsWanted = true; // what `show` last asked for, before `showViews` took away every point
+  const splatShown = (views: Uint16Array, visible: ReadonlySet<number> | null) => {
+    const bytes = viewMask(views, visible);
+    if (!mask) {
+      mask = new Texture(device, {
+        name: 'view-mask',
+        width: MASK_WIDTH,
+        height: bytes.length / MASK_WIDTH,
+        format: PIXELFORMAT_R8,
+        mipmaps: false,
+        levels: [bytes],
+      });
+    } else {
+      mask.lock().set(bytes);
+      mask.unlock();
+    }
+    const gsplat = content?.gsplat;
+    if (!gsplat) return;
+    if (!masked) {
+      gsplat.setWorkBufferModifier({ glsl: MASK_GLSL, wgsl: MASK_WGSL });
+      masked = true;
+    }
+    gsplat.setParameter('viewMask', mask);
+  };
 
   // A splat opens from a view it trained on, standing there: in the viewer's walk mode where the place is large
   // enough for it, else flying. A place opened without such a view starts as an overview in orbit.
@@ -588,10 +676,22 @@ export async function build(
         if (at >= 0) viewer.selectAnnotation(at);
         draw();
       }),
+    showViews: (visible, splatViews) => {
+      pointsShown(visible);
+      points.enabled = pointsWanted && anyPoint;
+      if (splat && splatViews)
+        ready(() => {
+          if (gone) return;
+          splatShown(splatViews, visible);
+          draw();
+        });
+      draw();
+    },
     show: s => {
       wantSplat = s.splat;
       const showSplat = s.splat && !!splat;
-      points.enabled = !showSplat;
+      pointsWanted = !showSplat;
+      points.enabled = pointsWanted && anyPoint;
       // The viewer counts itself loaded once its content has drawn a frame, so the content is only hidden after
       // that; the stand-in for a missing splat is see-through and stays.
       if (splat)
@@ -614,6 +714,7 @@ export async function build(
       host.removeEventListener('pointerdown', mine);
       host.removeEventListener('pointerleave', notMine);
       viewer.destroy();
+      mask?.destroy();
     },
   };
 }

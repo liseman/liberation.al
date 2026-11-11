@@ -26,7 +26,23 @@ A step takes up to `MAX_NEW` waiting frames (kept, and not yet in a place), olde
 5. **The second gate.** A new frame the current splat already covered and drew well (`well_drawn`) added nothing:
    it's dropped from the kept frames. The rest are in the place from now on, at their refined poses.
 6. **A revision.** The place's point cloud (the old one and the new frames' points, thinned to a `VOXEL_M` grid) and
-   the trained splat are written as one new revision (memory/places.py), in the place's frame.
+   the trained splat are written as one new revision (memory/places.py), in the place's frame. Every point and
+   Gaussian carries the kept view it came from (`TAGS`, `places.write_sources`): a frame's points are tagged as
+   they're lifted, the trainer keeps a Gaussian's tag through splitting and relocating, and the place's later maps
+   number their views as the first did, so the 3D view can show or hide each camera's and each view's part.
+
+A frame's points are lifted only from pixels it measured: not the covered ones (its overlays, and the border a
+lens's undoing leaves, which the depth model fills with a guess stretched from the frame's edge), and in a plan's
+frame not from depth that goes through the plan's floor (`FLOOR_SLACK_M`: a glossy floor's reflection, read as a
+second room under it); the trainer keeps the Gaussians above that floor too.
+
+**A map follows its views' poses.** The map and the splat keep what each view put in them, where that view's pose
+put it, so when a spot view's camera moves (the owner moves its spot, or its tilt is fitted again), or a camera's
+lens or focal changes, the place is started again from its kept frames (`unfitted`), not continued: continuing
+left the view's old points and Gaussians beside the new ones. On the Linux machine one place went 58 rounds in one
+frame while four cameras' poses changed seven times; a quarter of its map's points sat more than 15 cm from any
+surface its views showed then, and 8% of its Gaussians under the floor. Started again from the same twelve views
+it had 89% of its points within 15 cm of them, and 2.6% of its Gaussians under the floor.
 
 **A camera with a spot on the owner's plan needs no pair.** A fixed camera whose spot gives a pose
 (spatial/spots.py: where it is, its measured height, its facing, and the tilt fitted from people walking) has its
@@ -102,6 +118,10 @@ SPOT_SCALE = (0.75, 1.35)  # how far a spot view's depth may be scaled to bring 
 # How a spot view's depth is fitted to its plan (`plan_depth`). A place in its plan's frame whose map was learned
 # with another is started again, so every view in it has its depth fitted the same way.
 DEPTH_FIT = 1
+# Which kept view each of a map's points and its splat's Gaussians came from (`places.Sources`): a place learned before
+# its map carried them is started again, so the 3D view can show or hide each camera's and each view's part.
+TAGS = 1
+FLOOR_SLACK_M = 0.1  # in a plan's frame, a lifted point this far under the plan's floor is depth gone through it
 SPOT_WALL_POINTS = 200  # band points near a wall a spot view needs before its wall fit says anything...
 SPOT_WALL_NEAR = 0.1  # ...and the share of its band on a wall under which the log warns
 #: Why a frame is parked, for a page to say (`summary`'s `parked_cameras`): it overlaps nothing in a map (`overlap`);
@@ -134,6 +154,8 @@ class State:
     drop: list[str] = field(default_factory=list)  # kept frames for the sampler to drop
     places: dict[str, dict[str, Any]] = field(default_factory=dict)  # by place id: frame, rounds, views, improved
     last: dict[str, Any] = field(default_factory=dict)  # the last step: when, and what it did
+    # places started again in a frame of their own (`unfitted`): the next map founded takes the first one's id
+    refound: list[str] = field(default_factory=list)
 
     @staticmethod
     def read(folder: Path) -> State:
@@ -144,12 +166,20 @@ class State:
             drop=[str(x) for x in raw.get("drop") or []],
             places={str(k): dict(v) for k, v in (raw.get("places") or {}).items()},
             last=dict(raw.get("last") or {}),
+            refound=[str(x) for x in raw.get("refound") or []],
         )
 
     def write(self, folder: Path) -> None:
         json_state.write(
             folder / STATE,
-            {"focals": self.focals, "frames": self.frames, "drop": self.drop, "places": self.places, "last": self.last},
+            {
+                "focals": self.focals,
+                "frames": self.frames,
+                "drop": self.drop,
+                "places": self.places,
+                "last": self.last,
+                "refound": self.refound,
+            },
         )
 
     def placed(self, place: str | None = None) -> dict[str, np.ndarray]:
@@ -168,9 +198,17 @@ def waiting(kept: Sequence[frames.Kept], state: State) -> list[frames.Kept]:
 
 
 def unfitted(state: State) -> list[str]:
-    """The places in their plans' frames whose maps were learned before their views' depth was fitted to the plan
-    the way it is now (`DEPTH_FIT`): each is started again, its kept frames placed again."""
-    return [p for p, entry in state.places.items() if entry.get("plan_frame") and entry.get("depth_fit") != DEPTH_FIT]
+    """The places whose maps are to be started again, their kept frames placed again: one in its plan's frame learned
+    before its views' depth was fitted to the plan the way it is now (`DEPTH_FIT`), one learned before its points and
+    Gaussians carried the view each came from (`TAGS`), and one a view's camera moved or changed optics since it was
+    placed (`restart`, set by `_step`)."""
+    return [
+        p
+        for p, entry in state.places.items()
+        if (entry.get("plan_frame") and entry.get("depth_fit") != DEPTH_FIT)
+        or entry.get("tags") != TAGS
+        or entry.get("restart")
+    ]
 
 
 def expired(kept: Sequence[frames.Kept], state: State, now: float) -> list[frames.Kept]:
@@ -521,15 +559,24 @@ def grow(poses: Mapping[str, np.ndarray], found: Sequence[Edge], least: int = MI
 
 
 def lift(
-    depth: np.ndarray, image: np.ndarray, focal: float, pose: np.ndarray, stride: int = STRIDE
+    depth: np.ndarray,
+    image: np.ndarray,
+    focal: float,
+    pose: np.ndarray,
+    stride: int = STRIDE,
+    covered: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """A frame's depth (H x W, metres along the view axis) as points in the map's frame, every `stride` pixels, with
-    their colours from `image` (H x W x 3, RGB): the pixels with a depth above zero and at most MAX_DEPTH_M. The
-    camera looks along its +z with its principal point at the frame's centre."""
+    their colours from `image` (H x W x 3, RGB): the pixels with a depth above zero and at most MAX_DEPTH_M, and none
+    that `covered` (H x W, nonzero where covered: an overlay, or the border a lens's undoing leaves) marks. The depth
+    model fills that border with a guess stretched from the frame's edge, so it's no measurement. The camera looks
+    along its +z with its principal point at the frame's centre."""
     h, w = depth.shape
     v, u = np.mgrid[stride // 2 : h : stride, stride // 2 : w : stride]
     z = depth[v, u]
     keep = (z > 0) & (z <= MAX_DEPTH_M)
+    if covered is not None and covered.shape == depth.shape:
+        keep &= covered[v, u] == 0
     u, v, z = u[keep], v[keep], z[keep]
     local = np.stack([(u + 0.5 - w / 2) * z / focal, (v + 0.5 - h / 2) * z / focal, z], axis=1)
     c2w = np.asarray(pose, dtype=np.float64).reshape(4, 4)
@@ -537,18 +584,24 @@ def lift(
 
 
 def thin(
-    points: np.ndarray, colors: np.ndarray, voxel: float = VOXEL_M, most: int = MAX_MAP_POINTS
-) -> tuple[np.ndarray, np.ndarray]:
+    points: np.ndarray,
+    colors: np.ndarray,
+    voxel: float = VOXEL_M,
+    most: int = MAX_MAP_POINTS,
+    tags: np.ndarray | None = None,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """One point per `voxel` cube (the first given, so points already in the map stay), and at most `most` of them,
-    picked with a fixed seed."""
+    picked with a fixed seed: the points, their colours, and their `tags` (one a point, the view it came from; zeros
+    when none are given)."""
+    tags = np.zeros(len(points), np.uint16) if tags is None else np.asarray(tags, np.uint16)
     if not len(points):
-        return points, colors
+        return points, colors, tags
     cells = np.floor(np.asarray(points, dtype=np.float64) / voxel).astype(np.int64)
     _, first = np.unique(cells, axis=0, return_index=True)
     first.sort()
     if len(first) > most:
         first = np.sort(np.random.default_rng(0).choice(first, most, replace=False))
-    return points[first], colors[first]
+    return points[first], colors[first], tags[first]
 
 
 def well_drawn(before: Mapping[str, Any]) -> bool:
@@ -675,6 +728,15 @@ def _metric(depth: np.ndarray) -> float:
     """A depth map's median over the pixels that have one."""
     seen = depth[depth > 0]
     return float(np.median(seen)) if seen.size else 0.0
+
+
+def _optics_key(optic: Optics | None) -> str | None:
+    """What a view was lifted through, as a frame's entry keeps it (`"optics"`): its camera's focal share and the
+    lens undone. A change has the view's place started again (`_step`)."""
+    if optic is None or optic.focal is None:
+        return None
+    undo = None if optic.undo is None else [round(float(x), 6) for x in optic.undo.as_tuple()]
+    return json.dumps([round(float(optic.focal), 6), undo])
 
 
 def forget(state: State, kept: Sequence[frames.Kept]) -> None:
@@ -865,25 +927,6 @@ def _step(
         state.frames.pop(f.id, None)
     basis = bases(spotted)
     by_id = {f.id: f for f in store.kept}
-    # A view placed from a spot stands where the spot says. When the owner moves the spot, or the tilt is fitted
-    # again, the view is placed again from where the spot is now.
-    for k, entry in list(state.frames.items()):
-        spot = spotted.get(by_id[k].camera) if k in by_id else None
-        was_spot = entry.get("spot_pose") or entry.get("pose")
-        if entry.get("spot") and was_spot is not None and (not usable(spot) or not _at(was_spot, spot)):
-            LOG.info("%s: its spot on the plan changed; its view is placed again", by_id[k].camera)
-            del state.frames[k]
-    # A map in its plan's frame learned before its views' depth was fitted to the plan (`DEPTH_FIT`) has walls where
-    # the depth model's scale put them: it's started again from the frames kept, their depth fitted this time.
-    for place in unfitted(state):
-        LOG.info("%s: its map is started again, with its views' depth fitted to its plan", place)
-        del state.places[place]
-        for k in [k for k, frame in state.frames.items() if frame.get("place") == place]:
-            del state.frames[k]
-    todo = due(store.kept, state, now, basis)[:MAX_NEW]
-    if not todo:
-        state.write(store.folder)
-        return None
     manifest = lens.manifest()
 
     def fov_focal(camera: str) -> float | None:
@@ -899,6 +942,32 @@ def _step(
         )
         for camera in {f.camera for f in store.kept}
     }
+    # A view placed from a spot stands where the spot says, and every view was lifted through its camera's optics.
+    # When the owner moves the spot, the tilt is fitted again, or the camera's lens or focal changes, what the view
+    # put in the map and the splat is where the old pose or optics put it: the place is started again from its kept
+    # frames (`unfitted`), each placed again from where its spot is now. Placing only that view again left its old
+    # points and Gaussians in the map beside the new ones, a copy of the same surface at another place.
+    for k, entry in list(state.frames.items()):
+        if k not in by_id or entry.get("place") is None:
+            continue
+        camera = by_id[k].camera
+        spot = spotted.get(camera)
+        was_spot = entry.get("spot_pose") or entry.get("pose")
+        moved = entry.get("spot") and was_spot is not None and (not usable(spot) or not _at(was_spot, spot))
+        relensed = entry.get("optics") is not None and entry["optics"] != _optics_key(optic.get(camera))
+        if (moved or relensed) and entry["place"] in state.places:
+            LOG.info("%s: its %s changed; its place's map is started again", camera, "spot" if moved else "optics")
+            state.places[entry["place"]]["restart"] = True
+    for place in unfitted(state):
+        LOG.info("%s: its map is started again from its kept frames", place)
+        if not state.places.pop(place).get("plan_frame"):  # a plan's place is found again by its views' spots
+            state.refound.append(place)
+        for k in [k for k, frame in state.frames.items() if frame.get("place") == place]:
+            del state.frames[k]
+    todo = due(store.kept, state, now, basis)[:MAX_NEW]
+    if not todo:
+        state.write(store.folder)
+        return None
     at_spot = {f.id: spotted[f.camera] for f in todo if usable(spotted.get(f.camera)) and optic[f.camera].focal}
     pairing = [f for f in todo if f.id not in at_spot]
     placed_ids = [k for k in state.placed() if k in by_id]
@@ -1161,18 +1230,38 @@ def _train(
                 **({"fixed": True} if k in held_views else {}),
             }
         )
-    points, colors = [], []
-    for k in new_poses:
-        focal = pictures.focal(k)
-        assert focal is not None  # a frame is placed only once its camera's focal is known
-        p, c = lift(_read_depth(pictures.depth(k)), _read_rgb(pictures.image(k)), focal, poses[k])
-        points.append(p)
-        colors.append(c)
-    new_points, new_colors = thin(np.concatenate(points), np.concatenate(colors))
     # What the place has in the frame this step adds to: nothing for a place being founded, or started again.
     chain = places.revisions(state_dir, place) if place is not None and known is not None else []
     chain = [r for r in chain if r.frame == known.get("frame")] if known is not None else []
     was = chain[-1] if chain else None
+    # Which view each point and Gaussian came from (`places.write_sources`): the earlier map's views keep their
+    # numbers, and this step's new frames are added after them.
+    had = places.sources(state_dir, was) if was is not None else None
+    table: list[dict[str, Any]] = [dict(v) for v in (had or {}).get("views") or []]
+    number = {str(v.get("id")): i for i, v in enumerate(table)}
+    for k in new_poses:
+        if k not in number:
+            number[k] = len(table)
+            table.append({"id": k, "camera": by_id[k].camera, "t": by_id[k].t})
+    points, colors, tags = [], [], []
+    for k in new_poses:
+        focal = pictures.focal(k)
+        assert focal is not None  # a frame is placed only once its camera's focal is known
+        image = _read_rgb(pictures.image(k))
+        depth = _read_depth(pictures.depth(k))
+        covered = _read_mask(pictures.mask(k))
+        if covered is not None and covered.shape != depth.shape:
+            import cv2
+
+            covered = cv2.resize(covered, depth.shape[::-1], interpolation=cv2.INTER_NEAREST)
+        p, c = lift(depth, image, focal, poses[k], covered=covered)
+        if in_plan:  # under the plan's floor is depth gone through it (a glossy floor's reflection, read as a room)
+            keep = p[:, 2] >= -FLOOR_SLACK_M
+            p, c = p[keep], c[keep]
+        points.append(p)
+        colors.append(c)
+        tags.append(np.full(len(p), number[k], np.uint16))
+    new_points, new_colors, new_tags = thin(np.concatenate(points), np.concatenate(colors), tags=np.concatenate(tags))
     with_splat = [r for r in chain if places.has_splat(state_dir, r)]
     resume = places.splat_path(state_dir, with_splat[-1], "gs.ply") if with_splat else None
     out = folder / f"train-{len(order)}-{next(iter(new_poses))}"
@@ -1180,7 +1269,7 @@ def _train(
     steps = ROUND_STEPS if resume is not None else FOUND_STEPS
     (store.folder / TRAINING).unlink(missing_ok=True)  # the training before this one's
     doing(store.folder, "training", frames=len(new_poses), place=place, views=len(new_poses), steps=steps)
-    np.savez(out / "start.npz", points=new_points, colors=new_colors)
+    np.savez(out / "start.npz", points=new_points, colors=new_colors, views=new_tags)
     job = out / "job.json"
     job.write_text(
         json.dumps(
@@ -1196,6 +1285,7 @@ def _train(
                 "bound": True,
                 "pose_opt": len(order) >= REFINE_VIEWS,
                 "depth_unit": DEPTH_UNIT,
+                **({"floor": -FLOOR_SLACK_M} if in_plan else {}),
                 **(
                     {}
                     if resume is None
@@ -1221,11 +1311,19 @@ def _train(
     cloud_c = np.concatenate(
         [c for k, c in zip(new_poses, colors, strict=True) if k in added] or [np.zeros((0, 3), np.uint8)]
     )
+    cloud_t = np.concatenate(
+        [t for k, t in zip(new_poses, tags, strict=True) if k in added] or [np.zeros(0, np.uint16)]
+    )
     if was is not None and was.map is not None:
-        old_p, old_c, _ = ply.read(places.root(state_dir) / was.place / was.map)
+        old_p, old_c, old_counts = ply.read(places.root(state_dir) / was.place / was.map)
+        old_t = old_counts.get("view")
         cloud_p = np.concatenate([old_p.astype(np.float32), cloud_p])
         cloud_c = np.concatenate([old_c if old_c is not None else np.full((len(old_p), 3), 128, np.uint8), cloud_c])
-    cloud_p, cloud_c = thin(cloud_p, cloud_c)
+        old_t = np.full(len(old_p), places.UNTAGGED, np.uint16) if old_t is None else old_t.astype(np.uint16)
+        cloud_t = np.concatenate([old_t, cloud_t])
+    cloud_p, cloud_c, cloud_t = thin(cloud_p, cloud_c, tags=cloud_t)
+    splat_tags = sog.views(rows, places.UNTAGGED)
+    gaussian_tags = np.frombuffer(splat_tags, "<u2") if splat_tags is not None else None
     registered: dict[str, places.CameraPose] = {}
     for k, spot in at_spot.items():
         if spot.pose is None or k not in added:
@@ -1235,12 +1333,12 @@ def _train(
             replace(spot.pose, pose=fit.refined, at=now) if fit is not None and fit.refined is not None else spot.pose
         )
     with places.writing(state_dir):
-        target = place if place is not None else adopt(state_dir)
+        target = place if place is not None else (state.refound.pop(0) if state.refound else adopt(state_dir))
         rev = places.revise(
             state_dir,
             target,
             producer=PRODUCER,
-            map_bytes=ply.dumps(cloud_p, cloud_c),
+            map_bytes=ply.dumps(cloud_p, cloud_c, {"view": cloud_t}),
             map_format="ply",
             now=now,
             frame=known.get("frame") if known is not None else None,
@@ -1251,7 +1349,18 @@ def _train(
             # The cameras carry over by themselves in a frame that holds; in a new one the old frame's don't.
             cameras={**(was.cameras if was is not None else {}), **registered} if in_plan or was is None else None,
         )
-        places.write_splat(state_dir, rev, master, sog.encode(rows), source="surroundings")
+        places.write_sources(
+            state_dir,
+            rev,
+            {
+                "views": table,
+                "points": np.bincount(cloud_t[cloud_t < len(table)], minlength=len(table)).tolist(),
+                "gaussians": None
+                if gaussian_tags is None
+                else np.bincount(gaussian_tags[gaussian_tags < len(table)], minlength=len(table)).tolist(),
+            },
+        )
+        places.write_splat(state_dir, rev, master, sog.encode(rows), source="surroundings", views=splat_tags)
         if in_plan and known is None:
             # The owner's plan is drawn in this frame: say so, as a line-up would (`plan_lineup`), so every reader
             # of the plan's frame takes this map's revisions, and the line-up has nothing to search for.
@@ -1282,6 +1391,7 @@ def _train(
         focal = pictures.focal(k)
         share = None if focal is None else focal / pictures.size(k)[0]
         state.frames[k] = {"place": rev.place, "pose": pose, "focal": share, "size": list(pictures.size(k))}
+        state.frames[k]["optics"] = _optics_key(pictures.optic.get(by_id[k].camera))
         if k in pictures.corrections:
             state.frames[k]["depth"] = dict(pictures.corrections[k])
         if k in held_views:
@@ -1300,6 +1410,7 @@ def _train(
     if in_plan:
         entry["plan_frame"] = True
         entry["depth_fit"] = DEPTH_FIT
+    entry["tags"] = TAGS
     entry["rounds"] = int(entry.get("rounds", 0)) + 1
     entry["views"] = len(order) - len(dropped)
     entry["revision"] = rev.id
@@ -1521,7 +1632,8 @@ def summary(
         "sampling": sampling,
         "kept": len(index),
         "waiting": len(todo),
-        "parked": len(waiting(index, state)) - len(todo),
+        # waiting frames no step is due for; `todo` also holds placed frames of a map to be started again
+        "parked": len([f for f in waiting(index, state) if f.id not in due_ids]),
         "parked_cameras": dict(sorted(parked.items())),
         "spot_suggestions": suggestions,
         "depth_fit": dict(sorted(depth_fit.items())),

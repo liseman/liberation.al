@@ -221,6 +221,21 @@
   justify-content: center;
 }
 
+/* The per-camera boxes under the 3D view (cloud/SourceFilter.tsx): as many columns as fit, one on a phone. */
+.sourceList {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr));
+  gap: 4px var(--mantine-spacing-md);
+  align-items: start;
+}
+.sourceCamera {
+  min-width: 0;
+}
+.sourceViews {
+  margin-top: 2px;
+  margin-left: calc(var(--mantine-spacing-lg) + 2px);
+}
+
 .cloudHome {
   background: none;
   border: 0;

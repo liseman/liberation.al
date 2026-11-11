@@ -112,11 +112,21 @@ def test_depth_is_lifted_to_points_in_the_maps_frame():
     assert at == pytest.approx(np.array([[0.5, 0.5, 12.0]]))
 
 
+def test_covered_pixels_are_not_lifted():
+    depth = np.full((4, 4), 2.0, dtype=np.float32)
+    covered = np.zeros((4, 4), np.uint8)
+    covered[:, 0] = 255  # the border a lens's undoing leaves, filled in by the depth model
+    points, _ = sm.lift(depth, np.zeros((4, 4, 3), np.uint8), 2.0, np.eye(4), stride=1, covered=covered)
+    assert len(points) == 12
+    assert points[:, 0].min() == pytest.approx(-0.5)  # column 1's, not column 0's -1.5
+
+
 def test_the_cloud_keeps_one_point_per_cube_and_the_maps_own_points_first():
     points = np.array([[0.0, 0.0, 0.0], [0.01, 0.01, 0.01], [1.0, 0.0, 0.0]], dtype=np.float32)
     colors = np.array([[1, 1, 1], [2, 2, 2], [3, 3, 3]], dtype=np.uint8)
-    _, kept_colors = sm.thin(points, colors, voxel=0.03)
+    _, kept_colors, kept_tags = sm.thin(points, colors, voxel=0.03, tags=np.array([7, 8, 9]))
     assert kept_colors.tolist() == [[1, 1, 1], [3, 3, 3]]
+    assert kept_tags.tolist() == [7, 9]
     assert (
         len(
             sm.thin(
@@ -194,6 +204,16 @@ def splat_bytes(n: int, bands: int = 3) -> tuple[bytes, np.ndarray]:
     return header.encode("ascii") + rows.tobytes(), rows
 
 
+def tagged_splat(views: Sequence[float]) -> bytes:
+    """A 3DGS PLY as the trainer writes it, a Gaussian a view in `views`, each somewhere of its own."""
+    data, rows = splat_bytes(max(1, len(views)))
+    names = data[: data.index(b"end_header\n")].decode().split("\n")[3:-1]
+    rows = np.c_[rows[: len(views)], np.asarray(views, "<f4")].astype("<f4")
+    header = f"ply\nformat binary_little_endian 1.0\nelement vertex {len(views)}\n"
+    header += "".join(f"{line}\n" for line in names) + "property float view\nend_header\n"
+    return header.encode() + rows.tobytes()
+
+
 def test_a_trained_splat_reads_back_field_by_field():
     data, rows = splat_bytes(2)
     got = splat_runner.read_splat(data, np)
@@ -204,6 +224,11 @@ def test_a_trained_splat_reads_back_field_by_field():
     assert got["opacity"].tolist() == rows[:, 18].tolist()
     assert got["scales"].tolist() == rows[:, 19:22].tolist()
     assert got["quats"].tolist() == rows[:, 22:26].tolist()
+    assert got["view"].tolist() == [splat_runner.UNTAGGED] * 2  # a splat from before views were kept
+
+
+def test_a_trained_splats_views_read_back():
+    assert splat_runner.read_splat(tagged_splat([3.0, 0.0]), np)["view"].tolist() == [3.0, 0.0]
 
 
 @pytest.mark.parametrize(
@@ -253,7 +278,12 @@ class Models:
     def run_runner(self, runtime, job, gpu, timeout_s=0.0):
         spec = json.loads(Path(job).read_text())
         self.jobs.append(spec)
-        (Path(spec["out"]) / "splat.ply").write_bytes(splat_bytes(3)[0])
+        # As the trainer does: the resumed splat's Gaussians with their views, then one a starting point with its.
+        with np.load(spec["init"]) as init:
+            views = [float(v) for v in init["views"]] if "views" in init else []
+        if spec.get("resume"):
+            views = [*splat_runner.read_splat(Path(spec["resume"]).read_bytes(), np)["view"].tolist(), *views]
+        (Path(spec["out"]) / "splat.ply").write_bytes(tagged_splat(views))
         scored = [{"view": i, **self.before.get(i, {"covered": 0.5, "psnr": 12.0})} for i in spec.get("score", [])]
         return {
             "gaussians": 3,
@@ -749,15 +779,91 @@ def test_a_map_learned_in_a_frame_of_its_own_is_started_again_when_a_spot_view_a
     assert old.id not in saved.frames  # back to waiting, not parked: the next step tries it against the new map
 
 
-def test_a_view_is_placed_again_when_its_cameras_spot_moves(models, state):
+def test_a_place_is_started_again_when_a_views_cameras_spot_moves(models, state):
     place = owned(state)
     keep(state, 0, t=1.0)
-    sm.step(state, now=100.0, held={}, spotted={"front": spot(place)})
+    keep(state, 50, t=2.0, camera="side")
+    side = spot(place, camera="side", pose=(*LOOKING_EAST[:7], 3.0, *LOOKING_EAST[8:]))  # 3 m along y
+    sm.step(state, now=100.0, held={}, spotted={"front": spot(place), "side": side})
     moved = (*LOOKING_EAST[:3], 1.0, *LOOKING_EAST[4:])  # the owner put the camera a metre to the west
-    did = sm.step(state, now=200.0, held={}, spotted={"front": spot(place, pose=moved)})
+    did = sm.step(state, now=200.0, held={}, spotted={"front": spot(place, pose=moved), "side": side})
     assert did is not None
-    [seen] = sm.views(state, place)
-    assert seen.pose == moved
+    assert (did["places"][place]["founded"], did["places"][place]["views"]) == (True, 2)
+    assert "resume" not in models.jobs[-1]  # the splat is trained afresh, not continued from the old poses'
+    assert {v.camera: v.pose for v in sm.views(state, place)}["front"] == moved
+    rev = newest(state, place)
+    assert rev.map is not None
+    points, _, counts = ply.read(places.root(state) / place / rev.map)
+    table = places.sources(state, rev)
+    assert table is not None
+    front = [i for i, v in enumerate(table["views"]) if v["camera"] == "front"]
+    # The wall 2 m in front of the camera is at x = 3 now; nothing is left where the old spot put it (x = 4).
+    assert points[np.isin(counts["view"], front), 0] == pytest.approx(3.0)
+    # The side camera's wall is at x = 4 too, 3 m along y; nothing else is there.
+    side = ~np.isin(counts["view"], front)
+    assert np.isclose(points[side, 0], 4.0).all()
+    assert int(np.isclose(points[:, 0], 4.0).sum()) == int(side.sum())
+
+
+def test_a_place_is_started_again_when_a_cameras_focal_changes(models, state):
+    first = keep(state, 0, t=1.0)
+    sm.step(state, now=100.0, held={})
+    [place] = places.place_ids(state)
+    second = keep(state, 40, t=2.0)
+    models.pairs[frozenset((first.id, second.id))] = pair(first.id, second.id, shifted(x=0.5))
+    held = {"front": lens.Held(focal=0.9, division=0.0, source="test")}
+    did = sm.step(state, now=200.0, held=held)
+    assert did is not None and did["places"][place]["founded"]
+    assert models.jobs[-1]["views"][0]["focal"] == pytest.approx(0.9 * 64)
+
+
+def test_each_point_and_gaussian_says_which_view_it_came_from(models, state):
+    first = keep(state, 0, t=1.0)
+    sm.step(state, now=100.0, held={})
+    [place] = places.place_ids(state)
+    second = keep(state, 40, t=2.0, camera="side")
+    models.pairs[frozenset((first.id, second.id))] = pair(first.id, second.id, shifted(x=0.5))
+    sm.step(state, now=200.0, held={"side": lens.Held(focal=0.7, division=0.0, source="test")})
+    rev = newest(state, place)
+    assert rev.map is not None
+    table = places.sources(state, rev)
+    assert table is not None
+    assert [(v["id"], v["camera"], v["t"]) for v in table["views"]] == [
+        (first.id, "front", 1.0),
+        (second.id, "side", 2.0),
+    ]
+    points, _, counts = ply.read(places.root(state) / place / rev.map)
+    views = counts["view"]
+    # The first camera at the origin and the second 1 m along x, both looking along z at a wall 2 m off: each
+    # view's points are where its own camera put them.
+    assert points[views == 1, 0].min() - points[views == 0, 0].min() == pytest.approx(1.0)
+    assert table["points"] == [int((views == 0).sum()), int((views == 1).sum())]
+    assert min(table["points"]) > 0
+    # The splat's Gaussians: the founding round's, then the second view's points, each with its view, in the order
+    # the web copy has them.
+    sidecar = places.splat_views(state, rev)
+    assert sidecar is not None
+    from liberational.spatial import sog
+
+    master = ply.vertices(places.splat_path(state, rev, "gs.ply").read_bytes())
+    assert master is not None
+    order = sog.sog_order(master)
+    assert np.frombuffer(sidecar.read_bytes(), "<u2").tolist() == master["view"][order].astype(int).tolist()
+    assert table["gaussians"] == [int((master["view"] == 0).sum()), int((master["view"] == 1).sum())]
+
+
+def test_a_map_from_before_views_were_kept_is_started_again(models, state):
+    keep(state, 0, t=1.0)
+    sm.step(state, now=100.0, held={})
+    [place] = places.place_ids(state)
+    saved = sm.State.read(frames.root(state))
+    del saved.places[place]["tags"]  # as a map learned before views were kept left it
+    saved.write(frames.root(state))
+    summary = sm.summary(state, now=110.0)
+    assert (summary["waiting"], summary["parked"]) == (1, 0)  # never a negative count of parked frames
+    did = sm.step(state, now=120.0, held={})
+    assert did is not None and did["places"][place]["founded"]
+    assert places.sources(state, newest(state, place)) is not None
 
 
 def test_a_spot_view_whose_floor_is_far_off_is_parked_as_such(models, state):

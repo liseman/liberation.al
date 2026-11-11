@@ -202,3 +202,16 @@ def test_the_default_port_skips_one_this_install_gave_a_service(monkeypatch):
     monkeypatch.setattr(cli, "any_free_port", lambda reserved: 40000)
     with cfg.override({"ports": {"vlm": cli.PORT}}):
         assert cli.choose_port(None) == 40000
+
+
+def test_the_demo_place_has_a_3d_map_from_two_cameras_that_say_which_points_are_theirs(seeded):
+    (place,) = places.places(seeded)
+    rev = place.revision
+    assert sorted(rev.cameras) == ["kitchen", "study"]
+    found = places.sources(seeded, rev)
+    assert found is not None
+    assert [v["camera"] for v in found["views"]] == ["kitchen", "study", "study"]
+    assert min(found["points"]) > 0 and found["gaussians"] == found["points"]
+    assert places.has_splat(seeded, rev) and places.splat_views(seeded, rev) is not None
+    # the plan stays the place's, drawn in the map's own frame
+    assert (place.plan_source, len(plan_scene.rooms_of(place.plan or ""))) == ("machine", 5)

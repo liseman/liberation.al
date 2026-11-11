@@ -28,7 +28,10 @@
                                        it was trained from (`splat_from`, as its trainer named it), which state the
                                        splat is in (`splat_state`: "current", "improving", "earlier", "stale", or
                                        "none") and, while the map has no splat of its own, why (`splat_wait`), its
-                                       floor plane, plan transform, registered cameras, and the plan in its frame;
+                                       floor plane, plan transform, registered cameras, and the plan in its frame,
+                                       and which camera and view the map's points and the splat's Gaussians came
+                                       from, with their counts (`sources`, `sources_of`; null for a map made before
+                                       maps said);
                                        {revision: null} while the place has no map. Either way `learning` says how
                                        the map is learned from the cameras (`_learning`): whether learning is on, how
                                        many cameras it samples, whether a view is being added now, how many views
@@ -42,6 +45,10 @@
                                        names it (`splat`, null while the revision has none). The URL and the ETag
                                        name the format, so bytes a browser kept in an earlier encoding can't
                                        answer for it
+    GET /places/splat?place=&revision=&format=views
+                                       each of that splat's Gaussians' views, a little-endian uint16 each in the
+                                       SOG's order (memory/places.py `write_splat`), served the same way; the scene
+                                       names it (`sources.splat_views`, null when the splat doesn't say)
     GET /places/positions?place=&start=&end=[&entity=]
                                        {place, start, end, entities, tracks, rooms, cameras, camera_notes, map}: where
                                        each entity was on the place's plan over [start, end), from the position
@@ -169,6 +176,51 @@ def map_file(state: Path, place: str, revision: str) -> Path | None:
     return places.root(state) / place / rev.map if rev and rev.map else None
 
 
+def splat_views_file(state: Path, place: str, revision: str) -> Path | None:
+    """GET /places/splat?format=views: each of `revision`'s splat's Gaussians' views (`places.splat_views`), or None
+    (no such place or revision, or its splat doesn't say)."""
+    found = splat_file(state, place, revision)
+    rev = next((r for r in places.revisions(state, place) if r.id == revision), None) if found else None
+    return places.splat_views(state, rev) if rev is not None else None
+
+
+def sources_of(state: Path, rev: places.Revision, splat: places.Revision | None) -> dict[str, Any] | None:
+    """Where `rev`'s map's points, and `splat`'s Gaussians, came from, for the 3D view to show or hide by camera and
+    by view: `views` ({id, camera, t, points, gaussians} each, in the order the files number them; `gaussians` None
+    when the splat doesn't say), `cameras` ({name, points, gaussians, views: indices into `views`}, by name), and
+    `splat_views`, the URL of the splat's views (null when it has none). None for a map made before maps said."""
+    found = places.sources(state, rev)
+    if found is None:
+        return None
+    table = [v for v in found["views"] if isinstance(v, dict)]
+    points = list(found.get("points") or [])
+    # The splat may be an earlier revision's in the same frame: its views are the first of this map's, in order.
+    from_splat = places.sources(state, splat) if splat is not None and places.splat_views(state, splat) else None
+    gaussians = list((from_splat or {}).get("gaussians") or []) if from_splat is not None else None
+    views = []
+    cams: dict[str, dict[str, Any]] = {}
+    for i, v in enumerate(table):
+        n_points = int(points[i]) if i < len(points) else 0
+        n_gaussians = None if gaussians is None else (int(gaussians[i]) if i < len(gaussians) else 0)
+        camera = str(v.get("camera") or "")
+        views.append(
+            {"id": str(v.get("id")), "camera": camera, "t": v.get("t"), "points": n_points, "gaussians": n_gaussians}
+        )
+        row = cams.setdefault(
+            camera, {"name": camera, "points": 0, "gaussians": None if gaussians is None else 0, "views": []}
+        )
+        row["points"] += n_points
+        if n_gaussians is not None:
+            row["gaussians"] += n_gaussians
+        row["views"].append(i)
+    query = {"place": rev.place, "revision": splat.id, "format": VIEWS_FORMAT} if from_splat and splat else None
+    return {
+        "views": views,
+        "cameras": sorted(cams.values(), key=lambda c: c["name"]),
+        "splat_views": None if query is None else "/places/splat?" + urlencode(query),
+    }
+
+
 def splat_file(state: Path, place: str, revision: str) -> Path | None:
     """GET /places/splat: `revision`'s splat (SOG), or None (no such place or revision, or it has no splat)."""
     if places.get(state, place) is None:
@@ -178,6 +230,7 @@ def splat_file(state: Path, place: str, revision: str) -> Path | None:
 
 
 SPLAT_FORMAT = "sog"  # what GET /places/splat serves, and what its URL and ETag name
+VIEWS_FORMAT = "views"  # GET /places/splat's format for the splat's views (`splat_views_file`)
 
 
 LEARNED = "surroundings"  # what a learned map's producer starts with, and what its splat says it was trained from
@@ -300,6 +353,7 @@ def scene(state: Path, place: str) -> Reply:
         "splat_state": splat_state,
         "splat_at": None if shown is None else shown.at,
         "splat_wait": None if own else _splat_wait(state, rev),
+        "sources": sources_of(state, rev, shown),
         "learning": learning,
         "floor": list(rev.floor) if rev.floor else None,
         "plan_transform": list(transform) if transform else None,
@@ -682,15 +736,16 @@ def _get_places_scene(h: H) -> None:
 def _get_places_map(h: H) -> None:
     p = h.path.split("?")[0]
     q = h._query()
-    files = map_file if p == "/places/map" else splat_file
-    found = files(h.state, q.get("place", ""), q.get("revision", ""))
-    # A splat is asked for by format: a URL without one is an earlier page's, whose bytes were another encoding.
     splat = p == "/places/splat"
-    if found is None or (splat and q.get("format", SPLAT_FORMAT) != SPLAT_FORMAT):
+    # A splat is asked for by format: a URL without one is an earlier page's, whose bytes were another encoding.
+    fmt = q.get("format", SPLAT_FORMAT) if splat else None
+    files = {None: map_file, SPLAT_FORMAT: splat_file, VIEWS_FORMAT: splat_views_file}.get(fmt)
+    found = files(h.state, q.get("place", ""), q.get("revision", "")) if files else None
+    if found is None:
         return h._json({"error": f"no such {p.rsplit('/', 1)[1]}"}, 404)
     # A revision's map and splat never change once written: its id (and the splat's format) is their ETag, and they
     # can be kept for good.
-    tag = f'"{q.get("revision", "")}.{SPLAT_FORMAT}"' if splat else f'"{q.get("revision", "")}"'
+    tag = f'"{q.get("revision", "")}.{fmt}"' if splat else f'"{q.get("revision", "")}"'
     if h.headers.get("If-None-Match") == tag:
         h.send_response(304)
         h.send_header("ETag", tag)

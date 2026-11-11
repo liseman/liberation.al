@@ -128,6 +128,25 @@ def _palette(rest: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return centres, KDTree(centres).query(rest, workers=4)[1]
 
 
+def sog_order(rows: np.ndarray) -> np.ndarray:
+    """The order `encode` lays a 3DGS PLY's vertices out in (pixel i is vertex `sog_order(rows)[i]`): along a Morton
+    curve through their centres."""
+    if not len(rows):
+        return np.zeros(0, np.int64)
+    return morton(np.stack([np.asarray(rows[k], np.float64) for k in ("x", "y", "z")], axis=1))
+
+
+def views(rows: np.ndarray, untagged: int = 0xFFFF) -> bytes | None:
+    """Each Gaussian's view (the PLY's `view` property, as the trainer writes it) in `encode`'s order, as
+    little-endian uint16s, for the 3D view to show or hide each view's Gaussians by; None for a PLY without one. A
+    view that isn't a whole number from 0 to `untagged` is `untagged`."""
+    if "view" not in (rows.dtype.names or ()):
+        return None
+    tag = np.asarray(rows["view"], np.float64)[sog_order(rows)]
+    good = np.isfinite(tag) & (tag >= 0) & (tag <= untagged) & (tag == np.round(tag))
+    return np.where(good, tag, untagged).astype("<u2").tobytes()
+
+
 def encode(rows: np.ndarray) -> bytes:
     """A 3DGS PLY's vertices (`ply.vertices`: x, y, z, f_dc_*, f_rest_* channel by channel, opacity as a logit, log
     scale_*, and rot_0..3 as w, x, y, z) as a `.sog` file's bytes, in the PLY's own frame."""
@@ -140,7 +159,7 @@ def encode(rows: np.ndarray) -> bytes:
     def col(*keys: str) -> np.ndarray:
         return np.stack([np.asarray(rows[k], np.float64) for k in keys], axis=1) if keys else np.zeros((len(rows), 0))
 
-    order = morton(col("x", "y", "z")) if len(rows) else np.zeros(0, np.int64)
+    order = sog_order(rows)
     n = len(order)
     width = max(4, math.ceil(math.sqrt(n) / 4) * 4)
     height = max(4, math.ceil(n / width / 4) * 4)

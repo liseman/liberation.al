@@ -236,6 +236,28 @@ export interface Scene {
   plan_lineup?: PlanLineup | null;
   /** How the map is learned from the cameras; also given while the place has no map. */
   learning?: Learning;
+  /** Which camera and kept view the map's points and the splat's Gaussians came from, with how many each gave;
+   *  null for a map made before maps said (it gains them when it's next built). */
+  sources?: Sources | null;
+}
+
+/** One kept view a map was built from: its frame, camera, when it was taken (epoch seconds), and how many of the
+ *  map's points and the splat's Gaussians it gave (`gaussians` null when the splat doesn't say). Points and
+ *  Gaussians name a view by its index in `Sources.views`. */
+export interface SourceView {
+  id: string;
+  camera: string;
+  t: number | null;
+  points: number;
+  gaussians: number | null;
+}
+
+export interface Sources {
+  views: SourceView[];
+  /** Each camera, by name: its totals, and its views as indices into `views`. */
+  cameras: { name: string; points: number; gaussians: number | null; views: number[] }[];
+  /** The URL of each Gaussian's view, in the splat file's own order; null when the splat doesn't say. */
+  splat_views: string | null;
 }
 
 export interface PlanLineup {

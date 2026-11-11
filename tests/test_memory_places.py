@@ -587,3 +587,15 @@ def test_revisions_of_one_map_frame_lined_up_by_one_transform_share_a_plan_frame
         tmp_path, learned.place, producer="t", map_bytes=b"o", map_format="ply", floor=floor, plan_transform=to_plan
     )
     assert not places.same_plan_frame(lined, elsewhere), "a new map frame is a new plan frame, equal numbers or not"
+
+
+def test_a_maps_sources_are_found_by_every_revision_that_uses_the_map_and_go_with_it(tmp_path):
+    first = places.revise(tmp_path, None, producer="mapper v1", map_bytes=b"ply", map_format="ply", now=1.0)
+    places.write_sources(tmp_path, first, {"views": [{"id": "a", "camera": "porch", "t": 1.0}], "points": [5]})
+    kept = places.revise(tmp_path, first.place, producer="mapper v1", floor=(0.0, 0.0, 1.0, 0.0), now=2.0)
+    assert places.sources(tmp_path, kept) == places.sources(tmp_path, first)
+    with pytest.raises(ValueError):  # a revision that wrote no map has no sources of its own to keep
+        places.write_sources(tmp_path, kept, {"views": []})
+    for n in range(places.MAPS_KEPT):
+        places.revise(tmp_path, first.place, producer="mapper v1", map_bytes=b"ply", map_format="ply", now=3.0 + n)
+    assert places.sources(tmp_path, first) is None  # pruned with its map

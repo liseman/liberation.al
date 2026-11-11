@@ -17,7 +17,8 @@ the same field of view at any size), `init` (an npz of `points`, N x 3 float32 m
 Gaussians' starting centres and colours), `steps`, `cap` (the most Gaussians), `sh_degree`, `out` (a directory), and
 optionally `holdout` (indices into `views` scored but not trained on, for measuring), `reg` (the opacity and scale
 regularizers' weight, REG_WEIGHT by default: many views from a moving camera train better without them), `bound` (true to
-keep the Gaussians inside the start points' box), `depth_unit` (what one count of a depth image is in the poses'
+keep the Gaussians inside the start points' box), `floor` (with `bound`: the height, on z, under which no Gaussian may
+sit: the box's bottom is raised to it), `depth_unit` (what one count of a depth image is in the poses'
 units, 0.001 by default: millimetres in a metric scene), `pose_opt` (true to refine every training view's pose
 while the splat trains), and `render` (a directory: every view as the trained splat draws it at its given pose,
 `f000.png` on, and for a view with a depth map its drawn depth, `d000.png` on, at that map's size and unit; frames
@@ -92,8 +93,13 @@ pose is as far off as a training frame's was, and a refined splat has settled wh
 the given pose no longer lands exactly; the fit measures the splat, not that offset (the usual way pose-refining
 trainers are scored). Both are reported for every run, refined or not, so two runs compare.
 
+**Views.** Each Gaussian carries the view its starting point was lifted from (`views`; a resumed splat's own `view`
+property, `UNTAGGED` for one without), as a tensor in `params` that no optimizer steps: gsplat's MCMC strategy
+copies every tensor in `params` along with a Gaussian it relocates a dead one onto, or adds beside, so a Gaussian
+made from another keeps that one's view, and dropping Gaussians at the end drops their views alike.
+
 The answer is `out/splat.ply` (the standard 3DGS PLY: x, y, z, nx, ny, nz, f_dc_0..2, f_rest_* channel by channel,
-opacity as a logit, log scales, and a w, x, y, z rotation) and `out/result.json`: {"seconds", "peak_vram_gib",
+opacity as a logit, log scales, a w, x, y, z rotation, and the view as a float `view`) and `out/result.json`: {"seconds", "peak_vram_gib",
 "gaussians", "init_points", "train_views", "train_psnr", "test_psnr" and "test_psnr_raw" (null without a holdout),
 "test_depth_m" (the held-out views' median depth error, null without a holdout that has depth), "pose_opt",
 "pose_shift" and "pose_turn_deg" (the median correction a training view ended with, null without `pose_opt`),
@@ -129,12 +135,13 @@ DEPTH_WEIGHT = 0.2  # the depth loss (metres of mean error) beside the image los
 MAX_SCALE = 0.03  # of the box's diagonal: a Gaussian's largest axis (a 18 m home: about half a metre)
 DEAD_OPACITY = 0.005  # gsplat's MCMC `min_opacity`: at or under it a Gaussian is relocated, and dropped at the end
 COVERED_ALPHA = 0.5  # a pixel the starting splat draws at least this opaque is covered (`score`)
+UNTAGGED = 65535  # the view of a Gaussian no view is known for (`views`)
 
 
 def read_splat(data: bytes, np: Any) -> dict[str, Any]:
     """A 3DGS PLY as this trainer writes it (`out/splat.ply`), as arrays: `means` (N x 3), `sh0` (N x 3), `rest`
-    (N x 3 x (bands - 1), channel by channel as the file has it), `opacity` (N logits), `scales` (N x 3, logs), and
-    `quats` (N x 4, w first). `np` is numpy, passed in: this module imports only the standard library at the top.
+    (N x 3 x (bands - 1), channel by channel as the file has it), `opacity` (N logits), `scales` (N x 3, logs),
+    `quats` (N x 4, w first), and `view` (N, UNTAGGED for a PLY without them). `np` is numpy, passed in: this module imports only the standard library at the top.
     Raises ValueError for a file that isn't one."""
     marker = b"end_header\n"
     if not data.startswith(b"ply\n") or marker not in data:
@@ -158,6 +165,7 @@ def read_splat(data: bytes, np: Any) -> dict[str, Any]:
             "opacity": rows[:, col["opacity"]],
             "scales": rows[:, [col[f"scale_{i}"] for i in range(3)]],
             "quats": rows[:, [col[f"rot_{i}"] for i in range(4)]],
+            "view": rows[:, col["view"]] if "view" in col else np.full(count, UNTAGGED, np.float32),
         }
     except KeyError as e:
         raise ValueError(f"the PLY has no {e.args[0]} property: not a Gaussian splat") from None
@@ -229,6 +237,7 @@ def main(argv: Sequence[str]) -> int:
     with np.load(job["init"]) as init:
         pts = np.asarray(init["points"], np.float32).reshape(-1, 3)
         rgb = np.asarray(init["colors"], np.float32).reshape(-1, 3) / 255.0
+        tags = np.asarray(init["views"], np.float32) if "views" in init else np.full(len(pts), UNTAGGED, np.float32)
     # A resumed job starts from a trained splat's Gaussians as they are; its `init` points, if any, are added to them.
     old = read_splat(Path(job["resume"]).read_bytes(), np) if job.get("resume") else None
     if not len(pts) and (old is None or not len(old["means"])):
@@ -247,7 +256,10 @@ def main(argv: Sequence[str]) -> int:
     spread = pts if old is None else np.concatenate([old["means"], pts])  # the box holds the old splat and the new
     lo, hi = np.percentile(spread, BOX_PERCENTILE, axis=0), np.percentile(spread, 100 - BOX_PERCENTILE, axis=0)
     pad = BOX_PAD * (hi - lo)
-    box_lo = torch.tensor(lo - pad, dtype=torch.float32, device=dev)
+    low = lo - pad
+    if job.get("floor") is not None:  # nothing under the floor: a glossy floor's reflection is painted on it
+        low[2] = max(float(low[2]), float(job["floor"]))
+    box_lo = torch.tensor(low, dtype=torch.float32, device=dev)
     box_hi = torch.tensor(hi + pad, dtype=torch.float32, device=dev)
     max_log_scale = float(np.log(MAX_SCALE * np.linalg.norm(hi - lo + 2 * pad)))
     if bound:
@@ -270,6 +282,7 @@ def main(argv: Sequence[str]) -> int:
         "opacities": torch.logit(torch.full((n,), INIT_OPACITY, device=dev)),
         "sh0": ((torch.from_numpy(rgb).to(dev) - 0.5) / C0)[:, None, :],
         "shN": torch.zeros(n, k_sh - 1, 3, device=dev),
+        "view": torch.from_numpy(tags).to(dev),
     }
     resumed = 0
     if old is not None:
@@ -285,9 +298,13 @@ def main(argv: Sequence[str]) -> int:
             "opacities": torch.from_numpy(np.ascontiguousarray(old["opacity"])).to(dev),
             "sh0": torch.from_numpy(np.ascontiguousarray(old["sh0"])).to(dev)[:, None, :],
             "shN": rest,
+            "view": torch.from_numpy(np.ascontiguousarray(old["view"], np.float32)).to(dev),
         }
         start = {k: torch.cat([was[k], start[k]]) for k in start}
-    params = torch.nn.ParameterDict({k: torch.nn.Parameter(v.contiguous()) for k, v in start.items()})
+    # The views ride along, stepped by no optimizer (see "Views" above).
+    params = torch.nn.ParameterDict(
+        {k: torch.nn.Parameter(v.contiguous(), requires_grad=k != "view") for k, v in start.items()}
+    )
     lrs = {"means": MEANS_LR * extent, **LR}
     optimizers = {k: torch.optim.Adam([{"params": params[k], "lr": lr, "name": k}], eps=1e-15) for k, lr in lrs.items()}
     decay = 0.01 ** (1.0 / steps)
@@ -482,7 +499,7 @@ def main(argv: Sequence[str]) -> int:
             keep = ~outside() & (torch.sigmoid(params["opacities"]) > DEAD_OPACITY)
         dropped = int((~keep).sum())
         for k in list(params.keys()):
-            params[k] = torch.nn.Parameter(params[k].detach()[keep])
+            params[k] = torch.nn.Parameter(params[k].detach()[keep], requires_grad=k != "view")
     train_psnr = mean([score(v) for v in train])
     test_raw = mean([score(v, torch.zeros(9, device=dev)) for v in test])
     for param in params.values():
@@ -529,10 +546,11 @@ def main(argv: Sequence[str]) -> int:
         params["opacities"].detach()[:, None],
         params["scales"].detach(),
         F.normalize(params["quats"].detach(), dim=-1),
+        params["view"].detach()[:, None],
     ]
     names = ["x", "y", "z", "nx", "ny", "nz", "f_dc_0", "f_dc_1", "f_dc_2"]
     names += [f"f_rest_{i}" for i in range(sh_rest.shape[1])]
-    names += ["opacity", "scale_0", "scale_1", "scale_2", "rot_0", "rot_1", "rot_2", "rot_3"]
+    names += ["opacity", "scale_0", "scale_1", "scale_2", "rot_0", "rot_1", "rot_2", "rot_3", "view"]
     rows = torch.cat(cols, dim=1).cpu().numpy().astype("<f4")
     header = f"ply\nformat binary_little_endian 1.0\nelement vertex {m}\n"
     header += "".join(f"property float {k}\n" for k in names) + "end_header\n"
